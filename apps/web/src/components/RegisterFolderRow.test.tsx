@@ -167,6 +167,8 @@ describe("divider rows", () => {
     );
     renderRegister([], filing({ folders: [folder()], onDeleteFolder }));
 
+    // REGISTER-1: the divider's verbs live in its overflow menu.
+    fireEvent.click(screen.getByTestId("parts-folder-actions"));
     fireEvent.click(screen.getByTestId("parts-folder-delete"));
     fireEvent.click(screen.getByTestId("parts-folder-delete-confirm"));
 
@@ -252,6 +254,7 @@ describe("filing a document", () => {
       }),
     );
 
+    fireEvent.click(screen.getByTestId("part-actions"));
     fireEvent.click(screen.getByTestId("part-move"));
     const select = screen.getByTestId("part-move-folder");
     // Unfiled is a real, first-class destination in the picker.
@@ -329,6 +332,9 @@ describe("a drawer with no filing at all", () => {
       />,
     );
     expect(screen.queryByTestId("parts-folder-row")).not.toBeInTheDocument();
+    // No folders in this drawer: MOVE is absent from the row's menu, not
+    // offered and inert.
+    fireEvent.click(screen.getByTestId("part-actions"));
     expect(screen.queryByTestId("part-move")).not.toBeInTheDocument();
     expect(screen.queryByTestId("parts-new-folder")).not.toBeInTheDocument();
     // ...and the count is the plain tally it has always been.

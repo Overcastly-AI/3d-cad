@@ -241,27 +241,48 @@ test.describe("undo/redo", () => {
       await expect(page.getByTestId("feature-row")).toHaveCount(3);
 
       // History leads and the whole band fits: the CommandBand MEASURES its
-      // labeled row against its own width and steps to the icon tier when it
-      // cannot fit (no breakpoint arithmetic to go stale — 2026-07-24 audit
-      // P0), so the last group's last tool (Measure) renders fully INSIDE
-      // the frame — no clip, no ellipsis (frontend-qa 2026-07-17 P2).
+      // row against its own width and sheds labels a priority level at a time
+      // when it cannot fit (no breakpoint arithmetic to go stale — 2026-07-24
+      // audit P0), so every group renders fully INSIDE the frame — no clip, no
+      // ellipsis (frontend-qa 2026-07-17 P2).
       await expect(page.getByTestId("undo-button")).toBeVisible();
       const measure = await page.getByTestId("measure-tool").boundingBox();
       expect(measure).not.toBeNull();
       expect(
         (measure?.x ?? Infinity) + (measure?.width ?? 0),
       ).toBeLessThanOrEqual(1280);
-      // The band itself reports no horizontal overflow. A 1px allowance absorbs
-      // sub-pixel raster/layout rounding (Chromium reports scrollWidth and
-      // clientWidth as integers, so a fractionally-wider-than-frame content box
-      // can round to a 1px delta that flips this assert across container GL/font
-      // builds — seen after the 2026-07-19 restart). A REAL clip (a tool pushed
-      // past the frame) overflows by tens of px, so ≤2 still catches it while
-      // ignoring the raster drift.
-      const overflow = await page
-        .getByTestId("create-strip")
-        .evaluate((el) => el.scrollWidth - el.clientWidth);
-      expect(overflow).toBeLessThanOrEqual(2);
+
+      // The band fits the floor. This probe reads the RIGHTMOST group's right
+      // edge, which is the question the test's name asks.
+      //
+      // It used to read `create-strip`'s `scrollWidth - clientWidth`, and that
+      // number could not answer it. The strip is a flex item of a `w-max` row,
+      // so its box is its own content width by construction and the difference
+      // is only ever produced by absolutely-positioned descendants — i.e. by
+      // TOOLTIPS. Measured 2026-08-22, after EXPORT-1 made an export cell the
+      // rightmost thing on the band: the strip was 1047.5px wide inside a
+      // 1280px band (232px of headroom, nothing clipped anywhere) and the
+      // probe still failed at 3, because the hidden `opacity: 0` hover tooltip
+      // of the last export cell overhangs its own group by 2.45px. The old
+      // probe only ever read ~0 because the previously-last tool happened to
+      // have a narrow tooltip. Asserting on the visible geometry instead.
+      const band = await page.getByTestId("top-toolbar").evaluate((el) => {
+        const left = el.getBoundingClientRect().left;
+        const groups = Array.from(
+          el.querySelectorAll<HTMLElement>("[data-label-priority]"),
+        );
+        return {
+          width: el.clientWidth,
+          contentRight: Math.max(
+            0,
+            ...groups.map((g) => g.getBoundingClientRect().right - left),
+          ),
+        };
+      });
+      // 1px absorbs sub-pixel raster/layout rounding across container GL/font
+      // builds (seen after the 2026-07-19 restart); a REAL clip overflows by
+      // tens of px, so this still catches one.
+      expect(band.contentRight).toBeLessThanOrEqual(band.width + 1);
       await page.screenshot({
         path: `${SCREENSHOT_DIR}/undo-redo-band-laptop.png`,
       });

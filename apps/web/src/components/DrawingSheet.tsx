@@ -34,6 +34,7 @@ import type {
   ComposedDimension,
   ComposedEdge,
   ComposedHatch,
+  ComposedMeasuredDimension,
   ComposedNote,
   ComposedPoint,
   ComposedSheet,
@@ -47,6 +48,7 @@ import type {
   ViewProjection,
   ViewResponse,
 } from "../api/drawings";
+import type { PickGeometry } from "../drawing/authoring";
 import { edgeSignatureKey } from "../drawing/dimensions";
 import {
   VIEW_LABEL,
@@ -55,6 +57,11 @@ import {
   type SvgEdge,
 } from "../drawing/layout";
 import { BANNER_TEXT_MM, bannerLines } from "../drawing/layoutIssues";
+import {
+  GHOST_FIGURE_MM,
+  GHOST_TARGET_MM,
+  type PlacementGhost,
+} from "../drawing/placement";
 import { titleBlockFields } from "../drawing/titleBlock";
 import { viewRowsByProjection } from "../drawing/views";
 
@@ -69,6 +76,9 @@ export interface EdgePickEvent {
   /** Pointer position (viewport px) so the author menu opens by the edge. */
   clientX: number;
   clientY: number;
+  /** Where this edge sits on the COMPOSED sheet (mm) — the PLACE stage measures
+   * the authored `offset_mm` / `text_pos` against these coordinates. */
+  geometry: PickGeometry;
 }
 
 /** A pick on a straight edge's endpoint handle — the seed of a point-to-point
@@ -82,6 +92,39 @@ export interface EndpointPickEvent {
   endpoint: "end_a" | "end_b";
   clientX: number;
   clientY: number;
+  /** This endpoint's composed sheet position (mm). */
+  at: Point2D;
+  /** The view's composed centre (mm) — the PLACE stage's outward reference. */
+  viewAnchor: Point2D;
+}
+
+/**
+ * The id of the dimension grab under a viewport point, or null.
+ *
+ * The grab layer is painted ahead of every view so that GEOMETRY always wins a
+ * contest with annotation chrome (frontend-QA P2-B). That ordering also puts it
+ * behind each view's drag PLATE, and a view's frame is padded out into the
+ * gutter — which is exactly where a draughtsman puts dimensions. SVG has no
+ * z-index to express the three tiers the sheet actually needs (plate < grab <
+ * geometry), so the plate asks the DOM what is really beneath it.
+ */
+function grabUnderPointer(clientX: number, clientY: number): string | null {
+  for (const el of document.elementsFromPoint(clientX, clientY)) {
+    const grab = el.closest('[data-testid="dimension-grab"]');
+    if (grab !== null) return grab.getAttribute("data-dimension-id");
+  }
+  return null;
+}
+
+/** A placed dimension picked up to be moved — it re-enters the PLACE stage. */
+export interface DimensionGrabEvent {
+  dimensionId: string;
+  viewId: string;
+  projection: ViewProjection;
+  /** The composed annotation, which is what the placement is recovered FROM. */
+  dim: ComposedMeasuredDimension;
+  /** The view's composed centre (mm) — the placement's outward reference. */
+  viewAnchor: Point2D;
 }
 
 /** A stable key for a projected edge — `projection:signature`. */
@@ -137,6 +180,23 @@ export interface DrawingSheetProps {
   onResetView?: (viewId: string) => void;
   /** A placement write is in flight — suspend further drag/nudge/reset. */
   placementBusy?: boolean;
+  /** The in-progress dimension placement to draw, or null when not placing.
+   * While it is non-null the sheet takes ALL pointer input (a placement is a
+   * modal gesture — an edge pick underneath would end it by accident). */
+  dimensionGhost?: PlacementGhost | null;
+  /** Pointer moved during a placement — reports the sheet-mm point under it. */
+  onPlacePointer?: (at: Point2D) => void;
+  /** The placement was clicked down onto the paper — commit it. */
+  onPlaceCommit?: () => void;
+  /** The pointer was RELEASED on the paper mid-placement — the end of a
+   * press-drag. The caller commits only if the placement actually moved, which
+   * is what lets one gesture serve both press-drag-release and click-to-drop. */
+  onPlaceRelease?: () => void;
+  /** Fired when a PLACED dimension is picked up to be moved (press or Enter). */
+  onGrabDimension?: (event: DimensionGrabEvent) => void;
+  /** The dimension currently being re-placed — drawn as the ghost instead of as
+   * ink, so the sheet never shows the same dimension twice. */
+  movingDimensionId?: string | null;
   /** Handle on the root `<svg>` so the editor can serialize it to a file (#5). */
   svgRef?: Ref<SVGSVGElement>;
 }
@@ -284,6 +344,16 @@ function EdgeShape({
     fill: "none" as const,
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
+    // DRAWN INK NEVER TAKES A PICK (frontend-QA 2026-08-27, P3-D). An SVG
+    // stroke is `visiblePainted` by default, so every outline painted after a
+    // neighbour's transparent hit band sat ON TOP of it — and a view's own
+    // polyline outline sat on top of its own 40 mm edge target, exactly at the
+    // midpoint a user aims for. Measured on the FRONT view before this line:
+    // 9 of 18 points along the edge resolved to the pick target, the central
+    // run resolved to `polyline` inside `drawing-view`, and a real
+    // `page.mouse.click` at the midpoint did nothing at all. The specs did not
+    // see it because they picked with `click({ force: true })`.
+    pointerEvents: "none" as const,
     "data-edge": edge.kind,
     "data-edge-role": edge.edgeRole,
     ...(bendIndex >= 0 ? { "data-bend-index": String(bendIndex) } : {}),
@@ -303,6 +373,7 @@ function EdgeShape({
               strokeLinecap: "round",
               strokeLinejoin: "round",
               opacity: 0.5,
+              pointerEvents: "none",
               "data-testid": "drawing-edge-focus-ring",
             },
             "ring",
@@ -313,17 +384,47 @@ function EdgeShape({
   );
 }
 
+/**
+ * One transparent band of pick width swept along the segment `a`→`b`.
+ *
+ * A stroked `<line>` would be the obvious way to write this and it is the wrong
+ * one: Chrome's `getBoundingClientRect` on an SVG `<line>` reports the GEOMETRY
+ * box and ignores the stroke, so a horizontal 40 mm edge measured **118.1 x
+ * 0.0 px** — a control of zero area. The pointer still hit it (hit-testing does
+ * honour the stroke), so the app "worked", but every consumer that reasons
+ * about BOUNDS saw nothing there: assistive technology, any touch-target audit,
+ * and Playwright, whose actionability check calls a zero-area element invisible
+ * and refuses to click it. That is why the drawing specs had all acquired
+ * `click({ force: true })` — the force flag was papering over a real geometric
+ * defect in the control (frontend-QA 2026-08-27, P3-D).
+ *
+ * A rotated `<rect>` carries the SAME band (`pickHitMm` wide, centred on the
+ * line, so no pick moves) with real area, so the box a machine measures and the
+ * band a finger hits are finally the same thing.
+ */
+function HitBand({ a, b }: { a: Point2D; b: Point2D }) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-9) return null;
+  const half = drawing.pickHitMm / 2;
+  return (
+    <rect
+      x={a.x}
+      y={a.y - half}
+      width={len}
+      height={drawing.pickHitMm}
+      transform={`rotate(${(Math.atan2(dy, dx) * 180) / Math.PI} ${a.x} ${a.y})`}
+      fill="transparent"
+    />
+  );
+}
+
 /** A transparent, generously-wide hit region over one shape. */
 function HitShape({ edge }: { edge: SvgEdge }) {
-  const stroke = {
-    stroke: "transparent",
-    strokeWidth: drawing.pickHitMm,
-    fill: "none" as const,
-    pointerEvents: "stroke" as const,
-  };
   if (edge.kind === "line") {
     return (
-      <line x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} {...stroke} />
+      <HitBand a={{ x: edge.x1, y: edge.y1 }} b={{ x: edge.x2, y: edge.y2 }} />
     );
   }
   if (edge.kind === "circle") {
@@ -339,12 +440,33 @@ function HitShape({ edge }: { edge: SvgEdge }) {
       />
     );
   }
+  // One band per segment: a polyline's own stroke has the same zero-area box.
   return (
-    <polyline
-      points={edge.points.map((p) => `${p.x},${p.y}`).join(" ")}
-      {...stroke}
-    />
+    <>
+      {edge.points.slice(1).map((p, i) => (
+        <HitBand key={i} a={edge.points[i]!} b={p} />
+      ))}
+    </>
   );
+}
+
+/**
+ * The composed sheet-mm geometry a pick carries into the PLACE stage. Read
+ * straight off the drawn primitive, so the placement is measured against the
+ * pixels the user is pointing at rather than a re-derivation of them.
+ */
+function composedGeometry(edge: SvgEdge, viewAnchor: Point2D): PickGeometry {
+  return {
+    line:
+      edge.kind === "line"
+        ? { a: { x: edge.x1, y: edge.y1 }, b: { x: edge.x2, y: edge.y2 } }
+        : null,
+    circle:
+      edge.kind === "circle"
+        ? { center: { x: edge.cx, y: edge.cy }, radius: edge.r }
+        : null,
+    viewAnchor,
+  };
 }
 
 /** One projected edge — solid/dashed, and interactive when dimensionable.
@@ -355,6 +477,7 @@ function PickableEdge({
   edge,
   projection,
   viewId,
+  viewAnchor,
   selected,
   bendIndex = -1,
   onReveal,
@@ -363,6 +486,8 @@ function PickableEdge({
   edge: SvgEdge;
   projection: ViewProjection;
   viewId: string | null;
+  /** This view's composed centre (sheet mm) — carried on the pick for placement. */
+  viewAnchor: Point2D;
   selected: boolean;
   /** Positional bend-table key for a fold line (-1 for a body edge). */
   bendIndex?: number;
@@ -400,6 +525,7 @@ function PickableEdge({
       primitive: edge.edgePrimitive,
       clientX,
       clientY,
+      geometry: composedGeometry(edge, viewAnchor),
     });
   };
 
@@ -463,6 +589,7 @@ function VertexHandle({
   at,
   projection,
   viewId,
+  viewAnchor,
   sourceEdge,
   endpoint,
   selected,
@@ -472,6 +599,8 @@ function VertexHandle({
   at: Point2D;
   projection: ViewProjection;
   viewId: string;
+  /** This view's composed centre (sheet mm) — carried on the pick for placement. */
+  viewAnchor: Point2D;
   sourceEdge: EdgeSignature;
   endpoint: "end_a" | "end_b";
   selected: boolean;
@@ -500,6 +629,8 @@ function VertexHandle({
       endpoint,
       clientX,
       clientY,
+      at,
+      viewAnchor,
     });
   return (
     <g
@@ -574,6 +705,116 @@ function arrowPoints(arrow: {
   return arrow.points.map((p) => `${p.x_mm},${p.y_mm}`).join(" ");
 }
 
+/** Value-stamp halo size (mm) for `value` — the seat the stamp paints on. */
+function valueStampBox(value: string): { w: number; h: number } {
+  return {
+    w: value.length * drawing.dimensionTextMm * 0.62 + 1.8,
+    h: drawing.dimensionTextMm + 1.4,
+  };
+}
+
+/**
+ * The ONE part of a placed dimension a pointer can touch: its value stamp,
+ * which is what a draughtsman reaches for in every tool that has ever let you
+ * move a dimension. Press it (or focus it and press Enter) and the dimension
+ * re-enters the PLACE stage it was born in — same ghost, same readout, same
+ * arrow keys, same typed field, same Escape.
+ *
+ * It is a target of real geometry rather than the text's own paint, and it
+ * lives in ONE layer painted ahead of every view (see `DrawingSheet`), so an
+ * edge pick always wins where the two overlap — in any view, not just its own.
+ * That ordering is what lets the rest of the annotation be
+ * `pointer-events: none` without a dimension becoming untouchable, and being
+ * able to move a dimension out of a view's way is the cure P2-B was missing.
+ */
+function DimensionGrab({
+  dim,
+  projection,
+  viewId,
+  viewAnchor,
+  hoveredFromPlate,
+  onGrab,
+}: {
+  dim: ComposedDimension;
+  projection: ViewProjection;
+  viewId: string;
+  viewAnchor: Point2D;
+  /** The pointer is over this grab but a view's drag plate is on top of it, so
+   * the plate reports the hover on its behalf. Without this the affordance
+   * would be invisible exactly where dimensions usually sit — the gutter — and
+   * a control nobody can see is a control nobody uses. */
+  hoveredFromPlate: boolean;
+  onGrab: (event: DimensionGrabEvent) => void;
+}) {
+  const [selfHover, setSelfHover] = useState(false);
+  const hover = selfHover || hoveredFromPlate;
+  const [focus, setFocus] = useState(false);
+  // An errored dimension has no measured annotation to re-place; its recovery
+  // is the panel's Confirm/Delete, not a drag.
+  const id = dim.dimension_id;
+  // A composed dimension carries no id when the request did not name one; there
+  // is then no row to re-place, so it stays ink.
+  if (dim.kind === "error" || id === null || id === undefined) return null;
+  const { w, h } = valueStampBox(dim.text.value);
+  const pad = drawing.pickHitMm / 2;
+  const fire = () =>
+    onGrab({ dimensionId: id, viewId, projection, dim, viewAnchor });
+  return (
+    <g
+      role="button"
+      tabIndex={0}
+      aria-label={`Move the ${dim.text.value} ${dim.dimension_type} dimension in the ${VIEW_LABEL[projection]} view`}
+      data-testid="dimension-grab"
+      data-dimension-id={id}
+      data-view={projection}
+      style={{ cursor: "grab", outline: "none" }}
+      transform={`rotate(${dim.text.angle} ${dim.text.x} ${dim.text.y})`}
+      onMouseEnter={() => setSelfHover(true)}
+      onMouseLeave={() => setSelfHover(false)}
+      onFocus={() => setFocus(true)}
+      onBlur={() => setFocus(false)}
+      // POINTER DOWN, not click: a press-drag is what a user tries first, and
+      // starting the stage on the press means the ghost is already following
+      // the pointer by the time they have moved a millimetre. A press with no
+      // drag simply leaves the ghost up, and the next click drops it — the
+      // same two-step the authoring flow already teaches.
+      onPointerDown={(event) => {
+        event.preventDefault();
+        fire();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          fire();
+        }
+      }}
+    >
+      {/* A visible seat only while engaged — a placed sheet must not sprout a
+          box around every number the moment it is drawn. */}
+      {hover || focus ? (
+        <rect
+          data-testid="dimension-grab-seat"
+          x={dim.text.x - w / 2 - pad}
+          y={dim.text.y - h / 2 - pad}
+          width={w + pad * 2}
+          height={h + pad * 2}
+          fill="none"
+          stroke={drawing.pickSelected}
+          strokeWidth={focus ? drawing.pickFocusRingMm / 2 : 0.3}
+          opacity={focus ? 0.55 : 0.8}
+        />
+      ) : null}
+      <rect
+        x={dim.text.x - w / 2 - pad}
+        y={dim.text.y - h / 2 - pad}
+        width={w + pad * 2}
+        height={h + pad * 2}
+        fill="transparent"
+      />
+    </g>
+  );
+}
+
 /** A placed dimension — extension + dimension lines, arrowheads, value stamp.
  * Drawn VERBATIM from the composed model (coordinates are final SVG space). */
 function DimensionGlyph({ dim }: { dim: ComposedDimension }) {
@@ -594,6 +835,9 @@ function DimensionGlyph({ dim }: { dim: ComposedDimension }) {
         data-dimension-id={dimensionId}
         data-dimension-type={dimensionType}
         data-dimension-error={code}
+        // DRAFTING INK NEVER TAKES A PICK — see `DimensionGrab` for the one
+        // element of a dimension that does.
+        pointerEvents="none"
       >
         <title>{caption ?? `Dimension could not be measured (${code})`}</title>
         <circle
@@ -645,6 +889,17 @@ function DimensionGlyph({ dim }: { dim: ComposedDimension }) {
       data-dimension-type={dimensionType}
       data-dimension-value={text.value}
       data-foreshortened={foreshortened ? "true" : "false"}
+      // DRAFTING INK NEVER TAKES A PICK (frontend-QA 2026-08-27, P2-B). A
+      // dimension's value stamp is a fat opaque blob of paint that lands
+      // wherever the draughtsman put it, and with free placement that is
+      // routinely in the gutter over ANOTHER view: measured with the TOP
+      // view's 40 mm edge dimensioned 20 mm downward, one of the FRONT view's
+      // own 40 mm pick targets became unreachable at its midpoint —
+      // `elementFromPoint` returned `text[drawing-dimension-value]`. The only
+      // element of a dimension that takes a pointer is now `DimensionGrab`,
+      // which is deliberate, labelled, and painted UNDER the view's geometry
+      // so an edge pick always wins over it.
+      pointerEvents="none"
     >
       <title>
         {foreshortened
@@ -654,6 +909,10 @@ function DimensionGlyph({ dim }: { dim: ComposedDimension }) {
       {lines.map((l, i) => (
         <line
           key={i}
+          // The composer's own role, exposed so a test (and anyone inspecting
+          // the sheet) can tell the dimension line from its witness lines —
+          // which is what "the dimension landed HERE" is measured against.
+          data-dim-line-role={l.role}
           x1={l.x1}
           y1={l.y1}
           x2={l.x2}
@@ -938,10 +1197,13 @@ function SheetView({
   selectedVertexKeys,
   endpointPickActive,
   placementBusy,
+  movingDimensionId,
   onPickEdge,
   onPickEndpoint,
   onPlaceView,
   onResetView,
+  onGrabDimensionId,
+  onHoverGrabId,
 }: {
   composedView: ComposedView;
   /** The aligned evaluate result for this view (pick provenance), or undefined. */
@@ -957,6 +1219,8 @@ function SheetView({
   /** A point-to-point pick is armed — reveal all endpoint handles. */
   endpointPickActive: boolean;
   placementBusy: boolean;
+  /** The dimension being re-placed — drawn as the ghost, not as ink. */
+  movingDimensionId: string | null;
   onPickEdge?: (event: EdgePickEvent) => void;
   onPickEndpoint?: (event: EndpointPickEvent) => void;
   onPlaceView?: (
@@ -964,6 +1228,12 @@ function SheetView({
     position: { x_mm: number; y_mm: number },
   ) => void;
   onResetView?: (viewId: string) => void;
+  /** Hand a press that landed on a dimension grab to that dimension instead of
+   * dragging this view. Returns true when the dimension took it. */
+  onGrabDimensionId?: (dimensionId: string) => boolean;
+  /** Report the dimension grab under the pointer (null = none) so it can show
+   * its affordance through this plate. */
+  onHoverGrabId?: (dimensionId: string | null) => void;
 }) {
   const projection = composedView.projection;
   // Which straight edge (by `edgeKey`) currently reveals its endpoint handles —
@@ -1024,6 +1294,19 @@ function SheetView({
 
   const onFramePointerDown = (event: ReactPointerEvent<SVGElement>) => {
     if (!placeable || placementBusy || event.button !== 0) return;
+    // STAND ASIDE FOR A DIMENSION GRAB. The sheet needs three tiers of pick
+    // priority — view drag plate < dimension grab < geometry — and SVG has no
+    // z-index, so paint order can only express two of them. The grab layer is
+    // painted ahead of every view (so geometry always wins, whichever view
+    // owns it), which puts it behind this plate; and a view's frame is padded
+    // out into the gutter, which is exactly where dimensions live, so without
+    // this a press on a dimension's value stamp would drag the VIEW. Asking
+    // the DOM what is really under the pointer is the missing tier.
+    const grabbed = grabUnderPointer(event.clientX, event.clientY);
+    if (grabbed !== null && onGrabDimensionId?.(grabbed) === true) {
+      event.stopPropagation();
+      return;
+    }
     const svg = event.currentTarget.ownerSVGElement;
     if (!svg) return;
     dragStart.current = clientPointToSvg(svg, event.clientX, event.clientY);
@@ -1033,7 +1316,14 @@ function SheetView({
     event.stopPropagation();
   };
   const onFramePointerMove = (event: ReactPointerEvent<SVGElement>) => {
-    if (dragStart.current === null) return;
+    if (dragStart.current === null) {
+      // Not dragging: report whether a dimension grab lies UNDER this plate, so
+      // the grab can show its own affordance through it (see `DimensionGrab`).
+      // Only the id crosses, and only when it changes, so a stationary pointer
+      // costs nothing and a moving one costs one hit test.
+      onHoverGrabId?.(grabUnderPointer(event.clientX, event.clientY));
+      return;
+    }
     const svg = event.currentTarget.ownerSVGElement;
     if (!svg) return;
     const p = clientPointToSvg(svg, event.clientX, event.clientY);
@@ -1088,6 +1378,12 @@ function SheetView({
   };
 
   const failed = composedView.failed;
+  // The composer's `view_center` mapped into sheet space — the reference the
+  // authored `offset_mm` sign is measured against (`_place_linear_between`).
+  const viewAnchorPoint: Point2D = {
+    x: composedView.anchor.x_mm,
+    y: composedView.anchor.y_mm,
+  };
   const composedEdges = composedView.edges ?? [];
   const composedDims = composedView.dimensions ?? [];
   const evalEdges = result?.edges ?? [];
@@ -1201,6 +1497,7 @@ function SheetView({
           onPointerMove={onFramePointerMove}
           onPointerUp={onFramePointerUp}
           onPointerCancel={onFramePointerUp}
+          onPointerLeave={() => onHoverGrabId?.(null)}
         />
       ) : null}
       {failed ? (
@@ -1227,6 +1524,7 @@ function SheetView({
                 edge={edge}
                 projection={projection}
                 viewId={viewId}
+                viewAnchor={viewAnchorPoint}
                 bendIndex={bendIndexByEdge[i] ?? -1}
                 selected={
                   key !== null &&
@@ -1237,9 +1535,14 @@ function SheetView({
               />
             );
           })}
-          {composedDims.map((dim, i) => (
-            <DimensionGlyph key={dim.dimension_id ?? i} dim={dim} />
-          ))}
+          {composedDims.map((dim, i) =>
+            // The one being moved is drawn as the GHOST instead — a sheet that
+            // shows the same dimension in two places while you drag it is
+            // telling you something untrue about the drawing.
+            dim.dimension_id === movingDimensionId ? null : (
+              <DimensionGlyph key={dim.dimension_id ?? i} dim={dim} />
+            ),
+          )}
           {onPickEndpoint && viewId !== null
             ? vertexHandles.map((h) => (
                 <VertexHandle
@@ -1247,6 +1550,7 @@ function SheetView({
                   at={h.at}
                   projection={projection}
                   viewId={viewId}
+                  viewAnchor={viewAnchorPoint}
                   sourceEdge={h.sourceEdge}
                   endpoint={h.endpoint}
                   selected={selectedVertexKeys.includes(h.key)}
@@ -1259,6 +1563,9 @@ function SheetView({
       )}
       <text
         data-testid="drawing-view-label"
+        // Sits in the gutter BETWEEN views, painted after this view's geometry
+        // — so it lands on a neighbour's pick band. Ink, not a control.
+        pointerEvents="none"
         x={composedView.label_pos.x_mm}
         y={composedView.label_pos.y_mm}
         textAnchor="middle"
@@ -1702,6 +2009,111 @@ function SheetBanner({ composed }: { composed: ComposedSheet }) {
   );
 }
 
+/**
+ * The in-progress dimension — where it will land if you click here.
+ *
+ * Drawn in the pick blue the edge under it is already wearing, never the
+ * graphite of a placed dimension: a ghost must be unmistakably not-yet-ink. The
+ * `rule` tick from the measured midpoint out to the dimension line is the mark
+ * that says "you are setting this distance" — the draughtsman's rule on the
+ * paper, and the only thing here a finished dimension does not have.
+ */
+function PlacementGhostLayer({ ghost }: { ghost: PlacementGhost }) {
+  return (
+    <g
+      data-testid="dimension-ghost"
+      // Editor-only, exactly like the drag frame: an export taken mid-gesture
+      // must carry drafting geometry, never an un-committed proposal.
+      data-placement-chrome="ghost"
+      pointerEvents="none"
+    >
+      {ghost.lines.map((l, i) => (
+        <line
+          key={i}
+          data-ghost-role={l.role}
+          x1={l.x1}
+          y1={l.y1}
+          x2={l.x2}
+          y2={l.y2}
+          stroke={drawing.pickSelected}
+          strokeWidth={
+            l.role === "dimension"
+              ? drawing.dimensionWeightMm
+              : drawing.extensionWeightMm
+          }
+          strokeDasharray={
+            l.role === "rule" || l.role === "leader" ? "1.2 1.2" : undefined
+          }
+          opacity={l.role === "rule" ? 0.65 : 0.9}
+        />
+      ))}
+      {ghost.arrows.map((a, i) => (
+        <polygon
+          key={i}
+          points={a.points.map((p) => `${p.x},${p.y}`).join(" ")}
+          fill={drawing.pickSelected}
+          opacity={0.9}
+        />
+      ))}
+      {ghost.target ? (
+        <g
+          stroke={drawing.pickSelected}
+          strokeWidth={drawing.dimensionWeightMm}
+        >
+          <line
+            x1={ghost.target.x - GHOST_TARGET_MM}
+            y1={ghost.target.y}
+            x2={ghost.target.x + GHOST_TARGET_MM}
+            y2={ghost.target.y}
+          />
+          <line
+            x1={ghost.target.x}
+            y1={ghost.target.y - GHOST_TARGET_MM}
+            x2={ghost.target.x}
+            y2={ghost.target.y + GHOST_TARGET_MM}
+          />
+        </g>
+      ) : null}
+      {/* THE READING, ON THE PAPER. Set upright rather than along the dimension
+          line: a placed value stamp rotates with its rule, and a ghost figure
+          that does the same would read as ink already laid down. This one is
+          the draughtsman's own pencilled note beside the rule — blueprint blue,
+          never graphite, on a paper halo so the ghost's own lines cannot cross
+          the digits. */}
+      {ghost.figure
+        ? (() => {
+            const w = ghost.figure.text.length * GHOST_FIGURE_MM * 0.62 + 2;
+            const h = GHOST_FIGURE_MM + 1.6;
+            return (
+              <g data-testid="dimension-ghost-offset">
+                <rect
+                  x={ghost.figure.at.x - w / 2}
+                  y={ghost.figure.at.y - h / 2}
+                  width={w}
+                  height={h}
+                  fill={drawing.paper}
+                  opacity={0.92}
+                />
+                <text
+                  x={ghost.figure.at.x}
+                  y={ghost.figure.at.y}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fill={drawing.pickSelected}
+                  fontFamily={font.data}
+                  fontSize={GHOST_FIGURE_MM}
+                  letterSpacing={0.1}
+                >
+                  {ghost.figure.text}
+                </text>
+              </g>
+            );
+          })()
+        : null}
+    </g>
+  );
+}
+
 export function DrawingSheet({
   composed,
   views,
@@ -1711,9 +2123,15 @@ export function DrawingSheet({
   selectedVertexKeys,
   endpointPickActive,
   placementBusy,
+  dimensionGhost,
+  movingDimensionId,
   onPickEdge,
   onPickEndpoint,
   onPlaceView,
+  onPlacePointer,
+  onPlaceCommit,
+  onPlaceRelease,
+  onGrabDimension,
   onResetView,
   svgRef,
 }: DrawingSheetProps) {
@@ -1726,6 +2144,40 @@ export function DrawingSheet({
   // `(sheet_id, projection)` is unique server-side, first-write-wins for any
   // legacy row, and the source of the stable per-VIEW-ID React key below.
   const viewByProjection = viewRowsByProjection(views);
+  // Which dimension grab a view's drag plate is currently covering, if any —
+  // the plate reports it so the grab can show its affordance through the plate.
+  const [hoveredGrabId, setHoveredGrabId] = useState<string | null>(null);
+
+  /**
+   * Grab a placed dimension BY ID — the route a view's drag plate uses when a
+   * press lands on a dimension it is covering (see `onFramePointerDown`). The
+   * lookup lives here because the plate belongs to one view and the dimension
+   * under it may belong to another.
+   */
+  const grabDimensionById = (dimensionId: string): boolean => {
+    if (!onGrabDimension || dimensionId === movingDimensionId) return false;
+    for (const composedView of composedViews) {
+      const row = viewByProjection.get(composedView.projection) ?? null;
+      if (row === null) continue;
+      for (const dim of composedView.dimensions ?? []) {
+        if (dim.kind !== "measured" || dim.dimension_id !== dimensionId) {
+          continue;
+        }
+        onGrabDimension({
+          dimensionId,
+          viewId: row.id,
+          projection: composedView.projection,
+          dim,
+          viewAnchor: {
+            x: composedView.anchor.x_mm,
+            y: composedView.anchor.y_mm,
+          },
+        });
+        return true;
+      }
+    }
+    return false;
+  };
 
   return (
     <svg
@@ -1763,6 +2215,43 @@ export function DrawingSheet({
         stroke={drawing.ink}
         strokeWidth={drawing.borderWeightMm}
       />
+      {/* DIMENSION GRAB TARGETS, in ONE layer under EVERY view.
+          A dimension can be dragged anywhere on the sheet, so its grab will
+          sooner or later lie across a DIFFERENT view's edge — and SVG has no
+          z-index, so the only thing deciding that contest is document order.
+          Keeping each grab inside its own view group was not enough and the
+          e2e caught it: with the TOP view's dimension dragged onto the FRONT
+          view's 40 mm edge, 10 of 18 points along that edge resolved to
+          `dimension-grab`. One layer ahead of all the views makes the rule
+          sheet-wide instead of per-view: geometry always beats annotation
+          chrome, whoever owns it. (The dimension's INK still paints inside its
+          view, after the edges, where drafting ink belongs — it is
+          `pointer-events: none`, so its order costs no picks.) */}
+      {onGrabDimension ? (
+        <g data-dimension-grabs="true">
+          {composedViews.map((composedView) => {
+            const row = viewByProjection.get(composedView.projection) ?? null;
+            if (row === null) return null;
+            const anchor = {
+              x: composedView.anchor.x_mm,
+              y: composedView.anchor.y_mm,
+            };
+            return (composedView.dimensions ?? []).map((dim, i) =>
+              dim.dimension_id === movingDimensionId ? null : (
+                <DimensionGrab
+                  key={`${composedView.projection}:${dim.dimension_id ?? i}`}
+                  dim={dim}
+                  projection={composedView.projection}
+                  viewId={row.id}
+                  viewAnchor={anchor}
+                  hoveredFromPlate={dim.dimension_id === hoveredGrabId}
+                  onGrab={onGrabDimension}
+                />
+              ),
+            );
+          })}
+        </g>
+      ) : null}
       {composedViews.map((composedView) => {
         const row = viewByProjection.get(composedView.projection) ?? null;
         return (
@@ -1778,21 +2267,82 @@ export function DrawingSheet({
             selectedVertexKeys={selectedVertexKeys ?? []}
             endpointPickActive={endpointPickActive ?? false}
             placementBusy={placementBusy ?? false}
+            movingDimensionId={movingDimensionId ?? null}
             onPickEdge={onPickEdge}
             onPickEndpoint={onPickEndpoint}
             onPlaceView={onPlaceView}
             onResetView={onResetView}
+            onGrabDimensionId={grabDimensionById}
+            onHoverGrabId={setHoveredGrabId}
           />
         );
       })}
-      <TitleBlock block={composed.title_block} />
-      {composed.bend_table ? <BendTable table={composed.bend_table} /> : null}
-      {(composed.notes ?? []).map((note, i) => (
-        <SheetNote key={i} note={note} />
-      ))}
-      {/* Stamped LAST, exactly as the server serializers order it — the banner
-          reads over anything it lands on. */}
-      <SheetBanner composed={composed} />
+      {/* Sheet-level ink — the title block, the bend schedule, the notes and the
+          layout banner. All of it is painted AFTER every view, so all of it used
+          to sit on top of the views' pick targets; none of it is interactive, so
+          none of it should ever take a pointer (frontend-QA P2-B/P3-D — drawn
+          ink never takes a pick). The banner is stamped LAST, exactly as the
+          server serializers order it, so it reads over anything it lands on. */}
+      <g data-sheet-ink="true" pointerEvents="none">
+        <TitleBlock block={composed.title_block} />
+        {composed.bend_table ? <BendTable table={composed.bend_table} /> : null}
+        {(composed.notes ?? []).map((note, i) => (
+          <SheetNote key={i} note={note} />
+        ))}
+        <SheetBanner composed={composed} />
+      </g>
+      {/* The placement gesture: a full-sheet capture plate that owns the pointer
+          for as long as the ghost is up, with the ghost painted over it. Nothing
+          underneath can take the click — the next click means "here", full
+          stop, which is the whole point of the stage. */}
+      {dimensionGhost ? (
+        <>
+          <rect
+            data-testid="dimension-place-surface"
+            data-placement-chrome="place-surface"
+            x={0}
+            y={0}
+            width={width}
+            height={height}
+            fill="transparent"
+            style={{ cursor: "crosshair" }}
+            onPointerMove={(event) => {
+              const svg = event.currentTarget.ownerSVGElement;
+              if (!svg || !onPlacePointer) return;
+              onPlacePointer(
+                clientPointToSvg(svg, event.clientX, event.clientY),
+              );
+            }}
+            // The SAME report on pointer DOWN, and it is load-bearing rather
+            // than redundant: React treats `pointermove` as a continuous event,
+            // so the placement it schedules need not have flushed by the time
+            // the discrete `click` after it is handled — and when the move in
+            // question was the first one, the commit then read `moved: false`
+            // and sent no placement at all, so the composer auto-placed a
+            // dimension the user had just dragged somewhere. Measured under
+            // load on 2026-08-27: a diameter's value stamp landed 11.76 mm from
+            // where it was dropped. `pointerdown` IS discrete, so it flushes
+            // before the click, and it carries the same fractional coordinate
+            // the ghost was last drawn at — so what commits is what was on the
+            // paper, to the sub-pixel.
+            onPointerDown={(event) => {
+              const svg = event.currentTarget.ownerSVGElement;
+              if (!svg || !onPlacePointer) return;
+              onPlacePointer(
+                clientPointToSvg(svg, event.clientX, event.clientY),
+              );
+            }}
+            // A press-drag ENDS on release, which is the gesture a user tries
+            // first on something they can see is draggable. The caller commits
+            // only if the placement actually moved, so a bare press (the
+            // click-to-grab half of the same gesture) leaves the ghost up and
+            // the next click drops it.
+            onPointerUp={() => onPlaceRelease?.()}
+            onClick={() => onPlaceCommit?.()}
+          />
+          <PlacementGhostLayer ghost={dimensionGhost} />
+        </>
+      ) : null}
     </svg>
   );
 }

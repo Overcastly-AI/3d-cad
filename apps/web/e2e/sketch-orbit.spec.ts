@@ -907,7 +907,11 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
     const { token } = await seedSession(page);
     const part = await createPartViaApi(page, token, "Sketch orbit: 3D left");
     await page.goto(`/parts/${part.id}`);
-    await expect(page.getByTestId("viewport").locator("canvas")).toBeVisible();
+    // `.first()`: the viewport holds two canvases since VIEWCUBE-1 (the
+    // scene, then the reference cube's own). The scene is first in DOM order.
+    await expect(
+      page.getByTestId("viewport").locator("canvas").first(),
+    ).toBeVisible();
 
     const before = await restCamera(page);
     await drag(page, "left", { x: 800, y: 500 }, 150, -110);

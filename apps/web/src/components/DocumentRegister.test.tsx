@@ -108,6 +108,17 @@ function renderRegister(
   return { ...view, onCreate, onDelete, onRename, onDuplicate };
 }
 
+/**
+ * Reach a row verb. Since REGISTER-1 the four verbs live in the row's overflow
+ * menu (`part-actions`) instead of being printed on every row, so a test that
+ * drives one opens the menu first — the ids are unchanged, only the address is.
+ */
+function rowVerb(testid: string, row?: HTMLElement) {
+  const scope = row ?? screen.getAllByTestId("part-row")[0]!;
+  fireEvent.click(within(scope).getByTestId("part-actions"));
+  return screen.getByTestId(testid);
+}
+
 describe("DocumentRegister — what it reports", () => {
   it("reads recency for a worked document and flags an unstarted one", () => {
     renderRegister([worked, unstarted]);
@@ -171,13 +182,35 @@ describe("DocumentRegister — what it reports", () => {
     );
   });
 
-  it("shows the document unit, and drops the column when there is none", () => {
+  it("shows the document unit per row when the drawer disagrees about it", () => {
+    // Two units in the drawer: the column earns its width back, because now it
+    // discriminates rows instead of repeating one word (REGISTER-1).
     const { unmount } = renderRegister([worked, unstarted]);
+    expect(screen.getByText("Units")).toBeInTheDocument();
     expect(screen.getByText("mm")).toBeInTheDocument();
     expect(screen.getByText("in")).toBeInTheDocument();
+    expect(screen.queryByTestId("parts-drawer-units")).toBeNull();
     unmount();
+  });
 
-    // Drawings carry no unit: no blank column rather than a column of dashes.
+  it("states ONE unit once on the header rule instead of down a column", () => {
+    // The measured defect (UI-REVIEW P1-2): a 72 px column reading
+    // `mm, mm, mm, mm` — 8 % of the table's width carrying a constant. The fact
+    // is kept, at drawer level, where it is true.
+    const { unmount } = renderRegister([
+      worked,
+      { ...unstarted, id: "c", length_unit: "mm" },
+    ]);
+    expect(screen.queryByText("Units")).toBeNull();
+    const readout = screen.getByTestId("parts-drawer-units");
+    expect(readout).toHaveTextContent("mm");
+    expect(readout.getAttribute("title")).toMatch(/dimensioned in mm/);
+    unmount();
+  });
+
+  it("drops the column entirely for a kind that has no unit", () => {
+    // Drawings carry no unit: no blank column rather than a column of dashes,
+    // and no drawer-level readout either — there is nothing to state.
     renderRegister([
       {
         id: "d",
@@ -188,6 +221,7 @@ describe("DocumentRegister — what it reports", () => {
     ]);
     expect(screen.queryByText("Units")).toBeNull();
     expect(screen.queryByText("—")).toBeNull();
+    expect(screen.queryByTestId("parts-drawer-units")).toBeNull();
   });
 
   it("reports the server's rebuild verdict, one state per row", () => {
@@ -296,6 +330,33 @@ describe("DocumentRegister — what it reports", () => {
     expect(screen.getByTestId("part-health")).toHaveTextContent("Clean");
   });
 
+  /**
+   * EVERY ROW KEEPS ITS OWN CELL, even when the whole drawer agrees.
+   *
+   * A short-lived change (cb2e43e) collapsed this column into a single header
+   * readout whenever every document reported the same verdict, by analogy with
+   * the UNITS column. The analogy does not hold — see the long note at
+   * `showHealth` — and the concrete cost was that `part-health` disappeared for
+   * a UNIFORM drawer, which is exactly the shape `workspace.spec.ts`'s duplicate
+   * case produces: an unevaluated part copied to another unevaluated part.
+   *
+   * The uniform case is the one pinned here, deliberately. The non-uniform case
+   * was never at risk, and a test that only covered it would have gone green
+   * against the broken build.
+   */
+  it("keeps a per-row cell even when every document reports the same verdict", () => {
+    renderRegister([
+      { ...worked, eval_state: "never" },
+      { ...unstarted, eval_state: "never" },
+    ]);
+    expect(screen.getByText("Rebuild")).toBeInTheDocument();
+    const cells = screen.getAllByTestId("part-health");
+    expect(cells).toHaveLength(2);
+    for (const cell of cells) {
+      expect(cell).toHaveAttribute("data-health", "never");
+    }
+  });
+
   it("drops the column for document kinds that have no feature tree", () => {
     renderRegister([
       {
@@ -333,6 +394,61 @@ describe("DocumentRegister — what it reports", () => {
   });
 });
 
+describe("DocumentRegister — the name is the column that identifies (REGISTER-1)", () => {
+  const long = {
+    ...worked,
+    id: "long",
+    name: "Motor mount adapter plate rev C",
+  };
+
+  it("keeps a clipped name readable: ellipsis in a block box, full name on title", () => {
+    // The measured defect: `<td class="truncate">` around an `inline-flex`
+    // anchor computed `text-overflow: clip` and `title: null`, so
+    // "…adapter plate rev C" rendered as "Motor mount adapter plat" with no cue
+    // and no way to recover the rest (UI-REVIEW P1-2).
+    renderRegister([long]);
+    const link = screen.getByTestId("part-open");
+    expect(link).toHaveAttribute("title", "Motor mount adapter plate rev C");
+    expect(link.className).toContain("truncate");
+    expect(link.className).toContain("block");
+    expect(link.className).not.toContain("inline-flex");
+  });
+
+  it("spends its fixed width on data, not on repeating the same four verbs", () => {
+    renderRegister([long]);
+    // NAME's header carries no width class at all — it takes what the fixed
+    // columns leave, which is the whole point of the budget. The verbs' column
+    // is the gutter's width, holding one mark.
+    const nameHeader = screen.getByTestId("parts-sort-name-header");
+    expect(nameHeader.className).not.toMatch(/\bw-\[/);
+    const row = screen.getByTestId("part-row");
+    const actionCell = within(row).getByTestId("part-actions").closest("td")!;
+    const headers = row.closest("table")!.querySelectorAll("thead th");
+    const actionHeader = headers[headers.length - 1]!;
+    expect(actionHeader.className).toContain("w-[3.5rem]");
+    // …and one tab stop per row instead of four.
+    expect(within(actionCell).getAllByRole("button")).toHaveLength(1);
+  });
+
+  it("gives the mark an accessible name that says which row it acts on", () => {
+    renderRegister([long, { ...worked, id: "other", name: "Rib" }]);
+    expect(
+      screen.getByLabelText("Actions for Motor mount adapter plate rev C"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Actions for Rib")).toBeInTheDocument();
+  });
+
+  it("still refuses to delete on one click, now from inside the menu", async () => {
+    const { onDelete } = renderRegister([long]);
+    fireEvent.click(rowVerb("part-delete"));
+    expect(onDelete).not.toHaveBeenCalled();
+    // The menu closed behind the verb; the row is the confirmation.
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.click(screen.getByTestId("part-delete-confirm"));
+    await waitFor(() => expect(onDelete).toHaveBeenCalledWith(long));
+  });
+});
+
 describe("DocumentRegister — states", () => {
   it("announces a failed list as an alert, with no count beside it", () => {
     renderRegister([], {
@@ -367,7 +483,7 @@ describe("DocumentRegister — states", () => {
 describe("DocumentRegister — actions", () => {
   it("never deletes on one click, and passes the row through on confirm", async () => {
     const { onDelete } = renderRegister([worked]);
-    fireEvent.click(screen.getByTestId("part-delete"));
+    fireEvent.click(rowVerb("part-delete"));
     expect(onDelete).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("part-delete-confirm"));
     await waitFor(() => expect(onDelete).toHaveBeenCalledWith(worked));
@@ -375,17 +491,17 @@ describe("DocumentRegister — actions", () => {
 
   it("backs out of the confirm without deleting", () => {
     const { onDelete } = renderRegister([worked]);
-    fireEvent.click(screen.getByTestId("part-delete"));
+    fireEvent.click(rowVerb("part-delete"));
     fireEvent.click(screen.getByTestId("part-delete-cancel"));
     expect(onDelete).not.toHaveBeenCalled();
-    expect(screen.getByTestId("part-delete")).toBeInTheDocument();
+    expect(screen.getByTestId("part-actions")).toBeInTheDocument();
   });
 
   it("pins a failed delete beside the confirm instead of losing it", async () => {
     renderRegister([worked], {
       onDelete: () => Promise.reject(new Error("part is referenced")),
     });
-    fireEvent.click(screen.getByTestId("part-delete"));
+    fireEvent.click(rowVerb("part-delete"));
     fireEvent.click(screen.getByTestId("part-delete-confirm"));
     const error = await screen.findByTestId("part-delete-error");
     expect(error).toHaveTextContent("part is referenced");
@@ -509,16 +625,34 @@ describe("DocumentRegister — sort", () => {
   const names = () =>
     screen.getAllByTestId("part-open").map((node) => node.textContent);
 
-  it("defaults to the order the server returned, and says which column that is", () => {
-    renderRegister([a, b]);
+  it("defaults to what you touched LAST, and says which column that is", () => {
+    // REGISTER-2. `a` was created FIRST and worked LAST; the old default (filed
+    // ascending, the server's own order) put it first for the wrong reason, so
+    // this fixture only distinguishes the two rules through `b`, which is newer
+    // on disk and older in the hands.
+    renderRegister([b, a]);
     expect(names()).toEqual(["Rib 10", "Rib 2"]);
+    expect(screen.getByTestId("parts-sort-activity-header")).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    );
     expect(screen.getByTestId("parts-sort-filed-header")).toHaveAttribute(
       "aria-sort",
-      "ascending",
+      "none",
     );
     expect(screen.getByTestId("parts-sort-name-header")).toHaveAttribute(
       "aria-sort",
       "none",
+    );
+  });
+
+  it("keeps FILED reachable — the order it replaced is one click away", () => {
+    renderRegister([b, a]);
+    fireEvent.click(screen.getByTestId("parts-sort-filed"));
+    expect(names()).toEqual(["Rib 10", "Rib 2"]);
+    expect(screen.getByTestId("parts-sort-filed-header")).toHaveAttribute(
+      "aria-sort",
+      "ascending",
     );
   });
 
@@ -562,7 +696,7 @@ describe("DocumentRegister — sort", () => {
 describe("DocumentRegister — rename", () => {
   it("opens with the current name selected and commits it on submit", async () => {
     const { onRename } = renderRegister([worked]);
-    fireEvent.click(screen.getByTestId("part-rename"));
+    fireEvent.click(rowVerb("part-rename"));
     const field = screen.getByTestId("part-rename-name");
     expect(field).toHaveValue("Bracket plate");
     expect(field).toHaveFocus();
@@ -576,15 +710,15 @@ describe("DocumentRegister — rename", () => {
 
   it("does not spend a write when the name did not change", () => {
     const { onRename } = renderRegister([worked]);
-    fireEvent.click(screen.getByTestId("part-rename"));
+    fireEvent.click(rowVerb("part-rename"));
     fireEvent.submit(screen.getByTestId("part-rename-form"));
     expect(onRename).not.toHaveBeenCalled();
-    expect(screen.getByTestId("part-rename")).toBeInTheDocument();
+    expect(screen.getByTestId("part-actions")).toBeInTheDocument();
   });
 
   it("reverts on Escape without writing", () => {
     const { onRename } = renderRegister([worked]);
-    fireEvent.click(screen.getByTestId("part-rename"));
+    fireEvent.click(rowVerb("part-rename"));
     fireEvent.change(screen.getByTestId("part-rename-name"), {
       target: { value: "Something else" },
     });
@@ -600,7 +734,7 @@ describe("DocumentRegister — rename", () => {
       onRename: () =>
         Promise.reject(new Error('A part named "Rib" already exists.')),
     });
-    fireEvent.click(screen.getByTestId("part-rename"));
+    fireEvent.click(rowVerb("part-rename"));
     fireEvent.change(screen.getByTestId("part-rename-name"), {
       target: { value: "Rib" },
     });
@@ -618,7 +752,7 @@ describe("DocumentRegister — rename", () => {
     renderRegister([worked], {
       onRename: () => new Promise<void>((r) => (resolve = r)),
     });
-    fireEvent.click(screen.getByTestId("part-rename"));
+    fireEvent.click(rowVerb("part-rename"));
     fireEvent.change(screen.getByTestId("part-rename-name"), {
       target: { value: "Renamed" },
     });
@@ -635,7 +769,7 @@ describe("DocumentRegister — rename", () => {
 describe("DocumentRegister — duplicate", () => {
   it("asks the server for a copy without naming it", async () => {
     const { onDuplicate } = renderRegister([worked]);
-    fireEvent.click(screen.getByTestId("part-duplicate"));
+    fireEvent.click(rowVerb("part-duplicate"));
     await waitFor(() => expect(onDuplicate).toHaveBeenCalledWith(worked));
     // One argument: the document. The register has no say in the copy's name.
     expect(onDuplicate.mock.calls[0]).toHaveLength(1);
@@ -645,7 +779,7 @@ describe("DocumentRegister — duplicate", () => {
     renderRegister([worked], {
       onDuplicate: () => Promise.reject(new Error("upstream unavailable")),
     });
-    fireEvent.click(screen.getByTestId("part-duplicate"));
+    fireEvent.click(rowVerb("part-duplicate"));
     const error = await screen.findByTestId("part-action-error");
     expect(error).toHaveTextContent("upstream unavailable");
     expect(error).toHaveAttribute("role", "alert");
@@ -666,7 +800,7 @@ describe("DocumentRegister — delete with dependents", () => {
           ),
         ),
     });
-    fireEvent.click(screen.getByTestId("part-delete"));
+    fireEvent.click(rowVerb("part-delete"));
     fireEvent.click(screen.getByTestId("part-delete-confirm"));
 
     const blocked = await screen.findByTestId("part-blocked");

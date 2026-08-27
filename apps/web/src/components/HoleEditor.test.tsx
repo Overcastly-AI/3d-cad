@@ -52,6 +52,8 @@ function renderEditor(
     onTogglePick?: (target: HolePickTarget) => void;
     placementHidden?: boolean;
     edges?: readonly OverlayEdge[] | null;
+    canPickFace?: boolean;
+    pickBlockedReason?: string | null;
   } = {},
 ) {
   const onSubmit = vi.fn<(params: HoleParams) => void>();
@@ -64,12 +66,13 @@ function renderEditor(
         onCancel={vi.fn()}
         saving={false}
         error={null}
-        canPickFace
+        canPickFace={overrides.canPickFace ?? true}
         activePick={overrides.activePick ?? null}
         onTogglePick={overrides.onTogglePick ?? vi.fn()}
         facePick={null}
         pointPick={null}
         pickError={null}
+        pickBlockedReason={overrides.pickBlockedReason ?? null}
         placementHidden={overrides.placementHidden ?? false}
         edges={overrides.edges ?? null}
         onPreviewChange={vi.fn()}
@@ -241,6 +244,7 @@ describe("HoleEditor — the placement body is switched off (SEL-7)", () => {
           facePick={null}
           pointPick={null}
           pickError={null}
+          pickBlockedReason={null}
           placementHidden={false}
           edges={null}
           onPreviewChange={vi.fn()}
@@ -655,5 +659,66 @@ describe("HoleEditor — dialling the position in (QA3-1)", () => {
     );
     expect(submit()).not.toHaveAttribute("aria-disabled");
     expect(submitted(onSubmit).position).toEqual({ x: 5, y: 5, z: 10 });
+  });
+});
+
+/**
+ * PICK-2 — a pick with nothing to pick refuses, and says why on the row the
+ * user is already reading.
+ *
+ * The dead end this closes: when the tip feature builds no body, every pick
+ * overlay's query is disabled, so the viewport contains no `PickSurface` and no
+ * `PickNode` at all. Arming a pick over that scene produced the founder's
+ * report — five clicks, two camera angles, nothing happens — with the panel
+ * still badging `Picking`.
+ */
+describe("hole face pick — nothing to pick", () => {
+  const REASON =
+    "Nothing to pick — the part has no built body. Clear the error in the feature tree, then pick again.";
+
+  it("keeps the Pick control, disables it, and carries the reason in its name", () => {
+    renderEditor({ canPickFace: false, pickBlockedReason: REASON });
+    const pick = screen.getByTestId("hole-face-pick");
+    expect(pick).toHaveAttribute("aria-disabled", "true");
+    expect(pick).toHaveAccessibleName(
+      `Pick the planar face to drill into — ${REASON}`,
+    );
+    expect(screen.getByTestId("hole-face-pick-reason")).toHaveTextContent(
+      REASON,
+    );
+  });
+
+  it("does not arm on click", () => {
+    const onTogglePick = vi.fn<(target: HolePickTarget) => void>();
+    renderEditor({
+      canPickFace: false,
+      pickBlockedReason: REASON,
+      onTogglePick,
+    });
+    fireEvent.click(screen.getByTestId("hole-face-pick"));
+    expect(onTogglePick).not.toHaveBeenCalled();
+  });
+
+  it("does not tell a part that already HAS a body feature to add one", () => {
+    // The pre-fix copy for `!canPickFace` was "Add a body to pick a face",
+    // which is the wrong instruction for a body-affecting feature that failed.
+    renderEditor({
+      initial: defaultHoleForm(null, "mm"),
+      canPickFace: false,
+      pickBlockedReason: REASON,
+    });
+    const value = screen.getByTestId("hole-face-empty");
+    expect(value).toHaveTextContent("No body built");
+    expect(value).not.toHaveTextContent("Add a body");
+  });
+
+  it("still arms normally once a body is built", () => {
+    // The regression guard: the healthy path must be untouched by the refusal.
+    const onTogglePick = vi.fn<(target: HolePickTarget) => void>();
+    renderEditor({ onTogglePick });
+    const pick = screen.getByTestId("hole-face-pick");
+    expect(pick).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(pick);
+    expect(onTogglePick).toHaveBeenCalledWith("face");
   });
 });

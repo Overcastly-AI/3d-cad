@@ -1,0 +1,31 @@
+{
+  "description": "FIRST TWO-LINES-AND-AN-AXIS SYMMETRY GOLDEN (SKETCH-VOCAB-1): the selection an engineer makes first — two edges and a centreline — which `symmetric` used to refuse with \"Select two points and a line\" (docs/AUDIT-PRODUCT.md T-5). A symmetric trapezoid, 40 mm across the base and 20 mm across the top, extruded 10 mm. Its LEFT leg is drawn wrong, at (6,25) instead of (10,25), and the single `symmetric_lines` constraint about the construction centreline is the only thing that squares it up — nothing else in the sketch constrains that endpoint. Note the constraint pairs e2's END with e4's START: the left leg is traced round the loop, so it runs the other way, and pairing by endpoint NAME would have asked the solver to flip the line end-for-end. The sketch reports `underconstrained` with no redundancy (its free DOF are the profile height and the centreline's own length, both held at their submitted values by the settle), which is the honest state of a symmetric profile whose height nobody has dimensioned.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
+    "solved profile: e1 is pinned horizontal at the origin, 40 long; e3 is 20 long; the symmetry about the centreline puts e4 at the mirror of e2, i.e. the trapezoid (0,0), (40,0), (30,25), (10,25). Verified: status underconstrained, DOF 3, no redundant and no conflicting constraint, with e4's start lifted from its drawn (6,25) to (10,25) (2026-08-26). The `horizontal` on e3 that an earlier draft carried was REMOVED because the solver correctly reported it redundant: two mirrored legs make the edge between their far ends perpendicular to the axis on their own.",
+    "profile area = trapezoid = (base + top)/2 * height = (40 + 20)/2 * 25 = 750 mm^2",
+    "volume = 750 * 10 = 7500 mm^3",
+    "surface_area = 2 caps (2 * 750 = 1500) + perimeter * 10, where the perimeter is 40 (base) + 20 (top) + 2 * sqrt(10^2 + 25^2) = 60 + 53.85164807134504 = 113.85164807134504, so 1500 + 1138.5164807134504 = 2638.5164807134504 mm^2",
+    "centroid x = 20 exactly, which is the ASSERTION on the constraint under test: the profile is symmetric about x = 20 only because the constraint made it so (drawn, the left leg's 6 mm error puts it at 20.33)",
+    "centroid y = h*(2a + b) / (3*(a + b)) for a trapezoid with top a = 20 and base b = 40: 25*(40 + 40) / (3*60) = 2000/180 = 11.11111111111111 mm",
+    "centroid z = 5 by prism symmetry; extrude 'normal' on XY is +Z, z spans [0,10]",
+    "bounding_box = [0,0,0]..[40,25,10]: the construction centreline runs y -5..30 and is NOT part of the solid, which this box also asserts",
+    "topology: a 4-sided prism is 6 planar faces (2 caps + 4 walls), 12 straight edges (4 top + 4 bottom + 4 verticals), 1 closed shell",
+    "mesh: each quadrilateral cap tessellates to 2 triangles from its 4 boundary nodes, and each of the 4 walls likewise, so 6 * (4 nodes, 2 triangles) = 24 vertices and 12 triangles (per-face faceted normals, no vertex sharing across faces — the same counts as the box golden, from a different construction path)",
+    "no material is assigned, so mass and centre of mass must be reported ABSENT (null) — never 0 g (docs/design/materials.md 6)",
+    "GLB byte size is deliberately NOT pinned: asserted deterministic (byte-identical) by the runner within one kernel version, but the absolute size carries no geometric meaning."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "MEASURED first, then set (geometry-gates skill: never copy a bound blindly). The left leg's position is the OUTPUT of a numeric solve — it moves 4 mm — and the system is well-conditioned, so the solve lands on the analytic corner to within 1.8e-15 mm (e4's start reads x = 10.000000000000002). Measured deviations vs the analytic values (2026-08-26, planegcs 0.8.0 / build123d 0.11.1 / OCCT 7.9): volume 9.1e-13 mm^3, surface_area 5.5e-13 mm^2, centroid <= 3.6e-15 mm, AABB exactly 0.0 on all six bounds. The documented ceiling 1e-9 is ~1000x the observed worst case and the same number the other sketch goldens on this construction path carry, while staying 1e5 x TIGHTER than the standing kernel linear tolerance (1e-7 m = 1e-4 mm). Loosening it is never a fix for a red run: it is a reviewed kernel-level decision recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 7500.0,
+    "surface_area": 2638.5164807134504,
+    "centroid": { "x": 20.0, "y": 11.11111111111111, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 6, "edges": 12, "shells": 1 },
+  "mesh": { "vertices": 24, "triangles": 12 }
+}

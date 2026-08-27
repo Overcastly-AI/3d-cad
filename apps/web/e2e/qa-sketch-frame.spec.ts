@@ -669,11 +669,25 @@ test.describe("QA SKETCH-2 — grounding to the sketch frame", () => {
     );
   });
 
-  test("THE SNAP TRAP: a corner snapped onto the origin looks grounded and is not", async ({
+  test("THE SNAP TRAP IS CLOSED: a corner snapped onto the origin IS grounded", async ({
     page,
   }) => {
+    // THIS TEST USED TO ASSERT THE DEFECT, and it is kept — inverted — rather
+    // than deleted, because a characterisation test is the best regression
+    // test the trap will ever have. QA's original words (QA-SK2-4): the corner
+    // "looks grounded and is not" — the snap copied the coordinate, recorded no
+    // relationship, and the plate walked off zero on the first re-drive with
+    // nothing having warned anybody. SNAP-3 authors the coincident the snap
+    // meant, so every "and nothing says so" assertion below is now its opposite.
+    //
+    // What this keeps that the SNAP-3 spec does not have: the DRAW-TIME
+    // dimension path. The width is typed during the gesture, so the
+    // rectangle's whole rigidity set (`drawDimensions.ts`) rides in ALONGSIDE
+    // the inferred coincident — which is precisely the combination that would
+    // over-constrain if the inference were careless, and precisely the state
+    // QA was in when they found the trap.
     const { token } = await seedSession(page);
-    const part = await createPartViaApi(page, token, "Snapped not grounded");
+    const part = await createPartViaApi(page, token, "Snapped and grounded");
     await page.goto(`/parts/${part.id}`);
     await page.getByTestId("new-sketch").click();
     await page.getByTestId("plane-XY").click();
@@ -714,8 +728,17 @@ test.describe("QA SKETCH-2 — grounding to the sketch frame", () => {
     // rigid, dimensioned, apparently-anchored plate.
     await page.keyboard.type("30");
     await page.keyboard.press("Enter");
+    // TEN, not the nine this read before SNAP-3: the rectangle's eight
+    // rigidity constraints, the typed width, and the coincident the ORIGIN
+    // SNAP authored. The origin's own pin rides in with it and is deliberately
+    // not counted — the user authored none of it (`isDatumPin`).
+    //
+    // This number is the readout QA called out by name: "the strip reads
+    // '9 applied' — and there is no `origin` entity and no constraint naming
+    // it." The count moving is the first thing on screen that distinguishes a
+    // snapped corner from a coordinate that happens to match.
     await expect(page.getByTestId("selection-readout")).toContainText(
-      "9 applied",
+      "10 applied",
     );
     // The first typed dimension binds the sketch and it saves LIVE, so the
     // strip's button swaps from "Save (N entities)" to "Finish sketch" while
@@ -727,8 +750,8 @@ test.describe("QA SKETCH-2 — grounding to the sketch frame", () => {
     await expect(page.getByTestId("sketch-save")).toContainText("Finish");
     await finishSketch(page);
 
-    // The corner IS at zero — the snap landed it exactly, which is why this
-    // looks grounded.
+    // The corner IS at zero — the snap landed it exactly. That was never the
+    // defect and it is still true; it is the half that made the trap invisible.
     const solved = await solvedSketch(page, token, part.id);
     const corner = solved
       .flatMap((e) => [e.start, e.end])
@@ -736,56 +759,55 @@ test.describe("QA SKETCH-2 — grounding to the sketch frame", () => {
       .find((p) => Math.hypot(p.x, p.y) < 1e-6);
     expect(corner, "the snap put a corner exactly on zero").toBeDefined();
 
-    // And nothing in the saved model says so. No origin entity, no constraint
-    // naming it — the coordinate was copied, no relationship was recorded.
+    // AND NOW THE SAVED MODEL SAYS SO. Inverted from `not.toContain("origin")`
+    // / `toHaveLength(0)`: the datum is materialised as pinned construction
+    // geometry and a coincident names it, so the relationship is recorded and
+    // not merely implied by two numbers that agree.
     const params = await sketchParams(page, token, part.id);
-    expect(params.entities.map((e) => e.id)).not.toContain("origin");
+    expect(params.entities.map((e) => e.id)).toContain("origin");
     expect(
-      params.constraints.filter((c) => JSON.stringify(c).includes('"origin"')),
-    ).toHaveLength(0);
+      params.constraints.filter(
+        (c) =>
+          c.kind === "coincident" && JSON.stringify(c).includes('"origin"'),
+      ),
+    ).toHaveLength(1);
+    expect(
+      params.constraints.filter(
+        (c) => c.kind === "fixed" && c.point?.entity === "origin",
+      ),
+    ).toHaveLength(1);
 
-    // HOW THE USER FINDS OUT: they re-drive a dimension, and the part they
-    // anchored at zero slides off it. Nothing warned them; nothing marked the
-    // corner; the readout said "9 applied" the whole time.
+    // HOW THE USER USED TO FIND OUT: re-drive a dimension and the part they
+    // anchored at zero slides off it. It now holds — this is the assertion the
+    // coordinate copy could never satisfy, and it is the one that reddens if
+    // the inference is removed.
     await redriveWidth(page, /^30$/, "40");
-    const drifted = await solvedSketch(page, token, part.id);
-    const left = (drifted.find((e) => e.id === "e1") as SketchEntityRow)
-      .start as Point;
-    expect(
-      Math.abs(left.x),
-      "the snapped corner walked off the origin under a re-drive",
-    ).toBeGreaterThan(1);
-
-    // THE CONTROL, same gesture on the same plate: GROUND that corner to the
-    // origin with `c`, re-drive again, and it does not move. Without this the
-    // assertion above could be measuring a solver that moves everything.
-    await reopenSketch(page);
-    const at2 = await calibratePlane(
-      page,
-      { x: 700, y: 620 },
-      { x: 1000, y: 420 },
-    );
-    await parkThenClick(page, at2, at2({ x: left.x, y: 0 }));
-    await expect(page.getByTestId("selection-readout")).toContainText("1 pt");
-    // The origin is joined through its KEYBOARD handle, not a Shift-click, and
-    // that is not a convenience here — it is the only path that works in this
-    // state. The plate's bottom edge now runs along y = 0 through the origin,
-    // and a modifier click appends the first candidate not already held, which
-    // is always the drawn edge. See `docs/UI-REVIEW.md` (QA-SK2-2).
-    await page.getByTestId("sketch-origin").focus();
-    await page.keyboard.press("Enter");
-    await expect(page.getByTestId("selection-readout")).toContainText("2 pts");
-    await page.keyboard.press("c");
-    await expect(page.getByTestId("selection-readout")).toContainText(
-      "10 applied",
-    );
-    await finishSketch(page);
-    await redriveWidth(page, /^40$/, "55");
     const held = await solvedSketch(page, token, part.id);
-    const anchored = (held.find((e) => e.id === "e1") as SketchEntityRow)
+    const left = (held.find((e) => e.id === "e1") as SketchEntityRow)
+      .start as Point;
+    expect(left.x).toBeCloseTo(0, 5);
+    expect(left.y).toBeCloseTo(0, 5);
+
+    // THE CONTROL, and it is doing different work now that the trap is closed.
+    // Before, it proved the solver CAN hold a grounded corner; now it proves
+    // the automatic grounding did not quietly cost the sketch its solvability.
+    // Re-drive once more and the plate is still solved, still on zero, and
+    // still not over-constrained — an inference that grounded the corner by
+    // over-determining it would show here and nowhere else.
+    await redriveWidth(page, /^40$/, "55");
+    const again = await solvedSketch(page, token, part.id);
+    const anchored = (again.find((e) => e.id === "e1") as SketchEntityRow)
       .start as Point;
     expect(anchored.x).toBeCloseTo(0, 5);
     expect(anchored.y).toBeCloseTo(0, 5);
+    const bottom = again.find((e) => e.id === "e1") as SketchEntityRow;
+    expect(
+      Math.hypot(
+        (bottom.end as Point).x - (bottom.start as Point).x,
+        (bottom.end as Point).y - (bottom.start as Point).y,
+      ),
+    ).toBeCloseTo(55, 3);
+    await expect(page.getByTestId("solve-diagnostic")).toHaveCount(0);
   });
 
   test("a grounded profile still extrudes — the frame is construction, not part of the wire", async ({
@@ -1054,8 +1076,12 @@ test.describe("QA SKETCH-2 — grounding to the sketch frame", () => {
     await page.keyboard.up("Shift");
     await expect(page.getByTestId("selection-readout")).toContainText("2 pts");
     await page.keyboard.press("c");
+    // 9 = RECT-1's rigidity set (4 coincidences + 2H + 2V, authored by the
+    // draw) plus this grounding one. The rectangle is deliberately drawn CLEAR
+    // of the origin, so SNAP-3 infers nothing here and the grounding below is
+    // still a real gesture rather than a redundant one.
     await expect(page.getByTestId("selection-readout")).toContainText(
-      "1 applied",
+      "9 applied",
     );
     await finishSketch(page);
 

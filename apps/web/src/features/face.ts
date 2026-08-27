@@ -86,6 +86,40 @@ export function lastBodyFeatureId(
 }
 
 /**
+ * The anchor a `SubshapeRef` written BY `editingFeatureId` must carry — the last
+ * non-rolled-back body-affecting feature STRICTLY EARLIER than it in tree order.
+ * With `editingFeatureId === null` (authoring a NEW feature, which lands at the
+ * tip) this is exactly {@link lastBodyFeatureId}.
+ *
+ * PICK-1 (M16). `lastBodyFeatureId` alone is right only for a CREATE. A feature
+ * being EDITED sits somewhere in the middle of the tree, and `documents` applies
+ * the §2.2 strict-backward rule to every reference it carries
+ * (`_validate_references`: `target.order_index >= order_index` →
+ * `reference_not_earlier`, a 422). So re-stamping a mid-tree feature's picked
+ * edges/faces with the TIP names a feature that is LATER than the referrer — or,
+ * when the feature under edit IS the tip, names the feature itself. That is why
+ * a picked-edge fillet's radius could never be re-saved (M9/M10) and why M17's
+ * documented "re-pick the face" recovery wrote an id the server had to refuse.
+ *
+ * It is also the geometrically correct anchor, not just the one that passes the
+ * write rule: the kernel signature-matches a `SubshapeRef` against the body its
+ * `feature_id` produced, and the body a mid-tree feature operates on is the one
+ * left by the features BEFORE it (topological-naming §4).
+ *
+ * An unknown `editingFeatureId` (not in `features`) falls back to the whole
+ * list, i.e. the create answer — the honest reading of "this feature is not in
+ * the tree yet".
+ */
+export function anchorBodyFeatureId(
+  features: readonly FeatureResponse[],
+  editingFeatureId: string | null,
+): string | null {
+  if (editingFeatureId === null) return lastBodyFeatureId(features);
+  const at = features.findIndex((f) => f.id === editingFeatureId);
+  return lastBodyFeatureId(at < 0 ? features : features.slice(0, at));
+}
+
+/**
  * Build the stage-1 face reference from a planar overlay face's signature. The
  * signature is passed through UNCHANGED (full precision — §7.2 forbids
  * quantizing the stored identity) so the kernel resolver matches the SAME face.

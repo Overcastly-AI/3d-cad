@@ -22,6 +22,89 @@ export type SolveStatus = components["schemas"]["SolvedSketchData"]["status"];
  * expression/literal; for a DRIVEN dim it is measured from the solved geometry.
  */
 export type SolvedDimension = components["schemas"]["SolvedDimension"];
+/**
+ * One solved ANGULAR readout, in degrees, on the same `constraint_index` space
+ * as {@link SolvedDimension}. The contract keeps the two lists apart on purpose
+ * — there is no honest millimetre value for an angle, and `value_mm` is a
+ * required field every linear consumer reads unconditionally — so the merge
+ * happens here, once, in {@link solvedReadouts}.
+ */
+export type SolvedAngle = components["schemas"]["SolvedAngle"];
+
+/**
+ * THE readout the sketcher shows for one dimension, whatever its unit — the
+ * single merge point for `SolvedSketch.dimensions` + `SolvedSketch.angles`.
+ *
+ * QA-R2: the two wire lists were never merged, so `apps/web/src` read the
+ * linear list alone and NOTHING read `angles`. An angle driven by an expression
+ * therefore kept the placeholder degrees the client had guessed while the
+ * solver moved the model: authored 30, re-driven `15*3`, the geometry went to
+ * 45.000 and the glyph read `30°` forever. An annotation that contradicts the
+ * geometry is worse than an absent one, because it looks authoritative.
+ *
+ * `value` is in the constraint's OWN unit and `unit` says which, so a consumer
+ * cannot read degrees out of something named for millimetres — the property the
+ * split existed to protect, kept without forcing every reader to merge lists.
+ */
+export interface SolvedReadout {
+  constraint_index: number;
+  driving: boolean;
+  expression: string | null;
+  name: string | null;
+  /** The solved value in `unit`: evaluated if driving, measured if driven. */
+  value: number;
+  unit: "mm" | "deg";
+}
+
+/**
+ * Merge the solver's two per-dimension lists into one lookup by
+ * `constraint_index`. A constraint is linear or angular and never both, so an
+ * index collision means the payload disagrees with itself; the LINEAR entry
+ * wins and the angular one is dropped, but the unit rides along either way, so
+ * the readers below still refuse a readout whose unit does not match the
+ * constraint they are drawing. Silently showing the wrong unit is the failure
+ * this whole split exists to prevent.
+ */
+export function solvedReadouts(
+  dimensions: readonly SolvedDimension[],
+  angles: readonly SolvedAngle[],
+): Map<number, SolvedReadout> {
+  const byIndex = new Map<number, SolvedReadout>();
+  for (const angle of angles) {
+    byIndex.set(angle.constraint_index, {
+      constraint_index: angle.constraint_index,
+      driving: angle.driving,
+      expression: angle.expression ?? null,
+      name: angle.name ?? null,
+      value: angle.value_deg,
+      unit: "deg",
+    });
+  }
+  for (const dimension of dimensions) {
+    byIndex.set(dimension.constraint_index, {
+      constraint_index: dimension.constraint_index,
+      driving: dimension.driving,
+      expression: dimension.expression ?? null,
+      name: dimension.name ?? null,
+      value: dimension.value_mm,
+      unit: "mm",
+    });
+  }
+  return byIndex;
+}
+
+/** The readout for `index`, or undefined unless its unit is the one asked for. */
+export function readoutIn(
+  solved: ReadonlyMap<number, SolvedReadout> | undefined,
+  index: number | null | undefined,
+  unit: "mm" | "deg",
+): SolvedReadout | undefined {
+  if (solved === undefined || index === null || index === undefined) {
+    return undefined;
+  }
+  const readout = solved.get(index);
+  return readout?.unit === unit ? readout : undefined;
+}
 
 /** Constraint verbs — the keyboard-first strip actions. */
 export type ConstraintAction =
@@ -29,13 +112,17 @@ export type ConstraintAction =
   | "vertical"
   | "distance"
   | "radius"
+  | "diameter"
+  | "angle"
   | "fixed"
   | "coincident"
   | "parallel"
   | "perpendicular"
+  | "collinear"
   | "tangent"
   | "equal"
   | "symmetric"
+  | "midpoint"
   | "concentric";
 
 /**
@@ -49,6 +136,19 @@ export type ConstraintAction =
  * (◎) — E/S initial their verb; O takes coNcentric's stressed letter (C is
  * already coincident). None of E/S/O is a draw tool (tools are L/R/C/A), so
  * they only ever read as constraint verbs.
+ *
+ * SKETCH-VOCAB-1's five late verbs join on the same rules: **A** angle and
+ * **M** midpoint initial their verb; **I** takes collInear's first free letter
+ * (C/O/L/E are all spoken for), the cOncentric-O precedent. `a` and `i` are
+ * also the Arc and Mirror TOOL keys, which is the H/V/D/R/C/S reuse the two
+ * vocabularies already run on — selection presence decides, with no chord.
+ *
+ * DIAMETER GETS NO KEY OF ITS OWN, deliberately: **D is "dimension"**, and the
+ * selection says which dimension it is. On a line D is the length; on a circle
+ * or arc it is the diameter (`applyConstraintAction`'s `distance` arm routes
+ * it). That is how every CAD tool's one Dimension verb behaves, and inventing a
+ * second letter for the same intent would be vocabulary, not affordance —
+ * whereas `d` on a circle previously answered "Select one line to dimension."
  */
 export const CONSTRAINT_SHORTCUTS: Readonly<Record<string, ConstraintAction>> =
   {
@@ -56,13 +156,16 @@ export const CONSTRAINT_SHORTCUTS: Readonly<Record<string, ConstraintAction>> =
     v: "vertical",
     d: "distance",
     r: "radius",
+    a: "angle",
     x: "fixed",
     c: "coincident",
     p: "parallel",
     l: "perpendicular",
+    i: "collinear",
     t: "tangent",
     e: "equal",
     s: "symmetric",
+    m: "midpoint",
     o: "concentric",
   };
 
@@ -77,9 +180,10 @@ export const CONSTRUCTION_SHORTCUT = "n";
 /**
  * One keyboard, two vocabularies: with an EMPTY selection the letters arm
  * drawing tools (L/R/C/A); with a selection they are constraint verbs
- * (H/V/D/R/X/C plus P/L/T for parallel/perpendicular/tangent and E/S/O for
- * equal/symmetric/concentric) plus the construction toggle (N). Selection
- * presence is the mode — deterministic, no chords.
+ * (H/V/D/R/X/C plus P/L/T for parallel/perpendicular/tangent, E/S/O for
+ * equal/symmetric/concentric, and A/I/M for angle/collinear/midpoint) plus the
+ * construction toggle (N). Selection presence is the mode — deterministic, no
+ * chords.
  */
 export function resolveSketchKey(
   key: string,
@@ -122,6 +226,7 @@ export function constraintEntityRefs(constraint: SketchConstraint): string[] {
     case "vertical":
     case "distance":
     case "radius":
+    case "diameter":
       return [constraint.entity];
     case "fixed":
       return [constraint.point.entity];
@@ -132,9 +237,19 @@ export function constraintEntityRefs(constraint: SketchConstraint): string[] {
     case "tangent":
     case "equal":
     case "concentric":
+    case "angle":
+    case "collinear":
+      // `angle` and `collinear` relate two whole lines by id like the rest of this group; its
+      // VALUE lives on the constraint, not in the reference set. Listed here so
+      // a deleted line takes its angle dimension with it — an angle whose line
+      // is gone is a dangling reference the solver rejects.
       return [constraint.a, constraint.b];
     case "symmetric":
       return [constraint.a.entity, constraint.b.entity, constraint.line];
+    case "symmetric_lines":
+      return [constraint.a, constraint.b, constraint.line];
+    case "midpoint":
+      return [constraint.point.entity, constraint.line];
   }
 }
 
@@ -228,12 +343,48 @@ export function selectionAllConstruction(
   return addressed.every((e) => e.construction);
 }
 
-/** A dimension editor request: which value the inline mm field is driving. */
+/** The four dimension verbs — the ones whose value is typed, not inferred. */
+export type DimensionKind = "distance" | "radius" | "diameter" | "angle";
+
+/** Field label per dimension verb — the editor's noun and the a11y name. */
+export const DIMENSION_NOUN: Readonly<Record<DimensionKind, string>> = {
+  distance: "Distance",
+  radius: "Radius",
+  diameter: "Diameter",
+  angle: "Angle",
+};
+
+/**
+ * The unit the editor cell suffixes. `deg` rather than `°` in the FIELD (the
+ * cell sets at 2xs, where a lone degree ring is a smudge) while the in-canvas
+ * glyph keeps the drawing convention `30°` — the same split a drawing makes
+ * between its title block and its annotation.
+ */
+export const DIMENSION_UNIT: Readonly<Record<DimensionKind, string>> = {
+  distance: "mm",
+  radius: "mm",
+  diameter: "mm",
+  angle: "deg",
+};
+
+/** A dimension editor request: which value the inline field is driving. */
 export interface DimensionEditorTarget {
-  kind: "distance" | "radius";
+  kind: DimensionKind;
+  /** The dimensioned entity — the FIRST line of an `angle`. */
   entity: string;
-  /** Prefill: the existing driving value, or the measured current one. */
-  initialMm: number;
+  /** The second line of an `angle`; null for the single-entity dimensions. */
+  entityB: string | null;
+  /** The cell's label ({@link DIMENSION_NOUN}) — never re-derived downstream. */
+  noun: string;
+  /** The cell's unit suffix ({@link DIMENSION_UNIT}): `mm`, or `deg`. */
+  unit: string;
+  /**
+   * Prefill in the target's OWN unit — mm for the linear dims, DEGREES for an
+   * angle. Named for the quantity, not for millimetres, because a field called
+   * `initialMm` holding degrees is exactly the mislabelling `SolvedAngle` was
+   * split off `SolvedDimension` to prevent.
+   */
+  initialValue: number;
   /** Existing expression source (`width/2`), or null for a bare literal / new. */
   initialExpression: string | null;
   /** Existing reference name, or null (unnamed / new). */
@@ -251,7 +402,8 @@ export interface DimensionEditorTarget {
  * `name`, and the driving/driven flag (`false` = driven).
  */
 export interface DimensionCommit {
-  valueMm: number;
+  /** In the target's own unit — mm, or DEGREES for an `angle`. */
+  value: number;
   expression: string | null;
   name: string | null;
   driving: boolean;
@@ -260,11 +412,37 @@ export interface DimensionCommit {
 export type ConstraintActionResult =
   | { outcome: "added"; constraints: SketchConstraint[] }
   | { outcome: "editor"; target: DimensionEditorTarget }
-  | { outcome: "hint"; hint: string };
+  | {
+      outcome: "hint";
+      hint: string;
+      /**
+       * The verb was refused because the relation IS ALREADY THERE, as opposed
+       * to the selection being wrong for it. The two read the same on screen
+       * and are not the same event: the second is a mistake, the first is the
+       * user stating something true that the tool had already inferred.
+       *
+       * SNAP-5 made that distinction load-bearing. Before it, pressing H on a
+       * line you drew horizontal AUTHORED the constraint and bound the sketch;
+       * after it, the draw has usually inferred the same fact already, so the
+       * keystroke fell through to "Already horizontal." and the sketch stayed
+       * unbound — the user's explicit act producing no effect at all, which is
+       * the dead-end class CLAUDE.md's flow rule forbids. The store adopts
+       * this flag as intent (`userConstrained`); nothing else consumes it, and
+       * a consumer that ignores it behaves exactly as before.
+       */
+      already?: true;
+    };
 
 const hint = (text: string): ConstraintActionResult => ({
   outcome: "hint",
   hint: text,
+});
+
+/** A refusal whose cause is "you already have this" — see `already`. */
+const alreadyHint = (text: string): ConstraintActionResult => ({
+  outcome: "hint",
+  hint: text,
+  already: true,
 });
 
 /**
@@ -301,6 +479,30 @@ function selectedLineIds(
   return ids;
 }
 
+/** Selected circles/arcs, in click order — the radius/diameter subjects. */
+function selectedRoundIds(
+  selection: readonly SketchPick[],
+  entities: readonly SketchEntity[],
+): string[] {
+  const byId = new Map(entities.map((e) => [e.id, e]));
+  const ids: string[] = [];
+  for (const pick of selection) {
+    if (pick.kind !== "entity" || ids.includes(pick.id)) continue;
+    const kind = byId.get(pick.id)?.kind;
+    if (kind === "circle" || kind === "arc") ids.push(pick.id);
+  }
+  return ids;
+}
+
+/**
+ * How close to 0/180 counts as "already parallel" for the angle verb. Not a
+ * geometric tolerance — the SOLVER's own domain edge, stated by
+ * `AngleConstraint` (`0 < value_deg < 180`). A tenth of a degree is finer than
+ * anything a user can draw by hand and coarser than any float wobble, so the
+ * verb refuses exactly the selections the server would 422.
+ */
+const ANGLE_MIN_DEG = 0.1;
+
 /** Selected whole-entity picks, resolved to `{ id, kind }`, in click order. */
 function selectedEntities(
   selection: readonly SketchPick[],
@@ -333,6 +535,11 @@ export function sameConstraint(
       return a.entity === (b as typeof a).entity;
     case "distance":
     case "radius":
+    case "diameter":
+      // A diameter and a radius on one circle are the SAME dimension in two
+      // units and are mutually redundant, but they are different `kind`s, so
+      // the early `a.kind !== b.kind` guard already keeps them apart here; the
+      // solver reports the redundancy.
       return a.entity === (b as typeof a).entity;
     case "fixed":
       return sameRef(a.point, (b as typeof a).point);
@@ -350,12 +557,33 @@ export function sameConstraint(
     case "perpendicular":
     case "tangent":
     case "equal":
-    case "concentric": {
+    case "concentric":
+    case "angle":
+    case "collinear": {
+      // An `angle` on the same (unordered) pair is the same DIMENSION whatever
+      // number it carries — dedupe by the pair, exactly as `distance` dedupes
+      // by its entity rather than by its value. Two angles on one pair is the
+      // over-constraint, not two different constraints.
       const other = b as typeof a;
       return (
         (a.a === other.a && a.b === other.b) ||
         (a.a === other.b && a.b === other.a)
       );
+    }
+    // symmetric_lines ties two whole lines about an axis: same axis, and the
+    // same (unordered) line pair.
+    case "symmetric_lines": {
+      const other = b as typeof a;
+      return (
+        a.line === other.line &&
+        ((a.a === other.a && a.b === other.b) ||
+          (a.a === other.b && a.b === other.a))
+      );
+    }
+    // midpoint ties ONE point to one line: same point, same line.
+    case "midpoint": {
+      const other = b as typeof a;
+      return sameRef(a.point, other.point) && a.line === other.line;
     }
     // symmetric ties two points about a line: same axis, and the same
     // (unordered) point pair.
@@ -375,6 +603,72 @@ const measuredLength = (entity: SketchEntity): number =>
     ? Math.hypot(entity.end.x - entity.start.x, entity.end.y - entity.start.y)
     : 0;
 
+/** A line's two named ends — the only points an angle's corner can sit on. */
+type LineEnd = "start" | "end";
+
+const isLineEnd = (point: string): point is LineEnd =>
+  point === "start" || point === "end";
+
+/**
+ * The corner two lines are JOINED at, read symbolically from the sketch's own
+ * `coincident` constraints — never from a coordinate-proximity test, which
+ * would need an epsilon and would silently change meaning as geometry moved
+ * (the rule `AngleConstraint` states, applied client-side so the number we
+ * prefill is the number the solver will report back).
+ */
+function sharedCorner(
+  a: string,
+  b: string,
+  constraints: readonly SketchConstraint[],
+): { a: LineEnd; b: LineEnd } | null {
+  for (const constraint of constraints) {
+    if (constraint.kind !== "coincident") continue;
+    for (const [p, q] of [
+      [constraint.a, constraint.b],
+      [constraint.b, constraint.a],
+    ] as const) {
+      if (
+        p.entity === a &&
+        q.entity === b &&
+        isLineEnd(p.point) &&
+        isLineEnd(q.point)
+      ) {
+        return { a: p.point, b: q.point };
+      }
+    }
+  }
+  return null;
+}
+
+/** A line's direction taken AWAY from `end` (its far end minus that end). */
+function directionFrom(entity: SketchEntity, end: LineEnd | null): Point2D {
+  if (entity.kind !== "line") return { x: 0, y: 0 };
+  const [from, to] =
+    end === "end" ? [entity.end, entity.start] : [entity.start, entity.end];
+  return { x: to.x - from.x, y: to.y - from.y };
+}
+
+/**
+ * The angle two selected lines currently subtend, in degrees, by
+ * `AngleConstraint`'s convention: measured away from the corner they are
+ * joined at when they have one (the interior angle a user sees at a profile
+ * corner), else between their authored start→end directions. Unsigned, in
+ * [0, 180] — the side is the geometry's, never the number's.
+ */
+export function measuredAngleDeg(
+  a: SketchEntity,
+  b: SketchEntity,
+  constraints: readonly SketchConstraint[],
+): number {
+  const corner = sharedCorner(a.id, b.id, constraints);
+  const u = directionFrom(a, corner?.a ?? null);
+  const v = directionFrom(b, corner?.b ?? null);
+  const scale = Math.hypot(u.x, u.y) * Math.hypot(v.x, v.y);
+  if (scale === 0) return 0;
+  const cos = Math.min(1, Math.max(-1, (u.x * v.x + u.y * v.y) / scale));
+  return (Math.acos(cos) * 180) / Math.PI;
+}
+
 const measuredRadius = (entity: SketchEntity): number => {
   if (entity.kind === "circle") return entity.radius;
   if (entity.kind === "arc") {
@@ -386,11 +680,133 @@ const measuredRadius = (entity: SketchEntity): number => {
   return 0;
 };
 
+/** The typed value already on a dimension constraint, in its own unit. */
+export interface PriorDimension {
+  value: number;
+  expression: string | null;
+  name: string | null;
+  driving: boolean;
+}
+
+/**
+ * Read a constraint's dimension fields, or null when it carries no typed value.
+ * ONE reader for all four dimension kinds, so `angle`'s degrees can never be
+ * picked up through a `value_mm` path.
+ */
+export function priorDimension(
+  constraint: SketchConstraint | undefined,
+): PriorDimension | null {
+  if (constraint === undefined) return null;
+  switch (constraint.kind) {
+    case "distance":
+    case "radius":
+    case "diameter":
+      return {
+        value: constraint.value_mm,
+        expression: constraint.expression ?? null,
+        name: constraint.name ?? null,
+        driving: constraint.driving !== false,
+      };
+    case "angle":
+      return {
+        value: constraint.value_deg,
+        expression: constraint.expression ?? null,
+        name: constraint.name ?? null,
+        driving: constraint.driving !== false,
+      };
+    default:
+      return null;
+  }
+}
+
+const targetOf = (
+  kind: DimensionKind,
+  entity: string,
+  entityB: string | null,
+  prior: PriorDimension,
+  constraintIndex: number | null,
+): DimensionEditorTarget => ({
+  kind,
+  entity,
+  entityB,
+  noun: DIMENSION_NOUN[kind],
+  unit: DIMENSION_UNIT[kind],
+  initialValue: prior.value,
+  initialExpression: prior.expression,
+  initialName: prior.name,
+  initialDriving: prior.driving,
+  constraintIndex,
+});
+
+/**
+ * A dimension verb's answer: open the inline editor on the target, prefilled
+ * from the dimension already there (so pressing the verb twice EDITS rather
+ * than stacking a second, redundant dimension) or from the measured geometry.
+ */
+function dimensionEditor(
+  kind: DimensionKind,
+  entity: string,
+  entityB: string | null,
+  measured: number,
+  constraints: readonly SketchConstraint[],
+): ConstraintActionResult {
+  // The probe's value is immaterial: `sameConstraint` dedupes a dimension by
+  // its SUBJECT (the entity, or the unordered line pair), never by its number.
+  const probe: SketchConstraint =
+    kind === "angle"
+      ? { kind, a: entity, b: entityB ?? entity, value_deg: measured }
+      : { kind, entity, value_mm: measured };
+  const index = constraints.findIndex((c) => sameConstraint(c, probe));
+  const prior = priorDimension(
+    index === -1 ? undefined : constraints[index],
+  ) ?? {
+    value: measured,
+    expression: null,
+    name: null,
+    driving: true,
+  };
+  return {
+    outcome: "editor",
+    target: targetOf(kind, entity, entityB, prior, index === -1 ? null : index),
+  };
+}
+
+/** Open the editor on an EXISTING dimension (a glyph click, not a verb). */
+export function dimensionEditorTarget(
+  constraint: SketchConstraint,
+  constraintIndex: number,
+): DimensionEditorTarget | null {
+  const prior = priorDimension(constraint);
+  if (prior === null) return null;
+  switch (constraint.kind) {
+    case "distance":
+    case "radius":
+    case "diameter":
+      return targetOf(
+        constraint.kind,
+        constraint.entity,
+        null,
+        prior,
+        constraintIndex,
+      );
+    case "angle":
+      return targetOf(
+        "angle",
+        constraint.a,
+        constraint.b,
+        prior,
+        constraintIndex,
+      );
+    default:
+      return null;
+  }
+}
+
 /**
  * Apply a constraint verb to the current selection. Dimensions (distance /
- * radius) answer with an inline-editor request instead of a constraint —
- * the value drives, so the value gets typed. Invalid selections answer with
- * a hint, never silence.
+ * radius / diameter / angle) answer with an inline-editor request instead of a
+ * constraint — the value drives, so the value gets typed. Invalid selections
+ * answer with a hint, never silence.
  */
 export function applyConstraintAction(
   action: ConstraintAction,
@@ -423,64 +839,114 @@ export function applyConstraintAction(
           added.push(constraint);
         }
       }
-      if (added.length === 0) return hint(`Already ${action}.`);
+      if (added.length === 0) return alreadyHint(`Already ${action}.`);
       return { outcome: "added", constraints: added };
     }
     case "distance": {
       const lines = selectedLineIds(selection, entities);
       const entity = lines[0];
       if (lines.length !== 1 || entity === undefined) {
+        // D IS "DIMENSION", AND THE SELECTION SAYS WHICH ONE. A round under D
+        // used to answer "Select one line to dimension." — a refusal aimed at
+        // someone who had already said exactly what they wanted to dimension,
+        // and the reason `diameter` shipped in the contract unreachable. Fall
+        // through to the diameter arm before refusing.
+        const rounds = selectedRoundIds(selection, entities);
+        if (lines.length === 0 && rounds.length === 1) {
+          return applyConstraintAction(
+            "diameter",
+            selection,
+            entities,
+            constraints,
+          );
+        }
         return hint("Select one line to dimension.");
       }
-      const existing = constraints.findIndex(
-        (c) => c.kind === "distance" && c.entity === entity,
+      return dimensionEditor(
+        "distance",
+        entity,
+        null,
+        measuredLength(byId.get(entity) as SketchEntity),
+        constraints,
       );
-      const existingConstraint = constraints[existing];
-      const prior =
-        existingConstraint?.kind === "distance" ? existingConstraint : null;
-      return {
-        outcome: "editor",
-        target: {
-          kind: "distance",
-          entity,
-          initialMm:
-            prior?.value_mm ?? measuredLength(byId.get(entity) as SketchEntity),
-          initialExpression: prior?.expression ?? null,
-          initialName: prior?.name ?? null,
-          initialDriving: prior?.driving !== false,
-          constraintIndex: existing === -1 ? null : existing,
-        },
-      };
     }
-    case "radius": {
-      const rounds = selection.flatMap((pick) => {
-        if (pick.kind !== "entity") return [];
-        const kind = byId.get(pick.id)?.kind;
-        return kind === "circle" || kind === "arc" ? [pick.id] : [];
-      });
+    case "radius":
+    case "diameter": {
+      const rounds = selectedRoundIds(selection, entities);
       const entity = rounds[0];
       if (rounds.length !== 1 || entity === undefined) {
-        return hint("Select one circle or arc to dimension.");
+        return hint(`Select one circle or arc to dimension the ${action}.`);
       }
-      const existing = constraints.findIndex(
-        (c) => c.kind === "radius" && c.entity === entity,
+      const measured = measuredRadius(byId.get(entity) as SketchEntity);
+      return dimensionEditor(
+        action,
+        entity,
+        null,
+        action === "diameter" ? measured * 2 : measured,
+        constraints,
       );
-      const existingConstraint = constraints[existing];
-      const prior =
-        existingConstraint?.kind === "radius" ? existingConstraint : null;
-      return {
-        outcome: "editor",
-        target: {
-          kind: "radius",
-          entity,
-          initialMm:
-            prior?.value_mm ?? measuredRadius(byId.get(entity) as SketchEntity),
-          initialExpression: prior?.expression ?? null,
-          initialName: prior?.name ?? null,
-          initialDriving: prior?.driving !== false,
-          constraintIndex: existing === -1 ? null : existing,
-        },
+    }
+    case "angle": {
+      const lines = selectedLineIds(selection, entities);
+      const [a, b] = lines;
+      if (lines.length !== 2 || a === undefined || b === undefined) {
+        return hint("Select two lines to dimension the angle between them.");
+      }
+      const measured = measuredAngleDeg(
+        byId.get(a) as SketchEntity,
+        byId.get(b) as SketchEntity,
+        constraints,
+      );
+      // The contract's own bound: `value_deg` is strictly inside (0, 180),
+      // because the open ends ARE the parallel degeneracy and a single
+      // unsigned number cannot say which side b sits on. Name the verb that
+      // does own that case instead of letting the server 422.
+      if (measured < ANGLE_MIN_DEG || measured > 180 - ANGLE_MIN_DEG) {
+        return hint(
+          "These lines are already parallel — use Parallel (P), or move one line off the other's direction first.",
+        );
+      }
+      return dimensionEditor("angle", a, b, measured, constraints);
+    }
+    case "collinear": {
+      const lines = selectedLineIds(selection, entities);
+      const [a, b] = lines;
+      if (lines.length !== 2 || a === undefined || b === undefined) {
+        return hint("Select two lines to put them on one line.");
+      }
+      const constraint: SketchConstraint = { kind: "collinear", a, b };
+      if (constraints.some((c) => sameConstraint(c, constraint))) {
+        return alreadyHint("Already collinear.");
+      }
+      return { outcome: "added", constraints: [constraint] };
+    }
+    case "midpoint": {
+      const points = selection.filter((pick) => pick.kind === "point");
+      const point = points[0];
+      const lines = selectedLineIds(selection, entities);
+      const line = lines[0];
+      if (points.length !== 1 || point === undefined) {
+        return hint("Select one point and one line to centre the point on it.");
+      }
+      if (lines.length !== 1 || line === undefined) {
+        return hint(
+          "Midpoint needs one line for the point to sit halfway along.",
+        );
+      }
+      if (point.entity === line) {
+        return hint(
+          "Pick a point on OTHER geometry — a line's own end cannot be its middle.",
+        );
+      }
+      const constraint: SketchConstraint = {
+        kind: "midpoint",
+        point: { entity: point.entity, point: point.point },
+        line,
       };
+      if (constraints.some((c) => sameConstraint(c, constraint))) {
+        return alreadyHint("Already at the midpoint.");
+      }
+      return { outcome: "added", constraints: [constraint] };
     }
     case "fixed": {
       const points = selection.filter((pick) => pick.kind === "point");
@@ -495,7 +961,7 @@ export function applyConstraintAction(
           added.push(constraint);
         }
       }
-      if (added.length === 0) return hint("Already fixed.");
+      if (added.length === 0) return alreadyHint("Already fixed.");
       return { outcome: "added", constraints: added };
     }
     case "coincident": {
@@ -513,7 +979,7 @@ export function applyConstraintAction(
         b: { entity: b.entity, point: b.point },
       };
       if (constraints.some((c) => sameConstraint(c, constraint))) {
-        return hint("Already coincident.");
+        return alreadyHint("Already coincident.");
       }
       return { outcome: "added", constraints: [constraint] };
     }
@@ -526,7 +992,7 @@ export function applyConstraintAction(
       }
       const constraint: SketchConstraint = { kind: action, a, b };
       if (constraints.some((c) => sameConstraint(c, constraint))) {
-        return hint(`Already ${action}.`);
+        return alreadyHint(`Already ${action}.`);
       }
       return { outcome: "added", constraints: [constraint] };
     }
@@ -549,7 +1015,7 @@ export function applyConstraintAction(
         b: b.id,
       };
       if (constraints.some((c) => sameConstraint(c, constraint))) {
-        return hint("Already tangent.");
+        return alreadyHint("Already tangent.");
       }
       return { outcome: "added", constraints: [constraint] };
     }
@@ -571,7 +1037,7 @@ export function applyConstraintAction(
       }
       const constraint: SketchConstraint = { kind: "equal", a: a.id, b: b.id };
       if (constraints.some((c) => sameConstraint(c, constraint))) {
-        return hint("Already equal.");
+        return alreadyHint("Already equal.");
       }
       return { outcome: "added", constraints: [constraint] };
     }
@@ -589,19 +1055,53 @@ export function applyConstraintAction(
         b: b.id,
       };
       if (constraints.some((c) => sameConstraint(c, constraint))) {
-        return hint("Already concentric.");
+        return alreadyHint("Already concentric.");
       }
       return { outcome: "added", constraints: [constraint] };
     }
     case "symmetric": {
       const points = selection.filter((pick) => pick.kind === "point");
+      const lines = selectedLineIds(selection, entities);
+      // TWO LINES ABOUT A CENTERLINE IS THE COMMON CASE, and until now it was
+      // the one selection this verb REFUSED — "Select two points and a line"
+      // answered to someone holding exactly the mirrored pair a symmetric
+      // profile is made of (docs/AUDIT-PRODUCT.md; `symmetric_lines` shipped in
+      // the contract with no way to author it). The axis is the CONSTRUCTION
+      // line in the selection — a centerline or a datum axis, both construction
+      // by definition — which also disambiguates without asking for click
+      // order: profile geometry is the pair, reference geometry is the mirror.
+      if (points.length === 0 && lines.length === 3) {
+        const byLine = new Map(entities.map((e) => [e.id, e]));
+        const axes = lines.filter(
+          (id) => byLine.get(id)?.construction === true,
+        );
+        const line = axes[0];
+        if (axes.length !== 1 || line === undefined) {
+          return hint(
+            "Mark the mirror line as construction (N) — the centerline is what the other two are symmetric about.",
+          );
+        }
+        const [a, b] = lines.filter((id) => id !== line);
+        if (a === undefined || b === undefined) {
+          return hint("Select two lines and the centerline between them.");
+        }
+        const constraint: SketchConstraint = {
+          kind: "symmetric_lines",
+          a,
+          b,
+          line,
+        };
+        if (constraints.some((c) => sameConstraint(c, constraint))) {
+          return alreadyHint("Already symmetric about that line.");
+        }
+        return { outcome: "added", constraints: [constraint] };
+      }
       const [a, b] = points;
       if (points.length !== 2 || a === undefined || b === undefined) {
         return hint(
-          "Select two points and a line (the mirror axis) to make symmetric.",
+          "Select two points and a line — or two lines and a centerline — to make symmetric.",
         );
       }
-      const lines = selectedLineIds(selection, entities);
       const line = lines[0];
       if (lines.length !== 1 || line === undefined) {
         return hint(
@@ -618,7 +1118,7 @@ export function applyConstraintAction(
         line,
       };
       if (constraints.some((c) => sameConstraint(c, constraint))) {
-        return hint("Already symmetric about that line.");
+        return alreadyHint("Already symmetric about that line.");
       }
       return { outcome: "added", constraints: [constraint] };
     }
@@ -657,20 +1157,26 @@ export function formatDimensionMm(value: number): string {
 }
 
 /**
- * A dimension glyph's label. Driving dims read bare ("40", "R12.5"); DRIVEN
- * (reference) dims wear the drafting convention — parentheses, "(40)" /
- * "(R12.5)" — so a measured, informational value is never mistaken for a
- * driving one.
+ * A dimension glyph's label, in the drawing's own notation: a length is bare
+ * ("40"), a radius takes the R prefix ("R12.5"), a diameter the ⌀ ring
+ * ("⌀25"), an angle the degree ring ("30°"). DRIVEN (reference) dims wear the
+ * drafting convention — parentheses, "(40)" — so a measured, informational
+ * value is never mistaken for a driving one.
  */
 export function formatDimensionLabel(
-  kind: "distance" | "radius",
+  kind: DimensionKind,
   value: number,
   driven: boolean,
 ): string {
+  const text = formatDimensionMm(value);
   const core =
     kind === "radius"
-      ? `R${formatDimensionMm(value)}`
-      : formatDimensionMm(value);
+      ? `R${text}`
+      : kind === "diameter"
+        ? `⌀${text}`
+        : kind === "angle"
+          ? `${text}°`
+          : text;
   return driven ? `(${core})` : core;
 }
 
@@ -777,12 +1283,54 @@ function entityGlyphAnchor(entity: SketchEntity, offsetMm: number): Point2D {
 }
 
 /**
+ * Where an angle dimension is written: just inside the wedge, on the bisector
+ * of the corner the two lines share — exactly where a draughtsman puts it,
+ * because that is the only place the number is unambiguous about WHICH of the
+ * two supplementary angles it names. With no shared corner (two free lines)
+ * it falls back to the midpoint between the two lines' own marks.
+ */
+function angleAnchor(
+  a: SketchEntity,
+  b: SketchEntity,
+  constraints: readonly SketchConstraint[],
+  offsetMm: number,
+): Point2D {
+  const corner = sharedCorner(a.id, b.id, constraints);
+  if (corner === null || a.kind !== "line" || b.kind !== "line") {
+    const pa = entityGlyphAnchor(a, offsetMm);
+    const pb = entityGlyphAnchor(b, offsetMm);
+    return { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 };
+  }
+  const at = corner.a === "end" ? a.end : a.start;
+  const u = directionFrom(a, corner.a);
+  const v = directionFrom(b, corner.b);
+  const nu = Math.hypot(u.x, u.y);
+  const nv = Math.hypot(v.x, v.y);
+  if (nu === 0 || nv === 0) return { x: at.x + offsetMm, y: at.y + offsetMm };
+  const bx = u.x / nu + v.x / nv;
+  const by = u.y / nu + v.y / nv;
+  const nb = Math.hypot(bx, by);
+  // Anti-parallel legs leave no bisector; the angle verb refuses that case, so
+  // this only guards a constraint authored before the lines moved.
+  if (nb === 0) return { x: at.x + offsetMm, y: at.y + offsetMm };
+  // Three glyph offsets out along the bisector: far enough clear of the corner
+  // vertex (where the coincident C mark already sits) to read as its own text.
+  const reach = offsetMm * 3;
+  return { x: at.x + (bx / nb) * reach, y: at.y + (by / nb) * reach };
+}
+
+/**
  * Whole-entity relational marks — engineering-drawing notation, one bare
  * mono glyph each. Equal is the `=` sign; concentric is the bullseye ◎ (a
  * circle inside a circle — the relation drawn as its own picture).
  */
 const RELATIONAL_LABEL: Record<
-  "parallel" | "perpendicular" | "tangent" | "equal" | "concentric",
+  | "parallel"
+  | "perpendicular"
+  | "tangent"
+  | "equal"
+  | "concentric"
+  | "collinear",
   string
 > = {
   parallel: "∥",
@@ -790,22 +1338,27 @@ const RELATIONAL_LABEL: Record<
   tangent: "T",
   equal: "=",
   concentric: "◎",
+  // Collinear has no single-character drawing sign the way ∥ and ⊥ do, so it
+  // takes the two-letter stamp FIX already established rather than an invented
+  // pictograph nobody would read.
+  collinear: "CL",
 };
 
 /**
  * Constraints → annotation glyphs at their current (solved) geometry.
  * Letters and numbers only — Fragment Mono native, no icon font, no badge.
  *
- * `solved` (keyed by `constraint_index`) carries the per-dimension solve
- * readouts: a driving dim shows its EVALUATED value (an expression `width/2`
- * reads as `10`), a driven dim its MEASURED value in reference parentheses.
- * Pre-solve (no map) the glyph falls back to the authored `value_mm`/flag.
+ * `solved` (keyed by `constraint_index`, built by {@link solvedReadouts}) carries
+ * the per-dimension solve readouts in their own units: a driving dim shows its
+ * EVALUATED value (an expression `width/2` reads as `10`, `15*3` as `45°`), a
+ * driven dim its MEASURED value in reference parentheses. Pre-solve (no map)
+ * the glyph falls back to the authored `value_mm` / `value_deg` and flag.
  */
 export function constraintGlyphs(
   constraints: readonly SketchConstraint[],
   entities: readonly SketchEntity[],
   offsetMm: number,
-  solved?: ReadonlyMap<number, SolvedDimension>,
+  solved?: ReadonlyMap<number, SolvedReadout>,
 ): ConstraintGlyph[] {
   const byId = new Map(entities.map((e) => [e.id, e]));
   const glyphs: ConstraintGlyph[] = [];
@@ -832,15 +1385,16 @@ export function constraintGlyphs(
         return;
       }
       case "distance":
-      case "radius": {
+      case "radius":
+      case "diameter": {
         const entity = byId.get(constraint.entity);
         if (entity === undefined) return;
-        const readout = solved?.get(index);
+        const readout = readoutIn(solved, index, "mm");
         const driven =
           readout !== undefined
             ? !readout.driving
             : constraint.driving === false;
-        const value = readout?.value_mm ?? constraint.value_mm;
+        const value = readout?.value ?? constraint.value_mm;
         glyphs.push({
           index,
           kind: constraint.kind,
@@ -850,6 +1404,38 @@ export function constraintGlyphs(
             constraint.kind === "distance"
               ? lineAnnotationAnchor(entity, -offsetMm)
               : radiusAnchor(entity, offsetMm),
+          editable: true,
+          driven,
+          expression: readout?.expression ?? constraint.expression ?? null,
+        });
+        return;
+      }
+      case "angle": {
+        const a = byId.get(constraint.a);
+        const b = byId.get(constraint.b);
+        if (a === undefined || b === undefined) return;
+        // Degrees ride `SolvedSketch.angles` and reach this builder through the
+        // SAME merged map as the linear readouts (`readoutIn` refuses a
+        // millimetre reading here, so the split's guarantee is kept by the
+        // lookup rather than by withholding the list). QA-R2: without it the
+        // label was the authored `value_deg` — true for a bare literal, and a
+        // LIE for an expression or a reference angle, where the solver holds a
+        // value the client never computed. Pre-solve it still falls back to the
+        // authored number, which is the best available reading then.
+        const readout = readoutIn(solved, index, "deg");
+        const driven =
+          readout !== undefined
+            ? !readout.driving
+            : constraint.driving === false;
+        glyphs.push({
+          index,
+          kind: "angle",
+          label: formatDimensionLabel(
+            "angle",
+            readout?.value ?? constraint.value_deg,
+            driven,
+          ),
+          anchor: angleAnchor(a, b, constraints, offsetMm),
           editable: true,
           driven,
           expression: readout?.expression ?? constraint.expression ?? null,
@@ -884,7 +1470,8 @@ export function constraintGlyphs(
       case "perpendicular":
       case "tangent":
       case "equal":
-      case "concentric": {
+      case "concentric":
+      case "collinear": {
         // Anchor on the first entity of the pair; skip if it's gone mid-edit.
         const entity = byId.get(constraint.a);
         if (entity === undefined) return;
@@ -920,22 +1507,67 @@ export function constraintGlyphs(
         });
         return;
       }
+      case "symmetric_lines": {
+        // Same relation, same ⟷ mark as the point-pair symmetric — a user who
+        // learned the sign on one reads it on the other. It sits between the
+        // two mirrored lines' midpoints, i.e. on the axis once solved.
+        const a = byId.get(constraint.a);
+        const b = byId.get(constraint.b);
+        if (a === undefined || b === undefined) return;
+        const pa = entityGlyphAnchor(a, 0);
+        const pb = entityGlyphAnchor(b, 0);
+        glyphs.push({
+          index,
+          kind: "symmetric_lines",
+          label: "⟷",
+          anchor: {
+            x: (pa.x + pb.x) / 2,
+            y: (pa.y + pb.y) / 2 + offsetMm,
+          },
+          editable: false,
+          ...geometric,
+        });
+        return;
+      }
+      case "midpoint": {
+        if (!byId.has(constraint.point.entity) || !byId.has(constraint.line)) {
+          return;
+        }
+        const at = pointOf(constraint.point, byId);
+        glyphs.push({
+          index,
+          kind: "midpoint",
+          label: "M",
+          anchor: { x: at.x + offsetMm, y: at.y - offsetMm },
+          editable: false,
+          ...geometric,
+        });
+        return;
+      }
     }
   });
   return glyphs;
 }
 
-/** Anchor for a dimension editor opened on an entity with no constraint yet. */
+/**
+ * Anchor for a dimension editor opened on an entity with no constraint yet.
+ * The editor opens exactly where the glyph will land, so applying a value
+ * never moves the number the user was just looking at.
+ */
 export function dimensionEditorAnchor(
   target: DimensionEditorTarget,
   entities: readonly SketchEntity[],
   offsetMm: number,
+  constraints: readonly SketchConstraint[] = [],
 ): Point2D {
   const entity = entities.find((e) => e.id === target.entity);
   if (entity === undefined) return { x: 0, y: 0 };
-  return target.kind === "distance"
-    ? lineAnnotationAnchor(entity, -offsetMm)
-    : radiusAnchor(entity, offsetMm);
+  if (target.kind === "distance")
+    return lineAnnotationAnchor(entity, -offsetMm);
+  if (target.kind !== "angle") return radiusAnchor(entity, offsetMm);
+  const other = entities.find((e) => e.id === target.entityB);
+  if (other === undefined) return entityGlyphAnchor(entity, offsetMm);
+  return angleAnchor(entity, other, constraints, offsetMm);
 }
 
 // ---------------------------------------------------------------------------
@@ -1063,34 +1695,179 @@ export function describeSelection(selection: readonly SketchPick[]): string {
 export interface SketchVerbHint {
   key: string;
   label: string;
+  /** The verb the key runs, so the keycap can also be CLICKED to run it. */
+  action: ConstraintAction;
 }
 
 /**
- * The dimension verb the CURRENT selection makes available, surfaced as a quiet
- * status-bar affordance so select-then-D stops being invisible (FINDINGS #12 —
- * the probable novice give-up point). Reuses {@link applyConstraintAction}'s own
- * acceptance: a hint appears only when the key would actually open the dimension
- * editor (one line → **D** distance, one circle/arc → **R** radius), never a key
- * that would just print "Select one line to dimension." Truthful by construction
- * — the same predicate the keypress runs, no parallel rule to drift.
+ * The verbs the offer rail may propose, MOST SPECIFIC FIRST.
+ *
+ * Order is the whole design. Every verb below is already reachable by key, and
+ * a list of everything the selection accepts would be a menu — which is the
+ * thing the user was already failing to read. So the rail proposes the verbs
+ * that this PARTICULAR selection unlocks and a general toolbar cannot: the
+ * dimension the selection implies, then the relations that need a specific
+ * shape of pick (an angle needs two lines; symmetric needs a centerline in the
+ * selection). The broad relations that apply to almost any pair — parallel,
+ * perpendicular, equal — come last and usually fall off the end.
  */
-export function dimensionVerbHint(
+const VERB_OFFER_ORDER: readonly ConstraintAction[] = [
+  "angle",
+  // Diameter before distance: on a round, D routes to diameter, so both verbs
+  // accept the same selection and the more specific label must win the key.
+  "diameter",
+  "distance",
+  "radius",
+  "collinear",
+  "symmetric",
+  "midpoint",
+  "concentric",
+  "tangent",
+  "equal",
+  "parallel",
+  "perpendicular",
+];
+
+/** Plain-verb labels — what the user is about to do, in their words. */
+const VERB_LABEL: Readonly<Record<ConstraintAction, string>> = {
+  horizontal: "horizontal",
+  vertical: "vertical",
+  distance: "dimension",
+  radius: "radius",
+  diameter: "diameter",
+  angle: "angle",
+  fixed: "fix",
+  coincident: "join",
+  parallel: "parallel",
+  perpendicular: "perpendicular",
+  collinear: "collinear",
+  tangent: "tangent",
+  equal: "equal",
+  symmetric: "symmetric",
+  midpoint: "midpoint",
+  concentric: "concentric",
+};
+
+/**
+ * THE PICK SHAPE EACH VERB NEEDS — a noun phrase, never a sentence.
+ *
+ * The one thing a user cannot deduce from a verb's NAME is what to hold before
+ * pressing it, and it is the only reason the offer rail is not the whole
+ * answer: the rail proposes a verb once the selection already fits, so it can
+ * never teach the selection that would make it appear. "Angle" is not
+ * discoverable from an empty selection at any price; "angle · needs 2 lines"
+ * is.
+ *
+ * Deliberately NOT derived from `applyConstraintAction`'s refusal strings.
+ * Those are full sentences aimed at a user who has just been refused ("Select
+ * two lines to dimension the angle between them"), and sixteen of them stacked
+ * in a menu is prose, not an instrument. The totality is what keeps the two
+ * honest instead: this is an exhaustive `Record<ConstraintAction, …>`, so a new
+ * verb cannot compile without stating its shape here.
+ */
+const VERB_SELECTION: Readonly<Record<ConstraintAction, string>> = {
+  horizontal: "a line",
+  vertical: "a line",
+  distance: "a line",
+  radius: "a circle/arc",
+  diameter: "a circle/arc",
+  angle: "2 non-parallel lines",
+  fixed: "a point",
+  coincident: "2 points",
+  parallel: "2 lines",
+  perpendicular: "2 lines",
+  collinear: "2 lines",
+  tangent: "a curve + a circle/arc",
+  equal: "2 lines, or 2 circles/arcs",
+  // Both forms, even though it wraps: this row is the one the OLD caption got
+  // wrong by naming only the points form, and a shorter half-truth here would
+  // reintroduce exactly that defect one line lower.
+  symmetric: "2 points + a line, or 2 lines + a centerline",
+  midpoint: "a point + a line",
+  concentric: "2 circles/arcs",
+};
+
+/** The pick shape {@link action} needs, for a surface that must say so. */
+export function verbSelectionShape(action: ConstraintAction): string {
+  return VERB_SELECTION[action];
+}
+
+/**
+ * Would {@link action} DO something with this exact selection?
+ *
+ * The single availability predicate, and deliberately the only one. Both
+ * surfaces that answer "can I use this verb right now" read it: the offer rail
+ * (which verbs to propose) and the constraint catalogue (which rows are live).
+ * A second rule written for the catalogue would be a rule that can disagree
+ * with the rail about the same selection — the drift `VERB_KEY` was inverted
+ * out of `CONSTRAINT_SHORTCUTS` to prevent, in a new place.
+ *
+ * Truthful by construction: it asks the VERB, rather than re-deriving the
+ * verb's own preconditions, so it cannot advertise a row that answers "Select
+ * two lines…", and it goes false for a constraint that is already stated.
+ */
+export function verbIsAvailable(
+  action: ConstraintAction,
   selection: readonly SketchPick[],
   entities: readonly SketchEntity[],
   constraints: readonly SketchConstraint[],
-): SketchVerbHint | null {
-  if (selection.length === 0) return null;
-  if (
-    applyConstraintAction("distance", selection, entities, constraints)
-      .outcome === "editor"
-  ) {
-    return { key: "D", label: "dimension" };
+): boolean {
+  return (
+    applyConstraintAction(action, selection, entities, constraints).outcome !==
+    "hint"
+  );
+}
+
+/**
+ * The key a verb answers to. Inverted from {@link CONSTRAINT_SHORTCUTS} so the
+ * rail can never advertise a key the keyboard does not honour — the two used to
+ * be written out twice and that is exactly how a hint becomes a lie.
+ */
+const VERB_KEY: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(CONSTRAINT_SHORTCUTS).map(([key, action]) => [
+    action,
+    key.toUpperCase(),
+  ]),
+);
+
+/** Diameter has no key of its own — D is the dimension key (see the doc there). */
+const verbKey = (action: ConstraintAction): string =>
+  action === "diameter" ? "D" : (VERB_KEY[action] ?? "");
+
+/** How many verbs the rail will show. Three is a glance; five is a menu. */
+const MAX_VERB_HINTS = 3;
+
+/**
+ * THE SELECTION OFFERS THE VERBS THAT APPLY TO IT — the reachability mechanism
+ * for SKETCH-VOCAB-1, and the generalisation of the single dimension hint this
+ * replaced (FINDINGS #12: select-then-D was invisible, the probable novice
+ * give-up point). Five verbs shipped in the contract with no way for a user to
+ * find them; a sixth toolbar row would not have fixed that, because the problem
+ * was never that the button was missing — it was that nothing told you your
+ * current selection had made a verb available.
+ *
+ * Truthful by construction: an offer appears only when
+ * {@link applyConstraintAction} would actually DO something with this exact
+ * selection — open an editor, or add a constraint that is not already there.
+ * There is no parallel rule to drift out of sync, and the rail can never
+ * propose a key that answers "Select two lines…".
+ */
+export function selectionVerbHints(
+  selection: readonly SketchPick[],
+  entities: readonly SketchEntity[],
+  constraints: readonly SketchConstraint[],
+): SketchVerbHint[] {
+  if (selection.length === 0) return [];
+  const hints: SketchVerbHint[] = [];
+  for (const action of VERB_OFFER_ORDER) {
+    if (hints.length === MAX_VERB_HINTS) break;
+    const key = verbKey(action);
+    // One cap per key: distance and diameter share D, and a rail offering the
+    // same keycap twice would be asking the user to choose what the selection
+    // has already decided.
+    if (hints.some((h) => h.key === key)) continue;
+    if (!verbIsAvailable(action, selection, entities, constraints)) continue;
+    hints.push({ key, label: VERB_LABEL[action], action });
   }
-  if (
-    applyConstraintAction("radius", selection, entities, constraints)
-      .outcome === "editor"
-  ) {
-    return { key: "R", label: "add a radius" };
-  }
-  return null;
+  return hints;
 }

@@ -12,6 +12,7 @@
 import { SegmentedControl } from "@loft/design";
 
 import type { AssemblyBomResponse } from "../api/bom";
+import type { AssemblySolve } from "../features/assemblySolve";
 import type {
   EvaluateAssemblyResult,
   InstanceResponse,
@@ -29,7 +30,8 @@ export interface AssemblyInspectorPanelProps {
   view: InspectorView;
   onViewChange: (view: InspectorView) => void;
   evaluation: EvaluateAssemblyResult | undefined;
-  evaluating: boolean;
+  /** What may be CLAIMED about that evaluation — see `AssemblyInspectorProps`. */
+  solve: AssemblySolve;
   bom: AssemblyBomResponse | undefined;
   bomLoading: boolean;
   bomError: Error | null;
@@ -70,7 +72,7 @@ export function AssemblyInspectorPanel({
   view,
   onViewChange,
   evaluation,
-  evaluating,
+  solve,
   bom,
   bomLoading,
   bomError,
@@ -93,7 +95,7 @@ export function AssemblyInspectorPanel({
       {view === "solve" ? (
         <AssemblyInspector
           evaluation={evaluation}
-          evaluating={evaluating}
+          solve={solve}
           instances={instances}
         />
       ) : view === "bom" ? (

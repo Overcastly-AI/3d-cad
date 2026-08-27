@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AXIS_INFERENCE_MAX_DEG,
+  inferredAxisConstraints,
+  inferredCoincidents,
   intersectEntities,
   perpendicularFoot,
   resolveSnap,
+  snapAnchorOf,
   snapCandidates,
   tangentPoints,
+  type SnapAnchor,
   type SnapInput,
 } from "./snap";
 import type { SketchEntity } from "./tools";
@@ -509,5 +514,378 @@ describe("the plane's own frame — origin and axes (founder, 2026-08-02)", () =
     );
     expect(result.candidate).toBeNull();
     expect(result.at).toEqual({ x: 40, y: 40 });
+  });
+});
+
+describe("a snap carries the ADDRESS it took, not just the coordinate (SNAP-3)", () => {
+  const ORIGIN = { label: "Origin" };
+
+  it("names the exact endpoint an endpoint snap took", () => {
+    const result = resolveSnap(
+      input({
+        point: { x: 40.3, y: 0.2 },
+        entities: [line("e1", 0, 0, 40.4, 0)],
+        gridStepMm: 0,
+      }),
+    );
+    expect(result.candidate?.kind).toBe("endpoint");
+    expect(result.candidate?.ref).toEqual({ entity: "e1", point: "end" });
+  });
+
+  it("distinguishes the two ends of the SAME line", () => {
+    const entities = [line("e1", 0, 0, 40, 0)];
+    const near0 = resolveSnap(
+      input({ point: { x: 0.2, y: 0.1 }, entities, gridStepMm: 0 }),
+    );
+    expect(near0.candidate?.ref).toEqual({ entity: "e1", point: "start" });
+    const near40 = resolveSnap(
+      input({ point: { x: 39.8, y: 0.1 }, entities, gridStepMm: 0 }),
+    );
+    expect(near40.candidate?.ref).toEqual({ entity: "e1", point: "end" });
+  });
+
+  it("names a circle's centre", () => {
+    const result = resolveSnap(
+      input({
+        point: { x: 10.2, y: 4.9 },
+        entities: [circle("e2", 10, 5, 8)],
+        gridStepMm: 0,
+      }),
+    );
+    expect(result.candidate?.kind).toBe("center");
+    expect(result.candidate?.ref).toEqual({ entity: "e2", point: "center" });
+  });
+
+  it("names the plane's zero as the datum point (SNAP-2's whole case)", () => {
+    const result = resolveSnap(
+      input({ point: { x: 0.3, y: -0.2 }, gridStepMm: 0, originSnap: ORIGIN }),
+    );
+    expect(result.candidate?.kind).toBe("origin");
+    expect(result.candidate?.ref).toEqual({
+      entity: "origin",
+      point: "position",
+    });
+  });
+
+  it("gives a MIDPOINT no address — the schema has no midpoint relation", () => {
+    const result = resolveSnap(
+      input({
+        point: { x: 20.1, y: 0.1 },
+        entities: [line("e1", 0, 0, 40, 0)],
+        gridStepMm: 0,
+      }),
+    );
+    expect(result.candidate?.kind).toBe("midpoint");
+    expect(result.candidate?.ref).toBeUndefined();
+  });
+
+  it("gives the AXES no address — point-on-object is not expressible", () => {
+    // Deliberate, and the reason is in `SnapCandidate.ref`: `coincident` joins
+    // two named points and `fixed` pins BOTH coordinates, so the only
+    // authorable reading of "somewhere on the X axis" would also nail the
+    // coordinate the user left free.
+    const result = resolveSnap(
+      input({ point: { x: 25.3, y: 0.2 }, gridStepMm: 0, originSnap: ORIGIN }),
+    );
+    expect(result.candidate?.kind).toBe("x-axis");
+    expect(result.candidate?.ref).toBeUndefined();
+  });
+
+  it("gives intersection / tangent / perpendicular no address", () => {
+    const crossing = resolveSnap(
+      input({
+        point: { x: 10.2, y: 0.1 },
+        // BOTH midpoints are kept clear of the crossing at (10,0) — e1's is at
+        // (15,0), e2's at (10,3). A midpoint outranks an intersection, so a
+        // symmetric crosser would have measured the wrong kind entirely.
+        entities: [line("e1", 0, 0, 30, 0), line("e2", 10, -3, 10, 9)],
+        gridStepMm: 0,
+        // Off the endpoints, so the intersection is the best candidate.
+        toleranceMm: 0.5,
+      }),
+    );
+    expect(crossing.candidate?.kind).toBe("intersection");
+    expect(crossing.candidate?.ref).toBeUndefined();
+
+    const foot = resolveSnap(
+      input({
+        point: { x: 5.1, y: 0.2 },
+        entities: [line("e1", 0, 0, 20, 0)],
+        from: { x: 5, y: 12 },
+        gridStepMm: 0,
+        toleranceMm: 0.5,
+      }),
+    );
+    expect(foot.candidate?.kind).toBe("perpendicular");
+    expect(foot.candidate?.ref).toBeUndefined();
+  });
+
+  it("snapAnchorOf banks an addressable snap and drops the rest", () => {
+    const at = { x: 3, y: 4 };
+    expect(
+      snapAnchorOf(
+        {
+          kind: "endpoint",
+          at,
+          entities: ["e1"],
+          ref: { entity: "e1", point: "end" },
+        },
+        at,
+      ),
+    ).toEqual({ at, ref: { entity: "e1", point: "end" } });
+    expect(
+      snapAnchorOf({ kind: "midpoint", at, entities: ["e1"] }, at),
+    ).toBeNull();
+    expect(snapAnchorOf(null, at)).toBeNull();
+  });
+});
+
+describe("inferredCoincidents — one path, every tool (SNAP-3 / SNAP-2)", () => {
+  const anchor = (
+    x: number,
+    y: number,
+    entity: string,
+    point: string,
+  ): SnapAnchor => ({ at: { x, y }, ref: { entity, point } });
+
+  it("binds the named point the click actually became", () => {
+    // A line drawn FROM e1's end: the new line's `start` is what landed there.
+    const emitted = [line("e2", 40, 0, 40, 30)];
+    expect(inferredCoincidents([anchor(40, 0, "e1", "end")], emitted)).toEqual([
+      {
+        kind: "coincident",
+        a: { entity: "e2", point: "start" },
+        b: { entity: "e1", point: "end" },
+      },
+    ]);
+  });
+
+  it("binds BOTH ends when a closing edge snaps at each end", () => {
+    const emitted = [line("e3", 40, 30, 0, 0)];
+    const out = inferredCoincidents(
+      [anchor(40, 30, "e2", "end"), anchor(0, 0, "e1", "start")],
+      emitted,
+    );
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({ a: { entity: "e3", point: "start" } });
+    expect(out[1]).toMatchObject({ a: { entity: "e3", point: "end" } });
+  });
+
+  it("grounds a rectangle corner to the origin with ONE constraint, not two", () => {
+    // THE over-constraint guard. A rectangle's corner is shared by two of its
+    // four lines, so the obvious "bind every named point at this coordinate"
+    // would state the same fact twice — and against the corner coincidences a
+    // rectangle carries, that reports an ordinary sketch as over-constrained.
+    const emitted = [
+      line("e1", 0, 0, 40, 0),
+      line("e2", 40, 0, 40, 25),
+      line("e3", 40, 25, 0, 25),
+      line("e4", 0, 25, 0, 0),
+    ];
+    const out = inferredCoincidents(
+      [anchor(0, 0, "origin", "position")],
+      emitted,
+    );
+    expect(out).toEqual([
+      {
+        kind: "coincident",
+        a: { entity: "e1", point: "start" },
+        b: { entity: "origin", point: "position" },
+      },
+    ]);
+  });
+
+  it("authors NOTHING for a circle's rim click — a rim is not a named point", () => {
+    // The centre click banks an anchor and binds; the radius click banks one
+    // too, and finds no named point of the circle at that coordinate.
+    const emitted = [circle("e2", 10, 10, 20)];
+    expect(
+      inferredCoincidents(
+        [anchor(10, 10, "e1", "end"), anchor(30, 10, "e1", "start")],
+        emitted,
+      ),
+    ).toEqual([
+      {
+        kind: "coincident",
+        a: { entity: "e2", point: "center" },
+        b: { entity: "e1", point: "end" },
+      },
+    ]);
+  });
+
+  it("authors nothing for an arc's PROJECTED end, and does for one on the circle", () => {
+    // `arcEndPoint` projects the third click onto the arc's circle, so the
+    // emitted `end` is generally not where the user clicked. No match, no
+    // false claim — and where the target IS on the circle, the claim is true.
+    const arc: SketchEntity = {
+      id: "e2",
+      kind: "arc",
+      center: { x: 0, y: 0 },
+      start: { x: 10, y: 0 },
+      end: { x: 0, y: 10 },
+      construction: false,
+    };
+    expect(
+      inferredCoincidents([anchor(3, 14, "e1", "end")], [arc]),
+    ).toHaveLength(0);
+    expect(inferredCoincidents([anchor(0, 10, "e1", "end")], [arc])).toEqual([
+      {
+        kind: "coincident",
+        a: { entity: "e2", point: "end" },
+        b: { entity: "e1", point: "end" },
+      },
+    ]);
+  });
+
+  it("addresses a spline's Nth fit point", () => {
+    const spline: SketchEntity = {
+      id: "e2",
+      kind: "spline",
+      points: [
+        { x: 0, y: 0 },
+        { x: 5, y: 8 },
+        { x: 12, y: 3 },
+      ],
+      construction: false,
+    };
+    expect(
+      inferredCoincidents([anchor(12, 3, "e1", "start")], [spline]),
+    ).toEqual([
+      {
+        kind: "coincident",
+        a: { entity: "e2", point: "fit2" },
+        b: { entity: "e1", point: "start" },
+      },
+    ]);
+  });
+
+  it("never restates a relation the sketch already carries", () => {
+    const emitted = [line("e2", 40, 0, 40, 30)];
+    const already = {
+      kind: "coincident" as const,
+      // Reversed operands — `sameConstraint` is unordered, and so is the guard.
+      a: { entity: "e1", point: "end" },
+      b: { entity: "e2", point: "start" },
+    };
+    expect(
+      inferredCoincidents([anchor(40, 0, "e1", "end")], emitted, [already]),
+    ).toEqual([]);
+  });
+
+  it("authors nothing at all when no click was snapped", () => {
+    expect(inferredCoincidents([], [line("e2", 1, 1, 9, 9)])).toEqual([]);
+  });
+});
+
+describe("inferredAxisConstraints — line-by-line drawing states its axes (SNAP-5)", () => {
+  /** The default sketcher: 1 mm grid, snap radius 1 mm, nothing suppressed. */
+  const GRID = { gridStepMm: 1, toleranceMm: 1, suppressed: false };
+  /** Grid off (G), so the placement is continuous and the radius governs. */
+  const FREE = { gridStepMm: 0, toleranceMm: 1.5, suppressed: false };
+
+  /** A line of `run` mm rising by `rise` mm — the shape of every case here. */
+  const sloped = (run: number, rise: number): SketchEntity =>
+    line("e1", 10, 10, 10 + run, 10 + rise);
+
+  it("reads a horizontal line as horizontal, and a vertical one as vertical", () => {
+    expect(inferredAxisConstraints([line("e1", 0, 0, 27, 0)], GRID)).toEqual([
+      { kind: "horizontal", entity: "e1" },
+    ]);
+    expect(inferredAxisConstraints([line("e2", 27, 0, 27, 8)], GRID)).toEqual([
+      { kind: "vertical", entity: "e2" },
+    ]);
+  });
+
+  it("says nothing about a line drawn at an angle", () => {
+    // 45 deg, and a shallow-but-deliberate 10 deg — neither is a near miss.
+    expect(inferredAxisConstraints([sloped(30, 30)], GRID)).toEqual([]);
+    expect(inferredAxisConstraints([sloped(30, 5.3)], GRID)).toEqual([]);
+  });
+
+  it("leaves ONE grid step of rise alone — that is a slope somebody chose", () => {
+    // With the grid on, a placement lands on multiples of the step, so the
+    // smallest rise anyone can draw IS one step. Treating it as a near miss
+    // would rewrite geometry the user deliberately made (RECT-1 in reverse).
+    expect(inferredAxisConstraints([sloped(60, 1)], GRID)).toEqual([]);
+    // …however long the run, where a bare angular threshold would have caved:
+    // atan(1/60) is 0.95 deg, well inside the ceiling.
+    expect(Math.atan2(1, 60) * (180 / Math.PI)).toBeLessThan(
+      AXIS_INFERENCE_MAX_DEG,
+    );
+  });
+
+  it("catches the near miss the grid cannot express, once the grid is off", () => {
+    // Grid off: the aim is continuous, so a hand-drawn "horizontal" lands a
+    // fraction out. Inside the snap radius AND inside the ceiling -> inferred.
+    expect(inferredAxisConstraints([sloped(60, 1)], FREE)).toEqual([
+      { kind: "horizontal", entity: "e1" },
+    ]);
+    // Same deviation, a third of the run: 2.9 deg is still inside the ceiling.
+    expect(inferredAxisConstraints([sloped(20, 1)], FREE)).toEqual([
+      { kind: "horizontal", entity: "e1" },
+    ]);
+    // Same deviation again, over a run short enough to make it a real slope
+    // (4.3 deg): the ceiling is what refuses this, not the radius.
+    expect(inferredAxisConstraints([sloped(13, 1)], FREE)).toEqual([]);
+  });
+
+  it("refuses a stub, where millimetres say nothing about direction", () => {
+    // 2 mm x 1.4 mm is 35 deg and it is INSIDE the snap radius on both axes —
+    // a deviation rule alone would call it horizontal. The run has to clear
+    // the same limit the rise stays under, and the ceiling backs it up.
+    expect(inferredAxisConstraints([sloped(2, 1.4)], FREE)).toEqual([]);
+    expect(inferredAxisConstraints([sloped(1, 1)], FREE)).toEqual([]);
+  });
+
+  it("never claims both axes for one line", () => {
+    for (const [run, rise] of [
+      [0, 0],
+      [1, 1],
+      [30, 0],
+      [0, 30],
+      [1.4, 1.4],
+    ] as const) {
+      expect(
+        inferredAxisConstraints([sloped(run, rise)], FREE).length,
+      ).toBeLessThan(2);
+    }
+  });
+
+  it("stands down while the user suppresses snapping (Ctrl/Cmd)", () => {
+    expect(
+      inferredAxisConstraints([line("e1", 0, 0, 27, 0)], {
+        ...GRID,
+        suppressed: true,
+      }),
+    ).toEqual([]);
+  });
+
+  it("never restates an axis the sketch already carries", () => {
+    // A rectangle's four edges pass through here too; `rectangleRigidity` has
+    // already said this, and saying it twice reports an ordinary sketch as
+    // OVER-CONSTRAINED.
+    expect(
+      inferredAxisConstraints([line("e1", 0, 0, 27, 0)], GRID, [
+        { kind: "horizontal", entity: "e1" },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("has nothing to say about a circle, an arc or a point", () => {
+    expect(
+      inferredAxisConstraints([circle("e1", 0, 0, 10), quarterArc], GRID),
+    ).toEqual([]);
+  });
+
+  it("infers an axis for an exactly-drawn line even with no tolerance at all", () => {
+    // The axis lock (Shift) and a grid landing are both bit-exact, so the
+    // inference must not depend on the caller reporting a radius.
+    expect(
+      inferredAxisConstraints([line("e1", 0, 0, 27, 0)], {
+        gridStepMm: 0,
+        toleranceMm: 0,
+        suppressed: false,
+      }),
+    ).toEqual([{ kind: "horizontal", entity: "e1" }]);
   });
 });

@@ -1,11 +1,19 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
-import { Button, Stamp, TextField, drawing } from "@loft/design";
+import { Button, NumberField, Stamp, TextField, drawing } from "@loft/design";
 
 import {
   type AnnotationResponse,
   type BendTableRow,
+  type DimensionParams,
   type DimensionResponse,
   type DrawingDimensionInput,
   type DrawingViewResult,
@@ -13,6 +21,7 @@ import {
   type MeasuredDimension,
   type SectionViewParams,
   type SheetContent,
+  type SheetResponse,
   type SheetSize,
   type ViewProjection,
   composeDrawingSheet,
@@ -26,12 +35,15 @@ import {
   fetchDrawing,
   updateView,
 } from "../api/drawings";
+import { gatewayClient } from "../api/client";
+import { envelopeMessage } from "../api/envelope";
 import { evaluatePart, fetchFeatureTree, fetchParts } from "../api/parts";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { DimensionAuthorMenu } from "../components/DimensionAuthorMenu";
 import { DrawingCommandBand } from "../components/DrawingCommandBand";
 import {
   DrawingSheet,
+  type DimensionGrabEvent,
   type EdgePickEvent,
   type EndpointPickEvent,
   edgeKey,
@@ -44,23 +56,40 @@ import { TopBar } from "../components/TopBar";
 import { TopToolbar } from "../components/TopToolbar";
 import {
   IDLE,
+  PLACE_NUDGE_MM,
   type AuthoringState,
   type DimensionAction,
   armPair,
   armedSignatures,
+  beginPlacement,
+  beginReplacement,
   buildDimension,
+  cancelPlacement,
+  commitParams,
   menuActions,
   menuAnchor,
+  movePlacement,
+  nudgePlacement,
   pickEdge,
   pickEndpoint,
   pickHint,
+  placementMoved,
+  placementOffsetMm,
+  placementReplaces,
+  placementTarget,
   selectedEndpoints,
+  setPlacementOffset,
 } from "../drawing/authoring";
 import { type DrawingExportFormat, exportDrawing } from "../api/exportDrawing";
 import { downloadBlob } from "../api/exportPart";
 import { healDimensionParams, reanchoredAnchor } from "../drawing/anchorHeal";
 import { formatDimensionLabel } from "../drawing/dimensions";
 import { exportSheetSvg } from "../drawing/exportSvg";
+import {
+  ghostFor,
+  offsetPlacementFromComposed,
+  textPlacementFromComposed,
+} from "../drawing/placement";
 import {
   SCALE_OPTIONS,
   STANDARD_VIEWS,
@@ -82,6 +111,102 @@ function scaleFromValue(value: string): {
   return found
     ? { numerator: found.numerator, denominator: found.denominator }
     : { numerator: 1, denominator: 1 };
+}
+
+/** The sheet's drafting-standard placement convention (ISO 128 / design §1.2). */
+type SheetProjection = SheetResponse["projection"];
+/** The sheet's paper orientation (landscape | portrait). */
+type SheetOrientation = SheetResponse["orientation"];
+
+/** Plain-language name per convention — the words the cell and its accessible
+ * name both read from, so the stamp and the screen reader never disagree. */
+const CONVENTION_NAME: Record<SheetProjection, string> = {
+  third_angle: "third angle",
+  first_angle: "first angle",
+};
+const ORIENTATION_NAME: Record<SheetOrientation, string> = {
+  landscape: "landscape",
+  portrait: "portrait",
+};
+/** The other value of a two-valued sheet header field. */
+const OTHER_CONVENTION: Record<SheetProjection, SheetProjection> = {
+  third_angle: "first_angle",
+  first_angle: "third_angle",
+};
+const OTHER_ORIENTATION: Record<SheetOrientation, SheetOrientation> = {
+  landscape: "portrait",
+  portrait: "landscape",
+};
+
+/**
+ * What each paper orientation buys THIS part, and which one the part's own
+ * extents therefore argue for. The create flow already had to fit a scale to
+ * pick one (see `handleLayout`); this reuses that reading to make the choice
+ * rather than defaulting to landscape and letting the user discover the cost.
+ */
+interface OrientationFit {
+  /** Fitted scale label per orientation ("1:2" / "1:5"). */
+  scaleByOrientation: Record<SheetOrientation, string>;
+  /** The orientation that fits the part largest (landscape wins a tie — the
+   * shop default, so a part with no preference gets no surprise). */
+  proposed: SheetOrientation;
+}
+
+/**
+ * The orientation proposal for a part on a given paper size. Both orientations
+ * are fitted against the SAME `fitScale` the layout action uses, with a 1:1
+ * ceiling: auto-fit only ever REDUCES, so 1:1 is the neutral maximum and the
+ * comparison answers "at best, how big can this part be drawn either way?".
+ */
+function proposeOrientation(
+  extents: { x: number; y: number; z: number },
+  size: SheetSize,
+): OrientationFit {
+  const landscape = fitScale(
+    extents,
+    sheetDimensions(size, "landscape"),
+    "1:1",
+  );
+  const portrait = fitScale(extents, sheetDimensions(size, "portrait"), "1:1");
+  const ratio = (o: { numerator: number; denominator: number }) =>
+    o.numerator / o.denominator;
+  return {
+    scaleByOrientation: {
+      landscape: landscape.value,
+      portrait: portrait.value,
+    },
+    proposed: ratio(portrait) > ratio(landscape) ? "portrait" : "landscape",
+  };
+}
+
+/**
+ * Re-head an existing sheet (`SheetUpdate`) — the wire behind the header cells:
+ * flipping the projection convention or the paper orientation re-lays the sheet
+ * out server-side (the composer re-derives every auto-placed anchor from the
+ * sheet's own convention), so the client computes nothing.
+ *
+ * NB this belongs beside `createSheet` in `../api/drawings`; it lives here only
+ * because this batch's territory split gives that file to another builder. Same
+ * shape as its siblings — generated client, generated body type, server envelope
+ * message on failure (no hand-written API shape; CLAUDE.md DRY rule).
+ */
+async function updateSheetHeader(
+  drawingId: string,
+  sheetId: string,
+  body: { expected_version: number } & (
+    { projection: SheetProjection } | { orientation: SheetOrientation }
+  ),
+): Promise<void> {
+  const { error } = await gatewayClient.PATCH(
+    "/api/v1/drawings/{drawing_id}/sheets/{sheet_id}",
+    {
+      params: { path: { drawing_id: drawingId, sheet_id: sheetId } },
+      body,
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(envelopeMessage(error, "The sheet could not be updated."));
+  }
 }
 
 /**
@@ -228,6 +353,30 @@ export function DrawingPage() {
   });
   const partTree = partTreeQuery.data;
 
+  // The drafted part's bounding box — the ONLY input the orientation proposal
+  // needs. The layout action already evaluates the part to fit a scale; hoisting
+  // that reading here lets the sheet header say what each paper orientation
+  // buys BEFORE the user commits to one (REACH-3). A part that fails to
+  // evaluate simply yields no proposal — the cells then read state only.
+  const partBoxQuery = useQuery({
+    queryKey: ["drawing-part-box", effectivePartId, partTree?.tree_version],
+    enabled: effectivePartId !== null,
+    queryFn: () => evaluatePart(effectivePartId as string),
+    staleTime: Infinity,
+  });
+  const orientationFit = useMemo<OrientationFit | null>(() => {
+    const box = partBoxQuery.data?.properties?.bounding_box;
+    if (!box) return null;
+    return proposeOrientation(
+      {
+        x: box.max.x - box.min.x,
+        y: box.max.y - box.min.y,
+        z: box.max.z - box.min.z,
+      },
+      sizeValue,
+    );
+  }, [partBoxQuery.data, sizeValue]);
+
   // Project the part into the standard views (exact HLR, server-side).
   const evalQuery = useQuery({
     queryKey: [
@@ -345,7 +494,13 @@ export function DrawingPage() {
           version = created.doc_version;
           sheetId = created.sheet.id;
         }
-        const dims = sheetDimensions(sizeValue, "landscape");
+        // Lay out against the paper THIS sheet is actually on — a sheet added
+        // portrait (REACH-3) must seed its anchors and fit its scale against
+        // 210x297, not the landscape default.
+        const dims = sheetDimensions(
+          sheet?.size ?? sizeValue,
+          sheet?.orientation ?? "landscape",
+        );
         const anchors = standardLayout(dims);
         // Fit-scale: never lay out views that overflow their cells — evaluate
         // the part's bbox and reduce the scale until the four standard views
@@ -444,7 +599,10 @@ export function DrawingPage() {
         // NB: the lone flat view is not yet fit-scaled to the sheet the way the
         // four standard views are — a flat-pattern fit needs the UNFOLDED
         // extents (not the 3D bbox `fitScale` reads), a separate slice (BACKLOG).
-        const dims = sheetDimensions(sizeValue, "landscape");
+        const dims = sheetDimensions(
+          sheet?.size ?? sizeValue,
+          sheet?.orientation ?? "landscape",
+        );
         const created = await createView(drawingId, sheetId, {
           projection: "flat_pattern",
           ref_document_id: selectedPartId,
@@ -506,7 +664,10 @@ export function DrawingPage() {
             version = created.doc_version;
             sheetId = created.sheet.id;
           }
-          const dims = sheetDimensions(sizeValue, "landscape");
+          const dims = sheetDimensions(
+            sheet?.size ?? sizeValue,
+            sheet?.orientation ?? "landscape",
+          );
           await createView(drawingId, sheetId, {
             projection: "section",
             ref_document_id: selectedPartId,
@@ -571,13 +732,24 @@ export function DrawingPage() {
     setActionError(null);
     void (async () => {
       try {
+        // The content proposes (REACH-3): a part whose projected extents fit
+        // portrait at a better scale gets a portrait sheet, with the scale
+        // picker moved to the scale that orientation actually earns — so the
+        // very next "Lay out" lands at the size the header cell promised. The
+        // convention is INHERITED from the sheet in hand, so a first-angle shop
+        // states it once. Both are one keystroke away on the header cells, so a
+        // wrong proposal is never a dead end.
+        const orientation = orientationFit?.proposed ?? "landscape";
         await createSheet(drawingId, {
           name: nextSheetName,
           size: sizeValue,
-          orientation: "landscape",
-          projection: "third_angle",
+          orientation,
+          projection: sheet?.projection ?? "third_angle",
           expected_version: docVersion,
         });
+        if (orientationFit) {
+          setScaleValue(orientationFit.scaleByOrientation[orientation]);
+        }
         await queryClient.invalidateQueries({
           queryKey: ["drawing", drawingId],
         });
@@ -600,7 +772,58 @@ export function DrawingPage() {
     sizeValue,
     docVersion,
     queryClient,
+    orientationFit,
+    sheet,
   ]);
+
+  // ---------------------------------------------------------------------
+  // Re-heading the sheet in place (REACH-3): the projection convention and the
+  // paper orientation are properties of the SHEET, so both flip through
+  // `SheetUpdate` and the server re-composes. Every auto-placed view is
+  // re-anchored by the composer from the sheet's own convention, so a flip
+  // genuinely re-lays the drawing out — third angle puts the top view above
+  // front and the right view to its right; first angle mirrors both.
+  // ---------------------------------------------------------------------
+  const [reheading, setReheading] = useState(false);
+  const reheadSheet = useCallback(
+    (
+      change:
+        { projection: SheetProjection } | { orientation: SheetOrientation },
+    ) => {
+      if (reheading || sheet === null) return;
+      setReheading(true);
+      setActionError(null);
+      void (async () => {
+        try {
+          await updateSheetHeader(drawingId, sheet.id, {
+            expected_version: docVersion,
+            ...change,
+          });
+          await queryClient.invalidateQueries({
+            queryKey: ["drawing", drawingId],
+          });
+          await queryClient.invalidateQueries({ queryKey: ["drawing-sheet"] });
+        } catch (error) {
+          setActionError(
+            error instanceof Error
+              ? error.message
+              : "The sheet could not be updated.",
+          );
+        } finally {
+          setReheading(false);
+        }
+      })();
+    },
+    [reheading, sheet, drawingId, docVersion, queryClient],
+  );
+  const handleFlipConvention = useCallback(() => {
+    if (sheet === null) return;
+    reheadSheet({ projection: OTHER_CONVENTION[sheet.projection] });
+  }, [sheet, reheadSheet]);
+  const handleFlipOrientation = useCallback(() => {
+    if (sheet === null) return;
+    reheadSheet({ orientation: OTHER_ORIENTATION[sheet.orientation] });
+  }, [sheet, reheadSheet]);
 
   const handleReproject = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -809,6 +1032,10 @@ export function DrawingPage() {
   const menuActionList = menuActions(authoring);
   const anchor = menuAnchor(authoring);
   const hint = pickHint(authoring);
+  // The live placement: the ghost the sheet draws and the offset it reads out.
+  const placingGhost =
+    authoring.kind === "placing" ? ghostFor(authoring.target) : null;
+  const placingOffsetMm = placementOffsetMm(authoring);
 
   const handlePickEdge = useCallback((event: EdgePickEvent) => {
     setAuthoring((state) =>
@@ -819,6 +1046,7 @@ export function DrawingPage() {
         primitive: event.primitive,
         clientX: event.clientX,
         clientY: event.clientY,
+        geometry: event.geometry,
       }),
     );
   }, []);
@@ -832,28 +1060,21 @@ export function DrawingPage() {
         endpoint: event.endpoint,
         clientX: event.clientX,
         clientY: event.clientY,
+        at: event.at,
+        viewAnchor: event.viewAnchor,
       }),
     );
   }, []);
 
-  const handleChooseAction = useCallback(
-    (action: DimensionAction) => {
-      if (dimBusy) return;
-      // "Angle" / "Distance to edge" arm a second-edge pick rather than
-      // authoring immediately; the intent orders the menu that follows.
-      if (action === "start_angular" || action === "start_edge_to_edge") {
-        const intent = action === "start_angular" ? "angular" : "edge_to_edge";
-        setAuthoring((state) => armPair(state, intent));
-        return;
-      }
-      const built = buildDimension(authoring, action);
-      if (built === null) return;
+  /** POST the authored dimension (with whatever placement it carries) + refresh. */
+  const persistDimension = useCallback(
+    (viewId: string, params: DimensionParams) => {
       setDimBusy(true);
       setActionError(null);
       void (async () => {
         try {
-          await createDimension(drawingId, built.viewId, {
-            dimension: built.params,
+          await createDimension(drawingId, viewId, {
+            dimension: params,
             expected_version: docVersion,
           });
           await queryClient.invalidateQueries({
@@ -871,8 +1092,228 @@ export function DrawingPage() {
         }
       })();
     },
-    [authoring, dimBusy, drawingId, docVersion, queryClient],
+    [drawingId, docVersion, queryClient],
   );
+
+  const handleChooseAction = useCallback(
+    (action: DimensionAction) => {
+      if (dimBusy) return;
+      // "Angle" / "Distance to edge" arm a second-edge pick rather than
+      // authoring immediately; the intent orders the menu that follows.
+      if (action === "start_angular" || action === "start_edge_to_edge") {
+        const intent = action === "start_angular" ? "angular" : "edge_to_edge";
+        setAuthoring((state) => armPair(state, intent));
+        return;
+      }
+      const built = buildDimension(authoring, action);
+      if (built === null) return;
+      // The measurement is settled — now say WHERE it goes. The ghost tracks the
+      // pointer from the auto-placement default, so the user is adjusting a real
+      // proposal (REACH-3). A pick that carried no composed geometry has nothing
+      // to place against and authors straight away, exactly as it always did.
+      const target = placementTarget(authoring, action);
+      if (target !== null) {
+        setAuthoring((state) =>
+          beginPlacement(state, built.viewId, built.params, target),
+        );
+        return;
+      }
+      persistDimension(built.viewId, built.params);
+    },
+    [authoring, dimBusy, persistDimension],
+  );
+
+  /** Track the pointer across the paper while a placement is live. */
+  const handlePlacePointer = useCallback((at: { x: number; y: number }) => {
+    setAuthoring((state) => movePlacement(state, at));
+  }, []);
+
+  /** Set when a grab begins from the sheet — see {@link handlePlaceClick}. */
+  const grabClickGuard = useRef(false);
+
+  /**
+   * MOVE a dimension already on the paper: re-enter the same PLACE stage it was
+   * born in (REACH-3's own commit named "not afterwards" as the defect and
+   * fixed only the first half — frontend-QA P1-E).
+   *
+   * The placement is recovered from the COMPOSED annotation rather than from
+   * the stored params, because most dimensions on a sheet have no stored
+   * placement at all — the composer auto-placed them, and it is exactly those
+   * the user most often wants to nudge out of the way.
+   */
+  const handleGrabDimension = useCallback(
+    (event: DimensionGrabEvent) => {
+      if (dimBusy) return;
+      const row = dimensions.find((d) => d.id === event.dimensionId);
+      if (row === undefined) return;
+      const target =
+        event.dim.dimension_type === "linear"
+          ? offsetPlacementFromComposed(event.dim.lines, event.viewAnchor)
+          : textPlacementFromComposed(event.dim.lines, event.dim.text);
+      if (target === null) return;
+      setAuthoring(
+        beginReplacement(row.id, row.view_id, row.dimension, target),
+      );
+    },
+    [dimBusy, dimensions],
+  );
+
+  /**
+   * Commit the live placement — the click that puts the dimension down.
+   *
+   * Safe to read `authoring` from the closure ONLY because the sheet reports the
+   * pointer on `pointerdown` as well as on `pointermove`: a discrete event
+   * flushes before the click that follows it, so this sees the placement the
+   * user is looking at. See the `onPointerDown` note on the place surface for
+   * what went wrong when it did not.
+   */
+  const handlePlaceCommit = useCallback(() => {
+    if (dimBusy) return;
+    const replaces = placementReplaces(authoring);
+    const commit = commitParams(authoring);
+    if (commit === null) {
+      // A re-placement that never moved: nothing to write, and leaving the
+      // ghost up would be a dead end. Put the dimension back and stand down.
+      if (replaces !== null) setAuthoring(IDLE);
+      return;
+    }
+    if (replaces === null) {
+      persistDimension(commit.viewId, commit.params);
+      return;
+    }
+    // No PATCH route for a dimension, so: APPEND the moved copy, then DELETE
+    // the original. That order is deliberate and matches `handleHealDimension`
+    // — a failure between the two leaves a visible duplicate the user can
+    // remove, never a lost dimension.
+    setDimBusy(true);
+    setActionError(null);
+    void (async () => {
+      try {
+        const created = await createDimension(drawingId, commit.viewId, {
+          dimension: commit.params,
+          expected_version: docVersion,
+        });
+        await deleteDimension(drawingId, replaces, created.doc_version);
+        await queryClient.invalidateQueries({
+          queryKey: ["drawing", drawingId],
+        });
+        setAuthoring(IDLE);
+      } catch (error) {
+        setActionError(
+          error instanceof Error
+            ? error.message
+            : "The dimension could not be moved.",
+        );
+      } finally {
+        setDimBusy(false);
+      }
+    })();
+  }, [
+    authoring,
+    dimBusy,
+    persistDimension,
+    drawingId,
+    docVersion,
+    queryClient,
+  ]);
+
+  /** The end of a press-drag: commit only if the placement actually moved, so
+   * a bare press (click-to-grab) leaves the ghost up for a second click. */
+  const handlePlaceRelease = useCallback(() => {
+    if (placementMoved(authoring)) handlePlaceCommit();
+  }, [authoring, handlePlaceCommit]);
+
+  /**
+   * A CLICK on the paper drops the placement — with one exception.
+   *
+   * THE TAIL OF THE GRAB PRESS IS NOT A DROP. Pressing a placed dimension
+   * opens the stage on `pointerdown`, and the release that ends that same
+   * press produces a `click` — which Chrome retargets onto the place surface,
+   * because the grab the press started on has just been unmounted (the
+   * dimension is drawn as the ghost while it moves). Acting on it would make a
+   * bare click on a dimension a no-op that opens and shuts the stage in one
+   * frame. Exactly one click is swallowed per grab; every click after it drops
+   * the dimension normally, and the guard is on the CLICK path only so a
+   * press-drag still commits on release.
+   */
+  const handlePlaceClick = useCallback(() => {
+    if (grabClickGuard.current) {
+      grabClickGuard.current = false;
+      return;
+    }
+    handlePlaceCommit();
+  }, [handlePlaceCommit]);
+
+  /** The sheet's grab route — the only one that arms the click guard, because
+   * it is the only one whose gesture ends in a click on the paper. */
+  const handleGrabFromSheet = useCallback(
+    (event: DimensionGrabEvent) => {
+      grabClickGuard.current = true;
+      handleGrabDimension(event);
+    },
+    [handleGrabDimension],
+  );
+
+  /** The panel's Move — the same grab, found by id instead of by pointer. */
+  const handleMoveFromPanel = useCallback(
+    (dimensionId: string) => {
+      const row = dimensions.find((d) => d.id === dimensionId);
+      if (row === undefined || composed === undefined) return;
+      for (const view of composed.views ?? []) {
+        for (const dim of view.dimensions ?? []) {
+          if (dim.kind !== "measured" || dim.dimension_id !== dimensionId) {
+            continue;
+          }
+          handleGrabDimension({
+            dimensionId,
+            viewId: row.view_id,
+            projection: view.projection,
+            dim,
+            viewAnchor: { x: view.anchor.x_mm, y: view.anchor.y_mm },
+          });
+          return;
+        }
+      }
+    },
+    [composed, dimensions, handleGrabDimension],
+  );
+
+  // --- the typed route to the offset (P1-D) -------------------------------
+  // The offset field is CONTROLLED by the placement (the pointer moves it at
+  // pointer rate) except while the user has it focused, when the text is
+  // theirs: a controlled field rewritten mid-keystroke eats characters. A
+  // non-null draft means "the user is typing; leave their text alone".
+  const [offsetDraft, setOffsetDraft] = useState<string | null>(null);
+  const offsetFieldRef = useRef<HTMLInputElement | null>(null);
+  const offsetText =
+    offsetDraft ?? (placingOffsetMm !== null ? placingOffsetMm.toFixed(2) : "");
+  useEffect(() => {
+    if (authoring.kind !== "placing") {
+      setOffsetDraft(null);
+      // Never leak a swallowed click into a later gesture.
+      grabClickGuard.current = false;
+    }
+  }, [authoring.kind]);
+
+  const handleOffsetTyped = useCallback((text: string) => {
+    setOffsetDraft(text);
+    const value = Number(text);
+    // A half-typed "-" or "1." parses to NaN; hold the placement where it is
+    // and let the digits arrive rather than snapping the ghost to nothing.
+    if (text.trim() !== "" && Number.isFinite(value)) {
+      setAuthoring((state) => setPlacementOffset(state, value));
+    }
+  }, []);
+
+  // The window key handler below must see the CURRENT placement without being
+  // re-registered on every pointer move (a placement changes state at pointer
+  // rate), so the two things it needs live in refs.
+  const placingRef = useRef(false);
+  const commitPlacementRef = useRef(handlePlaceCommit);
+  useEffect(() => {
+    placingRef.current = authoring.kind === "placing";
+    commitPlacementRef.current = handlePlaceCommit;
+  }, [authoring, handlePlaceCommit]);
 
   const handleDeleteDimension = useCallback(
     (dimensionId: string) => {
@@ -1030,12 +1471,61 @@ export function DrawingPage() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setAuthoring(IDLE);
+        // Escape during a placement backs out ONE stage: the pick that led here
+        // survives, so a mis-drag never costs you the geometry you selected
+        // (CLAUDE.md flow rule — no ambiguous exits).
+        setAuthoring((state) =>
+          state.kind === "placing" ? cancelPlacement(state) : IDLE,
+        );
         setSectionOpen(false);
         return;
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
+      // Keyboard parity for the placement drag: arrows nudge, Enter commits.
+      // Claimed BEFORE the single-letter commands so an arrow/Enter mid-place
+      // can never fire an export instead.
+      if (placingRef.current) {
+        // TYPE A NUMBER AND YOU ARE SETTING IT. A digit (or a leading minus)
+        // hands the keystroke to the offset field and focuses it, so the
+        // precision route costs no hunting and no mouse — the same reflex a
+        // modeller already has from every other CAD tool. Intent captured
+        // where it forms (CLAUDE.md flow rule), not recovered afterwards.
+        const field = offsetFieldRef.current;
+        if (field && /^[0-9.-]$/.test(event.key)) {
+          event.preventDefault();
+          // FOCUS FIRST, then seed. `focus()` fires the field's own onFocus
+          // synchronously, which opens a draft from the CURRENT value — so
+          // seeding before focusing hands the user "11.0025" instead of "-25".
+          field.focus();
+          setOffsetDraft(event.key);
+          const seed = Number(event.key);
+          if (Number.isFinite(seed)) {
+            setAuthoring((state) => setPlacementOffset(state, seed));
+          }
+          return;
+        }
+        const step = event.shiftKey ? PLACE_NUDGE_MM * 5 : PLACE_NUDGE_MM;
+        const delta: Record<string, [number, number]> = {
+          ArrowUp: [0, -1],
+          ArrowDown: [0, 1],
+          ArrowLeft: [-1, 0],
+          ArrowRight: [1, 0],
+        };
+        const move = delta[event.key];
+        if (move) {
+          event.preventDefault();
+          setAuthoring((state) =>
+            nudgePlacement(state, move[0], move[1], step),
+          );
+          return;
+        }
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commitPlacementRef.current();
+          return;
+        }
+      }
       if (event.key.toLowerCase() === "l") {
         event.preventDefault();
         if (hasLayout) handleReproject();
@@ -1177,6 +1667,11 @@ export function DrawingPage() {
             onSelect={setActiveSheetIndex}
             onAdd={handleAddSheet}
             adding={addingSheet}
+            sheet={sheet}
+            fit={orientationFit}
+            onFlipConvention={handleFlipConvention}
+            onFlipOrientation={handleFlipOrientation}
+            reheading={reheading}
           />
         ) : null}
 
@@ -1229,9 +1724,15 @@ export function DrawingPage() {
                 selectedVertexKeys={selectedVertexKeys}
                 endpointPickActive={endpointPickActive}
                 placementBusy={placingView}
+                dimensionGhost={placingGhost}
+                movingDimensionId={placementReplaces(authoring)}
                 onPickEdge={handlePickEdge}
                 onPickEndpoint={handlePickEndpoint}
                 onPlaceView={handlePlaceView}
+                onPlacePointer={handlePlacePointer}
+                onPlaceCommit={handlePlaceClick}
+                onPlaceRelease={handlePlaceRelease}
+                onGrabDimension={handleGrabFromSheet}
                 onResetView={handleResetView}
               />
             </div>
@@ -1318,6 +1819,8 @@ export function DrawingPage() {
                 dimensions={dimensions}
                 measuredById={measuredById}
                 busy={dimBusy}
+                movingId={placementReplaces(authoring)}
+                onMove={handleMoveFromPanel}
                 onDelete={handleDeleteDimension}
                 onHeal={handleHealDimension}
               />
@@ -1331,20 +1834,74 @@ export function DrawingPage() {
           </FloatingPanel>
         ) : null}
 
-        {/* A "pick the second …" hint while a two-pick dimension is in progress
-            (angular / point-to-point). Non-modal so the sheet stays live for the
-            second pick; Esc cancels. */}
+        {/* One chip for the whole authoring gesture: the "pick the second …"
+            hint while a two-pick dimension is in progress, then "click to
+            place" once the measurement is settled. Same chip, next sentence —
+            placing is a continuation of the pick, not a new mode. Non-modal so
+            the sheet stays live; Esc steps back one stage. */}
         {hint ? (
           <div
             role="status"
             data-testid="dimension-pick-hint"
-            className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 border border-brass/60 bg-anvil px-3 py-1.5 shadow-float"
+            className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 border border-brass/60 bg-anvil px-3 py-1.5 shadow-float"
           >
-            <span className="font-display text-2xs uppercase tracking-[0.16em] text-brass">
+            <span className="font-display text-2xs whitespace-nowrap uppercase tracking-[0.16em] text-brass">
               {hint}
             </span>
-            <span className="ml-2 font-body text-2xs text-gauge">
-              Esc to cancel
+            {/* THE PRECISION FALLBACK, not the live reading. The number you are
+                watching rides the ghost on the paper (see PlacementGhostLayer);
+                this is the field you reach for when the answer is exactly -25.
+                Sheet millimetres: a distance on the PAPER, not in the model, so
+                it is unit-free by nature — an A3 sheet is 420 mm whatever the
+                part is drawn in. The chip stays pointer-transparent so it can
+                never swallow a placement click; only the cell takes input. */}
+            {placingOffsetMm !== null ? (
+              <NumberField
+                layout="inline"
+                label="Offset"
+                unit="mm"
+                className="pointer-events-auto w-[13rem] shrink-0"
+                ref={offsetFieldRef}
+                data-testid="dimension-offset-field"
+                data-offset-mm={placingOffsetMm.toFixed(2)}
+                aria-label="Dimension offset in sheet millimetres"
+                value={offsetText}
+                onChange={(event) => handleOffsetTyped(event.target.value)}
+                onFocus={() => setOffsetDraft(offsetText)}
+                onBlur={() => setOffsetDraft(null)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    commitPlacementRef.current();
+                    return;
+                  }
+                  // Up/Down keep nudging while the caret is in the cell (the
+                  // numeric-field convention); Left/Right stay caret motion.
+                  const sense =
+                    event.key === "ArrowUp"
+                      ? 1
+                      : event.key === "ArrowDown"
+                        ? -1
+                        : 0;
+                  if (sense !== 0) {
+                    event.preventDefault();
+                    const step = event.shiftKey
+                      ? PLACE_NUDGE_MM * 5
+                      : PLACE_NUDGE_MM;
+                    setOffsetDraft(null);
+                    setAuthoring((state) =>
+                      nudgePlacement(state, 0, -sense, step),
+                    );
+                  }
+                }}
+              />
+            ) : null}
+            <span className="font-body text-2xs whitespace-nowrap text-gauge">
+              {authoring.kind === "placing"
+                ? placingOffsetMm !== null
+                  ? "Type a value · arrows nudge · Enter places · Esc back"
+                  : "Arrows nudge · Enter places · Esc back"
+                : "Esc to cancel"}
             </span>
           </div>
         ) : null}
@@ -1411,10 +1968,140 @@ function CenterNote({
 }
 
 /**
- * The sheet switcher (FINDINGS #18) — a compact tab strip that moves between the
- * drawing's sheets and appends a new one. A quiet precision instrument in the
- * top-left margin so the sheet stays the hero: brass underline on the active tab,
- * keyboard-first (roving tablist), all wired to real state/actions (mandate 3a).
+ * The ISO projection-convention symbol — a truncated cone drawn twice: its
+ * elevation (the trapezoid) and its end view (the two concentric circles). This
+ * is the drawing's own vernacular rather than a generic UI icon, and it is the
+ * one place this surface spends any boldness; everything around it stays quiet.
+ *
+ * WHICH SIDE THE CIRCLES SIT ON *IS* THE CONVENTION, and it is derived from the
+ * SAME rule the server composer applies to the sheet (`bounds_aware_layout`'s
+ * `right_sx`: +1 for third angle, -1 for first). The circles are the frustum's
+ * RIGHT-side view, so third angle places them to the RIGHT of the elevation and
+ * first angle to the LEFT — exactly where the sheet's own right view will land.
+ * The glyph therefore teaches the layout the user is about to see. The two
+ * symbols are exact mirrors (one path, one `scale(-1,1)`), as the standard's
+ * pair are, with the frustum tapering toward its end view.
+ *
+ * Drawn in `currentColor` so it inherits the cell's brass/gauge state — no hex
+ * literal, and one palette between the chrome and the sheet.
+ */
+function ProjectionSymbol({ convention }: { convention: SheetProjection }) {
+  return (
+    <svg
+      viewBox="0 0 40 16"
+      width="35"
+      height="14"
+      aria-hidden="true"
+      focusable="false"
+      className="shrink-0"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.1}
+      strokeLinejoin="round"
+    >
+      <g
+        transform={
+          convention === "first_angle"
+            ? "translate(40 0) scale(-1 1)"
+            : undefined
+        }
+      >
+        {/* Elevation: the frustum, large end out, tapering toward its end view.
+            The two circles are that SAME frustum's ends seen down its axis —
+            outer radius = the large end's half-height, inner = the small end's —
+            so the pair reads as one object rather than two marks. */}
+        <path d="M1.6 1 L17 3.75 L17 12.25 L1.6 15 Z" />
+        <circle cx="32" cy="8" r="7" />
+        <circle cx="32" cy="8" r="4.25" />
+      </g>
+    </svg>
+  );
+}
+
+/** The paper glyph — a sheet in its orientation, with the title-block corner
+ * scribed in so it reads as THIS product's sheet rather than a generic page. */
+function OrientationSymbol({ orientation }: { orientation: SheetOrientation }) {
+  const landscape = orientation === "landscape";
+  const w = landscape ? 14 : 9.5;
+  const h = landscape ? 9.5 : 14;
+  const x = (16 - w) / 2;
+  const y = (16 - h) / 2;
+  const block = 4;
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="13"
+      height="13"
+      aria-hidden="true"
+      focusable="false"
+      className="shrink-0"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.2}
+      strokeLinejoin="round"
+    >
+      <rect x={x} y={y} width={w} height={h} />
+      <path
+        d={`M${x + w - block} ${y + h} L${x + w - block} ${y + h - 3} L${x + w} ${y + h - 3}`}
+      />
+    </svg>
+  );
+}
+
+/** One header cell in the sheet strip — a stamped reading that is also the
+ * control that changes it. Same idiom as a tab (hairline seat, brass on focus),
+ * one notch quieter so the tabs stay the primary rail. */
+function SheetHeaderCell({
+  testid,
+  label,
+  onActivate,
+  busy,
+  attrs,
+  tone = "quiet",
+  children,
+}: {
+  testid: string;
+  label: string;
+  onActivate: () => void;
+  busy: boolean;
+  attrs: Record<string, string>;
+  /** `stamp` is the drafting standard the sheet DECLARES — it has to be
+   * readable at a glance, so it carries the same ink as the active tab.
+   * `quiet` is for a secondary control whose state the paper itself shows. */
+  tone?: "stamp" | "quiet";
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={testid}
+      aria-label={label}
+      title={label}
+      disabled={busy}
+      onClick={onActivate}
+      {...attrs}
+      className={`flex shrink-0 items-center gap-1.5 border border-transparent px-1.5 py-1 font-display text-2xs uppercase tracking-[0.14em] transition-colors duration-fast hover:border-hairline hover:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:pointer-events-none disabled:opacity-40 ${
+        tone === "stamp" ? "text-mist" : "text-gauge"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * The sheet header (FINDINGS #18 switcher + REACH-3 sheet convention) — a
+ * compact strip in the top-left margin that says WHICH sheet and HOW it is set
+ * up, and lets both be changed from where they are read. A quiet precision
+ * instrument so the sheet stays the hero: brass underline on the active tab,
+ * keyboard-first (every cell is a real button), all wired to real state/actions
+ * (mandate 3a — nothing here is decoration).
+ *
+ * The convention cell stamps the ISO symbol for the sheet's projection standard
+ * and flips it on activation; the orientation cell does the same for the paper,
+ * and marks itself `data-proposed` when it already matches the orientation the
+ * part's own extents argue for (with both fitted scales on the cell, so the
+ * trade is visible rather than asserted).
  */
 function SheetTabs({
   sheets,
@@ -1422,51 +2109,113 @@ function SheetTabs({
   onSelect,
   onAdd,
   adding,
+  sheet,
+  fit,
+  onFlipConvention,
+  onFlipOrientation,
+  reheading,
 }: {
   sheets: readonly SheetContent[];
   activeIndex: number;
   onSelect: (index: number) => void;
   onAdd: () => void;
   adding: boolean;
+  sheet: SheetResponse | null;
+  fit: OrientationFit | null;
+  onFlipConvention: () => void;
+  onFlipOrientation: () => void;
+  reheading: boolean;
 }) {
+  const convention = sheet?.projection ?? "third_angle";
+  const orientation = sheet?.orientation ?? "landscape";
+  const nextConvention = OTHER_CONVENTION[convention];
+  const nextOrientation = OTHER_ORIENTATION[orientation];
+  // The fitted scale each orientation buys this part, read straight off the
+  // same `fitScale` the layout action uses — so the cell can never claim a
+  // scale the layout would not actually produce.
+  const fitNote = fit ? `, fits ${fit.scaleByOrientation[orientation]}` : "";
+  const nextFitNote = fit
+    ? ` (${fit.scaleByOrientation[nextOrientation]})`
+    : "";
   return (
-    <div
-      className="absolute left-3 top-3 z-overlay flex items-center gap-1 border border-hairline bg-anvil/95 px-1.5 py-1 shadow-float backdrop-blur-sm"
-      role="tablist"
-      aria-label="Drawing sheets"
-      data-testid="sheet-tabs"
-    >
-      {sheets.map((content, index) => {
-        const active = index === activeIndex;
-        return (
-          <button
-            key={content.sheet.id}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            data-testid={`sheet-tab-${index}`}
-            data-active={active || undefined}
-            onClick={() => onSelect(index)}
-            className={`border-b-2 px-2.5 py-1 font-display text-2xs uppercase tracking-[0.14em] transition-colors duration-fast focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass ${
-              active
-                ? "border-brass text-mist"
-                : "border-transparent text-gauge hover:text-mist"
-            }`}
-          >
-            {content.sheet.name}
-          </button>
-        );
-      })}
-      <button
-        type="button"
-        onClick={onAdd}
-        disabled={adding}
-        data-testid="sheet-tab-add"
-        aria-label="Add sheet"
-        className="ml-0.5 shrink-0 rounded-sm px-1.5 py-1 font-display text-xs leading-none text-gauge transition-colors duration-fast hover:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:pointer-events-none disabled:opacity-40"
+    <div className="absolute left-3 top-3 z-overlay flex items-center gap-1 border border-hairline bg-anvil/95 px-1.5 py-1 shadow-float backdrop-blur-sm">
+      <div
+        className="flex items-center gap-1"
+        role="tablist"
+        aria-label="Drawing sheets"
+        data-testid="sheet-tabs"
       >
-        {adding ? "…" : "+"}
-      </button>
+        {sheets.map((content, index) => {
+          const active = index === activeIndex;
+          return (
+            <button
+              key={content.sheet.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              data-testid={`sheet-tab-${index}`}
+              data-active={active || undefined}
+              onClick={() => onSelect(index)}
+              className={`border-b-2 px-2.5 py-1 font-display text-2xs uppercase tracking-[0.14em] transition-colors duration-fast focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass ${
+                active
+                  ? "border-brass text-mist"
+                  : "border-transparent text-gauge hover:text-mist"
+              }`}
+            >
+              {content.sheet.name}
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          onClick={onAdd}
+          disabled={adding}
+          data-testid="sheet-tab-add"
+          aria-label={
+            fit
+              ? `Add sheet — ${ORIENTATION_NAME[fit.proposed]} at ${fit.scaleByOrientation[fit.proposed]}`
+              : "Add sheet"
+          }
+          data-proposed-orientation={fit?.proposed}
+          className="ml-0.5 shrink-0 rounded-sm px-1.5 py-1 font-display text-xs leading-none text-gauge transition-colors duration-fast hover:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:pointer-events-none disabled:opacity-40"
+        >
+          {adding ? "…" : "+"}
+        </button>
+      </div>
+      {sheet ? (
+        <>
+          <span aria-hidden="true" className="mx-1 h-4 w-px bg-hairline" />
+          <SheetHeaderCell
+            testid="sheet-projection"
+            label={`Projection convention: ${CONVENTION_NAME[convention]} — switch to ${CONVENTION_NAME[nextConvention]}`}
+            onActivate={onFlipConvention}
+            busy={reheading}
+            tone="stamp"
+            attrs={{ "data-projection": convention }}
+          >
+            <ProjectionSymbol convention={convention} />
+            <span>{convention === "third_angle" ? "3rd" : "1st"}</span>
+          </SheetHeaderCell>
+          <SheetHeaderCell
+            testid="sheet-orientation"
+            label={`Sheet orientation: ${ORIENTATION_NAME[orientation]}${fitNote} — switch to ${ORIENTATION_NAME[nextOrientation]}${nextFitNote}`}
+            onActivate={onFlipOrientation}
+            busy={reheading}
+            attrs={{
+              "data-orientation": orientation,
+              ...(fit
+                ? {
+                    "data-fit-landscape": fit.scaleByOrientation.landscape,
+                    "data-fit-portrait": fit.scaleByOrientation.portrait,
+                    "data-proposed": String(orientation === fit.proposed),
+                  }
+                : {}),
+            }}
+          >
+            <OrientationSymbol orientation={orientation} />
+          </SheetHeaderCell>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -1861,12 +2610,18 @@ function DimensionsPanel({
   dimensions,
   measuredById,
   busy,
+  movingId,
+  onMove,
   onDelete,
   onHeal,
 }: {
   dimensions: readonly DimensionResponse[];
   measuredById: Map<string, MeasuredDimension>;
   busy: boolean;
+  /** The dimension currently being re-placed, if any — its row says so. */
+  movingId: string | null;
+  /** Pick this dimension up and re-enter the PLACE stage (P1-E). */
+  onMove: (dimensionId: string) => void;
   onDelete: (dimensionId: string) => void;
   /** Store the re-anchored signature for this dimension (the "confirm" write). */
   onHeal: (dimensionId: string) => void;
@@ -1947,6 +2702,23 @@ function DimensionsPanel({
                     >
                       {value}
                     </span>
+                    {/* MOVE, beside Delete. The sheet's own value stamp is the
+                        primary route (press it and drag), but the panel is
+                        where a user looks for "what can I do to this one", and
+                        before this the honest answer was "delete it and author
+                        it again" (frontend-QA 2026-08-27, P1-E). */}
+                    {!errored ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        data-testid="dimension-move"
+                        aria-label={`Move the ${dim.dimension.type} dimension`}
+                        onClick={() => onMove(dim.id)}
+                        className="shrink-0 rounded-sm px-1.5 py-0.5 font-display text-2xs uppercase tracking-[0.14em] text-gauge transition-colors duration-fast hover:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:pointer-events-none disabled:opacity-40"
+                      >
+                        {dim.id === movingId ? "Placing…" : "Move"}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       disabled={busy}

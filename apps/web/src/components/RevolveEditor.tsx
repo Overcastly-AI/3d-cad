@@ -1,11 +1,16 @@
 /**
  * The revolve editor — the extrude editor's twin, in the same title-block seat
  * top-left of the viewport (you author a sketch OR a feature, never both). Its
- * one extra field over extrude is the AXIS: a line entity of the profile's own
- * sketch, offered as a ruled select with the construction centerline ranked
- * first (a centerline IS an axis of revolution). Keyboard-first: the angle
- * field autofocuses, Enter commits, Escape cancels — the sketcher's dimension
- * grammar. Angle wears brass because it is THE parametric handle of the turn.
+ * one extra field over extrude is the AXIS, a ruled select ranked so that its
+ * FIRST row is the turn we are proposing: a drawn centerline, else a world
+ * origin axis, else a profile edge (see `features/revolve`). Keyboard-first:
+ * the angle field autofocuses, Enter commits, Escape cancels — the sketcher's
+ * dimension grammar. Angle wears brass because it is THE parametric handle.
+ *
+ * An axis the kernel would refuse stays IN the list, disabled, wearing its
+ * reason in its own label — and when the stored axis of a feature being edited
+ * is one of those, the reason is repeated below the cell as a live status line,
+ * because a disabled option cannot be arrowed onto to be read.
  */
 import {
   AddIcon,
@@ -27,6 +32,8 @@ import type { RevolveParams } from "../api/parts";
 import {
   angleError,
   type AxisOption,
+  axisReason,
+  axisRef,
   canSubmitRevolve,
   defaultAxisId,
   parseAngleDeg,
@@ -106,22 +113,20 @@ export function RevolveEditor({
 
   const submit = useCallback(() => {
     const angle = parseAngleDeg(form.angleInput);
-    if (
-      angle === null ||
-      form.profileFeatureId === "" ||
-      form.axisEntityId === ""
-    )
-      return;
+    // The axis comes back from the option list, never rebuilt from the id: the
+    // select can only ever send an axis it actually offered.
+    const axis = axisRef(axes, form.axisId);
+    if (angle === null || form.profileFeatureId === "" || axis === null) return;
     onSubmit({
       profile: { kind: "feature", feature_id: form.profileFeatureId },
-      axis: { kind: "sketch_line", entity: form.axisEntityId },
+      axis,
       angle_deg: angle,
       operation: form.operation,
       direction: form.direction,
       // Merge is an ADD choice only (see ExtrudeEditor); a cut sends `true`.
       merge: form.operation === "add" ? form.merge : true,
     });
-  }, [form, onSubmit]);
+  }, [axes, form, onSubmit]);
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -133,20 +138,21 @@ export function RevolveEditor({
     [saving, submit],
   );
 
-  // Changing the profile re-scopes the axis to the new sketch's lines.
+  // Changing the profile re-scopes the axis to the new sketch's own axes.
   const onProfileChange = useCallback(
     (profileFeatureId: string) => {
       setForm((f) => ({
         ...f,
         profileFeatureId,
-        axisEntityId: defaultAxisId(axesByProfile[profileFeatureId] ?? []),
+        axisId: defaultAxisId(axesByProfile[profileFeatureId] ?? []),
       }));
     },
     [axesByProfile],
   );
 
   const angleMsg = angleError(form.angleInput);
-  const canSubmit = canSubmitRevolve(form) && axes.length > 0 && !saving;
+  const axisMsg = axisReason(axes, form.axisId);
+  const canSubmit = canSubmitRevolve(form, axes) && !saving;
   useCommandBridge(submit, canSubmit);
   const profileName =
     profiles.find((p) => p.id === form.profileFeatureId)?.name ?? "—";
@@ -183,10 +189,15 @@ export function RevolveEditor({
               <SelectField
                 label="Axis"
                 data-testid="revolve-axis"
-                value={form.axisEntityId}
-                options={axes.map((a) => ({ value: a.id, label: a.label }))}
+                value={form.axisId}
+                error={axisMsg}
+                options={axes.map((a) => ({
+                  value: a.id,
+                  label: a.label,
+                  disabled: a.reason !== null,
+                }))}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, axisEntityId: e.target.value }))
+                  setForm((f) => ({ ...f, axisId: e.target.value }))
                 }
               />
             ) : (

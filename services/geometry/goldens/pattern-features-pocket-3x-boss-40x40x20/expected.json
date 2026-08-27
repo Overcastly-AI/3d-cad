@@ -1,0 +1,34 @@
+{
+  "description": "FEATURES-SCOPE PATTERN — \"repeat THIS pocket\" (pattern v2, docs/design/pattern-scope.md §8). A 40 x 40 x 20 plate, a 4 x 20 x 10 pocket at x in [4,8] extrude-CUT from the XY plane, then an 8 x 8 x 5 BOSS on the top face — a feature the user added for an unrelated reason — then a linear pattern (+X, spacing 12, count 3) with `scope: {kind: features, features: [pocket]}`. Three pockets at x in [4,8], [16,20], [28,32] and one boss: 29920.0 mm^3, bbox still 40 long. THIS TREE IS THE DEFECT'S OWN TREE. Delete the `scope` key and the identical tree evaluates to 51359.99999999999 with bbox X 0..64 — the boss SHADOWS the recorded cut, so v1's immediate-predecessor inference reads the request as \"repeat the whole plate\" and reports every feature `ok` (pattern-scope §1.1). What this golden locks is therefore not a new number but the removal of a guess: the seed is stated, so an unrelated feature between the cut and the pattern cannot change what is repeated. NOTE, and this is why the assertion set matters: the wrong body has the SAME face, edge and shell counts (26 / 60 / 1) as the right one. Topology alone does not catch it. Volume and the bounding box do.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill). All-planar throughout — no curved face anywhere, which is why the planar tolerance tier applies.",
+    "plate: x,y in [0,40] on XY (unconstrained -> the solver returns the authored positions bitwise), extruded 20 mm = 32000 mm^3.",
+    "pocket: a 4 x 20 rectangle at x in [4,8], y in [10,30], extrude-CUT 10 mm along +Z from the XY plane, so its tool spans z in [0,10] and the notch opens only at the z=0 face: -800 mm^3. This is the SAME notch the mirror-features goldens use, so its surface-area accounting is the reviewed one.",
+    "boss: an 8 x 8 square at x,y in [30,38] on a datum 20 mm above XY (the plate's top face), extruded 5 mm and fused: +320 mm^3. It is body-affecting and NOT a cut, so under the v1 body scope it shadows the pocket — that shadowing is the whole point of the fixture.",
+    "pattern, scope features [pocket], count 3 at spacing 12 along +X: the pocket's RECORDED removal tool is placed at +12 and +24 and cut, giving notches at x in [16,20] and x in [28,32]: -800 each. Both land inside the plate in plan, clear of one another (8 mm of material between consecutive notches) and clear of the boss (the notches span y in [10,30], the boss y in [30,38] and z >= 20), so the plate stays ONE connected solid and every removal is exact and independent.",
+    "volume = 32000 - 3*800 + 320 = 29920.0 mm^3.",
+    "surface_area: 6400 (the un-notched 40x40x20 plate = 2*1600 + 4*800) + 3 x 480 (each notch removes 80 mm^2 from the bottom cap and adds a 48 mm x 10 mm wall wrap plus an 80 mm^2 ceiling — the mirror-features goldens' reviewed per-notch figure) + 160 for the boss (-64 from the top cap, +4*40 of wall, +64 of new top) = 6400 + 1440 + 160 = 8000.0 mm^2.",
+    "centroid, as the volume-weighted sum of plate (32000 @ (20,20,10)), three notches removed (800 each @ x = 6, 18, 30, y = 20, z = 5) and the boss (320 @ (34,34,22.5)): x = (32000*20 - 800*(6+18+30) + 320*34)/29920 = 607680/29920 = 20.310160427807485; y = (32000*20 - 2400*20 + 320*34)/29920 = 602880/29920 = 20.149732620320854; z = (32000*10 - 2400*5 + 320*22.5)/29920 = 315200/29920 = 10.53475935828877. The x value is the one that moves if the pattern repeats the wrong thing.",
+    "bounding_box = [0,0,0]..[40,40,25]: every notch is interior in plan and opens downward; the boss adds the 5 mm above z=20. The X extent of 40 is the direct assertion that the PLATE was not replicated — the body reading of this same tree reaches 64.",
+    "topology: 26 faces = 6 outer + 5 per notch x 3 + 5 for the boss (4 walls + 1 top). 60 edges = 12 box + 12 per notch x 3 + 12 for the boss (4 of its footprint as an inner wire on the top cap, 4 vertical, 4 on its top). 1 shell.",
+    "mesh (linear 0.1 mm, all-planar): bottom cap = 4 outer + 3*4 notch nodes = 16 vertices with 3 holes -> 16 - 2 + 2*3 = 20 triangles. Top cap = 4 outer + 4 boss-footprint = 8 vertices with 1 hole -> 8 - 2 + 2 = 8 triangles. 4 plate side walls 16 / 8. Three notches at 5 faces each = 3*(20, 10) = 60 / 30. Boss = 4 walls (16 / 8) + 1 top (4 / 2) = 20 / 10. Totals = 16 + 8 + 16 + 60 + 20 = 120 vertices and 20 + 8 + 8 + 30 + 10 = 76 triangles.",
+    "GLB byte size is deliberately NOT pinned (as in every sibling golden); the determinism leg of the runner already asserts byte-identical GLB across rebuilds and across a fresh interpreter."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "ALL-PLANAR tolerance — the same reviewed planar tier as the mirror-features goldens and the shipped planar pattern goldens; reused verbatim, no new epsilon. Measured deviations vs the analytic values (2026-08-26, build123d 0.11.1 / OCCT 7.9): volume |29920.0 - 29920.000000000004| = 3.6e-12, surface_area 9.1e-13, centroid.x exactly 0.0, centroid.y exactly 0.0, centroid.z 8.9e-15, AABB bounds exactly 0.0. ~275x headroom over the worst residual. Topology and mesh counts carry NO tolerance (exact-match) — and per the description they are NOT what discriminates this golden's body from the defect's body, so a future change that keeps them and moves the volume is exactly what this file exists to catch. Loosening requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 29920.0,
+    "surface_area": 8000.0,
+    "centroid": {
+      "x": 20.310160427807485,
+      "y": 20.149732620320854,
+      "z": 10.53475935828877
+    },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 40.0, "z": 25.0 }
+    }
+  },
+  "topology": { "faces": 26, "edges": 60, "shells": 1 },
+  "mesh": { "vertices": 120, "triangles": 76 }
+}

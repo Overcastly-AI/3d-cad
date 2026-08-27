@@ -24,11 +24,15 @@ from geometry.drawings.assembly_project import (
     evaluate_assembly_drawing_views,
 )
 from geometry.drawings.compose import (
+    DXF_ENCODING,
+    DXF_UNITS,
     MIN_VIEW_CLEARANCE_MM,
     VIEW_GUTTER_MM,
+    FlatPatternExportError,
     measure_layout_issues,
     place_sheet,
     serialize_dxf,
+    serialize_flat_pattern_dxf,
     serialize_pdf,
     serialize_svg,
 )
@@ -69,6 +73,8 @@ from geometry.drawings.section import (
 from geometry.drawings.thread_schedule import thread_schedule_rows
 
 __all__ = [
+    "DXF_ENCODING",
+    "DXF_UNITS",
     "FLAT_PATTERN_VIEW",
     "MIN_VIEW_CLEARANCE_MM",
     "SECTION_VIEW",
@@ -76,6 +82,7 @@ __all__ = [
     "DimensionNotParallelError",
     "DimensionTypeError",
     "DimensionValue",
+    "FlatPatternExportError",
     "Point2D",
     "ProjectedEdge",
     "ResolvedAnchor",
@@ -102,6 +109,7 @@ __all__ = [
     "section_cut",
     "section_view_result",
     "serialize_dxf",
+    "serialize_flat_pattern_dxf",
     "serialize_pdf",
     "serialize_svg",
     "thread_schedule_rows",

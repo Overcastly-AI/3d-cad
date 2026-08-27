@@ -5,14 +5,20 @@ The flat-pattern-sheet golden (``tests/test_sheet_metal_flat_pattern_sheet.py``)
 pins the ``ComposedSheet`` JSON hash only — it proves placement + bend-table data
 are deterministic, but NOT that the SERIALIZED artifact bytes are stable. The
 serializers are where an encoding regression hides: the bend-table row stamps a
-degree symbol (the ANGLE cell ``90.0°``), and a serializer that
-emitted latin-1 / ASCII-escaped bytes instead of UTF-8, or a reportlab/ezdxf
-metadata drift, would still pass the JSON pin while shipping wrong bytes to the
-shop. This module byte-pins ``serialize_svg`` / ``serialize_pdf`` / ``serialize_dxf``
+degree symbol (the ANGLE cell ``90.0°``), and a serializer that emitted bytes in an
+encoding the file does not declare, or a reportlab/ezdxf metadata drift, would still
+pass the JSON pin while shipping wrong bytes to the shop. This module byte-pins
+``serialize_svg`` / ``serialize_pdf`` / ``serialize_dxf``
 of the composed L-bracket (N=1) and U-channel (N=2) flat-pattern sheets against
 committed golden files, in-process AND across a fresh interpreter restart
-(RESEARCH §9 / sheet-metal.md §9 #4), and asserts the degree symbol is present as
-UTF-8 in the SVG text and the DXF bytes.
+(RESEARCH §9 / sheet-metal.md §9 #4), and asserts the degree symbol survives into
+the SVG text and reads back out of the DXF through a real reader.
+
+Encoding note (AUDIT-PRODUCT F-3): the DXF's bytes are the code page its header
+declares (`compose.DXF_ENCODING` = cp1252), not UTF-8. Every read-back here goes
+through the conftest `dxf_texts` / `read_dxf` fixtures, which derive the encoding
+from the file itself; this module used to assert `b"\xc2\xb0" in dxf`, which pinned
+the mojibake defect in place under an encoding-gate name.
 
 Version-pinned like the other flat-pattern goldens: the composed geometry derives
 from the OCCT/build123d arc-fit bend radius, so a kernel bump regenerates these
@@ -20,18 +26,13 @@ files (regenerate with ``_regenerate`` below); a byte change WITHOUT a kernel bu
 is a determinism/encoding regression (P0), never a quiet re-baseline.
 """
 
-# ezdxf's top-level `read` is public but not formally re-exported (pyright flags
-# reportPrivateImportUsage) — the same boundary compose.py suppresses file-wide.
-# pyright: reportPrivateImportUsage=false
-
 import hashlib
-import io
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
-import ezdxf
 import pytest
 from geometry.drawings import (
     evaluate_drawing_views,
@@ -42,7 +43,7 @@ from geometry.drawings import (
 )
 from geometry.drawings.compose import (
     _BEND_TABLE_CAPTIONS,  # pyright: ignore[reportPrivateUsage]
-    _LYR_BEND,  # pyright: ignore[reportPrivateUsage]
+    _LYR_BEND_TABLE,  # pyright: ignore[reportPrivateUsage]
     _bend_row_cells,  # pyright: ignore[reportPrivateUsage]
     _esc,  # pyright: ignore[reportPrivateUsage]
 )
@@ -135,15 +136,27 @@ def test_flat_pattern_dxf_is_byte_identical(stem: str, title: str) -> None:
 
 
 @each_case
-def test_bend_table_degree_symbol_is_utf8(stem: str, title: str) -> None:
-    """The bend-table row's degree symbol survives as UTF-8 in the SVG text and the
-    DXF bytes — the exact encoding detail a byte pin protects (a latin-1 / ASCII
-    serializer would drop or mojibake it, mis-labelling the shop's fold angle)."""
+def test_bend_table_degree_symbol_survives_the_serializers(
+    stem: str, title: str, dxf_texts: Callable[..., list[str]]
+) -> None:
+    """The bend-table row's degree symbol survives into the SVG text and reads back
+    out of the DXF — the exact encoding detail a byte pin protects (a serializer that
+    dropped or mojibaked it would mis-label the shop's fold angle).
+
+    **Rewritten for AUDIT-PRODUCT F-3, and this test is the reason the defect lived.**
+    It was ``test_bend_table_degree_symbol_is_utf8`` and it asserted
+    ``b"\\xc2\\xb0" in dxf`` — i.e. it demanded UTF-8 bytes inside a file whose header
+    declares ``$DWGCODEPAGE = ANSI_1252``, so it PINNED the mojibake in place while
+    reading as a careful encoding gate. The lesson is the general one: a gate that
+    asserts on our own output bytes can only ever confirm what we already do. Assert
+    on what a READER sees instead — here, the string ezdxf gets back when it decodes
+    the file the way the file says to.
+    """
     composed = _compose(stem, title)
     svg = serialize_svg(composed)
     dxf = serialize_dxf(composed)
     assert "°" in svg, f"{stem}: no degree symbol in SVG bend table"
-    assert b"\xc2\xb0" in dxf, f"{stem}: degree symbol not UTF-8 in DXF bytes"
+    assert "90.0°" in dxf_texts(dxf), f"{stem}: DXF bend angle did not read back"
     # The exact stamped ANGLE cell (columnar layout matching the on-screen DOM table).
     assert ">90.0°</text>" in svg
 
@@ -159,20 +172,24 @@ def _svg_bend_rows(svg: str) -> list[list[str]]:
     return rows
 
 
-def _dxf_bend_rows(dxf: bytes, ncols: int) -> list[list[str]]:
-    """Ordered per-row cell strings from the DXF BEND-layer TEXT entities (chunked by
-    column count; only bend CELLS live on the BEND layer — captions are on TITLE)."""
-    # ezdxf.read is public but not formally re-exported (repo idiom — see compose.py's
-    # file-level reportPrivateImportUsage suppression).
-    doc = ezdxf.read(io.StringIO(dxf.decode("utf-8")))
-    texts = [
-        e.dxf.text for e in doc.modelspace().query("TEXT") if e.dxf.layer == _LYR_BEND
-    ]
+def _dxf_bend_rows(
+    dxf_texts: Callable[..., list[str]], dxf: bytes, ncols: int
+) -> list[list[str]]:
+    """Ordered per-row cell strings from the DXF bend-table TEXT entities.
+
+    The whole block lives on `_LYR_BEND_TABLE` (AUDIT-PRODUCT F-2b — it used to be
+    split, row cells on the fold-line layer and captions on TITLE), emitted as the
+    caption row then one row per bend, so the first `ncols` strings are the header and
+    the rest chunk by column count. Read back through the `dxf_texts` fixture, which
+    derives the encoding from the file's own `$DWGCODEPAGE`, not UTF-8 (F-3)."""
+    texts = dxf_texts(dxf, layer=_LYR_BEND_TABLE)[ncols:]
     return [texts[i : i + ncols] for i in range(0, len(texts), ncols)]
 
 
 @each_case
-def test_bend_table_text_consistent_across_serializers(stem: str, title: str) -> None:
+def test_bend_table_text_consistent_across_serializers(
+    stem: str, title: str, dxf_texts: Callable[..., list[str]]
+) -> None:
     """DRY-LOCK: the SVG / PDF / DXF serializers render the SAME bend-table cell
     strings in the SAME order (the canonical `_bend_row_cells`, matching the on-screen
     DOM `BendTable`) — the pin against the three formats silently re-diverging (the
@@ -188,7 +205,7 @@ def test_bend_table_text_consistent_across_serializers(stem: str, title: str) ->
 
     # SVG and DXF carry the cell text verbatim (UTF-8) — assert identical, same order.
     assert _svg_bend_rows(svg) == canonical, f"{stem}: SVG bend cells drifted"
-    assert _dxf_bend_rows(dxf, len(_BEND_TABLE_CAPTIONS)) == canonical, (
+    assert _dxf_bend_rows(dxf_texts, dxf, len(_BEND_TABLE_CAPTIONS)) == canonical, (
         f"{stem}: DXF bend cells drifted"
     )
     # The uncompressed PDF (pageCompression=0) stamps each cell literally; base-14

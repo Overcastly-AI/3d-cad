@@ -1,6 +1,7 @@
 # Loft (working name)
 
 [![ci](https://github.com/Overcastly-AI/3d-cad/actions/workflows/ci.yml/badge.svg)](https://github.com/Overcastly-AI/3d-cad/actions/workflows/ci.yml)
+[![e2e](https://github.com/Overcastly-AI/3d-cad/actions/workflows/e2e.yml/badge.svg)](https://github.com/Overcastly-AI/3d-cad/actions/workflows/e2e.yml)
 [![deploy-path](https://github.com/Overcastly-AI/3d-cad/actions/workflows/deploy-path.yml/badge.svg)](https://github.com/Overcastly-AI/3d-cad/actions/workflows/deploy-path.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
@@ -55,18 +56,28 @@ of truth for what phase we're in.
 - **Assemblies** — a distinct document type: part instances + mates
   (coincident / concentric / lock) solved by an in-house, GPL-free 6-DOF
   rigid-body solver, byte-deterministic across machines. Includes
-  interference/clash detection and assembly STEP import/export.
+  interference/clash detection and assembly STEP import/export. **The mate
+  solver is solid; picking the face you want to mate is not always possible
+  today** — see "Known correctness gaps" below (`MATE-1`).
 - **Drawings** — associative standard views (front / top / right / iso) via
   exact OCCT HLR, section views, model-true dimensions, and SVG / PDF / DXF
-  export.
+  export. The DXF unit-header bug below (`DXF-5`) applies here too, not just
+  to sheet metal.
 - **Sheet metal (v1)** — base flange + edge flange, provenance-driven
-  flat-pattern unfold (bend allowance / K-factor), and the flat pattern as a
-  drawing view with a bend table.
+  flat-pattern unfold (bend allowance / K-factor), the flat pattern as a
+  drawing view with a bend table, and a one-click **profile-only flat-pattern
+  DXF** — cut geometry alone, no border/title/bend-table text on the layer a
+  fabricator's nesting software selects — for handoff to shop tooling.
+  **Do not trust that DXF as-is today: it can drop through-holes entirely
+  and its unit header is wrong by 1000x** — see "Known correctness gaps"
+  below (`DXF-4`, `DXF-5`) before sending anything to a shop.
 - **Materials & mass properties** — assign a material and get real mass and a
   mass-weighted centre of mass. Both are `null` — never zero — until a
   material is assigned, on purpose.
 - **Interop** — STEP import (including multi-solid files as one multi-lump
-  body); STEP / STL export.
+  body); STEP / STL / 3MF / glTF-GLB export for parts and assemblies, each
+  format declaring its own length unit correctly (3MF's explicit
+  `unit="millimeter"`, glTF's metres-by-spec).
 - **Three FastAPI services** (`gateway`, `documents`, `geometry`) on a shared
   service kit (`packages/py-kit`: config, JSON logging, health/readiness,
   error envelope, metrics, rate limiting, response compression, queue client),
@@ -83,15 +94,58 @@ of truth for what phase we're in.
 - **Quality gates** — `just lint` (ruff + ruff format + pyright strict +
   eslint + prettier + tsc) and `just test` green. Run `just test` for the
   count at your commit; a number pinned here goes stale the week it's
-  written. Alongside the unit suites: a property-based feature-composition
-  matrix, geometry golden models with hand-derived analytic expectations,
-  STEP round-trips, determinism gates, and 78 Playwright specs.
+  written (same reason a spec count isn't pinned either — check
+  `apps/web/e2e` for the current tally). Alongside the unit suites: a
+  property-based feature-composition matrix, geometry golden models with
+  hand-derived analytic expectations, STEP round-trips, determinism gates,
+  and a Playwright browser suite that CI drives against a real running
+  stack ([`e2e.yml`](./.github/workflows/e2e.yml)) — added specifically
+  because a correct behaviour change once shipped with a red spec while
+  five straight CI runs reported green, and nothing before this workflow
+  drove a browser at all.
 - **Compose stack** — Postgres 16 + Redis 7 + MinIO + the three services,
   **proven end to end in CI**: every push builds the images, boots the stack,
   migrates both schemas, and drives a real modeling round-trip (register →
   part → sketch → extrude → evaluate → fetch mesh → export STEP) through the
   published gateway port ([`deploy-path.yml`](./.github/workflows/deploy-path.yml),
   i.e. `just compose-smoke`).
+
+**Known correctness gaps, filed and not yet fixed.** The
+[daily-driver scorecard](./docs/VISION.md#daily-driver-scorecard) is the
+source of truth for pillar-by-pillar status; these are the specific defects
+holding rows below ✅ as of this commit:
+
+- **Part modeling (➖)** — a feature reference into a body (e.g. a hole placed
+  on a face) does not reliably survive a *second* parameter edit to its own
+  generating sketch: the first edit re-anchors correctly, the second compares
+  against geometry that is already one edit stale and can orphan the
+  reference (`SUBSHAPE_UNRESOLVED`). The UI's advertised repair, "Re-pick
+  face," is currently inert on a tip that failed to build — there is no body
+  left to pick against. Tracked as `PICK-2` / `NAME-2` (both P0). Note the
+  sketch solver itself is **not** the gap here: an under-constrained solve
+  now holds the input geometry and a conflicting dimension edit is refused
+  (`SOLVE-1`, closed), which is why Sketching & constraints already rates ✅.
+- **Assemblies (❌)** — mate authoring can hit a face that is structurally
+  unreachable in the viewport: an ordinary bracket-to-plate mate was
+  unpickable across 11 camera orbits and 10 zoom levels because a same-size
+  proxy for a *different* face sits on top with no z-order tiebreak. Mate
+  solving itself is not the gap — 5 mate types, interference detection, and
+  assembly STEP round-trip all measure correct — the entry point is. Tracked
+  as `MATE-1` (P0).
+- **Sheet metal (❌)** — flat-pattern DXF export can ship **zero holes** for
+  a part that visibly has them (a bracket's 4 through-holes vanish in both
+  the on-screen flat-pattern view and the exported file) — a cut file that
+  silently omits every through-feature, not merely an incomplete one.
+  Separately, every exported DXF's `$INSUNITS` header declares **metres**,
+  not millimetres — a 1000x error for CAM/nesting software that honours the
+  field, and not limited to sheet metal: it hits the general Drawings DXF
+  export too. **Do not send an as-shipped DXF from this build to a
+  fabricator without manually verifying hole count and units.** Tracked as
+  `DXF-4` / `DXF-5` (both P0).
+
+Measured reproductions for all of the above are in
+[`docs/AUDIT-PRODUCT.md`](./docs/AUDIT-PRODUCT.md); live status and territory
+in [`docs/BACKLOG.md`](./docs/BACKLOG.md).
 
 ![The Loft viewport showing a bearing hub: a three-feature tree — sketch,
 revolve, fillet — and a turned flanged part with a through

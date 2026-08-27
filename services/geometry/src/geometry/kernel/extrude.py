@@ -107,6 +107,42 @@ def plane_point_to_world(plane: Plane, point: Point2D) -> Vector:
     return _to_world(plane, point)
 
 
+def plane_point_to_local(plane: Plane, point: Vector) -> tuple[float, float, float]:
+    """Map a WORLD point into *plane*'s frame: ``(u, v, w)`` mm.
+
+    The exact algebraic inverse of :func:`plane_point_to_world` and its single
+    public entry (CLAUDE.md DRY rule): ``(x_dir, y_dir, z_dir)`` is an
+    orthonormal frame, so projecting ``point - origin`` onto each axis undoes
+    ``origin + x_dir * u + y_dir * v`` exactly. ``u``/``v`` are the sketch-plane
+    coordinates a :class:`~py_kit.schemas.sketch.Point2D` carries and ``w`` is
+    the signed distance OUT of the plane along its normal — so ``w == 0`` is
+    precisely "this world point lies in the sketch plane", the test a revolve
+    axis that is not a sketch entity has to pass
+    (:func:`geometry.kernel.revolve.resolve_revolve_axis`).
+    """
+    offset = point - plane.origin
+    return plane_vector_to_local(plane, offset)
+
+
+def plane_vector_to_local(plane: Plane, vector: Vector) -> tuple[float, float, float]:
+    """Resolve a world DIRECTION into *plane*'s frame: ``(du, dv, dw)``.
+
+    The vector sibling of :func:`plane_point_to_local` — same orthonormal
+    projection, but WITHOUT subtracting the plane origin, because a direction
+    has no position. Keeping the two apart matters: routing a direction through
+    the point mapping silently adds the plane's own offset to ``dw``, so "does
+    this direction lie in the plane?" would answer differently for the same
+    direction depending on where the plane sits. ``dw`` alone is the sine of the
+    angle between *vector* and the plane, which is what a coplanarity test on a
+    direction actually needs.
+    """
+    return (
+        vector.dot(plane.x_dir),
+        vector.dot(plane.y_dir),
+        vector.dot(plane.z_dir),
+    )
+
+
 def entity_edges(plane: Plane, entity: SketchEntity) -> list[Edge]:
     """The kernel edge(s) contributed by one solved sketch entity.
 

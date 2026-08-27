@@ -49,13 +49,39 @@ PROPERTIES_HEADER = "X-Loft-Properties"
 GLB_MEDIA_TYPE = "model/gltf-binary"
 
 #: Supported export file formats (``POST /api/v1/export``).
-ExportFormat = Literal["step", "stl"]
+#:
+#: **Each format declares its own length unit, and they are NOT the same one**
+#: (EXPORT-2). STEP and STL carry the kernel's millimetres; 3MF carries an
+#: EXPLICIT ``unit="millimeter"`` attribute in its model XML (the whole reason
+#: it beats STL for printing); glTF/GLB is **metres by specification**, so its
+#: payload is the mm geometry divided by 1000, Y-up. Nothing downstream may
+#: assume "the export is in mm" — ask :data:`EXPORT_UNITS`.
+ExportFormat = Literal["step", "stl", "3mf", "glb"]
 
-#: Media type per export format. STEP part 21 is IANA ``model/step``;
-#: binary STL is IANA ``model/stl``.
+#: Media type per export format. STEP part 21 is IANA ``model/step``; binary
+#: STL is IANA ``model/stl``; 3MF is IANA ``model/3mf``; binary glTF is
+#: ``model/gltf-binary`` (:data:`GLB_MEDIA_TYPE` — the SAME payload the
+#: tessellate route already serves, so the constant is shared, not retyped).
 EXPORT_MEDIA_TYPES: dict[str, str] = {
     "step": "model/step",
     "stl": "model/stl",
+    "3mf": "model/3mf",
+    "glb": GLB_MEDIA_TYPE,
+}
+
+#: The length unit each export format's COORDINATES are written in, as a
+#: multiplier onto the kernel's millimetres (``file_value = mm_value * factor``).
+#:
+#: This exists because a wrong answer here ships parts at the wrong size while
+#: every header claims otherwise — the failure mode that made the flat-pattern
+#: DXF a P0. It is asserted end-to-end by the geometry export gate, which
+#: re-reads each exported file and compares its extents against the source
+#: solid's bounding box in these units.
+EXPORT_UNITS: dict[str, float] = {
+    "step": 1.0,  # AP214 header declares MILLI.METRE
+    "stl": 1.0,  # unitless by format; mm by convention and by our writer
+    "3mf": 1.0,  # <model unit="millimeter">
+    "glb": 1e-3,  # glTF 2.0 §3.4: "the units for all linear distances are meters"
 }
 
 
@@ -150,34 +176,49 @@ class TessellateRequest(ShapeRequest):
     )
 
 
+#: The one sentence every ``format`` field says, so the four routes that take
+#: one cannot describe the same enum four different ways (DRY).
+EXPORT_FORMAT_DESCRIPTION = (
+    "Export file format: STEP (exact B-rep, mm) or one of the faceted meshes "
+    "- STL (mm, no units in the file), 3MF (mm, units DECLARED in the file, "
+    "one object per body) or GLB (binary glTF, metres and Y-up per the glTF "
+    "spec - the same payload the viewport is served)"
+)
+
+#: The one sentence every mesh-quality field says. Named for what it means
+#: rather than for STL, because three of the four formats are faceted.
+MESH_QUALITY_NOTE = "ignored for STEP (exact B-rep)"
+
+
 class ExportRequest(ShapeRequest):
     """Build a parametric shape and export it as a downloadable CAD file.
 
     STEP exports the exact B-rep — the deflection fields are meaningless for
-    it and ignored. STL is a faceted approximation; its quality fields default
-    to the tessellation defaults so the exported mesh matches what the
-    viewport shows.
+    it and ignored. STL, 3MF and GLB are faceted approximations; their quality
+    fields default to the tessellation defaults so the exported mesh matches
+    what the viewport shows. GLB is in fact the *identical* payload the
+    viewport receives, which is why it takes ``linear_deflection`` only (the
+    angular setting is fixed service-wide on the tessellation path).
     """
 
-    format: ExportFormat = Field(
-        description="Export file format: STEP (exact B-rep) or STL (faceted mesh)"
-    )
+    format: ExportFormat = Field(description=EXPORT_FORMAT_DESCRIPTION)
     linear_deflection: float = Field(
         default=DEFAULT_LINEAR_DEFLECTION,
         ge=MIN_LINEAR_DEFLECTION,
         description=(
-            "STL facet linear deflection (mm), same semantics as tessellation; "
-            "ignored for STEP (exact B-rep). Floored at MIN_LINEAR_DEFLECTION "
-            "(work bound, audit G2)."
+            "Facet linear deflection (mm) for STL / 3MF / GLB, same semantics "
+            f"as tessellation; {MESH_QUALITY_NOTE}. Floored at "
+            "MIN_LINEAR_DEFLECTION (work bound, audit G2)."
         ),
     )
     angular_deflection: float = Field(
         default=DEFAULT_ANGULAR_DEFLECTION,
         ge=MIN_ANGULAR_DEFLECTION,
         description=(
-            "STL facet angular deflection (rad) between adjacent segments; "
-            "ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION "
-            "(work bound, audit G2)."
+            "Facet angular deflection (rad) between adjacent segments for STL "
+            f"and 3MF; {MESH_QUALITY_NOTE}, and fixed service-wide for GLB so "
+            "an exported GLB is byte-identical to the viewport mesh. Floored "
+            "at MIN_ANGULAR_DEFLECTION (work bound, audit G2)."
         ),
     )
 

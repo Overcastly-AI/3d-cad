@@ -700,6 +700,11 @@ def _solved_sketch_data() -> dict[str, Any]:
         "conflicting_constraints": [],
         "redundant_constraints": [],
         "dimensions": [],
+        # The ANGULAR dimension readouts, kept off `dimensions` because their
+        # unit is degrees and that list's value field is `value_mm`
+        # (SKETCH-VOCAB-1). Additive: absent from a stored payload it reads as
+        # [], but this fixture asserts an EXACT round-trip, so it states it.
+        "angles": [],
         "diagnosis": None,
     }
 

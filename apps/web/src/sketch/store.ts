@@ -37,12 +37,14 @@ import { create, type StateCreator } from "zustand";
 import {
   applyConstraintAction,
   constraintEntityRefs,
+  dimensionEditorTarget,
   reconcileConstraints,
   toggleConstruction,
   type ConstraintAction,
   type DimensionCommit,
   type DimensionEditorTarget,
   type SketchConstraint,
+  type SolvedAngle,
   type SolvedDimension,
   type SolveInfo,
 } from "./constraints";
@@ -52,6 +54,7 @@ import {
   datumSafeSolve,
   DEFAULT_FRAME_HALF_HEIGHT_MM,
   groundDatums,
+  isDatumId,
   pickWithDatums,
   selectionTouchesDatum,
   withDatums,
@@ -61,12 +64,13 @@ import {
   drawDimensionFields,
   drawShapeOf,
   resizeDrawn,
+  shapeRigidity,
   type DrawDimensionField,
   type DrawDimensionKey,
   type DrawDimensionValues,
   type DrawShape,
 } from "./drawDimensions";
-import { toggleMirrorTarget, type MirrorAxis } from "./mirror";
+import { mirrorAxisFor, toggleMirrorTarget, type MirrorAxis } from "./mirror";
 import { originIdentity } from "./origin";
 import type { DatumPlaneName, Point2D, SketchPlaneSpec } from "./plane";
 import {
@@ -75,7 +79,15 @@ import {
   type PickMode,
   type SketchPick,
 } from "./pick";
-import { resolveSnap, type SnapCandidate, type SnapResolution } from "./snap";
+import {
+  inferredAxisConstraints,
+  inferredCoincidents,
+  resolveSnap,
+  snapAnchorOf,
+  type SnapAnchor,
+  type SnapCandidate,
+  type SnapResolution,
+} from "./snap";
 import {
   escapeAction,
   finishPlacement as finishPlacementSequence,
@@ -104,6 +116,79 @@ export const DIMENSION_PICK_HINT: Readonly<
 > = {
   distance: "Click a line to dimension it.",
   radius: "Click a circle or arc to dimension it.",
+};
+
+/**
+ * SNAP-5 — AN INFERRED CONSTRAINT THE USER CANNOT SEE IS A TRAP, so the draw
+ * that earns one SAYS so, in the same `hint` line every other automatic
+ * decision in this store speaks through (`constraint-hint`, `role="status"`,
+ * so it is announced rather than merely drawn). Two things are named because
+ * both are actions the user may want in the next second: how to DROP it (the
+ * glyph is live in the viewport the instant it is authored — select it, press
+ * Delete, the ordinary constraint-removal path) and how to have avoided it
+ * (Ctrl/Cmd, which was already the "no snapping" modifier and is honoured by
+ * the inference for the same reason `resolveAim` honours it).
+ *
+ * This is the distinction between INFERRED and AUTHORED that the product owes
+ * the user, made where it is cheapest and truest — at the moment of the draw.
+ * A permanent per-glyph tone would be better still, and it is a viewport change
+ * rather than a sketch-model one: `SketchConstraint` is the GENERATED client
+ * type (DRY rule), so provenance cannot ride on the constraint itself without
+ * a contract change nobody needs yet.
+ */
+const axisInferenceHint = (
+  added: readonly SketchConstraint[],
+): string | null => {
+  const axes = added.filter(
+    (constraint) =>
+      constraint.kind === "horizontal" || constraint.kind === "vertical",
+  );
+  if (axes.length === 0) return null;
+  const named =
+    axes.length === 1
+      ? axes[0]?.kind === "horizontal"
+        ? "Horizontal"
+        : "Vertical"
+      : "Horizontal and vertical";
+  return `${named} inferred from the line you drew — select the glyph and press Delete to drop it, or hold Ctrl/Cmd while drawing to place freehand.`;
+};
+
+/** How a picked entity is named back to the user ("That is a circle."). */
+const ENTITY_KIND_LABEL: Readonly<Record<SketchEntity["kind"], string>> = {
+  point: "a point",
+  line: "a line",
+  circle: "a circle",
+  arc: "an arc",
+  spline: "a spline",
+};
+
+/**
+ * What to say when an ARMED dimension verb is handed the wrong thing (DIM-3).
+ *
+ * NOT the selection-first refusal — "Select one line to dimension." is the exact
+ * sentence arming exists to eliminate, and while armed it is also false: the
+ * user DID click, and "select" names a step this flow no longer has. Answering
+ * a click with it reads as the dead end the fix was supposed to have removed.
+ * So the reply names what was picked and repeats the standing instruction,
+ * which is the truthful pair: this is not it, here is what is.
+ *
+ * THE FRAME IS THE EXCEPTION, and for a different reason: the origin and axes
+ * are refused as a SUBJECT rather than for their kind (SKETCH-2 — the axis is
+ * not yours to move), and that refusal stays true while armed. It is passed
+ * through from the verb that owns it rather than re-derived here.
+ */
+const wrongPickHint = (
+  armed: DimensionPickAction,
+  pickedId: string,
+  entities: readonly SketchEntity[],
+  refusal: string | null,
+): string => {
+  if (isDatumId(pickedId)) return refusal ?? DIMENSION_PICK_HINT[armed];
+  const picked = entities.find((entity) => entity.id === pickedId);
+  // An id the buffer cannot resolve names nothing, so say nothing about it and
+  // keep asking — better a repeated instruction than an invented noun.
+  if (picked === undefined) return DIMENSION_PICK_HINT[armed];
+  return `That is ${ENTITY_KIND_LABEL[picked.kind]}. ${DIMENSION_PICK_HINT[armed]}`;
 };
 
 /**
@@ -150,6 +235,10 @@ const snapshotOf = (state: SketchState): SketchSnapshot => ({
  */
 const CLEARED_BY_HISTORY = {
   pending: [] as Point2D[],
+  // The anchors belong to the pending sequence that is being thrown away with
+  // them; kept, they would bind the NEXT shape to a target the user aimed at
+  // before the undo.
+  snapAnchors: [] as SnapAnchor[],
   selection: [] as SketchPick[],
   hoverPick: null,
   selectedConstraint: null,
@@ -171,10 +260,44 @@ export interface SketchState {
   tool: SketchTool;
   /** Points of the in-progress placement sequence (plane mm, snapped). */
   pending: Point2D[];
+  /**
+   * The addressable snaps this placement sequence has spent so far (SNAP-3).
+   * Accumulated per click and cashed in when the sequence emits geometry, then
+   * cleared: the click that most needs to be recorded — a line's start, a
+   * rectangle's first corner — happens before any entity exists to constrain,
+   * so the intent has to be carried forward rather than re-derived later.
+   */
+  snapAnchors: SnapAnchor[];
   /** Locally buffered entities; adopt solved positions once persisted. */
   entities: SketchEntity[];
   /** Constraints authored this session (persisted with the entities). */
   constraints: SketchConstraint[];
+  /**
+   * Has the USER authored a constraint — a verb from the strip, a typed
+   * dimension, or a re-opened sketch that already carried some — as opposed to
+   * the draw authoring one for them?
+   *
+   * TWO features arrived at this flag independently, which is the argument for
+   * it. RECT-1 made every drawn rectangle carry its rigidity set; SNAP-3 made
+   * every corner snapped onto something carry an inferred coincident. Snapping
+   * is ON by default and endpoints outrank everything, so between them nearly
+   * every real draw now authors constraints nobody asked for by name.
+   *
+   * `PartPage`'s live-save gate used to read `constraints.length > 0` as "this
+   * sketch is worth binding", and binding also retires the "Discard N unsaved
+   * entities" exit confirm. Left alone, a rectangle would bind the instant it
+   * was drawn (while a line would not), and any profile would bind the moment
+   * two corners met — changing what Escape and Exit MEAN because of an action
+   * the user never read as constraining anything. That is the FB-13 class of
+   * ambiguous exit, and CLAUDE.md's flow rule forbids it.
+   *
+   * So: constraints the TOOL infers do not bind; constraints the USER asks for
+   * do. The inferred ones still persist, glyph, and count in the strip's
+   * "N applied" — they are real, they are just not a decision to start saving.
+   * Whether drawing alone SHOULD auto-bind is a real product question, filed as
+   * RECT-2 rather than decided here.
+   */
+  userConstrained: boolean;
   /** Next sketch-local id index (`e1`, `e2`, …). */
   nextIdIndex: number;
   /** GRID snap toggle (G). Entity snapping is always live — Ctrl/Cmd suppresses. */
@@ -236,6 +359,11 @@ export interface SketchState {
    * Armed, the verb becomes a TOOL: the draw tool is dropped, the next entity
    * click opens that entity's dimension editor, and Escape disarms. The verb
    * proposes, the user disposes (CLAUDE.md flow rule) instead of dead-ending.
+   *
+   * ITS ONLY SURFACE IS `hint` (DIM-3) — there is no armed chip, no cursor
+   * change, nothing else to read. That makes "armed" and "silent" a broken
+   * pair, so the two are held apart by an invariant rather than by care at each
+   * call site: see `withArmedPrompt`.
    */
   dimensionPick: DimensionPickAction | null;
   /**
@@ -270,6 +398,15 @@ export interface SketchState {
    * expression `width/2` shows as its resolved `10`.
    */
   solvedDimensions: SolvedDimension[];
+  /**
+   * The ANGULAR half of the same readout, in DEGREES, on the same
+   * `constraint_index` space — the solver reports the two separately so that no
+   * consumer can read a degree out of a field named `value_mm`. Readers merge
+   * the two with `solvedReadouts(…)` rather than picking one: reading only this
+   * list's linear sibling is QA-R2, where an expression-driven angle showed the
+   * placeholder 30 while the model sat at 45.
+   */
+  solvedAngles: SolvedAngle[];
   /** Transient strip hint (invalid constraint action, duplicates, …). */
   hint: string | null;
   /**
@@ -511,19 +648,31 @@ export interface SketchState {
   bind: (featureId: string) => void;
   /**
    * Feed solved geometry + diagnosis back in (never bumps `revision`).
-   * `dimensions`, when provided, replaces the per-dimension readouts; omit it
-   * (error paths) to keep the last-good readouts.
+   * `dimensions` / `angles`, when provided, replace the per-dimension readouts;
+   * omit them (error paths) to keep the last-good readouts. They travel
+   * TOGETHER — an evaluate that reports one reports both, and adopting the
+   * linear list while leaving stale degrees behind is the shape of QA-R2.
    */
   adoptSolved: (
     entities: readonly SketchEntity[] | null,
     solve: SolveInfo | null,
     dimensions?: readonly SolvedDimension[],
+    angles?: readonly SolvedAngle[],
   ) => void;
   /**
    * Escape cascade: editor → placement → tool → selection → and then STOP.
    * Escape leaves the sketch only when there is no work to lose (`escapeAction`
    * `unstarted`); with entities drawn it answers with a hint naming the chip
    * that finishes (FB-13).
+   *
+   * THE ONLY CASCADE (ESC-2). Every Escape — keyboard or chip — routes here;
+   * no caller re-derives the rung with its own `escapeAction(…)` call, because
+   * the last rung's MEANING lives in the mapping and not in the verb. Here
+   * `"exit"` is a fresh session: it DISCARDS, which is safe precisely because
+   * `unstarted` means there is nothing to discard. `PartPage` used to map the
+   * same verb to `finishSketch()`, which SAVES; the two agreed only by the
+   * accident of an omitted default argument, which is FB-13 ("a key that
+   * sometimes saves and sometimes discards") waiting for someone to pass it.
    */
   escape: () => void;
   /** Leave sketch mode, discarding the local buffer. */
@@ -535,8 +684,10 @@ const INITIAL = {
   plane: null,
   tool: "select" as SketchTool,
   pending: [],
+  snapAnchors: [],
   entities: [],
   constraints: [],
+  userConstrained: false,
   nextIdIndex: 1,
   snapEnabled: true,
   snapStepMm: DEFAULT_SNAP_STEP_MM,
@@ -561,6 +712,7 @@ const INITIAL = {
   future: [],
   solve: null,
   solvedDimensions: [],
+  solvedAngles: [],
   hint: null,
   edit: null,
   editBusy: false,
@@ -691,6 +843,36 @@ const withSketchHistory =
       });
     }, get);
 
+/**
+ * ARMED IS NEVER SILENT (DIM-3). `dimensionPick` has no surface of its own: the
+ * hint is the only thing on screen saying the next canvas click will open a
+ * dimension editor rather than select something. Clearing the hint is what an
+ * ordinary action DOES when its own message is over — `selectConstraint` and
+ * `togglePick` both did, correctly, and both left the verb armed and silent, so
+ * the click after them opened an editor with no visible cause.
+ *
+ * Restoring the prompt at those two call sites would have fixed the two we
+ * found and not the third. This is `withSketchHistory`'s argument again: a rule
+ * that has to be remembered at every site will be forgotten at one, and the
+ * cost here is a UI state that cannot be explained from the screen. So it is an
+ * INVARIANT, re-established after every transition — "armed with no hint" is
+ * not a state this store can be left in, by any action, present or future.
+ *
+ * Two things it deliberately does not do: it never overwrites a hint (a site
+ * with something more specific to say — the wrong-kind pick — keeps its own),
+ * and it never fires for a site that DISARMS, because clearing `dimensionPick`
+ * and the prompt together is the arming ending, not going quiet.
+ */
+const withArmedPrompt =
+  (creator: (set: SketchSet, get: () => SketchState) => SketchState) =>
+  (set: SketchSet, get: () => SketchState): SketchState =>
+    creator((partial) => {
+      set(partial);
+      const after = get();
+      if (after.dimensionPick === null || after.hint !== null) return;
+      set({ hint: DIMENSION_PICK_HINT[after.dimensionPick] });
+    }, get);
+
 /** Every action, over the recording `set` (never the raw one). */
 const createSketchState = (
   set: SketchSet,
@@ -707,6 +889,10 @@ const createSketchState = (
       plane,
       entities: [...entities],
       constraints: [...constraints],
+      // A sketch being RE-OPENED is already bound to a feature, so the live
+      // save gate is moot here — but the flag has to be true anyway, or
+      // re-entering a constrained sketch would read as never-constrained.
+      userConstrained: constraints.length > 0,
       // Resume the id counter above what was loaded (never re-mint `e1`).
       nextIdIndex: nextIdIndexAfter(entities),
     })),
@@ -723,6 +909,8 @@ const createSketchState = (
     set({
       tool,
       pending: [],
+      // Abandoning the sequence abandons the intents it collected.
+      snapAnchors: [],
       selection: [],
       hoverPick: null,
       selectedConstraint: null,
@@ -803,20 +991,128 @@ const createSketchState = (
   },
 
   placeAt: (point) => {
-    const { tool, pending, nextIdIndex, entities, revision } = get();
+    const {
+      tool,
+      pending,
+      snapAnchors,
+      nextIdIndex,
+      entities,
+      constraints,
+      revision,
+      snapCandidate,
+      datumFrameHalfMm,
+      snapEnabled,
+      snapStepMm,
+      snapSuppressed,
+      aimToleranceMm,
+    } = get();
     const result = placePoint(tool, pending, point, nextIdIndex);
     const drawn = result.entities.length > 0;
+
+    // AUTOMATIC COINCIDENT ON SNAP (SNAP-3, and SNAP-2 with it).
+    //
+    // The aim that produced `point` is still on the store — `placeAt` is only
+    // ever called with `aim()`'s own return — so the address the click took its
+    // coordinate from is available HERE, at the one moment it is unambiguous.
+    // Recovering it later would mean guessing from a coordinate, which is the
+    // guess this closes.
+    //
+    // A REJECTED placement banks nothing. `placePoint` refuses a degenerate
+    // shape (zero-area rectangle, zero-length line, a spline's repeated fit
+    // point) by handing back the sequence untouched; treating that click as an
+    // anchor would leave a stale intent to be cashed in by whatever the user
+    // draws next.
+    const consumed = drawn || result.pending.length !== pending.length;
+    const anchor = consumed ? snapAnchorOf(snapCandidate, point) : null;
+    const anchors = anchor === null ? snapAnchors : [...snapAnchors, anchor];
+
+    const inferred = drawn
+      ? inferredCoincidents(anchors, result.entities, constraints)
+      : [];
+    const placed = drawn ? [...entities, ...result.entities] : entities;
+    // Snapping to the plane's zero references a datum that may not be in the
+    // buffer yet; grounding it here is the same call `applyConstraint` makes,
+    // so the origin is materialised and PINNED by exactly one code path.
+    // Without the pin a coincident to the origin is satisfiable by moving the
+    // origin, which would take the sketch's zero with it.
+    const grounded =
+      inferred.length === 0
+        ? null
+        : groundDatums(
+            placed,
+            inferred.flatMap(constraintEntityRefs),
+            datumFrame(datumFrameHalfMm),
+          );
+
     // A new placement supersedes the last shape's size cells: anything typed
     // into them and not committed is gone, the same way moving on abandons a
     // half-typed value anywhere else. The cells stay visible right up to that
     // moment, so nothing vanishes without the user acting.
     const shape = drawShapeOf(tool);
     const from = pending[0];
+    // RECT-1 — the shape is held together AT THE DRAW, not at the first typed
+    // dimension. A rectangle is a closed axis-aligned profile the moment it
+    // exists; deferring its corner coincidences left the ordinary untyped
+    // gesture producing four disconnected lines that tear apart on the first
+    // re-drive. This is the ONLY author of the rigidity set — see the note in
+    // drawDimensions.ts for why emitting it again at commit would report an
+    // ordinary rectangle as over-constrained.
+    const rigidity =
+      drawn && shape !== null
+        ? shapeRigidity(
+            shape,
+            result.entities.map((entity) => entity.id),
+          )
+        : [];
+    // SNAP-5 — a line drawn along an axis SAYS so. Line-by-line drawing is how
+    // every profile that is not a rectangle gets made, and until this landed it
+    // authored no axis constraint at all: the shape looked orthogonal and
+    // solved with every edge free to rotate. Deduped against the rigidity set
+    // just authored, so a rectangle's four edges (already H/V by construction)
+    // pass through without stating anything twice.
+    const axis = drawn
+      ? inferredAxisConstraints(
+          result.entities,
+          {
+            gridStepMm: snapEnabled ? snapStepMm : 0,
+            toleranceMm: aimToleranceMm,
+            suppressed: snapSuppressed,
+          },
+          [...constraints, ...rigidity],
+        )
+      : [];
+    /** The snap's inferred coincidents plus whatever datum they had to ground. */
+    const authored =
+      grounded === null ? [] : [...inferred, ...grounded.constraints];
     set({
       pending: result.pending,
+      // Cashed in, or carried to the click that finishes the shape.
+      snapAnchors: drawn ? [] : anchors,
       nextIdIndex: result.nextIdIndex,
-      entities: drawn ? [...entities, ...result.entities] : entities,
+      entities: grounded?.entities ?? placed,
+      // THREE authors, ONE order, and it is deliberate: the shape's own
+      // rigidity (RECT-1) describes what the thing IS, the inferred axis
+      // (SNAP-5) says how the user drew it, the inferred coincident (SNAP-3)
+      // relates it to what was already there, and the datum pins ride last
+      // because they are the frame's bookkeeping rather than anybody's intent.
+      // No author can produce what another does, so they compose rather than
+      // compete — and each still has exactly one call site.
+      constraints:
+        rigidity.length + axis.length + authored.length === 0
+          ? constraints
+          : [...constraints, ...rigidity, ...axis, ...authored],
+      // `userConstrained` is deliberately NOT set by any of the three authors:
+      // this is the tool recording the shape it drew and the target the user
+      // aimed at, not the user asking for a relation. Binding the sketch here
+      // would retire the unsaved-work exit confirm at a moment the user did not
+      // choose (see the field).
       revision: drawn ? revision + 1 : revision,
+      // Say what was inferred, at the moment it is inferred (see
+      // `axisInferenceHint`). A draw that infers nothing clears the line rather
+      // than leaving the previous draw's notice standing over new geometry;
+      // an armed dimension verb re-states its own prompt through
+      // `withArmedPrompt`, so nothing is left silently armed.
+      ...(drawn ? { hint: axisInferenceHint(axis) } : {}),
       drawDimension:
         drawn && shape !== null && from !== undefined
           ? {
@@ -857,6 +1153,8 @@ const createSketchState = (
     set({
       entities: resizeDrawn(shape, ids, from, to, entities, typed),
       constraints: [...constraints, ...added],
+      // A typed size IS the user constraining the sketch.
+      userConstrained: true,
       revision: revision + 1,
       drawDimension: null,
       drawDimensionFocus: null,
@@ -870,13 +1168,44 @@ const createSketchState = (
   focusDrawDimension: (drawDimensionFocus) => set({ drawDimensionFocus }),
 
   finishPlacement: () => {
-    const { tool, pending, nextIdIndex, entities, revision } = get();
+    const {
+      tool,
+      pending,
+      snapAnchors,
+      nextIdIndex,
+      entities,
+      constraints,
+      revision,
+      datumFrameHalfMm,
+    } = get();
     const result = finishPlacementSequence(tool, pending, nextIdIndex);
     if (result.entities.length === 0) return;
+    // The spline's own commit gesture (Enter / double-click) is the other way a
+    // sequence emits geometry, so it cashes its anchors in through the SAME
+    // inference — a fit point snapped onto a corner stays on that corner.
+    const inferred = inferredCoincidents(
+      snapAnchors,
+      result.entities,
+      constraints,
+    );
+    const placed = [...entities, ...result.entities];
+    const grounded =
+      inferred.length === 0
+        ? null
+        : groundDatums(
+            placed,
+            inferred.flatMap(constraintEntityRefs),
+            datumFrame(datumFrameHalfMm),
+          );
     set({
       pending: result.pending,
+      snapAnchors: [],
       nextIdIndex: result.nextIdIndex,
-      entities: [...entities, ...result.entities],
+      entities: grounded?.entities ?? placed,
+      constraints:
+        grounded === null
+          ? constraints
+          : [...constraints, ...inferred, ...grounded.constraints],
       revision: revision + 1,
     });
   },
@@ -931,12 +1260,17 @@ const createSketchState = (
         return;
       }
       // Wrong KIND under the pointer (a circle while Distance is armed): say
-      // so and stay armed, so the next click is still a dimension pick.
+      // WHAT was picked and stay armed, so the next click is still a dimension
+      // pick — see `wrongPickHint` for why this is not the refusal sentence.
       set({
         selection: [],
         selectedConstraint: null,
-        hint:
-          result.outcome === "hint" ? result.hint : DIMENSION_PICK_HINT[armed],
+        hint: wrongPickHint(
+          armed,
+          entityPick.id,
+          state.entities,
+          result.outcome === "hint" ? result.hint : null,
+        ),
       });
       return;
     }
@@ -985,6 +1319,8 @@ const createSketchState = (
             ...result.constraints,
             ...grounded.constraints,
           ],
+          // A constraint verb from the strip or the keyboard.
+          userConstrained: true,
           revision: revision + 1,
           selection: [],
           hint: null,
@@ -1013,6 +1349,7 @@ const createSketchState = (
             dimensionPick: action,
             tool: "select",
             pending: [],
+            snapAnchors: [],
             selection: [],
             selectedConstraint: null,
             drawDimension: null,
@@ -1021,7 +1358,18 @@ const createSketchState = (
           });
           return;
         }
-        set({ hint: result.hint });
+        // A verb refused BECAUSE THE RELATION IS ALREADY THERE is still the
+        // user asking for it (`already`, see the field). Since SNAP-5 the tool
+        // usually gets there first — pressing H on a line drawn horizontal now
+        // meets an inferred horizontal — and without this the keystroke would
+        // do nothing whatsoever: no constraint (correctly, it exists) and no
+        // binding, so the live-save loop the user expected to start would not.
+        // The sketch is bound; the relation is not restated (no duplicate, no
+        // false over-constrained report).
+        set({
+          hint: result.hint,
+          ...(result.already === true ? { userConstrained: true } : {}),
+        });
         return;
     }
   },
@@ -1177,16 +1525,20 @@ const createSketchState = (
   },
 
   pickMirrorAxis: (id) => {
-    const { mirror, entities, editBusy, mirrorRequest } = get();
+    const { mirror, entities, editBusy, mirrorRequest, datumFrameHalfMm } =
+      get();
     if (mirror === null || mirror.phase !== "axis" || editBusy) return;
     if (id === null) {
       set({ hint: "Aim at a line to mirror about." });
       return;
     }
-    const axisEntity = entities.find((e) => e.id === id);
-    if (axisEntity === undefined || axisEntity.kind !== "line") {
+    // Resolve the pick against the drawn geometry PLUS the sketch's own frame
+    // (MIRROR-1): the origin axes are legal mirror axes, and a datum comes back
+    // as a POINTS axis so nothing has to be materialised — see `mirrorAxisFor`.
+    const axis = mirrorAxisFor(id, entities, datumFrame(datumFrameHalfMm));
+    if (axis === null) {
       // Pre-empt the backend's `sketch_mirror_axis_not_line` with an aim hint —
-      // only a line (construction or profile) is a valid axis.
+      // only a line (construction, profile or datum axis) is a valid axis.
       set({
         hint: "The mirror axis must be a line — pick a line or centerline.",
       });
@@ -1195,7 +1547,7 @@ const createSketchState = (
     set({
       mirrorRequest: {
         targets: mirror.targets,
-        axis: { kind: "entity", entity: id },
+        axis,
         nonce: (mirrorRequest?.nonce ?? 0) + 1,
       },
       editBusy: true,
@@ -1316,39 +1668,50 @@ const createSketchState = (
 
   editDimension: (constraintIndex) => {
     const constraint = get().constraints[constraintIndex];
-    if (constraint?.kind !== "distance" && constraint?.kind !== "radius") {
-      return;
-    }
-    set({
-      dimensionEdit: {
-        kind: constraint.kind,
-        entity: constraint.entity,
-        initialMm: constraint.value_mm,
-        initialExpression: constraint.expression ?? null,
-        initialName: constraint.name ?? null,
-        initialDriving: constraint.driving !== false,
-        constraintIndex,
-      },
-      selectedConstraint: null,
-      hint: null,
-    });
+    if (constraint === undefined) return;
+    const target = dimensionEditorTarget(constraint, constraintIndex);
+    if (target === null) return;
+    set({ dimensionEdit: target, selectedConstraint: null, hint: null });
   },
 
   commitDimension: (commit) => {
     const { dimensionEdit, constraints, revision } = get();
-    if (dimensionEdit === null || !(commit.valueMm > 0)) return;
+    if (dimensionEdit === null || !(commit.value > 0)) return;
+    // An angle's domain is the solver's, not the cell's: `AngleConstraint`
+    // requires 0 < value_deg < 180, so a 200° typo is refused HERE, in the
+    // user's own words, instead of travelling to the server and coming back a
+    // 422 with the sketch left unsolved. The editor stays open on the value.
+    if (dimensionEdit.kind === "angle" && commit.value >= 180) {
+      set({ hint: "An angle is between 0 and 180 degrees." });
+      return;
+    }
     // Fully specify every additive field (null = default/unset) so an edit that
     // clears a name/expression, or flips driving↔driven, replaces cleanly —
     // `driving: null` means driving (the wire default), `false` means driven; an
     // expression only rides a DRIVING dim (a driven dim is measured, not fed).
-    const constraint: SketchConstraint = {
-      kind: dimensionEdit.kind,
-      entity: dimensionEdit.entity,
-      value_mm: commit.valueMm,
+    const shared = {
       expression: commit.driving ? commit.expression : null,
       name: commit.name,
       driving: commit.driving ? null : false,
     };
+    // Degrees ride `value_deg`, millimetres `value_mm`. The unit lives in the
+    // field NAME on the wire, so the branch is here, once, rather than in a
+    // caller that might reach for the wrong one.
+    const constraint: SketchConstraint =
+      dimensionEdit.kind === "angle"
+        ? {
+            kind: "angle",
+            a: dimensionEdit.entity,
+            b: dimensionEdit.entityB ?? dimensionEdit.entity,
+            value_deg: commit.value,
+            ...shared,
+          }
+        : {
+            kind: dimensionEdit.kind,
+            entity: dimensionEdit.entity,
+            value_mm: commit.value,
+            ...shared,
+          };
     const next =
       dimensionEdit.constraintIndex === null
         ? [...constraints, constraint]
@@ -1357,6 +1720,8 @@ const createSketchState = (
           );
     set({
       constraints: next,
+      // A dimension typed into the inline editor.
+      userConstrained: true,
       revision: revision + 1,
       dimensionEdit: null,
       selection: [],
@@ -1425,9 +1790,17 @@ const createSketchState = (
 
   bind: (featureId) => set({ featureId }),
 
-  adoptSolved: (entities, solve, dimensions) => {
-    const dims =
-      dimensions === undefined ? {} : { solvedDimensions: [...dimensions] };
+  adoptSolved: (entities, solve, dimensions, angles) => {
+    const dims = {
+      ...(dimensions === undefined
+        ? {}
+        : { solvedDimensions: [...dimensions] }),
+      // An evaluate with no angle constraints sends an EMPTY list, not a
+      // missing one, so `[]` must clear the previous degrees rather than be
+      // mistaken for "no report" — deleting the last angle would otherwise
+      // leave its reading behind for the next one to inherit.
+      ...(angles === undefined ? {} : { solvedAngles: [...angles] }),
+    };
     // THE seam where the solve report becomes something the user is shown.
     // Sanitised once, here, rather than at each of the three readers (the DRO
     // cell, the diagnostic banner, the flagged-glyph set) — one filter cannot
@@ -1529,10 +1902,10 @@ const createSketchState = (
         set({ dimensionEdit: null, offsetDraft: null });
         return;
       case "cancel-placement":
-        set({ pending: [] });
+        set({ pending: [], snapAnchors: [] });
         return;
       case "reset-tool":
-        set({ tool: "select", pending: [] });
+        set({ tool: "select", pending: [], snapAnchors: [] });
         return;
       case "clear-selection":
         set({ selection: [], selectedConstraint: null, hint: null });
@@ -1558,5 +1931,8 @@ const createSketchState = (
 });
 
 export const useSketchStore = create<SketchState>()(
-  withSketchHistory(createSketchState),
+  // Inner to outer: actions → the armed-prompt invariant → the history
+  // recorder. The invariant's own repair is a hint-only write, so it bumps no
+  // revision and can never become an undo step.
+  withSketchHistory(withArmedPrompt(createSketchState)),
 );

@@ -104,6 +104,30 @@ async function armRect(page: Page): Promise<void> {
   );
 }
 
+/**
+ * Wait until the size cells will actually TAKE a keystroke (SPEC-9).
+ *
+ * `mouse.up()` returns when the BROWSER has dispatched pointerup; the cells
+ * only start listening one React commit later, when `armed` flips and the
+ * window `keydown` handler is installed (`SketchScene.tsx` — the effect is
+ * gated on `armed`, and the same flip renders `data-state="armed"`). A key
+ * pressed in that window is delivered to the document and dropped, and the
+ * loss is PERMANENT: nothing re-sends it, so the assertion that follows fails
+ * for good rather than retrying into green. That is why the three sites this
+ * guards were red 3/3 with no wait and green with one — the defect was never
+ * "too little time", it was asserting against a state the app had not entered.
+ *
+ * So: never type immediately after the gesture; type once the state the
+ * keystroke depends on is observable. A longer timeout would not have helped,
+ * because there is no timeout in a `mouse.up()`.
+ */
+async function armedForTyping(page: Page): Promise<void> {
+  await expect(page.getByTestId("draw-dimensions")).toHaveAttribute(
+    "data-state",
+    "armed",
+  );
+}
+
 test.describe("FB-15 — press-drag-release draws, and two clicks still do", () => {
   test("a drag draws the rectangle, showing its size as it forms", async ({
     page,
@@ -190,6 +214,7 @@ test.describe("FB-16 — the size is typed while you draw", () => {
     await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
 
     // No click into the cell first: typing a digit anywhere starts the width.
+    await armedForTyping(page);
     await page.keyboard.type("50");
     await expect(page.getByTestId("draw-dimension-width")).toHaveValue("50");
     await page.keyboard.press("Tab");
@@ -224,6 +249,7 @@ test.describe("FB-16 — the size is typed while you draw", () => {
     await openSketchOnXy(page, "Tab order");
     await armRect(page);
     await dragDraw(page, [700, 420], [1000, 640]);
+    await armedForTyping(page); // SPEC-9: Tab before this is dropped, for good
     await page.keyboard.press("Tab"); // into the first cell
     await expect(page.getByTestId("draw-dimension-width")).toBeFocused();
     await page.keyboard.press("Tab");
@@ -240,14 +266,30 @@ test.describe("FB-16 — the size is typed while you draw", () => {
     await openSketchOnXy(page, "No size typed");
     await armRect(page);
     await dragDraw(page, [700, 420], [1000, 640]);
+    // The SAME race as the typing sites, with a different loser: Escape means
+    // "cancel the placement" while the drag is live and "close the cells, keep
+    // the shape" once it is armed — the two outcomes this test has to tell
+    // apart. Pressed in the gap it takes the FIRST meaning, and the rectangle
+    // this test is about never exists (see the mid-drag test above, which
+    // asserts exactly that "0 entities" outcome on purpose).
+    await armedForTyping(page);
     await page.keyboard.press("Escape");
 
     // The shape is kept — Escape ends the command, it is not an undo.
     await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
     await expect(page.getByTestId("draw-dimensions")).toHaveCount(0);
-    await expect(page.getByTestId("selection-readout")).not.toContainText(
-      "applied",
+    // RECT-1 — "undimensioned" is not "unconstrained". The draw authors the
+    // rectangle's rigidity set (4 coincidences + 2 H + 2 V) whether or not a
+    // size was typed, so the readout reports eight. What must still be absent
+    // is a DIMENSION: nothing was typed, so nothing was measured, and the
+    // glyph strip carries no number.
+    await expect(page.getByTestId("selection-readout")).toContainText(
+      "8 applied",
     );
+    for (const i of [0, 1, 2, 3, 4, 5, 6, 7]) {
+      await expect(page.getByTestId(`glyph-${i}`)).not.toHaveText(/[0-9]/);
+    }
+    await expect(page.getByTestId("glyph-8")).toHaveCount(0);
     // …and the same Escape dropped the tool, exactly as it did before.
     await expect(page.getByTestId("tool-rect")).toHaveAttribute(
       "aria-pressed",
@@ -264,6 +306,9 @@ test.describe("FB-16 — the size is typed while you draw", () => {
     await dragDraw(page, [850, 520], [1000, 520]);
     await expect(page.getByTestId("sketch-save")).toContainText("1 entity");
     await expect(page.getByTestId("draw-dimension-radius")).toBeVisible();
+    // Visible is NOT armed — the radius cell renders as a readout during the
+    // drag too, so its visibility says nothing about whether typing lands.
+    await armedForTyping(page);
     await page.keyboard.type("18");
     await page.keyboard.press("Enter");
 
@@ -315,7 +360,9 @@ for (const size of [
     // 2 — released and typed: the same numbers, now driving the geometry, with
     //     the focused cell's dimension called out on the edge it drives.
     await page.mouse.up();
+    await armedForTyping(page); // SPEC-9: the "60" is lost if it lands first
     await page.keyboard.type("60");
+    await expect(page.getByTestId("draw-dimension-width")).toHaveValue("60");
     await page.keyboard.press("Tab");
     await page.keyboard.type("40");
     await expect(page.getByTestId("draw-dimension-height")).toHaveValue("40");

@@ -248,11 +248,25 @@ export interface RegisterSort {
 }
 
 /**
- * FILED ascending — which is the order the server already returns (oldest
- * first), so the register's initial state is a true description of what is on
- * screen rather than a label applied to an arbitrary order.
+ * LAST WORKED, newest first (REGISTER-2, UI-REVIEW 2026-08-17 P1-3).
+ *
+ * It used to be FILED ascending, defended as "the order the server already
+ * returns, so the initial state is a true description rather than a label over
+ * an arbitrary order". That is a good argument about HONESTY and the wrong
+ * answer to the question the surface is asked. A returning engineer opens this
+ * page to get back into the thing they were doing; oldest-first put that at the
+ * BOTTOM — measured at row 120 of 120 — so the register's first screen was the
+ * work they had finished with. Fusion's Data Panel and Onshape both default to
+ * recently-modified-first for the same reason.
+ *
+ * The honesty argument survives intact: this order is SORTED, `aria-sort` says
+ * so on the LAST WORKED header from the first paint, and the caption says it in
+ * words. Nothing is unlabelled.
  */
-export const DEFAULT_SORT: RegisterSort = { key: "filed", direction: "asc" };
+export const DEFAULT_SORT: RegisterSort = {
+  key: "activity",
+  direction: "desc",
+};
 
 /**
  * Name-substring filter, case- and accent-insensitive, applied to the list the
@@ -316,10 +330,17 @@ export interface DocumentRegisterProps<T extends RegisterDocument> {
   isLoading: boolean;
   isError: boolean;
   error: unknown;
-  /** The row's link into its workspace — routes are typed per document kind. */
+  /**
+   * The row's link into its workspace — routes are typed per document kind.
+   *
+   * The props are SPREAD onto the anchor, all of them: `title` carries the full
+   * name so a clipped one is still readable (REGISTER-1), and it arrives here
+   * rather than being stamped by each page because a page that forgot it would
+   * reintroduce exactly the defect the primitive closes.
+   */
   openLink: (
     document: T,
-    props: { className: string; "data-testid": string },
+    props: { className: string; title: string; "data-testid": string },
   ) => ReactNode;
   /**
    * Create + invalidate (+ navigate, for parts). Rejects with a field error.
@@ -403,7 +424,58 @@ export function DocumentRegister<T extends RegisterDocument>({
    */
   const empty =
     !isLoading && !isError && documents.length === 0 && folders.length === 0;
-  const showUnits = documents.some((d) => d.length_unit !== undefined);
+  /**
+   * WHICH UNITS THIS DRAWER SPEAKS — the whole drawer, not the view, so the
+   * readout does not change meaning when a filter narrows the rows.
+   *
+   * One unit is a drawer-level fact and is stated once on the header rule; two
+   * or more is a per-row fact and earns the column back. Nothing is hidden
+   * either way (REGISTER-1: the old column spent 8 % of the table width on
+   * `mm, mm, mm, mm`).
+   */
+  const unitsInDrawer = useMemo(() => {
+    const seen = new Set<LengthUnit>();
+    for (const entry of documents) {
+      if (entry.length_unit !== undefined) seen.add(entry.length_unit);
+    }
+    return [...seen];
+  }, [documents]);
+  const showUnits = unitsInDrawer.length > 1;
+  /**
+   * REBUILD KEEPS ITS COLUMN, ALWAYS — and the reasoning is worth keeping
+   * because the obvious "improvement" here is wrong and was shipped once
+   * (cb2e43e, reverted the same night after it turned `workspace.spec.ts` red).
+   *
+   * The idea was to extend the rule `unitsInDrawer` above already states — "a
+   * column of one repeated value is not a column" — to REBUILD, which on a real
+   * five-part drawer showed the same em dash in every row. Measured, that is one
+   * of six headings carrying nothing, so the motivation was real. It collapsed
+   * to a single header readout whenever every document agreed.
+   *
+   * THE ANALOGY DOES NOT HOLD, for two reasons that only became visible once it
+   * was running:
+   *
+   *  - A UNIT IS A STABLE ATTRIBUTE; A VERDICT IS VOLATILE. A drawer's unit is
+   *    fixed at creation and essentially never changes, so hoisting it to the
+   *    header is a permanent simplification. Health changes under the user's
+   *    hands — evaluate ONE part and the drawer stops agreeing, so the column
+   *    springs back into existence and every other column's width changes with
+   *    it. A table whose SHAPE depends on volatile per-row data reflows while
+   *    you are reading it, and it does so at the exact moment you most need to
+   *    read it: when something has just broken.
+   *  - IT IS A PER-ROW QUESTION. You scan this column to decide WHICH part to
+   *    open. "Do they all agree?" is a different question from "which of these
+   *    is broken?", and only the column answers the second one.
+   *
+   * It also, as a direct consequence, deleted `data-testid="part-health"`
+   * whenever the drawer happened to be uniform — so no spec could rely on a
+   * documented hook (design mandate 5: never break test hooks for looks). That
+   * was the symptom that caught it. The two bullets above are the cause, and
+   * they would have been just as true with the hook preserved.
+   *
+   * The width the collapse was chasing was largely bought anyway, by the page
+   * moving to `max-w-sheet` in the same change.
+   */
   const showHealth = documents.some((d) => d.eval_state !== undefined);
 
   return (
@@ -427,6 +499,18 @@ export function DocumentRegister<T extends RegisterDocument>({
           />
         )}
         <span className="grow" />
+        {/* The drawer's unit, said once. Only when every document agrees on it
+            — the moment two disagree the UNITS column comes back and this goes
+            away, so there is never a second place saying the same word. */}
+        {empty || isLoading || isError || unitsInDrawer.length !== 1 ? null : (
+          <span
+            className="font-display text-2xs uppercase tracking-[0.16em] text-gauge"
+            data-testid={`${idPlural}-drawer-units`}
+            title={`Every ${copy.noun} in this drawer is dimensioned in ${unitsInDrawer[0]}`}
+          >
+            {unitsInDrawer[0]}
+          </span>
+        )}
         {isError ? null : (
           <span
             className="font-data text-xs tabular-nums text-gauge"
@@ -470,58 +554,92 @@ export function DocumentRegister<T extends RegisterDocument>({
         />
       ) : (
         <div className="flex min-h-0 grow flex-col">
-          <RegisterTable
-            idPlural={idPlural}
-            idSingular={idSingular}
-            copy={copy}
-            documents={shown}
-            dividers={dividers}
-            folders={folders}
-            filtering={filtering}
-            showUnits={showUnits}
-            showHealth={showHealth}
-            sort={sort}
-            onSort={setSort}
-            openLink={openLink}
-            onRename={onRename}
-            onDuplicate={onDuplicate}
-            onDelete={onDelete}
-            onOpenFolder={setFolderId}
-            filing={filing}
-          />
-          {shown.length === 0 && filtering ? (
-            <NoMatches
+          {/*
+            THE ROWS SCROLL, THE DRAWER DOES NOT (REGISTER-2). Measured on a
+            120-part drawer at 1280x800 before this change: `main.scrollHeight`
+            5145 px against a 756 px frame, with the page as the scroller — so
+            the header rule, the FILTER, the count, the sort controls AND the
+            only create control all left the screen together. At row 104 the
+            user had six columns of unlabelled data and a 4000 px scroll back
+            to the controls.
+
+            Only the ROWS belong in the scroller. Everything that addresses the
+            drawer as a whole — the header above, the scribe line below, and the
+            column headers, which ARE the sort controls and so are `sticky`
+            inside it — stays on screen at any length.
+          */}
+          <div
+            // `relative` is LOAD-BEARING, not tidiness. Measured at 120 parts in
+            // Chromium: without it the table's scrollable overflow propagates
+            // straight past this clipping box to the PAGE — `main.scrollHeight`
+            // stays 5038 against a 756 px frame and `main.scrollTop = 9999`
+            // still drags the filter 4160 px off-screen, so the drawer looks
+            // pinned and is not. Positioning the scroll container makes its clip
+            // authoritative for the ancestor's overflow: 5038 -> 756.
+            // (`contain: paint` fixes it identically; `relative` is the cheaper
+            // promise to make.)
+            className="relative flex min-h-0 grow flex-col overflow-y-auto"
+            data-testid={`${idPlural}-scroll`}
+          >
+            <RegisterTable
               idPlural={idPlural}
+              idSingular={idSingular}
               copy={copy}
-              query={query.trim()}
-              onClear={() => setQuery("")}
+              documents={shown}
+              dividers={dividers}
+              folders={folders}
+              filtering={filtering}
+              showUnits={showUnits}
+              showHealth={showHealth}
+              sort={sort}
+              onSort={setSort}
+              openLink={openLink}
+              onRename={onRename}
+              onDuplicate={onDuplicate}
+              onDelete={onDelete}
+              onOpenFolder={setFolderId}
+              filing={filing}
             />
-          ) : (
-            <>
-              {shown.length === 0 && dividers.length === 0 ? (
-                <NothingHere
-                  idPlural={idPlural}
-                  copy={copy}
-                  folderName={path[path.length - 1]?.name ?? null}
-                />
-              ) : null}
-              <ScribeLine
-                idSingular={idSingular}
+            {shown.length === 0 && filtering ? (
+              <NoMatches
                 idPlural={idPlural}
                 copy={copy}
-                // While a filter is on, the rows above are numbered 1..n WITHIN
-                // the filtered view, so printing "6" under a row 2 would put two
-                // different counting systems in one column. The gutter goes blank
-                // rather than assert a position the view cannot support; filing
-                // still appends to the whole register.
-                nextOrdinal={filtering ? null : inScope.length + 1}
-                folderId={folderId}
-                onCreate={onCreate}
-                filing={filing}
+                query={query.trim()}
+                onClear={() => setQuery("")}
               />
-            </>
+            ) : shown.length === 0 && dividers.length === 0 ? (
+              <NothingHere
+                idPlural={idPlural}
+                copy={copy}
+                folderName={path[path.length - 1]?.name ?? null}
+              />
+            ) : null}
+            <RuledRemainder />
+          </div>
+          {/* The next line of the register, now PINNED to the drawer's bottom
+              rule. It is the same control it always was and it reads the same
+              way — a log book's writing line is at the end of the entries — but
+              at 120 parts "the end of the entries" was 5145 px down, i.e. the
+              one thing you cannot reach when you have the most work filed.
+              Suppressed only when a filter matched nothing, where `NoMatches`
+              owns the line: filing a new document is not the answer to "your
+              filter is too narrow". */}
+          {shown.length === 0 && filtering ? null : (
+            <ScribeLine
+              idSingular={idSingular}
+              idPlural={idPlural}
+              copy={copy}
+              // While a filter is on, the rows above are numbered 1..n WITHIN
+              // the filtered view, so printing "6" under a row 2 would put two
+              // different counting systems in one column. The gutter goes blank
+              // rather than assert a position the view cannot support; filing
+              // still appends to the whole register.
+              nextOrdinal={filtering ? null : inScope.length + 1}
+              folderId={folderId}
+              onCreate={onCreate}
+              filing={filing}
+            />
           )}
-          <RuledRemainder />
         </div>
       )}
     </section>
@@ -783,7 +901,28 @@ function NoMatches({
   );
 }
 
-/** Shared gutter width — the table's first column and the scribe line agree. */
+/**
+ * THE WIDTH BUDGET (REGISTER-1, 2026-08-17).
+ *
+ * Every column here is FIXED and NAME takes what is left, because NAME is the
+ * only column that tells two rows apart and it was the third-narrowest: 173 px
+ * of 957 at 1280 (18 %), against 256 px of row verbs (27 %) and 72 px of a UNITS
+ * column reading `mm, mm, mm, mm` (UI-REVIEW P1-2, measured in the running app).
+ *
+ * Two changes bought NAME 272 px:
+ *  - the four verbs became one `OverflowMenu` mark, so ACTION is now the
+ *    GUTTER'S width — the drawer reads with two equal scribed margins, an
+ *    ordinal in the left one and the row's verbs in the right;
+ *  - UNITS is no longer a per-row column when the drawer speaks one unit; it is
+ *    stated once on the header rule, the way a title block states it (see
+ *    `unitsInDrawer`). A column of one repeated value is not a column.
+ *
+ * FILED stayed, and that is a deliberate disagreement with the audit's "(c)
+ * reclaim FILED": it is the only column carrying a document's ABSOLUTE date, it
+ * is a live sort key, and its constancy in the audit's sample is an artifact of
+ * a drawer seeded in one session, not a property of the column. It is already
+ * dropped below `md`, where the width actually runs out.
+ */
 const COLUMN = {
   /** Scribed margin carrying the row ordinal — the table and the scribe line
    *  below it share this width so the log's left edge is one straight rule. */
@@ -793,11 +932,8 @@ const COLUMN = {
   /** Wide enough for the longest stamped verdict ("Clean to stop") unwrapped. */
   health: "w-[9rem]",
   filed: "w-[7rem]",
-  /** FOUR verbs, always visible (MOVE joined at #WS2) — see
-   *  `DocumentRegisterRow`. Widened from 13rem when the fourth arrived: at
-   *  13rem the verbs ran into the FILED date, which is a legibility defect, not
-   *  a spacing preference. */
-  action: "w-[16rem]",
+  /** ONE mark, at the gutter's width — the drawer's right-hand margin. */
+  action: "w-[3.5rem]",
 } as const;
 
 function RegisterTable<T extends RegisterDocument>({
@@ -844,7 +980,10 @@ function RegisterTable<T extends RegisterDocument>({
     >
       <caption className="sr-only">{copy.caption}</caption>
       <thead>
-        <tr className="border-b border-hairline">
+        {/* No `border-b` on the row: a COLLAPSED table border does not travel
+            with a sticky cell, so the rule is drawn by each `Th`'s own hairline
+            (`STICKY_TH`) and stays under the headers wherever they are. */}
+        <tr>
           {/* A POSITION, not a name for the part in it — see `Gutter`. The
               glyph alone announced as "numero sign"; the word is what a screen
               reader gets. */}
@@ -880,7 +1019,7 @@ function RegisterTable<T extends RegisterDocument>({
             sort={sort}
             onSort={onSort}
           />
-          <th className={COLUMN.action}>
+          <th className={`${STICKY_TH} ${COLUMN.action}`}>
             <span className="sr-only">Actions</span>
           </th>
         </tr>
@@ -928,6 +1067,22 @@ function RegisterTable<T extends RegisterDocument>({
   );
 }
 
+/**
+ * A COLUMN HEADER THAT STAYS (REGISTER-2). It is `sticky` to the top of the
+ * drawer's own scroller, because these headers are not labels — three of them
+ * ARE the sort controls, and losing them at row 104 left the reader with six
+ * columns of unlabelled data and no way to re-sort without scrolling back
+ * 4000 px.
+ *
+ * The hairline is drawn by a pseudo-element rather than by a `border-b` on the
+ * row: with `border-collapse: collapse` the collapsed rule belongs to the TABLE,
+ * not to the sticky cell, so it stays behind at the top of the scroll while the
+ * headers travel. `bg-anvil` is load-bearing too — a transparent sticky header
+ * lets the rows read through it.
+ */
+const STICKY_TH =
+  "sticky top-0 z-10 bg-anvil after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-hairline after:content-['']";
+
 function Th({
   children,
   className,
@@ -939,7 +1094,7 @@ function Th({
 }) {
   return (
     <th
-      className={`px-3 py-2 text-left font-display text-2xs uppercase tracking-[0.16em] text-gauge ${
+      className={`${STICKY_TH} px-3 py-2 text-left font-display text-2xs uppercase tracking-[0.16em] text-gauge ${
         className ?? ""
       }`}
       {...rest}
@@ -987,7 +1142,7 @@ function SortableTh({
 
   return (
     <th
-      className={`px-3 py-2 text-left font-display text-2xs uppercase tracking-[0.16em] ${
+      className={`${STICKY_TH} px-3 py-2 text-left font-display text-2xs uppercase tracking-[0.16em] ${
         className ?? ""
       }`}
       aria-sort={active ? (ascending ? "ascending" : "descending") : "none"}
@@ -1076,7 +1231,10 @@ function ScribeLine({
   }, [focus]);
 
   return (
-    <div className="flex shrink-0 items-stretch border-b border-hairline">
+    // `border-t`, not `border-b`: the line is now pinned under the scrolling
+    // rows (REGISTER-2), so its rule closes the drawer rather than separating
+    // it from what used to follow.
+    <div className="flex shrink-0 items-stretch border-t border-hairline bg-anvil">
       <div
         className={`${COLUMN.gutter} shrink-0 border-l-2 border-transparent bg-carbide px-3 pt-3 text-right font-data text-xs tabular-nums text-gauge`}
         aria-hidden="true"
@@ -1143,8 +1301,12 @@ function ScribeLine({
  */
 function RuledRemainder() {
   return (
+    // `basis-0 min-h-0`: the blank lines fill what the filed rows LEAVE and
+    // nothing more. Before REGISTER-2 they were 24 real lines at the end of the
+    // page scroll, so a full drawer paid ~960 px of empty ruling for a flourish
+    // that only exists to keep a SHORT drawer from reading as a card in a void.
     <div
-      className="flex grow overflow-hidden"
+      className="flex min-h-0 shrink grow basis-0 overflow-hidden"
       aria-hidden="true"
       data-testid="register-ruled-remainder"
     >

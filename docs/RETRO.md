@@ -357,6 +357,64 @@ answer.
 
 ---
 
+## 4d. Four features in one day, and every one of them broke a spec in
+## somebody else's file — the territory split was the defect
+
+2026-08-17. RECT-1, SNAP-2/SNAP-3, MIRROR-1 and EXPORT-1/EXPORT-2 all landed
+inside a few hours. The features themselves were sound; the e2e suite went red
+on ten consecutive commits, and every single failure was the same shape.
+
+**The mechanism.** A `glyph-N` testid is an INDEX into the constraint array.
+RECT-1 made a drawn rectangle arrive with eight constraints; SNAP-3 added a
+ninth wherever a placed point snapped. Every spec that said "the constraint I
+just authored is `glyph-0`" was then reading the fixture instead of its own
+verb. The assertions were not wrong when written — they were written when the
+index happened to be stable, and two later features were free to move it.
+
+**Why it kept surprising me.** I briefed each builder with a disjoint territory
+so they could not overwrite each other, and put the specs asserting their
+behaviour OUTSIDE that territory. That guarantees a builder cannot see what it
+broke: it runs its own new spec, goes green, and pushes a red tip. I then
+"fixed" it by running the five spec files I knew about, which is targeted
+verification presented as the gate — the identical error to §4a, where I called
+CI green having read only one of three workflows.
+
+**The question that actually finds them.** Not *"which specs did I change?"*
+but *"which specs assert on the thing this feature MOVED?"* Grepping the suite
+for `applied`, `glyph-`, `DOF ` and `dro-solve` names 19 files where my instinct
+named five. Running the nine that no agent had already repaired found the
+remaining failure deterministically: 1 failed, 64 passed.
+
+**Three red shards is not three broken specs.** One failing spec takes its whole
+shard with it, so a 3-of-4 red board can be a single assertion. Read the shard
+log for the count before estimating the damage — I assumed systemic and it was
+one line.
+
+**The fix, at three levels.**
+1. *Assertion*: locate a glyph by the SYMBOL it shows, never by index. Positional
+   assertions are legitimate only where the ORDER is the claim (the rigidity
+   set's own emission order), and those should say so.
+2. *Test design*: assert DELTAS, not totals. "One more than the draw left
+   behind" survives the next feature that authors something; "9 applied" does
+   not. Where a total is unavoidable, count BY KIND with exact counts only for
+   the kinds this feature owns and floors for the rest.
+3. *Dispatch*: give a builder the specs that assert its own behaviour. A
+   territory that separates a feature from its evidence is not isolation, it is
+   a blindfold. Where that is impossible, say so in the brief and require the
+   builder to run the assertion-owning specs anyway — the EXPORT-1 agent did
+   exactly this unprompted and shipped a cross-check test so a future divergence
+   fails loudly rather than silently.
+
+**A related trap, same day.** Restoring "from original bytes" after a mutation
+check is only safe if the snapshot is CURRENT. I snapshotted `store.ts`, later
+added the `userConstrained` fix, then ran a second mutation and restored from
+the FIRST snapshot — silently reverting my own work. Unit tests passed (nothing
+exercised the persist gate); only `tsc` caught it. Re-snapshot immediately
+before every mutation, and prefer a hash printed at snapshot time and re-checked
+at restore.
+
+---
+
 ## 5. Environment facts that cost real time
 
 Full detail lives in `CLAUDE.md`'s environment-recipes section; these are the
@@ -393,7 +451,17 @@ ones that specifically cost the LOOP time.
    deaths); retry-once-then-skip is still not implemented.
 4. **CI-4**: the e2e suite is not yet trustworthy per-commit. QA7-1
    (`qa-sel7-verify:555`) has failed on two commits whose diffs cannot reach the
-   code under test.
+   code under test. Instance (d) is now ROOT-CAUSED (2026-08-16,
+   `sketch-datum-flow:323` raced a debounced solve — 6/6 quiet pass, 6/6 fail
+   under load), which is the first hard evidence for the resource-pressure
+   reading the umbrella was filed on.
+6. **The contention flake cost three agents real time on 2026-08-17 alone** —
+   each independently investigated a red run taken at load ~9 on 4 cores, and
+   all three failures passed 2/2 in a quiet window. The discriminator works (a
+   flake's failure point MOVES; a regression fails identically) but it is
+   applied AFTER the time is spent. Worth a cheap preflight: have `just e2e`
+   refuse, or loudly warn, when the 1-minute load average is above some
+   threshold at start. That converts a 20-minute investigation into one line.
 5. Several items are marked `CLOSED-PENDING-QA` — they carry a code review but
    no independent QA pass. The markers are accurate, not decorative; do not
    silently upgrade them.

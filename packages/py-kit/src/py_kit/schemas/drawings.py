@@ -43,8 +43,10 @@ from py_kit.schemas.assemblies import (
 )
 from py_kit.schemas.features import (
     MAX_TREE_FEATURES,
+    DocumentName,
     EdgeSignature,
     EvaluatedFeatureInput,
+    EvaluateTreeRequest,
     FeatureError,
     GeomRef,
     document_slug,
@@ -1397,6 +1399,49 @@ class ComposeDrawingRequest(EvaluateDrawingViewsRequest):
     format: ArtifactFormat = Field(
         default="svg", description="Artifact format to serialize (svg | pdf | dxf)"
     )
+
+
+class FlatPatternDxfRequest(EvaluateTreeRequest):
+    """Export a sheet-metal part's flat pattern as a PROFILE-ONLY DXF.
+
+    The artifact a laser/turret/waterjet vendor asks for by name: the cut outline
+    and the fold lines at 1:1 in millimetres, and nothing else — no sheet border,
+    no title block, no bend table, no dimensions. Distinct from
+    :class:`ComposeDrawingRequest`'s ``format="dxf"``, which serializes a whole
+    DRAWING SHEET; there the cut geometry is a handful of entities inside an A4
+    page of furniture an operator has to delete by hand, every revision.
+
+    Takes a PART's feature tree, not a drawing: a fabricator's flat pattern must be
+    reachable from the part without authoring a drawing sheet first, which is how
+    every incumbent ships it. Extends :class:`EvaluateTreeRequest` VERBATIM (the same
+    ordered, rollback-applied prefix the evaluate/export routes take — one tree
+    contract) and adds only the download name, exactly as
+    :class:`~py_kit.schemas.features.ExportTreeRequest` does.
+
+    There is deliberately NO scale field. A flat pattern is a cut path, not a
+    picture, so 1:1 is not a default here — it is the only representable answer
+    (AUDIT-PRODUCT F-1, where a 1:2 drawing sheet shipped a half-size blank).
+    """
+
+    name: DocumentName | None = Field(
+        default=None,
+        description="The part's human-readable document name. Names the download "
+        "filename; omitted / null falls back to the part id. EXPORT-only on purpose "
+        "(see DocumentName) — it is not on EvaluateTreeRequest, because a name must "
+        "never be an input to geometry.",
+    )
+
+
+def flat_pattern_filename(request: FlatPatternDxfRequest) -> str:
+    """Deterministic download filename for a profile-only flat pattern.
+
+    ``motor-mount-bracket-flat.dxf`` — the part's name through the ONE slug rule,
+    with the ``-flat`` qualifier so a fabricator's Downloads folder distinguishes the
+    cut path from a drawing export of the same part (which is
+    ``motor-mount-bracket.dxf``). Falls back to the part id when unnamed.
+    """
+    slug = document_slug(request.name) if request.name is not None else ""
+    return f"{slug or f'part-{request.part_id}'}-flat.dxf"
 
 
 # --- the composed (placed) sheet — sheet-mm primitives (drawing-export.md §4.2) --

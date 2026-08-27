@@ -16,8 +16,45 @@
 import { BandActionCell, ToolButton, ToolGroup, VerbGlyph } from "@loft/design";
 import { useRef } from "react";
 
+import type { ExportedFile, ExportFormat } from "../api/exportPart";
 import { useCommandActionStore } from "../features/commandActions";
+import { verbHint, verbLabel } from "../features/patternScope";
+import { ExportToolGroup } from "./ExportToolGroup";
 import { HistoryGroup } from "./HistoryGroup";
+
+/**
+ * Which groups keep their words when the band runs out of room (higher holds
+ * on longer — `CommandBand` guarantee #3). Ordered by INFORMATION PER PIXEL,
+ * measured on this band at the icon tier vs the labeled one:
+ *
+ *   Export       +160px   format CODES — "STEP" / "STL" / "3MF" / "GLB". Three
+ *                         of the four glyphs are the same mesh strip with one
+ *                         differentiating mark, and no picture can spell a
+ *                         format name. These labels are the only ones here
+ *                         carrying information the icon cannot, and export is
+ *                         the verb EXPORT-1 exists to keep findable.
+ *   Inspect       +37px   the cheapest words on the band, and its one tool is
+ *                         a MODE you toggle rather than a feature you add — a
+ *                         distinction the caliper glyph does not draw.
+ *   Create       +407px   the family a newcomer reaches for before the icons
+ *                         are learned, so it is the first VERB group to earn
+ *                         its width.
+ *   Modify       +475px   same class as Create, reached once the tool set is
+ *                         already familiar.
+ *   Sheet metal  +524px   the widest labels on the band for a family that is
+ *                         inert on every part that is not sheet metal — last
+ *                         to earn 524px.
+ *
+ * History is icon-only by construction (frontend-qa 07-17 P2), so it has no
+ * words to shed and sits at the default.
+ */
+const LABEL_PRIORITY = {
+  export: 40,
+  inspect: 30,
+  create: 20,
+  modify: 10,
+  sheetMetal: 0,
+} as const;
 
 export interface CreateStripProps {
   /** The feature tree has loaded (buttons stay disabled until it has). */
@@ -87,6 +124,15 @@ export interface CreateStripProps {
   onChamfer?: () => void;
   /** Repeat the current body into a linear/circular array (P). */
   onPattern?: () => void;
+  /**
+   * The feature the user selected in the tree, when a pattern/mirror can act on
+   * it — the verbs then PROPOSE it by name ("Repeat Hole1") instead of offering
+   * a generic array of the whole body (docs/design/pattern-scope.md §7.2; the
+   * flow rule "the next step is visible from the current state"). Null when
+   * nothing is selected: a toolbar that renamed itself on every tree change
+   * would be noise, so only an explicit selection moves these words.
+   */
+  scopeSubject?: string | null;
   /** Hollow the current body to a uniform wall, opening picked faces (H). */
   onShell?: () => void;
   /** Taper picked faces for mold release about a neutral plane (D). */
@@ -129,6 +175,16 @@ export interface CreateStripProps {
   flatteningPattern?: boolean;
   /** Unfold the sheet body onto a flat-pattern drawing (the model→flatten loop). */
   onFlatPattern?: () => void;
+  /** A profile-only flat-pattern DXF download is in flight. */
+  exportingFlatDxf?: boolean;
+  /**
+   * Download the flat pattern as a profile-only DXF cut path — the file a
+   * laser/turret vendor asks for by name (AUDIT-PRODUCT F-2a). Sits beside
+   * "Flat pattern" rather than in the Export group because it is a SHEET-METAL
+   * deliverable and shares that verb's gate: both need a sheet body, and the
+   * next thing a user wants after seeing the blank is to send it out.
+   */
+  onExportFlatDxf?: () => void;
   /**
    * Two or more bodies exist to fuse (a `merge: false` add / an import started a
    * second body). Below two bodies the Combine tool disables with its reason.
@@ -157,6 +213,24 @@ export interface CreateStripProps {
   onCommandOk?: () => void;
   /** Cancel the open command (the workspace closes the editor). */
   onCommandCancel?: () => void;
+  /**
+   * Write the part's current evaluated body to a file — the band's terminal
+   * verb. Omit it and the EXPORT group is not rendered at all.
+   *
+   * Export lives HERE, in document-level chrome, because it is an action and
+   * not a readout: it used to exist only as the last cell of the Inspector's
+   * readout stack, so collapsing that panel removed the only way to get a file
+   * out of the product (EXPORT-1; founder, 2026-08-17). The Inspector keeps its
+   * strip — that is the right place for the "this file would be partial"
+   * notice — but the affordance the user reaches for survives a panel collapse.
+   */
+  onExport?: (format: ExportFormat) => Promise<ExportedFile>;
+  /** Why export is inert (no body / a feature failed), or undefined when ready. */
+  exportDisabledReason?: string;
+  /** Allowed, but the file would be a prefix of the tree (a travel stop). */
+  exportPartial?: boolean;
+  /** QA hook: the export gate state name the workspace derived. */
+  exportState?: string;
 }
 
 export function CreateStrip({
@@ -183,6 +257,7 @@ export function CreateStrip({
   onFillet,
   onChamfer,
   onPattern,
+  scopeSubject = null,
   onShell,
   onDraft,
   onHole,
@@ -198,6 +273,8 @@ export function CreateStrip({
   canFlatPattern = false,
   flatteningPattern = false,
   onFlatPattern,
+  exportingFlatDxf = false,
+  onExportFlatDxf,
   canCombine = false,
   onCombine,
   canMeasure = false,
@@ -206,6 +283,10 @@ export function CreateStrip({
   activeCommand = null,
   onCommandOk,
   onCommandCancel,
+  onExport,
+  exportDisabledReason,
+  exportPartial = false,
+  exportState,
 }: CreateStripProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
   const importReady =
@@ -234,6 +315,11 @@ export function CreateStrip({
     treeReady &&
     !flatteningPattern &&
     onFlatPattern !== undefined;
+  const flatDxfReady =
+    canFlatPattern &&
+    treeReady &&
+    !exportingFlatDxf &&
+    onExportFlatDxf !== undefined;
 
   // An open command scopes the whole band: every tool locks with one honest
   // reason, so no click can discard the open command's picks (Track C P1).
@@ -242,6 +328,27 @@ export function CreateStrip({
   /** The tooltip's second line: the lock reason wins, else the gate reason. */
   const captionFor = (ready: boolean, reason: string): string | undefined =>
     locked ? lockReason : ready ? undefined : reason;
+  /**
+   * The scope proposal's second channel, and it is load-bearing rather than
+   * belt-and-braces. At the 1280x800 floor the band has MEASURED itself into
+   * the icon tier for Create/Modify, so the renamed label ("Repeat Hole1") is
+   * shed — and that is the width the quality floor names. `ToolButton`'s own
+   * contract for the icon tier is that "icon + group eyebrow + tooltip carry
+   * the name", so the proposal rides the caption, which is never shed and which
+   * `aria-describedby` already routes to screen readers.
+   *
+   * Deliberately NOT fixed by promoting Modify's `labelPriority`: that scale is
+   * a measured information-per-pixel ordering, and the group it would demote is
+   * EXPORT, whose format codes EXPORT-1 exists to keep findable.
+   */
+  const scopeCaptionFor = (
+    ready: boolean,
+    reason: string,
+  ): string | undefined => {
+    const gate = captionFor(ready, reason);
+    if (gate !== undefined || scopeSubject === null) return gate;
+    return `Repeats ${scopeSubject}, not the whole body`;
+  };
 
   return (
     <div
@@ -344,7 +451,7 @@ export function CreateStrip({
           onRedo={onRedo}
         />
 
-        <ToolGroup eyebrow="Create">
+        <ToolGroup eyebrow="Create" labelPriority={LABEL_PRIORITY.create}>
           <ToolButton
             icon={<VerbGlyph verb="import_step" />}
             showLabel
@@ -457,7 +564,7 @@ export function CreateStrip({
           />
         </ToolGroup>
 
-        <ToolGroup eyebrow="Modify">
+        <ToolGroup eyebrow="Modify" labelPriority={LABEL_PRIORITY.modify}>
           <ToolButton
             icon={<VerbGlyph verb="fillet" />}
             showLabel
@@ -489,15 +596,15 @@ export function CreateStrip({
           <ToolButton
             icon={<VerbGlyph verb="pattern" />}
             showLabel
-            label="Pattern"
+            label={verbLabel("pattern", scopeSubject)}
             shortcut="P"
             data-testid="new-pattern"
             aria-label={
               patternReady
-                ? "Pattern — repeat the body in a linear or circular array (P)"
+                ? verbHint("pattern", scopeSubject)
                 : "Pattern — create a body first"
             }
-            caption={captionFor(patternReady, "Create a body first")}
+            caption={scopeCaptionFor(patternReady, "Create a body first")}
             disabled={locked || !patternReady}
             onClick={onPattern}
           />
@@ -549,15 +656,15 @@ export function CreateStrip({
           <ToolButton
             icon={<VerbGlyph verb="mirror" />}
             showLabel
-            label="Mirror"
+            label={verbLabel("mirror", scopeSubject)}
             shortcut="I"
             data-testid="new-mirror"
             aria-label={
               mirrorReady
-                ? "Mirror — reflect the body about a plane and union the copy in (I)"
+                ? verbHint("mirror", scopeSubject)
                 : "Mirror — create a body first"
             }
-            caption={captionFor(mirrorReady, "Create a body first")}
+            caption={scopeCaptionFor(mirrorReady, "Create a body first")}
             disabled={locked || !mirrorReady}
             onClick={onMirror}
           />
@@ -577,7 +684,10 @@ export function CreateStrip({
           />
         </ToolGroup>
 
-        <ToolGroup eyebrow="Sheet metal">
+        <ToolGroup
+          eyebrow="Sheet metal"
+          labelPriority={LABEL_PRIORITY.sheetMetal}
+        >
           <ToolButton
             icon={<VerbGlyph verb="sheet_metal_base_flange" />}
             showLabel
@@ -651,9 +761,41 @@ export function CreateStrip({
             disabled={locked || !flatPatternReady}
             onClick={onFlatPattern}
           />
+          {/*
+            The deliverable, next to the thing it delivers (AUDIT-PRODUCT F-2a).
+            A flat pattern exists to be CUT, so the step after seeing the blank is
+            sending it to a vendor — this writes the profile-only DXF cut path
+            directly, instead of the old route of authoring a drawing, exporting
+            it as DXF, and deleting the A4 border and title block by hand.
+
+            Here rather than in the Export group because a flat pattern is a
+            sheet-metal deliverable, not another format of the 3-D body: the
+            Export cells all write the solid, and dropping a 2-D cut path among
+            them would make that group mean two different things. It carries the
+            flat-pattern glyph for the same reason it carries that gate — same
+            subject, different verb, and the label says which.
+          */}
+          <ToolButton
+            icon={<VerbGlyph verb="flat_pattern" />}
+            showLabel
+            label="Flat DXF"
+            data-testid="export-flat-dxf"
+            aria-label={
+              canFlatPattern
+                ? "Flat DXF — download the flat pattern as a 1:1 DXF cut path (outline and fold lines only)"
+                : "Flat DXF — add a base flange first"
+            }
+            aria-busy={exportingFlatDxf}
+            caption={captionFor(
+              flatDxfReady,
+              exportingFlatDxf ? "Writing…" : "Add a base flange first",
+            )}
+            disabled={locked || !flatDxfReady}
+            onClick={onExportFlatDxf}
+          />
         </ToolGroup>
 
-        <ToolGroup eyebrow="Inspect">
+        <ToolGroup eyebrow="Inspect" labelPriority={LABEL_PRIORITY.inspect}>
           <ToolButton
             icon={<VerbGlyph verb="measure" />}
             showLabel
@@ -674,6 +816,26 @@ export function CreateStrip({
             onClick={onToggleMeasure}
           />
         </ToolGroup>
+
+        {/* EXPORT closes the band: the band reads left to right as the work —
+            undo the last edit, create, modify, fold, inspect — and ends in the
+            deliverable, the same order and the same `ToolGroup eyebrow="Export"`
+            the drawing band already uses. It is the LAST group and not a
+            document menu because there is no menu layer in this product, and a
+            verb hidden behind one more click is the defect this ticket exists
+            to fix, not a milder version of it. */}
+        {onExport !== undefined ? (
+          <ExportToolGroup
+            testIdPrefix="part-export-band"
+            labelPriority={LABEL_PRIORITY.export}
+            exporter={onExport}
+            // An open command owns the picks, so export holds with the SAME
+            // one honest reason as every other tool in the locked band.
+            disabledReason={locked ? lockReason : exportDisabledReason}
+            partial={exportPartial}
+            state={exportState}
+          />
+        ) : null}
       </div>
     </div>
   );

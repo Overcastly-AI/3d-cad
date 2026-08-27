@@ -6083,3 +6083,496 @@ analytic families reachable, the free-form fallback, monotonicity on the tray,
 the prebuilt-index perf contract, determinism of the index itself, and the sign
 canonicalisation. `test_provenance.py`'s headline gate flipped with the rule: the
 drilled top/bottom now assert EXTRUDE, and the hole owns exactly one face.
+
+## 2026-08-16 — GEOM-3: the face signature now stores the OUTER WIRE, because the bound it used to infer was too close (kernel-architect)
+
+`PlanarFaceSignature` gains three optional outer-wire invariants and tier 4 splits
+into a compare path and the shipped inference path. Design + rejected alternatives:
+`docs/design/topological-naming.md` §12b. This entry is the evidence.
+
+### Reproduced BEFORE anything changed
+
+The GEOM-2 review derived tier 4's admission rule — it accepts any stored face whose
+relative area `f` satisfies `f >= 1 - 2r` for an open-area fraction `r` — and measured
+it on a 100x100 plate with an 8x8 grid of Ø9 through-holes (`r = 40.7 %`). Rerun on
+`10714a6` before a line was edited, and it reproduces to the digit:
+
+```
+outer=10000.0  current=5928.5  removed_frac=0.407  lower_bound=1857.0
+  deleted 70x70 boss top (4900 mm2): tier4=True
+  deleted 60x60 boss top (3600 mm2): tier4=True
+  deleted 50x50 boss top (2500 mm2): tier4=True
+  deleted 40x40 boss top (1600 mm2): tier4=False
+```
+
+### The invariant, measured as an equality
+
+The claim tier 4a rests on is that the outer wire is untouched by any interior edit,
+so it is asserted as bit equality rather than a tolerance. M17's top face across the
+combined revision (thickness 10 -> 14 AND Hole1 Ø6.6 -> 7): `area 4000.0`,
+`centroid (50.0, 20.0, z)`, `perimeter 280.0` before and after — `d = 0.0` on all
+three. `test_the_outer_invariants_are_UNTOUCHED_by_any_interior_edit` extends that
+over six edits (drill, enlarge, move, add a second, delete one, add a bore); the
+triple is identical every time while the pair the old signature stored as identity
+takes six distinct values — five distinct AREAS, because MOVING a hole changes the
+centroid and not the area, which is itself why neither quantity alone is an identity.
+
+### After: the table flips, and the legacy column deliberately does not
+
+| stored boss top | outer area | tier 4a (new selector) | tier 4b (legacy selector) |
+| --- | --- | --- | --- |
+| 70x70 | 4900 | refused | resolves |
+| 60x60 | 3600 | refused | resolves |
+| 50x50 | 2500 | refused | resolves |
+| 40x40 | 1600 | refused | refused |
+
+Both columns are gated. The legacy one is gated ON PURPOSE
+(`test_the_LEGACY_band_still_swallows_it_which_is_why_the_contract_changed`): the
+geometry service is stateless and never owns the selector it is handed, so a document
+saved before this commit keeps the inferred band and keeps the exposure. Writing that
+down as a caveat is cheap; writing it as a test means it goes red the day a
+document-side re-emit closes it.
+
+### At the tree level it is 8 mm of silent error
+
+`test_faces_geom3_vented_plate.py` seats a datum + sketch + 5 mm pin on a boss top,
+then toggles the block extrude add -> cut. New-style: the datum is
+`subshape_unresolved` and the two features on it are stranded — visible, and now
+recoverable, because PICK-1 (`2b266b1`) fixed the re-pick path this recovery depends
+on. Legacy: an all-ok rebuild whose pin stands at **z = 15 instead of z = 23**.
+
+Two framing corrections came out of building that file, both gated rather than
+asserted, because both contradict the ticket's own wording:
+
+* **A literal DELETE never reaches the matcher**, and neither does a SUPPRESS. The
+  reference names the feature that made the face, so deleting it is a dangling
+  `feature_id` and suppressing it trips `references_suppressed` — both `error`, not
+  `subshape_unresolved`. The product was already safe against the case the ticket
+  describes.
+* **Any edit that leaves a face on the reference's own plane is absorbed by tier 2**,
+  correctly: resize the boss 75x75 -> 40x40 and it resolves onto the smaller boss top,
+  which is what tier 2 is for. The hazard needs the PLANE to empty while the feature
+  lives.
+
+### Mutation evidence — both directions
+
+Eight ablations, each applied to `faces.py`, run against a targeted gate, and reverted
+from the original bytes. The safety arm is listed first because it is the one tier 4's
+first draft got wrong: it turned three shipped honest-error gates into silent
+resolutions, and nothing caught it.
+
+| # | ablation | gate |
+| --- | --- | --- |
+| A1 | tier 4 always takes the legacy inferred band | 5 red: the vented-plate refusal, the shape refusal, the partial-signature refusal, and both tree-level gates |
+| A2 | outer-AREA equality dropped | 1 red: `..._same_outer_PERIMETER_and_CENTROID_at_another_AREA` |
+| A3 | outer-PERIMETER equality dropped | 1 red: `..._same_outer_AREA_and_CENTROID_in_another_SHAPE` |
+| A4 | in-plane outer-CENTROID comparison dropped | 1 red: `..._pins_the_in_plane_station_while_freeing_the_offset` |
+| A5 | a partial signature is accepted instead of refused | 1 red: `..._PARTIAL_outer_signature_is_refused_rather_than_downgraded` |
+| A6 | GEOM-4's centroid identity dropped | 1 red: `..._full_area_signature_whose_centroid_contradicts_it` |
+| B1 | outer invariants read the FACE, not its outer wire | 10 red incl. all four legs of the new golden |
+| B2 | the pick side emits no outer invariants | 12 red across both files |
+
+**A2 SURVIVED on the first pass, and that is the useful result.** Dropping the
+outer-area comparison entirely left every gate green: every shape those tests compare
+differs in perimeter as well, so the area was never the discriminator anywhere. Three
+invariants were claimed and only two were load-bearing. Fixed by adding a case that
+isolates it — a 70x70 boss top and a 100x40 plate top share an outer perimeter
+(280 mm) and a centroid and differ only in area (4900 against 4000 mm^2) — after which
+A2 dies. The general lesson is the one this repo keeps paying for: **a mutation run
+that produces no reds is a finding about the SUITE, not a clean bill of health for the
+code.** Run the ablation you expect to be boring.
+
+### New golden — `revise-lightened-plate-thickness-and-web-dia-100x100x14`
+
+A 100x100 plate lightened by four Ø40 holes, revised twice (Ø39 -> Ø40, then 10 ->
+14 mm), with a Ø6 hole seated on the top face through a tier-4a match. Chosen because
+on THIS shape the old inference is worthless rather than merely weak: the face is
+50.3 % open, so `2*current - outer` evaluates to **-53.096491487338426 mm^2** —
+negative, which is §12a's own stated limiting case ("in the limit of a face that is
+half holes it admits any stored area at all").
+
+Closed forms `14*(10000 - 1609*pi)` and `25600 - 894*pi`; measured deviations
+**1.5e-11 mm^3** (volume), **3.6e-12 mm^2** (area), **1.4e-14 mm** (centroid) against
+the documented 1e-9. Centroid x is 50 EXACTLY by symmetry and y is not — the Ø6 hole
+is the only feature breaking y symmetry, so y pins where it was drilled. Cross-checked
+byte-for-byte (GLB sha256 `86a503fdf3e03c7d...`, identical topology, mesh and mass
+properties) against the same tree authored at the current state, which is a tier-1
+strict match that never reaches a resilient tier — so the rescued body is provably the
+body an exact re-pick makes, not merely a body.
+
+### Backward compatibility — what a reviewer should check
+
+Three independent pieces of evidence that a selector authored BEFORE the change still
+resolves after it, none of them a new test written to agree with the new code:
+
+1. `services/geometry/goldens/revise-thickness-and-hole-dia-100x40x14/model.json` is
+   UNCHANGED and its committed selectors carry three fields. Green.
+2. `test_faces_m17_revision.py` is UNCHANGED. It authors three-field signatures, so it
+   now doubles as the legacy compatibility gate at tree level.
+3. Every pre-existing `test_faces.py` fixture builds a three-field
+   `PlanarFaceSignature`, so the whole shipped tier-1/2/3/4 gate set exercises the
+   legacy path. One of them moved and it is worth naming:
+   `test_the_tier4_area_band_is_derived_from_the_candidates_own_holes` probed the
+   band's upper end with the M17 area centroid AND a full outer area, which GEOM-4
+   now correctly refuses as a face that cannot exist — the probe was an impossible
+   signature. It now uses the outer region's own centroid for the upper-end probes;
+   the band arithmetic it tests is untouched.
+
+### Performance
+
+`planar_faces` medians over 30 runs, before -> after:
+
+| body | planar faces (holed) | before | after |
+| --- | --- | --- | --- |
+| plain box 50x40x10 | 6 (0) | 1.974 ms | 2.458 ms |
+| M17 plate, 3 bores | 6 (2) | 2.249 ms | 4.344 ms |
+| vented plate, 64 vents | 6 (2) | 8.729 ms | 13.738 ms |
+
+A hole-free face costs ~0.08 ms (one `wires()` plus one wire length — its area and
+centroid are handed in by `planar_face_signature` rather than integrated a second
+time); a holed one 0.9-2.4 ms, dominated by `Face(wire)`. End to end on a COLD rebuild
+of the M17 golden (rebuild cache cleared, three face resolutions): **103 ms ->
+121 ms**, three orders inside the 2 s tripwire, and nothing on a warm cache hit.
+
+A cheaper route was measured and NOT taken:
+`BRepBuilderAPI_MakeFace(gp_Pln, wire)` with the face's known plane costs 0.249 ms
+against build123d's 0.686 ms on the 64-hole face, because `Face(wire)` runs
+plane-finding and `BRepCheck_Analyzer`. Rejected to keep ONE region construction
+shared with the legacy path rather than two that could disagree numerically. If the
+pick path becomes hot, that is the lever.
+
+### Gates
+
+`services/geometry/tests/test_faces.py` +12 (the tier-4a block), a new
+`test_faces_geom3_vented_plate.py` (5, tree level), and the new golden (4 legs).
+Suite: **2515 collected, all green.**
+
+## 2026-08-16 — GEOM-3 INDEPENDENT VERIFICATION of `1e39c14` (geometry-qa)
+
+Built on `1e39c14`. **Verdict: PASS** — the change does what it says, the numbers
+in the entry above reproduce, and the dual-read is sound. Three findings, none of
+them a reason to hold the commit: one is a claim in `topological-naming.md` §12b
+that is measurably false (**GQA-1**, an honest limit the section does not list, and
+NOT a regression — the legacy band has it too), one is a hole in how the legacy
+population is identified (**GQA-2**), and one is a perf regression on the
+interactive route the author's cost table does not cover (**GQA-3**).
+
+Everything below is measured here, in this worktree, against the PARENT commit
+`9befb8b` loaded side by side in the same interpreter — not the author's numbers
+re-run.
+
+### 1. The dual read — verified by AUTHORING a selector the old way, and by differencing against the parent
+
+The commit's backward-compatibility evidence is that three pre-existing artefacts
+stayed green. That establishes those artefacts did not change; it does not
+establish that the legacy RULE is unchanged, which is the property a document
+saved yesterday depends on. Two independent checks, both new:
+
+**(a) Differential sweep, parent vs HEAD, same process.** `9befb8b`'s `faces.py`
+was loaded alongside HEAD's and both were asked the same questions.
+
+| sweep | comparisons | old==new | differences | NOT explained by GEOM-4 |
+| --- | --- | --- | --- | --- |
+| `enclosing_face_match`, 12 bodies x every planar face x 98 legacy signatures | 7154 | 7137 | 17 | **0** |
+| randomised, 5 bodies, areas probed at the band ends and the GEOM-4 boundary | 10197 | 8365 | 1832 | **0** |
+| `resolve_face_plane` end to end (origin + z_dir compared to 1e-12) | 1176 | 1166 | 10 | **0** |
+
+Every one of the 1859 differences is the same shape — a stored area EQUAL to the
+outer region's with a centroid that contradicts it, `True -> False` — i.e. GEOM-4's
+deliberate refusal, in the safe direction. **No legacy signature derived from a
+real body changed its answer at all**, and every one of the 686 agreeing
+resolutions returned a bit-identical plane. The claim holds.
+
+**(b) A selector authored the OLD way, in this file, then handed to the NEW code**
+— `test_faces_geom3_qa.py::test_a_selector_AUTHORED_the_old_way_still_resolves_…`.
+The pick side's own M17 top-face signature, stripped to three fields, across the
+combined revision (10 -> 14 mm AND Ø6.6 -> 7): tiers 1/2/3 all miss,
+`inferred_enclosing_match` is True, `outer_boundary_match` is False (so the dual
+read really routes rather than accidentally succeeding), and the resolved plane is
+the hand-derived one — the stored (x, y) at z = 14, +Z — identical to the plane the
+NEW-style selector for the same pick produces.
+
+**(c) A second, independently-derived oracle for §12a's rule.**
+`test_the_dual_read_gives_a_LEGACY_selector_the_12a_rule_and_nothing_else` re-derives
+the admission rule from the design doc's prose (normal sense; the band; containment
+of the projected point; GEOM-4's necessary condition) and requires the resolver to
+agree with it over **1440** comparisons. A suite that checks the resolver against
+itself cannot catch the rule drifting; this can. Negative controls: retuning the
+band's lower coefficient `2.0 -> 1.5` reddens it, and dropping GEOM-4 reddens it.
+
+### 2. Ablations A2/A3/A4 re-run — and the lesson generalised
+
+Each ablation applied to `faces.py`, run against `test_faces.py` +
+`test_faces_geom3_vented_plate.py` + `test_faces_m17_revision.py`, reverted from
+the original bytes.
+
+| # | ablation | measured here |
+| --- | --- | --- |
+| A2 | outer-AREA equality dropped | 1 red — `…_same_outer_PERIMETER_and_CENTROID_at_another_AREA` |
+| A3 | outer-PERIMETER equality dropped | 1 red — `…_same_outer_AREA_and_CENTROID_in_another_SHAPE` |
+| A4 | in-plane outer-CENTROID comparison dropped | 1 red — `…_pins_the_in_plane_station_while_freeing_the_offset` |
+
+**All three invariants ARE independently gated.** The A2 fix is real, and the two
+mirror cases are each isolated by a fixture that differs in one quantity only.
+
+**But the A2 lesson generalises past the fixtures, and there it still bites.** A2
+survived because the fixture set did not isolate the area. The deeper question is
+whether the INVARIANT SET isolates the wire, and it does not — see GQA-1.
+
+### GQA-1 (P2, defect) — the invariant triple is not a fingerprint of the outer wire
+
+§12b: *"Tier 4a narrows 'congruent' from 'an area inside a band, somewhere inside
+the region' to **the same outer wire, to tolerance**."* That is false as written.
+An area, a perimeter and a centroid are **invariant under any rigid motion of the
+wire about its own centroid**, so a face and a rotated congruent copy of it agree
+on all three EXACTLY. The perimeter separates §12b's own 80x50 boss from a 100x40
+plate (260 vs 280); it cannot separate a 40x100 flange from a 100x40 one.
+
+Measured on an ordinary transition bracket — 100x40 bottom flange, 30x30 column,
+40x100 top flange (an adapter between two bolt patterns):
+
+```
+picked  top flange top  z=50  own A=4000.000  outer A=4000.000  P=280.000  C=(0,0)
+after the top flange is removed:
+  z=10   own A=3100.000  outer A=4000.000  P=280.000  C=(0,0)   t1=F t2=F t3=F t4a=TRUE  t4b=TRUE
+  z=40   own A= 900.000  outer A= 900.000  P=120.000  C=(0,0)   t1=F t2=F t3=F t4a=F     t4b=F
+resolve_face_plane -> origin (0.0, 0.0, 10.0)   SILENT ERROR = 40.000 mm
+```
+
+Severity reasoning, stated so the groomer can weigh it: this is **not a regression**
+— tier 4b admits it identically, so `1e39c14` neither introduced nor closed it, and
+GEOM-3's own defect (the vented plate) is genuinely fixed. It is P2 rather than P0
+because reaching it needs two congruent-under-rotation faces sharing an in-plane
+centroid at different offsets, and because I could **not** find a natural
+feature-tree edit that reaches it: three attempts at the vented-plate-style
+"operation toggle" vehicle were all stopped by real kernel guards
+(`cut_removed_nothing` when the flange cut hits free space, `boolean_failed` when it
+severs the column) or produced an honest `subshape_ambiguous`. The resolver-level
+reachability is definite; product-level reachability is unproven.
+
+Gated as a known limit in
+`test_faces_geom3_qa.py::test_the_outer_invariant_TRIPLE_is_NOT_a_fingerprint_of_the_outer_wire`,
+which goes red the day a shape-sensitive invariant (a second area moment, say) is
+added. §12b's "narrows congruent to the same outer wire" sentence should be
+corrected to "the same outer area, perimeter and in-plane centroid" and the
+rotation/reflection family added to the honest-limits list.
+
+### The two coverage gaps I found instead, both now closed and both clean
+
+**Every tier-4a fixture in `test_faces.py` has a RECTANGULAR outer wire.** Tier 4a
+compares the perimeter against an ABSOLUTE `_CENTROID_TOL_MM` = 1e-6 mm bound while
+the area gets a RELATIVE one, so an arc — which OCCT integrates rather than sums —
+is where a FALSE REFUSAL would first appear: a rescue tier 4b would have made and
+4a loses. Measured across a thickness retype plus an interior hole edit:
+
+| outer wire | d(outer area) | d(outer perimeter) | d(in-plane outer centroid) | 4a |
+| --- | --- | --- | --- | --- |
+| R8 filleted 100x60 | 0.0 | 0.0 | 0.0 | resolves |
+| C6 chamfered 100x60 | 0.0 | 0.0 | 0.0 | resolves |
+| round plate R40 | 0.0 | 0.0 | 0.0 | resolves |
+| R8 filleted, last hole DELETED | 0.0 | 0.0 | 7.1e-15 mm | resolves |
+
+Bit-exact, thirteen orders inside the bound. Also checked at scale: a 5000 mm outer
+wire still gives `d(perimeter) = 0.0`, so the absolute bound is not a latent
+size-dependent trap. Gated by
+`test_tier4a_is_EXACT_on_a_curved_outer_wire_not_merely_within_tolerance`.
+
+**The pick side has TWO routes to the invariants and an ordinary revision crosses
+between them.** A hole-free face IS its own region (the shortcut); a holed one
+builds `Face(outer_wire())`. Deleting the last hole in a face means the STORED side
+came from the region build and the CANDIDATE side takes the shortcut — the "two
+routes that could disagree numerically" §12b's rejected-alternatives paragraph
+names. They agree bit-for-bit on all three shapes above. Worth noting the direction:
+**tier 4b REFUSES the deleted-hole case** (its lower band exists to), so 4a buys a
+rescue back here rather than only removing a wrong one. Gated by
+`test_the_hole_free_SHORTCUT_and_the_region_BUILD_agree_across_a_DELETED_hole`.
+
+### 3. The residual legacy exposure — confirmed, and exactly as narrow as claimed
+
+Re-measured by rebuilding the author's tree myself and reading the evaluated part
+rather than the test's assertions:
+
+| tree | statuses | volume mm^3 | bbox max z |
+| --- | --- | --- | --- |
+| A. boss present, new selector | all ok | 127967.169654 | 23.0 |
+| B. boss -> window, NEW selector | `subshape_unresolved` + 2 stranded | 25937.169654 | 10.0 |
+| C. boss -> window, LEGACY selector | **all ok** | 26717.169654 | **15.0** |
+| D. boss -> window, no pin at all (what C should be) | all ok | 25937.169654 | 10.0 |
+
+**8.000000 mm** of silent height error confirmed (pin top 15 instead of 23), and
+the mass consequence the entry above does not state: **780.000000 mm^3** of
+material the user never asked for — closed form 26 x 6 x 5, the pin prism, added in
+the wrong place. What a user experiences: nothing. No badge, no error, a clean
+rebuild; the pin has simply sunk into the vented plate where it used to stand on
+the boss. They find it by looking hard or by reading a mass property, which is the
+definition of the trade §12 refused.
+
+**The population really is closed on our side.** Checked rather than assumed: every
+producer of a `PlanarFaceSignature` in `services/geometry/src` routes through the
+single `face_signature_dto` (overlay, both sheet-metal paths), so all three fields
+are emitted or none are; and `apps/web/src/features/face.ts::faceSubshapeRef` passes
+the overlay signature through UNCHANGED into the selector it POSTs, so a pick made
+today cannot be persisted three-field.
+
+### GQA-2 (P3, design) — "authored before the change" and "the kernel could not compute it" are the SAME signature
+
+`_signature_dto` emits all three `outer_*` fields as `None` when
+`outer_boundary_invariants` returns `None` (OCCT could not build the region). The
+resolver keys the dual read on FIELD PRESENCE, so that signature is indistinguishable
+from a pre-2026-08-16 one and silently takes the weaker inferred band — which is
+precisely the "silent downgrade is a path straight back into the defect" the PARTIAL
+case is refused to avoid. The selector wrapper already carries `selector_version: 1`,
+which is the field that exists to make this distinguishable and was not used. Narrow
+today (it needs an OCCT region-build failure at pick time) but it will also make the
+future document-side re-emit unable to tell which stored selectors it has upgraded.
+
+### 4. Performance — the author's numbers reproduce, with one route missing
+
+`planar_faces` medians over 30 runs, parent and HEAD in the SAME interpreter:
+
+| body | planar faces (holed) | before | after | delta | ratio |
+| --- | --- | --- | --- | --- | --- |
+| plain box 50x40x10 | 6 (0) | 2.143 ms | 2.598 ms | +0.455 | 1.21x |
+| M17 plate, 3 bores | 6 (2) | 2.459 ms | 4.843 ms | +2.384 | **1.97x** |
+| vented plate, 64 vents | 6 (2) | 8.655 ms | 14.343 ms | +5.688 | 1.66x |
+
+Same shape as the entry above (1.974/2.249/8.729 -> 2.458/4.344/13.738) within
+machine noise. The author's table is honest.
+
+**Cold M17 golden rebuild** (rebuild cache cleared per rep, six reps, two fresh
+interpreters each): parent median **90.1 / 96.4 ms**, HEAD median **101.2 /
+102.5 ms** — about **+9 %**, where the entry claims +18 % (103 -> 121). Direction and
+order confirmed; the author's figure is the conservative one. New golden cold
+rebuild: **153 ms**. Both three orders inside the 2000 ms tripwire.
+
+**The vented-plate tier-4a question the brief asked is a non-issue, and the reason
+is worth recording.** On the 64-hole face:
+
+| tier | median per candidate | p95 |
+| --- | --- | --- |
+| 4a — compare three invariants | **1.70 us** | 1.80 us |
+| 4b — infer, builds a region | **866 us** | 977 us |
+
+Tier 4a is ~500x cheaper per candidate than the path it replaces, because the
+candidate's invariants are already on its record. The cost did not grow on the
+resolve path; it MOVED to the pick path, where it is now unconditional.
+
+### GQA-3 (P3, perf) — the interactive selection overlay is 18-22 % slower and is not in the cost table
+
+That move matters because `planar_faces` runs on the **overlay** route — the one
+every viewport click hits, budgeted since audit H4 — not only on the rescue path.
+§12a's "a clean rebuild pays nothing" no longer holds, and the entry above measures
+`planar_faces` in isolation and the cold rebuild, but not this route:
+
+| golden | warm before | warm after | delta |
+| --- | --- | --- | --- |
+| sketch-extrude-plate-6hole-ring-cut-60x60x10 | 18.08 ms | 21.71 ms | **+20 %** |
+| pattern-cut-6hole-boltcircle-60x60x10 | 18.18 ms | 21.52 ms | **+18 %** |
+| revise-lightened-plate-…-100x100x14 | 15.65 ms | 19.09 ms | **+22 %** |
+
+Two orders inside `CEILING_HEAVY_MS`, so nothing is red — but >10 % is a filed
+regression under this file's own rule, and the lever is already identified and
+measured by the author (`BRepBuilderAPI_MakeFace(gp_Pln, wire)`, 0.249 ms against
+`Face(wire)`'s 0.686 ms on the 64-hole face). Tracked here as the baseline.
+
+### The probe that moved — judged
+
+`test_the_tier4_area_band_is_derived_from_the_candidates_own_holes` probed the
+band's UPPER end with a full outer area AND the M17 off-centre area centroid, which
+GEOM-4 now correctly refuses as a face that cannot exist. The replacement keeps the
+same two probes and the same two negative probes and only swaps the centroid to the
+outer region's own for the upper-end pair. **The subject is unchanged**: the test is
+about the band's arithmetic (`lower = 2*candidate - outer`, `upper = outer`), and
+that arithmetic is still what decides all four assertions — the lower-end probes were
+not touched at all, and the upper-end ones still fail on the band when nudged
+`outer * 1.001`. The case the old probe covered by accident (a full-area signature
+with a contradicting centroid) did not evaporate: it is now gated by name in
+`test_tier4b_refuses_a_full_area_signature_whose_centroid_contradicts_it`, and
+dropping GEOM-4 reddens both that test and my independent oracle. Judgement: a sound
+move, correctly called out.
+
+### Golden coverage audit for this capability
+
+The new outer-wire selector has one golden
+(`revise-lightened-plate-thickness-and-web-dia-100x100x14`) and its closed forms
+were re-derived independently here: volume `14*(10000 - 1609*pi)` =
+**69232.48388523633**, area `25600 - 894*pi` = **22791.416167690724**, centroid y
+`(10000*50 - 1600*pi*50 - 9*pi*25)/(10000 - 1609*pi)` = **50.14293892553691** — all
+three match `expected.json` to the last digit, at the documented 1e-9. The
+`2*current - outer = -53.096491487338426 mm^2` claim also reproduces (the candidate
+at resolve time is the plate with four Ø40 holes and no Ø6 hole yet:
+`2*(10000-1600*pi) - 10000`). Topology 11/27/1 and the derivation's face/edge
+accounting check out. It inherits the STEP round-trip and determinism legs
+automatically (both harnesses are parametrised over the golden inventory).
+
+Remaining gap, filed as coverage rather than defect: **no golden exercises a
+new-style selector on a CURVED outer wire**, so the bit-exactness above is gated
+only at unit level. Low priority given the measured residual is 0.0.
+
+### Gates run
+
+`test_faces_geom3_qa.py` (+5, new) green; `test_faces.py` /
+`test_faces_geom3_vented_plate.py` / `test_faces_m17_revision.py` (53) green; the
+golden harness (51 goldens x 4 legs incl. the determinism cross-process leg) and the
+STEP round-trip harness green, both of which the new golden inherits automatically;
+**full geometry suite green — 2521 selected of 2526 collected, 1 skip, exit 0**; the
+`test_benchmarks.py` CI tripwires (23) green; `uv run ruff check` +
+`ruff format --check` + `uv run pyright` clean on the new file;
+`scripts/check-mutation-markers.py` clean (886 files, 8 patterns proven live against
+the canary). Every ablation was reverted from the original bytes and
+`git diff -- services/geometry/src packages/` verified EMPTY afterwards — no
+application code was touched by this pass.
+
+---
+
+## 2026-08-25 — SETTLE-PERF-1: the benchmark corpus grew a `sketch_solve` group, because 12 entities is not a part (kernel-architect)
+
+The corpus above is honest about its own gap ("not yet a library of
+engineer-scale reference parts") and this is the first time that gap cost
+something concrete. Every sketch the solver's correctness suite owns tops out at
+**12 entities**; the settle SOLVE-1/SETTLE-2/SETTLE-3 shipped was `O(E^3)`; and
+so a 48-line outline spent **12 944 ms** answering one dimension edit, and a
+96-line one **196 s**, with every gate in this file green throughout. An
+auditor found it, not a gate (`docs/AUDIT-ENGINEERING.md` N11).
+
+Full cost model, profile evidence, before/after tables at six sizes and the
+rejected alternative live in **`docs/PERF.md` (2026-08-25)** — not duplicated
+here. What belongs in this file is the gate:
+
+| group | operation | warm best-of-3 | CI ceiling ms | headroom |
+| --- | --- | ---: | ---: | ---: |
+| sketch_solve | outline-48-already-solved | 9.1 ms | 1000 | 110x |
+| sketch_solve | outline-96-already-solved | 40.0 ms | 1000 | 25x |
+| sketch_solve | outline-48-dimension-edit | 533.9 ms | 3000 | 5.6x |
+| sketch_solve | outline-96-dimension-edit | 222.3 ms | 3000 | 13x |
+
+Fixture: `services/geometry/tests/_sketch_outline_builder.py` — a closed
+rectilinear staircase outline, every edge horizontal or vertical, every corner
+coincident, one driving width dimension. The pair per size is the point: the
+already-solved row is what every tree REBUILD re-solves (the settle's one-solve
+fast path, which dominates rebuild latency), the edited row is what a user's
+every dimension keystroke costs. A change that buys the edit by giving up the
+fast path reddens the other row.
+
+**`CEILING_SKETCH_SETTLE_MS = 3000`, and it is the only ceiling here set for
+something that already went wrong.** 5.6x the warm 48-line reading — the same
+contention headroom the corpus's tightest existing case (19x on paper, 4.7x
+after a 4x slowdown) actually enjoys — while sitting 3.4x UNDER the regression it
+exists to catch. Explicitly not 2000 ms (only 3.7x warm, inside the contention
+band this file warns about) and explicitly not 10 000 ms (a ceiling a 10 316 ms
+regression squeaks under is a gate that cannot fail for its own reason).
+
+**Mutation check — the gate fails for the right reason, and only that reason.**
+With the pre-fix solver restored over the tree, the two **edited** rows go red
+(`outline-96-dimension-edit`: 166 319 ms vs 3 000 ms) and the two already-solved
+rows stay green.
+
+**Correctness is unchanged where it can be, and gated where it cannot.**
+Pre-fix and post-fix geometry was compared coordinate-by-coordinate over 24
+sketches (4..32 lines x undimensioned / edited / retyped): **bitwise identical
+up to 24 entities**, including every edited case. Above that the deterministic
+work budget bites and PLACEMENT differs; shape does not — the same single edge
+gives way at every size, gated by `test_sketch_settle_budget.py`, which also
+asserts the budget is a function of the sketch (not the clock) and that a
+budgeted settle is bitwise reproducible across repeats (RESEARCH §9). All 207
+tests of the SOLVE-1 / SETTLE-2 / SETTLE-3 suites are green.

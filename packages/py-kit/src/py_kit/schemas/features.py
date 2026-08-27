@@ -33,6 +33,8 @@ from py_kit.metrics import record_feature_error
 from py_kit.schemas.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
+    EXPORT_FORMAT_DESCRIPTION,
+    MESH_QUALITY_NOTE,
     MIN_ANGULAR_DEFLECTION,
     MIN_LINEAR_DEFLECTION,
     ExportFormat,
@@ -106,6 +108,14 @@ MAX_SELECTOR_REFS = 500
 #: (a whole part is tens of features) while keeping one mirror's kernel fan-out
 #: bounded. Over the ceiling is a parse-time 422, never a kernel blow-up.
 MAX_MIRROR_SCOPE_FEATURES = 500
+
+#: Ceiling on the features one `features`-scope PATTERN may name
+#: (docs/design/pattern-scope.md §2). The mirror's twin, and deliberately the same
+#: number: each selected feature costs `count - 1` rigid placements plus one
+#: boolean at rebuild, so a pattern's fan-out is ALREADY bounded by
+#: MAX_PATTERN_COUNT on the other axis and this bounds the product's second
+#: factor. Over the ceiling is a parse-time 422, never a kernel blow-up.
+MAX_PATTERN_SCOPE_FEATURES = 500
 
 #: Non-empty (post-strip), bounded feature name.
 FeatureName = Annotated[
@@ -192,6 +202,26 @@ class PlanarFaceSignature(BaseModel):
     part tie and resolve to an honest ``subshape_ambiguous`` (§5), never a guess.
     Matching is nearest-within-tolerance at the documented subshape tolerance
     (geometry.kernel.faces / docs/GEOMETRY-QA.md), never an ad-hoc epsilon.
+
+    OUTER-BOUNDARY INVARIANTS (§12b, GEOM-3 — the three ``outer_*`` fields).
+    ``centroid`` and ``area_mm2`` are functions of what has been CUT INTO the
+    face, not of the face's identity, so on a face carrying more than one feature
+    they go stale the moment any earlier feature on it changes (§12a). Tier 4 of
+    the resolver worked around that by INFERRING a bound on the missing quantity
+    from the three numbers above, and the bound degrades linearly with how
+    perforated the face is — on an ordinary vented plate it admitted a deleted
+    boss top covering a quarter of the plate, i.e. silent wrong geometry. These
+    three fields carry the missing quantity outright: the area, the area centroid
+    and the perimeter of the region the face's OUTER WIRE encloses, all of them
+    pure functions of that wire and therefore untouched by any interior edit
+    (drilling, enlarging, moving or adding a hole).
+
+    They are OPTIONAL because every selector persisted before they existed must
+    keep resolving: the resolver DUAL-READS (``geometry.kernel.faces``), taking
+    the exact outer-wire comparison when they are present and the §12a inferred
+    band when they are not. The pick side emits them for every planar face from
+    2026-08-16 on, so the legacy population is closed. Emit all three or none —
+    a signature carrying some but not all is refused rather than downgraded.
     """
 
     subshape_type: Literal["face"] = "face"
@@ -203,6 +233,32 @@ class PlanarFaceSignature(BaseModel):
         description="Area centroid of the face, world mm (full precision)"
     )
     area_mm2: float = Field(gt=0, description="Face area (mm^2), full precision")
+    outer_area_mm2: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Area (mm^2) of the region the face's OUTER wire encloses — the face "
+            "with its holes plugged. Invariant under any interior boundary edit "
+            "(topological-naming §12b). Absent on selectors authored before "
+            "2026-08-16, which fall back to the §12a inferred band."
+        ),
+    )
+    outer_centroid: Vec3 | None = Field(
+        default=None,
+        description=(
+            "Area centroid of the outer-wire region, world mm (full precision). "
+            "Absent on selectors authored before 2026-08-16."
+        ),
+    )
+    outer_perimeter_mm: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Length (mm) of the face's OUTER wire. Separates two outer regions "
+            "that share an area and a centroid but not a shape. Absent on "
+            "selectors authored before 2026-08-16."
+        ),
+    )
 
 
 class CylindricalFaceSignature(BaseModel):
@@ -744,20 +800,22 @@ class ExtrudeParamsV1(BaseModel):
     merge: bool = MERGE_FIELD
 
 
-class RevolveAxis(BaseModel):
-    """The axis of revolution: a straight LINE entity of the profile's sketch.
+class SketchLineAxis(BaseModel):
+    """``kind: "sketch_line"`` — a LINE entity of the profile's own sketch.
 
-    v1 references a line entity by its sketch-local id (design §2.4 entity ids)
-    within the SAME sketch the profile comes from. A **construction** line is
-    the natural choice — a centerline is reference-only (excluded from the
-    closed-wire profile) and is exactly what an axis of revolution is — but any
-    line entity resolves; the axis is defined by the line's two solved
-    endpoints, mapped to world space through the profile's datum plane.
+    The v1 axis reference, and still the most direct one: a line entity named by
+    its sketch-local id (design §2.4 entity ids) within the SAME sketch the
+    profile comes from. A **construction** line is the natural choice — a
+    centerline is reference-only (excluded from the closed-wire profile) and is
+    exactly what an axis of revolution is — but any line entity resolves; the
+    axis is defined by the line's two solved endpoints, mapped to world space
+    through the profile's datum plane.
 
-    The ``kind`` discriminator seeds a future additive ``datum_axis`` variant
-    (the §2.1 ``GeomRef`` pattern) without forcing a ``param_version`` bump: a
-    persisted axis is always ``{"kind": "sketch_line", "entity": ...}`` today,
-    and a later datum-axis reference joins as ``kind: "datum_axis"``.
+    This variant alone can also CLOSE a half-profile: a three-sided L or
+    rectangle whose fourth side is the centerline builds the face the
+    revolution needs (see :func:`geometry.kernel.revolve.build_revolve_profile_face`).
+    An :class:`OriginAxis` is not a sketch entity, so it cannot close anything —
+    a profile revolved about an origin axis must already be a closed loop.
     """
 
     kind: Literal["sketch_line"] = "sketch_line"
@@ -767,26 +825,77 @@ class RevolveAxis(BaseModel):
     )
 
 
+class OriginAxis(BaseModel):
+    """``kind: "origin_axis"`` — one of the three WORLD origin axes (X, Y, Z).
+
+    The always-available axis (REVOLVE-1): a part that has no construction
+    centerline drawn still has X, Y and Z through the world origin, so a plain
+    closed profile can be turned without first learning the centerline idiom.
+    The reference is a pure enum — no sketch entity, no picked sub-geometry —
+    so it is the most rebuild-stable axis there is: nothing upstream can move,
+    rename or delete it, and it is wholly independent of topological naming (#1).
+
+    The axis must LIE IN the profile's sketch plane, exactly as a sketch-line
+    axis does by construction. Revolving a planar profile about an axis that
+    leaves its plane sweeps material out of the profile's own cross-section, so
+    an out-of-plane pick is the per-feature ``axis_not_in_sketch_plane`` error,
+    never a silently wrong solid. Concretely: a sketch on the ``XY`` origin
+    datum turns about ``X`` or ``Y`` and REFUSES ``Z`` (its normal); ``XZ``
+    turns about ``X`` or ``Z`` and refuses ``Y``; ``YZ`` turns about ``Y`` or
+    ``Z`` and refuses ``X``. A sketch on an OFFSET datum refuses every origin
+    axis that its offset has lifted the plane away from (RESEARCH §12 — the
+    plane slides along its own normal), which is honest: the origin axis is no
+    longer in that plane.
+    """
+
+    kind: Literal["origin_axis"]
+    axis: Literal["X", "Y", "Z"] = Field(
+        description="World origin axis (through 0,0,0) to revolve about. It "
+        "must lie in the profile's sketch plane — an out-of-plane choice (e.g. "
+        "Z for a sketch on the XY datum) is an `axis_not_in_sketch_plane` "
+        "rebuild error."
+    )
+
+
+#: Discriminated axis-of-revolution union (the :data:`DatumParams` /
+#: :data:`PatternGeometry` idiom). ``origin_axis`` joined ADDITIVELY (REVOLVE-1)
+#: with **no** ``param_version`` bump: every persisted axis is
+#: ``{"kind": "sketch_line", "entity": ...}``, which still validates unchanged,
+#: and :meth:`RevolveParamsV1._legacy_sketch_line_kind` supplies the
+#: discriminator for the older rows that omit it entirely. A future
+#: ``datum_axis`` or ``model_edge`` variant joins the same way.
+RevolveAxis = Annotated[SketchLineAxis | OriginAxis, Field(discriminator="kind")]
+
+
 class RevolveParamsV1(BaseModel):
-    """Revolution of an earlier sketch feature's profile about a sketch-line axis.
+    """Revolution of an earlier sketch feature's profile about an axis.
 
     The revolve sibling of :class:`ExtrudeParamsV1` (design §4.3, second core
     body-affecting feature): it consumes the SAME ``profile`` FeatureRef to an
     earlier sketch and the SAME ``add``/``cut`` boolean against the body chain,
     swapping the linear prism for a swept revolution. The ``axis`` is a
-    :class:`RevolveAxis` (a line entity of that same sketch — no picked
-    sub-geometry reference, so this is independent of topological naming), and
-    ``angle_deg`` is the sweep (full 360° by default). The profile must clear
-    the axis: a profile the axis crosses would revolve into self-intersecting
-    material and is a per-feature ``axis_intersects_profile`` error (design
-    §4.3), never a silent bad body.
+    :data:`RevolveAxis` — a line entity of that same sketch
+    (:class:`SketchLineAxis`) or a world origin axis (:class:`OriginAxis`);
+    neither is a picked sub-geometry reference, so revolve remains independent
+    of topological naming — and ``angle_deg`` is the sweep (full 360° by
+    default).
+
+    Two conditions are typed refusals rather than bad solids (design §4.3):
+
+    * the axis must lie IN the profile's sketch plane, or
+      ``axis_not_in_sketch_plane``; and
+    * the profile must clear the axis — a profile the axis CROSSES would
+      revolve into self-intersecting material, so it is
+      ``axis_intersects_profile``. A profile that merely TOUCHES the axis is
+      valid: that is the ordinary solid of revolution about its own centerline.
     """
 
     profile: FeatureRef = Field(
         description="Must resolve to an EARLIER sketch feature (design §2.2)"
     )
     axis: RevolveAxis = Field(
-        description="Axis of revolution — a line entity of the profile's sketch"
+        description="Axis of revolution — a line entity of the profile's sketch "
+        "or a world origin axis; it must lie in the profile's sketch plane"
     )
     angle_deg: float = Field(
         default=360.0,
@@ -802,6 +911,36 @@ class RevolveParamsV1(BaseModel):
         "(irrelevant at a full 360°): 'reverse' sweeps the opposite way",
     )
     merge: bool = MERGE_FIELD
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_sketch_line_kind(cls, data: Any) -> Any:
+        """Read a kind-less ``axis`` blob as a :class:`SketchLineAxis`.
+
+        The pre-REVOLVE-1 ``RevolveAxis`` was a single model whose ``kind``
+        carried a DEFAULT, so a params blob persisted as
+        ``{"axis": {"entity": "axis"}}`` was valid. Widening ``axis`` into a
+        discriminated union makes the discriminator mandatory, which would make
+        exactly those rows unreadable. Injecting ``kind: "sketch_line"`` when it
+        is absent keeps them valid with no stored-shape change and no
+        ``param_version`` bump — the same additive migration
+        :meth:`DatumFeature._legacy_offset_kind` performs for kind-less offset
+        datums. An axis that states its ``kind`` is untouched.
+        """
+        if not isinstance(data, dict):
+            return data
+        fields = cast("dict[str, Any]", data)
+        axis = fields.get("axis")
+        if not isinstance(axis, dict):
+            return fields
+        axis_dict = cast("dict[str, Any]", axis)
+        if "kind" in axis_dict:
+            return fields
+        new_axis = dict(axis_dict)
+        new_axis["kind"] = "sketch_line"
+        new_fields = dict(fields)
+        new_fields["axis"] = new_axis
+        return new_fields
 
 
 class SweepParamsV1(BaseModel):
@@ -1505,21 +1644,160 @@ PatternGeometry = Annotated[
 ]
 
 
+# v2 — THE SCOPE (docs/design/pattern-scope.md, 2026-08-26). The v1 contract is ONE
+# field (`pattern`) and the SEED is INFERRED from the body chain, in two places:
+# `_pattern_cut_tools` (array the previous feature's removal tool only if that cut
+# is the IMMEDIATE predecessor) and the kernel's VACUOUS-CUT FALLBACK (array the
+# whole body when no placed tool copy can reach it). Each rule is individually
+# defensible; together they mean the same dialog with the same numbers in it
+# produces two different KINDS of result and reports `ok` either way. §1 of that
+# design measures both flips: an unrelated fillet between the hole and the pattern
+# turns 28984.0710 (three holes) into 50040.1770 (three PLATES, bbox X 40 -> 64),
+# and moving `spacing_mm` from 8 to 12 on a hole near the +X face turns
+# 30798.1512 into 40594.6904. Three product-audit passes have reported this.
+#
+# The ambiguity is in the INPUT, so `scope` removes it there — the SAME two-member
+# `kind`-discriminated union :data:`MirrorScope` uses, with the words changed:
+# `body` (the v1 reading, now NAMED) and `features` (an explicit, non-empty,
+# TREE-ORDERED selection). SolidWorks ("Features to Pattern"), Fusion (Pattern ->
+# Type: Features) and Onshape all ask exactly this question.
+#
+# Additive under feature-tree §1.4 (`param_version` stays 1): a persisted pattern
+# with no `scope` key normalises to `{"kind": "body"}` through
+# :meth:`PatternParamsV1._legacy_body_scope`, so every existing row and all four
+# shipped pattern goldens validate AND evaluate on the unchanged v1 code path.
+# There is deliberately NO "default to the tip" in the DTO (§2.2): the tip is not
+# knowable here, and a default that rewrote the meaning of persisted rows would
+# reintroduce the very property this removes. Pre-selecting the tip is the DIALOG's
+# job, and the dialog sends `scope` explicitly.
+
+
+class PatternBodyScope(BaseModel):
+    """``scope: {"kind": "body"}`` — repeat the CURRENT BODY (the v1 reading).
+
+    The v1 semantic, NAMED rather than implied (design §2): both inference rules
+    above run verbatim, on the same code path, producing the same bytes — so the
+    shipped pattern goldens' byte identity is STRUCTURAL, not measured. This scope
+    still flips as §1 measures; that is what "additive" costs, and the flip is now a
+    documented property of a legacy reading the UI never authors rather than the
+    only available spelling.
+    """
+
+    kind: Literal["body"] = "body"
+
+
+class PatternFeaturesScope(BaseModel):
+    """``scope: {"kind": "features", "features": [...]}`` — repeat these features.
+
+    The v2 reading (design §2/§3): each selected feature's RECORDED RIGID TOOL
+    SOLID(S) are PLACED at the pattern's ``k = 1 .. count-1`` placements and that
+    feature's OWN operation (``fuse``/``cut``) is re-applied to the active body, in
+    TREE order — never array order (§6: array order is UI-incidental, so honouring
+    it would make identical models tessellate to different bytes). The placements
+    come from the SAME kernel helpers the ``body`` path calls, so what a selection
+    repeats can never drift from what a pattern applies.
+
+    ``features`` names :class:`FeatureRef`s rather than bare UUIDs so each selection
+    materialises into ``feature_dependencies`` for free (feature-tree §2.3): deleting
+    a patterned feature is a 409-with-dependents, a reorder re-checks the
+    strict-backward rule, and a forward/self reference is a write-time 422. A
+    non-body-affecting or non-repeatable kind (``sketch``/``datum``, and every
+    MODIFIER — fillet/chamfer/shell/draft and the sheet-metal family, which have a
+    RESULT and no tool) is refused with the typed per-feature
+    ``pattern_feature_unsupported`` at rebuild.
+
+    ``min_length=1`` because an empty selection is authoring nonsense, not a no-op
+    pattern, and duplicate ids are a 422 rather than silently deduplicated — naming
+    a feature twice leaves the intent (twice? once?) unstated, which is the mistake
+    v1 made.
+    """
+
+    kind: Literal["features"]
+    features: list[FeatureRef] = Field(
+        min_length=1,
+        max_length=MAX_PATTERN_SCOPE_FEATURES,
+        description="The features to repeat, each a `FeatureRef` to an earlier "
+        "body-affecting feature of this tree. Applied in TREE order (the array "
+        "order is ignored — design §6); at least one, at most "
+        "MAX_PATTERN_SCOPE_FEATURES (work bound); duplicates are a 422.",
+    )
+
+    @model_validator(mode="after")
+    def _reject_duplicate_features(self) -> Self:
+        """Duplicate selected ids are a 422 (design §2), never deduplicated."""
+        seen: set[uuid.UUID] = set()
+        for ref in self.features:
+            if ref.feature_id in seen:
+                raise ValueError(
+                    f"Pattern scope names feature {ref.feature_id} more than once; "
+                    "a feature is repeated exactly once per instance, so a "
+                    "duplicate leaves the intent unstated. Remove the repeat."
+                )
+            seen.add(ref.feature_id)
+        return self
+
+
+#: The pattern's SCOPE union (design §2), discriminated on ``kind``: `body` (v1) or
+#: `features` (v2) — the :data:`MirrorScope` idiom, and a discriminated union rather
+#: than ``features: list[FeatureRef] | None`` for the same reason: ``None`` and
+#: "repeat the body" would be two spellings of one meaning, the exact smell that
+#: made v1's semantic implicit. A future third reading (``kind: "bodies"``,
+#: multi-body selection) joins additively with no ``param_version`` bump.
+PatternScope = Annotated[
+    PatternBodyScope | PatternFeaturesScope, Field(discriminator="kind")
+]
+
+
 class PatternParamsV1(BaseModel):
     """Repeat the current single body into a linear row or circular ring.
 
     Wraps the discriminated :data:`PatternGeometry` under ``pattern`` (the
-    nested-discriminator idiom of :class:`RevolveParamsV1`'s ``axis``). Like a
-    fillet/chamfer, a pattern carries NO ``FeatureRef``: it operates on the
-    implicit single body chain that exists at its point in the tree (design
-    §7.6), so its dependency on the prior body-affecting feature is tree order,
-    not a reference. See the module-level DESIGN DECISION note for the v1
-    "pattern the whole body + union" semantics and its stated limitations.
+    nested-discriminator idiom of :class:`RevolveParamsV1`'s ``axis``). In the
+    ``body`` scope a pattern carries NO ``FeatureRef``: it operates on the implicit
+    single body chain that exists at its point in the tree (design §7.6), so its
+    dependency on the prior body-affecting feature is tree order, not a reference.
+    See the module-level DESIGN DECISION note for the v1 "pattern the whole body +
+    union" semantics and its stated limitations.
+
+    ``scope`` (v2, docs/design/pattern-scope.md) states WHAT is repeated — the whole
+    ``body`` (the reading above, kept verbatim) or an explicit selection of
+    ``features``, which DOES materialise ``feature_dependencies``. It defaults to
+    ``body`` and a persisted params blob with no ``scope`` key reads as ``body``
+    (:meth:`_legacy_body_scope`), so every pattern authored before v2 evaluates on
+    unchanged code.
     """
 
     pattern: PatternGeometry = Field(
         description="Linear or circular pattern geometry (discriminated on `kind`)"
     )
+    scope: PatternScope = Field(
+        default_factory=PatternBodyScope,
+        description="WHAT to repeat (discriminated on `kind`): `body` repeats the "
+        "current body (the v1 reading — cut-aware, with the vacuous-cut fallback), "
+        "`features` places the recorded tool solids of an explicit tree-ordered "
+        "selection and re-applies each feature's own boolean. Absent reads `body`, "
+        "so pre-v2 patterns are unchanged (design §2.1).",
+        json_schema_extra=_drop_schema_default,
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_body_scope(cls, data: Any) -> Any:
+        """Read a scope-less (or explicitly null) params blob as the ``body`` scope.
+
+        The v2 additive migration (design §2.1), the SAME idiom
+        :meth:`MirrorParamsV1._legacy_body_scope` uses: params persisted before
+        ``scope`` existed carry only ``{pattern}``, so normalising the missing key to
+        ``{"kind": "body"}`` keeps them valid with NO stored-shape change and NO
+        ``param_version`` bump. ``scope: null`` is normalised too, so a client that
+        round-trips an omitted optional as an explicit null is not a 422.
+        """
+        if not isinstance(data, dict):
+            return data
+        fields = cast("dict[str, Any]", data)
+        if fields.get("scope") is not None:
+            return fields
+        return {**fields, "scope": {"kind": "body"}}
 
 
 # --- Mirror params — reflect the current body about a plane + union it -----------
@@ -2963,9 +3241,11 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                     )
                 )
         case ExtrudeFeature() | RevolveFeature():
-            # Both take a single sketch profile ref; revolve's axis is a
-            # sketch-LOCAL entity id (a line within that same sketch), NOT a
-            # FeatureRef, so it never appears in the FeatureRef walk below.
+            # Both take a single sketch profile ref; revolve's axis is either a
+            # sketch-LOCAL entity id (a line within that same sketch) or a world
+            # origin-axis ENUM — neither is a FeatureRef, so the axis never
+            # appears in the FeatureRef walk below and a revolve's only
+            # dependency is its profile sketch.
             references.append(
                 FeatureReference(
                     "profile", feature.params.profile, frozenset({"sketch"})
@@ -3053,10 +3333,29 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                 )
             )
         case PatternFeature():
-            # A pattern replicates the implicit body about world-space direction/
-            # axis vectors (no picked sub-geometry — independent of #1); its
-            # dependency on the prior body-affecting feature is tree order.
-            pass
+            # A `body`-scope pattern replicates the implicit body about world-space
+            # direction/axis vectors (no picked sub-geometry — independent of #1);
+            # its dependency on the prior body-affecting feature is tree order, so
+            # it carries no refs.
+            #
+            # v2 `features` scope (pattern-scope.md §2): each selected feature IS a
+            # real dependency — the pattern places that feature's recorded tools —
+            # so every ref materialises into feature_dependencies with the
+            # BODY-AFFECTING allowed-target rule, exactly as a `features`-scope
+            # mirror does. Bought for free at write time: deleting a patterned
+            # feature is a 409-with-dependents, a reorder re-checks strict-backward,
+            # a forward/self reference is a 422, and a `sketch`/`datum` selection is
+            # a 422 long before it could be an evaluation-time
+            # `pattern_feature_unsupported`.
+            if isinstance(feature.params.scope, PatternFeaturesScope):
+                for index, ref in enumerate(feature.params.scope.features):
+                    references.append(
+                        FeatureReference(
+                            f"scope.features[{index}]",
+                            ref,
+                            BODY_AFFECTING_FEATURE_TYPES,
+                        )
+                    )
         case MirrorFeature():
             # A mirror reflects the implicit body about a plane and unions it
             # (design §7.6) — no source FeatureRef, tree order is its dependency
@@ -3650,9 +3949,9 @@ class ExportTreeRequest(EvaluateTreeRequest):
     THAT body (never a re-modelled shape).
 
     STEP exports the exact B-rep, so the deflection fields are meaningless for
-    it and ignored. STL is a faceted approximation; ``linear_deflection``
-    (inherited) and ``angular_deflection`` default to the tessellation defaults
-    so the exported mesh matches what the viewport shows.
+    it and ignored. STL, 3MF and GLB are faceted approximations;
+    ``linear_deflection`` (inherited) and ``angular_deflection`` default to the
+    tessellation defaults so the exported mesh matches what the viewport shows.
 
     If the tree produces no body — a strict-prefix failure (§4.3) or a tree
     with no body-affecting feature — export is a clean error, never a file:
@@ -3660,24 +3959,22 @@ class ExportTreeRequest(EvaluateTreeRequest):
     partial download.
     """
 
-    format: ExportFormat = Field(
-        description="Export file format: STEP (exact B-rep) or STL (faceted mesh)"
-    )
+    format: ExportFormat = Field(description=EXPORT_FORMAT_DESCRIPTION)
     angular_deflection: float = Field(
         default=DEFAULT_ANGULAR_DEFLECTION,
         ge=MIN_ANGULAR_DEFLECTION,
         description=(
-            "STL facet angular deflection (rad) between adjacent segments; "
-            "ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION "
-            "(work bound, audit G2)."
+            "Facet angular deflection (rad) between adjacent segments for STL "
+            f"and 3MF; {MESH_QUALITY_NOTE}, and fixed service-wide for GLB. "
+            "Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2)."
         ),
     )
     name: DocumentName | None = Field(
         default=None,
         description="The part's human-readable document name. Names the exported "
-        "STEP PRODUCT and the download filename; omitted / null falls back to the "
-        "part id. EXPORT-only on purpose (see DocumentName) — it is not on "
-        "EvaluateTreeRequest, because a name must never be an input to geometry.",
+        "STEP PRODUCT / 3MF object and the download filename; omitted / null falls "
+        "back to the part id. EXPORT-only on purpose (see DocumentName) — it is not "
+        "on EvaluateTreeRequest, because a name must never be an input to geometry.",
     )
 
 

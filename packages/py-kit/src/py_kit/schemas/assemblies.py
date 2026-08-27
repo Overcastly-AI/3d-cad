@@ -36,6 +36,8 @@ from py_kit.schemas.folders import FOLDER_ID_DESCRIPTION
 from py_kit.schemas.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
+    EXPORT_FORMAT_DESCRIPTION,
+    MESH_QUALITY_NOTE,
     MIN_ANGULAR_DEFLECTION,
     MIN_LINEAR_DEFLECTION,
     BoundingBox,
@@ -988,24 +990,24 @@ class ExportAssemblyRequest(EvaluateAssemblyRequest):
     ``format`` and the STL faceting parameter. STEP exports the exact B-rep as
     **AP214 product structure**: every instance that produced a body becomes a
     named PRODUCT positioned at its SOLVED world placement, so a downstream tool
-    (or a re-import) recovers each part traceable to its instance. STL bakes the
-    solved placements into a single faceted compound (no product names — the
-    format carries none). Byte-deterministic for identical requests (RESEARCH
-    §9): the STEP creation timestamp is pinned kernel-side and the assembly's
-    per-occurrence ids are canonicalised, so the same graph in yields identical
-    bytes out, in-process and across an interpreter restart.
+    (or a re-import) recovers each part traceable to its instance. The three
+    mesh formats bake the solved placements in, and differ in how much of the
+    structure survives: **3MF keeps one NAMED OBJECT per instance** (the closest
+    a mesh format gets to the STEP product structure), while STL and GLB flatten
+    to a single faceted compound. Byte-deterministic for identical requests
+    (RESEARCH §9): the STEP creation timestamp is pinned kernel-side, the
+    assembly's per-occurrence ids are canonicalised, and 3MF's per-object UUIDs
+    are pinned, so the same graph in yields identical bytes out, in-process and
+    across an interpreter restart.
     """
 
-    format: ExportFormat = Field(
-        description="Export file format: STEP (exact B-rep, AP214 product "
-        "structure) or STL (faceted mesh, placements baked into one compound)"
-    )
+    format: ExportFormat = Field(description=EXPORT_FORMAT_DESCRIPTION)
     angular_deflection: float = Field(
         default=DEFAULT_ANGULAR_DEFLECTION,
         ge=MIN_ANGULAR_DEFLECTION,
-        description="STL facet angular deflection (rad) between adjacent "
-        "segments; ignored for STEP (exact B-rep). Floored at "
-        "MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
+        description="Facet angular deflection (rad) between adjacent segments "
+        f"for STL and 3MF; {MESH_QUALITY_NOTE}, and fixed service-wide for "
+        "GLB. Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
     )
     name: DocumentName | None = Field(
         default=None,

@@ -37,16 +37,39 @@ and does not write the board.**
 
 ## Phases per batch
 
+0. **Discover** — `vision-steward` hunts capability gaps against Fusion 360 and
+   Plasticity, re-grounds the daily-driver scorecard, and hands the groomer a
+   prioritised candidate list. **This phase did not exist until 2026-08-16 and
+   the loop was structurally incapable of shipping a feature without it**: the
+   auditors find what is BROKEN, the groomer curates from the auditors, so
+   nothing looked for what is ABSENT. Measured over ~45 commits — 22 docs, 9
+   fix, 8 test, **4 feat**, 2 ci, with all four feats being repairs of reported
+   defects, every Ready item a defect, VISION/COMPETITIVE untouched for 16 days,
+   and `vision-steward` never once spawned. A defect-repair machine converges on
+   a well-repaired version of what it already is, and every batch looks
+   productive while it does.
+1. **Curate** — `oss-curator` on the same cadence as the audits, owning the
+   first-impression surface (README, CONTRIBUTING, SECURITY, templates, badges).
+   Truth-only. Never spawned before 2026-08-16, while the product audit's top
+   finding was that a stranger cloning this repo lands on a sign-in card in the
+   corner of an empty frame with no MIT/self-hosted framing anywhere.
 1. **Audit (parallel, independent)** — `product-auditor` and
    `engineering-auditor` deeply review the current app and **append** ratings and
    prioritised recommendations to their own docs. They do not see each other's
    output first; that independence is what earns its keep. They **write early**
    (append incrementally) so a late crash does not lose the pass — we have lost
    two agents' whole reports to session limits.
-2. **Groom** — `backlog-groomer` ingests both audits, `docs/UI-REVIEW.md`,
-   `docs/GEOMETRY-QA.md`, the roadmap and git history; dedupes, reprioritises,
-   ticks what shipped, and refreshes the **Ready** queue in `docs/BACKLOG.md`.
-   It returns the top N **disjoint** items with an explicit territory each.
+2. **Groom** — `backlog-groomer` ingests both audits, **`docs/COMPETITIVE.md`
+   and VISION's scorecard**, `docs/UI-REVIEW.md`, `docs/GEOMETRY-QA.md`, the
+   roadmap and git history; dedupes, reprioritises, ticks what shipped, and
+   refreshes the **Ready** queue in `docs/BACKLOG.md`. It returns the top N
+   **disjoint** items with an explicit territory each, **every item tagged
+   `kind: 'defect' | 'capability'`**, plus a **measured** `ratio` — the feat/fix
+   split of the last 30 commits and the defect/capability split of the batch.
+   The schema forces both. The script cannot run git; the groomer can, so the
+   groomer is the instrument that makes convergence-on-repair visible every
+   batch instead of every fortnight. An all-defect batch may be right — it just
+   may not be silent, and the script logs a note when one follows a Discover.
 3. **Build (parallel, isolated)** — each item is ONE agent in its own
    **`isolation: 'worktree'`**, owning the slice end to end: implement, review
    its own diff, QA against the real stack, commit only if green, leave the work
@@ -57,7 +80,14 @@ and does not write the board.**
    which would undo the isolation the worktree just bought. The groomer is the
    only writer on them during a batch, and the same-commit rule is still kept —
    see step 5.
-4. **Review, then Verify (per item, pipelined)** — `code-reviewer` on what
+4. **Review, then Verify (per item, pipelined)** — and the verifier is chosen by
+   TERRITORY, not by memory: kernel-adjacent items (`services/geometry/**`,
+   `packages/py-kit`, goldens) go to **`geometry-qa`**, everything else to
+   `qa-tester`. `geometry-qa` had never been spawned in 108 subagent spawns
+   while GEOM-2 shipped a new face-matching tier and GEOM-3 rewrote the
+   persisted face-signature contract — the `kernel-architect` was writing its
+   own goldens, which is the QA'd-by-the-author arrangement this loop exists to
+   end. A green unit suite with a wrong volume is a failure. — `code-reviewer` on what
    actually landed, then `qa-tester` against the real running stack. **These are
    not optional and they were missing from this loop until 2026-08-14**, when
    the engineering audit (K8) measured the consequence: three of the last five
@@ -68,7 +98,19 @@ and does not write the board.**
    The reviewer re-runs the builder's mutation evidence itself rather than
    trusting the report, and checks every factual claim the diff adds to the
    record.
-5. **Integrate** — the orchestrator cherry-picks each clean branch, **writes the
+5. **Design** — `frontend-qa` when the batch touched `apps/web/**` or
+   `packages/design/**`, leading with FLOW (what does the user do next?) and
+   then the non-negotiable floor: AA contrast, visible focus, 24 px targets,
+   reduced-motion, responsive at BOTH 1600 and 1280. It owns the STANDING
+   FOUNDER PRIORITY and was the last agent the loop never pulled — one spawn in
+   108 (AUDIT-ENGINEERING L5). Pulled by the work, not by memory.
+6. **DocSync** — `doc-syncer` (cheap model, every iteration) reconciles the
+   surfaces the same-commit rule does not cover: ARCHITECTURE facts, README
+   claims, CHANGELOG, CLAUDE.md's command list. Never spawned before
+   2026-08-16, and the drift was exactly what that predicts — ROADMAP 129
+   commits stale, then stale again the same week. Runs last, so the batch's
+   commits exist to reconcile against. An empty pass is a fine outcome.
+7. **Integrate** — the orchestrator cherry-picks each clean branch, **writes the
    ROADMAP/BACKLOG tick and folds it into that commit** (`git commit --amend
    --no-edit`), **verifies the merged tree** (typecheck + unit + targeted gates)
    before pushing, pushes **each commit separately** (GitHub fires one run per
@@ -92,8 +134,12 @@ and does not write the board.**
 
 ```js
 export const meta = { name:'loft-dev-loop',
-  phases:[{title:'Audit'},{title:'Groom'},{title:'Build'},
+  phases:[{title:'Discover'},{title:'Audit'},{title:'Groom'},{title:'Build'},
           {title:'Review'},{title:'Verify'},{title:'Integrate'}] }
+
+phase('Discover')                    // skippable via args.skipDiscover
+await agent(competitiveBrief,        // Fusion 360 + Plasticity, WebFetch/WebSearch
+  {agentType:'vision-steward'})      // owns VISION.md + COMPETITIVE.md, never BACKLOG
 
 phase('Audit')                       // skippable via args.skipAudit
 await parallel([

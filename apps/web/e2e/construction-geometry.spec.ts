@@ -200,9 +200,22 @@ test.describe("construction geometry", () => {
     };
     {
       const flags = await readConstruction();
-      expect(flags.size).toBe(5);
+      // The sketch was drawn FROM the origin, so SNAP-3's inferred coincident
+      // names it and SKETCH-2 materialises it as real, pinned CONSTRUCTION
+      // geometry inside the sketch. That is a sixth entity the user did not
+      // draw, and it is construction by nature — so a bare `flags.size` counts
+      // the frame as if the user had drawn it, and a bare "exactly one
+      // construction entity" would fail for a reason that has nothing to do
+      // with the diagonal this test is about. Separate the two claims.
+      const FRAME_IDS = ["origin", "x-axis", "y-axis"];
+      const frame = [...flags.keys()].filter((id) => FRAME_IDS.includes(id));
+      expect(frame).toEqual(["origin"]);
+      expect(flags.get("origin")).toBe(true);
+
+      const drawn = [...flags.entries()].filter(([id]) => !frame.includes(id));
+      expect(drawn).toHaveLength(5);
       expect(flags.get("e5")).toBe(true); // the diagonal
-      expect([...flags.entries()].filter(([, c]) => c)).toHaveLength(1);
+      expect(drawn.filter(([, c]) => c)).toHaveLength(1);
       expect(flags.get("e1")).toBe(false); // a rectangle edge
     }
 

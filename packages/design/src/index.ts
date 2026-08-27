@@ -53,10 +53,21 @@ export {
 export { Flyout, type FlyoutProps, type FlyoutItem } from "./primitives/Flyout";
 export {
   ContextMenu,
+  MENU_MIN_WIDTH,
   type ContextMenuProps,
   type ContextMenuItem,
   type ContextMenuSection,
 } from "./primitives/ContextMenu";
+export {
+  OverflowMenu,
+  type OverflowMenuProps,
+} from "./primitives/OverflowMenu";
+export {
+  Truncated,
+  truncatedProps,
+  TRUNCATED_CLASS,
+  type TruncatedProps,
+} from "./primitives/Truncated";
 export {
   SegmentedControl,
   type SegmentedControlProps,
@@ -74,6 +85,7 @@ export {
 } from "./primitives/BandActionCell";
 export { SketchGlyph, type SketchGlyphProps } from "./primitives/SketchGlyph";
 export { PickNode, type PickNodeProps } from "./primitives/PickNode";
+export { AxisGrip, type AxisGripProps } from "./primitives/AxisGrip";
 export { FieldRow, type FieldRowProps } from "./primitives/FieldRow";
 export { NumberField, type NumberFieldProps } from "./primitives/NumberField";
 export {
@@ -88,6 +100,11 @@ export {
 export { TextField, type TextFieldProps } from "./primitives/TextField";
 export { Checkbox, type CheckboxProps } from "./primitives/Checkbox";
 export { Disclosure, type DisclosureProps } from "./primitives/Disclosure";
+export {
+  ScrollRegion,
+  type ScrollRegionProps,
+  type ScrollEdges,
+} from "./primitives/ScrollRegion";
 export {
   SelectField,
   type SelectFieldProps,

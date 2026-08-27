@@ -10,6 +10,7 @@ import {
 } from "./partSeed";
 import {
   createPartViaApi,
+  openRowActions,
   SCREENSHOT_DIR,
   seedSession,
   withStableSessionEmail,
@@ -77,6 +78,21 @@ async function seedRegisterOfEveryState(page: Page): Promise<void> {
   await createPartViaApi(page, token, "Cover blank");
 }
 
+/**
+ * THIS PART'S verdict, addressed by NAME rather than by row index.
+ *
+ * The register's default order is LAST WORKED, newest first (REGISTER-2), and
+ * before that it was FILED ascending — so an index-addressed assertion here was
+ * really asserting the default sort, which is a different spec's job. Naming the
+ * row says what this spec means and survives the next ordering decision.
+ */
+function healthOf(page: Page, name: string) {
+  return page
+    .getByTestId("part-row")
+    .filter({ hasText: name })
+    .locator('[data-testid="part-health"]');
+}
+
 /** The register, freshly loaded (the health record is written asynchronously). */
 async function openRegister(page: Page): Promise<void> {
   await page.goto("/");
@@ -96,45 +112,52 @@ test.describe("register rebuild health — 1440x900", () => {
     await openRegister(page);
 
     const rows = page.getByTestId("part-row");
-    const health = (n: number) =>
-      rows.nth(n).locator('[data-testid="part-health"]');
+    const health = (name: string) => healthOf(page, name);
 
     // The four verdicts, in the drawer's own words.
-    await expect(health(0)).toHaveAttribute("data-health", "ok");
-    await expect(health(0)).toContainText("Clean");
+    await expect(health("Bracket plate")).toHaveAttribute("data-health", "ok");
+    await expect(health("Bracket plate")).toContainText("Clean");
 
-    await expect(health(1)).toHaveAttribute("data-health", "failed");
-    await expect(health(1)).toContainText("Broken");
+    await expect(health("Motor mount")).toHaveAttribute(
+      "data-health",
+      "failed",
+    );
+    await expect(health("Motor mount")).toContainText("Broken");
 
     // STALE renders INDETERMINATE — the same posture (and the same dashed
     // drafting rule) as the clash schedule's UNVERIFIED: the tree moved, so
     // health is genuinely unknown. Never a tick, never a flag.
-    await expect(health(2)).toHaveAttribute("data-health", "stale");
-    await expect(health(2)).toContainText("Was clean");
-    await expect(health(3)).toHaveAttribute("data-health", "stale");
-    await expect(health(3)).toContainText("Was broken");
+    await expect(health("Spindle housing")).toHaveAttribute(
+      "data-health",
+      "stale",
+    );
+    await expect(health("Spindle housing")).toContainText("Was clean");
+    await expect(health("Idler arm")).toHaveAttribute("data-health", "stale");
+    await expect(health("Idler arm")).toContainText("Was broken");
     // The record's raw status is reported, but never as a current verdict.
-    await expect(health(3)).not.toContainText("Broken ");
+    await expect(health("Idler arm")).not.toContainText("Broken ");
 
-    await expect(health(4)).toHaveAttribute("data-health", "never");
+    await expect(health("Cover blank")).toHaveAttribute("data-health", "never");
 
     // "ok" means NO FEATURE ERRORED — it is not a claim that the part has a
     // body, and the cell's own title has to say so.
-    const okTitle = await health(0).getAttribute("title");
+    const okTitle = await health("Bracket plate").getAttribute("title");
     report("ok title", okTitle);
     expect.soft(okTitle ?? "").toMatch(/body/i);
 
     // The stale cell spends the raw record: it says WHICH way it went and that
     // the tree moved since — better than "unknown", still not a verdict.
-    const staleTitle = await health(3).getAttribute("title");
+    const staleTitle = await health("Idler arm").getAttribute("title");
     report("stale title", staleTitle);
     expect.soft(staleTitle ?? "").toMatch(/tree changed/i);
 
     // LAST WORKED keeps meaning "someone worked on it": recording a rebuild
     // does not bump `updated_at`, so an evaluated-but-unedited part is still
-    // NOT STARTED. (Rows 1-4 were authored through the API, so they read as
-    // worked; row 5 was only named.)
-    await expect(rows.nth(4).getByTestId("part-unstarted")).toBeVisible();
+    // NOT STARTED. ("Cover blank" was only named; the other four were authored
+    // through the API, so they read as worked.)
+    await expect(
+      rows.filter({ hasText: "Cover blank" }).getByTestId("part-unstarted"),
+    ).toBeVisible();
 
     await withStableSessionEmail(page, () =>
       page.screenshot({
@@ -162,15 +185,20 @@ test.describe("register rebuild health — 1440x900", () => {
     await expect(header).toContainText("Row");
 
     // Prove the renumbering against the REAL delete, so the claim the column
-    // makes is checked against the behaviour it has.
+    // makes is checked against the behaviour it has. The SECOND row's name is
+    // read from the screen rather than assumed: this spec is about the ordinal
+    // moving, and naming a part here would silently be an assertion about the
+    // default sort instead (REGISTER-2 changed it to LAST WORKED, newest first).
+    const wasSecond = await rows.nth(1).getByTestId("part-open").textContent();
+    await openRowActions(rows.nth(0));
     await rows.nth(0).getByTestId("part-delete").click();
     await page.getByTestId("part-delete-confirm").click();
     await expect(page.getByTestId("part-row")).toHaveCount(4, {
       timeout: 30_000,
     });
     await expect(ordinal(0)).toHaveText("1");
-    await expect(rows.nth(0).getByTestId("part-open")).toContainText(
-      "Motor mount",
+    await expect(rows.nth(0).getByTestId("part-open")).toHaveText(
+      wasSecond ?? "",
     );
   });
 });
@@ -243,11 +271,7 @@ test.describe("register rebuild health — the rolled-back prefix", () => {
     await expect(page.getByTestId("part-row")).toHaveCount(2, {
       timeout: 30_000,
     });
-    const health = (n: number) =>
-      page
-        .getByTestId("part-row")
-        .nth(n)
-        .locator('[data-testid="part-health"]');
+    const health = (name: string) => healthOf(page, name);
 
     // Shot first, assertions after: the same spec run against HEAD~ captures
     // the BEFORE state (both rows reading a bare "Clean") for the founder pair.
@@ -258,16 +282,21 @@ test.describe("register rebuild health — the rolled-back prefix", () => {
     );
 
     // The state is still `ok` — it is the SCOPE that withdraws the word.
-    await expect(health(0)).toHaveAttribute("data-health", "ok");
-    await expect(health(0)).toHaveAttribute("data-health-scope", "rolled_back");
-    await expect(health(0)).toContainText("Clean to stop");
-    const parkedTitle = await health(0).getAttribute("title");
+    // "Bracket plate" is the part parked BEFORE its extrude; "Motor mount" is
+    // the one whose stop excludes nothing.
+    await expect(health("Bracket plate")).toHaveAttribute("data-health", "ok");
+    await expect(health("Bracket plate")).toHaveAttribute(
+      "data-health-scope",
+      "rolled_back",
+    );
+    await expect(health("Bracket plate")).toContainText("Clean to stop");
+    const parkedTitle = await health("Bracket plate").getAttribute("title");
     report("rolled-back title", parkedTitle);
     expect.soft(parkedTitle ?? "").toMatch(/travel stop/i);
 
     // ...and a stop that excludes nothing reads exactly as it always did.
-    await expect(health(1)).toHaveAttribute("data-health", "ok");
-    await expect(health(1)).toHaveText(/^Clean$/);
+    await expect(health("Motor mount")).toHaveAttribute("data-health", "ok");
+    await expect(health("Motor mount")).toHaveText(/^Clean$/);
   });
 });
 
@@ -303,12 +332,7 @@ test.describe("register rebuild health — 1280x800", () => {
       .soft(table?.scrollWidth ?? 0)
       .toBeLessThanOrEqual(table?.clientWidth ?? 0);
 
-    await expect(
-      page
-        .getByTestId("part-row")
-        .nth(1)
-        .locator('[data-testid="part-health"]'),
-    ).toContainText("Broken");
+    await expect(healthOf(page, "Motor mount")).toContainText("Broken");
 
     await withStableSessionEmail(page, () =>
       page.screenshot({

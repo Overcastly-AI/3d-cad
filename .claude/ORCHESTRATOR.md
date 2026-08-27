@@ -93,9 +93,23 @@ Modelled on `Overcastly-AI/next-lane`, which runs this in production. One batch
 per invocation; **chain the next batch on completion.**
 
 ```
-Audit  →  Groom  →  Build  →  Review  →  Verify  →  Integrate  →  (next batch)
+Discover  →  Audit  →  Groom  →  Build  →  Review  →  Verify  →  Integrate  →  (next)
 ```
 
+- **Discover** — `vision-steward`, competitive gaps against Fusion 360 and
+  Plasticity, owning `docs/VISION.md` + `docs/COMPETITIVE.md`. **THIS PHASE DID
+  NOT EXIST AND THE LOOP WAS STRUCTURALLY INCAPABLE OF SHIPPING A NEW FEATURE
+  WITHOUT IT.** Measured 2026-08-16 after the founder asked "is our idea agent
+  finding new ideas — we are not progressing new features": across ~45 commits,
+  22 docs / 9 fix / 8 test / **4 feat** / 2 ci, and all four feats were repairs
+  of founder-reported defects. Every one of the seven Ready items was a defect.
+  `VISION.md` and `COMPETITIVE.md` had been untouched for 16 days, and
+  `vision-steward` had **never been spawned** — 38 subagent spawns, zero of it.
+  The cause is structural, not lazy dispatch: the auditors find what is BROKEN
+  and the groomer curates from the auditors, so **nothing in the loop was
+  looking for what is ABSENT**. A defect-repair machine converges on a
+  well-repaired version of what it already is. Run it on the same cadence as the
+  audits, and feed its candidates to the groomer — it does NOT write the board.
 - **Audit** — `product-auditor` + `engineering-auditor` in parallel, independent,
   appending to their own docs as they go (write-early: we have lost two agents'
   entire reports to session limits). Roughly every third batch; the board does
@@ -189,6 +203,24 @@ agent's output mtime is under 30 minutes.
   poison every later e2e run and read exactly like a code regression.
 - **Founder updates are results-first**: what shipped with evidence, then what is
   running, then what is next.
+- **A CONTROL RUN UNDER THE SAME LOAD IS NOT A CONTROL.** The standard move when
+  a spec goes red is to revert your change and re-run: if it still fails it is
+  pre-existing, not yours. That reasoning is only valid if the *other* variable
+  is held still, and on this box it usually is not. Measured 2026-08-17/18: TWO
+  agents in a row ran that control at load ~3-9 on 4 cores, got a failure in
+  both arms, and correctly-by-their-evidence reported "pre-existing, not mine".
+  Both were wrong — `qa-sketch-frame:991` passes 4/4 on a quiet machine. A
+  contaminant that affects both arms cancels out of the comparison and leaves
+  you certain of the wrong thing. It is the same shape as the bisect that
+  reproduced a failure at a commit believed green (RETRO §4c): the shared cause
+  sat underneath every point sampled.
+  So the control has THREE arms, not two: your change under load, your change
+  QUIET, and reverted quiet. `scripts/e2e.sh` now prints the 1-minute load
+  average before the browser suite and warns when a red will be untrustworthy —
+  read that line before you read the failures. And when briefing a builder, say
+  this explicitly: *if you find a red spec, establish a pass rate on a QUIET
+  machine before you run the revert control, because a control under load proves
+  nothing.*
 
 ---
 

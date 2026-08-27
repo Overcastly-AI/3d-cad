@@ -54,7 +54,13 @@ from py_kit.schemas.drawings import (
     EvaluateAssemblyDrawingViewsResult,
     EvaluateDrawingViewsRequest,
     EvaluateDrawingViewsResult,
+    FlatPatternDxfRequest,
+    SheetLayout,
+    SheetPoint,
+    SheetViewPlacement,
+    ViewScale,
     artifact_filename,
+    flat_pattern_filename,
 )
 from py_kit.schemas.features import (
     EvaluateTreeRequest,
@@ -106,11 +112,13 @@ from geometry.drawing_store import (
     store_drawing_artifact,
 )
 from geometry.drawings import (
+    FlatPatternExportError,
     compose_drawing_evaluation,
     evaluate_assembly_drawing_views,
     evaluate_drawing_views,
     place_sheet,
     serialize_dxf,
+    serialize_flat_pattern_dxf,
     serialize_pdf,
     serialize_svg,
     thread_schedule_rows,
@@ -123,6 +131,7 @@ from geometry.kernel import (
     ImportParseTimeoutError,
     ImportResponseTooLargeError,
     ImportTooManyProductsError,
+    MeshExportNotManifoldError,
     evaluate_export,
     evaluate_tessellation,
     export_solid,
@@ -152,17 +161,23 @@ _TESSELLATE_RESPONSES = tessellate_responses(
 )
 
 _EXPORT_RESPONSES = export_responses(
-    "The exported CAD file: STEP AP214 part 21 (`model/step`, exact B-rep) "
-    "or binary STL (`model/stl`, faceted mesh). `Content-Disposition` "
-    "carries the suggested download filename. Byte-deterministic: identical "
-    "requests produce identical files."
+    "The exported CAD file: STEP AP214 part 21 (`model/step`, exact B-rep, "
+    "mm), binary STL (`model/stl`, faceted mesh, mm), 3MF (`model/3mf`, "
+    "faceted mesh in an OPC package that DECLARES millimetres and carries one "
+    "object per body) or binary glTF (`model/gltf-binary`, faceted mesh in "
+    "**metres and Y-up** per the glTF spec — the same payload the viewport is "
+    "served). `Content-Disposition` carries the suggested download filename. "
+    "Byte-deterministic: identical requests produce identical files."
 )
 
 _ASSEMBLY_EXPORT_RESPONSES = export_responses(
-    "The exported assembly file: STEP AP214 part 21 (`model/step`, exact "
-    "B-rep) with product structure — each instance a named PRODUCT at its "
-    "solved world placement — or binary STL (`model/stl`, faceted mesh with "
-    "placements baked into one compound). `Content-Disposition` carries the "
+    "The exported assembly file, in the same four formats as a part, differing "
+    "in how much assembly structure they keep: STEP AP214 part 21 "
+    "(`model/step`, exact B-rep) with INSTANCED product structure — each "
+    "instance a named occurrence of its part at its solved world placement; "
+    "3MF (`model/3mf`) with one NAMED OBJECT per instance; STL (`model/stl`) "
+    "and binary glTF (`model/gltf-binary`, metres and Y-up) as one faceted "
+    "compound with placements baked in. `Content-Disposition` carries the "
     "suggested download filename. Byte-deterministic: identical requests "
     "produce identical files."
 )
@@ -332,7 +347,7 @@ def assembly_interference_route(
     dependencies=[ADMISSION_CONTROL],
 )
 def export_assembly_route(request: ExportAssemblyRequest) -> Response:
-    """Evaluate an assembly and export it as ONE multi-instance STEP/STL download.
+    """Evaluate an assembly and export it as ONE multi-instance CAD download.
 
     Stateless (CLAUDE.md): documents sends the assembly graph (the SAME
     ``EvaluateAssemblyRequest`` fields the evaluate route takes, plus the export
@@ -354,7 +369,7 @@ def export_assembly_route(request: ExportAssemblyRequest) -> Response:
     """
     try:
         data = export_assembly(request)
-    except AssemblyExportError as exc:
+    except (AssemblyExportError, MeshExportNotManifoldError) as exc:
         raise ValidationApiError(str(exc), code=exc.code) from exc
     return Response(
         content=data,
@@ -584,6 +599,99 @@ def compose_drawing_route(request: ComposeDrawingRequest) -> Response:
     )
 
 
+_FLAT_PATTERN_RESPONSES: dict[int | str, dict[str, Any]] = {
+    200: {
+        "description": (
+            "The profile-only flat pattern as DXF (`image/vnd.dxf`): the cut "
+            "outline and fold lines at 1:1 in millimetres, on the `VISIBLE` and "
+            "`BEND` layers, with no sheet border, title block, bend table or "
+            "dimensions. `Content-Disposition` carries the suggested download "
+            "filename. Byte-deterministic: identical requests produce identical "
+            "bytes."
+        ),
+        "content": {
+            "image/vnd.dxf": {"schema": {"type": "string", "format": "binary"}}
+        },
+    },
+    422: {
+        "description": (
+            "The part has no flat pattern to cut — a `flat_pattern_not_sheet_metal` "
+            "/ `flat_pattern_failed` / `flat_pattern_empty` envelope. NEVER an empty "
+            "DXF: a shop cannot tell an empty file from a broken export."
+        )
+    },
+}
+
+#: The canonical single-view 1:1 layout the profile-only export composes through.
+#: A4 landscape is arbitrary here and never reaches the file — no border, title block
+#: or bend table is emitted, and the blank is translated to the origin — but composing
+#: through the SAME `place_sheet` the drawing uses is what keeps this artifact's cut
+#: path identical to the one the drawing shows (one unfold, one truth). 1:1 is the
+#: only scale offered, which is what makes the F-1 defect unrepresentable here.
+_FLAT_PATTERN_SCALE = ViewScale(numerator=1, denominator=1)
+
+
+@router.post(
+    "/drawing/flat-pattern/dxf",
+    response_class=Response,
+    responses=_FLAT_PATTERN_RESPONSES,
+    dependencies=[ADMISSION_CONTROL],
+)
+def flat_pattern_dxf_route(request: FlatPatternDxfRequest) -> Response:
+    """Export a sheet-metal part's flat pattern as a PROFILE-ONLY DXF (F-2a).
+
+    The one-action flat pattern every incumbent ships and we did not: the cut path a
+    laser/turret/waterjet vendor's nesting and quoting software ingests unmodified.
+    Until now the only flat pattern we could produce was a whole A4 DRAWING SHEET —
+    the product audit measured the cut geometry at **5 of 29 entities**, extents
+    10..287 x 10..200 mm — so an operator had to import the sheet and delete the
+    furniture by hand for every revision.
+
+    Takes a PART's feature tree, not a drawing: this must be reachable without
+    authoring a drawing sheet first. Internally it evaluates and places the pattern
+    through the SAME ``evaluate_drawing_views`` / ``place_sheet`` pipeline the drawing
+    uses, so the exported cut path and the drawn one are the same geometry, then
+    serializes only that view's edges. **1:1 by construction** — the request has no
+    scale to ask otherwise with. Identity-free (the gateway owns auth); deterministic
+    (RESEARCH §9): same request => identical bytes.
+
+    A part with no developable flat pattern is a typed 422, never an empty file.
+    """
+    layout = SheetLayout(
+        size="A4",
+        orientation="landscape",
+        title="flat pattern",
+        views=[
+            SheetViewPlacement(
+                projection="flat_pattern",
+                position=SheetPoint(x_mm=0.0, y_mm=0.0),
+                scale=_FLAT_PATTERN_SCALE,
+            )
+        ],
+    )
+    compose_request = ComposeDrawingRequest(
+        part_id=request.part_id,
+        tree_version=request.tree_version,
+        features=request.features,
+        views=["flat_pattern"],
+        scale=_FLAT_PATTERN_SCALE,
+        dimensions=[],
+        layout=layout,
+        format="dxf",
+    )
+    composed = place_sheet(evaluate_drawing_views(compose_request), [], layout)
+    try:
+        body = serialize_flat_pattern_dxf(composed)
+    except FlatPatternExportError as exc:
+        raise ValidationApiError(exc.message, code=exc.code) from exc
+    filename = flat_pattern_filename(request)
+    return Response(
+        content=body,
+        media_type=ARTIFACT_MEDIA_TYPES["dxf"],
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post(
     "/drawing/compose/sheet",
     dependencies=[ADMISSION_CONTROL],
@@ -643,8 +751,11 @@ def fetch_mesh(mesh_glb_id: str) -> Response:
     dependencies=[ADMISSION_CONTROL],
 )
 def export(request: ExportRequest) -> Response:
-    """Build a parametric shape and export it as a STEP or STL download."""
-    data = evaluate_export(request)
+    """Build a parametric shape and export it as a STEP/STL/3MF/GLB download."""
+    try:
+        data = evaluate_export(request)
+    except MeshExportNotManifoldError as exc:
+        raise ValidationApiError(str(exc), code=exc.code) from exc
     return Response(
         content=data,
         media_type=EXPORT_MEDIA_TYPES[request.format],
@@ -915,7 +1026,7 @@ def sketch_chamfer(request: SketchChamferRequest) -> SketchCornerResult:
     dependencies=[ADMISSION_CONTROL],
 )
 def export_tree(request: ExportTreeRequest) -> Response:
-    """Evaluate a feature tree and export its LAST-GOOD body as STEP/STL.
+    """Evaluate a feature tree and export its LAST-GOOD body as a CAD file.
 
     Reuses the evaluate-tree machinery verbatim (``evaluate_tree`` — the same
     ordered dispatch + strict-prefix rule as ``POST /api/v1/evaluate``, no
@@ -931,13 +1042,16 @@ def export_tree(request: ExportTreeRequest) -> Response:
         raise tree_no_body_error(
             evaluation.result, code="tree_export_failed", action="export"
         )
-    data = export_solid(
-        evaluation.body,
-        request.format,
-        request.linear_deflection,
-        request.angular_deflection,
-        name=request.name,
-    )
+    try:
+        data = export_solid(
+            evaluation.body,
+            request.format,
+            request.linear_deflection,
+            request.angular_deflection,
+            name=request.name,
+        )
+    except MeshExportNotManifoldError as exc:
+        raise ValidationApiError(str(exc), code=exc.code) from exc
     return Response(
         content=data,
         media_type=EXPORT_MEDIA_TYPES[request.format],

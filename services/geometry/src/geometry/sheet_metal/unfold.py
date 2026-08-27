@@ -35,14 +35,19 @@ and the typed DTOs at the boundary keep it honest.
 # pyright: reportUnknownParameterType=false, reportAttributeAccessIssue=false
 
 import math
-from dataclasses import dataclass
-from typing import Literal, cast
+from dataclasses import dataclass, replace
+from typing import Literal, NamedTuple, cast
 
-from build123d import GeomType, Vector
+from build123d import Face, GeomType, Vector
 from py_kit.schemas.features import CylindricalFaceSignature, PlanarFaceSignature
 
 from geometry.kernel.faces import planar_signatures_match
 from geometry.kernel.types import BodyShape
+from geometry.sheet_metal.cutouts import (
+    DevelopedRegion,
+    develop_cutouts,
+    parallel_star_regions,
+)
 from geometry.sheet_metal.flat_pattern import BendLine, FlatEdge2D, FlatPattern
 from geometry.sheet_metal.resolve import (
     FlangeFaceRecord,
@@ -264,6 +269,13 @@ class _StarBend:
     u_position: float  # moving flange centroid, projected on the layout u-axis
     side: int  # +1 extends +u beyond the base, -1 extends -u
     direction: Literal["up", "down"]  # fold sense relative to the base normal
+    #: The moving flange's own flat FACE and this bend's axis origin — carried only so
+    #: the layout can publish a :class:`DevelopedRegion` for the leg (DXF-4 interior
+    #: cuts). Nothing in the layout arithmetic reads them, which is why every hole-free
+    #: golden is byte-identical.
+    moving_face: Face | None = None
+    moving_normal: Vec3f | None = None
+    axis_origin: Vec3f | None = None
 
 
 def unfold_sheet_metal(
@@ -305,13 +317,42 @@ def unfold_sheet_metal(
         UnfoldFoldBackError: *live_body* was supplied and a developed fold does not
             match the live body's bend faces (a cut/modification altered a fold
             after it was authored — the WF-1 honest reject).
+        UnfoldCutoutError: the part has an interior cut (hole / slot / cutout) this
+            development cannot place — see :mod:`geometry.sheet_metal.cutouts`. A blank
+            with its holes missing looks finished and cuts as scrap, so it is refused.
     """
-    pattern = _develop_flat_pattern(
+    development = _develop_flat_pattern(
         body, bends, thickness_mm, default_k_factor, reliefs
     )
+    pattern = development.pattern
     if live_body is not None:
         _check_live_fold_back(live_body, bends, pattern)
-    return pattern
+    # INTERIOR CUTS (DXF-4) come from the LIVE body — the one the part actually is, and
+    # the one a shop must cut. The unfold's reference *body* is the clean un-notched
+    # sheet, which by construction lags any post-relief modelling; the fold geometry
+    # needs that clean reference, a hole does not.
+    cuts = develop_cutouts(
+        live_body if live_body is not None else body, development.regions
+    )
+    if not cuts.edges and cuts.area_delta_mm2 == 0.0:
+        return pattern
+    return replace(
+        pattern,
+        cutouts=cuts.edges,
+        flat_area_mm2=pattern.flat_area_mm2 + cuts.area_delta_mm2,
+    )
+
+
+class _Development(NamedTuple):
+    """A laid-out blank plus the developed maps its layout path published (DXF-4).
+
+    ``regions`` is empty for a layout path that has no interior-cut map yet; that is
+    not a silent drop — :func:`~geometry.sheet_metal.cutouts.develop_cutouts` refuses
+    the moment such a body actually carries a cut.
+    """
+
+    pattern: FlatPattern
+    regions: tuple[DevelopedRegion, ...] = ()
 
 
 def _develop_flat_pattern(
@@ -320,7 +361,7 @@ def _develop_flat_pattern(
     thickness_mm: float,
     default_k_factor: float,
     reliefs: list[CornerRelief] | None,
-) -> FlatPattern:
+) -> _Development:
     """Resolve + dispatch + lay out (the pre-WF-1 ``unfold_sheet_metal`` verbatim,
     so every committed golden stays byte-identical); see the public wrapper."""
     if not bends:
@@ -385,23 +426,29 @@ def _develop_flat_pattern(
                     "closed-corner geometry (§4.4.4)."
                 )
             star, returns = partitioned
-            return _unfold_nonparallel_relieved(
-                star,
-                base_rec,
-                thickness_mm,
-                default_k_factor,
-                reliefs,
-                returns=returns,
+            return _Development(
+                _unfold_nonparallel_relieved(
+                    star,
+                    base_rec,
+                    thickness_mm,
+                    default_k_factor,
+                    reliefs,
+                    returns=returns,
+                )
             )
-        return _unfold_bend_tree(body, bends, thickness_mm, default_k_factor)
+        return _Development(
+            _unfold_bend_tree(body, bends, thickness_mm, default_k_factor)
+        )
 
     if reliefs:
         # A relieved depth-1 tray develops through the corner-relief path (§4.4):
         # each named corner loses a size x size square, the two adjacent flanges are
         # inset, and the outline gains the reentrant notch. Only runs when a relief
         # is supplied, so every non-relieved golden takes the verbatim paths below.
-        return _unfold_nonparallel_relieved(
-            resolved, base_rec, thickness_mm, default_k_factor, reliefs
+        return _Development(
+            _unfold_nonparallel_relieved(
+                resolved, base_rec, thickness_mm, default_k_factor, reliefs
+            )
         )
 
     # WIDTH EXTENTS (§4.5.3): a depth-1 star with a PARTIAL-width flange (one that
@@ -419,7 +466,9 @@ def _develop_flat_pattern(
         except UnfoldStarError:
             partial = False  # unframeable base: the legacy paths own the outcome
     if partial:
-        return _unfold_partial_star(resolved, base_rec, thickness_mm, default_k_factor)
+        return _Development(
+            _unfold_partial_star(resolved, base_rec, thickness_mm, default_k_factor)
+        )
 
     # A depth-1 star is PARALLEL (all bend axes share one direction → a 1D strip,
     # the L-bracket / U-channel) or NON-PARALLEL (flanges off perpendicular edges
@@ -436,8 +485,10 @@ def _develop_flat_pattern(
         return _unfold_parallel(
             resolved, base_rec, base_normal, thickness_mm, default_k_factor
         )
-    return _unfold_nonparallel(
-        resolved, base_rec, base_normal, thickness_mm, default_k_factor
+    return _Development(
+        _unfold_nonparallel(
+            resolved, base_rec, base_normal, thickness_mm, default_k_factor
+        )
     )
 
 
@@ -549,12 +600,16 @@ def _unfold_parallel(
     base_normal: Vector,
     thickness_mm: float,
     default_k_factor: float,
-) -> FlatPattern:
+) -> _Development:
     """Lay out an all-parallel depth-1 star as a 1D strip (L-bracket / U-channel).
 
     Kept verbatim from the v1 parallel implementation so its committed goldens
     stay byte-identical: v = the common bend axis, u ⟂ v in the base plane, and
-    every flange projects onto u to a side of the fixed base."""
+    every flange projects onto u to a side of the fixed base.
+
+    This is the one path that also publishes :class:`DevelopedRegion`s, so a bracket's
+    holes reach the blank (DXF-4); the extra fields it puts on each :class:`_StarBend`
+    are inert to every line of the layout arithmetic below."""
     v0 = resolved[0][2]
     u_axis = v0.cross(base_normal).normalized()
 
@@ -587,6 +642,13 @@ def _unfold_parallel(
                 u_position=um,
                 side=1 if um > base_center_u else -1,
                 direction="up" if along_n >= 0.0 else "down",
+                moving_face=moving_rec.face,
+                moving_normal=moving_rec.normal,
+                axis_origin=(
+                    prov.cyl_signature.axis_origin.x,
+                    prov.cyl_signature.axis_origin.y,
+                    prov.cyl_signature.axis_origin.z,
+                ),
             )
         )
 
@@ -597,6 +659,10 @@ def _unfold_parallel(
         base_width=base_rec.width_mm,
         thickness_mm=thickness_mm,
         default_k_factor=default_k_factor,
+        base_face=base_rec.face,
+        base_normal=base_normal,
+        u_axis=u_axis,
+        v_axis=v0,
     )
 
 
@@ -624,21 +690,47 @@ def _lay_out_star(
     base_width: float,
     thickness_mm: float,
     default_k_factor: float,
-) -> FlatPattern:
+    base_face: Face,
+    base_normal: Vector,
+    u_axis: Vector,
+    v_axis: Vector,
+) -> _Development:
     """Develop the base + flanges into a flat rectangular blank + tagged bend lines.
 
     Deterministic order: left (-u) bends outermost-first, then the base, then right
     (+u) bends nearest-first -- a pure function of each bend's u-position (RESEARCH
     §9). For the v1 parallel star with full-width flanges the blank is a rectangle
-    (flat_length by base_width); each bend contributes one fold line."""
+    (flat_length by base_width); each bend contributes one fold line.
+
+    It also records where it PUT each flat run, which is the whole input the
+    interior-cut development needs (DXF-4): the base's developed start, and per leg the
+    developed u of its bend-adjacent end plus whether the leg grows with u (a right
+    flange) or against it (a left flange). Those are read off the same running ``u``
+    the outline is built from, so a cut cannot land anywhere the outline does not."""
     left = sorted((b for b in star_bends if b.side < 0), key=lambda b: b.u_position)
     right = sorted((b for b in star_bends if b.side > 0), key=lambda b: b.u_position)
 
     width = base_width
     bend_lines: list[BendLine] = []
     fold_centers: list[float] = []
+    legs: list[tuple[Face, Vector, Vector, float, float, float]] = []
     u = 0.0
     index = 0
+
+    def add_leg(b: _StarBend, dev_anchor: float, dev_sign: float) -> None:
+        """Record one developed leg for the cut map (inert to the layout)."""
+        if b.moving_face is None or b.moving_normal is None or b.axis_origin is None:
+            return
+        legs.append(
+            (
+                b.moving_face,
+                Vector(*b.moving_normal),
+                Vector(*b.axis_origin),
+                dev_anchor,
+                dev_sign,
+                b.moving_area_mm2,
+            )
+        )
 
     def add_bend(b: _StarBend, strip_start: float) -> None:
         nonlocal index
@@ -662,13 +754,16 @@ def _lay_out_star(
     # Left flanges: [flange leg][BA strip] then the base.
     for b in left:
         u += b.moving_leg_mm
+        add_leg(b, u, -1.0)  # its bend-adjacent end is the FAR end in u
         add_bend(b, u)
         u += b.allowance_mm
     # Base flange.
+    base_u_anchor = u
     u += base_len
     # Right flanges: [BA strip][flange leg].
     for b in right:
         add_bend(b, u)
+        add_leg(b, u + b.allowance_mm, 1.0)
         u += b.allowance_mm + b.moving_leg_mm
 
     flat_length = u
@@ -693,14 +788,28 @@ def _lay_out_star(
         bend_lines, key=lambda bl: (bl.flat_start_mm + bl.flat_end_mm) / 2.0
     )
 
-    return FlatPattern(
-        thickness_mm=thickness_mm,
-        k_factor=default_k_factor,
-        flat_length_mm=flat_length,
-        flat_area_mm2=flat_area,
-        bend_width_mm=width,
-        outline=tuple(outline),
-        bends=tuple(ordered),
+    return _Development(
+        FlatPattern(
+            thickness_mm=thickness_mm,
+            k_factor=default_k_factor,
+            flat_length_mm=flat_length,
+            flat_area_mm2=flat_area,
+            bend_width_mm=width,
+            outline=tuple(outline),
+            bends=tuple(ordered),
+        ),
+        parallel_star_regions(
+            base_face=base_face,
+            base_normal=base_normal,
+            u_axis=u_axis,
+            v_axis=v_axis,
+            thickness_mm=thickness_mm,
+            base_u_anchor=base_u_anchor,
+            base_len=base_len,
+            base_area=base_area,
+            base_width=width,
+            legs=tuple(legs),
+        ),
     )
 
 

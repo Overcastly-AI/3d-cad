@@ -1726,3 +1726,2305 @@ third (change a driving thickness) breaks the features downstream of it.
   empty striped rows (M22).
 
 _End of pass 2026-08-14._
+
+---
+
+## Pass 2026-08-16 — product audit (independent)
+
+**Setup.** Native boot (Docker registry blocked), isolated ports to avoid a
+concurrent agent's stack on 8270–8272: geometry `:8092`, documents `:8091`,
+gateway `:8090`, Vite `:5191`, own SQLite files (`paudit-*.db`). All three
+`/healthz`+`/readyz` → 200. Branch `claude/branch-review-development-hkbbnb`,
+tip `8bd8790`.
+
+**Job for this pass.** Re-run the *revision* workflow that the 2026-08-14 pass
+called the product's failure mode ("model once → yes; revise → no"), because
+five of that pass's P0s are claimed shipped since (SKETCH-1 sketch re-open,
+SKETCH-2 origin/axis references, GEOM-2 tier 4 on the face-signature break,
+DIM-1, VP-1). Then model a *new* real part end-to-end and judge tool feel.
+
+_Findings appended below as they are measured._
+
+### P-1 — The camera never comes back from the sketch, so you model a solid you cannot see. **Rating 1/5 (flow)**
+
+Measured, whole run A: `new-sketch` → `plane-XY` orients top-down (correct). On
+`sketch-save` the view **stays top-down**, and it stays there for every
+subsequent feature. Evidence `shots/a05`, `a06`, `a07`: after an 8 mm extrude of
+a 90 × 60 profile the viewport shows a **flat, uniform tan rectangle** — no
+thickness, no edges, no shading gradient, no perspective. The inspector says
+`Extents 90 × 60 × 8` and `Faces 6`; the picture says "you drew a rectangle".
+The only thing telling you a solid exists is a number in a side panel.
+
+Fusion 360 restores the pre-sketch orientation on Finish Sketch, and Onshape
+does the same; Plasticity never leaves the 3D view at all. Loft's own coach
+mark ("MOVE THE VIEW · DRAG orbit") is on screen at the same moment, which is
+the tool admitting the user has to fix the framing by hand after every sketch.
+This compounds P-2: with no orthographic mode and no snap-to-iso, recovering a
+readable view is a freehand drag every single time.
+
+**Also unframed:** the solved sketch in `a05` runs off the top and right edges
+of the viewport — a 90 × 60 profile drawn at the default zoom is *clipped*, and
+nothing zoom-to-fits after the solve moves the geometry.
+
+### P-2 — Fillet cannot select the edges an engineer means. **Rating 2/5**
+
+`fillet-edges` offers exactly four options: `All edges`, `Edges parallel to X`,
+`Y`, `Z`. There is no "pick these edges in the viewport" mode reachable from the
+fillet editor (contrast: SolidWorks/Fusion/Onshape all start from a viewport
+edge/face/feature selection). The consequence is not cosmetic: the most common
+plate operation — round the four *corners* of a plate, leave the top and bottom
+sharp — is only expressible if the corners happen to be axis-parallel to Z, and
+"break all the top edges 0.5 mm" is not expressible at all.
+
+**And the default fails.** `new-fillet` → r6 → Enter on a 90 × 60 × 8 plate
+returns `FILLET_FAILED — Fillet failed in the kernel (ValueError); the radius
+(6.0 mm) may be too large for an adjacent face.` That is *geometrically correct*
+(6 + 6 > 8 across the plate thickness) and the diagnosis is genuinely good — a
+typed code, a plain-English cause, an `ERR` row, a `Partial · built to Extrude1`
+status. But the tool put the user there: the editor defaults to `All edges`,
+offers no preview, and does not tell you which edges are the problem.
+
+### P-3 — A failed tip feature makes the good body unexportable. **Rating 2/5**
+
+Same state (`shots/a07`): `Body 1` is present, valid, `built to Extrude1`, and
+rendered. `EXPORT` reads `Fillet1 failed`, and **both STEP and STL are
+disabled**. So a valid solid that the product is drawing on screen cannot leave
+the product because a *later* feature errored. Fusion/Onshape both let you roll
+back and export the last good state; here the rollback bar (`TIMELINE 03/03`,
+`TO TIP`) exists but rolling back was not offered as the remedy anywhere in the
+error, and the export strip's own words name a feature, not an action.
+
+### P-4 — Toolbar is 18 unlabelled glyphs, 17 of them disabled on entry. **Rating 2/5 (discoverability)**
+
+`shots/a02`: a new part shows `CREATE / MODIFY / SHEET METAL / INSPECT` groups
+containing 18 icon-only buttons. Exactly one (`new-sketch`) is enabled —
+measured: `new-sketch:ON` and every other `new-*` off. Nothing in the viewport
+says "start here"; the empty state is a bare grid plus a view-navigation coach
+mark. Fusion labels its toolbar buttons with text and Onshape uses distinct,
+named icons; Loft's are small monochrome line glyphs where e.g. the two fillet/
+chamfer marks and the six sheet-metal marks are hard to tell apart at a glance.
+Hover tooltips exist ("Fillet" is visible in `a07`) but tooltips are a fallback,
+not discovery. **The disabled buttons do carry honest reasons** ("Create a body
+first", "Draw a profile and a path sketch") — that part is better than the
+incumbents and worth keeping.
+
+### P-0 (headline) — The rectangle tool authors FOUR LOOSE LINES AND ZERO CONSTRAINTS, so the first parametric edit destroys the part. **Rating 1/5**
+
+This is the finding of the pass. It is not a UI nit; it breaks the product's
+core promise.
+
+**Reproduction (run B, full UI, no API shortcuts).** Sketch a rectangle with
+the `R` tool at exactly (0,0)→(90,60); ground the near corner to the sketch
+origin (`coincident`); dimension the bottom edge 90 and the right edge 60;
+finish. Extrude 8 mm (`Volume 43,200 mm³`, `Extents 90 × 60 × 8`). Fillet the
+four vertical corners r6 (`42,952.78 mm³`). Drill a Ø6.6 through hole
+(`42,679.08 mm³`). Four green `OK` rows. Then do the one thing parametric CAD
+exists for: re-open Sketch1 (works — SKETCH-1 has shipped, single click on the
+tree row re-enters with entities *and* dimension glyphs `C | 90 | 60` intact,
+2.5 s), double-click the `90` glyph (works, editor opens inline), type 110,
+finish. Result:
+
+```
+01 Sketch1  sketch  OK
+02 Extrude1 extrude ERR  PROFILE_NOT_CLOSED
+     This profile isn't a closed region to extrude. Close every gap between
+     its edges so the sketch forms one continuous loop.
+     Not attempted: the 2 features below.
+03 Fillet1  fillet  SKIP
+04 Hole1    hole    SKIP
+```
+
+**Root cause, measured directly off the API** (run C — draw the rectangle in the
+UI, then read `GET /api/v1/parts/{id}/features`):
+
+```json
+"entities":    [ {"id":"e1","kind":"line","start":{"x":0,"y":0}, "end":{"x":90,"y":0}},
+                 {"id":"e2","kind":"line","start":{"x":90,"y":0},"end":{"x":90,"y":60}},
+                 {"id":"e3","kind":"line","start":{"x":90,"y":60},"end":{"x":0,"y":60}},
+                 {"id":"e4","kind":"line","start":{"x":0,"y":60}, "end":{"x":0,"y":0}} ],
+"constraints": [ {"kind":"distance","entity":"e1","value_mm":90} ]
+```
+
+Four free segments that merely *coincide numerically* at the corners, and the
+only constraint in the file is the dimension the user typed. **The rectangle
+tool emits no coincidence, no horizontal, no vertical, no perpendicular.** So
+driving the 90 moves `e1` and leaves `e2`/`e4` where they were — the loop opens,
+and everything downstream of it dies.
+
+**What the incumbents do.** In SolidWorks, Fusion 360, Onshape and FreeCAD the
+rectangle tool emits its own constraints at creation (2 horizontal + 2 vertical
++ 4 coincident, or the perpendicular equivalent) — a drawn rectangle is *rigid*
+before you dimension anything, and the sketcher additionally infers constraints
+from the cursor while you draw (Onshape and Fusion show the inference glyph
+under the cursor before the click). Loft has the constraint *vocabulary* — I
+applied coincident-to-origin successfully, `H`/`V`/`C`/`D` all work — but no
+**inference and no tool-authored constraints**, so a sketch is unconstrained
+unless the user hand-authors every relation. For this rectangle that is 8 extra
+gestures (4 × click+shift-click+`c`, plus H/V) *before* any dimension, and the
+tool never says they are missing: the strip reads `3 applied` and `SOLVE
+Solved`, and the tree reads `OK`, right up until the edit that tears it apart.
+
+This also explains the shape of the previously-filed SNAP-2 ("a snap copies the
+coordinate but authors no constraint"): SNAP-2 is the same defect seen through
+the snapping system. The general statement is **Loft records positions where the
+incumbents record intent**, and a parametric model made of positions is not
+parametric.
+
+**Consequences for the scorecard.** "Sketching & constraints ➖" is measuring the
+wrong thing — the Notes cell argues about over-constraint diagnosis, dimension
+expressions and splines while the *base* case (draw a rectangle, change a
+dimension) fails outright. On the operating question the honest answer moves
+backwards from the 2026-08-14 pass: not merely "revision is hard", but **the
+canonical parametric edit corrupts a good model, silently, with no prior
+warning.** Nothing else in this audit outranks it.
+
+### P-0b — Control experiment: the solver is fine; only the authoring is missing. **(evidence for P-0)**
+
+To be sure P-0 is the *tool*, not the *solver*, I built the identical rectangle
+through the API with the eight constraints the incumbents' rectangle tool would
+have emitted (4 coincident + 2 horizontal + 2 vertical) plus the two dimensions,
+extruded it, then PATCHed the 90 → 110 and re-evaluated:
+
+```
+sketch create: 201 · extrude create: 201 · evaluate: 200
+patch dim 90->110: 200
+evaluate after re-drive: 200
+FEATURE <sketch>  ok | sketchStatus: underconstrained
+FEATURE <extrude> ok |  (rebuilt, no error)
+```
+
+The loop stays closed and the extrude rebuilds. So the solver, the tree, the
+rebuild and the PATCH path all work — **the entire defect is that the rectangle
+tool does not author the constraints.** Fixing it is additive and localised.
+
+### P-0c — The backend already computes `underconstrained`, and the UI throws it away. **Rating 2/5**
+
+Same payload: every sketch evaluation carries `data.status`, and for the
+control it read `"underconstrained"`. The UI's only sketch state readouts are
+the tree panel's `SOLVE Solved` and the sketch strip's `N applied`. There is no
+"fully constrained" indicator, no degrees-of-freedom count, and no
+under-vs-fully-constrained colour on the entities — all four incumbents
+(SolidWorks black/blue, Fusion's status text, Onshape's "Fully constrained"
+banner, FreeCAD's DoF readout) make this the single most-read piece of state in
+the sketcher, because it is how you know whether the model will survive an edit.
+Loft has the datum on the wire and does not show it. Note the control's re-drive
+also *translated the whole profile* (e1 moved from x=0 to x=−11.44) precisely
+because it was underconstrained — the exact failure the missing readout is
+supposed to warn you about.
+
+Two more small readout faults seen in the same frames: the status bar reads
+`SOLVE SOLVING…` at the same instant the tree panel reads `SOLVE Solved`
+(`shots/a04`, `b04`) — two solve readouts that disagree; and `Solved` is used
+where the incumbents say `Fully constrained`, which means a different thing.
+
+---
+
+## Pass 2026-08-17 — founder question: "Are we only going to accept one file format as an export?" (HEAD `9418263`)
+
+**Setup.** Native boot (Docker registry blocked): geometry `:8002`, documents
+`:8001`, gateway `:8000`, own SQLite files (`pa-documents.db` / `pa-gateway.db`),
+all three `/healthz`+`/readyz` → 200. Branch
+`claude/branch-review-development-hkbbnb`, tip `9418263`. Every number below was
+measured against that running stack or against the installed kernel environment
+this pass; nothing is quoted from a doc.
+
+### The answer, in one paragraph
+
+**No — we already accept more than one, and the shipped list is wider than the
+question assumes: two 3D formats out (STEP AP214 exact B-rep, binary STL), three
+2D/drawing formats out (SVG, PDF, DXF — all verified working on a real sheet this
+pass), and STEP in (single-body, multi-solid, and full assembly product structure
+— also verified). So neither "one format" nor "export-only" is true. But the
+honest answer to the question *behind* the question — "is that enough for a
+working engineer to leave Fusion?" — is also no, and the reason is not the count.
+Three things are wrong, in this order. (1) We ship a **wrong** file, not just a
+narrow set: a sheet-metal flat pattern exported to DXF from a 1:2 drawing sheet
+contains a **half-size blank** in model space (measured 43.047 × 10.000 mm where
+the true developed blank is 86.095 × 20.000 mm), and that is the file a laser
+vendor cuts from — a scale defect in a shipped format outranks every missing
+format, because a missing format costs a conversion and a wrong one costs a batch
+of parts. (2) The flat pattern is only reachable **as a drawing sheet**, so the
+fabricator receives a cut path wrapped in an A4 border, a title block and 18 TEXT
+entities; every incumbent has a dedicated profile-only "export flat pattern to
+DXF" and that is the artifact shops ask for by name. (3) On the print/visualise
+half of the handoff we are genuinely thin — no 3MF, no glTF/GLB — and both are
+nearly free here: **3MF works today on this machine with zero new dependencies**
+(build123d's `Mesher` + `lib3mf`, already locked in `uv.lock` and installed —
+I wrote a valid 3MF in-process this pass), and **we already generate GLB on every
+tessellate** and serve it to our own viewport, so "export GLB" is largely a matter
+of exposing an artifact we already produce. Import, meanwhile, is in better shape
+than the word "accept" implies and is **not** our biggest hole — its remaining
+weakness is robustness (no sew/heal/repair, so the first messy supplier STEP is a
+dead end), not breadth.**
+
+---
+
+### What actually ships, verified against the running stack
+
+| Surface | Formats | Verified this pass |
+| --- | --- | --- |
+| Part / shape export (`POST /api/v1/geometry/export`, `POST /api/v1/parts/{id}/export`) | `step`, `stl` — nothing else | STEP 15 348 B in 354 ms; STL 684 B in 24 ms; every one of `3mf glb gltf obj iges igs x_t dxf ply jt sat` → 422 |
+| Assembly export (`POST /api/v1/geometry/assembly/export`) | same `ExportFormat` (`step`, `stl`) | schema shared with part export (`py_kit.schemas.assemblies` imports `ExportFormat`) |
+| Drawing export (`POST /api/v1/drawings/{id}/export`) | `svg`, `pdf`, `dxf` — a **separate** enum (`ArtifactFormat`) | SVG 5 140 B/153 ms, PDF 4 745 B/56 ms, DXF 19 222 B/76 ms on a real flat-pattern sheet |
+| Part import (`POST /api/v1/parts/{id}/features/import`) | STEP part-21 only, content-sniffed on `ISO-10303-21` | round-trip 201 in 48 ms; IGES / ASCII-STL / OBJ / 3MF-XML / Parasolid-x_t → `import_not_step`; SLDPRT (OLE magic) → "not valid text" |
+| Assembly import (`POST /api/v1/assemblies/import`) | STEP with product structure; falls back to single-body | 201 in 1 627 ms, returned `{"kind":"part", …}` for a single-solid file — the documented fallback, working |
+| Viewport transport (`POST /api/v1/geometry/tessellate`) | **GLB** (`model/gltf-binary`, magic `glTF`) — internal only, not an export format | 1 624 B in 23 ms |
+
+Two corrections to the framing I was handed, both material:
+
+- **The founder's premise "one format" is off by four.** Two 3D + three
+  drawing formats ship. Worth saying to him plainly, because the gap is not
+  where the question assumed.
+- **My brief's hypothesis that flat-pattern DXF is a hole is WRONG — it
+  ships.** `serialize_dxf` emits real model-space entities (`LINE` /
+  `LWPOLYLINE` / `CIRCLE` / `TEXT`) on a layer scheme (`VISIBLE` / `HIDDEN` /
+  `DIMENSION` / `TITLE` / `BEND`), `flat_pattern` is a first-class
+  `ViewProjection`, and `DrawingCommandBand` exposes **Export DXF** with a `D`
+  shortcut. Credit where due: that is more than "sheet metal without a flat
+  pattern", which is what the brief feared. The defects below are in the
+  artifact's *fidelity*, not its existence — which is a much better place to be
+  starting from, and a much cheaper set of fixes.
+
+---
+
+### F-1 — A flat-pattern DXF from a 1:2 sheet ships a half-size blank. **Rating 1/5 — this is scrap metal.** (P0)
+
+The single worst finding of the pass, and it is a correctness defect in a format
+we already claim, not a missing feature.
+
+Reproduced deterministically: same L-bracket (50 × 20 base flange, 2 mm gauge,
+R3, K 0.44, one 30 mm edge flange at 90°), two drawings, identical in every
+respect except the view's `scale`:
+
+```
+scale 1:1  → DXF model-space blank  86.095 × 20.000 mm   (correct developed blank)
+scale 1:2  → DXF model-space blank  43.047 × 10.000 mm   (exactly half)
+```
+
+The drawing view's scale is being applied to the **model space geometry** of the
+DXF. For an orthographic view that is arguably defensible (a DXF of a drawing is
+a picture of a drawing). For a **flat pattern** it is not: a flat pattern is not a
+picture, it is a **cut path**, and the file's whole purpose is to be imported into
+a nesting/CAM package and driven straight to a laser or turret punch. Every
+incumbent treats this as an invariant — SolidWorks' *Export to DXF/DWG → Sheet
+metal* writes 1:1 regardless of any drawing view scale, and so do Onshape's and
+Fusion's flat-pattern DXF exports; the drawing scale is presentation-only and
+never reaches the cut geometry.
+
+Mitigating fact, and it is thin: the title block does carry `SCALE 1:2` as TEXT,
+so it is not literally silent. But DXF-to-CAM workflows read model space and
+ignore title blocks — that is the entire reason DXF is the handoff format — and
+1:1 is such a universal convention that nobody checks. The failure mode is a
+vendor cutting a batch at half size and invoicing for it.
+
+`$INSUNITS = 6` (millimetres) is correctly set in both files, which makes it
+worse, not better: the file confidently asserts "these numbers are millimetres"
+while the numbers are halved.
+
+**Fix shape:** a `flat_pattern` view's contribution to the DXF is emitted at 1:1
+unconditionally (the sheet may still *draw* it scaled); or better, the
+profile-only export of F-2 below, which is 1:1 by construction and removes the
+question. Either is small and localised in `serialize_dxf` / `place_sheet`.
+
+### F-2 — The only way to get a flat pattern out is wrapped in an A4 drawing sheet. **Rating 2/5** (P1)
+
+Full entity dump of the shipped DXF for the L-bracket above — this is exactly what
+the fabricator opens:
+
+```
+VISIBLE  4 × LINE      the 86.095 × 20.000 cut outline          <- what they want
+BEND     1 × LINE      the fold line at x = 138.50              <- what they want
+BEND     5 × TEXT      'bend-1' '90.0Â°' 'R3.00' 'UP' '6.09'    <- bend-table ROW text
+TITLE    3 × LINE, 3 × LWPOLYLINE, 13 × TEXT                    <- sheet border, title block,
+                                                                   bend-table HEADER
+overall extents 10 → 287 mm × 10 → 200 mm (an A4 sheet)
+```
+
+Two problems in that dump.
+
+**(a) There is no profile-only mode.** The cut geometry is 5 of 29 entities. An
+operator must import the sheet and delete the furniture, every time, by hand, for
+every revision. SolidWorks, Onshape and Fusion all ship a one-click flat-pattern
+DXF that contains cut geometry (and optionally bend lines on their own layer) and
+nothing else — no border, no title block, no annotation. That is the artifact the
+sheet-metal vendor's quoting and nesting software ingests unmodified.
+
+**(b) The `BEND` layer is doing two jobs.** The fold LINE and the bend-table's row
+TEXT are both on `BEND`. So the layer-filtering workaround for (a) — "keep
+`VISIBLE` + `BEND`, drop `TITLE`" — still drags `'bend-1'`, `'90.0Â°'`, `'R3.00'`,
+`'UP'`, `'6.09'` into model space as text entities sitting at y ≈ 189, 170 mm away
+from the part. The one manual escape hatch we do have is broken by a layer
+assignment. Splitting annotation onto its own layer (`BEND_TABLE` / `ANNOTATION`)
+is a one-line change and makes the workaround actually work while F-2(a) is built.
+
+### F-3 — The DXF is mojibake in any conforming reader. **Rating 2/5** (P1, cheap)
+
+The file declares `$ACADVER = AC1015` (R2000) and `$DWGCODEPAGE = ANSI_1252`, and
+then writes **raw UTF-8 bytes** into its TEXT entities. Seven non-ASCII bytes in
+the file; a reader honouring the declared codepage decodes them as cp1252:
+
+```
+title block  'LOFT Â· PART DRAWING'    (should be 'LOFT · PART DRAWING')
+bend table   '90.0Â°'                  (should be '90.0°')
+```
+
+That is not my rendering — that is what `ezdxf`, the same library that *wrote*
+the file, reads back out of it. The bend angle column is the single most
+load-bearing field in a bend table and it is corrupted in the fabricator's
+viewer. Two correct fixes, both trivial: write R2018 (`AC1032`, UTF-8 native), or
+emit the DXF unicode escape (`\U+00B0`) / the AutoCAD `%%d` mtext code for the
+degree sign and drop the middot. Unrelated but adjacent: `compose.py`'s
+`serialize_dxf` docstring says "the version is pinned R2010" while
+`_DXF_VERSION = "R2000"` — a stale docstring in the same function.
+
+### F-4 — 3MF is missing and costs us essentially nothing. **Rating 2/5** (P1)
+
+Who needs it: anyone who prints — which for a self-hostable, MIT, no-seat-cost
+CAD tool is a very large share of the first cohort (makerspaces, hardware
+startups, small shops, prototyping engineers). Also increasingly production:
+multi-material and colour printing require it.
+
+What it unblocks that STL does not: 3MF carries **units** (STL carries none, which
+is why the mm-vs-inch scale error is the oldest joke in 3D printing), **colour and
+material**, **multiple objects in one file**, and **metadata/provenance**. Every
+current slicer — Bambu Studio, PrusaSlicer, Cura, OrcaSlicer — prefers or defaults
+to it. Handing a modern print service an STL in 2026 reads the way handing someone
+a DWF would.
+
+What it costs us: **nothing new.** Measured on this machine this pass —
+`lib3mf 2.5.0` is already installed and already locked in `uv.lock` (pulled in
+transitively; `py-lib3mf` on aarch64), and `build123d` already exposes a `Mesher`
+class over it. I wrote a valid 3MF from a `Box(40,25,10)` in-process:
+
+```
+Mesher().add_shape(Box(40,25,10)); .write(probe.3mf)  → 1 683 B
+zip members: ['3D/3dmodel.model', '[Content_Types].xml', '_rels/.rels']   (valid 3MF container)
+```
+
+`Mesher` also has `.read()`, so 3MF *import* comes along for the ride. Licence:
+lib3mf is BSD-2-Clause (3MF Consortium) — clean under RESEARCH §8, and it is
+already in the tree, already classified in `docs/LICENSING.md` §7's inventory. The
+work is a literal added to `ExportFormat`, a media type (`model/3mf`), a kernel
+branch, a golden, and a tile in `ExportRow`.
+
+### F-5 — glTF/GLB is missing and we already generate it. **Rating 2/5** (P1)
+
+`POST /api/v1/geometry/tessellate` returned `model/gltf-binary`, magic `glTF`,
+1 624 B in 23 ms, this pass. We produce binary glTF **on every viewport
+tessellation** and serve it from `GET /api/v1/geometry/meshes/{mesh_glb_id}` —
+there is a whole `mesh_store` keyed on the GLB's sha256. It is simply not offered
+as an *export*. OCCT's `RWGltf_CafWriter` is also present in this OCP build
+(imported clean this pass) if we want colours/names/hierarchy rather than the
+tessellation path's bare mesh.
+
+Who needs it: everyone downstream of engineering. Web/AR viewers (glTF is *the*
+web 3D format; `<model-viewer>`, USDZ conversion for iOS AR, Sketchfab), rendering
+(Blender, KeyShot, Substance all ingest glTF natively), documentation and sales
+decks, and the "send my colleague in marketing a link to the part" case that Fusion
+serves with its own web viewer and we currently serve with nothing. In 2026 this is
+table stakes for *sharing*, distinct from *manufacturing* — and it is the cheapest
+capability on this whole list because the artifact already exists in our own object
+store.
+
+### F-6 — Import: better than the brief feared, thinner than it looks in one specific way. **Rating 3/5**
+
+**Verdict up front: import is NOT the bigger hole than export.** I went looking for
+the "you cannot bring your existing parts in" adoption wall and did not find it.
+Measured this pass:
+
+- Single-body STEP → 201 in **48 ms**, becomes a base `import` feature, and the
+  part then re-exports as both STEP and STL.
+- Assembly STEP → `POST /api/v1/assemblies/import`, 201 in **1 627 ms**, with the
+  documented single-body fallback (`{"kind":"part"}`) working correctly on a
+  one-solid file.
+- The UI surfaces it: `CreateStrip`'s **Import** button with `accept=".step,.stp"`,
+  gated to base-feature-only, with a legible failure path.
+
+**This means `docs/VISION.md`'s interop row is stale in a way that understates
+us.** That row (line 74) still says "named product-structure (PRODUCT/ASSEMBLY
+entities, part names/hierarchy) is not read — a multi-solid file becomes one
+anonymous multi-lump BODY, not a Loft assembly document with named instances;
+that's a real, larger gap than 'rejected,' and is why this correction alone
+doesn't move the row." That is no longer true — `py_kit.schemas.step_import`,
+`geometry.assembly.import_step`, `geometry.kernel.step_assembly` and the gateway
+route all ship, and `_step_assembly_parse_worker` sets `SetNameMode(True)`.
+**Flagging as stale for the vision-steward; I have not edited VISION.md.**
+
+The residual import gaps, ranked by how much they actually cost:
+
+1. **No sew / heal / repair (the one that bites).** Documented explicitly in
+   `geometry.kernel.imports`: "It does not sew/heal/repair, and IGES is deferred."
+   Real supplier and legacy STEP frequently arrives with gaps, tiny faces, or
+   open shells; a file yielding zero solids is `import_no_solid` and the user has
+   **no recovery path at all** — no "import as surfaces", no "attempt to sew", no
+   partial result. That is a harder stop than any missing export format, because
+   there is no workaround: with a missing export you convert elsewhere; with a
+   dead import you cannot start. This is why I rank import *severity* high even
+   while ranking import *breadth* low.
+2. **No mesh import (STL / 3MF / OBJ).** You cannot bring in a scan, a printed
+   reference, or a vendor's mesh-only model to measure against or model around.
+   3MF read is free (F-4); STL read is `RWStl`, present in this OCP build.
+   Second-order because bought-part libraries (McMaster, TraceParts, 8020) all
+   publish STEP.
+3. **No IGES either direction.** Legacy, but it still arrives from older
+   suppliers and from surfacing tools. `IGESControl_Reader`/`IGESControl_Writer`
+   are both present in this OCP build — I wrote a valid IGES of a box in **5 ms**
+   this pass (13 608 B). Cheap; low value; do it when the queue is empty.
+4. **No native formats (SLDPRT / IPT / F3D / X_T).** Correctly out of reach and
+   *not* a customer-loser — STEP is the accepted lingua franca precisely because
+   nobody expects to read a competitor's native file. Our SLDPRT probe failed
+   with "not valid text", which is at least honest, if not friendly.
+
+### F-7 — Small flow faults on the export surface itself
+
+- **An unsupported format returns a raw pydantic error.** Asking for 3MF gets
+  `{"type":"literal_error","loc":["body","format"],"msg":"Input should be 'step'
+  or 'stl'"}`. Correct, and it reads like a schema violation rather than "we do
+  not support that yet". A typed `export_format_unsupported` with the supported
+  list would cost nothing and would be the difference between "this API is
+  broken" and "this feature is not built yet" for anyone driving us from a
+  script or an agent.
+- **The export UI is a row of per-format tiles, not an export dialog.**
+  `ExportRow` hard-codes a two-entry `FORMATS` array (STEP tile, STL tile) with a
+  status cell; the drawing band hard-codes three buttons (SVG/PDF/DXF, shortcuts
+  E/P/D). That is clean at 2–3 formats and stops scaling at ~5. Every incumbent
+  uses an **export dialog** — pick format, then the options that format actually
+  has (mesh deflection, binary vs ASCII, units, 1:1 vs scaled, "flat pattern
+  only"). Adopting that shape once is what makes format breadth feel like one
+  feature instead of N buttons, and it is where the F-1 1:1 toggle and F-2's
+  profile-only mode naturally live. Worth doing *before* adding 3MF and glTF,
+  not after.
+- **Two disjoint export vocabularies with no relationship in the UI.**
+  `ExportFormat` (step/stl) and `ArtifactFormat` (svg/pdf/dxf) are correctly
+  separate pipelines, but the user does not know that: they know they want "the
+  file for the shop", which is STEP *and* a PDF *and* a flat DXF. Nothing in the
+  product presents those as one handoff. A "Manufacturing handoff" action that
+  produces the set is a flow idea, not a format one, and it is the kind of thing
+  that would make an engineer notice we are not just cloning a menu.
+
+---
+
+### Ranked answer to "what do we lose customers over, and in what order"
+
+Ordered by expected customer loss, not by effort. Everything above the line is a
+defect in something we already claim; everything below is absence.
+
+| # | Item | Who needs it | Unblocks | Cost | Licence |
+| --- | --- | --- | --- | --- | --- |
+| 1 | **Flat-pattern DXF at 1:1, always** (F-1) | Sheet-metal fabricators | Stops shipping a wrong-size blank | Small, localised in `serialize_dxf`/`place_sheet` | none — ezdxf MIT, already in |
+| 2 | **Profile-only flat-pattern DXF export** (F-2a) + split annotation off the `BEND` layer (F-2b) | Laser/punch/waterjet vendors, nesting + quoting software | The one artifact fabricators ask for by name; makes our shipped sheet-metal pillar actually deliverable | Small–medium (reuse `ComposedSheet`, emit views-only) | none |
+| 3 | **DXF text encoding** (F-3) | Anyone opening our DXF | Bend angle column stops reading `90.0Â°` | Trivial (bump to R2018 or escape) | none |
+| 4 | **3MF export (and read)** (F-4) | Print services, in-house printers, prototyping | Units + colour + multi-object; the 2026 default slicer format | **Near-zero — lib3mf + build123d `Mesher` already installed and locked** | BSD-2-Clause, clean, already inventoried |
+| 5 | **glTF/GLB export** (F-5) | Non-CAD colleagues, web/AR viewers, rendering, docs | Sharing a model with anyone who does not own CAD | **Near-zero — we already generate GLB per tessellate**; `RWGltf_CafWriter` present for the richer path | OCCT LGPL-with-exception, already a dependency |
+| 6 | **STEP import healing / sew** (F-6.1) | Anyone receiving supplier or legacy CAD | Removes the only *unrecoverable* dead end in the product | Medium–large (OCCT `ShapeFix`/`ShapeUpgrade`, plus honest UX for partial results) | OCCT, already in |
+| 7 | **Mesh import (STL / 3MF / OBJ)** (F-6.2) | Scans, printed references, vendor mesh models | Model around something you were given as a mesh | Small (`RWStl` present; 3MF free with #4) | clean |
+| 8 | **STEP AP242 option + colour/name on part export** | Supplier portals, MBD/PMI-adjacent customers, aerospace/auto tiers | The AP the industry has moved to; we already use `STEPCAFControl_Writer` with `SetNameMode`/`SetColorMode` on the assembly path | Small (extend the existing CAF path to parts, add an AP toggle) | OCCT, already in |
+| 9 | **IGES import + export** (F-6.3) | Older suppliers, surfacing handoff | Legacy interop | Small — writer proven at **5 ms** this pass | OCCT, already in |
+| 10 | **OBJ / PLY / VRML export** | Viz, academia, legacy pipelines | Marginal beyond glTF+STL | Small; note `RWObj`/`RWPly` are **absent** from this OCP build, so we would write OBJ ourselves (trivial text) | clean |
+
+**Named non-starters — file these as decisions so nobody re-litigates them.**
+
+- **DWG.** The only viable open reader/writer is **libredwg, GPL-3.0** — a hard
+  violation of the MIT / no-GPL constraint in RESEARCH §8. The commercial
+  alternative (Open Design Alliance) is per-seat licensed and incompatible with a
+  self-hostable MIT product. **Do not recommend DWG. Our answer to a DWG request
+  is DXF**, which we already ship and which every DWG-native tool reads.
+- **Parasolid (`.x_t` / `.x_b`).** Requires a commercial Siemens Parasolid
+  licence; there is no lawful open implementation. Non-starter at any price we
+  can pay.
+- **ACIS SAT, JT, Creo, NX, Inventor, SolidWorks native.** Same class —
+  proprietary formats gated behind commercial toolkits. Non-starter. STEP (and
+  AP242 for the richer cases) is the correct and honest answer to every one of
+  these requests, and it is worth saying so publicly rather than leaving it
+  looking like an oversight.
+
+---
+
+### Does this flip a scorecard row? (CLAUDE.md ranks ❌/➖ flips above new pillars)
+
+**Not on its own — but two rows are stale in ways that are actively misdirecting
+the roadmap, and that is worth more than the flip.** I have not edited
+`docs/VISION.md` or `docs/COMPETITIVE.md`; flagging for the vision-steward.
+
+1. **`Interop (STEP/IGES/STL)` — ➖, and the row TITLE is the problem.** It names
+   **IGES** — a 1980s format now ranked #9 on my list — as one of three pillars,
+   while omitting **DXF**, **3MF** and **glTF**, which is what 2026 handoff
+   actually is. A roadmap reading that title will build IGES and feel finished.
+   Suggested retitle: **`Interop (import + export)`**. The row's Notes are also
+   factually stale on assembly product-structure import (F-6) — it says the
+   structure is not read, and it is. Items 4, 5 and 6 above would move this row
+   toward ✅; none of them alone gets there while healing is absent.
+2. **`Sheet metal` — ➖, and F-1/F-2 are defects *inside* its shipped claim.**
+   The row rests partly on flat-pattern export. A flat pattern that can ship at
+   half scale, wrapped in a title block, with a mojibake angle column, is not yet
+   a manufacturing deliverable. Items 1–3 are prerequisites for this row ever
+   reaching ✅ and should be read as sheet-metal work, not drawing work.
+3. **`docs/COMPETITIVE.md` line 64 — `STEP/STL export | ✅`.** Against the named
+   comparator (Fusion 360 exports STEP, STL, 3MF, OBJ, DWG, DXF, IGES, SAT, SMT,
+   F3D and glTF; Onshape and SolidWorks are comparably broad), a two-format
+   export is not a ✅ row. Row 63 (`STEP/IGES import + healing`) is closer to
+   honest but should now name **healing** as the live gap rather than assembly
+   structure. Sharpening, not duplicating, per the brief — the vision-steward
+   owns that file.
+
+---
+
+### Prioritized recommendations for the groomer
+
+- **P0 — A `flat_pattern` view's DXF model-space geometry is emitted at 1:1
+  regardless of the drawing view's scale** (measured: 1:2 sheet ⇒ 43.047 × 10.000
+  mm blank where the true blank is 86.095 × 20.000 mm); add a golden asserting
+  blank extents are scale-invariant.
+- **P0 — Profile-only flat-pattern DXF export** (cut outline + bend lines only,
+  1:1, no sheet border / title block / bend table), reachable in one action from
+  the sheet-metal part, not only via a drawing sheet.
+- **P1 — Move bend-table row TEXT off the `BEND` layer** onto its own annotation
+  layer so "keep VISIBLE+BEND, drop TITLE" is a working layer filter today.
+- **P1 — Fix DXF text encoding**: emit R2018 (`AC1032`) or escape non-ASCII
+  (`\U+00B0` / `%%d`) so the bend table reads `90.0°`, not `90.0Â°`; correct the
+  `serialize_dxf` docstring's "pinned R2010" against `_DXF_VERSION = "R2000"`.
+- **P1 — Add `3mf` to `ExportFormat`** via build123d's `Mesher` (lib3mf already
+  installed + locked, BSD-2-Clause); carry document units and body colour; golden
+  + round-trip gate.
+- **P1 — Add `glb` to `ExportFormat`**, reusing the GLB the tessellation pipeline
+  already produces and stores by sha256; media type `model/gltf-binary`.
+- **P1 — Replace the per-format tile row with an export dialog** (format, then
+  that format's own options — deflection, units, 1:1, profile-only) before the
+  format list grows past four buttons.
+- **P2 — Typed `export_format_unsupported` error** naming the supported formats,
+  instead of a raw pydantic `literal_error`, on both export enums.
+- **P2 — STEP import healing/sew** behind an explicit "attempt repair" affordance
+  with an honest report of what was fixed, so `import_no_solid` stops being an
+  unrecoverable dead end.
+- **P2 — STEP AP242 export option + names/colours on the PART export path**,
+  reusing the `STEPCAFControl_Writer` already used for assemblies.
+- **P2 — Mesh import (STL first, 3MF free with the 3MF work)** as a reference or
+  base body.
+- **P3 — IGES import + export** (writer proven at 5 ms this pass); low value,
+  near-zero cost, do it when the queue is empty.
+- **P3 — File a written decision record naming DWG (libredwg is GPL-3.0),
+  Parasolid, ACIS/SAT, JT and all vendor-native formats as licence/commercial
+  non-starters**, so the answer to "why no DWG?" is a documented position rather
+  than a gap.
+- **P3 — A single "Manufacturing handoff" action** producing STEP + drawing PDF +
+  1:1 flat DXF as one set, since that is the unit of work the user actually has.
+
+---
+
+## Pass 2026-08-21 — can I model a ROTATIONAL part? (revolve + bolt circle + measure + export), HEAD `6dfb597`
+
+**Why this job.** Every prior pass in this file models a prismatic part: a
+plate, a bracket, a sheet-metal blank — sketch a rectangle, extrude, hole,
+fillet. That is one of the two things a mechanical engineer does weekly. The
+other is a **body of revolution**: a hub, a spacer, a shaft coupling, a pipe
+flange. It exercises a different half of the product (revolve, sketch-on-face
+at a non-datum orientation, circular pattern about an axis, diameter
+dimensions, symmetry about a centreline) and none of it has been audited here.
+So this pass models a **flanged shaft coupling**: Ø70 flange, Ø28 hub, Ø16
+bore, four M6 clearance holes on a Ø52 bolt circle, corner fillets, then mass
+properties and a STEP handoff.
+
+Environment: native boot (no Docker registry in this container), gateway :8000
+/ documents :8001 / geometry :8002 / Vite :5173, Chromium 1600x1000 unless
+stated. Everything below was hit personally in the running product.
+
+### R-1 — The front door is STILL a small card in the bottom-right corner. **Rating 2/5** (P1)
+
+Filed as M1 on 2026-08-14 as a P1; re-measured today at 1600x1000 and it is
+unchanged. The sign-in card occupies roughly 320x250 px of a 1,600,000 px
+frame (~5 %), pinned to the bottom-right; the other 95 % is an empty grid.
+Nothing states what the product is beyond the word "LOFT" and the subtitle
+"Parametric CAD". Fusion's, Onshape's and FreeCAD's first screens all either
+centre the credential surface or fill it with the user's documents.
+
+This is not a cosmetic note: it is the first frame a prospective switcher
+sees, and "the controls are in the corner and everything else is empty" is
+exactly the read the founder gave the parts page ("looks like an
+afterthought"). Evidence: `01-front-door.png` in this pass's shot set.
+
+### R-2 — The revolve axis can only be a curve *inside the profile sketch*. **Rating 3/5** (P1)
+
+The job: revolve an L-section about a centreline offset 8 mm from it (a bore).
+`revolve-axis` is a `<select>` whose options are, verbatim:
+
+```
+Horizontal · 27 mm · profile edge (e1)     Vertical ·  8 mm · profile edge (e2)
+Horizontal · 21 mm · profile edge (e3)     Vertical · 22 mm · profile edge (e4)
+Horizontal ·  6 mm · profile edge (e5)     Vertical · 30 mm · profile edge (e6)
+```
+
+There is **no origin X/Y/Z axis, no datum axis, no body edge** in that list.
+With no construction geometry in the sketch, the tool defaults to `e1` — the
+flange's bottom edge — and pressing Create silently builds a *disc*, not a
+coupling, with no preview to warn you. Fusion, Onshape and SolidWorks all let
+you pick an origin axis, a datum axis or any linear edge in the model, and
+Fusion previews the swept result live as you change the axis.
+
+**The workaround exists and is good, and it is undiscoverable.** Draw a
+construction line (`L`, then `N` on the selected line) and it appears — ranked
+FIRST, which is the right preference — as `Vertical · 30 mm · construction
+(e7)`. That is the SolidWorks centreline idiom and it works: the coupling
+revolved correctly (volume 38,302.3 mm³ vs 38,302.6 mm³ computed by hand;
+bbox 70 x 70 x 30 mm exactly). But nothing in the product tells you to draw
+one: the empty-part hint says "start with a Sketch", the revolve form says
+"Axis", and a first-time user's rational move is to pick the nearest-looking
+edge and get a wrong solid.
+
+Also measured: clicking the centreline **in the viewport** while the revolve
+form is open does not set the axis (the `<select>` is the only path), and the
+option labels are entity language (`profile edge (e1)`), not geometry the user
+can see — hovering an option highlights nothing in the scene.
+
+Evidence: `15-revolve-form.png`, `18c-revolve-axes.png`, `19c-revolved.png`.
+
+### R-3 — Two SOLVE readouts on one screen disagree: "Solved" and "DOF 6 · UNDER-CONSTRAINED". **Rating 2/5** (P2)
+
+With the six-line profile drawn, the feature-tree panel's `SOLVE` cell reads
+**`Solved`** (top-left) while the sketch DRO's `SOLVE` cell reads
+**`DOF 6 · UNDER-CONSTRAINED`** (bottom, 500 px away). Same word, same screen,
+opposite verdicts. Both are technically true — the solve converged; six degrees
+of freedom remain — but an engineer scanning for "is this sketch locked down?"
+gets a yes and a no simultaneously and has no way to know which cell is
+answering their question. Incumbents publish one status ("Under Constrained" in
+the SolidWorks/Onshape status bar; Fusion greys the sketch when fully
+constrained), never two.
+
+Fix is cheap: the tree cell should carry the DOF verdict too, or drop the word
+SOLVE and say `Converged`/`Failed` there. Evidence: `13-profile.png`.
+
+### R-4 — Typed sizes while drawing: works, and it drops out of the tab loop on a line. **Rating 4/5** (P2)
+
+Confirmed live (this is the FB-15/FB-16 work): press-drag-release a rectangle
+and the live `W x H` tag becomes editable cells the moment you release — type
+`50`, Tab, `30`, Enter and the solver comes back with a 50 x 30 rectangle plus
+its constraints. That is genuinely at Fusion's standard and is the best part of
+the sketcher.
+
+Two gaps I hit personally:
+- **A line gets a length cell but no ANGLE cell.** Every incumbent gives a line
+  length + angle with Tab between them; it is how you draw a 30-degree chamfer
+  leg without construction geometry. Here Tab from `draw-dimension-length`
+  moves focus to **`dro-snap`** — a viewport chrome button — so the ROADMAP's
+  "Tab walks and wraps, never out of the viewport" holds for the two-cell
+  rectangle and not for the one-cell line.
+- **In the click-then-click gesture the tag is display-only.** While the line
+  is rubber-banding after the first click, the `L 22 mm` badge is a `<span>`;
+  typing digits does nothing (measured — the DOM node is a span, no input
+  exists until the point is placed). In Fusion/SolidWorks/Onshape typing during
+  the rubber band is *the* precision path and it commits the segment. Here you
+  must place the point approximately first and correct it after.
+
+### R-5 — **A conflicting dimension edit is silently absorbed into a least-squares compromise, and the sketch keeps reporting "UNDER-CONSTRAINED". Rating 1/5. (P0)**
+
+This is the most serious thing I found this pass, because it makes every number
+in the product untrustworthy rather than merely inconvenient.
+
+The profile carries six typed driving dimensions: 27, 8, 21, 22, 6, 30. They
+are consistent by construction (horizontal: 21 + 6 = 27; vertical: 8 + 22 = 30).
+I then did the most ordinary parametric edit there is — thicken the flange from
+8 to 12 mm — by double-clicking the `8` label and typing `12`.
+
+What should happen (SolidWorks, Onshape, FreeCAD all do this): the solver
+detects that 12 + 22 = 34 cannot coexist with the 30 that spans them, and
+**refuses the change naming the conflicting dimensions**.
+
+What actually happens, measured:
+
+| Reading | Value |
+| --- | --- |
+| Dimensions the sketch displays after the edit | `27 · 12 · 21 · 22 · 6 · 30` |
+| Sketch status line | `DOF 7 · UNDER-CONSTRAINED` |
+| Solid produced (bounding box) | `70 x 70 x 33.08 mm`, Min z **-3.08**, Max z 30 |
+
+12 + 22 = 34 and the spanning dimension says 30, yet the part is 33.08 mm tall
+and has slid 3.08 mm *below* the sketch origin it was drawn on. **At least one
+displayed driving dimension is violated by ~1–3 mm and nothing anywhere says
+so** — not a conflict dialog, not a red dimension, not the status line, which
+still reports the sketch as merely under-constrained.
+
+Two consequences an engineer would care about:
+1. A dimension label is no longer a statement about the geometry. Anything
+   downstream that trusts it — a drawing, a DXF, a quote — is wrong.
+2. "Under-constrained" is exactly the wrong diagnosis. It sends the user off to
+   add *more* constraints, which will make the compromise worse.
+
+Evidence: `37a-dim-edited.png`, `37b-rebuilt.png`, `38-sketch-after-conflict.png`.
+
+### R-6 — Changing that dimension broke the hole, which skipped the pattern and the fillet, which blocked all four exports. **Rating 2/5 (behaviour) / 4/5 (how it is reported).** (P0)
+
+Same edit, downstream half. `Hole1` came back
+`SUBSHAPE_UNRESOLVED — "The referenced face can no longer be found — an earlier
+edit changed the body. Re-pick the face."`, `Pattern1` and `Fillet1` were
+skipped ("the build stops at the first failure, even for a feature that does not
+depend on Hole1"), and the EXPORT panel replaced all four format tiles with
+`Hole1 failed`.
+
+This is the 2026-08-14 pass's M17 ("thickening the plate 10 -> 14 breaks three of
+four mounting holes") reproduced on a rotational part, so it is not a
+plate-specific quirk — **a hole placed on a face does not survive a parameter
+change to the sketch that made the face.** Every incumbent survives this edit;
+it is the canonical demo of parametric CAD.
+
+Credit where due, and this part is genuinely better than most: the failure
+report is excellent. A red `PARTIAL BODY` banner names what was built ("built to
+Revolve1"), what failed, what was skipped and why, offers `SHOW HOLE1`, and
+gives a **`Re-pick face`** button right in the tree. Contrast this with
+SolidWorks' bare "rebuild errors" list. The reporting is a 4; the underlying
+persistent-naming behaviour is a 2.
+
+Sub-finding, still live from the 2026-08-16 pass (P-3): **one failed feature
+blocks export of the good body.** The part built cleanly through Revolve1 and
+that solid is exactly what I would send a machinist for a first look, but STEP,
+STL, 3MF and GLB are all disabled with `Hole1 failed`. Exporting the last good
+state — or the visible partial body, which the app is already rendering — should
+be allowed with a warning.
+
+Evidence: `37b-rebuilt.png`.
+
+### R-7 — Pattern repeats the **body**, so there is no feature pattern — and yet the bolt circle came out right. **Rating 3/5** (P1)
+
+`new-pattern`'s tooltip is "repeat the **body** in a linear or circular…" and the
+form has no seed selector: Count, Axis (+X/-X/+Y/-Y/+Z/-Z), Axis point X/Y/Z,
+Angle. There is no "pattern this hole", which is what a bolt circle, a vent
+slot array and a rib array all are, and which is the majority of pattern use in
+mechanical CAD.
+
+I ran it anyway — circular, count 4, +Z about (0,0,0) — expecting either four
+overlapping couplings or (if it unions) a coupling with **no** holes, since each
+copy fills its neighbours' holes. The result was correct: one body, 4 holes,
+volume 37,207.52 mm³ = 38,028.6 − 3 x 273.7, exactly three more Ø6.6 x 8 holes.
+So the implementation is doing the right thing for a subtractive seed.
+
+That is a good outcome and a fragile contract. The vocabulary the user is given
+("repeat the body") does not describe what happened, and I cannot tell from the
+UI what it would do to an *additive* seed (a boss, a rib) — the same
+whole-body-repeat logic would have to union there, and nothing in the form says
+which. Two things worth fixing regardless of the internals: name the seed
+("Pattern: Hole1" / "Pattern: Body 1"), and offer axis picking beyond the six
+signed global directions (a circular pattern about a picked cylindrical face is
+the normal gesture).
+
+The `Count` helper text — "Includes the seed body — a count of 3 makes 2 more" —
+is exactly the right kind of writing. More of that.
+
+### R-8 — Edge selection is a scatter of 21 floating diamonds, and hovering the actual edge does nothing. **Rating 2/5** (P1)
+
+Switching Fillet to `PICK EDGES` spawns **21 DOM proxy markers** (`edge-pick-0`
+… `edge-pick-20`), 24 x 24 px diamonds scattered across the model — several of
+them sitting in the middle of a *face*, not on any visible edge. I then swept
+the pointer down the hub/flange junction in 5 px steps from y=555 to y=625, i.e.
+straight across the edge I wanted: **no hover highlight, no readout, no
+preselection at any point.** The edge itself is not a target; only its diamond
+is.
+
+This is the 2026-08-14 pass's M20 unchanged, now with a count. In Fusion,
+Plasticity, Onshape and SolidWorks you hover the edge, it lights up, you click
+it. The marker scatter is the single biggest reason the viewport reads like a
+diagram with hotspots rather than a model you touch — and on this part the
+diamonds visually outnumber the features.
+
+It does work once you know the trick, and the aria-labels are good for
+scripting ("Edge 19, circle, centred at -13.9, 0, 8 millimetres" — though
+"centred at" is a point *on* the curve, not its centre, on every circular edge I
+checked). Fillet itself is correct: r=2 on the hub junction added 77.9 mm³
+against 75.5 mm³ computed by hand.
+
+Evidence: `33a-pick-edges-mode.png`.
+
+### R-9 — The command panel teleports 1,256 px across the screen mid-command. **Rating 1/5 (flow)** (P1)
+
+Deterministic, measured twice with a 3-second settle on each side so it is not a
+layout race:
+
+| State | `fillet-radius` input position |
+| --- | --- |
+| Fillet open, `BY RULE` (default) | **x = 34** |
+| After clicking `PICK EDGES` *inside that same panel* | **x = 1290** |
+
+The form you are filling in jumps from the left edge of the screen to the right
+edge because you toggled a control inside it. I assume this is the free-rect
+occlusion fitter doing its job (the edge markers change the model's screen
+footprint), and avoiding occlusion is the right instinct — but relocating a
+panel the user's cursor is inside is worse than the occlusion it prevents. No
+incumbent moves a live dialog. Pin the panel for the duration of a command;
+re-fit only on open.
+
+Related, same class: **feature forms do not have a stable side.** Revolve and
+Pattern opened on the left; Hole opened on the right; Fillet opened left then
+moved right. Muscle memory cannot form.
+
+Evidence: `34a-fillet-byrule.png` vs `34b-fillet-pick.png`.
+
+### R-10 — **The "Re-pick face" repair button is inert: five clicks on the face, in two views, never replace the stored face. Rating 1/5. (P0)**
+
+This is R-6's escape hatch, and it does not open.
+
+The failed `Hole1` offers a `Re-pick face` button. Pressing it opens EDIT HOLE
+with `FACE — Face at 0, 0, 8 mm` badged **`PICKING`** and the instruction
+"Click a face to replace it." I then clicked the flange's top face at five
+different points across two camera positions (top view at 700,620; isometric at
+650,600 / 950,560 / 600,640 / 900,640 / 800,700). After every single click the
+panel still reads, verbatim:
+
+```
+FACE | Face at 0, 0, 8 mm | PICKING | Click a face to replace it.
+POINT | 26, 0, 8 mm | ... | Off the face outline — move it onto the face.
+```
+
+`Save` then re-runs the build and returns the same `SUBSHAPE_UNRESOLVED`, whose
+text advises "Re-pick the face" — the thing that just silently did nothing. The
+model cannot be repaired from the UI; the only way out is Undo or editing the
+driving dimension back.
+
+Likely the same root cause the 2026-08-14 pass filed as **M16** (a viewport pick
+is stamped with the TIP feature's id): the tip here is a SKIPPED `Fillet1`, so
+there is no tip body to raycast against and every click resolves to nothing.
+That would also explain why face picking works perfectly when creating a *new*
+hole on a healthy tip and fails only in the one situation where it is the
+advertised remedy.
+
+Net effect of R-5 + R-6 + R-10 together: **one ordinary dimension edit produces a
+model that is wrong, broken, unexportable and unrepairable.** That is the
+headline of this pass.
+
+Evidence: `41b-after-clicks.png`, `40-after-repick-save.png`.
+
+### R-5b — …and typing the ORIGINAL number back does not restore the original part. **(same P0, this is the part that makes it unrecoverable)**
+
+Follow-on measurement, and the reason R-5 is a P0 rather than a P2 annoyance.
+Having broken the model by changing 8 -> 12, I did the obvious thing and typed
+`8` back into the same dimension. The tree rebuilt. The part did not come back:
+
+| | Before the edit | After 8 -> 12 | After 12 -> 8 ("restored") |
+| --- | --- | --- | --- |
+| Bounding box | **70 x 70 x 30** | 70 x 70 x 33.08 | **69.81 x 69.81 x 32.16** |
+| Min | -35, -35, **0** | -35, -35, -3.08 | -34.91, -34.91, **-2.16** |
+| Volume (partial, to Revolve1) | 38,302.3 mm³ | 46,621.69 mm³ | 38,944.51 mm³ |
+
+The flange is now **Ø69.81 where the sketch still says the radius dimensions
+that make it Ø70**, the part sits 2.16 mm below its own origin plane, and
+`Hole1` is still `ERR`. Because the sketch retains 7 degrees of freedom, the
+solver's compromise from the conflicting edit is baked into the *geometry*, and
+restoring the number does not restore the shape. Nothing warns you at any point;
+the status line said `UNDER-CONSTRAINED` throughout.
+
+An engineer who mistypes a dimension and corrects it has silently shipped a part
+0.19 mm undersized. In SolidWorks/Onshape/Fusion this cannot happen, because the
+conflicting dimension is refused at entry rather than absorbed.
+
+Evidence: `44-restored.png`.
+
+### R-5c — Second instance, worse: a typed dimension changed a *different* feature and left the OD untouched
+
+After restoring the model I edited one more dimension the ordinary way: the
+flange's bottom edge, `27` -> `25`. Result:
+
+- Bounding box **unchanged at 70 x 70 x 30** — the flange OD did not move, which
+  is the only thing "shorten the flange bottom edge" can plausibly mean.
+- Volume (to Revolve1) fell 37,285.43 -> **36,494.61 mm³**. Solving
+  `pi[8(35² − r²) + 22(14² − r²)] = 36,494.61` gives **r = 9.12 mm**: the change
+  was absorbed by the **bore**, which went from Ø16.0 to Ø18.24.
+- `Hole1` broke again (`SUBSHAPE_UNRESOLVED`).
+
+So a dimension edit (a) did not change the dimension's own geometry, (b) changed
+the one dimension on the part that must not change — the shaft bore — by 2.24 mm,
+and (c) broke the model, all without a single warning. The user's sketch says
+Ø16.
+
+### R-11 — Viewport: no orthographic projection, quantified. **Rating 2/5** (P1)
+
+There is no ortho/perspective toggle anywhere in the product (the view strip is
+Home / Fit / Front / Top / Right / Iso; no seventh control exists). Named views
+are therefore perspective views, and a "TOP" view is not a top view in the
+draughting sense. Measured by scanning the canvas across the part's centre line
+in TOP view:
+
+| Feature | True radius | On-screen scale |
+| --- | --- | --- |
+| Flange OD (z = 8 mm) | 35 mm | 311.5 px -> **8.900 px/mm** |
+| Hub OD (z = 30 mm) | 14 mm | 148.0 px -> **10.571 px/mm** |
+
+Two faces 22 mm apart are magnified **18.8 % differently in the same
+orthogonal-named view**. Screen ratio hub:flange reads 0.484 where the part's is
+0.400. Nothing in that frame can be compared, traced or trusted, and every
+incumbent gives you ortho for exactly this reason (Fusion defaults named views
+to ortho; SolidWorks/Onshape put the toggle in the heads-up bar).
+
+### R-12 — The grid is one-sided: orbit below the horizon and the scene is a void. **Rating 2/5 (tool feel)** (P2)
+
+Clicking a lower ViewCube facet put the camera below the part, and the ground
+grid **disappears entirely** — the body floats on a flat dark field with no
+horizon, no ground plane and no scale reference (`52b-cube-corner.png`). Every
+other frame this pass has a grid receding to a fogged horizon and it is the best
+thing about the viewport's sense of depth; losing it at the moment you look at
+the underside of a part — which is a normal thing to do, e.g. to check a
+counterbore — costs all of it. Fusion and Plasticity keep a (dimmer) grid from
+below.
+
+Related, same class, and the one thing that most separates this viewport from
+Plasticity's: **the body casts no contact shadow**, so it reads as floating
+above the grid rather than sitting on it, in every screenshot in this pass.
+
+Working well, worth recording so it does not regress: the ViewCube snaps
+correctly to faces and corners and re-labels itself with the resulting view
+(TOP, BOTTOM|RIGHT); the grid-to-horizon + fog is genuinely good; the matcap
+shading on the coupling reads as machined metal, not debug grey; and the
+transient gold tint on newly-built geometry (visible on the fillet band in
+`34c-filleted.png`) is a nice touch that clears on the next load.
+
+### R-13 — Performance is NOT a problem, and I am correcting my own first impression. **Rating 5/5**
+
+My first timings looked terrible (9–14 s per feature) and were an artefact of
+fixed sleeps in my own harness. Re-measured properly — clock started at the
+click, stopped when the DOM carried the new value:
+
+| Operation (5-feature part: sketch + revolve + hole + 4x pattern + fillet) | Time |
+| --- | --- |
+| Open the part URL -> mass properties on screen | **1,620 ms** |
+| Typed dimension -> sketch re-solved | **564 ms** |
+| Finish sketch -> whole part rebuilt (all 5 features) | **1,235 ms** |
+| Chamfer submit -> new volume on screen | **491 ms** |
+| Export STEP / STL / 3MF / GLB (download complete) | **91 / 157 / 288 / 136 ms** |
+
+That is competitive with Fusion on a part this size and it is a genuine
+strength. `docs/VISION.md`'s `Performance on real parts` row says "there are no
+end-to-end numbers" — there are now.
+
+### R-14 — STEP export is production-grade; round trip verified byte-for-number. **Rating 5/5**
+
+Exported the finished coupling and read the file back with an independent OCCT
+`STEPControl_Reader` session:
+
+| | In the app | Read back from the STEP |
+| --- | --- | --- |
+| Volume | 37,285.43 mm³ | **37,285.434 mm³** |
+| Faces | 11 | **11** |
+| Solids | 1 | **1** |
+| Bounding box | 70 x 70 x 30 | **[-35, -35, 0] .. [35, 35, 30]** |
+| Centroid | 0, -0, 7.68 | **-0.0, -0.0, 7.6796** |
+
+3MF carries `unit="millimeter"`; the STL is a valid 11,608-triangle binary
+(84 + 50n = 580,484 bytes exactly). Four formats, all correct, all sub-300 ms.
+
+One cosmetic item still open from the 2026-08-14 pass (M14): the STEP header
+says `FILE_NAME(... ('Author'), ('Open CASCADE'), 'Open CASCADE STEP processor
+7.9', 'build123d', 'Unknown')` — nothing identifies Loft as the originating
+system, which is the one place every CAD package signs its work. Schema is
+AP214 (`AUTOMOTIVE_DESIGN`); AP242 remains unoffered.
+
+### R-15 — Smaller things I hit, one line each
+
+- **The parts register has no way to open a supplied STEP.** The empty register
+  offers only "Part name → Create first part"; `import-step-button` exists only
+  *inside* a part. Receiving a supplier STEP is a day-one action for most
+  engineers and there is no door for it on the front page.
+- **`Centre of mass` and `Centroid` are two inspector rows with identical
+  values** (`0, -0, 7.68 mm` twice). For a homogeneous body they are the same
+  number; one of them does not earn its place.
+- **Feature forms have no stable side** — Revolve and Pattern open left, Hole
+  opens right, Fillet opens left and then jumps right (R-9).
+- **Hole point-pick is a two-step mode with a surprising default.** The first
+  click picks the face and seeds the drill point at the **face centroid**
+  (measured: `X = -0.2781` on an annulus made asymmetric by an existing hole),
+  not where you clicked. To place it where you clicked you must arm
+  `hole-point-pick` and click again. The numeric X/Y fields are excellent and are
+  what saved the job.
+- **Fillet's "by rule" vocabulary is prismatic-only**: All edges / parallel to X
+  / Y / Z. A turned part has no edge "parallel to" anything — they are all
+  circles — so the rule mode is dead for this whole class of part. Missing and
+  standard elsewhere: all circular edges, convex-only, tangent chain.
+- **Measure gives 40 proxy markers and no engineering answer for a bolt
+  circle.** Picking the two extreme vertices of opposite holes reads
+  `DISTANCE 58.6 mm` (correct, and 6.6 mm away from the Ø52 the drawing needs).
+  There is no centre-to-centre, no circle diameter pick, no bolt-circle readout.
+  `measure-edge-*` aria-labels also omit the coordinates that `edge-pick-*`
+  includes, so the same edge is identifiable in Fillet and anonymous in Measure.
+- **Editing a sketch on a part with a body: the body stays fully opaque.** The
+  profile and its dimension text are drawn over machined-grey shading (see
+  `35b-sketch-reopened.png`); the left half of the profile is unreadable. Fusion
+  and Onshape ghost the model when a sketch is active.
+- **Sketch reopen is double-click-only** on the tree row (or right-click ->
+  Edit). There is a small pencil glyph but no hover affordance says "edit".
+- **Hovering a revolve axis option highlights nothing in the viewport**, so
+  `Vertical · 22 mm · profile edge (e4)` has to be decoded rather than seen.
+- **Toolbar: 30 unlabelled glyphs; 3 of 30 are enabled on entry to an empty
+  part.** The group eyebrows (HISTORY / CREATE / MODIFY / SHEET METAL / INSPECT
+  / EXPORT) are a real improvement over the flat strip earlier passes measured,
+  and the disabled tooltips are instructive ("Extrude — draw a sketch first").
+  It is still a wall of icons at first contact.
+- **Nothing proposes the next step.** Saving a solved sketch enables Extrude and
+  Revolve in the toolbar and says nothing; the profile is not pre-selected and no
+  affordance appears near the geometry. This is the design mandate's own first
+  flow test and it still fails (previously M4).
+
+---
+
+### Ratings — 1–5 daily-driver readiness (this pass's job: a rotational part)
+
+| Capability | Rating | One-line reason |
+| --- | --- | --- |
+| Sketch drawing + typed sizes | 4 | Drag-draw with live W x H / L / R cells that drive the solver is at Fusion's standard; line lacks an angle cell and Tab escapes the group |
+| Sketch constraint integrity | **1** | A conflicting dimension is silently absorbed into a compromise and still reported `UNDER-CONSTRAINED` (R-5) |
+| Parametric edit / rebuild robustness | **1** | One dimension edit -> wrong geometry + broken hole + skipped pattern/fillet + blocked export, not restorable by re-typing the old value (R-5b, R-6) |
+| Failure *reporting* | 4 | `PARTIAL BODY` banner naming built/failed/skipped, with an inline action, beats SolidWorks' rebuild-error list |
+| Failure *recovery* | **1** | The `Re-pick face` button it offers is inert across 5 clicks and 2 views (R-10); only Undo escapes |
+| Revolve | 3 | Correct geometry; axis restricted to sketch curves, no origin/datum axis, wrong default silently builds a disc (R-2) |
+| Hole | 4 | Through/blind, simple/c'bore/c'sink, thread field, exact numeric X/Y on the face; two-step point pick with a centroid default |
+| Pattern | 3 | Circular pattern about an arbitrary axis point produced a numerically exact bolt circle; it patterns the BODY, so there is no feature pattern and the vocabulary does not describe what happened (R-7) |
+| Fillet / chamfer | 3 | Geometry exact (77.9 mm³ vs 75.5 computed); selection is 21 floating diamonds and the rule vocabulary is prismatic-only |
+| Selection (faces / edges) | **2** | Edges and faces are not hover targets at all; picking is via proxy markers (R-8) |
+| Measure | 3 | Correct distances; no centre-to-centre / diameter / bolt-circle, 40 markers, inconsistent labels |
+| Material + mass properties | 4 | 8 materials, density shown, mass/volume/area/centroid/bbox/topology live; two rows duplicate each other |
+| Export (STEP / STL / 3MF / GLB) | **5** | Round-trip exact, four formats, all under 300 ms |
+| Viewport feel | 3 | Grid-to-horizon + fog + matcap are good; no contact shadow, grid vanishes from below, no ortho |
+| View navigation | 4 | ViewCube snaps to faces and corners and re-labels; Home/Fit/Front/Top/Right/Iso all work; no ortho toggle |
+| Performance | **5** | 1.62 s to open, 1.24 s full rebuild, 0.56 s sketch re-solve, 91 ms STEP |
+| Workspace / register | 3 | Clean empty state and register; no STEP import door, no folders/search surfaced on the empty state |
+| Command flow (what next?) | 2 | Nothing proposes the next verb; no drag handles; forms move between sides |
+
+### Scorecard rows that look stale (`docs/VISION.md`) — for the vision-steward
+
+1. **`Part modeling (features, history)` — currently ✅. This pass cannot support
+   that.** The history in this part could not survive editing its own first
+   feature: one dimension change produced wrong geometry (R-5), a broken hole
+   (R-6), skipped downstream features, blocked exports, and an inert repair
+   (R-10). Against SolidWorks/Fusion/Onshape — where this exact edit is the
+   canonical demo — the row reads ✅ for capability *presence* and not for
+   capability *use*. Recommend ✅ -> ➖ with the blocker named as persistent
+   topological naming across parameter changes.
+2. **`Sketching & constraints` — flipped ➖→✅ on 2026-08-21, and its own headline
+   claim did not reproduce.** The row says over-constraint diagnosis ships
+   end-to-end with a typed `SketchConstraintDiagnosis` (redundant vs conflicting,
+   offending ids, `suggested_fix`). Editing a dimension into a value that
+   provably conflicts with two others produced **no diagnosis of any kind** — the
+   status line read `DOF 7 · UNDER-CONSTRAINED` and the solver quietly returned a
+   least-squares compromise (R-5). Whatever ships must be reachable only when a
+   *new* constraint is added, not when an existing dimension's *value* is edited
+   — which is the commoner path. The row is stronger than the product.
+3. **`Performance on real parts` — ➖, and its Notes say "there are no end-to-end
+   numbers".** There are now: R-13's table (open 1.62 s, full 5-feature rebuild
+   1.24 s, sketch re-solve 0.56 s, STEP export 91 ms) on a real revolved part.
+   The Notes are stale even if the status is not.
+4. **`Interop (import + export)` — ➖.** Consistent with what I measured
+   (four formats out, all exact); nothing to flag beyond the previous pass's
+   import-healing gap, which I did not exercise.
+
+### Prioritized recommendations (P0–P3, one line each, buildable)
+
+- **P0 — Refuse a dimension edit that conflicts with existing constraints**, with
+  the typed diagnosis the scorecard already claims (name the conflicting
+  dimensions, offer "make driven" / "remove N"), instead of absorbing it into a
+  least-squares compromise (R-5).
+- **P0 — Never let a solve return geometry that violates a displayed driving
+  dimension**: if the residual on any driving dimension exceeds tolerance, fail
+  the solve and say which dimension could not be met.
+- **P0 — Make a hole/face reference survive a parameter change to its own
+  upstream sketch** (persistent face naming keyed on generating feature +
+  loop, not on normal/centroid/area), so thickening a plate does not orphan its
+  holes (R-6).
+- **P0 — Make `Re-pick face` actually re-pick**: raycast against the last good
+  body when the tip failed, so the advertised repair works instead of silently
+  discarding every click (R-10).
+- **P0 — Allow export of the last good body when a downstream feature has
+  failed**, with an explicit "exported to Revolve1, 2 features excluded" label,
+  rather than disabling all four formats (R-6).
+- **P1 — Add origin/datum axes and picked model edges to the revolve axis list**,
+  default to the sketch's construction centreline when one exists, and preview
+  the swept body before Create (R-2).
+- **P1 — Feature pattern**: let Pattern take a feature (hole, cut, boss) as the
+  seed and name the seed in the form; add "pattern about a picked cylindrical
+  face/axis" beyond the six signed global directions (R-7).
+- **P1 — Make edges and faces hover targets in the viewport** (preselect
+  highlight on the real geometry) instead of routing all picking through 21–40
+  floating proxy diamonds (R-8).
+- **P1 — Pin a command panel to one side for the life of the command**; never
+  relocate a form the user is typing into, and give every feature form the same
+  side (R-9).
+- **P1 — Add an orthographic/perspective toggle and default the named views
+  (Front/Top/Right) to orthographic**; a "TOP" view currently magnifies two
+  faces 18.8 % differently (R-11).
+- **P1 — Ghost the solid while a sketch is being edited**, so the profile and its
+  dimensions are readable instead of drawn over opaque machined shading (R-15).
+- **P2 — Give the line tool an angle cell** and keep Tab inside the dimension
+  group when there is only one cell (today it escapes to `dro-snap`) (R-4).
+- **P2 — One solve verdict, not two**: the tree's `SOLVE` cell and the DRO's
+  `SOLVE` cell currently read `Solved` and `DOF 6 · UNDER-CONSTRAINED`
+  simultaneously (R-3).
+- **P2 — Focus the dimension editor on open**: double-clicking a dimension opens
+  `dimension-input` with the value present but `document.activeElement` still on
+  `<body>`, so every edit costs an extra click.
+- **P2 — Draw a contact shadow under bodies and keep the grid visible from
+  below**; from an under-part camera the scene is a featureless void (R-12).
+- **P2 — Measure: centre-to-centre, circle diameter, and a bolt-circle readout**,
+  plus coordinates in `measure-edge-*` labels to match `edge-pick-*` (R-15).
+- **P2 — Fillet rules for turned parts**: all circular edges / convex only /
+  tangent chain, since "parallel to X/Y/Z" selects nothing on a body of
+  revolution (R-15).
+- **P3 — An "Import STEP" action on the parts register's empty state**, so a
+  supplied file has a door before a part exists (R-15).
+- **P3 — Name Loft in the STEP `FILE_NAME` originating-system field** (today:
+  `'Open CASCADE STEP processor 7.9', 'build123d', 'Unknown'`) and offer AP242
+  alongside AP214 (R-14).
+- **P3 — Drop one of `Centre of mass` / `Centroid`** from the inspector; they
+  print the same number for a homogeneous body (R-15).
+- **P3 — Centre the sign-in card** (or fill the frame with something that earns
+  it); it is still a ~5 %-of-frame card pinned bottom-right at 1600x1000 (R-1).
+
+### Evidence & reproduction
+
+All figures above were taken from the running product on a native (no-Docker)
+boot at HEAD `6dfb597`: gateway :8000 / documents :8001 / geometry :8002 /
+Vite :5173, Chromium 1600x1000 unless a finding names 1280x800. The named PNGs
+(`01-front-door.png` … `54-final-state.png`) were captured into this pass's
+session scratchpad rather than `docs/screenshots/`, because the auditor is
+read-only outside this file; every one is reproducible from the steps in its
+finding. The part used throughout is the flanged shaft coupling: Ø70 x 8 flange,
+Ø28 x 22 hub, Ø16 bore, 4 x Ø6.6 on a Ø52 bolt circle, R2 hub fillet — five
+features, 11 faces, 37,285.43 mm³, 293.44 g in AISI 1018.
+
+---
+
+## Pass 2026-08-21 (second pass today) — the fabrication handoff: sheet-metal chassis bracket → assembly → shop print
+
+**Auditor:** product-auditor (independent; has not read `docs/AUDIT-ENGINEERING.md`).
+**HEAD:** `c02743e`. **App code is byte-identical to the previous pass's `6dfb597`** —
+`git log 6dfb597..HEAD --stat` shows only `docs/**` changed — so SOLVE-1 / PICK-2 /
+EXPORT-3 (the P0 cluster the previous pass filed) are unbuilt, and re-measuring them
+would produce no new signal. **This pass therefore runs a deliberately different job**
+against the pillars the previous pass did not exercise: sheet metal, assemblies +
+mates + interference + BOM, drawings, and the workspace/document layer, plus a
+dedicated tool-feel rating per the founder's 2026-07-16 recalibration.
+
+**The job (what a working engineer would actually do):** a real fabrication handoff.
+Model a sheet-metal chassis bracket (2 mm CRS, one 90° flange), get a cut-ready flat
+pattern out to the shop; model the mating plate it bolts to; assemble the two, check
+they don't interfere; produce a dimensioned print. Every incumbent (SolidWorks,
+Onshape, Fusion) does this end-to-end in one session.
+
+**Environment:** native no-Docker boot per `CLAUDE.md` — gateway :8000, documents
+:8001, geometry :8002, Vite :5173, Chromium 141 headless (swiftshader) at 1600x1000
+unless a finding names 1280x800. Screenshots into the session scratchpad
+(`.../scratchpad/pa2/`), not `docs/screenshots/` — the auditor is read-only outside
+this file. Findings numbered **S-n**.
+
+### Findings
+
+**S-1 — The front door is still a 5.2 %-of-frame card pinned to the bottom-right
+corner (repeat of R-1, previous pass; filed P3).** Measured at 1600x1000: the
+sign-in card occupies ~317x260 px at (1233, 692) — 5.2 % of the frame, hard against
+the bottom-right corner, with 94.8 % of the viewport an empty grid. It reads as a
+CSS layout fault, not a design choice, and it is the **first thing** any evaluating
+engineer sees. **P3 is the wrong priority for the first frame of the product.** No
+incumbent's sign-in is off-centre; Onshape and Fusion both centre a card on a
+branded field. Rating impact: this is a 60-second fix that changes the first
+impression from "broken" to "deliberate", and it has now survived at least two
+audit passes at P3.
+
+**S-2 — Empty register draws 14 rows of empty zebra-striped table below the
+empty state.** At 1600x1000 on a 0-part register, the panel renders the "Nothing
+filed here yet" card and then ~14 alternating empty table rows filling the frame
+down to y=975. There is no data in them. This is decoration presented as data —
+the exact class the design mandate 3(c) names ("a tile/readout that only
+decorates is a defect; wire it or delete it"). Rating: 2/5 for the empty
+register's *feel*; the copy itself ("Name your first part to open a fresh sheet")
+is good.
+
+**S-3 — SHEET METAL now has six verbs, and the VISION scorecard row is stale in
+the *good* direction.** The row says "There is also no hem, jog, miter flange,
+tab, or corner relief." Measured live: the toolbar's SHEET METAL group ships
+`new-base-flange`, `new-edge-flange`, **`new-hem`**, **`new-corner-relief`**,
+`new-flat-pattern`, and `export-flat-dxf`. Hem and corner relief exist. The
+scorecard should be re-derived against the running toolbar, not the last design
+doc. (Jog, miter flange and tab remain genuinely absent, as does a gauge table —
+see S-5.)
+
+**S-4 — 🔴 An edge flange can be built off the 2 mm THICKNESS edge of the sheet,
+and the tool reports `OK` / `Solved` / `Up to date`.** This is the most serious
+finding of this pass. Reproduction, exactly:
+
+1. Base flange from a 120x60 sketch, gauge 2 mm → body 120 x 60 x 2, V = 14,400 mm³.
+2. `new-edge-flange` → the form says "Click one straight edge of the sheet to fold
+   a flange off it" and 12 pick markers appear.
+3. Click `edge-pick-0`, whose own aria-label reads `Edge 1, line, centred at
+   -59, -30, 1 millimetres` — i.e. one of the four 2 mm-long **thickness** edges
+   at the corner of the plate, not a boundary edge of a sheet face.
+4. The form accepts it: `edge-flange-pick-count` reads **"1 edge picked"**. No
+   warning, no rejection, and the form never names which edge it took.
+5. Length 25, angle 90, Create. Build time 4.8 s. Result: a **25 mm x 2 mm sliver
+   tab** folded off the corner of the plate (screenshot `19-flange-off-thickness-edge.png`),
+   V = 14,525.13 mm³, faces 6→11, and the feature tree row reads `03 Edge flange1
+   — OK`, the panel reads `Solved`, the inspector reads `Up to date`.
+
+There is no such feature in sheet metal. You cannot fold a tab out of the cut
+edge of a 2 mm sheet — there is no material to bend. SolidWorks refuses this
+selection outright ("the selected edge is not valid for Edge Flange"); Fusion 360
+filters the flange selection set to the boundary edges of a sheet *face*. Loft
+accepts it, builds it, calls it OK, and will happily carry it into the flat
+pattern and the DXF a fabricator cuts from.
+
+**S-5 — the picking model makes S-4 easy to hit by accident, and the numbers say
+how easy.** Measured on the same 12-edge body at the default iso view: every pick
+marker is a **24x24 px** floating diamond, and the **closest pair of marker
+centres is 10.0 px apart** (`edge-pick-8` = Edge 9 at z=0 and `edge-pick-9` =
+Edge 10 at z=2 — the bottom and top edge of the same long side). Two 24 px targets
+whose centres are 10 px apart overlap across 14 px of their width: there is no
+click that selects one and not the other by intent. **This is structurally worse
+for sheet metal than for solid modelling, because gauge is thin by definition** —
+at 1 mm gauge the same pair would be ~5 px apart. Compounding it:
+- the body **desaturates to a flat debug-grey** while picking, losing the material
+  read (`17-edge-flange-form.png`);
+- the picked edge is **not highlighted in the viewport** and the form reads only
+  "1 edge picked", never *which* — so the pick cannot be verified before Create;
+- edges themselves are still not hover targets (repeat of R-8, previous pass).
+
+In Fusion/SolidWorks/Onshape you hover the real edge, it highlights in situ, and
+the selection list names it. Rating: **selection 1/5 for sheet metal work.**
+
+**S-6 — 🔴 "Closed hem" builds an OPEN hem with a 6 mm air gap on 2 mm sheet.**
+The form is headed **"NEW CLOSED HEM"**, its help text reads *"Click one straight
+edge of the sheet to fold it 180° back onto itself"*, and a read-only readout says
+**`Fold 180° (closed)`**. Measured on the built body via the app's own face
+aria-labels (`plane-pick-face-*` after Hem1, return length 6, inherited bend
+radius 3 mm, gauge 2 mm):
+
+| Face | app aria-label | z |
+| --- | --- | --- |
+| base top | `Planar face 8, centred at 1, 0, 2 millimetres` | 2.0 |
+| hem return underside | `Planar face 10, centred at 1, -27, 8 millimetres` | 8.0 |
+| hem return top | `Planar face 12, centred at 1, -27, 10 millimetres` | 10.0 |
+
+The return is held **6.00 mm** off the face it is supposedly folded "back onto" —
+three times the material thickness — because the hem inherits the part's 3 mm
+bend radius. A *closed* hem in sheet-metal practice is pressed flat: the gap is
+zero (SolidWorks' Closed Hem forces radius ≈ 0; its **Open** hem is the one that
+takes a gap parameter, and it exposes Closed / Open / Teardrop / Rolled as four
+distinct types). Loft ships one hem type, calls it closed, and produces an open
+one. A fabricator quoting from this part would tool it wrong. Fix is small: for a
+closed hem force the bend radius to ~0 (or gauge), and/or expose the four hem
+types with the gap as an explicit field.
+
+**S-7 — 🔴 Pattern has no seed selection, its explanatory note contradicts its
+behaviour, and the SAME command gave two structurally different results on
+consecutive uses.** The form is `LINEAR/CIRCULAR · Count · Direction (+X..-Z) ·
+Spacing`, with a note reading **"Includes the seed body — a count of 3 makes 2
+more."** There is no seed picker anywhere in the form. Measured:
+
+- **Pattern1** (count 2, +X, spacing 88), applied when the tip feature was
+  `Hole1`: volume fell 26,316.38 → 26,268.86 mm³ (Δ = −47.52 mm³ = exactly
+  π/4·5.5²·2), faces 15→16. It patterned the **hole cut** — good, and *not* what
+  the note describes.
+- **Pattern2** (count 2, +Y, spacing 30), applied when the tip feature was
+  `Pattern1`: bounding box grew 120x70x30 → 120x**100**x30, volume 26,268.86 →
+  44,090.87 mm³, faces 16→28. It patterned the whole **body**.
+
+Same command, same form, opposite semantics, chosen by an invisible rule (the
+implicit seed is the previous feature). The practical consequence for the job in
+hand: **there is no way to pattern a hole once any other feature sits on top of
+it**, so the single commonest pattern in mechanical CAD — 4 mounting holes on a
+bracket — has no path. I ended up authoring `Hole1..Hole4` by hand as four
+separate features (each ~6.8 s), which is what an engineer would have to do.
+SolidWorks/Fusion/Onshape all open a pattern with a "features to pattern"
+selection box as the first field. Rating: **Pattern 2/5.**
+
+**S-8 — "Flange length" has no stated datum, and the part's envelope is 5 mm
+different from the typed number.** Edge flange, length 25, angle 90, radius 3,
+gauge 2, off the top edge of a 2 mm plate at z=2: the resulting body is
+120 x 65 x **30**, i.e. 28 mm above the base's top face for a "25 mm" flange.
+Derived from the bounding box, Loft measures flange length as the **straight wall
+above the bend tangent**. That is one of three conventions in common use;
+SolidWorks makes you pick between *outer virtual sharp / inner virtual sharp /
+tangent to bend* with three icons, and Fusion's flange height offers inner/outer
+face. Loft's form has one unlabeled field. An engineer transferring a drawing
+dimension into it gets a part 5 mm out and no warning. **P2** — add the convention
+selector, or at minimum label the field with the datum it uses.
+
+**S-9 — Face and edge identity is reported as a live centroid, and it moves under
+you.** Cutting the four holes changed the *same* base top face's label on
+successive picks: `Planar face 8, centred at 1.1, 0, 2` → `1, 0.1, 2` →
+`1.2, 0, 2`. The label is the only handle the UI gives you for a face, and it is a
+function of the face's current geometry, so it is different every time the part
+changes. This is the user-visible face of the persistent-naming gap the previous
+pass measured as a hard failure (R-6/M17): the identity a pick is stamped with is
+derived from properties that an edit is guaranteed to move.
+
+### The shop deliverable: one-click flat-pattern DXF
+
+The bracket at this point: `Sketch1 → Base flange1 (120x60, 2 mm CRS) → Edge
+flange1 (25 mm, 90°) → Hem1 (6 mm return) → Hole1..Hole4 (Ø5.5 through)`, 8
+features, 18 faces, V = 26,173.83 mm³, 205.988 g in AISI 1018 — every number the
+inspector shows checks out by hand (each hole removed exactly π/4·5.5²·2 =
+47.52 mm³). `export-flat-dxf` produced `chassis-bracket-flat.dxf` in **2.76 s**,
+correctly named. Then I opened it the way a fabricator would.
+
+**S-10 — 🔴🔴 THE HOLES ARE NOT IN THE CUT FILE.** The DXF contains **six
+entities, total**, and **zero CIRCLEs**:
+
+```
+LINE VISIBLE (0.0000,0.0000)->(109.2841,0.0000)
+LINE VISIBLE (109.2841,0.0000)->(109.2841,120.0000)
+LINE VISIBLE (109.2841,120.0000)->(0.0000,120.0000)
+LINE VISIBLE (0.0000,120.0000)->(0.0000,0.0000)
+LINE BEND (28.0473,0.0000)->(28.0473,120.0000)
+LINE BEND (97.1894,0.0000)->(97.1894,120.0000)
+```
+
+Four outline lines and two fold lines. The four Ø5.5 mm mounting holes — which
+are unambiguously in the solid (faces 15→18, volume down 190.06 mm³, visible in
+the viewport) — do not appear in the flat pattern at all. Send this to a laser
+and you get back a blank rectangle with two scribe lines and no holes. This is
+worse than the DXF-2a gap it supersedes: that one was "the cut path is buried in
+a drawing sheet"; this is "the cut path is wrong." Every incumbent's flat pattern
+carries every through-feature: it is the whole point of the export.
+
+**S-11 — 🔴 `$INSUNITS` declares METRES on a millimetre file.** Raw header:
+
+```
+  9
+$INSUNITS
+ 70
+6
+```
+
+DXF code 6 is **metres** (1=in, 4=mm, 5=cm, 6=m — confirmed against `ezdxf.units`,
+the library that wrote the file: `M = 6`, `MM = 4`). The geometry is 109.2841 x
+120.0000 in millimetres. Any CAM/nesting package that honours `$INSUNITS` — which
+is what the field is for — reads a blank **109 metres by 120 metres**, a 1000x
+error. This is the same *class* as the F-1 half-scale defect closed on
+2026-08-17, and the sheet-metal scorecard row's own note currently asserts
+"`$INSUNITS` still correctly declared millimetres." It does not. `$MEASUREMENT`
+is 1 (metric), so the two headers also disagree with each other.
+
+**S-12 — the flat blank's own developed length is not reproducible from the
+inputs I typed.** Blank measures 109.2841 x 120.000 mm, fold lines at X = 28.0473
+and 97.1894. Working from the documented BA = angle·(r + K·t) with r = 3, K =
+0.44, t = 2: the 90° flange allowance is 6.0947 and the 180° hem allowance is
+12.1894 (the second fold line's position, 97.1894, is exactly 85 + 12.1894, so the
+hem allowance is being applied). Reconstructing the whole width from
+base-flat + BA_hem + return + BA_flange + wall gives a **9.0 mm** hem return where
+I typed **6**. Either "Return length" is measured to a different datum than the
+straight portion (the S-8 problem again, on a second field), or the return is
+being developed 3 mm long. Flagging as **needs a stated convention plus a golden
+that starts from the typed inputs**, not from the algorithm's own output — I could
+not settle it from the UI, which is itself the finding: nothing in the product
+tells you what the number you typed means.
+
+**S-13 — the on-screen flat pattern agrees with the DXF, so S-10 is upstream of
+the serializer.** The Flat Pattern drawing panel reads **"Flat Pattern — 6 edges,
+Bends 2"** and the sheet renders a bare rectangle with two dashed fold lines
+(`38-flat-pattern-view.png`). The unfold itself is dropping the holes; fixing the
+DXF writer would not help. Everything *around* the missing geometry is good: a
+real title block, a BEND / ANGLE / RADIUS / DIR / ALLOW schedule (`bend-1 90.0°
+R3.00 UP 6.09`, `bend-2 180.0° R3.00 UP 12.19`), a `Cut edge / Fold line` legend,
+1:1 A4, and separate `VISIBLE` / `BEND` / `BEND_TABLE` / `TITLE` layers in the
+sheet DXF (the DXF-2b layer split is confirmed shipped). It is a well-made drawing
+of the wrong blank.
+
+**S-14 — a UI truncation ellipsis is baked into the exported deliverable.** The
+sheet DXF's title-block TEXT entity reads literally
+`'Chassis bracket — fla…'` — U+2026, exported. The part is named "Chassis
+bracket"; the drawing is "Chassis bracket — flat pattern"; the title block shows
+neither. A print whose title block is elided is not shippable, and the same string
+appears in the PDF. Truncate for display, export the full string.
+
+### The assembly: bolting the bracket to a plate
+
+Second part modelled for the job: `Mounting plate` — 140x80 sketch → Extrude 6 mm
+→ one Ø5.5 hole. Extrude now ships a **live translucent preview** of the swept
+body (`extrude-preview-active`, `44-extrude-preview-iso.png`) which is a real
+improvement — but there is still **no drag handle of any kind**
+(`[data-testid*="handle|gizmo|drag|arrow"]` → `[]`), so the design mandate's own
+named #1 gap ("Fusion's extrude is a draggable arrow; ours is a form with no
+handle at all — the single biggest 'does not feel like a modeling tool' gap we
+have") is untouched.
+
+`Chassis subassembly` → Add part x2. Both instances seed at the world origin, so
+they arrive **interpenetrating** (`50-assembly-two-parts.png`); `Check
+interference` correctly reports `Mounting plate <1> · Chassis bracket <2> —
+9,528.54 mm³ overlap` in 8.5 s and tags both component rows `CLASH`. That readout
+is excellent — an exact overlap volume per pair is better than what Fusion shows
+by default.
+
+**S-15 — 🔴 The bracket's bottom face is UNSELECTABLE for a mate. Not "fiddly" —
+unreachable.** The mate that joins a bracket to a plate is: plate top face ↔
+bracket base **bottom** face. Reproduction and evidence:
+
+- The plate's top face picks fine (`Planar face 5, centred at 35.1, 20, 6 mm`);
+  the HUD advances correctly to *"Now pick the mating face on the OTHER part —
+  they snap flush."*
+- Clicking the bracket's bottom face (`mate-face-…-1`, `Planar face 2, centred at
+  1, 0, 0 millimetres`) **times out**. Playwright's own diagnosis:
+  `<button aria-label="Planar face 8, centred at 1, 0, 2 millimetres"
+  data-testid="mate-face-…-7"> … subtree intercepts pointer events`.
+- `document.elementFromPoint()` at the bottom-face marker's own centre returns the
+  **top**-face marker. The two markers' origins are **8 px** apart; the markers
+  are 24 px.
+- I then tried to get out of it the way a user would. **Eleven orbit operations**
+  (4 up, then 6 down to look from beneath, plus a reset) — the topmost element at
+  that point was `…-7` every single time. **Ten zoom-in steps** — separation went
+  8 → 12 px and the topmost element was `…-7` every single time.
+
+So: the face is not merely hard to hit, there is no camera in which it can be
+hit. The user has two outs — pick the wrong face and accept a 2 mm error, or give
+up. In SolidWorks/Onshape/Fusion you hover the real face, it highlights, and
+alt-click / a "select other" popup cycles coincident candidates. Loft has neither
+hover-highlight nor a select-other. **This is the single biggest blocker to
+assembling sheet-metal parts, and it is a direct consequence of the proxy-marker
+selection model (S-5).**
+
+**S-16 — assembly instances are indistinguishable.** Both parts render in the
+same flat grey with no per-instance colour or appearance override, and the pick
+markers of both parts are drawn identically and intermixed, with labels that
+collide: the plate's is `Planar face 1, centred at 35, -20, 3` and the bracket's
+is `Planar face 1, centred at -59, 4.4, 5.7` — same "Planar face 1", no part name.
+Assembly mode also uses a duller grey material than part mode's tan matcap, so the
+same body changes appearance between the two workspaces.
+
+**S-17 — creating an assembly does not open it,** while creating a part does.
+`create-assembly-submit` returns you to the register with the new row; you then
+click the row (5.2 s) to enter. Small, but it is the flow rule's own test: the
+next step should be visible from the current state, and the two registers disagree
+about what "create" means.
+
+**S-18 — 🔴 The mate-conflict diagnosis prints a Python `repr` of a UUID list, and
+names a mate the UI cannot identify.** With two conflicting Coincident mates the
+SOLVE tab reads, verbatim:
+
+```
+Status  CONFLICTING       Free DOF  0
+mates [UUID('4ae95465-32dc-4ab9-b3a8-8ccc18b13fb0'), UUID('b78a814e-30e3-44af-b519-eb30ccd7d69f')] are mutually unsatisfiable Remove or relax mate 4ae95465-32dc-4ab9-b3a8-8ccc18b13fb0
+```
+
+Three defects in one string: (a) a raw `[UUID('…'), UUID('…')]` list leaked into
+user-facing UI; (b) the remedy names a mate by a UUID that appears **nowhere** in
+the mates panel — both rows read identically as `Coincident · ①1 · ②2 · conflict`,
+so the instruction is unfollowable; (c) two sentences are concatenated with no
+separator ("unsatisfiable Remove or relax"). The same missing separator appears in
+the healthy path too — *"3 degree(s) of freedom remain; free instances left at
+their seed placement Add mates to remove the remaining degrees of freedom"* — so
+it is a systematic message-assembly bug, not a one-off. The backend clearly has a
+typed diagnosis; the presentation throws it away.
+
+**S-19 — the SOLVE readout disappears exactly when it is needed.** Authoring a
+mate leaves the inspector on the CLASH tab, where the status/DOF section does not
+exist (`assembly-solve-status` and `assembly-dof` are absent from the DOM). So the
+moment two mates conflict, the user sees two red chips and no explanation until
+they discover the SOLVE tab themselves.
+
+**S-20 — the mate command stays armed after it completes** and re-litters the
+viewport with pick markers, so a second conflicting mate is one stray click away —
+which is how I got two of them.
+
+**S-21 — four buttons share the accessible name "REMOVE"** (two components, two
+mates) and only the component ones carry a distinguishing `aria-label`
+(`Remove Mounting plate <1>`); the mate rows' are bare text. Removing a component
+takes its mates with it, silently, with no confirmation.
+
+**S-22 — 🔴 Assembly STEP names its components with raw UUIDs.** The export is
+structurally correct — one assembly PRODUCT, 2 `NEXT_ASSEMBLY_USAGE_OCCURRENCE`,
+and a total volume of exactly 93,231.28 mm³ matching the app — but read back
+through OCCT's XCAF reader the component labels are:
+
+```
+free: Chassis subassembly   assembly? True
+  comp: c7ebc346-bbd5-4f55-9a01-4fce6f5fc28e
+  comp: cae86dd9-70c5-4396-9377-bd33a7f78bc7
+```
+
+A supplier opening this in SolidWorks or Creo gets a feature tree of two UUIDs.
+The instance's part name (`Chassis bracket`, `Mounting plate`) is the obvious
+label and is right there in the BOM. Also unchanged from the previous pass:
+`FILE_NAME` still reads `'Open CASCADE STEP processor 7.9','build123d','Unknown'`
+— Loft does not name itself in files it authors.
+
+**S-23 — the BOM is name + qty only.** `PARTS LIST · 2 — Chassis bracket PART 1,
+Mounting plate PART 1, TOTAL 2`. No part number, description, material, or mass
+column, and no way to place it on a drawing (there are no assembly drawings).
+Correct as far as it goes; a long way from a parts list a buyer can work from.
+
+### The revision: change the base width 120 → 150
+
+This is the same class of edit the previous pass ran on a revolved part. Running
+it on a **sheet-metal** part gives new information, and the result is the same P0
+reproducing a third time (after the previous pass's R-6 on a coupling and the
+2026-08-14 pass's M17 on a prismatic plate).
+
+**S-24 — 🔴 Widening the base sketch orphaned the edge flange and the hem;
+the four hole references survived.** Sketch1's `120` edited to `150`, sketch
+re-solved, `Finish sketch` → 14.6 s rebuild →
+
+```
+01 Sketch1       OK
+02 Base flange1  OK
+03 Edge flange1  ERR  SUBSHAPE_UNRESOLVED
+                 "The referenced face can no longer be found — an earlier edit
+                  changed the body. Re-pick the face."
+                 "Not attempted: the 5 features below. The build stops at the
+                  first failure, even for a feature that does not depend on
+                  Edge flange1."
+04 Hem1 SKIP · 05–08 Hole1..4 SKIP        Exports: all four blocked
+```
+
+The edge that broke is topologically *identical* — the same y = +30 boundary edge
+of the same face, just 30 mm longer. **The drawings subsystem already re-anchors
+exactly this** (see S-27); the feature subsystem does not.
+
+Two things the reporting gets right and are worth keeping: the `PARTIAL BODY`
+banner names the last good state, the failing feature, the exclusion count and the
+export block, with a `SHOW EDGE FLANGE1` action; and the tree states the abort
+rule out loud. That last sentence also documents a weakness — SolidWorks and
+Fusion continue past a failed feature and rebuild the independent ones, so four
+holes that depend on nothing but `Base flange1` need not have been skipped.
+
+**S-25 — the error says "Re-pick the face" and there is no re-pick control.** The
+only repair testid on the page is `feature-error-2` (the message itself); no
+button matches `/re-?pick|repair|fix/`. The actual path — double-click the failed
+feature row to open its editor and pick again — is undiscoverable from the message.
+(It does at least *work*, which is an improvement on the previous pass's inert
+`Re-pick face` button.)
+
+**S-26 — 🔴 The repair path is blocked by a silent, unexplained disabled Save, and
+the cause is a form-hydration bug.** Repairing `Edge flange1` worked (re-pick →
+16.5 s → OK). Repairing `Hem1` did not: `hem-submit` was `aria-disabled="true"`
+with an **empty `title`**, no error text, no red field — through picking, clearing
+and re-picking. The form said `1 edge picked`, `Return length 6`. It looked like a
+dead end and I nearly recorded it as one.
+
+The cause, found only by reading the screenshot: **the edit form loads with
+"Override K-factor" CHECKED and its value field EMPTY** — an override I never
+authored when creating the hem. The form is therefore invalid, and the submit is
+disabled for a reason that appears nowhere. Unchecking it enabled Save
+immediately, the rebuild took 17.3 s, and **all eight features came back OK**,
+holes included, at V = 32,764.80 mm³ — which is exactly 26,363.89 × 150/120 −
+4 × 47.52, i.e. the geometry after repair is correct to the last digit.
+
+Two separate defects: (a) the edit form mis-hydrates an unchecked override as
+checked-with-no-value; (b) **a disabled primary action must state its reason** —
+this one costs a user the entire repair path.
+
+**Recovery cost for one dimension edit:** two feature repairs, ~34 s of rebuild,
+manual identification of two edges from clouds of overlapping markers, and one
+undocumented form bug. In SolidWorks/Fusion/Onshape the same edit is a no-op.
+
+**S-27 — ✅ Drawings DO re-anchor across the same edit, and say so.** The
+`LINEAR 120.000` dimension on the drawing survived: after `Re-project` (16.0 s) it
+reads `LINEAR 150.000` with a `RE-ANCHORED` chip, a `CONFIRM` action, and the
+plain-language line *"the part changed, so this was re-measured from the edge that
+is there now. Confirm to store the new reference."* The views re-projected
+correctly with the holes visible and the dimension drawn with proper extension
+lines and arrowheads (`87-drawing-after-reproject.png`). **This is better than
+SolidWorks' silent re-attach, and it is the single most encouraging thing I found
+this pass** — because it is the *same problem* S-24 fails at, solved, in the same
+codebase. The obvious move is to give the feature resolver the drawings module's
+two-tier anchor (strict signature first, then re-match on the curve kind's rebuild
+invariant).
+
+**S-28 — the drawing prints `150.000`.** Three decimals on a nominal dimension is
+not shop convention; SolidWorks/Fusion suppress trailing zeros at document
+precision. Also, auto-layout picked **1:2 on an A3 sheet** for a 150 x 70 x 30
+part that fits comfortably at 1:1, and then used roughly **30 % of the sheet**,
+leaving the lower-right two thirds blank.
+
+**S-24b — the reference breakage is REPRODUCIBLE and has a shape: the FIRST edit
+after a clean rebuild survives; the SECOND consecutive edit breaks.** I chased
+this because the failure at first looked magnitude-dependent, then looked random.
+Controlled ladder, each trial starting from a verified-clean tree (`Up to date`,
+no `SUBSHAPE_UNRESOLVED`), each step = open Sketch1, edit the width dimension,
+Finish sketch, poll to completion:
+
+```
+clean → 150 -> 151 : OK           (all 8 features rebuild)
+clean → 151 -> 152 : BROKEN       (Edge flange1 SUBSHAPE_UNRESOLVED, 5 skipped)
+clean → 150 -> 153 : OK
+clean → 153 -> 154 : BROKEN
+```
+
+Negative controls, both measured: opening the sketch and finishing it **without
+changing anything** leaves the tree OK; re-applying the **identical** value
+(`150 → 150`) also leaves it OK. So it is not the act of re-solving, and it is not
+the size of the change — a 3 mm change survives and a 1 mm change breaks,
+depending only on whether an edit has already happened since the last clean
+rebuild. That reads like **the matched reference is not re-stamped after a
+successful re-match**: the feature keeps comparing against the geometry of two
+edits ago, so the second edit's cumulative drift exceeds whatever tolerance the
+matcher uses. Whoever fixes this should check that a successful (possibly
+tolerant) match writes the new signature back.
+
+### Measured performance (polled to a DOM state change, no fixed sleeps)
+
+| Operation | Time |
+| --- | --- |
+| Cold part open → mass properties on screen (8 features) | **1,468 ms** |
+| Create a hole → tree + `Up to date` | **320 ms** |
+| Undo a feature | **356–477 ms** |
+| Sketch dimension edit → re-solved | **348 ms** |
+| Finish sketch → full 8-feature rebuild | **530 ms** |
+| STEP / STL / 3MF / GLB export (click → file) | **118 / 109 / 152 / 97 ms** |
+| Flat-pattern DXF (click → file) | **2.76 s** |
+| STEP import of a 18-face part | **12.1 s** |
+
+Everything except import is comfortably faster than Fusion on a part this size.
+**STEP import at 12.1 s against a 118 ms export of the same body is the one number
+out of line** — a supplier file is the first thing a new user brings, and 12 s on
+an 18-face part will not scale.
+
+### Tool feel — measured, not impressionistic
+
+**S-29 — 🔴 The inspector panel overlaps its own content at the documented
+responsive floor (1280x800).** Measured with `getBoundingClientRect` at
+1280x800: the `BOUNDING BOX` section occupies y = 410…532; the export band
+(`part-export-controls`) occupies y = **459**…590. They overlap by **73 px**, and
+in the screenshot (`90-laptop-1280.png`) the `Extents 150 × 70 × 30 mm` row is
+half-covered by `EXPORT Ready`. Min, Max, Faces, Edges, Shells and Status are
+simply not reachable. The design mandate's quality floor says "responsive to
+1280x800"; this is the primary numeric readout of the product, broken there.
+
+**S-30 — 🔴 Four of the six view-bar buttons use the BYTE-IDENTICAL icon.**
+Dumped the `innerHTML` of each button's `<svg>`: `view-front`, `view-top`,
+`view-right` and `view-iso` all render
+`<path d="M4 8L12 4L20 8L12 12Z"/><path d="M4 8V16L12 20V12"/>…` — the same
+cube glyph, character for character. Only the tooltip (`Front view — 1`) tells
+them apart. Four adjacent controls carrying zero visual information is exactly
+the "every chrome element earns its place" defect in mandate 3(c). Fusion's view
+menu and Plasticity's view bar both use distinct orientation glyphs.
+
+**S-31 — 🔴 Still no orthographic projection.** `[data-testid*="ortho|persp|
+projection"]` → `[]`. Named views are perspective, so "FRONT" magnifies near
+features relative to far ones and cannot be used to check alignment or read a
+section (`36-front-view-hem.png`: the near hem reads ~70 px tall against 102 px
+for a 25 mm flange wall). Every incumbent defaults named views to orthographic.
+This was P1 in the previous pass (R-11) and is unchanged.
+
+**S-32 — the ViewCube is correct and well-seated.** 108x108 px at (1130, 602) on
+a 1280x800 frame, labelled TOP/FRONT/RIGHT, re-labels on orbit. VIEWCUBE-1 holds.
+
+**S-33 — bodies still float with no contact shadow, and shaded bodies carry no
+edge overlay.** The matcap read is good (`16-iso.png`, `31-pattern2.png` — the
+sheet-metal bead genuinely reads as rolled metal), but there is no ground
+contact and no drawn edges on the solid. SolidWorks' default display style is
+*Shaded With Edges* precisely because you cannot read a model's topology from
+shading alone; on the 18-face bracket the four holes read only as dark blobs.
+
+**S-34 — editing a sketch on a part that already has a body is barely legible.**
+Repeat of R-15, measured again on this part: the body stays fully opaque and
+turns pale (`74-sketch-reopened.png`, `94-sketch-open-for-dim.png`), the white
+sketch profile is drawn over it, and the driving dimension labels — `150` at
+(763, 758) and `60` at (1302, 527) — land on the body's specular highlight in a
+small dark-brass type. A `GHOST` opacity control exists in the BODIES panel; the
+sketcher just doesn't use it. Fusion and Onshape ghost automatically.
+
+**S-35 — sketch dimensions render as bare numerals, not dimension entities.** No
+extension lines, no dimension line, no arrowheads, and they overlap the datum
+axes (`11-rect-dimensioned.png`: `120` sits on the vertical datum). The drawings
+module draws proper dimensions with witness lines and arrows (S-27) — so, again,
+the good implementation exists in the neighbouring subsystem.
+
+**S-36 — good things worth not regressing.** The `PARTIAL BODY` banner; the hole
+form's `FRAME 0, 0, 2 mm · X→+X · Y→+Y` plus an `On solid material.` check; the
+typed `HOLE_OFF_BODY` error ("The hole misses the body — no material is
+removed"); the interference readout with an exact overlap volume; the `RE-ANCHORED
+… CONFIRM` chip on drawings; live extrude preview; unit switching (150 mm →
+5.9055 in, 32,764.8 mm³ → 1.9994 in³, 257.859 g → 0.5685 lb — all exact); STEP
+round-trip (32,764.8004 mm³ read back against 32,764.8 shown, BRep-valid); the
+nav cue's dismissal persisting across reload; and the dimension editor now
+autofocusing its input (a P2 from the previous pass, closed).
+
+**S-37 — no sheet-metal recognition on import.** A STEP of the bracket imports
+exactly (32,764.8 mm³, 18 faces, 48 edges) but `new-flat-pattern`,
+`export-flat-dxf`, `new-edge-flange` and `new-hem` are all `aria-disabled="true"`
+on it. A supplier's STEP of a bent part cannot be flattened. SolidWorks
+("Convert to Sheet Metal") and Fusion both do this.
+
+### Ratings — 1–5 daily-driver readiness (this pass's job: fabrication handoff)
+
+| Capability | Rating | One-line reason |
+| --- | --- | --- |
+| Sketch drawing + typed sizes | 4 | Drag-draw with live W x H cells that drive the solver; rectangle rigidity is authored at placement (RECT-1 holds); dimensions render as bare numerals over the body (S-35) |
+| Part modeling — first build | 4 | Every volume I checked was exact to the last digit (14,400 / 26,363.89 / 32,764.80 mm³, each hole −47.52) and the vocabulary is broad |
+| Parametric edit / rebuild robustness | **1** | Reproducible: the second consecutive dimension edit orphans downstream edge references and skips everything after them (S-24, S-24b) |
+| Failure *reporting* | **5** | `PARTIAL BODY` naming the last good feature, the exclusion count, the export block and an inline action; typed `HOLE_OFF_BODY`; better than SolidWorks' rebuild list |
+| Failure *recovery* | **2** | Repair works via double-click-the-failed-row, but the error says "Re-pick the face" and no such control exists (S-25), and a mis-hydrated form silently disables Save (S-26) |
+| Selection (faces / edges) | **1** | 24 px proxy diamonds whose centres are 8–10 px apart; the bracket's bottom face is provably unreachable across 11 orbits and 10 zooms (S-15) |
+| Pattern | **1** | No seed picker; the note says "seed body" and the behaviour is neither reliably body nor feature (S-7); 4 mounting holes have no path |
+| Sheet metal — authoring | 3 | Base flange / edge flange / hem / corner relief with an honest inheritance model, but a flange builds off a 2 mm thickness edge and says OK (S-4), and "closed hem" is an open hem (S-6) |
+| Sheet metal — the deliverable | **1** | The flat-pattern DXF has **no holes** (S-10) and declares **metres** (S-11) |
+| Drawings | 4 | Correct third-angle HLR with hidden lines, real dimension entities, draggable views, and best-in-class re-anchoring (S-27); 1:2 on A3 using 30 % of the sheet, `150.000`, no auto-dim, no GD&T |
+| Assemblies | **2** | Instances seed interpenetrating, are indistinguishable, mates cannot reach the face they need (S-15), and the conflict diagnosis prints `[UUID('…')]` (S-18) |
+| Interference check | **5** | Exact overlap volume per pair, both rows tagged, 8.5 s — ahead of Fusion's default |
+| BOM | 2 | Name + qty + total, nothing else, and it cannot be placed on a drawing |
+| Measure | 2 | 80 markers on an 18-face part, labels without coordinates, no diameter/radius/centre-to-centre |
+| Export (STEP/STL/3MF/GLB) | **5** | 97–152 ms, round-trip exact to 4.2e-4 mm³ on 32,765, BRep-valid |
+| Import (STEP) | 3 | Exact geometry, but 12.1 s, no sheet-metal recognition (S-37), assembly components named by UUID on the way out (S-22) |
+| Workspace / register | 4 | Filter, sort, rename, duplicate, folders, real filenames, a REBUILD health column; no thumbnails, decorative empty rows (S-2) |
+| Viewport feel | 3 | Grid-to-horizon + fog + a convincing matcap; no contact shadow, no edge overlay, no ortho |
+| View navigation | 3 | ViewCube correct; four view-bar buttons share one icon (S-30); no ortho (S-31) |
+| Command flow (what next?) | 2 | Live extrude preview is new and good; still no drag handles, nothing proposes the next verb, assembly-create doesn't open the assembly |
+| Performance | 4 | 1.47 s open, 530 ms 8-feature rebuild, sub-350 ms solves — but 12.1 s STEP import |
+| Layout robustness | **2** | The inspector overlaps its own content at the stated 1280x800 floor (S-29) |
+
+### Scorecard rows that look stale (`docs/VISION.md`) — for the vision-steward
+
+1. **`Sheet metal` — ➖, and its Notes are stale in BOTH directions.** Stale in
+   the good direction: the row says "There is also no hem, jog, miter flange, tab,
+   or corner relief" — **hem and corner relief ship** (`new-hem`,
+   `new-corner-relief` are live toolbar verbs, S-3). Stale in the bad direction,
+   and much more seriously: the row's own DXF correction asserts
+   "`$INSUNITS` still correctly declared millimetres" — the file says **6, which
+   is metres** (S-11) — and the row treats the one-click flat-pattern DXF as a
+   closed win when **the holes are not in it** (S-10). Recommend the row drop to
+   ❌ until a flat pattern carries its through-features: a cut file that omits the
+   holes is not a deliverable, it is a hazard.
+2. **`Part modeling (features, history)` — ➖ is right, and the blocker is now
+   characterised, not just named.** The previous pass recommended ➖ for
+   "persistent topological naming across parameter changes." This pass adds the
+   reproduction shape (S-24b: first edit after a clean rebuild survives, second
+   breaks) and the strong hint that the matched reference is not re-stamped. Worth
+   putting in the Notes so the fix is aimed.
+3. **`Assemblies & mates` — ➖. This pass cannot support that.** The row says "a
+   working engineer can genuinely bolt real parts together." I could not: the face
+   the mate needs is unreachable at any camera (S-15), and I had to accept a 2 mm
+   error to get a mate at all. Recommend ➖ → ❌ until face selection works, or at
+   minimum a Notes correction naming S-15 as a blocker rather than a nicety.
+4. **`Interop (import + export)` — ➖ is right; two Notes corrections.** Export is
+   genuinely 5/5 (four formats, round-trip exact). But assembly STEP names its
+   components with raw UUIDs (S-22), and import is 12.1 s against a 118 ms export.
+   The Notes claim assembly import "reads PRODUCT/ASSEMBLY structure" — the
+   *export* side writes structure whose names are unusable, which is the same
+   interop promise failing on the outbound leg.
+5. **`Drawings & documentation` — ➖, and it is the strongest pillar I touched.**
+   The re-anchor behaviour (S-27) is genuinely ahead of SolidWorks. Worth naming
+   in the Notes as the reference implementation the feature subsystem should copy.
+6. **A row for `Selection & direct manipulation` does not exist and should.**
+   Proxy-marker picking is not a sub-item of any current row — it is the thing
+   that blocked sheet metal (S-5), assemblies (S-15) and measure (S-33) in this
+   single session, and it is invisible on a scorecard organised by capability.
+   The same argument that earned `Workspace & document management` its own row on
+   2026-07-30 applies: a dimension nobody scores cannot flip.
+
+### Prioritized recommendations (P0–P3, one line each, buildable)
+
+- **P0 — Put through-features in the flat pattern**: the unfold must carry holes,
+  slots and cutouts to the blank, with a golden that asserts the DXF entity count
+  matches the part's through-feature count (S-10).
+- **P0 — Write `$INSUNITS = 4` (millimetres) in every DXF** and add a gate that
+  reads the exported header back and fails on any value but 4 (S-11).
+- **P0 — Re-stamp a feature's subshape reference after a successful re-match**, so
+  a second consecutive parameter edit compares against current geometry rather
+  than two edits ago (S-24b).
+- **P0 — Make faces and edges hover-pickable on the real geometry**, with a
+  "select other" cycle for coincident candidates, so a 2 mm sheet's bottom face is
+  reachable (S-15, S-5).
+- **P0 — Refuse an edge flange on a thickness edge**: filter the flange selection
+  set to boundary edges of a sheet *face*, with a typed error naming why (S-4).
+- **P1 — Give Pattern a seed selection** ("features to pattern", defaulting to the
+  tip) and make the note describe what will actually happen (S-7).
+- **P1 — A disabled primary action must state its reason** (tooltip + inline
+  message), and fix the hem editor hydrating an unchecked override as
+  checked-with-empty-value (S-26).
+- **P1 — Make "closed hem" closed**: force radius ≈ 0/gauge, and expose
+  closed / open / teardrop / rolled with the gap as an explicit field (S-6).
+- **P1 — Render the mate-conflict diagnosis as typed data, not a `repr`**: name
+  the two mates as they appear in the panel, with a "remove this one" action next
+  to each; and fix the missing sentence separators in the DOF/conflict strings
+  (S-18).
+- **P1 — Add an orthographic/perspective toggle and default named views to
+  orthographic** (S-31; unchanged from R-11 last pass).
+- **P1 — Ghost the body automatically while a sketch is being edited**, reusing
+  the GHOST opacity that already exists in the BODIES panel (S-34).
+- **P1 — Fix the inspector overlap at 1280x800** and add a layout assertion at the
+  documented responsive floor (S-29).
+- **P1 — Name assembly STEP components by their part name, not their instance
+  UUID** (S-22), and put Loft in the STEP `FILE_NAME` originating-system field.
+- **P2 — Continue the rebuild past a failed feature** for features that do not
+  depend on it, instead of skipping everything below (S-24).
+- **P2 — Give the four orientation view-bar buttons four distinct icons**, or
+  delete them and let the ViewCube own orientation (S-30).
+- **P2 — State the flange-length and hem-return datum** (outer virtual sharp /
+  inner / tangent), or offer the selector the incumbents do (S-8, S-12).
+- **P2 — Draw sketch dimensions as real dimension entities** — extension lines,
+  dimension line, arrowheads, placed clear of the datum axes (S-35).
+- **P2 — Per-instance appearance in assemblies**, and prefix pick labels with the
+  instance name so two parts' "Planar face 1" are distinguishable (S-16).
+- **P2 — Seed a newly added instance clear of the others** rather than
+  interpenetrating at the origin (S-16).
+- **P2 — Auto-layout should fill the sheet**: choose the largest standard scale
+  that fits and centre the view block; suppress trailing zeros (`150`, not
+  `150.000`) (S-28).
+- **P2 — Measure: diameter/radius on a single circular edge, centre-to-centre on
+  two**, and put coordinates in `measure-edge-*` labels to match `edge-pick-*`
+  (S-33).
+- **P2 — Speed up STEP import** (12.1 s for 18 faces against a 118 ms export).
+- **P3 — Export the full title string, not the UI-truncated one with an ellipsis**
+  (S-14).
+- **P3 — Sheet-metal recognition on an imported solid** so a supplier STEP can be
+  flattened (S-37).
+- **P3 — Centre the sign-in card** — still 5.2 % of a 1600x1000 frame, pinned
+  bottom-right, and it is the first frame anyone sees (S-1). Third pass reporting
+  this at P3; it is a 60-second fix.
+- **P3 — Contact shadow under bodies and an edge overlay on shaded solids**
+  (S-33), and drop the empty ruled rows on an empty register (S-2).
+- **P3 — Opening a newly created assembly should navigate into it**, as creating a
+  part does (S-17).
+
+### Evidence & reproduction
+
+Native no-Docker boot at HEAD `c02743e` (app code identical to `6dfb597`):
+gateway :8000, documents :8001, geometry :8002, Vite :5173, Chromium 141
+(swiftshader) driven over CDP at 1600x1000 except where a finding names
+1280x800. All timings in the performance table were obtained by polling for a
+DOM state change; timings quoted inside individual findings that were taken with
+fixed sleeps are labelled as such or omitted. Screenshots `00-boot.png` …
+`95-edit-sweep.png` and the exported artefacts (`flat.dxf`, `sheet.dxf/pdf/svg`,
+`bracket.step/stl/3mf/glb`, `asm.step`) are in this pass's session scratchpad
+(`.../scratchpad/pa2/`) rather than `docs/screenshots/`, because the auditor is
+read-only outside this file; every finding is reproducible from the steps written
+into it. The parts used: **Chassis bracket** — 2 mm CRS, 120x60 base flange
+(later 150), 25 mm x 90° edge flange, 6 mm closed hem, 4 x Ø5.5 through, 8
+features, 18 faces, 32,764.80 mm³, 257.86 g in AISI 1018; **Mounting plate** —
+140x80x6 with one Ø5.5 hole; **Chassis subassembly** — both, one mate.
+
+
+---
+
+## Pass 2026-08-24 — product audit (fourth pass): the design-change loop on a machined part
+
+**Method.** Native no-Docker boot at HEAD `fc5cf41` (branch
+`claude/branch-review-development-hkbbnb`): geometry :8002, documents :8001,
+gateway :8000, Vite :5173, Chromium 141 headless (software GL) driven over CDP
+at 1600x1000 unless a finding names another size. Scratchpad for this pass:
+`.../scratchpad/pa3/` (shots `00-*.png` onward, exported artefacts alongside).
+
+**The job.** The previous pass modelled a sheet-metal bracket and chased the
+fabrication handoff. This pass deliberately runs the loop an engineer spends
+most of the day in — **model a machined part, then CHANGE it**: motor mount
+plate, boss, bolt circle, fillets, then the design change (plate grows, hole
+size grows, pattern count changes), then measure/inspect and export. Findings
+are numbered `T-n`.
+
+### Findings (appended live)
+
+**T-1 — 🔴 (fourth consecutive pass) the sign-in card is still pinned to the
+bottom-right corner.** `00-boot.png`, 1600x1000: `auth-panel` occupies roughly
+x 1233..1551, y 693..950 — about 5 % of the frame, hard against the corner,
+with 95 % of the first screen an empty grid. This is the first frame every new
+user and every evaluator sees, and it reads as a broken layout rather than a
+deliberate one. Reported at P3 in the previous two passes on the assumption it
+was a minute's work; it has now survived three grooms, so it is re-filed at P1 —
+not because the fix got harder, but because first-run impression is the entire
+top of the adoption funnel this product's thesis depends on.
+
+**T-2 — 🟡 the API knows exactly why a sign-up failed; the UI shows "Request
+validation failed."** Registering `audit4@loft.test` (a perfectly ordinary
+self-host / lab domain) fails with an unexplained sentence and no field
+highlight. The gateway's own response carries the answer:
+`details[0].loc = ["body","email"]`, `msg = "value is not a valid email address:
+The part after the @-sign is a special-use or reserved name that cannot be
+used with email."` The UI throws that away and prints the envelope's generic
+`message`. Two costs: (a) the very first interaction with the product is a dead
+end with no next step, and (b) `.local`/`.test`/`.internal` addresses are what
+an air-gapped shop — the audience the vision names in point 2 — will type
+first. Any `422` with a `details[]` array should render per-field messages.
+
+**T-3 — sketching remains the strongest part of the product.** Dragging a
+rectangle produces live `W`/`H` cells with `Type a size · Tab switches · Enter
+applies`, constraint glyphs (`C`/`H`/`V`) drawn at the corners and edges as
+they are inferred, `10 applied` in the strip, a hover pre-highlight that turns
+a vertex orange with a crosshair (`20-hover-corner.png`), and a DOF readout
+that stepped `DOF 2 · UNDER-CONSTRAINED` → `DOF 1` → **`DOF 0 · CONVERGED`** as
+I added two symmetric constraints. Typed `120`/`80` applied in 2.1 s. Rated 4/5.
+
+**T-4 — 🟡 after a drag-draw the size cells are NOT focused, so "just type the
+number" does not work.** `document.activeElement` immediately after the drag is
+`BODY`, while the on-screen hint says `Type a size`. In Fusion 360 and Onshape
+the dimension box takes focus on mouse-up and the number you type lands in it;
+here the user must aim at a 40 px cell docked in the *top-right corner of the
+screen*, ~800 px from where the cursor finished the drag. The mandate's
+"capture intent where it forms" (FB-16) is half-shipped: the cells exist, the
+focus and the placement do not.
+
+**T-5 — 🟡 the constraint set has no ANGLE and no DIAMETER dimension.**
+Enumerated live from the three menus: geometric = horizontal, vertical,
+parallel, perpendicular, tangent; dimensional = **distance, radius, equal**;
+relational = coincident, concentric, symmetric, fixed. Missing against every
+incumbent: **angle** (any non-orthogonal rib, gusset or dovetail is
+un-dimensionable), **diameter** (holes are specified by diameter on every
+drawing and in every fastener table; radius forces the engineer to halve it in
+their head and the value on the drawing then reads as a radius), **midpoint**
+and **collinear**. Also `Symmetric` accepts only *two points + a line* — two
+parallel *lines* + an axis, which is what an engineer selects first and what
+SolidWorks/Onshape both accept, is refused with "Select two points and a line".
+
+**T-6 — 🟡 the selection readout counts entities but never names them.** The
+strip reads `3 ents · 11 applied` or `1 ent · 2 pts`. When Symmetric refused my
+selection I could not tell from the UI *what* was in it — I had to screenshot
+the viewport and look at what turned orange to discover I had grabbed two edges
+instead of two vertices. A vertex 14 px from its own edge flips the pick from
+point to line with no filter and no "select other" cycle. Fusion, Onshape and
+SolidWorks all list the selection by name in the dialog.
+
+**T-7 — the build itself is fast and every volume is exact.** Motor mount
+plate, 8 features: sketch save 2.8 s, extrude 2.8 s, hole 2.4–2.6 s, pattern
+2.9 s, fillet 3.3 s, full rebuild after a sketch edit 3.7 s. Volumes checked by
+hand against closed form at every step and all exact to the displayed digit:
+76,800.00 (120x80x8) → 72,873.01 (−π·12.5²·8) → 72,599.31 (−π·3.3²·8) →
+71,778.23 (4 bolt holes + bore) → 71,091.50 (4 × R10 corner fillet, −686.73).
+Centroid stayed `0, -0, 4` through the symmetric build. The kernel is not the
+problem anywhere in this pass.
+
+**T-8 — 🔴 P0. The single most ordinary parametric edit there is — grow a plate
+from 120 mm to 150 mm — DESTROYS the corner fillet.** Full repro: sketch a
+120x80 rectangle, extrude 8, four Ø6.6 holes + a Ø25 bore, `Fillet1` on the four
+vertical corner edges at R10 (`OK`), then open Sketch1, change `120` → `150`,
+save. Rebuild = 3.7 s, and `08 Fillet1` comes back **`ERR SUBSHAPE_UNRESOLVED`**,
+`STATUS: Partial · Fillet1 failed · built to Pattern2`, all four export tiles
+blocked with `Fillet1 failed` (`44-after-150.png`). The banner states the cause
+exactly: *"No edge of the current body matches a picked edge signature (curve /
+endpoints / midpoint / length); the referenced edge no longer exists after the
+rebuild."*
+**And the matcher had everything it needed.** I enumerated the edge proxies
+before and after: the four corner edges are the SAME ordinals both times —
+`edge-pick-0/1/4/7` = `Edge 1 / 2 / 5 / 8`, same curve type, same topological
+role, same two adjacent faces. Only their X moved, `±60 → ±75`. A signature
+built from *endpoints / midpoint / length* cannot survive a resize **by
+construction** — those are exactly the quantities a resize changes. SolidWorks,
+Fusion 360, Onshape and FreeCAD all carry a corner fillet through this edit;
+it is the first thing anyone tries after building a part, and it is the whole
+promise of the word "parametric". Daily-driver rating for parametric rebuild:
+**1/5**, unchanged from the previous pass but now with a minimal reproduction
+and a named root cause.
+
+**T-9 — 🔴 P0 (compound). After the failed rebuild, THREE OF THE FOUR EDGES I
+had to re-pick were physically outside the browser window.** Measured
+`getBoundingClientRect` on the repair panel's own pick proxies with the app in
+the state it left me: `edge-pick-1` at **y = −186**, `edge-pick-4` at
+**y = 1017** (window is 1000 tall), `edge-pick-7` at **x = −4**. Two separate
+defects compound here: (a) a sketch edit + rebuild leaves the camera zoomed and
+oriented at whatever the sketch normal was, so the part no longer fits the frame
+(`44-after-150.png` — the plate is cropped on all four sides and the ViewCube
+reads `TOP` upside-down at the bottom-right); and (b) the pick proxies are DOM
+overlays that are *projected* out of the frame rather than clamped or hidden, so
+the panel says "Click edges in the view to round just those" while there is
+nothing in the view to click. Recovery took `Fit` → `Iso` → `Fit`, then four
+picks, then Save. Total cost of one dimension change: **one failed rebuild plus
+seven extra interactions**; the same edit in Fusion is two.
+
+**T-10 — failure REPORTING remains genuinely best-in-class (5/5).** The red
+`THIS FEATURE COULDN'T BUILD` banner names the mechanism and offers two
+remedies; the tree row carries the typed code `SUBSHAPE_UNRESOLVED`; STATUS
+reads `Partial · Fillet1 failed · built to Pattern2` so you know exactly how much
+of the part is real; every export tile is individually blocked with the reason
+rather than silently exporting a partial body; the timeline chip turns red. This
+is better than SolidWorks' rebuild-error list. One inconsistency worth a
+one-line fix: the banner says **edge** ("Re-pick it") and the tree row says
+**face** ("The referenced face can no longer be found — Re-pick the face") for
+the same failure of a fillet, which references edges.
+
+**T-11 — 🔴 P0. `Pattern` has no seed selection and its behaviour changed under
+me mid-session.** The panel offers only Linear/Circular, Count, Direction
+(`±X/±Y/±Z` dropdown) and Spacing, with the note *"Includes the seed body — a
+count of 3 makes 2 more."* Measured twice on the same part:
+- Tip = `Hole2` → the pattern copied the **hole** (volume −273.70 mm³, extents
+  unchanged at 120x80x8). Feature pattern. Correct and useful.
+- Tip = `Pattern1` → the pattern copied the **body** (extents 80 → **127** mm in
+  Y, volume 72,325 → **114,799**), fusing a second plate 47 mm away and slicing
+  the Ø25 bore into a crescent (`32-pattern2.png`). `STATUS` still said
+  **`Up to date`**.
+Same dialog, same inputs, opposite semantics, no seed field, no preview, and no
+warning — I only discovered which one had happened by reading the bounding box
+afterwards. Undo recovered it cleanly in 3.2 s. A bolt-circle/hole pattern is
+the single most common use of this command in mechanical design; today it is a
+coin flip. (This is S-7 from the previous pass, now with a two-case
+reproduction.)
+
+**T-12 — 🔴 the aria label of every CIRCULAR edge names a point that is not its
+centre — it is the centre minus the radius.** Enumerated from the live pick
+overlay on a plate whose four Ø6.6 holes are provably at (±23.5, ±23.5) (I typed
+them, and the part centroid came back `0, -0, 4`):
+`Edge 12, circle, centred at -26.7, -23.5, 0` and
+`Edge 13, circle, centred at 20.3, -23.5, 0` — i.e. −23.5−3.3 and +23.5−3.3.
+The Ø25 bore, centred at the origin, is labelled `centred at -12.4, 0, 0`.
+Two costs: the label is the ONLY identification an engineer gets for an edge, so
+picking "the hole at −26.7" to fillet or chamfer means picking by a number that
+does not exist on any drawing; and worse, the four symmetric holes are labelled
+with *asymmetric* X values (−26.7 and +20.3), which reads as a modelling error
+in a part that is correct. Same class as the previous pass's UUID-named STEP
+components: the geometry is right and the words attached to it are wrong.
+
+**T-13 — 🟡 face picking is still 24 px proxy squares, and the hover highlight
+does not show the face.** Hovering `plane-pick-face-0` (the front side face)
+draws a translucent orange **ellipse floating mostly BELOW the plate**, drawn
+without depth test and bearing no relation to the face's outline
+(`26-face-hover.png`). On this simple 6-face body the two large faces' proxies
+sit 45 px apart on the same screen X (`788, 468` for the top at z=8 and
+`788, 513` for the bottom at z=0) and are told apart only by an aria-label.
+Incumbents tint the actual face bounded by its own edges. Also **cylindrical
+faces are not in the pick set at all** — after cutting the Ø25 bore the list was
+still six `Planar face N` entries, so a bore wall cannot be selected as a face.
+
+**T-14 — 🟡 Measure sprays 65 markers over a 15-face part and one of my clicks
+hit nothing.** On the finished plate the measure overlay renders **26 vertex +
+39 edge** proxies (`47-measure.png`); the four bolt holes are completely hidden
+under the marker cloud. A click at the exact centre of `measure-edge-4`'s
+bounding box registered **no selection at all** (the readout still said "Pick a
+point or edge") because a neighbouring marker sat on top of it — Playwright's
+own actionability check refused the same element as "not stable". Vertex
+measurement is exact and well-labelled (`Vertex at -65.00, -40.00, 0.00` →
+`Vertex at 65.00, -40.00, 0.00` = `DISTANCE 130 mm`, correct for a 150 mm plate
+with R10 corners). **But picking two hole circles returns
+`Edge 9 → Edge 12 · DISTANCE 70.9597 mm · ΔX 49.2114 · ΔY -51.1225`, which is
+not the centre-to-centre distance** (the holes are 47 mm apart in both axes,
+66.468 mm diagonally) and the readout does not say what it measured. Circular
+edge labels carry no location at all (`Edge 9, circle`), so with 18 circular
+edges on the part you cannot tell which hole you picked. Rating 2/5, unchanged.
+
+**T-15 — export and STEP round-trip are still excellent (5/5).** STEP 97 ms,
+STL 158 ms, filenames derived from the part name (`motor-mount-plate.step`).
+Re-importing that STEP into a fresh part took **3.0 s** and reproduced the solid
+exactly: 90,291.5 mm³, 27,407.35 mm², 15 faces, extents 150 x 80 x 8 — every
+digit identical. (Import was 12.1 s in the previous pass on an 18-face part;
+either it improved or this part is easier — worth a dedicated benchmark rather
+than a claim.) One provenance nit unchanged from the last pass: the STEP header
+is `FILE_NAME('Motor mount plate','2000-01-01T00:00:00',('Author'),
+('Open CASCADE'),'Open CASCADE STEP processor 7.9','build123d','Unknown')` — a
+fixed epoch date, `Author` as the author, and no mention of Loft as the
+originating system. PDM systems read those fields.
+
+**T-16 — 🔴 P0, and it is now on TWO export paths: the DXF declares METRES.**
+`$INSUNITS` = **6** in the drawing DXF I exported this pass
+(`mmp-001.dxf`) — the previous pass found the same value 6 in the flat-pattern
+DXF and the VISION Notes still assert millimetres. Any CAM/laser front end that
+honours `$INSUNITS` scales this file by 1000. Compounding it: the sheet DXF is
+written in **paper space at the drawing scale** — I read the circle entities
+directly and the four bolt holes come out at `r = 1.65` and the bore at
+`r = 6.25`, i.e. exactly half of the true 3.3 / 12.5 mm, because the sheet is
+1:2 — and nothing in the file or the UI says the DXF is scaled. A wrong unit
+plus a silent 2x scale on a file whose only purpose is to be handed to a shop is
+the most expensive single defect in this audit.
+
+**T-17 — drawings remain the strongest subsystem (4/5), with three concrete
+gaps.** `Lay out standard views` produced correct third-angle FRONT/TOP/RIGHT/
+ISOMETRIC with hidden lines dashed, an edge count per view, a title block, and
+PDF/SVG/DXF export in 249 ms (`55-drawing-views.png`). Adding a dimension is a
+good flow: click a highlighted edge → a small `Ø Diameter / R Radius` chooser →
+`Ø25.000` lands on the sheet. Gaps: (a) auto-layout picked **1:2** and the four
+views occupy roughly the left-centre third of an A3 sheet — a 150x80 plate fits
+A3 at 1:1 with room to spare (S-28, unchanged); (b) `Ø25.000` prints three
+trailing zeros, and there is **no tolerance field at all** — you cannot specify
+`Ø25 H7` or `±0.1` on a bore, which is the entire point of dimensioning a bore;
+(c) no centre marks or centrelines on the holes, no hole table, no GD&T frame.
+Also note the drawings module offers **diameter and angle** dimensions while the
+sketcher does not (T-5) — the good implementation is again in the neighbouring
+subsystem.
+
+**T-18 — 🟡 (third pass) the inspector still overlaps its own content at the
+documented 1280x800 floor, and there is no scroll container.** Re-measured this
+pass on the finished part: the `Min` row occupies y 474..491 and the inspector's
+export panel occupies y **459..589**; `document.elementFromPoint(985, 482)` —
+the Min row's own coordinates — returns `SPAN:"Export"`. So Min, Max, TOPOLOGY
+(Faces/Edges/Shells) and STATUS are all unreachable, and walking the ancestors
+of the panel finds **no `overflow: auto|scroll` container**, so the user cannot
+scroll to them either. `62-laptop-1280.png` shows `Extents 150 × 80 × 8 mm` cut
+in half by `EXPORT Ready`. Identical measurement to the previous pass.
+
+**T-19 — the four orientation buttons are no longer byte-identical, but the
+difference is a 1.4 px dot.** Progress since the previous pass (S-30): each cube
+glyph now carries a `<circle r="1.4">` on a different facet (`view-front` at
+8,13.5; `view-top` at 12,8; `view-right` at 16,13.5) and `view-iso` a dashed
+edge. At the rendered 24 px icon size that is a 2.8 px mark — `61-viewbar.png`
+reads as five near-identical cubes. Fusion and Plasticity use distinct
+orientation glyphs (a face-on square, a plan rectangle, a corner cube). Half
+closed; still a defect at practical legibility.
+
+**T-20 — 🔴 (third pass) there is still no orthographic projection.** Queried
+live: `[data-testid*="ortho|persp|project"]` → `[]`, and the full set of view
+controls is `view-home, view-fit, view-front, view-top, view-right, view-iso`.
+Named views are perspective, so `FRONT` cannot be used to check alignment or
+read a section, and the ViewCube's face clicks land you in a perspective view of
+a face. Every incumbent defaults named views to orthographic; this is table
+stakes for a modelling tool, and it is the third consecutive pass reporting it.
+
+**T-21 — 🔴 P0, THE FINDING OF THIS PASS. Changing an extrude depth from 8 mm to
+12 mm — a change that alters no topology whatsoever — destroys SIX of the eight
+features.** Opened `02 Extrude1` from the tree (2.5 s), changed `8` → `12`,
+saved. Rebuild 3.8 s, and:
+```
+03 Hole1   ERR  SUBSHAPE_UNRESOLVED  "The referenced face can no longer be
+                found — an earlier edit changed the body. Re-pick the face."
+                "Not attempted: the 5 features below. The build stops at the
+                 first failure, even for a feature that does not depend on Hole1."
+04 Hole2   SKIP   05 Pattern1 SKIP   06 Hole3 SKIP
+07 Pattern2 SKIP  08 Fillet1  SKIP
+```
+The part collapsed from 8 features / 15 faces / 90,291 mm³ to a bare slab:
+**6 faces, 144,000 mm³**. The mechanism is visible in the hole's own anchor
+readout — it says `FACE Face at 0, 0, 8 mm`, i.e. the hole is anchored to a face
+identified by its **coordinates**, and moving the top face to z = 12 orphans it.
+Nothing about the top face changed except its height.
+**This is the operating question answered in the negative.** A part that cannot
+survive a thickness change is not a parametric model, it is a one-shot sculpt
+with a history panel attached. Every incumbent — including FreeCAD, whose
+topological naming is its most criticised subsystem — carries a hole on a face
+through a depth change.
+
+**T-22 — 🔴 P0 (the repair path loses the feature's parameters).** There IS now a
+`Re-pick face` action in the failed tree row (new since the previous pass, which
+reported the error naming a control that did not exist — credit where due). But
+using it on `Hole2` **reset the hole's in-face position from `-23.5, -23.5` to
+`0, 0`**, which I confirmed by reopening the feature (`hole-position-x` = `0`,
+`hole-position-y` = `0`) — and the original values are not recoverable from
+anywhere in the UI, because the feature's own parameters were overwritten. The
+next rebuild then failed with `HOLE_OFF_BODY`, whose diagnostic is admittedly
+excellent: *"Inside the Ø25 mm opening — move it onto material."* Repair is also
+strictly serial: the tree only ever reveals ONE failure at a time, so recovering
+this part is `re-pick → 3.8 s rebuild → discover the next failure → repeat`,
+roughly six rounds plus four edge re-picks for the fillet, ~2–3 minutes of pure
+repair for changing one number. Two sub-recommendations fall straight out:
+preserve the feature's parameters across a re-pick, and re-attempt the features
+BELOW a failure that do not depend on it (the message already admits it does not).
+
+**T-23 — 🟡 nothing proposes the next step, and there is not a single drag handle
+in the product.** Queried the whole DOM in every state I reached:
+`[data-testid*="handle|gizmo|drag|arrow|manip"]` → **`[]`**, and
+`[data-testid*="palette|search|command"]` → **`[]`**. Concretely: extrude is a
+form with a numeric field and a live coloured preview but **no draggable arrow**;
+after saving a solved sketch nothing appears offering to extrude it (the profile
+is pre-selected once you *choose* Extrude from the toolbar — good — but the tool
+never proposes itself); the empty-part state has a good hint ("Start with a
+Sketch — pick a plane, then draw") and there is no equivalent hint at any later
+state. The design mandate names direct manipulation as "the single biggest 'does
+not feel like a modeling tool' gap we have, bigger than any missing feature";
+this pass confirms it is still 100 % unaddressed.
+
+**T-24 — a stray "Hem / Add a base flange first" tooltip was left painted in the
+viewport with the cursor elsewhere** (`62-laptop-1280.png`, at y ≈ 105), and the
+inspector prints `Centre of mass 0, -0, 4` and `Centroid 0, -0, 4` as two rows
+carrying the same number by definition. Both are the "every element earns its
+place" rule, in miniature. Also, `Fit model 0` remained painted over the viewport
+in an earlier capture (`24-extruded-iso.png`). No moments of inertia anywhere,
+which a mass-properties panel is expected to carry.
+
+**T-25 — creating a drawing does not open it.** `Create first drawing` returns
+you to the register and you then click the row — while `Create first part` opens
+the part immediately. The previous pass reported the same inconsistency for
+assemblies (S-17). Three creation flows, two different behaviours.
+
+**T-26 — good things worth not regressing.** The DOF readout stepping
+`2 → 1 → 0 · CONVERGED` as constraints land; the rectangle's live `W`/`H` cells;
+constraint glyphs drawn on the geometry; `Fillet` by RULE (all edges / parallel
+to X/Y/Z) which no incumbent offers in that form; the hole anchor's explicit
+`FRAME 0, 0, 8 mm · X→+X · Y→+Y` plus the `On solid material.` / `Inside the
+Ø25 mm opening` checks; the typed error vocabulary (`SUBSHAPE_UNRESOLVED`,
+`HOLE_OFF_BODY`) and the `Partial · Fillet1 failed · built to Pattern2` status;
+per-format export blocking with the reason on each tile; undo restoring a bad
+pattern in 3.2 s and a five-feature rebuild in ~3 s; exact mass on assignment
+(90,291.5 mm³ × 2.70 = 243.7871 g); the drawings module end to end.
+
+### Ratings — 1–5 daily-driver readiness (this pass: the design-change loop)
+
+| Capability | Rating | One-line reason |
+| --- | --- | --- |
+| Sketch drawing + typed sizes | 4 | Drag-draw with live W/H cells, inferred constraint glyphs, hover pre-highlight, `DOF 0 · CONVERGED`; the cells are not focused after the drag (T-4) and sit 800 px from the cursor |
+| Sketch constraint vocabulary | **2** | No **angle** and no **diameter** dimension; no midpoint/collinear; `Symmetric` refuses two lines + an axis (T-5) |
+| Part modeling — first build | 4 | Every volume exact to the displayed digit across 8 features; broad verb set (revolve/sweep/loft/shell/draft/mirror/combine present) |
+| **Parametric edit / rebuild** | **1** | A depth change 8→12 orphans 6 of 8 features (T-21); a width change 120→150 kills a corner fillet (T-8). Both are the most ordinary edits in CAD |
+| Failure *reporting* | **5** | Typed codes, the exact matcher that failed, `Partial · built to Pattern2`, per-format export blocking, red timeline chip — better than SolidWorks' rebuild list |
+| Failure *recovery* | **2** | A `Re-pick face` action now exists (up from 1), but it **discards the feature's position** (T-22), only one failure is revealed at a time, and the pick proxies can be off-screen (T-9) |
+| Selection (faces / edges / vertices) | **1** | 24 px DOM proxies; hover "highlight" is a depth-less disc unrelated to the face (T-13); a measure click landed on nothing under 65 overlapping markers (T-14); cylindrical faces not pickable |
+| Pattern | **1** | No seed picker, no preview; patterned a hole in one invocation and the whole body in the next, with `STATUS: Up to date` on the wrong result (T-11) |
+| Measure | 2 | Vertex-to-vertex exact and labelled; two hole circles give a distance that is not centre-to-centre and is not explained (T-14) |
+| Drawings | 4 | Correct third-angle HLR with hidden lines, per-view edge counts, real Ø dimensions, PDF in 249 ms; 1:2 on a third of an A3, `Ø25.000`, no tolerances, no centre marks |
+| Export (STEP/STL/3MF/GLB) | **5** | 97–158 ms, round-trip exact to the digit, filenames from the part name |
+| Import (STEP) | 4 | 3.0 s, geometry identical on re-read |
+| **DXF deliverable** | **1** | `$INSUNITS = 6` (metres) and silently written at 1:2 sheet scale (T-16) |
+| Materials / mass | 4 | Exact mass on assignment; duplicate Centroid/Centre-of-mass rows, no inertia tensor |
+| Workspace / register | 4 | Filter, sort, folders, real filenames, rebuild-health column; creating a drawing does not open it (T-25) |
+| Viewport feel | 3 | Grid to the horizon, gradient sky, a convincing metal matcap on the part; **no drawn edges on shaded bodies, no contact shadow** — the part floats |
+| View navigation | **2** | ViewCube correct and well-seated; **no orthographic projection at all** (T-20); four orientation buttons differentiated by a 1.4 px dot (T-19); the camera is left un-framed after a rebuild (T-9) |
+| Command flow (what next?) | **2** | Live preview and a pre-selected profile are real wins; **zero drag handles in the entire product**, nothing proposes the next verb (T-23) |
+| Layout robustness | **2** | The inspector overlaps its own content at the stated 1280x800 floor with no scroll container (T-18) |
+| First run | **2** | Sign-in card pinned to a corner at 5 % of the frame (T-1); a `422` on a `.test` email renders as "Request validation failed." (T-2) |
+| Performance | 4 | 2.4–3.8 s per feature/rebuild, 187 ms sign-in, 3.0 s STEP import, 97 ms STEP export |
+
+### Scorecard rows that look stale (`docs/VISION.md`) — for the vision-steward
+
+1. **`Part modeling (features, history)` — ➖ cannot be supported by this pass;
+   recommend ❌.** The row's Notes flipped it toward ✅ on shell/draft/multi-body
+   arriving. Those are real, but this pass shows the *history* half of the row is
+   the weakest thing in the product: **two independent, minimal parametric edits
+   each destroyed most of the feature tree** (T-8, T-21), and the anchor readout
+   shows why — features reference faces by coordinate. "Persistent topological
+   naming" is not a nice-to-have inside this row, it IS this row.
+2. **`Sheet metal` — ❌ is right, and the DXF unit defect is NOT sheet-metal
+   specific.** `$INSUNITS = 6` appears in the *drawing* DXF too (T-16), so the
+   Notes should move that claim out of the sheet-metal row and into `Interop`,
+   where it also belongs.
+3. **`Interop (import + export)` — ➖ is generous while a DXF ships in metres.**
+   STEP/STL/3MF/GLB genuinely earn ➖ or better (exact round-trip, sub-160 ms).
+   DXF is the outlier and it is the format that reaches a machine. Split the row
+   or name DXF explicitly in the Notes.
+4. **`Sketching & constraints` — ✅ is not supportable with no angle and no
+   diameter dimension.** The solver work behind the ✅ (SOLVE-1/SETTLE-2/
+   SETTLE-3) is real and this pass saw it behave well. But a ✅ means "better than
+   SolidWorks/Fusion/Onshape", and all three ship angle, diameter, midpoint and
+   collinear, and all three accept two lines for a symmetry constraint (T-5).
+   Recommend ➖ until the dimensional vocabulary is complete.
+5. **A row for `Selection & direct manipulation` still does not exist and still
+   should.** Second pass making this recommendation. It is the common cause
+   behind the Pattern, Measure, Fillet-repair and Hole-repair findings here, and
+   it is invisible on a scorecard organised by capability. Add it at ❌: 24 px
+   proxies, no face highlight, no drag handles anywhere in the product.
+6. **`Performance on real parts` — ➖ is fair and one Note is now wrong.** STEP
+   import measured **3.0 s** this pass (the previous pass's 12.1 s is quoted in
+   the Notes); re-measure before repeating either number.
+
+### Prioritized recommendations (P0–P3, one line each, buildable)
+
+- **P0 — Anchor a hole to a topological face reference, not to `Face at 0, 0, 8 mm`**: persist the face's identity (ordinal + adjacency + surface type) so an extrude-depth change re-resolves it, with a golden that changes a depth and asserts every downstream feature still builds (T-21).
+- **P0 — Re-match a picked EDGE by topology, not by `curve / endpoints / midpoint / length`**: the four corner edges kept their ordinals (`Edge 1/2/5/8`) through a 120→150 resize, so a topological signature would have re-matched trivially (T-8).
+- **P0 — A `Re-pick face` must PRESERVE the feature's parameters**: Hole2's `-23.5, -23.5` was silently reset to `0, 0` and is unrecoverable (T-22).
+- **P0 — Write `$INSUNITS = 4` in every DXF and gate it**: read the header back in a test and fail on any value but 4; the drawing DXF and the flat-pattern DXF are both affected (T-16).
+- **P0 — State the DXF's scale, or export sheet DXFs at 1:1**: the circles came out at r 1.65 / 6.25 for real radii of 3.3 / 12.5 with nothing in the file or UI saying so (T-16).
+- **P0 — Give Pattern a seed selection** ("features to pattern", defaulting to the tip) plus a ghosted preview before OK; today the same dialog patterned a hole once and the whole body the next time, reporting `Up to date` on the wrong result (T-11).
+- **P0 — Make faces and edges hover-pickable on the real geometry**, with the actual face tinted inside its own boundary and a "select other" cycle for coincident candidates (T-13, T-14).
+- **P1 — Continue the rebuild past a failed feature** for features that do not depend on it — the app's own message already admits it does not (T-21).
+- **P1 — Add ANGLE and DIAMETER dimensions to the sketcher** (plus midpoint and collinear), and let `Symmetric` accept two lines + an axis (T-5).
+- **P1 — Add an orthographic/perspective toggle and default the named views to orthographic** (T-20; third consecutive pass).
+- **P1 — Fit the view after a rebuild, and clamp or hide pick proxies that project outside the frame**: three of four edges I had to re-pick were at y = −186, y = 1017 and x = −4 (T-9).
+- **P1 — Fix the 1280x800 inspector overlap and give the inspector a scroll container**: `elementFromPoint` at the `Min` row returns the Export panel; Min/Max/TOPOLOGY/STATUS are unreachable (T-18).
+- **P1 — Ghost the body automatically while a sketch is being edited**, reusing the GHOST opacity already in the BODIES panel — today the profile is drawn *under* an opaque white body (T-3 shot `41-after-dblclick.png`).
+- **P1 — Render a `422`'s `details[]` as per-field errors**: the gateway already returns the exact reason, the UI prints "Request validation failed." (T-2).
+- **P1 — Centre the sign-in card** — fourth pass reporting a 5 %-of-frame panel in the corner as the product's first frame (T-1).
+- **P1 — Drag handles on extrude** (arrow on the preview, numeric field as the precision fallback) — the mandate's own named biggest gap, still at zero (T-23).
+- **P2 — Fix circular-edge labels: report the CENTRE, not centre-minus-radius** — four symmetric holes are currently labelled at −26.7 and +20.3 (T-12).
+- **P2 — Measure: label what was measured and offer centre-to-centre / diameter / radius on circular edges**; add coordinates to `measure-edge-*` labels (T-14).
+- **P2 — Focus the W/H cells on mouse-up after a drag-draw and place them near the cursor**, so "Type a size" is true (T-4).
+- **P2 — Tolerances on drawing dimensions** (`±`, limit, and a fit class) and suppress trailing zeros (`Ø25`, not `Ø25.000`) (T-17).
+- **P2 — Auto-layout should fill the sheet**: pick the largest standard scale that fits and centre the block (T-17).
+- **P2 — Centre marks and centrelines on circular views**, and a hole table (T-17).
+- **P2 — Give the four orientation buttons legible glyphs** — a 1.4 px dot on a 24 px cube is not a differentiator (T-19).
+- **P2 — Draw edges on shaded bodies** (a *Shaded With Edges* default) and add a contact shadow so parts do not float (viewport feel).
+- **P2 — Make cylindrical faces selectable** — a bore wall is not in the face pick set (T-13).
+- **P2 — Name the selection, do not just count it**: `3 ents` told me nothing when `Symmetric` refused my picks (T-6).
+- **P3 — Opening a newly created drawing should navigate into it**, as creating a part does (T-25).
+- **P3 — Put Loft in the STEP originating-system field and write a real timestamp** instead of `2000-01-01T00:00:00` / `Open CASCADE` / `Author` (T-15).
+- **P3 — Delete the duplicate `Centroid` / `Centre of mass` row and add an inertia tensor**; clear stray tooltips left painted in the viewport (T-24).
+- **P3 — Unify the wording of a subshape failure**: the banner says "edge … Re-pick it", the tree row says "face … Re-pick the face", for the same fillet failure (T-10).
+
+### Evidence & reproduction
+
+Native no-Docker boot at HEAD `fc5cf41`; gateway :8000, documents :8001,
+geometry :8002 on per-agent SQLite files, Vite :5173, Chromium 141 headless
+(ANGLE/SwiftShader — verified `WEBGL_debug_renderer_info` reports
+`SwiftShader Device (Subzero)` before any viewport claim was made) driven
+through a long-lived Playwright driver. Screenshots `00-boot.png` …
+`67-hole2-after-repick.png` and the artefacts (`plate.step`, `plate.stl`,
+`sheet.pdf`, `sheet.dxf`) are in this pass's scratchpad (`.../scratchpad/pa3/`),
+not in `docs/screenshots/`, because the auditor is read-only outside this file;
+every finding above is reproducible from the steps written into it. The part:
+**Motor mount plate** — 150 x 80 x 8 aluminium 6061, Ø25 centre bore, 4 x Ø6.6
+on a 47 mm square, R10 corners, 8 features, 15 faces, 90,291.5 mm³, 243.7871 g.
+One methodological note for future passes: a bare `chrome --headless --disable-gpu`
+launched by hand has **no WebGL at all** in this container and the app's viewport
+canvas then reports the un-styled `300x150` fingerprint — the same false signal
+CLAUDE.md records for a stale Tailwind preset. Launch the browser through
+Playwright (which supplies the ANGLE/SwiftShader flags) and assert the renderer
+string before believing any viewport observation.

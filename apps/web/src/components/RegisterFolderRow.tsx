@@ -1,4 +1,14 @@
-import { Button, DividerTabIcon, TextField } from "@loft/design";
+import {
+  Button,
+  CloseIcon,
+  type ContextMenuSection,
+  DividerTabIcon,
+  FolderUpIcon,
+  OverflowMenu,
+  RenameIcon,
+  TextField,
+  truncatedProps,
+} from "@loft/design";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import {
@@ -34,9 +44,72 @@ import type { RegisterCopy } from "./DocumentRegister";
  * can never delete a document; the server will not do it and the copy says so.
  */
 
-/** Same ink as the document row's verbs — one action vocabulary in the drawer. */
-const ACTION_BUTTON =
-  "inline-flex min-h-target-dense items-center rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] outline-none transition-colors duration-fast focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass";
+/**
+ * The divider's verbs live in the same one-mark overflow menu the filed rows
+ * use (REGISTER-1): the action column is now the gutter's width, and — the
+ * reason that is right rather than merely necessary — a drawer with two action
+ * vocabularies on adjacent lines is the inconsistency the register keeps
+ * deleting. OPEN stays first here because a folder's primary action is to go
+ * into it, and the name itself is still the direct target.
+ */
+function folderVerbs({
+  idPlural,
+  folder,
+  onOpen,
+  onRename,
+  onDelete,
+}: {
+  idPlural: string;
+  folder: FolderResponse;
+  onOpen: () => void;
+  onRename?: () => void;
+  onDelete?: () => void;
+}): ContextMenuSection[] {
+  const sections: ContextMenuSection[] = [
+    {
+      key: "open",
+      items: [
+        {
+          key: "open",
+          label: "Open",
+          icon: <FolderUpIcon />,
+          onSelect: onOpen,
+          "data-testid": `${idPlural}-folder-open-verb`,
+          "aria-label": `Open the folder ${folder.name}`,
+        },
+        ...(onRename === undefined
+          ? []
+          : [
+              {
+                key: "rename",
+                label: "Rename",
+                icon: <RenameIcon />,
+                onSelect: onRename,
+                "data-testid": `${idPlural}-folder-rename`,
+                "aria-label": `Rename the folder ${folder.name}`,
+              },
+            ]),
+      ],
+    },
+  ];
+  if (onDelete !== undefined) {
+    sections.push({
+      key: "destroy",
+      items: [
+        {
+          key: "delete",
+          label: "Delete",
+          icon: <CloseIcon />,
+          danger: true,
+          onSelect: onDelete,
+          "data-testid": `${idPlural}-folder-delete`,
+          "aria-label": `Delete the folder ${folder.name}`,
+        },
+      ],
+    });
+  }
+  return sections;
+}
 
 export function RegisterFolderRow({
   idPlural,
@@ -165,17 +238,22 @@ export function RegisterFolderRow({
             }}
           />
         ) : (
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <div className="flex min-w-0 items-baseline gap-x-3">
             <button
               type="button"
               onClick={onOpen}
               data-testid={`${idPlural}-folder-open`}
-              className="inline-flex min-h-target-dense items-center rounded-sm font-display text-xs uppercase tracking-[0.14em] text-mist underline-offset-4 outline-none hover:text-brass hover:underline focus-visible:text-brass focus-visible:underline"
+              // Same truncation primitive as a filed row's name: a long folder
+              // name ellipsises and keeps its full text in `title`.
+              {...truncatedProps(
+                folder.name,
+                "rounded-sm text-left font-display text-xs uppercase tracking-[0.14em] text-mist underline-offset-4 outline-none hover:text-brass hover:underline focus-visible:text-brass focus-visible:underline",
+              )}
             >
               {folder.name}
             </button>
             <span
-              className="font-data text-xs tabular-nums text-gauge"
+              className="shrink-0 font-data text-xs tabular-nums text-gauge"
               data-testid={`${idPlural}-folder-count`}
               // The counts are DIRECT; the title says so rather than letting a
               // reader assume the number covers the subtree.
@@ -199,43 +277,29 @@ export function RegisterFolderRow({
                 {rowError}
               </span>
             ) : null}
-            <button
-              type="button"
-              onClick={onOpen}
-              data-testid={`${idPlural}-folder-open-verb`}
-              aria-label={`Open the folder ${folder.name}`}
-              className={`${ACTION_BUTTON} text-gauge hover:text-brass focus-visible:text-brass`}
-            >
-              Open
-            </button>
-            {onRename === undefined ? null : (
-              <button
-                type="button"
-                onClick={() => {
-                  setRowError(null);
-                  setMode("rename");
-                }}
-                data-testid={`${idPlural}-folder-rename`}
-                aria-label={`Rename the folder ${folder.name}`}
-                className={`${ACTION_BUTTON} text-gauge hover:text-brass focus-visible:text-brass`}
-              >
-                Rename
-              </button>
-            )}
-            {onDelete === undefined ? null : (
-              <button
-                type="button"
-                onClick={() => {
-                  setRowError(null);
-                  setMode("confirm");
-                }}
-                data-testid={`${idPlural}-folder-delete`}
-                aria-label={`Delete the folder ${folder.name}`}
-                className={`${ACTION_BUTTON} text-gauge hover:text-flag focus-visible:text-flag`}
-              >
-                Delete
-              </button>
-            )}
+            <OverflowMenu
+              label={`Actions for the folder ${folder.name}`}
+              data-testid={`${idPlural}-folder-actions`}
+              sections={folderVerbs({
+                idPlural,
+                folder,
+                onOpen,
+                onRename:
+                  onRename === undefined
+                    ? undefined
+                    : () => {
+                        setRowError(null);
+                        setMode("rename");
+                      },
+                onDelete:
+                  onDelete === undefined
+                    ? undefined
+                    : () => {
+                        setRowError(null);
+                        setMode("confirm");
+                      },
+              })}
+            />
           </div>
         )}
       </td>

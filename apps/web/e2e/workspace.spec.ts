@@ -1,6 +1,11 @@
 import { expect, test } from "./fixtures";
 
-import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
+import {
+  createPartViaApi,
+  openRowActions,
+  SCREENSHOT_DIR,
+  seedSession,
+} from "./support";
 
 /**
  * WORKSPACE MANAGEMENT — the drawer on your tenth document, driven through a
@@ -60,7 +65,16 @@ test.describe("workspace management", () => {
     await expect(page.getByTestId("part-row")).toHaveCount(3);
 
     // --- SORT ------------------------------------------------------------
-    // Default is FILED ascending: the order documents returned them in.
+    // Default is LAST WORKED, newest first (REGISTER-2): none of these three
+    // has been edited since it was filed, so the newest-filed is the newest
+    // worked and the drawer opens on the part the user just made.
+    expect(await rowNames(page)).toEqual(["Bracket plate", "Rib 2", "Rib 10"]);
+    await expect(
+      page.getByTestId("parts-sort-activity-header"),
+    ).toHaveAttribute("aria-sort", "descending");
+    // FILED ascending — the order documents returned them in — is still one
+    // click away and still means exactly that.
+    await page.getByTestId("parts-sort-filed").click();
     expect(await rowNames(page)).toEqual(["Rib 10", "Rib 2", "Bracket plate"]);
     await page.getByTestId("parts-sort-name").click();
     // Numeric collation — "Rib 2" before "Rib 10", which lexical sorting gets
@@ -82,6 +96,7 @@ test.describe("workspace management", () => {
     const bracketRow = page
       .getByTestId("part-row")
       .filter({ hasText: "Bracket plate" });
+    await openRowActions(bracketRow);
     await bracketRow.getByTestId("part-rename").click();
     await bracketRow.getByTestId("part-rename-name").fill("Bracket plate v2");
     await bracketRow.getByTestId("part-rename-name").press("Enter");
@@ -137,6 +152,7 @@ test.describe("workspace management", () => {
 
     await page.goto("/");
     await expect(page.getByTestId("part-row")).toHaveCount(1);
+    await openRowActions(page);
     await page.getByTestId("part-duplicate").click();
 
     // The SERVER names the copy; the register renders what came back.
@@ -169,12 +185,13 @@ test.describe("workspace management", () => {
     ).json()) as { features: { id: string }[] };
     expect(copied.features[0]!.id).not.toBe(sourceTree.features[0]!.id);
 
-    // Duplicating again counts up, so two copies never collide.
-    await page
-      .getByTestId("part-row")
-      .first()
-      .getByTestId("part-duplicate")
-      .click();
+    // Duplicating the SAME part again counts up, so two copies never collide.
+    // Addressed by name: the drawer opens newest-worked-first (REGISTER-2), so
+    // "the first row" is now the copy, and copying the copy would be a
+    // different (and much weaker) test.
+    const plateRow = page.locator(`[data-part-id="${part.id}"]`);
+    await openRowActions(plateRow);
+    await plateRow.getByTestId("part-duplicate").click();
     await expect(
       page.getByTestId("part-row").filter({ hasText: "Plate copy 2" }),
     ).toHaveCount(1);
@@ -208,6 +225,7 @@ test.describe("workspace management", () => {
     expect(instance.ok()).toBeTruthy();
 
     await page.goto("/");
+    await openRowActions(page);
     await page.getByTestId("part-delete").click();
     await page.getByTestId("part-delete-confirm").click();
 

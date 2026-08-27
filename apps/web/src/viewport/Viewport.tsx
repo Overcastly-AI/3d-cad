@@ -1,11 +1,6 @@
-import { font, viewport } from "@loft/design/tokens";
-import { GizmoHelper, GizmoViewcube, OrbitControls } from "@react-three/drei";
-import {
-  Canvas,
-  useFrame,
-  useThree,
-  type ThreeEvent,
-} from "@react-three/fiber";
+import { viewport } from "@loft/design/tokens";
+import { OrbitControls } from "@react-three/drei";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
   useCallback,
   useEffect,
@@ -32,6 +27,7 @@ import { NavCue } from "../components/NavCue";
 import { ViewBar } from "../components/ViewBar";
 import { VisibilityStamp } from "../components/VisibilityStamp";
 import { AdaptiveGrid } from "./AdaptiveGrid";
+import { publishViewQuaternion } from "./cameraOrientation";
 import { isDragGesture, type PointerPoint } from "./contextMenuGesture";
 import {
   fitDistance,
@@ -45,6 +41,8 @@ import {
 import { groundShadowTexture } from "./groundShadow";
 import { ModelMesh, type BodyHighlight } from "./ModelMesh";
 import { OriginGeometry } from "./OriginGeometry";
+import { MateColumnStrip } from "./MateColumnStrip";
+import { ViewCube } from "./ViewCube";
 import {
   hiddenBodyCount,
   isolatedBodyLabel,
@@ -65,21 +63,6 @@ const ISO_DIR = new Vector3(...VIEW_DIRECTIONS.iso).normalize();
 const FIT_FACTOR = 1.75;
 /** Default orbit radius when the scene is empty (the resting bench view). */
 const EMPTY_RADIUS = 200 * FIT_FACTOR;
-
-/**
- * The reference cube's inset from the bottom-right corner (px), and the
- * footprint the fit must keep clear.
- *
- * Was 64, and the founder's 2026-07-31 capture caught the consequence: at an
- * isometric attitude the cube's projected silhouette is its face size times ~√3
- * across the diagonal, so a 64px inset put the lower corner and the FRONT/RIGHT
- * labels hard against the frame edge. The inset now clears the diagonal, which
- * also puts the cube on the same 12px gutter the ViewBar and the floating
- * panels sit on.
- */
-const CUBE_MARGIN_PX = 96;
-/** Square the cube occupies, centred on the margin point — the fit avoids it. */
-const CUBE_FOOTPRINT_PX = 120;
 
 interface CameraGoal {
   position: Vector3;
@@ -553,49 +536,18 @@ function RenderProbe(): null {
 }
 
 /**
- * The reference cube — view navigation that lives IN the scene (drei
- * GizmoViewcube re-skinned as a machinist's block: anvil faces, hairline
- * strokes, engraved labels, brass on hover). Clicks route through the view
- * command store so the move respects `prefers-reduced-motion`, which drei's
- * built-in tween does not.
+ * Publish the scene camera's orientation for chrome that draws outside this
+ * canvas — the reference cube, which needs the camera's rotation and nothing
+ * else. See `cameraOrientation.ts` (allocation-free; notifies only on a real
+ * change, so a still camera leaves the cube's demand loop asleep) and
+ * `ViewCube.tsx` for why the cube is no longer drawn in here.
  */
-function ReferenceCube() {
-  const requestDirection = useViewCommandStore((s) => s.requestDirection);
-  const onCubeClick = useCallback(
-    (event: ThreeEvent<MouseEvent>): null => {
-      event.stopPropagation();
-      // Edge/corner cubelets carry their direction as their local position;
-      // the face cube sits at the origin and reports the picked face normal.
-      const position = event.object.position;
-      if (position.lengthSq() > 1e-6) {
-        requestDirection([position.x, position.y, position.z]);
-      } else if (event.face) {
-        requestDirection([
-          event.face.normal.x,
-          event.face.normal.y,
-          event.face.normal.z,
-        ]);
-      }
-      return null;
-    },
-    [requestDirection],
-  );
-  return (
-    <GizmoHelper
-      alignment="bottom-right"
-      margin={[CUBE_MARGIN_PX, CUBE_MARGIN_PX]}
-    >
-      <GizmoViewcube
-        color={viewport.gizmo.face}
-        hoverColor={viewport.gizmo.hover}
-        textColor={viewport.gizmo.text}
-        strokeColor={viewport.gizmo.stroke}
-        opacity={viewport.gizmo.opacity}
-        font={`600 30px ${font.data}`}
-        onClick={onCubeClick}
-      />
-    </GizmoHelper>
-  );
+function CameraBroadcast() {
+  const camera = useThree((state) => state.camera);
+  useFrame(() => {
+    publishViewQuaternion(camera.quaternion);
+  });
+  return null;
 }
 
 /**
@@ -994,26 +946,22 @@ export function Viewport({
   );
 
   /**
-   * The unobstructed rect, measured from the live DOM at fit time. Includes the
-   * in-canvas reference cube, which is WebGL and therefore has no rect of its
-   * own — a fit that tucked a part under the nav cube would be the same defect
-   * as one that tucked it under the inspector.
+   * The unobstructed rect, measured from the live DOM at fit time.
+   *
+   * The reference cube used to need a SYNTHETIC obstruction here, hand-built
+   * from its own placement constants, because it was drawn in WebGL and had no
+   * rect. It is a real element now (`ViewCube.tsx`) carrying
+   * `data-viewport-chrome`, so `measureChrome` charges it exactly like a panel
+   * — one fewer copy of the cube's geometry, and it can no longer drift from
+   * the copy the chrome clamps against.
    */
   const framing = useCallback(() => {
     const node = containerRef.current;
     if (node === null) return null;
     const { canvas, obstructions } = measureChrome(node);
     if (canvas.width <= 0 || canvas.height <= 0) return null;
-    if (viewNav) {
-      obstructions.push({
-        x: canvas.width - CUBE_MARGIN_PX - CUBE_FOOTPRINT_PX / 2,
-        y: canvas.height - CUBE_MARGIN_PX - CUBE_FOOTPRINT_PX / 2,
-        width: CUBE_FOOTPRINT_PX,
-        height: CUBE_FOOTPRINT_PX,
-      });
-    }
     return { canvas, free: unobstructedRect(canvas, obstructions) };
-  }, [viewNav]);
+  }, []);
 
   return (
     <div
@@ -1105,7 +1053,7 @@ export function Viewport({
           owns={viewNav}
           onSettle={handleSettle}
         />
-        {viewNav ? <ReferenceCube /> : null}
+        <CameraBroadcast />
         <OrbitControls
           ref={orbitRef}
           makeDefault
@@ -1139,6 +1087,11 @@ export function Viewport({
         each strip re-enables its own pointer events.
       */}
       <div className="pointer-events-none absolute inset-0 z-hud [&>*]:pointer-events-auto">
+        {/* The mate "select other" section (MATE-1). Self-gating: it draws
+            nothing unless a mate pick has published a column with more than one
+            candidate, so it costs the part and drawing workspaces nothing. */}
+        <MateColumnStrip />
+        {viewNav ? <ViewCube /> : null}
         {viewNav ? <ViewBar /> : null}
         {viewNav ? <NavCue /> : null}
         {/* The way back from an isolate / a hand-hidden scene (UI-W2). The same

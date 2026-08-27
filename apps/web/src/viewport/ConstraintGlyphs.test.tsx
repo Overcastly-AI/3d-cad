@@ -47,7 +47,10 @@ const distanceOn = (
 ): DimensionEditorTarget => ({
   kind: "distance",
   entity,
-  initialMm: valueMm,
+  entityB: null,
+  noun: "Distance",
+  unit: "mm",
+  initialValue: valueMm,
   initialExpression: null,
   initialName: null,
   initialDriving: true,

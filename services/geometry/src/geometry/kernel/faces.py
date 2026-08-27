@@ -26,9 +26,15 @@ finds nothing) re-matches a face whose PLANE MOVED — same-sense normal + same 
 + same in-plane centroid, with the offset along the normal FREE — so the commonest
 revision of all, retyping a thickness or depth, carries the holes/sketches/shells
 picked on the face it translates. Tier 4 (only when tier 3 finds nothing) re-matches
-a face whose plane moved AND whose boundary changed, on the one invariant the stored
-signature does not encode: the face's OUTER BOUNDARY, which no interior subtraction
-can touch.
+a face whose plane moved AND whose boundary changed, on the invariant the other
+three tiers lack: the face's OUTER BOUNDARY, which no interior subtraction can
+touch. Tier 4 is DUAL-READ (§12b, GEOM-3): a signature that stores the outer wire's
+invariants (``outer_area_mm2`` / ``outer_centroid`` / ``outer_perimeter_mm``,
+emitted by the pick side from 2026-08-16) is matched by COMPARING them
+(:func:`outer_boundary_match`); one authored before they existed keeps the §12a
+band that INFERS a bound on them from the three older numbers
+(:func:`inferred_enclosing_match`) — a bound that degrades linearly with how
+perforated the face is, and on an ordinary vented plate admitted a deleted boss top.
 
 HONEST STAGE-1 LIMIT (§7.3): signature matching is BEST-EFFORT, not the
 structural non-retarget guarantee of stage 2. It resolves the same face across
@@ -56,7 +62,7 @@ the boundary honest.
 import math
 from dataclasses import dataclass
 
-from build123d import CenterOf, Face, GeomType, Plane, Vector
+from build123d import CenterOf, Face, GeomType, Plane, Vector, Wire
 from py_kit.schemas.features import PlanarFaceSignature
 from py_kit.schemas.geometry import Vec3
 
@@ -155,19 +161,113 @@ def planar_face_signature(face: Face) -> tuple[Vector, Vector, float] | None:
     return normal, centroid, float(face.area)
 
 
+def _outer_region(face: Face) -> Face | None:
+    """*face*'s OUTER boundary as a filled region — the face with its holes plugged.
+
+    The one quantity in this module that is invariant under INTERIOR SUBTRACTION
+    (topological-naming.md §12a): drilling, enlarging, moving or adding a hole inside
+    a face changes its area and its area centroid — both of which the stored
+    signature encodes as identity — but cannot change the region its outer wire
+    encloses. Built from the exact B-rep, never a tessellation, so its area and its
+    point classification are as exact as the rest of the module.
+
+    ``None`` when OCCT cannot build a region from the wire (a self-intersecting or
+    otherwise degenerate outer boundary). OCCT's failure modes are not a stable
+    taxonomy, so the guard is broad and the candidate is simply skipped — a face this
+    tier cannot reason about must not resolve, and must not crash a rebuild either.
+    """
+    return _region_of_wire(face.outer_wire())
+
+
+def _region_of_wire(wire: Wire) -> Face | None:
+    """The filled region a closed planar *wire* bounds — :func:`_outer_region`'s
+    body, split out so a caller that has already fetched the wire does not pay
+    ``BRepTools::OuterWire`` twice (CLAUDE.md DRY: one region construction)."""
+    try:
+        region = Face(wire)
+    except Exception:  # OCCT failure modes are not a stable taxonomy
+        return None
+    return region if region.is_valid else None
+
+
+def outer_boundary_invariants(
+    face: Face, *, area: float | None = None, centroid: Vector | None = None
+) -> tuple[float, Vector, float] | None:
+    """``(outer area, outer area centroid, outer perimeter)`` of *face*, or ``None``.
+
+    The identity §12a said the signature was missing and §12b stores: three pure
+    functions of the face's OUTER WIRE — the area and area centroid of the region
+    that wire encloses (the face with its holes plugged) and the wire's own length.
+    An interior boundary edit (drilling, enlarging, moving, adding or deleting a
+    hole) cannot change any of them, which is exactly the invariance the stored
+    ``area_mm2``/``centroid`` pair lacks.
+
+    THE single computation of these three (CLAUDE.md DRY rule): the pick side emits
+    them into the signature and the resolve side's tier 4a compares against a
+    recomputation, so both sides must arrive at the number the same way.
+
+    A face with exactly ONE wire **is** the region that wire encloses, so the common
+    face never builds a region at all: its outer area and outer centroid ARE its area
+    and centroid, and the only new work is the wire's length. That is not an
+    approximation — measured on a plain box, ``Face(outer_wire()).area`` reproduces
+    ``face.area`` bit-for-bit (delta 0.0). The test is ``len(face.wires()) == 1``
+    rather than ``inner_wires()`` because build123d's ``inner_wires`` re-derives the
+    outer wire once PER wire in order to filter it out, and the single wire in hand
+    is the outer one by definition.
+
+    *area* and *centroid* let a caller that has ALREADY computed the face's own area
+    and area centroid — :func:`planar_face_signature` does, and both in-module
+    callers go through it — hand them in rather than have GProp integrate the same
+    face twice. They are used only on the one-wire branch, where they are by
+    definition the outer region's own, and are recomputed when omitted.
+
+    ``None`` when :func:`_region_of_wire` cannot build a region (see there).
+    """
+    wires = face.wires()
+    if len(wires) == 1:
+        return (
+            float(face.area) if area is None else area,
+            face.center(CenterOf.MASS) if centroid is None else centroid,
+            float(wires[0].length),
+        )
+    outer = face.outer_wire()
+    region = _region_of_wire(outer)
+    if region is None:
+        return None
+    return float(region.area), region.center(CenterOf.MASS), float(outer.length)
+
+
 def _signature_dto(
-    normal: Vector, centroid: Vector, area: float
+    normal: Vector,
+    centroid: Vector,
+    area: float,
+    outer: tuple[float, Vector, float] | None,
 ) -> PlanarFaceSignature:
     """Build the boundary signature DTO from a face's computed invariants.
 
     THE single signature→DTO construction (CLAUDE.md DRY rule) shared by the pick
     side and the resolve side, so a face's overlay signature is byte-for-byte the
     one the resolver matches against — the same-enumeration guarantee.
+
+    *outer* is :func:`outer_boundary_invariants`' triple, or ``None`` when OCCT
+    could not build the outer region. All three ``outer_*`` fields are emitted
+    together or not at all (§12b): a partial signature is refused by tier 4 rather
+    than silently downgraded to the legacy band.
     """
+    outer_area, outer_centroid, outer_perimeter = (
+        outer if outer is not None else (None, None, None)
+    )
     return PlanarFaceSignature(
         normal=Vec3(x=normal.X, y=normal.Y, z=normal.Z),
         centroid=Vec3(x=centroid.X, y=centroid.Y, z=centroid.Z),
         area_mm2=area,
+        outer_area_mm2=outer_area,
+        outer_centroid=(
+            None
+            if outer_centroid is None
+            else Vec3(x=outer_centroid.X, y=outer_centroid.Y, z=outer_centroid.Z)
+        ),
+        outer_perimeter_mm=outer_perimeter,
     )
 
 
@@ -181,7 +281,13 @@ def face_signature_dto(face: Face) -> PlanarFaceSignature | None:
     sig = planar_face_signature(face)
     if sig is None:
         return None
-    return _signature_dto(*sig)
+    normal, centroid, area = sig
+    return _signature_dto(
+        normal,
+        centroid,
+        area,
+        outer_boundary_invariants(face, area=area, centroid=centroid),
+    )
 
 
 def planar_faces(body: BodyShape) -> list[PlanarFaceRecord]:
@@ -209,7 +315,12 @@ def planar_faces(body: BodyShape) -> list[PlanarFaceRecord]:
         records.append(
             PlanarFaceRecord(
                 index=index,
-                signature=_signature_dto(normal, centroid, area),
+                signature=_signature_dto(
+                    normal,
+                    centroid,
+                    area,
+                    outer_boundary_invariants(face, area=area, centroid=centroid),
+                ),
                 plane=_face_plane(normal, centroid, 0.0),
                 face=face,
             )
@@ -295,6 +406,19 @@ def coplanar_signatures_match(
     return abs(_plane_offset(candidate) - _plane_offset(target)) <= _CENTROID_TOL_MM
 
 
+def _strip_normal_component(point: Vec3, normal: Vec3) -> tuple[float, float, float]:
+    """*point* with its component along the unit *normal* removed.
+
+    THE single in-plane projection of this module (CLAUDE.md DRY rule), shared by
+    tier 3's area-centroid station (:func:`_in_plane_offset`) and tier 4a's
+    outer-boundary-centroid station (:func:`outer_boundary_match`). Both operands
+    of a comparison must be projected with the SAME normal to be comparable."""
+    n = (normal.x, normal.y, normal.z)
+    c = (point.x, point.y, point.z)
+    along = c[0] * n[0] + c[1] * n[1] + c[2] * n[2]
+    return (c[0] - along * n[0], c[1] - along * n[1], c[2] - along * n[2])
+
+
 def _in_plane_offset(
     sig: PlanarFaceSignature, normal: PlanarFaceSignature
 ) -> tuple[float, float, float]:
@@ -304,10 +428,7 @@ def _in_plane_offset(
     face, independent of where that plane is in space. The complement of
     :func:`_plane_offset` (which keeps only the along-normal component), computed in
     the SAME frame for both operands so two faces are comparable."""
-    n = (normal.normal.x, normal.normal.y, normal.normal.z)
-    c = (sig.centroid.x, sig.centroid.y, sig.centroid.z)
-    along = c[0] * n[0] + c[1] * n[1] + c[2] * n[2]
-    return (c[0] - along * n[0], c[1] - along * n[1], c[2] - along * n[2])
+    return _strip_normal_component(sig.centroid, normal.normal)
 
 
 def translated_signatures_match(
@@ -352,36 +473,158 @@ def translated_signatures_match(
     )
 
 
-def _outer_region(face: Face) -> Face | None:
-    """*face*'s OUTER boundary as a filled region — the face with its holes plugged.
+def _outer_invariants_of(
+    sig: PlanarFaceSignature,
+) -> tuple[float, Vec3, float] | None:
+    """*sig*'s three ``outer_*`` fields when it carries ALL of them, else ``None``.
 
-    The one quantity in this module that is invariant under INTERIOR SUBTRACTION
-    (topological-naming.md §12a): drilling, enlarging, moving or adding a hole inside
-    a face changes its area and its area centroid — both of which the stored
-    signature encodes as identity — but cannot change the region its outer wire
-    encloses. Built from the exact B-rep, never a tessellation, so its area and its
-    point classification are as exact as the rest of the module.
-
-    ``None`` when OCCT cannot build a region from the wire (a self-intersecting or
-    otherwise degenerate outer boundary). OCCT's failure modes are not a stable
-    taxonomy, so the guard is broad and the candidate is simply skipped — a face this
-    tier cannot reason about must not resolve, and must not crash a rebuild either.
-    """
-    try:
-        region = Face(face.outer_wire())
-    except Exception:  # OCCT failure modes are not a stable taxonomy
+    The dual-read accessor (§12b). ``None`` covers both "authored before the outer
+    invariants existed" (the legacy population, routed to the inferred band by
+    :func:`enclosing_face_match`) and the malformed partial case, which
+    :func:`_has_partial_outer_invariants` separates out and refuses."""
+    area, centroid, perimeter = (
+        sig.outer_area_mm2,
+        sig.outer_centroid,
+        sig.outer_perimeter_mm,
+    )
+    if area is None or centroid is None or perimeter is None:
         return None
-    return region if region.is_valid else None
+    return area, centroid, perimeter
+
+
+def _has_partial_outer_invariants(sig: PlanarFaceSignature) -> bool:
+    """*sig* carries SOME but not all three ``outer_*`` fields.
+
+    Not a legacy signature — a bug. §12b refuses it rather than falling back to the
+    weaker inferred band, because a silent downgrade is a path straight back into
+    the defect the outer invariants exist to close."""
+    present = (
+        sig.outer_area_mm2 is not None,
+        sig.outer_centroid is not None,
+        sig.outer_perimeter_mm is not None,
+    )
+    return any(present) and not all(present)
+
+
+def outer_boundary_match(
+    candidate: PlanarFaceRecord, target: PlanarFaceSignature
+) -> bool:
+    """TIER 4a — re-match on the face's OUTER WIRE, compared rather than inferred
+    (GEOM-3, topological-naming.md §12b).
+
+    The tier-4 path taken when the stored signature carries the three ``outer_*``
+    invariants. Same-sense normal, offset along the normal FREE, area and area
+    centroid FREE, and identity carried by three quantities that are pure functions
+    of the outer wire and therefore untouched by ANY interior edit:
+
+    * ``outer_area_mm2`` — the area the outer wire encloses;
+    * ``outer_centroid`` — its area centroid, compared IN-PLANE only, because a
+      thickness retype translates the whole wire along the normal (this is §12's
+      tier-3 reasoning applied to the outer wire rather than to the face);
+    * ``outer_perimeter_mm`` — the wire's length, which separates two outer regions
+      that share an area and a centroid but not a shape (an 80x50 boss top and a
+      100x40 plate top, both 4000 mm^2 about the same point, differ 260 vs 280 mm).
+
+    This is what :func:`inferred_enclosing_match` was approximating. That function
+    has to guess how much of the difference between the stored area and the
+    candidate's current area is attributable to holes, and the guess degrades
+    linearly with how perforated the face is: it admits any stored area at or above
+    ``(1 - 2r) * outer`` for an open-area fraction ``r``, which on an ordinary
+    100x100 vented plate (8x8 Ø9 holes, r = 40.7 %) admitted a DELETED 70x70 boss
+    top and silently re-anchored its sketch onto the plate underneath. Comparing the
+    stored invariant instead removes the guess: the boss top's outer area is
+    4900 mm^2, the plate top's is 10000 mm^2, and no bound has to be chosen for the
+    two to be different.
+
+    Both operands come from :func:`outer_boundary_invariants`, so the pick side and
+    the resolve side arrive at the number the same way; the candidate's copy is
+    already on its record and costs nothing here.
+
+    The same-sense normal test remains the load-bearing guard exactly as in §12/§12a
+    — a plate's bottom face encloses the IDENTICAL outer region as its top and is
+    separated only by the sense of the normal. Two candidates that pass are an honest
+    ``subshape_ambiguous`` at the caller, never a guess.
+
+    Tolerances are the module's documented ones (no new epsilons — CLAUDE.md): the
+    relative area bound for the outer area, and the linear bound for both the
+    in-plane centroid distance and the perimeter, which is a length in mm like any
+    other. Measured residuals across the M17 revision (thickness 10 -> 14 AND a hole
+    diameter edit) are 0.0 for all three — the outer wire is not recomputed by an
+    interior edit, it is carried through the boolean unchanged.
+    """
+    sig = candidate.signature
+    n_dot = (
+        sig.normal.x * target.normal.x
+        + sig.normal.y * target.normal.y
+        + sig.normal.z * target.normal.z
+    )
+    if 1.0 - n_dot > _NORMAL_MAX_ANGLE_TOL:
+        return False
+    stored = _outer_invariants_of(target)
+    mine = _outer_invariants_of(sig)
+    if stored is None or mine is None:
+        # The candidate always carries them (planar_faces computes them); a missing
+        # copy means OCCT could not build this face's outer region, and a face this
+        # tier cannot reason about must not resolve.
+        return False
+    stored_area, stored_centroid, stored_perimeter = stored
+    mine_area, mine_centroid, mine_perimeter = mine
+    if abs(mine_area - stored_area) / max(abs(stored_area), 1.0) > _AREA_REL_TOL:
+        return False
+    if abs(mine_perimeter - stored_perimeter) > _CENTROID_TOL_MM:
+        return False
+    return (
+        math.dist(
+            _strip_normal_component(mine_centroid, sig.normal),
+            _strip_normal_component(stored_centroid, sig.normal),
+        )
+        <= _CENTROID_TOL_MM
+    )
 
 
 def enclosing_face_match(
     candidate: PlanarFaceRecord, target: PlanarFaceSignature
 ) -> bool:
-    """Re-match a face whose plane MOVED **and** whose boundary CHANGED — same-sense
-    normal, with the offset, the area AND the in-plane centroid all FREE, identity
-    carried instead by the face's OUTER BOUNDARY (M17, topological-naming.md §12a).
+    """TIER 4 — the dual-read entry (§12b). Delegates to :func:`outer_boundary_match`
+    when *target* carries the outer-wire invariants and to
+    :func:`inferred_enclosing_match` when it does not.
 
-    The fourth and last tier. §12 wrote off this case — "an edit that does BOTH
+    Every selector persisted before 2026-08-16 stores only ``(normal, centroid,
+    area_mm2)``, and the geometry service is stateless — it never owns the selector
+    it is handed, so there is nowhere to upgrade one. Those selectors therefore keep
+    the §12a inferred band, byte-for-byte, and keep resolving; selectors authored
+    from the pick side today take the exact comparison. Ordering note that makes the
+    sequencing non-obvious and is worth stating: the contract change NEEDS §12a's
+    containment logic for the legacy population, so `8b95dac` is this fix's
+    PREREQUISITE, not a workaround it replaces.
+
+    A signature carrying SOME of the three outer fields is refused outright — it is
+    a bug rather than a legacy signature, and falling back to the weaker band would
+    be a downgrade path an error could walk into.
+    """
+    if _has_partial_outer_invariants(target):
+        return False
+    if _outer_invariants_of(target) is None:
+        return inferred_enclosing_match(candidate, target)
+    return outer_boundary_match(candidate, target)
+
+
+def inferred_enclosing_match(
+    candidate: PlanarFaceRecord, target: PlanarFaceSignature
+) -> bool:
+    """TIER 4b — re-match a face whose plane MOVED **and** whose boundary CHANGED —
+    same-sense normal, with the offset, the area AND the in-plane centroid all FREE,
+    identity carried instead by the face's OUTER BOUNDARY (M17,
+    topological-naming.md §12a).
+
+    THE LEGACY PATH as of §12b: reached only for a stored signature authored before
+    the outer-wire invariants existed, i.e. one that leaves this tier no choice but
+    to INFER the missing quantity from the three numbers it has. Anything the pick
+    side emits today takes :func:`outer_boundary_match` instead, which compares the
+    invariant rather than bounding it. Kept unchanged (plus the GEOM-4 refusal below)
+    because every selector already persisted must keep resolving.
+
+    §12 wrote off this case — "an edit that does BOTH
     matches neither tier and stays an honest ``subshape_unresolved``; that is the
     conservative choice on purpose" — and the 2026-08-14 product audit then found it
     is not an edge case but the DEFAULT state of any face more than one feature was
@@ -418,7 +661,20 @@ def enclosing_face_match(
       Its width is twice what is currently cut out of the face, so it is strongest on
       a solid face and weakest on a heavily perforated one — an honest consequence of
       inferring a missing invariant from the three numbers the signature stores, and
-      the argument for storing the outer-boundary invariants outright (§12a).
+      the argument for storing the outer-boundary invariants outright (§12a) — which
+      §12b then did. That argument now has a number: the band admits any stored area
+      at or above ``(1 - 2r) * outer`` for an open-area fraction ``r``, and on a
+      100x100 vented plate (8x8 Ø9 holes, r = 40.7 %) that reaches down to
+      1857 mm^2, i.e. it admits a deleted 70x70 boss top;
+    * GEOM-4: when the stored area EQUALS the outer region's, the stored centroid
+      must EQUAL the outer region's centroid, in-plane. ``outer * C_outer =
+      stored * C_stored + removed * C_removed`` leaves nothing to displace the
+      centroid when ``removed`` is zero, so this is a necessary condition of the
+      hypothesis and not an extra bound. It refuses a signature no real face could
+      have produced (a plain 100x40 face claiming ``area_mm2 = 4000`` with a
+      centroid at (5, 3, 10) matched before). It does NOT touch the vented-plate
+      case above — a boss and the plate under it share a centroid — so it is a
+      strengthening, not the GEOM-3 fix.
 
     The same-sense normal test (a full flip apart, not a near miss) remains the
     load-bearing guard: a plate's bottom face encloses the identical outer region as
@@ -448,6 +704,22 @@ def enclosing_face_match(
         2.0 * sig.area_mm2 - outer_area - slack <= target.area_mm2 <= outer_area + slack
     ):
         return False
+    if abs(target.area_mm2 - outer_area) <= slack:
+        # GEOM-4: nothing was cut out of the stored face, so nothing can have moved
+        # its centroid off the outer region's. In-plane, because this tier frees the
+        # offset along the normal.
+        outer_centroid = region.center(CenterOf.MASS)
+        if (
+            math.dist(
+                _strip_normal_component(target.centroid, sig.normal),
+                _strip_normal_component(
+                    Vec3(x=outer_centroid.X, y=outer_centroid.Y, z=outer_centroid.Z),
+                    sig.normal,
+                ),
+            )
+            > _CENTROID_TOL_MM
+        ):
+            return False
     normal = Vector(sig.normal.x, sig.normal.y, sig.normal.z)
     stored = Vector(target.centroid.x, target.centroid.y, target.centroid.z)
     on_plane = Vector(sig.centroid.x, sig.centroid.y, sig.centroid.z)
@@ -481,7 +753,9 @@ def _match_face_records(
       face's OUTER BOUNDARY, with offset, area and in-plane centroid all FREE).
       Models "this face moved AND its boundary changed" — the combination §12 called
       a conservative refusal and the M17 audit found to be the default state of any
-      face carrying more than one feature (§12a).
+      face carrying more than one feature (§12a). DUAL-READ (§12b): the stored
+      outer-wire invariants are COMPARED when present, and INFERRED from the older
+      three numbers when the signature predates them.
 
     A face that genuinely vanished matches no tier and still fails honestly.
 

@@ -1,0 +1,33 @@
+{
+  "description": "FIRST ANGLE-DIMENSION GOLDEN (SKETCH-VOCAB-1): a 45-degree gusset wedge — a right triangle whose sloping face exists ONLY because an `angle` constraint drives it — extruded 10 mm. The profile is drawn with its apex at (40, 12), i.e. a 16.7-degree slope, and the single `angle` dimension between e1 and e3 opens it to 45; nothing else in the sketch can determine that apex (e1 is pinned horizontal at 40 long, e2 is vertical, and the three coincidences close the loop, leaving exactly one DOF for the angle to remove). So this golden fails if the angle constraint is a no-op, if it drives the SUPPLEMENT (135 degrees, which puts the apex below the axis and moves the centroid to y = -13.33), or if it ignores the drawn side. Locks the constraint end-to-end through the real evaluate-tree path: planegcs `set_l2l_angle` -> solved profile -> wire -> face -> prism -> GProp -> tessellation.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
+    "solved profile: e1 is fixed at the origin, horizontal, 40 long -> (0,0)-(40,0). e2 is vertical from (40,0) to (40,t). e3 closes back to (0,0). The angle dimension is measured at the corner e1 and e3 SHARE (the origin, joined by the third coincidence), between the legs taken AWAY from it: (40,0) and (40,t). tan(45 deg) = t/40 = 1, so t = 40 exactly and the apex is (40,40).",
+    "profile area = 1/2 * base * height = 1/2 * 40 * 40 = 800 mm^2",
+    "volume = 800 * 10 = 8000 mm^3",
+    "surface_area = 2 caps (2 * 800 = 1600) + the three side walls: 40*10 + 40*10 + (40*sqrt(2))*10 = 400 + 400 + 565.685424949238 = 1365.685424949238; total 2965.685424949238 mm^2",
+    "centroid of a triangle is the mean of its vertices: x = (0+40+40)/3 = 26.666666666666668, y = (0+0+40)/3 = 13.333333333333334; z = 10/2 = 5 by prism symmetry",
+    "bounding_box = [0,0,0]..[40,40,10]: the apex sets both max.x and max.y; the prism runs +Z on the XY datum",
+    "topology: a triangular prism is 5 planar faces (2 caps + 3 walls), 9 straight edges (3 + 3 + 3 verticals), 1 closed shell",
+    "mesh: each triangular cap tessellates to exactly 1 triangle and each rectangular wall to 2, so 2*1 + 3*2 = 8; faceted per-face normals share no vertices across faces, so 2*3 + 3*4 = 18 vertices",
+    "no material is assigned, so mass and centre of mass must be reported ABSENT (null) — never 0 g (docs/design/materials.md 6)",
+    "GLB byte size is deliberately NOT pinned: asserted deterministic (byte-identical) by the runner within one kernel version, but the absolute size carries no geometric meaning."
+  ],
+  "tolerance": 1e-5,
+  "tolerance_rationale": "MEASURED first, then set with headroom (geometry-gates skill: never copy a bound blindly). Unlike the zero-residual sketch goldens, this profile's apex is PRODUCED by a numeric solve, so the dominant error is the solver's, not the kernel's. Measured deviations vs the analytic values (2026-08-26, planegcs 0.8.0 / build123d 0.11.1 / OCCT 7.9): apex y 1.04e-10 mm, volume 2.07e-8 mm^3 (which is exactly the apex error propagated: 1/2 * 40 * 1.04e-10 * 10 = 2.1e-8), surface_area 5.9e-9 mm^2, centroid <= 3.5e-11 mm, AABB <= 1.04e-10 mm. The documented ceiling 1e-5 is ~480x the observed worst case, matching the headroom convention of the other sketch goldens, and it is bounded ABOVE by the solver's own contract: an angle is accepted at SATISFIED_TOL_MM = 1e-7 read on its own (radian) scale, which at this apex's 56.57 mm lever arm permits 5.7e-6 mm of travel and therefore 1.1e-3 mm^3 of volume — so 1e-5 is still ~110x TIGHTER than a solve that merely met its documented residual bound, and ~2000x tighter than the kernel linear tolerance propagated the same way (1e-4 mm -> 0.02 mm^3). Loosening it is never a fix for a red run: it is a reviewed kernel-level decision recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 8000.0,
+    "surface_area": 2965.685424949238,
+    "centroid": {
+      "x": 26.666666666666668,
+      "y": 13.333333333333334,
+      "z": 5.0
+    },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 40.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 5, "edges": 9, "shells": 1 },
+  "mesh": { "vertices": 18, "triangles": 8 }
+}

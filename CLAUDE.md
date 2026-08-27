@@ -670,6 +670,34 @@ recipe here in the same commit as the fix.**
 
 - Working branch: develop on the current `claude/*` branch; never push to
   `main` without explicit permission.
+- **`git push -u origin <branch>` FROM A WORKTREE PUSHES NOTHING AND SAYS
+  "Everything up-to-date" — and worktree isolation is MANDATORY for builders, so
+  the standing push instruction is wrong for every builder we run.** Found
+  2026-08-16 by the backlog-groomer, which noticed its own commit had not landed
+  and re-pushed by hand; reproduced deterministically before writing this down.
+  Mechanism: a worktree is on its OWN branch (`worktree-agent-<id>`), while the
+  shared checkout holds `claude/<name>`. `git push origin <branch>` expands to
+  the refspec `<branch>:<branch>`, and the LEFT side is resolved as a local ref —
+  so git pushes the MAIN checkout's branch, which is already at the remote tip,
+  and truthfully reports it is up to date. Your commit is never mentioned.
+  Measured, with a scratch commit in the worktree so HEAD and the ref differed:
+  ```
+  HEAD                                    ebbaa18
+  ref claude/branch-review-development-…  5c7fb48   (the OTHER worktree's branch)
+  git push --dry-run -u origin claude/…   -> "Everything up-to-date"
+  git push --dry-run origin HEAD:claude/… -> "5c7fb48..ebbaa18  HEAD -> claude/…"
+  ```
+  Use `git push origin HEAD:<branch>` — pushing the commit you are ON, by value,
+  rather than a name that resolves somewhere else — and then VERIFY with
+  `git ls-remote origin <branch>` that the remote tip equals `git rev-parse HEAD`.
+  Two things generalise. (a) **This failure is silent and success-shaped**: exit
+  code 0, a reassuring sentence, and a whole agent run left on the floor; the
+  push-succeeded belief is only falsifiable against `ls-remote`, so verify by
+  VALUE, never by exit status. It is the zero-byte-200 trap in different clothes.
+  (b) A `-u` flag is not a safety net — here it cheerfully offered to set the
+  upstream of a branch the agent was not on. Auditing for this is cheap and worth
+  doing after any batch: `git rev-list --count origin/<branch>..<worktree-branch>`
+  should be 0 for every worktree branch.
 - **A freshly-created WORKTREE gives FALSE `prettier --check` and `tsc` failures
   on files you never touched — and they name a COLLEAGUE'S territory, so the
   natural read is "someone pushed a red build".** Found 2026-08-15 by the CI-2
@@ -684,6 +712,130 @@ recipe here in the same commit as the fix.**
   outside your diff is a claim about YOUR environment until you have proved
   otherwise on committed bytes. Do not report it as a colleague's regression —
   that costs two agents' time and starts a hunt for a defect that does not exist.
+- **A WORKTREE IS NOT NECESSARILY SEEDED FROM THE BRANCH TIP — check `git log -1`
+  before you trust anything you read in it.** Found 2026-08-25 by the PICK-1
+  agent, which was handed a worktree checked out at `3b0b29e` — a merge into
+  `main`, **76 commits behind** `claude/branch-review-development-hkbbnb`. It
+  noticed only because the spec its brief named (`apps/web/e2e/pick-anchor.spec.ts`)
+  did not exist at all, reset to the remote tip, and went on to finish the job.
+  **That detection was luck, and the luck does not generalise**: a MISSING file is
+  loud, but a file that merely predates the branch by 76 commits reads as
+  perfectly ordinary source, and an agent would then diagnose a bug that was
+  fixed weeks ago, or build against an API that has since changed, and its
+  eventual rebase would look like an unrelated conflict. The rule: **the first
+  action in any worktree is `git rev-list --count HEAD..origin/<branch>`** —
+  nonzero means reset before reading anything. Put it in every builder brief;
+  that is the only mitigation that has actually worked (three for three — the
+  PICK-1 agent at 76 commits behind, the REACH-2 agent at 120, the QA-R4 agent at
+  123, all three seeded at `3b0b29e`). **Three occurrences of the SAME commit is
+  not bad luck, and the "detect at creation" fix below has not been built** —
+  worktree creation belongs to the harness, not to anything in this repo, so
+  there is no hook here to put a check in. Until that changes the brief line IS
+  the control, so it goes in every builder brief, every time. Do not let the fact
+  that agents keep catching it become a reason to stop telling them to look.
+  **AND THE "AUDIT IT AFTER A BATCH" ADVICE THIS ENTRY ORIGINALLY GAVE DOES NOT
+  WORK — measured 2026-08-27, do not retry it.** A behind-count over every
+  worktree returned 47 "STALE" rows and not one was the fault: a worktree seeded
+  correctly at the tip *naturally* falls behind as the branch advances, so
+  trailing and mis-seeded are indistinguishable by that measure, and an audit
+  that flags everything flags nothing. Worse, it cannot work even in principle:
+  an agent that follows the rule RESETS, so by the time you look, the evidence of
+  the bad seed is gone — the only worktrees that could still show it are ones
+  where nobody noticed, which is exactly the case you are trying to find. Detect
+  it at CREATION, not after. The signature is a HEAD that is not an ancestor of
+  the branch (both occurrences were seeded at `3b0b29e`, a merge into `main`),
+  not a HEAD that is merely behind.
+- **ADDING A TEST TO A SHARDED SPEC FILE CAN TURN A LATENT RACE RED IN A CASE
+  NOBODY TOUCHED — and the bisect will point straight at the innocent commit.**
+  Measured 2026-08-27. `fca2e42` added a case to `qa-reach-batch.spec.ts` and a
+  reference-angle case in the same file went red; CI said green at `0cee656` and
+  red at `fca2e42`, which is a clean bisect and a wrong conclusion. The decisive
+  check was **comparing the failing case and its helpers byte-for-byte across the
+  two commits** — identical, 5198 bytes — and then running each in isolation
+  against the same app source: HEAD's spec 2/3, `0cee656`'s spec 3/3. Same code,
+  different outcome. The e2e suite is sharded 4 ways by filesystem order, so a new
+  case reshuffles which cases share a worker and a race that had always been there
+  started losing. Rule: when a bisect lands on a commit whose diff cannot plausibly
+  reach the failure, **diff the failing test itself across the two commits before
+  believing the bisect**; if it is unchanged, the commit changed the SCHEDULE, not
+  the behaviour, and the defect is older than both. Corollary: "green at N, red at
+  N+1" proves the failure became OBSERVABLE at N+1, never that N+1 caused it.
+- **`click({ force: true })` DISABLES THE ONLY CHECK THAT ASKS WHETHER A USER
+  COULD HAVE CLICKED IT — so a target no real mouse can hit passes a 4/4-green
+  spec.** Found 2026-08-27 by the frontend-qa pass on REACH-3.
+  `dimension-placement.spec.ts` picked its edge with `force: true`; scanning 18
+  points along the same 40 mm edge with `elementFromPoint` found **11 of 18
+  clickable**, and the central run — exactly where a user aims — returns the
+  `drawing-view` polyline, because **the view's own drawn outline sits above its
+  own pick target**. A real `page.mouse.click` at the midpoint does nothing,
+  silently, and every spec stayed green. There are **26 such calls across 8 spec
+  files**; treat each as an unproven pick until checked.
+  `force` is legitimate for a target deliberately covered (a modal scrim you mean
+  to click through) — it is a lie when used to make a flaky pick stop failing,
+  which is the usual reason it gets added.
+  **ROOT CAUSE FOUND 2026-08-27, and it is better than "someone was papering over
+  a flake": THE PICK TARGET HAD ZERO AREA.** Chrome's `getBoundingClientRect` on
+  an SVG `<line>` **ignores stroke width**, so a 2.6 mm-stroked pick line measured
+  **118.1 x 0.0 px**. A zero-height box is unhittable by construction — invisible
+  to Playwright's actionability check, to assistive tech, and to any touch-target
+  audit — so `force: true` was the only way any spec could ever have picked it,
+  and every one of those 26 calls was hiding this. Fixed by making the hit region
+  a rotated `<rect>` of the same band; the edge went from 9/18 reachable points to
+  14/18 and a real `page.mouse.click` at the midpoint went from doing *nothing* to
+  opening the author menu. Two lessons: **`force: true` is evidence of a defect,
+  not a workaround for one** — when you find one, delete it and see what breaks;
+  and **an SVG stroke is not a hit box**, so any pick affordance drawn as a bare
+  stroked `line`/`path` needs an explicit filled hit region or it does not exist
+  as a control at all.
+  **This is the THIRD member of one family and the family is the lesson:** an
+  assertion that cannot observe the failure mode. `toBeVisible()` is a box
+  property, so it passed a SAVE control shoved outside the frame; `toHaveText
+  ("Solved")` after a submit was already true, so it read the pre-edit body; and
+  `force: true` skips actionability, so it hit an occluded target. In every case
+  the suite was green, the product was broken, and the gap was invisible until
+  someone measured the thing the assertion was standing in for. When a spec
+  proves a USER can do something, assert with the user's own mechanism — a real
+  `page.mouse.click` at the control's centre, or `elementFromPoint` resolving to
+  the control — never a proxy that skips the step you are claiming works.
+- **`git add <my file> && git commit` IN ONE COMMAND IS THE SWEEP, and chaining
+  them is what defeats the protocol's own check.** Done by the ORCHESTRATOR on
+  2026-08-27, hours after quoting the rule at three separate agents: `4e41eb4`
+  says "fix(workflow): a subtree missing from the list is invisible" and carries
+  **1,538 lines of a live qa-tester's work** — its 14-case spec, its QA-REVIEW
+  entry, and three board items — because `git add` writes to the SHARED index and
+  `git commit` commits THE WHOLE INDEX, not the paths you just added. The QA agent
+  had staged its files minutes earlier. Nothing was lost; it annotated the record
+  in `b253980` rather than rewriting pushed history, which is the right call.
+  The existing recipe says to read `git diff --cached` immediately before
+  committing, and that WOULD have caught this — but chaining `add && commit` in a
+  single shell line leaves no moment to read anything, which is precisely why the
+  cheap path keeps winning. **So the rule is not "check the index", it is "never
+  put `git add` and `git commit` in the same command while other agents are
+  live."** Two separate calls, with the diff read in between.
+  And note the NEW half the victim found, which the recipe did not cover: it
+  documents the hazard from the COMMITTER's side, so its mitigation is a check the
+  committer runs. From the STAGER's side there is no check at all — the QA agent
+  staged correctly, ran its own `git diff --cached`, and was swept anyway by
+  somebody else's commit landing in between. Its tell is `git commit` replying
+  "nothing to commit, working tree clean" when you know you staged three files.
+  The only real protection for a stager is to not be one for long: stage and
+  commit in one tight window, or build against an isolated `GIT_INDEX_FILE`.
+- **PARAMS MODELS ARE PYDANTIC-DEFAULT `extra="ignore"`, so a payload that
+  MISSPELLS a field validates, evaluates, and silently gives the OLD reading —
+  and every gate agrees with it.** Found 2026-08-26 by the PATTERN-1 agent, in
+  its own first draft: spelling the new selection `params.features` instead of
+  `params.scope` returned 2xx, evaluated happily, and produced the legacy
+  whole-body behaviour, with **seven tests passing against the wrong scope**.
+  There is no server-side guard and there cannot easily be one — `extra="ignore"`
+  is what makes the DTOs forward-compatible. Two consequences. (a) A contract
+  test for a new param MUST assert on the RESULT (the geometry, the row, the
+  bytes), never on the status code; a 2xx proves the request parsed, not that it
+  meant anything. (b) When you add a field to a params model, the UI-side test
+  that exercises it is the only thing standing between a typo and a silently
+  ignored feature — write it in the same commit as the DTO, not with the UI.
+  This is the `gen-check`-measuring-the-wrong-input trap in a third costume: the
+  pipeline was healthy, the input was wrong, and everything downstream
+  self-consistently confirmed it.
 - OCP/OCCT wheels are large; in CI cache the uv environment keyed on the
   lockfile.
 - **To test swapping an auditwheel-vendored library WITHOUT touching the shared
@@ -922,11 +1074,46 @@ recipe here in the same commit as the fix.**
   suite fails ("e2e register failed: 500", ~157 failed / 2 passed) while
   leg-1 geometry gates pass and a direct curl to the real :8000 gateway
   returns 201. Symptom ≠ code regression. **Before a batch-end `just e2e`,
-  also kill a stale Vite:** `curl -sf -m2 http://127.0.0.1:5173/ >/dev/null &&
-  ps -eo pid,args | grep -E 'vite/bin/vite' | grep -v grep` then `kill` it, so
-  Playwright boots a fresh Vite proxying to the :8000 gateway `just e2e`
-  starts. Agents booting an isolated frontend MUST kill their Vite in teardown,
-  not just their uvicorns.
+  also kill a stale Vite — but SCOPE THE KILL TO PORT 5173.** Resolve the pid
+  from the listener, never from a process-name grep:
+  ```bash
+  pid=$(ss -lptn 'sport = :5173' 2>/dev/null | grep -oP 'pid=\K[0-9]+' | head -1)
+  [ -n "$pid" ] && kill "$pid"      # ONLY the process actually holding :5173
+  ```
+  **THE EARLIER VERSION OF THIS RECIPE SAID `ps -eo pid,args | grep -E
+  'vite/bin/vite'`, WHICH IS NOT PORT-SCOPED AND KILLS EVERY AGENT'S VITE.**
+  Measured 2026-08-27 by the QA-R4 agent: every e2e leg it ran over ~10 minutes
+  collapsed mid-run, twice with the signature of a murdered process rather than a
+  crash — `ECONNREFUSED 127.0.0.1:5194` while its gateway still answered 200 (its
+  Vite killed), then `gw=000` on a stack that had booted healthy minutes earlier
+  (its uvicorns killed). Memory was fine throughout (12 GB free), so not OOM. The
+  most likely cause is a sibling faithfully following this very recipe. A cleanup
+  step that reaches outside its own ports is not cleanup, it is friendly fire, and
+  it gets worse the more agents run — which is exactly when long legs matter most.
+  Same rule for uvicorns: match on the port you booted, not on `*.main:app`.
+  Agents booting an isolated frontend MUST kill their Vite in teardown, not just
+  their uvicorns — and MUST kill only their own.
+- **A TAILWIND PRESET CHANGE IS A BUILD-CONFIG CHANGE, NOT A SOURCE CHANGE — a
+  running Vite will not pick it up, and the symptom is "your new feature is
+  broken", never a build error.** Measured 2026-08-17 recovering VIEWCUBE-1.
+  `packages/design/src/tailwind-preset.ts` gained `h-view-cube` /
+  `bottom-view-cube` utilities in the same change that used them. Against a Vite
+  started BEFORE the patch, those classes did not exist, so the host `div` had
+  no width, height or seat — and its child `<canvas>` fell back to the HTML
+  DEFAULT of **300x150 at the top-left**. The e2e probe therefore reported a
+  cube of the wrong size in the wrong corner, which reads exactly like a
+  half-finished component. I was one step from rewriting work that was already
+  correct; after killing Vite the same bytes measured **108x108 at (1130, 602)**
+  on a 1280x800 frame with every facet click steering the camera.
+  Two things generalise. (a) **`300x150` is a fingerprint, not a measurement** —
+  it is the intrinsic size of a `<canvas>` with no CSS size, so any element
+  reporting it is un-styled rather than mis-styled, and the question is why the
+  CSS is missing, not what the component did wrong. (b) The stale-Vite entry
+  above is about a stale PROXY TARGET (every spec 500s at register, loud and
+  obvious). This is the quieter half: a stale *config* yields a page that loads,
+  renders and lies. **Restart Vite after touching `tailwind-preset.ts`,
+  `tokens.ts`, `vite.config.ts`, or anything else Vite reads once at boot** —
+  the same reflex as regenerating contracts after a pydantic change.
 - **Run the batch-end `just e2e` in a QUIET window — never concurrent with
   heavy agents — and treat a red sweep run under CPU load as UNCONFIRMED.**
   Seen 2026-07-23: a batch-end sweep kicked off while 2-3 kernel agents were

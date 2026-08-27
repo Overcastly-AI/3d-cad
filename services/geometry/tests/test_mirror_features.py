@@ -38,7 +38,7 @@ Tolerances are the two documented golden tiers, reused verbatim — never ad-hoc
 
 # reportPrivateUsage: the §6.2 store-separation and §4.5 drift-lock tests
 # deliberately assert on the evaluator's INTERNAL seams (`_pattern_contribution`,
-# `_mirror_scope_ids`, `EvaluationState`'s slots) — that separation is the whole
+# `_tool_scope_ids`, `EvaluationState`'s slots) — that separation is the whole
 # risk this suite exists to pin, and it is invisible from the public boundary.
 # reportUnknownMemberType: build123d's boolean ops carry Shape[Unknown] type params
 # upstream, the same gap tessellate.py documents for export_gltf.
@@ -697,9 +697,7 @@ def test_widening_the_tool_store_leaves_the_v1_readers_untouched() -> None:
     (docs/GEOMETRY-QA.md 2026-07-30).
     """
     body_id = _fid(2)
-    state = EvaluationState(
-        linear_deflection=0.1, mirror_scope_ids=frozenset({_fid(9)})
-    )
+    state = EvaluationState(linear_deflection=0.1, tool_scope_ids=frozenset({_fid(9)}))
     state.start_body(body_id, build_box(10.0, 10.0, 10.0))
     tool = build_box(2.0, 2.0, 2.0)
 
@@ -725,7 +723,7 @@ def test_a_tree_without_a_features_scope_mirror_records_nothing() -> None:
     """The opt-in gate of §9, asserted end to end: no ``features``-scope mirror in
     the tree means an EMPTY capture set, so no intermediate tool solid is retained
     and an existing document's rebuild cost cannot regress."""
-    from geometry.features.evaluate import _mirror_scope_ids
+    from geometry.features.evaluate import _tool_scope_ids
 
     request = EvaluateTreeRequest.model_validate(
         {
@@ -735,7 +733,7 @@ def test_a_tree_without_a_features_scope_mirror_records_nothing() -> None:
             "linear_deflection": 0.1,
         }
     )
-    assert _mirror_scope_ids(request) == frozenset()
+    assert _tool_scope_ids(request) == frozenset()
 
     with_scope = EvaluateTreeRequest.model_validate(
         {
@@ -745,7 +743,7 @@ def test_a_tree_without_a_features_scope_mirror_records_nothing() -> None:
             "linear_deflection": 0.1,
         }
     )
-    assert _mirror_scope_ids(with_scope) == frozenset({F_HOLE, F_BOSS})
+    assert _tool_scope_ids(with_scope) == frozenset({F_HOLE, F_BOSS})
 
 
 def test_the_earlier_cut_lock_holds_under_both_spellings() -> None:

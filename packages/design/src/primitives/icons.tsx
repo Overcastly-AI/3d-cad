@@ -218,6 +218,22 @@ export const TangentIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * Collinear = two SEPARATE segments sharing one infinite line. The gap is the
+ * whole glyph: without it this is a plain rule, and the constraint's meaning is
+ * precisely that two distinct edges lie on the same straight.
+ */
+export const CollinearIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 12 H10" />
+    <path d="M14 12 H21" />
+    <Node cx={3} cy={12} />
+    <Node cx={10} cy={12} />
+    <Node cx={14} cy={12} />
+    <Node cx={21} cy={12} />
+  </Icon>
+);
+
 // --- Dimensional constraints ------------------------------------------------
 
 export const DistanceIcon = (p: IconProps) => (
@@ -244,6 +260,21 @@ export const RadiusIcon = (p: IconProps) => (
     <path d="M12 12 L18.5 8" />
     <path d="M18.5 8 L15.7 8 M18.5 8 L17.4 10.6" />
     <Node cx={12} cy={12} />
+  </Icon>
+);
+
+/**
+ * Diameter = the drafting diameter dimension: the arrow runs THROUGH the
+ * centre, wall to wall. Held apart from {@link RadiusIcon}, whose single arrow
+ * stops at the centre — that contrast is the only reliable way to tell the two
+ * verbs apart at 16 px, and they now sit next to each other in one menu.
+ */
+export const DiameterIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx={12} cy={12} r={7} />
+    <path d="M5 12 H19" />
+    <path d="M5 12 L8 10 M5 12 L8 14" />
+    <path d="M19 12 L16 10 M19 12 L16 14" />
   </Icon>
 );
 
@@ -276,6 +307,21 @@ export const SymmetricIcon = (p: IconProps) => (
     <path d="M12 3 V21" strokeDasharray="2.4 2" />
     <path d="M5 8 L9 12 L5 16" />
     <path d="M19 8 L15 12 L19 16" />
+  </Icon>
+);
+
+/**
+ * Midpoint = a point pinned halfway along a line, drawn as the drafting
+ * equal-halves notation: one rule, a node at its centre, and the single tick on
+ * each half that says the two spans are the same. The ticks are the meaning —
+ * a node on a line without them is merely "on it" (coincident).
+ */
+export const MidpointIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 12 H20" />
+    <path d="M8 9.5 V14.5" />
+    <path d="M16 9.5 V14.5" />
+    <Node cx={12} cy={12} />
   </Icon>
 );
 
@@ -746,6 +792,43 @@ export const StlIcon = (p: IconProps) => (
 );
 
 /**
+ * 3MF = the SAME faceted mesh as STL, plus the one thing STL cannot carry: a
+ * stated size. So it is the `StlIcon` strip lifted to make room for a scribed
+ * DIMENSION LINE beneath it — extension lines, arrow ticks, the drawing
+ * notation this icon set already speaks. One mark of difference from STL, and
+ * it is precisely the difference between the formats (3MF declares its unit;
+ * STL's silence is the oldest bug class in 3D printing).
+ */
+export const ThreeMfIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 14 L8 5 L12 14 L16 5 L20 14 Z" />
+    <path d="M8 5 L16 5" />
+    <path d="M4 16 V20" />
+    <path d="M20 16 V20" />
+    <path d="M4 19 H20" />
+  </Icon>
+);
+
+/**
+ * glTF/GLB = a mesh made to be LOOKED at, on a screen, by someone who does not
+ * own CAD. The mesh strip again — it is a faceted format, and lying about that
+ * would be the defect — set inside four viewport CORNER BRACKETS. Brackets and
+ * not a full frame on purpose: `SheetExportIcon`'s closed rectangle already
+ * means "the drawing sheet", and a second boxed glyph would read as its
+ * sibling rather than as its opposite (that one exports the 2D print, this one
+ * exports the 3D model for viewing).
+ */
+export const GlbIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 7 V3 H7" />
+    <path d="M17 3 H21 V7" />
+    <path d="M21 17 V21 H17" />
+    <path d="M7 21 H3 V17" />
+    <path d="M6 16 L9.5 8 L13 16 L16.5 8 L18 11.5" />
+  </Icon>
+);
+
+/**
  * Export SVG = the drafting SHEET saved out as a vector file. A framed sheet
  * with a title-block cell scribed into its lower-right corner (the drawing you
  * see), and a scribed arrow descending out from under it — the "download the
@@ -1030,5 +1113,39 @@ export const FolderUpIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M12 19 L12 6" />
     <path d="M6 12 L12 6 L18 12" />
+  </Icon>
+);
+
+// --- Row verbs (REGISTER-1) --------------------------------------------------
+//
+// The three glyphs a filed row's overflow menu needs. Drawn from the drawer's
+// own vocabulary rather than from an office icon set: the "more" mark is three
+// of the scribe's PUNCH MARKS (the same `Node` every sketch glyph sets its
+// defining points with), so the control that opens a row's verbs is made of the
+// marks the register is already drawn in; duplicate is two sheets offset on the
+// board; rename is the scribe itself, nib down on a ruled line.
+
+/** More verbs for this row — three punch marks, the drawer's own ink. */
+export const MoreIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <Node cx={5} cy={12} />
+    <Node cx={12} cy={12} />
+    <Node cx={19} cy={12} />
+  </Icon>
+);
+
+/** Duplicate — a second sheet laid over the first, offset on the board. */
+export const DuplicateIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 16 L4 4 L14 4" />
+    <rect x={8} y={8} width={12} height={12} />
+  </Icon>
+);
+
+/** Rename — the scribe, nib down, over the rule it is writing on. */
+export const RenameIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5 15 L15 5 L19 9 L9 19 L5 19 Z" />
+    <path d="M4 22 L20 22" />
   </Icon>
 );

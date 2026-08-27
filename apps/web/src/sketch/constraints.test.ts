@@ -3,11 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   applyConstraintAction,
   authoredConstraintCount,
+  CONSTRAINT_SHORTCUTS,
   constraintEntityRefs,
   constraintGlyphs,
   describeSelection,
   dimensionEditorAnchor,
-  dimensionVerbHint,
+  selectionVerbHints,
   formatDimensionMm,
   formatSolveCell,
   reconcileConstraints,
@@ -15,9 +16,11 @@ import {
   sameConstraint,
   selectionAllConstruction,
   solveDiagnostic,
+  solvedReadouts,
   toggleConstruction,
+  verbIsAvailable,
+  verbSelectionShape,
   type SketchConstraint,
-  type SolvedDimension,
 } from "./constraints";
 import { DATUM_X_AXIS_ID, datumEntities, datumFrame } from "./datum";
 import type { SketchPick } from "./pick";
@@ -245,7 +248,10 @@ describe("applyConstraintAction", () => {
       target: {
         kind: "distance",
         entity: "e1",
-        initialMm: 40,
+        entityB: null,
+        noun: "Distance",
+        unit: "mm",
+        initialValue: 40,
         initialExpression: null,
         initialName: null,
         initialDriving: true,
@@ -273,7 +279,10 @@ describe("applyConstraintAction", () => {
       target: {
         kind: "distance",
         entity: "e1",
-        initialMm: 60,
+        entityB: null,
+        noun: "Distance",
+        unit: "mm",
+        initialValue: 60,
         initialExpression: "width/2",
         initialName: "half",
         initialDriving: false,
@@ -289,8 +298,11 @@ describe("applyConstraintAction", () => {
       outcome: "editor",
       target: {
         kind: "radius",
+        entityB: null,
+        noun: "Radius",
+        unit: "mm",
         entity: "e3",
-        initialMm: 10,
+        initialValue: 10,
         initialExpression: null,
         initialName: null,
         initialDriving: true,
@@ -740,10 +752,9 @@ describe("constraintGlyphs — engineering notation", () => {
       },
       { kind: "radius", entity: "e3", value_mm: 12.5, driving: false },
     ];
-    const solved = new Map<number, SolvedDimension>([
-      [0, { constraint_index: 0, name: "width", driving: true, value_mm: 20 }],
+    const solved = solvedReadouts(
       [
-        1,
+        { constraint_index: 0, name: "width", driving: true, value_mm: 20 },
         {
           constraint_index: 1,
           name: null,
@@ -751,15 +762,136 @@ describe("constraintGlyphs — engineering notation", () => {
           value_mm: 10,
           expression: "width/2",
         },
+        { constraint_index: 2, name: null, driving: false, value_mm: 12.5 },
       ],
-      [2, { constraint_index: 2, name: null, driving: false, value_mm: 12.5 }],
-    ]);
+      [],
+    );
     const glyphs = constraintGlyphs(withDims, entities, 3.5, solved);
     // Driving literal → "20"; driving expression → its resolved "10"; driven
     // radius → reference parentheses "(R12.5)".
     expect(glyphs.map((g) => g.label)).toEqual(["20", "10", "(R12.5)"]);
     expect(glyphs.map((g) => g.driven)).toEqual([false, false, true]);
     expect(glyphs[1]?.expression).toBe("width/2");
+  });
+
+  /**
+   * QA-R2. Degrees ride `SolvedSketch.angles`, millimetres `SolvedSketch
+   * .dimensions`, and nothing in `apps/web/src` read the first — so an angle
+   * driven by an expression kept the placeholder the client had guessed while
+   * the solver moved the model: authored 30, re-driven `15*3`, geometry at
+   * 45.000, glyph reading `30°` for ever.
+   */
+  describe("angles: the glyph must show what the SOLVER holds", () => {
+    const corner: SketchEntity[] = [
+      {
+        id: "a",
+        kind: "line",
+        start: { x: 0, y: 0 },
+        end: { x: 30, y: 0 },
+        construction: false,
+      },
+      {
+        id: "b",
+        kind: "line",
+        start: { x: 0, y: 0 },
+        end: { x: 20, y: 20 },
+        construction: false,
+      },
+    ];
+    const angleAt = (
+      value_deg: number,
+      extra: Partial<SketchConstraint> = {},
+    ): SketchConstraint[] => [
+      {
+        kind: "angle",
+        a: "a",
+        b: "b",
+        value_deg,
+        ...extra,
+      } as SketchConstraint,
+    ];
+
+    it("an expression-driven angle reads the RESOLVED degrees, not the placeholder", () => {
+      const solved = solvedReadouts(
+        [],
+        [
+          {
+            constraint_index: 0,
+            name: null,
+            driving: true,
+            value_deg: 45,
+            expression: "15*3",
+          },
+        ],
+      );
+      const glyphs = constraintGlyphs(
+        angleAt(30, { expression: "15*3" }),
+        corner,
+        3.5,
+        solved,
+      );
+      expect(glyphs[0]?.label).toBe("45°");
+      expect(glyphs[0]?.driven).toBe(false);
+      expect(glyphs[0]?.expression).toBe("15*3");
+    });
+
+    it("a DRIVEN (reference) angle reads its measured degrees, parenthesised", () => {
+      const solved = solvedReadouts(
+        [],
+        [{ constraint_index: 0, name: null, driving: false, value_deg: 33.69 }],
+      );
+      const glyphs = constraintGlyphs(
+        angleAt(30, { driving: false }),
+        corner,
+        3.5,
+        solved,
+      );
+      expect(glyphs[0]?.label).toBe("(33.69°)");
+      expect(glyphs[0]?.driven).toBe(true);
+    });
+
+    it("falls back to the authored degrees before the first solve", () => {
+      const glyphs = constraintGlyphs(angleAt(30), corner, 3.5);
+      expect(glyphs[0]?.label).toBe("30°");
+    });
+
+    /**
+     * The property the split of `SolvedAngle` off `SolvedDimension` exists to
+     * protect, kept by the LOOKUP rather than by withholding a list: a readout
+     * whose unit is not the constraint's is refused, so a payload that
+     * disagreed with itself can never put millimetres in a degree glyph.
+     */
+    it("refuses a millimetre readout for an angle, and vice versa", () => {
+      const wrongUnit = solvedReadouts(
+        [{ constraint_index: 0, name: null, driving: true, value_mm: 999 }],
+        [],
+      );
+      expect(
+        constraintGlyphs(angleAt(30), corner, 3.5, wrongUnit)[0]?.label,
+      ).toBe("30°");
+
+      const alsoWrong = solvedReadouts(
+        [],
+        [{ constraint_index: 0, name: null, driving: true, value_deg: 999 }],
+      );
+      const linear = constraintGlyphs(
+        [{ kind: "distance", entity: "e1", value_mm: 40 }],
+        entities,
+        3.5,
+        alsoWrong,
+      );
+      expect(linear[0]?.label).toBe("40");
+    });
+
+    it("merges both lists into one index space", () => {
+      const merged = solvedReadouts(
+        [{ constraint_index: 1, name: null, driving: true, value_mm: 10 }],
+        [{ constraint_index: 0, name: null, driving: true, value_deg: 45 }],
+      );
+      expect(merged.get(0)).toMatchObject({ value: 45, unit: "deg" });
+      expect(merged.get(1)).toMatchObject({ value: 10, unit: "mm" });
+      expect(merged.size).toBe(2);
+    });
   });
 
   it("without a solved map, a driven flag alone parenthesises the label", () => {
@@ -871,7 +1003,10 @@ describe("constraintGlyphs — engineering notation", () => {
         {
           kind: "distance",
           entity: "e1",
-          initialMm: 40,
+          entityB: null,
+          noun: "Distance",
+          unit: "mm",
+          initialValue: 40,
           initialExpression: null,
           initialName: null,
           initialDriving: true,
@@ -1092,37 +1227,295 @@ describe("constraint reconciliation after trim/extend", () => {
   });
 });
 
-describe("dimensionVerbHint", () => {
+describe("selectionVerbHints", () => {
+  const keys = (hints: ReturnType<typeof selectionVerbHints>) =>
+    hints.map((h) => `${h.key} ${h.label}`);
+
   it("offers D on a single selected line", () => {
-    expect(dimensionVerbHint([pickLine("e1")], entities, [])).toEqual({
-      key: "D",
-      label: "dimension",
-    });
+    expect(keys(selectionVerbHints([pickLine("e1")], entities, []))).toEqual([
+      "D dimension",
+    ]);
   });
 
-  it("offers R on a single selected circle or arc", () => {
-    expect(dimensionVerbHint([pickLine("e3")], entities, [])).toEqual({
-      key: "R",
-      label: "add a radius",
-    });
-    expect(dimensionVerbHint([pickLine("e5")], entities, [])).toEqual({
-      key: "R",
-      label: "add a radius",
-    });
+  it("offers the diameter first on a round, then the radius", () => {
+    expect(keys(selectionVerbHints([pickLine("e3")], entities, []))).toEqual([
+      "D diameter",
+      "R radius",
+    ]);
+    expect(keys(selectionVerbHints([pickLine("e5")], entities, []))).toEqual([
+      "D diameter",
+      "R radius",
+    ]);
+  });
+
+  it("offers the angle first on two lines — the verb the pair unlocks", () => {
+    const hints = selectionVerbHints(
+      [pickLine("e1"), pickLine("e2")],
+      entities,
+      [],
+    );
+    expect(hints[0]).toEqual({ key: "A", label: "angle", action: "angle" });
+    expect(keys(hints)).toContain("I collinear");
+    // Three is a glance, not a menu: parallel/perpendicular fall off the end.
+    expect(hints).toHaveLength(3);
+  });
+
+  it("drops a verb the selection has already stated", () => {
+    const already: SketchConstraint[] = [
+      { kind: "collinear", a: "e1", b: "e2" },
+    ];
+    expect(
+      keys(
+        selectionVerbHints([pickLine("e1"), pickLine("e2")], entities, already),
+      ),
+    ).not.toContain("I collinear");
+  });
+
+  it("offers midpoint for a point held against a line", () => {
+    expect(
+      keys(
+        selectionVerbHints(
+          [pickPoint("e3", "center"), pickLine("e1")],
+          entities,
+          [],
+        ),
+      ),
+    ).toContain("M midpoint");
   });
 
   it("stays silent with no selection", () => {
-    expect(dimensionVerbHint([], entities, [])).toBeNull();
+    expect(selectionVerbHints([], entities, [])).toEqual([]);
+  });
+});
+
+describe("verbIsAvailable — the one rule both surfaces read", () => {
+  const ACTIONS = Object.values(CONSTRAINT_SHORTCUTS).concat("diameter");
+
+  /**
+   * The anti-drift property, and the whole reason the predicate was extracted:
+   * the rail proposes a strict SUBSET of what the catalogue marks live, capped
+   * at three. If the two ever disagreed about a selection — a rail offering a
+   * verb the catalogue greys, or vice versa — one of them is lying about the
+   * same geometry, which is the failure `VERB_KEY` was inverted out of
+   * `CONSTRAINT_SHORTCUTS` to prevent, in a new place.
+   */
+  const selections: ReadonlyArray<[string, SketchPick[]]> = [
+    ["nothing", []],
+    ["one line", [pickLine("e1")]],
+    ["two lines", [pickLine("e1"), pickLine("e2")]],
+    ["a circle", [pickLine("e3")]],
+    ["an arc", [pickLine("e5")]],
+    ["two circles", [pickLine("e3"), pickLine("e4")]],
+    ["a point and a line", [pickPoint("e3", "center"), pickLine("e1")]],
+    ["two points", [pickPoint("e1", "start"), pickPoint("e2", "end")]],
+  ];
+
+  for (const [name, selection] of selections) {
+    it(`never offers a verb it also calls unavailable — ${name}`, () => {
+      for (const hint of selectionVerbHints(selection, entities, [])) {
+        expect(
+          verbIsAvailable(hint.action, selection, entities, []),
+          `the rail offered ${hint.action} on ${name}`,
+        ).toBe(true);
+      }
+    });
+  }
+
+  it("goes false for a constraint the sketch already states", () => {
+    const selection = [pickLine("e1"), pickLine("e2")];
+    expect(verbIsAvailable("collinear", selection, entities, [])).toBe(true);
+    expect(
+      verbIsAvailable("collinear", selection, entities, [
+        { kind: "collinear", a: "e1", b: "e2" },
+      ]),
+    ).toBe(false);
   });
 
-  it("stays silent when no single dimension verb applies", () => {
-    // Two lines: distance/radius both need exactly one — no dimension hint.
+  it("names a pick shape for every verb the keyboard can fire", () => {
+    for (const action of ACTIONS) {
+      expect(verbSelectionShape(action), action).not.toBe("");
+    }
+  });
+
+  it("says what the four late verbs need, from an empty selection", () => {
+    // The catalogue's entire job with nothing selected: the rail is empty here
+    // by construction, so this text is the ONLY thing that can teach the pick.
+    expect(verbIsAvailable("angle", [], entities, [])).toBe(false);
+    expect(verbSelectionShape("angle")).toBe("2 non-parallel lines");
+    expect(verbSelectionShape("collinear")).toBe("2 lines");
+    expect(verbSelectionShape("midpoint")).toBe("a point + a line");
+    expect(verbSelectionShape("diameter")).toBe("a circle/arc");
+  });
+});
+
+describe("the late vocabulary — angle / collinear / symmetric_lines / midpoint", () => {
+  it("dimensions the angle between two lines at their shared corner", () => {
+    // e1 runs +X to (40,0); e2 runs +Y from (40,0) — joined there.
+    const joined: SketchConstraint[] = [
+      {
+        kind: "coincident",
+        a: { entity: "e1", point: "end" },
+        b: { entity: "e2", point: "start" },
+      },
+    ];
+    const result = applyConstraintAction(
+      "angle",
+      [pickLine("e1"), pickLine("e2")],
+      entities,
+      joined,
+    );
+    expect(result.outcome).toBe("editor");
+    if (result.outcome !== "editor") return;
+    expect(result.target).toMatchObject({
+      kind: "angle",
+      entity: "e1",
+      entityB: "e2",
+      noun: "Angle",
+      unit: "deg",
+    });
+    expect(result.target.initialValue).toBeCloseTo(90, 6);
+  });
+
+  it("refuses an angle on lines that are already parallel, naming Parallel", () => {
+    const parallelPair: SketchEntity[] = [
+      line,
+      { ...line2, id: "e9", start: { x: 0, y: 10 }, end: { x: 40, y: 10 } },
+    ];
+    const result = applyConstraintAction(
+      "angle",
+      [pickLine("e1"), pickLine("e9")],
+      parallelPair,
+      [],
+    );
+    expect(result.outcome).toBe("hint");
+    if (result.outcome !== "hint") return;
+    expect(result.hint).toContain("Parallel (P)");
+  });
+
+  it("authors collinear on two lines and refuses a repeat", () => {
+    const first = applyConstraintAction(
+      "collinear",
+      [pickLine("e1"), pickLine("e2")],
+      entities,
+      [],
+    );
+    expect(first).toEqual({
+      outcome: "added",
+      constraints: [{ kind: "collinear", a: "e1", b: "e2" }],
+    });
+    if (first.outcome !== "added") return;
     expect(
-      dimensionVerbHint([pickLine("e1"), pickLine("e2")], entities, []),
-    ).toBeNull();
-    // A bare point is neither a line nor a round.
+      applyConstraintAction(
+        "collinear",
+        [pickLine("e1"), pickLine("e2")],
+        entities,
+        first.constraints,
+      ),
+    ).toEqual({
+      outcome: "hint",
+      hint: "Already collinear.",
+      already: true,
+    });
+  });
+
+  it("makes two lines symmetric about the construction line in the selection", () => {
+    const centerline: SketchEntity = {
+      id: "e8",
+      kind: "line",
+      start: { x: 20, y: -10 },
+      end: { x: 20, y: 40 },
+      construction: true,
+    };
+    const result = applyConstraintAction(
+      "symmetric",
+      [pickLine("e1"), pickLine("e2"), pickLine("e8")],
+      [...entities, centerline],
+      [],
+    );
+    expect(result).toEqual({
+      outcome: "added",
+      constraints: [{ kind: "symmetric_lines", a: "e1", b: "e2", line: "e8" }],
+    });
+  });
+
+  it("says which line to mark when three lines carry no centerline", () => {
+    const third: SketchEntity = { ...line, id: "e8" };
+    const result = applyConstraintAction(
+      "symmetric",
+      [pickLine("e1"), pickLine("e2"), pickLine("e8")],
+      [...entities, third],
+      [],
+    );
+    expect(result.outcome).toBe("hint");
+    if (result.outcome !== "hint") return;
+    expect(result.hint).toContain("construction");
+  });
+
+  it("centres a point on a line", () => {
     expect(
-      dimensionVerbHint([pickPoint("e1", "start")], entities, []),
-    ).toBeNull();
+      applyConstraintAction(
+        "midpoint",
+        [pickPoint("e3", "center"), pickLine("e1")],
+        entities,
+        [],
+      ),
+    ).toEqual({
+      outcome: "added",
+      constraints: [
+        {
+          kind: "midpoint",
+          point: { entity: "e3", point: "center" },
+          line: "e1",
+        },
+      ],
+    });
+  });
+
+  it("dimensions a circle with D — the diameter, twice the radius", () => {
+    const result = applyConstraintAction(
+      "distance",
+      [pickLine("e3")],
+      entities,
+      [],
+    );
+    expect(result.outcome).toBe("editor");
+    if (result.outcome !== "editor") return;
+    expect(result.target).toMatchObject({
+      kind: "diameter",
+      entity: "e3",
+      unit: "mm",
+      initialValue: 20,
+    });
+  });
+
+  it("glyphs every late verb in drawing notation", () => {
+    const centerline: SketchEntity = {
+      id: "e8",
+      kind: "line",
+      start: { x: 20, y: -10 },
+      end: { x: 20, y: 40 },
+      construction: true,
+    };
+    const glyphs = constraintGlyphs(
+      [
+        { kind: "angle", a: "e1", b: "e2", value_deg: 30 },
+        { kind: "collinear", a: "e1", b: "e2" },
+        { kind: "diameter", entity: "e3", value_mm: 20 },
+        { kind: "symmetric_lines", a: "e1", b: "e2", line: "e8" },
+        {
+          kind: "midpoint",
+          point: { entity: "e3", point: "center" },
+          line: "e1",
+        },
+      ],
+      [...entities, centerline],
+      3.5,
+    );
+    expect(glyphs.map((g) => g.label)).toEqual(["30°", "CL", "⌀20", "⟷", "M"]);
+    // Only the two dimensions open an editor on click.
+    expect(glyphs.filter((g) => g.editable).map((g) => g.kind)).toEqual([
+      "angle",
+      "diameter",
+    ]);
   });
 });

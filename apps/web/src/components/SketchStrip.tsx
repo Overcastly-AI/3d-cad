@@ -4,28 +4,43 @@
  * three datum planes (keyboard
  * path, hover-synced with the 3D sheets). Draw step, all on a single ruled
  * row so the viewport keeps the pixels: a flat status cell (plane + live
- * selection), the four sketch tools as scribed icons, the twelve constraint
+ * selection), the four sketch tools as scribed icons, the SIXTEEN constraint
  * verbs grouped by kind (Geometric / Dimensional / Relational) behind labeled
  * flyouts, the Construction toggle, then SAVE and EXIT as icon buttons —
  * their counts/reasons engraved in tooltips, never stacked into tall cells.
  *
  * One keyboard, two vocabularies survives untouched: the global key handler
  * still arms tools (L/R/C/A) with nothing selected and fires constraint verbs
- * (H/V/D/R/X/C/P/L/T/E/S/O + N) with a selection. The toolbar is the
- * DISCOVERABLE surface — every icon's tooltip engraves its accelerator — but
- * the letters remain the fast path. Quiet chrome; the viewport keeps the
- * pixels.
+ * (H/V/D/R/A/X/C/P/L/I/T/E/S/M/O + N) with a selection.
+ *
+ * TWO SURFACES, ONE RULE. The status cell's OFFER RAIL proposes the (up to
+ * three) verbs the CURRENT selection unlocks, keycap first, each cap
+ * clickable — the fast path, at the moment it applies. The flyouts are the
+ * CATALOGUE: all sixteen verbs, each saying whether this selection reaches it
+ * and, when it does not, the pick shape that would. Both read the same
+ * `verbIsAvailable` predicate, so they cannot disagree about a selection.
+ *
+ * The catalogue is not redundant with the rail, and the reason is structural:
+ * an offer can only appear once the selection ALREADY fits, so the rail can
+ * propose a verb but can never teach you to reach one. Four verbs shipped
+ * authorable-but-uncatalogued after REACH-1 (angle, diameter, collinear,
+ * midpoint) and were findable only by pressing a letter nothing named — the
+ * catalogue is where "what exists" lives, and it was lying by omission.
+ * Quiet chrome; the viewport keeps the pixels.
  */
 import {
+  AngleIcon,
   ArcIcon,
   ChamferIcon,
   CheckIcon,
   CircleIcon,
   CloseIcon,
   CoincidentIcon,
+  CollinearIcon,
   ConcentricIcon,
   ConstructionIcon,
   DatumIcon,
+  DiameterIcon,
   DistanceIcon,
   EqualIcon,
   ExtendIcon,
@@ -36,6 +51,7 @@ import {
   HorizontalIcon,
   Kbd,
   LineIcon,
+  MidpointIcon,
   MirrorIcon,
   NumberField,
   OffsetIcon,
@@ -63,8 +79,10 @@ import { undoRedoStep } from "../lib/undoRedoShortcut";
 import {
   authoredConstraintCount,
   describeSelection,
-  dimensionVerbHint,
   selectionAllConstruction,
+  selectionVerbHints,
+  verbIsAvailable,
+  verbSelectionShape,
   type ConstraintAction,
 } from "../sketch/constraints";
 import { withoutDatums } from "../sketch/datum";
@@ -199,6 +217,31 @@ interface ConstraintSpec {
 }
 
 /**
+ * The sketch strip's rung of `CommandBand`'s measured label ladder (guarantee
+ * #3 — higher keeps its words longer). Two levels, because at the 1280 floor
+ * the strip has exactly two spendable sets of words and they are not worth the
+ * same per pixel.
+ *
+ * Measured at 1280x800 BEFORE this ranking existed (QA-R1, reproduced 3/3):
+ * idle the strip needs 1258.8px and fits; ONE offer takes it to 1288.2 and
+ * clips CANCEL SKETCH; three offers take it to 1419.4 and clip the relational
+ * flyout, Construction, FINISH and CANCEL — with `scrollWidth === clientWidth`,
+ * so a real click at `sketch-save`'s own centre did nothing. Every ToolButton
+ * on this strip is already icon-only, so the band's ladder had NOTHING to shed
+ * (the three Flyout triggers were opted out of it) and measured itself into the
+ * "icon" tier while saving 0px — a tier that reported work it had not done.
+ *
+ * The offer rail outranks the flyout triggers: the rail's words name what THIS
+ * selection can do and disappear with it, while "Geometric"/"Dimension"/
+ * "Relational" are permanent captions over icons that keep a tooltip and a
+ * one-click menu. So the flyouts pay first (205.6px of words) and the rail
+ * keeps its 129.2px, which is the ranking the band arrives at unaided at 1280
+ * and 1366 and reverses — everything labelled — at 1440.
+ */
+const RAIL_LABEL_PRIORITY = 1;
+const CONSTRAIN_LABEL_PRIORITY = -1;
+
+/**
  * The constraint verbs, grouped by the family the constraint belongs to —
  * the same taxonomy the docs call out: Geometric (orientation of curves),
  * Dimensional (driving values), Relational (ties between points/entities).
@@ -252,6 +295,13 @@ const CONSTRAINT_GROUPS: ReadonlyArray<{
         name: "Tangent constraint (T, on a selected line and arc/circle, or two curves)",
         icon: <TangentIcon />,
       },
+      {
+        action: "collinear",
+        label: "Collinear",
+        keyHint: "I",
+        name: "Collinear constraint (I, on two selected lines — puts them on one straight)",
+        icon: <CollinearIcon />,
+      },
     ],
   },
   {
@@ -273,6 +323,25 @@ const CONSTRAINT_GROUPS: ReadonlyArray<{
         keyHint: "R",
         name: "Radius dimension (R, on one selected circle or arc)",
         icon: <RadiusIcon />,
+      },
+      {
+        // D IS "DIMENSION", AND THE SELECTION SAYS WHICH ONE — diameter has no
+        // key of its own (see CONSTRAINT_SHORTCUTS). The row is still listed,
+        // because the catalogue's job is to say the verb EXISTS: someone
+        // hunting "how do I call out a diameter" finds it here and learns that
+        // D on a round already is it, which no amount of pressing D teaches.
+        action: "diameter",
+        label: "Diameter",
+        keyHint: "D",
+        name: "Diameter dimension (D, on one selected circle or arc)",
+        icon: <DiameterIcon />,
+      },
+      {
+        action: "angle",
+        label: "Angle",
+        keyHint: "A",
+        name: "Angle dimension (A, on two selected non-parallel lines)",
+        icon: <AngleIcon />,
       },
       {
         action: "equal",
@@ -304,10 +373,21 @@ const CONSTRAINT_GROUPS: ReadonlyArray<{
         icon: <ConcentricIcon />,
       },
       {
+        action: "midpoint",
+        label: "Midpoint",
+        keyHint: "M",
+        name: "Midpoint constraint (M, on a selected point and line — centres the point along the line)",
+        icon: <MidpointIcon />,
+      },
+      {
         action: "symmetric",
         label: "Symmetric",
         keyHint: "S",
-        name: "Symmetric constraint (S, on two selected points about a selected line)",
+        // The two-lines form is NAMED. It shipped in `applyConstraintAction`
+        // but this caption still promised only "two points about a line", so
+        // the catalogue was actively steering people away from the selection
+        // the verb had just learned to accept.
+        name: "Symmetric constraint (S, on two selected points about a line, or two lines about a selected centerline)",
         icon: <SymmetricIcon />,
       },
       {
@@ -361,6 +441,14 @@ export interface SketchStripProps {
   authoringFace?: boolean;
   /** On-face authoring failure, or null. */
   facePickError?: string | null;
+  /**
+   * PICK-2 — why the armed face pick has nothing to pick, or null when it has.
+   * The overlay that highlights pickable faces is fetched only while the tip
+   * feature has a built body; without one the viewport is empty, and a prompt
+   * that keeps saying "click a highlighted planar face" is the dead end this
+   * closes. Not an error — nothing was attempted — so it reads as direction.
+   */
+  facePickBlocked?: string | null;
 }
 
 const OFFSET_BASE_OPTIONS: ReadonlyArray<SegmentOption<DatumPlaneName>> =
@@ -502,10 +590,13 @@ function OffsetPlanePanel({
  */
 function FacePickPrompt({
   busy,
+  blocked,
   error,
   onCancel,
 }: {
   busy: boolean;
+  /** PICK-2 — why there is nothing to pick, or null. */
+  blocked: string | null;
   error: string | null;
   onCancel: () => void;
 }) {
@@ -514,19 +605,23 @@ function FacePickPrompt({
       <div
         role="status"
         data-testid="face-pick-prompt"
+        data-blocked={blocked !== null ? "true" : "false"}
         className="border border-hairline bg-anvil px-3 py-3 font-body text-xs text-gauge"
       >
         <h2 className="font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-          Pick a face
+          {blocked !== null ? "Nothing to pick" : "Pick a face"}
         </h2>
-        <p className="mt-1.5 text-mist">
-          {busy
-            ? "Placing the sketch on the face…"
-            : "Click a highlighted planar face to sketch on it."}
+        <p className="mt-1.5 text-mist" data-testid="face-pick-prompt-body">
+          {blocked !== null
+            ? blocked
+            : busy
+              ? "Placing the sketch on the face…"
+              : "Click a highlighted planar face to sketch on it."}
         </p>
         <p className="mt-1.5 text-gauge">
-          Best-effort reference — a big change upstream can move it. Curved
-          faces aren’t pickable.
+          {blocked !== null
+            ? "Pick a datum plane above to keep sketching in the meantime."
+            : "Best-effort reference — a big change upstream can move it. Curved faces aren’t pickable."}
         </p>
         <div className="mt-2 flex justify-end">
           <button
@@ -625,8 +720,8 @@ function MirrorPrompt({
         </div>
       ) : (
         <span data-testid="mirror-count">
-          Click a line to mirror {count} {noun} about it · reflects geometry
-          only
+          Click a line or an origin axis to mirror {count} {noun} about it ·
+          reflects geometry only
         </span>
       )}
     </div>
@@ -730,6 +825,7 @@ export function SketchStrip({
   facePicking = false,
   authoringFace = false,
   facePickError = null,
+  facePickBlocked = null,
 }: SketchStripProps) {
   const mode = useSketchStore((state) => state.mode);
   const plane = useSketchStore((state) => state.plane);
@@ -809,13 +905,11 @@ export function SketchStrip({
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const discardArmed = confirmingDiscard && !bound && entityCount > 0;
 
-  // The dimension verb the current selection unlocks (select-then-D was
-  // undiscoverable — FINDINGS #12). Only while drawing, and only when the key
-  // would truly open the editor, so the affordance is never a dead promise.
-  const verbHint =
-    mode === "draw"
-      ? dimensionVerbHint(selection, entities, constraints)
-      : null;
+  // The verbs the current selection unlocks. Only while drawing, and only
+  // where the key would truly do something, so the rail is never a dead
+  // promise (`selectionVerbHints`).
+  const verbHints =
+    mode === "draw" ? selectionVerbHints(selection, entities, constraints) : [];
 
   if (mode === "off") return null;
 
@@ -844,10 +938,13 @@ export function SketchStrip({
                 {describeSelection(selection)}
                 {constraintCount > 0 ? ` · ${constraintCount} applied` : ""}
               </span>
-              {/* Contextual verb hint — the selection's next likely move,
-                  keyboard-first. Quiet: a stamped key + plain verb, brass only
-                  on the keycap, so it reads as instrument guidance not a banner. */}
-              {verbHint ? (
+              {/* THE OFFER RAIL — the selection's next moves, keyboard-first.
+                  Quiet by construction: stamped keycaps and plain verbs, brass
+                  only on the cap, sitting in the readout's own row so it reads
+                  as instrument guidance and not a banner. Each cap is a real
+                  button, so the same affordance serves the keyboard and the
+                  pointer — press the letter, or click the letter. */}
+              {verbHints.length > 0 ? (
                 <>
                   <span aria-hidden className="text-etch">
                     ·
@@ -855,10 +952,36 @@ export function SketchStrip({
                   <span
                     role="status"
                     data-testid="dimension-hint"
-                    className="flex items-center gap-1 text-gauge"
+                    // The rail is a first-class participant in the band's
+                    // measured label tier (`CommandBand` guarantee #3), not a
+                    // free-growing readout: it declares a priority like any
+                    // ToolGroup, so the band can buy its words back or shed
+                    // them by MEASUREMENT. It ranks ABOVE the Constrain
+                    // flyouts (RAIL_LABEL_PRIORITY) because those words are
+                    // permanent chrome naming families whose members are one
+                    // click away, while these name what THIS selection can do
+                    // right now and vanish with it — the higher information
+                    // per pixel. Shed, each offer keeps its brass keycap, so
+                    // the rail still says "these keys are live".
+                    data-label-priority={RAIL_LABEL_PRIORITY}
+                    className="flex items-center gap-2 text-gauge"
                   >
-                    <Kbd>{verbHint.key}</Kbd>
-                    <span>{verbHint.label}</span>
+                    {verbHints.map((verb) => (
+                      <button
+                        key={verb.action}
+                        type="button"
+                        data-testid={`verb-hint-${verb.action}`}
+                        aria-label={`${verb.label} — press ${verb.key}`}
+                        title={`${verb.label} (${verb.key})`}
+                        onClick={() => applyConstraint(verb.action)}
+                        className="flex items-center gap-1 rounded-sm hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass motion-safe:transition-colors"
+                      >
+                        <Kbd>{verb.key}</Kbd>
+                        <span className="[[data-labels=off]_&]:hidden">
+                          {verb.label}
+                        </span>
+                      </button>
+                    ))}
                   </span>
                 </>
               ) : null}
@@ -1006,7 +1129,10 @@ export function SketchStrip({
               ))}
             </ToolGroup>
 
-            <ToolGroup eyebrow="Constrain">
+            <ToolGroup
+              eyebrow="Constrain"
+              labelPriority={CONSTRAIN_LABEL_PRIORITY}
+            >
               {CONSTRAINT_GROUPS.map((group) => (
                 <Flyout
                   key={group.key}
@@ -1019,6 +1145,19 @@ export function SketchStrip({
                     icon: item.icon,
                     label: item.label,
                     shortcut: item.keyHint,
+                    // THE CATALOGUE IS LIVE, from the SAME predicate the offer
+                    // rail reads (`verbIsAvailable`). The rail proposes the
+                    // three verbs a fitting selection unlocks; the catalogue
+                    // holds all sixteen and says, of each, whether this
+                    // selection reaches it and what it would take. Neither can
+                    // drift from the other, because neither owns the rule.
+                    available: verbIsAvailable(
+                      item.action,
+                      selection,
+                      entities,
+                      constraints,
+                    ),
+                    requires: verbSelectionShape(item.action),
                     onSelect: () => applyConstraint(item.action),
                     "data-testid": `constraint-${item.action}`,
                     "aria-label": item.name,
@@ -1145,6 +1284,7 @@ export function SketchStrip({
         <div className="absolute left-editor top-full z-overlay mt-2">
           <FacePickPrompt
             busy={authoringFace}
+            blocked={facePickBlocked}
             error={facePickError}
             onCancel={onTogglePickFace}
           />

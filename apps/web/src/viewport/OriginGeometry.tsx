@@ -27,6 +27,23 @@
  * which way is +X without a legend, and the engraved letter at the positive end
  * confirms it. Structure encoding truth, not a decorative tick.
  *
+ * ## The frame these are drawn in (FB-21)
+ *
+ * ONE convention, stated here because this is the module that annotates it for
+ * the user: **everything in the viewport is drawn in the SCENE frame (three.js,
+ * Y-up), and every kernel quantity crosses into it exactly once, through
+ * `sketch/plane.ts`'s `occtToSceneTuple`.** The GLB bakes that same Z-up→Y-up
+ * rotation, which is why the body needs no transform of its own.
+ *
+ * The user-visible consequences, which now all agree because they are all the
+ * same vector rather than four constants kept in step:
+ *
+ *   kernel +Z (a part's height, an XY sketch's extrude direction)
+ *     = scene +Y = the Z axis glyph = the ViewCube's TOP = `VIEW_DIRECTIONS.top`
+ *   kernel +Y = scene −Z = the ViewCube's BACK (so FRONT looks along kernel +Y,
+ *     the drafting convention)
+ *   kernel +X = scene +X = the X axis glyph = the ViewCube's RIGHT
+ *
  * ## Sizing
  *
  * Fixed-size datum geometry is useless at both ends of the range — a 90 mm
@@ -49,10 +66,12 @@ import {
 } from "three";
 
 import {
+  occtToSceneTuple,
   sceneOriginBasis,
   planeToWorld,
   type DatumPlaneName,
   type PlaneBasis,
+  type Vec3Tuple,
 } from "../sketch/plane";
 import {
   entityIsDrawn,
@@ -83,14 +102,33 @@ const GAP_FRACTION = 0.022;
 /** Keep the axis letters under the HUD strips, like the constraint glyphs. */
 const LABEL_Z_RANGE: [number, number] = [20, 0];
 
-/** World direction of each principal axis. */
-const AXIS_DIRECTION: Record<OriginAxisName, [number, number, number]> = {
-  // Scene space is Y-up (the GLB bakes the kernel's Z-up→Y-up rotation), and
-  // the plane bases in `sketch/plane.ts` are stated in that same frame — so
-  // these are the world axes the sheets are built from, not a second convention.
-  X: [1, 0, 0],
-  Y: [0, 1, 0],
-  Z: [0, 0, 1],
+/**
+ * SCENE direction of each KERNEL principal axis (FB-21).
+ *
+ * A glyph labelled Z has to point where the part's Z actually goes, and the
+ * part is drawn in the SCENE frame: the GLB bakes build123d's Z-up→Y-up
+ * rotation, so kernel +Z arrives at scene +Y and kernel +Y at scene −Z
+ * (`occtToSceneTuple` — the one rotation, `sketch/plane.ts`).
+ *
+ * These used to be the identity — `Z: [0, 0, 1]` — under a comment asserting
+ * that scene and kernel axes coincide. They do not, and the sheets drawn three
+ * functions below already knew it: `OriginPlane` builds from
+ * `sceneOriginBasis`, which IS rotated. So one component drew its planes in
+ * scene space and its axes in kernel space, and the glyph reading Z pointed
+ * along the kernel's −Y while the part's height ran along the glyph reading Y —
+ * exactly the founder's "turn on the axis and compare them to the view cube".
+ *
+ * DERIVED, not transcribed. `occtToSceneTuple([0,0,1])` is the same expression
+ * the mesh, the sketch ink and the extrude ghost pass through, so the triad
+ * cannot drift from the body it annotates the way a hand-written triple can.
+ * The camera needs no change: `VIEW_DIRECTIONS.top` is scene +Y, which is now
+ * the Z glyph's own direction — the ViewCube's TOP and the Z axis agree because
+ * they are the same vector, not because two constants were kept in step.
+ */
+export const AXIS_DIRECTION: Record<OriginAxisName, Vec3Tuple> = {
+  X: occtToSceneTuple([1, 0, 0]),
+  Y: occtToSceneTuple([0, 1, 0]),
+  Z: occtToSceneTuple([0, 0, 1]),
 };
 
 /** Quaternion orienting local XY (+Z normal) onto a plane basis. */

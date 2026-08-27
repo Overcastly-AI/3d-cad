@@ -23,16 +23,35 @@
  * deterministic, correct with no round-trip) and the driving constraint records
  * it; the next solve then CONFIRMS rather than decides.
  *
- * WHY A RECTANGLE ALSO GETS ITS RIGIDITY CONSTRAINTS HERE: `tools.ts` emits a
- * rectangle as four independent lines with no constraints tying them, so a bare
+ * WHY A RECTANGLE GETS ITS RIGIDITY CONSTRAINTS: `tools.ts` emits a rectangle
+ * as four independent lines with no constraints tying them, so a bare
  * `distance` on one edge stretches THAT LINE ALONE and tears the rectangle open
  * at the next solve — the profile then fails to close and the extrude dies. A
- * dimensioned rectangle therefore also carries the four corner coincidences and
- * the two horizontal / two vertical constraints that make it a rectangle
- * (16 DOF − 12 = 4: x, y, w, h — no redundancy, and the two dimensions leave it
- * free to translate, as an unanchored sketch should be). They ride WITH the
- * first typed dimension rather than with every rectangle ever drawn, so a shape
- * nobody dimensioned still solves exactly as it did before this landed.
+ * rectangle therefore carries the four corner coincidences and the two
+ * horizontal / two vertical constraints that make it a rectangle
+ * (16 DOF − 12 = 4: x, y, w, h — no redundancy, and two dimensions leave it
+ * free to translate, as an unanchored sketch should be).
+ *
+ * RECT-1, 2026-08-16 — WHERE they are authored moved, and the original choice
+ * is worth recording because it was deliberate and wrong. They used to ride
+ * with the first TYPED dimension, on the reasoning that "a shape nobody
+ * dimensioned still solves exactly as it did before this landed" — i.e.
+ * touching the undimensioned case was treated as the risk. It is the opposite.
+ * An undimensioned rectangle is the ORDINARY case, and leaving it bare means
+ * the most common closed-profile gesture in CAD produces four numerically
+ * coincident but topologically disconnected lines: dimension any one edge
+ * later and the other three stay put, so it tears at the corners on the first
+ * re-drive. Worse, this was invisible until DIM-1 (`a810524`) — draw-time
+ * keystrokes were not registering at all, so essentially every rectangle drawn
+ * against this build took the untyped path.
+ *
+ * So rigidity is now authored at PLACEMENT ({@link shapeRigidity}, called from
+ * the store's `placeAt`), where it belongs: a rectangle is a closed,
+ * axis-aligned profile the moment it is drawn, which is what the word means.
+ * {@link drawDimensionConstraints} therefore no longer emits it — authoring it
+ * in both places would double every equation and report a rectangle the user
+ * merely dimensioned as OVER-CONSTRAINED, which is a worse failure than the
+ * one being fixed. One author, one place; the typed path adds only dimensions.
  */
 import type { Point2D } from "./plane";
 import { rectangleCorners, type SketchEntity, type SketchTool } from "./tools";
@@ -242,9 +261,24 @@ export function resizeDrawn(
 }
 
 /**
+ * The rigidity set a freshly-placed shape carries — the constraints that make
+ * it the shape the user asked for rather than a coincidence of coordinates.
+ * Called from the store's `placeAt` at the moment of the draw; see the module
+ * note (RECT-1) for why this is not deferred to the first typed dimension.
+ *
+ * A circle needs nothing: `tools.ts` emits it as a single entity, so there is
+ * no topology to hold together.
+ */
+export function shapeRigidity(
+  shape: DrawShape,
+  ids: readonly string[],
+): SketchConstraint[] {
+  return shape === "rect" ? rectangleRigidity(ids) : [];
+}
+
+/**
  * The rectangle's rigidity set: four corner coincidences plus horizontal on the
- * bottom/top and vertical on the left/right edges. See the module note for why
- * this is not optional once a rectangle carries a dimension.
+ * bottom/top and vertical on the left/right edges.
  */
 function rectangleRigidity(ids: readonly string[]): SketchConstraint[] {
   const [bottom, right, top, left] = ids;
@@ -272,15 +306,19 @@ function rectangleRigidity(ids: readonly string[]): SketchConstraint[] {
 }
 
 /**
- * Every constraint a set of typed values authors: the shape's rigidity set (so
- * the dimension means what it says) plus one driving dimension per typed cell.
- * `ids` is the placement's full emission order (a rectangle's four lines), of
- * which the fields dimension only two. Returns nothing when nothing was typed —
- * drawing without dimensioning must cost the sketch no constraints at all.
+ * One driving dimension per typed cell, and nothing else. Returns nothing when
+ * nothing was typed.
+ *
+ * The shape's rigidity set is NOT here: it is authored at placement by
+ * {@link shapeRigidity}, so by the time this runs the rectangle is already a
+ * rectangle. Emitting it again would duplicate all twelve equations and turn an
+ * ordinary draw-then-dimension into an OVER-CONSTRAINED report — see the module
+ * note (RECT-1). `shape` is kept in the signature because the caller's draft is
+ * keyed by it and a future shape may need per-shape dimension handling.
  */
 export function drawDimensionConstraints(
-  shape: DrawShape,
-  ids: readonly string[],
+  _shape: DrawShape,
+  _ids: readonly string[],
   fields: readonly DrawDimensionField[],
   values: DrawDimensionValues,
 ): SketchConstraint[] {
@@ -288,8 +326,7 @@ export function drawDimensionConstraints(
     (field) => field.entity !== null && values[field.key] !== undefined,
   );
   if (typed.length === 0) return [];
-  const constraints: SketchConstraint[] =
-    shape === "rect" ? rectangleRigidity(ids) : [];
+  const constraints: SketchConstraint[] = [];
   for (const field of typed) {
     constraints.push({
       kind: field.kind,

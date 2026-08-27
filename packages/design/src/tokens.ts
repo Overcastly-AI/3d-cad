@@ -238,6 +238,40 @@ export const viewport = {
       edgeOpacity: 0.8,
     },
   },
+  /**
+   * DIRECT-MANIPULATION HANDLES (T-23) — the depth gauge you pull to set an
+   * extrude, and the language every handle after it inherits.
+   *
+   * The design mandate calls the missing drag affordance "the single biggest
+   * 'does not feel like a modeling tool' gap we have", and the fifth product
+   * audit found the product carried none at all. The read had to be decided
+   * once, here, because there will be more of these (revolve angle, fillet
+   * radius, pattern spacing) and four hand-tuned gizmos would be four dialects.
+   *
+   * It is the WORKING BRASS, deliberately the same accent as the ghost it
+   * pulls: the handle and the volume it is sizing are one pending edit, and
+   * giving the manipulator its own colour would say they were two things. What
+   * separates them is FORM, not hue — the ghost is a translucent solid, the
+   * gauge is a scribed line with graduations, exactly as a drawing separates
+   * material from dimensioning.
+   *
+   * The graduations are the signature. A plain arrow says "you may pull this";
+   * a RULED arrow says what you are pulling against, which is the difference
+   * between a generic gizmo and a machinist's depth gauge. They are held quiet
+   * (about half strength) and appear only once the grip is taken or focused —
+   * boldness spent in one place, and nothing extra painted while you are just
+   * looking at the model.
+   */
+  manipulator: {
+    /** The pull axis, the arrow, and the grip at rest — working brass. */
+    axis: color.brass,
+    /** Grabbed, hovered or keyboard-focused. */
+    active: color.brassHover,
+    /** Axis + arrow opacity. Solid enough to aim at, short of committed metal. */
+    axisOpacity: 0.92,
+    /** Graduation opacity — present, never competing with the ink beneath. */
+    ladderOpacity: 0.5,
+  },
 } as const;
 
 /**
@@ -748,6 +782,49 @@ export const duration = {
   base: 200,
 } as const;
 
+/**
+ * The REFERENCE CUBE — the machinist's block that names the view, and the one
+ * piece of geometry the DOM and the WebGL scene both have to agree on. ONE
+ * source, two renderers, exactly like the palette above.
+ *
+ * It is here rather than in `apps/web` because the two halves had already come
+ * apart. Until 2026-08-17 the placement lived in `viewport/Viewport.tsx` (a
+ * 96 px inset around a 120 px footprint, i.e. a 156 px corner) while the
+ * clearance the chrome kept for it lived here as a hand-copied `140` — so a
+ * right-hand rail was licensed to paint 16 px into a control the design mandate
+ * calls table stakes. That drift was NOT the cause of VIEWCUBE-1 (raising the
+ * band to 176 was measured and changed nothing; the cause was drei's two-pass
+ * `Hud` render — see `ViewCube.tsx`), but it was a second, quieter defect found
+ * in the same corner, and it is the reason the numbers are derived now. A
+ * number transcribed between two files is not a token; it is a copy waiting to
+ * drift, which is the DRY rule this repo enforces on API types and palettes and
+ * had not yet enforced on layout geometry.
+ *
+ * `face` is in SCENE units, which equal CSS px because the cube's camera is
+ * orthographic at zoom 1 over a host sized from these same numbers.
+ */
+const VIEW_CUBE_FACE = 60;
+const VIEW_CUBE_MARGIN = 96;
+/**
+ * The square the block needs on screen. Its ISO silhouette is the SPACE
+ * DIAGONAL, `face * sqrt(3)` ≈ 103.9 px across — not the face — plus 2 px each
+ * side so the hairline stroke on the far corner is never clipped. Getting this
+ * wrong is what made the old footprint constant (120) both too generous for
+ * the fit and, paired with a 140 px clearance, too mean for the chrome.
+ */
+const VIEW_CUBE_SIZE = Math.ceil(VIEW_CUBE_FACE * Math.sqrt(3)) + 4;
+
+export const viewCube = {
+  /** Face of the block, scene units == CSS px at zoom 1. */
+  face: VIEW_CUBE_FACE,
+  /** Centre of the block, inset from the frame's bottom-right corner. */
+  margin: VIEW_CUBE_MARGIN,
+  /** Side of the square DOM host the block is drawn into. */
+  size: VIEW_CUBE_SIZE,
+  /** Inset of that host's bottom/right edges — derived, never transcribed. */
+  inset: VIEW_CUBE_MARGIN - VIEW_CUBE_SIZE / 2,
+} as const;
+
 /** Fixed layout dimensions (px) of the shell. */
 export const layout = {
   toolbarHeight: 44,
@@ -768,6 +845,29 @@ export const layout = {
    */
   commandBandHeight: 56,
   inspectorWidth: 320,
+  /**
+   * THE BOUNDED SHEET — the widest a page-level "sheet" composition may grow
+   * (`max-w-sheet`), shared by the sign-in plate and the document registers.
+   *
+   * It exists because SIGNIN-1 was, underneath the visual complaint, a units
+   * problem. The sign-in's thesis is a drawing sheet with the auth form as its
+   * title block, and a title block belongs in the sheet's bottom-right corner —
+   * but the "sheet" was the browser WINDOW, which has no edges. At 1600x1000
+   * that put a 320x260 card at (1233, 692) with 94.8 % of the frame empty, and
+   * it read as a CSS fault rather than as the corner of anything
+   * (docs/AUDIT-PRODUCT.md R-1, S-1, T-1 — filed four times, at P3 twice "on the
+   * assumption it was a minute's work"). Bounding the sheet is what makes a
+   * corner a corner.
+   *
+   * 1120 is a measured fit, not a round number: at the 1280 floor the mandate
+   * holds every surface to it leaves 80 px of ground either side — enough that
+   * the sheet reads as an object ON the bench rather than as the bench — and at
+   * 1600 it centres inside a 240 px margin, which is a mount rather than a void.
+   * The registers share it (they were capped at `max-w-5xl` = 1024, a Tailwind
+   * default nobody chose), so the two surfaces an evaluating engineer meets
+   * before modelling anything are one width instead of two accidents.
+   */
+  sheetWidth: 1120,
   /**
    * Fixed width of a HUD feature-editor card (the datum/extrude/… panels that
    * hang top-left over the viewport). A real, token-driven width so the card
@@ -831,11 +931,16 @@ export const layout = {
    */
   railPanelFloor: 120,
   /**
-   * Bottom band occupied by the in-canvas reference cube (drei GizmoHelper,
-   * bottom-RIGHT). A right-side panel clamps above it so a table-stakes nav
-   * element is never covered (mandate 3a).
+   * Bottom band occupied by the reference cube (bottom-RIGHT). A right-side
+   * panel clamps above it so a table-stakes nav element is never covered
+   * (mandate 3a).
+   *
+   * DERIVED from {@link viewCube}, not chosen: the cube's host reaches
+   * `inset + size` up from the frame's bottom edge, and the band adds the same
+   * 12 px gutter every other floating card breathes on. The hand-written 140
+   * this replaces was 16 px short of the cube's real 156 px reach.
    */
-  referenceCubeBand: 140,
+  referenceCubeBand: viewCube.inset + viewCube.size + spacing["3"],
   /**
    * Height of the bottom TIMELINE strip — the machine way the build travels
    * along, docked under the viewport (UI-W1, founder-directed 2026-07-30;

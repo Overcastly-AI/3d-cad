@@ -36,6 +36,7 @@ import {
   spacingError,
 } from "../features/pattern";
 import { EditorCard } from "./EditorCard";
+import { ScopeRow } from "./ScopeRow";
 
 export interface PatternEditorProps {
   mode: "create" | "edit";
@@ -118,6 +119,16 @@ export function PatternEditor({
             {mode === "create" ? "New pattern" : "Edit pattern"}
           </h2>
           <div className="flex flex-col gap-2 px-3 pb-3 pt-1">
+            {/* WHAT is repeated, before HOW it is repeated: the subject is the
+                question a pattern got wrong for a year (pattern-scope §1), and
+                it is the first thing the user should read. */}
+            <ScopeRow
+              verb="pattern"
+              mode={form.scope}
+              features={form.scopeFeatures}
+              onChange={(scope) => set("scope", scope)}
+            />
+
             <SegmentedControl
               label="Pattern"
               value={form.kind}
@@ -139,7 +150,9 @@ export function PatternEditor({
                 className="-mt-1 font-body text-xs text-gauge"
                 data-testid="pattern-count-note"
               >
-                Includes the seed body — a count of 3 makes 2 more.
+                {form.scope === "features"
+                  ? "Includes the original — a count of 3 makes 2 more."
+                  : "Includes the seed body — a count of 3 makes 2 more."}
               </p>
             ) : null}
 

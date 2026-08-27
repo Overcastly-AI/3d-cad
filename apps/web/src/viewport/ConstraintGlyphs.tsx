@@ -42,8 +42,10 @@ import {
   constraintGlyphs,
   dimensionEditorAnchor,
   formatDimensionMm,
+  readoutIn,
+  solvedReadouts,
   type ConstraintGlyph,
-  type SolvedDimension,
+  type SolvedReadout,
 } from "../sketch/constraints";
 import {
   classifyDimensionValue,
@@ -57,6 +59,22 @@ import { useSketchStore } from "../sketch/store";
 
 /** Keep annotation overlays under the HUD strips (Viewport hud sits at z-40). */
 const GLYPH_Z_RANGE: [number, number] = [20, 0];
+
+/**
+ * THE solve readout the annotation layer reads — linear and angular merged by
+ * `constraint_index`, in one place, for both consumers (the glyph builder and
+ * the inline editor). One merge point is the whole point: QA-R2 was two
+ * consumers reading the linear list alone, so an expression-driven angle showed
+ * the placeholder the client had guessed while the solver held another number.
+ */
+function useSolvedReadouts(): ReadonlyMap<number, SolvedReadout> {
+  const dimensions = useSketchStore((state) => state.solvedDimensions);
+  const angles = useSketchStore((state) => state.solvedAngles);
+  return useMemo(
+    () => solvedReadouts(dimensions, angles),
+    [dimensions, angles],
+  );
+}
 
 /**
  * Local editor state that belongs to ONE target and dies with it: `null` means
@@ -181,8 +199,24 @@ function glyphAria(glyph: ConstraintGlyph): string {
       return "Equal constraint";
     case "symmetric":
       return "Symmetric constraint";
+    case "symmetric_lines":
+      return "Symmetric constraint";
     case "concentric":
       return "Concentric constraint";
+    case "midpoint":
+      return "Midpoint constraint";
+    case "collinear":
+      return "Collinear constraint";
+    // Angle and diameter are DIMENSIONS — clicking either opens the editor, so
+    // both names end in "edit" like distance/radius. The label carries the
+    // drawing sign (30 degrees / diameter ring); the accessible name spells the
+    // unit out instead, because a screen reader has no drawing to read it in.
+    case "angle":
+      return `Angle${glyph.driven ? " reference" : ""} ${glyph.label.replace(/[()\u00b0]/g, "")} degrees — edit`;
+    case "diameter": {
+      const bare = glyph.label.replace(/[()\u2300]/g, "");
+      return `Diameter${glyph.driven ? " reference" : ""} ${bare} mm — edit`;
+    }
   }
 }
 
@@ -198,7 +232,10 @@ function glyphAria(glyph: ConstraintGlyph): string {
 function DimensionEditor({ basis }: { basis: PlaneBasis }) {
   const target = useSketchStore((state) => state.dimensionEdit);
   const entities = useSketchStore((state) => state.entities);
-  const solvedDimensions = useSketchStore((state) => state.solvedDimensions);
+  // An angle's editor sits on the bisector of the corner its two lines SHARE,
+  // and that corner is read from the sketch's own coincident constraints.
+  const constraints = useSketchStore((state) => state.constraints);
+  const solvedReadout = useSolvedReadouts();
   const commitDimension = useSketchStore((state) => state.commitDimension);
   const cancelDimension = useSketchStore((state) => state.cancelDimension);
   const removeConstraint = useSketchStore((state) => state.removeConstraint);
@@ -207,18 +244,25 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
     () =>
       target === null
         ? null
-        : dimensionEditorAnchor(target, entities, sketch.glyphOffsetMm),
-    [target, entities],
+        : dimensionEditorAnchor(
+            target,
+            entities,
+            sketch.glyphOffsetMm,
+            constraints,
+          ),
+    [target, entities, constraints],
   );
 
   // The last solved readout for this dimension — the resolved value an
-  // expression currently evaluates to / the measured value of a driven one.
-  const solved: SolvedDimension | undefined =
-    target?.constraintIndex == null
-      ? undefined
-      : solvedDimensions.find(
-          (d) => d.constraint_index === target.constraintIndex,
-        );
+  // expression currently evaluates to / the measured value of a driven one, in
+  // the target's OWN unit. `readoutIn` refuses a reading whose unit is not the
+  // one this editor is showing, so a payload that disagreed with itself could
+  // never put millimetres in a cell labelled `deg`.
+  const solved: SolvedReadout | undefined = readoutIn(
+    solvedReadout,
+    target?.constraintIndex,
+    target?.unit === "deg" ? "deg" : "mm",
+  );
 
   // One identity per edited constraint: it re-prefills the cells, so opening a
   // second dimension never inherits the first one's text.
@@ -230,14 +274,18 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
     editKey,
     target === null
       ? ""
-      : (target.initialExpression ?? formatDimensionMm(target.initialMm)),
+      : (target.initialExpression ?? formatDimensionMm(target.initialValue)),
   );
   const nameField = useTypedField(editKey, target?.initialName ?? "");
   const [driving, setDriving] = useRetargetedDraft<boolean>(editKey);
 
   if (target === null || anchor === null) return null;
 
-  const noun = target.kind === "distance" ? "Distance" : "Radius";
+  // Noun and unit ride the TARGET (`sketch/constraints.ts`), because there are
+  // now four dimension verbs and two units: an angle's cell must read
+  // "Angle · deg", never "Radius · mm". Re-deriving them here would be a
+  // second place for that mapping to be wrong.
+  const noun = target.noun;
   const isDriving = driving ?? target.initialDriving;
   const valueText = valueField.text;
   const nameText = nameField.text;
@@ -247,19 +295,23 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
   const valueError = dimensionValueError(isDriving, parsedValue);
   const valid = valueError === null && nameError === null;
 
-  // The positive `value_mm` sent to the wire: the literal itself, or — while an
-  // expression drives / a driven cell measures — a positive placeholder (the
-  // last resolved value, else the measured prefill).
-  const placeholderMm =
-    solved?.value_mm && solved.value_mm > 0
-      ? solved.value_mm
-      : target.initialMm > 0
-        ? target.initialMm
+  // The positive value sent to the wire (`value_mm`, or `value_deg` for an
+  // angle): the literal itself, or — while an expression drives / a driven cell
+  // measures — a positive placeholder (the last SOLVED value, else the measured
+  // prefill). Taking the solved value matters beyond the display: it is what
+  // stops the placeholder drifting further from the geometry with each edit.
+  const placeholderValue =
+    solved?.value && solved.value > 0
+      ? solved.value
+      : target.initialValue > 0
+        ? target.initialValue
         : 1;
 
+  // The brass echo under an expression cell — in the target's own unit, so an
+  // angle reads "= 45 deg" and never "= 45 mm".
   const resolved =
     isDriving && parsedValue.kind === "expression" && solved !== undefined
-      ? `= ${formatDimensionMm(solved.value_mm)} mm`
+      ? `= ${formatDimensionMm(solved.value)} ${target.unit}`
       : null;
 
   const close = (commit: boolean) => {
@@ -285,8 +337,10 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
     }
     const trimmedName = typedName.trim();
     commitDimension({
-      valueMm:
-        isDriving && parsed.kind === "literal" ? parsed.valueMm : placeholderMm,
+      value:
+        isDriving && parsed.kind === "literal"
+          ? parsed.valueMm
+          : placeholderValue,
       expression:
         isDriving && parsed.kind === "expression" ? parsed.expression : null,
       name: trimmedName === "" ? null : trimmedName,
@@ -321,7 +375,7 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
               // dimension's text sitting in the second one's cell.
               key={`value:${editKey ?? ""}`}
               label={noun}
-              unit="mm"
+              unit={target.unit}
               ref={valueField.ref}
               defaultValue={valueField.defaultValue}
               error={valueError}
@@ -338,8 +392,8 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
             // value; committing keeps it as the placeholder `value_mm`.
             <NumberField
               label={`${noun} · reference`}
-              unit="mm"
-              value={formatDimensionMm(solved?.value_mm ?? target.initialMm)}
+              unit={target.unit}
+              value={formatDimensionMm(solved?.value ?? target.initialValue)}
               readOnly
               data-testid="dimension-input"
               aria-label={`${noun} reference value (measured)`}
@@ -722,22 +776,21 @@ export function ConstraintGlyphs({ basis }: { basis: PlaneBasis }) {
   const selectConstraint = useSketchStore((state) => state.selectConstraint);
   const editDimension = useSketchStore((state) => state.editDimension);
   const solve = useSketchStore((state) => state.solve);
-  const solvedDimensions = useSketchStore((state) => state.solvedDimensions);
+  const solvedReadout = useSolvedReadouts();
   const editing = useSketchStore(
     (state) => state.dimensionEdit?.constraintIndex ?? null,
   );
 
-  const glyphs = useMemo(() => {
-    const byIndex = new Map(
-      solvedDimensions.map((d) => [d.constraint_index, d]),
-    );
-    return constraintGlyphs(
-      constraints,
-      entities,
-      sketch.glyphOffsetMm,
-      byIndex,
-    );
-  }, [constraints, entities, solvedDimensions]);
+  const glyphs = useMemo(
+    () =>
+      constraintGlyphs(
+        constraints,
+        entities,
+        sketch.glyphOffsetMm,
+        solvedReadout,
+      ),
+    [constraints, entities, solvedReadout],
+  );
   const flagged = useMemo(
     () => new Set([...(solve?.conflicting ?? []), ...(solve?.redundant ?? [])]),
     [solve],

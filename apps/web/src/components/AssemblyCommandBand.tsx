@@ -19,8 +19,10 @@ import {
   ToolGroup,
 } from "@loft/design";
 
+import type { ExportedFile, ExportFormat } from "../api/exportPart";
 import type { MateTool } from "../assembly/mateStore";
 import type { HistoryStep } from "../lib/undoRedoShortcut";
+import { ExportToolGroup } from "./ExportToolGroup";
 import { HistoryGroup } from "./HistoryGroup";
 
 export interface AssemblyCommandBandProps {
@@ -51,6 +53,18 @@ export interface AssemblyCommandBandProps {
   /** A check is in flight (the tool holds with a "Scanning…" caption). */
   interferenceBusy: boolean;
   onCheckInterference: () => void;
+  /**
+   * Write the solved assembly as one file. Omit it and the EXPORT group is not
+   * rendered at all.
+   *
+   * The assembly repeated the part workspace's defect at a second address: its
+   * `ExportRow` sat inside the Inspect panel, under a Solve / Parts / Clash
+   * segmented control, so the only way to a file went away with the panel
+   * (EXPORT-1). The strip stays; this is the copy that survives a collapse.
+   */
+  exporter?: (format: ExportFormat) => Promise<ExportedFile>;
+  /** Why export is inert (no assembly / no body), or undefined when ready. */
+  exportDisabledReason?: string;
 }
 
 export function AssemblyCommandBand({
@@ -70,6 +84,8 @@ export function AssemblyCommandBand({
   canCheckInterference,
   interferenceBusy,
   onCheckInterference,
+  exporter,
+  exportDisabledReason,
 }: AssemblyCommandBandProps) {
   const mateReason = canMate ? undefined : "Add two parts first";
   return (
@@ -170,6 +186,22 @@ export function AssemblyCommandBand({
           onClick={onCheckInterference}
         />
       </ToolGroup>
+      {/* The deliverable closes the band — same position, same primitive and
+          same eyebrow as the part and drawing workspaces, so the verb is in one
+          place across all three (EXPORT-1). */}
+      {exporter !== undefined ? (
+        <ExportToolGroup
+          testIdPrefix="assembly-export-band"
+          // Export outranks the verb groups here for the same reason it does
+          // on the part band: "STEP" is an identifier no glyph can spell,
+          // while a mate glyph IS the vocabulary this workspace teaches. The
+          // other groups stay at the default and shed together — this band
+          // still fits its labels, so ranking them further would be guessing.
+          labelPriority={40}
+          exporter={exporter}
+          disabledReason={exportDisabledReason}
+        />
+      ) : null}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   exportBox,
+  exportPartFlatPatternDxf,
   exportPartTree,
   markFilenamePartial,
   parseContentDispositionFilename,
@@ -182,6 +183,38 @@ describe("exportPartTree", () => {
     );
     await expect(exportPartTree(PART_ID, "stl", client)).rejects.toThrow(
       /rejected the STL export/,
+    );
+  });
+});
+
+describe("exportPartFlatPatternDxf", () => {
+  it("streams the cut path and reads the server filename", async () => {
+    const client = clientReturning(
+      new Response("  0\nSECTION", {
+        status: 200,
+        headers: {
+          "Content-Type": "image/vnd.dxf",
+          "Content-Disposition": 'attachment; filename="l-bracket-flat.dxf"',
+        },
+      }),
+    );
+    const file = await exportPartFlatPatternDxf(PART_ID, client);
+    expect(file.filename).toBe("l-bracket-flat.dxf");
+    expect(await file.blob.text()).toBe("  0\nSECTION");
+  });
+
+  it("explains WHY a non-sheet-metal part cannot be cut", async () => {
+    // The gateway's typed refusal has to reach the user as a sentence about
+    // their part, not "request failed": the fix is one click away (add a base
+    // flange), and an error that does not say so sends them hunting.
+    const client = clientReturning(
+      new Response(
+        JSON.stringify({ error: { code: "flat_pattern_not_sheet_metal" } }),
+        { status: 422, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    await expect(exportPartFlatPatternDxf(PART_ID, client)).rejects.toThrow(
+      /sheet-metal base flange/,
     );
   });
 });

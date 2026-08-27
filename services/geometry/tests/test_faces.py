@@ -16,7 +16,7 @@ import math
 from typing import Any
 
 import pytest
-from build123d import Compound, Solid
+from build123d import CenterOf, Compound, Face, Solid
 from geometry.kernel import (
     SubshapeAmbiguousError,
     SubshapeUnresolvedError,
@@ -533,14 +533,23 @@ def test_the_tier4_area_band_is_derived_from_the_candidates_own_holes() -> None:
     stored = _m17_stored_signature()
     assert lower < stored.area_mm2 < outer  # the M17 case sits inside the band
 
-    def _with_area(area: float) -> PlanarFaceSignature:
+    def _with_area(area: float, centroid: Vec3 | None = None) -> PlanarFaceSignature:
         return PlanarFaceSignature(
-            normal=stored.normal, centroid=stored.centroid, area_mm2=area
+            normal=stored.normal,
+            centroid=centroid if centroid is not None else stored.centroid,
+            area_mm2=area,
         )
 
-    assert enclosing_face_match(record, _with_area(outer))
+    # The upper end is probed with the OUTER region's own centroid, because GEOM-4
+    # now closes the case where the two disagree: a stored area equal to the outer
+    # region's leaves nothing to displace the centroid, so `stored == outer` with
+    # this fixture's off-centre M17 centroid describes a face that cannot exist and
+    # is refused on that ground rather than by the band. Gated by name in
+    # ``test_tier4b_refuses_a_full_area_signature_whose_centroid_contradicts_it``.
+    at_outer = Vec3(x=50.0, y=20.0, z=10.0)
+    assert enclosing_face_match(record, _with_area(outer, at_outer))
     assert enclosing_face_match(record, _with_area(lower))
-    assert not enclosing_face_match(record, _with_area(outer * 1.001))
+    assert not enclosing_face_match(record, _with_area(outer * 1.001, at_outer))
     assert not enclosing_face_match(record, _with_area(lower - outer * 0.001))
 
 
@@ -617,6 +626,413 @@ def test_two_matching_faces_is_subshape_ambiguous(monkeypatch: Any) -> None:
     monkeypatch.setattr("geometry.kernel.faces.planar_faces", _two_matching)
     with pytest.raises(SubshapeAmbiguousError):
         resolve_face_plane(_box(), target, 0.0)
+
+
+# --- tier 4a: the OUTER-WIRE invariants, compared not inferred (GEOM-3, §12b) -----
+#
+# The stored signature now carries three pure functions of the face's outer wire
+# (`outer_area_mm2` / `outer_centroid` / `outer_perimeter_mm`), so tier 4 stops
+# INFERRING a bound on the quantity it was missing and starts COMPARING it. These
+# gates are in two halves, deliberately: the ones that prove the invariant really is
+# invariant (so the rescue still works), and the ones that prove an honest error
+# stays honest (so the rescue is not bought with silent wrong geometry).
+
+
+def _vented_plate(
+    thickness: float = 10.0, radius: float = 4.5, n: int = 8, width: float = 100.0
+) -> BodyShape:
+    """The GEOM-3 shape: a *width* square plate with an *n* x *n* grid of through
+    holes — an ordinary grille or lightened web, not a contrived part.
+
+    At the default 8x8 Ø9 in 100x100 the top face is 40.7 % open, which is where
+    §12a's inferred band degenerates: its lower end ``2*current - outer`` falls to
+    1857 mm^2, so it admits any stored face down to 18.6 % of the plate."""
+    body: BodyShape = Solid.make_box(width, width, thickness)
+    pitch = width / n
+    for i in range(n):
+        for j in range(n):
+            top = next(r.plane for r in planar_faces(body) if r.plane.z_dir.Z > 0.5)
+            body = bore_hole(
+                body,
+                top,
+                (pitch * (i + 0.5), pitch * (j + 0.5), thickness),
+                radius * 2.0,
+                through_all=True,
+                depth_mm=None,
+            )
+    return body
+
+
+def _edge_holed_plate(radius: float, thickness: float = 10.0) -> BodyShape:
+    """A 40x40 plate of *thickness* with ONE hole of *radius* 8 mm in from the -X rim.
+
+    At r = 6 the hole spans x = 2..14 and is INTERIOR: the top face's outer wire is
+    still the 40x40 square. At r = 10 it spans x = -2..18 and BREACHES the rim, which
+    is GEOM-5's case — the edit stops being interior and the outer wire itself
+    changes. The plate stays a single lump either way, so the difference under test is
+    the boundary and nothing else."""
+    plate: BodyShape = Solid.make_box(40.0, 40.0, thickness)
+    top = next(r.plane for r in planar_faces(plate) if r.plane.z_dir.Z > 0.5)
+    return bore_hole(
+        plate,
+        top,
+        (8.0, 20.0, thickness),
+        radius * 2.0,
+        through_all=True,
+        depth_mm=None,
+    )
+
+
+def _top_signature_of(body: BodyShape) -> PlanarFaceSignature:
+    """The +Z face signature the PICK side would hand a client for *body* — the
+    largest one, so a plate with a boss yields the plate top rather than the boss."""
+    return max(
+        (r.signature for r in planar_faces(body) if r.signature.normal.z > 0.5),
+        key=lambda s: s.area_mm2,
+    )
+
+
+def _boss_top_signature(
+    side_x: float, side_y: float, z_mm: float
+) -> PlanarFaceSignature:
+    """The signature a pick on the top of a *side_x* x *side_y* boss produces, taken
+    from a REAL body so all six fields are the kernel's own rather than hand-typed.
+    The boss is centred on (50, 50) — the vented plate's own centre — because a boss
+    concentric with the plate under it is the case no centroid test can separate."""
+    boss = Solid.make_box(side_x, side_y, 10.0).translate(
+        (50.0 - side_x / 2.0, 50.0 - side_y / 2.0, z_mm - 10.0)
+    )
+    return _top_signature_of(boss)
+
+
+def _outer(
+    sig: PlanarFaceSignature,
+) -> tuple[float, tuple[float, float, float], float]:
+    """*sig*'s three outer-wire invariants, ASSERTING all three are present.
+
+    The assertion is the point, not boilerplate: the fields are optional on the DTO
+    (so a pre-§12b selector still validates), and a partial signature is refused by
+    the matcher, so every test that reads them is also gating that the pick side
+    emitted a complete set."""
+    assert sig.outer_area_mm2 is not None
+    assert sig.outer_centroid is not None
+    assert sig.outer_perimeter_mm is not None
+    return (
+        sig.outer_area_mm2,
+        (sig.outer_centroid.x, sig.outer_centroid.y, sig.outer_centroid.z),
+        sig.outer_perimeter_mm,
+    )
+
+
+def _legacy(sig: PlanarFaceSignature) -> PlanarFaceSignature:
+    """*sig* as a selector persisted BEFORE §12b — the three original fields only."""
+    return PlanarFaceSignature(
+        normal=sig.normal, centroid=sig.centroid, area_mm2=sig.area_mm2
+    )
+
+
+def test_the_outer_invariants_are_UNTOUCHED_by_any_interior_edit() -> None:
+    """THE CLAIM §12b rests on, measured rather than argued. Tier 4a is only as good
+    as "no interior edit changes the outer wire", so this drills a hole, enlarges it,
+    moves it, adds a second and deletes one again — every edit that makes ``area_mm2``
+    and ``centroid`` stale — and requires all three outer invariants to come back
+    BIT-IDENTICAL, not merely within tolerance."""
+    reference = _outer(_top_signature_of(Solid.make_box(100.0, 40.0, 10.0)))
+    assert reference[0] == 4000.0
+    assert reference[2] == 280.0
+
+    def _drilled(holes: list[tuple[float, float, float]]) -> PlanarFaceSignature:
+        body: BodyShape = Solid.make_box(100.0, 40.0, 10.0)
+        for x, y, diameter in holes:
+            top = next(r.plane for r in planar_faces(body) if r.plane.z_dir.Z > 0.5)
+            body = bore_hole(
+                body, top, (x, y, 10.0), diameter, through_all=True, depth_mm=None
+            )
+        return _top_signature_of(body)
+
+    edits = {
+        "one hole": [(30.0, 20.0, 6.6)],
+        "the same hole enlarged": [(30.0, 20.0, 7.0)],
+        "the same hole moved": [(35.0, 24.0, 7.0)],
+        "a second hole added": [(35.0, 24.0, 7.0), (70.0, 12.0, 5.0)],
+        "the first hole deleted": [(70.0, 12.0, 5.0)],
+        "a central bore too": [(70.0, 12.0, 5.0), (50.0, 20.0, 30.0)],
+    }
+    stale: set[tuple[float, float]] = set()
+    for label, holes in edits.items():
+        sig = _drilled(holes)
+        assert _outer(sig) == reference, label
+        stale.add((sig.area_mm2, sig.centroid.x))
+    # ... while the pair the OLD signature stored as identity moved every time. It has
+    # to be the PAIR: moving a hole leaves the area untouched and shifts the centroid,
+    # which is exactly why neither quantity alone is an identity.
+    assert len(stale) == len(edits)
+    assert len({area for area, _x in stale}) == len(edits) - 1
+
+
+def test_a_deleted_boss_top_no_longer_swallows_a_reference_on_a_VENTED_plate() -> None:
+    """THE GEOM-3 GATE, on the shape the code review measured. Place a sketch on a
+    boss, delete the boss, and the plate underneath contains the stored point and is
+    larger — so §12a's inferred band, whose width is twice what is currently cut out
+    of the face, admitted it and re-anchored the sketch onto the plate. Silent wrong
+    geometry replacing a visible failure, on a plate 40.7 % open: a grille, not a
+    pathological part. The review's table was 70x70 / 60x60 / 50x50 all RESOLVING and
+    only 40x40 staying honest. With the outer wire STORED there is nothing to infer —
+    a boss top's outer region is its own side^2 and the plate's is 10000 mm^2 — so
+    every one of them is refused."""
+    plate = _vented_plate()
+    record = next(r for r in planar_faces(plate) if r.signature.area_mm2 > 5000.0)
+    outer = _outer(record.signature)[0]
+    assert outer == 10000.0
+    current = record.signature.area_mm2
+    assert current == pytest.approx(10000.0 - 64.0 * math.pi * 4.5**2, abs=1e-9)
+    # The band the review derived, reproduced: it reaches down to 18.6 % of the plate.
+    assert 2.0 * current - outer == pytest.approx(1857.0, abs=0.1)
+
+    for side in (70.0, 60.0, 50.0, 40.0):
+        stored = _boss_top_signature(side, side, 15.0)
+        assert _outer(stored)[0] == pytest.approx(side * side, abs=1e-9)
+        assert not enclosing_face_match(record, stored), side
+    with pytest.raises(SubshapeUnresolvedError):
+        resolve_face_plane(plate, _boss_top_signature(70.0, 70.0, 15.0), 0.0)
+
+
+def test_the_LEGACY_band_still_swallows_it_which_is_why_the_contract_changed() -> None:
+    """The other half of the truth, gated so nobody has to take §12b's word for it.
+    A selector persisted before the outer invariants existed carries only the three
+    original numbers, so it MUST keep taking the inferred band — the geometry service
+    is stateless and cannot upgrade a signature it does not own. The consequence is
+    that GEOM-3 is fixed for selectors authored from now on and NOT for one saved
+    yesterday, and the review's exact table is what those still get. Asserted here so
+    the residual exposure is a fact in the suite rather than a caveat in a doc, and so
+    a future change to the legacy path cannot pass unnoticed."""
+    plate = _vented_plate()
+    record = next(r for r in planar_faces(plate) if r.signature.area_mm2 > 5000.0)
+    admitted = {
+        side: enclosing_face_match(record, _legacy(_boss_top_signature(side, side, 15)))
+        for side in (70.0, 60.0, 50.0, 40.0)
+    }
+    assert admitted == {70.0: True, 60.0: True, 50.0: True, 40.0: False}
+
+
+def test_tier4a_rescues_the_M17_revision_that_tier4b_was_introduced_for() -> None:
+    """The rescue must SURVIVE the contract change — a fix that restores the honest
+    error by refusing everything would be no fix at all. The M17 bracket's top face
+    is picked before either edit, the plate is thickened 10 -> 14 AND Hole1 widened
+    Ø6.6 -> 7, and the reference still resolves, at the stored in-plane station on
+    the face's new plane. The outer wire is what carries it: a 100x40 rectangle,
+    4000 mm^2 / 280 mm about (50, 20), before and after."""
+    stored = _top_signature_of(_m17_plate(10.0, 3.3))
+    revised = _m17_plate(14.0, 3.5)
+    record = _top_record(revised)
+
+    stored_outer = _outer(stored)
+    assert (stored_outer[0], stored_outer[2]) == (4000.0, 280.0)
+    candidate_outer = _outer(record.signature)
+    assert (candidate_outer[0], candidate_outer[2]) == (4000.0, 280.0)
+    # Not one of the three shipped tiers can see it, exactly as in the §12a gate.
+    assert not planar_signatures_match(record.signature, stored)
+    assert not coplanar_signatures_match(record.signature, stored)
+    assert not translated_signatures_match(record.signature, stored)
+    assert enclosing_face_match(record, stored)
+
+    plane = resolve_face_plane(revised, stored, 0.0)
+    assert tuple(plane.z_dir) == pytest.approx((0.0, 0.0, 1.0), abs=TOL)
+    assert tuple(plane.origin) == pytest.approx(
+        (stored.centroid.x, stored.centroid.y, 14.0), abs=TOL
+    )
+
+
+def test_tier4a_refuses_the_same_outer_AREA_and_CENTROID_in_another_SHAPE() -> None:
+    """Why the perimeter is stored and not just the area and the centroid. An 80x50
+    boss top and a 100x40 plate top are both 4000 mm^2 about the same point, so a
+    two-quantity fingerprint would let a deleted boss re-anchor onto the plate — the
+    GEOM-3 defect one notch down. Their outer wires are 260 mm and 280 mm long."""
+    plate = _top_record(Solid.make_box(100.0, 40.0, 14.0).translate((0.0, 0.0, 0.0)))
+    boss = _boss_top_signature(80.0, 50.0, 25.0)
+    # Shift the boss signature onto the plate's own centre so ONLY the shape differs.
+    boss = PlanarFaceSignature(
+        normal=boss.normal,
+        centroid=Vec3(x=50.0, y=20.0, z=25.0),
+        area_mm2=boss.area_mm2,
+        outer_area_mm2=boss.outer_area_mm2,
+        outer_centroid=Vec3(x=50.0, y=20.0, z=25.0),
+        outer_perimeter_mm=boss.outer_perimeter_mm,
+    )
+    assert _outer(boss)[0] == pytest.approx(4000.0, abs=1e-9)
+    assert _outer(plate.signature)[0] == pytest.approx(4000.0, abs=1e-9)
+    assert _outer(boss)[2] == pytest.approx(260.0, abs=1e-9)
+    assert _outer(plate.signature)[2] == pytest.approx(280.0, abs=1e-9)
+    assert not enclosing_face_match(plate, boss)
+
+
+def test_tier4a_refuses_the_same_outer_PERIMETER_and_CENTROID_at_another_AREA() -> None:
+    """The mirror of the test above, and it exists because an ablation survived
+    without it. Dropping the outer-AREA comparison altogether left every other gate
+    green — the shapes those tests use differ in perimeter as well, so the area was
+    never the discriminator anywhere. A 70x70 boss top and a 100x40 plate top have the
+    SAME outer perimeter (280 mm) about the same point and differ only in area (4900
+    against 4000 mm^2), which isolates it. Three invariants are claimed, so three have
+    to be load-bearing on their own."""
+    plate = _top_record(Solid.make_box(100.0, 40.0, 14.0))
+    boss = _boss_top_signature(70.0, 70.0, 25.0)
+    boss = PlanarFaceSignature(
+        normal=boss.normal,
+        centroid=Vec3(x=50.0, y=20.0, z=25.0),
+        area_mm2=boss.area_mm2,
+        outer_area_mm2=boss.outer_area_mm2,
+        outer_centroid=Vec3(x=50.0, y=20.0, z=25.0),
+        outer_perimeter_mm=boss.outer_perimeter_mm,
+    )
+    assert _outer(boss)[2] == pytest.approx(280.0, abs=1e-9)
+    assert _outer(plate.signature)[2] == pytest.approx(280.0, abs=1e-9)
+    assert _outer(boss)[0] == pytest.approx(4900.0, abs=1e-9)
+    assert _outer(plate.signature)[0] == pytest.approx(4000.0, abs=1e-9)
+    assert not enclosing_face_match(plate, boss)
+
+
+def test_tier4a_pins_the_in_plane_station_while_freeing_the_offset() -> None:
+    """The two halves of the centroid comparison, separately. A plate thickened by
+    any amount still matches (the offset along the normal is free, unbounded, exactly
+    as tier 3 frees it); the SAME outer wire parked somewhere else in the plane does
+    not (a reference authored on another part of the model must not adopt this
+    face)."""
+    stored = _top_signature_of(Solid.make_box(100.0, 40.0, 10.0))
+    for thickness in (14.0, 160.0):
+        record = _top_record(Solid.make_box(100.0, 40.0, thickness))
+        assert enclosing_face_match(record, stored), thickness
+    shifted = _top_record(
+        Solid.make_box(100.0, 40.0, 14.0).translate((250.0, 0.0, 0.0))
+    )
+    assert not enclosing_face_match(shifted, stored)
+
+
+def test_tier4a_NEVER_lands_on_the_OPPOSITE_face() -> None:
+    """§12's guard 1, unchanged and still the load-bearing one. A plate's bottom face
+    encloses the IDENTICAL outer wire as its top — same area, same perimeter, same
+    in-plane centroid — so the three new invariants separate them not at all. Only
+    the sense of the normal does."""
+    stored = _top_signature_of(_m17_plate(10.0, 3.3))
+    revised = _m17_plate(14.0, 3.5)
+    bottom = next(r for r in planar_faces(revised) if r.signature.normal.z < -0.5)
+    assert _outer(bottom.signature)[0] == _outer(stored)[0]
+    assert _outer(bottom.signature)[2] == _outer(stored)[2]
+    assert not enclosing_face_match(bottom, stored)
+    assert tuple(resolve_face_plane(revised, stored, 0.0).z_dir) == pytest.approx(
+        (0.0, 0.0, 1.0), abs=TOL
+    )
+
+
+def test_a_PARTIAL_outer_signature_is_refused_rather_than_downgraded() -> None:
+    """A signature carrying some but not all three outer fields is a bug, not a
+    legacy selector. Falling back to the inferred band would be a downgrade path
+    straight into the defect §12b closes, so each of the three partial shapes is
+    refused outright — even though the same target with NO outer fields at all is
+    accepted by the legacy band (asserted here as the control, so the test is about
+    the partiality and not about the target)."""
+    plate = _vented_plate()
+    record = next(r for r in planar_faces(plate) if r.signature.area_mm2 > 5000.0)
+    full = _boss_top_signature(70.0, 70.0, 15.0)
+    assert enclosing_face_match(record, _legacy(full))  # the control
+    for dropped in ("outer_area_mm2", "outer_centroid", "outer_perimeter_mm"):
+        partial = full.model_copy(update={dropped: None})
+        assert not enclosing_face_match(record, partial), dropped
+
+
+def test_a_hole_that_BREACHES_the_outer_boundary_changes_it_and_fails_SAFE() -> None:
+    """GEOM-5 — the honest limit most likely to be met in practice, and the one that
+    makes "no interior edit can touch the outer wire" conditional. Open a lightening
+    hole out until it reaches the rim (a scallop, an edge slot) and the edit stops
+    being interior: the outer wire itself changes and the stored invariants no longer
+    describe it. It fails SAFE — refused, not mis-resolved.
+
+    The SCOPE of the limit is narrower than it first sounds, and measuring it is what
+    made that clear: a breach on its own is absorbed by TIER 2, correctly, because the
+    supporting plane has not moved and tier 2 exists for in-plane boundary changes.
+    Tier 4 only gets the question when the plane moved too, so the fixture retypes the
+    thickness as well — which is the same "both at once" combination §12a is about."""
+    interior = _top_signature_of(_edge_holed_plate(6.0))
+    assert _outer(interior)[0] == pytest.approx(1600.0, abs=1e-9)
+    assert _outer(interior)[2] == pytest.approx(160.0, abs=1e-9)
+
+    # A breach ALONE: the plane is untouched, so tier 2 resolves it and should.
+    breached_only = _edge_holed_plate(10.0)  # spans x -2..18: it bites the rim
+    assert tuple(resolve_face_plane(breached_only, interior, 0.0).origin) == (
+        pytest.approx(interior.centroid.x, abs=TOL),
+        pytest.approx(interior.centroid.y, abs=TOL),
+        pytest.approx(10.0, abs=TOL),
+    )
+
+    # A breach AND a thickness retype: tier 4 is the tier in play, and it refuses.
+    breached = _edge_holed_plate(10.0, thickness=14.0)
+    record = next(r for r in planar_faces(breached) if r.signature.normal.z > 0.5)
+    outer_area, _outer_centroid, outer_perimeter = _outer(record.signature)
+    assert outer_area < 1600.0 - 1.0  # the outer REGION lost the scalloped bite
+    assert outer_perimeter != pytest.approx(160.0, abs=1e-6)
+    assert not enclosing_face_match(record, interior)
+    with pytest.raises(SubshapeUnresolvedError):
+        resolve_face_plane(breached, interior, 0.0)
+
+
+def test_a_hole_free_face_IS_its_own_outer_region_bit_for_bit() -> None:
+    """The shortcut that keeps the pick side cheap, asserted as an equality rather
+    than assumed. A face with exactly one wire is the region that wire encloses, so
+    :func:`outer_boundary_invariants` answers from the face's own area and centroid
+    instead of building a region — and the two routes agree to the last bit, which is
+    what makes the shortcut behaviour-neutral rather than merely close."""
+    for record in planar_faces(Solid.make_box(50.0, 40.0, 10.0)):
+        rebuilt = Face(record.face.outer_wire())
+        area, centroid, _perimeter = _outer(record.signature)
+        assert area == float(rebuilt.area)
+        assert area == record.signature.area_mm2
+        rebuilt_centroid = rebuilt.center(CenterOf.MASS)
+        assert centroid == (
+            rebuilt_centroid.X,
+            rebuilt_centroid.Y,
+            rebuilt_centroid.Z,
+        )
+
+
+def test_the_pick_side_emits_the_outer_invariants_for_every_planar_face() -> None:
+    """The contract half: a client that picks a face gets a signature it can store,
+    and every planar face carries all three fields (never a partial one, which the
+    matcher would refuse). Holed and hole-free faces alike."""
+    body = _m17_plate(10.0, 3.3)
+    overlay = selection_overlay(body, 0.1)
+    planar = [f.signature for f in overlay.faces if f.signature is not None]
+    assert len(planar) == 6
+    for signature in planar:
+        _outer(signature)  # asserts all three are present on every planar face
+    top = next(s for s in planar if s.normal.z > 0.5)
+    top_area, _top_centroid, top_perimeter = _outer(top)
+    assert top_area == pytest.approx(4000.0, abs=1e-9)
+    assert top_perimeter == pytest.approx(280.0, abs=1e-9)
+    # ... and the holed top face's OWN area is smaller, which is the whole point.
+    assert top.area_mm2 < top_area
+
+
+def test_tier4b_refuses_a_full_area_signature_whose_centroid_contradicts_it() -> None:
+    """GEOM-4, on the legacy path. ``outer*C_outer = stored*C_stored +
+    removed*C_removed`` leaves nothing to displace the centroid when the stored area
+    already EQUALS the outer region's, so a plain 100x40 face claiming 4000 mm^2 with
+    a centroid at (5, 3) describes no face that could exist. The inferred band tested
+    only containment and accepted it; it now refuses. It does NOT touch the
+    vented-plate case above — a boss and the plate under it share a centroid — so this
+    is a strengthening, not the GEOM-3 fix."""
+    plain = _top_record(Solid.make_box(100.0, 40.0, 14.0))
+    honest = PlanarFaceSignature(
+        normal=Vec3(x=0.0, y=0.0, z=1.0),
+        centroid=Vec3(x=50.0, y=20.0, z=10.0),
+        area_mm2=4000.0,
+    )
+    bogus = PlanarFaceSignature(
+        normal=Vec3(x=0.0, y=0.0, z=1.0),
+        centroid=Vec3(x=5.0, y=3.0, z=10.0),  # inside the region, but impossible
+        area_mm2=4000.0,
+    )
+    assert plain.face.is_inside((5.0, 3.0, 14.0), tolerance=CENTROID_TOL_MM)
+    assert enclosing_face_match(plain, honest)  # the control
+    assert not enclosing_face_match(plain, bogus)
 
 
 # --- same-enumeration guarantee (pick side == resolve side) ----------------------

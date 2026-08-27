@@ -82,11 +82,17 @@ import {
   datumFrame,
   datumPickState,
   pickWithDatums,
+  withDatums,
   withoutDatums,
   type DatumKind,
   type DatumPickState,
 } from "../sketch/datum";
-import { pickCandidates, samePick, PICK_TOLERANCE_PX } from "../sketch/pick";
+import {
+  pickCandidates,
+  samePick,
+  PICK_TOLERANCE_PX,
+  type SketchPick,
+} from "../sketch/pick";
 import {
   DATUM_PLANES,
   sceneOriginBasis,
@@ -103,7 +109,11 @@ import {
 import { axisLinePoints, reflectEntity } from "../sketch/mirror";
 import { isClick, type PointerGesture } from "../sketch/clickIntent";
 import { SNAP_LABELS, SNAP_TOLERANCE_PX, type SnapKind } from "../sketch/snap";
-import { useSketchStore, type DrawDimensionDraft } from "../sketch/store";
+import {
+  useSketchStore,
+  type DrawDimensionDraft,
+  type SketchState,
+} from "../sketch/store";
 import {
   dragDraws,
   placesPoints,
@@ -474,6 +484,46 @@ function DatumSheet({ plane }: { plane: DatumPlaneName }) {
   );
 }
 
+/** Is the sketcher waiting for the mirror's AXIS pick (its second phase)? */
+function awaitingMirrorAxis(state: SketchState): boolean {
+  return state.tool === "mirror" && state.mirror?.phase === "axis";
+}
+
+/**
+ * THE candidate list for the mirror AXIS pick — one function, asked by both the
+ * hover handler and the click handler, so the ghost can never promise a
+ * reflection the click refuses to make.
+ *
+ * It includes the sketch's own frame (MIRROR-1). Mirroring a half-profile about
+ * the centreline is the textbook symmetric part, and Fusion and Onshape both
+ * mirror freely about the origin axes; here the frame was excluded at the pick,
+ * so clicking the centreline did nothing and said nothing — a dead end with no
+ * exit, and the one axis every sketch is guaranteed to have.
+ *
+ * `pickWithDatums` is the SAME seam the select tool picks through, taken with
+ * no standing selection: drawn geometry wins wherever any is in range, and the
+ * frame answers only where nothing drawn does. That ordering is load-bearing
+ * rather than incidental — the idiomatic centreline is a construction line the
+ * user drew ON an axis, and the axis lying invisibly under it must not steal a
+ * click aimed at the line they can see.
+ *
+ * Only the AXIS phase asks. The TARGETS phase, and every other whole-curve tool
+ * (trim/extend/offset/fillet/chamfer), still address drawn geometry only: the
+ * frame is not theirs to cut, reflect or fillet.
+ */
+function mirrorAxisCandidates(
+  state: SketchState,
+  at: Point2D,
+  toleranceMm: number,
+): SketchPick[] {
+  return pickWithDatums(
+    state.entities,
+    at,
+    toleranceMm,
+    datumFrame(state.datumFrameHalfMm),
+  );
+}
+
 /**
  * Invisible raycast target: pointer position + click-to-place (drawing
  * tools) or click-to-pick (select tool), in plane mm. Picking uses the RAW
@@ -538,9 +588,10 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
           const state = useSketchStore.getState();
           // Select hovers the frame too (SKETCH-2) — the same candidate list
           // `selectAt` clicks, so the highlight can never promise a pick the
-          // click does not make. The whole-curve tools (trim/extend/offset/
-          // mirror/corner) address DRAWN geometry only: the frame is not
-          // theirs to cut, reflect or fillet.
+          // click does not make. So does the mirror's AXIS phase (MIRROR-1),
+          // through `mirrorAxisCandidates`. The rest of the whole-curve tools
+          // (trim/extend/offset/corner, and mirror's TARGETS phase) address
+          // DRAWN geometry only: the frame is not theirs to cut or fillet.
           const all =
             aimTool === "select"
               ? pickWithDatums(
@@ -556,11 +607,13 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
                   // highlight promises a pick the click does not make.
                   state.selection,
                 )
-              : pickCandidates(
-                  withoutDatums(state.entities),
-                  raw,
-                  toleranceMm(e),
-                );
+              : awaitingMirrorAxis(state)
+                ? mirrorAxisCandidates(state, raw, toleranceMm(e))
+                : pickCandidates(
+                    withoutDatums(state.entities),
+                    raw,
+                    toleranceMm(e),
+                  );
           // Trim/extend/offset/mirror address a whole curve — the aim affordance
           // highlights the hovered target only (points are irrelevant to them);
           // select keeps its finer point-first grain. In the mirror axis phase
@@ -684,16 +737,22 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
           );
         } else if (clickTool === "mirror") {
           // Two-phase: click entities to build the target set, then (axis
-          // phase) click a line to reflect them about it.
+          // phase) click a line — drawn OR the sketch's own centreline — to
+          // reflect them about it. The axis phase picks through the same
+          // function the hover ghost previews with (MIRROR-1).
           const raw = rawPlanePoint(e);
+          const axisPhase = awaitingMirrorAxis(store);
+          const candidates = axisPhase
+            ? mirrorAxisCandidates(store, raw, toleranceMm(e))
+            : pickCandidates(
+                withoutDatums(store.entities),
+                raw,
+                toleranceMm(e),
+              );
           const target =
-            pickCandidates(
-              withoutDatums(store.entities),
-              raw,
-              toleranceMm(e),
-            ).find((pick) => pick.kind === "entity") ?? null;
+            candidates.find((pick) => pick.kind === "entity") ?? null;
           const id = target?.kind === "entity" ? target.id : null;
-          if (store.mirror?.phase === "axis") store.pickMirrorAxis(id);
+          if (axisPhase) store.pickMirrorAxis(id);
           else store.toggleMirrorTarget(id);
         } else if (clickTool === "fillet" || clickTool === "chamfer") {
           // Corner tools collect two line legs (raw pick, like trim/offset);
@@ -1491,6 +1550,7 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
   const selection = useSketchStore((state) => state.selection);
   const hoverPick = useSketchStore((state) => state.hoverPick);
   const mirror = useSketchStore((state) => state.mirror);
+  const datumFrameHalfMm = useSketchStore((state) => state.datumFrameHalfMm);
   const corner = useSketchStore((state) => state.corner);
   const drawDimension = useSketchStore((state) => state.drawDimension);
   const drawDimensionFocus = useSketchStore(
@@ -1520,7 +1580,15 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
     if (mirror?.phase !== "axis" || hoveredId === null) {
       return new Float32Array(0);
     }
-    const axis = axisLinePoints(entities, hoveredId);
+    // The axis may be the sketch's OWN centreline (MIRROR-1), which is not in
+    // `entities`: the frame is drawn by `SketchOrigin` and materialised into
+    // the buffer only when a constraint names it. Resolving the axis over the
+    // frame-inclusive list is what lets the ghost preview a reflection about
+    // the origin axes. TARGETS stay drawn-only — the frame is never mirrored.
+    const axis = axisLinePoints(
+      withDatums(buffered, datumFrame(datumFrameHalfMm)),
+      hoveredId,
+    );
     if (axis === null) return new Float32Array(0); // hovered a non-line
     const targets = mirror.targets.flatMap((id) => {
       const entity = entities.find((e) => e.id === id);
@@ -1530,7 +1598,7 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
       reflectEntity(entity, axis.a, axis.b, `ghost-${i}`),
     );
     return entitySegmentPositions(ghosts, basis);
-  }, [mirror, hoveredId, entities, basis]);
+  }, [mirror, hoveredId, entities, buffered, datumFrameHalfMm, basis]);
 
   // The idle buffer (not selected, not hovered) splits into profile ink
   // (solid scribe) and construction ink (muted, dashed) — selection/hover

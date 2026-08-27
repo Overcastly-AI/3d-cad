@@ -85,8 +85,11 @@ async function readDro(page: Page): Promise<Point> {
  * everything from the measured map keeps the rectangle on the stock at any zoom.
  */
 async function measurePlaneFrame(page: Page): Promise<PlaneFrame> {
+  // `.first()`: the viewport holds TWO canvases since VIEWCUBE-1 — the scene,
+  // then the reference cube's own. The scene is first in DOM order.
   const box = await page
     .locator('[data-testid="viewport"] canvas')
+    .first()
     .boundingBox();
   expect(box).not.toBeNull();
   const rect = box as NonNullable<typeof box>;

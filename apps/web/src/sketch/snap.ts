@@ -36,7 +36,21 @@
  * second was missing until 2026-08-02, which meant every snap this module
  * offered required geometry to already exist, and the FIRST point of a sketch —
  * the one that decides where the part sits — could hold onto nothing at all.
+ *
+ * A SNAP IS AN INTENT, NOT A COORDINATE (SNAP-3 / SNAP-2, 2026-08-17). Aiming
+ * at a corner and taking its coordinate is only half of what the gesture meant:
+ * the user said "here, ON that", and until this landed we recorded only the
+ * "here". The sketch then LOOKED joined and came apart on the first re-drive,
+ * with nothing on screen having ever distinguished the two. So every candidate
+ * that names a point the constraint layer can address now carries that address
+ * ({@link SnapCandidate.ref}), and {@link inferredCoincidents} turns the
+ * addresses a placement actually consumed into the coincidents that hold it
+ * together. Fusion and SolidWorks both do this at draw time; it is the
+ * difference between "the aim landed exactly" and "it stays".
  */
+import type { SketchConstraint, EntityPointRef } from "./constraints";
+import { sameConstraint } from "./constraints";
+import { DATUM_ORIGIN_ID } from "./datum";
 import { arcFrame, arcPointAt, entityPolylines } from "./geometry";
 import { curveDistance, namedPoints } from "./pick";
 import { snapPoint, snapValue, type Point2D } from "./plane";
@@ -94,6 +108,36 @@ export interface SnapCandidate {
    * (`sketch/origin.ts`). One kind, two truthful words.
    */
   label?: string;
+  /**
+   * The CONSTRAINT-ADDRESSABLE point this snap took its coordinate from, when
+   * it has one — the seam that lets a placement author the coincident the
+   * gesture meant (SNAP-3). Present for the kinds that ARE a named point:
+   * `endpoint` and `center` (a drawn entity's `namedPoints`), and `origin` (the
+   * datum point `sketch/datum.ts` materialises on demand).
+   *
+   * ABSENT, deliberately, for the other five, and each absence is a different
+   * reason rather than an oversight:
+   *
+   * · `midpoint` — a line's middle is not an `EntityPointRef`; the schema has
+   *   no midpoint constraint, so there is nothing honest to author.
+   * · `intersection`, `tangent`, `perpendicular` — derived locations, not named
+   *   points. Each has a real constraint that would express it (a coincident on
+   *   both curves, `tangent`, `perpendicular`), but each is a claim about the
+   *   NEW curve's whole shape rather than about where one click landed, and
+   *   inferring that from an aim would author relations the user did not ask
+   *   for. Left to the explicit verbs.
+   * · `x-axis` / `y-axis` — the target is a LINE and the point lies ANYWHERE
+   *   along it, which is a point-on-object relation. The constraint vocabulary
+   *   (`SketchParamsV1`, 12 kinds) has none: `coincident` joins two named
+   *   points and `fixed` pins both coordinates, so the only expressible reading
+   *   would nail the free coordinate too — silently converting "on the X axis"
+   *   into "at this exact spot on the X axis", which is a stronger claim than
+   *   the gesture made. Authoring nothing is the honest answer until a
+   *   `point_on_object` constraint exists kernel-side. Snapping ONTO the origin
+   *   (where the axes cross) is unaffected — that is a named point and is
+   *   covered above.
+   */
+  ref?: EntityPointRef;
 }
 
 export interface SnapResolution {
@@ -412,17 +456,18 @@ export function snapCandidates(
     entities: string[];
     d: number;
     label?: string;
+    ref?: EntityPointRef;
   }> = [];
   const offer = (
     kind: CandidateSnapKind,
     point: Point2D,
     ids: string[],
-    label?: string,
+    extra: { label?: string; ref?: EntityPointRef } = {},
   ): void => {
     const d = dist(at, point);
     // Rule 1: the mark never jumps away from the cursor.
     if (d <= toleranceMm)
-      found.push({ kind, at: point, entities: ids, d, label });
+      found.push({ kind, at: point, entities: ids, d, ...extra });
   };
 
   for (const entity of entities) {
@@ -431,9 +476,17 @@ export function snapCandidates(
       // snap and a coincident constraint can never disagree about where an
       // endpoint is. Only a circle/arc `center` is a centre; start/end/
       // position/fitN are all ends of something.
-      offer(named.point === "center" ? "center" : "endpoint", named.at, [
-        entity.id,
-      ]);
+      //
+      // That shared derivation is exactly why the snap can hand a constraint
+      // ref straight out: the address is not reconstructed from a coordinate
+      // afterwards (which is the guessing game a later re-pick would play), it
+      // is the address the point came FROM.
+      offer(
+        named.point === "center" ? "center" : "endpoint",
+        named.at,
+        [entity.id],
+        { ref: { entity: entity.id, point: named.point } },
+      );
     }
     const mid = midpointOf(entity);
     if (mid !== null) offer("midpoint", mid, [entity.id]);
@@ -483,18 +536,27 @@ export function snapCandidates(
     // specific claim ("this corner", with an entity id a constraint can
     // address) and it is what the user can see, so it takes the tie. Nothing is
     // lost either way: the coordinate is identical, only the word differs.
-    offer("origin", { x: 0, y: 0 }, [], origin.label);
+    offer("origin", { x: 0, y: 0 }, [], {
+      label: origin.label,
+      // The plane's zero IS a constraint-addressable point — `datum.ts`
+      // materialises it as a pinned construction point the moment something
+      // references it — so a corner snapped here can be GROUNDED, not merely
+      // placed at (0,0). That is SNAP-2, and it needs no path of its own.
+      ref: { entity: DATUM_ORIGIN_ID, point: "position" },
+    });
+    // The two axes carry no `ref` — see `SnapCandidate.ref`.
     offer("x-axis", { x: snapValue(at.x, origin.gridStepMm), y: 0 }, []);
     offer("y-axis", { x: 0, y: snapValue(at.y, origin.gridStepMm) }, []);
   }
 
   // Rule 2: rank first (stable under jitter), distance only within a class.
   found.sort((a, b) => RANK[a.kind] - RANK[b.kind] || a.d - b.d);
-  return found.map(({ kind, at: point, entities: ids, label }) => ({
+  return found.map(({ kind, at: point, entities: ids, label, ref }) => ({
     kind,
     at: point,
     entities: ids,
     ...(label === undefined ? {} : { label }),
+    ...(ref === undefined ? {} : { ref }),
   }));
 }
 
@@ -572,4 +634,238 @@ export function resolveSnap(input: SnapInput): SnapResolution {
   // The grid is the floor, and it gets no mark: it is always catching, so a
   // mark for it would be permanent chrome that says nothing.
   return { at: snapPoint(point, gridStepMm), candidate: null };
+}
+
+// ---------------------------------------------------------------------------
+// Snap → constraint inference (SNAP-3, which subsumes SNAP-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * A snap the user actually SPENT — one click of an in-progress placement that
+ * took its coordinate from an addressable point. Held by the store across the
+ * clicks of a sequence, because the click that matters most (a line's start, a
+ * rectangle's first corner) happens while no entity exists to constrain yet.
+ */
+export interface SnapAnchor {
+  /** The coordinate the click took (plane mm) — copied, not recomputed. */
+  at: Point2D;
+  /** The point it took that coordinate FROM. */
+  ref: EntityPointRef;
+}
+
+/**
+ * The anchor a click leaves behind, or null when the aim took the grid, a
+ * modifier-suppressed free point, an axis, or any other kind with no address.
+ */
+export function snapAnchorOf(
+  candidate: SnapCandidate | null,
+  at: Point2D,
+): SnapAnchor | null {
+  const ref = candidate?.ref;
+  return ref === undefined ? null : { at, ref };
+}
+
+/**
+ * Placed coordinates closer than this are the same point. This is NOT a user
+ * tolerance: the placement copies the snapped coordinate verbatim into the
+ * entity, so a match here is bit-identical in every real case and the epsilon
+ * only absorbs the arithmetic `rectangleCorners` does on the way (min/max of
+ * two numbers — exact, but the arc's projection is not).
+ */
+const ANCHOR_MM = 1e-9;
+
+/**
+ * The coincidents a placement earned: one per anchor whose coordinate a
+ * just-emitted entity actually landed a named point on.
+ *
+ * MATCHING BY COORDINATE, NOT BY POSITION IN THE SEQUENCE, is what makes this
+ * ONE path for every tool instead of five (the DRY rule; two snap-to-constraint
+ * implementations would be the defect, not the fix). Each tool routes its
+ * clicks into different slots of a different shape — a line's second click is
+ * an `end`, a rectangle's is two corners away from where it started, a
+ * spline's is `fitN` — and every one of them lands the SNAPPED COORDINATE,
+ * unchanged, on the point that click created. So "which named point did this
+ * click become?" is answered by looking, and three behaviours fall out for
+ * free rather than being special-cased:
+ *
+ * · A RECTANGLE corner is shared by two of the four lines, and only the first
+ *   is bound (`break`). Binding both would state the same fact twice and, with
+ *   the corner coincidences a rectangle already carries, report an ordinary
+ *   sketch as OVER-CONSTRAINED — a worse defect than the one being fixed.
+ * · A CIRCLE's rim click has no named point at that coordinate (a circle is
+ *   `center` + radius), so a snap there authors nothing — correct, because
+ *   what the user constrained is not representable as a point.
+ * · An ARC's third click is PROJECTED onto the arc's circle, so the emitted
+ *   `end` is generally NOT where the user clicked; no match, no constraint.
+ *   Where the target does lie on the circle the coordinates agree and the
+ *   constraint is authored, which is exactly when it is true.
+ *
+ * `existing` is checked so a re-drawn edge cannot stack a duplicate of a
+ * relation already on the sketch — the same `sameConstraint` guard the explicit
+ * `C` verb uses, so the automatic and manual paths agree on what "already
+ * coincident" means.
+ */
+export function inferredCoincidents(
+  anchors: readonly SnapAnchor[],
+  emitted: readonly SketchEntity[],
+  existing: readonly SketchConstraint[] = [],
+): SketchConstraint[] {
+  const out: SketchConstraint[] = [];
+  for (const anchor of anchors) {
+    for (const entity of emitted) {
+      // A point cannot be coincident with itself; an emitted entity can never
+      // be the anchor's target (ids are freshly minted), but the guard keeps
+      // that a property of this function rather than of its caller.
+      if (entity.id === anchor.ref.entity) continue;
+      const named = namedPoints(entity).find(
+        (candidate) => dist(candidate.at, anchor.at) <= ANCHOR_MM,
+      );
+      if (named === undefined) continue;
+      const constraint: SketchConstraint = {
+        kind: "coincident",
+        a: { entity: entity.id, point: named.point },
+        b: anchor.ref,
+      };
+      if (
+        !existing.some((c) => sameConstraint(c, constraint)) &&
+        !out.some((c) => sameConstraint(c, constraint))
+      ) {
+        out.push(constraint);
+      }
+      break;
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Draw → axis inference (SNAP-5)
+// ---------------------------------------------------------------------------
+
+/**
+ * The widest angle off an axis that still reads as "the user drew this
+ * horizontal". It is a CEILING on the deviation rule below, not the rule
+ * itself, and it exists for one case only: a stub so short that a deviation
+ * measured in millimetres says nothing about its direction (a 3 mm line at 40°
+ * deviates less than a 300 mm line at 0.5°). Three degrees is derived, not
+ * chosen by taste: with the default 1 mm grid the SHORTEST edge of the
+ * reference profile SNAP-5 was filed against (6 mm, the flanged-coupling
+ * staircase) can express a deliberate slope of one grid step over its run —
+ * `atan(1/6)` = 9.46° — so the ceiling sits at a third of the smallest slope
+ * anyone can draw on purpose there. It also agrees, to the order, with what
+ * the deviation rule yields unaided at working zoom: 12 px (the snap radius)
+ * across a 30 mm edge that spans ~200 px is 3.4°.
+ */
+export const AXIS_INFERENCE_MAX_DEG = 3;
+
+const AXIS_INFERENCE_MAX_TAN = Math.tan(
+  (AXIS_INFERENCE_MAX_DEG * Math.PI) / 180,
+);
+
+/**
+ * Coordinates this close to the axis ARE on it. Same role as {@link ANCHOR_MM}:
+ * the placement copies its coordinate verbatim, so an axis-locked or
+ * grid-landed line is bit-exact and this only absorbs arithmetic. It is also
+ * the floor of the deviation limit, so an exactly-drawn line is inferred even
+ * where the caller reports no tolerance at all.
+ */
+const AXIS_EXACT_MM = 1e-9;
+
+/** What the placement knew about the click that ended the line. */
+export interface AxisInferenceInput {
+  /** Live grid step in mm; 0 when the grid is off (G). */
+  gridStepMm: number;
+  /** The snap radius in plane mm at this zoom ({@link SNAP_TOLERANCE_PX}). */
+  toleranceMm: number;
+  /** Ctrl/Cmd was held — every snap off, this inference with them. */
+  suppressed: boolean;
+}
+
+/**
+ * The horizontal / vertical constraints a freshly-drawn line EARNED (SNAP-5).
+ *
+ * WHY THE ORDINARY GESTURE NEEDED THIS. `shapeRigidity` gives a rectangle two
+ * horizontals and two verticals because a rectangle IS axis-aligned by
+ * construction; a line drawn line-by-line — the way anything that is not a
+ * rectangle gets drawn — carried nothing at all. So an L-bracket outline that
+ * LOOKS axis-aligned solved with every edge free to rotate: measured on the
+ * six-edge staircase profile of the SOLVE-1 report, 12 DOF undimensioned and 8
+ * with four driving dimensions, where the same shape with its axes stated
+ * solves at 6 and 2. SOLVE-1 holds those free DOF at the author's input on an
+ * edit, which keeps the sketch from wandering, but a safety net for looseness
+ * is not the same thing as not being loose.
+ *
+ * THE RULE, and both halves are measured rather than taken from taste:
+ *
+ * · DEVIATION — the rise must be under `limit`, and the run over it. With the
+ *   grid ON the limit is one grid step, because a grid-snapped placement can
+ *   only land on multiples of it: a deviation of a whole step is a decision,
+ *   and anything smaller than a step is exactly zero. With the grid OFF there
+ *   is no quantum, so the limit is the snap radius the same click was aimed
+ *   with — the distance inside which this module already treats two points as
+ *   the same point. Requiring the RUN to clear the same limit is what keeps a
+ *   near-degenerate stub from claiming an axis it does not have.
+ * · CEILING — {@link AXIS_INFERENCE_MAX_DEG}, for the short-line case above.
+ *
+ * WHY IT LIVES HERE, beside {@link inferredCoincidents}, and not in
+ * `shapeRigidity`: this is an inference from what the user AIMED — it depends
+ * on the live tolerance and it stops when the user suppresses snapping —
+ * whereas rigidity is a fact about the shape that is the same at every zoom.
+ * Putting a tolerance inside `shapeRigidity` would make a rectangle's
+ * rectangularity depend on the camera. One mechanism, one place: a rectangle's
+ * four edges pass through here too and are deduped against the rigidity set by
+ * `sameConstraint`, exactly as SNAP-3 dedupes against the explicit verb, so no
+ * fact is ever authored twice (which would report an ordinary sketch as
+ * OVER-CONSTRAINED — the RECT-1 lesson).
+ *
+ * THE OPT-OUT ALREADY EXISTED: Ctrl/Cmd. `resolveAim` refuses every snap while
+ * it is held on the principle that an escape hatch has to be a whole one, and
+ * an inferred constraint is the other half of a snap — so it is honoured here
+ * too rather than a second gesture being invented for it.
+ */
+export function inferredAxisConstraints(
+  emitted: readonly SketchEntity[],
+  input: AxisInferenceInput,
+  existing: readonly SketchConstraint[] = [],
+): SketchConstraint[] {
+  if (input.suppressed) return [];
+  const limit = Math.max(
+    input.gridStepMm > 0 ? input.gridStepMm : input.toleranceMm,
+    AXIS_EXACT_MM,
+  );
+  const out: SketchConstraint[] = [];
+  for (const entity of emitted) {
+    if (entity.kind !== "line") continue;
+    const run = Math.abs(entity.end.x - entity.start.x);
+    const rise = Math.abs(entity.end.y - entity.start.y);
+    const kind = alignedAxis(run, rise, limit);
+    if (kind === null) continue;
+    const constraint: SketchConstraint = { kind, entity: entity.id };
+    if (
+      !existing.some((c) => sameConstraint(c, constraint)) &&
+      !out.some((c) => sameConstraint(c, constraint))
+    ) {
+      out.push(constraint);
+    }
+  }
+  return out;
+}
+
+/**
+ * Which axis a run/rise pair claims, or null. The two tests are mutually
+ * exclusive by construction — each demands its own span clear the limit the
+ * other must stay under — so a line can never claim both.
+ */
+function alignedAxis(
+  run: number,
+  rise: number,
+  limit: number,
+): "horizontal" | "vertical" | null {
+  if (rise < limit && run > limit && rise <= run * AXIS_INFERENCE_MAX_TAN) {
+    return "horizontal";
+  }
+  if (run < limit && rise > limit && run <= rise * AXIS_INFERENCE_MAX_TAN) {
+    return "vertical";
+  }
+  return null;
 }

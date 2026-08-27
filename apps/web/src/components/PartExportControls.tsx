@@ -1,5 +1,5 @@
-import { exportPartTree, markFilenamePartial } from "../api/exportPart";
-import { exportGate, type PartBuild } from "../features/partBuild";
+import { partExportBinding } from "../features/partExport";
+import type { PartBuild } from "../features/partBuild";
 import { ExportRow } from "./ExportRow";
 
 export interface PartExportControlsProps {
@@ -24,19 +24,19 @@ export interface PartExportControlsProps {
  * The strip refuses to write a file it cannot vouch for. A feature error or an
  * unverified rebuild makes it inert and names what to fix; a deliberate travel
  * stop still exports, with `Partial` in the cell AND `-partial` in the filename
- * (see {@link exportGate} for why those two prefixes get different answers).
+ * (see `exportGate` for why those two prefixes get different answers).
+ *
+ * The gate and the request that honours it come from `features/partExport.ts`,
+ * which the command band's EXPORT tool group reads too: the strip is the NOTICE
+ * surface ("this file would be partial"), the band is the ACTION surface that
+ * survives a panel collapse, and neither derives its own answer (EXPORT-1).
  */
 export function PartExportControls({ partId, build }: PartExportControlsProps) {
-  const gate = exportGate(build);
+  const { gate, exporter } = partExportBinding(partId, build);
   return (
     <ExportRow
       testIdPrefix="part-export"
-      exporter={async (format) => {
-        const file = await exportPartTree(partId, format);
-        return gate.partial
-          ? { ...file, filename: markFilenamePartial(file.filename) }
-          : file;
-      }}
+      exporter={exporter}
       disabledReason={gate.blockedReason}
       statusLabel={gate.partial ? "Partial" : undefined}
       notice={

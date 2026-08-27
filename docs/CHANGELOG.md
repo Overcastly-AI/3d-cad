@@ -5,6 +5,174 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-08-26 (groom pass 13 — closed nine in-flight items, re-scoped MATE-1)
+
+- **Groom pass 13 (backlog-groomer).** Ten commits landed since pass 12,
+  all reconciled: SETTLE-PERF-1 (`eed8729`, 883x speedup + removed the
+  90s-timeout DoS route), DXF-4 (`b226ee4`, flat pattern carries holes),
+  DXF-5/T-16 (`cc35629`, units + scale fixed both export paths), PICK-2
+  (`8384f1e`, refuse to arm with nothing to pick), FB-21 (`b505efe`, axis
+  glyph frame fixed), FB-9 (`92da971`, verified already-fixed, gated),
+  NAME-2/T-21/T-8 (`c2700ee`, durable edge tier — kernel side fully
+  closes), EDGEFLANGE-1 (`3fba5fd`, thickness-edge flange refused), and
+  T-22/REPICK-1's e2e regression (`b036acd` — fixture was asserting the
+  old reset behaviour; T-22 stands). **MATE-1 re-scoped, not closed:**
+  `287510f` gated the kernel mate-pick seam clean (0 bad of 14 offered
+  faces) — S-15 is UI-side; re-filed as UI-only, but BLOCKED this batch
+  behind T-23/DRAG-1 which occupies `apps/web/src/viewport/**` (ORTHO-1
+  shares that territory and queues behind MATE-1 too). Filed NAME-2b (P2,
+  client-facing re-anchor surface). Folded the standalone "promote durable
+  edge tier" P2 item into NAME-2's closure. Noted `docs/design/
+  pattern-scope.md` (`b7f1407`) against PATTERN-1. Re-derived Ready queue,
+  excluding in-flight/reserved items (T-23/DRAG-1, MATE-1(UI), ORTHO-1,
+  SNAP-5, SKETCH-VOCAB-1 kernel half, PATTERN-1 kernel half, SIGNIN-1):
+  SPEC-10 → SPEC-9 → DOCTICK-GATE → EXPORT-3 → SKETCH-VOCAB-1(FE) →
+  PATTERN-1(FE) → REVOLVE-1 → SNAP-4. Also reconciled ROADMAP.md's
+  "Current focus" and pruned its pass-11/12 detail here.
+
+## 2026-08-24 (groom pass 12 — ROADMAP "Current focus" detail, pruned pass 13)
+
+- **Groom pass 12 (backlog-groomer).** No new commits since pass 11
+  (`8dcd0c3` still HEAD); the same five builders (NAME-2, DXF-4, DXF-5,
+  EDGEFLANGE-1, LAYOUT-1/T-18) still in flight. Found an UNCOMMITTED
+  `docs/AUDIT-ENGINEERING.md` "Pass 10" on disk measuring SOLVE-1's
+  `settle()` at 1,560x slower than the pre-SOLVE-1 solver on a 48-line
+  dimension edit (8.3ms→12,944ms) and 230s on a 96-line one, against a
+  gateway that gives up at 90s and never cancels the upstream — DoS-shaped,
+  fires on the commonest sketcher interaction. Elevated SETTLE-BENCH-1
+  P1→P0 (renamed SETTLE-PERF-1), top of Ready. Filed SPEC-10
+  (`constraints.spec.ts:240` asserts a pre-settle transient, same class as
+  SPEC-9/CI-4(d)). Corrected two stale framings rather than re-filing:
+  "snap points don't work" was reproduced and closed (SNAP-1→SNAP-2/
+  SNAP-3, `c233a5b`); trackpad orbit-while-sketching shipped as VP-1a
+  (`32e5b87`).
+
+## 2026-08-24 (groom pass 11 — reconciled SETTLE batch, filed audit passes 4-5, marked six items in flight)
+
+- **Groom pass 11 (backlog-groomer):** ticked SETTLE-2 (`4fef60a`, a settle
+  reflecting a rigid shape across its own symmetry axis), SETTLE-3
+  (`8b239e5`, a settle sacrificing a circle's radius while pinning its
+  centre + a second residual witness), and the CommandBand label-shedding
+  fix (`ae1cea0`) into the Done archive. Recovered and filed engineering
+  audit Pass 9 and product audit passes 4-5 (`8b16b21`, `a547a6d`, 697+187
+  lines). Widened NAME-2 with T-21/T-8 (a topology-preserving edit — depth
+  or resize — orphans features anchored by coordinate/property, not
+  identity; a FIRST ordinary edit is enough, not just a second) and DXF-5
+  with T-16 (the unit defect is on the drawing DXF too, plus a silent 1:2
+  scale). Filed REPICK-1/T-22 (P0: `Re-pick face` resets the feature's own
+  parameters). Corroborated PATTERN-1/SIGNIN-1(bumped P1)/ORTHO-1/FLOW-1/
+  LAYOUT-1/MATE-1/DOCTICK-GATE/GATE-FLOOR/DEP-AUDIT/SPEC-8 against the new
+  passes. Filed SKETCH-VOCAB-1 (P1, angle/diameter dimension gap),
+  FLOW-POLISH-1 bucket (P2), SM-POLISH-1 additions, and five engineering
+  tickets (PBT-1, SETTLE-BENCH-1, CONTRACT-1, SEC-TEST-1, GQA-4). Marked
+  NAME-2/DXF-5/DXF-4/EDGEFLANGE-1/REPICK-1/LAYOUT-1 IN FLIGHT (five
+  builders live in worktrees) and excluded them from a re-derived Ready
+  queue: PICK-2 → MATE-1 → PATTERN-1/SNAP-5/SKETCH-VOCAB-1 → FB-21/FB-9 →
+  DOCTICK-GATE. Moved pass 8-10's detailed Scorecard-gaps notes here
+  (below) to keep BACKLOG.md lean.
+
+## 2026-08-21 to 2026-08-22 (Scorecard-gaps notes, pruned from BACKLOG.md pass 11 — superseded by pass 11's own note)
+
+- **Groom pass 10 (2026-08-22) — SOLVE-1 SHIPPED (`7183955`).** Root cause:
+  DogLeg starting from CURRENT positions is not the same as leaving free DOF
+  alone — it walks a trajectory, so a value edit that only adds slack drags
+  geometry the edit never named. `_GcsBuild.settle()` now pins every input
+  coordinate the constraints still admit back to the author's value after
+  convergence. Return deviation 2.162284 mm → 6.394885e-14 mm; bbox after
+  the 8→12 edit `70×70×33.0795` (off-plane) → `70×70×30` (on-plane). A 245x
+  perf regression in the rescued patch (11,050ms → 147ms) was found and
+  fixed same-commit; goldens top out at 12 entities so no gate could have
+  caught it. `docs/RESEARCH.md` §2/§9 corrected. SNAP-5 filed underneath it
+  (line-by-line drawing never infers H/V). Correction filed against both
+  audit docs: the "conflict path unreached on a value edit" claim did not
+  survive measurement (status=conflicting reproduced on a pure value edit);
+  R-5c was not a conflict, since no H/V was authored to contradict.
+- **Groom pass 9 (2026-08-21) — two more audit passes recovered from the
+  working tree, uncommitted, preserved first** (`3c82384`). SOLVE-1 and
+  PICK-2 RE-SCOPED: SOLVE-1's real defect was a non-idempotent
+  under-constrained solve (10→14→10 doesn't return); PICK-2's real cause
+  was six pick-overlay queries gated on `meshGlbId !== null`, an empty
+  surface not a raycast miss. Five new P0s from a sheet-metal fabrication-
+  handoff pass: DXF-4 (flat-pattern drops every hole), DXF-5 ($INSUNITS
+  wrong, 1000x), EDGEFLANGE-1 (flange off a thickness edge), MATE-1
+  (mate face unreachable at any camera), NAME-2 (feature ref not
+  re-stamped after a successful match). Vision-steward flagged (not yet
+  actioned that pass): Sheet metal and Assemblies both ➖→❌ recommended; a
+  new `Selection & direct manipulation` row recommended. Engineering audit
+  pass 7/8: DOCTICK-GATE, PGTEST-GATE, K2 (P1), GATE-FLOOR (bumped P1),
+  DEP-AUDIT filed; SPEC-9/SPEC-8 filed; 78 hours / 6 commits since the last
+  line of product code flagged as the argument for that pass's dispatch.
+
+## 2026-08-21 (groom pass 9 — SOLVE-1/PICK-2 RE-SCOPED before dispatch; second uncommitted audit doubled the P0 cluster)
+
+- **Groom pass 9 (backlog-groomer):** preserved two more uncommitted audit
+  passes (`3c82384`) — a sheet-metal fabrication-handoff product audit and
+  an engineering pass that traced SOLVE-1/PICK-2 to source. **RE-SCOPED
+  SOLVE-1 and PICK-2** (both tickets' original mechanisms were disproven by
+  measurement; rewrote the fix and acceptance criteria for each — see
+  tickets). Filed 5 new P0s from the fabrication job (DXF-4 flat-pattern
+  drops all holes, DXF-5 wrong DXF units, 1000x; EDGEFLANGE-1 flange off a
+  thickness edge; MATE-1 unreachable mate face; NAME-2 feature ref not
+  re-stamped after match) + 7 P1s (SPEC-9 e2e race, ORTHO-1, HEM-1,
+  MATEUI-1, LAYOUT-1, GHOST-1, STEPNAME-1) + smaller P2s (SPEC-8,
+  AUDITOR-PORTS-1, SIGNIN-1, SM-POLISH-1 bucket). Corrected PGTEST-GATE's
+  fix per the auditor's own retraction (CI likely already runs the 172
+  tests; don't add a `services: postgres` block on the old claim); bumped
+  GATE-FLOOR P2→P1 (reproduced unfixed twice) and PATTERN-1 P2→P1
+  (corroborated twice, blocks the commonest pattern use). Top 3 dispatched
+  this batch, fully disjoint: SOLVE-1 (kernel-architect, `sketch/**`),
+  PICK-2 (frontend-builder, `PartPage.tsx`+`FacePickOverlay.tsx`), DXF-4
+  (kernel-architect, `sheet_metal/**`+`drawings/flat_pattern.py`). Batch
+  kind: **13 defect / 1 capability** (DOCTICK-GATE carries over from pass 8
+  unbuilt; every NEW item this pass is a defect repair).
+
+## 2026-08-17 (groom pass 7 — RECT-1/SNAP-2/SNAP-3/MIRROR-1 shipped; founder's file-page/export directive turned into 9 Ready tickets)
+
+- **Groom pass 7 (backlog-groomer):** archived RECT-1/SNAP-2/SNAP-3/MIRROR-1
+  shipped (all four `docs/AUDIT-PRODUCT.md`/`UI-REVIEW.md` 2026-08-17
+  founder-directed audits — "the file page looks like an afterthought,"
+  "export shouldn't live with mass properties") turned into 9 Ready tickets
+  (EXPORT-1, REGISTER-1/2, VIEWCUBE-1, DXF-2a/2b/3, EXPORT-2, VISION-FIX-1)
+  + 3 Next tickets (IMPORT-HEAL-1/2, EXPORT-ERR); ROADMAP "Current focus"
+  corrected. 7 defect / 2 capability in the new Ready batch, kind-tagged
+  per this pass's mandate. All 9 Ready tickets shipped by 2026-08-18 (see
+  groom pass 8's Done archive entry, `docs/BACKLOG.md`) — but ZERO of the
+  11 feature/fix commits that shipped them ticked ROADMAP/BACKLOG
+  (`docs/AUDIT-ENGINEERING.md` Pass 7 M2), so pass 8 spent its first cycle
+  on pure reconciliation before any new dispatch.
+
+## 2026-08-16 (groom pass 6 — PICK-1/GEOM-3 shipped; vision-steward's competitive pass turned into build-ready tickets)
+
+- **Groom pass 6 (backlog-groomer):** archived PICK-1 (`2b266b1`) + GEOM-3
+  (`1e39c14`, geometry-qa PASS `0628ceb`) shipped; filed GQA-1 (P2)/GQA-2/
+  GQA-3 (P3) from the geometry-qa pass. Turned the vision-steward's
+  2026-08-16 competitive findings into build-ready tickets — RECT-1 (P0),
+  SNAP-3 (P0), MIRROR-1 (P1), each verified against current HEAD by symbol,
+  each `kind: capability` — closing the gap where COMPETITIVE.md/VISION.md
+  prose could never reach the build loop's Ready queue. ROADMAP "Current
+  focus" corrected (was still pointing at GEOM-3/PICK-1 as "next").
+
+## 2026-08-15 (groom passes 4-5 — DIM-1 top-of-Ready, all four founder sketcher reports answered)
+
+- **Groom pass 4 (backlog-groomer):** DIM-1 moved to top of Ready (QA
+  `6df1170` found it writes silent WRONG geometry, not just a slow field);
+  archived QA7-1/GEOM-2/FB-19 shipped, QA-VERIFY-1 closed; filed GEOM-3/4/5
+  (GEOM-2's quantified honest limit + durable fix) and TOUCH-1 (no touch
+  Playwright project).
+- **Groom pass 5 (backlog-groomer):** all four founder 2026-08-01 sketcher
+  reports now answered; archived DIM-1/SNAP-1/SKETCH-2 + the SKETCH-2
+  follow-up fix (`8f00dec`, closes the blocking symmetric-datum bug +
+  QA-SK2-1/2). Filed SNAP-2 (P0 — snap infers no constraint, silent drift on
+  redrive), SKETCH-3, TOUCH-2, QA-SK2-3, SPEC-6/SPEC-7. Credited the
+  mutation-marker CI gate (`56297d2`) with a Done entry it had none of.
+  Wrongly concluded QAH-1 still open — corrected same evening.
+- **Groom pass 5 correction (orchestrator-caught):** pass 5 searched only
+  `a658db4..HEAD` (the brief's range) and found nothing touching QAH-1's
+  assertion; the fix (`c3019b6`) is an ANCESTOR of `a658db4`, invisible to
+  that window. **QAH-1 is CLOSED** — see BACKLOG Done archive for the
+  evidence. Re-deriving from git log is only as good as the range it
+  searches.
+
 ## 2026-08-14/15 (c449235 review triage + DIM-1/QA7-1/GEOM-2/FB-19 groom passes)
 
 - **Groom pass 3 — c449235 review triage (backlog-groomer):** filed DIM-1
@@ -394,3 +562,14 @@ STEP hardening + WB-64/TB-1 dogfooding)
   discovery pass + a code-inspection finding (Fillet/Chamfer buttons wired
   but never connected — `PartPage` never passes `onFillet`/`onChamfer`).
   [backlog-groomer]
+- **2026-08-21 — Groom pass 8 (backlog-groomer):** reconciled 10 shipped-
+  but-unticked tickets (pass 7's export cluster, `docs/AUDIT-ENGINEERING.md`
+  Pass 7 M2 found 0/27 commits ticked ROADMAP/BACKLOG) into Done; filed
+  DOCTICK-GATE to close the hole. New P0 cluster from the fresh "rotational
+  part" audit — SOLVE-1 (silently wrong geometry on a conflicting dimension
+  edit) + PICK-2 (inert repair button) — outranks the standing FB-21/FB-9
+  frame-convention P0s. 6 new engineering tickets from the same audit round
+  (DOCTICK-GATE, PGTEST-GATE, K2 bumped P1, GATE-FLOOR, DEP-AUDIT, plus 2 P3
+  housekeeping items). Top 3 dispatched: SOLVE-1 (kernel-architect), PICK-2
+  (frontend-builder), DOCTICK-GATE (platform-builder). Batch kind split:
+  2 defect / 1 capability.

@@ -11,18 +11,52 @@ import { useState } from "react";
 import { login, registerAccount } from "../api/auth";
 import { useSessionStore } from "../auth/session";
 import { LoftMark } from "../components/LoftMark";
+import {
+  ProjectionPlate,
+  ThirdAngleSymbol,
+} from "../components/ProjectionPlate";
 import { SheetGrid } from "../components/SheetGrid";
 import { validateAuthForm, type AuthFormErrors } from "../lib/authForm";
 
 type Mode = "sign-in" | "register";
 
 /**
- * The un-issued drawing sheet (frontend-design pass, 2026-07-10): before
- * sign-in there is no part, so the screen is an empty sheet — the carbide
- * ground carries the viewport's own grid (one palette, two renderers), a
- * hairline sheet frame, and the auth form composed as the sheet's title
- * block, anchored where title blocks live: the bottom-right corner (centered
- * below md). Same instrument as the modeler, not a marketing splash.
+ * THE ISSUED SHEET (frontend-design pass 2026-08-26 — SIGNIN-1).
+ *
+ * The 2026-07-10 pass called this screen "the un-issued drawing sheet": nothing
+ * is drawn yet, so the sheet is blank and the auth form sits where a title block
+ * sits, the bottom-right corner. The metaphor was right; the execution had a
+ * units bug that four audit passes filed and nobody fixed, because it kept being
+ * read as a styling nit rather than as the structural fault it was. The SHEET
+ * was the browser window. A window has no edges, so "the bottom-right corner of
+ * the sheet" resolved to 82 % across a 1600 px void: a 320x260 card at
+ * (1233, 692) with 94.8 % of the frame empty grid. Nothing in the CSS was wrong.
+ * The object the composition was anchored to did not exist.
+ *
+ * Two changes, and the first is the whole fix:
+ *
+ *  1. THE SHEET IS A BOUNDED OBJECT — a real drawn rectangle, centred in the
+ *     frame at `max-w-sheet` (see `layout.sheetWidth`), with the grid and the
+ *     bench visible around it. The title block is now in the corner OF SOMETHING,
+ *     which is the only condition under which "title block in the corner" was
+ *     ever a design and not an accident. The card's centre moves from (82 %,
+ *     82 %) of the frame to roughly (67 %, 50 %): still deliberately
+ *     right-of-centre, because that is where a title block belongs and centring
+ *     it would have thrown away the idea instead of fixing it, but unmistakably
+ *     part of a composition. `e2e/first-impression.spec.ts` asserts the centre
+ *     fraction, so this cannot silently drift back.
+ *
+ *  2. SOMETHING IS DRAWN ON IT. An empty sheet was the thesis and it is a thesis
+ *     that cannot survive a screenshot: to a visitor it is indistinguishable
+ *     from a page that failed to load. The sheet now carries a third-angle
+ *     orthographic plate of a machined bracket (`ProjectionPlate`) — the
+ *     artefact this product exists to produce, drawn in the sketcher's own ink
+ *     tokens, with the title strip printing what a real sheet prints: drawing
+ *     number, scale, projection convention, licence.
+ *
+ * Everything else is unchanged on purpose. Same panel primitive, same test ids,
+ * same keyboard-first behaviour (the email cell still takes focus on load), no
+ * animation, no new colour.
  */
 export function SignInPage() {
   const token = useSessionStore((state) => state.token);
@@ -30,14 +64,68 @@ export function SignInPage() {
   return (
     <div className="relative h-full overflow-hidden bg-carbide">
       <SheetGrid />
-      {/* Drawing-sheet border. */}
-      <div
-        className="pointer-events-none absolute inset-3 border border-hairline"
-        aria-hidden="true"
-      />
-      <div className="relative flex h-full items-center justify-center p-6 md:items-end md:justify-end md:p-12">
-        <AuthTitleBlock />
+      <div className="relative flex h-full items-center justify-center p-4 sm:p-6 md:p-8">
+        {/* `bg-carbide/85` is not a colour, it is a MASK: the sheet is the same
+            ink as the bench it lies on, so the only thing the fill does is quiet
+            the bench grid showing through it. That is what makes the frame read
+            as a sheet lying on the table rather than as a box drawn on it, and
+            it keeps the plate legible against a settled ground. */}
+        <div
+          className="flex max-h-full w-full max-w-sheet flex-col border border-hairline bg-carbide/85 shadow-float"
+          data-testid="sign-in-sheet"
+        >
+          <div className="flex min-h-0 grow flex-col-reverse md:flex-row md:items-stretch">
+            {/* The sheet's drawing area. Not rendered below md, where there is
+                not enough width to draw four views at a legible size — a plate
+                squeezed to 300 px is not a smaller drawing, it is an unreadable
+                one, and the form is what the screen is for. */}
+            <div className="hidden min-w-0 grow items-center justify-center p-5 md:flex">
+              {/* Width-driven, height from the viewBox's own aspect: the plate
+                  fills the sheet at every width instead of being a fixed block
+                  with air around it, which is how the sheet ends up covering
+                  ~45 % of a 1600x1000 frame and ~71 % of a 1280x800 one against
+                  the 5.2 % the audit measured. `max-h` is the guard for a short
+                  frame; `meet` letterboxes rather than distorting. */}
+              <ProjectionPlate className="max-h-[34rem] w-full" />
+            </div>
+            <div className="flex shrink-0 items-center p-3 md:w-[23rem]">
+              <AuthTitleBlock />
+            </div>
+          </div>
+          <SheetFooter />
+        </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The strip a real drawing prints along its bottom edge. Every field is TRUE —
+ * the design mandate's "a readout that only decorates is a defect" applies to a
+ * decorative surface as much as to the modeller's chrome, so there is no
+ * invented revision number and no fake company name. The projection symbol
+ * states the convention the plate above is actually drawn in.
+ */
+function SheetFooter() {
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-hairline px-3 py-2 font-display text-2xs uppercase tracking-[0.16em] text-gauge"
+      data-testid="sheet-footer"
+    >
+      <span>Loft &mdash; parametric CAD</span>
+      <span className="text-etch" aria-hidden="true">
+        |
+      </span>
+      <span>Open source, MIT</span>
+      <span className="text-etch" aria-hidden="true">
+        |
+      </span>
+      <span>Self-hostable</span>
+      <span className="grow" />
+      <span className="hidden items-center gap-2 sm:flex">
+        Third angle
+        <ThirdAngleSymbol className="h-3 w-[34px] shrink-0" />
+      </span>
     </div>
   );
 }
@@ -93,7 +181,7 @@ function AuthTitleBlock() {
         : "Sign in";
 
   return (
-    <Panel className="w-inspector max-w-full" data-testid="auth-panel">
+    <Panel className="w-full" data-testid="auth-panel">
       <div className="flex items-baseline gap-2 border-b border-hairline px-3 py-2">
         <LoftMark />
         <span className="font-display text-md tracking-[0.32em] text-mist">

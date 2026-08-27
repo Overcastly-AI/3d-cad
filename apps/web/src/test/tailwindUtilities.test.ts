@@ -60,6 +60,12 @@ describe("tailwind utility resolution", () => {
           "h-band",
           "h-timeline",
           "w-inspector",
+          // The bounded page-level sheet (SIGNIN-1). A dead class here would
+          // silently un-bound the sign-in composition and restore the exact
+          // "card adrift in an empty frame" the audit filed four times — and it
+          // would photograph as a design choice, which is this guard's whole
+          // reason for existing.
+          "max-w-sheet",
           "w-editor",
           "left-editor",
           "bottom-hud-lane",
@@ -68,6 +74,13 @@ describe("tailwind utility resolution", () => {
           "max-h-rail-card",
           "min-h-rail-panel",
           "bottom-cube-band",
+          // The reference cube's own seat and size (VIEWCUBE-1). A dead class
+          // here would not throw — it would silently park a table-stakes nav
+          // control at the frame's top-left at 0x0.
+          "bottom-view-cube",
+          "right-view-cube",
+          "h-view-cube",
+          "w-view-cube",
           "rounded-none",
           "rounded-sm",
           "rounded-md",

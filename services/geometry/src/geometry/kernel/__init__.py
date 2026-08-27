@@ -25,15 +25,24 @@ from geometry.kernel.datum import (
 from geometry.kernel.degenerate import ZeroWidthSlit, find_zero_width_slits
 from geometry.kernel.draft import DraftError, draft_body
 from geometry.kernel.edges import (
+    EdgeMatchTier,
     EdgeRecord,
     NoEdgesSelectedError,
+    ResolvedEdge,
+    durable_edge_match,
     edge_signature_dto,
     enumerate_edges,
     resolve_edge,
+    resolve_edge_durable,
     select_edges,
 )
 from geometry.kernel.export import (
     AssemblyComponent,
+    MeshExportNotManifoldError,
+    export_3mf_assembly_bytes,
+    export_3mf_bytes,
+    export_glb_assembly_bytes,
+    export_glb_bytes,
     export_step_assembly_bytes,
     export_step_bytes,
     export_stl_assembly_bytes,
@@ -109,9 +118,13 @@ from geometry.kernel.pattern import (
     PatternDisjointError,
     PatternError,
     PatternSpacingError,
+    PatternUnreachableError,
+    check_pattern_count,
     circular_pattern,
     circular_pattern_cut,
     circular_pattern_placements,
+    cut_placed_tools,
+    fuse_placed_tools,
     linear_pattern,
     linear_pattern_cut,
     linear_pattern_placements,
@@ -125,11 +138,14 @@ from geometry.kernel.provenance import (
 from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.revolve import (
     AxisIntersectsProfileError,
+    AxisNotInSketchPlaneError,
     NoAxisError,
+    ResolvedRevolveAxis,
     RevolveError,
     build_revolve_profile_face,
     check_axis_clears_profile,
     resolve_axis_line,
+    resolve_revolve_axis,
     revolve_face,
 )
 from geometry.kernel.shapes import build_box, build_cylinder
@@ -175,6 +191,7 @@ __all__ = [
     "ISO_METRIC_PITCHES",
     "AssemblyComponent",
     "AxisIntersectsProfileError",
+    "AxisNotInSketchPlaneError",
     "BooleanDisjointError",
     "BooleanEmptyError",
     "BooleanError",
@@ -182,6 +199,7 @@ __all__ = [
     "CutRemovedNothingError",
     "DraftError",
     "EdgeIndexError",
+    "EdgeMatchTier",
     "EdgeRecord",
     "FaceProvenance",
     "FaceProvenanceRecorder",
@@ -199,6 +217,7 @@ __all__ = [
     "ImportTooManyProductsError",
     "LoftError",
     "MeasureError",
+    "MeshExportNotManifoldError",
     "MirrorError",
     "MirrorUnreachableError",
     "NoAxisError",
@@ -214,10 +233,13 @@ __all__ = [
     "PatternDisjointError",
     "PatternError",
     "PatternSpacingError",
+    "PatternUnreachableError",
     "PlanarFaceRecord",
     "ProfileNotClosedError",
     "ProfileUnsupportedError",
     "ReadProduct",
+    "ResolvedEdge",
+    "ResolvedRevolveAxis",
     "ResolvedThread",
     "RevolveError",
     "ShellError",
@@ -245,6 +267,7 @@ __all__ = [
     "build_shape",
     "chamfer_body",
     "check_axis_clears_profile",
+    "check_pattern_count",
     "check_tap_drill_bore",
     "circular_pattern",
     "circular_pattern_cut",
@@ -255,12 +278,18 @@ __all__ = [
     "countersink_tool",
     "cut_counterbore",
     "cut_countersink",
+    "cut_placed_tools",
     "cut_reflected_tools",
     "draft_body",
+    "durable_edge_match",
     "edge_signature_dto",
     "enumerate_edges",
     "evaluate_export",
     "evaluate_tessellation",
+    "export_3mf_assembly_bytes",
+    "export_3mf_bytes",
+    "export_glb_assembly_bytes",
+    "export_glb_bytes",
     "export_solid",
     "export_step_assembly_bytes",
     "export_step_bytes",
@@ -270,6 +299,7 @@ __all__ = [
     "fillet_body",
     "find_zero_width_slits",
     "format_designation",
+    "fuse_placed_tools",
     "fuse_reflected_tools",
     "glb_stats",
     "import_step_solid",
@@ -292,9 +322,11 @@ __all__ = [
     "removal_reaches_body",
     "resolve_axis_line",
     "resolve_edge",
+    "resolve_edge_durable",
     "resolve_face_plane",
     "resolve_faces",
     "resolve_iso_metric_thread",
+    "resolve_revolve_axis",
     "revolve_face",
     "select_edges",
     "selection_overlay",
@@ -350,20 +382,34 @@ def export_solid(
     parametric-shape export path (:func:`evaluate_export`) and the
     evaluated-feature-tree export path (``geometry.api.export_tree``) both go
     through here, so a filleted part and a primitive box export identically.
-    STEP ignores the deflection arguments (exact B-rep); STL uses both.
+    STEP ignores the deflection arguments (exact B-rep); STL and 3MF use both;
+    GLB uses the linear one and the service-wide angular setting, because it IS
+    the viewport's mesh (:func:`~geometry.kernel.export.export_glb_bytes`).
     Deterministic (RESEARCH §9; :mod:`geometry.kernel.export` pins the STEP
-    timestamp).
+    timestamp and the 3MF UUIDs).
 
-    *name* is the document name the STEP PRODUCT carries (audit N4 — a file
-    named after a UUID containing ``PRODUCT('SOLID')`` tells a vendor nothing).
-    ``None`` keeps OCCT's default, so the parametric-shape path and every
-    existing caller are byte-identical to before. STL carries no product names.
+    **The formats do not share a unit** — STEP/STL/3MF are millimetres, GLB is
+    metres per the glTF spec. ``py_kit.schemas.geometry.EXPORT_UNITS`` is the
+    single place that records it and the export gate asserts every format's
+    round-tripped extents against it.
+
+    *name* is the document name the STEP PRODUCT / 3MF objects carry (audit N4 —
+    a file named after a UUID containing ``PRODUCT('SOLID')`` tells a vendor
+    nothing). ``None`` keeps the writer default, so the parametric-shape path
+    and every existing caller are byte-identical to before. STL and GLB carry no
+    names.
     """
     match fmt:
         case "step":
             return export_step_bytes(shape, name=name)
         case "stl":
             return export_stl_bytes(shape, linear_deflection, angular_deflection)
+        case "3mf":
+            return export_3mf_bytes(
+                shape, linear_deflection, angular_deflection, name=name
+            )
+        case "glb":
+            return export_glb_bytes(shape, linear_deflection)
 
 
 def evaluate_export(request: ExportRequest) -> bytes:

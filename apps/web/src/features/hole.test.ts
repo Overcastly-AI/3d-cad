@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { HoleParams, PlanarFaceSignature, Vec3 } from "../api/parts";
 import {
+  applyHoleCoordinate,
   applyHoleFace,
   applyHolePosition,
   buildHoleParams,
@@ -44,6 +45,19 @@ const withFace = (): HoleForm =>
     "mm",
   );
 
+/** A stored Ø6 through-all hole drilled at `position` off `anchorId`'s body. */
+const holeParamsAt = (position: Vec3, anchorId: string): HoleParams => ({
+  face: {
+    kind: "subshape",
+    feature_id: anchorId,
+    subshape_type: "face",
+    selector: { selector_version: 1, signature: TOP },
+  },
+  position,
+  diameter_mm: 6,
+  depth: { kind: "through_all" },
+});
+
 describe("defaultHoleForm", () => {
   it("is a Ø6 through-all SIMPLE hole with nothing picked yet", () => {
     const f = defaultHoleForm(null, "mm");
@@ -60,6 +74,100 @@ describe("applyHoleFace", () => {
     const f = withFace();
     expect(f.face?.anchorId).toBe("extrude-1");
     expect(f.position).toEqual(TOP.centroid);
+  });
+
+  // T-22: `Re-pick face` on a failed hole must change the ANCHOR and nothing
+  // else. It used to re-seed the position to the face centroid, so a hole
+  // authored at -23.5, -23.5 came back 0, 0 with no way to recover the values.
+  it("RE-ANCHORS an authored placement instead of re-seeding it", () => {
+    const authored = formFromHoleParams(
+      holeParamsAt({ x: -23.5, y: -23.5, z: 10 }, "extrude-1"),
+      "mm",
+    );
+    expect(authored.xInput).toBe("-23.5");
+    expect(authored.yInput).toBe("-23.5");
+
+    const repicked = applyHoleFace(
+      authored,
+      { signature: TOP, anchorId: "fillet-2" },
+      "mm",
+    );
+
+    expect(repicked.face?.anchorId).toBe("fillet-2");
+    expect(repicked.xInput).toBe("-23.5");
+    expect(repicked.yInput).toBe("-23.5");
+    expect(repicked.position).toEqual({ x: -23.5, y: -23.5, z: 10 });
+    // The whole feature payload survives: the write built from the re-picked
+    // form differs from the stored one ONLY in the anchor.
+    const before = buildHoleParams(authored, "mm");
+    const after = buildHoleParams(repicked, "mm");
+    expect(after).toEqual({
+      ...before,
+      face: { ...before?.face, feature_id: "fillet-2" },
+    });
+  });
+
+  it("re-anchors onto a face that MOVED, keeping the in-face coordinates", () => {
+    const authored = formFromHoleParams(
+      holeParamsAt({ x: -23.5, y: -23.5, z: 10 }, "extrude-1"),
+      "mm",
+    );
+    // The same top face after an 8 -> 12 depth change: same normal, new height.
+    const raised: PlanarFaceSignature = {
+      ...TOP,
+      centroid: { x: 5, y: 5, z: 14 },
+    };
+    const repicked = applyHoleFace(
+      authored,
+      { signature: raised, anchorId: "extrude-1" },
+      "mm",
+    );
+    expect(repicked.xInput).toBe("-23.5");
+    expect(repicked.yInput).toBe("-23.5");
+    expect(repicked.position).toEqual({ x: -23.5, y: -23.5, z: 14 });
+  });
+
+  it("still seeds to the centroid when the placement is only a seed", () => {
+    // Authoring: pick face A (seeded), then change your mind and pick face B.
+    // Nothing was typed, so B's centre is the friendlier answer.
+    const seeded = withFace();
+    const other: PlanarFaceSignature = {
+      ...TOP,
+      centroid: { x: -2, y: 7, z: 10 },
+    };
+    const changed = applyHoleFace(
+      seeded,
+      { signature: other, anchorId: "extrude-1" },
+      "mm",
+    );
+    expect(changed.position).toEqual(other.centroid);
+  });
+
+  it("keeps a TYPED placement across a face change", () => {
+    const typed = applyHoleCoordinate(
+      applyHoleCoordinate(withFace(), "x", "12", "mm"),
+      "y",
+      "-4",
+      "mm",
+    );
+    const changed = applyHoleFace(
+      typed,
+      { signature: TOP, anchorId: "extrude-9" },
+      "mm",
+    );
+    expect(changed.xInput).toBe("12");
+    expect(changed.yInput).toBe("-4");
+    expect(changed.face?.anchorId).toBe("extrude-9");
+  });
+
+  it("keeps a POINT-PICKED placement across a face re-pick", () => {
+    const picked = applyHolePosition(withFace(), { x: 2, y: 3, z: 10 }, "mm");
+    const changed = applyHoleFace(
+      picked,
+      { signature: TOP, anchorId: "extrude-9" },
+      "mm",
+    );
+    expect(changed.position).toEqual({ x: 2, y: 3, z: 10 });
   });
 });
 

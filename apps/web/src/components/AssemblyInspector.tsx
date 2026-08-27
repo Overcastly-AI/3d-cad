@@ -24,19 +24,35 @@ import {
 } from "@loft/design";
 
 import type {
-  AssemblyStatus,
   EvaluateAssemblyResult,
   InstanceResponse,
 } from "../api/assemblies";
 import { assemblyMassState, combinedEyebrow } from "../assembly/mass";
 import { assemblyReadout } from "../assembly/readout";
+import {
+  assemblySolveLabel,
+  assemblySolveTone,
+  type AssemblySolve,
+} from "../features/assemblySolve";
 import { missingMaterialNotice } from "../features/materials";
 import { formatCount, formatVec3 } from "../lib/format";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 
 export interface AssemblyInspectorProps {
   evaluation: EvaluateAssemblyResult | undefined;
-  evaluating: boolean;
+  /**
+   * WHAT MAY BE CLAIMED about the evaluation above — one derived object, not a
+   * `status` beside an `evaluating` boolean.
+   *
+   * The two used to be separate and they disagreed for the length of every
+   * write: `evaluating` was the evaluate query's own `isFetching`, which is
+   * FALSE for most of a rebuild (the part-docs key moves first, disabling the
+   * query), so the status cell read the retained previous solve as a settled
+   * verdict while the viewport still drew the previous pose. Taking the whole
+   * `AssemblySolve` means this panel cannot render a verdict that does not
+   * exist — `deriveAssemblySolve` nulls it while stale.
+   */
+  solve: AssemblySolve;
   /**
    * The graph's instances — the NAMES behind the roll-up's instance ids. An
    * absent list only costs the notice its names, never its honesty.
@@ -44,29 +60,18 @@ export interface AssemblyInspectorProps {
   instances?: readonly InstanceResponse[];
 }
 
-const STATUS_LABEL: Record<AssemblyStatus, string> = {
-  well_constrained: "Well constrained",
-  under_constrained: "Under constrained",
-  over_constrained: "Over constrained",
-  conflicting: "Conflicting",
-  not_converged: "Not converged",
-};
-
-/** A sick solve reads flag; a healthy or merely-under one stays quiet. */
-function statusTone(status: AssemblyStatus): string {
-  return status === "well_constrained" || status === "under_constrained"
-    ? "text-mist"
-    : "text-flag";
-}
-
 export function AssemblyInspector({
   evaluation,
-  evaluating,
+  solve,
   instances = [],
 }: AssemblyInspectorProps) {
   const em = "—";
-  const diagnosis = evaluation?.diagnosis ?? null;
-  const status = evaluation?.status ?? null;
+  // Both cells read the SAME derivation. Reading `evaluation.diagnosis`
+  // directly here is what let FREE DOF keep reporting the previous solve's 6
+  // under a status cell that had already moved on — the two-cells-disagreeing
+  // half of QA-R4, at this address.
+  const diagnosis = solve.diagnosis;
+  const status = solve.status;
   // Combined-mass / bbox readouts honor the document unit (FINDINGS burn-down
   // 2026-07-25 #7) — the same display-boundary conversion the part inspector
   // does, so an inch assembly and its inch parts speak one convention.
@@ -96,13 +101,14 @@ export function AssemblyInspector({
               Status
             </span>
             <span
-              className={`font-display text-sm uppercase tracking-[0.12em] text-right grow ${
-                status ? statusTone(status) : "text-gauge"
-              }`}
+              className={`font-display text-sm uppercase tracking-[0.12em] text-right grow ${assemblySolveTone(
+                solve,
+              )}`}
               data-testid="assembly-solve-status"
+              data-solve-stale={solve.stale ? "true" : "false"}
               aria-live="polite"
             >
-              {evaluating ? "Solving…" : status ? STATUS_LABEL[status] : em}
+              {assemblySolveLabel(solve)}
             </span>
           </div>
           <PanelRow label="Free DOF" data-testid="assembly-dof">

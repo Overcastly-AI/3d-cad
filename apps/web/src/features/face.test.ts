@@ -10,6 +10,7 @@ import type {
   PlanarFaceSignature,
 } from "../api/parts";
 import {
+  anchorBodyFeatureId,
   BODY_AFFECTING_FEATURE_TYPES,
   faceLabel,
   faceOrdinalOfSignature,
@@ -160,6 +161,67 @@ describe("lastBodyFeatureId", () => {
 
   // "recognises every body-affecting op" moved into the drift-guard block
   // below, where the list comes from py-kit instead of a hand-copy.
+});
+
+describe("anchorBodyFeatureId — PICK-1 (M16)", () => {
+  /** extrude · fillet · extrude — the fillet's anchor is NEVER the tip. */
+  const MID_TREE = [
+    typed("s1", "sketch"),
+    typed("e1", "extrude"),
+    typed("f1", "fillet"),
+    typed("s2", "sketch"),
+    typed("e2", "extrude"),
+  ];
+
+  it("creating (no feature under edit) anchors on the tip", () => {
+    expect(anchorBodyFeatureId(MID_TREE, null)).toBe("e2");
+    expect(anchorBodyFeatureId(MID_TREE, null)).toBe(
+      lastBodyFeatureId(MID_TREE),
+    );
+  });
+
+  it("editing a MID-TREE feature anchors on the body BEFORE it, not the tip", () => {
+    // The whole defect: "e2" is the tip and is LATER than "f1", so documents
+    // rejects it with `reference_not_earlier` (422) and no non-tip feature can
+    // be re-saved at all.
+    expect(anchorBodyFeatureId(MID_TREE, "f1")).toBe("e1");
+  });
+
+  it("editing the TIP never names the feature itself", () => {
+    // M10 in one line: a fillet at the tip re-stamped with `lastBodyFeatureId`
+    // references ITSELF, so its radius could never be changed. The answer walks
+    // back one body-affecting feature — here the fillet, not the extrude.
+    expect(lastBodyFeatureId(MID_TREE)).toBe("e2");
+    expect(anchorBodyFeatureId(MID_TREE, "e2")).toBe("f1");
+  });
+
+  it("skips a rolled-back feature on the earlier side too", () => {
+    const tree = [
+      typed("e1", "extrude"),
+      typed("e2", "extrude", true), // rolled back — not in the current body
+      typed("f1", "fillet"),
+    ];
+    expect(anchorBodyFeatureId(tree, "f1")).toBe("e1");
+  });
+
+  it("ignores a non-body-affecting neighbour when walking back", () => {
+    const tree = [
+      typed("e1", "extrude"),
+      typed("d1", "datum"),
+      typed("s1", "sketch"),
+      typed("h1", "hole"),
+    ];
+    expect(anchorBodyFeatureId(tree, "h1")).toBe("e1");
+  });
+
+  it("returns null when nothing body-affecting precedes the edited feature", () => {
+    const tree = [typed("s1", "sketch"), typed("e1", "extrude")];
+    expect(anchorBodyFeatureId(tree, "e1")).toBeNull();
+  });
+
+  it("falls back to the create answer for an id not in the tree", () => {
+    expect(anchorBodyFeatureId(MID_TREE, "not-in-this-tree")).toBe("e2");
+  });
 });
 
 describe("BODY_AFFECTING_FEATURE_TYPES — backend drift guard", () => {

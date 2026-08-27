@@ -6,12 +6,26 @@ cross-suite constants and assertion helpers live here as fixtures instead
 (single source of truth, CLAUDE.md DRY rule).
 """
 
+import io
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
+import ezdxf.recover
 import pytest
+from ezdxf.document import Drawing
+from geometry.drawings import evaluate_drawing_views, place_sheet
 from geometry.features.evaluate import reset_rebuild_cache
 from geometry.schemas import ShapeProperties
+from py_kit.schemas.drawings import (
+    ComposeDrawingRequest,
+    ComposedSheet,
+    SheetLayout,
+    SheetPoint,
+    SheetViewPlacement,
+    ViewScale,
+)
+from py_kit.schemas.features import EvaluateTreeRequest
 
 #: Round-trip tolerance for mass properties: the CLAUDE.md kernel linear
 #: tolerance (1e-7), NOT a fitted epsilon — the measured round-trip deviation
@@ -111,3 +125,101 @@ def assert_validation_envelope() -> Callable[[dict[str, Any]], None]:
         assert error["details"]  # pydantic locates the offending field(s)
 
     return check
+
+
+# --- DXF read-back (AUDIT-PRODUCT F-3) -------------------------------------------
+
+#: The sheet-metal golden trees the DXF fixtures compose from.
+_GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens-sheet-metal"
+
+
+@pytest.fixture(scope="session")
+def read_dxf() -> Callable[[bytes], Drawing]:
+    """Reopen serialized DXF bytes the way a CONFORMING READER would.
+
+    Every DXF assertion in this suite used to open the bytes as
+    ``ezdxf.read(io.StringIO(raw.decode("utf-8")))`` — which is not a measurement of
+    the file, it is a restatement of the serializer's own assumption. A pre-R2007 DXF
+    declares its code page in ``$DWGCODEPAGE``; ours says ``ANSI_1252`` and the bytes
+    said UTF-8, so ezdxf handed back ``'90.0Â°'`` for the bend angle (AUDIT-PRODUCT
+    F-3) and every test agreed with the defect because every test decoded the same
+    wrong way.
+
+    ``ezdxf.recover.read`` takes a BINARY stream and derives the encoding from the
+    file's OWN header, then decodes ``\\U+xxxx`` escapes. It therefore never consults
+    :data:`geometry.drawings.DXF_ENCODING`: if the bytes and the declared code page
+    disagree again, strings come back mangled here and the assertion fails. Get the
+    second opinion from a different derivation, not a louder assertion of the first.
+    """
+
+    def read(raw: bytes) -> Drawing:
+        doc, auditor = ezdxf.recover.read(io.BytesIO(raw))
+        assert not auditor.errors, f"DXF did not reopen cleanly: {auditor.errors}"
+        return doc
+
+    return read
+
+
+@pytest.fixture(scope="session")
+def dxf_texts(
+    read_dxf: Callable[[bytes], Drawing],
+) -> Callable[..., list[str]]:
+    """Every model-space TEXT string, in emitted order; optionally one layer only."""
+
+    def texts(raw: bytes, *, layer: str | None = None) -> list[str]:
+        return [
+            entity.dxf.text
+            for entity in read_dxf(raw).modelspace().query("TEXT")
+            if layer is None or entity.dxf.layer == layer
+        ]
+
+    return texts
+
+
+@pytest.fixture(scope="session")
+def compose_flat_pattern() -> Callable[..., ComposedSheet]:
+    """Compose one sheet-metal golden's ``flat_pattern`` onto an A4 sheet.
+
+    The shared builder for the DXF suites (encoding, layers, profile-only export):
+    one part, one view, scale 1:1 unless a case is deliberately varying it.
+    """
+
+    def compose(
+        stem: str,
+        title: str,
+        *,
+        numerator: int = 1,
+        denominator: int = 1,
+    ) -> ComposedSheet:
+        tree = EvaluateTreeRequest.model_validate_json(
+            (_GOLDENS_DIR / f"{stem}-flat-pattern-view" / "model.json").read_text(
+                "utf-8"
+            )
+        )
+        scale = ViewScale(numerator=numerator, denominator=denominator)
+        request = ComposeDrawingRequest(
+            part_id=tree.part_id,
+            tree_version=tree.tree_version,
+            features=tree.features,
+            views=["flat_pattern"],
+            scale=scale,
+            dimensions=[],
+            layout=SheetLayout(
+                size="A4",
+                orientation="landscape",
+                title=title,
+                views=[
+                    SheetViewPlacement(
+                        projection="flat_pattern",
+                        position=SheetPoint(x_mm=0.0, y_mm=0.0),
+                        scale=scale,
+                    )
+                ],
+            ),
+            format="dxf",
+        )
+        return place_sheet(
+            evaluate_drawing_views(request), request.dimensions, request.layout
+        )
+
+    return compose

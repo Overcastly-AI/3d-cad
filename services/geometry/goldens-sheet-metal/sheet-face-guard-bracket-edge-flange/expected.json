@@ -1,0 +1,27 @@
+{
+  "description": "SHEET-FACE GUARD regression golden (EDGEFLANGE-1 / docs/AUDIT-PRODUCT.md 'Pass 2026-08-21 (second pass today)' S-4). The audit's OWN fixture, to the millimetre: a 120 x 60 base flange at 2 mm gauge with one 25 mm 90-degree edge flange, whose fused envelope is 120 x 65 x 30 -- the exact body the audit measured. That plate carries FOUR 2 mm thickness edges, and until this commit `new-edge-flange` folded a 25 x 2 mm sliver tab off one of them and reported OK / Solved / Up to date. The kernel now REFUSES a thickness edge (build_edge_flange's _is_sheet_face guard, a typed edge_flange_bad_edge). This golden is the other half of that change: it pins that the SAME body's real sheet-face boundary edge still folds AND still flattens to the hand-derived blank, so the guard can never be tightened into a false refusal without a red gate. Build-only coverage would not have been enough -- the flatten is where this week's DXF work found the defects a correct-looking solid still hides -- so the whole *-edge-flange battery (unfold, area conservation, outline, in-process + fresh-interpreter determinism, content hash) runs over it, plus a STEP round-trip in tests/test_sheet_metal_thickness_edge_guard.py.",
+  "tangent_line_convention": "Flat length is measured to the bend TANGENT LINES (§9 #1). The base flange's developed leg is the full length of its flat top face (60 mm, from the far edge to the bend tangent line at the folded edge); the edge flange's developed leg is its own flat face length (25 mm). The bend allowance BA REPLACES the two setback segments a sharp-corner unfold would use.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill). Dims: base flange 120 x 60 mm folded off its y = 60 long edge (developed leg 60, bend width 120), edge flange developed leg 25 mm, gauge t = 2 mm, inner bend radius r = 3 mm, bend angle 90 deg = pi/2, K = 0.44 (v1 default).",
+    "Bend allowance (§1): BA = angle_rad * (r + K*t) = (pi/2) * (3 + 0.44*2) = (pi/2) * 3.88 = 6.094689747964199 mm. Measured kernel-side residual 1.07e-14 (the arc-fit inner radius carries FP noise: BRepAdaptor reports 2.9999999999999933 for the nominal-3 mm bend).",
+    "Flat length (§9 #1): flat_length = base_leg + BA + flange_leg = 60 + 6.094689747964199 + 25 = 91.0946897479642 mm. Measured kernel-side residual 0.0.",
+    "Developed area (§9 #2, neutral-surface conservation): flat_area = base_area + flange_area + BA*width = (60*120) + (25*120) + (6.094689747964199*120) = 7200 + 3000 + 731.3627697557039 = 10931.362769755704 mm^2. Equivalently flat_length * width = 91.0946897479642 * 120 (the blank is a rectangle). Measured kernel-side residual 1.82e-12.",
+    "Fold direction is inferred from the geometry (§5): the edge flange folds to the +normal side of the base flange, so direction = 'up'. Fold angle = 90 deg exactly (axis-aligned flange normals, dot 0.0).",
+    "Fused body volume (analytic) = base plate (120*60*2 = 14400) + flange (cross-section 25*2 + quarter annulus (pi/4)((r+t)^2 - r^2) = 50 + (pi/4)(25-9) = 50 + 4*pi = 62.56637061435917, * 120 width = 7507.9644737231005) = 21907.9644737231 mm^3. Measured kernel-side residual 0.0. Cross-check against the audit's own reading of the built part: the bounding box is 120 x 65 x 30 mm (65 = 60 base + r + t outer bend; 30 = 2 gauge + r + 25 leg), which is exactly what AUDIT-PRODUCT S-8 measured through the app.",
+    "content_hash is the sha256 of the provenance-driven FlatPattern.to_json_bytes(). It is a DETERMINISM PIN (byte-identity), not analytic -- reproducible in-process AND across a fresh interpreter restart (§9 #4). Version-pinned like the sibling l-bracket-edge-flange golden: the arc-fit inner radius is OCCT/build123d-version-specific FP, so an OCCT/build123d bump regenerates this hash. A change WITHOUT a kernel-version bump is a determinism regression (P0), never a retry."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill), and cross-checked against the model's own family rather than invented. Measured residuals vs the hand-derived values on this model (2026-08-24, build123d 0.11.1 / OCCT 7.9): flat_length 0.0, flat_area 1.82e-12, BA 1.07e-14 (arc-fit inner radius 2.9999999999999933). The ceiling 1e-9 mm therefore sits ~2.7 orders above the worst observed residual here, and is the SAME ceiling the sibling 90-degree golden l-bracket-edge-flange documents for the same quantities on the same kernel (its worst residual is 2.4e-12 on a 20 mm-wide blank; this blank is 120 mm wide and its residuals did not grow, which is the cross-check that the bound is a property of the closed form and not of the model size). It stays three orders tighter than the standing kernel linear tolerance (1e-7 m = 1e-4 mm), so a deviation this gate calls acceptable can never be kernel-relevant. The volume tolerance 1e-6 mm^3 is the same family ceiling and absorbs the arc-fit noise scaled by the 120 mm width; the measured residual is 0.0.",
+  "bend_allowance_mm": 6.094689747964199,
+  "flat_length_mm": 91.0946897479642,
+  "flat_area_mm2": 10931.362769755704,
+  "bend_width_mm": 120.0,
+  "bend_count": 1,
+  "bend_angle_deg": 90.0,
+  "bend_radius_mm": 3.0,
+  "bend_direction": "up",
+  "volume_mm3": 21907.9644737231,
+  "volume_tolerance": 1e-6,
+  "topology": { "faces": 10, "edges": 24, "shells": 1 },
+  "content_hash": "fa11a8c14a955fc77be52fca644d131f250aa23de972a6df6702bf9dc4195f4a"
+}

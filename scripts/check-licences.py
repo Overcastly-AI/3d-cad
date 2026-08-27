@@ -230,7 +230,19 @@ INVENTORY: dict[str, Entry] = {
         reason="zstd is BSD-3-Clause OR GPL-2.0; Loft elects BSD-3-Clause.",
     ),
     # --- plainly permissive ------------------------------------------------
-    "lib3mf": Entry("BSD-2-Clause", PERMISSIVE),
+    # Corrected 2026-08-17 (EXPORT-2). The inventory and docs/AUDIT-PRODUCT.md
+    # F-4 both said BSD-2-Clause; the wheel's own
+    # `lib3mf-2.5.0.dist-info/licenses/LICENSE` is the THREE-clause text
+    # ("BSD 3-Clause License / Copyright (c) 2024, 3MF Consortium", with the
+    # no-endorsement clause). Same permissive conclusion, wrong SPDX id — and a
+    # licence file we now ship a notice for has to name the right licence.
+    # `lib3mf.so` links only libstdc++/libm/libgcc_s/libc (readelf -d), so it
+    # vendors nothing further.
+    "lib3mf": Entry(
+        "BSD-3-Clause",
+        PERMISSIVE,
+        reason="lib3mf 2.5.0's bundled LICENSE is the 3-clause BSD text.",
+    ),
     "libHalf": Entry("BSD-3-Clause", PERMISSIVE),  # IlmBase / OpenEXR
     "libIex": Entry("BSD-3-Clause", PERMISSIVE),
     "libIlmImf": Entry("BSD-3-Clause", PERMISSIVE),

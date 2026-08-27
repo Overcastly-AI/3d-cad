@@ -30,6 +30,30 @@ import { createPartViaApi, seedSession } from "./support";
 const SOLVE_TOLERANCE_MM = 1e-3;
 
 /**
+ * How many CONSTRAINT SLOTS the PLACEMENT fills before this spec authors
+ * anything. Drawing is no longer free of constraints, and a `glyph-N` testid is
+ * an index into the constraint array, so this offset is the difference between
+ * addressing the dimension under test and addressing something the tool wrote.
+ *
+ * The founder's opening draws its rectangle FROM the origin, and two features
+ * now author at placement:
+ *   · RECT-1 — the rectangle's rigidity set: 4 corner coincidences + 2
+ *     horizontal + 2 vertical = 8;
+ *   · SNAP-3 — the coincident grounding the snapped corner to the origin, plus
+ *     the `fixed` pin `groundDatums` adds behind it = 2.
+ *
+ * Hence 10. Note the pin is deliberately GLYPH-SUPPRESSED (the user authored
+ * none of it), so its slot renders nothing: the glyph ids have a HOLE in them
+ * and a wrong offset fails with `element(s) not found`, which reads like the
+ * dimension was never authored rather than like an off-by-one.
+ */
+const PLACEMENT_SLOTS = 10;
+
+/** The n-th constraint THIS SPEC authored (see {@link PLACEMENT_SLOTS}). */
+const glyph = (page: Page, index: number) =>
+  page.getByTestId(`glyph-${index + PLACEMENT_SLOTS}`);
+
+/**
  * Wider than the measured settle window of the value cell (0.2–1.3 s of
  * main-thread work per keystroke, measured; zero network). Not a "slow test"
  * allowance — it is the separation that lets the first test blame the VERB and
@@ -310,7 +334,7 @@ test.describe("FOUNDER: a typed dimension reaches the solver", () => {
     await expect(page.getByTestId("dimension-editor")).toHaveCount(0);
 
     // "Actually ASSIGN a dimension": the label AND the geometry.
-    await expect(page.getByTestId("glyph-0")).toHaveText("60", {
+    await expect(glyph(page, 0)).toHaveText("60", {
       timeout: 15_000,
     });
     await expect
@@ -450,7 +474,7 @@ test.describe("FOUNDER: a typed dimension reaches the solver", () => {
 
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("dimension-editor")).toHaveCount(0);
-    await expect(page.getByTestId("glyph-0")).toHaveText("125", {
+    await expect(glyph(page, 0)).toHaveText("125", {
       timeout: 15_000,
     });
     await expect

@@ -1965,3 +1965,203 @@ Reproduce the tables: the "before" column needs a worktree at `9061c76`; the
 "after" column is `LOFT_SCALING_BENCH=1` plus the two instrumented scripts
 described above, and the always-on operation-count gates in
 `tests/test_provenance.py` are what stop the shape regressing without them.
+
+---
+
+## 2026-08-25 — SETTLE-PERF-1 landed: the settle had no cost model, and a dimension edit cost 13 seconds
+
+**Why this run exists.** SOLVE-1/SETTLE-2/SETTLE-3 bought the sketcher
+correctness it genuinely needed — before them 7 of 155 solvable sketches
+shipped violated constraints, a settle could reflect a rigid shape across its
+own symmetry axis, and it could sacrifice a circle's radius to keep its centre.
+What they did not buy was a cost model. The engineering audit
+(`docs/AUDIT-ENGINEERING.md` N11) measured the bill on an ordinary part: a
+48-line rectilinear outline took **12 944 ms** to answer one dimension edit —
+**1 560x** the pre-SOLVE-1 solver, for the same answer — and a 96-line one
+**196 s**, against a gateway that abandons the request at 90 s and deliberately
+does not cancel the upstream (`gateway/upstream.py:141-146`).
+
+### Machine and method
+
+| | |
+| --- | --- |
+| Machine | Linux container, **nproc = 4**; quiet window (`loadavg < 1`) |
+| Method | all three solver versions in ONE process, identical fixture objects |
+| Arms | pre-SOLVE-1 (`c02743e`) / HEAD before this fix (`cd177fe`) / this fix |
+| Samples | one untimed warmup, then **warm best-of-3** (best = least contended) |
+| Fixture | `services/geometry/tests/_sketch_outline_builder.py` |
+
+The fixture is a closed rectilinear staircase of *n* lines, every edge
+horizontal or vertical, every corner coincident, one driving width dimension
+**authored at 10 and submitted at 14** — i.e. typing a new number into an
+existing dimension, the commonest interaction in the sketcher. DOF = *n* - 1.
+
+The older arms are materialised from git into a scratchpad
+(`git show c02743e:.../planegcs_solver.py`) and imported under a different
+module name, so every arm runs against the same objects in the same interpreter
+and the working tree is never touched. Statuses and DOF are asserted equal
+across arms before any timing is reported — this is the same answer, not a
+cheaper one.
+
+### Where the cost actually was — profiled, not reasoned
+
+`cProfile` on the 48-line edit, before the fix:
+
+| | |
+| --- | --- |
+| inside planegcs's native `solve()` | **96.8 %** of wall clock |
+| all Python (DTO rebuilds, residuals, snapshots) | **~2 %** |
+
+So the audit's ranked suggestion (b) — that `_geometry_says_satisfied`
+rebuilding every DTO on every hold attempt was the `O(n^2)` driver — is
+**wrong**, and it is worth saying so plainly: it is a rounding error. The cost
+is the NUMBER of trial solves times the COST of each, and both grow:
+
+| lines | trial solves | mean ms per solve | total |
+| --- | --- | --- | --- |
+| 8 | 89 | 0.56 | 54 ms |
+| 16 | 193 | 1.58 | 320 ms |
+| 32 | 401 | 7.00 | 2 879 ms |
+
+Solves grow **linearly** (~12.5 per entity — the ladder asks one question per
+entity, per point and per coordinate) and each solve grows **quadratically**
+(planegcs iterates more, and each iteration costs more, as the system grows):
+`O(E^3)`. Splitting the trials by outcome names the real target:
+
+| at 32 lines | count | mean ms | share of total |
+| --- | --- | --- | --- |
+| trial that was ACCEPTED | 92 | 3.78 | 13 % |
+| trial that was REFUSED | 154 | 12.01 | **69 %** |
+| the re-solve that undoes a refusal | 154 | 2.72 | **16 %** |
+
+**85 % of the settle was spent discovering that a hold was impossible, and then
+undoing it.** Refusals outnumbered acceptances 5:3.
+
+### The fix — four exact savings and one bound
+
+Everything except the last is *semantics-preserving*: the same answer, fewer
+questions. Proven, not asserted — see "Did the answer change?" below.
+
+1. **A refusal restores the pre-trial parameter vector instead of re-solving for
+   one.** The un-held system's solution was already in hand; DogLeg restarting
+   from wherever the failed trial abandoned the parameters is not obliged to
+   return to it. Exact where the re-solve was merely close. (16 %.)
+2. **A trial whose pins are already satisfied is accepted with no solve.** The
+   current parameter vector is already a solution of the augmented system. 31 %
+   of trials at 32 lines — the settle asks the same question twice by
+   construction, because a corner is authored once as `e_i.end` and again as
+   `e_{i+1}.start`.
+3. **A demand already refused is refused again for free**, keyed on the point's
+   COINCIDENCE CLASS and monotone in the axis set. Pins only accumulate, so the
+   feasible set only shrinks: what was impossible cannot become possible. This
+   is what collapses rung 1 on a closed outline from *n* solves to **one**.
+4. **`_try_hold_everything` refuses from the INPUT RESIDUAL, with no solver.**
+   Holding everything means shipping the author's geometry unchanged, so it can
+   only succeed if that geometry already satisfies every constraint — a question
+   about the DTOs. That one doomed trial was **200 ms** at 48 lines, because it
+   pins every coordinate in the sketch and is the case DogLeg grinds hardest on.
+5. **A deterministic work budget** (`SETTLE_WORK_UNITS = 43 000`): the ladder may
+   spend `SETTLE_WORK_UNITS // entities**2` trial solves, because a trial costs
+   about `entities**2`. When it runs out the ladder keeps walking and keeps
+   taking every pin that is already satisfied — it runs out of QUESTIONS, not of
+   CHECKS — so the settle degrades toward the plain solve instead of off a
+   cliff, and both final guarantees still run over whatever it kept.
+
+**Why a work budget and not the wall-clock deadline the audit proposed.** The
+settle CHOOSES GEOMETRY. A deadline would make the shipped shape a function of
+how busy the machine was — the same sketch settling further on an idle box than
+on a loaded one — which is exactly what RESEARCH §9's determinism gate forbids,
+and the golden suite would flake on it rather than fail. The budget is a
+function of the sketch alone. `test_sketch_settle_budget.py` asserts both halves.
+
+### Rejected, with the measurement — a rigidity freeze
+
+Once the free DOF are gone the system is rigid, so a pin is decidable without a
+solver: already satisfied, or impossible. Implemented with a lazily-re-measured
+`diagnose()` (DOF is monotone non-increasing, so the reading sticks), it took
+the 48-line edit from 1 942 ms to **1 231 ms** — and it **reddened R-5b**: the
+coupling's unnamed edges moved **5.12e-7 mm** against a 1e-7 bound. Cause: at a
+rigid configuration today's trial solve still runs and POLISHES a
+nearly-satisfied pin onto its target; refusing it keeps the residual. A 1.6x
+that costs five significant figures of precision is not a trade this suite
+makes. Reverted.
+
+### Before / after — the audit's own table, re-measured
+
+Warm best-of-3, all three arms in one process, statuses and DOF identical
+throughout (`underconstrained`, DOF = *n* - 1):
+
+| lines | pre-SOLVE-1 | HEAD before | after | vs HEAD |
+| --- | --- | --- | --- | --- |
+| 8 | 0.6 ms | 54.7 ms | **15.5 ms** | 4x |
+| 16 | 1.1 ms | 379.8 ms | **63.2 ms** | 6x |
+| 32 | 4.1 ms | 2 755.7 ms | **334.8 ms** | 8x |
+| 48 | 7.1 ms | 10 315.8 ms | **533.9 ms** | **19x** |
+| 72 | 17.0 ms | 44 154.1 ms | **473.6 ms** | **93x** |
+| 96 | 36.2 ms | 196 223.3 ms | **222.3 ms** | **883x** |
+
+The cost is now BOUNDED — 220-540 ms across 32..96 lines rather than growing
+cubically — which is the property that matters, because it is what makes the
+route stop being a resource-exhaustion path. The audit's DoS case (a 96-line
+edit, repeatable by any authenticated user, 196 s of CPU per abandoned request
+against a single-worker service) costs **0.22 s**.
+
+The already-solved fixture — every tree rebuild that is not reacting to an edit,
+i.e. most solves — got faster too, because saving 2 turns rung 0 into a decision
+rather than a solve:
+
+| lines | pre-SOLVE-1 | HEAD before | after |
+| --- | --- | --- | --- |
+| 8 | 0.53 ms | 1.31 ms | **1.18 ms** |
+| 32 | 5.02 ms | 8.79 ms | **6.67 ms** |
+| 48 | 9.46 ms | 20.34 ms | **9.12 ms** |
+| 96 | 37.67 ms | 127.10 ms | **40.02 ms** |
+
+### Did the answer change?
+
+Pre-fix HEAD and the fix, same process, same fixtures, compared coordinate by
+coordinate over 24 sketches (4/6/8/12/16/20/24/32 lines x undimensioned /
+edited / retyped): **bitwise identical at every size up to 24 lines**, including
+every edited case. At 32 lines and beyond the budget bites and placement
+differs — by design, and it is *placement* only: the shape distortion is
+identical to the unbudgeted ladder's at every size measured (exactly one edge
+gives way, at 16/24/32/48/72/96 lines), because the free-acceptance path takes
+the shape holds without a solver. `test_sketch_settle_budget.py` gates that.
+
+All 207 tests of the SOLVE-1 / SETTLE-2 / SETTLE-3 suites
+(`test_sketch_free_dof_hold.py`, `test_sketch_settle_orientation.py`,
+`test_sketch_settle_sacrifice.py`, `test_sketch_solver.py`,
+`test_sketch_residual_agreement.py`, `test_sketch_edit.py`,
+`test_sketch_spline.py`, `test_sketch_expression.py`) are green.
+
+### The gate, so this cannot come back quietly
+
+The reason 13 seconds went unnoticed is in the corpus: every sketch the solver
+suite owns tops out at **12 entities**, which is smaller than any profile a
+working engineer draws. `test_benchmarks.py` gains a `sketch_solve` group at
+**48 and 96 lines**, both fixtures, all four ceilinged
+(`CEILING_SKETCH_SETTLE_MS = 3000` for the edits, `CEILING_LIGHT_MS` for the
+rebuilds). Mutation check, run by restoring the pre-fix solver over the tree:
+the two **edited** rows go red (`outline-96-dimension-edit`: 166 319 ms against
+a 3 000 ms ceiling) and the two already-solved rows stay green — the gate fails
+for the reason it was written, and only for that reason.
+
+Reproduce:
+
+```bash
+uv run pytest services/geometry/tests/test_benchmarks.py -k sketch_solve
+uv run pytest services/geometry/tests/test_sketch_settle_budget.py
+```
+
+### Still open
+
+The remaining cost is the trial solves themselves, and the ladder needs `Theta(E)`
+of them: identifying which of *E* holds are feasible, when the answer is neither
+all nor almost-none, takes `Omega(E)` queries of a solve-oracle. Bisection was
+considered and does not apply — on an edited outline **refusals dominate**
+(154 of 246 at 32 lines), and block-testing is only cheap when acceptances do.
+Going materially below ~200 ms at 96 lines therefore needs a cheaper ORACLE
+(a per-parameter "is this still free?" test — FreeCAD's GCS computes dependent
+parameters, but the planegcs binding does not expose them: `DiagnosisResult`
+carries only `dof`, `conflicting`, `redundant`, `partially_redundant`), or a
+policy that does not need one. Both are design-doc work, not a patch.

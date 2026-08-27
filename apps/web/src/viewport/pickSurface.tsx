@@ -21,12 +21,17 @@
  * conversion five more times. One implementation, not six.
  */
 import { useCallback, useMemo, type RefObject } from "react";
+import { DoubleSide, FrontSide } from "three";
 import type { BufferGeometry, Intersection, Mesh, Raycaster } from "three";
 import type { ThreeEvent } from "@react-three/fiber";
 
 import { faceOrdinalOfTriangle } from "./glbGeometry";
 import { NO_HIDDEN_FACES, usePartViewStore } from "./partView";
-import { drawnSurfaceRaycast, hiddenTriangleTest } from "./pickRaycast";
+import {
+  drawnSurfaceRaycast,
+  faceColumnRaycast,
+  hiddenTriangleTest,
+} from "./pickRaycast";
 
 export interface PickSurfaceTarget {
   /** The raycast geometry, or null when there is nothing to hit. */
@@ -60,6 +65,7 @@ export interface PickSurfaceTarget {
 export function usePickSurfaceTarget(
   geometry?: BufferGeometry | null,
   hiddenFaces?: ReadonlySet<number>,
+  column = false,
 ): PickSurfaceTarget {
   const partGeometry = usePartViewStore((state) => state.pickGeometry);
   const partHiddenFaces = usePartViewStore((state) => state.pickHiddenFaces);
@@ -78,8 +84,11 @@ export function usePickSurfaceTarget(
   );
 
   const raycast = useMemo(
-    () => drawnSurfaceRaycast(hiddenTriangleTest(target, hidden)),
-    [target, hidden],
+    () =>
+      column
+        ? faceColumnRaycast(hiddenTriangleTest(target, hidden), ordinalAt)
+        : drawnSurfaceRaycast(hiddenTriangleTest(target, hidden)),
+    [target, hidden, column, ordinalAt],
   );
 
   return useMemo(
@@ -106,6 +115,22 @@ export interface PickSurfaceProps {
   hiddenFaces?: ReadonlySet<number>;
   /** The mesh itself, for callers that must identify its hit among others. */
   meshRef?: RefObject<Mesh | null>;
+  /**
+   * REPORT THE WHOLE COLUMN the ray pierces, not just the face in front
+   * (MATE-1). The raycast becomes {@link faceColumnRaycast} and the material
+   * turns `DoubleSide`, so a body's far wall — where a seated part's contact
+   * face lives — is tested at all. Off everywhere but mate authoring: the
+   * sketch-plane, fillet, shell and hole picks all want "what is in front",
+   * and a column there would offer faces the modeller cannot see.
+   */
+  column?: boolean;
+  /**
+   * Names this surface's subject in the event stream (`userData.pickId`), so a
+   * consumer reading `event.intersections` can say WHICH instance each hit
+   * belongs to. Only the column consumer needs it; a scene with one pick
+   * surface already knows.
+   */
+  pickId?: string;
   /** Pointer moved over the surface — the resolved B-rep face ordinal. */
   onMove: (ordinal: number | null, event: ThreeEvent<PointerEvent>) => void;
   /** Pointer left the surface entirely. */
@@ -118,6 +143,8 @@ export function PickSurface({
   geometry,
   hiddenFaces,
   meshRef,
+  column = false,
+  pickId,
   onMove,
   onOut,
   onClick,
@@ -126,7 +153,13 @@ export function PickSurface({
     geometry: target,
     ordinalAt,
     raycast,
-  } = usePickSurfaceTarget(geometry, hiddenFaces);
+  } = usePickSurfaceTarget(geometry, hiddenFaces, column);
+
+  /** Stable identity, so r3f is not re-applying `userData` every render. */
+  const userData = useMemo(
+    () => (pickId === undefined ? undefined : { pickId }),
+    [pickId],
+  );
 
   /**
    * The struck triangle → its B-rep face ordinal, or null when the mesh carries
@@ -175,12 +208,25 @@ export function PickSurface({
       ref={meshRef}
       geometry={target}
       raycast={raycast}
+      userData={userData}
       onPointerMove={handleMove}
       onPointerOut={onOut}
       onClick={onClick === undefined ? undefined : handleClick}
       renderOrder={-1}
     >
-      <meshBasicMaterial colorWrite={false} depthWrite={false} />
+      {/*
+        `DoubleSide` in column mode is what makes a BURIED face testable at all
+        — three's `checkIntersection` consults `material.side`, so a body's far
+        wall is skipped under the default `FrontSide`. It cannot change which
+        face is NEAREST (on a closed body the near wall is struck first), and
+        the material still writes no colour and no depth, so nothing about the
+        picture moves either.
+      */}
+      <meshBasicMaterial
+        colorWrite={false}
+        depthWrite={false}
+        side={column ? DoubleSide : FrontSide}
+      />
     </mesh>
   );
 }

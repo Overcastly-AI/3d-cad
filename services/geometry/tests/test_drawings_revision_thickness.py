@@ -25,12 +25,12 @@ What must hold afterwards, and why each half is a separate gate:
 
 from __future__ import annotations
 
-import io
 import math
+from collections.abc import Callable
 from typing import Any
 
-import ezdxf
 import pytest
+from ezdxf.document import Drawing
 from fastapi.testclient import TestClient
 from geometry.drawings import evaluate_drawing_views, place_sheet
 from geometry.drawings.compose import STANDARD_VIEWS
@@ -289,16 +289,15 @@ def test_the_thickness_dimension_the_revision_DID_change_follows_it() -> None:
 
 
 @pytest.mark.parametrize("fmt", ["svg", "pdf", "dxf"])
-def test_the_revised_print_carries_BOTH_numbers_in_the_exported_bytes(fmt: str) -> None:
+def test_the_revised_print_carries_BOTH_numbers_in_the_exported_bytes(
+    fmt: str, read_dxf: Callable[[bytes], Drawing]
+) -> None:
     """A value that re-measures into a sheet nobody exports is not a fixed print, so
     the gate reads the ARTIFACT: both dimensions are stamped in the exported file, and
     no failure caption is."""
     payload = _artifact(_request(thickness=_REVISED_THICK, fmt=fmt))
     if fmt == "dxf":
-        doc = ezdxf.read(  # pyright: ignore[reportPrivateImportUsage]
-            io.StringIO(payload.decode("utf-8"))
-        )
-        assert not doc.audit().errors
+        doc = read_dxf(payload)
         texts = {e.dxf.text for e in doc.modelspace() if e.dxftype() == "TEXT"}
         assert "Ø10.000" in texts
         assert "16.000" in texts

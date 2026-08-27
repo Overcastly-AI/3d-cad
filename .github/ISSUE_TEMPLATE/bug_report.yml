@@ -36,7 +36,7 @@ body:
       label: How are you running the stack?
       options:
         - Bare-metal dev (uvicorn services + `pnpm --filter @loft/web dev`)
-        - Docker Compose (`just dev` / `docker compose up`) — note this path is not yet runtime-verified upstream
+        - Docker Compose (`just dev` / `docker compose up`)
         - Other (describe below)
     validations:
       required: true

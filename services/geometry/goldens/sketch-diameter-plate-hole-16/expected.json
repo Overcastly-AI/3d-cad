@@ -1,0 +1,28 @@
+{
+  "description": "FIRST DIAMETER-DIMENSION GOLDEN (SKETCH-VOCAB-1): a 40 x 25 x 10 mm plate with one central hole whose size is stated the way every drawing and every fastener table states it — a DIAMETER callout, not a radius. The circle is drawn at r = 5 and a single `diameter` dimension of 16 drives it to r = 8, so the constraint is load-bearing and the golden fails if it is a no-op. It also fails, unmissably, on the factor of two that is this constraint's whole risk: a diameter wired straight onto the radius parameter gives r = 16, a volume of 1957.5 mm^3 against 7989.4, and a hole that spills past the plate's 25 mm height. Locks the constraint through the real evaluate-tree path: planegcs `set_circle_diameter` -> solved profile (outer loop + inner hole loop) -> face -> prism -> GProp -> tessellation.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
+    "solved profile: the four outline lines carry no constraints and start at their analytic positions, so they come back bitwise. The hole's centre is fixed at (20, 12.5) and its diameter dimension of 16 drives the radius to 16/2 = 8 exactly.",
+    "volume = (40*25 - pi*8^2) * 10 = (1000 - 201.06192982974676) * 10 = 7989.380701702532 mm^3",
+    "surface_area = 2*(1000 - pi*8^2)  [top + bottom faces, each pierced by the hole]  + 2*(40+25)*10  [four outer side walls]  + 2*pi*8*10  [the cylindrical hole wall]  = 1597.8761403405064 + 1300 + 502.6548245743669 = 3400.5309649148735 mm^2",
+    "centroid = (20, 12.5, 5) mm: the hole is at the plate's centre, so removing it preserves the full-plate centroid; extrude 'normal' on XY is +Z, z spans [0,10]",
+    "bounding_box = [0,0,0]..[40,25,10]: the hole is interior at r = 8 (it would reach y = 4.5..20.5, clear of both edges), so the AABB is the un-holed plate's box — and a hole driven to r = 16 would NOT be, which is a second, independent way this golden catches that error",
+    "topology: 7 faces (top + bottom plate faces, 4 outer side walls, 1 cylindrical hole wall), 15 edges (top boundary = 4 rect edges + 1 hole circle = 5; bottom = 5; 4 vertical box corner edges; 1 vertical seam edge on the periodic hole cylinder), 1 shell. A plate face bounded by an outer loop plus one inner hole loop is still ONE face.",
+    "mesh (linear 0.1 mm / angular 0.1 rad, isRelative=False): the hole circle discretizes to 2*ceil(2*pi/0.1) = 126 segments — a function of the ANGULAR deflection alone, so the same count the two-hole plate golden derives at r = 5. The periodic hole cylinder = (126+1)*2 = 254 nodes, 126*2 = 252 triangles. Each plate cap has a rectangular outer loop (4 nodes) + one 126-gon hole = 130 boundary nodes, triangulated with one hole to 130 - 2 + 2*1 = 130 triangles (no interior node); two caps = 260 nodes / 260 triangles. Four rectangular side walls = 4 * (4 nodes, 2 tris) = 16 nodes / 8 triangles. Totals = 254 + 260 + 16 = 530 vertices and 252 + 260 + 8 = 520 triangles (per-face faceted normals, no vertex sharing across faces).",
+    "no material is assigned, so mass and centre of mass must be reported ABSENT (null) — never 0 g (docs/design/materials.md 6)",
+    "GLB byte size is deliberately NOT pinned: asserted deterministic (byte-identical) by the runner within one kernel version, but the absolute size carries no geometric meaning."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "MEASURED first, then set (geometry-gates skill: never copy a bound blindly). Unlike the angle golden, whose apex position is the OUTPUT of a numeric solve and therefore carries the solver's error, a diameter constraint lands a single scalar parameter on an exact value: planegcs solves r = 16/2 to the ulp, so the residual error here is the kernel's, not the solver's. Measured deviations vs the analytic values (2026-08-26, planegcs 0.8.0 / build123d 0.11.1 / OCCT 7.9): volume 2.0e-12 mm^3, surface_area 6.4e-13 mm^2, centroid <= 1.8e-15 mm, AABB exactly 0.0 on all six bounds. The documented ceiling 1e-9 is ~500x the observed worst case — the same posture and the same number as the sketch-extrude and two-hole plate goldens, whose wire->face->prism path this one shares — while staying 1e5 x TIGHTER than the standing kernel linear tolerance (1e-7 m = 1e-4 mm). Loosening it is never a fix for a red run: it is a reviewed kernel-level decision recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 7989.380701702532,
+    "surface_area": 3400.5309649148735,
+    "centroid": { "x": 20.0, "y": 12.5, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 7, "edges": 15, "shells": 1 },
+  "mesh": { "vertices": 530, "triangles": 520 }
+}

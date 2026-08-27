@@ -59,12 +59,144 @@ corners; solutions are **bitwise deterministic** across runs and fresh solver
 instances (RESEARCH §9 gate), and — fully constrained — insensitive to a
 displaced starting guess. Diagnosis is first-class: remaining DOF count,
 conflicting and redundant constraints reported as indices into the input
-constraint list (planegcs constraint tags mapped back). Underconstrained
-sketches still solve and stay **near the input positions** (the entity
-positions are the starting guess) — deterministic, but guess-*dependent* by
-design; only fully-constrained sketches are guess-independent. No iteration
-count is exposed; the default DogLeg algorithm is used with no random
-restarts.
+constraint list (planegcs constraint tags mapped back). No iteration count is
+exposed; the default DogLeg algorithm is used with no random restarts.
+
+**An UNDER-CONSTRAINED solve HOLDS the input geometry — the free degrees of
+freedom belong to the author, not to the optimiser** (SOLVE-1, 2026-08-22;
+supersedes this section's earlier "stays *near* the input positions, guess-
+dependent by design"). "Near" was the defect, not a caveat. DogLeg started from
+the current positions is not the same thing as leaving the free DOF alone: it
+walks a trajectory, so a dimension edit that merely adds slack spends it moving
+geometry the edit never named, and the answer becomes a function of solve
+HISTORY rather than of the constraint set. Measured on the product audit's
+flanged-coupling profile (`docs/AUDIT-PRODUCT.md` R-5/R-5b/R-5c — six consistent
+driving dims, DOF 6): editing one dimension `8 -> 12` slid the whole profile to
+`y[-3.0795, 30]` (a solid 3.08 mm below its own origin plane), and typing `8`
+back landed **2.162 mm** from where it started, leaving a flange at Ø69.81 under
+dimensions that still read Ø70. So `PlanegcsSketchSolver` **settles**: after an
+under-constrained, non-conflicting solve converges, every input coordinate and
+circle radius the constraints still admit is pinned back to the author's value
+and the system re-solved, keeping a hold only when the re-solve converges AND
+every caller constraint stays within `SATISFIED_TOL_MM` (1e-7). The same edit
+then moves exactly one corner and the retype returns to **6.4e-14 mm**.
+Determinism is unaffected: the passes run in input entity order, and the whole
+sequence is asserted bitwise (§9). Fully-constrained sketches are untouched
+(nothing is free) and remain guess-independent.
+
+**A settle must REFINE the plain solve, never re-orient it** (SETTLE-2,
+2026-08-22; corrects SOLVE-1's claim above that a satisfied-constraint check
+alone means settling "can never return worse geometry than the plain solve" — it
+does not). A sketch with free DOF generally has several disconnected branches of
+solution, and every one satisfies every constraint exactly, so a settle that
+lands on a different branch passes a residual check with a clean conscience.
+Measured on the SKETCH-2 datum walk (`sketch-datum-flow.spec.ts`) — a rigid
+rectangle at y ∈ [8, 24] made symmetric about the X axis: the plain solve
+translates it to y ∈ [-8, 8], and settling instead REFLECTED it, holding the two
+bottom corners at their submitted y and sending the top pair past them. Same
+rectangle in space, opposite traversal — which flips the face normals every
+downstream feature is built on and makes a stored reference to "the top edge"
+resolve to the bottom one (§9, topological naming). The guard is one dot product
+per entity over the finished settle: if any line or arc runs backwards relative
+to the plain solve, the plain solve is returned instead. Two things it is
+deliberately NOT, both built and measured first: (a) **not a distance
+threshold** — no displacement statistic separates the reflection from the R-5b
+correction it must keep (sum of squares, worst point, points moved and sum of
+displacements all rank the two fixtures the same way, because a least-squares
+solve is already near the minimum-norm correction while what SOLVE-1 wants is
+the SPARSE correction, and a reflection is sparse too); and (b) **not per-hold**
+— refusing only the reflecting holds leaves the ones pinning the top corners at
+y = 24 and symmetry then drives the bottom pair to -24, a rectangle stretched
+from 16 mm to 48 mm. Holding a SUBSET of a rigid body's points distorts the
+body, so the choice is all of them or none.
+
+**Every CONSTRAINT is verified against the geometry before the payload ships.**
+A converged optimiser is not evidence that the constraints hold — the same
+posture the assembly solver already took with its `SATISFIED_TOL`. A solve whose
+geometry violates a constraint is reclassified as the `conflicting` it is,
+returns the input entities untouched, and reaches the caller through the one
+existing typed `SketchConstraintDiagnosis` (`sketch_conflicting`, offending
+indices, `suggested_fix`) rather than a second diagnosis written for value
+edits. The invariant: **nothing in a payload disagrees with the entities shipped
+beside it by more than `SATISFIED_TOL_MM`** — reporting the request unchecked is
+how the service came to claim a 12 mm dimension on an 8 mm line with nothing in
+the payload contradicting it.
+
+This began (SOLVE-1) as a check on DRIVING DIMENSIONS only, and **the narrowness
+was the defect, not the reasoning** (SETTLE-3, 2026-08-22): a relational
+constraint is no less load-bearing for having no readout. planegcs's own verdict
+does not close the gap, which is the finding that forced the widening — on a
+sketch carrying both `parallel` and `perpendicular` between the same two lines,
+flatly unsatisfiable, `diagnose()` returns `conflicting=[]` and `solve()` returns
+`SolveStatus.Success`, and the service shipped `underconstrained` with the two
+lines 67° apart. Found by a randomised sweep over 400 generated sketches; **7 of
+the 155 solvable ones shipped a violated constraint the same way.** The solver's
+STATUS is a self-report exactly as its residual is, and neither is evidence.
+
+**The settle's safety net has a SECOND, independently-derived opinion**
+(SETTLE-3). `_constraints_satisfied` was the only thing between a settle and
+wrong geometry and it asked one witness — planegcs's `constraint_error(tag)`,
+read off the parameter array the solver had just produced — while accepting
+`SolveStatus.Converged`, which in FreeCAD's DogLeg means the iteration STOPPED
+rather than that it found a root. It is also scoped to the CALLER's tags, which
+correctly excludes planegcs's internal arc rules (tag `0`, error `nan`) and
+thereby leaves *nothing at all* asking whether the arc about to be shipped is
+still an arc: `read_back` reads an arc's `start`/`end` points, which are solver
+parameters distinct from its `center`/`radius` and tied to them only by those
+unasked rules. `geometry.sketch.residual` re-derives every residual from the DTO
+entities, and both opinions must hold. It is deliberately never the STRICTER
+witness: both are required, so an over-strict residual does not catch more, it
+silently refuses correct settles and reverts the product to its pre-SOLVE-1
+behaviour with every gate green. Two bugs of exactly that shape were caught
+before shipping by comparing the two AWAY from a solution — comparing them after
+a converged solve compares `0.0` against `0.0` and proves nothing.
+
+**A settle sacrifices the COARSEST hold the constraints still admit, entity by
+entity** (SETTLE-3; supersedes the separate radius pass SOLVE-1 shipped). When
+the author's values cannot all be kept, something must give, and a pass ORDER is
+not a policy. Measured on `constraints.spec.ts`'s tangent case — an r10 circle at
+the origin, a vertical line 20 mm away, made tangent: radii pinned LAST grew the
+circle to **r20** and never moved the line; radii pinned FIRST kept r10 and
+pivoted the line about its start corner, so a line drawn vertical came back
+slanted. Both sacrifice a quantity the author DREW to keep one the solver exists
+to DERIVE. The ladder — whole entity, then its SHAPE alone (a circle's radius, a
+line's end-to-end vector, an arc's centre-to-endpoint vectors), then single
+points, then single coordinates — is SETTLE-2's finding that *holding a subset of
+a rigid body's points distorts the body* applied to the single entity, and it
+gives the answer a modelling tool gives: the circle keeps r10 at the origin, the
+line keeps its length and direction, and it slides to x = 10. **"Shape before
+placement" as a GLOBAL precedence was tried and is falsified by R-5b**, whose six
+free DOF *are* the corner angles: pinning six directions against a closure the
+edit has changed cascades, and `e4` — an edge the edit never named — moves
+10.285 mm. Hence per-entity, and hence the shape rung fires only where it costs
+no other entity anything (SOLVE-1's principle turned on the settle itself).
+
+**And the ladder is BOUNDED, by a work budget that is a function of the sketch —
+never of the clock** (SETTLE-PERF-1, 2026-08-25). The three decisions above are
+stated as policies and were shipped without a cost model, and the model turned
+out to be cubic: the ladder puts one yes/no question to the solver per entity,
+per point and per coordinate, and each of those solves is itself quadratic in
+entity count. Measured (`docs/PERF.md` 2026-08-25, and
+`docs/AUDIT-ENGINEERING.md` N11): a 48-line rectilinear outline spent **12 944
+ms** answering one dimension edit — 1 560x the pre-SOLVE-1 solver, for the same
+answer — and a 96-line one **196 s**, against a gateway that gives up at 90 s
+and deliberately does not cancel the upstream, which made the sketcher's
+commonest interaction an authenticated resource-exhaustion route. Profiling put
+**96.8 %** of that inside planegcs and **85 %** of it in trials that were
+REFUSED and then undone, so most of the fix is refusing without solving — a pin
+already satisfied is accepted with no solve, a demand already refused is refused
+again for free (keyed on the point's coincidence class; pins only accumulate, so
+what was infeasible stays infeasible), and holding EVERYTHING is refused from the
+input residual, which is a question about the DTOs. What is left runs on
+`SETTLE_WORK_UNITS // entities**2` trial solves. **The budget deliberately is
+not the wall-clock deadline the audit proposed: a settle CHOOSES GEOMETRY, so a
+deadline would make the shipped shape a function of machine load, which §9's
+determinism gate forbids.** Running out removes QUESTIONS, not CHECKS — both
+final guarantees still run — so the settle degrades toward the plain solve
+rather than off a cliff. Result: 96 lines from 196 s to **0.22 s**, bitwise
+identical answers up to 24 entities, all 207 SOLVE-1/SETTLE-2/SETTLE-3 tests
+green, and a `sketch_solve` benchmark group at 48 and 96 lines because the
+correctness corpus tops out at twelve — which is why nobody saw this.
 
 **Spline FIT POINTS are constrainable (v1.1, 2026-07-15); the spline CURVE is
 not.** planegcs still has no spline primitive, so the curve carries no
@@ -299,13 +431,64 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   falling back to an id so an unnamed export still cannot collide. The name rides
   the EXPORT request only, never an evaluate request: a name must not be an input
   to geometry (finding N4).
-- **Export byte-determinism:** identical requests → byte-identical STEP/STL
-  files. STEP's `FILE_NAME` creation timestamp — the one nondeterministic
+- **Export byte-determinism:** identical requests → byte-identical files in
+  every format. STEP's `FILE_NAME` creation timestamp — the one nondeterministic
   byte range OCCT writes — is pinned kernel-side
   (`geometry.kernel.export.STEP_EXPORT_TIMESTAMP`; decision + evidence in
-  docs/GEOMETRY-QA.md 2026-07-10).
+  docs/GEOMETRY-QA.md 2026-07-10). **3MF** (added EXPORT-2, 2026-08-17) is the
+  same shape of problem with a different clock: lib3mf stamps a fresh random
+  production-extension UUID on every object, component, build item and the build
+  itself — five per write, which also shifts the compressed length — so
+  `_canonicalise_3mf_ids` derives them from `THREE_MF_UUID_NAMESPACE` instead. A
+  3MF package is self-contained (we emit no cross-package references), so this
+  costs nothing a consumer can observe. **GLB** needs no pinning at all: it is
+  the tessellation payload verbatim, whose determinism is already gated.
+- **Each export format declares its OWN length unit, and `EXPORT_UNITS` is the
+  single place that says which** (`py_kit.schemas.geometry`; EXPORT-2). STEP,
+  STL and 3MF are millimetres and Z-up; **glTF/GLB is metres and Y-up by
+  specification**, so its payload is the mm geometry / 1000 with a node
+  transform doing the axis change. The gate is not "the file parses" but **the
+  extents of the RE-READ file, converted through that table, equal the source
+  solid's bounding box**, asserted over the whole golden inventory for both new
+  formats (`services/geometry/tests/test_export_mesh_formats.py`). A file that
+  opens cleanly, declares millimetres and is half-size is the defect class this
+  exists to catch.
+- **3MF REFUSES a body whose triangulation is non-manifold; it does not repair
+  it or ship it anyway.** Same posture as `find_zero_width_slits` and
+  `removal_reaches_body` above — detect, then degrade to a typed error naming
+  the fix (`export_mesh_not_manifold`, a 422, never a 500). Found by the
+  EXPORT-2 sweep rather than predicted: one golden of 51
+  (`mirror-revolve-groove-tangent-wall`) has exactly ONE non-manifold edge, the
+  segment on the revolve axis where the two mirrored lobes meet — the solid
+  genuinely touches itself along a line. The 3MF core spec requires a
+  model-type object to be manifold; STL accepts such a mesh only because STL has
+  no topology at all, which is the failure class 3MF exists to remove, so
+  emitting a spec-violating package would discard the reason to support the
+  format. STEP, STL and GLB still export that body.
+- **A FABRICATION artifact is gated against the PART, not against itself.** The
+  flat-pattern suite asserted the blank's outline, its area and its byte-identity —
+  every one of them a statement about the blank — and a bracket with four Ø5.5 through
+  holes still exported six entities and zero CIRCLEs for weeks (DXF-4, audit
+  2026-08-21 S-10/S-13). Nothing was inconsistent: the unfold developed the boundary,
+  the DXF wrote what the unfold produced, and the on-screen view read the same object,
+  so the two renderers agreed perfectly on a blank that was missing every hole. The
+  gate that catches this compares the artifact to the FEATURE TREE — one developed cut
+  loop per `through_all` hole, at the drilled radius — and checks the development is an
+  ISOMETRY of the part (developed spacing == 3D spacing on each flat region) with the
+  part's HANDEDNESS (a cross-product sign; a mirrored blank keeps every distance and
+  folds into the part's reflection, which is scrap). Both are frame-free, so they say
+  nothing about how the blank is nested and everything about whether it is the part.
+  Generalises past sheet metal: for any file we hand a machine, at least one assertion
+  must originate outside the pipeline that wrote it. Interior cuts a layout cannot
+  place are a typed refusal (`UnfoldCutoutError` → `flat_pattern_failed`), same posture
+  as `find_zero_width_slits` — detect, degrade, name the fix; decision + scope in
+  docs/design/sheet-metal.md §6.1.
 - **Solver determinism:** same sketch + constraints → identical solution
-  across runs.
+  across runs. Asserted bitwise over a *sequence* of solves, not one, since
+  SOLVE-1 (§2): the sketcher feeds each solve's output back in as the next
+  solve's input, so a per-solve assertion would miss drift that only accumulates
+  across an edit history. The settling passes run in input entity order for
+  exactly this reason.
 - **Feature-set determinism:** where a feature names a SET of other features,
   it applies them in **tree order, never request-array order** — an array order
   is UI-incidental (which item the user ctrl-clicked first) and honouring it

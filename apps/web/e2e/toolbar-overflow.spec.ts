@@ -24,12 +24,20 @@ import {
  *   1. every tool group (History … Inspect) fully inside the frame;
  *   2. document scrollWidth == clientWidth (no app-level horizontal scroll);
  *   3. hovering/focusing the LAST tool never scrolls the app;
- *   4. the band's chosen tier actually FITS (rowWidth <= bandWidth) — the
+ *   4. the band's chosen tier actually FITS (content <= bandWidth) — the
  *      width-independent form of "never silently clip", valid for any
  *      future group set. If even the icon tier ever fails this at 1280,
  *      grow an explicit "more" flyout — do not widen a magic number;
  *   5. a CREATE-group tooltip paints ABOVE the feature-tree panel (the P1:
  *      the band's old `z-10` context trapped tooltips under `z-30` panels).
+ *
+ * Since EXPORT-1 the tier is GRADUATED rather than all-or-nothing: the band
+ * sheds labels one `ToolGroup.labelPriority` level at a time. Six groups made
+ * the old two-position switch untenable — the fully labeled row needs 2650.9px
+ * against 1047.5px of icons, so no display in the 1280–2560 range could show a
+ * single label. These specs now pin the ORDER as well as the fit, because the
+ * order is the design decision: export keeps its format codes longest (a code
+ * is an identifier no glyph can spell), sheet metal sheds first.
  */
 
 /** Every group eyebrow on the part command band, left to right. */
@@ -49,14 +57,32 @@ async function openEmptyPart(page: Page): Promise<void> {
   await expect(page.getByTestId("new-sketch")).toBeEnabled();
 }
 
-/** The band's measured-tier truth, read straight off the primitive. */
+/**
+ * The band's measured-tier truth, read straight off the primitive.
+ *
+ * `contentWidth` — not the row's rect — is the honest fit probe. The row is
+ * `w-max min-w-full`, so once the tools are narrower than the frame its rect
+ * width is pinned to the band's and `rowWidth <= bandWidth` becomes a
+ * tautology that cannot fail. What actually answers "does the band clip" is
+ * how far the RIGHTMOST group reaches from the band's left edge.
+ */
 async function bandFit(page: Page) {
   return page.getByTestId("top-toolbar").evaluate((band) => {
-    const row = band.firstElementChild as HTMLElement;
+    const left = band.getBoundingClientRect().left;
+    const groups = Array.from(
+      band.querySelectorAll<HTMLElement>("[data-label-priority]"),
+    );
     return {
       tier: band.getAttribute("data-band-tier"),
-      rowWidth: row.getBoundingClientRect().width,
       bandWidth: band.clientWidth,
+      contentWidth: Math.max(
+        0,
+        ...groups.map((g) => g.getBoundingClientRect().right - left),
+      ),
+      /** Which groups kept their words, in band order. */
+      labeled: groups
+        .filter((g) => g.dataset.labels !== "off")
+        .map((g) => g.getAttribute("aria-label")),
     };
   });
 }
@@ -70,10 +96,14 @@ async function appScroll(page: Page) {
   }));
 }
 
+// Measured on the part band (empty part, 2026-08-22). At all three widths the
+// graduated tier settles on Export + Inspect labeled and the three big verb
+// families in icons — 1244.6px of content. Before EXPORT-1's group landed the
+// band showed no labels at all here, because the only alternative cost 2650.9.
 for (const { width, height, tier } of [
-  { width: 1280, height: 800, tier: "icon" },
-  { width: 1440, height: 900, tier: "icon" },
-  { width: 1600, height: 900, tier: null },
+  { width: 1280, height: 800, tier: "mixed" },
+  { width: 1440, height: 900, tier: "mixed" },
+  { width: 1600, height: 900, tier: "mixed" },
 ] as const) {
   test.describe(`command band at ${width}×${height}`, () => {
     test.use({ viewport: { width, height } });
@@ -118,37 +148,94 @@ for (const { width, height, tier } of [
       // 4. The measured tier actually fits — the width-independent guard that
       //    stays valid whatever groups land later.
       const fit = await bandFit(page);
-      expect(fit.rowWidth).toBeLessThanOrEqual(fit.bandWidth + 1);
-      if (tier !== null) expect(fit.tier).toBe(tier);
+      expect(fit.contentWidth).toBeLessThanOrEqual(fit.bandWidth + 1);
+      expect(fit.tier).toBe(tier);
+
+      // 5. The SHEDDING ORDER is the design decision, so it is asserted, not
+      //    left to arithmetic. Export holds its format codes at the responsive
+      //    floor — "STEP"/"STL"/"3MF"/"GLB" are identifiers three near-identical
+      //    mesh glyphs cannot spell — while the verb families, whose glyph and
+      //    eyebrow already name them, go to icons first.
+      expect(fit.labeled).toContain("Export");
+      expect(fit.labeled).not.toContain("Sheet metal");
+      await expect(page.getByTestId("part-export-band-step")).toContainText(
+        "STEP",
+      );
     });
   });
 }
 
-test.describe("the labeled tier returns when it genuinely fits (2400 wide)", () => {
+/** Is the button's own inline label — not its tooltip — really painted? */
+async function inlineLabelShown(
+  page: Page,
+  testId: string,
+  text: string,
+): Promise<boolean> {
+  return page
+    .getByTestId(testId)
+    .evaluate(
+      (btn, want) =>
+        Array.from(btn.querySelectorAll(":scope > span")).some(
+          (span) =>
+            !span.hasAttribute("aria-hidden") &&
+            span.textContent === want &&
+            getComputedStyle(span).display !== "none",
+        ),
+      text,
+    );
+}
+
+test.describe("the band buys labels back as it widens (2400)", () => {
   test.use({ viewport: { width: 2400, height: 1000 } });
 
-  test("band steps back up to labels — measured, not hardcoded", async ({
+  test("CREATE gets its words back — measured, not hardcoded", async ({
     page,
   }) => {
     await openEmptyPart(page);
+
+    // At 2400 the band affords four of the five sheddable levels: Export,
+    // Inspect, Create and Modify are labeled (2126.8px), and only Sheet metal
+    // — the widest labels on the band, +524px, for a family inert on every
+    // part that is not sheet metal — is still in icons. So the step-back-up
+    // this spec was written to prove is live, and it is the CREATE group (the
+    // audit's own example) that demonstrates it.
+    await expect(page.getByTestId("top-toolbar")).toHaveAttribute(
+      "data-band-tier",
+      "mixed",
+    );
+    expect(await inlineLabelShown(page, "new-extrude", "Extrude")).toBe(true);
+    expect(await inlineLabelShown(page, "new-fillet", "Fillet")).toBe(true);
+    expect(await inlineLabelShown(page, "new-base-flange", "Base flange")).toBe(
+      false,
+    );
+
+    const fit = await bandFit(page);
+    expect(fit.contentWidth).toBeLessThanOrEqual(fit.bandWidth + 1);
+    expect(fit.labeled).not.toContain("Sheet metal");
+  });
+});
+
+test.describe("the fully labeled tier returns when it genuinely fits (2700)", () => {
+  test.use({ viewport: { width: 2700, height: 1000 } });
+
+  test("every group has its words, and the row still fits", async ({
+    page,
+  }) => {
+    await openEmptyPart(page);
+
+    // 2700 is not a magic number: the fully labeled row measures 2650.9px, so
+    // this is the first round width above it. It is the top of the ramp — the
+    // guard that the probe really is measuring and not latched to a tier.
     await expect(page.getByTestId("top-toolbar")).toHaveAttribute(
       "data-band-tier",
       "labeled",
     );
-    // The Extrude button's inline label (not its tooltip) is really shown.
-    const labelShown = await page
-      .getByTestId("new-extrude")
-      .evaluate((btn) =>
-        Array.from(btn.querySelectorAll(":scope > span")).some(
-          (span) =>
-            !span.hasAttribute("aria-hidden") &&
-            span.textContent === "Extrude" &&
-            getComputedStyle(span).display !== "none",
-        ),
-      );
-    expect(labelShown).toBe(true);
+    expect(await inlineLabelShown(page, "new-base-flange", "Base flange")).toBe(
+      true,
+    );
     const fit = await bandFit(page);
-    expect(fit.rowWidth).toBeLessThanOrEqual(fit.bandWidth + 1);
+    expect(fit.contentWidth).toBeLessThanOrEqual(fit.bandWidth + 1);
+    expect(fit.labeled).toEqual([...BAND_GROUPS, "Export"]);
   });
 });
 

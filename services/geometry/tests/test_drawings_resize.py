@@ -18,12 +18,12 @@ edit) and asserts on the second sheet. They fail on the pre-fix composer.
 
 from __future__ import annotations
 
-import io
 import math
+from collections.abc import Callable
 from typing import Any
 
-import ezdxf
 import pytest
+from ezdxf.document import Drawing
 from geometry.drawings import evaluate_drawing_views, place_sheet
 from geometry.drawings.compose import (
     MIN_VIEW_CLEARANCE_MM,
@@ -336,7 +336,9 @@ def test_resizing_the_hole_re_measures_its_diameter_dimension() -> None:
     assert _measured(after, "diameter").text.value == "Ø14.000"
 
 
-def test_a_moved_hole_is_an_honest_error_with_WORDS_on_the_sheet() -> None:
+def test_a_moved_hole_is_an_honest_error_with_WORDS_on_the_sheet(
+    read_dxf: Callable[[bytes], Drawing],
+) -> None:
     """The refusal side of the contract: a hole that MOVED breaks the centre invariant,
     so its dimension must NOT re-anchor onto the hole at its new place. It fails
     honestly — and the sheet now says so in words beside the marker, in all three
@@ -356,9 +358,7 @@ def test_a_moved_hole_is_an_honest_error_with_WORDS_on_the_sheet() -> None:
     assert 'data-testid="drawing-dimension-error"' in svg
     assert "DIAMETER DIM: REFERENCE LOST - RE-PICK THE EDGE" in svg
     assert b"DIAMETER DIM: REFERENCE LOST" in serialize_pdf(sheet)
-    doc = ezdxf.read(  # pyright: ignore[reportPrivateImportUsage]
-        io.StringIO(serialize_dxf(sheet).decode("utf-8"))
-    )
+    doc = read_dxf(serialize_dxf(sheet))
     texts = {e.dxf.text for e in doc.modelspace() if e.dxftype() == "TEXT"}
     assert "DIAMETER DIM: REFERENCE LOST - RE-PICK THE EDGE" in texts
     assert not doc.audit().errors
@@ -394,7 +394,9 @@ def test_the_widened_sheet_still_fits_inside_the_border() -> None:
         assert y1 <= sheet.height_mm - SHEET_MARGIN_MM, projection
 
 
-def test_hand_placed_views_are_honored_and_their_overlap_is_reported() -> None:
+def test_hand_placed_views_are_honored_and_their_overlap_is_reported(
+    read_dxf: Callable[[bytes], Drawing],
+) -> None:
     """The user-intent rule (documented in drawing-export.md): an `auto_place=False`
     position is INTENT and is never re-flowed — so when two hand-placed views collide,
     composition reports it in millimetres and every export stamps a banner, rather than
@@ -422,9 +424,7 @@ def test_hand_placed_views_are_honored_and_their_overlap_is_reported() -> None:
     assert b"LAYOUT ERROR:" in serialize_pdf(sheet)
     dxf = serialize_dxf(sheet)
     assert b"LAYOUT ERROR:" in dxf
-    doc = ezdxf.read(  # pyright: ignore[reportPrivateImportUsage]
-        io.StringIO(dxf.decode("utf-8"))
-    )
+    doc = read_dxf(dxf)
     assert any(
         e.dxftype() == "TEXT" and e.dxf.text.startswith("LAYOUT ERROR:")
         for e in doc.modelspace()

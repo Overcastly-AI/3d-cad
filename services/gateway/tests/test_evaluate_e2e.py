@@ -570,6 +570,171 @@ def test_part_export_downloads_evaluated_body_through_gateway(stack: Stack) -> N
         assert unauth.status_code == 401, unauth.text
 
 
+def _seed_l_bracket(
+    client: httpx.Client, email: str, name: str
+) -> tuple[dict[str, str], str]:
+    """Register and build the audit's L-bracket: sketch -> base flange -> edge flange.
+
+    The SAME part the geometry goldens carry (50 x 20 base flange, 2 mm gauge, R3,
+    K 0.44, one 30 mm edge flange at 90 deg), authored through the REAL API so the
+    flat-pattern export below is exercised on a part a user could actually have
+    made — feature ids assigned by documents, references rewritten as a client must.
+    """
+    register = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "hunter2-passphrase"},
+    )
+    assert register.status_code == 201, register.text
+    bearer = {"Authorization": f"Bearer {register.json()['access_token']}"}
+
+    part = client.post("/api/v1/parts", json={"name": name}, headers=bearer)
+    assert part.status_code == 201, part.text
+    part_id = part.json()["id"]
+
+    def add(payload: dict[str, Any], version: int) -> tuple[str, int]:
+        created = client.post(
+            f"/api/v1/parts/{part_id}/features",
+            json={**payload, "expected_tree_version": version},
+            headers=bearer,
+        )
+        assert created.status_code == 201, created.text
+        body = created.json()
+        return body["feature"]["id"], body["tree_version"]
+
+    def line(
+        eid: str, start: tuple[float, float], end: tuple[float, float]
+    ) -> dict[str, Any]:
+        return {
+            "id": eid,
+            "kind": "line",
+            "start": {"x": start[0], "y": start[1]},
+            "end": {"x": end[0], "y": end[1]},
+        }
+
+    sketch_id, version = add(
+        {
+            "name": "Blank",
+            "feature": {
+                "type": "sketch",
+                "version": 1,
+                "params": {
+                    "plane": {"kind": "datum_plane", "plane": "XY"},
+                    "entities": [
+                        line("e1", (0.0, 0.0), (50.0, 0.0)),
+                        line("e2", (50.0, 0.0), (50.0, 20.0)),
+                        line("e3", (50.0, 20.0), (0.0, 20.0)),
+                        line("e4", (0.0, 20.0), (0.0, 0.0)),
+                    ],
+                    "constraints": [],
+                },
+            },
+        },
+        0,
+    )
+    base_id, version = add(
+        {
+            "name": "Base flange",
+            "feature": {
+                "type": "sheet_metal_base_flange",
+                "version": 1,
+                "params": {
+                    "profile": {"kind": "feature", "feature_id": sketch_id},
+                    "thickness_mm": 2.0,
+                    "bend_radius_mm": 3.0,
+                    "k_factor": 0.44,
+                },
+            },
+        },
+        version,
+    )
+    add(
+        {
+            "name": "Edge flange",
+            "feature": {
+                "type": "sheet_metal_edge_flange",
+                "version": 1,
+                "params": {
+                    "edge": {
+                        "kind": "subshape",
+                        "feature_id": base_id,
+                        "subshape_type": "edge",
+                        "selector": {
+                            "selector_version": 1,
+                            "signature": {
+                                "subshape_type": "edge",
+                                "curve": "line",
+                                "end_a": {"x": 50.0, "y": 0.0, "z": 2.0},
+                                "end_b": {"x": 50.0, "y": 20.0, "z": 2.0},
+                                "midpoint": {"x": 50.0, "y": 10.0, "z": 2.0},
+                                "length_mm": 20.0,
+                            },
+                        },
+                    },
+                    "flange_length_mm": 30.0,
+                    "bend_angle_deg": 90.0,
+                },
+            },
+        },
+        version,
+    )
+    return bearer, part_id
+
+
+def test_flat_pattern_dxf_is_one_action_from_a_part(stack: Stack) -> None:
+    """AUDIT-PRODUCT F-2a end to end: a cut path from a PART, no drawing needed.
+
+    The point of the ticket is the number of STEPS, so this test is about the route
+    existing at the part rather than about the geometry (which the geometry suite
+    measures): register, model an L-bracket, POST once, receive a DXF named after
+    the part. Before this there was no such call — the only flat pattern available
+    was a drawing sheet the operator stripped by hand, every revision.
+    """
+    with httpx.Client(base_url=stack.gateway_url, timeout=60.0) as client:
+        bearer, part_id = _seed_l_bracket(client, "flatdxf@example.com", "L Bracket")
+
+        exported = client.post(
+            f"/api/v1/parts/{part_id}/flat-pattern.dxf", headers=bearer
+        )
+        assert exported.status_code == 200, exported.text
+        assert exported.headers["content-type"] == "image/vnd.dxf"
+        # Named after the PART, with the -flat qualifier so a fabricator's Downloads
+        # folder tells the cut path apart from a drawing export of the same part.
+        assert (
+            exported.headers["content-disposition"]
+            == 'attachment; filename="l-bracket-flat.dxf"'
+        )
+        # A real DXF carrying ONLY cut geometry. The drawing-sheet export of the
+        # same part stamps "LOFT . PART DRAWING" and a TITLE layer, so their absence
+        # is the cheapest end-to-end proof that this is not the sheet in disguise.
+        text = exported.content.decode("cp1252")
+        assert text.lstrip().startswith("0\nSECTION")
+        assert "LOFT" not in text
+        assert "TITLE" not in text
+        assert "VISIBLE" in text
+        assert "BEND" in text
+
+    # Auth is real: an anonymous caller gets nothing.
+    with httpx.Client(base_url=stack.gateway_url, timeout=30.0) as anon:
+        assert anon.post(f"/api/v1/parts/{part_id}/flat-pattern.dxf").status_code == 401
+
+
+def test_flat_pattern_dxf_refuses_a_part_that_is_not_sheet_metal(stack: Stack) -> None:
+    """A typed 422 through the gateway, never an empty file.
+
+    An empty DXF is a VALID file, so a shop that received one could not tell "this
+    part is not sheet metal" from "the export broke" — the refusal has to reach the
+    wire as an envelope with a code a client can branch on.
+    """
+    with httpx.Client(base_url=stack.gateway_url, timeout=60.0) as client:
+        bearer, part_id = _seed_extruded_part(client, "flatdxf2@example.com", "solid")
+        refused = client.post(
+            f"/api/v1/parts/{part_id}/flat-pattern.dxf", headers=bearer
+        )
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["error"]["code"].startswith("flat_pattern_")
+        assert "SECTION" not in refused.text
+
+
 def test_part_export_sketch_only_is_clean_error_through_gateway(stack: Stack) -> None:
     """A part with no body-affecting feature exports as a 422
     ``tree_export_failed`` envelope re-surfaced through the gateway — never a

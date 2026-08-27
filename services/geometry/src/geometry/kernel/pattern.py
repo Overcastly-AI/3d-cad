@@ -107,6 +107,24 @@ class PatternError(RuntimeError):
     result (e.g. a patterned cut consumed the whole body)."""
 
 
+class PatternUnreachableError(PatternError):
+    """No PLACED copy of a selected feature's removal tool can reach the body.
+
+    The honest end of the VACUOUS-CUT FALLBACK, for a ``features``-scope pattern
+    only (docs/design/pattern-scope.md §4 — the same split
+    :class:`geometry.kernel.mirror.MirrorUnreachableError` makes between
+    ``mirror_cut``'s fallback and ``mirror_feature_unreachable``). The ``body``
+    scope is GUESSING between two workflows, so falling back to replicating the
+    body beats a silent no-op; an explicit selection has nothing to guess, so
+    "the second hole lands off the part" is an error, not a doubled part. §1.2 of
+    that design measures the flip this retires: 30798.1512 at ``spacing_mm`` 8,
+    40594.6904 at 12, both reporting ``ok``.
+
+    A subclass of :class:`PatternError` so a caller that does not distinguish the
+    two still degrades to ``pattern_failed`` rather than escaping as a 500.
+    """
+
+
 def _check_count(count: int) -> None:
     if count < 1:
         raise PatternCountError(
@@ -121,6 +139,22 @@ def _check_count(count: int) -> None:
             f"Pattern count must be at most {MAX_PATTERN_COUNT} (per-request "
             f"work bound), got {count}."
         )
+
+
+def check_pattern_count(count: int) -> None:
+    """Validate the instance count — the ONE guard both scopes share.
+
+    :func:`linear_pattern` / :func:`circular_pattern` call it through
+    :func:`_check_count`; a ``features``-scope pattern
+    (docs/design/pattern-scope.md §3) never enters those, because it places the
+    SELECTED features' recorded tools rather than the body, so it calls this
+    directly. Without it a ``count = 0`` selection would produce no placements and
+    read as a silent no-op — the exact failure shape the scope exists to remove.
+
+    Raises:
+        PatternCountError: below 1, or above the MAX_PATTERN_COUNT work bound.
+    """
+    _check_count(count)
 
 
 def _fuse_and_finalize(
@@ -437,3 +471,54 @@ def circular_pattern_cut(
     if not removal_reaches_body(body, copies):
         return circular_pattern(body, axis_point, axis_direction, angle_deg, count)
     return _cut_and_finalize(body, copies, count)
+
+
+def cut_placed_tools(
+    body: BodyShape, placed: Sequence[BodyShape], count: int
+) -> BodyShape:
+    """Subtract already-placed tool copies from *body*, with NO fallback.
+
+    The ``features``-scope half of the CUT path (docs/design/pattern-scope.md §4).
+    It is :func:`linear_pattern_cut` / :func:`circular_pattern_cut` with the one
+    difference the design turns on: where those two catch an unreachable removal and
+    silently replicate the WHOLE BODY instead (the vacuous-cut fallback, right for a
+    scope that is guessing), this RAISES — an explicit selection has nothing to
+    guess, so a removal that lands off the part is an honest
+    ``pattern_feature_unreachable``.
+
+    Everything else is the shared :func:`_cut_and_finalize`: one variadic
+    ``body.cut``, one ``clean()``, and the §7.6/§MB-4 lump-count invariant. Reusing
+    it is what keeps the two scopes from drifting apart.
+
+    Raises:
+        PatternUnreachableError: no placed copy can reach the body.
+        PatternDisjointError: the cut changed the body's lump count.
+        PatternError: the OCCT cut failed or removed the entire body.
+    """
+    if not removal_reaches_body(body, placed):
+        raise PatternUnreachableError(
+            "The repeated removal lands entirely outside the body, so patterning "
+            "it would remove nothing. Check the spacing/angle and the selection."
+        )
+    return _cut_and_finalize(body, placed, count)
+
+
+def fuse_placed_tools(
+    body: BodyShape, placed: Sequence[BodyShape], count: int
+) -> BodyShape:
+    """Fuse already-placed ADDITIVE tool copies into *body*.
+
+    The ``features``-scope half of the ADD path (docs/design/pattern-scope.md §3):
+    the recorded tool of an additive verb — an extrude's prism, a revolve's solid, a
+    swept/lofted solid, an imported body, an inner pattern's placements — is placed
+    at this pattern's placements and fused. Shares :func:`_fuse_and_finalize` with
+    :func:`linear_pattern` / :func:`circular_pattern`, so it keeps the SAME
+    single-connected-solid invariant (§7.6): a boss array whose instances land clear
+    of one another is a ``pattern_disjoint`` error, exactly as the ``body`` scope's
+    spreading array is, rather than a silently multi-lump part.
+
+    Raises:
+        PatternDisjointError: the instances do not merge into the body's lump count.
+        PatternError: the OCCT union failed.
+    """
+    return _fuse_and_finalize(body, placed, count)

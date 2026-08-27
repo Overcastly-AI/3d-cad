@@ -287,10 +287,12 @@ The mesh didn't come back. Check the geometry service's log: with `S3_URL` set
 but no credentials, every mesh `put`/`get` 403s while the config stays valid.
 Unset `S3_URL` to use the in-process store.
 
-**Vite ignored my `--port` and started on 5173.**
-You wrote `--`. pnpm 10 discards it silently — see the note above. Vite's
-config has no `strictPort`, so a dropped port argument falls back to 5173
-rather than failing.
+**Vite refused to start with "Port 5173 is already in use."**
+Something else already holds 5173 — `apps/web/vite.config.ts` sets
+`strictPort: true`, so Vite fails loudly instead of silently falling back to
+another port. Find and stop whatever is holding 5173 (a stray Vite from an
+earlier session is the usual cause), or pass a free `--port` explicitly
+(without a `--` separator — see the note above).
 
 **Every e2e spec fails at registration with a 500, but curl to the gateway works.**
 A stale Vite on 5173 is being reused, and its `/api` proxy points at a dead
@@ -307,7 +309,7 @@ The geometry image installs the OCCT wheel. Subsequent builds cache on
 ```bash
 just lint        # ruff + ruff format + pyright strict + eslint + prettier + tsc
 just test        # pytest + vitest
-just e2e         # geometry gates + Playwright (local gate; not a CI job yet)
+just e2e         # geometry gates + Playwright (same script CI's e2e.yml runs)
 ```
 
 [`CONTRIBUTING.md`](../CONTRIBUTING.md) has the full expectations.

@@ -54,8 +54,13 @@ export async function installSceneProbe(page: Page): Promise<void> {
     w["__THREE_DEVTOOLS__"] = bus;
     const order: string[] = [];
     const cameras: Record<string, unknown> = {};
+    const scenes: Record<string, unknown> = {};
     w["__loftSceneOrder"] = order;
     w["__loftCameras"] = cameras;
+    // The scene GRAPH, not just its camera — what `namedWorldBox` walks. Held
+    // by the same hook and the same uuid ordering, so a reader of one is
+    // reading the same scene as a reader of the other.
+    w["__loftScenes"] = scenes;
     bus.addEventListener("observe", (event) => {
       const scene = (event as CustomEvent).detail as {
         isScene?: boolean;
@@ -64,6 +69,7 @@ export async function installSceneProbe(page: Page): Promise<void> {
       };
       if (scene?.isScene !== true) return;
       order.push(scene.uuid);
+      scenes[scene.uuid] = scene;
       const prior = scene.onBeforeRender;
       scene.onBeforeRender = (...args: unknown[]) => {
         prior?.apply(scene, args);
@@ -273,6 +279,88 @@ export async function cameraPose(
       timeoutMs: 1_000,
     }).catch(() => undefined);
   }
+}
+
+/** An axis-aligned world-space box, in SCENE coordinates (three.js, Y-up). */
+export interface WorldBox {
+  min: [number, number, number];
+  max: [number, number, number];
+  /** Vertices that contributed — 0 means "found nothing", not "empty box". */
+  vertices: number;
+}
+
+/**
+ * The world-space bounding box of the named subtree, measured from the LIVE
+ * scene graph.
+ *
+ * FB-9 ("the extruded is not on the same plane") is a claim about where things
+ * are DRAWN relative to each other, and nothing below a browser can answer it:
+ * the sketch ink, the live ghost and the committed body are three different
+ * code paths that must agree on one frame, and the defect that produced the
+ * founder's photo was a basis stated in the kernel's Z-up frame reaching a
+ * Y-up renderer — geometrically exact, rendered 90 degrees away. A pixel test
+ * cannot tell that from a camera move; a unit test cannot see the composition.
+ * So this reads real `matrixWorld`s, exactly as the camera probe reads the real
+ * camera, and QA still adds no hooks the product does not already carry (the
+ * two names below are `name` props on the mesh and the ghost group).
+ *
+ * Every position attribute under the named object is transformed by that
+ * object's own `matrixWorld` and accumulated. `vertices` is reported so an
+ * empty result is attributable: a box of `+/-Infinity` and a name that matched
+ * nothing look identical once you only compare min/max.
+ */
+export async function namedWorldBox(
+  page: Page,
+  name: string,
+): Promise<WorldBox | null> {
+  return page.evaluate((wanted: string): WorldBox | null => {
+    interface Obj3D {
+      name: string;
+      matrixWorld: { elements: number[] };
+      geometry?: {
+        attributes?: { position?: { count: number; array: ArrayLike<number> } };
+      };
+      traverse: (fn: (child: Obj3D) => void) => void;
+      updateWorldMatrix?: (parents: boolean, children: boolean) => void;
+    }
+    const w = window as unknown as Record<string, unknown>;
+    const scenes = (w["__loftScenes"] ?? {}) as Record<string, Obj3D>;
+    const order = (w["__loftSceneOrder"] ?? []) as string[];
+    const min: [number, number, number] = [Infinity, Infinity, Infinity];
+    const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+    let vertices = 0;
+    let found = false;
+    for (const uuid of order) {
+      const scene = scenes[uuid];
+      if (scene === undefined) continue;
+      scene.traverse((node) => {
+        if (node.name !== wanted) return;
+        found = true;
+        node.updateWorldMatrix?.(true, true);
+        node.traverse((child) => {
+          const position = child.geometry?.attributes?.position;
+          if (position === undefined) return;
+          const e = child.matrixWorld.elements;
+          for (let i = 0; i < position.count; i += 1) {
+            const x = position.array[i * 3] as number;
+            const y = position.array[i * 3 + 1] as number;
+            const z = position.array[i * 3 + 2] as number;
+            const wx = e[0]! * x + e[4]! * y + e[8]! * z + e[12]!;
+            const wy = e[1]! * x + e[5]! * y + e[9]! * z + e[13]!;
+            const wz = e[2]! * x + e[6]! * y + e[10]! * z + e[14]!;
+            min[0] = Math.min(min[0], wx);
+            min[1] = Math.min(min[1], wy);
+            min[2] = Math.min(min[2], wz);
+            max[0] = Math.max(max[0], wx);
+            max[1] = Math.max(max[1], wy);
+            max[2] = Math.max(max[2], wz);
+            vertices += 1;
+          }
+        });
+      });
+    }
+    return found ? { min, max, vertices } : null;
+  }, name);
 }
 
 /** Angle between two unit vectors, in degrees. */

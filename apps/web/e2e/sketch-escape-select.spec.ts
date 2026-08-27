@@ -100,6 +100,7 @@ test.describe("FB-13 — Escape unwinds; it never ends a sketch with work in it"
     await expect(page.getByTestId("sketch-step")).toHaveText("Pick a plane");
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("sketch-strip")).toHaveCount(0);
+    await expect(page.getByTestId("feature-row")).toHaveCount(0);
 
     // …and an empty sketch on a chosen plane, opened by mistake.
     await page.getByTestId("new-sketch").click();
@@ -107,6 +108,11 @@ test.describe("FB-13 — Escape unwinds; it never ends a sketch with work in it"
     await expect(page.getByTestId("sketch-step")).toHaveText("On XY");
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("sketch-strip")).toHaveCount(0);
+    // DISCARDS — the behavioural half of ESC-2's guard. The last rung means a
+    // fresh session, and the empty feature row is what proves it: the mapping
+    // this replaced sent `"exit"` to `finishSketch()`, which persists, so a
+    // second cascade re-derived anywhere in the keyboard path mints a sketch
+    // feature here from a sketch the user backed out of.
     await expect(page.getByTestId("feature-row")).toHaveCount(0);
   });
 });
@@ -144,8 +150,17 @@ test.describe("FB-14 — a plain click replaces the selection, a modifier adds",
     await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
 
     // L = perpendicular in the constraint vocabulary (the two entities relate).
+    //
+    // Located BY SYMBOL, not by index. `glyph-N` is a position in the
+    // constraint array, and the rectangle now arrives carrying its own: RECT-1
+    // authors the rigidity set at the draw, and SNAP-3 authors a coincident
+    // wherever a placed point snapped. `glyph-0` is one of those coincidences,
+    // so an index-based assertion here tests the fixture rather than the verb
+    // this test is named for.
     await page.keyboard.press("l");
-    await expect(page.getByTestId("glyph-0")).toHaveText("⊥");
+    await expect(
+      page.locator('[data-testid^="glyph-"]').filter({ hasText: /^⊥$/ }),
+    ).toHaveCount(1);
   });
 
   test("Ctrl/Cmd-click adds too, on both platform conventions", async ({

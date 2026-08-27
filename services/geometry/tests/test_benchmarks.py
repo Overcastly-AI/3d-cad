@@ -34,6 +34,7 @@ budget for free and no benchmark body is authored twice (CLAUDE.md DRY rule).
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import statistics
 import tempfile
@@ -41,6 +42,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 
 # build123d STEP I/O carries Shape[Unknown]/PathLike[Unknown] type params — the
 # same gap test_step_roundtrip.py documents; scoped ignores only.
@@ -63,6 +65,7 @@ from geometry.kernel import measure_shape
 from geometry.kernel.tessellate import tessellate_glb
 from geometry.overlay import evaluate_overlay
 from geometry.schemas import DEFAULT_LINEAR_DEFLECTION
+from geometry.sketch import PlanegcsSketchSolver
 from py_kit.schemas.assemblies import EvaluateAssemblyRequest
 from py_kit.schemas.drawings import (
     ComposeDrawingRequest,
@@ -87,6 +90,27 @@ _COMPOSE_GOLDEN = Path(__file__).resolve().parent / "compose_goldens" / "request
 #: 2026-07-19), so a 4x CI-contention slowdown still clears it >=7x. Sized to
 #: catch a gross regression/DoS, never a drift — the detailed tier tracks drift.
 CEILING_LIGHT_MS = 1000.0
+#: Ceiling (ms) for the SKETCH SOLVE of a realistic outline under a dimension
+#: edit — the ``sketch_solve`` group, and the one ceiling here that exists
+#: because the thing it measures ALREADY went wrong (SETTLE-PERF-1). Sized by
+#: the same rule as the two above, from measurements taken in a quiet window on
+#: the 48- and 96-line outlines of ``_sketch_outline_builder.py``:
+#:
+#: =============================  ==========  ==========  =========
+#: 48-line outline, width edited  pre-SOLVE-1 before fix  after fix
+#: =============================  ==========  ==========  =========
+#: warm best-of-3                 7.1 ms      10 316 ms   534 ms
+#: =============================  ==========  ==========  =========
+#:
+#: 3000 ms is 5.6x the warm 48-line reading and 13x the 96-line one, so CI
+#: contention has the headroom the other ceilings get — and it is still 3.4x
+#: UNDER the regression it exists to catch, which at 96 lines was **196
+#: seconds** against a gateway that gives up at 90 and does not cancel the
+#: upstream. Deliberately not 2000 ms: that is only 3.7x warm, which is inside
+#: the contention band this file's own policy warns about. Deliberately not
+#: 10 000 ms either — a ceiling that a 10 316 ms regression squeaks under is a
+#: gate that cannot fail for the reason it was written.
+CEILING_SKETCH_SETTLE_MS = 3000.0
 #: Ceiling (ms) for HEAVY operations (warm median >= 40 ms: multi-feature/dense
 #: trees, drawing HLR+compose+serialize, assembly solves, the U-channel unfold).
 #: 2000 ms is the RESEARCH §9 rebuild ceiling and 16x-33x the warm median of
@@ -232,6 +256,49 @@ def _flat_pattern_factory(base: str) -> Factory:
     return factory
 
 
+_OUTLINE_PATH = Path(__file__).resolve().parent / "_sketch_outline_builder.py"
+
+
+def _load_outline_builder() -> ModuleType:
+    """Import the outline builder by path — the workspace runs pytest with
+    ``--import-mode=importlib``, so test modules cannot import each other
+    (same idiom as ``test_concurrent_modelers.py``)."""
+    spec = importlib.util.spec_from_file_location(
+        "_sketch_outline_builder", _OUTLINE_PATH
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_OUTLINES = _load_outline_builder()
+
+
+def _sketch_solve_factory(line_count: int, *, width_mm: float | None) -> Factory:
+    """Solve one realistic part outline — the sketcher's own hot path.
+
+    ``width_mm=None`` is the sketch AS DRAWN, i.e. already an exact solution:
+    what every tree rebuild re-solves, and what the settle's one-solve fast path
+    exists for. A value is the dimension EDIT, the interaction a user performs
+    on every keystroke in a dimension field, and the path SETTLE-PERF-1 found
+    running at ``O(entities**3)`` — 13 s at 48 lines, 196 s at 96, against a
+    gateway that abandons the request at 90 s WITHOUT cancelling the work.
+
+    Both are budgeted, and the pair is the point: the fast path must stay fast
+    (it dominates rebuild latency) and the edited path must stay bounded (it is
+    the one that turned into a resource-exhaustion route). A change that speeds
+    the edit up by giving up the fast path reddens the other row.
+    """
+
+    def factory() -> Thunk:
+        solver = PlanegcsSketchSolver()
+        sketch = _OUTLINES.outline(line_count, width_mm=width_mm)
+        return lambda: solver.solve(sketch)
+
+    return factory
+
+
 def _drawing_factory(fmt: str) -> Factory:
     """Drawing HLR projection + sheet compose + serialize (SVG/PDF/DXF) of the
     plate compose golden (box + Ø10 hole, 4 views, dims)."""
@@ -358,6 +425,36 @@ CASES: list[BenchCase] = [
     BenchCase("drawing", "hlr-compose-svg", _H, _drawing_factory("svg")),
     BenchCase("drawing", "hlr-compose-pdf", _H, _drawing_factory("pdf")),
     BenchCase("drawing", "hlr-compose-dxf", _H, _drawing_factory("dxf")),
+    # Sketch solve on a REAL part outline, at both ends of the settle: the
+    # already-solved rebuild (fast path) and the dimension edit (the path that
+    # was cubic). Sized at 48 and 96 lines because the rest of the solver corpus
+    # tops out at TWELVE entities — smaller than any profile a working engineer
+    # draws, which is exactly why a 13-second dimension edit went unseen
+    # (SETTLE-PERF-1 / docs/AUDIT-ENGINEERING.md N11).
+    BenchCase(
+        "sketch_solve",
+        "outline-48-already-solved",
+        _L,
+        _sketch_solve_factory(48, width_mm=None),
+    ),
+    BenchCase(
+        "sketch_solve",
+        "outline-96-already-solved",
+        _L,
+        _sketch_solve_factory(96, width_mm=None),
+    ),
+    BenchCase(
+        "sketch_solve",
+        "outline-48-dimension-edit",
+        CEILING_SKETCH_SETTLE_MS,
+        _sketch_solve_factory(48, width_mm=14.0),
+    ),
+    BenchCase(
+        "sketch_solve",
+        "outline-96-dimension-edit",
+        CEILING_SKETCH_SETTLE_MS,
+        _sketch_solve_factory(96, width_mm=14.0),
+    ),
     # Assembly evaluate (multi-instance + mate solve).
     BenchCase(
         "assembly",

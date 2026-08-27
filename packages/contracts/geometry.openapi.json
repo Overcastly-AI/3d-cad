@@ -16,6 +16,82 @@
         "title": "AllEdgesSelector",
         "type": "object"
       },
+      "AngleConstraint": {
+        "description": "Dimension: the angle between two lines (DEGREES, not mm).\n\nThe dimension every non-orthogonal feature needs \u2014 a gusset at 30\u00b0, a\ndovetail, a draft face \u2014 and the one whose absence meant such geometry could\nbe *drawn* but never *driven*, so it drifted on every edit\n(docs/AUDIT-PRODUCT.md T-5). ``a`` and ``b`` are whole line entities by id,\nlike :class:`ParallelConstraint`; both must be lines. Removes one rotational\ndegree of freedom.\n\n**Which angle: the one at the shared corner.** Two lines subtend two\nsupplementary angles, and picking the wrong one is the difference between an\nacute gusset and an obtuse one. The convention, which the solver and the\nreadout both apply and the UI should display verbatim from\n:class:`SolvedAngle`:\n\n* If ``a`` and ``b`` are joined at an endpoint by ``coincident`` constraints\n  (the ordinary case \u2014 two edges of a profile meeting at a corner), the\n  angle is measured between the two lines' directions taken **away from that\n  shared corner**. That is the INTERIOR angle a user sees and would type.\n  The join is read from the sketch's coincidence constraints, symbolically \u2014\n  never from a coordinate-proximity test, which would need an epsilon\n  (CLAUDE.md) and would silently change meaning as geometry moved.\n* Otherwise the lines' authored ``start -> end`` directions are used as-is.\n\n``value_deg`` is unsigned and strictly between 0 and 180: 0 and 180 are the\ndegenerate ends where the lines are parallel (use ``parallel``), and a\nsingle unsigned number cannot say which side of ``a`` the line ``b`` sits\non. The SIDE is taken from the geometry as drawn \u2014 the solver holds the\nangle the author already has and only resizes it \u2014 so typing a number never\nflips a profile inside out.",
+        "properties": {
+          "a": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "driving": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Driving/driven flag. None (absent, the default) or True = DRIVING: the value is fed to the solver. False = DRIVEN: excluded from the constraint system; the value is measured back from the solved geometry for display (read-only, never fed as a constraint, so a driven dimension cannot over-constrain). Nullable+None-default (rather than a bare `bool`) keeps it an ADDITIVE optional field: a sketch persisted before it reads as None = driving, and the generated TS client leaves it optional. Read it through `is_driving`, never the raw tri-state.",
+            "title": "Driving"
+          },
+          "expression": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional math expression over other dimension NAMES (`+ - * / ( )`, unary minus, decimals), e.g. `\"width/2\"`. When present it SUPERSEDES `value_mm` and the geometry service re-evaluates it each solve. A bare literal dimension leaves this None. Only *driving* dimensions may be referenced; a bad expression / unknown or driven reference / cycle / division-by-zero is a clean `sketch_invalid` error, never a crash. Capped at 256 chars: an expression is a short formula over dimension names (`(width+gap)/2`), never prose, and the cap bounds parser paren-depth (<=128) and evaluator AST-depth (<=128) well under Python's recursion limit, so a hostile deeply-nested / very-long string 422s at request validation BEFORE the recursive-descent parser runs \u2014 it can never reach the kernel as an uncaught RecursionError. The parser also carries its own depth guard (defense in depth) should this cap ever be raised.",
+            "title": "Expression"
+          },
+          "kind": {
+            "const": "angle",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "description": "Dimension reference name: identifier-like, unique per sketch.",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional stable name so another dimension's `expression` can reference this one. Unique within a sketch (enforced on SketchDefinition). None = unnamed: still solves, just not referenceable.",
+            "title": "Name"
+          },
+          "value_deg": {
+            "description": "Resolved angle between the two lines, in DEGREES, measured at their shared corner when they have one. Strictly within (0, 180): the open ends are the parallel/anti-parallel degeneracies, which are the `parallel` constraint's job. The literal value when `expression` is None; otherwise the last resolved value.",
+            "exclusiveMaximum": 180.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Value Deg",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b",
+          "value_deg"
+        ],
+        "title": "AngleConstraint",
+        "type": "object"
+      },
       "AngleMate": {
         "description": "Two planar faces held at a fixed angle (fast-follow, design \u00a75).\n\nThe angular sibling of :class:`DistanceMate`: the coincident residual with\nthe angle between the two normals targeted at ``angle_deg`` (\u00a72.3). In the\nschema now; not v1-solver scope.",
         "properties": {
@@ -614,6 +690,35 @@
           "b"
         ],
         "title": "CoincidentMate",
+        "type": "object"
+      },
+      "CollinearConstraint": {
+        "description": "Two lines lie on ONE infinite line.\n\nHow a stepped profile's faces are kept flush (docs/AUDIT-PRODUCT.md T-5):\ntwo edges that must read as one straight face, with a feature between them.\nRelates two WHOLE line entities by id like :class:`ParallelConstraint`, and\nis strictly stronger than one \u2014 parallel fixes only the direction, leaving\nthe offset free, which is precisely the gap that lets a step reappear on the\nnext edit.\n\nRemoves two degrees of freedom (the direction and the offset), which is why\nit takes two planegcs constraints: ``b``'s two endpoints are each put on\n``a``'s infinite line. That is deliberately asymmetric in the WIRING and\nsymmetric in MEANING \u2014 two lines on one infinite line is the same relation\nread either way \u2014 so ``a``/``b`` order is immaterial to the solution.\n\nBoth entities must be lines. A zero-length ``b`` is degenerate: its two\nendpoints are one point, so a single constraint is doing the work of two and\nthe pair is underconstrained rather than collinear. The solver's own\ndiagnosis reports that as the remaining degree of freedom it is.",
+        "properties": {
+          "a": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "kind": {
+            "const": "collinear",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b"
+        ],
+        "title": "CollinearConstraint",
         "type": "object"
       },
       "ComposeDrawingRequest": {
@@ -1963,6 +2068,74 @@
           "plane"
         ],
         "title": "DatumPlaneRef",
+        "type": "object"
+      },
+      "DiameterConstraint": {
+        "description": "Dimension: the DIAMETER of a circle or arc (mm).\n\nHoles are specified by diameter on every drawing, every fastener table and\nevery drill chart, so a sketcher that offers only a radius forces the\nengineer to halve the number they were given \u2014 and the number on screen then\nnever matches the number on the drawing (docs/AUDIT-PRODUCT.md T-5).\n\nInternally this drives the SAME radius parameter a\n:class:`RadiusConstraint` does (planegcs's ``circle_diameter`` /\n``arc_diameter`` constrain the radius against half the value), so the two are\ninterchangeable as constraints and differ only in the number the user reads\nand types. That also means a diameter and a radius on one circle are\nredundant with each other, exactly as two radii would be.",
+        "properties": {
+          "driving": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Driving/driven flag. None (absent, the default) or True = DRIVING: the value is fed to the solver. False = DRIVEN: excluded from the constraint system; the value is measured back from the solved geometry for display (read-only, never fed as a constraint, so a driven dimension cannot over-constrain). Nullable+None-default (rather than a bare `bool`) keeps it an ADDITIVE optional field: a sketch persisted before it reads as None = driving, and the generated TS client leaves it optional. Read it through `is_driving`, never the raw tri-state.",
+            "title": "Driving"
+          },
+          "entity": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "expression": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional math expression over other dimension NAMES (`+ - * / ( )`, unary minus, decimals), e.g. `\"width/2\"`. When present it SUPERSEDES `value_mm` and the geometry service re-evaluates it each solve. A bare literal dimension leaves this None. Only *driving* dimensions may be referenced; a bad expression / unknown or driven reference / cycle / division-by-zero is a clean `sketch_invalid` error, never a crash. Capped at 256 chars: an expression is a short formula over dimension names (`(width+gap)/2`), never prose, and the cap bounds parser paren-depth (<=128) and evaluator AST-depth (<=128) well under Python's recursion limit, so a hostile deeply-nested / very-long string 422s at request validation BEFORE the recursive-descent parser runs \u2014 it can never reach the kernel as an uncaught RecursionError. The parser also carries its own depth guard (defense in depth) should this cap ever be raised.",
+            "title": "Expression"
+          },
+          "kind": {
+            "const": "diameter",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "description": "Dimension reference name: identifier-like, unique per sketch.",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional stable name so another dimension's `expression` can reference this one. Unique within a sketch (enforced on SketchDefinition). None = unnamed: still solves, just not referenceable.",
+            "title": "Name"
+          },
+          "value_mm": {
+            "description": "Resolved dimension value (mm). The literal value when `expression` is None; otherwise the last solved/resolved value (the expression supersedes it on the next solve, but a positive placeholder is still required so a pre-solve read has a value).",
+            "exclusiveMinimum": 0.0,
+            "title": "Value Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "value_mm",
+          "kind",
+          "entity"
+        ],
+        "title": "DiameterConstraint",
         "type": "object"
       },
       "DiameterDimensionParams": {
@@ -3368,11 +3541,11 @@
         "type": "object"
       },
       "ExportAssemblyRequest": {
-        "description": "Evaluate an assembly graph and export it as one multi-instance CAD file.\n\nExtends :class:`EvaluateAssemblyRequest` (the solver runs the identical\nevaluate pipeline \u2014 same solved world placements), adding only the export\n``format`` and the STL faceting parameter. STEP exports the exact B-rep as\n**AP214 product structure**: every instance that produced a body becomes a\nnamed PRODUCT positioned at its SOLVED world placement, so a downstream tool\n(or a re-import) recovers each part traceable to its instance. STL bakes the\nsolved placements into a single faceted compound (no product names \u2014 the\nformat carries none). Byte-deterministic for identical requests (RESEARCH\n\u00a79): the STEP creation timestamp is pinned kernel-side and the assembly's\nper-occurrence ids are canonicalised, so the same graph in yields identical\nbytes out, in-process and across an interpreter restart.",
+        "description": "Evaluate an assembly graph and export it as one multi-instance CAD file.\n\nExtends :class:`EvaluateAssemblyRequest` (the solver runs the identical\nevaluate pipeline \u2014 same solved world placements), adding only the export\n``format`` and the STL faceting parameter. STEP exports the exact B-rep as\n**AP214 product structure**: every instance that produced a body becomes a\nnamed PRODUCT positioned at its SOLVED world placement, so a downstream tool\n(or a re-import) recovers each part traceable to its instance. The three\nmesh formats bake the solved placements in, and differ in how much of the\nstructure survives: **3MF keeps one NAMED OBJECT per instance** (the closest\na mesh format gets to the STEP product structure), while STL and GLB flatten\nto a single faceted compound. Byte-deterministic for identical requests\n(RESEARCH \u00a79): the STEP creation timestamp is pinned kernel-side, the\nassembly's per-occurrence ids are canonicalised, and 3MF's per-object UUIDs\nare pinned, so the same graph in yields identical bytes out, in-process and\nacross an interpreter restart.",
         "properties": {
           "angular_deflection": {
             "default": 0.1,
-            "description": "STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
+            "description": "Facet angular deflection (rad) between adjacent segments for STL and 3MF; ignored for STEP (exact B-rep), and fixed service-wide for GLB. Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
             "minimum": 0.01,
             "title": "Angular Deflection",
             "type": "number"
@@ -3383,10 +3556,12 @@
             "type": "string"
           },
           "format": {
-            "description": "Export file format: STEP (exact B-rep, AP214 product structure) or STL (faceted mesh, placements baked into one compound)",
+            "description": "Export file format: STEP (exact B-rep, mm) or one of the faceted meshes - STL (mm, no units in the file), 3MF (mm, units DECLARED in the file, one object per body) or GLB (binary glTF, metres and Y-up per the glTF spec - the same payload the viewport is served)",
             "enum": [
               "step",
-              "stl"
+              "stl",
+              "3mf",
+              "glb"
             ],
             "title": "Format",
             "type": "string"
@@ -3446,27 +3621,29 @@
         "type": "object"
       },
       "ExportRequest": {
-        "description": "Build a parametric shape and export it as a downloadable CAD file.\n\nSTEP exports the exact B-rep \u2014 the deflection fields are meaningless for\nit and ignored. STL is a faceted approximation; its quality fields default\nto the tessellation defaults so the exported mesh matches what the\nviewport shows.",
+        "description": "Build a parametric shape and export it as a downloadable CAD file.\n\nSTEP exports the exact B-rep \u2014 the deflection fields are meaningless for\nit and ignored. STL, 3MF and GLB are faceted approximations; their quality\nfields default to the tessellation defaults so the exported mesh matches\nwhat the viewport shows. GLB is in fact the *identical* payload the\nviewport receives, which is why it takes ``linear_deflection`` only (the\nangular setting is fixed service-wide on the tessellation path).",
         "properties": {
           "angular_deflection": {
             "default": 0.1,
-            "description": "STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
+            "description": "Facet angular deflection (rad) between adjacent segments for STL and 3MF; ignored for STEP (exact B-rep), and fixed service-wide for GLB so an exported GLB is byte-identical to the viewport mesh. Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
             "minimum": 0.01,
             "title": "Angular Deflection",
             "type": "number"
           },
           "format": {
-            "description": "Export file format: STEP (exact B-rep) or STL (faceted mesh)",
+            "description": "Export file format: STEP (exact B-rep, mm) or one of the faceted meshes - STL (mm, no units in the file), 3MF (mm, units DECLARED in the file, one object per body) or GLB (binary glTF, metres and Y-up per the glTF spec - the same payload the viewport is served)",
             "enum": [
               "step",
-              "stl"
+              "stl",
+              "3mf",
+              "glb"
             ],
             "title": "Format",
             "type": "string"
           },
           "linear_deflection": {
             "default": 0.1,
-            "description": "STL facet linear deflection (mm), same semantics as tessellation; ignored for STEP (exact B-rep). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
+            "description": "Facet linear deflection (mm) for STL / 3MF / GLB, same semantics as tessellation; ignored for STEP (exact B-rep). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
             "minimum": 0.001,
             "title": "Linear Deflection",
             "type": "number"
@@ -3502,11 +3679,11 @@
         "type": "object"
       },
       "ExportTreeRequest": {
-        "description": "Evaluate a feature tree and export its LAST-GOOD body as a CAD file.\n\nExtends :class:`EvaluateTreeRequest` \u2014 the SAME ordered, rollback-applied\nfeature list the evaluate endpoint takes (DRY: one tree contract,\nevaluated then exported) \u2014 with the export format selection. The geometry\nservice reuses the evaluate-tree dispatch to produce the body, then exports\nTHAT body (never a re-modelled shape).\n\nSTEP exports the exact B-rep, so the deflection fields are meaningless for\nit and ignored. STL is a faceted approximation; ``linear_deflection``\n(inherited) and ``angular_deflection`` default to the tessellation defaults\nso the exported mesh matches what the viewport shows.\n\nIf the tree produces no body \u2014 a strict-prefix failure (\u00a74.3) or a tree\nwith no body-affecting feature \u2014 export is a clean error, never a file:\nthe geometry service answers a 422 ``tree_export_failed`` envelope, not a\npartial download.",
+        "description": "Evaluate a feature tree and export its LAST-GOOD body as a CAD file.\n\nExtends :class:`EvaluateTreeRequest` \u2014 the SAME ordered, rollback-applied\nfeature list the evaluate endpoint takes (DRY: one tree contract,\nevaluated then exported) \u2014 with the export format selection. The geometry\nservice reuses the evaluate-tree dispatch to produce the body, then exports\nTHAT body (never a re-modelled shape).\n\nSTEP exports the exact B-rep, so the deflection fields are meaningless for\nit and ignored. STL, 3MF and GLB are faceted approximations;\n``linear_deflection`` (inherited) and ``angular_deflection`` default to the\ntessellation defaults so the exported mesh matches what the viewport shows.\n\nIf the tree produces no body \u2014 a strict-prefix failure (\u00a74.3) or a tree\nwith no body-affecting feature \u2014 export is a clean error, never a file:\nthe geometry service answers a 422 ``tree_export_failed`` envelope, not a\npartial download.",
         "properties": {
           "angular_deflection": {
             "default": 0.1,
-            "description": "STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
+            "description": "Facet angular deflection (rad) between adjacent segments for STL and 3MF; ignored for STEP (exact B-rep), and fixed service-wide for GLB. Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
             "minimum": 0.01,
             "title": "Angular Deflection",
             "type": "number"
@@ -3521,10 +3698,12 @@
             "type": "array"
           },
           "format": {
-            "description": "Export file format: STEP (exact B-rep) or STL (faceted mesh)",
+            "description": "Export file format: STEP (exact B-rep, mm) or one of the faceted meshes - STL (mm, no units in the file), 3MF (mm, units DECLARED in the file, one object per body) or GLB (binary glTF, metres and Y-up per the glTF spec - the same payload the viewport is served)",
             "enum": [
               "step",
-              "stl"
+              "stl",
+              "3mf",
+              "glb"
             ],
             "title": "Format",
             "type": "string"
@@ -3558,7 +3737,7 @@
                 "type": "null"
               }
             ],
-            "description": "The part's human-readable document name. Names the exported STEP PRODUCT and the download filename; omitted / null falls back to the part id. EXPORT-only on purpose (see DocumentName) \u2014 it is not on EvaluateTreeRequest, because a name must never be an input to geometry.",
+            "description": "The part's human-readable document name. Names the exported STEP PRODUCT / 3MF object and the download filename; omitted / null falls back to the part id. EXPORT-only on purpose (see DocumentName) \u2014 it is not on EvaluateTreeRequest, because a name must never be an input to geometry.",
             "title": "Name"
           },
           "part_id": {
@@ -3881,6 +4060,70 @@
           "point"
         ],
         "title": "FixedConstraint",
+        "type": "object"
+      },
+      "FlatPatternDxfRequest": {
+        "description": "Export a sheet-metal part's flat pattern as a PROFILE-ONLY DXF.\n\nThe artifact a laser/turret/waterjet vendor asks for by name: the cut outline\nand the fold lines at 1:1 in millimetres, and nothing else \u2014 no sheet border,\nno title block, no bend table, no dimensions. Distinct from\n:class:`ComposeDrawingRequest`'s ``format=\"dxf\"``, which serializes a whole\nDRAWING SHEET; there the cut geometry is a handful of entities inside an A4\npage of furniture an operator has to delete by hand, every revision.\n\nTakes a PART's feature tree, not a drawing: a fabricator's flat pattern must be\nreachable from the part without authoring a drawing sheet first, which is how\nevery incumbent ships it. Extends :class:`EvaluateTreeRequest` VERBATIM (the same\nordered, rollback-applied prefix the evaluate/export routes take \u2014 one tree\ncontract) and adds only the download name, exactly as\n:class:`~py_kit.schemas.features.ExportTreeRequest` does.\n\nThere is deliberately NO scale field. A flat pattern is a cut path, not a\npicture, so 1:1 is not a default here \u2014 it is the only representable answer\n(AUDIT-PRODUCT F-1, where a 1:2 drawing sheet shipped a half-size blank).",
+        "properties": {
+          "features": {
+            "description": "Ordered prefix (rollback already applied), bounded by MAX_TREE_FEATURES (work bound, audit G2)",
+            "items": {
+              "$ref": "#/components/schemas/EvaluatedFeatureInput"
+            },
+            "maxItems": 1000,
+            "title": "Features",
+            "type": "array"
+          },
+          "linear_deflection": {
+            "default": 0.1,
+            "description": "Presentation parameter (mm), NEVER persisted per feature (design \u00a78.3). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
+            "minimum": 0.001,
+            "title": "Linear Deflection",
+            "type": "number"
+          },
+          "materials": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaterialAssignment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the part's bodies are made of (docs/design/materials.md): a document default plus per-body overrides. Omitted / null = no material, so the result reports NO mass (absent, not zero). Unlike length units \u2014 presentation metadata the kernel never sees \u2014 material is an INPUT to evaluation, because mass is derived from it."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The part's human-readable document name. Names the download filename; omitted / null falls back to the part id. EXPORT-only on purpose (see DocumentName) \u2014 it is not on EvaluateTreeRequest, because a name must never be an input to geometry.",
+            "title": "Name"
+          },
+          "part_id": {
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "tree_version": {
+            "description": "The part tree_version documents composed this request from. Echoed back verbatim on the result, where it is the PROVENANCE stamp of the returned body (EvaluateTreeResult.tree_version) as well as a cache/correlation key.",
+            "minimum": 0.0,
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id",
+          "tree_version",
+          "features"
+        ],
+        "title": "FlatPatternDxfRequest",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -4944,6 +5187,32 @@
         "title": "MeshStats",
         "type": "object"
       },
+      "MidpointConstraint": {
+        "description": "A point sits at the MIDDLE of a line.\n\nThe constraint that places a hole on the centre of an edge, and one of the\nfour an incumbent sketcher has that this one did not\n(docs/AUDIT-PRODUCT.md T-5). ``point`` names a single point \u2014 a point\nentity's ``position``, a line's endpoint, a circle's or arc's ``center``, a\nspline fit point \u2014 exactly as :class:`CoincidentConstraint`'s ``a``/``b`` do;\n``line`` is the whole line entity it is centred on.\n\nIt is NOT the same as coincident-to-a-midpoint-vertex: a line has no\nmidpoint vertex to reference, and the whole value of the constraint is that\nthe point TRACKS the middle as the line's ends move. Removes two degrees of\nfreedom (the point is fully determined by the line), which is why it takes\ntwo planegcs constraints \u2014 on the line, and on its perpendicular bisector \u2014\nwhose intersection is the midpoint exactly.",
+        "properties": {
+          "kind": {
+            "const": "midpoint",
+            "title": "Kind",
+            "type": "string"
+          },
+          "line": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Line",
+            "type": "string"
+          },
+          "point": {
+            "$ref": "#/components/schemas/EntityPointRef"
+          }
+        },
+        "required": [
+          "kind",
+          "point",
+          "line"
+        ],
+        "title": "MidpointConstraint",
+        "type": "object"
+      },
       "MirrorAxisEntity": {
         "description": "Mirror axis named by an existing **line** entity id.\n\nThe cleanest \"mirror about this construction centerline\" case: ``entity``\nmust resolve to a :class:`SketchLine` in the request's ``entities`` (else\n``sketch_target_not_found``; a non-line axis entity is\n``sketch_mirror_axis_not_line``). The line's start/end define the axis.",
         "properties": {
@@ -5136,6 +5405,32 @@
         "title": "NoteAnnotationParams",
         "type": "object"
       },
+      "OriginAxis": {
+        "description": "``kind: \"origin_axis\"`` \u2014 one of the three WORLD origin axes (X, Y, Z).\n\nThe always-available axis (REVOLVE-1): a part that has no construction\ncenterline drawn still has X, Y and Z through the world origin, so a plain\nclosed profile can be turned without first learning the centerline idiom.\nThe reference is a pure enum \u2014 no sketch entity, no picked sub-geometry \u2014\nso it is the most rebuild-stable axis there is: nothing upstream can move,\nrename or delete it, and it is wholly independent of topological naming (#1).\n\nThe axis must LIE IN the profile's sketch plane, exactly as a sketch-line\naxis does by construction. Revolving a planar profile about an axis that\nleaves its plane sweeps material out of the profile's own cross-section, so\nan out-of-plane pick is the per-feature ``axis_not_in_sketch_plane`` error,\nnever a silently wrong solid. Concretely: a sketch on the ``XY`` origin\ndatum turns about ``X`` or ``Y`` and REFUSES ``Z`` (its normal); ``XZ``\nturns about ``X`` or ``Z`` and refuses ``Y``; ``YZ`` turns about ``Y`` or\n``Z`` and refuses ``X``. A sketch on an OFFSET datum refuses every origin\naxis that its offset has lifted the plane away from (RESEARCH \u00a712 \u2014 the\nplane slides along its own normal), which is honest: the origin axis is no\nlonger in that plane.",
+        "properties": {
+          "axis": {
+            "description": "World origin axis (through 0,0,0) to revolve about. It must lie in the profile's sketch plane \u2014 an out-of-plane choice (e.g. Z for a sketch on the XY datum) is an `axis_not_in_sketch_plane` rebuild error.",
+            "enum": [
+              "X",
+              "Y",
+              "Z"
+            ],
+            "title": "Axis",
+            "type": "string"
+          },
+          "kind": {
+            "const": "origin_axis",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "axis"
+        ],
+        "title": "OriginAxis",
+        "type": "object"
+      },
       "OverlayEdge": {
         "description": "One pickable B-rep edge of the evaluated body (transient index).\n\nThe list position of this edge in :attr:`OverlayResult.edges` is its\ntransient 0-based index \u2014 the SAME ordinal ``body.edges()`` yields, so\npassing it as :class:`~py_kit.schemas.measure.EdgeTarget` ``index`` measures\nTHIS edge. The transient index is for MEASUREMENT; the STABLE, rebuild-\nsurviving reference is :attr:`signature` (topological naming) \u2014 echo it into\nan ``EdgeSubshapeRef`` to fillet/chamfer exactly this edge.",
         "properties": {
@@ -5304,6 +5599,19 @@
         "title": "ParallelConstraint",
         "type": "object"
       },
+      "PatternBodyScope": {
+        "description": "``scope: {\"kind\": \"body\"}`` \u2014 repeat the CURRENT BODY (the v1 reading).\n\nThe v1 semantic, NAMED rather than implied (design \u00a72): both inference rules\nabove run verbatim, on the same code path, producing the same bytes \u2014 so the\nshipped pattern goldens' byte identity is STRUCTURAL, not measured. This scope\nstill flips as \u00a71 measures; that is what \"additive\" costs, and the flip is now a\ndocumented property of a legacy reading the UI never authors rather than the\nonly available spelling.",
+        "properties": {
+          "kind": {
+            "const": "body",
+            "default": "body",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "title": "PatternBodyScope",
+        "type": "object"
+      },
       "PatternFeature": {
         "description": "``{\"type\": \"pattern\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
@@ -5334,8 +5642,34 @@
         "title": "PatternFeature",
         "type": "object"
       },
+      "PatternFeaturesScope": {
+        "description": "``scope: {\"kind\": \"features\", \"features\": [...]}`` \u2014 repeat these features.\n\nThe v2 reading (design \u00a72/\u00a73): each selected feature's RECORDED RIGID TOOL\nSOLID(S) are PLACED at the pattern's ``k = 1 .. count-1`` placements and that\nfeature's OWN operation (``fuse``/``cut``) is re-applied to the active body, in\nTREE order \u2014 never array order (\u00a76: array order is UI-incidental, so honouring\nit would make identical models tessellate to different bytes). The placements\ncome from the SAME kernel helpers the ``body`` path calls, so what a selection\nrepeats can never drift from what a pattern applies.\n\n``features`` names :class:`FeatureRef`s rather than bare UUIDs so each selection\nmaterialises into ``feature_dependencies`` for free (feature-tree \u00a72.3): deleting\na patterned feature is a 409-with-dependents, a reorder re-checks the\nstrict-backward rule, and a forward/self reference is a write-time 422. A\nnon-body-affecting or non-repeatable kind (``sketch``/``datum``, and every\nMODIFIER \u2014 fillet/chamfer/shell/draft and the sheet-metal family, which have a\nRESULT and no tool) is refused with the typed per-feature\n``pattern_feature_unsupported`` at rebuild.\n\n``min_length=1`` because an empty selection is authoring nonsense, not a no-op\npattern, and duplicate ids are a 422 rather than silently deduplicated \u2014 naming\na feature twice leaves the intent (twice? once?) unstated, which is the mistake\nv1 made.",
+        "properties": {
+          "features": {
+            "description": "The features to repeat, each a `FeatureRef` to an earlier body-affecting feature of this tree. Applied in TREE order (the array order is ignored \u2014 design \u00a76); at least one, at most MAX_PATTERN_SCOPE_FEATURES (work bound); duplicates are a 422.",
+            "items": {
+              "$ref": "#/components/schemas/FeatureRef"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Features",
+            "type": "array"
+          },
+          "kind": {
+            "const": "features",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "features"
+        ],
+        "title": "PatternFeaturesScope",
+        "type": "object"
+      },
       "PatternParamsV1": {
-        "description": "Repeat the current single body into a linear row or circular ring.\n\nWraps the discriminated :data:`PatternGeometry` under ``pattern`` (the\nnested-discriminator idiom of :class:`RevolveParamsV1`'s ``axis``). Like a\nfillet/chamfer, a pattern carries NO ``FeatureRef``: it operates on the\nimplicit single body chain that exists at its point in the tree (design\n\u00a77.6), so its dependency on the prior body-affecting feature is tree order,\nnot a reference. See the module-level DESIGN DECISION note for the v1\n\"pattern the whole body + union\" semantics and its stated limitations.",
+        "description": "Repeat the current single body into a linear row or circular ring.\n\nWraps the discriminated :data:`PatternGeometry` under ``pattern`` (the\nnested-discriminator idiom of :class:`RevolveParamsV1`'s ``axis``). In the\n``body`` scope a pattern carries NO ``FeatureRef``: it operates on the implicit\nsingle body chain that exists at its point in the tree (design \u00a77.6), so its\ndependency on the prior body-affecting feature is tree order, not a reference.\nSee the module-level DESIGN DECISION note for the v1 \"pattern the whole body +\nunion\" semantics and its stated limitations.\n\n``scope`` (v2, docs/design/pattern-scope.md) states WHAT is repeated \u2014 the whole\n``body`` (the reading above, kept verbatim) or an explicit selection of\n``features``, which DOES materialise ``feature_dependencies``. It defaults to\n``body`` and a persisted params blob with no ``scope`` key reads as ``body``\n(:meth:`_legacy_body_scope`), so every pattern authored before v2 evaluates on\nunchanged code.",
         "properties": {
           "pattern": {
             "description": "Linear or circular pattern geometry (discriminated on `kind`)",
@@ -5355,6 +5689,25 @@
               }
             ],
             "title": "Pattern"
+          },
+          "scope": {
+            "description": "WHAT to repeat (discriminated on `kind`): `body` repeats the current body (the v1 reading \u2014 cut-aware, with the vacuous-cut fallback), `features` places the recorded tool solids of an explicit tree-ordered selection and re-applies each feature's own boolean. Absent reads `body`, so pre-v2 patterns are unchanged (design \u00a72.1).",
+            "discriminator": {
+              "mapping": {
+                "body": "#/components/schemas/PatternBodyScope",
+                "features": "#/components/schemas/PatternFeaturesScope"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PatternBodyScope"
+              },
+              {
+                "$ref": "#/components/schemas/PatternFeaturesScope"
+              }
+            ],
+            "title": "Scope"
           }
         },
         "required": [
@@ -5443,7 +5796,7 @@
         "type": "object"
       },
       "PlanarFaceSignature": {
-        "description": "\u00a72b stage-1 geometric fingerprint of a PLANAR face \u2014 typed, kernel-free.\n\nFull-precision invariants (\u00a77.2 forbids quantizing the stored identity): the\noutward unit ``normal``, the area ``centroid`` (world mm), and the\n``area_mm2``. A planar face is uniquely fixed among a body's faces by\n(normal, centroid, area) in the common case; congruent twins of a symmetric\npart tie and resolve to an honest ``subshape_ambiguous`` (\u00a75), never a guess.\nMatching is nearest-within-tolerance at the documented subshape tolerance\n(geometry.kernel.faces / docs/GEOMETRY-QA.md), never an ad-hoc epsilon.",
+        "description": "\u00a72b stage-1 geometric fingerprint of a PLANAR face \u2014 typed, kernel-free.\n\nFull-precision invariants (\u00a77.2 forbids quantizing the stored identity): the\noutward unit ``normal``, the area ``centroid`` (world mm), and the\n``area_mm2``. A planar face is uniquely fixed among a body's faces by\n(normal, centroid, area) in the common case; congruent twins of a symmetric\npart tie and resolve to an honest ``subshape_ambiguous`` (\u00a75), never a guess.\nMatching is nearest-within-tolerance at the documented subshape tolerance\n(geometry.kernel.faces / docs/GEOMETRY-QA.md), never an ad-hoc epsilon.\n\nOUTER-BOUNDARY INVARIANTS (\u00a712b, GEOM-3 \u2014 the three ``outer_*`` fields).\n``centroid`` and ``area_mm2`` are functions of what has been CUT INTO the\nface, not of the face's identity, so on a face carrying more than one feature\nthey go stale the moment any earlier feature on it changes (\u00a712a). Tier 4 of\nthe resolver worked around that by INFERRING a bound on the missing quantity\nfrom the three numbers above, and the bound degrades linearly with how\nperforated the face is \u2014 on an ordinary vented plate it admitted a deleted\nboss top covering a quarter of the plate, i.e. silent wrong geometry. These\nthree fields carry the missing quantity outright: the area, the area centroid\nand the perimeter of the region the face's OUTER WIRE encloses, all of them\npure functions of that wire and therefore untouched by any interior edit\n(drilling, enlarging, moving or adding a hole).\n\nThey are OPTIONAL because every selector persisted before they existed must\nkeep resolving: the resolver DUAL-READS (``geometry.kernel.faces``), taking\nthe exact outer-wire comparison when they are present and the \u00a712a inferred\nband when they are not. The pick side emits them for every planar face from\n2026-08-16 on, so the legacy population is closed. Emit all three or none \u2014\na signature carrying some but not all is refused rather than downgraded.",
         "properties": {
           "area_mm2": {
             "description": "Face area (mm^2), full precision",
@@ -5458,6 +5811,43 @@
           "normal": {
             "$ref": "#/components/schemas/Vec3",
             "description": "Outward unit normal of the planar face (full precision)"
+          },
+          "outer_area_mm2": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Area (mm^2) of the region the face's OUTER wire encloses \u2014 the face with its holes plugged. Invariant under any interior boundary edit (topological-naming \u00a712b). Absent on selectors authored before 2026-08-16, which fall back to the \u00a712a inferred band.",
+            "title": "Outer Area Mm2"
+          },
+          "outer_centroid": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Vec3"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Area centroid of the outer-wire region, world mm (full precision). Absent on selectors authored before 2026-08-16."
+          },
+          "outer_perimeter_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Length (mm) of the face's OUTER wire. Separates two outer regions that share an area and a centroid but not a shape. Absent on selectors authored before 2026-08-16.",
+            "title": "Outer Perimeter Mm"
           },
           "subshape_type": {
             "const": "face",
@@ -5802,28 +6192,6 @@
         "title": "RadiusDimensionParams",
         "type": "object"
       },
-      "RevolveAxis": {
-        "description": "The axis of revolution: a straight LINE entity of the profile's sketch.\n\nv1 references a line entity by its sketch-local id (design \u00a72.4 entity ids)\nwithin the SAME sketch the profile comes from. A **construction** line is\nthe natural choice \u2014 a centerline is reference-only (excluded from the\nclosed-wire profile) and is exactly what an axis of revolution is \u2014 but any\nline entity resolves; the axis is defined by the line's two solved\nendpoints, mapped to world space through the profile's datum plane.\n\nThe ``kind`` discriminator seeds a future additive ``datum_axis`` variant\n(the \u00a72.1 ``GeomRef`` pattern) without forcing a ``param_version`` bump: a\npersisted axis is always ``{\"kind\": \"sketch_line\", \"entity\": ...}`` today,\nand a later datum-axis reference joins as ``kind: \"datum_axis\"``.",
-        "properties": {
-          "entity": {
-            "description": "Sketch-local id of a LINE entity in the profile's sketch (a construction centerline is ideal) used as the axis of revolution",
-            "minLength": 1,
-            "title": "Entity",
-            "type": "string"
-          },
-          "kind": {
-            "const": "sketch_line",
-            "default": "sketch_line",
-            "title": "Kind",
-            "type": "string"
-          }
-        },
-        "required": [
-          "entity"
-        ],
-        "title": "RevolveAxis",
-        "type": "object"
-      },
       "RevolveFeature": {
         "description": "``{\"type\": \"revolve\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
@@ -5855,7 +6223,7 @@
         "type": "object"
       },
       "RevolveParamsV1": {
-        "description": "Revolution of an earlier sketch feature's profile about a sketch-line axis.\n\nThe revolve sibling of :class:`ExtrudeParamsV1` (design \u00a74.3, second core\nbody-affecting feature): it consumes the SAME ``profile`` FeatureRef to an\nearlier sketch and the SAME ``add``/``cut`` boolean against the body chain,\nswapping the linear prism for a swept revolution. The ``axis`` is a\n:class:`RevolveAxis` (a line entity of that same sketch \u2014 no picked\nsub-geometry reference, so this is independent of topological naming), and\n``angle_deg`` is the sweep (full 360\u00b0 by default). The profile must clear\nthe axis: a profile the axis crosses would revolve into self-intersecting\nmaterial and is a per-feature ``axis_intersects_profile`` error (design\n\u00a74.3), never a silent bad body.",
+        "description": "Revolution of an earlier sketch feature's profile about an axis.\n\nThe revolve sibling of :class:`ExtrudeParamsV1` (design \u00a74.3, second core\nbody-affecting feature): it consumes the SAME ``profile`` FeatureRef to an\nearlier sketch and the SAME ``add``/``cut`` boolean against the body chain,\nswapping the linear prism for a swept revolution. The ``axis`` is a\n:data:`RevolveAxis` \u2014 a line entity of that same sketch\n(:class:`SketchLineAxis`) or a world origin axis (:class:`OriginAxis`);\nneither is a picked sub-geometry reference, so revolve remains independent\nof topological naming \u2014 and ``angle_deg`` is the sweep (full 360\u00b0 by\ndefault).\n\nTwo conditions are typed refusals rather than bad solids (design \u00a74.3):\n\n* the axis must lie IN the profile's sketch plane, or\n  ``axis_not_in_sketch_plane``; and\n* the profile must clear the axis \u2014 a profile the axis CROSSES would\n  revolve into self-intersecting material, so it is\n  ``axis_intersects_profile``. A profile that merely TOUCHES the axis is\n  valid: that is the ordinary solid of revolution about its own centerline.",
         "properties": {
           "angle_deg": {
             "default": 360.0,
@@ -5866,8 +6234,23 @@
             "type": "number"
           },
           "axis": {
-            "$ref": "#/components/schemas/RevolveAxis",
-            "description": "Axis of revolution \u2014 a line entity of the profile's sketch"
+            "description": "Axis of revolution \u2014 a line entity of the profile's sketch or a world origin axis; it must lie in the profile's sketch plane",
+            "discriminator": {
+              "mapping": {
+                "origin_axis": "#/components/schemas/OriginAxis",
+                "sketch_line": "#/components/schemas/SketchLineAxis"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SketchLineAxis"
+              },
+              {
+                "$ref": "#/components/schemas/OriginAxis"
+              }
+            ],
+            "title": "Axis"
           },
           "direction": {
             "default": "normal",
@@ -7071,6 +7454,28 @@
         "title": "SketchLine",
         "type": "object"
       },
+      "SketchLineAxis": {
+        "description": "``kind: \"sketch_line\"`` \u2014 a LINE entity of the profile's own sketch.\n\nThe v1 axis reference, and still the most direct one: a line entity named by\nits sketch-local id (design \u00a72.4 entity ids) within the SAME sketch the\nprofile comes from. A **construction** line is the natural choice \u2014 a\ncenterline is reference-only (excluded from the closed-wire profile) and is\nexactly what an axis of revolution is \u2014 but any line entity resolves; the\naxis is defined by the line's two solved endpoints, mapped to world space\nthrough the profile's datum plane.\n\nThis variant alone can also CLOSE a half-profile: a three-sided L or\nrectangle whose fourth side is the centerline builds the face the\nrevolution needs (see :func:`geometry.kernel.revolve.build_revolve_profile_face`).\nAn :class:`OriginAxis` is not a sketch entity, so it cannot close anything \u2014\na profile revolved about an origin axis must already be a closed loop.",
+        "properties": {
+          "entity": {
+            "description": "Sketch-local id of a LINE entity in the profile's sketch (a construction centerline is ideal) used as the axis of revolution",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "kind": {
+            "const": "sketch_line",
+            "default": "sketch_line",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity"
+        ],
+        "title": "SketchLineAxis",
+        "type": "object"
+      },
       "SketchMirrorRequest": {
         "description": "Input for a sketch mirror (stateless, one-shot).\n\n``entities`` is the whole sketch's entity list \u2014 passed so each new copy\ngets a fresh id that cannot collide with an existing one (and to resolve a\n:class:`MirrorAxisEntity` axis). ``targets`` names the entities to reflect;\neach MUST be present in ``entities`` (else ``sketch_target_not_found``) and\nat least one is required. ``axis`` is the mirror line (see :data:`MirrorAxis`).\n\nMirror **adds** geometry: the sources are untouched and the response carries\nonly the NEW reflected copies (see :class:`SketchMirrorResult`). Every entity\nkind is reflectable (point, line, circle, arc). Units are millimetres\n(:mod:`py_kit.schemas.sketch` convention).",
         "properties": {
@@ -7303,16 +7708,21 @@
             "items": {
               "discriminator": {
                 "mapping": {
+                  "angle": "#/components/schemas/AngleConstraint",
                   "coincident": "#/components/schemas/CoincidentConstraint",
+                  "collinear": "#/components/schemas/CollinearConstraint",
                   "concentric": "#/components/schemas/ConcentricConstraint",
+                  "diameter": "#/components/schemas/DiameterConstraint",
                   "distance": "#/components/schemas/DistanceConstraint",
                   "equal": "#/components/schemas/EqualConstraint",
                   "fixed": "#/components/schemas/FixedConstraint",
                   "horizontal": "#/components/schemas/HorizontalConstraint",
+                  "midpoint": "#/components/schemas/MidpointConstraint",
                   "parallel": "#/components/schemas/ParallelConstraint",
                   "perpendicular": "#/components/schemas/PerpendicularConstraint",
                   "radius": "#/components/schemas/RadiusConstraint",
                   "symmetric": "#/components/schemas/SymmetricConstraint",
+                  "symmetric_lines": "#/components/schemas/SymmetricLinesConstraint",
                   "tangent": "#/components/schemas/TangentConstraint",
                   "vertical": "#/components/schemas/VerticalConstraint"
                 },
@@ -7335,6 +7745,12 @@
                   "$ref": "#/components/schemas/RadiusConstraint"
                 },
                 {
+                  "$ref": "#/components/schemas/DiameterConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/AngleConstraint"
+                },
+                {
                   "$ref": "#/components/schemas/FixedConstraint"
                 },
                 {
@@ -7353,7 +7769,16 @@
                   "$ref": "#/components/schemas/SymmetricConstraint"
                 },
                 {
+                  "$ref": "#/components/schemas/SymmetricLinesConstraint"
+                },
+                {
                   "$ref": "#/components/schemas/ConcentricConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/MidpointConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/CollinearConstraint"
                 }
               ]
             },
@@ -7494,8 +7919,60 @@
         "title": "SketchSpline",
         "type": "object"
       },
+      "SolvedAngle": {
+        "description": "The computed value of one ANGULAR dimension, in degrees.\n\nThe angle counterpart of :class:`SolvedDimension`, kept as its own list on\n:class:`SolvedSketch` rather than widened into that one: ``value_mm`` is a\nrequired field of the linear readout that every existing consumer reads\nunconditionally, and there is no honest millimetre value for an angle. A\nseparate list is purely ADDITIVE (a caller that never looks at ``angles``\nbehaves exactly as before) and leaves both numbers named after their real\nunit. Keyed by the same ``constraint_index`` space, so a UI that wants one\nreadout per constraint merges the two lists by index.",
+        "properties": {
+          "constraint_index": {
+            "description": "Index into the sketch's input constraint list.",
+            "minimum": 0.0,
+            "title": "Constraint Index",
+            "type": "integer"
+          },
+          "driving": {
+            "description": "True = driving (value fed to the solver); False = driven (value measured back from the solved geometry).",
+            "title": "Driving",
+            "type": "boolean"
+          },
+          "expression": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The dimension's source expression, echoed for the UI (None for a bare literal dimension).",
+            "title": "Expression"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The dimension's reference name, if it has one.",
+            "title": "Name"
+          },
+          "value_deg": {
+            "description": "Computed value (DEGREES): the evaluated expression/literal for a driving angle, or the angle measured back from the solved geometry for a driven one \u2014 measured at the two lines' shared corner when they have one (see AngleConstraint).",
+            "title": "Value Deg",
+            "type": "number"
+          }
+        },
+        "required": [
+          "constraint_index",
+          "driving",
+          "value_deg"
+        ],
+        "title": "SolvedAngle",
+        "type": "object"
+      },
       "SolvedDimension": {
-        "description": "The computed value of one dimension constraint in a solved sketch.\n\nReported per dimension so the sketcher can show the number next to each\ndimension WITHOUT re-parsing expressions itself:\n\n* **driving** \u2014 ``value_mm`` is the evaluated literal/expression value that\n  was fed to the solver (e.g. ``height=\"width/2\"`` with ``width=20`` reports\n  ``value_mm=10``).\n* **driven** \u2014 ``value_mm`` is the value MEASURED back from the solved\n  geometry (a line's length / a circle-or-arc's radius): the read-only\n  readout that updates as the geometry it dimensions moves.\n\n``constraint_index`` points into the sketch's input constraint list, so the\nUI can line each readout up with the constraint the user authored.",
+        "description": "The computed value of one LINEAR dimension (distance/radius/diameter).\n\nReported per dimension so the sketcher can show the number next to each\ndimension WITHOUT re-parsing expressions itself. Angular dimensions are\nreported separately, on :attr:`SolvedSketch.angles`, so that no consumer can\nread a degree value out of a field named ``value_mm``.",
         "properties": {
           "constraint_index": {
             "description": "Index into the sketch's input constraint list.",
@@ -7549,6 +8026,14 @@
       "SolvedSketchData": {
         "description": "Per-feature solved-sketch payload (\u00a77.10): the solver's solved entity\npositions, status, and DOF diagnosis for an ``ok`` sketch feature \u2014 what\nthe sketcher UI renders. ``kind`` is the :data:`FeatureData` union tag.",
         "properties": {
+          "angles": {
+            "description": "Per-dimension computed values for the ANGULAR dimensions, in DEGREES. One entry per angle constraint, in input order \u2014 the same `constraint_index` space as `dimensions`, so a UI merges the two lists by index. Empty for a sketch with no angle dimensions; additive.",
+            "items": {
+              "$ref": "#/components/schemas/SolvedAngle"
+            },
+            "title": "Angles",
+            "type": "array"
+          },
           "conflicting_constraints": {
             "description": "Indices into the input constraint list that conflict.",
             "items": {
@@ -7569,7 +8054,7 @@
             "description": "Typed over-constraint classification for a SOLVED-but-over-constrained sketch (``overconstrained`` status): the redundant, removable constraints named so the sketcher can flag them without parsing text (BACKLOG #6). None for a cleanly-constrained sketch. The unsolvable (\"conflicting\") case rides FeatureError.sketch_diagnosis."
           },
           "dimensions": {
-            "description": "Per-dimension computed values (driving = evaluated expression/literal; driven = measured from the solved geometry). One entry per dimension constraint, in input order. Empty for a sketch with no dimensions; additive (pre-expression callers ignore it).",
+            "description": "Per-dimension computed values for the LINEAR dimensions (driving = evaluated expression/literal; driven = measured from the solved geometry). One entry per distance/radius/diameter constraint, in input order. Empty for a sketch with no linear dimensions; additive (pre-expression callers ignore it).",
             "items": {
               "$ref": "#/components/schemas/SolvedDimension"
             },
@@ -7834,6 +8319,42 @@
           "line"
         ],
         "title": "SymmetricConstraint",
+        "type": "object"
+      },
+      "SymmetricLinesConstraint": {
+        "description": "Two LINES are mirror images of each other about a third line.\n\nThe selection an engineer makes first \u2014 two edges and a centreline \u2014 which\n:class:`SymmetricConstraint` refuses with \"select two points and a line\"\n(docs/AUDIT-PRODUCT.md T-5). SolidWorks and Onshape both accept it, and a\nsymmetric profile is the commonest thing anyone draws about a centreline.\n\n``a`` and ``b`` are whole line entities by id; ``line`` is the axis, cleanest\nas a construction centreline but any line works. Removes four degrees of\nfreedom: ``b`` is completely determined by ``a`` and the axis.\n\n**Which end pairs with which is read off the geometry as DRAWN**, not from\nthe order the ids happen to be in: ``a``'s endpoints are reflected in the\naxis and matched to ``b``'s by whichever of the two pairings is already the\ncloser fit. A mirror reverses orientation, so an author tracing a profile\naround a loop draws the second edge running the OTHER way as often as not,\nand pairing by name would demand the line be flipped end-for-end \u2014 a jump\nacross the solution manifold, not a refinement. The choice is a function of\nthe submitted coordinates alone, so it is deterministic (RESEARCH \u00a79), and\nit is made once and shared with the residual so both measure the same\nrelation.\n\nKept as its own ``kind`` rather than widening :class:`SymmetricConstraint`'s\n``a``/``b`` to a point-or-entity union: the union would put a\n``string | object`` on the wire and leave three of its four combinations to\nbe rejected at solve time, where two exhaustive kinds are checked by the\ntype system on both sides. A UI's single \"Symmetric\" button chooses between\nthem from the selection, which is one branch.",
+        "properties": {
+          "a": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "kind": {
+            "const": "symmetric_lines",
+            "title": "Kind",
+            "type": "string"
+          },
+          "line": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Line",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b",
+          "line"
+        ],
+        "title": "SymmetricLinesConstraint",
         "type": "object"
       },
       "TangentConstraint": {
@@ -8281,7 +8802,7 @@
     },
     "/api/v1/assembly/export": {
       "post": {
-        "description": "Evaluate an assembly and export it as ONE multi-instance STEP/STL download.\n\nStateless (CLAUDE.md): documents sends the assembly graph (the SAME\n``EvaluateAssemblyRequest`` fields the evaluate route takes, plus the export\n``format``), geometry solves it through the identical pipeline\n(``solve_assembly`` \u2014 each unique part evaluated once, the mate graph solved\nto per-instance world placements), and composes every instance that produced\na body into a single file. STEP writes **AP214 product structure**: each\ninstance is a named PRODUCT at its solved placement, so a re-import recovers\neach part traceable to its instance; STL bakes the placements into one\nfaceted compound. Deterministic (RESEARCH \u00a79): the STEP timestamp is pinned\nand the per-occurrence ids canonicalised, so identical requests produce\nbyte-identical files.\n\nAn assembly where NO instance produced a body is a clean 422\n``assembly_export_no_body`` envelope (never a zero-solid file or a 500,\nmirroring ``/export/tree``'s no-body posture, \u00a74.3); a bad part/mate/solve is\nabsorbed by the solve into a best-fit placement, not a failure. The py-kit\nerror envelope stays reserved for transport/validation failures of this call.",
+        "description": "Evaluate an assembly and export it as ONE multi-instance CAD download.\n\nStateless (CLAUDE.md): documents sends the assembly graph (the SAME\n``EvaluateAssemblyRequest`` fields the evaluate route takes, plus the export\n``format``), geometry solves it through the identical pipeline\n(``solve_assembly`` \u2014 each unique part evaluated once, the mate graph solved\nto per-instance world placements), and composes every instance that produced\na body into a single file. STEP writes **AP214 product structure**: each\ninstance is a named PRODUCT at its solved placement, so a re-import recovers\neach part traceable to its instance; STL bakes the placements into one\nfaceted compound. Deterministic (RESEARCH \u00a79): the STEP timestamp is pinned\nand the per-occurrence ids canonicalised, so identical requests produce\nbyte-identical files.\n\nAn assembly where NO instance produced a body is a clean 422\n``assembly_export_no_body`` envelope (never a zero-solid file or a 500,\nmirroring ``/export/tree``'s no-body posture, \u00a74.3); a bad part/mate/solve is\nabsorbed by the solve into a best-fit placement, not a failure. The py-kit\nerror envelope stays reserved for transport/validation failures of this call.",
         "operationId": "export_assembly_route_api_v1_assembly_export_post",
         "requestBody": {
           "content": {
@@ -8296,6 +8817,18 @@
         "responses": {
           "200": {
             "content": {
+              "model/3mf": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "model/gltf-binary": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
               "model/step": {
                 "schema": {
                   "format": "binary",
@@ -8309,7 +8842,7 @@
                 }
               }
             },
-            "description": "The exported assembly file: STEP AP214 part 21 (`model/step`, exact B-rep) with product structure \u2014 each instance a named PRODUCT at its solved world placement \u2014 or binary STL (`model/stl`, faceted mesh with placements baked into one compound). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files.",
+            "description": "The exported assembly file, in the same four formats as a part, differing in how much assembly structure they keep: STEP AP214 part 21 (`model/step`, exact B-rep) with INSTANCED product structure \u2014 each instance a named occurrence of its part at its solved world placement; 3MF (`model/3mf`) with one NAMED OBJECT per instance; STL (`model/stl`) and binary glTF (`model/gltf-binary`, metres and Y-up) as one faceted compound with placements baked in. `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files.",
             "headers": {
               "Content-Disposition": {
                 "description": "attachment; filename=\"<shape>.<format>\"",
@@ -8601,6 +9134,42 @@
         ]
       }
     },
+    "/api/v1/drawing/flat-pattern/dxf": {
+      "post": {
+        "description": "Export a sheet-metal part's flat pattern as a PROFILE-ONLY DXF (F-2a).\n\nThe one-action flat pattern every incumbent ships and we did not: the cut path a\nlaser/turret/waterjet vendor's nesting and quoting software ingests unmodified.\nUntil now the only flat pattern we could produce was a whole A4 DRAWING SHEET \u2014\nthe product audit measured the cut geometry at **5 of 29 entities**, extents\n10..287 x 10..200 mm \u2014 so an operator had to import the sheet and delete the\nfurniture by hand for every revision.\n\nTakes a PART's feature tree, not a drawing: this must be reachable without\nauthoring a drawing sheet first. Internally it evaluates and places the pattern\nthrough the SAME ``evaluate_drawing_views`` / ``place_sheet`` pipeline the drawing\nuses, so the exported cut path and the drawn one are the same geometry, then\nserializes only that view's edges. **1:1 by construction** \u2014 the request has no\nscale to ask otherwise with. Identity-free (the gateway owns auth); deterministic\n(RESEARCH \u00a79): same request => identical bytes.\n\nA part with no developable flat pattern is a typed 422, never an empty file.",
+        "operationId": "flat_pattern_dxf_route_api_v1_drawing_flat_pattern_dxf_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlatPatternDxfRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "image/vnd.dxf": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The profile-only flat pattern as DXF (`image/vnd.dxf`): the cut outline and fold lines at 1:1 in millimetres, on the `VISIBLE` and `BEND` layers, with no sheet border, title block, bend table or dimensions. `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical bytes."
+          },
+          "422": {
+            "description": "The part has no flat pattern to cut \u2014 a `flat_pattern_not_sheet_metal` / `flat_pattern_failed` / `flat_pattern_empty` envelope. NEVER an empty DXF: a shop cannot tell an empty file from a broken export."
+          }
+        },
+        "summary": "Flat Pattern Dxf Route",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
     "/api/v1/evaluate": {
       "post": {
         "description": "Evaluate an ordered feature-tree prefix (feature-tree design \u00a74).\n\nStateless: documents sends the full ordered, validated, current-version\nfeature list (rollback bar already applied); the response is per-feature\nstatuses plus object-storage artifact references, under the strict-prefix\nrule (\u00a74.3 \u2014 first failure ``error``, the rest ``skipped``). A feature\nfailure is a **200 with per-feature errors**; the py-kit error envelope\nstays reserved for transport/validation failures of this call itself.",
@@ -8645,7 +9214,7 @@
     },
     "/api/v1/export": {
       "post": {
-        "description": "Build a parametric shape and export it as a STEP or STL download.",
+        "description": "Build a parametric shape and export it as a STEP/STL/3MF/GLB download.",
         "operationId": "export_api_v1_export_post",
         "requestBody": {
           "content": {
@@ -8660,6 +9229,18 @@
         "responses": {
           "200": {
             "content": {
+              "model/3mf": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "model/gltf-binary": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
               "model/step": {
                 "schema": {
                   "format": "binary",
@@ -8673,7 +9254,7 @@
                 }
               }
             },
-            "description": "The exported CAD file: STEP AP214 part 21 (`model/step`, exact B-rep) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files.",
+            "description": "The exported CAD file: STEP AP214 part 21 (`model/step`, exact B-rep, mm), binary STL (`model/stl`, faceted mesh, mm), 3MF (`model/3mf`, faceted mesh in an OPC package that DECLARES millimetres and carries one object per body) or binary glTF (`model/gltf-binary`, faceted mesh in **metres and Y-up** per the glTF spec \u2014 the same payload the viewport is served). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files.",
             "headers": {
               "Content-Disposition": {
                 "description": "attachment; filename=\"<shape>.<format>\"",
@@ -8702,7 +9283,7 @@
     },
     "/api/v1/export/tree": {
       "post": {
-        "description": "Evaluate a feature tree and export its LAST-GOOD body as STEP/STL.\n\nReuses the evaluate-tree machinery verbatim (``evaluate_tree`` \u2014 the same\nordered dispatch + strict-prefix rule as ``POST /api/v1/evaluate``, no\nduplicated logic), then exports the resulting kernel body through the\nSAME format dispatch parametric shapes use (``export_solid``). A tree that\nproduces no body \u2014 a strict-prefix failure or a body-less tree \u2014 is a\nclean 422 ``tree_export_failed`` envelope (never a 500, never a partial\nfile); the failing ``FeatureError`` rides in the envelope details.\nDeterministic: the STEP timestamp is pinned exactly as on the shape path.",
+        "description": "Evaluate a feature tree and export its LAST-GOOD body as a CAD file.\n\nReuses the evaluate-tree machinery verbatim (``evaluate_tree`` \u2014 the same\nordered dispatch + strict-prefix rule as ``POST /api/v1/evaluate``, no\nduplicated logic), then exports the resulting kernel body through the\nSAME format dispatch parametric shapes use (``export_solid``). A tree that\nproduces no body \u2014 a strict-prefix failure or a body-less tree \u2014 is a\nclean 422 ``tree_export_failed`` envelope (never a 500, never a partial\nfile); the failing ``FeatureError`` rides in the envelope details.\nDeterministic: the STEP timestamp is pinned exactly as on the shape path.",
         "operationId": "export_tree_api_v1_export_tree_post",
         "requestBody": {
           "content": {
@@ -8717,6 +9298,18 @@
         "responses": {
           "200": {
             "content": {
+              "model/3mf": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "model/gltf-binary": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
               "model/step": {
                 "schema": {
                   "format": "binary",
@@ -8730,7 +9323,7 @@
                 }
               }
             },
-            "description": "The exported CAD file: STEP AP214 part 21 (`model/step`, exact B-rep) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files.",
+            "description": "The exported CAD file: STEP AP214 part 21 (`model/step`, exact B-rep, mm), binary STL (`model/stl`, faceted mesh, mm), 3MF (`model/3mf`, faceted mesh in an OPC package that DECLARES millimetres and carries one object per body) or binary glTF (`model/gltf-binary`, faceted mesh in **metres and Y-up** per the glTF spec \u2014 the same payload the viewport is served). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files.",
             "headers": {
               "Content-Disposition": {
                 "description": "attachment; filename=\"<shape>.<format>\"",

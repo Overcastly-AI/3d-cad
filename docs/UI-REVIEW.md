@@ -3029,3 +3029,1301 @@ the origin, so the absence is visible.
 - **The frame under undo/redo**, and deleting the coincident that grounded a
   profile (the origin entity and its pin stay in the sketch afterwards — a
   permanent, unremovable construction point; harmless but unasserted anywhere).
+
+---
+
+## 2026-08-17 — FOUNDER-DIRECTED AUDIT: the main file page, and where EXPORT lives
+
+**Trigger (founder, verbatim):** *"We could shift to the UI. The main file page
+looks like an after thought. … Also the button to export should not be with all
+the mass properties."*
+
+**Method.** Real stack, no containers: geometry :8032, documents :8031, gateway
+:8030 on per-agent SQLite (`uiaudit-*.db`), Vite :5183. Real Chromium at
+1600×1000 and 1280×800 (plus 1440×900 / 1400×800 / 1366×768 / 1280×900 for the
+viewport bracket). Content seeded through the real gateway: an EMPTY account, a
+ONE-part account, an 18-part + 2-folder + 2-assembly account with one part
+carrying a real evaluated body, and a 120-part account. Every number below is
+measured in the running app (`getBoundingClientRect`, computed styles, tab
+counts), not read off the source.
+
+### VERDICT ON THE FOUNDER'S TWO CLAIMS
+
+**Claim 1 — "the main file page looks like an afterthought": CONFIRMED as a
+read, REFUTED as a diagnosis, and the difference decides the fix.**
+
+The surface is not unconsidered — `DocumentRegister.tsx` carries ~140 lines of
+design rationale and the craft is real (see "What is actually good", below). The
+defect is that it was designed as a **log book** (a ruled register you scribe
+the next line into) and a working engineer needs a **file browser** (a place to
+find one model out of two hundred and be inside it in two seconds). Judged as a
+log book it succeeds. Judged against the Fusion Data Panel and the Onshape
+document list — which is the bar — it loses on every axis those two compete on:
+no preview, the identifying column is the third-narrowest, the widest column is
+row verbs, and the newest work sorts last. That is what "afterthought" is
+detecting. Measurements in P1-2 and P1-3.
+
+**Claim 2 — "the button to export should not be with all the mass properties":
+CONFIRMED, and the real situation is worse than the founder described. One
+detail in the wording is wrong and worth correcting** — the panel is not titled
+"mass properties". `BodyInspector.tsx:89` renders `propertiesEyebrow(mass)`,
+which reads **PROPERTIES** and suppresses the Mass row entirely until a material
+is assigned (`docs/design/materials.md` §6.1 — a deliberate anti-overclaim fix).
+So the label is honest. The **information architecture** is exactly as reported:
+export is the last cell of a readout stack (MATERIAL → PROPERTIES → BOUNDING BOX
+→ TOPOLOGY → STATUS → **EXPORT**), styled as a readout cell, inside a panel the
+user can collapse — and collapsing it deletes the only export affordance in the
+product. Measurements in P1-1.
+
+### THE TOP THREE
+
+#### P1-1 — Part workspace — EXPORT is a child of a readout panel, and collapsing that panel removes the only way to issue a file
+
+*Evidence:* `docs/screenshots/uiaudit-part-inspector-export-1600.png` (export as
+the bottom cell of the inspector column),
+`uiaudit-part-inspector-collapsed-1600.png` (inspector collapsed — no export
+anywhere on screen). `apps/web/src/routes/PartPage.tsx:4665-4680`;
+`AssemblyInspectorPanel.tsx:113-119`.
+
+Measured:
+
+- With the Inspector collapsed via its own `panel-collapse-inspector` control,
+  `[data-testid="part-export-controls"]` count = **0**, visible = **false**.
+  There is no File menu, no export in the top toolbar (its groups are HISTORY /
+  CREATE / MODIFY / SHEET METAL / INSPECT), and no export on the breadcrumb. The
+  user must know that a panel called *Inspector* is where files come from.
+- **53 Tab presses** from document start to reach `part-export-step` at
+  1600×1000. Export is the product's terminal action and it is the 53rd stop.
+- Same defect at a second address: the assembly workspace pins its `ExportRow`
+  under a SegmentedControl of **Solve / BOM / Clash** readouts
+  (`AssemblyInspectorPanel.tsx:113`).
+- Collapsing the panel is not an odd thing to do — mandate 3 tells the user's
+  instinct to do it ("the viewport is the hero"), and the collapsed frame is
+  visibly better. The UI rewards the gesture by removing a verb.
+
+Why it costs the user: an action is not a measurement. Fusion puts export behind
+the application/File menu, persistently, regardless of which side panels are
+open; Onshape puts it on the document tab's own context menu, also always
+present. Neither makes it a child of a properties panel. Here, a user who has
+modelled a part and wants a STEP file has no document-level place to look.
+
+**Recommended fix — the product already contains the answer.** The drawings
+workspace puts export in its top command band as its own tool group:
+`DrawingCommandBand.tsx:225` `<ToolGroup eyebrow="Export">` → EXPORT SVG /
+EXPORT PDF / EXPORT DXF, evidenced in
+`docs/screenshots/uiaudit-drawing-export-band-1600.png`. Do exactly that in
+`TopToolbar` (part) and `AssemblyCommandBand` (assembly): an **EXPORT** tool
+group beside INSPECT, carrying the same `exportGate` state (disabled + a
+mouse-and-keyboard-reachable reason, which `PanelActionCell` already supports).
+Keep the ruled strip in the inspector if you like — it is the right place for
+the *notice* ("this file would be partial") — but the primary affordance belongs
+in document-level chrome, where it survives a panel collapse. This is a
+system-level fix: three workspaces, one `ToolGroup eyebrow="Export"` pattern
+that already exists.
+
+#### P1-2 — Parts register — the table spends its width on constants and its emphasis on destructive verbs; the identifying column is third-narrowest and hard-clips
+
+*Evidence:* `docs/screenshots/uiaudit-parts-many-1600.png`,
+`uiaudit-parts-many-1280.png`. `DocumentRegister.tsx:787-801` (`COLUMN`),
+`DocumentRegisterRow.tsx:243-275`.
+
+Measured column widths at 1280×800 (total 957 px):
+
+| column | px | share | distinct values over the sample |
+|---|---|---|---|
+| # (ordinal) | 56 | 6 % | — |
+| **Name** | **173** | **18 %** | the only discriminating column |
+| Units | 72 | 8 % | `mm, mm, mm, mm` |
+| Last worked | 144 | 15 % | mostly `NOT STARTED` |
+| Rebuild | 144 | 15 % | `—` on 14 of 15 rows |
+| Filed | 112 | 12 % | `2026-08-17` ×4 |
+| **Actions** | **256** | **27 %** | RENAME DUPLICATE MOVE DELETE, every row |
+
+So the widest column in a file browser is row verbs, at **1.5× the name**, and
+three columns totalling **34 %** carry a constant. UNITS and FILED are
+structurally constant (a document unit is a preference nobody varies per part;
+FILED is same-day for everything made in a session) — REBUILD is legitimately
+variable in real use, so discount that one; the other two are not defensible.
+Note `DocumentRegister.tsx:38-45` diagnoses this exact failure in the *previous*
+design ("two columns of the same string") — the redesign reintroduced it at a
+new address.
+
+The name is **hard-clipped with no ellipsis and no tooltip**.
+`<td class="truncate">` sets `text-overflow: ellipsis`, but the link inside is
+`inline-flex` (`DocumentRegisterRow.tsx:261`), which is an atomic inline box — it
+gets clipped, not ellipsised. Computed `text-overflow` on the anchor: `clip`;
+`title`: `null`. "Motor mount adapter plate rev C" measures 207 px in a 149 px
+content box and renders as `Motor mount adapter plat` with no cue that anything
+is missing and no way to recover it. Two parts whose names diverge past the cut
+are indistinguishable.
+
+There is also **no preview of any kind**. Every row is text. Fusion's Data Panel
+and Onshape's document list are both thumbnail-first, because a shape is
+recognised faster than a name is read, and because engineers name things badly.
+This is the single largest "afterthought" signal on the page.
+
+**Recommended fix (system-level):** (a) collapse RENAME / DUPLICATE / MOVE /
+DELETE into a single row overflow menu (a `⋯` button + the existing `Flyout`
+primitive) and give the reclaimed 200 px to NAME — this alone fixes the clip;
+(b) fix the primitive: make the row link `inline` (or put
+`overflow:hidden;text-overflow:ellipsis` on the anchor) **and** stamp `title`
+with the full name, so truncation is visible and recoverable everywhere the
+register is used; (c) drop UNITS from the table into the row's secondary line or
+onto hover, and reclaim FILED for a thumbnail cell; (d) file a backend item for
+a part thumbnail (the geometry service already tessellates — a cached PNG per
+`tree_version` is the missing piece), because no amount of table tuning
+substitutes for a picture.
+
+#### P1-3 — Parts register — the return trip is backwards: oldest sorts first, the create control is below the fold, and the header/filter/sort/count scroll away
+
+*Evidence:* `docs/screenshots/uiaudit-parts-120-1280.png`,
+`uiaudit-parts-120-1280-bottom.png`, `uiaudit-parts-many-1280-scrolled.png`.
+`DocumentRegister.tsx:255` (`DEFAULT_SORT`), `:1026` (`ScribeLine`),
+`PartsPage.tsx:34`.
+
+Measured, on a 120-part drawer at 1280×800:
+
+- `aria-sort` on load: `Filed → ascending`. Order returned = creation order,
+  oldest first. The page's own caption says so: *"Your parts, oldest first."*
+  The thing a returning engineer wants is **what they touched last**, and it is
+  the 120th row. Fusion's Data Panel and Onshape both default to
+  recently-modified-first. The register even has the right column (LAST WORKED)
+  and sorts by it — just not by default.
+- `main.scrollHeight` = **5145 px** against `clientHeight` = 756. The only
+  create control (the scribe line, ordinal 121) sits at the **bottom** of those
+  5145 px. On any drawer past ~13 parts, "new part" is off-screen. The `N`
+  accelerator does work and scrolls it into view, but `N` is taught by a `Kbd`
+  chip that lives *on the scribe line* — i.e. it is only discoverable where it
+  is not needed.
+- `thead tr` computed `position: static`. Scrolling therefore loses the column
+  headers **and** the sort controls (they are the headers), the FILTER field,
+  the count readout and the workspace nav simultaneously. At row 104 the screen
+  is six columns of unlabelled data with no way to re-sort without scrolling
+  back 4 000 px.
+
+**Recommended fix:** default sort → LAST WORKED descending (one constant,
+`DEFAULT_SORT`, and update the caption); make the header rule sticky within the
+register's scroll container so sort/filter/count stay addressable; move the
+create affordance to a persistent position (the header rule is where it belongs
+— the scribe line can stay as the in-place gesture) or float it. Optionally add
+a short "Recent" band above the register — this is what Fusion's home and
+Onshape's "Recently opened" do, and it is the whole answer to "get me back into
+the thing I was doing".
+
+### THE REST, RANKED
+
+#### P1-4 — Part workspace — the ViewCube is ABSENT at every viewport height ≤ 800 px
+
+Mandate 3a calls persistent view navigation "table stakes". It is not
+persistent. Bracketed by capture:
+
+| viewport | canvas | ViewCube |
+|---|---|---|
+| 1600×1000 | 1600×852 | present — `uiaudit-viewcube-1600x1000-present.png` |
+| 1440×900 | 1440×752 | present — `uiaudit-viewcube-1440x900-present.png` |
+| 1280×900 | 1280×752 | present — `uiaudit-viewcube-1280x900-present.png` |
+| 1400×800 | 1400×652 | **absent** — `uiaudit-viewcube-1400x800-absent.png` |
+| 1280×800 | 1280×652 | **absent** — `uiaudit-part-inspector-export-1280.png` |
+| 1366×768 | 1366×620 | **absent** — `uiaudit-viewcube-1366x768-absent.png` |
+
+Height-driven, not width-driven: 1280×900 has it, 1400×800 does not. The break
+is between a 752 px and a 652 px canvas, i.e. exactly the two commonest laptop
+frames (1280×800, 1366×768) — the responsive floor CLAUDE.md names, and the
+frame `PartPage.tsx:4662` itself calls out. The ViewBar (home/fit/front/top/
+right/iso) is still present, so navigation is not lost, only the cube; that is
+why this is fourth and not first. `Viewport.tsx:562` `GizmoHelper` with
+`margin=[96,96]`, `CUBE_MARGIN_PX = 96` — the cube's own footprint constant
+(`CUBE_FOOTPRINT_PX = 120`) suggests 96 + 120/2 exceeds something at short
+canvas heights. Needs a builder to root-cause; a regression test asserting cube
+ink at 1280×800 should ship with the fix. NB a naive canvas `drawImage` readback
+does NOT discriminate here (it returned ~350 near-white pixels at every width,
+present or absent) — assert on the page screenshot, not the WebGL buffer.
+
+#### P2-1 — Parts register — the row lights up on hover but only the name text is clickable, and OPEN is the only verb without a label
+
+`<tr class="… hover:bg-carbide">` (`DocumentRegisterRow.tsx:236`) highlights the
+whole 957 px row; the only navigable element is the anchor, measured at **84 px**
+wide for "Bracket plate". The other ~870 px of a row that visibly responds to
+the pointer do nothing. Meanwhile FOLDER rows carry an explicit **OPEN** verb
+and document rows do not — so on the same table, the primary action is
+unlabelled while three secondary actions and one destructive one are labelled at
+equal weight. That is inverted priority, and it is the founder's "afterthought"
+in miniature. Fix: make the row cell (or the row) the open target with the
+anchor still the accessible name, and put DELETE behind the overflow menu from
+P1-2.
+
+#### P2-2 — Parts register (empty) — first impression is a form in a void
+
+`uiaudit-parts-empty-1600.png`: at 1600×1000 the register occupies x≈320–1280
+(60 % of the frame; **40 % is empty grid**), and inside it a 4-line invitation
+sits above ~850 px of blank ruled lines. There is no sample part, no import
+path, no statement of what Loft does. Onshape ships sample documents for exactly
+this moment. Fix: give the empty state something to *do* besides type — one
+"open a sample part" that seeds a real 3-feature tree is the cheapest retention
+lever on the page — and let the register use the full frame rather than a
+`max-w-5xl` marketing column (`PartsPage.tsx:79`).
+
+#### P2-3 — Parts register — the FILTER field is rendered at n = 1
+
+`uiaudit-parts-one-1280.png`: a single part, and the header still carries FILTER
++ its `/` chip. It is not *dead* (it works), but a filter over one row is chrome,
+and mandate 3c's spirit is that a control should be able to justify itself.
+Suggest a threshold (say ≥ 8 rows) — the `/` accelerator can stay live regardless.
+
+#### P3-1 — Parts register — FILTER label and input sit on different baselines
+
+Visible in every register shot: the header is `items-baseline`, but the input
+carries `pb-0.5` + a bottom border, so the value "Name contains…" rides above
+the tracked FILTER label. One-line primitive fix.
+
+#### P3-2 — Register — 10 px row verbs; 24 px targets meet the AA floor and nothing more
+
+Row verbs compute to `font-size: 10px` uppercase with 0.14em tracking, hit
+targets 53×24 / 76×24 / 38×24 / 53×24. That satisfies WCAG 2.5.8 (24 px minimum)
+exactly, with no margin, and is well under a comfortable touch target. Relevant
+because `playwright.config.ts` still has no touch project (TOUCH-1), so no
+tablet-class pass has ever run over this table. Largely moot if P1-2's overflow
+menu lands.
+
+#### P3-3 — Scale watch — 120 rows render in full, no virtualisation, no pagination
+
+Measured: 120 documents → 120 `<tr>`, `scrollHeight` 5145 px, no perceptible
+lag. Correct today, and correctly documented (`DocumentRegister.tsx:258-267`
+notes the whole drawer is on the wire so "4 of 12" can mean it). Flagged only so
+the pairing is remembered: the day the list endpoint paginates, the filter must
+move server-side in the same change.
+
+### What is actually good (do not regress these while fixing the above)
+
+- **Contrast and focus pass cleanly.** Every sampled register token measures
+  **7.18:1** or better on `anvil` (column headers, row verbs, "Not started",
+  count) and the name link 13.21:1. The focus ring is an unmistakable brass
+  outline — `uiaudit-parts-focus-1600.png`.
+- **The scribe line is genuinely distinctive.** A create control that is the
+  *next numbered line of the register*, carrying the next ordinal, is the one
+  thing on this page no template would produce. Keep it; just stop making it the
+  only way to create (P1-3).
+- **Filter semantics are honest and better than the incumbents'.** It searches
+  the whole drawer including inside folders, each hit states where it lives
+  (`uiaudit-parts-filtered-1600.png`), and the count becomes a fraction ("2 of
+  18 parts") so an empty result reads as "nothing matched" rather than "my work
+  is gone". `uiaudit-parts-no-matches-1600.png` names the query and offers the
+  one control that fixes it.
+- **Sort-as-column-header** adds no chrome and carries real `aria-sort`.
+- **Folders-as-dividers** with server-supplied counts, and a breadcrumb that IS
+  the title — no second navigation strip.
+- **The part workspace itself reads as a tool.** Studio matcap, grid to the
+  horizon, atmospheric background, honest PROPERTIES/STATUS cells. The founder's
+  complaint is about the file page and the export placement, not this.
+
+### Coverage this pass did NOT reach
+
+- Drawings register (only the drawings *workspace* command band was captured).
+- Touch/tablet viewports (no touch project exists — TOUCH-1).
+- `prefers-reduced-motion` on the register was launched but the register carries
+  only `duration-fast` colour transitions, so there was nothing to observe; the
+  viewport's reduced-motion path was not re-exercised this pass.
+- Long-content in a FOLDER name, and a drawer with >5 folders.
+
+### Running component checklist (delta from this pass)
+
+- 🔴 `DocumentRegister` / `DocumentRegisterRow` — P1-2, P1-3, P2-1, P2-3, P3-1, P3-2
+- 🔴 `PartsPage` / `AssembliesPage` / `DrawingsPage` shell — P2-2 (max-w-5xl column, empty state)
+- 🔴 `TopToolbar` / `AssemblyCommandBand` — P1-1 (no EXPORT group; `DrawingCommandBand` has one)
+- 🔴 `Viewport` / `ReferenceCube` — P1-4 (absent ≤ 800 px viewport height)
+- ✅ `ExportRow` — the strip itself is correct (honest gate, reason on the cell,
+  `aria-live` status); only its PLACEMENT is the defect
+- ✅ `BodyInspector` — the readouts and the PROPERTIES/MASS honesty are right
+- ✅ Register focus / contrast / filter / empty-result states
+
+---
+
+## 2026-08-27 — REACH-2 spot-check: "a pattern says what it repeats" (`ec9c569`)
+
+**Verdict: the capability is REACHABLE, and the flow it was built to deliver is
+not.** `PatternParamsV1.scope` went from having no control at all to having a
+good one, and I can author a feature-scoped pattern end to end. But the *verb
+proposal* — the half of this ticket that makes the scope discoverable rather
+than merely available — is invisible at the 1280x800 quality floor, is
+destroyed the moment the user disposes of it, and names a subject nothing in
+the frame confirms. Present, not yet flowing.
+
+**Method.** Real stack on isolated ports (geometry :8032, documents :8031,
+gateway :8030, Vite :5183), real Chromium at 1600x1000 and 1280x800, three
+scripted audit passes driving the actual UI (plate -> hole -> fillet -> pattern;
+plate -> two holes -> pattern -> rename). Contrast, focus ring, tab ring,
+`prefers-reduced-motion` and root overflow measured in-page. Evidence under
+`docs/screenshots/ui-audit/reach2-*.png`.
+
+### P1-1 — Create/Modify band — at 1280x800 the proposal is not rendered at all
+
+`reach2-verb-1280-icontier.png`. With `Hole1` selected, MODIFY has measured
+itself into the **icon tier**, so `verbLabel()`'s "Repeat Hole1" — the entire
+visible payload of this feature — is shed. What a user sees at the quality
+floor named in mandate 5 is an unchanged row of unlabelled glyphs. The only
+sighted channel left is a hover tooltip on one of them
+(`reach2-verb-1280-hover-only.png`), and **a hover tooltip is a confirmation,
+not an affordance**: nobody hovers a glyph to discover a capability they do not
+know exists. The founder's own test — "the next step is visible from the
+current state" — fails at the width the floor names.
+
+The commit message states this was handled "through the band's own designed
+channel (the tooltip caption, which is never shed and which `aria-describedby`
+already routes to screen readers)". **That routing does not happen.**
+`ToolButton` computes `hasGateReason = isDisabled && Boolean(caption)`
+(`packages/design/src/primitives/ToolButton.tsx:117`), so the caption id is
+emitted only while the button is DISABLED. Measured at 1280 with the proposal
+live: `aria-describedby: null`, tooltip node `aria-hidden`. Nothing is lost to
+AT — `aria-label` carries "Repeat Hole1 — place it in a linear or circular array
+(P)" and an aria-label is never shed — but the mechanism the fix was justified
+by is not the one operating, and the builder's own founder shot
+(`docs/screenshots/pattern-scope-verb-laptop.png`) shows the label absent
+rather than present.
+
+*System-level fix.* The proposal is a state change, not a name, and should not
+ride the label tier at all. Give `CommandBand`/`ToolGroup` a **proposal
+channel** that survives the icon tier — e.g. a brass scribe or subject chip on
+the proposing verb plus a one-line "Repeat Hole1" in the IN COMMAND / status
+rail that already exists at the top-left. Fix it in the primitive so every
+future verb that learns to propose inherits it. Separately, `ToolButton` should
+route `aria-describedby` to the caption whenever a caption exists, not only when
+disabled — the current condition is a narrower promise than the doc comment
+above it makes.
+
+### P1-2 — Pattern/Mirror editor — the named subject has no echo anywhere
+
+`reach2-two-holes-no-echo.png` is the whole finding in one frame: two identical
+Ø8 bores, the card reading `Repeats · THIS BODY | HOLE1`, and **nothing** saying
+which hole that is. Measured with the editor open and scope = Hole1:
+tree row `Hole1` `aria-pressed=false`, zero rows carrying the selected border,
+zero timeline chips marked, no viewport highlight. The user is asked to trust a
+nine-character string against geometry they cannot distinguish.
+
+Root cause is REACH-2's own path: `openCreatePattern` reads the seed and then
+calls `setSelectedFeatureId(null)` (`apps/web/src/routes/PartPage.tsx:2063`).
+The commit correctly moved the read *before* the clear, but never asked whether
+clearing was right at all. It is not: the row is still the subject.
+
+*System-level fix.* While a command holds a feature scope, that feature stays
+marked in the tree, marked in the timeline, and its faces highlighted in the
+viewport with the existing selection token. This is table stakes against Fusion,
+where the scoped feature lights up in the canvas, and it is the difference
+between "I named a thing" and "I can see the thing I named".
+
+### P1-3 — Pattern/Mirror — disposing of the dialog destroys the proposal
+
+Measured: click `Hole1` -> Escape -> band reads "Repeat Hole1" -> press Pattern
+-> editor opens scoped -> press **Cancel** -> band reverts to plain "Pattern"
+and `feature-select-2` `aria-pressed=false`
+(`reach2-proposal-lost-after-cancel.png`). To try again the user must repeat the
+entire click/Escape/press dance. "The tool proposes, the user disposes" has to
+mean the user disposes of the *pattern*, not of their own selection. Same
+`setSelectedFeatureId(null)` as P1-2; fixing that fixes this.
+
+### P1-4 — The stated flow requires opening and abandoning an editor nobody asked for
+
+The advertised gesture is "select Hole1, press Pattern". What the product
+actually requires is **click -> an edit dialog you did not want opens and locks
+the band -> Escape -> press Pattern**. The builder documents this honestly and
+proposes single-click-selects / double-click-edits as a follow-up; I am raising
+it to P1 because it is not a cosmetic detour, it is the reachability path
+itself. Two costs, both measured:
+
+- The band is **locked while the unwanted editor is open** (`new-pattern`
+  disabled, reason "Finish Hole1 first"), so the flow's own first step blocks
+  its second.
+- The user is routed through a live edit form every time. I dirtied
+  `hole-diameter` 8 -> 14 and pressed Escape: editor closed, **no confirm, no
+  toast, no undo affordance** (`confirm dialog=0, toast=0`). Nothing was
+  committed so no work was lost here — but making "open a form and abandon it"
+  a *mandatory* step of a selection gesture is the FB-13 class of defect
+  (ambiguous exits make people hesitate), designed in rather than stumbled into.
+
+*System-level fix.* Single click selects; double click (or Enter on the focused
+row) edits. That is Fusion's timeline behaviour and the muscle memory this
+product is asking people to keep.
+
+### P2-1 — The plain "Pattern" verb promises the body and authors a feature scope
+
+With **nothing selected** after drilling a hole, the button reads "Pattern",
+its accessible name reads "Pattern — **repeat the body** in a linear or circular
+array (P)", and the editor it opens has `features` scope pre-selected on the tip
+feature (`defaultScopeMode` returns `features` for a subtractive tip). Measured:
+`body aria-pressed=false, features aria-pressed=true, label="HOLE1"`.
+
+The reasoning behind the default is sound — a cut tip is precisely §1's coin
+flip, so proposing the unambiguous reading is right. The defect is that the
+*verb's accessible name is now a false statement about what pressing it does*,
+and the visible label gives no hint the reading changed. Either make the
+no-selection hint honest ("repeat the last feature or the whole body"), or seed
+`body` when `fromSelection` is false. The first is better; it keeps the good
+default and stops the button lying.
+
+### P2-2 — `ScopeRow` — the note that carries the whole warning is not programmatically associated
+
+`scopeNote()` is the best copy in this diff — "Repeats whatever the tree hands
+it here — Hole1's cut today, the whole body once another feature lands between
+them. Name Hole1 to say which you mean." — and a screen-reader user never hears
+it. Measured: the `role="group"` has `aria-label="Repeats"` and
+**`aria-describedby: null`**; the `<p>` has no `id`, no `role`, no `aria-live`.
+Focusing either segment announces "Repeats Hole1, pressed" and stops. The same
+gap makes the refusal string (`scopeRefusal()`, shown when the control is
+disabled because nothing is repeatable) unreachable to AT — and a disabled
+control that cannot explain itself is the chrome-honesty rule's exact target.
+
+*Fix in `ScopeRow`/`SegmentedControl`:* give the note an `id`, point the group's
+`aria-describedby` at it, and add `aria-live="polite"` so flipping the segment
+announces the new reading rather than only the new pressed state.
+
+### P3-1 — Pattern editor — autofocus lands on Count, three stops past the subject
+
+`2a`: on open, focus is `pattern-count`. The card's own comment calls the scope
+row "the first thing the user should read"; a keyboard user must Shift+Tab three
+times (`pattern-kind-circular > pattern-kind-linear > pattern-scope-features >
+pattern-scope-body`) to reach it. Focus the scope row when the editor opens on a
+proposed subject — that is the field the user is being asked to confirm.
+
+### P3-2 — `SegmentedControl` — arrow keys do nothing
+
+`ArrowLeft` on `pattern-scope-features` moved neither value nor focus. It is a
+`role="group"` of `aria-pressed` buttons, so APG does not require it, but arrow
+keys are the muscle memory for a segmented control and every other one in the
+app inherits the gap. Primitive-level fix; pre-existing, surfaced by this diff.
+
+### P3-3 — `SegmentedControl` colour transition ignores `prefers-reduced-motion`
+
+Measured under `reducedMotion: reduce`: `transition-duration: 0.12s` still live
+on both segments (`transition-colors duration-fast`, no `motion-safe:` prefix),
+while `ToolButton`'s tooltip in the same design system *does* gate on
+`motion-safe:`. A 120 ms colour fade is not a WCAG 2.3.3 violation, so this is a
+consistency finding, not a floor breach — but the system should not hold two
+opinions. Primitive-level; pre-existing.
+
+### What is right, and should not be regressed while fixing the above
+
+- **The editor card is genuinely tool-grade** (`reach2-editor-1280.png`). The
+  scope row leads, the two-state toggle reads as a sentence with the note
+  beneath it, and it composes `SegmentedControl` + tokens with **zero colour
+  literals and zero raw-element restyling** in either new file. This is what
+  "fix the primitive, never the instance" looks like when it is done properly.
+- **The derived badge is provably honest.** I renamed `Hole2` -> `BoltHole`
+  through the real UI and the pattern row updated from `pattern · Hole2` to
+  `pattern · BoltHole`. Refusing the plan's baked-in generated name was the
+  right call and the evidence backs it.
+- **The `body`+cut warning is the best error-state copy in the app.** It names
+  the future failure, not the present state, and tells the user the one action
+  that removes the ambiguity.
+- **Contrast and focus pass AA comfortably.** Scope note `7.18:1` @ 11 px;
+  `THIS BODY` `13.21:1`; active `HOLE1` brass `7.93:1`; focus ring brass, solid,
+  2 px. Root does not overflow at 1280x800 (`scrollW 1280 / clientW 1280`).
+- **The scope control is fully keyboard-reachable** and in the right DOM order
+  (`scope-body > scope-features > kind-linear > kind-circular > count > ...`).
+- **Both verbs ask the question the same way**, and the per-verb `VERB_WHERE`
+  split ("at every placement" / "about the plane") catches a copy bug a shared
+  string would have shipped. Verified live on the mirror.
+- **Persistence round-trips**: reopening a saved pattern shows `HOLE2` pressed,
+  not a guess.
+
+### Not reached this pass
+
+Touch/tablet viewports (no touch project exists — TOUCH-1); a multi-feature
+`features` scope (the UI can only author one, so `scopeSubject`'s "N features"
+branch is unexercised by any user path); a pattern of a pattern; long feature
+names in the badge column.
+
+### Running component checklist (delta)
+
+- 🔴 `CreateStrip` / `ToolButton` / `ToolGroup` — P1-1 (proposal shed at 1280;
+  `aria-describedby` gated on `disabled`)
+- 🔴 `PartPage` `openCreatePattern` / `openCreateMirror` — P1-2, P1-3
+  (`setSelectedFeatureId(null)` destroys the subject it just read)
+- 🔴 `FeatureTreePanel` row activation — P1-4 (click edits; no select-only path)
+- 🔴 `ScopeRow` — P2-2 (note not associated), P3-1 (autofocus)
+- 🔴 `SegmentedControl` — P3-2 (arrow keys), P3-3 (reduced motion)
+- 🟡 `patternScope.ts` — P2-1 (`verbHint` no-selection string is false given
+  `defaultScopeMode`); the module is otherwise clean and well-tested
+- ✅ `PatternEditor` / `MirrorEditor` scope row composition, tokens, contrast,
+  focus, tab order, 1280 fit, persistence round-trip, derived tree badge
+
+---
+
+## 2026-08-27 — SPOT-CHECK: REACH-1, the selection offer rail (`46ce6af`)
+
+**Verdict: the capability is REACHABLE, and the mechanism is the right one —
+but it ships two P1s that a 1440-wide test suite cannot see.** Walked in a real
+browser at 1280×800 / 1440 / 1600 against a native stack (gateway :8040,
+documents :8041, geometry :8042), commit `46ce6af` in an isolated worktree.
+
+The offer rail itself is a genuinely good idea, correctly argued in the commit
+message: a catalogue tells you what exists, the rail tells you what is available
+NOW, and "truthful by construction" (an offer only appears when
+`applyConstraintAction` would really act) is the right invariant. It is the
+first mechanism in the sketcher that answers "what can I do with what I have
+just selected". Keep it. The findings below are about where it was put, what it
+displaces, and what it still leaves unwired.
+
+### P1-1 — The rail pushes FINISH SKETCH and CANCEL SKETCH off the screen at 1280×800
+
+Screenshots: `uiqa-reach1-strip-intact-noselection-1280.png` (nothing selected —
+strip complete, FINISH ✓ ✕ present) vs `uiqa-reach1-rail-clips-finish-1280.png`
+(two lines selected — RELATIONAL cut mid-group, everything after it gone).
+
+Measured, same page, 1280 viewport:
+
+| selection | strip width | controls clipped OUT of the viewport |
+|---|---|---|
+| nothing selected | 1259 px | 0 |
+| two lines (3 offers) | **1419 px** | **4** — `constraint-group-relational` (1167→1300), `sketch-construction` (1302→1334), `sketch-save` (1347→1379), `sketch-exit` (1381→1413) |
+
+`document.documentElement.scrollWidth === clientWidth === 1280`, so there is no
+horizontal scroll: those controls are **unreachable by mouse**, not merely
+off-view. The rail adds ~206 px to the left status cell and the strip does not
+reflow, it overflows. At 1440 and 1600 nothing clips — which is exactly why
+`sketch-vocab.spec.ts` (`test.use({ viewport: { width: 1440 } })`) is green.
+
+Two aggravating details:
+- **`isVisible()` returns `true` for a control 67 px past the right edge.**
+  Playwright visibility is a CSS/box property, not a viewport-containment one, so
+  no ordinary `toBeVisible()` assertion anywhere in the suite can catch this
+  class of defect. A census of `getBoundingClientRect().right > viewportWidth` is
+  the only gate that can.
+- The controls lost are **the sketch's commit and cancel** — "no dead ends, no
+  ambiguous exits" (CLAUDE.md design mandate) is the rule this breaks. The
+  affordance for finishing your work disappears precisely when you have a live
+  selection.
+
+**System-level fix:** the strip's left cell must have a width budget, not a
+free-growing content run. Either (a) give the status/offer cell `min-w-0` +
+`truncate` inside a flex row that lets the tool groups keep their intrinsic
+width, or (b) move the rail out of the strip entirely — see P1-2/P2-1, which
+argues for that anyway. Fix in `packages/design`'s `Toolbar`/`ToolGroup` layout
+so the same overflow cannot recur the next time a cell grows, and add a
+`no strip control may extend past the viewport at 1280` e2e census.
+
+### P1-2 — A reference (driven) angle displays a number 53° away from the geometry
+
+Screenshot: `uiqa-reach1-reference-angle-stale-1280.png`.
+
+Reproduced end-to-end: two lines sharing a corner → `A` → flip to REFERENCE →
+apply. Glyph reads `(53.13°)`, solved geometry is 53.130° — correct. Then select
+the same pair and press `P` (parallel). The solver takes the lines to
+**0.000012°** — they are visibly one straight line in the frame — the SOLVE cell
+reads `Solved · DOF 3 · UNDER-CONSTRAINED`, and the reference-angle glyph **still
+reads `(53.13°)`**. Its editor says, verbatim, *"Read-only — measured from the
+shape."* Nothing measures it.
+
+Same root cause, second symptom: an **expression** on an angle. Author 30°,
+reopen, type `15*3`. Measured `solved=45.000`, `glyph="30°"`; the persisted
+constraint is `{"kind":"angle","expression":"15*3","value_deg":30}`. The server
+resolves 45 and moves the model; the drawing annotation keeps the placeholder 30
+forever.
+
+Cause is known and documented in the code
+(`apps/web/src/sketch/constraints.ts:1333-1338`): degrees ride
+`SolvedSketch.angles`, a list the glyph builder is not given. Confirmed
+`SolvedAngle`/`angles` exists in the contract
+(`packages/py-kit/src/py_kit/schemas/sketch.py:822`), keyed by the same
+`constraint_index` "so a UI that wants one readout per constraint merges the two
+lists by index" — and confirmed that `apps/web/src` **never references `angles`
+anywhere**. `DimensionEditor` looks the readout up in `solvedDimensions` only, so
+for an angle `solved` is always `undefined`: the reference cell falls back to
+`target.initialValue`, and the `= resolved` line an expression-driven linear dim
+gets is silently absent.
+
+This is the "never a silent wrong model" rule applied to annotations — an
+annotation that contradicts the model is worse than an absent one, because it
+looks authoritative. It is a direct consequence of REACH-1 making angle
+authorable: before this commit no user could create the state.
+
+**System-level fix:** plumb `SolvedSketch.angles` into the store next to
+`solvedDimensions` and merge by `constraint_index` at the one place the glyph
+builder and the editor both read. Until that lands, REACH-1 should not offer
+REFERENCE or the expression field on an angle — an editor must not advertise a
+mode it cannot honour.
+
+### P2-1 — Right moment, wrong place: the offer is 486 px from the selection
+
+Measured at 1280×800: selection centroid `(724, 342)`, rail centre `(315, 80)` —
+**486 px** away, in the top-left status cell, while the user's eyes and cursor
+are mid-canvas. The rail passes "does the affordance appear at the moment it is
+useful" and fails "…where it is useful". Fusion's answer is a marking menu / a
+context toolbar at the cursor; Plasticity's is a command palette under the
+pointer. Ours is a caption on the far side of the frame, in the same 11 px type
+as the rest of the status line, with no motion or weight change to catch the eye
+(deliberately quiet — but quiet at 486 px is invisible).
+
+This is why the commit's own claim ("the verbs are surfaced where the selection
+is") is not yet true: they are surfaced *when* the selection is, not *where*.
+
+**System-level fix:** float the rail near the selection's screen-space bounding
+box (the DOM-overlay layer that already carries the glyphs), or on the cursor as
+a modifier-held radial. Keeping the strip copy as a secondary echo is fine.
+Doing this also dissolves P1-1, since the strip stops growing.
+
+### P2-2 — Direct manipulation is still absent: every offered verb is a form
+
+`A`, `D` and the diameter path all open a numeric cell. There is no draggable
+angle wedge, no draggable diameter handle — the design mandate names this as
+"the single biggest 'does not feel like a modeling tool' gap we have". REACH-1
+is not the item that had to fix it, but it is the item that made four new
+dimension paths reachable, and all four landed form-only. Worth stating plainly
+so the board does not record "angle: shipped" and move on.
+
+**System-level fix:** a drag handle on the dimension glyph, numeric cell as the
+precision fallback (the Fusion contract), authored once in the glyph layer so
+distance/radius/diameter/angle all inherit it.
+
+### P2-3 — The rail omits the two most-used verbs in any sketch
+
+Measured: one line selected → offers are exactly `["verb-hint-distance"]`.
+Pressing `H` on that same selection applies a horizontal constraint immediately
+(verified: one `horizontal` glyph). `VERB_OFFER_ORDER`
+(`apps/web/src/sketch/constraints.ts:1623`) contains 13 actions and does not
+contain `horizontal`, `vertical`, `fixed` or `coincident`. So on the single most
+common selection state in a sketcher — one line — the rail proposes a dimension
+and stays silent about the two constraints an engineer reaches for most.
+
+The rail's contract is "the verbs the CURRENT selection unlocks". It currently
+means "the verbs from a hand-picked subset that this selection unlocks", and the
+omission is invisible: a novice learns from the rail that a line can be
+dimensioned and never learns it can be made horizontal.
+
+**System-level fix:** derive the offer set from `CONSTRAINT_SHORTCUTS` (every
+verb the keyboard honours) rather than a second hand-written list, and let
+`MAX_VERB_HINTS` + the ordering do the curation. That also removes a
+drift-prone duplicate list — the same reasoning that made `VERB_KEY` an
+inversion of `CONSTRAINT_SHORTCUTS` two lines above it.
+
+### P2-4 — When the rail is empty it explains nothing
+
+Measured: three lines selected → `3 ents · 4 applied`, **zero offers**, no other
+change on screen. Nothing selected → same silence. The mechanism that teaches
+availability vanishes at exactly the moments a stuck user needs it, and there is
+no "why not". Compare the audit standing rule: *disabled affordances must be able
+to EXPLAIN themselves*. The rail's design chose omission over a disabled state,
+which is defensible for truthfulness and leaves the explanation gap wide open.
+
+**System-level fix:** a near-miss line — "add a construction line to make these
+symmetric", "select two lines for an angle" — in the same cell, driven by the
+same `applyConstraintAction` hints that are already being computed and thrown
+away (`result.outcome === "hint"` is `continue`d; the hint text is right there).
+
+### P2-5 — Touch targets are 17 px; the rail is pointer-hostile on a tablet
+
+Measured caps: 54×17, 81×17, 54×17 px. WCAG 2.5.8 floor is 24×24; the tablet
+target the mandate asks for is 44. The caps are `<button>`s specifically so "one
+affordance serves keyboard and pointer", but at 17 px tall they serve neither
+touch nor a shaky mouse.
+
+**System-level fix:** the keycap-offer needs to be a `packages/design`
+primitive with a hit area independent of its ink (`py-1.5 -my-1.5` pattern), not
+a raw `<button>` styled in `apps/web` — see P3-1.
+
+### P3-1 — A new interactive control was styled inline in `apps/web`
+
+`SketchStrip.tsx:882-893` is a raw `<button>` carrying
+`flex items-center gap-1 rounded-sm hover:text-mist focus-visible:outline
+focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass
+motion-safe:transition-colors`. Every class is a token (no hex literals anywhere
+in the diff — checked), so this is not a palette violation; it is the "compose
+primitives, never restyle raw elements" rule. `packages/design` already exports
+`Button`, `ToolButton` and `Kbd`. The fix is the primitive: a `VerbOffer`
+(keycap + label + hit area + focus ring), which also fixes P2-5 once, for every
+future caller.
+
+### P3-2 — Focus is dropped to `<body>` after invoking an offer
+
+Measured: click `verb-hint-collinear` → constraint applies, selection clears,
+rail empties, `document.activeElement` is `BODY`. For a pointer user that is
+invisible; for a keyboard user it is the end of the road — the rail unmounts
+under the focused element and there is nothing to Tab from. Related measurement:
+**20 Tab stops** from the document start to the first cap (trail passes the
+canvas overlays, tree panel, six origin datums, then the whole header —
+`home-link`, `breadcrumb`, `document-unit-select`, `sign-out` — and only then
+the rail). The keyboard fast path is the letter key, which works and is the
+right answer; but the button is, in practice, pointer-only.
+
+**System-level fix:** return focus to the sketch canvas surface after a verb
+applies, and give that surface a real focus target (see P3-3).
+
+### P3-3 — The viewport canvas is still not focusable and has no accessible name
+
+Measured on the sketch canvas: `tabindex=null, role=null, aria-label=null`. Not
+a REACH-1 regression — a standing floor issue that REACH-1 makes more visible,
+because the rail's whole premise is "you have selected something", and selection
+has no keyboard route at all. The keyboard alternative for the canvas is still
+undocumented rather than implemented.
+
+### What is good and must not be regressed
+
+- **Truthful-by-construction offers.** Deriving the rail from
+  `applyConstraintAction` rather than a parallel table means the rail cannot
+  advertise a key that then answers "Select two lines…". This is the right
+  architecture and the reason P2-3 is a one-line list change rather than a
+  rewrite.
+- **`D` is "dimension" and the selection picks the flavour.** Killing the
+  "That is a circle. Click a line to dimension it." refusal is a real flow win.
+- **Contrast and focus pass cleanly.** Keycap `rgb(227,166,75)` on
+  `rgb(15,20,26)` = **8.65:1**; verb label `rgb(157,170,186)` on
+  `rgb(22,29,39)` = **7.18:1**. Focus ring is `solid 2px` brass at 2 px offset —
+  `uiqa-reach1-offer-rail-focus-1280.png`.
+- **Reduced motion honoured** (`motion-safe:` prefix; re-rendered under
+  `prefers-reduced-motion: reduce`, rail unchanged and legible).
+- **Test hooks preserved and extended** — `dimension-hint` kept as the container,
+  `verb-hint-{action}` added, accessible names read "angle — press A".
+- **Selection survives tabbing through the chrome** (`2 ents · 2 applied` intact
+  after 20 Tab stops) — the state model is sound.
+- **`Escape` never destroyed or duplicated work** in any path exercised.
+- **A conflicting solve is NOT silent**: driving 30° + parallel gave
+  `feature=error` and the EVAL cell read `Failed`. (Contrast P1-2, where the
+  solve *succeeds* and only the annotation lies.)
+
+### Nits
+
+- `data-testid="dimension-hint"` now wraps three constraint verbs, most of which
+  are not dimensions. Rename with the primitive extraction (P3-1).
+- `role="status"` (an implicit polite live region) now contains three
+  interactive buttons; interactive content inside a live region is an ARIA
+  anti-pattern and re-announces all three verbs on every selection change.
+- `formatDimensionMm(target.initialValue)` formats DEGREES for an angle. Harmless
+  today (it is a pure 2-dp formatter, no unit conversion), but it is the exact
+  mislabelling the commit renamed `initialMm` → `initialValue` to prevent.
+- `selectionVerbHints` runs `applyConstraintAction` 13× per `SketchStrip` render,
+  unmemoised. Not measurable at present sketch sizes; note it before the sketch
+  entity count grows.
+
+### Running component checklist (delta)
+
+- 🔴 `SketchStrip` — P1-1 (clips FINISH at 1280), P2-1 (rail 486 px from the
+  selection), P2-3 (H/V never offered), P2-4 (no near-miss explanation),
+  P2-5 (17 px targets), P3-1 (raw `<button>`), P3-2 (focus dropped to body)
+- 🔴 `ConstraintGlyphs` / `DimensionEditor` — P1-2 (`SolvedSketch.angles`
+  unconsumed: reference angle and expression angle both display stale numbers)
+- 🔴 `Viewport` canvas — P3-3 (not focusable, no accessible name, no keyboard
+  selection route)
+- ✅ `selectionVerbHints` — the derivation is right; only its input list (P2-3)
+  and its presentation (P2-1) are wrong
+- ✅ Offer-rail contrast / focus ring / reduced motion / test hooks
+
+### Coverage this pass did NOT reach
+
+- Touch/tablet emulation (measured target SIZE only, no touch project exists).
+- Screen-reader announcement order for the `role="status"` rail.
+- The symmetric-with-construction-axis flow (covered by the builder's own spec).
+- 1280×800 with a LONG part name in the breadcrumb, which competes for the same
+  strip row as P1-1.
+
+---
+
+## 2026-08-27 — REACH-3 spot-check: the convention is reachable, the paper is not
+
+**Under review:** `5438b73` — "the sheet declares its projection convention, and
+can be portrait". Walked in a real browser against a native stack (gateway
+:8040), 1280×800 and 1024×768, mouse and keyboard, with a deliberately tall
+40×40×150 mm column — the part the feature exists for.
+
+**Verdict: the convention half ships. The portrait half is present and does not
+flow.** Flipping first/third angle works, moves the views, survives reload, and
+is keyboard-reachable. Orientation is a different story: the app *computes* that
+this part draws at **1:2 portrait vs 1:5 landscape**, creates the sheet
+landscape at 1:5 anyway, and then — when you flip it from the cell that promised
+1:2 — hands back a portrait sheet still at 1:5, emptier than the landscape one
+it replaced, with the scale control now a read-only readout. The capability is
+reachable exactly once: on the *second* sheet.
+
+**Credit first, because it is deserved.** The ISO cone glyph is real drafting
+vernacular, one path mirrored by `scale(-1 1)`, with the circles derived from
+the composer's own `right_sx` sign so the symbol predicts the layout. That is a
+signature element in the sense the mandate means, and it is not an AI default.
+The problem is that it is the only part of REACH-3 that got design attention,
+and it is 35×14 px in a corner.
+
+### P1
+
+**P1-1 — the orientation proposal never fires on Sheet 1, which is the only
+sheet most drawings have.** Measured on the tall column:
+`SHEET1 orientation=landscape fitL=1:5 fitP=1:2 data-proposed=false
+addProposes=portrait`. The reading exists, is correct, and is ignored. All three
+Sheet-1 auto-create paths in `apps/web/src/routes/DrawingPage.tsx` (≈468, 568,
+638) still hardcode `orientation: "landscape", projection: "third_angle"`, and
+so does `apps/web/src/routes/PartPage.tsx:2312`; `orientationFit` is in scope at
+all three DrawingPage sites and unused. Only `handleAddSheet` consults it. Ref
+`uiqa-reach3-sheet1.png` — the part occupies about a third of the paper at 1:5 while
+the app knows a 2.5× larger drawing was available.
+*System fix:* one `sheetHeaderForNewSheet()` derivation that every create path
+calls — proposal + inherited convention + the scale that orientation earns —
+rather than four literals and one smart call site.
+
+**P1-2 — flipping orientation delivers a worse drawing than the cell promised,
+and there is no way to correct it.** The cell's accessible name reads "switch to
+portrait (1:2)". Activating it gives `viewBox 0 0 297 210 → 0 0 210 297` while
+the sheet's own name stays *"4 views at 1:5"* and the title block still stamps
+1:5 — the paper got taller, the views never re-fit. Ref `uiqa-reach3-after-orientation-flip.png` beside `uiqa-reach3-sheet1.png`: portrait is visibly *emptier*
+than the landscape it replaced, so a user flips once, concludes portrait is
+broken, and flips back. It is also a dead end: `DrawingCommandBand.tsx` gates
+Size and Scale behind `hasLayout`, so once views exist Scale is a `Readout` not
+a `SelectField`, "Lay out standard views" has become "Re-project", and
+`handleReproject` (DrawingPage.tsx:809) only invalidates queries. On a laid-out
+sheet the scale cannot be changed at all. The builder's comment asserts "the
+cell can never claim a scale the layout would not actually produce" — measured,
+it does.
+*System fix:* `reheadSheet` re-fits and re-places at
+`orientationFit.scaleByOrientation[next]`, the same reading `handleAddSheet`
+already applies. If re-fit is genuinely out of scope, the cell must stop
+promising a scale it will not deliver.
+
+### P2
+
+**P2-1 — both cells are gone at 1024×768 once a drawing has 11 sheets.**
+`TABLET strip width=1151, root clientWidth=1024` — the strip's right edge is 139
+px past the frame, and because it is absolutely positioned nothing scrolls it
+back. Ref `uiqa-reach3-tablet.png`: tabs clip behind the properties panel and the
+projection/orientation cells are simply not on screen. At 1280 the wall is ~14
+sheets (`SHEETS=14 strip width=1268`), and what gives way is the *tab labels*
+wrapping to two lines, not the strip. There is no `max-w`, no scroll, no
+overflow rule.
+*System fix:* cap the strip and put the tab list in the existing horizontal
+`ScrollRegion`, with the two sheet-header cells pinned OUTSIDE it — a compliance
+stamp must not be able to scroll away.
+
+**P2-2 — the cells are absent from the one screen whose job is sheet setup.**
+`PRELAYOUT projection-cell=0 orientation-cell=0 tabs=0`. The setup screen
+(`uiqa-reach3-prelayout.png`) carries Part / Size / Scale pickers and a SHEET tool
+group, and its empty-state copy sends the user there — "Choose a part, sheet
+size and scale above, then lay out the standard views." The two properties that
+change what "lay out" *produces* are not there and are not mentioned. So the
+first sheet's convention can only ever be corrected after the fact, which is
+what makes P1-2 load-bearing.
+*System fix:* the sheet-setup group in `DrawingCommandBand` is the right home
+before layout; the tab-strip cell is right after. One piece of state, two
+presentations.
+
+**P2-3 — the Size readout contradicts the orientation cell on the same screen.**
+`sizeOptions` in `apps/web/src/drawing/layout.ts:89` bakes the LANDSCAPE extents
+into every label, so a portrait sheet reads **"A4 · 297 × 210 mm"** in the
+command band while the header cell shows a portrait paper glyph
+(`uiqa-reach3-many-sheets.png`). Two chrome elements stating contradictory facts about
+one sheet is mandate 3c.
+*System fix:* derive the label from the active sheet's orientation in
+`layout.ts`, not from a landscape constant.
+
+**P2-4 — the cone glyph explains itself to a mouse and to nobody else.**
+`TOOLTIP-ON-KEYBOARD-FOCUS count=0`; the only explanation is
+`title="Projection convention: third angle — switch to first angle"`. Every
+other control in this band is a `ToolButton`, whose own docstring says the
+tooltip "appears on hover AND keyboard" (`ToolButton.tsx:75`). This is a symbol
+most users have not seen, and its one gloss is unreachable by keyboard —
+and disappears entirely under `disabled:pointer-events-none` while the PATCH is
+in flight.
+*System fix:* compose the existing tooltip primitive; drop `title=`.
+
+**P2-5 — a failed re-head reports "LAYOUT FAILED" at the opposite corner.**
+Forcing a 409 on the PATCH surfaces a toast at bottom-left, y≈725, titled
+*Layout failed*, for a control at top-left, y≈129 (`uiqa-reach3-patch-error.png`). No
+layout was attempted. The state model is honest — `AFTER FAILED PATCH
+projection=third_angle`, no silent wrong sheet — but the message is not, and it
+is 600 px from the thing that failed.
+*System fix:* `actionError` carries a per-action title; a re-head failure
+surfaces at the cell.
+
+### P3
+
+- **P3-1 — `data-proposed` is real state with no visual expression.** The cell
+  carries `data-proposed`, `data-fit-landscape="1:5"`, `data-fit-portrait="1:2"`
+  and puts all of it in the accessible name. A sighted mouse user sees a 13 px
+  paper glyph and nothing else, so "the content proposes" is true for a screen
+  reader and invisible to everyone else. Give the proposal a brass tick, and the
+  counter-reading a caption.
+- **P3-2 — mismatched pair, sub-minimum targets.** `BOX sheet-orientation =
+  27×23`, `BOX sheet-tab-add = 18.8×19`; WCAG 2.5.8 (AA) floor is 24×24 CSS px,
+  so orientation misses on height and `sheet-tab-add` on both (pre-existing).
+  The projection cell has a caption ("3RD"); the orientation cell has none, so
+  the pair reads as one labelled control and one bare icon. Fix in
+  `SheetHeaderCell` with a shared `min-h-6` and a caption slot both cells use.
+- **P3-3 — `motion-reduce:transition-none` missing; it is the system's own
+  convention.** Measured `transitionDuration: 0.12s` under
+  `prefers-reduced-motion: reduce`. `AxisGrip.tsx:78` writes exactly
+  `transition-colors duration-fast motion-reduce:transition-none` and
+  `AxisGrip.test.tsx:138` asserts it; `SheetHeaderCell`, the sheet tabs and
+  `ToolButton` itself (`ToolButton.tsx:160`) all omit it. Colour-only
+  transitions are not a WCAG 2.3.3 failure, hence P3 — but the fix is the
+  primitive, not the instance.
+- **P3-4 — the convention stamp reads as a fifth sheet tab.** Same bordered
+  strip, same 10 px type, same 0.14em tracking, separated by a 1 px hairline —
+  "1ST" beside "SHEET 1…7" scans as another tab name. AT gets it right (the
+  cells sit outside `role="tablist"`); the eye does not. A wider gutter or a
+  visible seat at the strip's right end.
+- **P3-5 — `updateSheetHeader` lives in the route, not `api/drawings.ts`.**
+  Flagged by the builder as a territory workaround. Types are generated so the
+  DRY rule holds, but it re-implements the module's error-envelope idiom. Fold
+  it back.
+
+### What passed
+
+- **Convention flip is genuinely wired**, mouse and keyboard: `Enter` on
+  `sheet-projection` → `data-projection=first_angle`, views re-anchor
+  server-side (`uiqa-reach3-first-angle-portrait.png`).
+- **Contrast clean.** `sheet-projection` `rgb(221,228,235)` on
+  `rgba(22,29,39,.95)` = **13.2:1**; `sheet-orientation` `rgb(157,170,186)` =
+  **7.2:1**. Both at 10 px.
+- **Focus ring visible** — 2 px brass, 2 px inset, on both new cells
+  (`uiqa-reach3-focus-orientation.png`).
+- **Tab order is sane**: `sheet-tab-0 → sheet-tab-add → sheet-projection →
+  sheet-orientation → sheet content`. Nothing is keyboard-trapped.
+- **No root overflow at 1280** (`scrollWidth == clientWidth == 1280`), and every
+  view stayed inside the paper after a flip.
+- **Test hooks intact and extended** — `sheet-tabs`, `sheet-tab-N`,
+  `sheet-tab-add` all preserved through the `SheetTabs` restructure; new
+  `sheet-projection` / `sheet-orientation` with rich data attributes.
+- **Convention inheritance works within a drawing** — Sheet 2 came up
+  `projection=first_angle` after Sheet 1 was flipped.
+
+### Running component checklist (delta)
+
+- 🔴 `SheetTabs` / `SheetHeaderCell` — P2-1 (off-screen at 1024×768 / 11 sheets),
+  P2-4 (mouse-only explanation), P3-1, P3-2, P3-3, P3-4
+- 🔴 `DrawingPage` sheet creation — P1-1 (proposal ignored on Sheet 1 in all
+  four create paths incl. `PartPage.tsx:2312`)
+- 🔴 `reheadSheet` — P1-2 (flip does not re-fit; the promised scale is not
+  delivered and cannot afterwards be set)
+- 🔴 `DrawingCommandBand` — P2-2 (no orientation/convention on the setup
+  screen), P2-3 (landscape-only size label on a portrait sheet), and Scale
+  becoming an unrecoverable `Readout` once `hasLayout`
+- ✅ `ProjectionSymbol` — correct ISO symbology, mirrored from the composer's
+  own sign, `currentColor`, no hex literal. The best thing in the change.
+- ✅ Contrast / focus ring / tab order / test hooks / no-silent-wrong-state on
+  a failed PATCH
+
+### Coverage this pass did NOT reach
+
+- Whether the exported SVG/PDF/DXF stamp the convention at all — the builder
+  correctly defers title-block stamping to a geometry-service follow-up, so
+  today a first-angle sheet prints with no first-angle mark, which is a
+  compliance gap in the artifact, not in the UI. Track it.
+- Arrow-key roving inside the tablist (the docstring claims "roving tablist";
+  no `tabIndex` management or arrow handler is present in the source).
+- Real touch emulation — target sizes measured, no touch project exists.
+- Non-A4 sheet sizes and the ANSI series with portrait.
+
+---
+
+## 2026-08-27 — REACH-2 (STEP assembly import) + REACH-3 (place-as-you-create dimension)
+
+**Why this pass exists:** both features shipped with their Design phase
+skipped — the frontend loop spawned reviewers for `f4c590b` and `d4cfa4e` and
+both died before returning. This is the missing review, run against the real
+app (native stack per CLAUDE.md, SQLite prefixed `fqa3-`, isolated Vite on
+:5191), not against the diffs.
+
+**Method note that matters for everything below.** Both shipped e2e suites are
+green at 1280×800 (`assembly-import.spec.ts` 3/3, `dimension-placement.spec.ts`
+4/4, re-run here against a 1280×800 viewport). That is not the same as reachable
+by a real pointer: `dimension-placement.spec.ts` picks its edge with
+`longEdge.click({ force: true })`, which **bypasses Playwright's actionability
+check entirely**. Every hit-test in this pass is `document.elementFromPoint` at
+the control's own centre, or a real `page.mouse.click`.
+
+### Verdicts
+
+| Feature | Verdict |
+| --- | --- |
+| **REACH-2 — STEP assembly import** (`f4c590b`) | **Ships with follow-ups.** The capability is genuinely reachable, the refusal path is correct, the register is not damaged. Two flow gaps (P1-A, P1-B). |
+| **REACH-3 — place a dimension as you create it** (`d4cfa4e`) | **Ships with follow-ups.** Direct manipulation is real and works end to end. But it is direct manipulation *without a precision fallback*, with the number 410 px from the thing it describes, and the placement is a one-shot you cannot revise. |
+
+Neither is blocking. Nothing here breaks the product, drops a hook, or overflows.
+
+---
+
+### REACH-2 — findings, ranked
+
+**P1-A — the copy proposes the import; the layout hides it 423 px away.**
+`uiqa-stepimport-empty-1280.png`. The empty-state body now opens with "Already
+have geometry? Import a STEP **from the slot below**…" — the right instinct, and
+the commit message argues it well. Measured at 1280×800: the bottom of that
+paragraph is at y=305, the import slot's top is at **y=727**. Nine blank ruled
+register rows sit between them. The one solid brass action on screen is
+`Create first assembly`; the import verb is a ghost button pinned to the window's
+bottom edge, 354 px below the create button.
+
+The tell that this is a layout problem and not a copy problem is that the copy
+has to give **directions** ("the slot below"). The mandate's first flow test is
+that the next step is *visible from the current state*; here it is named and then
+pointed at. Worse, the copy names import first while the layout ranks it second,
+so the two disagree about what a first-time visitor should do.
+
+*System-level fix:* the empty register should not be a full-height ledger with a
+form at the top and a slot at the foot. Either bring the slot up beside the
+scribe line in the EMPTY case only (the ruled rows are decoration when there are
+no rows to rule), or make the empty state a genuine two-way fork — "start a new
+assembly" and "bring one in" as sibling propositions at the same y. Do not fix
+this by rewording; the sentence is already good.
+
+**P1-B — a long import is indistinguishable from a hung app.**
+`uiqa-stepimport-busy-1280.png`. During an import the entire screen is unchanged
+except a disabled `Importing…` button and one static 12 px sentence. Measured in
+the DOM mid-import: `animationName` on the busy line and every descendant is
+`none`, there is **no `role="progressbar"` anywhere**, and there is **no cancel
+control** (`assembly-import-cancel` does not exist). A 52 KB fixture
+(`nema17-front-plate.step`) took **3.35 s** end to end. The client's own ceiling
+is **16 MiB** — over 300× that file — and the work is `file.arrayBuffer()` +
+a single un-chunked POST + OCCT parse server-side. A migrating engineer's first
+real supplier assembly will therefore park on this frozen line for a long time
+with no signal that anything is happening and no way to stop.
+
+This also makes the copy dishonest in the flat-file case: the busy line always
+reads "its products become parts and its occurrences become instances", which is
+not what happens to a single-body STEP.
+
+*System-level fix:* an indeterminate progress primitive in `packages/design`
+(there is none today) that the import slot, and every other long POST, can seat —
+plus an `AbortController` on the request so `Escape`/a Cancel verb can withdraw
+it. Byte progress for the upload leg is available for free from an
+`XMLHttpRequest`/`fetch` upload stream if the wire call is willing to give up
+`openapi-fetch` for this one route; if it is not, an indeterminate bar plus an
+elapsed-seconds counter is enough to change "hung" into "working".
+
+**P2-A — the result line has no exit, and it evicts the invitation.**
+`uiqa-stepimport-result-1280.png`. The error state has a `Dismiss`; the success
+state has none, and `assembly-import-hint` is unmounted while a result is shown
+(measured: `hintStillVisible: false`). So after one import, the slot permanently
+reads as the last thing that happened rather than as an affordance, and its own
+instruction ("Choose a .step or .stp file, or drop it anywhere on this page") is
+gone for the rest of the session. Give the result the same `Dismiss` the error
+has, or expire it.
+
+**P3-A — the armed state is entirely peripheral.** `uiqa-stepimport-armed-1280.png`.
+This is a *good* design — the `inset-3` frame that was already on screen turns
+brass and the slot border follows, which is exactly mandate 3a's "an existing
+element doing a second real job". But both signals are at the window's edges: a
+1 px hairline 12 px from the frame and a border 727 px down, while the user's eye
+is on the file under their cursor. Consider also tinting the register body, or
+carrying the brass onto the row rules, so the confirmation is where the pointer is.
+
+**P3-B — `I` is undocumented outside this page.** The `Kbd` chip and the sr-only
+"Press I to import a STEP file." are both present and correct, and the commit's
+reasoning for keeping it out of `shortcuts/registry.ts` (one register, extract on
+the second use) is sound. Note only that it therefore never appears in the
+shortcut sheet, so it is discoverable only by being on the page — which, given
+P1-A, is where the user may not be looking.
+
+#### What passed, and is worth copying
+
+- **The import slot itself is the best thing in the change.** `uiqa-stepimport-populated-1280.png`:
+  it carries the register's own 3.5 rem scribed gutter, so the drawer's left rule
+  runs unbroken from the `#` header to the frame's bottom edge, and the slot reads
+  as the log's last line rather than a toolbar bolted underneath. The blank
+  ordinal margin is honest (the scribe line can print "15"; an import cannot know
+  what it will make). This is the register idiom extended, not decorated.
+- **Refusal before the wire, provably.** `precheckStepFile` runs on `file.size`
+  synchronously; measured with a 17 MiB file: **0 requests to
+  `/assemblies/import`**, error surfaced, copy names the 16 MB limit and what to
+  do about it. `uiqa-stepimport-refusal-1280.png`.
+- **The refusal is keyboard-readable**, not a hover trap: `role="alert"`, text in
+  the DOM, `Dismiss` a real focusable button. Contrast on carbide: flag `7.1:1`,
+  mist `14.4:1`, brass `8.65:1`, gauge `7.83:1` — all AA.
+- **The flat-STEP branch routes honestly** to a part and links to it, rather than
+  failing or silently filing an empty assembly. This is the "no dead ends" rule
+  applied correctly.
+- **Collision recovery works end to end** — importing the same file twice yields
+  `box-10x20x30 (2)` with no error shown to the user.
+- **The disabled affordance explains itself** — the button's label becomes
+  `Importing…` and the busy line says why; no `pointer-events-none` tooltip trap.
+- **Responsive, hit-tested for real.** No root overflow at 1280×800, 1366×768 or
+  1024×768 (`scrollWidth == clientWidth` at all three); `elementFromPoint` at the
+  Import button's centre returns the button itself at all three, with 14 rows in
+  the drawer. Tab order from page load: `create-assembly-submit` →
+  `assembly-import-button`, 2 px brass focus outline on both.
+- **No hex literals, no raw-element restyling** in the diff; `Button`, `Chip`,
+  `Kbd`, `ImportStepIcon` all from `@loft/design`.
+- **Zero test hooks removed** (verified by grepping `^-` lines of the diff for
+  `data-testid` / `role` / `aria-label`: none), ten added.
+
+---
+
+### REACH-3 — findings, ranked
+
+**P1-C — the number you are setting is 410 px away from the thing you are
+setting.** `uiqa-dimplace-placing-1280.png`. Measured: the ghost sits at
+y≈378 in the TOP view; the live offset readout is inside the pick-hint chip at
+**y=750**, 410 px away, hard against the bottom of the window. While dragging you
+cannot watch the paper and read the value at the same time.
+
+The commit defends this ("the live offset joins the EXISTING pick hint chip …
+rather than adding a floating tooltip: same chip, next sentence"), and as a
+system argument it is a good one — the chip is the right *owner*. But the ghost
+also carries **no value text at all** (measured: the ghost `<g>` contains four
+`<line>`s and zero `<text>`), so at the moment of placement the paper shows a
+line with no number and the number is at the far edge of the screen. Fusion,
+SolidWorks and Plasticity all put the live figure at the cursor for exactly this
+reason. This is the difference between "a form moved earlier" and "direct
+manipulation": right now the gesture is direct and the *feedback* is not.
+
+*System-level fix:* draw the dimension's value into the ghost (it is known —
+`base.measurement` carries it) and put the offset beside it, at the pointer. Keep
+the chip for the verb sentence and the key legend; it does not need to carry the
+number.
+
+**P1-D — there is no numeric route to the offset, in a precision tool.**
+Measured mid-placement: the only visible `input` on the whole page is
+`note-input`. The mandate reads "Direct manipulation beats forms … the numeric
+field is the precision fallback." REACH-3 delivers the first half and drops the
+second. The consequences are concrete:
+
+- The arrow nudge adds ±1 mm to whatever fractional offset the drag left behind
+  and **does not snap to a grid**. Measured sequence from a real drag:
+  `-23.71 → -22.71 → -17.71` (Shift = ×5). You cannot land on −25.00.
+- Every hand-placed dimension therefore stores an arbitrary offset. The one I
+  committed persisted as `"placement": {"offset_mm": -30.48}` (read back from the
+  gateway). Two dimensions placed by hand on the same view will never share an
+  offset, so a chain of them cannot be made to line up — which is the single most
+  basic thing a draughtsman does to a sheet.
+
+*System-level fix:* two changes, both small. (a) Make the arrow nudge *quantise*
+to the step (`round(offset/step)*step ± step`) rather than accumulate onto a
+fractional value — that alone makes round offsets reachable. (b) Let the live
+readout be typed into: the chip already renders the number in the data face, so
+promoting it to the design system's numeric field while `placing` is live gives
+the precision fallback with no new chrome. Snapping the ghost to the offsets of
+dimensions already on that view (the drafting-standard spacing behaviour) is the
+richer version and can follow.
+
+**P1-E — placement is a one-shot; there is no way to revise it afterwards.**
+The commit opens by naming the defect precisely — "no way to move it — not while
+drawing, and **not afterwards**" — and then fixes only the first half. Measured on
+a committed dimension: `cursor: auto`, no `tabindex`, no `role`, no `aria-label`,
+and a real press-drag across it moves nothing (view origin and dimension line
+both byte-identical before and after; the view does *not* move either, so at
+least it fails inertly rather than dangerously). The `DIMENSIONS` panel offers
+exactly one control: `dimension-delete`.
+
+So the recovery from a mis-drag is: delete, re-find the edge, re-click, re-choose
+the type, re-drag. That is a flow dead end in the mandate's sense — not because
+work is lost, but because a user who is unsure of their placement will hesitate,
+which is the failure mode FB-13 was filed about. It also interacts badly with
+P1-F below.
+
+*System-level fix:* a placed dimension needs the same `placing` stage it was
+born in, re-entered by selecting it — which is mostly plumbing, since
+`withPlacement` + a PATCH is all the server needs, and the ghost, the readout and
+the key handling already exist. Until then, the panel row should at least offer
+"Re-place" as a delete-and-reauthor macro so the recovery is one action.
+
+**P2-B — a placed dimension's value text lands on top of another view's pick
+targets, and cannot be moved off (see P1-E).**
+`uiqa-dimplace-text-over-pick-1280.png`. Measured: with the TOP view's 40 mm edge
+dimensioned 20 mm downward (into the gap between TOP and FRONT), one of the FRONT
+view's 40 mm pick targets became unreachable at its midpoint — `elementFromPoint`
+returns `text[drawing-dimension-value]`. Free placement makes this easy to do by
+hand; P1-E means the only cure is deleting the dimension.
+
+*System-level fix:* `pointer-events: none` on the placed dimension's value text
+and leader (it is not interactive today anyway), so drafting ink can never eat a
+pick. One line, and it also future-proofs the re-place work above.
+
+**P2-C — the offset is unbounded within the sheet, with no guide.**
+`uiqa-dimplace-far-offset-1280.png`. Dragging the ghost to the title block and
+clicking commits a dimension line at y=189 mm on a 210 mm sheet — across the
+title block. The full-sheet capture plate is the only bound. Real drafting tools
+draw a spacing guide (typically 10 mm from the outline, 8 mm between chains) and
+warn when a dimension crosses the border zone. At minimum, refuse the title-block
+rectangle.
+
+**P3-C — the focused pick edge is a 1.5 px blue tick.**
+`uiqa-dimplace-edge-focus-1280.png`. Good news first: the sheet is fully
+keyboard-navigable — all 26 pick targets carry `tabindex="0"` with real
+`aria-label`s ("Dimension this line edge in the Front view"), 8 Tab stops reach
+the first, `Enter` opens the author menu, and the whole placing stage is
+keyboard-complete (arrows nudge, Shift coarsens, Enter commits, Esc backs out).
+That is a better keyboard story than most CAD web apps have. But the focus
+indicator is the edge recolouring to blueprint blue at its drawn stroke width —
+on a 10 mm edge at 1280 that is a ~1.5 px × 30 px mark, with `outline: none` on
+the group. It is present (so not a WCAG 2.4.7 failure) and it is faint. Widen the
+focused edge's stroke, or add a short focus tick at its midpoint.
+
+**P3-D — the 40 mm FRONT-view pick targets are blocked at their midpoints
+(pre-existing, not caused by this change, but this change raises its cost).**
+Scanning 18 points along each 40 mm FRONT edge: **11 of 18 clickable**, with the
+central run returned as `polyline` belonging to `drawing-view` — the view's own
+drawn outline sits above the pick target. The TOP view's control scan is 17/18.
+The midpoint is where a user aims, and it is the one place that does not work; a
+real `page.mouse.click` there does nothing at all, silently. The shipped specs do
+not see this because they use `click({ force: true })`. The overall pick band is
+**7 px** (3.5 px either side of the line, from `stroke-width: 2.6` in sheet mm at
+2.99 px/mm) — workable for a mouse, unusable for touch.
+
+*System-level fix:* raise the pick group above the drawn geometry in paint order
+(or `pointer-events: none` on the rendered outline, which is decorative), and
+scale the pick stroke in *screen* px rather than sheet mm so the band does not
+shrink with the sheet. And stop using `force: true` in the drawing specs — it is
+why this was invisible.
+
+#### What passed, and is worth copying
+
+- **The escape hatch is exactly right.** Escape during a placement backs out one
+  stage and the pick survives (measured: ghost gone, `dimension-author-menu`
+  visible again). No ambiguity about whether it saves or discards. This is the
+  correct answer to FB-13 and other surfaces should copy it verbatim.
+- **The untouched fast path is preserved.** "Pick, choose, Enter" sends no
+  placement at all, so nobody who does not reach for the new control pays for it,
+  and `offset_mm == 0` is omitted rather than encoded (0 is the composer's auto
+  sentinel). This is the rare case of a new stage that costs existing users
+  nothing — good judgement, and it is why the nine pre-existing specs still assert
+  what they always did.
+- **The menu is mode-driven and contextual** — a line edge offers Linear / Angle /
+  Distance to edge, with "pick 2nd edge" spelled out on the two that arm a second
+  pick; no diameter/radius is offered where it cannot apply.
+  `uiqa-dimplace-menu-1280.png`.
+- **The ghost is honest about being a proposal** — blueprint blue, never the
+  graphite of placed ink, and it opens at the composer's own auto offset
+  (`11.00 mm`) so the user is adjusting a real proposal rather than starting from
+  nothing. `data-placement-chrome="ghost"` keeps it out of a mid-gesture export.
+- **The chip's key legend changes with the stage** — "Esc to cancel" becomes
+  "Arrows nudge · Enter places · Esc back". The current mode is legible.
+- **No new palette, no hex literals.** Contrast of the ghost ink `#0F4C81` on the
+  sheet `#ECEFF2` is **7.45:1**.
+- **`prefers-reduced-motion` is honoured** — the only transitions that survive are
+  `transition-colors` at 120 ms; nothing translates or animates position.
+- **No root overflow at 1280×800** before, during or after the gesture.
+- **Zero test hooks removed**, three added.
+
+### Running component checklist (delta)
+
+- 🔴 `AssembliesPage` empty state — P1-A (423 px between the copy naming the
+  import and the affordance; brass action ranks create over import)
+- 🔴 `ImportSlot` — P1-B (no progress, no cancel, no elapsed time on a 16 MiB
+  ceiling), P2-A (result line has no exit and evicts the hint), P3-A, P3-B
+- 🔴 `packages/design` — no indeterminate-progress primitive exists; P1-B cannot
+  be fixed at the instance
+- 🔴 `DrawingPage` placing stage — P1-C (readout 410 px from the ghost; ghost
+  carries no value), P1-D (no numeric entry; nudge does not quantise), P2-C
+- 🔴 `DrawingSheet` placed dimension — P1-E (inert; delete is the only edit),
+  P2-B (value text eats pick targets)
+- 🔴 `DrawingSheet` pick targets — P3-C (faint focus), P3-D (midpoint occluded in
+  FRONT; 7 px band, touch-unusable) — both pre-existing
+- ✅ `drawing/placement.ts` + `authoring.ts` placing state machine — pure,
+  unit-tested, exact math, escape semantics correct, fast path preserved. The
+  best-engineered thing in either change.
+- ✅ `api/assemblyImport.ts` — generated types only, typed envelope surfaced
+  verbatim, collision recovery instead of a dead end
+- ✅ Contrast / focus ring / tab order / reduced motion / test hooks / responsive
+  at 1280·1366·1024 — all clean on both features
+
+### Test-integrity finding (process, not UI)
+
+`apps/web/e2e/dimension-placement.spec.ts` and the nine drawing specs it touched
+pick edges with `click({ force: true })`. That is why P3-D — a pick target the
+user's mouse genuinely cannot hit at its midpoint — is invisible to a green
+suite, and it is the same class of blind spot as the sketch strip's
+`toBeVisible()` SAVE control. The drawing specs should click without `force` and
+let an unhittable target fail.
+
+### Coverage this pass did NOT reach
+
+- A real multi-product supplier STEP larger than 100 KB — the round trip is
+  covered by the shipped spec, but the P1-B timing claim is extrapolated from a
+  52 KB / 3.35 s measurement plus the absence of any progress affordance in the
+  DOM, not from a 16 MiB import.
+- Touch emulation on either surface (target sizes measured; no touch project).
+- The diameter/radius `text_pos` branch of the placing stage under real pointer
+  input — only the linear `offset_mm` branch was driven by hand here.
+- Whether a placement survives a re-project (`L`) with the view moved.

@@ -4,8 +4,9 @@
  * a DOM (the revolve module's twin). Param shapes come from the generated
  * client (CLAUDE.md DRY rule); the builders live in `../api/parts`.
  *
- * A pattern repeats the WHOLE current body into a linear row or circular ring
- * and unions the copies (design §7.6). It carries no profile/axis reference to
+ * A pattern repeats its SUBJECT into a linear row or circular ring — the whole
+ * body, or the features the tree named (`./patternScope`, the `scope` field of
+ * docs/design/pattern-scope.md). It carries no profile/axis reference to
  * sketch geometry — its direction/axis are WORLD-space vectors. Rather than a
  * novel three-number vector widget, we offer the six principal axes as a ruled
  * SelectField (revolve's axis idiom: keyboard-first, deterministically
@@ -15,12 +16,21 @@
  */
 import type { LengthUnit } from "@loft/design";
 
-import type { PatternParams, Vec3 } from "../api/parts";
+import type { FeatureResponse, PatternParams, Vec3 } from "../api/parts";
 import {
   lengthInputValue,
   parsePositiveLengthMm,
   parseSignedLengthMm,
 } from "../units/length";
+// WHAT a pattern repeats is its own decision, shared verbatim with the mirror.
+import {
+  buildScope,
+  defaultScopeMode,
+  type ScopeFeature,
+  type ScopeMode,
+  type ScopeSeed,
+  scopeFromParams,
+} from "./patternScope";
 // The angle field shares revolve's (0, 360] parse/validation exactly (DRY).
 import { angleError, parseAngleDeg } from "./revolve";
 
@@ -85,6 +95,10 @@ export function nearestPreset(v: Vec3): AxisPreset {
 /** The editable pattern form (numeric fields kept as raw text — unit inputs). */
 export interface PatternForm {
   kind: PatternKind;
+  /** WHAT is repeated: the whole body, or the named features (`patternScope`). */
+  scope: ScopeMode;
+  /** The named subject, carried with its NAME so the row can render it. */
+  scopeFeatures: readonly ScopeFeature[];
   /** TOTAL instances INCLUDING the seed; shared by both modes. */
   countInput: string;
   // Linear
@@ -98,10 +112,17 @@ export interface PatternForm {
   angleInput: string;
 }
 
-/** The default new-pattern form: a 3-up linear row 10 mm apart along +X. */
-export function defaultPatternForm(): PatternForm {
+/**
+ * The default new-pattern form: a 3-up linear row 10 mm apart along +X, on the
+ * subject the tree proposes (`seed` — a selected row, else the tip). Called with
+ * no seed it opens on the whole body, which is what a pattern authored before
+ * this scope row meant.
+ */
+export function defaultPatternForm(seed: ScopeSeed | null = null): PatternForm {
   return {
     kind: "linear",
+    scope: defaultScopeMode(seed),
+    scopeFeatures: seed === null ? [] : [seed],
     countInput: "3",
     direction: "+x",
     spacingInput: "10",
@@ -118,12 +139,21 @@ function formatDeg(value: number): string {
   return String(Object.is(value, -0) ? 0 : value);
 }
 
-/** Seed the form from an existing pattern feature for editing (lengths in `unit`). */
+/**
+ * Seed the form from an existing pattern feature for editing (lengths in
+ * `unit`). `features` is the tree, so a persisted `features` scope can be shown
+ * by NAME rather than by uuid; omit it and the scope reads as it does on the
+ * wire (an absent key is `body`).
+ */
 export function formFromPatternParams(
   params: PatternParams,
   unit: LengthUnit,
+  features: readonly FeatureResponse[] = [],
 ): PatternForm {
   const base = defaultPatternForm();
+  const scope = scopeFromParams(params.scope, features);
+  base.scope = scope.mode;
+  base.scopeFeatures = scope.features;
   const p = params.pattern;
   if (p.kind === "linear") {
     return {
@@ -203,6 +233,13 @@ export function buildPatternParams(
 ): PatternParams | null {
   const count = parseCount(form.countInput);
   if (count === null) return null;
+  // ALWAYS sent, never omitted (pattern-scope §7.1): an absent `scope` key means
+  // "the whole body" forever, so a dialog that leaves it out is authoring the
+  // very ambiguity this row exists to remove. Note the key is `scope` and NOT
+  // `features` — params models are pydantic-default `extra="ignore"`, so the
+  // wrong spelling would validate, evaluate and silently give the old reading.
+  const scope = buildScope(form.scope, form.scopeFeatures);
+  if (scope === null) return null;
   if (form.kind === "linear") {
     const spacing = parseSpacingMm(form.spacingInput, unit);
     if (spacing === null) return null;
@@ -213,6 +250,7 @@ export function buildPatternParams(
         spacing_mm: spacing,
         count,
       },
+      scope,
     };
   }
   const angle = parseAngleDeg(form.angleInput);
@@ -228,6 +266,7 @@ export function buildPatternParams(
       angle_deg: angle,
       count,
     },
+    scope,
   };
 }
 

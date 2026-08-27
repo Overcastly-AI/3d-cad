@@ -315,7 +315,15 @@ test.describe("sketch entity snapping", () => {
       features: Array<{ feature: { params: { entities: SketchEntityRow[] } } }>;
     };
     const entities = treeBody.features[0]?.feature.params.entities ?? [];
-    const diagonal = entities[5];
+    // BY ID, NOT BY ARRAY POSITION. This read used to be `entities[5]` and the
+    // fixture's first corner is drawn ON the origin, so once a snap started
+    // authoring its inferred coincident (SNAP-3) the datum origin was
+    // materialised into the entity list ahead of the diagonal and index 5
+    // became the horizontal line — `start.x` came back -6 instead of 0, which
+    // reads as "the snap put the point in the wrong place", i.e. as this
+    // spec's own subject failing. Ids are minted in draw order (rect e1..e4,
+    // the horizontal e5, this diagonal e6) and say what they mean.
+    const diagonal = entities.find((entity) => entity.id === "e6");
     expect(diagonal?.kind).toBe("line");
     // Exact, not approximate: the snap resolved to the rectangle's own
     // endpoints, so the persisted coordinates ARE the corner coordinates.

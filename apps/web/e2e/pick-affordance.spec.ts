@@ -58,6 +58,13 @@ import {
  * `>= 40 px` assertion fails on all of them while the perpendicular bound still
  * passes. That asymmetry is the point: the gate is sensitive to the thing that
  * changed and insensitive to the thing that did not.
+ *
+ * ## How the stamps are READ (CI-4, 2026-08-15)
+ *
+ * Every probe in this file asks a `data-*-hover` attribute — React state, one
+ * commit behind `page.mouse.move`. The sweep of every such reader, what was
+ * measured about each, and the rule for which ones get a parked oracle, is in
+ * the ORACLE block by `OFF_BODY`. Read that before adding a probe here.
  */
 
 /** Radii swept outward from an edge's mark, in CSS px. */
@@ -85,14 +92,22 @@ interface EdgeMark {
   centre: Point;
 }
 
+/** A stamp the sweep saw at a point, kept WITH the point so it is re-checkable. */
+interface StampSighting {
+  stamp: string;
+  at: Point;
+}
+
 interface EdgeReach {
   mark: EdgeMark;
   /** Furthest radius still addressing this edge, per direction. */
   profile: number[];
+  /** Direction index of `along` — where the oracle re-checks the claim. */
+  bestDirection: number;
   along: number;
   perp: number;
   /** Any OTHER edge addressed within the innermost ring — cross-talk. */
-  crossTalk: string[];
+  crossTalk: StampSighting[];
 }
 
 async function openDensePlate(page: Page): Promise<Locator> {
@@ -146,6 +161,15 @@ async function edgeMarks(page: Page): Promise<EdgeMark[]> {
  * in each direction. Contiguous by construction: the first radius that stops
  * answering ends that direction, so a coincidental hit far away cannot inflate
  * the reach.
+ *
+ * THIS IS A FILTER, NOT AN ORACLE — the same posture the hole scan takes. It
+ * reads the hover stamp with no settle, ~330 times per call; every value an
+ * ASSERTION consumes is re-checked afterwards through {@link reachHolds} (for a
+ * reach) or {@link releasesEntity} / {@link settledStampAt} (for a point-local
+ * claim), so a survivor of the previous probe cannot masquerade as a fresh one.
+ * See the ORACLE block below for the measurements that set that boundary,
+ * including why the sweep itself is NOT converted: parking every probe costs
+ * 20x AND changes what is being measured.
  */
 async function measureReach(
   page: Page,
@@ -156,23 +180,23 @@ async function measureReach(
   wanted = String(mark.index),
 ): Promise<EdgeReach> {
   const profile: number[] = [];
-  const crossTalk = new Set<string>();
+  const crossTalk = new Map<string, Point>();
   for (let d = 0; d < DIRECTIONS; d += 1) {
-    const angle = (2 * Math.PI * d) / DIRECTIONS;
     let reach = 0;
     for (const radius of RADII) {
-      await page.mouse.move(
-        mark.centre.x + radius * Math.cos(angle),
-        mark.centre.y + radius * Math.sin(angle),
-      );
+      const point = radialPoint(mark.centre, d, radius);
+      await page.mouse.move(point.x, point.y);
       const stamped = await viewport.getAttribute(attribute);
       if (stamped === wanted) {
         reach = radius;
         continue;
       }
       // The innermost ring is the crowding test: just outside this edge's own
-      // 24 px mark, on a bolt circle, nothing else may answer.
-      if (stamped !== null && radius === RADII[0]) crossTalk.add(stamped);
+      // 24 px mark, on a bolt circle, nothing else may answer. The POINT is
+      // kept with the stamp so the oracle can go back and re-ask there.
+      if (stamped !== null && radius === RADII[0] && !crossTalk.has(stamped)) {
+        crossTalk.set(stamped, point);
+      }
       break;
     }
     profile.push(reach);
@@ -189,9 +213,10 @@ async function measureReach(
   return {
     mark,
     profile,
+    bestDirection: best,
     along: profile[best] as number,
     perp,
-    crossTalk: [...crossTalk],
+    crossTalk: [...crossTalk].map(([stamp, at]) => ({ stamp, at })),
   };
 }
 
@@ -231,6 +256,279 @@ async function splitFaceMarks(
  */
 const OFF_BODY: Point = { x: 5, y: 5 };
 
+/* ==========================================================================
+ * THE ORACLE — and the MEASUREMENTS that say where to spend it (CI-4).
+ *
+ * Every reader in this file asks a `data-*-hover` attribute what the pointer is
+ * addressing. Those attributes are React state written by `useViewportPickStamp`
+ * a commit after `page.mouse.move` resolves, so a bare read can answer about the
+ * PREVIOUS position. `confirmsPlacementFace` fixed one such reader; this block
+ * is the sweep of the rest, and it is deliberately NOT "add a wait everywhere".
+ *
+ * WHAT WAS MEASURED, on a native stack at load average 13 on 4 cores. Two
+ * attributes were instrumented, and THEY DO NOT BEHAVE THE SAME WAY:
+ *
+ *  · `data-hole-point-hover` (HolePointOverlay) LAGS IN TIME. Over 120 points of
+ *    the production 12 px raster: 18 reads (15 %) differed from the same point
+ *    re-read 1 s later, alternating in both directions (`-`->`1`, `1`->`-`) —
+ *    i.e. exactly the carry-over `2f0b361` described. Path made no difference at
+ *    all: the in-place 1 s read equalled the parked read 120 times out of 120.
+ *
+ *  · `data-edge-pick-hover` (EdgeBandLayer) DOES NOT LAG. Over 96 probes across
+ *    six edge marks, the bare read equalled the same point re-read at +50 ms,
+ *    +200 ms, +500 ms and +2000 ms in EVERY case. What it does instead is depend
+ *    on where the pointer CAME FROM: arriving from 130 px out along the ray
+ *    reports nothing where arriving from off-canvas reports the edge, and that
+ *    reproduces identically with 2.75 s of settle in both arms. That is a
+ *    product property, reported rather than patched (see the return report).
+ *
+ * WHAT FOLLOWS, and it is the reason `measureReach` is not converted: parking
+ * every probe would cost 20x (a full production sweep goes 13.8 s -> 275.7 s,
+ * against a 60 s test) AND would measure a pointer path no hand takes. The
+ * numbers themselves do not move — three naive sweeps quiet, three at load 13,
+ * and a parked ground-truth sweep all report `#0 40/13  #1 60/0  #2 130/0` for
+ * the three line edges every assertion in this file consumes. The parked sweep
+ * differs only on circle edges at 13 px (`#12 0->13 perp`, `#13 0->13 along`,
+ * `#14 0->13 perp`, `#15 0->13 along`), which is below every threshold here and
+ * asserted on by nothing. So the thresholds were NOT inflated and are not
+ * re-baselined.
+ *
+ * THERE ARE THEREFORE TWO ORACLES, and picking the wrong one is not a style
+ * choice — it produced a red build here before this comment was written:
+ *
+ *   PARKED, for a POINT-LOCAL question ("is anything addressing this pixel?").
+ *   Arrive from the opposite answer — `parkOffBody` for a claim of presence,
+ *   the entity's own mark for a claim of release — so the value you read cannot
+ *   be the previous probe's. `settledStampAt`, `releasesEntity`,
+ *   `confirmsPlacementFace`.
+ *
+ *   RE-WALKED, for a REACH ("how far along the corridor does it answer?").
+ *   A reach is a claim about a pointer TRAVELLING, so a park replaces the
+ *   subject. `reachHolds` repeats the sweep's own ray, to the radius the
+ *   assertion CLAIMS rather than to the sweep's maximum, and then settles.
+ *
+ * AND THE RE-WALK EARNED ITS KEEP IMMEDIATELY: it found that the mate-axis gate
+ * at the foot of this describe has been passing on a one-ring carry-over, and
+ * that on the UNMODIFIED file that gate is already a ~29 % flake. NO THRESHOLD
+ * IN THIS FILE WAS MOVED — the mate measurement is not stable enough to
+ * re-baseline against (20/28/40/90 px across 15 runs), so it is written down at
+ * its call site and handed on rather than tuned into green.
+ *
+ * WHERE EITHER IS SPENT — on thin margins and strict claims, not uniformly:
+ *   · `reachable.length >= 3` is met by EXACTLY 3 of 8 sampled edges. Zero
+ *     margin, so every counted edge's reach is re-walked and settled.
+ *   · `perp <= 16 px` is met at 13 px, one RADII ring from the ceiling — and the
+ *     swept value is not even stable about WHICH line edge carries it (`#0` in
+ *     one session, `#1` in the next, both under the ceiling). So the corridor
+ *     claim is now stated directly, against the first radius above the ceiling,
+ *     through the parked `releasesEntity`.
+ *   · a strict `toEqual([])` / `toBe(0)` / `not.toContain` cannot absorb one bad
+ *     read, so no such assertion goes red on an unconfirmed value.
+ *   · the `>= 0.5` fraction censuses measure 98-99 % — a 48-point margin that a
+ *     one-probe race cannot cross. Those keep the cheap read, and gain the free
+ *     half of the fix: the pointer is PARKED before the census starts, so the
+ *     first probe cannot inherit whatever the previous step left behind.
+ * ======================================================================= */
+
+/** What a parked oracle is waiting for the stamp to become. */
+type StampGoal =
+  | { kind: "absent" }
+  | { kind: "present" }
+  | { kind: "is"; value: string }
+  | { kind: "not"; value: string };
+
+/**
+ * How long a parked oracle waits for the transition it parked for.
+ *
+ * Not a frame budget — a settle-tolerant ceiling, so a slower runner cannot
+ * re-break it. Measured transition time with rAF polling on this build: p50
+ * 206 ms, p90 229 ms, max 279 ms (the floor is the ~5 fps software-GL frame,
+ * not React). 5 s is ~18x the p90 and matches the timeout every other wait in
+ * this file already uses. It is only ever SPENT when a claim is about to fail.
+ */
+const ORACLE_TIMEOUT_MS = 5_000;
+
+/** Wait, polling on animation frames, for the viewport stamp to reach `goal`. */
+async function stampSettles(
+  page: Page,
+  attribute: string,
+  goal: StampGoal,
+  timeout = ORACLE_TIMEOUT_MS,
+): Promise<boolean> {
+  return page
+    .waitForFunction(
+      (input: { attribute: string; goal: StampGoal }) => {
+        const value =
+          document
+            .querySelector('[data-testid="viewport"]')
+            ?.getAttribute(input.attribute) ?? null;
+        if (input.goal.kind === "absent") return value === null;
+        if (input.goal.kind === "present") return value !== null;
+        if (input.goal.kind === "is") return value === input.goal.value;
+        return value !== input.goal.value;
+      },
+      { attribute, goal },
+      { timeout, polling: "raf" },
+    )
+    .then(
+      () => true,
+      () => false,
+    );
+}
+
+/** Park off every pick surface and prove the stamp is gone. */
+async function parkOffBody(page: Page, attribute: string): Promise<void> {
+  await page.mouse.move(OFF_BODY.x, OFF_BODY.y);
+  const cleared = await stampSettles(
+    page,
+    attribute,
+    { kind: "absent" },
+    10_000,
+  );
+  if (!cleared) {
+    throw new Error(
+      `${attribute} never cleared with the pointer off the body — every read ` +
+        `taken through this oracle would be measuring a stuck attribute.`,
+    );
+  }
+}
+
+/**
+ * Does the edge REALLY answer `radius` px out along direction `d` — the value
+ * the reach assertions count?
+ *
+ * WHY THIS ONE DOES NOT PARK, when almost every other oracle in this file does.
+ * The park's whole trick is arriving from the opposite answer, and for a
+ * point-local question ("is anything here?") that costs nothing. A REACH is not
+ * point-local: it is a claim about the corridor a pointer TRAVELS, and on this
+ * build the edge stamp depends on where the pointer came from (see the ORACLE
+ * block). Parking replaces the traversal with an off-canvas teleport, so it
+ * stops answering the question the test is asking — and it does not merely
+ * differ in principle. MEASURED, and this is why the first version of this
+ * helper was thrown away: with a parked confirmation the mate-axis sweep found
+ * `#14 40px` and the parked read at that very point refused it, taking a green
+ * test red with no defect anywhere. In the part workspace the park errs the
+ * other way and is MORE generous than a drag. Either way it is the wrong
+ * instrument for a corridor.
+ *
+ * So this re-walks the sweep's own ray — the same arrival, in order — and then
+ * SETTLES: two reads that agree across a rendered frame. That is what removes
+ * the race the ticket is about, because a carry-over from the inner radius
+ * cannot survive a frame in which the true value lands; the settle exits on
+ * agreement rather than on a fixed budget, so a slower runner cannot re-break
+ * it. It costs ~4 pointer moves and 1-2 frames, which is why every counted
+ * reach can afford one.
+ *
+ * Residual, stated plainly: a lag longer than 5 settle rounds (~1 s at the
+ * ~200 ms frames measured here) would still pass. Measured lag on this
+ * attribute is zero over 96 probes at horizons up to 2.75 s, and one frame on
+ * the hole stamp, so the margin is three orders of magnitude, not two-fold.
+ */
+async function reachHolds(
+  page: Page,
+  viewport: Locator,
+  attribute: string,
+  centre: Point,
+  direction: number,
+  radius: number,
+  wanted: string,
+): Promise<boolean> {
+  for (const ring of RADII) {
+    if (ring > radius) break;
+    const step = radialPoint(centre, direction, ring);
+    await page.mouse.move(step.x, step.y);
+  }
+  let last = await viewport.getAttribute(attribute);
+  for (let round = 0; round < 5; round += 1) {
+    await waitForFrames(page, 1);
+    const next = await viewport.getAttribute(attribute);
+    if (next === last) return next === wanted;
+    last = next;
+  }
+  return last === wanted;
+}
+
+/**
+ * Does the corridor STOP by `point` — i.e. does the pointer stop addressing
+ * `wanted` there?
+ *
+ * The mirror park, because parking off the body would make this vacuous: null
+ * is what you want to see, so a premature read would "prove" it. So park ON
+ * `from` — a position that DOES address the edge, proved — and require the
+ * stamp to change. A stale `wanted` fails the wait; only a real transition
+ * passes. It also parks on the most generous path there is (straight off the
+ * edge's own mark), so a negative here is a strong negative.
+ *
+ * IT CLEARS THE STAMP BEFORE TAKING THE PARK, and that is not ceremony — the
+ * guard below caught the version that did not. Arriving at an `edge-pick-*`
+ * mark from ANOTHER point on the canvas does not reliably stamp that edge on
+ * this build, while arriving from off-canvas does (8 marks of 8, measured). So
+ * an oracle that walked straight from the previous probe onto the mark would
+ * have sat on a park that reads someone else's index, and every "it released
+ * the edge" it reported would have been about the wrong edge. The guard is what
+ * turns that into a loud failure instead of a quiet green.
+ */
+async function releasesEntity(
+  page: Page,
+  attribute: string,
+  from: Point,
+  point: Point,
+  wanted: string,
+): Promise<boolean> {
+  await parkOffBody(page, attribute);
+  await page.mouse.move(from.x, from.y);
+  const parked = await stampSettles(
+    page,
+    attribute,
+    { kind: "is", value: wanted },
+    10_000,
+  );
+  if (!parked) {
+    throw new Error(
+      `the park position ${Math.round(from.x)},${Math.round(from.y)} for ` +
+        `${attribute} does not address ${wanted}, so a "stopped addressing it" ` +
+        `reading there would prove nothing.`,
+    );
+  }
+  await page.mouse.move(point.x, point.y);
+  return stampSettles(page, attribute, { kind: "not", value: wanted });
+}
+
+/** The stamp at `point`, parked off the body first so the value is this point's. */
+async function settledStampAt(
+  page: Page,
+  viewport: Locator,
+  attribute: string,
+  point: Point,
+  timeout = ORACLE_TIMEOUT_MS,
+): Promise<string | null> {
+  await parkOffBody(page, attribute);
+  await page.mouse.move(point.x, point.y);
+  await stampSettles(page, attribute, { kind: "present" }, timeout);
+  return viewport.getAttribute(attribute);
+}
+
+/**
+ * The ceiling for a parked read inside a MULTI-POINT probe, where "nothing
+ * here" is a common and legitimate answer and therefore gets paid for on every
+ * such point rather than once at the end.
+ *
+ * 1.5 s is ~6.5x the measured p90 transition (229 ms) and 5.4x the worst
+ * observed (279 ms) — settle-tolerant, but small enough that a six-position
+ * probe over an empty region costs 9 s rather than 30 s. The full
+ * ORACLE_TIMEOUT_MS stays where a single decision hangs on one read.
+ */
+const PROBE_SETTLE_MS = 1_500;
+
+/** The sweep's probe position: `radius` px from `centre` along direction `d`. */
+function radialPoint(centre: Point, d: number, radius: number): Point {
+  const angle = (2 * Math.PI * d) / DIRECTIONS;
+  return {
+    x: centre.x + radius * Math.cos(angle),
+    y: centre.y + radius * Math.sin(angle),
+  };
+}
+
 /**
  * Is the hole's placement face REALLY under `point`?
  *
@@ -255,30 +553,23 @@ const OFF_BODY: Point = { x: 5, y: 5 };
  * is settle-tolerant rather than a fixed frame budget, and it NULLS the stamp
  * first: without that baseline a stale "1" cannot be told from a fresh one,
  * which is the whole defect.
+ *
+ * RE-MEASURED 2026-08-15 (CI-4) and the original reading holds, with one
+ * correction worth having: over 120 points of this very raster, 18 bare reads
+ * (15 %) differed from the same point 1 s later — but the in-place 1 s read
+ * agreed with the PARKED read 120 times out of 120. So on this attribute it is
+ * the SETTLE that does the work and the park is what makes the settle provable
+ * rather than assumed; there is no path effect here to trade against. (Contrast
+ * `data-edge-pick-hover`, where the ORACLE block above measures the opposite.)
+ * Now expressed through the shared parked helpers so there is one shape.
  */
 async function confirmsPlacementFace(
   page: Page,
-  viewport: Locator,
   point: Point,
 ): Promise<boolean> {
-  await page.mouse.move(OFF_BODY.x, OFF_BODY.y);
-  await expect(viewport).not.toHaveAttribute("data-hole-point-hover", /.*/, {
-    timeout: 10_000,
-  });
+  await parkOffBody(page, "data-hole-point-hover");
   await page.mouse.move(point.x, point.y);
-  return page
-    .waitForFunction(
-      () =>
-        document
-          .querySelector('[data-testid="viewport"]')
-          ?.getAttribute("data-hole-point-hover") !== null,
-      undefined,
-      { timeout: 5_000, polling: 100 },
-    )
-    .then(
-      () => true,
-      () => false,
-    );
+  return stampSettles(page, "data-hole-point-hover", { kind: "present" });
 }
 
 async function armFilletPick(page: Page): Promise<void> {
@@ -296,6 +587,12 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
   test("fillet edges: the EDGE is the target, not a diamond at its mid-span", async ({
     page,
   }) => {
+    // 34-35 s measured over three runs at load average 13 on 4 cores, against
+    // the config's 60 s default — and the parked oracles below add ~10 waits.
+    // Same ceiling, and same reason, as the mate sibling at the foot of this
+    // describe: a sweep-plus-oracle test must not be one slow shard away from a
+    // false red in nobody's diff.
+    test.setTimeout(300_000);
     const viewport = await openDensePlate(page);
     await armFilletPick(page);
 
@@ -331,10 +628,44 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     // the plate, and those are correctly refused by the occlusion test — so the
     // assertion is about the visible ones. Under the old dot every edge scores
     // 13 px, so no arrangement of dots reaches this.
-    const reachable = sampled.filter((r) => r.along >= ALONG_MIN_PX);
+    //
+    // EVERY COUNTED EDGE IS RE-CONFIRMED, because this is the thinnest margin in
+    // the file: exactly 3 of the 8 sampled edges clear the floor, so ONE bad
+    // read either way decides the test. The sweep says WHICH RAY to walk;
+    // `reachHolds` re-walks it and settles before the count believes it.
+    //
+    // Confirmed AT THE FLOOR, not at the swept maximum, because the floor is
+    // what the assertion claims: "this edge answers 40 px out". Demanding the
+    // swept maximum instead would hold the gate to a number it never states,
+    // and would fail on an edge whose corridor is real but whose last ring the
+    // sweep over-reported.
+    const reachable: EdgeReach[] = [];
+    const refused: string[] = [];
+    for (const reach of sampled) {
+      if (reach.along < ALONG_MIN_PX) continue;
+      if (
+        await reachHolds(
+          page,
+          viewport,
+          "data-edge-pick-hover",
+          reach.mark.centre,
+          reach.bestDirection,
+          ALONG_MIN_PX,
+          String(reach.mark.index),
+        )
+      ) {
+        reachable.push(reach);
+      } else {
+        refused.push(`#${reach.mark.index}@${ALONG_MIN_PX}px`);
+      }
+    }
     expect(
       reachable.length,
-      `edges addressable >= ${ALONG_MIN_PX}px along: ${report}`,
+      `edges addressable >= ${ALONG_MIN_PX}px along: ${report}` +
+        (refused.length > 0
+          ? ` — the sweep claimed ${refused.join(",")} and the settled ` +
+            `re-walk did not confirm it`
+          : ""),
     ).toBeGreaterThanOrEqual(3);
 
     // …AND IT IS STILL A CORRIDOR. A straight edge's live region must stay
@@ -343,11 +674,35 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     // excluded deliberately: a Ø6 bore is ~40 px across at this framing, so
     // "perpendicular" from a point on it lands on the SAME edge's far side —
     // that measures the entity, not the tolerance.
+    //
+    // STATED AGAINST THE CEILING RATHER THAN AGAINST THE PROFILE. The old form
+    // compared a swept maximum (13 px here) to 16 px — one RADII ring of margin,
+    // decided by an unconfirmed read, and inflating in the direction that turns
+    // a healthy corridor red. This asks the claim itself: at the first radius
+    // ABOVE the ceiling, in both perpendicular directions, the edge must have
+    // let go. `releasesEntity` parks ON the edge's own mark, so a stale
+    // `wanted` cannot pass for a fresh release — only a real transition can.
+    const beyondCeiling = RADII.find((r) => r > PERP_MAX_PX) as number;
+    const quarter = DIRECTIONS / 4;
     for (const reach of reachable.filter((r) => r.mark.kind === "line")) {
-      expect(
-        reach.perp,
-        `edge #${reach.mark.index} perpendicular reach (${report})`,
-      ).toBeLessThanOrEqual(PERP_MAX_PX);
+      for (const side of [quarter, DIRECTIONS - quarter]) {
+        const across = radialPoint(
+          reach.mark.centre,
+          (reach.bestDirection + side) % DIRECTIONS,
+          beyondCeiling,
+        );
+        expect(
+          await releasesEntity(
+            page,
+            "data-edge-pick-hover",
+            reach.mark.centre,
+            across,
+            String(reach.mark.index),
+          ),
+          `edge #${reach.mark.index} still answers ${beyondCeiling}px across ` +
+            `itself, past the ${PERP_MAX_PX}px corridor (${report})`,
+        ).toBe(true);
+      }
     }
 
     // THE MIS-RESOLUTION DETECTOR the dense fixture exists for: probing just
@@ -360,9 +715,24 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     // 10 mm plate is thin next to a Ø40 bolt circle. Demanding silence there
     // would be demanding the occlusion test be wrong. A six-face box cannot
     // stage this at all, which is why A2 asked for this fixture.
+    //
+    // `toEqual([])` cannot absorb one bad read, so no sighting reaches it
+    // unconfirmed: the sweep's candidate is re-asked at its own point with the
+    // pointer parked off the body first. Costs nothing while the answer is the
+    // empty list, which is what it has always been for these edges.
     for (const reach of reachable) {
+      const confirmed: string[] = [];
+      for (const sighting of reach.crossTalk) {
+        const settled = await settledStampAt(
+          page,
+          viewport,
+          "data-edge-pick-hover",
+          sighting.at,
+        );
+        if (settled === sighting.stamp) confirmed.push(sighting.stamp);
+      }
       expect(
-        reach.crossTalk,
+        confirmed,
         `edge #${reach.mark.index} answered as another edge (${report})`,
       ).toEqual([]);
     }
@@ -383,7 +753,16 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     // The FB-3/FB-5 census, pointed at the overlay SEL-1 did not convert. One
     // round trip per point, so the grid is coarse; the lit silhouette supplies
     // the points, so this is a fraction of what the user can SEE.
+    //
+    // PARKED FIRST, so the census cannot open on an inherited value: the last
+    // thing before it is a `click()`, whose stamp the very first probe would
+    // otherwise be free to read back as its own answer. Free, and it removes
+    // the one error here that is systematic rather than random. The per-point
+    // read stays cheap on purpose — see the ORACLE block: this floor is 50 %
+    // and the measured fraction is 98-99 %, a margin no one-probe race crosses,
+    // and 135 parked probes would cost more than the whole test.
     const points = await litPoints(page, { step: 24 });
+    await parkOffBody(page, "data-shell-face-hover");
     const measured = await measureReachabilityWith(points, async (point) => {
       await page.mouse.move(point.x, point.y);
       return (await viewport.getAttribute("data-shell-face-hover")) !== null;
@@ -483,15 +862,44 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
       { timeout: 5_000 },
     );
 
+    // Same oracle as the fillet sibling, and at the same floor, for the same
+    // reason: the count is what the assertion reads, so every edge it counts
+    // has the claimed radius re-walked and settled before it is believed.
+    let addressable = 0;
+    const unconfirmed: string[] = [];
+    for (const reach of sampled) {
+      if (reach.along < ALONG_MIN_PX) continue;
+      if (
+        await reachHolds(
+          page,
+          viewport,
+          "data-measure-edge-hover",
+          reach.mark.centre,
+          reach.bestDirection,
+          ALONG_MIN_PX,
+          String(reach.mark.index),
+        )
+      ) {
+        addressable += 1;
+      } else {
+        unconfirmed.push(`#${reach.mark.index}@${ALONG_MIN_PX}px`);
+      }
+    }
     expect(
-      sampled.filter((r) => r.along >= ALONG_MIN_PX).length,
-      `measure edges addressable >= ${ALONG_MIN_PX}px along: ${report}`,
+      addressable,
+      `measure edges addressable >= ${ALONG_MIN_PX}px along: ${report}` +
+        (unconfirmed.length > 0
+          ? ` — the settled re-walk did not confirm ${unconfirmed.join(",")}`
+          : ""),
     ).toBeGreaterThanOrEqual(2);
   });
 
   test("a HIDDEN body stops occluding the edges behind it", async ({
     page,
   }) => {
+    // 13.5-14.6 s measured at load 13; the parked probe adds up to 9 s per
+    // call over an empty span, three calls. Headroom, not a fix.
+    test.setTimeout(300_000);
     // THE REASON YOU HIDE A BODY IS TO REACH WHAT IS BEHIND IT. The pick mesh
     // is fused, and three's raycaster never reads `material.visible` — only
     // `material.side` — so `Mesh.raycast` tests a switched-off body's triangles
@@ -518,12 +926,27 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     const wanted = new Set(topEdges.map((m) => String(m.index)));
     const centre = (topEdges[0] as EdgeMark).centre;
 
-    /** Which edges answer along the occluded span, clear of any 24 px mark. */
+    /**
+     * Which edges answer along the occluded span, clear of any 24 px mark.
+     *
+     * SIX PARKED READS, not six bare ones. Both assertions below are strict
+     * set-membership over this handful of points — `toEqual([])` and
+     * `toHaveLength(1)` — and neither can absorb a single stamp that survived
+     * the previous position. Parking off the body first makes every value in
+     * the set provably this point's; it also happens to be the most generous
+     * arrival path there is, which makes the "must not answer" control the
+     * stronger claim rather than the weaker one.
+     */
     const probe = async (): Promise<Set<string>> => {
       const seen = new Set<string>();
       for (const dx of [-45, -30, -18, 18, 30, 45]) {
-        await page.mouse.move(centre.x + dx, centre.y);
-        const stamped = await viewport.getAttribute("data-edge-pick-hover");
+        const stamped = await settledStampAt(
+          page,
+          viewport,
+          "data-edge-pick-hover",
+          { x: centre.x + dx, y: centre.y },
+          PROBE_SETTLE_MS,
+        );
         if (stamped !== null) seen.add(stamped);
       }
       return seen;
@@ -606,9 +1029,18 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     ).toBeVisible({ timeout: 20_000 });
     await waitForFrames(page, 6);
 
-    /** The FB-3/FB-5 census, over whatever is currently lit. */
+    /**
+     * The FB-3/FB-5 census, over whatever is currently lit.
+     *
+     * Parked before each leg — the step before a census is always a
+     * `setBodyMode` click, and without this the first probe of the leg is free
+     * to read that click's leftover stamp as its own answer. Per-point reads
+     * stay cheap: see the ORACLE block for why a 50 % floor measured at 98 %
+     * does not buy 3 x 135 parked probes.
+     */
     const census = async () => {
       const points = await litPoints(page, { step: 24 });
+      await parkOffBody(page, "data-shell-face-hover");
       return measureReachabilityWith(points, async (point) => {
         await page.mouse.move(point.x, point.y);
         return (await viewport.getAttribute("data-shell-face-hover")) !== null;
@@ -717,12 +1149,24 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
       return { marks, buried };
     };
 
-    /** Which edges answer along a mark's own line, clear of its 24 px mark. */
+    /**
+     * Which edges answer along a mark's own line, clear of its 24 px mark.
+     *
+     * Parked per position, as in the sibling above: this set feeds two
+     * `not.toContain` refusals AND one `toContain` — so a survivor of the
+     * previous position can produce either a false red or a false green here,
+     * and six extra waits is the whole price of removing both.
+     */
     const probe = async (mark: EdgeMark): Promise<Set<string>> => {
       const seen = new Set<string>();
       for (const dx of [-45, -30, -18, 18, 30, 45]) {
-        await page.mouse.move(mark.centre.x + dx, mark.centre.y);
-        const stamped = await viewport.getAttribute("data-edge-pick-hover");
+        const stamped = await settledStampAt(
+          page,
+          viewport,
+          "data-edge-pick-hover",
+          { x: mark.centre.x + dx, y: mark.centre.y },
+          PROBE_SETTLE_MS,
+        );
         if (stamped !== null) seen.add(stamped);
       }
       return seen;
@@ -809,14 +1253,39 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
       "the wall really did cover part of the frame",
     ).toBeGreaterThan(20);
 
+    // A FRACTION against a 50 % floor, measured at 99.3 % — parked once at the
+    // start so the first probe cannot inherit the `setBodyMode` click's stamp,
+    // then cheap per point. The margin is 66 of 135 points; no per-probe race
+    // crosses that.
+    await parkOffBody(page, "data-hovered-face");
     const answered = await measureReachabilityWith(stillLit, async (point) => {
       await page.mouse.move(point.x, point.y);
       return (await viewport.getAttribute("data-hovered-face")) !== null;
     });
-    const ghost = await measureReachabilityWith(nowEmpty, async (point) => {
+
+    // THE GHOST SWEEP IS A DIFFERENT KIND OF ASSERTION AND GETS A DIFFERENT
+    // TREATMENT: `toBe(0)` has no margin at all, so a single point that reads
+    // non-null fails it — and the point most at risk is the FIRST, which
+    // follows ~135 mostly-non-null probes over the drawn plate. A bare read
+    // there is free to hand the last on-plate stamp to the first off-plate
+    // point, which is precisely the carry-over `2f0b361` measured on the hole
+    // raster. So the sweep stays the cheap filter and every CANDIDATE is
+    // re-asked with the pointer parked off the body first. Measured 0/832 both
+    // ways on this build, so in the healthy case this costs one park.
+    await parkOffBody(page, "data-hovered-face");
+    const ghosts: Point[] = [];
+    for (const point of nowEmpty) {
       await page.mouse.move(point.x, point.y);
-      return (await viewport.getAttribute("data-hovered-face")) !== null;
-    });
+      if ((await viewport.getAttribute("data-hovered-face")) === null) continue;
+      const settled = await settledStampAt(
+        page,
+        viewport,
+        "data-hovered-face",
+        point,
+        PROBE_SETTLE_MS,
+      );
+      if (settled !== null) ghosts.push(point);
+    }
 
     await page.mouse.move(5, 5);
     await expect(viewport).not.toHaveAttribute("data-hovered-face", /.*/, {
@@ -831,8 +1300,15 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     // …and the vacated region names nothing, which is the guard that seeing
     // PAST the hidden body did not make it pickable.
     expect(
-      ghost.reachable,
-      `points over the vacated region that still name a face: ${ghost.reachable}/${ghost.sampled}`,
+      ghosts.length,
+      `points over the vacated region that still name a face, confirmed with ` +
+        `the pointer parked off the body first: ${ghosts.length}/${nowEmpty.length}` +
+        (ghosts.length > 0
+          ? ` at ${ghosts
+              .slice(0, 8)
+              .map((p) => `${Math.round(p.x)},${Math.round(p.y)}`)
+              .join(" ")}${ghosts.length > 8 ? " …" : ""}`
+          : ""),
     ).toBe(0);
   });
 
@@ -906,14 +1382,33 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
       nowEmpty.length,
       "the wall really did cover part of the frame",
     ).toBeGreaterThan(20);
+    // The sweep is the cheap filter and the `toEqual([])` is strict, so any
+    // stamp naming a WALL edge is re-asked at its own point with the pointer
+    // parked off the body first. Plate edges are collected for the message and
+    // deliberately not re-asked — they are allowed here, so confirming them
+    // would be paying for a value nothing decides.
+    await parkOffBody(page, "data-edge-pick-hover");
     const stamped = new Set<string>();
+    const wallStillAnswering = new Set<string>();
     for (const point of nowEmpty) {
       await page.mouse.move(point.x, point.y);
       const value = await viewport.getAttribute("data-edge-pick-hover");
-      if (value !== null) stamped.add(value);
+      if (value === null) continue;
+      stamped.add(value);
+      if (!wallEdges.has(value)) continue;
+      const settled = await settledStampAt(
+        page,
+        viewport,
+        "data-edge-pick-hover",
+        point,
+        PROBE_SETTLE_MS,
+      );
+      if (settled !== null && wallEdges.has(settled)) {
+        wallStillAnswering.add(settled);
+      }
     }
     expect(
-      [...stamped].filter((s) => wallEdges.has(s)),
+      [...wallStillAnswering],
       `edges of the hidden wall still answering over the space it vacated (all stamps: ${[...stamped].join(",") || "none"})`,
     ).toEqual([]);
 
@@ -1034,7 +1529,7 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
       // budget the run is expected to spend.
       confirmations += 1;
       if (confirmations > 12) break;
-      if (await confirmsPlacementFace(page, viewport, point)) {
+      if (await confirmsPlacementFace(page, point)) {
         placed = point;
         break;
       }
@@ -1100,8 +1595,11 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     // The FB-3/FB-5 census over both plates at once. The stamp carries
     // `instanceId:index`, so this measures not just "something answered" but
     // WHICH instance answered — a single shared hover writer cannot fake it.
+    // Parked before the census, as everywhere else here, so the first probe
+    // cannot read the `mate-coincident` click's leftover stamp as its own.
     const stamps = new Set<string>();
     const points = await litPoints(page, { step: 24 });
+    await parkOffBody(page, "data-mate-pick-hover");
     const measured = await measureReachabilityWith(points, async (point) => {
       await page.mouse.move(point.x, point.y);
       const stamped = await viewport.getAttribute("data-mate-pick-hover");
@@ -1163,6 +1661,35 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     const report = sampled
       .map((r) => `#${r.mark.index} ${r.along}px`)
       .join(" ");
+    // THE ONE READER IN THIS FILE LEFT UNCONFIRMED, deliberately, and this
+    // comment is the handover rather than an excuse. Every other reach gate
+    // above now re-walks its claimed radius through `reachHolds`; this one does
+    // not, because doing so turns it RED — and the red is real. Measured at
+    // load average 13 on 4 cores:
+    //
+    //   · On the UNMODIFIED file (only a `console.log` added, so none of this is
+    //     the CI-4 diff) the sweep reported `#14 40px` in 5 runs of 7 and
+    //     `#14 28px` in the other 2. The 28s FAILED. This gate is therefore
+    //     ALREADY a ~29 % flake in CI, and has been.
+    //   · Every 40 px reading is refused by the settled re-walk — 5 of 5 across
+    //     two protocols. So on the runs where it passes, it passes on a one-ring
+    //     carry-over from 28 px, which is exactly the defect class CI-4 exists
+    //     to remove.
+    //   · The measurement is not stable enough to re-baseline against, which is
+    //     why no threshold here was moved: across 15 runs `#14` came back 20,
+    //     28, 40 and 90 px. `setupTwoInstances` never pins the camera the way
+    //     `openDensePlate` does ("only comparable between runs if the part is
+    //     the same size in frame"), and adding that pin here did NOT close it
+    //     either — pinned, the sweep still read 28/40/40/40/90. So the cause is
+    //     upstream of the framing and upstream of this file.
+    //
+    // What it SHOULD assert, when the fixture can support it: a reach CONFIRMED
+    // by `reachHolds`, against a floor derived from the mark it discriminates
+    // against — a 24 px `PickNode` scores 13 px on this sweep (the header's own
+    // mutation run), and 20 px is the smallest RADII ring whose diagonal
+    // (14.1, 14.1) falls outside a 12 px half-extent, so `>= 20` confirmed is
+    // the honest statement of "a band, not a diamond". Gating that needs a
+    // stable assembly fixture first, which is `assemblyFlow.ts`, not here.
     expect(
       sampled.filter((r) => r.along >= ALONG_MIN_PX).length,
       `mate axes addressable >= ${ALONG_MIN_PX}px along: ${report}`,
@@ -1193,21 +1720,15 @@ test.describe("SEL-4 — founder screenshots", () => {
       // 2026-08-08, and it produced a byte-identical "after" shot.
       if (target !== null && target.reach >= ALONG_MIN_PX) break;
       const reach = await measureReach(page, viewport, circle);
-      let best = 0;
-      reach.profile.forEach((r, d) => {
-        if (r > (reach.profile[best] as number)) best = d;
-      });
-      const radius = reach.profile[best] as number;
+      const radius = reach.along;
       if (target !== null && radius <= target.reach) continue;
-      const angle = (2 * Math.PI * best) / DIRECTIONS;
       target = {
         reach: radius,
         // 60 % of the way out: unambiguously off the mark, comfortably inside
-        // the corridor, so the shot does not depend on a boundary pixel.
-        point: {
-          x: circle.centre.x + radius * 0.6 * Math.cos(angle),
-          y: circle.centre.y + radius * 0.6 * Math.sin(angle),
-        },
+        // the corridor, so the shot does not depend on a boundary pixel. No
+        // oracle here — nothing is ASSERTED on this number, it only aims the
+        // camera, and the screenshot itself is the evidence.
+        point: radialPoint(circle.centre, reach.bestDirection, radius * 0.6),
       };
     }
     // With the band gone this is every-direction zero, so the pointer lands on

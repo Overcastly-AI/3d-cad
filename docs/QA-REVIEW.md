@@ -12,6 +12,173 @@ blocked or lies · **P2** a real flow is worse than it should be · **P3** polis
 
 ---
 
+## 2026-08-27 — REACH batch, independent QA (REACH-1 / REACH-2 / REACH-3)
+
+> **Provenance note (annotation, not a rewrite).** This entry, the QA-R1/R2/R3
+> board items and `apps/web/e2e/qa-reach-batch.spec.ts` were staged by the
+> qa-tester and then captured by a concurrent agent's commit `4e41eb4`
+> ("fix(workflow): a subtree missing from the list is invisible…"), whose
+> message describes none of them. Nothing was lost and `4e41eb4` was already
+> pushed, so the record is corrected here rather than by rewriting history other
+> agents have rebased onto (CLAUDE.md staging protocol). The QA work is the
+> qa-tester's; the workflow change in that commit is not.
+
+
+**Verdict: REACH-2 and REACH-3 PASS. REACH-1 FAILS — it ships a control that
+takes the sketch's own FINISH and CANCEL out of the window at the two most
+common laptop widths, and an angle annotation that keeps a number the solver
+has already moved off.** Everything else in the batch survived the second edit,
+the reload, the delete, the tab switch and the tap.
+
+**Method.** Native stack per CLAUDE.md (Docker registry is 403-blocked):
+geometry :8072, documents :8071, gateway :8070, on agent-prefixed SQLite files
+created fresh. Real Chromium at 1280x800 / 1440 / 1600 and in a `hasTouch`
+context. Load average during every run **0.7-3.7, all of it mine** (my own
+Playwright + three uvicorns; no other agent process above 1.1 % CPU), so no run
+here is a contention artefact. Every defect below was reproduced **3x with
+byte-identical measured values** — a moving failure point would have meant
+flake, and none moved. New spec: `apps/web/e2e/qa-reach-batch.spec.ts`
+(14 cases, 3 of them `test.fail()`-annotated to encode the open defects).
+The builders' own specs were also re-run on the INTEGRATED tip (`9284e82`):
+sketch-vocab + pattern-scope + sheet-convention + pattern + mirror +
+constraints + drawing-sheets = **34 passed**.
+
+### QA-R1 (P1, REACH-1) — a live selection puts FINISH SKETCH and CANCEL SKETCH outside the window
+
+Not a layout nit: it is measured **functionally**. With two lines selected at
+1280x800 the sketch strip runs to **1413 px in a 1280 px window** and
+`document.documentElement.scrollWidth === clientWidth`, so there is nothing to
+scroll to. A real `page.mouse.click` at `sketch-save`'s own centre does
+**nothing** — the strip is still there afterwards. The user's only exit from
+the sketch is the keyboard, and nothing on screen says so.
+
+Identical every run (3x):
+
+```
+STRIP-CENSUS {"clipped":[
+  {"testId":"constraint-group-relational","left":1167,"right":1300},
+  {"testId":"sketch-construction","left":1302,"right":1334},
+  {"testId":"sketch-save","left":1347,"right":1379},
+  {"testId":"sketch-exit","left":1381,"right":1413}],
+  "scrollable":false,"width":1280}
+```
+
+Width sweep, with the selection re-picked after each resize (`RAIL-BUDGET`):
+
+| width | 0 offers | 1 offer (one line) | 3 offers (two lines) |
+|---|---|---|---|
+| 1280 | clean | **`sketch-exit` clipped** | **relational + construction + save + exit** |
+| 1366 | clean | clean | **`sketch-save` + `sketch-exit`** |
+| 1440 | clean | clean | clean |
+| 1600 | clean | clean | clean |
+
+Two things this adds to the frontend-qa spot-check (`docs/UI-REVIEW.md`
+2026-08-27 P1-1), which measured the same 1280 numbers: **(a) 1366 also fails**
+— the single most common laptop width in the wild, and one nobody measured;
+**(b) ONE offer is enough** — selecting a single line, the most ordinary state
+in a sketcher, already costs the user CANCEL SKETCH at 1280. So this is not an
+edge case reachable only by an unusual multi-select.
+
+*Why no existing assertion catches it:* Playwright's `toBeVisible()` is a
+CSS/box property, not a viewport-containment one — `sketch-exit` at x=1381 on a
+1280 frame is "visible". The builder's own 1280 case
+(`sketch-vocab.spec.ts:599`) asserts the offer appears and takes a screenshot;
+both are true while the strip overflows behind them. The census helper in
+`qa-reach-batch.spec.ts` (`clippedControls`) is the shape of gate that can see
+this, and is worth lifting into a shared helper for every strip.
+
+### QA-R2 (P1, REACH-1) — the angle glyph keeps a value the solver has moved off
+
+Reproduced end to end and measured against the EVALUATE payload, not inferred:
+author `A` = 30 deg, re-open the same glyph, type `15*3`, Enter. The server
+resolves it and the model moves; the annotation does not.
+
+```
+ANGLE-EXPR {"shown":"30°","solved":45}      (identical on 2/2 repeats)
+```
+
+An annotation that contradicts the geometry is worse than an absent one because
+it looks authoritative, and REACH-1 is the commit that made this state
+reachable — before it, no user could author an angle at all. Independently
+confirms `docs/UI-REVIEW.md`'s P1-2 and adds the geometric measurement
+(`solved = 45.000` from the solver, against a glyph reading `30°`). Cause is
+already known and documented in the code: degrees ride `SolvedSketch.angles`,
+which `apps/web/src` never reads
+(`apps/web/src/sketch/constraints.ts:1333-1338`).
+
+### QA-R3 (P2, REACH-1) — on touch, four of the five new verbs cannot be reached at all
+
+The rail's keycaps ARE real buttons and tapping one works (verified: tap
+`verb-hint-angle` -> the angle editor opens -> 30 deg applies). The problem is
+upstream of the rail: **a touch device cannot hold two entities.**
+
+```
+TOUCH-ADDITIVE {"plain":"1 ent · 2 applied",
+                "held":"1 ent · 2 applied",
+                "offers":["verb-hint-distance"]}
+```
+
+A plain second tap REPLACES the selection; a 900 ms long press (dispatched as a
+real touch sequence over CDP) does the same. Additive selection is Shift-click
+only. So on a keyboardless tablet the rail can only ever offer single-entity
+verbs, and **angle, collinear, symmetric_lines and midpoint — four of REACH-1's
+five — are unreachable**. `scripts/check-ui-parity.py`'s 84/120 is a
+desktop-only number and should say so.
+
+### What passed, and what was specifically probed to make it mean something
+
+- **REACH-2, the second edit.** Author a 6-up `features`-scoped pattern, re-open
+  it from the tree, change ONLY the count to 4, submit: the scope holds. Proved
+  on GEOMETRY, never a 2xx (params models are `extra="ignore"`) — with the 3 mm
+  fillet in the chain that separates the two readings, the 4-up removes exactly
+  `3 x pi x 4^2 x t` more than the filleted plate. Reload agrees; the tree badge
+  still reads `pattern · Hole1`.
+- **REACH-2, deleting the subject.** Right-click Hole1 -> Delete while Pattern1
+  scopes it: `data-blocked=true`, the dependent is NAMED (`Pattern1`), no delete
+  offered, and cancelling leaves the volume untouched. The scope ref is a real
+  dependency edge, not just a param.
+- **REACH-2, a pattern OF a pattern.** The UI offers it (a features-scoped
+  pattern is a legal subject), and the kernel honours it: solves, and removes
+  strictly more material. The offer is not a trap.
+- **REACH-3, per-sheet state.** Sheet 1 first-angle + sheet 2 third-angle,
+  switch between tabs, reload: each sheet keeps its own convention. A new sheet
+  INHERITS the convention of the sheet it was made from, then diverges freely.
+- **REACH-3, the deliverable.** The exported PDF follows the paper:
+  `PDF-BOXES {"landscapePdf":{"width":841.89,"height":595.28},
+  "portraitPdf":{"width":595.28,"height":841.89}}`. A portrait sheet does not
+  export landscape paper.
+- **REACH-3, the header strip at 1280.** Two new cells, zero clipped controls.
+- **Cross-item, the command band at 1280.** REACH-2's renamed verb
+  ("Repeat Hole1 — place it in a linear or circular array (P)") costs no command
+  its place: `BAND-CENSUS-PROPOSING {"clipped":[],"scrollable":false}`. The band
+  measures itself into the icon tier instead, which is the UI-REVIEW finding
+  about discoverability — not an overflow.
+- **Cross-item, key shadowing.** `I` is collinear in the sketch and Mirror in
+  the model; likewise P/H/D/O/S/L. Pressed all seven with a live sketch
+  selection and a body present (so every model opener was ENABLED): no editor
+  opened, the sketch stayed up. The `mode !== "off"` gate holds.
+- **REACH-1, across a save.** An angle authored with `A` survives finish ->
+  re-open (tree Edit): the glyph comes back reading `30°`, the editor prefills
+  the PERSISTED 30 rather than re-measuring, and re-driving it to 45 moves the
+  model and the glyph together. QA-R2 is specific to the expression/reference
+  path, not to persistence.
+- **Touch, the other two items.** `pattern-scope-body` / `pattern-scope-features`
+  and both REACH-3 header cells answer a tap, and the hole editor's own Cancel
+  dismisses without an Escape key.
+
+### Observations (not defects)
+
+- REACH-2's proposal does not survive a trip through the sketcher: enter and
+  leave a sketch and the Modify verb reverts to plain "Pattern". That is
+  CONSISTENT — the tree selection is dropped at the same moment
+  (`feature-select-2 aria-pressed=false`), so the verb and the tree never
+  disagree about the subject. Noted because "the selection survives Escape" is
+  load-bearing for this feature and "it survives a sketch" is not.
+- `test.fail()` with no argument at DESCRIBE level marks every sibling test in
+  that suite, not the next one. It cost a false red here (a passing
+  key-shadowing case reported as "Expected to fail, but passed"). Scope it
+  inside the test body.
+
 ## 2026-08-01 — founder session: the picking reports, measured (FB-2/3/5/6/9)
 
 The founder modelled for an evening and reported, among others, that a sketch

@@ -109,7 +109,22 @@ each_model = pytest.mark.parametrize(
 each_tree_model = pytest.mark.parametrize(
     "model_path", TREE_MODEL_FILES, ids=[path.parent.name for path in TREE_MODEL_FILES]
 )
-each_format = pytest.mark.parametrize("fmt", ["step", "stl"])
+#: The SHAPE-golden sweeps run every format: the inventory is two primitives,
+#: so 4 formats x 2 models is free.
+each_format = pytest.mark.parametrize("fmt", ["step", "stl", "3mf", "glb"])
+
+#: The TREE sweeps stay on the two exact-and-oldest formats, deliberately.
+#: There are 49 tree goldens and each parametrized case re-evaluates the tree,
+#: so widening this to four would add ~200 full rebuilds to the slowest module
+#: in the suite (the python CI job is already 30 minutes). The new formats get
+#: whole-inventory coverage in ``test_export_mesh_formats.py``, which builds
+#: each golden ONCE and asserts extents + in-process determinism for both, plus
+#: the route-level and fresh-interpreter checks below.
+each_tree_format = pytest.mark.parametrize("fmt", ["step", "stl"])
+
+#: The two formats EXPORT-2 added — for the route-level checks that only need
+#: one model to be meaningful.
+each_new_format = pytest.mark.parametrize("fmt", ["3mf", "glb"])
 
 Triangle = tuple[float, float, float, float, float, float, float, float, float]
 
@@ -335,7 +350,7 @@ from geometry.kernel import evaluate_export
 from geometry.schemas import ExportRequest, TessellateRequest
 
 tess = TessellateRequest.model_validate_json(sys.stdin.read())
-for fmt in ("step", "stl"):
+for fmt in ("step", "stl", "3mf", "glb"):
     request = ExportRequest(
         shape=tess.shape,
         params=tess.params,
@@ -350,14 +365,19 @@ for fmt in ("step", "stl"):
 def test_export_is_byte_deterministic_across_interpreter_restart(
     model_path: Path,
 ) -> None:
-    """Fresh-interpreter export (worker-restart emulation) → same bytes,
-    both formats — one subprocess per golden to keep the gate fast."""
+    """Fresh-interpreter export (worker-restart emulation) → same bytes, ALL
+    four formats — one subprocess per golden to keep the gate fast.
+
+    3MF is the one that would fail without deliberate work: lib3mf mints five
+    random UUIDs per write, so this asserts ``_canonicalise_3mf_ids`` survives
+    a process boundary exactly as the pinned STEP timestamp does.
+    """
     name = model_path.parent.name
     digests = {
         fmt: hashlib.sha256(
             _post_export(_export_request(model_path, fmt)).content
         ).hexdigest()
-        for fmt in ("step", "stl")
+        for fmt in ("step", "stl", "3mf", "glb")
     }
 
     result = subprocess.run(
@@ -450,7 +470,7 @@ def test_tree_export_inventory_is_nonempty() -> None:
 
 
 @each_tree_model
-@each_format
+@each_tree_format
 def test_tree_export_response_headers(model_path: Path, fmt: ExportFormat) -> None:
     """Correct media type + attachment filename for each format and tree."""
     request = _tree_export_request(model_path, fmt)
@@ -463,6 +483,28 @@ def test_tree_export_response_headers(model_path: Path, fmt: ExportFormat) -> No
         == f'attachment; filename="{export_tree_filename(request)}"'
     )
     assert len(response.content) > 0
+
+
+@each_new_format
+def test_tree_export_response_headers_for_the_new_formats(fmt: ExportFormat) -> None:
+    """3MF / GLB reach the tree-export ROUTE with the right media type + name.
+
+    One evaluated tree, not the whole inventory: what is under test here is the
+    plumbing (dispatch, media type, ``.3mf`` / ``.glb`` filename), and that is
+    model-independent. The geometry of every golden in both formats is asserted
+    in ``test_export_mesh_formats.py``, which pays the rebuild cost once per
+    model instead of once per model per format.
+    """
+    request = _tree_export_request(TREE_MODEL_FILES[0], fmt)
+    response = _post_tree_export(request)
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == EXPORT_MEDIA_TYPES[fmt]
+    assert (
+        response.headers["content-disposition"]
+        == f'attachment; filename="{export_tree_filename(request)}"'
+    )
+    assert response.content, f"{fmt} tree export returned an empty body"
 
 
 @each_tree_model
@@ -503,7 +545,7 @@ def test_tree_step_export_endpoint_roundtrip(
 
 
 @each_tree_model
-@each_format
+@each_tree_format
 def test_tree_export_is_byte_deterministic_in_process(
     model_path: Path, fmt: ExportFormat
 ) -> None:

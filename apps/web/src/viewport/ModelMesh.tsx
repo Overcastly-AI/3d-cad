@@ -15,7 +15,6 @@ import {
   Vector3,
 } from "three";
 import { useThree, type ThreeEvent } from "@react-three/fiber";
-import { Line } from "@react-three/drei";
 
 import { bodyFaceSets, faceLumps } from "./bodyPartition";
 import {
@@ -26,6 +25,7 @@ import {
   setFaceMaterials,
   subsetEdges,
 } from "./glbGeometry";
+import { FaceTrace } from "./faceTrace";
 import { instanceView } from "./instanceVisibility";
 import { usePartViewStore } from "./partView";
 import { drawnSurfaceRaycast, hiddenTriangleTest } from "./pickRaycast";
@@ -250,51 +250,12 @@ export function ModelMesh({
    * contrast §1 requires, and the studio matcap survives underneath because
    * the tint multiplies it exactly as every other state does.
    *
-   * ## Why the boundary is drawn twice
-   *
-   * The first cut drew it ONCE, with `depthTest: false`. The problem that
-   * bought was real — the trace is numerically coincident with the body-wide
-   * `edges` overlay, and two 1 px GL lines at identical depth fight per
-   * fragment and come out stippled, which reads as a rendering fault rather
-   * than an affordance. The cure was too wide, and a cylindrical face is the
-   * counter-example (code review, 2026-08-06): `subsetEdges` feeds
-   * `EdgesGeometry` only the hovered face's triangles, and `EdgesGeometry`
-   * emits every UNMATCHED edge, so the whole topological boundary comes out —
-   * including the half that faces away. On a bore that is the top circle AND
-   * the bottom one, and with no depth test the bottom circle paints over the
-   * top face of the part. The raycast proves the HIT POINT is front-facing; it
-   * proves nothing about the loop.
-   *
-   * So: two passes, with the depth test back on for the one that matters.
-   *
-   *  - `faceHoverEdgeXrayMaterial` — the whole loop, no depth test, drawn at
-   *    `hoverEdgeXrayOpacity`. Faint enough not to compete with the surface in
-   *    front of it, present enough to say the face wraps out of sight, which is
-   *    information a modeller on a bore actually wants.
-   *  - the front pass — a drei `Line` (`LineSegments2`), NOT a `lineSegments`.
-   *    That is what lets the depth test come back: a `Line2` is instanced
-   *    QUADS, so it has width in screen space and, unlike a GL line,
-   *    `polygonOffset` genuinely applies to it. Biased a hair toward the camera
-   *    it wins the coincident-depth fight outright instead of stippling, and
-   *    being 2 px wide it covers the graphite edge underneath rather than
-   *    dithering with it.
-   *
-   * `depthWrite` stays off on both so neither pass leaves anything behind for
-   * the next frame.
+   * The BOUNDARY half of that pair — and the two-pass depth argument it needs
+   * — moved to `FaceTrace` when MATE-1 gave the assembly mate pick the same
+   * treatment; only the surface tint is this component's own.
    */
   const faceHoverMaterial = useMemo(
     () => new MeshMatcapMaterial({ matcap: studioMatcap() }),
-    [],
-  );
-  const faceHoverEdgeXrayMaterial = useMemo(
-    () =>
-      new LineBasicMaterial({
-        color: viewport.hover,
-        depthTest: false,
-        depthWrite: false,
-        transparent: true,
-        opacity: viewport.facePick.hoverEdgeXrayOpacity,
-      }),
     [],
   );
   // GHOST and HIDE (UI-W2, part half). The ghost strengths are the product's
@@ -339,7 +300,6 @@ export function ModelMesh({
       hiddenMaterial.dispose();
       ghostEdgeMaterial.dispose();
       faceHoverMaterial.dispose();
-      faceHoverEdgeXrayMaterial.dispose();
     },
     [
       baseMaterial,
@@ -350,7 +310,6 @@ export function ModelMesh({
       hiddenMaterial,
       ghostEdgeMaterial,
       faceHoverMaterial,
-      faceHoverEdgeXrayMaterial,
     ],
   );
 
@@ -731,31 +690,20 @@ export function ModelMesh({
   // on top. Otherwise the surface would say "committed" while the outline said
   // "merely addressed" — reachable any time a feature is selected in the tree
   // with no editor open, and the two statements are not allowed to disagree.
-  const faceHoverEdges = useMemo<EdgesGeometry | null>(
+  //
+  // The DRAWING of the loop (two passes, x-ray + depth-tested front) now lives
+  // in `FaceTrace`, shared with the assembly mate pick — MATE-1 needed exactly
+  // this on an instance, and a second copy of a two-pass depth argument is the
+  // kind of duplication that drifts. What stays here is the PRECEDENCE, which
+  // is this surface's own rule and not the trace's.
+  const faceHoverOrdinals = useMemo<ReadonlySet<number> | null>(
     () =>
-      geometry !== null &&
       faceHover !== null &&
       !(localized && faceSet !== null && faceSet.has(faceHover))
-        ? subsetEdges(geometry, new Set([faceHover]))
+        ? new Set([faceHover])
         : null,
-    [geometry, faceHover, localized, faceSet],
+    [faceHover, localized, faceSet],
   );
-  useEffect(() => () => faceHoverEdges?.dispose(), [faceHoverEdges]);
-  /**
-   * The same loop as a flat point list, for the depth-tested `Line2` pass —
-   * `LineSegmentsGeometry` takes positions, not a `BufferGeometry`. Built here
-   * rather than in the JSX so it changes only when the traced face does.
-   */
-  const faceHoverPoints = useMemo<[number, number, number][] | null>(() => {
-    if (faceHoverEdges === null) return null;
-    const position = faceHoverEdges.getAttribute("position");
-    if (position === undefined) return null;
-    const points: [number, number, number][] = [];
-    for (let i = 0; i < position.count; i += 1) {
-      points.push([position.getX(i), position.getY(i), position.getZ(i)]);
-    }
-    return points.length > 0 ? points : null;
-  }, [faceHoverEdges]);
 
   /**
    * The SEL-6 filter for the DRAWN mesh's own hover (SEL-1 A1). Same defect,
@@ -776,6 +724,11 @@ export function ModelMesh({
   return (
     <group>
       <mesh
+        // QA hook, scene-graph side: the committed body's own node, so a spec
+        // can measure WHERE it is drawn rather than what it looks like (FB-9 —
+        // "the extruded is not on the same plane" is a claim about placement,
+        // and a pixel test cannot distinguish it from a camera move).
+        name="model-body"
         geometry={geometry}
         material={
           // Index order is FIXED (base 0, feature 1, ghost 2, hidden 3, hover
@@ -809,33 +762,8 @@ export function ModelMesh({
       {featureEdges !== null ? (
         <lineSegments geometry={featureEdges} material={featureEdgeMaterial} />
       ) : null}
-      {/* The occluded half of the traced loop — an x-ray hint, drawn under the
-          real trace so the front pass paints over it wherever the face is
-          actually visible. */}
-      {faceHoverEdges !== null ? (
-        <lineSegments
-          geometry={faceHoverEdges}
-          material={faceHoverEdgeXrayMaterial}
-          renderOrder={1}
-        />
-      ) : null}
-      {/* The trace itself: depth-tested, so a bore's far circle stays behind
-          the material in front of it, and biased toward the camera so the
-          coincident B-rep edge underneath cannot stipple it. */}
-      {faceHoverPoints !== null ? (
-        <Line
-          points={faceHoverPoints}
-          segments
-          color={viewport.hover}
-          lineWidth={viewport.facePick.hoverEdgeWidthPx}
-          toneMapped={false}
-          depthWrite={false}
-          polygonOffset
-          polygonOffsetFactor={-4}
-          polygonOffsetUnits={-4}
-          renderOrder={2}
-        />
-      ) : null}
+      {/* The addressed face, traced on its own boundary (SEL-1). */}
+      <FaceTrace geometry={geometry} faceOrdinals={faceHoverOrdinals} />
     </group>
   );
 }

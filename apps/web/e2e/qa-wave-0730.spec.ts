@@ -488,6 +488,10 @@ test.describe("B — a print survives a revision", () => {
       .first();
     await circle.click({ force: true });
     await page.getByTestId("dimension-type-diameter").click();
+    // REACH-3: choosing the type now opens the PLACE stage (the ghost tracks
+    // the pointer). Enter commits it UNMOVED, which sends no placement at all —
+    // so this flow is the auto-placed dimension it has always been.
+    await page.keyboard.press("Enter");
     await expect(
       page.locator(
         '[data-testid="drawing-dimension"][data-dimension-value="Ø10.000"]',
@@ -498,6 +502,7 @@ test.describe("B — a print survives a revision", () => {
     await thickness.click({ force: true });
     await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
     await page.getByTestId("dimension-type-linear").click();
+    await page.keyboard.press("Enter");
     await expect(
       page.locator(
         '[data-testid="drawing-dimension"][data-dimension-value="10.000"]',
@@ -564,6 +569,7 @@ test.describe("B — a print survives a revision", () => {
       .first();
     await circle.click({ force: true });
     await page.getByTestId("dimension-type-diameter").click();
+    await page.keyboard.press("Enter");
     await expect(
       page.locator(
         '[data-testid="drawing-dimension"][data-dimension-value="Ø10.000"]',
@@ -619,6 +625,7 @@ test.describe("B — a print survives a revision", () => {
       .first();
     await circle.click({ force: true });
     await page.getByTestId("dimension-type-diameter").click();
+    await page.keyboard.press("Enter");
     await expect(
       page.locator(
         '[data-testid="drawing-dimension"][data-dimension-value="Ø10.000"]',

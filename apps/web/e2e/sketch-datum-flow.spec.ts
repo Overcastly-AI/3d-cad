@@ -336,15 +336,49 @@ test.describe("SKETCH-2 — the frame never leads anywhere you cannot leave", ()
     await seedSketch(page, token, part.id, RIGID_RECT);
     const at = await openPartAndSketch(page, part.id);
 
+    // The pre-verb state, asserted rather than assumed — the same settle gate
+    // the test above opens with, so a pick can never be aimed at a frame that
+    // the first solve has not finished placing.
+    await expect(page.getByTestId("dro-solve")).toHaveText(
+      "DOF 4 · UNDER-CONSTRAINED",
+      { timeout: 30_000 },
+    );
+
     await selectAndRead(page, at, at({ x: 10, y: 8 }), "1 pt");
     await shiftClick(page, at({ x: 10, y: 24 }));
+    await expect(page.getByTestId("selection-readout")).toContainText("2 pts");
     await shiftClick(page, at({ x: -26, y: 0 }));
+    await expect(page.getByTestId("selection-readout")).toContainText(
+      "1 ent · 2 pts",
+    );
     await page.keyboard.press("s");
     await expect(page.getByTestId("sketch-strip")).toContainText("9 applied");
 
-    // Now the user's own redundancy, on top of the pinned frame.
-    await selectAndRead(page, at, at({ x: 22, y: 8 }), "1 ent"); // the bottom edge
-    await shiftClick(page, at({ x: 22, y: 24 })); // …and the top one
+    // WAIT FOR THE SYMMETRIC TO LAND BEFORE AIMING THE NEXT PICK — and it is
+    // the ANSWER, not the keystroke, that moves the geometry. "9 applied" is
+    // the local buffer counting the constraint the instant `s` is pressed; the
+    // profile only slides onto the axis when the DEBOUNCED solve returns, and
+    // `adoptSolved` commits the DOF readout and the solved entities in one
+    // `set`, so this line is an exact gate on "the rectangle has moved".
+    //
+    // Without it this test raced that round trip and only passed by WINNING —
+    // measured on this branch: 6/6 quiet, 6/6 FAILED under four spinners of CPU
+    // load, always here, always `1 ent`. The clicks below were written for the
+    // pre-solve frame (y = 8 and y = 24); the moment the solve lands first,
+    // y = 24 is empty steel, the Shift-click appends nothing and the parallel
+    // is never authored. A gate for "a real over-constraint still reaches the
+    // user" that is decided by which of two timers wins is not a gate.
+    await expect(page.getByTestId("dro-solve")).toHaveText(
+      "DOF 3 · UNDER-CONSTRAINED",
+      { timeout: 30_000 },
+    );
+
+    // Now the user's own redundancy, on top of the pinned frame — picked at the
+    // edges' SOLVED positions. Symmetric about X translates the profile by
+    // -16 mm in y (the test above pins that: e4 runs y = 8 -> -8), so the two
+    // horizontal edges are now y = +8 (e3) and y = -8 (e1), not 8 and 24.
+    await selectAndRead(page, at, at({ x: 22, y: -8 }), "1 ent"); // the bottom edge
+    await shiftClick(page, at({ x: 22, y: 8 })); // …and the top one
     await expect(page.getByTestId("selection-readout")).toContainText("2 ents");
     await page.keyboard.press("p"); // parallel
     await expect(page.getByTestId("sketch-strip")).toContainText("10 applied");
@@ -529,13 +563,43 @@ test.describe("SKETCH-2 — the frame never leads anywhere you cannot leave", ()
       "data-pick-state",
       "selected",
     );
-    await page.keyboard.press("c"); // coincident — accepted, not refused
-    await expect(page.getByTestId("sketch-strip")).toContainText("1 applied");
-    await expect(page.getByTestId("constraint-hint")).toHaveCount(0);
+    await page.keyboard.press("c");
+    // THE GESTURE THIS TEST WAS WRITTEN FOR HAS BEEN AUTOMATED OUT FROM UNDER
+    // IT, and that is the result rather than a problem. Its original premise —
+    // "drawn FROM the origin, so its near corner is snapped to zero (snapped is
+    // not constrained)" — was exactly the defect SNAP-3 closed: a snapped point
+    // now carries the coincident it was snapped to. So the corner was already
+    // grounded by the draw, and asking for it again is correctly refused.
+    //
+    // 9 = the rectangle's rigidity set (RECT-1: 4 coincidences + 2H + 2V) plus
+    // the one the draw authored when the first corner took the origin. It does
+    // NOT become ten, because the product does not stack a fact it already
+    // holds.
+    await expect(page.getByTestId("sketch-strip")).toContainText("9 applied");
+    await expect(page.getByTestId("constraint-hint")).toContainText(
+      /already coincident/i,
+    );
+    // Pointer-grounding of a profile that is NOT already on the origin — the
+    // capability this step used to cover — keeps its own coverage in
+    // `sketch-origin-constraint.spec.ts` ("grounds a floating profile to the
+    // origin"), which is where it belongs now that the stacked-pick case is
+    // resolved before the user can reach for it.
+    // BIND THE SKETCH so the server can be asked at all. The draw's automatic
+    // constraints deliberately do not persist it (`userConstrained` — binding on
+    // them would retire the unsaved-exit confirm for anything that snapped), and
+    // the manual grounding above was refused as redundant, so at this point the
+    // user has authored nothing and there is no feature to evaluate. A
+    // dimension is a real user edit.
+    await selectAndRead(page, at, at({ x: 12, y: 0 }), "1 ent");
+    await page.keyboard.press("d");
+    const dimension = page.getByTestId("dimension-input");
+    await expect(dimension).toBeVisible();
+    await dimension.fill("24");
+    await dimension.press("Enter");
+
     // …and the frame is really in the sketch now, which only a constraint that
-    // names it can do. Tolerant of the throw: this sketch is unsaved, so there
-    // is no sketch feature to evaluate until the debounced persist binds it,
-    // and "not yet" is a poll iteration rather than a failure.
+    // names it can do. Tolerant of the throw: the debounced persist has to land
+    // first, so "not yet" is a poll iteration rather than a failure.
     await expect
       .poll(
         async () => {

@@ -20,11 +20,11 @@
  * picture cannot contradict the result.
  *
  * Every color/opacity is a token; GPU resources are disposed on change/unmount;
- * the depth is lightly debounced so a fast typist doesn't rebuild the mesh on
- * every intermediate keystroke.
+ * the depth is lightly throttled so a fast typist (or a dragged handle) does not
+ * rebuild the mesh on every intermediate value.
  */
 import { useThree } from "@react-three/fiber";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BufferGeometry,
   EdgesGeometry,
@@ -37,7 +37,9 @@ import {
 } from "three";
 
 import type { ExtrudeDirection, ExtrudeOperation } from "../features/extrude";
+import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { SolvedSketchLayer } from "./SketchScene";
+import { ExtrudeDragHandle } from "./ExtrudeDragHandle";
 import { extrudeGhostAppearance, extrudeGhostPose } from "./extrudeGhost";
 import { profileRegions } from "./profileLoops";
 import { studioMatcap } from "./studioMatcap";
@@ -54,16 +56,43 @@ export interface ExtrudePreviewProps {
    * exist; `"cut"` draws the void it will remove — never a solid.
    */
   operation: ExtrudeOperation;
+  /**
+   * Set the distance by DIRECT MANIPULATION (T-23). When present, the ghost
+   * grows a depth gauge you can drag; the editor's numeric field stays the
+   * exact path and both drive this one value. Absent = a ghost with no handle,
+   * which is what every caller had before and what a read-only preview wants.
+   */
+  onDepthChange?: (mm: number) => void;
 }
 
-/** Rebuild the ghost mesh at most this often while the distance field changes. */
-const PREVIEW_DEBOUNCE_MS = 70;
+/** Rebuild the ghost mesh at most this often while the distance changes. */
+const PREVIEW_REBUILD_MS = 70;
 
-/** Debounce a numeric value so keystrokes don't thrash the geometry rebuild. */
-function useDebounced(value: number, ms: number): number {
+/**
+ * Rate-limit a numeric value so a fast input does not thrash the geometry
+ * rebuild — a THROTTLE, not a debounce, and the difference is the whole point.
+ *
+ * A trailing debounce resets its timer on every change, so under CONTINUOUS
+ * input it never fires at all: the ghost simply stopped following while the
+ * depth handle was being dragged, and only caught up when the pointer paused.
+ * Nobody noticed while the only input was a keyboard, where every keystroke is
+ * followed by a gap longer than the window. Direct manipulation has no gaps —
+ * it is the input this preview was always for, and it is the one the debounce
+ * could not serve. Found in a founder capture: a 28 mm readout over a 10 mm
+ * ghost.
+ *
+ * A throttle bounds the rebuild RATE (one per window) while guaranteeing the
+ * picture is never more than one window behind the pointer.
+ */
+function useThrottled(value: number, ms: number): number {
   const [settled, setSettled] = useState(value);
+  const lastAt = useRef(0);
   useEffect(() => {
-    const timer = window.setTimeout(() => setSettled(value), ms);
+    const wait = Math.max(0, ms - (performance.now() - lastAt.current));
+    const timer = window.setTimeout(() => {
+      lastAt.current = performance.now();
+      setSettled(value);
+    }, wait);
     return () => window.clearTimeout(timer);
   }, [value, ms]);
   return settled;
@@ -74,9 +103,11 @@ export function ExtrudePreview({
   distanceMm,
   direction,
   operation,
+  onDepthChange,
 }: ExtrudePreviewProps) {
   const invalidate = useThree((state) => state.invalidate);
-  const depth = useDebounced(distanceMm, PREVIEW_DEBOUNCE_MS);
+  const unit = useDocumentLengthUnit();
+  const depth = useThrottled(distanceMm, PREVIEW_REBUILD_MS);
 
   // The profile → solid regions depend only on the geometry, not the depth.
   const regions = useMemo(() => profileRegions(layer.entities), [layer]);
@@ -175,15 +206,32 @@ export function ExtrudePreview({
     [surfaceMaterial, edgeMaterial],
   );
 
-  if (geometries.length === 0) return null;
+  // The GAUGE is deliberately outside the ghost's own transform: it works in
+  // scene coordinates (that is the frame a pointer ray arrives in), and it is
+  // driven by the LIVE distance rather than the debounced one, so the arrow
+  // stays under the cursor while the swept mesh catches up a frame later.
   return (
-    <group position={position} quaternion={quaternion}>
-      {geometries.map((geometry, i) => (
-        <mesh key={i} geometry={geometry} material={surfaceMaterial} />
-      ))}
-      {edges.map((edge, i) => (
-        <lineSegments key={i} geometry={edge} material={edgeMaterial} />
-      ))}
-    </group>
+    <>
+      {geometries.length > 0 ? (
+        <group name="extrude-ghost" position={position} quaternion={quaternion}>
+          {geometries.map((geometry, i) => (
+            <mesh key={i} geometry={geometry} material={surfaceMaterial} />
+          ))}
+          {edges.map((edge, i) => (
+            <lineSegments key={i} geometry={edge} material={edgeMaterial} />
+          ))}
+        </group>
+      ) : null}
+      {onDepthChange !== undefined ? (
+        <ExtrudeDragHandle
+          basis={layer.basis}
+          regions={regions}
+          depthMm={distanceMm}
+          direction={direction}
+          unit={unit}
+          onDepthChange={onDepthChange}
+        />
+      ) : null}
+    </>
   );
 }

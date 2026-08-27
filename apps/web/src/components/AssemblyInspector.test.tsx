@@ -18,6 +18,7 @@ import type {
   EvaluateAssemblyResult,
   InstanceResponse,
 } from "../api/assemblies";
+import { deriveAssemblySolve } from "../features/assemblySolve";
 import { DocumentUnitProvider } from "../units/documentUnit";
 import { AssemblyInspector } from "./AssemblyInspector";
 import type { LengthUnit } from "@loft/design";
@@ -47,10 +48,28 @@ function evaluation(): EvaluateAssemblyResult {
   };
 }
 
-function renderInspector(unit: LengthUnit, evaluating = false) {
+/**
+ * The solve verdict a SETTLED evaluation is entitled to. Built through the real
+ * derivation rather than hand-written, so these renders cannot claim a state
+ * the workspace could never hand the panel.
+ */
+function settledSolve(result: EvaluateAssemblyResult | undefined) {
+  return deriveAssemblySolve({
+    writing: false,
+    loading: false,
+    evaluating: false,
+    solvable: result !== undefined,
+    placeholder: false,
+    failed: false,
+    evaluation: result,
+  });
+}
+
+function renderInspector(unit: LengthUnit) {
+  const result = evaluation();
   return render(
     <DocumentUnitProvider unit={unit}>
-      <AssemblyInspector evaluation={evaluation()} evaluating={evaluating} />
+      <AssemblyInspector evaluation={result} solve={settledSolve(result)} />
     </DocumentUnitProvider>,
   );
 }
@@ -111,7 +130,7 @@ function renderMass(
     <DocumentUnitProvider unit={unit}>
       <AssemblyInspector
         evaluation={weighed(total, per)}
-        evaluating={false}
+        solve={settledSolve(weighed(total, per))}
         instances={[instance("i1", "Housing"), instance("i2", "Pin")]}
       />
     </DocumentUnitProvider>,
@@ -161,17 +180,44 @@ describe("AssemblyInspector", () => {
     );
   });
 
-  it("says it is solving while an evaluation is in flight", () => {
-    renderInspector("mm", true);
-    expect(screen.getByTestId("assembly-solve-status")).toHaveTextContent(
-      "Solving",
+  it("never spends a retained solve's verdict while a write supersedes it", () => {
+    // The measured defect, at unit tier. The evaluation on hand is a REAL
+    // solve — it just is not the answer to the graph as it stands, because the
+    // app is holding a write it knows supersedes it. Both cells of the title
+    // block must refuse it: the status is a transient word, and FREE DOF (the
+    // number the kernel investigation compared, 6 against the mated 3) is an
+    // absence rather than the previous solve's count.
+    const result = evaluation();
+    render(
+      <DocumentUnitProvider unit="mm">
+        <AssemblyInspector
+          evaluation={result}
+          solve={deriveAssemblySolve({
+            writing: true,
+            loading: false,
+            evaluating: false,
+            solvable: true,
+            placeholder: false,
+            failed: false,
+            evaluation: result,
+          })}
+        />
+      </DocumentUnitProvider>,
     );
+    const status = screen.getByTestId("assembly-solve-status");
+    expect(status).toHaveTextContent("Solving");
+    expect(status).not.toHaveTextContent("Well constrained");
+    expect(status).toHaveAttribute("data-solve-stale", "true");
+    expect(screen.getByTestId("assembly-dof")).toHaveTextContent("—");
   });
 
   it("shows an em dash instead of stale numbers before the first solve", () => {
     render(
       <DocumentUnitProvider unit="in">
-        <AssemblyInspector evaluation={undefined} evaluating={false} />
+        <AssemblyInspector
+          evaluation={undefined}
+          solve={settledSolve(undefined)}
+        />
       </DocumentUnitProvider>,
     );
     expect(screen.getByTestId("assembly-volume")).toHaveTextContent("—");
@@ -238,7 +284,10 @@ describe("AssemblyInspector — the combined-mass claim", () => {
   it("says nothing about mass before the first solve", () => {
     render(
       <DocumentUnitProvider unit="mm">
-        <AssemblyInspector evaluation={undefined} evaluating={false} />
+        <AssemblyInspector
+          evaluation={undefined}
+          solve={settledSolve(undefined)}
+        />
       </DocumentUnitProvider>,
     );
     expect(screen.queryByTestId("assembly-mass")).toBeNull();

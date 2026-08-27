@@ -30,6 +30,7 @@ from pathlib import Path
 import pytest
 from geometry.drawings import evaluate_drawing_views, flat_pattern_view_result
 from geometry.features.evaluate import evaluate_tree
+from geometry.sheet_metal import unfold_sheet_metal
 from py_kit.schemas.drawings import (
     DrawingViewResult,
     EvaluateDrawingViewsRequest,
@@ -54,6 +55,22 @@ class _ExpectedBendRow(BaseModel):
     bend_allowance_mm: float
 
 
+class _ExpectedCut(BaseModel):
+    """One INTERIOR cut loop's developed geometry (DXF-4).
+
+    A circle carries its developed centre + radius; a straight-sided cutout carries the
+    count of its segments instead. Optional on a golden — a hole-free blank simply has
+    none, which is exactly what the pre-DXF-4 goldens assert by omission.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str
+    cx: float | None = None
+    cy: float | None = None
+    r: float | None = None
+
+
 class _ExpectedFlatPatternView(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -64,6 +81,17 @@ class _ExpectedFlatPatternView(BaseModel):
     scale: ViewScale
     body_edge_count: int
     bend_edge_count: int
+    #: DXF-4. Default 0 / empty, so every pre-existing golden asserts — by saying
+    #: nothing — that its blank has no interior cuts, which is a real claim and the
+    #: regression guard the ticket asks for.
+    cut_edge_count: int = 0
+    cutouts: list[_ExpectedCut] = Field(default_factory=list["_ExpectedCut"])
+    flat_length_mm: float | None = None
+    flat_area_mm2: float | None = None
+    solid_volume_mm3: float | None = None
+    #: A volume carries the bend arc-fit noise scaled by the blank's width, so it gets
+    #: its own documented ceiling exactly as ../l-bracket-edge-flange's does.
+    solid_volume_tolerance: float = Field(default=1e-6, gt=0)
     bend_table: list[_ExpectedBendRow]
     content_hash: str
 
@@ -108,10 +136,29 @@ def test_flat_pattern_view_edges_and_bend_table(golden_dir: Path) -> None:
     assert result.view == "flat_pattern"
 
     roles = Counter(e.edge_role for e in result.edges)
-    assert roles["body"] == expected.body_edge_count
+    assert roles["body"] == expected.body_edge_count + expected.cut_edge_count
     assert roles["bend"] == expected.bend_edge_count
-    # Every outline edge is a straight, visible line (a flat pattern occludes nothing).
-    assert all(e.primitive == "line" and e.visible for e in result.edges)
+    # Every edge is visible (a flat pattern occludes nothing — it is viewed along its
+    # own normal). The OUTLINE is straight; the interior cuts (DXF-4) are whatever the
+    # part's holes / slots / cutouts actually are.
+    assert all(e.visible for e in result.edges)
+    outline = result.edges[: expected.body_edge_count + expected.bend_edge_count]
+    assert all(e.primitive == "line" for e in outline)
+
+    cuts = result.edges[expected.body_edge_count + expected.bend_edge_count :]
+    assert len(cuts) == expected.cut_edge_count
+    assert all(e.edge_role == "body" for e in cuts), (
+        "an interior CUT was tagged as a fold line — it would land on the BEND layer "
+        "and be scribed instead of cut"
+    )
+    for cut, exp_cut in zip(cuts, expected.cutouts, strict=True):
+        assert cut.primitive == exp_cut.kind
+        if exp_cut.r is not None:
+            assert cut.radius == pytest.approx(exp_cut.r, abs=tol)
+        if exp_cut.cx is not None and exp_cut.cy is not None:
+            assert cut.center is not None
+            assert cut.center.x_mm == pytest.approx(exp_cut.cx, abs=tol)
+            assert cut.center.y_mm == pytest.approx(exp_cut.cy, abs=tol)
 
     assert len(result.bend_table) == len(expected.bend_table)
     for row, exp in zip(result.bend_table, expected.bend_table, strict=True):
@@ -124,6 +171,42 @@ def test_flat_pattern_view_edges_and_bend_table(golden_dir: Path) -> None:
     # Each bend row's id has a matching edge_role='bend' outline edge (§6).
     bend_edge_ids_ok = roles["bend"] == len(result.bend_table)
     assert bend_edge_ids_ok
+
+
+@each_golden
+def test_flat_pattern_blank_measures_its_declared_size(golden_dir: Path) -> None:
+    """The developed blank's scalars, where the golden declares them (DXF-4).
+
+    ``flat_area_mm2`` is the one an unreconciled development gets WRONG in the holed
+    case: the unfold measures its flange areas on the CLEAN reference body, which is
+    frozen at the last fold, so a hole drilled after the last flange is invisible to it
+    and the blank over-counts material a shop never cuts. ``solid_volume_mm3`` is the
+    falsification the audit itself performed — it could see the holes in the body while
+    the blank had none — so the golden pins both ends of that gap.
+    """
+    request, expected = _load(golden_dir)
+    evaluation = evaluate_tree(request)
+    assert evaluation.body is not None
+    assert evaluation.sheet_metal_defaults is not None
+    pattern = unfold_sheet_metal(
+        evaluation.unfold_body or evaluation.body,
+        evaluation.bend_provenance,
+        evaluation.sheet_metal_defaults.thickness_mm,
+        evaluation.sheet_metal_defaults.k_factor,
+        reliefs=evaluation.corner_reliefs or None,
+        live_body=evaluation.body,
+    )
+    tol = expected.tolerance
+    # Unconditional: a golden that declares no cuts is CLAIMING its blank has none.
+    assert len(pattern.cutouts) == expected.cut_edge_count
+    if expected.flat_length_mm is not None:
+        assert pattern.flat_length_mm == pytest.approx(expected.flat_length_mm, abs=tol)
+    if expected.flat_area_mm2 is not None:
+        assert pattern.flat_area_mm2 == pytest.approx(expected.flat_area_mm2, abs=tol)
+    if expected.solid_volume_mm3 is not None:
+        assert float(evaluation.body.volume) == pytest.approx(
+            expected.solid_volume_mm3, abs=expected.solid_volume_tolerance
+        )
 
 
 @each_golden

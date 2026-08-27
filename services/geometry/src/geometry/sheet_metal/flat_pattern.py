@@ -50,6 +50,37 @@ class FlatEdge2D:
 
 
 @dataclass(frozen=True)
+class FlatCutEdge2D:
+    """One edge of an INTERIOR cut loop of the blank, in the developed (u, v) frame.
+
+    The holes, slots and cutouts a laser drives after it has cut the outline (DXF-4).
+    Kept separate from :attr:`FlatPattern.outline` on purpose: ``outline`` is the
+    blank's single closed boundary plus its fold lines, and a consumer that walks it as
+    one loop (the outline-closure invariant, §5) must not have interior loops
+    interleaved into it. Every entry here is a real CUT — it goes on the same layer as
+    the outline, never the ``BEND`` layer.
+
+    ``kind`` mirrors the neutral drawing primitives so the translation to
+    :class:`~py_kit.schemas.drawings.ProjectedViewEdge` is a field copy: a ``circle``
+    is a closed circular loop (``cx``/``cy``/``r``, the common through hole), an
+    ``arc`` a circular segment (a slot end), a ``line`` a straight segment.
+    ``xm``/``ym`` is a point ON the edge — the drawing DTO's ``midpoint``, which is
+    what a Ø/R dimension and an arc's sampler both read.
+    """
+
+    kind: Literal["line", "circle", "arc"]
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+    xm: float
+    ym: float
+    cx: float | None = None
+    cy: float | None = None
+    r: float | None = None
+
+
+@dataclass(frozen=True)
 class BendLine:
     """Per-bend row of the flat pattern's bend table (§6 step 5).
 
@@ -97,8 +128,11 @@ class FlatPattern:
     ``flat_length_mm`` is the total developed length along ``u``
     (``Σ flange developed lengths + Σ bend allowances``); ``flat_area_mm2`` is
     the developed blank area (§9 golden #2: ``Σ flange developed areas +
-    Σ (BA * bend_width)``). ``outline`` carries the 2D cut edges plus the tagged
-    bend lines; ``bends`` carries the bend table.
+    Σ (BA * bend_width)``), NET of every interior cut — a holed face's exact B-rep area
+    already excludes its holes, and the ones the unfold's clean reference body has not
+    seen are reconciled against the live body (``cutouts.DevelopedRegion``). ``outline``
+    carries the blank's boundary plus the tagged bend lines; ``cutouts`` carries the
+    INTERIOR cut loops (holes / slots / cutouts, DXF-4); ``bends`` the bend table.
     """
 
     thickness_mm: float
@@ -108,6 +142,7 @@ class FlatPattern:
     bend_width_mm: float
     outline: tuple[FlatEdge2D, ...]
     bends: tuple[BendLine, ...]
+    cutouts: tuple[FlatCutEdge2D, ...] = ()
 
     def to_json_bytes(self) -> bytes:
         """Canonical, byte-deterministic serialization (the determinism gate).
@@ -116,9 +151,20 @@ class FlatPattern:
         never on field insertion order or whitespace. CPython's ``repr``-based
         float encoding is round-trip stable and deterministic, so identical
         inputs yield identical bytes across runs and interpreter restarts.
+
+        ``cutouts`` — the one field with a default — is omitted when EMPTY: the
+        canonical form encodes the pattern's CONTENT, and a blank with no interior cuts
+        and a blank with an empty cut list are the same blank. That rule is what let
+        ``cutouts`` (DXF-4) be added without moving a single committed
+        ``content_hash``, so the hole-free goldens stay a real regression guard rather
+        than being re-blessed alongside the very change they exist to guard. Any future
+        additive field takes the same treatment, for the same reason.
         """
+        payload = asdict(self)
+        if not self.cutouts:
+            del payload["cutouts"]
         return json.dumps(
-            asdict(self), sort_keys=True, separators=(",", ":"), ensure_ascii=True
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
         ).encode("utf-8")
 
     def content_hash(self) -> str:

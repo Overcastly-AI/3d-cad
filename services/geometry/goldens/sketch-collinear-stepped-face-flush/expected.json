@@ -1,0 +1,31 @@
+{
+  "description": "FIRST COLLINEAR-CONSTRAINT GOLDEN (SKETCH-VOCAB-1): the audit's own sentence as geometry — \"two lines on one line, the way you keep a stepped profile's faces flush\" (docs/AUDIT-PRODUCT.md T-5). A 40 x 25 x 10 mm plate with a 16 x 7 mm notch in its top edge, so the top face arrives in TWO segments separated by the notch — no shared corner between them, which is what makes the constraint load-bearing rather than redundant. The left segment is drawn 4 mm low, at y = 21, and the single `collinear` constraint against the right segment is the only thing that lifts it flush to y = 25. The sketch converges at DOF 0 with nothing redundant; drop the constraint and the profile is a different (and asymmetric) solid, so volume, surface area, centroid and the AABB all move. Its 8-sided profile also makes it the corpus's first prism with more than six walls, locking the n-gon cap triangulation (n - 2) on a CONCAVE outline.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
+    "solved profile: e1 is pinned horizontal at the origin, 40 long; e2 vertical 25; e3 horizontal 12 (so the right top segment runs (40,25)-(28,25)); e4 vertical 7 down to y = 18; e5 horizontal 16 across the notch floor to x = 12; e6 and e8 vertical; and `collinear(e3, e7)` puts BOTH of e7's endpoints on e3's infinite line, y = 25. That forces e6 up to 7 mm and e7 to (12,25)-(0,25) — the two top faces flush. Verified: status converged, DOF 0, no redundant constraint (2026-08-26).",
+    "profile area = full plate minus the notch = 40*25 - 16*7 = 1000 - 112 = 888 mm^2",
+    "volume = 888 * 10 = 8880 mm^3",
+    "surface_area = 2 caps (2 * 888 = 1776) + perimeter * 10, where the perimeter is 40 + 25 + 12 + 7 + 16 + 7 + 12 + 25 = 144 mm, so 1776 + 1440 = 3216 mm^2",
+    "centroid x = 20: the notch spans x 12..28, whose centre is 20, so removing it preserves the plate's x symmetry",
+    "centroid y = (1000*12.5 - 112*21.5) / 888 = (12500 - 2408) / 888 = 10092 / 888 = 11.364864864864865 mm — the full plate's centroid minus the notch's, area-weighted (notch centre y = (18+25)/2 = 21.5)",
+    "centroid z = 5 by prism symmetry; extrude 'normal' on XY is +Z, z spans [0,10]",
+    "bounding_box = [0,0,0]..[40,25,10]: the notch is interior to the top edge, so the AABB is the un-notched plate's box — and it is also the assertion that the collinear constraint DID lift e7 to y = 25, since a profile left at y = 21 has the same box only by accident of e3 still reaching 25",
+    "topology: an 8-sided prism is 10 planar faces (2 caps + 8 walls), 24 straight edges (8 top + 8 bottom + 8 verticals), 1 closed shell",
+    "mesh: each cap is a simple 8-gon with no interior node, so n - 2 = 6 triangles from its 8 boundary nodes (the outline is CONCAVE at the two notch corners; the count is unchanged, which is the point of pinning it here); two caps = 16 nodes / 12 triangles. Eight rectangular walls = 8 * (4 nodes, 2 tris) = 32 nodes / 16 triangles. Totals = 48 vertices and 28 triangles (per-face faceted normals, no vertex sharing across faces).",
+    "no material is assigned, so mass and centre of mass must be reported ABSENT (null) — never 0 g (docs/design/materials.md 6)",
+    "GLB byte size is deliberately NOT pinned: asserted deterministic (byte-identical) by the runner within one kernel version, but the absolute size carries no geometric meaning."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "MEASURED first, then set (geometry-gates skill: never copy a bound blindly). The profile is produced by a real numeric solve — collinear moves e7 4 mm and e6 grows with it — but the system is rectilinear and well-conditioned, so the solve lands on the analytic corners to within 7.1e-15 mm (e7's y reads 24.999999999999993). Measured deviations vs the analytic values (2026-08-26, planegcs 0.8.0 / build123d 0.11.1 / OCCT 7.9): volume exactly 0.0, surface_area 9.1e-13 mm^2, centroid <= 1.8e-15 mm, AABB exactly 0.0 on all six bounds. The documented ceiling 1e-9 is ~1000x the observed worst case and the same number the other rectilinear sketch goldens carry, while staying 1e5 x TIGHTER than the standing kernel linear tolerance (1e-7 m = 1e-4 mm). Loosening it is never a fix for a red run: it is a reviewed kernel-level decision recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 8880.0,
+    "surface_area": 3216.0,
+    "centroid": { "x": 20.0, "y": 11.364864864864865, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 10, "edges": 24, "shells": 1 },
+  "mesh": { "vertices": 48, "triangles": 28 }
+}

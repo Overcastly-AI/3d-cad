@@ -75,7 +75,9 @@ MODEL_FILES = sorted(GOLDENS_DIR.glob("*/model.json"))
 each_golden = pytest.mark.parametrize(
     "model_path", MODEL_FILES, ids=[path.parent.name for path in MODEL_FILES]
 )
-each_format = pytest.mark.parametrize("fmt", ["step", "stl"])
+#: Every export format. The assembly inventory is TWO goldens, so a full
+#: 4-format sweep is cheap here (unlike the 49-model part inventory).
+each_format = pytest.mark.parametrize("fmt", ["step", "stl", "3mf", "glb"])
 
 #: Matches a STEP ``PRODUCT('name',...)`` name field (traceability parse).
 _PRODUCT_RE = re.compile(rb"PRODUCT\('([^']*)'")
@@ -283,7 +285,7 @@ from geometry.assembly.export import export_assembly
 from py_kit.schemas.assemblies import ExportAssemblyRequest
 
 base = json.loads(sys.stdin.read())
-for fmt in ("step", "stl"):
+for fmt in ("step", "stl", "3mf", "glb"):
     request = ExportAssemblyRequest.model_validate({**base, "format": fmt})
     print(fmt, hashlib.sha256(export_assembly(request)).hexdigest())
 """
@@ -293,14 +295,17 @@ for fmt in ("step", "stl"):
 def test_assembly_export_is_byte_deterministic_across_interpreter_restart(
     model_path: Path,
 ) -> None:
-    """Fresh-interpreter export (worker-restart emulation, RESEARCH §9) → same
-    STEP and STL bytes as this process, under a different PYTHONHASHSEED."""
+    """Fresh-interpreter export (worker-restart emulation, RESEARCH §9) → the
+    same bytes as this process in ALL FOUR formats, under a different
+    PYTHONHASHSEED. 3MF is the demanding one: lib3mf mints five random UUIDs
+    per write, so this proves ``_canonicalise_3mf_ids`` survives a process
+    boundary the way the pinned STEP timestamp does."""
     name = model_path.parent.name
     digests = {
         fmt: hashlib.sha256(
             export_assembly(_export_request(model_path, fmt))
         ).hexdigest()
-        for fmt in ("step", "stl")
+        for fmt in ("step", "stl", "3mf", "glb")
     }
 
     env = {**os.environ, "PYTHONHASHSEED": "0"}

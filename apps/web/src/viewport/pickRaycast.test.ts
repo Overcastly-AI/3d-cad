@@ -8,8 +8,10 @@ import {
 } from "three";
 import { describe, expect, it } from "vitest";
 
+import { faceOrdinalOfTriangle } from "./glbGeometry";
 import {
   drawnSurfaceRaycast,
+  faceColumnRaycast,
   hiddenTriangleTest,
   nearestDrawnHit,
 } from "./pickRaycast";
@@ -200,5 +202,100 @@ describe("drawnSurfaceRaycast, against REAL three", () => {
     // The surviving hit is 10 units FURTHER away — the drawn material, so an
     // edge between the two quads is now accepted where it used to be refused.
     expect(hits[0]?.distance).toBeCloseTo(30, 6);
+  });
+});
+
+describe("faceColumnRaycast, against REAL three", () => {
+  /**
+   * The MATE-1 shape, and the same two-quad fixture the nearest-hit block
+   * uses: two parallel quads in ONE geometry, one draw group each, so ordinal
+   * 0 is the near quad and 1 the far one. The far quad is what a BURIED mate
+   * face looks like — a surface the ray reaches only after passing through
+   * something else. What is under test is how many of them survive.
+   */
+  function twoQuadMesh(): Mesh {
+    const quad = (z: number): number[] =>
+      (
+        [
+          [-5, -5],
+          [5, -5],
+          [5, 5],
+          [-5, 5],
+        ] as const
+      ).flatMap(([x, y]) => [x, y, z]);
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([...quad(0), ...quad(-10)]), 3),
+    );
+    geometry.setIndex([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]);
+    geometry.addGroup(0, 6, 0);
+    geometry.addGroup(6, 6, 0);
+    const mesh = new Mesh(
+      geometry,
+      new MeshBasicMaterial({ side: 2 /* DoubleSide */ }),
+    );
+    mesh.updateMatrixWorld(true);
+    return mesh;
+  }
+
+  function centreRay(): Raycaster {
+    return new Raycaster(new Vector3(0, 0, 20), new Vector3(0, 0, -1), 0, 1000);
+  }
+
+  function columnMesh(hidden: number[] = []): Mesh {
+    const mesh = twoQuadMesh();
+    const geometry = mesh.geometry;
+    mesh.raycast = faceColumnRaycast(
+      hiddenTriangleTest(geometry, new Set(hidden)),
+      (faceIndex) =>
+        faceIndex === undefined || faceIndex === null
+          ? null
+          : faceOrdinalOfTriangle(geometry, faceIndex),
+    );
+    return mesh;
+  }
+
+  it("reports BOTH faces the ray pierces, near first", () => {
+    const hits = centreRay().intersectObject(columnMesh());
+    expect(hits.map((hit) => hit.index)).toEqual([0, 1]);
+    expect(hits.map((hit) => hit.distance)).toEqual([20, 30]);
+  });
+
+  it("stamps `index` with the FACE ORDINAL — r3f's dedupe key", () => {
+    // Not decoration: `makeId` is `uuid + '/' + index + instanceId`, so without
+    // a distinct `index` per face r3f collapses this mesh's hits back to ONE
+    // and the column never reaches a handler at all.
+    const ids = centreRay()
+      .intersectObject(columnMesh())
+      .map((hit) => `${hit.object.uuid}/${hit.index}${hit.instanceId}`);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  it("emits ONE candidate per face, not one per triangle", () => {
+    // Each quad is two triangles. A face is one candidate however finely it
+    // was tessellated, or the column reads as the same face listed twice.
+    expect(centreRay().intersectObject(columnMesh())).toHaveLength(2);
+  });
+
+  it("still drops a HIDDEN body's face — the column is of DRAWN faces", () => {
+    expect(
+      centreRay()
+        .intersectObject(columnMesh([0]))
+        .map((hit) => hit.index),
+    ).toEqual([1]);
+  });
+
+  it("NEGATIVE CONTROL: the nearest-hit raycast reports only the NEAR face", () => {
+    // The mutation this gate exists to catch, asserted rather than described.
+    // Swap `faceColumnRaycast` back for `drawnSurfaceRaycast` — which is what
+    // every mate pick used before MATE-1 — and the buried face is gone.
+    const mesh = twoQuadMesh();
+    mesh.raycast = drawnSurfaceRaycast(
+      hiddenTriangleTest(mesh.geometry, new Set()),
+    );
+    const hits = centreRay().intersectObject(mesh);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.distance).toBeCloseTo(20, 6);
   });
 });

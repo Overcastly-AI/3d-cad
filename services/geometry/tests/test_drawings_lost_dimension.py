@@ -27,12 +27,12 @@ failing gate rather than a silent regression.
 
 from __future__ import annotations
 
-import io
 import math
+from collections.abc import Callable
 from typing import Any
 
-import ezdxf
 import pytest
+from ezdxf.document import Drawing
 from fastapi.testclient import TestClient
 from geometry.drawings.compose import STANDARD_VIEWS
 from geometry.main import app
@@ -164,24 +164,26 @@ def _artifact(request: ComposeDrawingRequest) -> bytes:
     return response.content
 
 
-def _dxf_texts(payload: bytes) -> set[str]:
-    doc = ezdxf.read(  # pyright: ignore[reportPrivateImportUsage]
-        io.StringIO(payload.decode("utf-8"))
-    )
-    assert not doc.audit().errors
+def _dxf_text_set(read_dxf: Callable[[bytes], Drawing], payload: bytes) -> set[str]:
+    """Every TEXT string in the DXF, read back through the conftest `read_dxf`
+    fixture — which derives the encoding from the file's own `$DWGCODEPAGE` instead
+    of assuming UTF-8 (AUDIT-PRODUCT F-3)."""
+    doc = read_dxf(payload)
     return {e.dxf.text for e in doc.modelspace() if e.dxftype() == "TEXT"}
 
 
 # --- 1. an unmeasurable reference ------------------------------------------------
 @pytest.mark.parametrize("fmt", ["svg", "pdf", "dxf"])
-def test_a_lost_reference_prints_words_in_the_exported_bytes(fmt: str) -> None:
+def test_a_lost_reference_prints_words_in_the_exported_bytes(
+    fmt: str, read_dxf: Callable[[bytes], Drawing]
+) -> None:
     """THE QA-4 gate. The hole MOVED (x 20 → 30), so its Ø dimension cannot be
     re-anchored — an honest refusal (a dimension that silently retargets onto a
     different hole would be worse). The exported file must SAY so."""
     payload = _artifact(_request(hole_x=30.0, dim_hole_x=20.0, view="top", fmt=fmt))
     expected = "DIAMETER DIM: REFERENCE LOST - RE-PICK THE EDGE"
     if fmt == "dxf":
-        assert expected in _dxf_texts(payload)
+        assert expected in _dxf_text_set(read_dxf, payload)
     else:
         assert expected.encode("utf-8") in payload
 
@@ -198,7 +200,9 @@ def test_a_resolvable_reference_prints_its_value_and_no_caption() -> None:
 
 # --- 2. an unplaceable (but perfectly measurable) dimension ----------------------
 @pytest.mark.parametrize("fmt", ["svg", "pdf", "dxf"])
-def test_a_dimension_with_nothing_to_draw_on_prints_words_too(fmt: str) -> None:
+def test_a_dimension_with_nothing_to_draw_on_prints_words_too(
+    fmt: str, read_dxf: Callable[[bytes], Drawing]
+) -> None:
     """The silent half of QA-4. A Ø dimension authored on the FRONT view measures
     fine off the 3-D bore, but the front view draws that rim edge-on — there is no
     circle to span, so the annotation cannot be placed. It used to be dropped with no
@@ -207,7 +211,7 @@ def test_a_dimension_with_nothing_to_draw_on_prints_words_too(fmt: str) -> None:
     payload = _artifact(_request(hole_x=20.0, dim_hole_x=20.0, view="front", fmt=fmt))
     expected = "DIAMETER DIM: CANNOT BE PLACED IN THIS VIEW - RE-PICK IT"
     if fmt == "dxf":
-        assert expected in _dxf_texts(payload)
+        assert expected in _dxf_text_set(read_dxf, payload)
     else:
         assert expected.encode("utf-8") in payload
 

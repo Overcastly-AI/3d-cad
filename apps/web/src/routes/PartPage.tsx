@@ -188,6 +188,7 @@ import {
   formFromPatternParams,
   type PatternForm,
 } from "../features/pattern";
+import { scopeSeed } from "../features/patternScope";
 import {
   defaultSweepForm,
   defaultSweepPathId,
@@ -210,6 +211,8 @@ import {
   withDefaultMaterial,
 } from "../features/materials";
 import { derivePartBuild, partialBodySentence } from "../features/partBuild";
+import { downloadBlob, exportPartFlatPatternDxf } from "../api/exportPart";
+import { partExportBinding } from "../features/partExport";
 import {
   type BaseFlangeForm,
   canAuthorCornerRelief,
@@ -304,6 +307,7 @@ import {
   type SketchPlaneSpec,
 } from "../sketch/plane";
 import {
+  anchorBodyFeatureId,
   faceOrdinalOfSignature,
   faceSignatureKey,
   isPickableFace,
@@ -319,8 +323,9 @@ import {
 } from "../components/HistoryErrorAlert";
 import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { FacePickOverlay } from "../viewport/FacePickOverlay";
+import { pickRefusal } from "../viewport/pickTargets";
 import { useSketchStore } from "../sketch/store";
-import { escapeAction, TOOL_SHORTCUTS } from "../sketch/tools";
+import { TOOL_SHORTCUTS } from "../sketch/tools";
 import {
   KEY_MEASURE,
   KEY_SNAP,
@@ -499,7 +504,15 @@ export function PartPage() {
   const cornerRequest = useSketchStore((state) => state.cornerRequest);
   const revision = useSketchStore((state) => state.revision);
   const featureId = useSketchStore((state) => state.featureId);
-  const constraintCount = useSketchStore((state) => state.constraints.length);
+  // The USER's authoring, not the raw count — and now for two independent
+  // reasons, which is the tell that this is the right seam rather than a
+  // workaround. RECT-1: a drawn rectangle arrives with its rigidity set, so
+  // `constraints.length > 0` would bind every rectangle the instant it was
+  // drawn. SNAP-3: placement infers a coincident whenever a corner snaps onto
+  // something, so it would bind the first time two corners met. Either way the
+  // unsaved-exit confirm would vanish on an action the user never read as
+  // constraining anything. See `SketchState.userConstrained`.
+  const userConstrained = useSketchStore((state) => state.userConstrained);
   const begin = useSketchStore((state) => state.begin);
   const setTool = useSketchStore((state) => state.setTool);
   const toggleSnap = useSketchStore((state) => state.toggleSnap);
@@ -587,6 +600,18 @@ export function PartPage() {
   }, [partId, queryClient]);
 
   const hasBody = body.data !== undefined;
+
+  /**
+   * PICK-2 — does ANY pick have something to pick? This is the exact predicate
+   * all six pick overlays are fetched on (`meshGlbId !== null`: face pick,
+   * datum face pick, hole, edge, shell, measure), lifted to one name so the
+   * arming guards below cannot drift away from the queries they guard.
+   *
+   * `hasBody` is NOT the same question and is not a substitute: it is true only
+   * once the GLB has been fetched, so it also reads false while the mesh is
+   * merely in flight. This says "an overlay can populate at all".
+   */
+  const hasPickTargets = meshGlbId !== null;
 
   // Face-pick (the plane-pick "Pick a face" path): arm → highlight the body's
   // planar faces → click one → author an on_face datum → seat the sketch.
@@ -868,13 +893,13 @@ export function PartPage() {
     if (mode !== "draw") return;
     if (revision === 0 || revision <= lastSynced.current) return;
     if (revision === failedRevision.current) return; // next edit retries
-    if (featureId === null && constraintCount === 0) return;
+    if (featureId === null && !userConstrained) return;
     const timer = window.setTimeout(
       () => persistBuffer(false),
       SYNC_DEBOUNCE_MS,
     );
     return () => window.clearTimeout(timer);
-  }, [mode, revision, featureId, constraintCount, syncPending, persistBuffer]);
+  }, [mode, revision, featureId, userConstrained, syncPending, persistBuffer]);
 
   // Feed the solve back in: adopt solved positions + diagnosis for the
   // bound feature (only when the buffer is clean — indices and positions
@@ -899,10 +924,15 @@ export function PartPage() {
       };
       // The per-dimension readouts line each glyph up with its authored
       // constraint (a driving dim's evaluated value / a driven dim's measured).
+      // BOTH lists, always: the solver reports linear and angular separately so
+      // no consumer can read a degree out of `value_mm`, and passing only the
+      // linear half is QA-R2 — an expression-driven angle whose glyph kept the
+      // placeholder 30 while the model moved to 45.
       store.adoptSolved(
         result.data.entities,
         info,
         result.data.dimensions ?? [],
+        result.data.angles ?? [],
       );
       return;
     }
@@ -1038,21 +1068,21 @@ export function PartPage() {
           setFacePlaneError(null);
           return;
         }
-        // Mirror and the corner tools run their own cascades (mirror: axis →
-        // targets → drop tool; corner: close editor / clear picks → drop tool)
-        // and never exit the sketch mid-flow.
-        if (store.mirror !== null || store.corner !== null) {
-          store.escape();
-          return;
-        }
-        const action = escapeAction(
-          store.tool,
-          store.pending.length,
-          store.selection.length > 0 || store.selectedConstraint !== null,
-          store.dimensionEdit !== null || store.offsetDraft !== null,
-        );
-        if (action === "exit") finishSketch();
-        else store.escape();
+        // ONE cascade, and the store owns it (ESC-2). Every rung — the mirror
+        // and corner sub-cascades, the armed-dimension disarm, and the final
+        // `unstarted` exit — is performed by `store.escape()`.
+        //
+        // This handler used to re-derive the rung with its own call to the
+        // cascade's pure function and map `"exit"` to `finishSketch()`, which
+        // SAVES, while the store maps that same verb to a fresh session, which
+        // DISCARDS. The two could not disagree only because this call omitted
+        // that function's fifth argument, so `unstarted` defaulted false,
+        // `"exit"` was unreachable and the `finishSketch()` was dead — every press
+        // fell through to `store.escape()` anyway. That is FB-13 ("a key that
+        // sometimes saves and sometimes discards") lying dormant: passing that
+        // argument, for any reason, would have armed it silently. A second
+        // derivation of the same decision is the defect, so there is none.
+        store.escape();
         return;
       }
       if (mode !== "draw") return;
@@ -1101,7 +1131,7 @@ export function PartPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [mode, finishSketch, setTool, toggleSnap, facePicking]);
+  }, [mode, setTool, toggleSnap, facePicking]);
 
   // Trim/extend: the scene arms an edit on a target click; this effect owns
   // the one network hop (the store stays side-effect-free). On success the
@@ -1349,6 +1379,19 @@ export function PartPage() {
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(
     null,
   );
+  // WHAT a pattern/mirror opened right now would act on (docs/design/
+  // pattern-scope.md). The tree selection IS the scope: with `Hole1` selected
+  // the Create strip's verb reads "Repeat Hole1" and the editor opens already
+  // scoped to it. With nothing selected we still offer the tip in the editor's
+  // scope row, but the toolbar keeps its plain words.
+  const patternScopeSeed = useMemo(
+    () => scopeSeed(features, selectedFeatureId),
+    [features, selectedFeatureId],
+  );
+  const scopeSubject =
+    patternScopeSeed !== null && patternScopeSeed.fromSelection
+      ? patternScopeSeed.name
+      : null;
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   // UX audit #20e — a feature can SAVE cleanly yet fail to REBUILD (the create
@@ -1366,6 +1409,23 @@ export function PartPage() {
   // distance before Save. Cleared the moment the editor closes.
   const [extrudePreview, setExtrudePreview] =
     useState<ExtrudePreviewState | null>(null);
+  /**
+   * The depth the viewport's drag handle is asserting (T-23). It flows the
+   * OTHER way from the ghost: the gauge reports a distance, the editor's form
+   * takes it, and the ghost redraws from that form — one value, two ways in
+   * (drag and type), never two states to keep in step.
+   *
+   * Boxed rather than a bare number so dragging back to a value you already
+   * had still reaches the editor: the identity changes even when the number
+   * does not.
+   */
+  const [extrudeDragDepth, setExtrudeDragDepth] = useState<{
+    mm: number;
+  } | null>(null);
+  const handleExtrudeDrag = useCallback(
+    (mm: number) => setExtrudeDragDepth({ mm }),
+    [],
+  );
 
   // Earlier datum features offered to the datum editor as references (the
   // offset-from base + the midplane sides). Create authors at the tip, so every
@@ -1391,6 +1451,12 @@ export function PartPage() {
   // navigates to it. Busy + the server envelope's own message on rejection.
   const [flatPatternBusy, setFlatPatternBusy] = useState(false);
   const [flatPatternError, setFlatPatternError] = useState<string | null>(null);
+  // The profile-only DXF cut path (AUDIT-PRODUCT F-2a) — a download, not a
+  // navigation, so it gets its own busy flag but SHARES the flat-pattern error
+  // surface: both are "the blank could not be produced", and a second alert box
+  // in the same corner saying a near-identical sentence is how a UI starts
+  // lying about how many things went wrong.
+  const [flatDxfBusy, setFlatDxfBusy] = useState(false);
   // Inline offset-plane authoring (the plane-pick "+ Offset plane" path).
   const [offsetPlaneBusy, setOffsetPlaneBusy] = useState(false);
   const [offsetPlaneError, setOffsetPlaneError] = useState<string | null>(null);
@@ -1455,16 +1521,72 @@ export function PartPage() {
   );
 
   // ---------------------------------------------------------------------
-  // Fillet/Chamfer edge picking. The anchor for a picked edge's `SubshapeRef`
-  // is the last body-affecting feature (the body the edges belong to) — the
-  // same rule face picking uses. The edge-pick store bridges the editor and
-  // the in-canvas overlay; PartPage owns the overlay fetch and the session
-  // lifecycle (open on a fillet/chamfer editor, close otherwise).
+  // Fillet/Chamfer edge picking. The edge-pick store bridges the editor and the
+  // in-canvas overlay; PartPage owns the overlay fetch and the session lifecycle
+  // (open on a fillet/chamfer editor, close otherwise). The anchor a picked
+  // edge's `SubshapeRef` carries is `pickAnchorFeatureId` below, NOT the tip.
   // ---------------------------------------------------------------------
   const bodyFeatureId = useMemo(
     () => lastBodyFeatureId(tree.data?.features ?? []),
     [tree.data],
   );
+
+  /**
+   * PICK-2 — what every arming guard below asks `pickRefusal` about. Split in
+   * two on purpose: a part that has never had a body-affecting feature needs
+   * "add one", while a part whose body-affecting feature exists but did not
+   * build needs "clear the error" — and telling a modeller to add the feature
+   * they can see in the tree is how a refusal stops being believed.
+   */
+  const pickTargetState = useMemo(
+    () => ({ hasPickTargets, hasBodyFeature: bodyFeatureId !== null }),
+    [hasPickTargets, bodyFeatureId],
+  );
+  /**
+   * PICK-2 — why the hole / datum / sketch face picks cannot be armed, or null.
+   *
+   * DERIVED, never mirrored into state. An armed pick whose targets disappear
+   * (the tip stops building while the editor is open) has to become honest at
+   * that instant, and a copy of the reason held in `holePickError` would only
+   * become honest the next time somebody pressed something. Each editor states
+   * its own refusal on a surface that is NOT gated on a pick being armed, so
+   * "refuse to arm" and "say why" are the same fact told once.
+   */
+  const holePickRefusal = pickRefusal(
+    pickTargetState,
+    "Add a feature that creates a body before drilling a hole.",
+  );
+  const datumPickRefusal = pickRefusal(
+    pickTargetState,
+    "Add a feature that creates a body before picking a face.",
+  );
+  const facePickRefusal = pickRefusal(
+    pickTargetState,
+    "Add a feature that creates a body before sketching on a face.",
+  );
+
+  // PICK-1 (M16) — the anchor a SUBSHAPE REFERENCE gets stamped with, which is
+  // NOT always `bodyFeatureId`. A reference must name a feature strictly earlier
+  // than the one carrying it (documents `_validate_references` → 422
+  // `reference_not_earlier`), and it is resolved against THAT feature's body. At
+  // create the new feature lands at the tip, so the two coincide; while EDITING a
+  // mid-tree feature the tip is later than — or IS — the referrer, which is why
+  // no picked-edge fillet / picked-face shell could be re-saved at all (M9/M10)
+  // and why M17's "re-pick the face" recovery wrote an id the server refused.
+  //
+  // `bodyFeatureId` stays the TIP on purpose: it answers "does a body exist, and
+  // which body is on screen" (the import gate, the pre-selection carry-over —
+  // the overlays a pick comes FROM are always the tip's). Only the reference
+  // stamp moves.
+  const editingFeatureId =
+    editor !== null && editor.mode === "edit"
+      ? (editor.featureId ?? null)
+      : null;
+  const pickAnchorFeatureId = useMemo(
+    () => anchorBodyFeatureId(tree.data?.features ?? [], editingFeatureId),
+    [tree.data, editingFeatureId],
+  );
+
   const edgePicking = useEdgePickStore((s) => s.active && s.picking);
   const setEdgeOverlay = useEdgePickStore((s) => s.setOverlay);
   const setEdgeOverlayError = useEdgePickStore((s) => s.setOverlayError);
@@ -1499,7 +1621,8 @@ export function PartPage() {
   // face overlay for the current body is fetched exactly as the edge/measure
   // overlays are (same request/key — one cache entry, faces line up with the
   // rendered body). The anchor for a picked face's `SubshapeRef` is the same
-  // `bodyFeatureId` fillet/chamfer use (the last body-affecting feature).
+  // `pickAnchorFeatureId` fillet/chamfer use — the tip while creating, the
+  // feature before the one under edit while editing (PICK-1).
   const shellPicking = useFacePickStore((s) => s.active);
   const setShellOverlay = useFacePickStore((s) => s.setOverlay);
   const setShellOverlayError = useFacePickStore((s) => s.setOverlayError);
@@ -1619,6 +1742,52 @@ export function PartPage() {
     await queryClient.invalidateQueries({ queryKey: ["evaluate", partId] });
     await queryClient.invalidateQueries({ queryKey: ["mesh", partId] });
   }, [partId, queryClient]);
+
+  // ---------------------------------------------------------------------
+  // WHAT THE WORKSPACE KNOWS BEFORE ITS CACHES DO (QA-R4).
+  //
+  // Every tree write ends in `refreshTreeAndBody`, and until those refetches
+  // land, the part row and the feature tree still hold the PRE-write version —
+  // which is the denominator `derivePartBuild` compares the evaluation against.
+  // So for the whole length of a write the provenance test came out "current"
+  // and every readout in the app confidently reported a superseded body:
+  // measured at ~600-840 ms, the panel showing the PREVIOUS part's mass with
+  // both status cells claiming to be up to date (QA-REVIEW 2026-08-27).
+  //
+  // Two facts close it, and they are independent on purpose:
+  //  - `pending` — a write is in flight. True from the click, before any reply
+  //    exists, because from the moment the app issues the write it KNOWS the
+  //    body on screen is superseded; it is holding the mutation.
+  //  - `version` — the `tree_version` a write RESPONSE reported. A provenance
+  //    fact rather than a request state, so it keeps the derivation honest even
+  //    where a caller forgets the flag, and it is the earliest the new
+  //    denominator exists anywhere in the client.
+  // Reset per part: a version from one part is not a fact about another.
+  // ---------------------------------------------------------------------
+  const [treeWrite, setTreeWrite] = useState<{
+    pending: number;
+    version: number | null;
+  }>({ pending: 0, version: null });
+  useEffect(() => {
+    setTreeWrite({ pending: 0, version: null });
+  }, [partId]);
+  const beginTreeWrite = useCallback(() => {
+    setTreeWrite((state) => ({ ...state, pending: state.pending + 1 }));
+  }, []);
+  /** Pair with `beginTreeWrite` in a `finally` — never on the success path. */
+  const endTreeWrite = useCallback(() => {
+    setTreeWrite((state) => ({
+      ...state,
+      pending: Math.max(0, state.pending - 1),
+    }));
+  }, []);
+  /** Monotonic, like the counter itself: a later write can only move it up. */
+  const noteWrittenTreeVersion = useCallback((version: number) => {
+    setTreeWrite((state) => ({
+      ...state,
+      version: Math.max(state.version ?? version, version),
+    }));
+  }, []);
 
   // Document-unit change (docs/design/units.md §U2): a pure re-label. It PATCHes
   // the part's `length_unit` under the tree-version OCC and refreshes the part +
@@ -1789,6 +1958,7 @@ export function PartPage() {
         return;
       }
       setImporting(true);
+      beginTreeWrite();
       void (async () => {
         try {
           const bytes = await file.arrayBuffer();
@@ -1798,6 +1968,7 @@ export function PartPage() {
             stepFeatureName(file.name),
             await freshTreeVersion(),
           );
+          noteWrittenTreeVersion(response.tree_version);
           setSelectedFeatureId(response.feature.id);
           await refreshTreeAndBody();
         } catch (error) {
@@ -1808,10 +1979,18 @@ export function PartPage() {
           );
         } finally {
           setImporting(false);
+          endTreeWrite();
         }
       })();
     },
-    [partId, freshTreeVersion, refreshTreeAndBody],
+    [
+      partId,
+      freshTreeVersion,
+      refreshTreeAndBody,
+      beginTreeWrite,
+      endTreeWrite,
+      noteWrittenTreeVersion,
+    ],
   );
 
   /** Toggle the Measure tool; arming it drops any open feature editor. */
@@ -1935,18 +2114,22 @@ export function PartPage() {
     });
   }, [tree.data]);
 
-  // A pattern needs no sketch profile — it repeats the current BODY — so it
-  // only requires a solid to exist (canModify), unlike extrude/revolve.
+  // A pattern needs no sketch profile — it repeats the body, or the FEATURE the
+  // tree named — so it only requires a solid to exist (canModify), unlike
+  // extrude/revolve. The seed is read BEFORE the selection is cleared: clearing
+  // first (which is what this did) is exactly how the tree's answer to "what am
+  // I repeating?" used to be thrown away at the door.
   const openCreatePattern = useCallback(() => {
+    const seed = patternScopeSeed;
     useMeasureStore.getState().deactivate();
     setEditorError(null);
     setSelectedFeatureId(null);
     setEditor({
       kind: "pattern",
       mode: "create",
-      initial: defaultPatternForm(),
+      initial: defaultPatternForm(seed),
     });
-  }, []);
+  }, [patternScopeSeed]);
 
   // Fillet/chamfer, like a pattern, act on the current BODY via a geometric
   // edge-selector predicate (no sketch profile) — they only need a solid to
@@ -2063,11 +2246,16 @@ export function PartPage() {
   // plane (no sketch profile) — it only needs a solid to exist (canModify), so
   // it mirrors those guards. v1 needs only a plane choice: no face/point pick.
   const openCreateMirror = useCallback(() => {
+    const seed = patternScopeSeed;
     useMeasureStore.getState().deactivate();
     setEditorError(null);
     setSelectedFeatureId(null);
-    setEditor({ kind: "mirror", mode: "create", initial: defaultMirrorForm() });
-  }, []);
+    setEditor({
+      kind: "mirror",
+      mode: "create",
+      initial: defaultMirrorForm(seed),
+    });
+  }, [patternScopeSeed]);
 
   // A datum plane needs no sketch/body — it's a construction plane parallel to
   // an origin datum. Available as soon as the tree exists (its own feature row).
@@ -2215,6 +2403,30 @@ export function PartPage() {
     })();
   }, [flatPatternBusy, part.data, partId, navigate]);
 
+  // Flat-pattern DXF (AUDIT-PRODUCT F-2a): the cut path a laser/turret vendor
+  // asks for by name, straight from the part — no drawing sheet to author, and
+  // no A4 border and title block to delete afterwards. 1:1 by construction on
+  // the server, so there is nothing to get wrong here.
+  const exportFlatDxf = useCallback(() => {
+    if (flatDxfBusy) return;
+    setFlatDxfBusy(true);
+    setFlatPatternError(null);
+    void (async () => {
+      try {
+        const file = await exportPartFlatPatternDxf(partId);
+        downloadBlob(file.blob, file.filename);
+      } catch (error) {
+        setFlatPatternError(
+          error instanceof Error
+            ? error.message
+            : "The flat-pattern DXF could not be written.",
+        );
+      } finally {
+        setFlatDxfBusy(false);
+      }
+    })();
+  }, [flatDxfBusy, partId]);
+
   // Combine needs ≥2 bodies to fuse (a boolean union names two of them). It
   // seeds the first two bodies in tree order; the user retargets either.
   const openCreateCombine = useCallback(() => {
@@ -2267,7 +2479,11 @@ export function PartPage() {
           kind: "pattern",
           mode: "edit",
           featureId: feature.id,
-          initial: formFromPatternParams(feature.feature.params, lengthUnit),
+          initial: formFromPatternParams(
+            feature.feature.params,
+            lengthUnit,
+            features,
+          ),
         });
       } else if (feature.feature.type === "fillet") {
         setEditor({
@@ -2317,7 +2533,7 @@ export function PartPage() {
           kind: "mirror",
           mode: "edit",
           featureId: feature.id,
-          initial: formFromMirrorParams(feature.feature.params),
+          initial: formFromMirrorParams(feature.feature.params, features),
         });
       } else if (feature.feature.type === "sheet_metal_base_flange") {
         setEditor({
@@ -2406,7 +2622,9 @@ export function PartPage() {
         setEditor(null);
       }
     },
-    [lengthUnit, specFromPlaneRef],
+    // `features` joins the deps because a pattern/mirror's persisted scope is
+    // shown by feature NAME, which only the tree can supply.
+    [features, lengthUnit, specFromPlaneRef],
   );
 
   // Re-pick repair for a `subshape_unresolved` feature error (FINDINGS #3). The
@@ -2419,18 +2637,25 @@ export function PartPage() {
   const repickFace = useCallback(
     (feature: FeatureResponse) => {
       selectFeature(feature);
-      if (feature.feature.type === "hole") {
-        setHolePickError(null);
-        setHolePick("face");
-      }
+      if (feature.feature.type !== "hole") return;
+      setHolePickError(null);
+      // PICK-2: the repair is offered ON a failed build, which is exactly the
+      // state that can leave the evaluation with no body — and with no body
+      // every pick overlay is disabled, so arming here would badge `Picking`
+      // over a scene that contains no pickable target at all. The editor opens
+      // either way (the feature is what the user asked to see) and states the
+      // refusal on its face row; only the ARMING is withheld.
+      if (holePickRefusal !== null) return;
+      setHolePick("face");
     },
-    [selectFeature],
+    [selectFeature, holePickRefusal],
   );
 
   const closeEditor = useCallback(() => {
     setEditor(null);
     setEditorError(null);
     setExtrudePreview(null);
+    setExtrudeDragDepth(null);
   }, []);
 
   // Global cancel for an open feature editor (FINDINGS #11). The command band
@@ -2583,6 +2808,9 @@ export function PartPage() {
     ) => {
       setEditorSaving(true);
       setEditorError(null);
+      // The body on screen is superseded from HERE, not from when the reply
+      // lands — see the tree-write block above.
+      beginTreeWrite();
       void (async () => {
         try {
           const attempt = async (version: number) =>
@@ -2601,6 +2829,9 @@ export function PartPage() {
               (await fetchFeatureTree(partId)).tree_version,
             );
           }
+          // The reply carries the version the write PRODUCED: the staleness
+          // denominator, in hand a full refetch before either cache has it.
+          noteWrittenTreeVersion(response.tree_version);
           setSelectedFeatureId(response.feature.id);
           setLastSavedFeatureId(response.feature.id);
           setRebuildNoticeDismissed(false);
@@ -2612,10 +2843,18 @@ export function PartPage() {
           );
         } finally {
           setEditorSaving(false);
+          endTreeWrite();
         }
       })();
     },
-    [partId, freshTreeVersion, refreshTreeAndBody],
+    [
+      partId,
+      freshTreeVersion,
+      refreshTreeAndBody,
+      beginTreeWrite,
+      endTreeWrite,
+      noteWrittenTreeVersion,
+    ],
   );
 
   const submitExtrude = useCallback(
@@ -2941,6 +3180,7 @@ export function PartPage() {
         allow_disjoint: true,
       };
       setDisjointRecovering(true);
+      beginTreeWrite();
       void (async () => {
         try {
           const attempt = (version: number) =>
@@ -2948,11 +3188,15 @@ export function PartPage() {
               expected_tree_version: version,
               feature: { type: "boolean", version: 1, params },
             });
+          let response;
           try {
-            await attempt(await freshTreeVersion());
+            response = await attempt(await freshTreeVersion());
           } catch {
-            await attempt((await fetchFeatureTree(partId)).tree_version);
+            response = await attempt(
+              (await fetchFeatureTree(partId)).tree_version,
+            );
           }
+          noteWrittenTreeVersion(response.tree_version);
           setSelectedFeatureId(feature.id);
           await refreshTreeAndBody();
         } catch {
@@ -2960,10 +3204,18 @@ export function PartPage() {
           // recovery button reappears so the user can retry. Nothing changed.
         } finally {
           setDisjointRecovering(false);
+          endTreeWrite();
         }
       })();
     },
-    [partId, freshTreeVersion, refreshTreeAndBody],
+    [
+      partId,
+      freshTreeVersion,
+      refreshTreeAndBody,
+      beginTreeWrite,
+      endTreeWrite,
+      noteWrittenTreeVersion,
+    ],
   );
 
   // Suppress toggle (feature-tree.md §4.3a): flip a feature's suppress flag so a
@@ -2982,19 +3234,24 @@ export function PartPage() {
       // tool, as every other tree-mutating path does.
       useMeasureStore.getState().deactivate();
       setSuppressingId(feature.id);
+      beginTreeWrite();
       void (async () => {
         try {
           const attempt = (version: number) =>
             suppressFeature(partId, feature.id, next, version);
+          let response;
           try {
-            await attempt(await freshTreeVersion());
+            response = await attempt(await freshTreeVersion());
           } catch (error) {
             if (error instanceof StaleTreeVersionError) {
-              await attempt((await fetchFeatureTree(partId)).tree_version);
+              response = await attempt(
+                (await fetchFeatureTree(partId)).tree_version,
+              );
             } else {
               throw error;
             }
           }
+          noteWrittenTreeVersion(response.tree_version);
           setSelectedFeatureId(feature.id);
           await refreshTreeAndBody();
         } catch {
@@ -3002,10 +3259,19 @@ export function PartPage() {
           // the user can retry. Nothing changed.
         } finally {
           setSuppressingId(null);
+          endTreeWrite();
         }
       })();
     },
-    [partId, suppressingId, freshTreeVersion, refreshTreeAndBody],
+    [
+      partId,
+      suppressingId,
+      freshTreeVersion,
+      refreshTreeAndBody,
+      beginTreeWrite,
+      endTreeWrite,
+      noteWrittenTreeVersion,
+    ],
   );
 
   // Select a body from the Bodies panel: select its base feature — lights the
@@ -3084,19 +3350,24 @@ export function PartPage() {
       useMeasureStore.getState().deactivate();
       setDeletingId(feature.id);
       setTreeActionError(null);
+      beginTreeWrite();
       void (async () => {
         try {
           const attempt = (version: number) =>
             deleteFeature(partId, feature.id, version);
+          let restored;
           try {
-            await attempt(await freshTreeVersion());
+            restored = await attempt(await freshTreeVersion());
           } catch (error) {
             if (error instanceof StaleTreeVersionError) {
-              await attempt((await fetchFeatureTree(partId)).tree_version);
+              restored = await attempt(
+                (await fetchFeatureTree(partId)).tree_version,
+              );
             } else {
               throw error;
             }
           }
+          noteWrittenTreeVersion(restored.tree_version);
           if (selectedFeatureId === feature.id) {
             setSelectedFeatureId(null);
             closeEditor();
@@ -3121,6 +3392,7 @@ export function PartPage() {
           }
         } finally {
           setDeletingId(null);
+          endTreeWrite();
         }
       })();
     },
@@ -3132,6 +3404,9 @@ export function PartPage() {
       freshTreeVersion,
       refreshTreeAndBody,
       closeEditor,
+      beginTreeWrite,
+      endTreeWrite,
+      noteWrittenTreeVersion,
     ],
   );
 
@@ -3196,9 +3471,14 @@ export function PartPage() {
   // face-pick step (the same flow the sketch strip's "Pick face" button drives).
   const startSketchOnFace = useCallback(() => {
     handleNewSketch();
-    setFacePicking(true);
+    // PICK-2: the viewport menu reaches this without passing the strip's
+    // `canPickFace` gate, so the refusal has to be enforced here too. The
+    // sketch still opens — the plane picker's other routes (origin planes,
+    // offset) are all still available, and closing the sketch outright would
+    // punish the user for the tree's state.
     setFacePlaneError(null);
-  }, [handleNewSketch]);
+    setFacePicking(facePickRefusal === null);
+  }, [handleNewSketch, facePickRefusal]);
 
   // The inline "sketch at a height" path: author a datum feature, then enter
   // the sketcher on it. One extra field, not a separate multi-step ritual —
@@ -3316,9 +3596,18 @@ export function PartPage() {
 
   /** Arm/disarm the face-pick mode (clears any stale error on toggle). */
   const togglePickFace = useCallback(() => {
+    // Disarming is always allowed — a stand-down must never be blocked by the
+    // thing it stands down from.
+    if (facePicking) {
+      setFacePlaneError(null);
+      setFacePicking(false);
+      return;
+    }
+    // PICK-2: refuse to ARM over an overlay that cannot populate. The strip's
+    // prompt states the refusal (`FacePickPrompt`'s blocked reading).
     setFacePlaneError(null);
-    setFacePicking((armed) => !armed);
-  }, []);
+    setFacePicking(facePickRefusal === null);
+  }, [facePicking, facePickRefusal]);
 
   /**
    * New sketch — ON the pre-selected face when there is one (UI-W3).
@@ -3342,23 +3631,32 @@ export function PartPage() {
   // last body-affecting feature — the same rule sketch-on-face uses.
   const toggleDatumFacePick = useCallback(
     (slot: DatumFaceSlot) => {
-      if (!hasBody) {
-        setDatumFacePickError(
-          "Add a feature that creates a body before picking a face.",
-        );
+      // Disarming is always allowed (see `togglePickFace`).
+      if (datumFacePick === slot) {
+        setDatumFacePickError(null);
+        setDatumFacePick(null);
         return;
       }
+      // PICK-2: this already refused on `hasBody`, but said the wrong thing for
+      // the case that actually reaches a modeller — a part whose extrude is
+      // right there in the tree and simply did not build. The reason is NOT
+      // copied into `datumFacePickError` here: `datumPickRefusal` is already on
+      // screen the whole time the condition holds, and stating it twice would
+      // make one refusal look like two problems.
       setDatumFacePickError(null);
-      setDatumFacePick((current) => (current === slot ? null : slot));
+      if (datumPickRefusal !== null) return;
+      setDatumFacePick(slot);
     },
-    [hasBody],
+    [datumFacePick, datumPickRefusal],
   );
 
   const pickDatumFace = useCallback(
     (face: OverlayFace & { signature: PlanarFaceSignature }) => {
       const slot = datumFacePick;
       if (slot === null) return;
-      const anchorId = lastBodyFeatureId(tree.data?.features ?? []);
+      // PICK-1: the REFERENCE is anchored strictly earlier than the datum being
+      // written (the tip while creating; the feature before it while editing).
+      const anchorId = pickAnchorFeatureId;
       if (anchorId === null) {
         setDatumFacePickError(
           "Add a feature that creates a body before picking a face.",
@@ -3372,13 +3670,18 @@ export function PartPage() {
         slot,
         face: { signature: face.signature, anchorId },
       });
-      // Remembered for the next command (UI-W3).
-      usePreselectStore
-        .getState()
-        .rememberFaces([{ signature: face.signature, anchorId }]);
+      // Remembered for the next command (UI-W3) against the body it was picked
+      // FROM — always the tip's overlay — not the reference anchor above.
+      if (bodyFeatureId !== null) {
+        usePreselectStore
+          .getState()
+          .rememberFaces([
+            { signature: face.signature, anchorId: bodyFeatureId },
+          ]);
+      }
       setDatumFacePick(null);
     },
-    [datumFacePick, tree.data],
+    [datumFacePick, pickAnchorFeatureId, bodyFeatureId],
   );
 
   // The datum face-pick session ends whenever the datum editor closes (or the
@@ -3415,21 +3718,29 @@ export function PartPage() {
   // the datum picker use.
   const toggleHolePick = useCallback(
     (target: HolePickTarget) => {
-      if (!hasBody) {
-        setHolePickError(
-          "Add a feature that creates a body before drilling a hole.",
-        );
+      // Disarming is always allowed (see `togglePickFace`).
+      if (holePick === target) {
+        setHolePickError(null);
+        setHolePick(null);
         return;
       }
+      // PICK-2, as `toggleDatumFacePick`: the refusal was already here, the
+      // honest reason was not — and it is stated once, by the face row's
+      // disabled Pick control, not copied into the error slot as well.
       setHolePickError(null);
-      setHolePick((current) => (current === target ? null : target));
+      if (holePickRefusal !== null) return;
+      setHolePick(target);
     },
-    [hasBody],
+    [holePick, holePickRefusal],
   );
 
   const pickHoleFace = useCallback(
     (face: OverlayFace & { signature: PlanarFaceSignature }) => {
-      const anchorId = lastBodyFeatureId(tree.data?.features ?? []);
+      // PICK-1: strictly earlier than the hole being written. This is the path
+      // M17's "Re-pick face" repair drives, and stamping the tip here made that
+      // repair write an id the server had to refuse — the hole under repair IS
+      // the tip in the common case, so it named itself.
+      const anchorId = pickAnchorFeatureId;
       if (anchorId === null) {
         setHolePickError(
           "Add a feature that creates a body before drilling a hole.",
@@ -3443,15 +3754,20 @@ export function PartPage() {
         face: { signature: face.signature, anchorId },
       });
       // The pick outlives this editor (UI-W3): cancel the hole and invoke
-      // Datum, or Sketch, and the face is already chosen.
-      usePreselectStore
-        .getState()
-        .rememberFaces([{ signature: face.signature, anchorId }]);
+      // Datum, or Sketch, and the face is already chosen. Remembered against the
+      // body it was picked FROM (the tip's overlay), not the reference anchor.
+      if (bodyFeatureId !== null) {
+        usePreselectStore
+          .getState()
+          .rememberFaces([
+            { signature: face.signature, anchorId: bodyFeatureId },
+          ]);
+      }
       // A face chosen → disarm (the editor seeds the point to the centre); the
       // user arms the POINT pick next to refine the placement.
       setHolePick(null);
     },
-    [tree.data],
+    [pickAnchorFeatureId, bodyFeatureId],
   );
 
   const pickHolePoint = useCallback((point: Vec3) => {
@@ -3520,6 +3836,7 @@ export function PartPage() {
       historyInFlight.current = true;
       setHistoryStep(step);
       setHistoryError(null);
+      beginTreeWrite();
       void (async () => {
         try {
           // The shared engine (lib/historyStep, also driving the assembly
@@ -3535,10 +3852,14 @@ export function PartPage() {
             // tree (fresh can_undo/can_redo) without a re-evaluate cycle.
             adoptNoOp: (restored) =>
               queryClient.setQueryData(["features", partId], restored),
-            onRestored: async () => {
+            onRestored: async (restored) => {
               // A REAL restore happened: only now disarm measure and drop the
               // selection (the tree is known to have changed under them),
-              // then resync through the shared invalidation path.
+              // then resync through the shared invalidation path. Undo/redo
+              // bumps `tree_version` like any other write, and the restored
+              // tree carries it — so the readouts learn the body is superseded
+              // here rather than after the refetch (QA-R4).
+              noteWrittenTreeVersion(restored.tree_version);
               useMeasureStore.getState().deactivate();
               setSelectedFeatureId(null);
               await refreshTreeAndBody();
@@ -3556,10 +3877,20 @@ export function PartPage() {
         } finally {
           historyInFlight.current = false;
           setHistoryStep(null);
+          endTreeWrite();
         }
       })();
     },
-    [partId, rollbackBusy, freshTreeVersion, refreshTreeAndBody, queryClient],
+    [
+      partId,
+      rollbackBusy,
+      freshTreeVersion,
+      refreshTreeAndBody,
+      queryClient,
+      beginTreeWrite,
+      endTreeWrite,
+      noteWrittenTreeVersion,
+    ],
   );
 
   const triggerUndo = useCallback(() => {
@@ -3581,22 +3912,34 @@ export function PartPage() {
       // tree-mutating path: openCreate*, selectFeature, handleNewSketch).
       useMeasureStore.getState().deactivate();
       setRollbackBusy(true);
+      beginTreeWrite();
       void (async () => {
         try {
           const run = async (version: number) =>
             moveRollbackBar(partId, rollbackFeatureId, version);
+          let restored;
           try {
-            await run(await freshTreeVersion());
+            restored = await run(await freshTreeVersion());
           } catch {
-            await run((await fetchFeatureTree(partId)).tree_version);
+            restored = await run((await fetchFeatureTree(partId)).tree_version);
           }
+          noteWrittenTreeVersion(restored.tree_version);
           await refreshTreeAndBody();
         } finally {
           setRollbackBusy(false);
+          endTreeWrite();
         }
       })();
     },
-    [partId, rollbackBusy, freshTreeVersion, refreshTreeAndBody],
+    [
+      partId,
+      rollbackBusy,
+      freshTreeVersion,
+      refreshTreeAndBody,
+      beginTreeWrite,
+      endTreeWrite,
+      noteWrittenTreeVersion,
+    ],
   );
 
   // The last-saved feature's rebuild error (UX audit #20e), surfaced at the
@@ -3757,6 +4100,8 @@ export function PartPage() {
         regenerating,
         regenFailed,
         meshPending: meshGlbId !== null && !bodyPresent && body.isFetching,
+        writing: treeWrite.pending > 0,
+        writtenTreeVersion: treeWrite.version,
       }),
     [
       tree.data,
@@ -3769,7 +4114,17 @@ export function PartPage() {
       meshGlbId,
       bodyPresent,
       body.isFetching,
+      treeWrite,
     ],
+  );
+  // EXPORT, bound once and mounted twice: the Inspector's ruled strip (the
+  // NOTICE surface — it has room to say the file would be partial) and the
+  // command band's EXPORT group (the ACTION surface, which survives collapsing
+  // the panel). Both read this binding, so the gate and the filename cannot
+  // drift apart between them (EXPORT-1).
+  const partExport = useMemo(
+    () => partExportBinding(partId, build),
+    [partId, build],
   );
   // The inspector appears when there's a body to inspect and we're not
   // sketching — sketch mode keeps the viewport dominant (chrome recedes).
@@ -4025,6 +4380,7 @@ export function PartPage() {
               onFillet={openCreateFillet}
               onChamfer={openCreateChamfer}
               onPattern={openCreatePattern}
+              scopeSubject={scopeSubject}
               onShell={openCreateShell}
               onDraft={openCreateDraft}
               onHole={openCreateHole}
@@ -4040,6 +4396,8 @@ export function PartPage() {
               canFlatPattern={isSheetMetal}
               flatteningPattern={flatPatternBusy}
               onFlatPattern={openFlatPattern}
+              exportingFlatDxf={flatDxfBusy}
+              onExportFlatDxf={exportFlatDxf}
               canCombine={bodies.length >= 2}
               onCombine={openCreateCombine}
               canMeasure={hasBody}
@@ -4050,6 +4408,10 @@ export function PartPage() {
                 useCommandActionStore.getState().requestSubmit()
               }
               onCommandCancel={closeEditor}
+              onExport={partExport.exporter}
+              exportDisabledReason={partExport.gate.blockedReason}
+              exportPartial={partExport.gate.partial}
+              exportState={partExport.gate.state}
             />
           ) : (
             <SketchStrip
@@ -4068,6 +4430,11 @@ export function PartPage() {
               facePicking={facePicking}
               authoringFace={facePlaneBusy}
               facePickError={facePlaneError}
+              // PICK-2: the prompt is mounted BY `facePicking`, so if the tip
+              // stops building while the pick is armed it goes on saying "click
+              // a highlighted planar face" at a scene that has none. This is the
+              // reason it says instead.
+              facePickBlocked={facePicking ? facePickRefusal : null}
             />
           )}
         </TopToolbar>
@@ -4142,6 +4509,7 @@ export function PartPage() {
                         saving={editorSaving}
                         error={editorError}
                         onPreviewChange={setExtrudePreview}
+                        depthOverride={extrudeDragDepth}
                       />
                     ) : editor.kind === "revolve" ? (
                       <RevolveEditor
@@ -4188,7 +4556,7 @@ export function PartPage() {
                       <FilletEditor
                         mode={editor.mode}
                         initial={editor.initial}
-                        bodyFeatureId={bodyFeatureId}
+                        bodyFeatureId={pickAnchorFeatureId}
                         onSubmit={submitFillet}
                         onCancel={closeEditor}
                         saving={editorSaving}
@@ -4198,7 +4566,7 @@ export function PartPage() {
                       <ChamferEditor
                         mode={editor.mode}
                         initial={editor.initial}
-                        bodyFeatureId={bodyFeatureId}
+                        bodyFeatureId={pickAnchorFeatureId}
                         onSubmit={submitChamfer}
                         onCancel={closeEditor}
                         saving={editorSaving}
@@ -4208,7 +4576,7 @@ export function PartPage() {
                       <ShellEditor
                         mode={editor.mode}
                         initial={editor.initial}
-                        bodyFeatureId={bodyFeatureId}
+                        bodyFeatureId={pickAnchorFeatureId}
                         onSubmit={submitShell}
                         onCancel={closeEditor}
                         saving={editorSaving}
@@ -4218,7 +4586,7 @@ export function PartPage() {
                       <DraftEditor
                         mode={editor.mode}
                         initial={editor.initial}
-                        bodyFeatureId={bodyFeatureId}
+                        bodyFeatureId={pickAnchorFeatureId}
                         onSubmit={submitDraft}
                         onCancel={closeEditor}
                         saving={editorSaving}
@@ -4233,11 +4601,15 @@ export function PartPage() {
                         saving={editorSaving}
                         error={editorError}
                         canPickFace={hasBody}
-                        activePick={holePick}
+                        // PICK-2: an armed pick whose overlay cannot populate is
+                        // not an armed pick. Reading `null` here is what stops
+                        // the row badging `Picking` over an empty scene.
+                        activePick={holePickRefusal === null ? holePick : null}
                         onTogglePick={toggleHolePick}
                         facePick={holeFacePicked}
                         pointPick={holePointPicked}
                         pickError={holePickError}
+                        pickBlockedReason={holePickRefusal}
                         placementHidden={holePlacementHidden}
                         edges={holeOverlayEdges}
                         onPreviewChange={onHolePreviewChange}
@@ -4256,7 +4628,7 @@ export function PartPage() {
                       <EdgeFlangeEditor
                         mode={editor.mode}
                         initial={editor.initial}
-                        bodyFeatureId={bodyFeatureId}
+                        bodyFeatureId={pickAnchorFeatureId}
                         defaults={smDefaults}
                         onSubmit={submitEdgeFlange}
                         onCancel={closeEditor}
@@ -4268,7 +4640,7 @@ export function PartPage() {
                       <HemEditor
                         mode={editor.mode}
                         initial={editor.initial}
-                        bodyFeatureId={bodyFeatureId}
+                        bodyFeatureId={pickAnchorFeatureId}
                         defaults={smDefaults}
                         onSubmit={submitHem}
                         onCancel={closeEditor}
@@ -4307,10 +4679,16 @@ export function PartPage() {
                         saving={editorSaving}
                         error={editorError}
                         canPickFace={hasBody}
-                        activeFacePickSlot={datumFacePick}
+                        // PICK-2, as for the hole editor: an armed slot whose
+                        // overlay cannot populate reads as not armed…
+                        activeFacePickSlot={
+                          datumPickRefusal === null ? datumFacePick : null
+                        }
                         onToggleFacePick={toggleDatumFacePick}
                         facePick={datumFacePicked}
-                        facePickError={datumFacePickError}
+                        // …and the standing refusal is stated on the editor's
+                        // own (ungated) pick-error line rather than nowhere.
+                        facePickError={datumFacePickError ?? datumPickRefusal}
                       />
                     ) : (
                       <CombineEditor
@@ -4506,6 +4884,7 @@ export function PartPage() {
                   distanceMm={extrudePreview.distanceMm}
                   direction={extrudePreview.direction}
                   operation={extrudePreview.operation}
+                  onDepthChange={handleExtrudeDrag}
                 />
               ) : null}
               <MeasureOverlay />
