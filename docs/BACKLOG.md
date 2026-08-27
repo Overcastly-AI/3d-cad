@@ -15,188 +15,124 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication. **Pass 8-12 detail moved to `docs/CHANGELOG.md`.**
 
-- **Groom pass 14 (2026-08-27, this pass).** The founder switched focus to
-  the frontend; Ready is now ranked frontend-first (backend items stay
-  visible, not deleted). Closed since pass 13, all verified against
-  `git log`: **SPEC-9** (`e8702d5`), **SPEC-10** (`42f6bbd`), **DOCTICK-GATE**
-  (`bd09f5b`, docstring fix `53e62b0`), **PATTERN-1's frontend half**
-  (`ec9c569`), **T-23/DRAG-1** (`35027ef` — the extrude gets a drag handle;
-  this UNBLOCKS MATE-1's UI half and ORTHO-1, both queued on
-  `apps/web/src/viewport/**` since pass 13), **SNAP-5** (`ecdf9ad`,
-  screenshots `31ba716`), **SIGNIN-1** (`bf65ddc`). Kernel-only halves
-  landed, frontend halves stay open: **REVOLVE-1** (`88b6074` — origin-axis
-  types now exist server-side; the Ready item is now purely the frontend
-  axis-list/preview work), **SKETCH-VOCAB-1** (`e46bf0c`, `eabbd36`,
-  `fead5bd`, `00c9d22`, `5fbf5d8` — angle/diameter/midpoint/collinear/
-  symmetric-two-lines all solve server-side; `apps/web` carries only
-  exhaustive-switch stub arms, no authoring UI — verified by diff, not
-  assumed). Also closed: the founder's parts-register directive
-  (`cb2e43e` resume band + REBUILD-column experiment, `d0b55b2` reverted the
-  REBUILD collapse after it broke `workspace.spec.ts` — see Done archive for
-  the reasoning, worth keeping since the next person to try the same
-  collapse will reach for it again). **Filed this pass:** REACH-2-FLOW and
-  REACH-3-FLOW (P1, frontend — the design-review flow gaps on `ec9c569` and
-  `5438b73` the builders didn't catch); REACH-1's flow gaps were already
-  filed as QA-R1/QA-R2/QA-R3 by the qa-tester, no duplicate needed. Noted
-  `scripts/check-ui-parity.py` + `.claude/workflows/loft-frontend-loop.js`
-  (`e9d31af`, subtree fix `4e41eb4`) exist and re-run every batch — the 39
-  measured gaps are NOT frozen onto the board (would go stale immediately);
-  triage them from the tool, not from a snapshot here.
+- **Groom pass 15 (2026-08-27, this pass) — branch merged to `main`
+  (`03d2eca`, 141 commits, CI green at tip): a release boundary.** Closed
+  since pass 14, all verified against `git log`/`git show`: **REVOLVE-1**
+  (`1b28dd5` — origin-axis UI; closes the last ABSENT-tier gap in the
+  gateway contract, zero remain), **SKETCH-VOCAB-1's frontend half**
+  (`38e37f5` — catalogue lists all 16 verbs), **MATE-1** (`a2a6f9f` +
+  gate `1ae3270` — buried mate face reachable via a depth-stack "select
+  other," closes T-13; T-14 re-filed narrower as **MEASURE-PROXY-1**,
+  Measure's proxy grid was out of scope), **QA-R1** (`5957252`), **QA-R2**
+  (`0cee656`, e2e hardened `d2b1d26`), **QA-R4** (`278c122`), **MATE-OBS**
+  (`6b26ff7`), and four REACH-3 follow-ups (`ddab149`, `f832eae`,
+  `1e8d8a3`, `ef704e7`) closing the design review's (`3322892`) P1-C/D/E
+  and P2-B. Full evidence: Done archive "Groom pass 15 closures." **Filed
+  this pass:** REACH-2-IMPORT-1, MEASURE-PROXY-1, MATE-OBS-2,
+  DRAWING-VERTEX-PICK-1, FORCE-CLICK-AUDIT-1, SOLVER-DOC-1,
+  SKETCH-COVERAGE-1 — see Ready/Next. **Re-scoped, not closed:** ORTHO-1
+  (fully unblocked — sole occupant of `apps/web/src/viewport/**` now);
+  REACH-2-FLOW, REACH-3-FLOW (orientation half only), TITLEBLOCK-STAMP-1,
+  EXPORT-3, NAME-2b, QA-R3 all unchanged, still real.
   **✅ rows, still unqualified by an independent code-reviewer pass. ➖
-  rows:** Interop, Drawings. **❌ rows:** Assemblies (MATE-1's UI half —
-  unblocked, not yet built), Sheet metal (DXF-4/DXF-5/EDGEFLANGE-1/NAME-2 —
-  still owed a vision-steward re-check), Performance (SETTLE-PERF-1 —
-  likewise), Collaboration & versioning, Extensibility/scripting+MCP,
-  Selection & direct manipulation (MATE-1's UI half is this row).
+  rows:** Interop, Drawings. **❌ rows:** Assemblies (MATE-1's UI half
+  shipped this pass — vision-steward re-check owed), Sheet metal, Performance
+  (both still owed a vision-steward re-check, carried three passes),
+  Collaboration & versioning, Extensibility/scripting+MCP, Selection &
+  direct manipulation (MATE-1 helps here too — same re-check).
 
-- **Prior passes (8-13):** reconciled in `docs/CHANGELOG.md`. Still true and
+- **Prior passes (8-14):** reconciled in `docs/CHANGELOG.md`. Still true and
   still open: `docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` are stale against
-  the SOLVE-1/SETTLE/pass-13/pass-14 batches — dispatch `geometry-qa` and
-  `frontend-qa` next batch; have the vision-steward re-check Sheet metal and
-  Performance now that DXF-4/DXF-5/EDGEFLANGE-1/NAME-2/SETTLE-PERF-1 have
-  all shipped (carried forward from pass 13, still not done).
+  the last four batches — dispatch `geometry-qa` and `frontend-qa` next
+  batch; the vision-steward's Sheet metal/Performance/Assemblies/Selection
+  scorecard re-check is now three passes overdue.
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 14 (2026-08-27) — founder has switched focus to
-the frontend, ranked accordingly.** SPEC-9, SPEC-10, DOCTICK-GATE,
-PATTERN-1(FE), T-23/DRAG-1, SNAP-5, SIGNIN-1 all shipped since pass 13 — see
-Done archive. T-23/DRAG-1 landing clears `apps/web/src/viewport/**`, so
-**MATE-1's UI half and ORTHO-1 are UNBLOCKED** — dispatch them, don't
-sequence them behind anything else in that territory. **Excluded from this
-dispatch — already in flight, do not re-dispatch:** the frontend batch
-about to launch, `apps/web/e2e/qa-reach-batch.spec.ts` (qa-tester, live).
-Ranked by priority then the operating question ("would a working engineer
-model a real part in this today?"), frontend first per founder directive,
-disjoint, parallel-dispatchable:
+**Dispatch order, groom pass 15 (2026-08-27) — post-merge-to-main
+(`03d2eca`), continuing on this branch.** QA-R1, QA-R2, MATE-1, REVOLVE-1,
+SKETCH-VOCAB-1(FE), QA-R4, MATE-OBS and the four REACH-3 follow-ups all
+shipped since pass 14 — see Done archive. MATE-1 landing leaves
+`apps/web/src/viewport/**` with only ORTHO-1 queued — dispatch it first
+in that territory, not sequenced behind anything. Ranked by priority then
+the operating question ("would a working engineer model a real part in
+this today?"), disjoint, parallel-dispatchable:
 
-1. **QA-R1** (P1, S, frontend-builder, `packages/design/src/**` +
-   `SketchStrip.tsx`) — the offer rail clips FINISH/CANCEL SKETCH off-screen
-   at 1280/1366. Disjoint.
-2. **QA-R2** (P1, S, frontend-builder, `apps/web/src/sketch/**` +
-   `ConstraintGlyphs.tsx`) — an angle glyph keeps a number the solver has
-   moved off. Disjoint from QA-R1 (different files), same territory family —
-   sequence if one agent takes both.
-3. **MATE-1 (UI half)** (P0, M, frontend-builder, `apps/web/src/viewport/**`)
-   — unblocked this pass. A mate-target face can be structurally unreachable;
-   raycast the real geometry, not a DOM proxy. See full ticket below.
-4. **REACH-2-FLOW** (P1, M, frontend-builder, `PartPage.tsx` + `ToolButton.tsx`
-   + `ScopeRow.tsx`) — the pattern-scope proposal is shed at 1280, destroyed
-   by Cancel/Escape, and names a subject nothing echoes. New this pass.
-5. **REVOLVE-1** (P1, M, frontend-builder, `apps/web/src/routes/
-   PartPage.tsx` + `apps/web/src/sketch/**`) — kernel half shipped
-   (`88b6074`, origin axes exist); pure frontend now: axis list, default,
-   preview. Check for file overlap with SKETCH-VOCAB-1's frontend half.
-6. **SKETCH-VOCAB-1's frontend half** (P1, M, frontend-builder,
-   `apps/web/src/sketch/**`) — kernel half fully shipped (five commits, pass
-   14); needs the dimension-type chooser UI + midpoint/collinear/symmetric
-   selection UI. Disjoint from REACH-2-FLOW.
-7. **ORTHO-1** (P1, M, frontend-builder, `apps/web/src/viewport/**`) —
-   unblocked alongside MATE-1; sequence the two rather than parallelize,
-   same territory.
+1. **ORTHO-1** (P1, M, frontend-builder, `apps/web/src/viewport/**`) —
+   no orthographic projection exists; named views are all perspective.
+   Fully unblocked, sole occupant of its territory now.
+2. **A11Y-TOOLBTN-1** (P1, S, frontend-builder,
+   `packages/design/src/primitives/ToolButton.tsx`) — the shared primitive
+   only wires `aria-describedby` while disabled; fix it first, REACH-2-FLOW's
+   part (a) depends on the same wiring.
+3. **REACH-2-FLOW** (P1, M, frontend-builder, `PartPage.tsx` +
+   `ScopeRow.tsx`) — the pattern-scope proposal is shed at 1280, destroyed
+   by Cancel/Escape, names a subject nothing echoes. Sequence after #2.
+4. **SEL-8** (P1, S, frontend-builder, `apps/web/src/viewport/**`) — armed
+   edge picks in Fillet have no hover highlight on the real edge. Sequence
+   after ORTHO-1, same territory.
+5. **MEASURE-PROXY-1** (P1, S, frontend-builder, `apps/web/src/viewport/**`,
+   new this pass) — T-14's residual: a Measure click on a marker's own
+   bounding box is blocked by a neighbouring proxy. Sequence after #4.
+6. **EXPORT-3** (P1, S, frontend-builder, `apps/web/src/components/
+   ExportRow.tsx` / `ExportToolGroup.tsx`) — one failed downstream feature
+   disables export of the whole tree, including the good body already
+   built. Disjoint from the viewport work above.
+7. **REACH-3-FLOW** (P1, M, frontend-builder, `apps/web/src/routes/
+   DrawingPage.tsx` + `PartPage.tsx` Sheet-1 create paths) — orientation
+   proposal never fires on Sheet 1; flip-to-portrait is a dead end.
+   Disjoint from the above.
+8. **FORCE-CLICK-AUDIT-1** (P1, M, frontend-builder + qa-tester,
+   `apps/web/e2e/*.spec.ts`, new this pass) — 25 of 26 `force: true` picks
+   across 8 spec files are unproven; one root-caused (a zero-area SVG hit
+   box) and fixed, the rest may hide the same defect class. Mostly test
+   files, disjoint from the product-code items above.
 
-**QA-R3** (P2, touch), **NAME-2b** (P2), **REACH-3-FLOW** (P1, new this
-pass), **EXPORT-3**, **SNAP-4** and the P1/P2 backend items below are next
-up — see full tickets in place.
+**QA-R3** (P2, touch), **NAME-2b** (P2), **TITLEBLOCK-STAMP-1** (P2, XS),
+**REACH-2-IMPORT-1** (P1, new), **MATE-OBS-2** (P2, new),
+**DRAWING-VERTEX-PICK-1** (P2, new), **SKETCH-COVERAGE-1** (P2, new),
+**SOLVER-DOC-1** (P3, XS, new), **SNAP-4** and the P1/P2 backend items
+below are next up — see full tickets in place.
 
-**Process/loop-health flag, carried from pass 13, still true:**
-`docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` are stale against the SOLVE-1/
-SETTLE/pass-13/pass-14 batches — dispatch `geometry-qa` + `frontend-qa` next
-batch; vision-steward still owes the Sheet metal/Performance scorecard
-re-check now that DXF-4/DXF-5/EDGEFLANGE-1/NAME-2/SETTLE-PERF-1 are shipped.
+**Process/loop-health flag, carried three passes now:**
+`docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` are stale against the last four
+batches — dispatch `geometry-qa` + `frontend-qa` next batch; the
+vision-steward's Sheet metal/Performance/Assemblies/Selection scorecard
+re-check is overdue (Assemblies and Selection newly relevant now that
+MATE-1 shipped).
 
 Everything else below is reprioritized but not yet dispatched this batch.
 
 **SPEC-10 and SNAP-5 are both SHIPPED (`42f6bbd`, `ecdf9ad`+`31ba716`) — see
 Done archive for evidence/gates.**
 
-- [ ] (P1, M) **SKETCH-VOCAB-1 — kernel half SHIPPED (`e46bf0c` angle,
-      `eabbd36` diameter, `fead5bd` midpoint, `00c9d22` collinear, `5fbf5d8`
-      symmetric-two-lines), frontend half still open: there is no UI to
-      AUTHOR any of these five.** kind: capability (scorecard-relevant).
-      VERIFIED by diff, not assumed: all five kernel commits touch only
-      `services/geometry/src/geometry/sketch/**`; the only `apps/web`
-      changes are exhaustive-switch stub arms in `constraints.ts`/
-      `ConstraintGlyphs.tsx` (2-12 lines each, display-only, explicitly
-      noted in each commit message as "totality-only arms"). A user can see
-      an angle/diameter/midpoint/collinear/symmetric-lines constraint if one
-      already exists in a fixture; nobody can create one through the UI.
-      FIX: the dimension-type chooser (angle, diameter alongside existing
-      distance/radius), midpoint and collinear entries in the geometric-
-      constraint menu, and accept two lines + an axis for Symmetric (today's
-      UI still only offers two points + a line). ACCEPTANCE: each of the
-      five is authorable from the sketch toolbar/menu and round-trips
-      through save/reload; `Symmetric` accepts the two-lines-plus-axis
-      selection and produces the same result as the existing path on an
-      equivalent fixture.
-      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fourth pass)" T-5,
-      filed by backlog-groomer pass 11; kernel half closed pass 14]
-      TERRITORY: `apps/web/src/sketch/**` (dimension-type UI, constraint
-      menus). agentType: frontend-builder only now — kernel work is done.
+**SKETCH-VOCAB-1 is fully SHIPPED (`38e37f5`, groom pass 15) — see Done
+archive for evidence/gates.**
 
-- [ ] (P0, M) **MATE-1 RE-SCOPED, groom pass 13 (2026-08-26) — the kernel
-      half is DONE, this ticket is now UI-only.** `287510f`
-      (`test_assembly_mate_candidates.py`) gated the three kernel-side
-      preconditions of any fix — completeness, fidelity, discrimination —
-      on S-15's own fixture and measured **0 bad of 14 offered faces, worst
-      round-trip deviation exactly 0.0**. The face set the geometry service
-      offers is correct and complete; S-15's face-unreachable repro is
-      entirely a client-side picking defect (DOM-proxy hit-testing, no
-      real-geometry raycast). The fix below is unchanged in substance, just
-      now known to be UI-only — no kernel-architect needed.
-      **MATE-1 — a mate-target face can be structurally
-      unreachable: 11 orbits and 10 zoom steps never surfaced the
-      bracket's own bottom face, because a second part's proxy marker
-      sits 8 px away and always wins the hit-test.** kind: defect (blocks
-      the entire Assemblies pillar, not a nicety). MEASURED
-      (`docs/AUDIT-PRODUCT.md` "Pass 2026-08-21 (second pass today)" S-15,
-      corroborated by S-5 on the same picking model in sheet metal):
-      mating a bracket to a plate needs plate-top ↔ bracket-bottom. The
-      plate's top face picks fine. Clicking the bracket's bottom-face
-      marker times out — Playwright's own diagnosis:
-      `<button aria-label="...centred at 1, 0, 2..."> subtree intercepts
-      pointer events`, i.e. the TOP-face marker (8 px away) is topmost at
-      every point tested. 4 orbits up + 6 down (viewing from beneath) + a
-      reset, then 10 zoom-in steps (separation only reaches 12 px) — the
-      wrong marker is topmost in EVERY camera tried. There is no camera in
-      which the correct face can be hit; the only outs are accepting a
-      2 mm error or giving up. Incumbents hover the real face (highlights
-      in situ) with alt-click/"select other" cycling coincident candidates
-      when two overlap — Loft has neither hover-highlight on real geometry
-      nor a select-other affordance, only floating same-size proxy
-      diamonds with no z-order tiebreak toward the one nearer the camera.
-      FIX (the audit's own P0 framing): make faces/edges hover-pickable on
-      the REAL geometry (raycast against the mesh, not a DOM proxy grid),
-      with a "select other" cycle when the raycast hits >1 coincident
-      candidate at the same screen point. This is a bigger lift than a
-      single-file patch — scope the first slice to mate authoring
-      specifically (the audit's reproduction case) even if the general
-      proxy-marker replacement is tracked as a follow-up.
-      ACCEPTANCE: reproduce S-15's fixture (two overlapping-in-screen-space
-      faces from different parts) — the previously-unreachable face is
-      now selectable in at least one camera angle without accepting the
-      wrong one; a regression spec pins it. Mutation check: reverting the
-      hit-test change reddens only the new overlap case.
-      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21 (second pass today)"
-      S-15/S-5, filed by backlog-groomer pass 9]
-      **CORROBORATED, groom pass 11 (2026-08-24), widening the fix's own
-      justification — same root cause, two more surfaces.** T-13 (fourth
-      product pass): hovering a face proxy draws a translucent ellipse
-      "floating mostly BELOW the plate," drawn without depth test and
-      bearing no relation to the face's actual outline; cylindrical faces
-      are not in the pick set AT ALL (a bore wall cannot be selected as a
-      face, even after the bore is cut). T-14: a Measure click at the exact
-      centre of a marker's own bounding box registered no selection because
-      a neighbouring proxy sat on top of it (Playwright's own actionability
-      check refused it as "not stable") — same DOM-proxy-grid mechanism
-      MATE-1's fix already targets, just triggered by Measure instead of
-      mate authoring. [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fourth
-      pass)" T-13/T-14]
-      TERRITORY: `apps/web/src/viewport/**` (pick marker / raycast model),
-      mate-authoring UI. **UNBLOCKED groom pass 14 — T-23/DRAG-1 (`35027ef`)
-      landed in this territory and is done. Dispatch now; ORTHO-1 shares the
-      territory too, sequence the two rather than parallelize.**
-      agentType: frontend-builder.
+**MATE-1 is CLOSED (`a2a6f9f`, gate `1ae3270`, groom pass 15) — see Done
+archive for evidence/gates. T-13 closes with it. T-14 (a different
+surface) does NOT — re-filed narrower below.**
+
+- [ ] (P1, S) **MEASURE-PROXY-1 — a Measure click at the exact centre of a
+      marker's own bounding box registers no selection because a
+      neighbouring proxy sits on top of it.** kind: defect. This is T-14
+      (`docs/AUDIT-PRODUCT.md` "Pass 2026-08-24 (fourth pass)"), MATE-1's
+      own sibling finding, on the same DOM-proxy-grid mechanism — but
+      MATE-1's fix (`a2a6f9f`) deliberately scoped its first slice to mate
+      authoring (`AssemblyScene`'s `mateDepthStack`/`MateColumnStrip`); the
+      Measure tool's pick surface is a separate call site and was not
+      touched. Playwright's own actionability check refused the click as
+      "not stable," meaning a real user's click at the same point silently
+      does nothing. FIX: apply the same depth-stack "select other" pattern
+      (`faceColumnRaycast` + a column-strip affordance) to Measure's pick
+      surface. ACCEPTANCE: reproduce T-14's fixture (two coincident faces
+      under Measure) — the buried face is selectable via the same
+      mechanism MATE-1 shipped; a regression spec pins it.
+      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fourth pass)" T-14,
+      MATE-1's own scope note, filed by backlog-groomer pass 15]
+      TERRITORY: `apps/web/src/viewport/**` (Measure pick surface, reusing
+      `a2a6f9f`'s depth-stack primitives). Sequence behind ORTHO-1/SEL-8 in
+      the same territory. agentType: frontend-builder.
 
 - [ ] (P2, S) **NAME-2b — the durable-tier re-match NAME-2 shipped
       resolves silently; surface it on `FeatureResult` so an edge-anchored
@@ -309,28 +245,9 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       `ExportToolGroup.tsx` (export gate condition), gateway export route if
       the gate is server-side. agentType: frontend-builder.
 
-- [ ] (P1, M) **REVOLVE-1 — kernel half SHIPPED (`88b6074`): the revolve
-      axis is now a discriminated union (`SketchLineAxis` | `OriginAxis`)
-      with three world origin axes always available. Frontend half still
-      open: the UI never offers them.** kind: capability. MEASURED
-      (`docs/AUDIT-PRODUCT.md` R-2): `revolve-axis`'s `<select>` lists only
-      profile edges (`Horizontal · 27 mm · profile edge (e1)`, etc.) — no
-      origin X/Y/Z, no datum axis, no picked model edge. With no
-      construction geometry drawn, the tool silently defaults to `e1` and
-      builds a DISC, not the intended revolve, with no preview to warn you.
-      FIX: add the three origin axes (now real `OriginAxis` requests, per
-      `88b6074`) and picked model edges to the axis list; default to a
-      sketch's construction centreline when one exists rather than the
-      first profile edge; preview the swept body before Create. ACCEPTANCE:
-      a profile with no construction geometry and an origin axis selected
-      revolves correctly with a live preview; the axis list includes at
-      least one origin axis by default; hovering an axis option highlights
-      the corresponding geometry in the viewport.
-      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-2, filed by
-      backlog-groomer pass 8; kernel half closed pass 14]
-      TERRITORY: `apps/web/src/routes/PartPage.tsx` (revolve axis form/
-      preview), `apps/web/src/sketch/**` (construction-centreline default).
-      agentType: frontend-builder only now — kernel work is done.
+**REVOLVE-1 is fully SHIPPED (`1b28dd5`, groom pass 15) — closes the last
+ABSENT-tier literal in the gateway contract. See Done archive for
+evidence/gates.**
 
 - [ ] (P1, S) **SEL-8 — armed edge picks (Fillet's `PICK EDGES` mode) are 21
       floating DOM proxy diamonds with NO hover highlight on the real edge —
@@ -426,6 +343,67 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       alongside any other agent touching `ToolButton.tsx` or
       `ExportToolGroup.tsx` in the same session.** agentType:
       frontend-builder.
+
+- [ ] (P1, M) **REACH-2-IMPORT-1 — the STEP-import assembly feature
+      (`f4c590b`) flows for the slot itself but fails both the approach and
+      the wait.** kind: defect (flow, two independent findings from the
+      same design review). MEASURED (`docs/UI-REVIEW.md` 2026-08-27 REACH-2
+      spot-check on `f4c590b`): (a) the empty-state copy names the import
+      first but the import slot sits **423 px below it, past nine blank
+      ruled rows** — the copy has to give directions ("see below"), which is
+      the tell that placement failed the flow mandate; (b) a long import is
+      indistinguishable from a hung app: no `role="progressbar"` anywhere,
+      no animation, no cancel — one static sentence — against a 16 MiB
+      ceiling (measured 3.35 s for a 52 KB fixture; a file near the ceiling
+      would sit there far longer with zero feedback). FIX: (a) move the
+      import slot adjacent to the sentence that names it, or move the
+      sentence down to the slot — one derivation, not two independently
+      authored surfaces; (b) an indeterminate-progress primitive in
+      `packages/design` (none exists today — this is why the finding was
+      held rather than fixed inline) wired to the upload's in-flight state,
+      with a Cancel affordance. ACCEPTANCE: the empty-state copy and the
+      slot it describes are adjacent with no scrolling between them
+      (screenshot); a >2s import shows a live progress indicator and a
+      working Cancel; `packages/design` gains the primitive with its own
+      unit tests (indeterminate + determinate modes, `prefers-reduced-motion`
+      respected per CLAUDE.md's quality floor).
+      [src: docs/UI-REVIEW.md 2026-08-27 REACH-2 spot-check (frontend-qa) on
+      `f4c590b`, filed by backlog-groomer pass 15]
+      TERRITORY: `packages/design/src/primitives/` (new progress primitive),
+      `apps/web/src/routes/` (STEP-import empty state / upload flow).
+      agentType: frontend-builder.
+
+- [ ] (P1, M) **FORCE-CLICK-AUDIT-1 — 25 of 26 `click({ force: true })`
+      calls across 8 e2e spec files are unproven picks, and the one that
+      was checked was hiding a zero-area hit box.** kind: defect (test
+      integrity — a green suite here does not prove reachability).
+      MEASURED (`ddab149`'s own investigation): `dimension-placement.spec.ts`
+      picked its edge with `force: true`; a real `page.mouse.click` at the
+      same point did nothing, because Chrome's `getBoundingClientRect` on an
+      SVG `<line>` ignores stroke width, so a 2.6 mm-stroked pick line
+      measured **118.1 × 0.0 px** — invisible to Playwright's actionability
+      check, to assistive tech, and to any touch-target audit. `force: true`
+      was the only way any spec could ever have picked it. That one is
+      fixed; the other 25 remain across `body-status.spec.ts` (1),
+      `drawing-reanchor.spec.ts` (1), `drawing-wall-thickness.spec.ts` (4),
+      `drawings.spec.ts` (9), `nav-chrome.spec.ts` (1), `pick-no-body.spec.ts`
+      (1), `qa-wave-0730.spec.ts` (5), `dimension-placement.spec.ts` (3
+      remaining, different picks than the one fixed). `force` is legitimate
+      only for a target deliberately covered (e.g. clicking through a modal
+      scrim); every other use is evidence of an unproven or unhittable
+      target. FIX: for each call, remove `force: true` and drive a real
+      `page.mouse.click`/`elementFromPoint` at the target's centre; where it
+      fails, root-cause and fix the pick region (zero-area geometry hit
+      boxes, z-order, or a genuinely deliberate cover) rather than
+      re-adding `force`. ACCEPTANCE: zero `force: true` calls remain outside
+      a documented deliberate-cover case; every spec that had one still
+      passes using a real click; any newly-discovered unhittable target
+      gets its own defect ticket rather than a workaround.
+      [src: `ddab149` commit investigation + `3322892` design review, filed
+      by backlog-groomer pass 15]
+      TERRITORY: `apps/web/e2e/*.spec.ts` (test files), plus whatever
+      product code a discovered defect implicates (scope per finding).
+      agentType: frontend-builder + qa-tester.
 
 - [ ] (P1, S) **PGTEST-GATE — 172 of the documents service's tests (37% of
       that suite, including the entire alembic migration chain) silently
@@ -584,51 +562,11 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       TERRITORY: `.claude/agents/product-auditor.md`. agentType:
       platform-builder.
 
-- [ ] (P1, S) **QA-R1 — the offer rail pushes FINISH SKETCH and CANCEL SKETCH
-      outside the window at 1280 AND 1366.** Measured functionally, not
-      cosmetically: with two lines selected at 1280x800 the sketch strip runs to
-      **1413 px in a 1280 px window** with `scrollWidth === clientWidth`, and a
-      real `page.mouse.click` at `sketch-save`'s own centre does NOTHING — the
-      user's only exit from a sketch with a live selection is the keyboard.
-      Identical on 3/3 runs (`constraint-group-relational` 1167->1300,
-      `sketch-construction` 1302->1334, `sketch-save` 1347->1379, `sketch-exit`
-      1381->1413). **ONE offer is already enough**: a single selected line — the
-      most ordinary state in a sketcher — costs CANCEL SKETCH at 1280, and at
-      **1366** (the commonest laptop width, previously unmeasured) two lines cost
-      SAVE and EXIT. Clean at 1440/1600, which is why `sketch-vocab.spec.ts`
-      (1440) is green. `toBeVisible()` cannot see this — it is a CSS/box
-      property, not viewport containment. ACCEPTANCE: at 1280 and 1366, with 0/1/3
-      offers live, no `sketch-strip` descendant has `rect.right > innerWidth`;
-      fix in the `Toolbar`/`ToolGroup` layout (a width budget on the status cell,
-      or move the rail off the strip) so the next cell that grows cannot recur it;
-      un-`test.fail()` the case in `apps/web/e2e/qa-reach-batch.spec.ts` and lift
-      `clippedControls` into a shared containment gate for every strip.
-      [src: docs/QA-REVIEW.md 2026-08-27 QA-R1; corroborates docs/UI-REVIEW.md
-      2026-08-27 REACH-1 P1-1, filed by qa-tester]
-      TERRITORY: `packages/design/src/**`, `apps/web/src/components/SketchStrip.tsx`,
-      `apps/web/e2e/qa-reach-batch.spec.ts`. agentType: frontend-builder.
+**QA-R1 is CLOSED (`5957252`, groom pass 15) — fixed the primitive
+(`Flyout` label collapse), not the instance. See Done archive.**
 
-- [ ] (P1, S) **QA-R2 — an angle glyph keeps a number the solver has already
-      moved off.** Author `A` = 30 deg, re-open the glyph, type `15*3`: the
-      server resolves it and the model moves to 45.000 deg (read off the evaluate
-      payload) while the glyph reads `30°` forever. Identical on 2/2 runs
-      (`ANGLE-EXPR {"shown":"30°","solved":45}`). Same root cause reaches a
-      REFERENCE angle. An annotation that contradicts the geometry is worse than
-      an absent one because it looks authoritative, and REACH-1 is the commit
-      that made the state reachable at all. Cause is already written down in the
-      code: degrees ride `SolvedSketch.angles`, keyed by `constraint_index`, and
-      `apps/web/src` never references `angles` anywhere
-      (`apps/web/src/sketch/constraints.ts:1333-1338`). ACCEPTANCE: plumb
-      `SolvedSketch.angles` into the store beside `solvedDimensions` and merge by
-      `constraint_index` at the ONE place the glyph builder and the editor read,
-      so an expression-driven and a reference angle both display what the solver
-      holds; un-`test.fail()` the case in `apps/web/e2e/qa-reach-batch.spec.ts`.
-      Until it lands, the angle editor must not offer REFERENCE or the expression
-      field — an editor may not advertise a mode it cannot honour.
-      [src: docs/QA-REVIEW.md 2026-08-27 QA-R2; corroborates docs/UI-REVIEW.md
-      2026-08-27 REACH-1 P1-2, filed by qa-tester]
-      TERRITORY: `apps/web/src/sketch/**`, `apps/web/src/viewport/ConstraintGlyphs.tsx`,
-      `apps/web/e2e/qa-reach-batch.spec.ts`. agentType: frontend-builder.
+**QA-R2 is CLOSED (`0cee656`, e2e barrier hardened `d2b1d26`, groom pass
+15) — the angle glyph now reads `SolvedSketch.angles`. See Done archive.**
 
 - [ ] (P1, M) **REACH-3-FLOW — the projection-convention feature `5438b73`
       shipped is reachable exactly once per drawing, and orientation is a
@@ -713,6 +651,88 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       [src: docs/QA-REVIEW.md 2026-08-27 QA-R3, filed by qa-tester]
       TERRITORY: `apps/web/src/viewport/SketchScene.tsx`, `apps/web/src/sketch/**`,
       `apps/web/e2e/qa-reach-batch.spec.ts`. agentType: frontend-builder.
+
+- [ ] (P2, S) **MATE-OBS-2 — `AssemblyTreePanel` badges mates from
+      `evaluation.mate_errors`, so it can carry a superseded solve's error
+      set through the same staleness window MATE-OBS closed.** kind: defect
+      (same family as MATE-OBS, `6b26ff7` — that fix made `evaluation` null
+      whenever `stale`; this is a consumer that still reads the field
+      directly rather than through the staleness-checked accessor). Found
+      while verifying `6b26ff7`'s "SEVEN paths" list — the tree panel's mate
+      badge was not one of the seven audited call sites. UNDER-claims rather
+      than over-claims (a badge could show a stale error, or fail to show a
+      real one, for the same ~600-840 ms window), which is why it is P2 not
+      P0/P1 like MATE-OBS was. FIX: route `AssemblyTreePanel`'s badge
+      through the same `stale`-gated accessor `6b26ff7` introduced for the
+      solve title block, rather than reading `evaluation.mate_errors`
+      directly. ACCEPTANCE: a mate write in flight shows no badge (or a
+      clearly "pending" one) rather than the pre-write error set; the
+      `6b26ff7` staleness matrix gains this consumer as an eighth case.
+      [src: MATE-OBS (`6b26ff7`) follow-up, filed by backlog-groomer pass 15]
+      TERRITORY: `apps/web/src/components/AssemblyTreePanel.tsx`,
+      `apps/web/src/features/assemblySolve.ts`. agentType: frontend-builder.
+
+- [ ] (P2, S) **DRAWING-VERTEX-PICK-1 — always-present vertex hit rects
+      still beat the edge's own pick region at 4 of 18 sample points on a
+      40 mm drawing edge, after `ddab149`'s ink fix.** kind: defect.
+      `ddab149` raised the FRONT-view edge from 9/18 to 14/18 reachable
+      points and named the TOP view's residual gap (14/18 -> 16/18) as
+      "vertex handles, which are real controls" — correct, but a REAL
+      control that is invisible (per `docs/UI-REVIEW.md`'s P2 finding:
+      vertex handles render PERSISTENTLY, unlike Fusion/Plasticity's
+      hover/proximity reveal) silently outranking a VISIBLE one at a point
+      the user aimed at is still a defect: the user gets a vertex pick when
+      they meant the edge, with no visual cue why. FIX: either give the
+      persistent vertex handle a visible affordance at rest (closing the
+      P2 UI-REVIEW finding at the same time), or shrink/z-order its hit
+      region so it only wins where it visually dominates (near the actual
+      vertex), not across a shared 4-of-18 band. ACCEPTANCE: scanning the
+      same 18-point sweep `ddab149`'s spec already runs, every point that
+      resolves to a vertex control is visually distinguishable from the
+      edge at rest (screenshot), or the vertex hit region shrinks and the
+      edge reclaims those points (re-measure the ratio).
+      [src: `ddab149` investigation follow-up + docs/UI-REVIEW.md P2 vertex-
+      handle finding, filed by backlog-groomer pass 15]
+      TERRITORY: `apps/web/src/drawing/` (vertex handle hit region,
+      `VertexHandle` component). agentType: frontend-builder.
+
+- [ ] (P2, S) **SKETCH-COVERAGE-1 — `equal` and `tangent` constraints have
+      no e2e driving them through the UI; they are reachable but nothing
+      proves it.** kind: defect (test gap, on the class CLAUDE.md's params-
+      extra-ignore recipe warns about: a UI path that silently regresses is
+      indistinguishable from one that never worked). `SKETCH-VOCAB-1`
+      closed the five verbs that were genuinely unauthorable
+      (angle/diameter/midpoint/collinear/symmetric); `equal` and `tangent`
+      predate that work and are believed reachable from the existing
+      constraint menu, but a repo-wide spec search found no e2e case
+      authoring either through the sketch UI (verify against
+      `apps/web/e2e/sketch-*.spec.ts` before writing — do not assume the
+      gap is real without re-checking, the same discipline `PATTERN-1`'s
+      params-typo lesson demands). ACCEPTANCE: one e2e case per verb,
+      authoring it through the real UI (not a fixture pre-loaded with the
+      constraint), asserting the solved result changes as expected and the
+      constraint round-trips through save/reload; if either verb turns out
+      to be genuinely unreachable, re-file as a P1 capability gap instead.
+      [src: backlog-groomer pass 15, cross-referencing SKETCH-VOCAB-1's
+      closure]
+      TERRITORY: `apps/web/e2e/` (new spec cases), `apps/web/src/sketch/**`
+      if a real gap is found. agentType: frontend-builder.
+
+- [ ] (P3, XS) **SOLVER-DOC-1 — `solver.py`'s docstring claims the null
+      space "stays anchored at the seed," and measurement says otherwise.**
+      kind: defect (documentation accuracy — CLAUDE.md: "a claim that is not
+      true is a defect here, including in a comment"). MEASURED (`1ae3270`'s
+      own investigation, deliberately NOT asserted in that gate): the LM
+      solver slides a mated bracket ~0.015 mm laterally inside the mate's
+      null space — deterministic, and not incorrect (those DOF are
+      genuinely free), but it contradicts the docstring's anchoring claim.
+      FIX: correct the docstring to describe what the solver actually does
+      (converges to A solution within the null space, not necessarily the
+      seed) rather than what was assumed. ACCEPTANCE: the docstring's claim
+      matches `1ae3270`'s measurement; no behaviour change.
+      [src: `1ae3270` commit investigation, filed by backlog-groomer pass 15]
+      TERRITORY: `services/geometry/src/geometry/assembly/solver.py`
+      (docstring only). agentType: kernel-architect.
 
 - [ ] (P2, S) **FLOW-POLISH-1 — four small flow-capture defects from the
       fourth product-audit pass, bucketed to keep the board a workable
@@ -886,9 +906,10 @@ below as REACH-2-FLOW rather than reopening PATTERN-1 itself.
       view-right, view-iso`, all perspective. [src: docs/AUDIT-PRODUCT.md
       "Pass 2026-08-24 (fourth pass)" T-20]
       TERRITORY: `apps/web/src/viewport/**` (camera projection, view bar).
-      agentType: frontend-builder. **UNBLOCKED groom pass 14 — T-23/DRAG-1
-      (`35027ef`) landed in this territory. MATE-1's UI half (P0) is also
-      unblocked and outranks this; sequence rather than parallelize.**
+      agentType: frontend-builder. **FULLY UNBLOCKED groom pass 15 — MATE-1
+      (`a2a6f9f`) shipped and closed; this is now the sole open item in
+      `apps/web/src/viewport/**` (SEL-8 and MEASURE-PROXY-1 queue behind
+      it, same territory). Top of the Ready dispatch order.**
 
 - [ ] (P1, S) **HEM-1 — "Closed hem" builds an OPEN hem (6 mm air gap on
       2 mm sheet), and repairing one after an unrelated edit hits a
@@ -2593,8 +2614,11 @@ frame refactor are v2/§11. Spike de-collected.
       ratio.
       [src: orchestrator CI root-cause, 2026-08-11]
 
-- [ ] (P3, XS) **SEL-8 — SEL-6 aftercare: five loose ends the review logged
-      green** (`apps/web`). Filed 2026-08-08 by the orchestrator. None blocks
+- [ ] (P3, XS) **SEL-6-AFTERCARE (renamed groom pass 15 from a collided
+      "SEL-8" id — the fillet edge-pick hover-highlight ticket also used
+      SEL-8, filed later and unrelated; this is the older ticket) — five
+      loose ends the review logged green** (`apps/web`). Filed 2026-08-08
+      by the orchestrator. None blocks
       anything; batched so they are fixed once rather than rediscovered five
       times. (a) `pickRaycast.ts:6` — the evidence numbers DISAGREE for the same
       pre-fix census: the commit message and `docs/ROADMAP.md` say 7.4% -> 96.3%
@@ -3071,6 +3095,86 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
       Pass 7 M6(a); docs/RETRO.md §1.1]
 
 ## Done — archive
+
+### Groom pass 15 closures (2026-08-27, backlog-groomer — branch merged to main as `03d2eca`, 141 commits, CI green)
+
+All verified against `git log`/`git show`, not assumed from commit subjects.
+
+- **REVOLVE-1** (`1b28dd5`) — the axis `<select>` now offers all three world
+  origin axes plus profile edges, ranked by likelihood; `origin_axis` was
+  the last ABSENT-tier literal in the gateway contract, so
+  `check-ui-parity.py` now reports zero. Mutation-tested three ways;
+  volume verified against Pappus's theorem on a real washer built through
+  the sketcher (37,699.11 mm³).
+- **SKETCH-VOCAB-1 frontend half** (`38e37f5`) — the constraint catalogue
+  lists all 16 verbs (was 12); extends the REACH-1 rail's own
+  `verbIsAvailable` rather than a parallel mechanism, so the two surfaces
+  cannot disagree about a selection. Closes the ticket fully (kernel half
+  shipped pass 14).
+- **MATE-1** (`a2a6f9f`, gated `1ae3270`) — a buried mate face is reachable
+  via `mateDepthStack` + `MateColumnStrip`, the incumbents' "select other"
+  built as a docked section line; also fixed a quieter defect found on the
+  way in (hover decided by the farthest surface, click by the nearest, so
+  the highlight and the commit could silently disagree). Closes T-13 (the
+  disc-shaped highlight is now the face's own traced boundary). `1ae3270`
+  independently gates that a lone coincident mate actually MOVES the
+  instance — the pre-existing assembly suite (71/71) could not have caught
+  a regression here; three mutations confirmed the new gate can fail.
+  T-14 (Measure's proxy, a different call site, out of MATE-1's scope) is
+  re-filed as **MEASURE-PROXY-1**, Ready.
+- **QA-R1** (`5957252`) — fixed the primitive (`Flyout`'s label collapse
+  under `data-labels=off`, matching `ToolButton`'s own mechanism), not the
+  sketch strip instance; the offer rail joins the same shrink ladder with
+  its own priority. Measured 1413px→1170.8px strip extent at 1280/1366;
+  real-click proof that `sketch-save` now detaches the strip.
+- **QA-R2** (`0cee656`, e2e hardened `d2b1d26`) — the angle glyph now reads
+  `SolvedSketch.angles` (merged with `.dimensions` at one seam,
+  `useSolvedReadouts()`) instead of the authored placeholder; closes both
+  the expression path and a reference-angle path the original finding
+  didn't test. `d2b1d26` fixed the e2e's own barrier — two cases were
+  polling a condition already true before the fix, a pre-existing race
+  `fca2e42` merely reshuffled into visibility.
+- **QA-R4** (`278c122`) — `derivePartBuild` now takes `writing` (true from
+  the click) and `writtenTreeVersion` (the write's own reply) as inputs,
+  so a body mid-write no longer reads "Up to date" against stale caches.
+  Also unified the STATUS/SOLVE cell disagreement (SOLVE-2's defect class)
+  onto one `activity` predicate.
+- **MATE-OBS** (`6b26ff7`) — same defect, assembly page: for ~1.35s after
+  a mate write every readout described the pre-mate world. `stale` now
+  implies `status`/`diagnosis` are null, so a surface cannot render a
+  settled answer over a superseded solve. Seven paths gated by a 2^6
+  transient-input matrix; MATE-OBS-2 (tree-panel mate badge, an eighth
+  consumer not in the original seven) filed as a narrower follow-up.
+- **Four REACH-3 follow-ups** closing the independent design review's
+  (`3322892`) P1-C/P1-D/P1-E/P2-B: **`ef704e7`** — the placing ghost now
+  carries its own reading on the paper (was: number only in a chip 385px
+  away); **`1e8d8a3`** — the offset gets a real numeric cell and the
+  nudge quantises (`round(v/step)*step`) instead of accumulating onto
+  fractional drag remainders; **`f832eae`** — a placed dimension can be
+  re-grabbed and moved (was: Delete-only), recovered by inverting the
+  composed annotation rather than reading stored params; **`ddab149`** —
+  drawing ink (outlines, focus rings, title block) is now
+  `pointer-events: none` and the pick hit region is a rotated `<rect>`
+  instead of a bare SVG `<line>` (which measured 118.1×0.0px — the root
+  cause of why `force: true` was load-bearing, not decorative, in that
+  spec). `1a3a8b9` refreshed the founder screenshots. Residual: 4/18
+  points on a FRONT edge still resolve to a vertex handle, not the edge —
+  filed as **DRAWING-VERTEX-PICK-1**.
+- **REACH-3-FLOW's orientation half, TITLEBLOCK-STAMP-1, EXPORT-3,
+  NAME-2b, REACH-2-FLOW, QA-R3** — all checked against this batch's
+  commits and confirmed NOT addressed (different surfaces than what
+  shipped); stay open, unchanged in substance.
+- **SEL-8 id collision found and fixed** — an unrelated P3 "SEL-6
+  aftercare" item from 2026-08-08 also used the id `SEL-8`; renamed to
+  **SEL-6-AFTERCARE** (Later/P3) to disambiguate from the active P1 fillet
+  edge-pick ticket.
+
+**Filed this pass:** REACH-2-IMPORT-1 (P1 — STEP-import empty-state
+layout + a missing progress primitive), MEASURE-PROXY-1 (P1 — T-14),
+FORCE-CLICK-AUDIT-1 (P1 — 25 remaining unproven `force: true` picks),
+MATE-OBS-2 (P2), DRAWING-VERTEX-PICK-1 (P2), SKETCH-COVERAGE-1 (P2 — no
+e2e for `equal`/`tangent`), SOLVER-DOC-1 (P3 — a docstring claim that
+measurement contradicts). Full tickets in Ready/Next.
 
 ### Groom pass 14 closures (2026-08-27, backlog-groomer)
 
@@ -4221,3 +4325,11 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
   NAME-2/T-21/T-8, EDGEFLANGE-1, T-22's e2e fixture fix); re-scoped MATE-1
   to UI-only (kernel seam gated clean); filed NAME-2b; re-derived Ready
   queue. Full detail: `docs/CHANGELOG.md`.
+- 2026-08-27 — **Groom pass 14 (backlog-groomer):** ticked 7 shipped items
+  (SPEC-9/10, DOCTICK-GATE, SNAP-5, SIGNIN-1, T-23/DRAG-1, PATTERN-1(FE));
+  unblocked MATE-1(UI)/ORTHO-1; filed REACH-2-FLOW/REACH-3-FLOW/
+  TITLEBLOCK-STAMP-1. Full detail: Done archive.
+- 2026-08-27 — **Groom pass 15 (backlog-groomer):** branch merged to `main`
+  (`03d2eca`); ticked REVOLVE-1, SKETCH-VOCAB-1(FE), MATE-1, QA-R1/QA-R2/
+  QA-R4, MATE-OBS, four REACH-3 fixes; filed 7 new tickets; pruned ~2,770
+  lines of redundant ROADMAP narrative. Full detail: Done archive.
