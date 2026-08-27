@@ -773,6 +773,20 @@ recipe here in the same commit as the fix.**
   `force` is legitimate for a target deliberately covered (a modal scrim you mean
   to click through) — it is a lie when used to make a flaky pick stop failing,
   which is the usual reason it gets added.
+  **ROOT CAUSE FOUND 2026-08-27, and it is better than "someone was papering over
+  a flake": THE PICK TARGET HAD ZERO AREA.** Chrome's `getBoundingClientRect` on
+  an SVG `<line>` **ignores stroke width**, so a 2.6 mm-stroked pick line measured
+  **118.1 x 0.0 px**. A zero-height box is unhittable by construction — invisible
+  to Playwright's actionability check, to assistive tech, and to any touch-target
+  audit — so `force: true` was the only way any spec could ever have picked it,
+  and every one of those 26 calls was hiding this. Fixed by making the hit region
+  a rotated `<rect>` of the same band; the edge went from 9/18 reachable points to
+  14/18 and a real `page.mouse.click` at the midpoint went from doing *nothing* to
+  opening the author menu. Two lessons: **`force: true` is evidence of a defect,
+  not a workaround for one** — when you find one, delete it and see what breaks;
+  and **an SVG stroke is not a hit box**, so any pick affordance drawn as a bare
+  stroked `line`/`path` needs an explicit filled hit region or it does not exist
+  as a control at all.
   **This is the THIRD member of one family and the family is the lesson:** an
   assertion that cannot observe the failure mode. `toBeVisible()` is a box
   property, so it passed a SAVE control shoved outside the frame; `toHaveText
