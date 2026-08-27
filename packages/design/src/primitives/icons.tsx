@@ -218,6 +218,22 @@ export const TangentIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * Collinear = two SEPARATE segments sharing one infinite line. The gap is the
+ * whole glyph: without it this is a plain rule, and the constraint's meaning is
+ * precisely that two distinct edges lie on the same straight.
+ */
+export const CollinearIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 12 H10" />
+    <path d="M14 12 H21" />
+    <Node cx={3} cy={12} />
+    <Node cx={10} cy={12} />
+    <Node cx={14} cy={12} />
+    <Node cx={21} cy={12} />
+  </Icon>
+);
+
 // --- Dimensional constraints ------------------------------------------------
 
 export const DistanceIcon = (p: IconProps) => (
@@ -244,6 +260,21 @@ export const RadiusIcon = (p: IconProps) => (
     <path d="M12 12 L18.5 8" />
     <path d="M18.5 8 L15.7 8 M18.5 8 L17.4 10.6" />
     <Node cx={12} cy={12} />
+  </Icon>
+);
+
+/**
+ * Diameter = the drafting diameter dimension: the arrow runs THROUGH the
+ * centre, wall to wall. Held apart from {@link RadiusIcon}, whose single arrow
+ * stops at the centre — that contrast is the only reliable way to tell the two
+ * verbs apart at 16 px, and they now sit next to each other in one menu.
+ */
+export const DiameterIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx={12} cy={12} r={7} />
+    <path d="M5 12 H19" />
+    <path d="M5 12 L8 10 M5 12 L8 14" />
+    <path d="M19 12 L16 10 M19 12 L16 14" />
   </Icon>
 );
 
@@ -276,6 +307,21 @@ export const SymmetricIcon = (p: IconProps) => (
     <path d="M12 3 V21" strokeDasharray="2.4 2" />
     <path d="M5 8 L9 12 L5 16" />
     <path d="M19 8 L15 12 L19 16" />
+  </Icon>
+);
+
+/**
+ * Midpoint = a point pinned halfway along a line, drawn as the drafting
+ * equal-halves notation: one rule, a node at its centre, and the single tick on
+ * each half that says the two spans are the same. The ticks are the meaning —
+ * a node on a line without them is merely "on it" (coincident).
+ */
+export const MidpointIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 12 H20" />
+    <path d="M8 9.5 V14.5" />
+    <path d="M16 9.5 V14.5" />
+    <Node cx={12} cy={12} />
   </Icon>
 );
 

@@ -4,31 +4,43 @@
  * three datum planes (keyboard
  * path, hover-synced with the 3D sheets). Draw step, all on a single ruled
  * row so the viewport keeps the pixels: a flat status cell (plane + live
- * selection), the four sketch tools as scribed icons, the twelve constraint
+ * selection), the four sketch tools as scribed icons, the SIXTEEN constraint
  * verbs grouped by kind (Geometric / Dimensional / Relational) behind labeled
  * flyouts, the Construction toggle, then SAVE and EXIT as icon buttons —
  * their counts/reasons engraved in tooltips, never stacked into tall cells.
  *
  * One keyboard, two vocabularies survives untouched: the global key handler
  * still arms tools (L/R/C/A) with nothing selected and fires constraint verbs
- * (H/V/D/R/A/X/C/P/L/I/T/E/S/M/O + N) with a selection. The flyouts are the
- * BROWSABLE surface — every icon's tooltip engraves its accelerator — but the
- * letters remain the fast path, and the status cell's OFFER RAIL is what makes
- * a verb findable at the moment it applies: it proposes only the verbs the
- * CURRENT selection unlocks, keycap first, and each cap is clickable. A
- * catalogue tells you what exists; the rail tells you what is available now.
+ * (H/V/D/R/A/X/C/P/L/I/T/E/S/M/O + N) with a selection.
+ *
+ * TWO SURFACES, ONE RULE. The status cell's OFFER RAIL proposes the (up to
+ * three) verbs the CURRENT selection unlocks, keycap first, each cap
+ * clickable — the fast path, at the moment it applies. The flyouts are the
+ * CATALOGUE: all sixteen verbs, each saying whether this selection reaches it
+ * and, when it does not, the pick shape that would. Both read the same
+ * `verbIsAvailable` predicate, so they cannot disagree about a selection.
+ *
+ * The catalogue is not redundant with the rail, and the reason is structural:
+ * an offer can only appear once the selection ALREADY fits, so the rail can
+ * propose a verb but can never teach you to reach one. Four verbs shipped
+ * authorable-but-uncatalogued after REACH-1 (angle, diameter, collinear,
+ * midpoint) and were findable only by pressing a letter nothing named — the
+ * catalogue is where "what exists" lives, and it was lying by omission.
  * Quiet chrome; the viewport keeps the pixels.
  */
 import {
+  AngleIcon,
   ArcIcon,
   ChamferIcon,
   CheckIcon,
   CircleIcon,
   CloseIcon,
   CoincidentIcon,
+  CollinearIcon,
   ConcentricIcon,
   ConstructionIcon,
   DatumIcon,
+  DiameterIcon,
   DistanceIcon,
   EqualIcon,
   ExtendIcon,
@@ -39,6 +51,7 @@ import {
   HorizontalIcon,
   Kbd,
   LineIcon,
+  MidpointIcon,
   MirrorIcon,
   NumberField,
   OffsetIcon,
@@ -68,6 +81,8 @@ import {
   describeSelection,
   selectionAllConstruction,
   selectionVerbHints,
+  verbIsAvailable,
+  verbSelectionShape,
   type ConstraintAction,
 } from "../sketch/constraints";
 import { withoutDatums } from "../sketch/datum";
@@ -280,6 +295,13 @@ const CONSTRAINT_GROUPS: ReadonlyArray<{
         name: "Tangent constraint (T, on a selected line and arc/circle, or two curves)",
         icon: <TangentIcon />,
       },
+      {
+        action: "collinear",
+        label: "Collinear",
+        keyHint: "I",
+        name: "Collinear constraint (I, on two selected lines — puts them on one straight)",
+        icon: <CollinearIcon />,
+      },
     ],
   },
   {
@@ -301,6 +323,25 @@ const CONSTRAINT_GROUPS: ReadonlyArray<{
         keyHint: "R",
         name: "Radius dimension (R, on one selected circle or arc)",
         icon: <RadiusIcon />,
+      },
+      {
+        // D IS "DIMENSION", AND THE SELECTION SAYS WHICH ONE — diameter has no
+        // key of its own (see CONSTRAINT_SHORTCUTS). The row is still listed,
+        // because the catalogue's job is to say the verb EXISTS: someone
+        // hunting "how do I call out a diameter" finds it here and learns that
+        // D on a round already is it, which no amount of pressing D teaches.
+        action: "diameter",
+        label: "Diameter",
+        keyHint: "D",
+        name: "Diameter dimension (D, on one selected circle or arc)",
+        icon: <DiameterIcon />,
+      },
+      {
+        action: "angle",
+        label: "Angle",
+        keyHint: "A",
+        name: "Angle dimension (A, on two selected non-parallel lines)",
+        icon: <AngleIcon />,
       },
       {
         action: "equal",
@@ -332,10 +373,21 @@ const CONSTRAINT_GROUPS: ReadonlyArray<{
         icon: <ConcentricIcon />,
       },
       {
+        action: "midpoint",
+        label: "Midpoint",
+        keyHint: "M",
+        name: "Midpoint constraint (M, on a selected point and line — centres the point along the line)",
+        icon: <MidpointIcon />,
+      },
+      {
         action: "symmetric",
         label: "Symmetric",
         keyHint: "S",
-        name: "Symmetric constraint (S, on two selected points about a selected line)",
+        // The two-lines form is NAMED. It shipped in `applyConstraintAction`
+        // but this caption still promised only "two points about a line", so
+        // the catalogue was actively steering people away from the selection
+        // the verb had just learned to accept.
+        name: "Symmetric constraint (S, on two selected points about a line, or two lines about a selected centerline)",
         icon: <SymmetricIcon />,
       },
       {
@@ -1093,6 +1145,19 @@ export function SketchStrip({
                     icon: item.icon,
                     label: item.label,
                     shortcut: item.keyHint,
+                    // THE CATALOGUE IS LIVE, from the SAME predicate the offer
+                    // rail reads (`verbIsAvailable`). The rail proposes the
+                    // three verbs a fitting selection unlocks; the catalogue
+                    // holds all sixteen and says, of each, whether this
+                    // selection reaches it and what it would take. Neither can
+                    // drift from the other, because neither owns the rule.
+                    available: verbIsAvailable(
+                      item.action,
+                      selection,
+                      entities,
+                      constraints,
+                    ),
+                    requires: verbSelectionShape(item.action),
                     onSelect: () => applyConstraint(item.action),
                     "data-testid": `constraint-${item.action}`,
                     "aria-label": item.name,

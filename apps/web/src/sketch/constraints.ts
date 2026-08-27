@@ -1749,6 +1749,76 @@ const VERB_LABEL: Readonly<Record<ConstraintAction, string>> = {
 };
 
 /**
+ * THE PICK SHAPE EACH VERB NEEDS — a noun phrase, never a sentence.
+ *
+ * The one thing a user cannot deduce from a verb's NAME is what to hold before
+ * pressing it, and it is the only reason the offer rail is not the whole
+ * answer: the rail proposes a verb once the selection already fits, so it can
+ * never teach the selection that would make it appear. "Angle" is not
+ * discoverable from an empty selection at any price; "angle · needs 2 lines"
+ * is.
+ *
+ * Deliberately NOT derived from `applyConstraintAction`'s refusal strings.
+ * Those are full sentences aimed at a user who has just been refused ("Select
+ * two lines to dimension the angle between them"), and sixteen of them stacked
+ * in a menu is prose, not an instrument. The totality is what keeps the two
+ * honest instead: this is an exhaustive `Record<ConstraintAction, …>`, so a new
+ * verb cannot compile without stating its shape here.
+ */
+const VERB_SELECTION: Readonly<Record<ConstraintAction, string>> = {
+  horizontal: "a line",
+  vertical: "a line",
+  distance: "a line",
+  radius: "a circle/arc",
+  diameter: "a circle/arc",
+  angle: "2 non-parallel lines",
+  fixed: "a point",
+  coincident: "2 points",
+  parallel: "2 lines",
+  perpendicular: "2 lines",
+  collinear: "2 lines",
+  tangent: "a curve + a circle/arc",
+  equal: "2 lines, or 2 circles/arcs",
+  // Both forms, even though it wraps: this row is the one the OLD caption got
+  // wrong by naming only the points form, and a shorter half-truth here would
+  // reintroduce exactly that defect one line lower.
+  symmetric: "2 points + a line, or 2 lines + a centerline",
+  midpoint: "a point + a line",
+  concentric: "2 circles/arcs",
+};
+
+/** The pick shape {@link action} needs, for a surface that must say so. */
+export function verbSelectionShape(action: ConstraintAction): string {
+  return VERB_SELECTION[action];
+}
+
+/**
+ * Would {@link action} DO something with this exact selection?
+ *
+ * The single availability predicate, and deliberately the only one. Both
+ * surfaces that answer "can I use this verb right now" read it: the offer rail
+ * (which verbs to propose) and the constraint catalogue (which rows are live).
+ * A second rule written for the catalogue would be a rule that can disagree
+ * with the rail about the same selection — the drift `VERB_KEY` was inverted
+ * out of `CONSTRAINT_SHORTCUTS` to prevent, in a new place.
+ *
+ * Truthful by construction: it asks the VERB, rather than re-deriving the
+ * verb's own preconditions, so it cannot advertise a row that answers "Select
+ * two lines…", and it goes false for a constraint that is already stated.
+ */
+export function verbIsAvailable(
+  action: ConstraintAction,
+  selection: readonly SketchPick[],
+  entities: readonly SketchEntity[],
+  constraints: readonly SketchConstraint[],
+): boolean {
+  return (
+    applyConstraintAction(action, selection, entities, constraints).outcome !==
+    "hint"
+  );
+}
+
+/**
  * The key a verb answers to. Inverted from {@link CONSTRAINT_SHORTCUTS} so the
  * rail can never advertise a key the keyboard does not honour — the two used to
  * be written out twice and that is exactly how a hint becomes a lie.
@@ -1796,13 +1866,7 @@ export function selectionVerbHints(
     // same keycap twice would be asking the user to choose what the selection
     // has already decided.
     if (hints.some((h) => h.key === key)) continue;
-    const result = applyConstraintAction(
-      action,
-      selection,
-      entities,
-      constraints,
-    );
-    if (result.outcome === "hint") continue;
+    if (!verbIsAvailable(action, selection, entities, constraints)) continue;
     hints.push({ key, label: VERB_LABEL[action], action });
   }
   return hints;

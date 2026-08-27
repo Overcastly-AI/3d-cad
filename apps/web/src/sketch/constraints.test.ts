@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyConstraintAction,
   authoredConstraintCount,
+  CONSTRAINT_SHORTCUTS,
   constraintEntityRefs,
   constraintGlyphs,
   describeSelection,
@@ -17,6 +18,8 @@ import {
   solveDiagnostic,
   solvedReadouts,
   toggleConstruction,
+  verbIsAvailable,
+  verbSelectionShape,
   type SketchConstraint,
 } from "./constraints";
 import { DATUM_X_AXIS_ID, datumEntities, datumFrame } from "./datum";
@@ -1282,6 +1285,66 @@ describe("selectionVerbHints", () => {
 
   it("stays silent with no selection", () => {
     expect(selectionVerbHints([], entities, [])).toEqual([]);
+  });
+});
+
+describe("verbIsAvailable — the one rule both surfaces read", () => {
+  const ACTIONS = Object.values(CONSTRAINT_SHORTCUTS).concat("diameter");
+
+  /**
+   * The anti-drift property, and the whole reason the predicate was extracted:
+   * the rail proposes a strict SUBSET of what the catalogue marks live, capped
+   * at three. If the two ever disagreed about a selection — a rail offering a
+   * verb the catalogue greys, or vice versa — one of them is lying about the
+   * same geometry, which is the failure `VERB_KEY` was inverted out of
+   * `CONSTRAINT_SHORTCUTS` to prevent, in a new place.
+   */
+  const selections: ReadonlyArray<[string, SketchPick[]]> = [
+    ["nothing", []],
+    ["one line", [pickLine("e1")]],
+    ["two lines", [pickLine("e1"), pickLine("e2")]],
+    ["a circle", [pickLine("e3")]],
+    ["an arc", [pickLine("e5")]],
+    ["two circles", [pickLine("e3"), pickLine("e4")]],
+    ["a point and a line", [pickPoint("e3", "center"), pickLine("e1")]],
+    ["two points", [pickPoint("e1", "start"), pickPoint("e2", "end")]],
+  ];
+
+  for (const [name, selection] of selections) {
+    it(`never offers a verb it also calls unavailable — ${name}`, () => {
+      for (const hint of selectionVerbHints(selection, entities, [])) {
+        expect(
+          verbIsAvailable(hint.action, selection, entities, []),
+          `the rail offered ${hint.action} on ${name}`,
+        ).toBe(true);
+      }
+    });
+  }
+
+  it("goes false for a constraint the sketch already states", () => {
+    const selection = [pickLine("e1"), pickLine("e2")];
+    expect(verbIsAvailable("collinear", selection, entities, [])).toBe(true);
+    expect(
+      verbIsAvailable("collinear", selection, entities, [
+        { kind: "collinear", a: "e1", b: "e2" },
+      ]),
+    ).toBe(false);
+  });
+
+  it("names a pick shape for every verb the keyboard can fire", () => {
+    for (const action of ACTIONS) {
+      expect(verbSelectionShape(action), action).not.toBe("");
+    }
+  });
+
+  it("says what the four late verbs need, from an empty selection", () => {
+    // The catalogue's entire job with nothing selected: the rail is empty here
+    // by construction, so this text is the ONLY thing that can teach the pick.
+    expect(verbIsAvailable("angle", [], entities, [])).toBe(false);
+    expect(verbSelectionShape("angle")).toBe("2 non-parallel lines");
+    expect(verbSelectionShape("collinear")).toBe("2 lines");
+    expect(verbSelectionShape("midpoint")).toBe("a point + a line");
+    expect(verbSelectionShape("diameter")).toBe("a circle/arc");
   });
 });
 

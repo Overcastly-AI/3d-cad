@@ -386,3 +386,127 @@ describe("the offer rail participates in the band's measured label tier", () => 
     }
   });
 });
+
+/**
+ * THE CONSTRAINT CATALOGUE — what exists, and what this selection reaches.
+ *
+ * SKETCH-VOCAB-1's remaining half. REACH-1 made all five late verbs AUTHORABLE
+ * through the offer rail, and the rail's own unit tests prove it — but an offer
+ * only appears once the selection ALREADY fits, so four of them (angle,
+ * diameter, collinear, midpoint) were reachable only by pressing a letter that
+ * nothing on screen named. The catalogue is the surface that answers "what can
+ * this tool do", and it listed twelve verbs of sixteen.
+ */
+describe("the constraint catalogue lists the whole vocabulary", () => {
+  /** Every verb the sketch keyboard fires, plus diameter (which rides D). */
+  const VOCABULARY = [
+    "horizontal",
+    "vertical",
+    "parallel",
+    "perpendicular",
+    "tangent",
+    "collinear",
+    "distance",
+    "radius",
+    "diameter",
+    "angle",
+    "equal",
+    "coincident",
+    "concentric",
+    "midpoint",
+    "symmetric",
+    "fixed",
+  ] as const;
+
+  function openEveryGroup(): void {
+    for (const group of ["geometric", "dimensional", "relational"]) {
+      fireEvent.click(screen.getByTestId(`constraint-group-${group}`));
+    }
+  }
+
+  it("offers a row for every verb the keyboard can fire", () => {
+    drawUnsavedRectangle();
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
+    openEveryGroup();
+
+    for (const action of VOCABULARY) {
+      expect(
+        screen.queryByTestId(`constraint-${action}`),
+        `${action} has no catalogue row — it is keyboard-only`,
+      ).not.toBeNull();
+    }
+  });
+
+  it("tells a user with nothing selected what each verb needs", () => {
+    drawUnsavedRectangle();
+    useSketchStore.getState().clearSelection();
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
+    openEveryGroup();
+
+    // The rail is empty here by construction, so these lines are the ONLY
+    // thing in the product that can teach the pick shape for these verbs.
+    expect(screen.queryAllByTestId(/^verb-hint-/)).toHaveLength(0);
+    expect(screen.getByTestId("constraint-angle")).toHaveAttribute(
+      "aria-label",
+      expect.stringContaining("needs 2 non-parallel lines"),
+    );
+    expect(screen.getByTestId("constraint-midpoint")).toHaveAttribute(
+      "aria-label",
+      expect.stringContaining("needs a point + a line"),
+    );
+    expect(screen.getByTestId("constraint-collinear")).toHaveAttribute(
+      "aria-label",
+      expect.stringContaining("needs 2 lines"),
+    );
+    expect(screen.getByTestId("constraint-diameter")).toHaveAttribute(
+      "aria-label",
+      expect.stringContaining("needs a circle/arc"),
+    );
+  });
+
+  /**
+   * The anti-drift property at the RENDER level: the rail and the catalogue
+   * read one predicate, so a verb the rail proposes must be a live row.
+   */
+  it("agrees with the offer rail about the same selection", () => {
+    drawUnsavedRectangle();
+    const store = useSketchStore.getState();
+    store.clearSelection();
+    store.selectAt({ x: 20, y: 0 }, 1); // the rectangle's bottom edge
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
+    openEveryGroup();
+
+    // One line: D dimensions it, and an angle needs a second line.
+    expect(screen.getByTestId("constraint-distance")).toHaveAttribute(
+      "data-available",
+      "true",
+    );
+    expect(screen.getByTestId("constraint-angle")).toHaveAttribute(
+      "data-available",
+      "false",
+    );
+    const offers = screen.getAllByTestId(/^verb-hint-/);
+    expect(offers.length).toBeGreaterThan(0);
+    for (const offer of offers) {
+      const action = offer
+        .getAttribute("data-testid")
+        ?.replace("verb-hint-", "");
+      expect(
+        screen.getByTestId(`constraint-${action}`),
+        `the rail offered ${action}; the catalogue must call it live`,
+      ).toHaveAttribute("data-available", "true");
+    }
+  });
+
+  it("names the two-lines form of Symmetric, which REACH-1 made real", () => {
+    drawUnsavedRectangle();
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
+    openEveryGroup();
+    // The caption promised only "two points about a line" long after
+    // `applyConstraintAction` had learned two lines plus a centerline — a
+    // catalogue steering people away from a selection the verb accepts.
+    expect(
+      screen.getByTestId("constraint-symmetric").getAttribute("aria-label"),
+    ).toMatch(/two lines about a selected centerline/i);
+  });
+});

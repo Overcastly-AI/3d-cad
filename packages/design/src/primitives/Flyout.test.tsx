@@ -77,3 +77,96 @@ describe("Flyout trigger — measured label tier", () => {
     expect(trigger.querySelector("[data-tooltip]")).toBeNull();
   });
 });
+
+describe("Flyout rows — availability", () => {
+  function renderAvailability() {
+    return render(
+      <Flyout
+        label="Dimension"
+        icon={<svg aria-hidden />}
+        data-testid="constraint-group-dimensional"
+        items={[
+          {
+            key: "distance",
+            icon: <svg aria-hidden />,
+            label: "Distance",
+            shortcut: "D",
+            available: true,
+            requires: "a line",
+            "aria-label": "Distance dimension (D, on one selected line)",
+            onSelect: () => undefined,
+          },
+          {
+            key: "angle",
+            icon: <svg aria-hidden />,
+            label: "Angle",
+            shortcut: "A",
+            available: false,
+            requires: "2 non-parallel lines",
+            "aria-label":
+              "Angle dimension (A, on two selected non-parallel lines)",
+            onSelect: () => undefined,
+          },
+          {
+            key: "legacy",
+            icon: <svg aria-hidden />,
+            label: "Legacy",
+            onSelect: () => undefined,
+          },
+        ]}
+      />,
+    );
+  }
+
+  it("says what an unreachable row needs, and stays silent on a live one", () => {
+    renderAvailability();
+    fireEvent.click(screen.getByTestId("constraint-group-dimensional"));
+
+    const angle = screen.getByRole("menuitem", { name: /^Angle dimension/ });
+    expect(angle).toHaveTextContent("needs 2 non-parallel lines");
+
+    const distance = screen.getByRole("menuitem", {
+      name: /^Distance dimension/,
+    });
+    expect(distance).not.toHaveTextContent("needs");
+  });
+
+  /**
+   * The requirement rides the ACCESSIBLE NAME too. `aria-label` replaces a
+   * button's inner text wholesale, so a visible "needs …" line under an
+   * aria-labelled row is invisible to a screen reader — and availability's
+   * only other channel is the glyph's colour, which is no channel at all
+   * (WCAG 1.4.1). Without this the feature is sighted-only.
+   */
+  it("carries the requirement in the accessible name, not just the ink", () => {
+    renderAvailability();
+    fireEvent.click(screen.getByTestId("constraint-group-dimensional"));
+    expect(
+      screen.getByRole("menuitem", {
+        name: "Angle dimension (A, on two selected non-parallel lines) — needs 2 non-parallel lines",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  /**
+   * An unavailable row is CLICKABLE on purpose. Disabling it would answer a
+   * user who reached for the verb with nothing at all — the dead end the whole
+   * offer/catalogue split exists to remove. Clicking runs the verb, which then
+   * says what it needs in its own words.
+   */
+  it("leaves an unavailable row enabled — no dead end", () => {
+    renderAvailability();
+    fireEvent.click(screen.getByTestId("constraint-group-dimensional"));
+    const angle = screen.getByRole("menuitem", { name: /^Angle dimension/ });
+    expect(angle).toBeEnabled();
+    expect(angle).toHaveAttribute("data-available", "false");
+  });
+
+  it("leaves a row that never opted in untouched", () => {
+    renderAvailability();
+    fireEvent.click(screen.getByTestId("constraint-group-dimensional"));
+    const legacy = screen.getByRole("menuitem", { name: "Legacy" });
+    expect(legacy).not.toHaveAttribute("data-available");
+    expect(legacy).not.toHaveTextContent("needs");
+  });
+});
