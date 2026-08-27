@@ -4004,3 +4004,326 @@ surfaces at the cell.
   no `tabIndex` management or arrow handler is present in the source).
 - Real touch emulation — target sizes measured, no touch project exists.
 - Non-A4 sheet sizes and the ANSI series with portrait.
+
+---
+
+## 2026-08-27 — REACH-2 (STEP assembly import) + REACH-3 (place-as-you-create dimension)
+
+**Why this pass exists:** both features shipped with their Design phase
+skipped — the frontend loop spawned reviewers for `f4c590b` and `d4cfa4e` and
+both died before returning. This is the missing review, run against the real
+app (native stack per CLAUDE.md, SQLite prefixed `fqa3-`, isolated Vite on
+:5191), not against the diffs.
+
+**Method note that matters for everything below.** Both shipped e2e suites are
+green at 1280×800 (`assembly-import.spec.ts` 3/3, `dimension-placement.spec.ts`
+4/4, re-run here against a 1280×800 viewport). That is not the same as reachable
+by a real pointer: `dimension-placement.spec.ts` picks its edge with
+`longEdge.click({ force: true })`, which **bypasses Playwright's actionability
+check entirely**. Every hit-test in this pass is `document.elementFromPoint` at
+the control's own centre, or a real `page.mouse.click`.
+
+### Verdicts
+
+| Feature | Verdict |
+| --- | --- |
+| **REACH-2 — STEP assembly import** (`f4c590b`) | **Ships with follow-ups.** The capability is genuinely reachable, the refusal path is correct, the register is not damaged. Two flow gaps (P1-A, P1-B). |
+| **REACH-3 — place a dimension as you create it** (`d4cfa4e`) | **Ships with follow-ups.** Direct manipulation is real and works end to end. But it is direct manipulation *without a precision fallback*, with the number 410 px from the thing it describes, and the placement is a one-shot you cannot revise. |
+
+Neither is blocking. Nothing here breaks the product, drops a hook, or overflows.
+
+---
+
+### REACH-2 — findings, ranked
+
+**P1-A — the copy proposes the import; the layout hides it 423 px away.**
+`uiqa-stepimport-empty-1280.png`. The empty-state body now opens with "Already
+have geometry? Import a STEP **from the slot below**…" — the right instinct, and
+the commit message argues it well. Measured at 1280×800: the bottom of that
+paragraph is at y=305, the import slot's top is at **y=727**. Nine blank ruled
+register rows sit between them. The one solid brass action on screen is
+`Create first assembly`; the import verb is a ghost button pinned to the window's
+bottom edge, 354 px below the create button.
+
+The tell that this is a layout problem and not a copy problem is that the copy
+has to give **directions** ("the slot below"). The mandate's first flow test is
+that the next step is *visible from the current state*; here it is named and then
+pointed at. Worse, the copy names import first while the layout ranks it second,
+so the two disagree about what a first-time visitor should do.
+
+*System-level fix:* the empty register should not be a full-height ledger with a
+form at the top and a slot at the foot. Either bring the slot up beside the
+scribe line in the EMPTY case only (the ruled rows are decoration when there are
+no rows to rule), or make the empty state a genuine two-way fork — "start a new
+assembly" and "bring one in" as sibling propositions at the same y. Do not fix
+this by rewording; the sentence is already good.
+
+**P1-B — a long import is indistinguishable from a hung app.**
+`uiqa-stepimport-busy-1280.png`. During an import the entire screen is unchanged
+except a disabled `Importing…` button and one static 12 px sentence. Measured in
+the DOM mid-import: `animationName` on the busy line and every descendant is
+`none`, there is **no `role="progressbar"` anywhere**, and there is **no cancel
+control** (`assembly-import-cancel` does not exist). A 52 KB fixture
+(`nema17-front-plate.step`) took **3.35 s** end to end. The client's own ceiling
+is **16 MiB** — over 300× that file — and the work is `file.arrayBuffer()` +
+a single un-chunked POST + OCCT parse server-side. A migrating engineer's first
+real supplier assembly will therefore park on this frozen line for a long time
+with no signal that anything is happening and no way to stop.
+
+This also makes the copy dishonest in the flat-file case: the busy line always
+reads "its products become parts and its occurrences become instances", which is
+not what happens to a single-body STEP.
+
+*System-level fix:* an indeterminate progress primitive in `packages/design`
+(there is none today) that the import slot, and every other long POST, can seat —
+plus an `AbortController` on the request so `Escape`/a Cancel verb can withdraw
+it. Byte progress for the upload leg is available for free from an
+`XMLHttpRequest`/`fetch` upload stream if the wire call is willing to give up
+`openapi-fetch` for this one route; if it is not, an indeterminate bar plus an
+elapsed-seconds counter is enough to change "hung" into "working".
+
+**P2-A — the result line has no exit, and it evicts the invitation.**
+`uiqa-stepimport-result-1280.png`. The error state has a `Dismiss`; the success
+state has none, and `assembly-import-hint` is unmounted while a result is shown
+(measured: `hintStillVisible: false`). So after one import, the slot permanently
+reads as the last thing that happened rather than as an affordance, and its own
+instruction ("Choose a .step or .stp file, or drop it anywhere on this page") is
+gone for the rest of the session. Give the result the same `Dismiss` the error
+has, or expire it.
+
+**P3-A — the armed state is entirely peripheral.** `uiqa-stepimport-armed-1280.png`.
+This is a *good* design — the `inset-3` frame that was already on screen turns
+brass and the slot border follows, which is exactly mandate 3a's "an existing
+element doing a second real job". But both signals are at the window's edges: a
+1 px hairline 12 px from the frame and a border 727 px down, while the user's eye
+is on the file under their cursor. Consider also tinting the register body, or
+carrying the brass onto the row rules, so the confirmation is where the pointer is.
+
+**P3-B — `I` is undocumented outside this page.** The `Kbd` chip and the sr-only
+"Press I to import a STEP file." are both present and correct, and the commit's
+reasoning for keeping it out of `shortcuts/registry.ts` (one register, extract on
+the second use) is sound. Note only that it therefore never appears in the
+shortcut sheet, so it is discoverable only by being on the page — which, given
+P1-A, is where the user may not be looking.
+
+#### What passed, and is worth copying
+
+- **The import slot itself is the best thing in the change.** `uiqa-stepimport-populated-1280.png`:
+  it carries the register's own 3.5 rem scribed gutter, so the drawer's left rule
+  runs unbroken from the `#` header to the frame's bottom edge, and the slot reads
+  as the log's last line rather than a toolbar bolted underneath. The blank
+  ordinal margin is honest (the scribe line can print "15"; an import cannot know
+  what it will make). This is the register idiom extended, not decorated.
+- **Refusal before the wire, provably.** `precheckStepFile` runs on `file.size`
+  synchronously; measured with a 17 MiB file: **0 requests to
+  `/assemblies/import`**, error surfaced, copy names the 16 MB limit and what to
+  do about it. `uiqa-stepimport-refusal-1280.png`.
+- **The refusal is keyboard-readable**, not a hover trap: `role="alert"`, text in
+  the DOM, `Dismiss` a real focusable button. Contrast on carbide: flag `7.1:1`,
+  mist `14.4:1`, brass `8.65:1`, gauge `7.83:1` — all AA.
+- **The flat-STEP branch routes honestly** to a part and links to it, rather than
+  failing or silently filing an empty assembly. This is the "no dead ends" rule
+  applied correctly.
+- **Collision recovery works end to end** — importing the same file twice yields
+  `box-10x20x30 (2)` with no error shown to the user.
+- **The disabled affordance explains itself** — the button's label becomes
+  `Importing…` and the busy line says why; no `pointer-events-none` tooltip trap.
+- **Responsive, hit-tested for real.** No root overflow at 1280×800, 1366×768 or
+  1024×768 (`scrollWidth == clientWidth` at all three); `elementFromPoint` at the
+  Import button's centre returns the button itself at all three, with 14 rows in
+  the drawer. Tab order from page load: `create-assembly-submit` →
+  `assembly-import-button`, 2 px brass focus outline on both.
+- **No hex literals, no raw-element restyling** in the diff; `Button`, `Chip`,
+  `Kbd`, `ImportStepIcon` all from `@loft/design`.
+- **Zero test hooks removed** (verified by grepping `^-` lines of the diff for
+  `data-testid` / `role` / `aria-label`: none), ten added.
+
+---
+
+### REACH-3 — findings, ranked
+
+**P1-C — the number you are setting is 410 px away from the thing you are
+setting.** `uiqa-dimplace-placing-1280.png`. Measured: the ghost sits at
+y≈378 in the TOP view; the live offset readout is inside the pick-hint chip at
+**y=750**, 410 px away, hard against the bottom of the window. While dragging you
+cannot watch the paper and read the value at the same time.
+
+The commit defends this ("the live offset joins the EXISTING pick hint chip …
+rather than adding a floating tooltip: same chip, next sentence"), and as a
+system argument it is a good one — the chip is the right *owner*. But the ghost
+also carries **no value text at all** (measured: the ghost `<g>` contains four
+`<line>`s and zero `<text>`), so at the moment of placement the paper shows a
+line with no number and the number is at the far edge of the screen. Fusion,
+SolidWorks and Plasticity all put the live figure at the cursor for exactly this
+reason. This is the difference between "a form moved earlier" and "direct
+manipulation": right now the gesture is direct and the *feedback* is not.
+
+*System-level fix:* draw the dimension's value into the ghost (it is known —
+`base.measurement` carries it) and put the offset beside it, at the pointer. Keep
+the chip for the verb sentence and the key legend; it does not need to carry the
+number.
+
+**P1-D — there is no numeric route to the offset, in a precision tool.**
+Measured mid-placement: the only visible `input` on the whole page is
+`note-input`. The mandate reads "Direct manipulation beats forms … the numeric
+field is the precision fallback." REACH-3 delivers the first half and drops the
+second. The consequences are concrete:
+
+- The arrow nudge adds ±1 mm to whatever fractional offset the drag left behind
+  and **does not snap to a grid**. Measured sequence from a real drag:
+  `-23.71 → -22.71 → -17.71` (Shift = ×5). You cannot land on −25.00.
+- Every hand-placed dimension therefore stores an arbitrary offset. The one I
+  committed persisted as `"placement": {"offset_mm": -30.48}` (read back from the
+  gateway). Two dimensions placed by hand on the same view will never share an
+  offset, so a chain of them cannot be made to line up — which is the single most
+  basic thing a draughtsman does to a sheet.
+
+*System-level fix:* two changes, both small. (a) Make the arrow nudge *quantise*
+to the step (`round(offset/step)*step ± step`) rather than accumulate onto a
+fractional value — that alone makes round offsets reachable. (b) Let the live
+readout be typed into: the chip already renders the number in the data face, so
+promoting it to the design system's numeric field while `placing` is live gives
+the precision fallback with no new chrome. Snapping the ghost to the offsets of
+dimensions already on that view (the drafting-standard spacing behaviour) is the
+richer version and can follow.
+
+**P1-E — placement is a one-shot; there is no way to revise it afterwards.**
+The commit opens by naming the defect precisely — "no way to move it — not while
+drawing, and **not afterwards**" — and then fixes only the first half. Measured on
+a committed dimension: `cursor: auto`, no `tabindex`, no `role`, no `aria-label`,
+and a real press-drag across it moves nothing (view origin and dimension line
+both byte-identical before and after; the view does *not* move either, so at
+least it fails inertly rather than dangerously). The `DIMENSIONS` panel offers
+exactly one control: `dimension-delete`.
+
+So the recovery from a mis-drag is: delete, re-find the edge, re-click, re-choose
+the type, re-drag. That is a flow dead end in the mandate's sense — not because
+work is lost, but because a user who is unsure of their placement will hesitate,
+which is the failure mode FB-13 was filed about. It also interacts badly with
+P1-F below.
+
+*System-level fix:* a placed dimension needs the same `placing` stage it was
+born in, re-entered by selecting it — which is mostly plumbing, since
+`withPlacement` + a PATCH is all the server needs, and the ghost, the readout and
+the key handling already exist. Until then, the panel row should at least offer
+"Re-place" as a delete-and-reauthor macro so the recovery is one action.
+
+**P2-B — a placed dimension's value text lands on top of another view's pick
+targets, and cannot be moved off (see P1-E).**
+`uiqa-dimplace-text-over-pick-1280.png`. Measured: with the TOP view's 40 mm edge
+dimensioned 20 mm downward (into the gap between TOP and FRONT), one of the FRONT
+view's 40 mm pick targets became unreachable at its midpoint — `elementFromPoint`
+returns `text[drawing-dimension-value]`. Free placement makes this easy to do by
+hand; P1-E means the only cure is deleting the dimension.
+
+*System-level fix:* `pointer-events: none` on the placed dimension's value text
+and leader (it is not interactive today anyway), so drafting ink can never eat a
+pick. One line, and it also future-proofs the re-place work above.
+
+**P2-C — the offset is unbounded within the sheet, with no guide.**
+`uiqa-dimplace-far-offset-1280.png`. Dragging the ghost to the title block and
+clicking commits a dimension line at y=189 mm on a 210 mm sheet — across the
+title block. The full-sheet capture plate is the only bound. Real drafting tools
+draw a spacing guide (typically 10 mm from the outline, 8 mm between chains) and
+warn when a dimension crosses the border zone. At minimum, refuse the title-block
+rectangle.
+
+**P3-C — the focused pick edge is a 1.5 px blue tick.**
+`uiqa-dimplace-edge-focus-1280.png`. Good news first: the sheet is fully
+keyboard-navigable — all 26 pick targets carry `tabindex="0"` with real
+`aria-label`s ("Dimension this line edge in the Front view"), 8 Tab stops reach
+the first, `Enter` opens the author menu, and the whole placing stage is
+keyboard-complete (arrows nudge, Shift coarsens, Enter commits, Esc backs out).
+That is a better keyboard story than most CAD web apps have. But the focus
+indicator is the edge recolouring to blueprint blue at its drawn stroke width —
+on a 10 mm edge at 1280 that is a ~1.5 px × 30 px mark, with `outline: none` on
+the group. It is present (so not a WCAG 2.4.7 failure) and it is faint. Widen the
+focused edge's stroke, or add a short focus tick at its midpoint.
+
+**P3-D — the 40 mm FRONT-view pick targets are blocked at their midpoints
+(pre-existing, not caused by this change, but this change raises its cost).**
+Scanning 18 points along each 40 mm FRONT edge: **11 of 18 clickable**, with the
+central run returned as `polyline` belonging to `drawing-view` — the view's own
+drawn outline sits above the pick target. The TOP view's control scan is 17/18.
+The midpoint is where a user aims, and it is the one place that does not work; a
+real `page.mouse.click` there does nothing at all, silently. The shipped specs do
+not see this because they use `click({ force: true })`. The overall pick band is
+**7 px** (3.5 px either side of the line, from `stroke-width: 2.6` in sheet mm at
+2.99 px/mm) — workable for a mouse, unusable for touch.
+
+*System-level fix:* raise the pick group above the drawn geometry in paint order
+(or `pointer-events: none` on the rendered outline, which is decorative), and
+scale the pick stroke in *screen* px rather than sheet mm so the band does not
+shrink with the sheet. And stop using `force: true` in the drawing specs — it is
+why this was invisible.
+
+#### What passed, and is worth copying
+
+- **The escape hatch is exactly right.** Escape during a placement backs out one
+  stage and the pick survives (measured: ghost gone, `dimension-author-menu`
+  visible again). No ambiguity about whether it saves or discards. This is the
+  correct answer to FB-13 and other surfaces should copy it verbatim.
+- **The untouched fast path is preserved.** "Pick, choose, Enter" sends no
+  placement at all, so nobody who does not reach for the new control pays for it,
+  and `offset_mm == 0` is omitted rather than encoded (0 is the composer's auto
+  sentinel). This is the rare case of a new stage that costs existing users
+  nothing — good judgement, and it is why the nine pre-existing specs still assert
+  what they always did.
+- **The menu is mode-driven and contextual** — a line edge offers Linear / Angle /
+  Distance to edge, with "pick 2nd edge" spelled out on the two that arm a second
+  pick; no diameter/radius is offered where it cannot apply.
+  `uiqa-dimplace-menu-1280.png`.
+- **The ghost is honest about being a proposal** — blueprint blue, never the
+  graphite of placed ink, and it opens at the composer's own auto offset
+  (`11.00 mm`) so the user is adjusting a real proposal rather than starting from
+  nothing. `data-placement-chrome="ghost"` keeps it out of a mid-gesture export.
+- **The chip's key legend changes with the stage** — "Esc to cancel" becomes
+  "Arrows nudge · Enter places · Esc back". The current mode is legible.
+- **No new palette, no hex literals.** Contrast of the ghost ink `#0F4C81` on the
+  sheet `#ECEFF2` is **7.45:1**.
+- **`prefers-reduced-motion` is honoured** — the only transitions that survive are
+  `transition-colors` at 120 ms; nothing translates or animates position.
+- **No root overflow at 1280×800** before, during or after the gesture.
+- **Zero test hooks removed**, three added.
+
+### Running component checklist (delta)
+
+- 🔴 `AssembliesPage` empty state — P1-A (423 px between the copy naming the
+  import and the affordance; brass action ranks create over import)
+- 🔴 `ImportSlot` — P1-B (no progress, no cancel, no elapsed time on a 16 MiB
+  ceiling), P2-A (result line has no exit and evicts the hint), P3-A, P3-B
+- 🔴 `packages/design` — no indeterminate-progress primitive exists; P1-B cannot
+  be fixed at the instance
+- 🔴 `DrawingPage` placing stage — P1-C (readout 410 px from the ghost; ghost
+  carries no value), P1-D (no numeric entry; nudge does not quantise), P2-C
+- 🔴 `DrawingSheet` placed dimension — P1-E (inert; delete is the only edit),
+  P2-B (value text eats pick targets)
+- 🔴 `DrawingSheet` pick targets — P3-C (faint focus), P3-D (midpoint occluded in
+  FRONT; 7 px band, touch-unusable) — both pre-existing
+- ✅ `drawing/placement.ts` + `authoring.ts` placing state machine — pure,
+  unit-tested, exact math, escape semantics correct, fast path preserved. The
+  best-engineered thing in either change.
+- ✅ `api/assemblyImport.ts` — generated types only, typed envelope surfaced
+  verbatim, collision recovery instead of a dead end
+- ✅ Contrast / focus ring / tab order / reduced motion / test hooks / responsive
+  at 1280·1366·1024 — all clean on both features
+
+### Test-integrity finding (process, not UI)
+
+`apps/web/e2e/dimension-placement.spec.ts` and the nine drawing specs it touched
+pick edges with `click({ force: true })`. That is why P3-D — a pick target the
+user's mouse genuinely cannot hit at its midpoint — is invisible to a green
+suite, and it is the same class of blind spot as the sketch strip's
+`toBeVisible()` SAVE control. The drawing specs should click without `force` and
+let an unhittable target fail.
+
+### Coverage this pass did NOT reach
+
+- A real multi-product supplier STEP larger than 100 KB — the round trip is
+  covered by the shipped spec, but the P1-B timing claim is extrapolated from a
+  52 KB / 3.35 s measurement plus the absence of any progress affordance in the
+  DOM, not from a 16 MiB import.
+- Touch emulation on either surface (target sizes measured; no touch project).
+- The diameter/radius `text_pos` branch of the placing stage under real pointer
+  input — only the linear `offset_mm` branch was driven by hand here.
+- Whether a placement survives a re-project (`L`) with the view moved.
