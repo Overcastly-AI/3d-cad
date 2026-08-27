@@ -75,6 +75,7 @@ import {
 } from "../assembly/mateStore";
 import { placementToScene } from "../assembly/placement";
 import { buildEvaluateTree } from "../measure/geometry";
+import { deriveAssemblySolve } from "../features/assemblySolve";
 import { FloatingPanel } from "../components/FloatingPanel";
 import { executeHistoryStep } from "../lib/historyStep";
 import { isTypingTarget } from "../lib/isTypingTarget";
@@ -899,6 +900,41 @@ export function AssemblyPage() {
     ];
   };
 
+  // ---------------------------------------------------------------------
+  // WHAT MAY BE CLAIMED ABOUT THE SOLVE ON SCREEN (`features/assemblySolve`).
+  //
+  // `keepPreviousData` above is deliberate and stays — it is what stops the
+  // camera teleporting mid-refetch. What was missing is that nothing said the
+  // retained solve WAS retained: the status cell read `Under constrained` off
+  // the pre-mate evaluation, the DOF cell read its 6, and the balloons drew its
+  // poses, all with the confidence of a settled answer. A kernel investigation
+  // measured the gap end to end and found the API, documents and geometry all
+  // correct — the observer was the defect.
+  //
+  // Both facts the workspace knows before its caches do are inputs:
+  //
+  //   writing  a graph write is in flight. TRUE FROM THE CLICK — every mutation
+  //            here holds its flag across `await fn(); await refreshGraph()`,
+  //            so it spans the POST *and* the graph refetch, and hands over to
+  //            `loading`/`placeholder` without a gap. Seeding this only when
+  //            the reply lands would leave most of the measured window open.
+  //   loading  the graph or the part rows are refetching. This is the window
+  //            the evaluate query cannot see: a new `doc_version` moves the
+  //            part-docs key, `partTrees` goes undefined, and the evaluate
+  //            query is DISABLED — quiet, not fetching, still serving the old
+  //            solve as placeholder data.
+  // ---------------------------------------------------------------------
+  const solve = deriveAssemblySolve({
+    writing: mutationInFlight || historyStep !== null,
+    loading: graphQuery.isFetching || partDocsQuery.isFetching,
+    evaluating: evalQuery.isFetching,
+    solvable:
+      graph !== undefined && instances.length > 0 && partTrees !== undefined,
+    placeholder: evalQuery.isPlaceholderData,
+    failed: evalQuery.isError,
+    evaluation,
+  });
+
   // Camera fit inputs for the shared Viewport rig. The fit key is the set of
   // instances whose mesh has LOADED — the fit fires when geometry actually
   // lands (fixing the add-instance race where the fit read stale/partial
@@ -964,7 +1000,25 @@ export function AssemblyPage() {
           />
         </TopToolbar>
         {/* Full-bleed scene; tree + inspector float over it (Batch 1, P0-4). */}
-        <main className="relative min-h-0 grow">
+        {/*
+          `data-eval-stale` STAMPS THE WHOLE WORKSPACE, not just the status
+          cell, because the readout that misled the investigation was not a
+          status at all — it was a balloon's `data-solved-*` pose, drawn by the
+          viewport with no cell of its own to be honest in. Every readout in the
+          assembly (the solve title block, the component tree, each balloon's
+          pose) is a descendant of this element, so a reader holding any of them
+          can ask `closest("[data-eval-stale]")` in the same DOM read and learn
+          whether the number it just took is the answer for the graph as it
+          stands. `assemblyFlow.ts`'s `waitForSolved` and `balloonPose` are
+          built on exactly that, which is why no assembly spec can read through
+          a superseded solve by accident any more.
+        */}
+        <main
+          className="relative min-h-0 grow"
+          data-testid="assembly-workspace"
+          data-eval-stale={solve.stale ? "true" : "false"}
+          data-doc-version={docVersion}
+        >
           <Viewport
             worldBounds={sceneBounds}
             fitKey={sceneFitKey}
@@ -1073,7 +1127,7 @@ export function AssemblyPage() {
               view={inspectorView}
               onViewChange={setInspectorView}
               evaluation={evaluation}
-              evaluating={evalQuery.isFetching}
+              solve={solve}
               bom={bomQuery.data}
               bomLoading={bomQuery.isLoading}
               bomError={bomQuery.error}

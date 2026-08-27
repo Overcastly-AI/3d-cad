@@ -111,24 +111,110 @@ export async function createPlateWithHoleViaApi(
   return { id: partId };
 }
 
-/** The solved scene-space x of an instance's balloon (== solved OCCT world x). */
+/**
+ * A balloon's solved pose, read TOGETHER WITH ITS PROVENANCE.
+ *
+ * Scene space is Y-up (`assembly/placement`: OCCT `(x, y, z)` → `(x, z, -y)`),
+ * so `y` here is the solved OCCT **z** — the seating axis a coincident mate
+ * moves, and the number the kernel investigation compared.
+ *
+ * `stale` comes from `closest("[data-eval-stale]")` in the SAME DOM read as the
+ * pose, which is the point: the workspace retains the previous evaluation
+ * across a refetch on purpose (`placeholderData: keepPreviousData`, so the
+ * camera does not teleport), and for ~600 ms after a mate write these
+ * attributes therefore carry the PRE-mate pose. Nothing about the numbers
+ * themselves says so. A missing stamp counts as stale, so removing the
+ * attribute fails every pose read loudly instead of quietly restoring the
+ * defect.
+ */
+export interface SolvedPose {
+  x: number;
+  y: number;
+  z: number;
+  stale: boolean;
+}
+
+export async function balloonPose(
+  page: Page,
+  instanceId: string,
+): Promise<SolvedPose | null> {
+  return page.evaluate((id) => {
+    const el = document.querySelector(`[data-testid="assembly-balloon-${id}"]`);
+    if (el === null) return null;
+    const host = el.closest("[data-eval-stale]");
+    const num = (name: string) =>
+      Number.parseFloat(el.getAttribute(name) ?? "NaN");
+    return {
+      x: num("data-solved-x"),
+      y: num("data-solved-y"),
+      z: num("data-solved-z"),
+      stale: host === null || host.getAttribute("data-eval-stale") !== "false",
+    };
+  }, instanceId);
+}
+
+/**
+ * The solved scene-space x of an instance's balloon (== solved OCCT world x),
+ * or `NaN` while the solve on screen is superseded.
+ *
+ * NaN RATHER THAN THE NUMBER, deliberately: every caller polls this
+ * (`expect.poll(() => balloonX(...)).toBeCloseTo(...)`), so a superseded pose
+ * makes the poll keep waiting instead of reading through the window and
+ * asserting against a previous solve. Throwing would abort the poll on its
+ * first tick; returning the stale number is the defect this change exists to
+ * close. There is no way to get a number out of here that is not current.
+ */
 export async function balloonX(
   page: Page,
   instanceId: string,
 ): Promise<number> {
-  const value = await page
-    .locator(`[data-testid="assembly-balloon-${instanceId}"]`)
-    .getAttribute("data-solved-x");
-  return Number.parseFloat(value ?? "NaN");
+  const pose = await balloonPose(page, instanceId);
+  if (pose === null || pose.stale) return Number.NaN;
+  return pose.x;
 }
 
-/** Wait until the assembly solve readout has settled (not "Solving…"). */
+/**
+ * Wait until the solve ON SCREEN is the answer for the graph as it stands.
+ *
+ * THE OLD BARRIER WAS SATISFIED BY AN ALREADY-TRUE CONDITION — it polled
+ * `assembly-solve-status` for anything that was not `Solving…` or `—`, and the
+ * retained previous solve reads `Under constrained` like any other. So it
+ * returned on its first tick, mid-refetch, and every pose read after it got the
+ * pre-mate answer. That is how a correctly-solved mate came to be reported as a
+ * mate that did nothing.
+ *
+ * AND IT WAS BROKEN A SECOND, INDEPENDENT WAY that the measurement turned up:
+ * the status cell is `uppercase` in CSS and `innerText` returns RENDERED text,
+ * so the string it was matching is `SOLVING…` — which `/Solving|^—$/` does not
+ * match. The barrier therefore released even on a page that was honestly
+ * reporting itself mid-solve; the only thing it ever actually waited out was
+ * the em dash. Measured in the before/after trace for MATE-OBS: at t+1223 ms
+ * the cell read `SOLVING…` and the old predicate counted it as settled.
+ *
+ * A STATUS STRING CANNOT BE THE BARRIER, whatever it says: geometry's
+ * `test_status_alone_cannot_distinguish_the_two` proves a seating solve and a
+ * constraint-free solve BOTH report `under_constrained`, so a barrier keyed on
+ * the status word releases identically in a world where mates do nothing. The
+ * wait is therefore on PROVENANCE — `data-eval-stale="false"`, which
+ * `deriveAssemblySolve` can only produce for a settled evaluation of the
+ * current `[assembly, doc_version, partStamp]` key.
+ *
+ * Note the attribute must be PRESENT and `"false"`: a missing stamp times out
+ * rather than passing, so this cannot decay into a no-op.
+ */
 export async function waitForSolved(page: Page): Promise<string> {
-  const status = page.getByTestId("assembly-solve-status");
+  const workspace = page.getByTestId("assembly-workspace");
   await expect
-    .poll(async () => (await status.innerText()).trim(), { timeout: 30_000 })
-    .not.toMatch(/Solving|^—$/);
-  return (await status.innerText()).trim();
+    .poll(() => workspace.getAttribute("data-eval-stale"), {
+      timeout: 30_000,
+      message:
+        "the assembly workspace never reported a settled solve for the current " +
+        'doc_version (data-eval-stale never reached "false") — a null here ' +
+        "means the provenance stamp is missing from AssemblyPage's <main>, not " +
+        "that the solve is slow",
+    })
+    .toBe("false");
+  return (await page.getByTestId("assembly-solve-status").innerText()).trim();
 }
 
 /** Dispatch a click straight to a pick node (bypasses in-canvas occlusion). */
