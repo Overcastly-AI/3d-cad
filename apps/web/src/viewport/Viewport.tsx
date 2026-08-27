@@ -41,6 +41,7 @@ import {
 import { groundShadowTexture } from "./groundShadow";
 import { ModelMesh, type BodyHighlight } from "./ModelMesh";
 import { OriginGeometry } from "./OriginGeometry";
+import { MateColumnStrip } from "./MateColumnStrip";
 import { ViewCube } from "./ViewCube";
 import {
   hiddenBodyCount,
@@ -1086,6 +1087,10 @@ export function Viewport({
         each strip re-enables its own pointer events.
       */}
       <div className="pointer-events-none absolute inset-0 z-hud [&>*]:pointer-events-auto">
+        {/* The mate "select other" section (MATE-1). Self-gating: it draws
+            nothing unless a mate pick has published a column with more than one
+            candidate, so it costs the part and drawing workspaces nothing. */}
+        <MateColumnStrip />
         {viewNav ? <ViewCube /> : null}
         {viewNav ? <ViewBar /> : null}
         {viewNav ? <NavCue /> : null}

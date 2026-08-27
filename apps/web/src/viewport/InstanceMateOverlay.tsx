@@ -21,6 +21,19 @@
  * `faceOrdinalOfTriangle` applies unchanged. It is mounted INSIDE the
  * transform group so it rides the solved pose, and it needs no hidden-face set:
  * an instance that is not drawn mounts no overlay at all.
+ *
+ * MATE-1 MOVED THE FACE HIT-TEST OUT OF HERE, and the reason is the whole
+ * ticket. Each instance used to mount its own `PickSurface`, so N overlays each
+ * answered "what did MY body do" — and a buried face belongs to no single body:
+ * it is an entry in the COLUMN the ray crosses. Worse, each instance's
+ * `onPointerMove` wrote the shared hover without stopping propagation while its
+ * `onClick` did stop, so hover was decided by the FARTHEST surface and the
+ * commit by the NEAREST (measured: the viewport lit the bracket's bottom face
+ * while the click took the plate's — a different face on a different part).
+ * `AssemblyScene` now mounts one `PickSurface` per instance ITSELF and resolves
+ * the column once, so there is exactly one answer and both halves read it. What
+ * stays here is what is genuinely per-instance: the highlight, and the
+ * `PickNode` keyboard / screen-reader / touch targets.
  */
 import { PickNode } from "@loft/design";
 import { measure } from "@loft/design/tokens";
@@ -36,9 +49,8 @@ import { isPickableFace, faceLabel } from "../features/face";
 import { polylineMidpoint, polylineSegments } from "../measure/geometry";
 import { EdgeBandLayer } from "./EdgeBandLayer";
 import type { EdgeBandInput } from "./edgeBand";
-import { FacePatch } from "./facePatch";
+import { FaceTrace } from "./faceTrace";
 import { Segments } from "./overlaySegments";
-import { PickSurface } from "./pickSurface";
 
 export interface InstanceMateOverlayProps {
   instanceId: string;
@@ -127,32 +139,6 @@ export function InstanceMateOverlay({
       : polylineSegments(circle.polyline);
   }, [circles, selectedIndex]);
 
-  const faceAt = useCallback(
-    (ordinal: number | null) => {
-      if (overlay === null || ordinal === null) return null;
-      const face = overlay.faces.find(
-        (candidate) => candidate.index === ordinal,
-      );
-      return face !== undefined && isPickableFace(face) ? face : null;
-    },
-    [overlay],
-  );
-
-  const onSurfaceMove = useCallback(
-    (ordinal: number | null) => onHover(faceAt(ordinal)?.index ?? null),
-    [faceAt, onHover],
-  );
-
-  const onSurfaceClick = useCallback(
-    (ordinal: number | null, event: { stopPropagation: () => void }) => {
-      const face = faceAt(ordinal);
-      if (face === null || !isPickableFace(face)) return;
-      event.stopPropagation();
-      onPickFace(face.index, face.signature);
-    },
-    [faceAt, onPickFace],
-  );
-
   const onBandPick = useCallback(
     (index: number) => {
       const circle = circles.find((candidate) => candidate.index === index);
@@ -161,27 +147,51 @@ export function InstanceMateOverlay({
     [circles, onPickAxis],
   );
 
+  /**
+   * The two face highlights, as ordinal sets for `FaceTrace`.
+   *
+   * Kept apart rather than merged so the two STATEMENTS stay apart: brass fill
+   * for the face already committed to this mate, hover brass for the one the
+   * pick is aimed at. A face that is both is drawn once, as committed — the
+   * stronger claim wins, the same precedence `ModelMesh` applies.
+   */
+  const selectedOrdinals = useMemo<ReadonlySet<number> | null>(
+    () => (selectedIndex === null ? null : new Set([selectedIndex])),
+    [selectedIndex],
+  );
+  const hoveredOrdinals = useMemo<ReadonlySet<number> | null>(
+    () =>
+      hovered === null || hovered === selectedIndex ? null : new Set([hovered]),
+    [hovered, selectedIndex],
+  );
+
   if (overlay === null) return null;
 
   return (
     <group position={transform.position} quaternion={transform.quaternion}>
       {tool === "coincident" ? (
         <>
-          <PickSurface
+          {/*
+            THE HIGHLIGHT IS THE FACE ITSELF (MATE-1 / T-13). It used to be
+            `FacePatch` — an area-equivalent DISC on the face's plane, which the
+            product audit read as "a translucent ellipse floating mostly below
+            the plate, bearing no relation to the face's actual outline". A disc
+            of the right area is not the right shape: on a rectangular face it
+            hangs over two edges and leaves two corners bare. `FaceTrace` washes
+            the face's OWN triangles and traces its OWN boundary, from the same
+            partitioned geometry the pick raycasts — so what is lit and what
+            would be picked cannot disagree.
+          */}
+          <FaceTrace
             geometry={geometry}
-            onMove={onSurfaceMove}
-            onOut={() => onHover(null)}
-            onClick={onSurfaceClick}
+            faceOrdinals={selectedOrdinals}
+            fill
+            selected
           />
+          <FaceTrace geometry={geometry} faceOrdinals={hoveredOrdinals} fill />
           {overlay.faces.map((face) =>
             isPickableFace(face) ? (
               <group key={`f${face.index}`}>
-                {selectedIndex === face.index || hovered === face.index ? (
-                  <FacePatch
-                    signature={face.signature}
-                    selected={selectedIndex === face.index}
-                  />
-                ) : null}
                 <Html
                   position={occtPointToScene(face.signature.centroid)}
                   center

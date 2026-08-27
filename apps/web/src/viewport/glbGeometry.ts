@@ -269,6 +269,34 @@ export function subsetEdges(
   geometry: BufferGeometry,
   faceOrdinals: ReadonlySet<number>,
 ): EdgesGeometry | null {
+  const subset = subsetSurface(geometry, faceOrdinals);
+  if (subset === null) return null;
+  return new EdgesGeometry(subset, 25);
+}
+
+/**
+ * The TRIANGLES of a face subset, as a geometry of their own — the face's real
+ * area, for a highlight that lies inside the face's own boundary instead of
+ * approximating it.
+ *
+ * MATE-1 / T-13. The mate pick used to highlight with an area-equivalent DISC
+ * on the face's plane, which the product audit read, correctly, as "an ellipse
+ * floating mostly below the plate, bearing no relation to the face's actual
+ * outline". A disc of the right area is not the right shape. These are the
+ * triangles the tessellator actually emitted for the face, so the highlight IS
+ * the face — and it is the same partition the pick raycast resolves against,
+ * so the thing lit and the thing that would be picked cannot disagree.
+ *
+ * Shares the source POSITION buffer and builds only a new index — no vertex
+ * copy, and the returned geometry must not dispose that attribute. The caller
+ * owns disposing the result. Returns `null` when the geometry carries no face
+ * partition or the subset selects no triangles, so a caller draws nothing
+ * rather than throwing mid-render.
+ */
+export function subsetSurface(
+  geometry: BufferGeometry,
+  faceOrdinals: ReadonlySet<number>,
+): BufferGeometry | null {
   const index = geometry.getIndex();
   const position = geometry.getAttribute("position");
   const starts = faceStarts(geometry);
@@ -285,13 +313,10 @@ export function subsetEdges(
     }
   }
   if (kept.length === 0) return null;
-  // Shares the source position attribute; only the index is new. Never
-  // uploaded to the GPU on its own, so there is nothing to dispose here — the
-  // returned EdgesGeometry copies the positions it needs.
   const subset = new BufferGeometry();
   subset.setAttribute("position", position);
   subset.setIndex(kept);
-  return new EdgesGeometry(subset, 25);
+  return subset;
 }
 
 export interface LoadGlbCallbacks {

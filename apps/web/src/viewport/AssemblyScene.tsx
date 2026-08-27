@@ -10,17 +10,26 @@
  */
 import { assembly as assemblyTokens, viewport } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Box3, Matrix4, Quaternion, Vector3 } from "three";
 
 import type { OverlayResult } from "../api/measure";
+import type { PlanarFaceSignature } from "../api/parts";
 import type { SceneTransform } from "../assembly/placement";
+import {
+  activeEntry,
+  useMateColumnStore,
+  type MateColumnEntry,
+} from "../assembly/mateColumn";
 import { useMateAuthoringStore } from "../assembly/mateStore";
+import { faceLabel, isPickableFace } from "../features/face";
 import { groundShadowTexture } from "./groundShadow";
 import { InstanceMateOverlay } from "./InstanceMateOverlay";
 import { InstanceMesh } from "./InstanceMesh";
 import type { VisibilityMode } from "./instanceVisibility";
+import { mateDepthStack, type DepthHit } from "./mateDepthStack";
 import { useViewportPickStamp } from "./pickStamp";
+import { PickSurface } from "./pickSurface";
 import type { InstanceGeometry } from "./useInstanceGeometries";
 
 /** One placed instance the scene draws. */
@@ -304,6 +313,161 @@ export function AssemblyScene({
       : `${mateHover.instanceId}:${mateHover.index}`,
   );
 
+  // ——— MATE-1: THE COLUMN UNDER THE CURSOR ————————————————————————————————
+  //
+  // The face hit-test lives HERE, not in each `InstanceMateOverlay`, because
+  // the thing being resolved is not per-instance: a buried face is an entry in
+  // the list of faces the ray crosses, and only the scene sees that list. See
+  // `mateDepthStack.ts` for the measurements that forced the move.
+  const setColumnEntries = useMateColumnStore((s) => s.setEntries);
+  const setColumnCommit = useMateColumnStore((s) => s.setCommit);
+  const setAddressing = useMateColumnStore((s) => s.setAddressing);
+  const clearColumn = useMateColumnStore((s) => s.clear);
+
+  /** Instances offering pickable faces right now, by id. */
+  const offeredFaces = useMemo(() => {
+    const byInstance = new Map<
+      string,
+      Map<number, PlanarFaceSignature & { label: string }>
+    >();
+    if (overlayTool !== "coincident") return byInstance;
+    for (const inst of instances) {
+      if (!isDrawn(inst)) continue;
+      const overlay = overlaysByInstance.get(inst.id);
+      if (overlay === undefined) continue;
+      const faces = new Map<number, PlanarFaceSignature & { label: string }>();
+      for (const face of overlay.faces) {
+        if (!isPickableFace(face)) continue;
+        faces.set(face.index, {
+          ...face.signature,
+          label: faceLabel(face.index, face.signature),
+        });
+      }
+      byInstance.set(inst.id, faces);
+    }
+    return byInstance;
+  }, [instances, overlaysByInstance, overlayTool]);
+
+  /** Instance display names, for the column strip's rows. */
+  const instanceNames = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const inst of instances) names.set(inst.id, inst.name);
+    return names;
+  }, [instances]);
+
+  /** Resolve one pointer event's intersections into the ordered column. */
+  const columnOf = useCallback(
+    (hits: readonly DepthHit[]): MateColumnEntry[] =>
+      mateDepthStack(
+        hits,
+        (instanceId, faceIndex) =>
+          offeredFaces.get(instanceId)?.has(faceIndex) === true,
+      ).map((candidate) => {
+        const signature = offeredFaces
+          .get(candidate.instanceId)
+          ?.get(candidate.faceIndex);
+        const c = signature?.centroid;
+        const round = (n: number) => Math.round(n * 10) / 10;
+        return {
+          ...candidate,
+          instanceName:
+            instanceNames.get(candidate.instanceId) ?? "Unnamed instance",
+          faceLabel: signature?.label ?? "",
+          centroidLabel:
+            c === undefined
+              ? ""
+              : `${round(c.x)}, ${round(c.y)}, ${round(c.z)}`,
+        };
+      }),
+    [offeredFaces, instanceNames],
+  );
+
+  /** Commit one column entry as this mate's pick. */
+  const commitEntry = useCallback(
+    (entry: MateColumnEntry) => {
+      const signature = offeredFaces
+        .get(entry.instanceId)
+        ?.get(entry.faceIndex);
+      if (signature === undefined) return;
+      pickFace(entry.instanceId, entry.faceIndex, signature);
+    },
+    [offeredFaces, pickFace],
+  );
+
+  // Publish the commit path only while a face tool is armed — the strip draws
+  // nothing without it, so a stale column can never be actionable.
+  useEffect(() => {
+    if (overlayTool !== "coincident") {
+      setColumnCommit(null);
+      clearColumn();
+      return;
+    }
+    setColumnCommit(commitEntry);
+    return () => setColumnCommit(null);
+  }, [overlayTool, commitEntry, setColumnCommit, clearColumn]);
+
+  // A new pick, or a changed offer, makes any held column stale.
+  useEffect(() => {
+    clearColumn();
+    setMateHover(null);
+  }, [picks, offeredFaces, clearColumn]);
+
+  /**
+   * WHAT THE PICK IS AIMED AT, from the store — not from a second copy here.
+   *
+   * The highlight and the `data-mate-pick-hover` stamp both read this, and so
+   * does the commit, which is the property that closes the measured
+   * hover-says-one-thing-click-does-another defect: there is one answer and
+   * three readers, rather than three derivations that can disagree. Reading it
+   * from the store rather than mirroring it is also what makes the strip's own
+   * hover work — a row sets the depth, and the face lights in the scene.
+   */
+  const aimedAt = useMateColumnStore(activeEntry);
+  useEffect(() => {
+    if (overlayTool !== "coincident") return;
+    setMateHover(
+      aimedAt === null
+        ? null
+        : { instanceId: aimedAt.instanceId, index: aimedAt.faceIndex },
+    );
+  }, [overlayTool, aimedAt]);
+
+  const onSurfaceMove = useCallback(
+    (_ordinal: number | null, event: { intersections: DepthHit[] }) => {
+      setColumnEntries(columnOf(event.intersections));
+      setAddressing(true);
+    },
+    [columnOf, setColumnEntries, setAddressing],
+  );
+
+  /**
+   * The pointer left the geometry. AIM clears — so the highlight and the stamp
+   * both go quiet, which is what `pick-affordance.spec.ts` pins — but the
+   * COLUMN does not: the strip is the affordance, and one that vanishes as you
+   * reach for it cannot be used.
+   */
+  const onSurfaceOut = useCallback(() => setAddressing(false), [setAddressing]);
+
+  const onSurfaceClick = useCallback(
+    (
+      _ordinal: number | null,
+      event: { intersections: DepthHit[]; stopPropagation: () => void },
+    ) => {
+      // ALWAYS stop, even when nothing resolves: r3f dispatches the click to
+      // every struck object near → far, and this scene now offers one hit per
+      // FACE, so without it a single click would run this handler once per face
+      // the ray crosses and collect a whole mate pair from one press.
+      event.stopPropagation();
+      const column = columnOf(event.intersections);
+      if (column.length === 0) return;
+      setColumnEntries(column);
+      setAddressing(true);
+      const active = activeEntry(useMateColumnStore.getState());
+      if (active !== null) commitEntry(active);
+    },
+    [columnOf, setColumnEntries, setAddressing, commitEntry],
+  );
+
   /** Measured clash wins over unverified; both are separate from rest. */
   const clashStateOf = (instanceId: string): ClashState =>
     clashingInstanceIds.has(instanceId)
@@ -371,6 +535,33 @@ export function AssemblyScene({
           />
         ) : null,
       )}
+
+      {/*
+        THE MATE FACE HIT-TEST (MATE-1). One surface per instance, all reporting
+        into ONE column resolver — `column` makes each mesh report every face the
+        ray pierces rather than only the nearest, and `pickId` is what lets the
+        resolver say which instance each hit belongs to.
+      */}
+      {overlayTool === "coincident"
+        ? instances.map((inst) =>
+            inst.geometry && isDrawn(inst) ? (
+              <group
+                key={`pick-${inst.id}`}
+                position={inst.transform.position}
+                quaternion={inst.transform.quaternion}
+              >
+                <PickSurface
+                  geometry={inst.geometry.surface}
+                  column
+                  pickId={inst.id}
+                  onMove={onSurfaceMove}
+                  onOut={onSurfaceOut}
+                  onClick={onSurfaceClick}
+                />
+              </group>
+            ) : null,
+          )
+        : null}
 
       {overlayTool
         ? instances.map((inst) => {

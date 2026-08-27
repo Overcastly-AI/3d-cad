@@ -132,3 +132,60 @@ export function drawnSurfaceRaycast(
     if (nearest !== null) intersects.push(nearest);
   };
 }
+
+/**
+ * The nearest DRAWN hit per distinct B-rep face, near → far — the whole column
+ * of surfaces the ray pierces, not just the first one.
+ *
+ * MATE-1. `nearestDrawnHit` answers "what is in front", which is the right
+ * answer for aiming and the wrong one for a face that is BURIED: a bracket
+ * seated on a plate has its bottom face coincident with the plate's top, so
+ * whichever way the camera looks, one of the two bodies is between the eye and
+ * the face you want. Measured on that fixture — 528 pointer samples over a
+ * 1280x800 frame, four cameras — the bracket's bottom face was addressable at
+ * ZERO of them. There is no camera to find; the pick has to see through.
+ *
+ * Two mechanics make the column survive to the handler, and BOTH are needed:
+ *
+ *  - `Mesh.raycast` reports every struck triangle, but only FRONT faces unless
+ *    the material is `DoubleSide` — so the far wall of a body, which is exactly
+ *    where a seated part's contact face lives, is not even tested. The pick
+ *    mesh draws nothing, so `PickSurface` gives it `DoubleSide` when depth is
+ *    asked for; that adds deeper candidates and cannot change the nearest one,
+ *    because on a closed body the near wall is always struck first.
+ *
+ *  - `@react-three/fiber@9.6.1` keys its per-object dedupe on
+ *    `uuid + '/' + index + instanceId` (`makeId`), and `Mesh.raycast` never
+ *    sets `index` — so ALL of one mesh's hits collapse to one and the handler
+ *    can never see past the first. Stamping `index` with the FACE ORDINAL is
+ *    what keeps them distinct, and it says something true: for this mesh the
+ *    thing being addressed is a B-rep face, not a triangle. The consumer reads
+ *    the same field back ({@link mateDepthStack}), so the two cannot drift.
+ *
+ * One hit per ordinal, not per triangle: a face is one candidate however many
+ * triangles the tessellator gave it, and the nearest of them is where the ray
+ * enters it.
+ */
+export function faceColumnRaycast(
+  isHidden: HiddenTriangleTest,
+  ordinalOf: (faceIndex: number | null | undefined) => number | null,
+): (this: Mesh, raycaster: Raycaster, intersects: Intersection[]) => void {
+  return function columnRaycast(
+    this: Mesh,
+    raycaster: Raycaster,
+    intersects: Intersection[],
+  ): void {
+    const struck: Intersection[] = [];
+    Mesh.prototype.raycast.call(this, raycaster, struck);
+    struck.sort((a, b) => a.distance - b.distance);
+    const seen = new Set<number>();
+    for (const hit of struck) {
+      if (isHidden(hit.faceIndex)) continue;
+      const ordinal = ordinalOf(hit.faceIndex);
+      if (ordinal === null || seen.has(ordinal)) continue;
+      seen.add(ordinal);
+      hit.index = ordinal;
+      intersects.push(hit);
+    }
+  };
+}
