@@ -47,17 +47,58 @@ describe("mirrorPlaneChoices", () => {
 });
 
 describe("buildMirrorParams", () => {
+  const WHOLE_BODY = { scope: "body", scopeFeatures: [] } as const;
+
   it("builds a DatumPlaneRef for an origin datum", () => {
-    const params = buildMirrorParams({ kind: "origin", base: "XZ" });
+    const params = buildMirrorParams(
+      { kind: "origin", base: "XZ" },
+      WHOLE_BODY,
+    );
     expect(params).toEqual<MirrorParams>({
       plane: { kind: "datum_plane", plane: "XZ" },
+      scope: { kind: "body" },
     });
   });
 
   it("builds a FeatureRef for an in-tree datum", () => {
-    expect(buildMirrorParams(DATUM_OPTION.spec)).toEqual<MirrorParams>({
+    expect(
+      buildMirrorParams(DATUM_OPTION.spec, WHOLE_BODY),
+    ).toEqual<MirrorParams>({
       plane: { kind: "feature", feature_id: "d1" },
+      scope: { kind: "body" },
     });
+  });
+
+  // The scope is ALWAYS on the wire (pattern-scope §7.1). An omitted key means
+  // "the whole body" forever, so a selection that failed to serialise would be
+  // a silently ignored feature rather than an error.
+  it("names the selected features when the scope is a selection", () => {
+    expect(
+      buildMirrorParams(
+        { kind: "origin", base: "XY" },
+        {
+          scope: "features",
+          scopeFeatures: [{ id: "h1", name: "Hole1", subtractive: true }],
+        },
+      ),
+    ).toEqual<MirrorParams>({
+      plane: { kind: "datum_plane", plane: "XY" },
+      scope: {
+        kind: "features",
+        features: [{ kind: "feature", feature_id: "h1" }],
+      },
+    });
+  });
+
+  // `min_length=1` server-side: an empty selection is authoring nonsense, not a
+  // no-op mirror, so the form gate refuses before the round-trip.
+  it("refuses a features scope that names nothing", () => {
+    expect(
+      buildMirrorParams(
+        { kind: "origin", base: "XY" },
+        { scope: "features", scopeFeatures: [] },
+      ),
+    ).toBeNull();
   });
 });
 

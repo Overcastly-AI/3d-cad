@@ -12,13 +12,28 @@
  * picker reuses {@link resolveDatumPlaneOptions} verbatim, introducing no
  * parallel plane taxonomy.
  */
-import type { MirrorParams, MirrorPlaneRef } from "../api/parts";
+import type {
+  FeatureResponse,
+  MirrorParams,
+  MirrorPlaneRef,
+} from "../api/parts";
 import {
   DATUM_PLANES,
   type DatumPlaneOption,
   planeRefFromSpec,
   type SketchPlaneSpec,
 } from "../sketch/plane";
+// WHAT a mirror reflects is the SAME decision a pattern makes about what it
+// repeats, asked with the same words and built from the same module (§2).
+import {
+  asMirrorScope,
+  buildScope,
+  defaultScopeMode,
+  type ScopeFeature,
+  type ScopeMode,
+  type ScopeSeed,
+  scopeFromParams,
+} from "./patternScope";
 
 /**
  * The editable mirror form. `plane` is the persisted wire ref when editing an
@@ -27,16 +42,35 @@ import {
  */
 export interface MirrorForm {
   plane: MirrorPlaneRef | null;
+  /** WHAT is reflected: the whole body, or the named features. */
+  scope: ScopeMode;
+  /** The named subject, carried with its NAME so the row can render it. */
+  scopeFeatures: readonly ScopeFeature[];
 }
 
-/** The default new-mirror form: no plane chosen yet (defaults to XY in the UI). */
-export function defaultMirrorForm(): MirrorForm {
-  return { plane: null };
+/**
+ * The default new-mirror form: no plane chosen yet (defaults to XY in the UI),
+ * scoped to whatever the tree proposes (a selected row, else the tip).
+ */
+export function defaultMirrorForm(seed: ScopeSeed | null = null): MirrorForm {
+  return {
+    plane: null,
+    scope: defaultScopeMode(seed),
+    scopeFeatures: seed === null ? [] : [seed],
+  };
 }
 
 /** Seed the form from an existing mirror feature for editing. */
-export function formFromMirrorParams(params: MirrorParams): MirrorForm {
-  return { plane: params.plane };
+export function formFromMirrorParams(
+  params: MirrorParams,
+  features: readonly FeatureResponse[] = [],
+): MirrorForm {
+  const scope = scopeFromParams(params.scope, features);
+  return {
+    plane: params.plane,
+    scope: scope.mode,
+    scopeFeatures: scope.features,
+  };
 }
 
 /** One selectable mirror plane — an origin datum or a reusable in-tree datum. */
@@ -94,7 +128,16 @@ export function selectedChoice(
   return choices[0] ?? null;
 }
 
-/** Build the `MirrorParamsV1` for a chosen plane (its persisted `GeomRef`). */
-export function buildMirrorParams(spec: SketchPlaneSpec): MirrorParams {
-  return { plane: planeRefFromSpec(spec) };
+/**
+ * Build the `MirrorParamsV1` for a chosen plane (its persisted `GeomRef`) and
+ * the form's scope. Null when the scope names nothing (`min_length=1`); `scope`
+ * is always sent, for the reason `buildPatternParams` states.
+ */
+export function buildMirrorParams(
+  spec: SketchPlaneSpec,
+  form: Pick<MirrorForm, "scope" | "scopeFeatures">,
+): MirrorParams | null {
+  const scope = buildScope(form.scope, form.scopeFeatures);
+  if (scope === null) return null;
+  return { plane: planeRefFromSpec(spec), scope: asMirrorScope(scope) };
 }

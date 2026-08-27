@@ -18,6 +18,7 @@ import { useRef } from "react";
 
 import type { ExportedFile, ExportFormat } from "../api/exportPart";
 import { useCommandActionStore } from "../features/commandActions";
+import { verbHint, verbLabel } from "../features/patternScope";
 import { ExportToolGroup } from "./ExportToolGroup";
 import { HistoryGroup } from "./HistoryGroup";
 
@@ -123,6 +124,15 @@ export interface CreateStripProps {
   onChamfer?: () => void;
   /** Repeat the current body into a linear/circular array (P). */
   onPattern?: () => void;
+  /**
+   * The feature the user selected in the tree, when a pattern/mirror can act on
+   * it — the verbs then PROPOSE it by name ("Repeat Hole1") instead of offering
+   * a generic array of the whole body (docs/design/pattern-scope.md §7.2; the
+   * flow rule "the next step is visible from the current state"). Null when
+   * nothing is selected: a toolbar that renamed itself on every tree change
+   * would be noise, so only an explicit selection moves these words.
+   */
+  scopeSubject?: string | null;
   /** Hollow the current body to a uniform wall, opening picked faces (H). */
   onShell?: () => void;
   /** Taper picked faces for mold release about a neutral plane (D). */
@@ -247,6 +257,7 @@ export function CreateStrip({
   onFillet,
   onChamfer,
   onPattern,
+  scopeSubject = null,
   onShell,
   onDraft,
   onHole,
@@ -317,6 +328,27 @@ export function CreateStrip({
   /** The tooltip's second line: the lock reason wins, else the gate reason. */
   const captionFor = (ready: boolean, reason: string): string | undefined =>
     locked ? lockReason : ready ? undefined : reason;
+  /**
+   * The scope proposal's second channel, and it is load-bearing rather than
+   * belt-and-braces. At the 1280x800 floor the band has MEASURED itself into
+   * the icon tier for Create/Modify, so the renamed label ("Repeat Hole1") is
+   * shed — and that is the width the quality floor names. `ToolButton`'s own
+   * contract for the icon tier is that "icon + group eyebrow + tooltip carry
+   * the name", so the proposal rides the caption, which is never shed and which
+   * `aria-describedby` already routes to screen readers.
+   *
+   * Deliberately NOT fixed by promoting Modify's `labelPriority`: that scale is
+   * a measured information-per-pixel ordering, and the group it would demote is
+   * EXPORT, whose format codes EXPORT-1 exists to keep findable.
+   */
+  const scopeCaptionFor = (
+    ready: boolean,
+    reason: string,
+  ): string | undefined => {
+    const gate = captionFor(ready, reason);
+    if (gate !== undefined || scopeSubject === null) return gate;
+    return `Repeats ${scopeSubject}, not the whole body`;
+  };
 
   return (
     <div
@@ -564,15 +596,15 @@ export function CreateStrip({
           <ToolButton
             icon={<VerbGlyph verb="pattern" />}
             showLabel
-            label="Pattern"
+            label={verbLabel("pattern", scopeSubject)}
             shortcut="P"
             data-testid="new-pattern"
             aria-label={
               patternReady
-                ? "Pattern — repeat the body in a linear or circular array (P)"
+                ? verbHint("pattern", scopeSubject)
                 : "Pattern — create a body first"
             }
-            caption={captionFor(patternReady, "Create a body first")}
+            caption={scopeCaptionFor(patternReady, "Create a body first")}
             disabled={locked || !patternReady}
             onClick={onPattern}
           />
@@ -624,15 +656,15 @@ export function CreateStrip({
           <ToolButton
             icon={<VerbGlyph verb="mirror" />}
             showLabel
-            label="Mirror"
+            label={verbLabel("mirror", scopeSubject)}
             shortcut="I"
             data-testid="new-mirror"
             aria-label={
               mirrorReady
-                ? "Mirror — reflect the body about a plane and union the copy in (I)"
+                ? verbHint("mirror", scopeSubject)
                 : "Mirror — create a body first"
             }
-            caption={captionFor(mirrorReady, "Create a body first")}
+            caption={scopeCaptionFor(mirrorReady, "Create a body first")}
             disabled={locked || !mirrorReady}
             onClick={onMirror}
           />

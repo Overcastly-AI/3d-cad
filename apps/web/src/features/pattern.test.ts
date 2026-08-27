@@ -99,6 +99,10 @@ describe("buildPatternParams", () => {
         spacing_mm: 6,
         count: 4,
       },
+      // The scope is on the wire even for the legacy reading: an ABSENT key
+      // means "the whole body" forever (pattern-scope §2.1/§7.1), so naming it
+      // is what keeps a later edit's meaning unambiguous.
+      scope: { kind: "body" },
     });
   });
 
@@ -126,6 +130,7 @@ describe("buildPatternParams", () => {
         angle_deg: 360,
         count: 6,
       },
+      scope: { kind: "body" },
     });
   });
 

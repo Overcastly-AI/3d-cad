@@ -188,6 +188,7 @@ import {
   formFromPatternParams,
   type PatternForm,
 } from "../features/pattern";
+import { scopeSeed } from "../features/patternScope";
 import {
   defaultSweepForm,
   defaultSweepPathId,
@@ -1373,6 +1374,19 @@ export function PartPage() {
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(
     null,
   );
+  // WHAT a pattern/mirror opened right now would act on (docs/design/
+  // pattern-scope.md). The tree selection IS the scope: with `Hole1` selected
+  // the Create strip's verb reads "Repeat Hole1" and the editor opens already
+  // scoped to it. With nothing selected we still offer the tip in the editor's
+  // scope row, but the toolbar keeps its plain words.
+  const patternScopeSeed = useMemo(
+    () => scopeSeed(features, selectedFeatureId),
+    [features, selectedFeatureId],
+  );
+  const scopeSubject =
+    patternScopeSeed !== null && patternScopeSeed.fromSelection
+      ? patternScopeSeed.name
+      : null;
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   // UX audit #20e — a feature can SAVE cleanly yet fail to REBUILD (the create
@@ -2039,18 +2053,22 @@ export function PartPage() {
     });
   }, [tree.data]);
 
-  // A pattern needs no sketch profile — it repeats the current BODY — so it
-  // only requires a solid to exist (canModify), unlike extrude/revolve.
+  // A pattern needs no sketch profile — it repeats the body, or the FEATURE the
+  // tree named — so it only requires a solid to exist (canModify), unlike
+  // extrude/revolve. The seed is read BEFORE the selection is cleared: clearing
+  // first (which is what this did) is exactly how the tree's answer to "what am
+  // I repeating?" used to be thrown away at the door.
   const openCreatePattern = useCallback(() => {
+    const seed = patternScopeSeed;
     useMeasureStore.getState().deactivate();
     setEditorError(null);
     setSelectedFeatureId(null);
     setEditor({
       kind: "pattern",
       mode: "create",
-      initial: defaultPatternForm(),
+      initial: defaultPatternForm(seed),
     });
-  }, []);
+  }, [patternScopeSeed]);
 
   // Fillet/chamfer, like a pattern, act on the current BODY via a geometric
   // edge-selector predicate (no sketch profile) — they only need a solid to
@@ -2167,11 +2185,16 @@ export function PartPage() {
   // plane (no sketch profile) — it only needs a solid to exist (canModify), so
   // it mirrors those guards. v1 needs only a plane choice: no face/point pick.
   const openCreateMirror = useCallback(() => {
+    const seed = patternScopeSeed;
     useMeasureStore.getState().deactivate();
     setEditorError(null);
     setSelectedFeatureId(null);
-    setEditor({ kind: "mirror", mode: "create", initial: defaultMirrorForm() });
-  }, []);
+    setEditor({
+      kind: "mirror",
+      mode: "create",
+      initial: defaultMirrorForm(seed),
+    });
+  }, [patternScopeSeed]);
 
   // A datum plane needs no sketch/body — it's a construction plane parallel to
   // an origin datum. Available as soon as the tree exists (its own feature row).
@@ -2395,7 +2418,11 @@ export function PartPage() {
           kind: "pattern",
           mode: "edit",
           featureId: feature.id,
-          initial: formFromPatternParams(feature.feature.params, lengthUnit),
+          initial: formFromPatternParams(
+            feature.feature.params,
+            lengthUnit,
+            features,
+          ),
         });
       } else if (feature.feature.type === "fillet") {
         setEditor({
@@ -2445,7 +2472,7 @@ export function PartPage() {
           kind: "mirror",
           mode: "edit",
           featureId: feature.id,
-          initial: formFromMirrorParams(feature.feature.params),
+          initial: formFromMirrorParams(feature.feature.params, features),
         });
       } else if (feature.feature.type === "sheet_metal_base_flange") {
         setEditor({
@@ -2534,7 +2561,9 @@ export function PartPage() {
         setEditor(null);
       }
     },
-    [lengthUnit, specFromPlaneRef],
+    // `features` joins the deps because a pattern/mirror's persisted scope is
+    // shown by feature NAME, which only the tree can supply.
+    [features, lengthUnit, specFromPlaneRef],
   );
 
   // Re-pick repair for a `subshape_unresolved` feature error (FINDINGS #3). The
@@ -4210,6 +4239,7 @@ export function PartPage() {
               onFillet={openCreateFillet}
               onChamfer={openCreateChamfer}
               onPattern={openCreatePattern}
+              scopeSubject={scopeSubject}
               onShell={openCreateShell}
               onDraft={openCreateDraft}
               onHole={openCreateHole}

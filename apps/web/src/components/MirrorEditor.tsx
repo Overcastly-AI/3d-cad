@@ -33,12 +33,14 @@ import {
   mirrorPlaneChoices,
   planeRefKey,
 } from "../features/mirror";
+import type { ScopeMode } from "../features/patternScope";
 import {
   DATUM_PLANES,
   describePlane,
   type DatumPlaneOption,
 } from "../sketch/plane";
 import { EditorCard } from "./EditorCard";
+import { ScopeRow } from "./ScopeRow";
 
 export interface MirrorEditorProps {
   mode: "create" | "edit";
@@ -74,16 +76,27 @@ export function MirrorEditor({
   const [selectedKey, setSelectedKey] = useState<string>(seedKey);
   // Re-seed when the editor is retargeted at a different feature (new `initial`).
   useEffect(() => setSelectedKey(seedKey), [seedKey]);
+  // WHAT is reflected — the pattern's question, asked the same way (§2).
+  const [scope, setScope] = useState<ScopeMode>(initial.scope);
+  useEffect(() => setScope(initial.scope), [initial.scope]);
 
   const selected =
     choices.find((c) => c.key === selectedKey) ?? choices[0] ?? null;
 
-  const submit = useCallback(() => {
-    if (selected === null) return;
-    onSubmit(buildMirrorParams(selected.spec));
-  }, [selected, onSubmit]);
+  const params =
+    selected === null
+      ? null
+      : buildMirrorParams(selected.spec, {
+          scope,
+          scopeFeatures: initial.scopeFeatures,
+        });
 
-  const canSubmit = selected !== null && !saving;
+  const submit = useCallback(() => {
+    if (params === null) return;
+    onSubmit(params);
+  }, [params, onSubmit]);
+
+  const canSubmit = params !== null && !saving;
   useCommandBridge(submit, canSubmit);
 
   const onKeyDown = useCallback(
@@ -105,6 +118,14 @@ export function MirrorEditor({
             {mode === "create" ? "New mirror" : "Edit mirror"}
           </h2>
           <div className="flex flex-col gap-2 px-3 pb-3 pt-1">
+            {/* WHAT is reflected, before the plane it is reflected about. */}
+            <ScopeRow
+              verb="mirror"
+              mode={scope}
+              features={initial.scopeFeatures}
+              onChange={setScope}
+            />
+
             {/* Mirror plane — the sketch plane picker's vocabulary: the three
                 origin datums, then any reusable in-tree datums (FeatureRefs). */}
             <div className="flex flex-col gap-1.5">
@@ -150,16 +171,19 @@ export function MirrorEditor({
               ) : null}
             </div>
 
-            {/* A live readout of the chosen reflection. */}
+            {/* A live readout of the chosen PLANE. What gets reflected is the
+                scope row's sentence above — this line no longer claims "the
+                whole body", which stopped being true the moment the subject
+                became selectable. */}
             <p className="font-body text-xs text-gauge">
-              Reflects the whole body about{" "}
+              Reflects about{" "}
               <span
                 className="font-data text-mist"
                 data-testid="mirror-readout"
               >
                 {selected ? describePlane(selected.spec) : "—"}
-              </span>{" "}
-              and joins the reflection to it.
+              </span>
+              .
             </p>
           </div>
         </div>

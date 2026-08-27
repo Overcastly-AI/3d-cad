@@ -36,6 +36,7 @@ import {
   REPICK_FACE_ACTION,
 } from "../features/featureErrors";
 import { featureTypeLabel } from "../features/featureLabels";
+import { scopeBadgeSuffix } from "../features/patternScope";
 import { holeThreadDesignation } from "../features/hole";
 import { usePrefetchIntent } from "../features/prefetch";
 import {
@@ -118,12 +119,21 @@ const STATUS_LABEL: Record<string, string> = {
  * is real geometry you can see in the viewport, so naming it here would be
  * duplication. Only the invisible parameter earns the pixels.
  */
-function featureBadge(feature: FeatureResponse["feature"]): string {
+function featureBadge(
+  feature: FeatureResponse["feature"],
+  features: readonly FeatureResponse[],
+): string {
   const label = featureTypeLabel(feature.type);
   if (feature.type === "hole") {
     const designation = holeThreadDesignation(feature.params);
     if (designation !== null) return `${label} · ${designation}`;
   }
+  // A pattern/mirror scoped to a FEATURE earns the same extension for the same
+  // reason: `Pattern1` beside `Pattern1` cannot say which repeats the hole and
+  // which repeats the plate, and that ambiguity is the defect the scope union
+  // exists to end (docs/design/pattern-scope.md §1).
+  const subject = scopeBadgeSuffix(feature, features);
+  if (subject !== null) return `${label} · ${subject}`;
   return label;
 }
 
@@ -269,7 +279,7 @@ export function FeatureTreePanel({
                             }
                           />
                           <span className="shrink-0 font-body text-xs text-gauge">
-                            {featureBadge(feature.feature)}
+                            {featureBadge(feature.feature, features)}
                           </span>
                         </div>
                       ) : (
@@ -296,7 +306,7 @@ export function FeatureTreePanel({
                             {feature.name}
                           </span>
                           <span className="shrink-0 font-body text-xs text-gauge">
-                            {featureBadge(feature.feature)}
+                            {featureBadge(feature.feature, features)}
                           </span>
                         </button>
                       )}
