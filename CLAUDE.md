@@ -722,14 +722,23 @@ recipe here in the same commit as the fix.**
   loud, but a file that merely predates the branch by 76 commits reads as
   perfectly ordinary source, and an agent would then diagnose a bug that was
   fixed weeks ago, or build against an API that has since changed, and its
-  eventual rebase would look like an unrelated conflict. Two rules: (a) the first
-  action in any worktree is `git rev-list --count HEAD..origin/<branch>` — nonzero
-  means reset before reading anything; (b) auditing this after a batch is cheap
-  and worth doing, since the same command over every live worktree costs one
-  shell call. Note the ordinary case is fine — the other four worktrees live at
-  the same moment were 1–3 commits behind, i.e. just normally trailing — so this
-  is an occasional seeding fault, not a standing condition, which is exactly what
-  makes it easy to stop checking for.
+  eventual rebase would look like an unrelated conflict. The rule: **the first
+  action in any worktree is `git rev-list --count HEAD..origin/<branch>`** —
+  nonzero means reset before reading anything. Put it in every builder brief;
+  that is the only mitigation that has actually worked (two for two — the PICK-1
+  agent at 76 commits behind, the REACH-2 agent at 120).
+  **AND THE "AUDIT IT AFTER A BATCH" ADVICE THIS ENTRY ORIGINALLY GAVE DOES NOT
+  WORK — measured 2026-08-27, do not retry it.** A behind-count over every
+  worktree returned 47 "STALE" rows and not one was the fault: a worktree seeded
+  correctly at the tip *naturally* falls behind as the branch advances, so
+  trailing and mis-seeded are indistinguishable by that measure, and an audit
+  that flags everything flags nothing. Worse, it cannot work even in principle:
+  an agent that follows the rule RESETS, so by the time you look, the evidence of
+  the bad seed is gone — the only worktrees that could still show it are ones
+  where nobody noticed, which is exactly the case you are trying to find. Detect
+  it at CREATION, not after. The signature is a HEAD that is not an ancestor of
+  the branch (both occurrences were seeded at `3b0b29e`, a merge into `main`),
+  not a HEAD that is merely behind.
 - **`git add <my file> && git commit` IN ONE COMMAND IS THE SWEEP, and chaining
   them is what defeats the protocol's own check.** Done by the ORCHESTRATOR on
   2026-08-27, hours after quoting the rule at three separate agents: `4e41eb4`
