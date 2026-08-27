@@ -739,6 +739,21 @@ recipe here in the same commit as the fix.**
   it at CREATION, not after. The signature is a HEAD that is not an ancestor of
   the branch (both occurrences were seeded at `3b0b29e`, a merge into `main`),
   not a HEAD that is merely behind.
+- **ADDING A TEST TO A SHARDED SPEC FILE CAN TURN A LATENT RACE RED IN A CASE
+  NOBODY TOUCHED — and the bisect will point straight at the innocent commit.**
+  Measured 2026-08-27. `fca2e42` added a case to `qa-reach-batch.spec.ts` and a
+  reference-angle case in the same file went red; CI said green at `0cee656` and
+  red at `fca2e42`, which is a clean bisect and a wrong conclusion. The decisive
+  check was **comparing the failing case and its helpers byte-for-byte across the
+  two commits** — identical, 5198 bytes — and then running each in isolation
+  against the same app source: HEAD's spec 2/3, `0cee656`'s spec 3/3. Same code,
+  different outcome. The e2e suite is sharded 4 ways by filesystem order, so a new
+  case reshuffles which cases share a worker and a race that had always been there
+  started losing. Rule: when a bisect lands on a commit whose diff cannot plausibly
+  reach the failure, **diff the failing test itself across the two commits before
+  believing the bisect**; if it is unchanged, the commit changed the SCHEDULE, not
+  the behaviour, and the defect is older than both. Corollary: "green at N, red at
+  N+1" proves the failure became OBSERVABLE at N+1, never that N+1 caused it.
 - **`click({ force: true })` DISABLES THE ONLY CHECK THAT ASKS WHETHER A USER
   COULD HAVE CLICKED IT — so a target no real mouse can hit passes a 4/4-green
   spec.** Found 2026-08-27 by the frontend-qa pass on REACH-3.
