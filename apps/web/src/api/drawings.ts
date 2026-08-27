@@ -22,6 +22,8 @@ export type ViewCreate = components["schemas"]["ViewCreate"];
  * `auto_place: true`. Every field optional; `expected_version` guards the OCC. */
 export type ViewUpdate = components["schemas"]["ViewUpdate"];
 export type ViewScale = components["schemas"]["ViewScale"];
+/** What a view references: a part, or an assembly (§7 — the assembly compound). */
+export type RefDocumentKind = ViewResponse["ref_document_kind"];
 /** A section view's cutting plane + half selection (drawings-section.md §1). The
  * `plane` is the EXACT `GeomRef` union a sketch's plane uses (DatumPlaneRef |
  * FeatureRef) — no parallel plane taxonomy (DRY). */

@@ -13,12 +13,14 @@ import { Button, NumberField, Stamp, TextField, drawing } from "@loft/design";
 import {
   type AnnotationResponse,
   type BendTableRow,
+  type ComposedView,
   type DimensionParams,
   type DimensionResponse,
   type DrawingDimensionInput,
   type DrawingViewResult,
   type EvaluateDrawingViewsRequest,
   type MeasuredDimension,
+  type RefDocumentKind,
   type SectionViewParams,
   type SheetContent,
   type SheetResponse,
@@ -38,6 +40,7 @@ import {
 import { gatewayClient } from "../api/client";
 import { envelopeMessage } from "../api/envelope";
 import { evaluatePart, fetchFeatureTree, fetchParts } from "../api/parts";
+import { fetchAssemblies } from "../api/assemblies";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { DimensionAuthorMenu } from "../components/DimensionAuthorMenu";
 import { DrawingCommandBand } from "../components/DrawingCommandBand";
@@ -98,6 +101,11 @@ import {
   sheetDimensions,
   standardLayout,
 } from "../drawing/layout";
+import {
+  drawingSourceKind,
+  drawingSourceName,
+  drawingSourceOptions,
+} from "../drawing/source";
 import { isTypingTarget } from "../lib/isTypingTarget";
 import { resolveDatumPlaneOptions } from "../sketch/plane";
 import { drawingRoute } from "../router";
@@ -310,9 +318,16 @@ export function DrawingPage() {
     return out;
   }, [dimensions, projectionByViewId]);
 
-  // The part the sheet drafts: the referenced part of its first view once laid
-  // out (v1 references a single part across the standard views).
-  const draftedPartId = hasLayout ? (views[0]?.ref_document_id ?? null) : null;
+  // The document the sheet drafts: the reference of its first view once laid
+  // out (the one-sheet-one-source invariant, §2.2). It is a PART or an
+  // ASSEMBLY — both have always been legal on the wire, and the assembly half
+  // is what a numbered parts list hangs off.
+  const draftedSourceId = hasLayout
+    ? (views[0]?.ref_document_id ?? null)
+    : null;
+  const draftedSourceKind: RefDocumentKind = hasLayout
+    ? (views[0]?.ref_document_kind ?? "part")
+    : "part";
 
   const partsQuery = useQuery({
     queryKey: ["parts"],
@@ -320,19 +335,63 @@ export function DrawingPage() {
     staleTime: 30_000,
   });
   const parts = useMemo(() => partsQuery.data ?? [], [partsQuery.data]);
+  const assembliesQuery = useQuery({
+    queryKey: ["assemblies"],
+    queryFn: () => fetchAssemblies(),
+    staleTime: 30_000,
+  });
+  const assemblies = useMemo(
+    () => assembliesQuery.data ?? [],
+    [assembliesQuery.data],
+  );
+  const sources = useMemo(
+    () => drawingSourceOptions(parts, assemblies),
+    [parts, assemblies],
+  );
 
-  // Pre-layout picker state (which part to draft, on what sheet, at what scale).
-  const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
+  // Pre-layout picker state (what to draft, on what sheet, at what scale).
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [scaleValue, setScaleValue] = useState("1:1");
   const [sizeValue, setSizeValue] = useState<SheetSize>("A4");
+  // `?source=<id>` pre-selects the picker — how the assembly workspace's
+  // "Drawing" action hands off, so the sheet opens already pointed at the
+  // assembly you were looking at instead of making you find it in a list.
+  // Honoured once, and only for a source that actually exists (a stale link
+  // must not strand the picker on an id nothing can project).
+  //
+  // Seeding is ONE effect on purpose. As two, the hand-off and the "default to
+  // the first source" rule both fired in the commit where the registers land —
+  // each reading the same `null` — and the default won, so the hand-off
+  // silently did nothing. Resolving both in one place makes the precedence
+  // explicit instead of a function of effect order.
+  const { source: requestedSourceId } = drawingRoute.useSearch();
+  const handedOff = useRef(false);
   useEffect(() => {
-    if (selectedPartId === null && parts.length > 0) {
-      setSelectedPartId(parts[0]?.id ?? null);
+    if (sources.length === 0) return;
+    if (
+      !handedOff.current &&
+      requestedSourceId !== undefined &&
+      sources.some((source) => source.id === requestedSourceId)
+    ) {
+      handedOff.current = true;
+      setSelectedSourceId(requestedSourceId);
+      return;
     }
-  }, [parts, selectedPartId]);
+    setSelectedSourceId((current) => current ?? sources[0]?.id ?? null);
+  }, [sources, requestedSourceId]);
+  const selectedSourceKind = drawingSourceKind(sources, selectedSourceId);
 
-  // The effective part + scale to project: the drafted part once laid out.
-  const effectivePartId = draftedPartId ?? null;
+  // The effective source + scale to project: the drafted one once laid out.
+  const effectiveSourceId = draftedSourceId ?? null;
+  const effectiveSourceKind: RefDocumentKind = hasLayout
+    ? draftedSourceKind
+    : selectedSourceKind;
+  // The part-shaped pipeline (feature tree → evaluate → pick provenance) runs
+  // for a part source ONLY. An assembly sheet is composed entirely server-side
+  // (the gateway resolves its instance+mate graph and geometry projects the
+  // SOLVED compound), so the browser has no feature tree to send and needs none.
+  const effectivePartId =
+    effectiveSourceKind === "part" ? effectiveSourceId : null;
   const effectiveScaleValue = hasLayout
     ? `${views[0]?.scale.numerator ?? 1}:${views[0]?.scale.denominator ?? 1}`
     : scaleValue;
@@ -440,16 +499,32 @@ export function DrawingPage() {
     queryKey: [
       "drawing-sheet",
       activeSheetId,
-      effectivePartId,
+      effectiveSourceId,
+      effectiveSourceKind,
       partTree?.tree_version,
       effectiveScaleValue,
       docVersion,
     ],
-    enabled: hasLayout && partTree !== undefined && activeSheetId !== null,
+    // A PART sheet waits for its feature tree (the compose is keyed on that
+    // tip, so composing before it lands would cache a stale sheet). An
+    // ASSEMBLY sheet has no client-side tree to wait for — the gateway
+    // resolves the instance+mate graph itself — so it composes as soon as the
+    // sheet exists. Re-project invalidates this key for both.
+    enabled:
+      hasLayout &&
+      activeSheetId !== null &&
+      (effectiveSourceKind === "assembly" || partTree !== undefined),
     queryFn: () => composeDrawingSheet(drawingId, activeSheetId),
     staleTime: Infinity,
   });
   const composed = sheetQuery.data;
+  // The PLACED views by projection — the reading the Views panel falls back to
+  // when there is no client-side evaluation to read (an assembly sheet).
+  const composedByProjection = useMemo(() => {
+    const map = new Map<ViewProjection, ComposedView>();
+    for (const view of composed?.views ?? []) map.set(view.projection, view);
+    return map;
+  }, [composed]);
 
   // ---------------------------------------------------------------------
   // The auto-layout action: create the sheet (if needed) + the four views,
@@ -465,9 +540,10 @@ export function DrawingPage() {
   const [sectionOpen, setSectionOpen] = useState(false);
   const [sectionError, setSectionError] = useState<string | null>(null);
   const sectionPartTreeQuery = useQuery({
-    queryKey: ["drawing-section-part-tree", selectedPartId],
-    enabled: sectionOpen && selectedPartId !== null,
-    queryFn: () => fetchFeatureTree(selectedPartId as string),
+    queryKey: ["drawing-section-part-tree", selectedSourceId],
+    enabled:
+      sectionOpen && selectedSourceId !== null && selectedSourceKind === "part",
+    queryFn: () => fetchFeatureTree(selectedSourceId as string),
     staleTime: 30_000,
   });
   const sectionDatumOptions = useMemo(
@@ -476,7 +552,7 @@ export function DrawingPage() {
   );
 
   const handleLayout = useCallback(() => {
-    if (hasLayout || selectedPartId === null || busy) return;
+    if (hasLayout || selectedSourceId === null || busy) return;
     setBusy(true);
     setActionError(null);
     void (async () => {
@@ -507,31 +583,40 @@ export function DrawingPage() {
         // fit (the user's picked scale is a ceiling; see fitScale). A part
         // that fails to evaluate keeps the picked scale — the layout still
         // lands, just unfitted, and the sheet surfaces the eval error.
+        //
+        // An ASSEMBLY keeps the picked scale for now: fitting one needs the
+        // SOLVED compound's extents, which is a mate solve rather than the
+        // single-part bbox `fitScale` reads. Same honest posture the lone
+        // flat-pattern view takes below; the composer's own `views_overlap` /
+        // `views_crowded` measurements still surface in the check strip, so an
+        // unfitted assembly sheet says so rather than looking fine. (BACKLOG.)
         let fittedValue = scaleValue;
-        try {
-          const evaluated = await evaluatePart(selectedPartId);
-          const box = evaluated.properties?.bounding_box;
-          if (box) {
-            fittedValue = fitScale(
-              {
-                x: box.max.x - box.min.x,
-                y: box.max.y - box.min.y,
-                z: box.max.z - box.min.z,
-              },
-              dims,
-              scaleValue,
-            ).value;
+        if (selectedSourceKind === "part") {
+          try {
+            const evaluated = await evaluatePart(selectedSourceId);
+            const box = evaluated.properties?.bounding_box;
+            if (box) {
+              fittedValue = fitScale(
+                {
+                  x: box.max.x - box.min.x,
+                  y: box.max.y - box.min.y,
+                  z: box.max.z - box.min.z,
+                },
+                dims,
+                scaleValue,
+              ).value;
+            }
+          } catch {
+            // keep the picked scale
           }
-        } catch {
-          // keep the picked scale
         }
         const scale = scaleFromValue(fittedValue);
         for (const projection of STANDARD_VIEWS) {
           const anchor = anchors[projection];
           const created = await createView(drawingId, sheetId, {
             projection,
-            ref_document_id: selectedPartId,
-            ref_document_kind: "part",
+            ref_document_id: selectedSourceId,
+            ref_document_kind: selectedSourceKind,
             scale,
             position: { x_mm: anchor.x, y_mm: anchor.y },
             // Auto-layout lands each standard view (bounds-aware); a later drag
@@ -561,7 +646,8 @@ export function DrawingPage() {
     })();
   }, [
     hasLayout,
-    selectedPartId,
+    selectedSourceId,
+    selectedSourceKind,
     busy,
     docVersion,
     sheet,
@@ -576,7 +662,10 @@ export function DrawingPage() {
   // no sheet-metal bends composes an honest `flat_pattern_not_sheet_metal` failed
   // view — surfaced inline, never a crash.
   const handleFlatPattern = useCallback(() => {
-    if (hasLayout || selectedPartId === null || busy) return;
+    // Part-only, and the guard is not redundant with the band's disabled cell:
+    // `F` reaches this handler directly from the keyboard.
+    if (hasLayout || selectedSourceId === null || busy) return;
+    if (selectedSourceKind !== "part") return;
     setBusy(true);
     setActionError(null);
     void (async () => {
@@ -605,7 +694,7 @@ export function DrawingPage() {
         );
         const created = await createView(drawingId, sheetId, {
           projection: "flat_pattern",
-          ref_document_id: selectedPartId,
+          ref_document_id: selectedSourceId,
           ref_document_kind: "part",
           scale: scaleFromValue(scaleValue),
           position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
@@ -628,7 +717,8 @@ export function DrawingPage() {
     })();
   }, [
     hasLayout,
-    selectedPartId,
+    selectedSourceId,
+    selectedSourceKind,
     busy,
     docVersion,
     sheet,
@@ -646,7 +736,9 @@ export function DrawingPage() {
   // guards it, and the sheet renders `section_plane_not_principal` readably.
   const handleAuthorSection = useCallback(
     (plane: SectionViewParams["plane"], flip: boolean) => {
-      if (hasLayout || selectedPartId === null || busy) return;
+      // Part-only (`S` reaches this from the keyboard too — see flat pattern).
+      if (hasLayout || selectedSourceId === null || busy) return;
+      if (selectedSourceKind !== "part") return;
       setBusy(true);
       setSectionError(null);
       void (async () => {
@@ -670,7 +762,7 @@ export function DrawingPage() {
           );
           await createView(drawingId, sheetId, {
             projection: "section",
-            ref_document_id: selectedPartId,
+            ref_document_id: selectedSourceId,
             ref_document_kind: "part",
             scale: scaleFromValue(scaleValue),
             position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
@@ -695,7 +787,8 @@ export function DrawingPage() {
     },
     [
       hasLayout,
-      selectedPartId,
+      selectedSourceId,
+      selectedSourceKind,
       busy,
       docVersion,
       sheet,
@@ -1575,8 +1668,7 @@ export function DrawingPage() {
     handleExportDxf,
   ]);
 
-  const draftedPartName =
-    parts.find((part) => part.id === draftedPartId)?.name ?? null;
+  const draftedSourceName = drawingSourceName(sources, draftedSourceId);
 
   // The composer's own layout measurements (audit N2) — a colliding or crowded
   // pair of views, in millimetres, with the sentence every export stamps. The
@@ -1611,16 +1703,17 @@ export function DrawingPage() {
             out" against a not-yet-known doc_version (a stale-OCC race). */}
         {drawingQuery.isSuccess ? (
           <DrawingCommandBand
-            parts={parts}
-            selectedPartId={selectedPartId}
-            onSelectPart={setSelectedPartId}
+            sources={sources}
+            selectedSourceId={selectedSourceId}
+            onSelectSource={setSelectedSourceId}
+            sourceKind={effectiveSourceKind}
             scaleValue={effectiveScaleValue}
             onSelectScale={setScaleValue}
             sizeValue={effectiveSize}
             onSelectSize={setSizeValue}
             hasLayout={hasLayout}
             isFlatPattern={isFlatPatternSheet}
-            draftedPartName={draftedPartName}
+            draftedSourceName={draftedSourceName}
             onLayout={handleLayout}
             onFlatPattern={handleFlatPattern}
             onToggleSection={handleToggleSection}
@@ -1811,6 +1904,7 @@ export function DrawingPage() {
                 projecting={projecting}
                 projections={requestedViews}
                 resultByProjection={resultByProjection}
+                composedByProjection={composedByProjection}
               />
               <BendSchedulePanel
                 rows={resultByProjection.get("flat_pattern")?.bend_table ?? []}
@@ -2254,10 +2348,20 @@ function ViewsPanel({
   projecting,
   projections,
   resultByProjection,
+  composedByProjection,
 }: {
   projecting: boolean;
   projections: readonly ViewProjection[];
   resultByProjection: Map<ViewProjection, DrawingViewResult>;
+  /**
+   * The PLACED views, which for an assembly sheet are the only reading there
+   * is: the part-shaped `evaluate` hop does not run for one (the gateway
+   * resolves the instance graph and geometry projects the solved compound), so
+   * `resultByProjection` is empty and this panel used to report "0 edges" over
+   * a sheet full of geometry. A readout that is confidently wrong is worse
+   * than one that is absent — same count, taken from what was drawn.
+   */
+  composedByProjection: Map<ViewProjection, ComposedView>;
 }) {
   const flatPattern = projections.includes("flat_pattern");
   const bendCount =
@@ -2281,8 +2385,11 @@ function ViewsPanel({
       <ul className="divide-y divide-hairline">
         {projections.map((projection) => {
           const result = resultByProjection.get(projection);
-          const failed = Boolean(result?.error);
-          const count = result?.edges?.length ?? 0;
+          const placed = composedByProjection.get(projection);
+          const failed = Boolean(result?.error ?? placed?.error);
+          // Prefer the evaluated reading (it exists the moment the projection
+          // lands, before the compose returns); fall back to what was placed.
+          const count = result?.edges?.length ?? placed?.edges?.length ?? 0;
           return (
             <li
               key={projection}

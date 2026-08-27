@@ -12,6 +12,14 @@ export interface SelectFieldOption {
    * reference) the select can SHOW without letting the user re-pick it.
    */
   disabled?: boolean;
+  /**
+   * The heading this option files under. When ANY option carries one the cell
+   * renders real `<optgroup>`s — the only way a select can say "these two
+   * names are different KINDS of thing" to a screen reader or a keyboard user
+   * as well as to an eye. Options with no group stay at the top level, above
+   * the first heading, in build order.
+   */
+  group?: string;
 }
 
 export interface SelectFieldProps extends Omit<
@@ -62,6 +70,26 @@ export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(
     const id = useId();
     const errorId = `${id}-error`;
     const invalid = Boolean(error);
+    // Grouped rendering is opt-in per option, so an ungrouped caller emits the
+    // exact markup it always did (no empty `<optgroup>` wrapper to change how
+    // any assistive tech announces the cell). Headings keep first-seen order.
+    const groupNames: string[] = [];
+    for (const option of options) {
+      if (option.group !== undefined && !groupNames.includes(option.group)) {
+        groupNames.push(option.group);
+      }
+    }
+    const ungrouped = options.filter((option) => option.group === undefined);
+    const renderOption = (option: SelectFieldOption) => (
+      <option
+        key={option.value}
+        value={option.value}
+        disabled={option.disabled}
+        className="bg-anvil"
+      >
+        {option.label}
+      </option>
+    );
     // One cell, two layouts — see `NumberField` for why the cell markup is
     // written once (the inset, the focus ring and the flag state cannot drift).
     const cell = (
@@ -82,15 +110,13 @@ export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(
           className="w-full min-w-0 cursor-pointer bg-transparent font-data text-md text-mist outline-none"
           {...rest}
         >
-          {options.map((option) => (
-            <option
-              key={option.value}
-              value={option.value}
-              disabled={option.disabled}
-              className="bg-anvil"
-            >
-              {option.label}
-            </option>
+          {ungrouped.map(renderOption)}
+          {groupNames.map((name) => (
+            <optgroup key={name} label={name} className="bg-anvil">
+              {options
+                .filter((option) => option.group === name)
+                .map(renderOption)}
+            </optgroup>
           ))}
         </select>
       </div>

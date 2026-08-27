@@ -1984,6 +1984,19 @@ frame refactor are v2/§11. Spike de-collected.
           reference keeping its number + quantity with `missing: true`. 15
           documents regressions x2 dialects + 4 gateway proxy gates; contracts +
           ts-client regenerated.
+    - [x] (c1) **web — the setup band drafts an ASSEMBLY — SHIPPED 2026-08-27**
+          (frontend-builder, REACH-ASMDRAW): `drawing-part-select` widened from a
+          part picker to a grouped SOURCE picker over parts AND assemblies
+          (`drawing/source.ts`; `SelectField` learned `optgroup`), testid kept so
+          the twenty existing drawings specs stay green. `AssemblyPage` gains the
+          band `Drawing` action → creates the drawing and opens it at
+          `?source=<assembly>`, pre-selected. Compose gates on the source KIND
+          (an assembly sheet has no client feature tree and needs none); flat
+          pattern + section disable with the reason, keyboard path guarded. The
+          Views panel now counts PLACED edges when there is no client evaluate —
+          it read "0 edges" over a full assembly sheet. E2e
+          `assembly-drawing.spec.ts` (real HLR ink asserted, 1280 band fit).
+          Deferred: assembly fit-scale (needs the solved compound's extents).
     - [ ] NEXT SLICES (scoped):
           (b2) **BALLOONS — one whole slice, kernel + backend + web together**
           (splitting it would persist balloons no serializer draws = a dead

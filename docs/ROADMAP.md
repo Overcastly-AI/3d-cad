@@ -1555,6 +1555,28 @@ all done; IGES and healing remain ⬜, keeping the phase 🚧.
       pillar: detail/assembly views (section-view now FULLY END-TO-END — E1a wire +
       E1b web authoring both done 2026-07-23, see below; DE-1c
       client-placement cutover DONE — see below).
+      **REACH-ASMDRAW (c1) — an ASSEMBLY can be drafted, SHIPPED 2026-08-27**
+      (frontend-builder). The wire has projected the solved assembly compound
+      since 2026-07-24 and no user could reach it: `DrawingPage` hardcoded
+      `ref_document_kind: "part"` and fetched parts only, so the assembly half of
+      `ViewCreate` — and everything downstream of it, including the shipped BOM
+      read model — was unreachable through the UI. The setup band's part picker
+      is now a grouped SOURCE picker over parts AND assemblies (one `optgroup`
+      per register; `drawing-part-select` kept verbatim so twenty existing specs
+      stay green), `AssemblyPage` gains the band's `Drawing` action (creates the
+      drawing and opens it at `?source=<assembly>`, already selected), and the
+      compose query gates on the source KIND rather than on a part feature tree
+      an assembly sheet never has. Part-only verbs (flat pattern, section) go
+      honestly disabled with the reason, keyboard path included. One readout was
+      caught lying by the first screenshot: the Views panel counts client-side
+      evaluate edges, which an assembly sheet has none of, so it reported
+      "0 edges" over a full sheet — it now falls back to the PLACED edges
+      (front 30 / top 15 / right 12 / iso 60, measured). E2e
+      `assembly-drawing.spec.ts` drives the whole path in a real browser and
+      asserts the front view carries real HLR ink. Known follow-up, deliberate:
+      an assembly sheet is NOT fit-scaled (that needs the solved compound's
+      extents, not the single-part bbox `fitScale` reads) — same posture the
+      lone flat-pattern view already takes.
       **Drawings SECTION VIEWS v1 — FULLY END-TO-END (E1a wire + E1b web authoring,
       SHIPPED 2026-07-23).** E1b adds the in-app authoring surface: a
       `SectionAuthorPanel` (`drawing-section` command-band action + `S` shortcut)

@@ -2,16 +2,20 @@ import {
   CloseIcon,
   ContextMenu,
   type ContextMenuSection,
+  DrawingSheetIcon,
   EyeIcon,
   EyeOffIcon,
   FixedIcon,
   IsolateIcon,
+  ToolButton,
+  ToolGroup,
 } from "@loft/design";
 import {
   keepPreviousData,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -36,6 +40,7 @@ import {
 } from "../api/assemblies";
 import type { ExportFormat } from "../api/exportPart";
 import { fetchAssemblyBom } from "../api/bom";
+import { DrawingNameTakenError, createDrawing } from "../api/drawings";
 import { MeshNotFoundError, fetchBodyMesh } from "../api/mesh";
 import { fetchOverlay, type OverlayResult } from "../api/measure";
 import type { MaterialAssignment } from "../api/materials";
@@ -115,6 +120,7 @@ const IDENTITY_QUAT = { w: 1, x: 0, y: 0, z: 0 };
 export function AssemblyPage() {
   const { assemblyId } = assemblyRoute.useParams();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const reducedMotion = useReducedMotion();
 
   const graphQuery = useQuery({
@@ -476,6 +482,53 @@ export function AssemblyPage() {
     },
     [refreshGraph],
   );
+
+  // Draft this assembly (§7): create a drawing named after it and open the
+  // sheet with the assembly ALREADY chosen as the source (`?source=`), so the
+  // next step is visible from where the user already is rather than hunted for
+  // in another register. The sheet is not laid out here on purpose — paper size
+  // and scale are the drafter's first two decisions, and pre-empting them would
+  // trade one hunt for a re-layout.
+  const [drawingBusy, setDrawingBusy] = useState(false);
+  const openDrawing = useCallback(() => {
+    if (drawingBusy || graph === undefined) return;
+    setDrawingBusy(true);
+    setActionError(null);
+    void (async () => {
+      try {
+        // A name is unique per owner, so an assembly drafted twice needs a
+        // suffix rather than a failure (same retry the part editor's flat
+        // pattern uses — one register, one convention).
+        const baseName = `${graph.assembly.name} — drawing`;
+        let drawing = null;
+        for (let attempt = 0; attempt < 6 && drawing === null; attempt += 1) {
+          const name = attempt === 0 ? baseName : `${baseName} ${attempt + 1}`;
+          try {
+            drawing = await createDrawing(name);
+          } catch (error) {
+            if (error instanceof DrawingNameTakenError) continue;
+            throw error;
+          }
+        }
+        if (drawing === null) {
+          throw new Error("A drawing for this assembly already exists.");
+        }
+        await navigate({
+          to: "/drawings/$drawingId",
+          params: { drawingId: drawing.id },
+          search: { source: assemblyId },
+        });
+      } catch (error) {
+        setActionError(
+          error instanceof Error
+            ? error.message
+            : "The drawing could not be created.",
+        );
+      } finally {
+        setDrawingBusy(false);
+      }
+    })();
+  }, [drawingBusy, graph, navigate, assemblyId]);
 
   // Document-unit change (docs/design/units.md §U2): a pure re-label under the
   // doc_version OCC. No stored mm value changes, so the assembly never
@@ -973,31 +1026,55 @@ export function AssemblyPage() {
           />
         </TopBar>
         <TopToolbar>
-          <AssemblyCommandBand
-            historyReady={graph !== undefined}
-            canUndo={canUndo}
-            canRedo={canRedo}
-            historyHold={historyStep}
-            historyHoldReason={
-              mutationInFlight ? "Waiting for the current edit…" : null
-            }
-            historyLockReason={historyLockReason ?? undefined}
-            onUndo={triggerUndo}
-            onRedo={triggerRedo}
-            canAddPart={graph !== undefined}
-            onAddPart={() => setAddOpen((open) => !open)}
-            canMate={canMate}
-            activeTool={tool}
-            onToggleTool={toggleTool}
-            canCheckInterference={canCheckInterference}
-            interferenceBusy={clashBusy}
-            onCheckInterference={runInterference}
-            // Export is a document-level ACTION, so it rides the band as well
-            // as the Inspect panel's strip — the panel can be collapsed, and
-            // the file has to stay reachable when it is (EXPORT-1).
-            exporter={exporter}
-            exportDisabledReason={exportDisabledReason}
-          />
+          <div className="flex items-stretch divide-x divide-hairline">
+            <AssemblyCommandBand
+              historyReady={graph !== undefined}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              historyHold={historyStep}
+              historyHoldReason={
+                mutationInFlight ? "Waiting for the current edit…" : null
+              }
+              historyLockReason={historyLockReason ?? undefined}
+              onUndo={triggerUndo}
+              onRedo={triggerRedo}
+              canAddPart={graph !== undefined}
+              onAddPart={() => setAddOpen((open) => !open)}
+              canMate={canMate}
+              activeTool={tool}
+              onToggleTool={toggleTool}
+              canCheckInterference={canCheckInterference}
+              interferenceBusy={clashBusy}
+              onCheckInterference={runInterference}
+              // Export is a document-level ACTION, so it rides the band as well
+              // as the Inspect panel's strip — the panel can be collapsed, and
+              // the file has to stay reachable when it is (EXPORT-1).
+              exporter={exporter}
+              exportDisabledReason={exportDisabledReason}
+            />
+            {/* The way OUT of the assembly and onto paper. It sits on the band
+                rather than in a menu because drafting is what a solved
+                assembly is FOR, and a next step nobody can see is a next step
+                nobody takes. `labelPriority` above the default: "Drawing"
+                names a destination the sheet glyph cannot spell. */}
+            <ToolGroup eyebrow="Document" labelPriority={40}>
+              <ToolButton
+                icon={<DrawingSheetIcon />}
+                label="Drawing"
+                showLabel
+                disabled={graph === undefined || drawingBusy}
+                caption={
+                  graph === undefined
+                    ? "Loading the assembly…"
+                    : drawingBusy
+                      ? "Creating the sheet…"
+                      : "Draft this assembly on a sheet"
+                }
+                data-testid="assembly-drawing"
+                onClick={openDrawing}
+              />
+            </ToolGroup>
+          </div>
         </TopToolbar>
         {/* Full-bleed scene; tree + inspector float over it (Batch 1, P0-4). */}
         {/*

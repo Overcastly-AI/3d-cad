@@ -78,11 +78,24 @@ const drawingsRoute = createRoute({
   component: DrawingsPage,
 });
 
-/** Drawing workspace: an engineering sheet + the standard views. */
+/**
+ * Drawing workspace: an engineering sheet + the standard views.
+ *
+ * `?source=<document id>` pre-selects the sheet's source in the setup band —
+ * the hand-off another workspace's "Drawing" action uses, so the sheet opens
+ * pointed at the document you were already looking at. Advisory only: the page
+ * honours it just once, and only for a source that exists.
+ */
 export const drawingRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/drawings/$drawingId",
   component: DrawingPage,
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { source?: string } | Record<string, never> =>
+    typeof search.source === "string" && search.source.length > 0
+      ? { source: search.source }
+      : {},
 });
 
 /** Application preferences (#58) — a sibling of the registers, not a modal. */
