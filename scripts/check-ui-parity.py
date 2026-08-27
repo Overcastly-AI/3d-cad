@@ -34,9 +34,40 @@ can". It is a PROXY: a spec that only asserts on a fixture seeded over the API
 proves nothing about the UI, which is why gaps are reported for a human to
 judge rather than auto-closed.
 
-Matching is word-boundary and quoted (`"foo"`, `'foo'`, `` `foo` ``). Bare
-substring matching reports `angle` as reachable because `rectangle` exists,
-which is how a parity check ends up confidently wrong.
+A FOURTH TIER, added after the first real run and now the one that earns its
+keep: UNCALLED OPERATIONS. The literal tiers answer "can the user pick this
+VALUE", which quietly presumes the route carrying it is called at all. It is
+often not. The first run surfaced one true literal gap and MISSED three whole
+shipped capabilities with no caller anywhere — reorder the feature tree, import
+a STEP assembly, a drawing's parts list. Path SHAPES are far more distinctive
+than words (`bom` is ambiguous, `drawings/{id}/bom` is not), so this tier has no
+false positives at all, which is more than the literal tiers can say.
+
+MATCHING, and every rule here exists because its absence produced a wrong answer
+on the real repo:
+
+  * Quoted (`"foo"`) OR as a `-`/`_`-delimited token inside a quoted string, so
+    `combine-op-subtract` counts as driving `subtract`. Specs address controls by
+    testid or keystroke, essentially never by the bare literal — quoted-only
+    matching called ~20 of 29 flagged rows unreachable when every one was driven.
+  * Never bare substring: that reports `angle` as reachable because `rectangle`
+    exists.
+  * For AMBIGUOUS common words, presence is not evidence — a driving verb must
+    appear within a few lines. `midpoint` read AUTHORABLE purely because specs
+    discuss snap midpoints in prose.
+
+KNOWN RESIDUAL, stated rather than hidden. This is a heuristic and both error
+directions survive in the current output:
+  * FALSE AUTHORABLE: `midpoint` STILL reads reachable — the snap specs that
+    mention it also click things, so the verb-proximity guard passes. It is in
+    fact keyboard-only (`m`) and absent from the sketch strip's groups. A false
+    AUTHORABLE retires an open gap silently, so treat the AUTHORABLE tier as
+    "probably fine", never as proof.
+  * FALSE RENDER-ONLY: `tangent` and `equal` are driven by `keyboard.press("t")`
+    with the literal nowhere in the spec; `simple` is driven through
+    `hole-depth-blind`. A dozen such rows remain.
+Triage the report by opening the source. It is a search-ordering tool, not a
+verdict, and the workflow's Parity phase is instructed to say what it checked.
 
 Usage:
     python3 scripts/check-ui-parity.py              # report, exit 0
@@ -68,6 +99,28 @@ LITERAL_RE = re.compile(r"^[a-z][a-z0-9_]{2,}$")
 EXEMPT = {
     # Echoed back on a round-trip; the UI never composes one from scratch.
     "unknown",
+    # Internal prefetch/scrub hints the app emits programmatically. There is no
+    # user verb here and there should not be one.
+    "feature_edit",
+    "travel_stop",
+    # The server's fallback discriminator for a non-analytic edge — read off a
+    # pick, never chosen by a human.
+    "other",
+    # The primitive-shape dev seam that predates the feature tree. Parts are
+    # authored as features; offering a naked primitive would teach the wrong model.
+    "cylinder",
+}
+
+#: Schemas whose values are DATA, served at runtime and rendered into a picker —
+#: so no value can ever appear in app source, by design. `MaterialSection.tsx`
+#: builds its options from `GET /api/v1/materials` with `library.map`, and
+#: hardcoding the keys in `apps/web` would be the second-copy-of-the-table DRY
+#: violation that endpoint exists to prevent. Flagging these would be punishing
+#: the correct implementation.
+DATA_DRIVEN_SCHEMAS = {
+    "MaterialAssignment",
+    "BodyMaterialAssignment",
+    "BodyLumpInfo",
 }
 
 
@@ -139,16 +192,76 @@ def request_literals(spec: dict) -> dict[str, set[str]]:
     schemas = spec.get("components", {}).get("schemas", {})
     owners: dict[str, set[str]] = {}
     for name in request_side_schemas(spec):
+        if name in DATA_DRIVEN_SCHEMAS:
+            continue
         found: set[str] = set()
         _schema_literals(schemas[name], found)
         for literal in found:
             if LITERAL_RE.match(literal) and literal not in EXEMPT:
                 owners.setdefault(literal, set()).add(name)
-    return owners
+    # A literal owned ONLY by data-driven schemas is reachable by construction.
+    return {
+        literal: names
+        for literal, names in owners.items()
+        if not names <= DATA_DRIVEN_SCHEMAS
+    }
 
 
-def _quoted(literal: str) -> re.Pattern[str]:
-    return re.compile(r"""["'`]""" + re.escape(literal) + r"""["'`]""")
+#: An e2e spec almost never writes the bare literal. It addresses a control by
+#: testid — `combine-op-subtract`, `hole-depth-blind`, `pattern-kind-circular` —
+#: or by keystroke, `keyboard.press("t")` for tangent. Matching only the quoted
+#: form produced ~20 false RENDER-ONLY rows out of 29 on the first real run:
+#: every one of union/subtract/intersect/sweep/simple/blind/iso_metric/stl/glb
+#: is driven by a spec that never spells the literal.
+def _reachable_in(literal: str, corpus: str) -> bool:
+    quoted = r"""["'`]""" + re.escape(literal) + r"""["'`]"""
+    # ...as a `-`/`_`-delimited token inside any quoted string, which is what a
+    # testid looks like. Anchored on delimiters so `angle` still does not match
+    # `rectangle`, but `combine-op-subtract` does match `subtract`.
+    token = (
+        r"""["'`][a-z0-9_-]*[-_]"""
+        + re.escape(literal)
+        + r"""(?:[-_][a-z0-9_-]*)?["'`]"""
+    )
+    lead = r"""["'`]""" + re.escape(literal) + r"""[-_][a-z0-9_-]*["'`]"""
+    return bool(re.search(f"{quoted}|{token}|{lead}", corpus))
+
+
+#: Words common enough to appear in ordinary spec prose. For these, presence is
+#: not evidence — `midpoint` was reported AUTHORABLE purely because specs discuss
+#: snap midpoints and edge midpoints, while the constraint itself is bound to `m`
+#: and absent from the sketch strip entirely. A FALSE AUTHORABLE is the failure
+#: that matters: it retires a gap that is still open, silently and forever.
+AMBIGUOUS = {
+    "angle",
+    "circular",
+    "closed",
+    "equal",
+    "lock",
+    "midpoint",
+    "note",
+    "other",
+    "simple",
+    "measured",
+    "features",
+    "scope",
+}
+
+#: An authoring verb near the literal is what turns presence into evidence.
+AUTHORING = re.compile(
+    r"\b(click|press|selectOption|fill|check|tap|dragTo|setInputFiles)\b"
+)
+
+
+def _authored_in(literal: str, corpus: str) -> bool:
+    """For an ambiguous word, demand a driving verb within a few lines."""
+    lines = corpus.splitlines()
+    for index, line in enumerate(lines):
+        if _reachable_in(literal, line):
+            window = "\n".join(lines[max(0, index - 4) : index + 5])
+            if AUTHORING.search(window):
+                return True
+    return False
 
 
 def _corpus(root: Path) -> str:
@@ -161,13 +274,63 @@ def _corpus(root: Path) -> str:
     )
 
 
+def operations(spec: dict) -> list[tuple[str, str]]:
+    """(method, path) for every operation the gateway exposes."""
+    found: list[tuple[str, str]] = []
+    for path, methods in spec.get("paths", {}).items():
+        if not isinstance(methods, dict):
+            continue
+        for method in methods:
+            if method.lower() in {"get", "post", "put", "patch", "delete"}:
+                found.append((method.upper(), path))
+    return found
+
+
+def _path_pattern(path: str) -> re.Pattern[str]:
+    """A regex matching how the web app writes this path in a template literal.
+
+    `/api/v1/parts/{part_id}/features/order` has to match
+    `` `/parts/${partId}/features/order` `` — so each {param} becomes a
+    one-segment wildcard and the `/api/v1` prefix is dropped, since callers
+    mount it via the client's base URL.
+    """
+    trimmed = re.sub(r"^/api/v\d+", "", path)
+    parts = [
+        r"[^/\"'`]+" if segment.startswith("{") else re.escape(segment)
+        for segment in trimmed.strip("/").split("/")
+        if segment
+    ]
+    return re.compile("/".join(parts))
+
+
+def unreachable_operations(spec: dict, src: str) -> list[tuple[str, str]]:
+    """Operations whose path SHAPE appears nowhere in the web app.
+
+    THE TIER THAT ACTUALLY FINDS THINGS. Literal-matching answers "can the user
+    pick this VALUE", which presumes the route carrying it is called at all —
+    and on the first real run it surfaced exactly one true gap while missing
+    three whole shipped capabilities with no caller whatsoever: reorder the
+    feature tree, import a STEP assembly, and a drawing's parts list. Measured
+    zero false positives, because a path shape is far more distinctive than a
+    word: `bom` alone is ambiguous (an assembly BOM client already exists),
+    `drawings/{id}/bom` is not.
+    """
+    return [
+        (method, path)
+        for method, path in operations(spec)
+        if not _path_pattern(path).search(src)
+    ]
+
+
 def classify(spec: dict, src: str, e2e: str) -> list[tuple[str, str, list[str]]]:
     rows: list[tuple[str, str, list[str]]] = []
     for literal, owners in sorted(request_literals(spec).items()):
-        pattern = _quoted(literal)
-        if not pattern.search(src):
+        if not _reachable_in(literal, src):
             tier = "ABSENT"
-        elif not pattern.search(e2e):
+        elif literal in AMBIGUOUS:
+            # Presence proves nothing for a common word; demand a driving verb.
+            tier = "AUTHORABLE" if _authored_in(literal, e2e) else "RENDER-ONLY"
+        elif not _reachable_in(literal, e2e):
             tier = "RENDER-ONLY"
         else:
             tier = "AUTHORABLE"
@@ -275,14 +438,116 @@ def _self_test() -> int:
             "wanted the WRONG answer AUTHORABLE)"
         )
 
+    # --- The two failure modes the first version shipped with, both measured on
+    # --- the real repo before being fixed. Each gets a fixture that reproduces it.
+
+    # (1) FALSE RENDER-ONLY. A spec addresses a control by TESTID, never by the
+    # bare literal — `combine-op-subtract` drives `subtract`. Quoted-only matching
+    # called ~20 of 29 flagged rows unreachable when every one was driven.
+    testid_spec = {
+        "paths": {
+            "/x": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/Op"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "components": {
+            "schemas": {"Op": {"properties": {"op": {"enum": ["subtract"]}}}}
+        },
+    }
+    testid_tiers = {
+        literal: tier
+        for literal, tier, _ in classify(
+            testid_spec,
+            'testid="combine-op-subtract"',
+            'await page.getByTestId("combine-op-subtract").click();',
+        )
+    }
+    if testid_tiers.get("subtract") != "AUTHORABLE":
+        failures.append(
+            f"  subtract: driven via a testid, want AUTHORABLE, "
+            f"got {testid_tiers.get('subtract')}"
+        )
+
+    # (2) FALSE AUTHORABLE — the direction that RETIRES an open gap, silently.
+    # `midpoint` was reported reachable purely because specs discuss snap
+    # midpoints and edge midpoints in prose; the constraint is keyboard-only and
+    # absent from the sketch strip. Presence of an ambiguous word is not evidence.
+    ambiguous_spec = {
+        "paths": {
+            "/y": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/C"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "components": {
+            "schemas": {"C": {"properties": {"kind": {"enum": ["midpoint"]}}}}
+        },
+    }
+    prose = '// snapping to the "midpoint" of the edge\nexpect(x).toBe(1);'
+    ambiguous_tiers = {
+        literal: tier
+        for literal, tier, _ in classify(ambiguous_spec, '"midpoint"', prose)
+    }
+    if ambiguous_tiers.get("midpoint") != "RENDER-ONLY":
+        failures.append(
+            "  midpoint: mentioned in prose with no authoring verb, want "
+            f"RENDER-ONLY, got {ambiguous_tiers.get('midpoint')}"
+        )
+    driven = {
+        literal: tier
+        for literal, tier, _ in classify(
+            ambiguous_spec,
+            '"midpoint"',
+            'await page.getByTestId("constraint-midpoint").click();',
+        )
+    }
+    if driven.get("midpoint") != "AUTHORABLE":
+        failures.append(
+            "  midpoint: actually driven, want AUTHORABLE, "
+            f"got {driven.get('midpoint')}"
+        )
+
+    # (3) The operation tier — the one that found three whole shipped
+    # capabilities with no caller, which no literal check can see.
+    op_spec = {
+        "paths": {
+            "/api/v1/parts/{part_id}/features/order": {"put": {}},
+            "/api/v1/parts/{part_id}/features": {"post": {}},
+        }
+    }
+    orphans = unreachable_operations(op_spec, "`/parts/${id}/features`")
+    if [p for _, p in orphans] != ["/api/v1/parts/{part_id}/features/order"]:
+        failures.append(
+            f"  operation tier: want only .../features/order uncalled, got {orphans}"
+        )
+
     if failures:
         print("self-test FAILED:")
         print("\n".join(failures))
         return 1
-    print("self-test passed: 3 request-side literals, one per tier;")
+    print("self-test passed:")
+    print("  3 request-side literals, one per tier;")
     print("  response-side literal correctly not reported;")
     print("  nested-below-requestBody literal correctly reached;")
-    print("  substring-matching negative control fires.")
+    print("  substring-matching negative control fires;")
+    print("  a testid-driven literal reads AUTHORABLE (false RENDER-ONLY);")
+    print("  an ambiguous word in prose reads RENDER-ONLY (false AUTHORABLE);")
+    print("  an uncalled operation is found while its called sibling is not.")
     return 0
 
 
@@ -296,16 +561,24 @@ def main() -> int:
     if args.self_test:
         return _self_test()
 
-    rows = classify(_load_spec(GATEWAY_SPEC), _corpus(WEB_SRC), _corpus(WEB_E2E))
+    spec = _load_spec(GATEWAY_SPEC)
+    src = _corpus(WEB_SRC)
+    rows = classify(spec, src, _corpus(WEB_E2E))
     gaps = [row for row in rows if row[1] != "AUTHORABLE"]
+    orphans = unreachable_operations(spec, src)
 
     if args.json:
         print(
             json.dumps(
-                [
-                    {"literal": literal, "tier": tier, "schemas": owners}
-                    for literal, tier, owners in rows
-                ],
+                {
+                    "literals": [
+                        {"literal": literal, "tier": tier, "schemas": owners}
+                        for literal, tier, owners in rows
+                    ],
+                    "uncalledOperations": [
+                        {"method": method, "path": path} for method, path in orphans
+                    ],
+                },
                 indent=2,
             )
         )
@@ -329,12 +602,31 @@ def main() -> int:
             for literal, _, owners in named:
                 print(f"    {literal:<28} {', '.join(owners[:3])}")
             print()
+        if orphans:
+            print(
+                f"UNCALLED OPERATIONS  ({len(orphans)}) — the gateway exposes "
+                "these and nothing in apps/web calls them"
+            )
+            for method, path in orphans:
+                print(f"    {method:<7} {path}")
+            print()
         reachable = total - len(gaps)
-        print(f"AUTHORABLE: {reachable}/{total}")
-
-    if args.strict and gaps:
+        print(f"AUTHORABLE: {reachable}/{total} literals; ", end="")
         print(
-            f"::error::{len(gaps)} backend capabilities are not reachable from the UI"
+            f"{len(operations(spec)) - len(orphans)}/{len(operations(spec))} "
+            "operations called"
+        )
+        print(
+            "\nSCOPE: desktop-and-mouse. A capability whose only route is a "
+            "multi-entity\nselection is counted AUTHORABLE here and is "
+            "unreachable on touch — measured\n2026-08-27: a second tap replaces "
+            "the selection, and so does a 900 ms long press."
+        )
+
+    if args.strict and (gaps or orphans):
+        print(
+            f"::error::{len(gaps)} capability literal(s) and {len(orphans)} whole "
+            "operation(s) are not reachable from the UI"
         )
         return 1
     return 0
