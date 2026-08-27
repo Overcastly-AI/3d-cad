@@ -23,6 +23,15 @@ import { createPartViaApi, distinctCanvasColors, seedSession } from "./support";
  *            off, on the expression/reference path. Now a live regression gate.
  *   - QA-R3  OPEN — a touch device cannot select two entities, so four of
  *            REACH-1's five new verbs are unreachable there.
+ *   - QA-R4  OPEN — for ~0.9 s after a feature write the panel reports the
+ *            PREVIOUS body's mass properties with both status cells claiming to
+ *            be current. Found 2026-08-27 while root-causing the two REACH-2
+ *            cases below, which failed 3/3 for that reason and not for theirs:
+ *            `filleted - four` read exactly `filleted - six`, which is what a
+ *            DROPPED SCOPE looks like. Kernel and REST chain measured correct
+ *            throughout. They now take their geometry from the authority
+ *            (`apiVolume`) and hold the panel to it separately
+ *            (`expectPanelSettlesOn`), so the two can never be confused again.
  *
  * `docs/QA-REVIEW.md` (2026-08-27) carries the full findings and evidence.
  */
@@ -30,6 +39,24 @@ import { createPartViaApi, distinctCanvasColors, seedSession } from "./support";
 /** Ø8 through the plate: the exact material one bore removes. */
 function boreVolumeMm3(thicknessMm: number): number {
   return Math.PI * 4 * 4 * thicknessMm;
+}
+
+/**
+ * QA-R4's in-page sampler hand-off. `armed` is the elapsed ms at which the write
+ * was seen to commit (-1 while it has not been), and `moments` are offsets from
+ * THAT instant, so the numbers in the failure message are "after the write" and
+ * not "after some arbitrary setup step".
+ */
+interface StaleReadoutTrace {
+  moments: number[];
+  states: string[];
+  armed: number;
+}
+
+declare global {
+  interface Window {
+    __qaR4?: StaleReadoutTrace;
+  }
 }
 
 async function expectRenderedBody(page: Page): Promise<void> {
@@ -53,6 +80,80 @@ async function volume(page: Page): Promise<number> {
   const value = Number.parseFloat(match?.[0] ?? "");
   expect(Number.isFinite(value), `volume readout: ${text}`).toBe(true);
   return value;
+}
+
+/**
+ * THE PANEL IS NOT A SYNCHRONISATION POINT AFTER A FEATURE WRITE — so the
+ * geometric claim is read from the AUTHORITY, and the panel is held to that
+ * answer separately.
+ *
+ * Measured at 25 ms granularity on 2026-08-27, from the `pattern-submit` click
+ * of a 6 -> 4 count edit on the very part these cases build:
+ *
+ *     t+0    ms  body-status=up-to-date   eval-status=Solved    31,657.09  <- PRE-EDIT body
+ *     t+895  ms  (inspector unmounted)    eval-status=Solving…
+ *     t+2288 ms  body-status=regenerating eval-status=Solved    32,662.4   <- the edit
+ *     t+2859 ms  body-status=up-to-date   eval-status=Solved    32,662.4
+ *
+ * For the first 895 ms the app renders the PRE-EDIT body while BOTH readouts
+ * claim it is current, because the staleness denominator `derivePartBuild` uses
+ * is the client's own feature-tree cache, and that cache has not yet learned the
+ * tree moved. `await expect(eval-status).toHaveText("Solved")` after a submit is
+ * therefore not a barrier at all — it is already true — and the volume read
+ * behind it is the volume from BEFORE the edit.
+ *
+ * That is what made these two cases fail 3/3 (loadavg 1.6 -> 2.8, so not
+ * contention): `filleted - four` read exactly `filleted - six`, which is
+ * indistinguishable from the scope having been dropped — the very symptom REACH-2
+ * exists to prevent, manufactured by the gate rather than by the product. The
+ * kernel and the whole REST chain were measured correct throughout
+ * (count 4 -> 1507.9644737231006, the number the assertion below wants).
+ *
+ * `QA-R4` below is the gate on the panel's own honesty; everything else takes
+ * its numbers from here, so a stale panel can never again be read as a wrong
+ * scope.
+ */
+async function apiVolume(
+  page: Page,
+  token: string,
+  partId: string,
+): Promise<number> {
+  const response = await page.request.post(`/api/v1/parts/${partId}/evaluate`, {
+    data: {},
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok()) {
+    throw new Error(
+      `e2e evaluate failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  const body = (await response.json()) as {
+    properties: { volume: number } | null;
+  };
+  const value = body.properties?.volume;
+  expect(
+    typeof value === "number" && Number.isFinite(value),
+    `evaluate returned no volume: ${JSON.stringify(body.properties)}`,
+  ).toBe(true);
+  return value as number;
+}
+
+/**
+ * The panel must CONVERGE on the authority. Separate assertion, separate
+ * message: a panel that never catches up is a panel defect, and saying so is the
+ * whole point of splitting it out from the geometric claim above.
+ */
+async function expectPanelSettlesOn(
+  page: Page,
+  expected: number,
+  what: string,
+): Promise<void> {
+  await expect
+    .poll(() => volume(page), {
+      timeout: 30_000,
+      message: `the ${what} panel readout never caught up with the authoritative volume ${expected}`,
+    })
+    .toBeCloseTo(expected, 1);
 }
 
 async function sketchRectangleAndSave(page: Page): Promise<void> {
@@ -181,7 +282,8 @@ test.describe("REACH-2 QA — the scope has to survive the SECOND edit", () => {
     await buildPlate(page);
     const drilled = await drillOffCentreHole(page);
     await addFillet(page);
-    const filleted = await volume(page);
+    const filleted = await apiVolume(page, account.token, part.id);
+    await expectPanelSettlesOn(page, filleted, "post-fillet");
 
     // Author the scoped pattern exactly as a user does.
     await page.getByTestId("feature-select-2").click();
@@ -206,9 +308,10 @@ test.describe("REACH-2 QA — the scope has to survive the SECOND edit", () => {
       timeout: 30_000,
     });
 
-    const six = await volume(page);
+    const six = await apiVolume(page, account.token, part.id);
     // Five ADDITIONAL bores (the seed hole is already gone from `filleted`).
     expect(filleted - six).toBeCloseTo(5 * boreVolumeMm3(drilled.thickness), 1);
+    await expectPanelSettlesOn(page, six, "6-up pattern");
 
     // ---- THE CASE UNDER TEST: open it again and change ONE number. ------
     await page.getByTestId("feature-select-4").click();
@@ -228,11 +331,12 @@ test.describe("REACH-2 QA — the scope has to survive the SECOND edit", () => {
       timeout: 30_000,
     });
 
-    const four = await volume(page);
+    const four = await apiVolume(page, account.token, part.id);
     expect(
       filleted - four,
       "a 4-up feature-scoped pattern removes exactly three more bores",
     ).toBeCloseTo(3 * boreVolumeMm3(drilled.thickness), 1);
+    await expectPanelSettlesOn(page, four, "4-up pattern");
 
     // ---- Cross-surface: reload agrees with the viewport and the panel. ---
     await page.reload();
@@ -240,7 +344,7 @@ test.describe("REACH-2 QA — the scope has to survive the SECOND edit", () => {
       timeout: 60_000,
     });
     await expectRenderedBody(page);
-    expect(await volume(page)).toBeCloseTo(four, 1);
+    await expectPanelSettlesOn(page, four, "reloaded");
     await expect(
       page.getByTestId("feature-row").filter({ hasText: "Pattern1" }),
     ).toContainText("Hole1");
@@ -269,7 +373,8 @@ test.describe("REACH-2 QA — the scope has to survive the SECOND edit", () => {
     await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
       timeout: 30_000,
     });
-    const six = await volume(page);
+    const six = await apiVolume(page, account.token, part.id);
+    await expectPanelSettlesOn(page, six, "6-up pattern");
 
     // Now try to delete Hole1 — the feature the pattern NAMES in its scope.
     // The tree's delete warning must know about the scope edge; if it says
@@ -292,11 +397,213 @@ test.describe("REACH-2 QA — the scope has to survive the SECOND edit", () => {
     await expect(page.getByTestId("feature-dependent")).toHaveText("Pattern1");
     await page.getByTestId("feature-delete-cancel").click();
 
-    // Asking did not change the model.
-    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
-      timeout: 30_000,
-    });
-    expect(await volume(page)).toBeCloseTo(six, 1);
+    // Asking did not change the model. The AUTHORITY is what "did not change"
+    // is a claim about — the panel is checked separately, right after.
+    expect(
+      await apiVolume(page, account.token, part.id),
+      "cancelling the delete must leave the body exactly as it was",
+    ).toBeCloseTo(six, 1);
+    await expectPanelSettlesOn(page, six, "post-cancel");
+  });
+
+  /**
+   * QA-R4 — OPEN. The panel reports a mass property from BEFORE a feature write
+   * while claiming, in both of its status cells, to be current.
+   *
+   * IT ENCODES THE DEFECT AS IT EXISTS TODAY, so the suite stays green while it
+   * is open and turns red the moment someone fixes it — this file's convention.
+   * But it asserts that in the POSITIVE and deliberately does NOT use
+   * `test.fail()`, which every other open case here does. Inside a `test.fail()`
+   * ANY failure counts as the expected one, so a sampler that had broken — a
+   * selector renamed, the arming tell moved, a comparison that can never be true
+   * — would report success and this gate would quietly stop meaning anything.
+   * That is the file header's own warning ("a `test.fail()` that starts failing
+   * for a NEW reason is a gate that has quietly stopped meaning anything") one
+   * level up, and it is not hypothetical here: the first draft of this test
+   * compared `innerText` against `textContent` and so could never fire, and only
+   * the negative control caught it. Positive assertions keep the INSTRUMENT
+   * under test alongside the product. WHEN THE DEFECT IS FIXED this test fails
+   * on `moments.length` — invert the two assertions at the bottom to
+   * `toBe(0)`/keep the guard, and it becomes the regression gate.
+   *
+   * WHY IT IS A DEFECT AND NOT A RACE THE TEST SHOULD JUST WAIT OUT. From the
+   * moment the app issues the write it KNOWS the body on screen is superseded —
+   * it is holding the in-flight mutation. `derivePartBuild` cannot see that: its
+   * staleness denominator is `newestTreeVersion(part, tree)`, both of which are
+   * client caches still holding the PRE-write version, so `stale` is false and
+   * `activity` is idle, and every readout downstream says "up to date" about a
+   * body that is not. A user who edits a feature and reads the mass off the panel
+   * inside that window gets the previous part's number with nothing to warn them,
+   * which is the "the part does not silently lie" rule in the sibling case above,
+   * applied to the panel instead of the tree.
+   *
+   * THE FIX IS NOT IN THIS FILE and not in `apps/web/src/features/**`: the write
+   * response already carries the new `tree_version`, so seeding it as the
+   * staleness denominator when the mutation resolves (`runFeatureSave`,
+   * `apps/web/src/routes/PartPage.tsx`) makes `stale` true for exactly this
+   * window and every readout follows from the provenance rule that is already
+   * written down in `partBuild.ts`. Filed for that territory.
+   *
+   * NB `eval-status` is additionally wrong LATER than `body-status` is: it holds
+   * "Solved" while `body-status` has moved to `regenerating` (t+2288 above),
+   * because `derivePartBuild`'s `solve` verdict reads `evaluating` alone and
+   * ignores the `regenerating`/`meshPending` activity its neighbour uses. That is
+   * a second, independent inconsistency in the same derivation.
+   */
+  test("QA-R4 OPEN — the panel reports a pre-edit mass property as up to date", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Stale readout");
+    await page.goto(`/parts/${part.id}`);
+
+    await buildPlate(page);
+    const drilled = await drillOffCentreHole(page);
+    await addFillet(page);
+
+    await page.getByTestId("feature-select-2").click();
+    await page.keyboard.press("Escape");
+    await page.getByTestId("new-pattern").click();
+    await expect(page.getByTestId("pattern-editor")).toBeVisible();
+    await page.getByTestId("pattern-kind-circular").click();
+    await page.getByTestId("pattern-count").fill("6");
+    await page.getByTestId("pattern-axis-x").fill(String(drilled.centre.x));
+    await page.getByTestId("pattern-axis-y").fill(String(drilled.centre.y));
+    await page.getByTestId("pattern-submit").click();
+    const six = await apiVolume(page, account.token, part.id);
+    await expectPanelSettlesOn(page, six, "6-up pattern");
+
+    // The edit whose result the panel is about to misreport.
+    await page.getByTestId("feature-select-4").click();
+    await expect(page.getByTestId("pattern-editor")).toBeVisible();
+    const before = await volume(page);
+    expect(
+      before,
+      "the panel is settled on the 6-up body before the edit",
+    ).toBeCloseTo(six, 1);
+    await page.getByTestId("pattern-count").fill("4");
+
+    // ARM THE SAMPLER BEFORE THE CLICK. Sampling from a `page.evaluate` issued
+    // AFTER the click costs a round trip, and the first draft that did so caught
+    // the lie with a SINGLE sample at t+1 ms — a gate one fast machine away from
+    // finding nothing and inverting its own `test.fail()` into a red build for
+    // nobody's regression.
+    //
+    // t0 is the moment the app COMMITS to the write, read off the DOM: the
+    // submit cell goes `aria-busy` synchronously in `runFeatureSave`, before the
+    // request is even sent. From that instant the app is holding a mutation it
+    // knows supersedes the body on screen, so every later sample is fair game;
+    // samples before it are the correct pre-edit reading and are not counted.
+    //
+    // Compare the NUMBER, never the rendered string: `prop-volume` reads
+    // "Volume\n31,657.09\nmm³" through innerText and "Volume31,657.09mm³"
+    // through textContent, and a gate that compares those two can never fire.
+    // The first draft did exactly that and reported "no lie" against a product
+    // that was lying — the `test.fail()` negative control is what caught it.
+    await page.evaluate(
+      ([staleVolume, budgetMs]) => {
+        const shownVolume = (): number | null => {
+          const raw = document.querySelector(
+            "[data-testid='prop-volume']",
+          )?.textContent;
+          if (raw === undefined || raw === null) return null;
+          const match = raw.replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
+          return match === null ? null : Number.parseFloat(match[0]);
+        };
+        const trace: StaleReadoutTrace = { moments: [], states: [], armed: -1 };
+        window.__qaR4 = trace;
+        const seen = new Set<string>();
+        const started = Date.now();
+        let sawEditor = false;
+        const sample = () => {
+          const elapsed = Date.now() - started;
+          const submitCell = document.querySelector(
+            "[data-testid='pattern-submit']",
+          );
+          const editor = document.querySelector(
+            "[data-testid='pattern-editor']",
+          );
+          if (editor !== null) sawEditor = true;
+          // Either tell that the write is away: the busy flag, or (belt and
+          // braces, in case a sample lands either side of it) the editor having
+          // been torn down after we had seen it.
+          if (
+            trace.armed < 0 &&
+            (submitCell?.getAttribute("aria-busy") === "true" ||
+              (sawEditor && editor === null))
+          ) {
+            trace.armed = elapsed;
+          }
+          const claimed =
+            document
+              .querySelector("[data-testid='body-status']")
+              ?.getAttribute("data-body-status") ?? "(absent)";
+          const solve =
+            document
+              .querySelector("[data-testid='eval-status']")
+              ?.textContent?.trim() ?? "(absent)";
+          const shown = shownVolume();
+          if (trace.armed >= 0) {
+            seen.add(`${claimed}/${solve}/${shown === null ? "-" : "n"}`);
+          }
+          // "Claims current" is BOTH cells, so the assertion cannot be satisfied
+          // by one of them merely being conservative.
+          if (
+            trace.armed >= 0 &&
+            claimed === "up-to-date" &&
+            solve === "Solved" &&
+            shown !== null &&
+            Math.abs(shown - Number(staleVolume)) < 0.05
+          ) {
+            trace.moments.push(elapsed - trace.armed);
+          }
+          trace.states = [...seen];
+          if (elapsed < Number(budgetMs)) window.setTimeout(sample, 10);
+        };
+        sample();
+      },
+      [before, 6000] as const,
+    );
+
+    await page.getByTestId("pattern-submit").click();
+    await page.waitForTimeout(6200);
+    const trace = await page.evaluate(
+      () => window.__qaR4 ?? { moments: [], states: [], armed: -1 },
+    );
+
+    const { moments, states } = trace;
+    // THE INSTRUMENT'S OWN GUARD, first: if the sampler never saw the write go
+    // out it measured nothing, and "no lie found" would be a statement about
+    // this test rather than about the product.
+    expect(
+      trace.armed,
+      "the sampler never saw the write commit (aria-busy / editor teardown), " +
+        "so it measured nothing and the result below is meaningless",
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      states.length,
+      "the sampler armed but recorded no panel states at all",
+    ).toBeGreaterThan(0);
+
+    const span =
+      moments.length === 0
+        ? 0
+        : (moments[moments.length - 1] as number) - (moments[0] as number);
+    expect(
+      moments.length,
+      `THE DEFECT IS FIXED — invert this assertion to toBe(0) and drop "OPEN" ` +
+        `from the title and the file header. The panel no longer claimed ` +
+        `"up to date" AND "Solved" while showing the PRE-EDIT volume ${before}. ` +
+        `States observed after the write: ${states.join(", ")}`,
+    ).toBeGreaterThan(0);
+    // The measured window, logged rather than asserted: its LENGTH is a
+    // performance fact that will move with machine speed, and pinning it would
+    // be an ad-hoc epsilon. Its EXISTENCE is the defect.
+    console.log(
+      `QA-R4: panel claimed current with the pre-edit volume ${before} for ` +
+        `${span} ms (t+${moments[0]}..${moments[moments.length - 1]} ms after ` +
+        `the write, ${moments.length} samples). States: ${states.join(", ")}`,
+    );
   });
 });
 
