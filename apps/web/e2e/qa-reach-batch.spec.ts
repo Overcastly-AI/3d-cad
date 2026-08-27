@@ -19,8 +19,8 @@ import { createPartViaApi, distinctCanvasColors, seedSession } from "./support";
  *   - QA-R1  CLOSED — the offer rail pushed FINISH/CANCEL SKETCH out of a 1280
  *            (and 1366) window. Now a live REGRESSION gate at both widths: the
  *            annotation is gone and the cases below must pass.
- *   - QA-R2  OPEN — an angle glyph keeps a value the solver has already moved
- *            off, on the expression/reference path.
+ *   - QA-R2  CLOSED — an angle glyph kept a value the solver had already moved
+ *            off, on the expression/reference path. Now a live regression gate.
  *   - QA-R3  OPEN — a touch device cannot select two entities, so four of
  *            REACH-1's five new verbs are unreachable there.
  *
@@ -1311,8 +1311,11 @@ test.describe("REACH-1 QA — does the angle ANNOTATION track the model?", () =>
   test("an angle driven by an expression: glyph vs solved geometry", async ({
     page,
   }) => {
-    // QA-R2 — OPEN. The solver holds 45.000 deg; the glyph reads 30 forever.
-    test.fail();
+    // QA-R2 — was OPEN, now the regression gate. Measured 2/2 before the fix:
+    // `ANGLE-EXPR {"shown":"30°","solved":45}` — the solver had moved the model
+    // and the annotation had not. The assertion is deliberately made against
+    // the EVALUATE payload rather than against the glyph alone: a gate that
+    // only reads the glyph passes if the model stops moving too.
     const account = await seedSession(page);
     const part = await createPartViaApi(page, account.token, "Angle expr");
     const evaluations = collectEvaluations(page, part.id);
@@ -1350,9 +1353,81 @@ test.describe("REACH-1 QA — does the angle ANNOTATION track the model?", () =>
     const shown = await glyph.innerText();
     const solved = solvedAngleDeg(evaluations);
     console.log("ANGLE-EXPR", JSON.stringify({ shown, solved }));
+    // Captured BEFORE the assertion, so a regression leaves a picture of the
+    // glyph that disagreed with the model rather than only a failure message.
+    await page.screenshot({ path: "test-results/qa-reach2-angle-expr.png" });
     expect(
       shown,
       "the glyph must not contradict the geometry the solver produced",
     ).toMatch(/45/);
+  });
+
+  /**
+   * The other half of QA-R2's root cause, and the one an expression test cannot
+   * reach: a REFERENCE (driven) angle is MEASURED from the solved geometry, so
+   * the client has no number of its own at all — it can only report what the
+   * solver sends or lie. Asserted against the evaluate payload rather than a
+   * literal, because the point is that the two AGREE, not what they agree on.
+   */
+  test("a reference angle tracks the geometry when something else moves it", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Angle ref");
+    const evaluations = collectEvaluations(page, part.id);
+    await page.goto(`/parts/${part.id}`);
+    await enterSketch(page, "XY");
+    const at = await calibratePlane(
+      page,
+      { x: 640, y: 560 },
+      { x: 940, y: 380 },
+    );
+    await drawLine(page, at, { x: 0, y: 0 }, { x: 30, y: 10 });
+    await drawLine(page, at, { x: 0, y: 0 }, { x: 10, y: 30 });
+    await clickPlane(page, at, { x: 24, y: 8 });
+    await addPlane(page, at, { x: 8, y: 24 });
+
+    // Author it as a REFERENCE: measured, never fed to the solver.
+    await page.keyboard.press("a");
+    await page.getByTestId("dimension-driven").click();
+    await page.getByTestId("dimension-apply").click();
+    const glyph = page.locator('[data-testid^="glyph-"][data-kind="angle"]');
+    await expect(glyph).toHaveCount(1, { timeout: 20_000 });
+    // Drafting convention: a measured value wears parentheses.
+    await expect(glyph).toHaveText(/\(/, { timeout: 20_000 });
+    const asAuthored = await glyph.innerText();
+
+    // Now MOVE one of the lines with an unrelated constraint. The reference
+    // angle has to follow the geometry it measures.
+    await page.keyboard.press("Escape");
+    await clickPlane(page, at, { x: 24, y: 8 });
+    await page.keyboard.press("h");
+
+    await expect
+      .poll(
+        async () => {
+          const solvedNow = solvedAngleDeg(evaluations);
+          const text = await glyph.innerText();
+          if (solvedNow === null) return false;
+          const shownNow = Number.parseFloat(text.replace(/[()°]/g, ""));
+          return Math.abs(shownNow - solvedNow) < 0.05;
+        },
+        { timeout: 25_000 },
+      )
+      .toBe(true);
+
+    const after = await glyph.innerText();
+    console.log(
+      "ANGLE-REFERENCE",
+      JSON.stringify({
+        asAuthored,
+        after,
+        solved: solvedAngleDeg(evaluations),
+      }),
+    );
+    expect(
+      after,
+      "the reference reading must change when the geometry it measures does",
+    ).not.toBe(asAuthored);
   });
 });

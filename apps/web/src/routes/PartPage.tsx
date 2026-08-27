@@ -924,10 +924,15 @@ export function PartPage() {
       };
       // The per-dimension readouts line each glyph up with its authored
       // constraint (a driving dim's evaluated value / a driven dim's measured).
+      // BOTH lists, always: the solver reports linear and angular separately so
+      // no consumer can read a degree out of `value_mm`, and passing only the
+      // linear half is QA-R2 — an expression-driven angle whose glyph kept the
+      // placeholder 30 while the model moved to 45.
       store.adoptSolved(
         result.data.entities,
         info,
         result.data.dimensions ?? [],
+        result.data.angles ?? [],
       );
       return;
     }

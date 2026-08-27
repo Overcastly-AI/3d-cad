@@ -22,6 +22,89 @@ export type SolveStatus = components["schemas"]["SolvedSketchData"]["status"];
  * expression/literal; for a DRIVEN dim it is measured from the solved geometry.
  */
 export type SolvedDimension = components["schemas"]["SolvedDimension"];
+/**
+ * One solved ANGULAR readout, in degrees, on the same `constraint_index` space
+ * as {@link SolvedDimension}. The contract keeps the two lists apart on purpose
+ * — there is no honest millimetre value for an angle, and `value_mm` is a
+ * required field every linear consumer reads unconditionally — so the merge
+ * happens here, once, in {@link solvedReadouts}.
+ */
+export type SolvedAngle = components["schemas"]["SolvedAngle"];
+
+/**
+ * THE readout the sketcher shows for one dimension, whatever its unit — the
+ * single merge point for `SolvedSketch.dimensions` + `SolvedSketch.angles`.
+ *
+ * QA-R2: the two wire lists were never merged, so `apps/web/src` read the
+ * linear list alone and NOTHING read `angles`. An angle driven by an expression
+ * therefore kept the placeholder degrees the client had guessed while the
+ * solver moved the model: authored 30, re-driven `15*3`, the geometry went to
+ * 45.000 and the glyph read `30°` forever. An annotation that contradicts the
+ * geometry is worse than an absent one, because it looks authoritative.
+ *
+ * `value` is in the constraint's OWN unit and `unit` says which, so a consumer
+ * cannot read degrees out of something named for millimetres — the property the
+ * split existed to protect, kept without forcing every reader to merge lists.
+ */
+export interface SolvedReadout {
+  constraint_index: number;
+  driving: boolean;
+  expression: string | null;
+  name: string | null;
+  /** The solved value in `unit`: evaluated if driving, measured if driven. */
+  value: number;
+  unit: "mm" | "deg";
+}
+
+/**
+ * Merge the solver's two per-dimension lists into one lookup by
+ * `constraint_index`. A constraint is linear or angular and never both, so an
+ * index collision means the payload disagrees with itself; the LINEAR entry
+ * wins and the angular one is dropped, but the unit rides along either way, so
+ * the readers below still refuse a readout whose unit does not match the
+ * constraint they are drawing. Silently showing the wrong unit is the failure
+ * this whole split exists to prevent.
+ */
+export function solvedReadouts(
+  dimensions: readonly SolvedDimension[],
+  angles: readonly SolvedAngle[],
+): Map<number, SolvedReadout> {
+  const byIndex = new Map<number, SolvedReadout>();
+  for (const angle of angles) {
+    byIndex.set(angle.constraint_index, {
+      constraint_index: angle.constraint_index,
+      driving: angle.driving,
+      expression: angle.expression ?? null,
+      name: angle.name ?? null,
+      value: angle.value_deg,
+      unit: "deg",
+    });
+  }
+  for (const dimension of dimensions) {
+    byIndex.set(dimension.constraint_index, {
+      constraint_index: dimension.constraint_index,
+      driving: dimension.driving,
+      expression: dimension.expression ?? null,
+      name: dimension.name ?? null,
+      value: dimension.value_mm,
+      unit: "mm",
+    });
+  }
+  return byIndex;
+}
+
+/** The readout for `index`, or undefined unless its unit is the one asked for. */
+export function readoutIn(
+  solved: ReadonlyMap<number, SolvedReadout> | undefined,
+  index: number | null | undefined,
+  unit: "mm" | "deg",
+): SolvedReadout | undefined {
+  if (solved === undefined || index === null || index === undefined) {
+    return undefined;
+  }
+  const readout = solved.get(index);
+  return readout?.unit === unit ? readout : undefined;
+}
 
 /** Constraint verbs — the keyboard-first strip actions. */
 export type ConstraintAction =
@@ -1265,16 +1348,17 @@ const RELATIONAL_LABEL: Record<
  * Constraints → annotation glyphs at their current (solved) geometry.
  * Letters and numbers only — Fragment Mono native, no icon font, no badge.
  *
- * `solved` (keyed by `constraint_index`) carries the per-dimension solve
- * readouts: a driving dim shows its EVALUATED value (an expression `width/2`
- * reads as `10`), a driven dim its MEASURED value in reference parentheses.
- * Pre-solve (no map) the glyph falls back to the authored `value_mm`/flag.
+ * `solved` (keyed by `constraint_index`, built by {@link solvedReadouts}) carries
+ * the per-dimension solve readouts in their own units: a driving dim shows its
+ * EVALUATED value (an expression `width/2` reads as `10`, `15*3` as `45°`), a
+ * driven dim its MEASURED value in reference parentheses. Pre-solve (no map)
+ * the glyph falls back to the authored `value_mm` / `value_deg` and flag.
  */
 export function constraintGlyphs(
   constraints: readonly SketchConstraint[],
   entities: readonly SketchEntity[],
   offsetMm: number,
-  solved?: ReadonlyMap<number, SolvedDimension>,
+  solved?: ReadonlyMap<number, SolvedReadout>,
 ): ConstraintGlyph[] {
   const byId = new Map(entities.map((e) => [e.id, e]));
   const glyphs: ConstraintGlyph[] = [];
@@ -1305,12 +1389,12 @@ export function constraintGlyphs(
       case "diameter": {
         const entity = byId.get(constraint.entity);
         if (entity === undefined) return;
-        const readout = solved?.get(index);
+        const readout = readoutIn(solved, index, "mm");
         const driven =
           readout !== undefined
             ? !readout.driving
             : constraint.driving === false;
-        const value = readout?.value_mm ?? constraint.value_mm;
+        const value = readout?.value ?? constraint.value_mm;
         glyphs.push({
           index,
           kind: constraint.kind,
@@ -1330,24 +1414,31 @@ export function constraintGlyphs(
         const a = byId.get(constraint.a);
         const b = byId.get(constraint.b);
         if (a === undefined || b === undefined) return;
-        // Degrees ride `SolvedSketch.angles`, a list this glyph builder is not
-        // given (it takes only the LINEAR readouts, by design — no consumer
-        // may read a degree out of a field named value_mm). The authored
-        // `value_deg` IS the driving number the solver was handed, so a
-        // driving angle reads true here; a DRIVEN angle shows its last
-        // resolved value until the angles list is plumbed through.
+        // Degrees ride `SolvedSketch.angles` and reach this builder through the
+        // SAME merged map as the linear readouts (`readoutIn` refuses a
+        // millimetre reading here, so the split's guarantee is kept by the
+        // lookup rather than by withholding the list). QA-R2: without it the
+        // label was the authored `value_deg` — true for a bare literal, and a
+        // LIE for an expression or a reference angle, where the solver holds a
+        // value the client never computed. Pre-solve it still falls back to the
+        // authored number, which is the best available reading then.
+        const readout = readoutIn(solved, index, "deg");
+        const driven =
+          readout !== undefined
+            ? !readout.driving
+            : constraint.driving === false;
         glyphs.push({
           index,
           kind: "angle",
           label: formatDimensionLabel(
             "angle",
-            constraint.value_deg,
-            constraint.driving === false,
+            readout?.value ?? constraint.value_deg,
+            driven,
           ),
           anchor: angleAnchor(a, b, constraints, offsetMm),
           editable: true,
-          driven: constraint.driving === false,
-          expression: constraint.expression ?? null,
+          driven,
+          expression: readout?.expression ?? constraint.expression ?? null,
         });
         return;
       }

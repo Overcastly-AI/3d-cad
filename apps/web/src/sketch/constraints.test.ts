@@ -15,9 +15,9 @@ import {
   sameConstraint,
   selectionAllConstruction,
   solveDiagnostic,
+  solvedReadouts,
   toggleConstruction,
   type SketchConstraint,
-  type SolvedDimension,
 } from "./constraints";
 import { DATUM_X_AXIS_ID, datumEntities, datumFrame } from "./datum";
 import type { SketchPick } from "./pick";
@@ -749,10 +749,9 @@ describe("constraintGlyphs — engineering notation", () => {
       },
       { kind: "radius", entity: "e3", value_mm: 12.5, driving: false },
     ];
-    const solved = new Map<number, SolvedDimension>([
-      [0, { constraint_index: 0, name: "width", driving: true, value_mm: 20 }],
+    const solved = solvedReadouts(
       [
-        1,
+        { constraint_index: 0, name: "width", driving: true, value_mm: 20 },
         {
           constraint_index: 1,
           name: null,
@@ -760,15 +759,136 @@ describe("constraintGlyphs — engineering notation", () => {
           value_mm: 10,
           expression: "width/2",
         },
+        { constraint_index: 2, name: null, driving: false, value_mm: 12.5 },
       ],
-      [2, { constraint_index: 2, name: null, driving: false, value_mm: 12.5 }],
-    ]);
+      [],
+    );
     const glyphs = constraintGlyphs(withDims, entities, 3.5, solved);
     // Driving literal → "20"; driving expression → its resolved "10"; driven
     // radius → reference parentheses "(R12.5)".
     expect(glyphs.map((g) => g.label)).toEqual(["20", "10", "(R12.5)"]);
     expect(glyphs.map((g) => g.driven)).toEqual([false, false, true]);
     expect(glyphs[1]?.expression).toBe("width/2");
+  });
+
+  /**
+   * QA-R2. Degrees ride `SolvedSketch.angles`, millimetres `SolvedSketch
+   * .dimensions`, and nothing in `apps/web/src` read the first — so an angle
+   * driven by an expression kept the placeholder the client had guessed while
+   * the solver moved the model: authored 30, re-driven `15*3`, geometry at
+   * 45.000, glyph reading `30°` for ever.
+   */
+  describe("angles: the glyph must show what the SOLVER holds", () => {
+    const corner: SketchEntity[] = [
+      {
+        id: "a",
+        kind: "line",
+        start: { x: 0, y: 0 },
+        end: { x: 30, y: 0 },
+        construction: false,
+      },
+      {
+        id: "b",
+        kind: "line",
+        start: { x: 0, y: 0 },
+        end: { x: 20, y: 20 },
+        construction: false,
+      },
+    ];
+    const angleAt = (
+      value_deg: number,
+      extra: Partial<SketchConstraint> = {},
+    ): SketchConstraint[] => [
+      {
+        kind: "angle",
+        a: "a",
+        b: "b",
+        value_deg,
+        ...extra,
+      } as SketchConstraint,
+    ];
+
+    it("an expression-driven angle reads the RESOLVED degrees, not the placeholder", () => {
+      const solved = solvedReadouts(
+        [],
+        [
+          {
+            constraint_index: 0,
+            name: null,
+            driving: true,
+            value_deg: 45,
+            expression: "15*3",
+          },
+        ],
+      );
+      const glyphs = constraintGlyphs(
+        angleAt(30, { expression: "15*3" }),
+        corner,
+        3.5,
+        solved,
+      );
+      expect(glyphs[0]?.label).toBe("45°");
+      expect(glyphs[0]?.driven).toBe(false);
+      expect(glyphs[0]?.expression).toBe("15*3");
+    });
+
+    it("a DRIVEN (reference) angle reads its measured degrees, parenthesised", () => {
+      const solved = solvedReadouts(
+        [],
+        [{ constraint_index: 0, name: null, driving: false, value_deg: 33.69 }],
+      );
+      const glyphs = constraintGlyphs(
+        angleAt(30, { driving: false }),
+        corner,
+        3.5,
+        solved,
+      );
+      expect(glyphs[0]?.label).toBe("(33.69°)");
+      expect(glyphs[0]?.driven).toBe(true);
+    });
+
+    it("falls back to the authored degrees before the first solve", () => {
+      const glyphs = constraintGlyphs(angleAt(30), corner, 3.5);
+      expect(glyphs[0]?.label).toBe("30°");
+    });
+
+    /**
+     * The property the split of `SolvedAngle` off `SolvedDimension` exists to
+     * protect, kept by the LOOKUP rather than by withholding a list: a readout
+     * whose unit is not the constraint's is refused, so a payload that
+     * disagreed with itself can never put millimetres in a degree glyph.
+     */
+    it("refuses a millimetre readout for an angle, and vice versa", () => {
+      const wrongUnit = solvedReadouts(
+        [{ constraint_index: 0, name: null, driving: true, value_mm: 999 }],
+        [],
+      );
+      expect(
+        constraintGlyphs(angleAt(30), corner, 3.5, wrongUnit)[0]?.label,
+      ).toBe("30°");
+
+      const alsoWrong = solvedReadouts(
+        [],
+        [{ constraint_index: 0, name: null, driving: true, value_deg: 999 }],
+      );
+      const linear = constraintGlyphs(
+        [{ kind: "distance", entity: "e1", value_mm: 40 }],
+        entities,
+        3.5,
+        alsoWrong,
+      );
+      expect(linear[0]?.label).toBe("40");
+    });
+
+    it("merges both lists into one index space", () => {
+      const merged = solvedReadouts(
+        [{ constraint_index: 1, name: null, driving: true, value_mm: 10 }],
+        [{ constraint_index: 0, name: null, driving: true, value_deg: 45 }],
+      );
+      expect(merged.get(0)).toMatchObject({ value: 45, unit: "deg" });
+      expect(merged.get(1)).toMatchObject({ value: 10, unit: "mm" });
+      expect(merged.size).toBe(2);
+    });
   });
 
   it("without a solved map, a driven flag alone parenthesises the label", () => {

@@ -44,6 +44,7 @@ import {
   type DimensionCommit,
   type DimensionEditorTarget,
   type SketchConstraint,
+  type SolvedAngle,
   type SolvedDimension,
   type SolveInfo,
 } from "./constraints";
@@ -397,6 +398,15 @@ export interface SketchState {
    * expression `width/2` shows as its resolved `10`.
    */
   solvedDimensions: SolvedDimension[];
+  /**
+   * The ANGULAR half of the same readout, in DEGREES, on the same
+   * `constraint_index` space — the solver reports the two separately so that no
+   * consumer can read a degree out of a field named `value_mm`. Readers merge
+   * the two with `solvedReadouts(…)` rather than picking one: reading only this
+   * list's linear sibling is QA-R2, where an expression-driven angle showed the
+   * placeholder 30 while the model sat at 45.
+   */
+  solvedAngles: SolvedAngle[];
   /** Transient strip hint (invalid constraint action, duplicates, …). */
   hint: string | null;
   /**
@@ -638,13 +648,16 @@ export interface SketchState {
   bind: (featureId: string) => void;
   /**
    * Feed solved geometry + diagnosis back in (never bumps `revision`).
-   * `dimensions`, when provided, replaces the per-dimension readouts; omit it
-   * (error paths) to keep the last-good readouts.
+   * `dimensions` / `angles`, when provided, replace the per-dimension readouts;
+   * omit them (error paths) to keep the last-good readouts. They travel
+   * TOGETHER — an evaluate that reports one reports both, and adopting the
+   * linear list while leaving stale degrees behind is the shape of QA-R2.
    */
   adoptSolved: (
     entities: readonly SketchEntity[] | null,
     solve: SolveInfo | null,
     dimensions?: readonly SolvedDimension[],
+    angles?: readonly SolvedAngle[],
   ) => void;
   /**
    * Escape cascade: editor → placement → tool → selection → and then STOP.
@@ -699,6 +712,7 @@ const INITIAL = {
   future: [],
   solve: null,
   solvedDimensions: [],
+  solvedAngles: [],
   hint: null,
   edit: null,
   editBusy: false,
@@ -1776,9 +1790,17 @@ const createSketchState = (
 
   bind: (featureId) => set({ featureId }),
 
-  adoptSolved: (entities, solve, dimensions) => {
-    const dims =
-      dimensions === undefined ? {} : { solvedDimensions: [...dimensions] };
+  adoptSolved: (entities, solve, dimensions, angles) => {
+    const dims = {
+      ...(dimensions === undefined
+        ? {}
+        : { solvedDimensions: [...dimensions] }),
+      // An evaluate with no angle constraints sends an EMPTY list, not a
+      // missing one, so `[]` must clear the previous degrees rather than be
+      // mistaken for "no report" — deleting the last angle would otherwise
+      // leave its reading behind for the next one to inherit.
+      ...(angles === undefined ? {} : { solvedAngles: [...angles] }),
+    };
     // THE seam where the solve report becomes something the user is shown.
     // Sanitised once, here, rather than at each of the three readers (the DRO
     // cell, the diagnostic banner, the flagged-glyph set) — one filter cannot

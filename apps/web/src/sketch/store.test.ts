@@ -1088,6 +1088,49 @@ describe("adoptSolved — the loop terminator", () => {
     expect(store().solvedDimensions).toEqual(dims);
     expect(store().solve?.status).toBe("invalid");
   });
+
+  /**
+   * QA-R2: the ANGULAR readouts ride their own list (degrees have no honest
+   * `value_mm`) and nothing adopted them, so an expression-driven angle kept
+   * the placeholder the client guessed while the model moved.
+   */
+  it("adopts the angular readouts too, and an empty list CLEARS them", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    const angles = [
+      {
+        constraint_index: 0,
+        name: null,
+        driving: true,
+        value_deg: 45,
+        expression: "15*3",
+      },
+    ];
+    const solving = {
+      status: "converged" as const,
+      dof: 0,
+      conflicting: [],
+      redundant: [],
+    };
+    store().adoptSolved([], solving, [], angles);
+    expect(store().solvedAngles).toEqual(angles);
+
+    // Omitted (an error path) → the last-good degrees survive, exactly as the
+    // linear list does.
+    store().adoptSolved(null, {
+      status: "invalid",
+      dof: null,
+      conflicting: [],
+      redundant: [],
+      message: "unknown dimension 'wdth'",
+    });
+    expect(store().solvedAngles).toEqual(angles);
+
+    // But an EMPTY list is a report, not a silence: deleting the last angle
+    // must not leave its reading behind for the next one to inherit.
+    store().adoptSolved([], solving, [], []);
+    expect(store().solvedAngles).toEqual([]);
+  });
 });
 
 describe("escape cascade", () => {
