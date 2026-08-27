@@ -81,6 +81,22 @@ interface Pt {
   y: number;
 }
 
+/** Map viewport pixels back to SHEET millimetres, via the SVG's inverse CTM. */
+async function clientToSheet(page: Page, at: Pt): Promise<Pt> {
+  return page.evaluate(({ x, y }) => {
+    const svg = document.querySelector(
+      '[data-testid="drawing-sheet"]',
+    ) as SVGSVGElement | null;
+    const ctm = svg?.getScreenCTM();
+    if (!svg || !ctm) throw new Error("sheet has no screen CTM");
+    const p = svg.createSVGPoint();
+    p.x = x;
+    p.y = y;
+    const mapped = p.matrixTransform(ctm.inverse());
+    return { x: mapped.x, y: mapped.y };
+  }, at);
+}
+
 /** Map a point in SHEET millimetres to viewport pixels, via the SVG's own CTM. */
 async function sheetToClient(page: Page, at: Pt): Promise<Pt> {
   return page.evaluate(({ x, y }) => {
@@ -412,6 +428,292 @@ test("land on an exact round offset — by nudging, and by typing", async ({
   // …and the paper agrees: the dimension line is exactly 25 mm off the edge.
   const placed = await lineMm(page, placedLine);
   expect(distanceToLine(edgeMid, placed)).toBeCloseTo(25, 2);
+});
+
+/** Author a linear dimension on a view's 40 mm edge at exactly `offsetMm`. */
+async function dimensionLongEdge(page: Page, view: string, offsetMm: number) {
+  const edge = await longestHorizontalEdge(page, view);
+  await edge.click();
+  await page.getByTestId("dimension-type-linear").click();
+  const field = page.getByTestId("dimension-offset-field");
+  await expect(field).toHaveAttribute("data-offset-mm", "11.00");
+  if (offsetMm < 0) await page.keyboard.press("-");
+  await page.keyboard.type(String(Math.abs(offsetMm)));
+  await expect(field).toHaveValue(String(offsetMm));
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("drawing-dimension")).toHaveCount(1, {
+    timeout: 30_000,
+  });
+}
+
+test("move a dimension that is already on the paper", async ({ page }) => {
+  const account = await seedSession(page);
+  const drawingId = await layOutPlateDrawing(page, account.token);
+
+  const longEdge = await longestHorizontalEdge(page, "top");
+  await longEdge.click();
+  await page.getByTestId("dimension-type-linear").click();
+  await page.keyboard.press("ArrowUp"); // 11 -> 12, so this one IS hand-placed
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("drawing-dimension")).toHaveCount(1, {
+    timeout: 30_000,
+  });
+  expect(
+    (await storedDimensions(page, account.token, drawingId))[0]!.dimension
+      .placement!.offset_mm,
+  ).toBe(12);
+
+  // The dimension is a real control now: a labelled, focusable grab on its
+  // value stamp. It used to measure `cursor: auto`, no tabindex, no role, no
+  // aria-label, and a press-drag across it moved nothing at all — the panel's
+  // only offer was Delete (frontend-QA 2026-08-27, P1-E).
+  const grab = page.getByTestId("dimension-grab");
+  await expect(grab).toHaveAttribute(
+    "aria-label",
+    /Move the 40\.000 linear dimension in the Top view/,
+  );
+  await expect(grab).toHaveAttribute("tabindex", "0");
+
+  // --- PRESS-DRAG it, the way a user tries first. --------------------------
+  const box = await grab.boundingBox();
+  if (!box) throw new Error("no grab box");
+  const rule = await lineMm(page, placedLine);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  // The stage is live and the ghost has taken over from the ink.
+  await expect(page.getByTestId("dimension-ghost")).toHaveCount(1);
+  await expect(page.getByTestId("drawing-dimension")).toHaveCount(0);
+  const field = page.getByTestId("dimension-offset-field");
+  // It re-opens AT the offset it is already placed at, not at a default: you
+  // are adjusting the dimension, not re-authoring it.
+  await expect(field).toHaveAttribute("data-offset-mm", "12.00");
+
+  const startMm = { x: rule.x1, y: rule.y1 };
+  const toMm = { x: startMm.x, y: startMm.y + 14 };
+  const toPx = await sheetToClient(page, toMm);
+  await page.mouse.move(toPx.x, toPx.y, { steps: 6 });
+  await page.mouse.up();
+
+  // Released, so it is written — no second click needed.
+  await expect(page.getByTestId("drawing-dimension")).toHaveCount(1, {
+    timeout: 30_000,
+  });
+  const stored = await storedDimensions(page, account.token, drawingId);
+  // Still exactly ONE dimension: the move is an append + a delete, never a
+  // duplicate left behind.
+  expect(stored).toHaveLength(1);
+  expect(stored[0]!.dimension.placement!.offset_mm).not.toBe(12);
+  const moved = await lineMm(page, placedLine);
+  expect(Math.abs(moved.y1 - rule.y1)).toBeGreaterThan(6);
+
+  // --- And the keyboard route reaches the same stage, and the same field. --
+  await page.getByTestId("dimension-move").click();
+  await expect(page.getByTestId("dimension-ghost")).toHaveCount(1);
+  await page.keyboard.press("-");
+  await page.keyboard.type("40");
+  await expect(field).toHaveValue("-40");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("drawing-dimension")).toHaveCount(1, {
+    timeout: 30_000,
+  });
+  const after = await storedDimensions(page, account.token, drawingId);
+  expect(after).toHaveLength(1);
+  expect(after[0]!.dimension.placement!.offset_mm).toBe(-40);
+
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/drawings-dimension-moved-1280.png`,
+  });
+});
+
+test("dropping a grabbed dimension where it already is changes nothing", async ({
+  page,
+}) => {
+  const account = await seedSession(page);
+  const drawingId = await layOutPlateDrawing(page, account.token);
+  // Outside the view outline, where drafting standards put a dimension — and
+  // where the sheet grab is the topmost thing under the pointer. See the
+  // ordering case below for what happens when it is dragged inside one.
+  await dimensionLongEdge(page, "top", 20);
+  const before = await storedDimensions(page, account.token, drawingId);
+  const beforeLine = await lineMm(page, placedLine);
+
+  // Press and release without moving: a grab-and-drop-in-place must not cost
+  // a delete, an append and a new id for no change on the paper.
+  const grab = page.getByTestId("dimension-grab");
+  const box = await grab.boundingBox();
+  if (!box) throw new Error("no grab box");
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  // The press alone opens the stage — that is what makes a press-DRAG work,
+  // and it works even where a view's drag plate covers the dimension, which
+  // in a padded frame is most of the gutter dimensions actually live in.
+  await expect(page.getByTestId("dimension-ghost")).toHaveCount(1);
+  await page.mouse.up();
+  // And the ghost stays up through the release, because a bare press is the
+  // click-to-grab half of the gesture: the next click drops it. Escape backs
+  // out with the dimension exactly where it was.
+  await expect(page.getByTestId("dimension-ghost")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("dimension-ghost")).toHaveCount(0);
+  await expect(page.getByTestId("drawing-dimension")).toHaveCount(1);
+
+  const after = await storedDimensions(page, account.token, drawingId);
+  expect(after).toEqual(before);
+  const afterLine = await lineMm(page, placedLine);
+  expect(afterLine).toEqual(beforeLine);
+});
+
+test("a dimension dragged over its own view is still not a dead end", async ({
+  page,
+}) => {
+  const account = await seedSession(page);
+  const drawingId = await layOutPlateDrawing(page, account.token);
+  // ACROSS the view outline, where the dimension's stamp lands on top of the
+  // hole's own pick target. GEOMETRY WINS, deliberately and by paint order —
+  // that is the whole of P2-B, and it is why the grab layer is painted ahead
+  // of every view. So this is the one position from which a dimension cannot
+  // be grabbed off the paper, and the DIMENSIONS panel's Move is the route
+  // that keeps it from being a dead end. (`no dead ends` is the rule; `only
+  // one route` is not.) The plate/grab contest is settled the other way — see
+  // `onFramePointerDown` — so this is specifically about geometry.
+  await dimensionLongEdge(page, "top", -20);
+  const grab = page.getByTestId("dimension-grab");
+  const box = await grab.boundingBox();
+  if (!box) throw new Error("no grab box");
+  const topmost = await page.evaluate(
+    ({ x, y }) =>
+      document
+        .elementFromPoint(x, y)
+        ?.closest("[data-testid]")
+        ?.getAttribute("data-testid") ?? "-",
+    { x: box.x + box.width / 2, y: box.y + box.height / 2 },
+  );
+  expect(topmost).not.toBe("dimension-grab");
+
+  await page.getByTestId("dimension-move").click();
+  await expect(page.getByTestId("dimension-ghost")).toHaveCount(1);
+  await expect(page.getByTestId("dimension-offset-field")).toHaveAttribute(
+    "data-offset-mm",
+    "-20.00",
+  );
+  await page.keyboard.press("-");
+  await page.keyboard.type("30");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("drawing-dimension")).toHaveCount(1, {
+    timeout: 30_000,
+  });
+  const stored = await storedDimensions(page, account.token, drawingId);
+  expect(stored).toHaveLength(1);
+  expect(stored[0]!.dimension.placement!.offset_mm).toBe(-30);
+});
+
+test("a placed dimension's ink never eats another view's pick target", async ({
+  page,
+}) => {
+  const account = await seedSession(page);
+  await layOutPlateDrawing(page, account.token);
+
+  // Dimension the TOP view's 40 mm edge, then DRAG that dimension until it
+  // lies exactly across one of the FRONT view's own 40 mm pick targets — the
+  // case the review reproduced, where the value stamp made that target
+  // unreachable at its midpoint (`elementFromPoint` returned
+  // `text[drawing-dimension-value]`) and the only cure was deleting the
+  // dimension (frontend-QA 2026-08-27, P2-B). Dragging it there rather than
+  // guessing an offset is what keeps this case honest: free placement makes
+  // the collision easy to reach by hand, so the test reaches it by hand.
+  const topEdge = await longestHorizontalEdge(page, "top");
+  await topEdge.click();
+  await page.getByTestId("dimension-type-linear").click();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("drawing-dimension")).toHaveCount(1, {
+    timeout: 30_000,
+  });
+
+  const front = await longestHorizontalEdge(page, "front");
+  const box = await front.boundingBox();
+  if (!box) throw new Error("front 40 mm edge has no box");
+  const y = box.y + box.height / 2;
+
+  // A drafting value stamp sits ABOVE its dimension line, not on it, so aiming
+  // the LINE at the edge would leave the stamp a few pixels clear of it. Read
+  // that standoff off the sheet as it is now and aim past it, so the collision
+  // this case needs is produced rather than hoped for.
+  const standoffMm = await page.evaluate(() => {
+    const line = document.querySelector(
+      '[data-testid="drawing-dimension"] line[data-dim-line-role="dimension"]',
+    );
+    const text = document.querySelector(
+      '[data-testid="drawing-dimension-value"]',
+    );
+    if (!line || !text) throw new Error("no placed dimension");
+    return Number(line.getAttribute("y1")) - Number(text.getAttribute("y"));
+  });
+
+  const grab = page.getByTestId("dimension-grab");
+  const grabBox = await grab.boundingBox();
+  if (!grabBox) throw new Error("no grab box");
+  await page.mouse.move(
+    grabBox.x + grabBox.width / 2,
+    grabBox.y + grabBox.height / 2,
+  );
+  await page.mouse.down();
+  const onto = await clientToSheet(page, { x: box.x + box.width / 2, y });
+  const ontoPx = await sheetToClient(page, {
+    x: onto.x,
+    y: onto.y + standoffMm,
+  });
+  await page.mouse.move(ontoPx.x, ontoPx.y, { steps: 6 });
+  await page.mouse.up();
+
+  // NON-VACUITY. This case is worthless unless the dimension's ink actually
+  // lands across the target it is supposed to be able to eat, so prove the
+  // overlap before asserting it is harmless. Both the value stamp and the grab
+  // target are checked: the stamp is painted ABOVE the neighbouring view (ink
+  // belongs on top), and the grab is painted below it, and the point of the fix
+  // is that neither of those facts can cost the user a pick.
+  // (Polled, because the move is an append followed by a delete: the count is
+  // briefly 2 and then 1, so a bare count assertion can pass on the PRE-move
+  // sheet and read the old position.)
+  await expect
+    .poll(
+      async () =>
+        page.evaluate((scanY) => {
+          const rect = (sel: string) =>
+            document.querySelector(sel)?.getBoundingClientRect() ?? null;
+          const value = rect('[data-testid="drawing-dimension-value"]');
+          const grab = rect('[data-testid="dimension-grab"]');
+          if (!value || !grab) return "missing";
+          const covers = (r: DOMRect) => r.top <= scanY && r.bottom >= scanY;
+          return `${covers(value) ? "value" : "-"}/${covers(grab) ? "grab" : "-"}`;
+        }, y),
+      { timeout: 30_000 },
+    )
+    .toBe("value/grab");
+
+  const hits = await Promise.all(
+    Array.from({ length: 18 }, (_, i) =>
+      page.evaluate(
+        ({ px, py }) => {
+          const el = document.elementFromPoint(px, py);
+          const control = el?.closest(
+            '[data-testid="drawing-pick-edge"],[data-testid="drawing-pick-vertex"]',
+          );
+          return control
+            ? (control.getAttribute("data-testid") ?? "?")
+            : `${el?.tagName}:${el?.closest("[data-testid]")?.getAttribute("data-testid") ?? "-"}`;
+        },
+        { px: box.x + (box.width * (i + 0.5)) / 18, py: y },
+      ),
+    ),
+  );
+  // Nothing belonging to a dimension may win here — not its text, not its
+  // lines, and not its grab target, which is painted under the geometry.
+  expect(hits.filter((h) => h.includes("dimension"))).toEqual([]);
+  expect(hits.filter((h) => !h.startsWith("drawing-pick"))).toEqual([]);
+
+  // And the user's own mechanism still reaches it.
+  await page.mouse.click(box.x + box.width / 2, y);
+  await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
 });
 
 test("escape backs out of the placement without losing the pick", async ({

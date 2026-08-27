@@ -10,6 +10,7 @@ import {
   armPair,
   armedSignatures,
   beginPlacement,
+  beginReplacement,
   buildDimension,
   cancelPlacement,
   commitParams,
@@ -20,7 +21,9 @@ import {
   pickEdge,
   pickEndpoint,
   pickHint,
+  placementMoved,
   placementOffsetMm,
+  placementReplaces,
   placementTarget,
   placementTextPos,
   quantise,
@@ -214,6 +217,70 @@ const CIRCLE_GEOM = {
   circle: { center: { x: 20, y: 100 }, radius: 5 },
   viewAnchor: { x: 20, y: 100 },
 };
+
+describe("re-placing a dimension already on the paper", () => {
+  const TARGET: PlaceTarget = {
+    mode: "offset",
+    span: { a: { x: 0, y: 110 }, b: { x: 40, y: 110 } },
+    viewAnchor: { x: 20, y: 100 },
+    offsetMm: 11,
+  };
+  const BASE: DimensionParams = {
+    type: "linear",
+    measurement: { mode: "edge_length", edge: lineSig() },
+    placement: { offset_mm: -30.48 },
+  };
+
+  it("re-enters the PLACE stage, naming the row it replaces", () => {
+    const state = beginReplacement("dim-1", "view-1", BASE, TARGET);
+    expect(state.kind).toBe("placing");
+    expect(placementReplaces(state)).toBe("dim-1");
+    expect(placementOffsetMm(state)).toBe(11);
+    // Escape goes to idle — there is no earlier pick to preserve, and the
+    // dimension it came from is still on the paper.
+    expect(cancelPlacement(state)).toEqual(IDLE);
+  });
+
+  it("strips the OLD placement, so the commit writes a fresh one", () => {
+    let state = beginReplacement("dim-1", "view-1", BASE, TARGET);
+    state = setPlacementOffset(state, -25);
+    const commit = commitParams(state);
+    // Not merged into the stale -30.48 it was carrying.
+    expect(commit?.params.placement).toEqual({ offset_mm: -25 });
+  });
+
+  it("commits NOTHING when it was never moved", () => {
+    // Grab-and-drop-in-place must not cost a delete, an append and a new id
+    // for no change on the paper.
+    const state = beginReplacement("dim-1", "view-1", BASE, TARGET);
+    expect(placementMoved(state)).toBe(false);
+    expect(commitParams(state)).toBeNull();
+    // …whereas a fresh authoring commit with `moved: false` still POSTs, at
+    // auto placement — that is the untouched fast path and it must survive.
+    const picked = pickEdge(IDLE, placedEdge(lineSig(), "line", LINE_GEOM));
+    const built = buildDimension(picked, "linear");
+    const fresh = beginPlacement(
+      picked,
+      built!.viewId,
+      built!.params,
+      placementTarget(picked, "linear")!,
+    );
+    expect(commitParams(fresh)?.params.placement).toBeUndefined();
+  });
+
+  it("reports nothing to replace for a fresh authoring placement", () => {
+    const picked = pickEdge(IDLE, placedEdge(lineSig(), "line", LINE_GEOM));
+    const built = buildDimension(picked, "linear");
+    const fresh = beginPlacement(
+      picked,
+      built!.viewId,
+      built!.params,
+      placementTarget(picked, "linear")!,
+    );
+    expect(placementReplaces(fresh)).toBeNull();
+    expect(placementReplaces(IDLE)).toBeNull();
+  });
+});
 
 describe("quantise", () => {
   it("snaps to the nearest multiple of the step, in both signs", () => {

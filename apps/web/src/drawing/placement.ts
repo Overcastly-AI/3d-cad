@@ -315,3 +315,85 @@ export function ghostFor(target: PlaceTarget): PlacementGhost | null {
       )
     : textGhost(target.leaderFrom, target.textPos);
 }
+
+// --- reading a PLACED dimension back into a placement (REACH-3 follow-up) ---
+
+/**
+ * Recover the {@link PlaceTarget} of a dimension ALREADY on the paper, so it can
+ * be picked up and moved — the half of REACH-3 that shipped unfinished. Its own
+ * commit named the defect as "no way to move it — not while drawing, and **not
+ * afterwards**" and fixed only the first half: a committed dimension measured
+ * `cursor: auto`, no tabindex, no role, no aria-label, and a real press-drag
+ * across it moved nothing. The only control the panel offered was Delete, so
+ * recovering from a mis-drag meant delete, re-find the edge, re-pick, re-choose
+ * the type, re-drag (frontend-QA 2026-08-27, P1-E).
+ *
+ * The composed annotation is inverted rather than the original pick re-derived,
+ * which matters for the common case: MOST dimensions on a sheet were never
+ * hand-placed at all, so there is no stored `offset_mm` to read — the composer
+ * auto-placed them. Their geometry, however, is on the paper either way.
+ *
+ * The construction is `_place_linear_between`'s, run backwards. A witness line
+ * runs from `p + n*gap` to `p + n*(|offset| + overrun)`, so its own direction is
+ * `n` and its start, walked back one gap, is the MEASURED endpoint. With both
+ * endpoints in hand the signed offset is just {@link offsetAt} of the dimension
+ * line's midpoint — the same function the live drag uses, so a re-placement and
+ * a first placement cannot disagree about which side "away" is. Only
+ * `dimensionGapMm` is borrowed from the tokens, and `linearGhost` already
+ * depends on it for the forward direction.
+ *
+ * Null when the annotation is not a linear one this can invert (fewer than two
+ * witness lines, no dimension line, or a degenerate span) — the caller then
+ * leaves the dimension alone rather than moving it somewhere invented.
+ */
+export function offsetPlacementFromComposed(
+  lines: readonly {
+    role: string;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  }[],
+  viewAnchor: Point2D,
+): Extract<PlaceTarget, { mode: "offset" }> | null {
+  const witness = lines.filter((l) => l.role === "extension");
+  const dim = lines.find((l) => l.role === "dimension");
+  if (witness.length < 2 || dim === undefined) return null;
+  const first = witness[0]!;
+  const second = witness[1]!;
+  const n = unit({ x: first.x2 - first.x1, y: first.y2 - first.y1 });
+  if (n === null) return null;
+  const back = mul(n, drawing.dimensionGapMm);
+  const a = sub({ x: first.x1, y: first.y1 }, back);
+  const b = sub({ x: second.x1, y: second.y1 }, back);
+  if (hyp(sub(b, a)) < 1e-9) return null;
+  const dimMid = mid({ x: dim.x1, y: dim.y1 }, { x: dim.x2, y: dim.y2 });
+  return {
+    mode: "offset",
+    span: { a, b },
+    viewAnchor,
+    offsetMm: offsetAt(a, b, viewAnchor, dimMid),
+  };
+}
+
+/**
+ * The same for a dimension whose placement is a TEXT SEAT (diameter / radius /
+ * angular — the composer applies `offset_mm` to linear dimensions only). Here
+ * there is nothing to invert: the seat is where the stamp already is, and the
+ * leader starts at the first drawn line, or at the seat itself for an
+ * annotation drawn without one.
+ */
+export function textPlacementFromComposed(
+  lines: readonly { x1: number; y1: number; x2: number; y2: number }[],
+  text: { x: number; y: number },
+): Extract<PlaceTarget, { mode: "text" }> {
+  const first = lines[0];
+  return {
+    mode: "text",
+    leaderFrom:
+      first === undefined
+        ? { x: text.x, y: text.y }
+        : { x: first.x1, y: first.y1 },
+    textPos: { x: text.x, y: text.y },
+  };
+}

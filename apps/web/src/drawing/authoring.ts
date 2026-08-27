@@ -125,6 +125,16 @@ export type AuthoringState =
       moved: boolean;
       /** The state Escape returns to — the pick survives a cancelled placement. */
       from: AuthoringState;
+      /**
+       * The id of the dimension this placement REPLACES, when the stage was
+       * entered by picking a dimension already on the paper rather than by
+       * authoring a new one. There is no PATCH route for a dimension, so the
+       * commit is an append of the moved copy followed by a delete of the
+       * original — the same order `handleHealDimension` uses, and for the same
+       * reason: a failure between the two leaves a visible duplicate the user
+       * can remove, never a lost dimension.
+       */
+      replaces?: string;
     };
 
 /** The idle start state. */
@@ -605,6 +615,47 @@ export function setPlacementOffset(
   };
 }
 
+/**
+ * Pick up a dimension that is ALREADY on the paper and re-enter the same PLACE
+ * stage it was born in. `base` is its stored params with any existing placement
+ * stripped, so the commit writes a fresh one rather than merging into a stale
+ * `text_pos`. Escape returns to idle: there is no earlier pick to preserve —
+ * the dimension itself is the selection, and it is still there.
+ */
+export function beginReplacement(
+  dimensionId: string,
+  viewId: string,
+  base: DimensionParams,
+  target: PlaceTarget,
+): AuthoringState {
+  return {
+    kind: "placing",
+    viewId,
+    base: withoutPlacement(base),
+    target,
+    moved: false,
+    from: IDLE,
+    replaces: dimensionId,
+  };
+}
+
+/** The stored params minus any placement — the base a re-placement authors on. */
+function withoutPlacement(params: DimensionParams): DimensionParams {
+  const next = { ...params };
+  delete next.placement;
+  return next;
+}
+
+/** The dimension this placement will replace, or null for a fresh one. */
+export function placementReplaces(state: AuthoringState): string | null {
+  return state.kind === "placing" ? (state.replaces ?? null) : null;
+}
+
+/** Has the live placement actually been moved? (Nothing to commit if not.) */
+export function placementMoved(state: AuthoringState): boolean {
+  return state.kind === "placing" && state.moved;
+}
+
 /** Back out of the PLACE stage, keeping the pick that led to it. */
 export function cancelPlacement(state: AuthoringState): AuthoringState {
   return state.kind === "placing" ? state.from : state;
@@ -637,6 +688,10 @@ export function commitParams(
   state: AuthoringState,
 ): { viewId: string; params: DimensionParams } | null {
   if (state.kind !== "placing") return null;
+  // A RE-placement that was never moved has nothing to say: rewriting the
+  // dimension to where it already is would cost a delete, an append and a new
+  // id for no change on the paper.
+  if (state.replaces !== undefined && !state.moved) return null;
   return {
     viewId: state.viewId,
     params: state.moved ? withPlacement(state.base, state.target) : state.base,

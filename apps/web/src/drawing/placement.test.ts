@@ -5,7 +5,9 @@ import {
   ghostFor,
   linearGhost,
   offsetAt,
+  offsetPlacementFromComposed,
   perpendicularFoot,
+  textPlacementFromComposed,
   type PlaceTarget,
 } from "./placement";
 
@@ -162,5 +164,87 @@ describe("ghostFor", () => {
     // …and NO figure: a text seat is a point, not a scalar, so a coordinate
     // pair floated beside the crosshair would decorate rather than read.
     expect(ghost?.figure).toBeNull();
+  });
+});
+
+describe("reading a PLACED dimension back into a placement", () => {
+  /** The composed annotation a linear dimension at `offsetMm` actually has —
+   * built by the FORWARD construction, so the round trip is measured against
+   * the same geometry the composer emits rather than against a hand-typed
+   * fixture that could quietly encode the same mistake twice. */
+  const composedLinesAt = (offsetMm: number) =>
+    linearGhost(A, B, ANCHOR, offsetMm)!
+      .lines.filter((l) => l.role === "extension" || l.role === "dimension")
+      .map((l) => ({ role: l.role, x1: l.x1, y1: l.y1, x2: l.x2, y2: l.y2 }));
+
+  it("recovers the span AND the signed offset, both signs", () => {
+    for (const offset of [11, 25, -33, -11]) {
+      const target = offsetPlacementFromComposed(
+        composedLinesAt(offset),
+        ANCHOR,
+      );
+      expect(target?.mode).toBe("offset");
+      expect(target?.offsetMm).toBeCloseTo(offset, 6);
+      // The recovered span IS the measured edge — that is what makes the
+      // re-placement measure against the same thing the first one did.
+      expect(target?.span.a.x).toBeCloseTo(A.x, 6);
+      expect(target?.span.a.y).toBeCloseTo(A.y, 6);
+      expect(target?.span.b.x).toBeCloseTo(B.x, 6);
+      expect(target?.span.b.y).toBeCloseTo(B.y, 6);
+    }
+  });
+
+  it("round-trips: recover, redraw, and the paper is unchanged", () => {
+    // The property that actually matters — grabbing a dimension and dropping
+    // it without moving must leave the drawing byte-identical.
+    const before = linearGhost(A, B, ANCHOR, -17.5);
+    const target = offsetPlacementFromComposed(composedLinesAt(-17.5), ANCHOR)!;
+    const after = linearGhost(
+      target.span.a,
+      target.span.b,
+      target.viewAnchor,
+      target.offsetMm,
+    );
+    for (const [i, line] of after!.lines.entries()) {
+      expect(line.x1).toBeCloseTo(before!.lines[i]!.x1, 6);
+      expect(line.y1).toBeCloseTo(before!.lines[i]!.y1, 6);
+      expect(line.x2).toBeCloseTo(before!.lines[i]!.x2, 6);
+      expect(line.y2).toBeCloseTo(before!.lines[i]!.y2, 6);
+    }
+  });
+
+  it("works for an AUTO-placed dimension, which has no stored offset at all", () => {
+    // Most dimensions on a sheet were never hand-placed, so nothing is stored
+    // to read back — and those are exactly the ones a user wants to nudge.
+    // The geometry is on the paper either way, which is why the inversion
+    // reads the composed annotation rather than the params.
+    const target = offsetPlacementFromComposed(composedLinesAt(11), ANCHOR);
+    expect(target?.offsetMm).toBeCloseTo(11, 6);
+  });
+
+  it("declines rather than inventing a placement it cannot derive", () => {
+    const lines = composedLinesAt(20);
+    expect(offsetPlacementFromComposed([], ANCHOR)).toBeNull();
+    // One witness line is not two endpoints.
+    expect(
+      offsetPlacementFromComposed(lines.slice(0, 1).concat(lines[2]!), ANCHOR),
+    ).toBeNull();
+    // Witness lines with no dimension line between them.
+    expect(offsetPlacementFromComposed(lines.slice(0, 2), ANCHOR)).toBeNull();
+  });
+
+  it("seats a text placement where the stamp already is", () => {
+    const target = textPlacementFromComposed(
+      [{ x1: 20, y1: 40, x2: 60, y2: 12 }],
+      { x: 60, y: 12 },
+    );
+    expect(target.textPos).toEqual({ x: 60, y: 12 });
+    expect(target.leaderFrom).toEqual({ x: 20, y: 40 });
+    // An annotation drawn without a leader still yields a usable target.
+    expect(textPlacementFromComposed([], { x: 5, y: 6 })).toEqual({
+      mode: "text",
+      leaderFrom: { x: 5, y: 6 },
+      textPos: { x: 5, y: 6 },
+    });
   });
 });
