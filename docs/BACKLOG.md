@@ -750,7 +750,71 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       TERRITORY: `.claude/agents/product-auditor.md`. agentType:
       platform-builder.
 
+- [ ] (P1, S) **QA-R1 — the offer rail pushes FINISH SKETCH and CANCEL SKETCH
+      outside the window at 1280 AND 1366.** Measured functionally, not
+      cosmetically: with two lines selected at 1280x800 the sketch strip runs to
+      **1413 px in a 1280 px window** with `scrollWidth === clientWidth`, and a
+      real `page.mouse.click` at `sketch-save`'s own centre does NOTHING — the
+      user's only exit from a sketch with a live selection is the keyboard.
+      Identical on 3/3 runs (`constraint-group-relational` 1167->1300,
+      `sketch-construction` 1302->1334, `sketch-save` 1347->1379, `sketch-exit`
+      1381->1413). **ONE offer is already enough**: a single selected line — the
+      most ordinary state in a sketcher — costs CANCEL SKETCH at 1280, and at
+      **1366** (the commonest laptop width, previously unmeasured) two lines cost
+      SAVE and EXIT. Clean at 1440/1600, which is why `sketch-vocab.spec.ts`
+      (1440) is green. `toBeVisible()` cannot see this — it is a CSS/box
+      property, not viewport containment. ACCEPTANCE: at 1280 and 1366, with 0/1/3
+      offers live, no `sketch-strip` descendant has `rect.right > innerWidth`;
+      fix in the `Toolbar`/`ToolGroup` layout (a width budget on the status cell,
+      or move the rail off the strip) so the next cell that grows cannot recur it;
+      un-`test.fail()` the case in `apps/web/e2e/qa-reach-batch.spec.ts` and lift
+      `clippedControls` into a shared containment gate for every strip.
+      [src: docs/QA-REVIEW.md 2026-08-27 QA-R1; corroborates docs/UI-REVIEW.md
+      2026-08-27 REACH-1 P1-1, filed by qa-tester]
+      TERRITORY: `packages/design/src/**`, `apps/web/src/components/SketchStrip.tsx`,
+      `apps/web/e2e/qa-reach-batch.spec.ts`. agentType: frontend-builder.
+
+- [ ] (P1, S) **QA-R2 — an angle glyph keeps a number the solver has already
+      moved off.** Author `A` = 30 deg, re-open the glyph, type `15*3`: the
+      server resolves it and the model moves to 45.000 deg (read off the evaluate
+      payload) while the glyph reads `30°` forever. Identical on 2/2 runs
+      (`ANGLE-EXPR {"shown":"30°","solved":45}`). Same root cause reaches a
+      REFERENCE angle. An annotation that contradicts the geometry is worse than
+      an absent one because it looks authoritative, and REACH-1 is the commit
+      that made the state reachable at all. Cause is already written down in the
+      code: degrees ride `SolvedSketch.angles`, keyed by `constraint_index`, and
+      `apps/web/src` never references `angles` anywhere
+      (`apps/web/src/sketch/constraints.ts:1333-1338`). ACCEPTANCE: plumb
+      `SolvedSketch.angles` into the store beside `solvedDimensions` and merge by
+      `constraint_index` at the ONE place the glyph builder and the editor read,
+      so an expression-driven and a reference angle both display what the solver
+      holds; un-`test.fail()` the case in `apps/web/e2e/qa-reach-batch.spec.ts`.
+      Until it lands, the angle editor must not offer REFERENCE or the expression
+      field — an editor may not advertise a mode it cannot honour.
+      [src: docs/QA-REVIEW.md 2026-08-27 QA-R2; corroborates docs/UI-REVIEW.md
+      2026-08-27 REACH-1 P1-2, filed by qa-tester]
+      TERRITORY: `apps/web/src/sketch/**`, `apps/web/src/viewport/ConstraintGlyphs.tsx`,
+      `apps/web/e2e/qa-reach-batch.spec.ts`. agentType: frontend-builder.
+
 ## Next (P2)
+
+- [ ] (P2, M) **QA-R3 — on touch, four of REACH-1's five new verbs cannot be
+      reached at all, because a tablet cannot select two entities.** The rail's
+      keycaps are real buttons and tapping one works (tap `verb-hint-angle` ->
+      the editor opens -> 30 deg applies). The block is upstream: a plain second
+      tap REPLACES the selection and a 900 ms long press (dispatched as a real
+      touch sequence over CDP) does the same — additive selection is Shift-click
+      only. Measured: `TOUCH-ADDITIVE {"plain":"1 ent","held":"1 ent",
+      "offers":["verb-hint-distance"]}`, so the rail can only ever propose
+      single-entity verbs there and angle / collinear / symmetric_lines /
+      midpoint are unreachable. Diameter (single-entity) is fine. ACCEPTANCE: a
+      touch-native additive gesture (tap-adds while a verb is armed, a long-press
+      toggle, or a visible "add to selection" affordance) gets two entities
+      selected on a `hasTouch` context, and `verb-hint-angle` appears; qualify
+      `scripts/check-ui-parity.py`'s count as desktop-only, or count per surface.
+      [src: docs/QA-REVIEW.md 2026-08-27 QA-R3, filed by qa-tester]
+      TERRITORY: `apps/web/src/viewport/SketchScene.tsx`, `apps/web/src/sketch/**`,
+      `apps/web/e2e/qa-reach-batch.spec.ts`. agentType: frontend-builder.
 
 - [ ] (P2, S) **FLOW-POLISH-1 — four small flow-capture defects from the
       fourth product-audit pass, bucketed to keep the board a workable

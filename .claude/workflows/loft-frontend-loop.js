@@ -59,13 +59,35 @@ export const meta = {
 //    get a clean subtree waits for the next batch rather than racing.
 // ---------------------------------------------------------------------------
 
+// Keep this list COMPLETE. A subtree missing from it is not merely unavailable —
+// it is invisible: the Parity phase can only assign work to a listed subtree, so
+// an omission silently makes every gap living there unschedulable, with no error
+// anywhere. `apps/web/src/components/**` was missing from the first version and
+// EXPORT-3 (which lives in it) could not have been picked up by any batch.
+// Cross-check against `ls apps/web/src` when adding a top-level directory.
 const SUBTREES = [
   'apps/web/src/viewport/**',
   'apps/web/src/sketch/**',
   'apps/web/src/routes/**',
   'apps/web/src/features/**',
+  'apps/web/src/components/**',
+  'apps/web/src/drawing/**',
+  'apps/web/src/assembly/**',
+  'apps/web/src/measure/**',
+  'apps/web/src/api/**',
+  'apps/web/src/auth/**',
+  'apps/web/src/settings/**',
+  'apps/web/src/shortcuts/**',
+  'apps/web/src/units/**',
   'packages/design/**',
 ]
+
+// DELIBERATELY NOT subtrees: `lib/`, `store/`, `test/`, and the loose files at
+// the root of `apps/web/src` (`router.tsx`, `main.tsx`, `index.css`). A change
+// in any of those is cross-cutting by construction — every subtree imports
+// them — so allocating one to a single builder would be a fiction that the
+// other builders in the batch silently violate. Work that genuinely needs them
+// is an escalation to the orchestrator, which serialises it, not a batch item.
 
 const batchSize = (args && args.batchSize) || 3
 const branch = (args && args.branch) || 'claude/branch-review-development-hkbbnb'
