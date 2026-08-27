@@ -725,8 +725,14 @@ recipe here in the same commit as the fix.**
   eventual rebase would look like an unrelated conflict. The rule: **the first
   action in any worktree is `git rev-list --count HEAD..origin/<branch>`** —
   nonzero means reset before reading anything. Put it in every builder brief;
-  that is the only mitigation that has actually worked (two for two — the PICK-1
-  agent at 76 commits behind, the REACH-2 agent at 120).
+  that is the only mitigation that has actually worked (three for three — the
+  PICK-1 agent at 76 commits behind, the REACH-2 agent at 120, the QA-R4 agent at
+  123, all three seeded at `3b0b29e`). **Three occurrences of the SAME commit is
+  not bad luck, and the "detect at creation" fix below has not been built** —
+  worktree creation belongs to the harness, not to anything in this repo, so
+  there is no hook here to put a check in. Until that changes the brief line IS
+  the control, so it goes in every builder brief, every time. Do not let the fact
+  that agents keep catching it become a reason to stop telling them to look.
   **AND THE "AUDIT IT AFTER A BATCH" ADVICE THIS ENTRY ORIGINALLY GAVE DOES NOT
   WORK — measured 2026-08-27, do not retry it.** A behind-count over every
   worktree returned 47 "STALE" rows and not one was the fault: a worktree seeded
@@ -1054,11 +1060,25 @@ recipe here in the same commit as the fix.**
   suite fails ("e2e register failed: 500", ~157 failed / 2 passed) while
   leg-1 geometry gates pass and a direct curl to the real :8000 gateway
   returns 201. Symptom ≠ code regression. **Before a batch-end `just e2e`,
-  also kill a stale Vite:** `curl -sf -m2 http://127.0.0.1:5173/ >/dev/null &&
-  ps -eo pid,args | grep -E 'vite/bin/vite' | grep -v grep` then `kill` it, so
-  Playwright boots a fresh Vite proxying to the :8000 gateway `just e2e`
-  starts. Agents booting an isolated frontend MUST kill their Vite in teardown,
-  not just their uvicorns.
+  also kill a stale Vite — but SCOPE THE KILL TO PORT 5173.** Resolve the pid
+  from the listener, never from a process-name grep:
+  ```bash
+  pid=$(ss -lptn 'sport = :5173' 2>/dev/null | grep -oP 'pid=\K[0-9]+' | head -1)
+  [ -n "$pid" ] && kill "$pid"      # ONLY the process actually holding :5173
+  ```
+  **THE EARLIER VERSION OF THIS RECIPE SAID `ps -eo pid,args | grep -E
+  'vite/bin/vite'`, WHICH IS NOT PORT-SCOPED AND KILLS EVERY AGENT'S VITE.**
+  Measured 2026-08-27 by the QA-R4 agent: every e2e leg it ran over ~10 minutes
+  collapsed mid-run, twice with the signature of a murdered process rather than a
+  crash — `ECONNREFUSED 127.0.0.1:5194` while its gateway still answered 200 (its
+  Vite killed), then `gw=000` on a stack that had booted healthy minutes earlier
+  (its uvicorns killed). Memory was fine throughout (12 GB free), so not OOM. The
+  most likely cause is a sibling faithfully following this very recipe. A cleanup
+  step that reaches outside its own ports is not cleanup, it is friendly fire, and
+  it gets worse the more agents run — which is exactly when long legs matter most.
+  Same rule for uvicorns: match on the port you booted, not on `*.main:app`.
+  Agents booting an isolated frontend MUST kill their Vite in teardown, not just
+  their uvicorns — and MUST kill only their own.
 - **A TAILWIND PRESET CHANGE IS A BUILD-CONFIG CHANGE, NOT A SOURCE CHANGE — a
   running Vite will not pick it up, and the symptom is "your new feature is
   broken", never a build error.** Measured 2026-08-17 recovering VIEWCUBE-1.
