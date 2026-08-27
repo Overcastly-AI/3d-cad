@@ -141,6 +141,8 @@ export function makeBuild(input: Partial<PartBuildInput> = {}): PartBuild {
     regenerating: false,
     regenFailed: false,
     meshPending: false,
+    writing: false,
+    writtenTreeVersion: null,
     ...input,
   });
 }
@@ -213,6 +215,43 @@ export function sketchOnly(): PartBuild {
     tree: makeTree(["Sketch1"]),
     part: makePart(3),
     evaluation: makeEvaluation(["ok"], { meshGlbId: null, properties: null }),
+  });
+}
+
+/**
+ * QA-R4, the window itself: the user has submitted a feature edit and NO cache
+ * knows yet — part, tree and evaluation all still read version 7, so the
+ * provenance test comes out "current" about a body the server has already
+ * superseded. Only the in-flight write says otherwise, which is why it is an
+ * input to the derivation and not merely a spinner somewhere.
+ */
+export function midWrite(): PartBuild {
+  return makeBuild({
+    tree: makeTree(["Sketch1", "Extrude1", "Pattern1"], { treeVersion: 7 }),
+    part: makePart(7),
+    evaluation: makeEvaluation(["ok", "ok", "ok"], {
+      treeVersion: 7,
+      lastGoodFeatureId: "f3",
+    }),
+    writing: true,
+  });
+}
+
+/**
+ * The second half of the same window: the write has REPLIED with version 8 and
+ * both caches still hold 7. The provenance fact stands on its own here — the
+ * in-flight flag is deliberately false, so this is what the derivation says
+ * when a caller records the version but drops the flag.
+ */
+export function justWritten(): PartBuild {
+  return makeBuild({
+    tree: makeTree(["Sketch1", "Extrude1", "Pattern1"], { treeVersion: 7 }),
+    part: makePart(7),
+    evaluation: makeEvaluation(["ok", "ok", "ok"], {
+      treeVersion: 7,
+      lastGoodFeatureId: "f3",
+    }),
+    writtenTreeVersion: 8,
   });
 }
 

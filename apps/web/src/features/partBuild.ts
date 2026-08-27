@@ -103,6 +103,25 @@ export interface PartBuildInput {
   evaluating: boolean;
   /** The tree itself is refetching — an answer is coming, so don't cry stale. */
   treeFetching: boolean;
+  /**
+   * A tree write the client ISSUED and has not yet resolved (QA-R4).
+   *
+   * The first thing a user does after typing a new dimension is read the mass
+   * off the panel, and from the instant the app sends the write it KNOWS the
+   * body on screen is superseded — it is holding the mutation. Nothing in the
+   * two caches below knows that yet, so without this input the whole window
+   * between the click and the refetch reads as a settled, current body.
+   */
+  writing: boolean;
+  /**
+   * The newest `tree_version` a WRITE RESPONSE reported, or null.
+   *
+   * The server's answer to a feature write carries the version it produced
+   * (`FeatureMutationResponse.tree_version`), which is the earliest moment the
+   * new denominator exists anywhere in the client — earlier than the tree
+   * refetch that will eventually carry it, and much earlier than the part row.
+   */
+  writtenTreeVersion: number | null;
   /** A `mesh_not_found` re-evaluate is in flight (§7.8 LRU eviction). */
   regenerating: boolean;
   /** That retry already ran and the mesh is still unservable. */
@@ -137,20 +156,33 @@ export function isStaleForTree({
 /**
  * The tree version to compare AGAINST: the newest any authority has reported.
  *
- * Two sources carry it — the part row (`PartResponse.tree_version`, refetched
- * on focus, so it is the one that can LEARN about a concurrent edit) and the
+ * THREE sources carry it — the part row (`PartResponse.tree_version`, refetched
+ * on focus, so it is the one that can LEARN about a concurrent edit), the
  * feature tree (refetched after every local mutation, so it is the one that is
- * fresh while you model). Monotonic in the same transaction as every tree write
+ * fresh while you model), and the WRITE RESPONSE the workspace just received
+ * (`writtenTreeVersion`, which precedes both of those by the length of a
+ * refetch). Monotonic in the same transaction as every tree write
  * (feature-tree.md §1.2), so "newest" is well defined and taking the max cannot
  * invent staleness out of one source merely lagging the other.
+ *
+ * The third source is the QA-R4 fix. Both caches are refreshed AFTER a write
+ * lands, so for the length of that refresh both of them still hold the
+ * PRE-write version — the denominator equalled the numerator, `stale` was
+ * false, and every readout in the app said "up to date" about a body the server
+ * had already superseded (measured at ~600-840 ms; QA-REVIEW 2026-08-27).
+ * Provenance has to come from the freshest authority that has spoken, and after
+ * a write that is the write's own reply.
  */
 function newestTreeVersion(
   part: PartResponse | undefined,
   tree: FeatureTreeResponse | undefined,
+  writtenTreeVersion: number | null,
 ): number | null {
-  const known = [part?.tree_version, tree?.tree_version].filter(
-    (v): v is number => typeof v === "number",
-  );
+  const known = [
+    part?.tree_version,
+    tree?.tree_version,
+    writtenTreeVersion,
+  ].filter((v): v is number => typeof v === "number");
   return known.length === 0 ? null : Math.max(...known);
 }
 
@@ -164,6 +196,8 @@ export function derivePartBuild({
   regenerating,
   regenFailed,
   meshPending,
+  writing,
+  writtenTreeVersion,
 }: PartBuildInput): PartBuild {
   const features = tree?.features ?? [];
   const statusById = new Map(
@@ -205,17 +239,28 @@ export function derivePartBuild({
   const lastGood = lastGoodIndex === -1 ? null : ref(lastGoodIndex);
 
   const builtFromTreeVersion = evaluation?.tree_version ?? null;
-  const currentTreeVersion = newestTreeVersion(part, tree);
+  const currentTreeVersion = newestTreeVersion(part, tree, writtenTreeVersion);
   const stale =
     builtFromTreeVersion !== null &&
     currentTreeVersion !== null &&
     isStaleForTree({ builtFromTreeVersion, treeVersion: currentTreeVersion });
 
+  // A REBUILD IS UNDER WAY — the one condition that entitles a surface to say a
+  // transient word instead of a claim about the model. Three ways in, and the
+  // first two are the QA-R4 window, before and after the server replies:
+  //
+  //  - `writing`   the app is holding a write it knows supersedes this body;
+  //  - stale + the tree refetching — the answer is on its way (this was already
+  //    the reason `unverified` carried a `!treeFetching` term; expressing it
+  //    here instead means the STATUS cell stops falling through to "Up to date"
+  //    in exactly that window, which is the same lie one branch further down);
+  //  - `evaluating` the evaluate itself is in flight.
+  const rebuilding = writing || evaluating || (stale && treeFetching);
   const activity: BuildActivity = regenFailed
     ? "mesh-error"
     : regenerating || meshPending
       ? "regenerating"
-      : evaluating
+      : rebuilding
         ? "solving"
         : "idle";
 
@@ -228,20 +273,31 @@ export function derivePartBuild({
     : failed || rolledBack.length > 0
       ? "partial"
       : "whole";
-  const solve: SolveVerdict = evaluating
-    ? "solving"
-    : evaluation === undefined
-      ? "unknown"
-      : failed
-        ? "failed"
-        : "solved";
+  // SOLVE READS THE SAME ACTIVITY ITS NEIGHBOUR DOES (QA-R4, second half).
+  // It used to test `evaluating` alone, so the two cells of the title block
+  // disagreed by construction: measured at t+2288 ms after a feature edit,
+  // STATUS said "Regenerating…" while SOLVE still said "Solved" — one cell
+  // reporting a rebuild the other denied. `mesh-error` is deliberately NOT
+  // included: there the evaluation DID return a verdict and only the mesh is
+  // unservable, which STATUS already says in its own words.
+  const solve: SolveVerdict =
+    activity === "solving" || activity === "regenerating"
+      ? "solving"
+      : evaluation === undefined
+        ? "unknown"
+        : failed
+          ? "failed"
+          : "solved";
 
   return {
     activity,
     builtFromTreeVersion,
     currentTreeVersion,
     stale,
-    unverified: stale && activity === "idle" && !treeFetching,
+    // Unchanged in meaning: staleness nothing is working on. The `treeFetching`
+    // term that used to live here is now inside `rebuilding` above, where it
+    // also stops the STATUS cell falling through to "Up to date".
+    unverified: stale && activity === "idle",
     failed,
     failure,
     excluded,
@@ -295,6 +351,14 @@ export interface BodyStatusReadout {
  * claims about the model, most specific first. "Up to date" is the LAST branch
  * and now means what it says: this body was built from the tree as it stands,
  * with nothing excluded.
+ *
+ * THE INVARIANT (QA-R4, asserted in `partBuild.test.ts`): `stale` implies the
+ * status is never `up-to-date`. Reaching the final branch requires `activity`
+ * to be idle, and a stale build with an idle activity is `unverified` by
+ * definition — so the two ways a stale body used to reach the all-clear (the
+ * denominator not yet knowing about the write, and the `!treeFetching` term
+ * cancelling the "Unverified" branch without cancelling this one) are both
+ * closed structurally rather than by a fourth condition here.
  *
  * `detail` is a title-block REGISTER LINE, not prose: one tabular clause naming
  * the cause and the state the body reflects. The full sentence belongs to the

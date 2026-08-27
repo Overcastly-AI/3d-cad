@@ -1743,6 +1743,52 @@ export function PartPage() {
     await queryClient.invalidateQueries({ queryKey: ["mesh", partId] });
   }, [partId, queryClient]);
 
+  // ---------------------------------------------------------------------
+  // WHAT THE WORKSPACE KNOWS BEFORE ITS CACHES DO (QA-R4).
+  //
+  // Every tree write ends in `refreshTreeAndBody`, and until those refetches
+  // land, the part row and the feature tree still hold the PRE-write version —
+  // which is the denominator `derivePartBuild` compares the evaluation against.
+  // So for the whole length of a write the provenance test came out "current"
+  // and every readout in the app confidently reported a superseded body:
+  // measured at ~600-840 ms, the panel showing the PREVIOUS part's mass with
+  // both status cells claiming to be up to date (QA-REVIEW 2026-08-27).
+  //
+  // Two facts close it, and they are independent on purpose:
+  //  - `pending` — a write is in flight. True from the click, before any reply
+  //    exists, because from the moment the app issues the write it KNOWS the
+  //    body on screen is superseded; it is holding the mutation.
+  //  - `version` — the `tree_version` a write RESPONSE reported. A provenance
+  //    fact rather than a request state, so it keeps the derivation honest even
+  //    where a caller forgets the flag, and it is the earliest the new
+  //    denominator exists anywhere in the client.
+  // Reset per part: a version from one part is not a fact about another.
+  // ---------------------------------------------------------------------
+  const [treeWrite, setTreeWrite] = useState<{
+    pending: number;
+    version: number | null;
+  }>({ pending: 0, version: null });
+  useEffect(() => {
+    setTreeWrite({ pending: 0, version: null });
+  }, [partId]);
+  const beginTreeWrite = useCallback(() => {
+    setTreeWrite((state) => ({ ...state, pending: state.pending + 1 }));
+  }, []);
+  /** Pair with `beginTreeWrite` in a `finally` — never on the success path. */
+  const endTreeWrite = useCallback(() => {
+    setTreeWrite((state) => ({
+      ...state,
+      pending: Math.max(0, state.pending - 1),
+    }));
+  }, []);
+  /** Monotonic, like the counter itself: a later write can only move it up. */
+  const noteWrittenTreeVersion = useCallback((version: number) => {
+    setTreeWrite((state) => ({
+      ...state,
+      version: Math.max(state.version ?? version, version),
+    }));
+  }, []);
+
   // Document-unit change (docs/design/units.md §U2): a pure re-label. It PATCHes
   // the part's `length_unit` under the tree-version OCC and refreshes the part +
   // tree — NO stored mm value is touched, so the body never re-solves; every
@@ -1912,6 +1958,7 @@ export function PartPage() {
         return;
       }
       setImporting(true);
+      beginTreeWrite();
       void (async () => {
         try {
           const bytes = await file.arrayBuffer();
@@ -1921,6 +1968,7 @@ export function PartPage() {
             stepFeatureName(file.name),
             await freshTreeVersion(),
           );
+          noteWrittenTreeVersion(response.tree_version);
           setSelectedFeatureId(response.feature.id);
           await refreshTreeAndBody();
         } catch (error) {
@@ -1931,10 +1979,18 @@ export function PartPage() {
           );
         } finally {
           setImporting(false);
+          endTreeWrite();
         }
       })();
     },
-    [partId, freshTreeVersion, refreshTreeAndBody],
+    [
+      partId,
+      freshTreeVersion,
+      refreshTreeAndBody,
+      beginTreeWrite,
+      endTreeWrite,
+      noteWrittenTreeVersion,
+    ],
   );
 
   /** Toggle the Measure tool; arming it drops any open feature editor. */
@@ -2752,6 +2808,9 @@ export function PartPage() {
     ) => {
       setEditorSaving(true);
       setEditorError(null);
+      // The body on screen is superseded from HERE, not from when the reply
+      // lands — see the tree-write block above.
+      beginTreeWrite();
       void (async () => {
         try {
           const attempt = async (version: number) =>
@@ -2770,6 +2829,9 @@ export function PartPage() {
               (await fetchFeatureTree(partId)).tree_version,
             );
           }
+          // The reply carries the version the write PRODUCED: the staleness
+          // denominator, in hand a full refetch before either cache has it.
+          noteWrittenTreeVersion(response.tree_version);
           setSelectedFeatureId(response.feature.id);
           setLastSavedFeatureId(response.feature.id);
           setRebuildNoticeDismissed(false);
@@ -2781,10 +2843,18 @@ export function PartPage() {
           );
         } finally {
           setEditorSaving(false);
+          endTreeWrite();
         }
       })();
     },
-    [partId, freshTreeVersion, refreshTreeAndBody],
+    [
+      partId,
+      freshTreeVersion,
+      refreshTreeAndBody,
+      beginTreeWrite,
+      endTreeWrite,
+      noteWrittenTreeVersion,
+    ],
   );
 
   const submitExtrude = useCallback(
@@ -3110,6 +3180,7 @@ export function PartPage() {
         allow_disjoint: true,
       };
       setDisjointRecovering(true);
+      beginTreeWrite();
       void (async () => {
         try {
           const attempt = (version: number) =>
@@ -3117,11 +3188,15 @@ export function PartPage() {
               expected_tree_version: version,
               feature: { type: "boolean", version: 1, params },
             });
+          let response;
           try {
-            await attempt(await freshTreeVersion());
+            response = await attempt(await freshTreeVersion());
           } catch {
-            await attempt((await fetchFeatureTree(partId)).tree_version);
+            response = await attempt(
+              (await fetchFeatureTree(partId)).tree_version,
+            );
           }
+          noteWrittenTreeVersion(response.tree_version);
           setSelectedFeatureId(feature.id);
           await refreshTreeAndBody();
         } catch {
@@ -3129,10 +3204,18 @@ export function PartPage() {
           // recovery button reappears so the user can retry. Nothing changed.
         } finally {
           setDisjointRecovering(false);
+          endTreeWrite();
         }
       })();
     },
-    [partId, freshTreeVersion, refreshTreeAndBody],
+    [
+      partId,
+      freshTreeVersion,
+      refreshTreeAndBody,
+      beginTreeWrite,
+      endTreeWrite,
+      noteWrittenTreeVersion,
+    ],
   );
 
   // Suppress toggle (feature-tree.md §4.3a): flip a feature's suppress flag so a
@@ -3151,19 +3234,24 @@ export function PartPage() {
       // tool, as every other tree-mutating path does.
       useMeasureStore.getState().deactivate();
       setSuppressingId(feature.id);
+      beginTreeWrite();
       void (async () => {
         try {
           const attempt = (version: number) =>
             suppressFeature(partId, feature.id, next, version);
+          let response;
           try {
-            await attempt(await freshTreeVersion());
+            response = await attempt(await freshTreeVersion());
           } catch (error) {
             if (error instanceof StaleTreeVersionError) {
-              await attempt((await fetchFeatureTree(partId)).tree_version);
+              response = await attempt(
+                (await fetchFeatureTree(partId)).tree_version,
+              );
             } else {
               throw error;
             }
           }
+          noteWrittenTreeVersion(response.tree_version);
           setSelectedFeatureId(feature.id);
           await refreshTreeAndBody();
         } catch {
@@ -3171,10 +3259,19 @@ export function PartPage() {
           // the user can retry. Nothing changed.
         } finally {
           setSuppressingId(null);
+          endTreeWrite();
         }
       })();
     },
-    [partId, suppressingId, freshTreeVersion, refreshTreeAndBody],
+    [
+      partId,
+      suppressingId,
+      freshTreeVersion,
+      refreshTreeAndBody,
+      beginTreeWrite,
+      endTreeWrite,
+      noteWrittenTreeVersion,
+    ],
   );
 
   // Select a body from the Bodies panel: select its base feature — lights the
@@ -3253,19 +3350,24 @@ export function PartPage() {
       useMeasureStore.getState().deactivate();
       setDeletingId(feature.id);
       setTreeActionError(null);
+      beginTreeWrite();
       void (async () => {
         try {
           const attempt = (version: number) =>
             deleteFeature(partId, feature.id, version);
+          let restored;
           try {
-            await attempt(await freshTreeVersion());
+            restored = await attempt(await freshTreeVersion());
           } catch (error) {
             if (error instanceof StaleTreeVersionError) {
-              await attempt((await fetchFeatureTree(partId)).tree_version);
+              restored = await attempt(
+                (await fetchFeatureTree(partId)).tree_version,
+              );
             } else {
               throw error;
             }
           }
+          noteWrittenTreeVersion(restored.tree_version);
           if (selectedFeatureId === feature.id) {
             setSelectedFeatureId(null);
             closeEditor();
@@ -3290,6 +3392,7 @@ export function PartPage() {
           }
         } finally {
           setDeletingId(null);
+          endTreeWrite();
         }
       })();
     },
@@ -3301,6 +3404,9 @@ export function PartPage() {
       freshTreeVersion,
       refreshTreeAndBody,
       closeEditor,
+      beginTreeWrite,
+      endTreeWrite,
+      noteWrittenTreeVersion,
     ],
   );
 
@@ -3730,6 +3836,7 @@ export function PartPage() {
       historyInFlight.current = true;
       setHistoryStep(step);
       setHistoryError(null);
+      beginTreeWrite();
       void (async () => {
         try {
           // The shared engine (lib/historyStep, also driving the assembly
@@ -3745,10 +3852,14 @@ export function PartPage() {
             // tree (fresh can_undo/can_redo) without a re-evaluate cycle.
             adoptNoOp: (restored) =>
               queryClient.setQueryData(["features", partId], restored),
-            onRestored: async () => {
+            onRestored: async (restored) => {
               // A REAL restore happened: only now disarm measure and drop the
               // selection (the tree is known to have changed under them),
-              // then resync through the shared invalidation path.
+              // then resync through the shared invalidation path. Undo/redo
+              // bumps `tree_version` like any other write, and the restored
+              // tree carries it — so the readouts learn the body is superseded
+              // here rather than after the refetch (QA-R4).
+              noteWrittenTreeVersion(restored.tree_version);
               useMeasureStore.getState().deactivate();
               setSelectedFeatureId(null);
               await refreshTreeAndBody();
@@ -3766,10 +3877,20 @@ export function PartPage() {
         } finally {
           historyInFlight.current = false;
           setHistoryStep(null);
+          endTreeWrite();
         }
       })();
     },
-    [partId, rollbackBusy, freshTreeVersion, refreshTreeAndBody, queryClient],
+    [
+      partId,
+      rollbackBusy,
+      freshTreeVersion,
+      refreshTreeAndBody,
+      queryClient,
+      beginTreeWrite,
+      endTreeWrite,
+      noteWrittenTreeVersion,
+    ],
   );
 
   const triggerUndo = useCallback(() => {
@@ -3791,22 +3912,34 @@ export function PartPage() {
       // tree-mutating path: openCreate*, selectFeature, handleNewSketch).
       useMeasureStore.getState().deactivate();
       setRollbackBusy(true);
+      beginTreeWrite();
       void (async () => {
         try {
           const run = async (version: number) =>
             moveRollbackBar(partId, rollbackFeatureId, version);
+          let restored;
           try {
-            await run(await freshTreeVersion());
+            restored = await run(await freshTreeVersion());
           } catch {
-            await run((await fetchFeatureTree(partId)).tree_version);
+            restored = await run((await fetchFeatureTree(partId)).tree_version);
           }
+          noteWrittenTreeVersion(restored.tree_version);
           await refreshTreeAndBody();
         } finally {
           setRollbackBusy(false);
+          endTreeWrite();
         }
       })();
     },
-    [partId, rollbackBusy, freshTreeVersion, refreshTreeAndBody],
+    [
+      partId,
+      rollbackBusy,
+      freshTreeVersion,
+      refreshTreeAndBody,
+      beginTreeWrite,
+      endTreeWrite,
+      noteWrittenTreeVersion,
+    ],
   );
 
   // The last-saved feature's rebuild error (UX audit #20e), surfaced at the
@@ -3967,6 +4100,8 @@ export function PartPage() {
         regenerating,
         regenFailed,
         meshPending: meshGlbId !== null && !bodyPresent && body.isFetching,
+        writing: treeWrite.pending > 0,
+        writtenTreeVersion: treeWrite.version,
       }),
     [
       tree.data,
@@ -3979,6 +4114,7 @@ export function PartPage() {
       meshGlbId,
       bodyPresent,
       body.isFetching,
+      treeWrite,
     ],
   );
   // EXPORT, bound once and mounted twice: the Inspector's ruled strip (the

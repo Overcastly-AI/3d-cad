@@ -23,7 +23,7 @@ import { createPartViaApi, distinctCanvasColors, seedSession } from "./support";
  *            off, on the expression/reference path. Now a live regression gate.
  *   - QA-R3  OPEN — a touch device cannot select two entities, so four of
  *            REACH-1's five new verbs are unreachable there.
- *   - QA-R4  OPEN — for ~0.9 s after a feature write the panel reports the
+ *   - QA-R4  CLOSED — for ~0.9 s after a feature write the panel reported the
  *            PREVIOUS body's mass properties with both status cells claiming to
  *            be current. Found 2026-08-27 while root-causing the two REACH-2
  *            cases below, which failed 3/3 for that reason and not for theirs:
@@ -32,6 +32,9 @@ import { createPartViaApi, distinctCanvasColors, seedSession } from "./support";
  *            throughout. They now take their geometry from the authority
  *            (`apiVolume`) and hold the panel to it separately
  *            (`expectPanelSettlesOn`), so the two can never be confused again.
+ *            Fixed the same day in `derivePartBuild` + the PartPage write paths;
+ *            the case is now a live REGRESSION gate asserting the window is
+ *            closed, and it still asserts in the positive (see its docblock).
  *
  * `docs/QA-REVIEW.md` (2026-08-27) carries the full findings and evidence.
  */
@@ -50,7 +53,24 @@ function boreVolumeMm3(thicknessMm: number): number {
 interface StaleReadoutTrace {
   moments: number[];
   states: string[];
+  /**
+   * One line per CHANGE of `body-status` / `eval-status` / the shown volume,
+   * stamped from the write. The failure message needs the set (`states`); a
+   * human reading a regression needs the ORDER and the timing, and rebuilding
+   * that by hand is what the original diagnosis had to do.
+   */
+  timeline: string[];
   armed: number;
+  /**
+   * Elapsed ms from the write at which the panel first showed a volume that is
+   * NOT the pre-edit one — i.e. the moment the edit actually reached the screen.
+   *
+   * This is the instrument's proof-of-life, and with the assertion inverted it
+   * is load-bearing: "no lie was recorded" is only a statement about the product
+   * if the sampler watched a real edit land. Without it, a page that never
+   * changed at all reports a clean gate.
+   */
+  settledAt: number;
 }
 
 declare global {
@@ -112,6 +132,13 @@ async function volume(page: Page): Promise<number> {
  * `QA-R4` below is the gate on the panel's own honesty; everything else takes
  * its numbers from here, so a stale panel can never again be read as a wrong
  * scope.
+ *
+ * SINCE THE FIX (same day) `eval-status` IS a barrier again — it holds
+ * "Solving…" from the submit click until the rebuilt body is on screen, which is
+ * what the measured trace above shows it failing to do. This helper stays
+ * regardless: a geometric claim belongs to the authority, and reading it from
+ * the panel would make every scope assertion depend on the panel's honesty
+ * being intact, which is precisely the coupling that cost three runs to unpick.
  */
 async function apiVolume(
   page: Page,
@@ -407,50 +434,45 @@ test.describe("REACH-2 QA — the scope has to survive the SECOND edit", () => {
   });
 
   /**
-   * QA-R4 — OPEN. The panel reports a mass property from BEFORE a feature write
-   * while claiming, in both of its status cells, to be current.
+   * QA-R4 — CLOSED (2026-08-27), and this is now the live REGRESSION GATE: the
+   * panel must never report a mass property from BEFORE a feature write while
+   * claiming, in both of its status cells, to be current.
    *
-   * IT ENCODES THE DEFECT AS IT EXISTS TODAY, so the suite stays green while it
-   * is open and turns red the moment someone fixes it — this file's convention.
-   * But it asserts that in the POSITIVE and deliberately does NOT use
-   * `test.fail()`, which every other open case here does. Inside a `test.fail()`
-   * ANY failure counts as the expected one, so a sampler that had broken — a
-   * selector renamed, the arming tell moved, a comparison that can never be true
-   * — would report success and this gate would quietly stop meaning anything.
-   * That is the file header's own warning ("a `test.fail()` that starts failing
-   * for a NEW reason is a gate that has quietly stopped meaning anything") one
-   * level up, and it is not hypothetical here: the first draft of this test
-   * compared `innerText` against `textContent` and so could never fire, and only
-   * the negative control caught it. Positive assertions keep the INSTRUMENT
-   * under test alongside the product. WHEN THE DEFECT IS FIXED this test fails
-   * on `moments.length` — invert the two assertions at the bottom to
-   * `toBe(0)`/keep the guard, and it becomes the regression gate.
+   * WHAT THE DEFECT WAS. From the moment the app issues the write it KNOWS the
+   * body on screen is superseded — it is holding the in-flight mutation.
+   * `derivePartBuild` could not see that: its staleness denominator was
+   * `newestTreeVersion(part, tree)`, both of them client caches still holding
+   * the PRE-write version, so `stale` was false and `activity` idle, and every
+   * readout downstream said "up to date" about a body that was not. Measured at
+   * 25 ms granularity, the previous part's volume stood on the panel under two
+   * confident status cells for ~600-840 ms after the submit click. A user who
+   * edits a feature and reads the mass inside that window gets the PREVIOUS
+   * part's number with nothing to warn them — the "does not silently lie" rule
+   * of the sibling case above, applied to the panel instead of the tree.
    *
-   * WHY IT IS A DEFECT AND NOT A RACE THE TEST SHOULD JUST WAIT OUT. From the
-   * moment the app issues the write it KNOWS the body on screen is superseded —
-   * it is holding the in-flight mutation. `derivePartBuild` cannot see that: its
-   * staleness denominator is `newestTreeVersion(part, tree)`, both of which are
-   * client caches still holding the PRE-write version, so `stale` is false and
-   * `activity` is idle, and every readout downstream says "up to date" about a
-   * body that is not. A user who edits a feature and reads the mass off the panel
-   * inside that window gets the previous part's number with nothing to warn them,
-   * which is the "the part does not silently lie" rule in the sibling case above,
-   * applied to the panel instead of the tree.
+   * WHAT CLOSED IT (`apps/web/src/features/partBuild.ts` +
+   * `apps/web/src/routes/PartPage.tsx`): two facts the workspace knows before
+   * its caches do, now inputs to the derivation — `writing`, true from the click
+   * because the app is holding a write it knows supersedes the body, and
+   * `writtenTreeVersion`, the version the write's own reply reports, which is
+   * the staleness denominator a full refetch early. The second inconsistency
+   * this case recorded went with it: `solve` read `evaluating` alone, so at
+   * t+2288 ms STATUS said "Regenerating…" while SOLVE still said "Solved"; both
+   * cells now read the same activity.
    *
-   * THE FIX IS NOT IN THIS FILE and not in `apps/web/src/features/**`: the write
-   * response already carries the new `tree_version`, so seeding it as the
-   * staleness denominator when the mutation resolves (`runFeatureSave`,
-   * `apps/web/src/routes/PartPage.tsx`) makes `stale` true for exactly this
-   * window and every readout follows from the provenance rule that is already
-   * written down in `partBuild.ts`. Filed for that territory.
-   *
-   * NB `eval-status` is additionally wrong LATER than `body-status` is: it holds
-   * "Solved" while `body-status` has moved to `regenerating` (t+2288 above),
-   * because `derivePartBuild`'s `solve` verdict reads `evaluating` alone and
-   * ignores the `regenerating`/`meshPending` activity its neighbour uses. That is
-   * a second, independent inconsistency in the same derivation.
+   * IT ASSERTS IN THE POSITIVE AND MUST NOT BE WRAPPED IN `test.fail()` — the
+   * annotation every other open case in this file carries. Inside a
+   * `test.fail()` ANY failure counts as the expected one, so a sampler that had
+   * broken (a renamed selector, a moved arming tell, a comparison that can never
+   * be true) would report success and this gate would quietly stop meaning
+   * anything. Not hypothetical: the first draft compared `innerText` against
+   * `textContent` and so could never fire, and only the negative control caught
+   * it. With the assertion now inverted to `toBe(0)`, a dead sampler would pass
+   * TRIVIALLY — which is why `armed` and `settledAt` are asserted first: the
+   * gate has to prove it watched a real write go out and a real new volume
+   * arrive before its silence about the lie means anything.
    */
-  test("QA-R4 OPEN — the panel reports a pre-edit mass property as up to date", async ({
+  test("QA-R4 — the panel never reports a pre-edit mass property as up to date", async ({
     page,
   }) => {
     const account = await seedSession(page);
@@ -510,9 +532,16 @@ test.describe("REACH-2 QA — the scope has to survive the SECOND edit", () => {
           const match = raw.replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
           return match === null ? null : Number.parseFloat(match[0]);
         };
-        const trace: StaleReadoutTrace = { moments: [], states: [], armed: -1 };
+        const trace: StaleReadoutTrace = {
+          moments: [],
+          states: [],
+          timeline: [],
+          armed: -1,
+          settledAt: -1,
+        };
         window.__qaR4 = trace;
         const seen = new Set<string>();
+        let last = "";
         const started = Date.now();
         let sawEditor = false;
         const sample = () => {
@@ -546,6 +575,15 @@ test.describe("REACH-2 QA — the scope has to survive the SECOND edit", () => {
           if (trace.armed >= 0) {
             seen.add(`${claimed}/${solve}/${shown === null ? "-" : "n"}`);
           }
+          const line = `body-status=${claimed} eval-status=${solve} volume=${
+            shown === null ? "(no inspector)" : shown
+          }`;
+          if (line !== last) {
+            last = line;
+            trace.timeline.push(
+              `t+${trace.armed < 0 ? `${elapsed}(pre-write)` : elapsed - trace.armed} ${line}`,
+            );
+          }
           // "Claims current" is BOTH cells, so the assertion cannot be satisfied
           // by one of them merely being conservative.
           if (
@@ -557,24 +595,68 @@ test.describe("REACH-2 QA — the scope has to survive the SECOND edit", () => {
           ) {
             trace.moments.push(elapsed - trace.armed);
           }
+          // The edit reached the screen: the window is over, and the instrument
+          // has proved it was pointed at something that actually happened.
+          if (
+            trace.armed >= 0 &&
+            trace.settledAt < 0 &&
+            shown !== null &&
+            Math.abs(shown - Number(staleVolume)) >= 0.05
+          ) {
+            trace.settledAt = elapsed - trace.armed;
+          }
           trace.states = [...seen];
-          if (elapsed < Number(budgetMs)) window.setTimeout(sample, 10);
+          // Keep sampling a beat past the settle so a lie that appears AFTER the
+          // new volume lands is still caught, then stop — a fixed wait would
+          // either cut the window short on a loaded machine or idle on a fast
+          // one, and the settle is the event, not the clock.
+          const done =
+            trace.settledAt >= 0 &&
+            elapsed - trace.armed - trace.settledAt > 1000;
+          if (!done && elapsed < Number(budgetMs))
+            window.setTimeout(sample, 10);
         };
         sample();
       },
-      [before, 6000] as const,
+      // The budget is a CEILING, not a wait: the sampler stops a second after
+      // the new volume lands, so a fast machine finishes in ~4 s and a loaded
+      // one still gets to watch the whole rebuild rather than being cut off
+      // mid-flight and reporting a clean gate for want of time.
+      [before, 40_000] as const,
     );
 
     await page.getByTestId("pattern-submit").click();
-    await page.waitForTimeout(6200);
-    const trace = await page.evaluate(
-      () => window.__qaR4 ?? { moments: [], states: [], armed: -1 },
-    );
+    const readTrace = () =>
+      page.evaluate(
+        () =>
+          window.__qaR4 ?? {
+            moments: [],
+            states: [],
+            timeline: [],
+            armed: -1,
+            settledAt: -1,
+          },
+      );
+    await expect
+      .poll(async () => (await readTrace()).settledAt, {
+        timeout: 45_000,
+        message:
+          "the panel never showed a volume other than the pre-edit one, so the " +
+          "sampler watched nothing and its silence about the lie proves nothing",
+      })
+      .toBeGreaterThanOrEqual(0);
+    // The sampler runs on a beat past the settle — let it finish before reading.
+    await page.waitForTimeout(1300);
+    const trace = await readTrace();
 
-    const { moments, states } = trace;
-    // THE INSTRUMENT'S OWN GUARD, first: if the sampler never saw the write go
-    // out it measured nothing, and "no lie found" would be a statement about
-    // this test rather than about the product.
+    const { moments, states, timeline } = trace;
+    console.log(
+      `QA-R4 timeline (ms from the write):\n  ${timeline.join("\n  ")}`,
+    );
+    // THE INSTRUMENT'S OWN GUARDS, first and non-negotiable. The assertion below
+    // is now a `toBe(0)`, which a sampler that measured NOTHING satisfies
+    // trivially — so the gate must prove it watched the write go out, recorded
+    // panel states, and saw the edit reach the screen before its silence counts.
     expect(
       trace.armed,
       "the sampler never saw the write commit (aria-busy / editor teardown), " +
@@ -584,6 +666,10 @@ test.describe("REACH-2 QA — the scope has to survive the SECOND edit", () => {
       states.length,
       "the sampler armed but recorded no panel states at all",
     ).toBeGreaterThan(0);
+    expect(
+      trace.settledAt,
+      "the sampler never saw the post-edit volume arrive",
+    ).toBeGreaterThanOrEqual(0);
 
     const span =
       moments.length === 0
@@ -591,18 +677,17 @@ test.describe("REACH-2 QA — the scope has to survive the SECOND edit", () => {
         : (moments[moments.length - 1] as number) - (moments[0] as number);
     expect(
       moments.length,
-      `THE DEFECT IS FIXED — invert this assertion to toBe(0) and drop "OPEN" ` +
-        `from the title and the file header. The panel no longer claimed ` +
-        `"up to date" AND "Solved" while showing the PRE-EDIT volume ${before}. ` +
-        `States observed after the write: ${states.join(", ")}`,
-    ).toBeGreaterThan(0);
-    // The measured window, logged rather than asserted: its LENGTH is a
-    // performance fact that will move with machine speed, and pinning it would
-    // be an ad-hoc epsilon. Its EXISTENCE is the defect.
+      `QA-R4 HAS REOPENED. For ${span} ms after the write (t+${moments[0]}..` +
+        `${moments[moments.length - 1]}, ${moments.length} samples) the panel ` +
+        `claimed "up to date" AND "Solved" while showing the PRE-EDIT volume ` +
+        `${before}. The two facts that close this window are \`writing\` and ` +
+        `\`writtenTreeVersion\` in derivePartBuild — check that the write path ` +
+        `you changed still calls beginTreeWrite/noteWrittenTreeVersion. ` +
+        `Timeline:\n  ${timeline.join("\n  ")}`,
+    ).toBe(0);
     console.log(
-      `QA-R4: panel claimed current with the pre-edit volume ${before} for ` +
-        `${span} ms (t+${moments[0]}..${moments[moments.length - 1]} ms after ` +
-        `the write, ${moments.length} samples). States: ${states.join(", ")}`,
+      `QA-R4: no stale claim in ${states.length} distinct panel states over ` +
+        `${trace.settledAt} ms to the new volume. States: ${states.join(", ")}`,
     );
   });
 });

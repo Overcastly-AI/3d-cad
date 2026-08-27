@@ -27,10 +27,12 @@ import {
 import {
   brokenFillet,
   cleanCube,
+  justWritten,
   makeBuild,
   makeEvaluation,
   makePart,
   makeTree,
+  midWrite,
   rolledBack,
   strandedDownstream,
   unverified,
@@ -98,6 +100,45 @@ describe("derivePartBuild — provenance", () => {
       treeFetching: true,
     });
     expect(refetchingTree.unverified).toBe(false);
+  });
+
+  it("stops claiming to be current the moment a write is issued (QA-R4)", () => {
+    // The measured defect: part, tree and evaluation all read version 7 while
+    // the app holds a write it KNOWS supersedes the body, so every readout said
+    // "up to date" about the previous part's mass for ~600-840 ms.
+    const build = midWrite();
+    expect(build.builtFromTreeVersion).toBe(7);
+    expect(build.currentTreeVersion).toBe(7);
+    // No cache has moved, so the version comparison alone cannot see this.
+    expect(build.stale).toBe(false);
+    expect(build.activity).toBe("solving");
+    expect(bodyStatusReadout(build).status).not.toBe("up-to-date");
+    expect(bodyStatusReadout(build).label).toBe("Solving…");
+    expect(solveSummary(build)).toBe("Solving…");
+  });
+
+  it("takes the denominator from the write's own reply, ahead of both caches", () => {
+    // The provenance half, standing alone: the reply said 8, the caches still
+    // say 7, and nothing is in flight to explain it away.
+    const build = justWritten();
+    expect(build.currentTreeVersion).toBe(8);
+    expect(build.stale).toBe(true);
+    expect(build.unverified).toBe(true);
+    expect(bodyStatusReadout(build).status).toBe("unverified");
+    expect(exportGate(build).state).toBe("unverified");
+  });
+
+  it("keeps the highest version anyone reported, whichever source it was", () => {
+    // A write reply cannot pull the denominator BACKWARDS past a cache that has
+    // already learned about a later edit — `newestTreeVersion` is a max.
+    const build = makeBuild({
+      tree: makeTree(["Sketch1", "Extrude1"], { treeVersion: 9 }),
+      part: makePart(9),
+      evaluation: makeEvaluation(["ok", "ok"], { treeVersion: 9 }),
+      writtenTreeVersion: 8,
+    });
+    expect(build.currentTreeVersion).toBe(9);
+    expect(build.stale).toBe(false);
   });
 
   it("claims nothing before an evaluation has landed", () => {
@@ -268,11 +309,69 @@ describe("the three cells cannot disagree", () => {
   });
 
   it("never spends 'Up to date' on a body that is a prefix", () => {
-    [brokenFillet(), strandedDownstream(), rolledBack(), unverified()].forEach(
-      (build) => {
-        expect(bodyStatusReadout(build).label).not.toBe("Up to date");
+    [
+      brokenFillet(),
+      strandedDownstream(),
+      rolledBack(),
+      unverified(),
+      midWrite(),
+      justWritten(),
+    ].forEach((build) => {
+      expect(bodyStatusReadout(build).label).not.toBe("Up to date");
+    });
+  });
+
+  /**
+   * QA-R4's invariant, asserted over the whole transient space rather than the
+   * one path that was measured: STALE MUST NEVER READ AS UP TO DATE. The window
+   * that shipped came from a second route into the all-clear branch (stale, but
+   * `treeFetching` cancelling the "Unverified" verdict without cancelling this
+   * one) — the kind of gap a scenario-by-scenario test does not find.
+   */
+  it("never says 'Up to date' about a stale body, in any request state", () => {
+    const flags = ["evaluating", "treeFetching", "regenerating", "writing"];
+    for (let bits = 0; bits < 1 << flags.length; bits += 1) {
+      const state = Object.fromEntries(
+        flags.map((flag, index) => [flag, (bits & (1 << index)) !== 0]),
+      );
+      const build = makeBuild({
+        tree: makeTree(["Sketch1", "Extrude1"], { treeVersion: 4 }),
+        part: makePart(4),
+        evaluation: makeEvaluation(["ok", "ok"], { treeVersion: 3 }),
+        ...state,
+      });
+      expect(build.stale, JSON.stringify(state)).toBe(true);
+      expect(bodyStatusReadout(build).status, JSON.stringify(state)).not.toBe(
+        "up-to-date",
+      );
+    }
+  });
+
+  /**
+   * The second inconsistency QA-R4 recorded: at t+2288 ms STATUS read
+   * "Regenerating…" while SOLVE still read "Solved" — one cell reporting a
+   * rebuild the other denied, because `solve` tested `evaluating` alone.
+   */
+  it("SOLVE and STATUS agree about whether a rebuild is under way", () => {
+    const settled = {
+      tree: makeTree(["Sketch1", "Extrude1"]),
+      part: makePart(3),
+      evaluation: makeEvaluation(["ok", "ok"], { lastGoodFeatureId: "f2" }),
+    };
+    (["evaluating", "regenerating", "meshPending", "writing"] as const).forEach(
+      (flag) => {
+        const build = makeBuild({ ...settled, [flag]: true });
+        expect(bodyStatusReadout(build).status, flag).not.toBe("up-to-date");
+        expect(build.solve, flag).toBe("solving");
+        expect(solveSummary(build), flag).toBe("Solving…");
       },
     );
+    // `mesh-error` is the deliberate exception: the evaluation DID return a
+    // verdict and only the mesh is unservable, which STATUS says in its own
+    // words — claiming "Solving…" there would invent a rebuild nobody started.
+    const meshError = makeBuild({ ...settled, regenFailed: true });
+    expect(bodyStatusReadout(meshError).status).toBe("error");
+    expect(solveSummary(meshError)).toBe("Solved");
   });
 });
 
