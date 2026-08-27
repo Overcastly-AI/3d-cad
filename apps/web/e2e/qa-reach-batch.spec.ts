@@ -1742,6 +1742,47 @@ test.describe("REACH-1 QA — does the angle ANNOTATION track the model?", () =>
     await expect
       .poll(() => solvedAngleDeg(evaluations), { timeout: 20_000 })
       .toBeCloseTo(45, 2);
+
+    // THE SOLVER GETTING THERE IS NOT THE ANNOTATION GETTING THERE. The poll
+    // above proves the evaluate payload reached 45°; the glyph is a second
+    // surface that re-renders on its own schedule, and reading it in the SAME
+    // tick measured `{"shown":"30°","solved":45}` in 2 of 4 isolated runs
+    // (2026-08-27) — which is byte-for-byte the pre-fix QA-R2 signature this
+    // case was written to catch, produced by the gate rather than the product.
+    //
+    // The claim below is UNCHANGED and is not relaxed: the glyph must still
+    // carry the solver's 45°, and if it never does this poll times out and the
+    // case fails. All that is added is a bounded chance for the render to
+    // happen, which no UI can do synchronously with a network response. The
+    // comparison stays against the SOLVED value, never a literal.
+    //
+    // It has to require `solvedNow` to have REACHED 45 as well, because "the
+    // glyph agrees with the solver" is ALREADY TRUE of the authored state
+    // (30° next to 30°) — the same already-satisfied-barrier trap as the
+    // reference case below and the two REACH-2 cases above.
+    await expect
+      .poll(
+        async () => {
+          const solvedNow = solvedAngleDeg(evaluations);
+          if (solvedNow === null || Math.abs(solvedNow - 45) > 0.01) {
+            return false;
+          }
+          const shownNow = Number.parseFloat(
+            (await glyph.innerText()).replace(/[()°]/g, ""),
+          );
+          return (
+            Number.isFinite(shownNow) && Math.abs(shownNow - solvedNow) < 0.05
+          );
+        },
+        {
+          timeout: 20_000,
+          message:
+            "the glyph never took the solver's 45° — this IS the QA-R2 defect " +
+            "(the annotation keeping a value the solver has moved off)",
+        },
+      )
+      .toBe(true);
+
     const shown = await glyph.innerText();
     const solved = solvedAngleDeg(evaluations);
     console.log("ANGLE-EXPR", JSON.stringify({ shown, solved }));
@@ -1788,6 +1829,12 @@ test.describe("REACH-1 QA — does the angle ANNOTATION track the model?", () =>
     // Drafting convention: a measured value wears parentheses.
     await expect(glyph).toHaveText(/\(/, { timeout: 20_000 });
     const asAuthored = await glyph.innerText();
+    // The authored state, from the AUTHORITY, before anything moves.
+    await expect
+      .poll(() => solvedAngleDeg(evaluations), { timeout: 20_000 })
+      .not.toBeNull();
+    const authoredSolved = solvedAngleDeg(evaluations) as number;
+    const seenEvaluations = evaluations.length;
 
     // Now MOVE one of the lines with an unrelated constraint. The reference
     // angle has to follow the geometry it measures.
@@ -1795,16 +1842,76 @@ test.describe("REACH-1 QA — does the angle ANNOTATION track the model?", () =>
     await clickPlane(page, at, { x: 24, y: 8 });
     await page.keyboard.press("h");
 
+    // ------------------------------------------------------------------
+    // THE BARRIER HAS TO BE A CHANGE IN THE AUTHORITY, NOT AGREEMENT BETWEEN
+    // TWO READINGS. "the glyph agrees with the solver" is ALREADY TRUE before
+    // the constraint lands — `solvedAngleDeg` reads the LATEST evaluation, and
+    // until the new one arrives that is still the authored 53.13° next to a
+    // glyph still showing 53.13°. So the old single poll returned on its first
+    // tick against the PRE-EDIT pair and `after` was `asAuthored` by
+    // construction. Measured here, in the failing run of three:
+    //   ANGLE-REFERENCE {"asAuthored":"(53.13°)","after":"(53.13°)",
+    //                    "solved":53.130102354155994}
+    // — `solved` still the authored value, i.e. the evaluation had not landed.
+    // It is a pre-existing race, not a regression: this case is byte-identical
+    // at 0cee656 (CI SUCCESS) and at HEAD, and in isolation it passes 2/3 and
+    // 3/3 respectively. `fca2e42` added a test to this 4-way-sharded file,
+    // which reshuffled the shard and lost the race in CI.
+    //
+    // FOUR CASES IN THIS FILE HAVE NOW USED AN ALREADY-SATISFIED CONDITION AS
+    // THEIR BARRIER: the two REACH-2 cases (which waited on an `eval-status`
+    // that never left "Solved"), this one, and the expression sibling above
+    // (which waited on the SOLVER and then read the glyph in the same tick).
+    // The treatment is the same every time: make the barrier a change in the
+    // AUTHORITY, then hold the UI to that answer separately, so the two failure
+    // modes can never be confused. Worth checking any new case here against it.
+    // ------------------------------------------------------------------
+
+    // 1. THE MODEL ACTUALLY MOVED — the precondition, glyph not consulted.
+    //    The 0.5° discriminator is not a geometric tolerance: it only has to
+    //    exceed the glyph's 2-dp display resolution (0.005°) and sit far below
+    //    the 18.4° this constraint really produces (53.13° -> 71.57°).
+    await expect
+      .poll(
+        () => {
+          const solvedNow = solvedAngleDeg(evaluations);
+          if (solvedNow === null) return false;
+          return Math.abs(solvedNow - authoredSolved) > 0.5;
+        },
+        {
+          timeout: 25_000,
+          message:
+            `the Horizontal constraint never moved the geometry the reference ` +
+            `measures — the solver stayed at ${authoredSolved}° across ` +
+            `${evaluations.length - seenEvaluations} new evaluation(s), so there ` +
+            `is nothing for the annotation to track and this is NOT a glyph bug`,
+        },
+      )
+      .toBe(true);
+
+    // 2. THE GLYPH FOLLOWED IT — the product claim. Re-reads the solved value
+    //    each tick (a later evaluation may refine it) but still requires it to
+    //    have moved, so this cannot be satisfied by a regression to the
+    //    authored state either.
     await expect
       .poll(
         async () => {
           const solvedNow = solvedAngleDeg(evaluations);
-          const text = await glyph.innerText();
           if (solvedNow === null) return false;
-          const shownNow = Number.parseFloat(text.replace(/[()°]/g, ""));
-          return Math.abs(shownNow - solvedNow) < 0.05;
+          if (Math.abs(solvedNow - authoredSolved) <= 0.5) return false;
+          const shownNow = Number.parseFloat(
+            (await glyph.innerText()).replace(/[()°]/g, ""),
+          );
+          return (
+            Number.isFinite(shownNow) && Math.abs(shownNow - solvedNow) < 0.05
+          );
         },
-        { timeout: 25_000 },
+        {
+          timeout: 25_000,
+          message:
+            "the reference glyph never caught up with the solver after the " +
+            "geometry moved — this one IS the annotation's fault",
+        },
       )
       .toBe(true);
 
