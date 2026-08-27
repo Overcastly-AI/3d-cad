@@ -83,6 +83,11 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Any, cast
+
+#: An OpenAPI document. Deliberately `Any`-valued: the spec is arbitrary
+#: JSON and every walker below is written to tolerate any shape it meets.
+Spec = dict[str, Any]
 
 REPO = Path(__file__).resolve().parent.parent
 GATEWAY_SPEC = REPO / "packages" / "contracts" / "gateway.openapi.json"
@@ -124,55 +129,59 @@ DATA_DRIVEN_SCHEMAS = {
 }
 
 
-def _load_spec(path: Path) -> dict:
+def _load_spec(path: Path) -> Spec:
     with path.open() as handle:
-        return json.load(handle)
+        loaded: Spec = json.load(handle)
+        return loaded
 
 
 def _schema_literals(node: object, into: set[str]) -> None:
     """Every string const/enum member anywhere under `node`."""
     if isinstance(node, dict):
-        const = node.get("const")
+        mapping = cast(Spec, node)
+        const = mapping.get("const")
         if isinstance(const, str):
             into.add(const)
-        for member in node.get("enum") or []:
+        for member in cast("list[Any]", mapping.get("enum") or []):
             if isinstance(member, str):
                 into.add(member)
-        for value in node.values():
+        for value in mapping.values():
             _schema_literals(value, into)
     elif isinstance(node, list):
-        for value in node:
+        for value in cast("list[Any]", node):
             _schema_literals(value, into)
 
 
 def _refs(node: object, into: set[str]) -> None:
     """Every `#/components/schemas/X` reference anywhere under `node`."""
     if isinstance(node, dict):
-        ref = node.get("$ref")
+        mapping = cast(Spec, node)
+        ref = mapping.get("$ref")
         if isinstance(ref, str) and ref.startswith("#/components/schemas/"):
             into.add(ref.rsplit("/", 1)[1])
-        for value in node.values():
+        for value in mapping.values():
             _refs(value, into)
     elif isinstance(node, list):
-        for value in node:
+        for value in cast("list[Any]", node):
             _refs(value, into)
 
 
-def request_side_schemas(spec: dict) -> set[str]:
+def request_side_schemas(spec: Spec) -> set[str]:
     """Schema names reachable from any operation's requestBody.
 
     Transitively closed: a constraint `kind` lives several $refs below the
     request body that carries it, and stopping at depth one would miss exactly
     the nested discriminated unions this check exists to find.
     """
-    schemas = spec.get("components", {}).get("schemas", {})
+    schemas: Spec = spec.get("components", {}).get("schemas", {})
     seeds: set[str] = set()
-    for methods in spec.get("paths", {}).values():
+    paths: Spec = spec.get("paths", {})
+    for methods in paths.values():
         if not isinstance(methods, dict):
             continue
-        for operation in methods.values():
+        for operation in cast(Spec, methods).values():
             if isinstance(operation, dict) and "requestBody" in operation:
-                _refs(operation["requestBody"], seeds)
+                _refs(cast(Spec, operation)["requestBody"], seeds)
 
     seen: set[str] = set()
     queue = list(seeds)
@@ -187,9 +196,9 @@ def request_side_schemas(spec: dict) -> set[str]:
     return seen
 
 
-def request_literals(spec: dict) -> dict[str, set[str]]:
+def request_literals(spec: Spec) -> dict[str, set[str]]:
     """Candidate capability literals -> the request-side schemas carrying them."""
-    schemas = spec.get("components", {}).get("schemas", {})
+    schemas: Spec = spec.get("components", {}).get("schemas", {})
     owners: dict[str, set[str]] = {}
     for name in request_side_schemas(spec):
         if name in DATA_DRIVEN_SCHEMAS:
@@ -274,15 +283,16 @@ def _corpus(root: Path) -> str:
     )
 
 
-def operations(spec: dict) -> list[tuple[str, str]]:
+def operations(spec: Spec) -> list[tuple[str, str]]:
     """(method, path) for every operation the gateway exposes."""
     found: list[tuple[str, str]] = []
-    for path, methods in spec.get("paths", {}).items():
+    paths: Spec = spec.get("paths", {})
+    for path, methods in paths.items():
         if not isinstance(methods, dict):
             continue
-        for method in methods:
-            if method.lower() in {"get", "post", "put", "patch", "delete"}:
-                found.append((method.upper(), path))
+        for method in cast(Spec, methods):
+            if str(method).lower() in {"get", "post", "put", "patch", "delete"}:
+                found.append((str(method).upper(), str(path)))
     return found
 
 
@@ -303,7 +313,7 @@ def _path_pattern(path: str) -> re.Pattern[str]:
     return re.compile("/".join(parts))
 
 
-def unreachable_operations(spec: dict, src: str) -> list[tuple[str, str]]:
+def unreachable_operations(spec: Spec, src: str) -> list[tuple[str, str]]:
     """Operations whose path SHAPE appears nowhere in the web app.
 
     THE TIER THAT ACTUALLY FINDS THINGS. Literal-matching answers "can the user
@@ -322,7 +332,7 @@ def unreachable_operations(spec: dict, src: str) -> list[tuple[str, str]]:
     ]
 
 
-def classify(spec: dict, src: str, e2e: str) -> list[tuple[str, str, list[str]]]:
+def classify(spec: Spec, src: str, e2e: str) -> list[tuple[str, str, list[str]]]:
     rows: list[tuple[str, str, list[str]]] = []
     for literal, owners in sorted(request_literals(spec).items()):
         if not _reachable_in(literal, src):
@@ -524,7 +534,7 @@ def _self_test() -> int:
 
     # (3) The operation tier — the one that found three whole shipped
     # capabilities with no caller, which no literal check can see.
-    op_spec = {
+    op_spec: Spec = {
         "paths": {
             "/api/v1/parts/{part_id}/features/order": {"put": {}},
             "/api/v1/parts/{part_id}/features": {"post": {}},
