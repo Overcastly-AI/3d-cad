@@ -14,6 +14,16 @@ blocked or lies · **P2** a real flow is worse than it should be · **P3** polis
 
 ## 2026-08-27 — REACH batch, independent QA (REACH-1 / REACH-2 / REACH-3)
 
+> **Provenance note (annotation, not a rewrite).** This entry, the QA-R1/R2/R3
+> board items and `apps/web/e2e/qa-reach-batch.spec.ts` were staged by the
+> qa-tester and then captured by a concurrent agent's commit `4e41eb4`
+> ("fix(workflow): a subtree missing from the list is invisible…"), whose
+> message describes none of them. Nothing was lost and `4e41eb4` was already
+> pushed, so the record is corrected here rather than by rewriting history other
+> agents have rebased onto (CLAUDE.md staging protocol). The QA work is the
+> qa-tester's; the workflow change in that commit is not.
+
+
 **Verdict: REACH-2 and REACH-3 PASS. REACH-1 FAILS — it ships a control that
 takes the sketch's own FINISH and CANCEL out of the window at the two most
 common laptop widths, and an angle annotation that keeps a number the solver
