@@ -3812,3 +3812,195 @@ undocumented rather than implemented.
 - The symmetric-with-construction-axis flow (covered by the builder's own spec).
 - 1280×800 with a LONG part name in the breadcrumb, which competes for the same
   strip row as P1-1.
+
+---
+
+## 2026-08-27 — REACH-3 spot-check: the convention is reachable, the paper is not
+
+**Under review:** `5438b73` — "the sheet declares its projection convention, and
+can be portrait". Walked in a real browser against a native stack (gateway
+:8040), 1280×800 and 1024×768, mouse and keyboard, with a deliberately tall
+40×40×150 mm column — the part the feature exists for.
+
+**Verdict: the convention half ships. The portrait half is present and does not
+flow.** Flipping first/third angle works, moves the views, survives reload, and
+is keyboard-reachable. Orientation is a different story: the app *computes* that
+this part draws at **1:2 portrait vs 1:5 landscape**, creates the sheet
+landscape at 1:5 anyway, and then — when you flip it from the cell that promised
+1:2 — hands back a portrait sheet still at 1:5, emptier than the landscape one
+it replaced, with the scale control now a read-only readout. The capability is
+reachable exactly once: on the *second* sheet.
+
+**Credit first, because it is deserved.** The ISO cone glyph is real drafting
+vernacular, one path mirrored by `scale(-1 1)`, with the circles derived from
+the composer's own `right_sx` sign so the symbol predicts the layout. That is a
+signature element in the sense the mandate means, and it is not an AI default.
+The problem is that it is the only part of REACH-3 that got design attention,
+and it is 35×14 px in a corner.
+
+### P1
+
+**P1-1 — the orientation proposal never fires on Sheet 1, which is the only
+sheet most drawings have.** Measured on the tall column:
+`SHEET1 orientation=landscape fitL=1:5 fitP=1:2 data-proposed=false
+addProposes=portrait`. The reading exists, is correct, and is ignored. All three
+Sheet-1 auto-create paths in `apps/web/src/routes/DrawingPage.tsx` (≈468, 568,
+638) still hardcode `orientation: "landscape", projection: "third_angle"`, and
+so does `apps/web/src/routes/PartPage.tsx:2312`; `orientationFit` is in scope at
+all three DrawingPage sites and unused. Only `handleAddSheet` consults it. Ref
+`uiqa-reach3-sheet1.png` — the part occupies about a third of the paper at 1:5 while
+the app knows a 2.5× larger drawing was available.
+*System fix:* one `sheetHeaderForNewSheet()` derivation that every create path
+calls — proposal + inherited convention + the scale that orientation earns —
+rather than four literals and one smart call site.
+
+**P1-2 — flipping orientation delivers a worse drawing than the cell promised,
+and there is no way to correct it.** The cell's accessible name reads "switch to
+portrait (1:2)". Activating it gives `viewBox 0 0 297 210 → 0 0 210 297` while
+the sheet's own name stays *"4 views at 1:5"* and the title block still stamps
+1:5 — the paper got taller, the views never re-fit. Ref `uiqa-reach3-after-orientation-flip.png` beside `uiqa-reach3-sheet1.png`: portrait is visibly *emptier*
+than the landscape it replaced, so a user flips once, concludes portrait is
+broken, and flips back. It is also a dead end: `DrawingCommandBand.tsx` gates
+Size and Scale behind `hasLayout`, so once views exist Scale is a `Readout` not
+a `SelectField`, "Lay out standard views" has become "Re-project", and
+`handleReproject` (DrawingPage.tsx:809) only invalidates queries. On a laid-out
+sheet the scale cannot be changed at all. The builder's comment asserts "the
+cell can never claim a scale the layout would not actually produce" — measured,
+it does.
+*System fix:* `reheadSheet` re-fits and re-places at
+`orientationFit.scaleByOrientation[next]`, the same reading `handleAddSheet`
+already applies. If re-fit is genuinely out of scope, the cell must stop
+promising a scale it will not deliver.
+
+### P2
+
+**P2-1 — both cells are gone at 1024×768 once a drawing has 11 sheets.**
+`TABLET strip width=1151, root clientWidth=1024` — the strip's right edge is 139
+px past the frame, and because it is absolutely positioned nothing scrolls it
+back. Ref `uiqa-reach3-tablet.png`: tabs clip behind the properties panel and the
+projection/orientation cells are simply not on screen. At 1280 the wall is ~14
+sheets (`SHEETS=14 strip width=1268`), and what gives way is the *tab labels*
+wrapping to two lines, not the strip. There is no `max-w`, no scroll, no
+overflow rule.
+*System fix:* cap the strip and put the tab list in the existing horizontal
+`ScrollRegion`, with the two sheet-header cells pinned OUTSIDE it — a compliance
+stamp must not be able to scroll away.
+
+**P2-2 — the cells are absent from the one screen whose job is sheet setup.**
+`PRELAYOUT projection-cell=0 orientation-cell=0 tabs=0`. The setup screen
+(`uiqa-reach3-prelayout.png`) carries Part / Size / Scale pickers and a SHEET tool
+group, and its empty-state copy sends the user there — "Choose a part, sheet
+size and scale above, then lay out the standard views." The two properties that
+change what "lay out" *produces* are not there and are not mentioned. So the
+first sheet's convention can only ever be corrected after the fact, which is
+what makes P1-2 load-bearing.
+*System fix:* the sheet-setup group in `DrawingCommandBand` is the right home
+before layout; the tab-strip cell is right after. One piece of state, two
+presentations.
+
+**P2-3 — the Size readout contradicts the orientation cell on the same screen.**
+`sizeOptions` in `apps/web/src/drawing/layout.ts:89` bakes the LANDSCAPE extents
+into every label, so a portrait sheet reads **"A4 · 297 × 210 mm"** in the
+command band while the header cell shows a portrait paper glyph
+(`uiqa-reach3-many-sheets.png`). Two chrome elements stating contradictory facts about
+one sheet is mandate 3c.
+*System fix:* derive the label from the active sheet's orientation in
+`layout.ts`, not from a landscape constant.
+
+**P2-4 — the cone glyph explains itself to a mouse and to nobody else.**
+`TOOLTIP-ON-KEYBOARD-FOCUS count=0`; the only explanation is
+`title="Projection convention: third angle — switch to first angle"`. Every
+other control in this band is a `ToolButton`, whose own docstring says the
+tooltip "appears on hover AND keyboard" (`ToolButton.tsx:75`). This is a symbol
+most users have not seen, and its one gloss is unreachable by keyboard —
+and disappears entirely under `disabled:pointer-events-none` while the PATCH is
+in flight.
+*System fix:* compose the existing tooltip primitive; drop `title=`.
+
+**P2-5 — a failed re-head reports "LAYOUT FAILED" at the opposite corner.**
+Forcing a 409 on the PATCH surfaces a toast at bottom-left, y≈725, titled
+*Layout failed*, for a control at top-left, y≈129 (`uiqa-reach3-patch-error.png`). No
+layout was attempted. The state model is honest — `AFTER FAILED PATCH
+projection=third_angle`, no silent wrong sheet — but the message is not, and it
+is 600 px from the thing that failed.
+*System fix:* `actionError` carries a per-action title; a re-head failure
+surfaces at the cell.
+
+### P3
+
+- **P3-1 — `data-proposed` is real state with no visual expression.** The cell
+  carries `data-proposed`, `data-fit-landscape="1:5"`, `data-fit-portrait="1:2"`
+  and puts all of it in the accessible name. A sighted mouse user sees a 13 px
+  paper glyph and nothing else, so "the content proposes" is true for a screen
+  reader and invisible to everyone else. Give the proposal a brass tick, and the
+  counter-reading a caption.
+- **P3-2 — mismatched pair, sub-minimum targets.** `BOX sheet-orientation =
+  27×23`, `BOX sheet-tab-add = 18.8×19`; WCAG 2.5.8 (AA) floor is 24×24 CSS px,
+  so orientation misses on height and `sheet-tab-add` on both (pre-existing).
+  The projection cell has a caption ("3RD"); the orientation cell has none, so
+  the pair reads as one labelled control and one bare icon. Fix in
+  `SheetHeaderCell` with a shared `min-h-6` and a caption slot both cells use.
+- **P3-3 — `motion-reduce:transition-none` missing; it is the system's own
+  convention.** Measured `transitionDuration: 0.12s` under
+  `prefers-reduced-motion: reduce`. `AxisGrip.tsx:78` writes exactly
+  `transition-colors duration-fast motion-reduce:transition-none` and
+  `AxisGrip.test.tsx:138` asserts it; `SheetHeaderCell`, the sheet tabs and
+  `ToolButton` itself (`ToolButton.tsx:160`) all omit it. Colour-only
+  transitions are not a WCAG 2.3.3 failure, hence P3 — but the fix is the
+  primitive, not the instance.
+- **P3-4 — the convention stamp reads as a fifth sheet tab.** Same bordered
+  strip, same 10 px type, same 0.14em tracking, separated by a 1 px hairline —
+  "1ST" beside "SHEET 1…7" scans as another tab name. AT gets it right (the
+  cells sit outside `role="tablist"`); the eye does not. A wider gutter or a
+  visible seat at the strip's right end.
+- **P3-5 — `updateSheetHeader` lives in the route, not `api/drawings.ts`.**
+  Flagged by the builder as a territory workaround. Types are generated so the
+  DRY rule holds, but it re-implements the module's error-envelope idiom. Fold
+  it back.
+
+### What passed
+
+- **Convention flip is genuinely wired**, mouse and keyboard: `Enter` on
+  `sheet-projection` → `data-projection=first_angle`, views re-anchor
+  server-side (`uiqa-reach3-first-angle-portrait.png`).
+- **Contrast clean.** `sheet-projection` `rgb(221,228,235)` on
+  `rgba(22,29,39,.95)` = **13.2:1**; `sheet-orientation` `rgb(157,170,186)` =
+  **7.2:1**. Both at 10 px.
+- **Focus ring visible** — 2 px brass, 2 px inset, on both new cells
+  (`uiqa-reach3-focus-orientation.png`).
+- **Tab order is sane**: `sheet-tab-0 → sheet-tab-add → sheet-projection →
+  sheet-orientation → sheet content`. Nothing is keyboard-trapped.
+- **No root overflow at 1280** (`scrollWidth == clientWidth == 1280`), and every
+  view stayed inside the paper after a flip.
+- **Test hooks intact and extended** — `sheet-tabs`, `sheet-tab-N`,
+  `sheet-tab-add` all preserved through the `SheetTabs` restructure; new
+  `sheet-projection` / `sheet-orientation` with rich data attributes.
+- **Convention inheritance works within a drawing** — Sheet 2 came up
+  `projection=first_angle` after Sheet 1 was flipped.
+
+### Running component checklist (delta)
+
+- 🔴 `SheetTabs` / `SheetHeaderCell` — P2-1 (off-screen at 1024×768 / 11 sheets),
+  P2-4 (mouse-only explanation), P3-1, P3-2, P3-3, P3-4
+- 🔴 `DrawingPage` sheet creation — P1-1 (proposal ignored on Sheet 1 in all
+  four create paths incl. `PartPage.tsx:2312`)
+- 🔴 `reheadSheet` — P1-2 (flip does not re-fit; the promised scale is not
+  delivered and cannot afterwards be set)
+- 🔴 `DrawingCommandBand` — P2-2 (no orientation/convention on the setup
+  screen), P2-3 (landscape-only size label on a portrait sheet), and Scale
+  becoming an unrecoverable `Readout` once `hasLayout`
+- ✅ `ProjectionSymbol` — correct ISO symbology, mirrored from the composer's
+  own sign, `currentColor`, no hex literal. The best thing in the change.
+- ✅ Contrast / focus ring / tab order / test hooks / no-silent-wrong-state on
+  a failed PATCH
+
+### Coverage this pass did NOT reach
+
+- Whether the exported SVG/PDF/DXF stamp the convention at all — the builder
+  correctly defers title-block stamping to a geometry-service follow-up, so
+  today a first-angle sheet prints with no first-angle mark, which is a
+  compliance gap in the artifact, not in the UI. Track it.
+- Arrow-key roving inside the tablist (the docstring claims "roving tablist";
+  no `tabIndex` management or arrow handler is present in the source).
+- Real touch emulation — target sizes measured, no touch project exists.
+- Non-A4 sheet sizes and the ANSI series with portrait.
