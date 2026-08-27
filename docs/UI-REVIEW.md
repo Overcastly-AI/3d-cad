@@ -3544,3 +3544,271 @@ names in the badge column.
   `defaultScopeMode`); the module is otherwise clean and well-tested
 - ✅ `PatternEditor` / `MirrorEditor` scope row composition, tokens, contrast,
   focus, tab order, 1280 fit, persistence round-trip, derived tree badge
+
+---
+
+## 2026-08-27 — SPOT-CHECK: REACH-1, the selection offer rail (`46ce6af`)
+
+**Verdict: the capability is REACHABLE, and the mechanism is the right one —
+but it ships two P1s that a 1440-wide test suite cannot see.** Walked in a real
+browser at 1280×800 / 1440 / 1600 against a native stack (gateway :8040,
+documents :8041, geometry :8042), commit `46ce6af` in an isolated worktree.
+
+The offer rail itself is a genuinely good idea, correctly argued in the commit
+message: a catalogue tells you what exists, the rail tells you what is available
+NOW, and "truthful by construction" (an offer only appears when
+`applyConstraintAction` would really act) is the right invariant. It is the
+first mechanism in the sketcher that answers "what can I do with what I have
+just selected". Keep it. The findings below are about where it was put, what it
+displaces, and what it still leaves unwired.
+
+### P1-1 — The rail pushes FINISH SKETCH and CANCEL SKETCH off the screen at 1280×800
+
+Screenshots: `uiqa-reach1-strip-intact-noselection-1280.png` (nothing selected —
+strip complete, FINISH ✓ ✕ present) vs `uiqa-reach1-rail-clips-finish-1280.png`
+(two lines selected — RELATIONAL cut mid-group, everything after it gone).
+
+Measured, same page, 1280 viewport:
+
+| selection | strip width | controls clipped OUT of the viewport |
+|---|---|---|
+| nothing selected | 1259 px | 0 |
+| two lines (3 offers) | **1419 px** | **4** — `constraint-group-relational` (1167→1300), `sketch-construction` (1302→1334), `sketch-save` (1347→1379), `sketch-exit` (1381→1413) |
+
+`document.documentElement.scrollWidth === clientWidth === 1280`, so there is no
+horizontal scroll: those controls are **unreachable by mouse**, not merely
+off-view. The rail adds ~206 px to the left status cell and the strip does not
+reflow, it overflows. At 1440 and 1600 nothing clips — which is exactly why
+`sketch-vocab.spec.ts` (`test.use({ viewport: { width: 1440 } })`) is green.
+
+Two aggravating details:
+- **`isVisible()` returns `true` for a control 67 px past the right edge.**
+  Playwright visibility is a CSS/box property, not a viewport-containment one, so
+  no ordinary `toBeVisible()` assertion anywhere in the suite can catch this
+  class of defect. A census of `getBoundingClientRect().right > viewportWidth` is
+  the only gate that can.
+- The controls lost are **the sketch's commit and cancel** — "no dead ends, no
+  ambiguous exits" (CLAUDE.md design mandate) is the rule this breaks. The
+  affordance for finishing your work disappears precisely when you have a live
+  selection.
+
+**System-level fix:** the strip's left cell must have a width budget, not a
+free-growing content run. Either (a) give the status/offer cell `min-w-0` +
+`truncate` inside a flex row that lets the tool groups keep their intrinsic
+width, or (b) move the rail out of the strip entirely — see P1-2/P2-1, which
+argues for that anyway. Fix in `packages/design`'s `Toolbar`/`ToolGroup` layout
+so the same overflow cannot recur the next time a cell grows, and add a
+`no strip control may extend past the viewport at 1280` e2e census.
+
+### P1-2 — A reference (driven) angle displays a number 53° away from the geometry
+
+Screenshot: `uiqa-reach1-reference-angle-stale-1280.png`.
+
+Reproduced end-to-end: two lines sharing a corner → `A` → flip to REFERENCE →
+apply. Glyph reads `(53.13°)`, solved geometry is 53.130° — correct. Then select
+the same pair and press `P` (parallel). The solver takes the lines to
+**0.000012°** — they are visibly one straight line in the frame — the SOLVE cell
+reads `Solved · DOF 3 · UNDER-CONSTRAINED`, and the reference-angle glyph **still
+reads `(53.13°)`**. Its editor says, verbatim, *"Read-only — measured from the
+shape."* Nothing measures it.
+
+Same root cause, second symptom: an **expression** on an angle. Author 30°,
+reopen, type `15*3`. Measured `solved=45.000`, `glyph="30°"`; the persisted
+constraint is `{"kind":"angle","expression":"15*3","value_deg":30}`. The server
+resolves 45 and moves the model; the drawing annotation keeps the placeholder 30
+forever.
+
+Cause is known and documented in the code
+(`apps/web/src/sketch/constraints.ts:1333-1338`): degrees ride
+`SolvedSketch.angles`, a list the glyph builder is not given. Confirmed
+`SolvedAngle`/`angles` exists in the contract
+(`packages/py-kit/src/py_kit/schemas/sketch.py:822`), keyed by the same
+`constraint_index` "so a UI that wants one readout per constraint merges the two
+lists by index" — and confirmed that `apps/web/src` **never references `angles`
+anywhere**. `DimensionEditor` looks the readout up in `solvedDimensions` only, so
+for an angle `solved` is always `undefined`: the reference cell falls back to
+`target.initialValue`, and the `= resolved` line an expression-driven linear dim
+gets is silently absent.
+
+This is the "never a silent wrong model" rule applied to annotations — an
+annotation that contradicts the model is worse than an absent one, because it
+looks authoritative. It is a direct consequence of REACH-1 making angle
+authorable: before this commit no user could create the state.
+
+**System-level fix:** plumb `SolvedSketch.angles` into the store next to
+`solvedDimensions` and merge by `constraint_index` at the one place the glyph
+builder and the editor both read. Until that lands, REACH-1 should not offer
+REFERENCE or the expression field on an angle — an editor must not advertise a
+mode it cannot honour.
+
+### P2-1 — Right moment, wrong place: the offer is 486 px from the selection
+
+Measured at 1280×800: selection centroid `(724, 342)`, rail centre `(315, 80)` —
+**486 px** away, in the top-left status cell, while the user's eyes and cursor
+are mid-canvas. The rail passes "does the affordance appear at the moment it is
+useful" and fails "…where it is useful". Fusion's answer is a marking menu / a
+context toolbar at the cursor; Plasticity's is a command palette under the
+pointer. Ours is a caption on the far side of the frame, in the same 11 px type
+as the rest of the status line, with no motion or weight change to catch the eye
+(deliberately quiet — but quiet at 486 px is invisible).
+
+This is why the commit's own claim ("the verbs are surfaced where the selection
+is") is not yet true: they are surfaced *when* the selection is, not *where*.
+
+**System-level fix:** float the rail near the selection's screen-space bounding
+box (the DOM-overlay layer that already carries the glyphs), or on the cursor as
+a modifier-held radial. Keeping the strip copy as a secondary echo is fine.
+Doing this also dissolves P1-1, since the strip stops growing.
+
+### P2-2 — Direct manipulation is still absent: every offered verb is a form
+
+`A`, `D` and the diameter path all open a numeric cell. There is no draggable
+angle wedge, no draggable diameter handle — the design mandate names this as
+"the single biggest 'does not feel like a modeling tool' gap we have". REACH-1
+is not the item that had to fix it, but it is the item that made four new
+dimension paths reachable, and all four landed form-only. Worth stating plainly
+so the board does not record "angle: shipped" and move on.
+
+**System-level fix:** a drag handle on the dimension glyph, numeric cell as the
+precision fallback (the Fusion contract), authored once in the glyph layer so
+distance/radius/diameter/angle all inherit it.
+
+### P2-3 — The rail omits the two most-used verbs in any sketch
+
+Measured: one line selected → offers are exactly `["verb-hint-distance"]`.
+Pressing `H` on that same selection applies a horizontal constraint immediately
+(verified: one `horizontal` glyph). `VERB_OFFER_ORDER`
+(`apps/web/src/sketch/constraints.ts:1623`) contains 13 actions and does not
+contain `horizontal`, `vertical`, `fixed` or `coincident`. So on the single most
+common selection state in a sketcher — one line — the rail proposes a dimension
+and stays silent about the two constraints an engineer reaches for most.
+
+The rail's contract is "the verbs the CURRENT selection unlocks". It currently
+means "the verbs from a hand-picked subset that this selection unlocks", and the
+omission is invisible: a novice learns from the rail that a line can be
+dimensioned and never learns it can be made horizontal.
+
+**System-level fix:** derive the offer set from `CONSTRAINT_SHORTCUTS` (every
+verb the keyboard honours) rather than a second hand-written list, and let
+`MAX_VERB_HINTS` + the ordering do the curation. That also removes a
+drift-prone duplicate list — the same reasoning that made `VERB_KEY` an
+inversion of `CONSTRAINT_SHORTCUTS` two lines above it.
+
+### P2-4 — When the rail is empty it explains nothing
+
+Measured: three lines selected → `3 ents · 4 applied`, **zero offers**, no other
+change on screen. Nothing selected → same silence. The mechanism that teaches
+availability vanishes at exactly the moments a stuck user needs it, and there is
+no "why not". Compare the audit standing rule: *disabled affordances must be able
+to EXPLAIN themselves*. The rail's design chose omission over a disabled state,
+which is defensible for truthfulness and leaves the explanation gap wide open.
+
+**System-level fix:** a near-miss line — "add a construction line to make these
+symmetric", "select two lines for an angle" — in the same cell, driven by the
+same `applyConstraintAction` hints that are already being computed and thrown
+away (`result.outcome === "hint"` is `continue`d; the hint text is right there).
+
+### P2-5 — Touch targets are 17 px; the rail is pointer-hostile on a tablet
+
+Measured caps: 54×17, 81×17, 54×17 px. WCAG 2.5.8 floor is 24×24; the tablet
+target the mandate asks for is 44. The caps are `<button>`s specifically so "one
+affordance serves keyboard and pointer", but at 17 px tall they serve neither
+touch nor a shaky mouse.
+
+**System-level fix:** the keycap-offer needs to be a `packages/design`
+primitive with a hit area independent of its ink (`py-1.5 -my-1.5` pattern), not
+a raw `<button>` styled in `apps/web` — see P3-1.
+
+### P3-1 — A new interactive control was styled inline in `apps/web`
+
+`SketchStrip.tsx:882-893` is a raw `<button>` carrying
+`flex items-center gap-1 rounded-sm hover:text-mist focus-visible:outline
+focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass
+motion-safe:transition-colors`. Every class is a token (no hex literals anywhere
+in the diff — checked), so this is not a palette violation; it is the "compose
+primitives, never restyle raw elements" rule. `packages/design` already exports
+`Button`, `ToolButton` and `Kbd`. The fix is the primitive: a `VerbOffer`
+(keycap + label + hit area + focus ring), which also fixes P2-5 once, for every
+future caller.
+
+### P3-2 — Focus is dropped to `<body>` after invoking an offer
+
+Measured: click `verb-hint-collinear` → constraint applies, selection clears,
+rail empties, `document.activeElement` is `BODY`. For a pointer user that is
+invisible; for a keyboard user it is the end of the road — the rail unmounts
+under the focused element and there is nothing to Tab from. Related measurement:
+**20 Tab stops** from the document start to the first cap (trail passes the
+canvas overlays, tree panel, six origin datums, then the whole header —
+`home-link`, `breadcrumb`, `document-unit-select`, `sign-out` — and only then
+the rail). The keyboard fast path is the letter key, which works and is the
+right answer; but the button is, in practice, pointer-only.
+
+**System-level fix:** return focus to the sketch canvas surface after a verb
+applies, and give that surface a real focus target (see P3-3).
+
+### P3-3 — The viewport canvas is still not focusable and has no accessible name
+
+Measured on the sketch canvas: `tabindex=null, role=null, aria-label=null`. Not
+a REACH-1 regression — a standing floor issue that REACH-1 makes more visible,
+because the rail's whole premise is "you have selected something", and selection
+has no keyboard route at all. The keyboard alternative for the canvas is still
+undocumented rather than implemented.
+
+### What is good and must not be regressed
+
+- **Truthful-by-construction offers.** Deriving the rail from
+  `applyConstraintAction` rather than a parallel table means the rail cannot
+  advertise a key that then answers "Select two lines…". This is the right
+  architecture and the reason P2-3 is a one-line list change rather than a
+  rewrite.
+- **`D` is "dimension" and the selection picks the flavour.** Killing the
+  "That is a circle. Click a line to dimension it." refusal is a real flow win.
+- **Contrast and focus pass cleanly.** Keycap `rgb(227,166,75)` on
+  `rgb(15,20,26)` = **8.65:1**; verb label `rgb(157,170,186)` on
+  `rgb(22,29,39)` = **7.18:1**. Focus ring is `solid 2px` brass at 2 px offset —
+  `uiqa-reach1-offer-rail-focus-1280.png`.
+- **Reduced motion honoured** (`motion-safe:` prefix; re-rendered under
+  `prefers-reduced-motion: reduce`, rail unchanged and legible).
+- **Test hooks preserved and extended** — `dimension-hint` kept as the container,
+  `verb-hint-{action}` added, accessible names read "angle — press A".
+- **Selection survives tabbing through the chrome** (`2 ents · 2 applied` intact
+  after 20 Tab stops) — the state model is sound.
+- **`Escape` never destroyed or duplicated work** in any path exercised.
+- **A conflicting solve is NOT silent**: driving 30° + parallel gave
+  `feature=error` and the EVAL cell read `Failed`. (Contrast P1-2, where the
+  solve *succeeds* and only the annotation lies.)
+
+### Nits
+
+- `data-testid="dimension-hint"` now wraps three constraint verbs, most of which
+  are not dimensions. Rename with the primitive extraction (P3-1).
+- `role="status"` (an implicit polite live region) now contains three
+  interactive buttons; interactive content inside a live region is an ARIA
+  anti-pattern and re-announces all three verbs on every selection change.
+- `formatDimensionMm(target.initialValue)` formats DEGREES for an angle. Harmless
+  today (it is a pure 2-dp formatter, no unit conversion), but it is the exact
+  mislabelling the commit renamed `initialMm` → `initialValue` to prevent.
+- `selectionVerbHints` runs `applyConstraintAction` 13× per `SketchStrip` render,
+  unmemoised. Not measurable at present sketch sizes; note it before the sketch
+  entity count grows.
+
+### Running component checklist (delta)
+
+- 🔴 `SketchStrip` — P1-1 (clips FINISH at 1280), P2-1 (rail 486 px from the
+  selection), P2-3 (H/V never offered), P2-4 (no near-miss explanation),
+  P2-5 (17 px targets), P3-1 (raw `<button>`), P3-2 (focus dropped to body)
+- 🔴 `ConstraintGlyphs` / `DimensionEditor` — P1-2 (`SolvedSketch.angles`
+  unconsumed: reference angle and expression angle both display stale numbers)
+- 🔴 `Viewport` canvas — P3-3 (not focusable, no accessible name, no keyboard
+  selection route)
+- ✅ `selectionVerbHints` — the derivation is right; only its input list (P2-3)
+  and its presentation (P2-1) are wrong
+- ✅ Offer-rail contrast / focus ring / reduced motion / test hooks
+
+### Coverage this pass did NOT reach
+
+- Touch/tablet emulation (measured target SIZE only, no touch project exists).
+- Screen-reader announcement order for the `role="status"` rail.
+- The symmetric-with-construction-axis flow (covered by the builder's own spec).
+- 1280×800 with a LONG part name in the breadcrumb, which competes for the same
+  strip row as P1-1.
