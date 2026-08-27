@@ -83,17 +83,15 @@ disjoint, parallel-dispatchable:
 4. **REACH-2-FLOW** (P1, M, frontend-builder, `PartPage.tsx` + `ToolButton.tsx`
    + `ScopeRow.tsx`) — the pattern-scope proposal is shed at 1280, destroyed
    by Cancel/Escape, and names a subject nothing echoes. New this pass.
-5. **DOCTICK-GATE** — CLOSED this pass (`bd09f5b`); listed here only to
-   confirm removal from dispatch.
-6. **REVOLVE-1** (P1, M, frontend-builder, `apps/web/src/routes/
+5. **REVOLVE-1** (P1, M, frontend-builder, `apps/web/src/routes/
    PartPage.tsx` + `apps/web/src/sketch/**`) — kernel half shipped
    (`88b6074`, origin axes exist); pure frontend now: axis list, default,
    preview. Check for file overlap with SKETCH-VOCAB-1's frontend half.
-7. **SKETCH-VOCAB-1's frontend half** (P1, M, frontend-builder,
+6. **SKETCH-VOCAB-1's frontend half** (P1, M, frontend-builder,
    `apps/web/src/sketch/**`) — kernel half fully shipped (five commits, pass
    14); needs the dimension-type chooser UI + midpoint/collinear/symmetric
    selection UI. Disjoint from REACH-2-FLOW.
-8. **ORTHO-1** (P1, M, frontend-builder, `apps/web/src/viewport/**`) —
+7. **ORTHO-1** (P1, M, frontend-builder, `apps/web/src/viewport/**`) —
    unblocked alongside MATE-1; sequence the two rather than parallelize,
    same territory.
 
