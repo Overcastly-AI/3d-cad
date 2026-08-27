@@ -3335,3 +3335,212 @@ move server-side in the same change.
   `aria-live` status); only its PLACEMENT is the defect
 - ✅ `BodyInspector` — the readouts and the PROPERTIES/MASS honesty are right
 - ✅ Register focus / contrast / filter / empty-result states
+
+---
+
+## 2026-08-27 — REACH-2 spot-check: "a pattern says what it repeats" (`ec9c569`)
+
+**Verdict: the capability is REACHABLE, and the flow it was built to deliver is
+not.** `PatternParamsV1.scope` went from having no control at all to having a
+good one, and I can author a feature-scoped pattern end to end. But the *verb
+proposal* — the half of this ticket that makes the scope discoverable rather
+than merely available — is invisible at the 1280x800 quality floor, is
+destroyed the moment the user disposes of it, and names a subject nothing in
+the frame confirms. Present, not yet flowing.
+
+**Method.** Real stack on isolated ports (geometry :8032, documents :8031,
+gateway :8030, Vite :5183), real Chromium at 1600x1000 and 1280x800, three
+scripted audit passes driving the actual UI (plate -> hole -> fillet -> pattern;
+plate -> two holes -> pattern -> rename). Contrast, focus ring, tab ring,
+`prefers-reduced-motion` and root overflow measured in-page. Evidence under
+`docs/screenshots/ui-audit/reach2-*.png`.
+
+### P1-1 — Create/Modify band — at 1280x800 the proposal is not rendered at all
+
+`reach2-verb-1280-icontier.png`. With `Hole1` selected, MODIFY has measured
+itself into the **icon tier**, so `verbLabel()`'s "Repeat Hole1" — the entire
+visible payload of this feature — is shed. What a user sees at the quality
+floor named in mandate 5 is an unchanged row of unlabelled glyphs. The only
+sighted channel left is a hover tooltip on one of them
+(`reach2-verb-1280-hover-only.png`), and **a hover tooltip is a confirmation,
+not an affordance**: nobody hovers a glyph to discover a capability they do not
+know exists. The founder's own test — "the next step is visible from the
+current state" — fails at the width the floor names.
+
+The commit message states this was handled "through the band's own designed
+channel (the tooltip caption, which is never shed and which `aria-describedby`
+already routes to screen readers)". **That routing does not happen.**
+`ToolButton` computes `hasGateReason = isDisabled && Boolean(caption)`
+(`packages/design/src/primitives/ToolButton.tsx:117`), so the caption id is
+emitted only while the button is DISABLED. Measured at 1280 with the proposal
+live: `aria-describedby: null`, tooltip node `aria-hidden`. Nothing is lost to
+AT — `aria-label` carries "Repeat Hole1 — place it in a linear or circular array
+(P)" and an aria-label is never shed — but the mechanism the fix was justified
+by is not the one operating, and the builder's own founder shot
+(`docs/screenshots/pattern-scope-verb-laptop.png`) shows the label absent
+rather than present.
+
+*System-level fix.* The proposal is a state change, not a name, and should not
+ride the label tier at all. Give `CommandBand`/`ToolGroup` a **proposal
+channel** that survives the icon tier — e.g. a brass scribe or subject chip on
+the proposing verb plus a one-line "Repeat Hole1" in the IN COMMAND / status
+rail that already exists at the top-left. Fix it in the primitive so every
+future verb that learns to propose inherits it. Separately, `ToolButton` should
+route `aria-describedby` to the caption whenever a caption exists, not only when
+disabled — the current condition is a narrower promise than the doc comment
+above it makes.
+
+### P1-2 — Pattern/Mirror editor — the named subject has no echo anywhere
+
+`reach2-two-holes-no-echo.png` is the whole finding in one frame: two identical
+Ø8 bores, the card reading `Repeats · THIS BODY | HOLE1`, and **nothing** saying
+which hole that is. Measured with the editor open and scope = Hole1:
+tree row `Hole1` `aria-pressed=false`, zero rows carrying the selected border,
+zero timeline chips marked, no viewport highlight. The user is asked to trust a
+nine-character string against geometry they cannot distinguish.
+
+Root cause is REACH-2's own path: `openCreatePattern` reads the seed and then
+calls `setSelectedFeatureId(null)` (`apps/web/src/routes/PartPage.tsx:2063`).
+The commit correctly moved the read *before* the clear, but never asked whether
+clearing was right at all. It is not: the row is still the subject.
+
+*System-level fix.* While a command holds a feature scope, that feature stays
+marked in the tree, marked in the timeline, and its faces highlighted in the
+viewport with the existing selection token. This is table stakes against Fusion,
+where the scoped feature lights up in the canvas, and it is the difference
+between "I named a thing" and "I can see the thing I named".
+
+### P1-3 — Pattern/Mirror — disposing of the dialog destroys the proposal
+
+Measured: click `Hole1` -> Escape -> band reads "Repeat Hole1" -> press Pattern
+-> editor opens scoped -> press **Cancel** -> band reverts to plain "Pattern"
+and `feature-select-2` `aria-pressed=false`
+(`reach2-proposal-lost-after-cancel.png`). To try again the user must repeat the
+entire click/Escape/press dance. "The tool proposes, the user disposes" has to
+mean the user disposes of the *pattern*, not of their own selection. Same
+`setSelectedFeatureId(null)` as P1-2; fixing that fixes this.
+
+### P1-4 — The stated flow requires opening and abandoning an editor nobody asked for
+
+The advertised gesture is "select Hole1, press Pattern". What the product
+actually requires is **click -> an edit dialog you did not want opens and locks
+the band -> Escape -> press Pattern**. The builder documents this honestly and
+proposes single-click-selects / double-click-edits as a follow-up; I am raising
+it to P1 because it is not a cosmetic detour, it is the reachability path
+itself. Two costs, both measured:
+
+- The band is **locked while the unwanted editor is open** (`new-pattern`
+  disabled, reason "Finish Hole1 first"), so the flow's own first step blocks
+  its second.
+- The user is routed through a live edit form every time. I dirtied
+  `hole-diameter` 8 -> 14 and pressed Escape: editor closed, **no confirm, no
+  toast, no undo affordance** (`confirm dialog=0, toast=0`). Nothing was
+  committed so no work was lost here — but making "open a form and abandon it"
+  a *mandatory* step of a selection gesture is the FB-13 class of defect
+  (ambiguous exits make people hesitate), designed in rather than stumbled into.
+
+*System-level fix.* Single click selects; double click (or Enter on the focused
+row) edits. That is Fusion's timeline behaviour and the muscle memory this
+product is asking people to keep.
+
+### P2-1 — The plain "Pattern" verb promises the body and authors a feature scope
+
+With **nothing selected** after drilling a hole, the button reads "Pattern",
+its accessible name reads "Pattern — **repeat the body** in a linear or circular
+array (P)", and the editor it opens has `features` scope pre-selected on the tip
+feature (`defaultScopeMode` returns `features` for a subtractive tip). Measured:
+`body aria-pressed=false, features aria-pressed=true, label="HOLE1"`.
+
+The reasoning behind the default is sound — a cut tip is precisely §1's coin
+flip, so proposing the unambiguous reading is right. The defect is that the
+*verb's accessible name is now a false statement about what pressing it does*,
+and the visible label gives no hint the reading changed. Either make the
+no-selection hint honest ("repeat the last feature or the whole body"), or seed
+`body` when `fromSelection` is false. The first is better; it keeps the good
+default and stops the button lying.
+
+### P2-2 — `ScopeRow` — the note that carries the whole warning is not programmatically associated
+
+`scopeNote()` is the best copy in this diff — "Repeats whatever the tree hands
+it here — Hole1's cut today, the whole body once another feature lands between
+them. Name Hole1 to say which you mean." — and a screen-reader user never hears
+it. Measured: the `role="group"` has `aria-label="Repeats"` and
+**`aria-describedby: null`**; the `<p>` has no `id`, no `role`, no `aria-live`.
+Focusing either segment announces "Repeats Hole1, pressed" and stops. The same
+gap makes the refusal string (`scopeRefusal()`, shown when the control is
+disabled because nothing is repeatable) unreachable to AT — and a disabled
+control that cannot explain itself is the chrome-honesty rule's exact target.
+
+*Fix in `ScopeRow`/`SegmentedControl`:* give the note an `id`, point the group's
+`aria-describedby` at it, and add `aria-live="polite"` so flipping the segment
+announces the new reading rather than only the new pressed state.
+
+### P3-1 — Pattern editor — autofocus lands on Count, three stops past the subject
+
+`2a`: on open, focus is `pattern-count`. The card's own comment calls the scope
+row "the first thing the user should read"; a keyboard user must Shift+Tab three
+times (`pattern-kind-circular > pattern-kind-linear > pattern-scope-features >
+pattern-scope-body`) to reach it. Focus the scope row when the editor opens on a
+proposed subject — that is the field the user is being asked to confirm.
+
+### P3-2 — `SegmentedControl` — arrow keys do nothing
+
+`ArrowLeft` on `pattern-scope-features` moved neither value nor focus. It is a
+`role="group"` of `aria-pressed` buttons, so APG does not require it, but arrow
+keys are the muscle memory for a segmented control and every other one in the
+app inherits the gap. Primitive-level fix; pre-existing, surfaced by this diff.
+
+### P3-3 — `SegmentedControl` colour transition ignores `prefers-reduced-motion`
+
+Measured under `reducedMotion: reduce`: `transition-duration: 0.12s` still live
+on both segments (`transition-colors duration-fast`, no `motion-safe:` prefix),
+while `ToolButton`'s tooltip in the same design system *does* gate on
+`motion-safe:`. A 120 ms colour fade is not a WCAG 2.3.3 violation, so this is a
+consistency finding, not a floor breach — but the system should not hold two
+opinions. Primitive-level; pre-existing.
+
+### What is right, and should not be regressed while fixing the above
+
+- **The editor card is genuinely tool-grade** (`reach2-editor-1280.png`). The
+  scope row leads, the two-state toggle reads as a sentence with the note
+  beneath it, and it composes `SegmentedControl` + tokens with **zero colour
+  literals and zero raw-element restyling** in either new file. This is what
+  "fix the primitive, never the instance" looks like when it is done properly.
+- **The derived badge is provably honest.** I renamed `Hole2` -> `BoltHole`
+  through the real UI and the pattern row updated from `pattern · Hole2` to
+  `pattern · BoltHole`. Refusing the plan's baked-in generated name was the
+  right call and the evidence backs it.
+- **The `body`+cut warning is the best error-state copy in the app.** It names
+  the future failure, not the present state, and tells the user the one action
+  that removes the ambiguity.
+- **Contrast and focus pass AA comfortably.** Scope note `7.18:1` @ 11 px;
+  `THIS BODY` `13.21:1`; active `HOLE1` brass `7.93:1`; focus ring brass, solid,
+  2 px. Root does not overflow at 1280x800 (`scrollW 1280 / clientW 1280`).
+- **The scope control is fully keyboard-reachable** and in the right DOM order
+  (`scope-body > scope-features > kind-linear > kind-circular > count > ...`).
+- **Both verbs ask the question the same way**, and the per-verb `VERB_WHERE`
+  split ("at every placement" / "about the plane") catches a copy bug a shared
+  string would have shipped. Verified live on the mirror.
+- **Persistence round-trips**: reopening a saved pattern shows `HOLE2` pressed,
+  not a guess.
+
+### Not reached this pass
+
+Touch/tablet viewports (no touch project exists — TOUCH-1); a multi-feature
+`features` scope (the UI can only author one, so `scopeSubject`'s "N features"
+branch is unexercised by any user path); a pattern of a pattern; long feature
+names in the badge column.
+
+### Running component checklist (delta)
+
+- 🔴 `CreateStrip` / `ToolButton` / `ToolGroup` — P1-1 (proposal shed at 1280;
+  `aria-describedby` gated on `disabled`)
+- 🔴 `PartPage` `openCreatePattern` / `openCreateMirror` — P1-2, P1-3
+  (`setSelectedFeatureId(null)` destroys the subject it just read)
+- 🔴 `FeatureTreePanel` row activation — P1-4 (click edits; no select-only path)
+- 🔴 `ScopeRow` — P2-2 (note not associated), P3-1 (autofocus)
+- 🔴 `SegmentedControl` — P3-2 (arrow keys), P3-3 (reduced motion)
+- 🟡 `patternScope.ts` — P2-1 (`verbHint` no-selection string is false given
+  `defaultScopeMode`); the module is otherwise clean and well-tested
+- ✅ `PatternEditor` / `MirrorEditor` scope row composition, tokens, contrast,
+  focus, tab order, 1280 fit, persistence round-trip, derived tree badge
