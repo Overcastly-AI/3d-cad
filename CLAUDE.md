@@ -1077,9 +1077,22 @@ recipe here in the same commit as the fix.**
   also kill a stale Vite — but SCOPE THE KILL TO PORT 5173.** Resolve the pid
   from the listener, never from a process-name grep:
   ```bash
-  pid=$(ss -lptn 'sport = :5173' 2>/dev/null | grep -oP 'pid=\K[0-9]+' | head -1)
+  pid=$(lsof -ti :5173 2>/dev/null | head -1)
   [ -n "$pid" ] && kill "$pid"      # ONLY the process actually holding :5173
   ```
+  **USE `lsof -ti`, NOT `ss`. `ss -lptn` RESOLVES NOTHING IN THIS CONTAINER** — it
+  prints no row at all for a listener the calling shell owns, so a teardown built
+  on it **silently no-ops** and reads exactly like a clean teardown while every
+  service is still running. Found 2026-08-27 by the REACH-ORDER agent, and it is
+  my error twice over on the same recipe: the first version was a process-name
+  grep that killed every agent's Vite, and the "fix" was this inert one. Measured
+  against a real listener on :5399 — `ss -lptn` → nothing, `ss -ltn` → nothing,
+  `lsof -ti` → the pid, `fuser <port>/tcp` → the pid. A `/proc/net/tcp` inode scan
+  also works if neither binary is present. **The general rule: a teardown recipe
+  is a claim about this container, so verify it against a real listener before
+  writing it down.** Both of my versions were plausible and neither was tested;
+  one over-killed and one under-killed, and the silent one is worse, because
+  friendly fire at least announces itself.
   **THE EARLIER VERSION OF THIS RECIPE SAID `ps -eo pid,args | grep -E
   'vite/bin/vite'`, WHICH IS NOT PORT-SCOPED AND KILLS EVERY AGENT'S VITE.**
   Measured 2026-08-27 by the QA-R4 agent: every e2e leg it ran over ~10 minutes
