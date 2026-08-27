@@ -66,6 +66,22 @@ directions survive in the current output:
   * FALSE RENDER-ONLY: `tangent` and `equal` are driven by `keyboard.press("t")`
     with the literal nowhere in the spec; `simple` is driven through
     `hole-depth-blind`. A dozen such rows remain.
+A STRUCTURAL BLIND SPOT, distinct from the noise above: THIS MEASURES
+REACHABILITY, NOT DISCOVERABILITY, and the two come apart in a way that matters.
+Found 2026-08-27 on SKETCH-VOCAB-1. All five new sketch constraints counted
+AUTHORABLE — correctly, since the selection-driven offer rail proposes each one
+and specs drive them. But four of them had **no row anywhere in the product's
+constraint catalogue**, and the gap is structural rather than an oversight: an
+offer only appears once the selection already fits, so the rail can PROPOSE a
+verb and can never TEACH you to reach one. From an empty or wrong selection they
+were invisible. A user who does not already know the verb exists cannot find it,
+and this script reports 100 % reachable.
+
+So a batch that closes real discoverability gaps will leave the number UNMOVED,
+and that is the honest outcome — a spec written to move it would be measuring the
+wrong thing. Never treat a flat count as a batch that achieved nothing, and never
+let "make the number go up" become the goal.
+
 Triage the report by opening the source. It is a search-ordering tool, not a
 verdict, and the workflow's Parity phase is instructed to say what it checked.
 
