@@ -1555,6 +1555,25 @@ all done; IGES and healing remain ⬜, keeping the phase 🚧.
       pillar: detail/assembly views (section-view now FULLY END-TO-END — E1a wire +
       E1b web authoring both done 2026-07-23, see below; DE-1c
       client-placement cutover DONE — see below).
+      **REACH-ASMDRAW (c2) — the sheet's numbered PARTS LIST, SHIPPED
+      2026-08-27** (frontend-builder). `GET /drawings/{id}/bom` shipped
+      2026-07-25 and had never been called by anything; with (c1) below making
+      an assembly-sourced sheet reachable at all, it now has a caller and a
+      surface. A Parts list block sits beside Notes in the sheet's right stack:
+      balloon item numbers (a circled numeral — the drafting artifact; the
+      number is CONTENT here, derived server-side from the assembly's stable
+      instance order, so a rename can never renumber a print), quantity,
+      current name, and each row opens the document it names — the only place
+      on the sheet another document is named is the only place "what IS item 2"
+      can be answered from. A PART-sourced sheet keeps the block and disables
+      it, carrying the server's typed `drawing_bom_source_not_assembly` as a
+      readable, KEYBOARD-FOCUSABLE sentence: legible before it can be hit, and
+      to a keyboard rather than a hovering mouse only. Measured through the real
+      UI (`drawing-parts-list.spec.ts`): item 1 qty 2 / item 2 qty 1 under the
+      current part names, total 3, numbers reproduced verbatim after a reload,
+      and the reason reached by Tab alone.
+      `scripts/check-ui-parity.py` UNCALLED OPERATIONS **3 -> 2**, operations
+      called **82/85 -> 83/85**.
       **REACH-ASMDRAW (c1) — an ASSEMBLY can be drafted, SHIPPED 2026-08-27**
       (frontend-builder). The wire has projected the solved assembly compound
       since 2026-07-24 and no user could reach it: `DrawingPage` hardcoded

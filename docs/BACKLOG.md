@@ -1997,6 +1997,19 @@ frame refactor are v2/§11. Spike de-collected.
           it read "0 edges" over a full assembly sheet. E2e
           `assembly-drawing.spec.ts` (real HLR ink asserted, 1280 band fit).
           Deferred: assembly fit-scale (needs the solved compound's extents).
+    - [x] (c2) **web — the sheet's numbered PARTS LIST — SHIPPED 2026-08-27**
+          (frontend-builder, REACH-ASMDRAW): `GET /drawings/{id}/bom` gets its
+          first caller in 13 months of existing (`fetchDrawingBom`). A Parts list
+          block sits beside Notes: balloon item numbers (a circled numeral — the
+          drafting artifact, and the number is content, not decoration), qty,
+          current names, each row opening the document it names; a `missing: true`
+          line keeps its number and reads "Deleted document". On a PART-sourced
+          sheet the block is PRESENT but disabled, carrying
+          `drawing_bom_source_not_assembly` as a readable sentence that is
+          FOCUSABLE — reachable by Tab, not hover-only. E2e
+          `drawing-parts-list.spec.ts` (item 1 qty 2 / item 2 qty 1 by name,
+          numbers survive a reload, row navigates, reason read via Tab).
+          `check-ui-parity.py` UNCALLED OPERATIONS 3 -> 2 (82/85 -> 83/85).
     - [ ] NEXT SLICES (scoped):
           (b2) **BALLOONS — one whole slice, kernel + backend + web together**
           (splitting it would persist balloons no serializer draws = a dead

@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import {
   type ReactNode,
   useCallback,
@@ -16,6 +17,7 @@ import {
   type ComposedView,
   type DimensionParams,
   type DimensionResponse,
+  type DrawingBomLine,
   type DrawingDimensionInput,
   type DrawingViewResult,
   type EvaluateDrawingViewsRequest,
@@ -35,6 +37,7 @@ import {
   deleteDimension,
   evaluateDrawingViews,
   fetchDrawing,
+  fetchDrawingBom,
   updateView,
 } from "../api/drawings";
 import { gatewayClient } from "../api/client";
@@ -228,6 +231,7 @@ async function updateSheetHeader(
 export function DrawingPage() {
   const { drawingId } = drawingRoute.useParams();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const drawingQuery = useQuery({
     queryKey: ["drawing", drawingId],
@@ -526,6 +530,21 @@ export function DrawingPage() {
     return map;
   }, [composed]);
 
+  // The sheet's numbered bill of materials (§7 BOM) — the parts list. A READ
+  // MODEL over the source assembly's direct instances, so it needs no
+  // evaluation and no geometry: quantities and item numbers are a pure
+  // function of the assembly graph, which is why the numbers are derived at
+  // read time and never stored on the drawing. Only an ASSEMBLY sheet has one;
+  // asking for a part sheet's BOM is a typed 422, and the panel says why
+  // rather than making the user find out by clicking.
+  const bomQuery = useQuery({
+    queryKey: ["drawing-bom", drawingId, activeSheetId, docVersion],
+    enabled:
+      hasLayout && activeSheetId !== null && effectiveSourceKind === "assembly",
+    queryFn: () => fetchDrawingBom(drawingId, activeSheetId),
+    staleTime: 30_000,
+  });
+
   // ---------------------------------------------------------------------
   // The auto-layout action: create the sheet (if needed) + the four views,
   // threading the optimistic-concurrency version through each write.
@@ -803,6 +822,26 @@ export function DrawingPage() {
     setSectionError(null);
     setSectionOpen((open) => !open);
   }, []);
+
+  // "What IS item 2?" — open the document a parts-list line names, in its own
+  // workspace. The list is the only place on this sheet where another document
+  // is named, so it is the only place that answer can be reached from; without
+  // it the numbers are a dead end (design mandate: no chrome that only reads).
+  const handleOpenBomLine = useCallback(
+    (line: DrawingBomLine) => {
+      if (line.missing) return;
+      void (line.ref_document_kind === "assembly"
+        ? navigate({
+            to: "/assemblies/$assemblyId",
+            params: { assemblyId: line.ref_document_id },
+          })
+        : navigate({
+            to: "/parts/$partId",
+            params: { partId: line.ref_document_id },
+          }));
+    },
+    [navigate],
+  );
 
   // Append a new (empty) sheet and switch to it (FINDINGS #18). The new sheet is
   // laid out through the SAME flow the first sheet uses — selecting it makes the
@@ -1924,6 +1963,14 @@ export function DrawingPage() {
                 onAdd={handleAddNote}
                 onDelete={handleDeleteNote}
               />
+              <PartsListPanel
+                sourceKind={effectiveSourceKind}
+                lines={bomQuery.data?.lines ?? []}
+                totalInstances={bomQuery.data?.total_instances ?? 0}
+                loading={bomQuery.isLoading}
+                error={bomQuery.error}
+                onOpen={handleOpenBomLine}
+              />
             </div>
           </FloatingPanel>
         ) : null}
@@ -2593,6 +2640,187 @@ function BendSchedulePanel({ rows }: { rows: readonly BendTableRow[] }) {
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/**
+ * The Parts list — the sheet's numbered item table (design §7 BOM), the block a
+ * shop reads to know WHAT to make and HOW MANY. Sibling of the Notes panel, and
+ * the only surface in the workspace that names other documents, so each row is
+ * the way to open the one it names.
+ *
+ * The item NUMBER is the signature: a drafting balloon, the circled numeral
+ * that ties a row to the geometry on the paper. It is not decoration — the
+ * number is content here, DERIVED server-side from the assembly's stable
+ * instance order, which is why two reads of an unchanged assembly number
+ * identically and a rename never renumbers anything.
+ *
+ * A PART-sourced sheet has no bill of materials, and that is a fact worth
+ * stating rather than hiding: the block still renders, disabled, carrying the
+ * reason. The reason is focusable (`tabIndex={0}`) because a caption a mouse
+ * can read and a keyboard cannot is only half-shipped — this is the on-screen
+ * form of the server's own `drawing_bom_source_not_assembly`, made legible
+ * before anyone can hit it.
+ */
+function PartsListPanel({
+  sourceKind,
+  lines,
+  totalInstances,
+  loading,
+  error,
+  onOpen,
+}: {
+  sourceKind: RefDocumentKind;
+  lines: readonly DrawingBomLine[];
+  totalInstances: number;
+  loading: boolean;
+  error: unknown;
+  onOpen: (line: DrawingBomLine) => void;
+}) {
+  const unavailable = sourceKind !== "assembly";
+  return (
+    <div
+      className="border border-hairline bg-anvil"
+      data-testid="parts-list-panel"
+      data-source-kind={sourceKind}
+      data-disabled={unavailable ? "true" : "false"}
+    >
+      <header className="flex items-baseline gap-2 border-b border-hairline px-3 py-2">
+        <h2
+          className={`font-display text-2xs uppercase tracking-[0.18em] ${
+            unavailable ? "text-gauge/60" : "text-gauge"
+          }`}
+        >
+          Parts list
+        </h2>
+        <span className="grow" />
+        {unavailable ? null : (
+          <span
+            data-testid="parts-list-total"
+            className="font-data text-2xs tabular-nums text-gauge"
+          >
+            {totalInstances}
+          </span>
+        )}
+      </header>
+      {unavailable ? (
+        <p
+          tabIndex={0}
+          role="note"
+          data-testid="parts-list-unavailable"
+          className="px-3 py-2.5 font-body text-2xs text-gauge focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass"
+        >
+          A parts list needs an assembly source. This sheet drafts a part —
+          draft an assembly to number its items.
+        </p>
+      ) : error ? (
+        <p
+          role="alert"
+          data-testid="parts-list-error"
+          className="px-3 py-2.5 font-body text-2xs text-flag"
+        >
+          {error instanceof Error
+            ? error.message
+            : "The parts list could not be loaded."}
+        </p>
+      ) : loading ? (
+        <p
+          data-testid="parts-list-loading"
+          className="px-3 py-2.5 font-body text-2xs text-gauge"
+        >
+          Numbering the items…
+        </p>
+      ) : lines.length === 0 ? (
+        <p
+          data-testid="parts-list-empty"
+          className="px-3 py-2.5 font-body text-2xs text-gauge"
+        >
+          This assembly has no instances yet. Add parts to it and the items
+          number themselves.
+        </p>
+      ) : (
+        <table
+          className="w-full border-collapse"
+          aria-label={`Parts list, ${lines.length} items, ${totalInstances} instances`}
+        >
+          <caption className="sr-only">
+            One row per referenced document in item-number order: item number,
+            name, and the quantity of instances.
+          </caption>
+          <thead>
+            <tr className="border-b border-hairline">
+              <th
+                scope="col"
+                className="px-3 py-1.5 text-left font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+              >
+                No.
+              </th>
+              <th
+                scope="col"
+                className="px-2 py-1.5 text-left font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+              >
+                Item
+              </th>
+              <th
+                scope="col"
+                className="px-3 py-1.5 text-right font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+              >
+                Qty
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-hairline">
+            {lines.map((line) => (
+              <tr
+                key={`${line.item_number}:${line.ref_document_id}`}
+                data-testid="parts-list-row"
+                data-item-number={String(line.item_number)}
+                data-ref-document-id={line.ref_document_id}
+                data-ref-kind={line.ref_document_kind}
+              >
+                <td className="px-3 py-1.5">
+                  {/* The balloon — the drafting artifact, not an ornament: a
+                      circled numeral is how an item list points at the paper. */}
+                  <span
+                    data-testid="parts-list-item-number"
+                    className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-etch font-data text-2xs tabular-nums text-mist"
+                  >
+                    {line.item_number}
+                  </span>
+                </td>
+                <td className="px-2 py-1.5">
+                  {line.missing ? (
+                    <span
+                      data-testid="parts-list-name"
+                      className="font-body text-2xs text-flag"
+                    >
+                      Deleted document
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      data-testid="parts-list-name"
+                      title={line.name ?? undefined}
+                      aria-label={`Open ${line.name ?? "item"}`}
+                      onClick={() => onOpen(line)}
+                      className="block w-full truncate text-left font-body text-2xs text-mist transition-colors duration-fast hover:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass"
+                    >
+                      {line.name}
+                    </button>
+                  )}
+                </td>
+                <td
+                  data-testid="parts-list-qty"
+                  className="px-3 py-1.5 text-right font-data text-2xs tabular-nums text-mist"
+                >
+                  {line.quantity}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

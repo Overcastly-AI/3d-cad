@@ -24,6 +24,10 @@ export type ViewUpdate = components["schemas"]["ViewUpdate"];
 export type ViewScale = components["schemas"]["ViewScale"];
 /** What a view references: a part, or an assembly (§7 — the assembly compound). */
 export type RefDocumentKind = ViewResponse["ref_document_kind"];
+/** A drawing sheet's numbered bill of materials (design §7 BOM). */
+export type DrawingBomResponse = components["schemas"]["DrawingBomResponse"];
+/** One numbered parts-list line: item number + resolved name + quantity. */
+export type DrawingBomLine = components["schemas"]["DrawingBomLine"];
 /** A section view's cutting plane + half selection (drawings-section.md §1). The
  * `plane` is the EXACT `GeomRef` union a sketch's plane uses (DatumPlaneRef |
  * FeatureRef) — no parallel plane taxonomy (DRY). */
@@ -468,6 +472,41 @@ export async function composeDrawingSheet(
   if (error !== undefined) {
     throw new Error(
       envelopeMessage(error, "The drawing sheet could not be composed."),
+    );
+  }
+  return data;
+}
+
+/**
+ * The sheet's bill of materials — the numbered item list a parts list prints
+ * (design §7 BOM). A pure READ MODEL over the source assembly's DIRECT
+ * instances: one line per referenced document, `quantity` the instance count,
+ * and `item_number` DERIVED from the assembly's stable instance order (never
+ * stored on the drawing, so it cannot drift from the assembly it names).
+ *
+ * `sheetId` picks WHICH sheet to bill; omitting it bills the first, the same
+ * default compose/export take. A sheet that drafts a PART is a typed
+ * `drawing_bom_source_not_assembly` 422 rather than an empty list — "this
+ * assembly has no parts" is a different and false statement — so the caller
+ * gates on the source kind and this throw is the backstop, not the UI's path.
+ */
+export async function fetchDrawingBom(
+  drawingId: string,
+  sheetId?: string | null,
+  client: GatewayClient = gatewayClient,
+): Promise<DrawingBomResponse> {
+  const { data, error } = await client.GET(
+    "/api/v1/drawings/{drawing_id}/bom",
+    {
+      params: {
+        path: { drawing_id: drawingId },
+        query: sheetId ? { sheet: sheetId } : undefined,
+      },
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The parts list could not be loaded."),
     );
   }
   return data;
