@@ -320,3 +320,69 @@ describe("the construction toggle never reads active for the frame", () => {
     expect(chip.getAttribute("data-active")).not.toBe("true");
   });
 });
+
+/**
+ * QA-R1: the offer rail ran the strip past the window at 1280 AND 1366, putting
+ * the sketch's own FINISH/CANCEL outside the frame — measured, with a real
+ * click at `sketch-save`'s centre doing nothing.
+ *
+ * The functional gate is `apps/web/e2e/qa-reach-batch.spec.ts` (real boxes, a
+ * real window, a real click); jsdom cannot measure width. What lives here is the
+ * RANKING, which is a decision rather than a measurement: the rail's words name
+ * what the live selection can do and must outrank the Constrain flyouts'
+ * permanent captions, so the band spends its last pixels on the transient
+ * information. Invert the two and the e2e still passes — the band would simply
+ * shed the more useful words — which is exactly why the ranking needs a guard
+ * of its own.
+ */
+describe("the offer rail participates in the band's measured label tier", () => {
+  /** A selection that unlocks at least one verb, so the rail is mounted. */
+  function selectOneEdge(): void {
+    drawUnsavedRectangle();
+    const store = useSketchStore.getState();
+    store.clearSelection();
+    store.selectAt({ x: 20, y: 0 }, 1); // the rectangle's bottom edge
+    expect(useSketchStore.getState().selection).toHaveLength(1);
+  }
+
+  it("declares a priority ABOVE the Constrain group's", () => {
+    selectOneEdge();
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
+
+    const rail = screen.getByTestId("dimension-hint");
+    const constrain = screen
+      .getByTestId("constraint-group-relational")
+      .closest("[data-label-priority]");
+
+    const railPriority = Number(rail.getAttribute("data-label-priority"));
+    const constrainPriority = Number(
+      constrain?.getAttribute("data-label-priority"),
+    );
+    expect(Number.isFinite(railPriority), "the rail joins the ladder").toBe(
+      true,
+    );
+    expect(
+      Number.isFinite(constrainPriority),
+      "the Constrain group joins the ladder",
+    ).toBe(true);
+    expect(railPriority).toBeGreaterThan(constrainPriority);
+  });
+
+  it("keeps every offer's keycap when the band sheds the rail's words", () => {
+    selectOneEdge();
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
+
+    const offers = screen.getAllByTestId(/^verb-hint-/);
+    expect(offers.length).toBeGreaterThan(0);
+    for (const offer of offers) {
+      // The word hides by ancestor-attribute CSS; the Kbd cap carries no such
+      // rule, so a shed rail still says "this key is live" instead of vanishing.
+      expect(offer.querySelector("kbd")?.className ?? "").not.toContain(
+        "data-labels=off",
+      );
+      expect(offer.querySelector("span")?.className ?? "").toContain(
+        "[[data-labels=off]_&]:hidden",
+      );
+    }
+  });
+});

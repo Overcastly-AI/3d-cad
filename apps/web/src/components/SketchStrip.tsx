@@ -202,6 +202,31 @@ interface ConstraintSpec {
 }
 
 /**
+ * The sketch strip's rung of `CommandBand`'s measured label ladder (guarantee
+ * #3 — higher keeps its words longer). Two levels, because at the 1280 floor
+ * the strip has exactly two spendable sets of words and they are not worth the
+ * same per pixel.
+ *
+ * Measured at 1280x800 BEFORE this ranking existed (QA-R1, reproduced 3/3):
+ * idle the strip needs 1258.8px and fits; ONE offer takes it to 1288.2 and
+ * clips CANCEL SKETCH; three offers take it to 1419.4 and clip the relational
+ * flyout, Construction, FINISH and CANCEL — with `scrollWidth === clientWidth`,
+ * so a real click at `sketch-save`'s own centre did nothing. Every ToolButton
+ * on this strip is already icon-only, so the band's ladder had NOTHING to shed
+ * (the three Flyout triggers were opted out of it) and measured itself into the
+ * "icon" tier while saving 0px — a tier that reported work it had not done.
+ *
+ * The offer rail outranks the flyout triggers: the rail's words name what THIS
+ * selection can do and disappear with it, while "Geometric"/"Dimension"/
+ * "Relational" are permanent captions over icons that keep a tooltip and a
+ * one-click menu. So the flyouts pay first (205.6px of words) and the rail
+ * keeps its 129.2px, which is the ranking the band arrives at unaided at 1280
+ * and 1366 and reverses — everything labelled — at 1440.
+ */
+const RAIL_LABEL_PRIORITY = 1;
+const CONSTRAIN_LABEL_PRIORITY = -1;
+
+/**
  * The constraint verbs, grouped by the family the constraint belongs to —
  * the same taxonomy the docs call out: Geometric (orientation of curves),
  * Dimensional (driving values), Relational (ties between points/entities).
@@ -875,6 +900,18 @@ export function SketchStrip({
                   <span
                     role="status"
                     data-testid="dimension-hint"
+                    // The rail is a first-class participant in the band's
+                    // measured label tier (`CommandBand` guarantee #3), not a
+                    // free-growing readout: it declares a priority like any
+                    // ToolGroup, so the band can buy its words back or shed
+                    // them by MEASUREMENT. It ranks ABOVE the Constrain
+                    // flyouts (RAIL_LABEL_PRIORITY) because those words are
+                    // permanent chrome naming families whose members are one
+                    // click away, while these name what THIS selection can do
+                    // right now and vanish with it — the higher information
+                    // per pixel. Shed, each offer keeps its brass keycap, so
+                    // the rail still says "these keys are live".
+                    data-label-priority={RAIL_LABEL_PRIORITY}
                     className="flex items-center gap-2 text-gauge"
                   >
                     {verbHints.map((verb) => (
@@ -888,7 +925,9 @@ export function SketchStrip({
                         className="flex items-center gap-1 rounded-sm hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass motion-safe:transition-colors"
                       >
                         <Kbd>{verb.key}</Kbd>
-                        <span>{verb.label}</span>
+                        <span className="[[data-labels=off]_&]:hidden">
+                          {verb.label}
+                        </span>
                       </button>
                     ))}
                   </span>
@@ -1038,7 +1077,10 @@ export function SketchStrip({
               ))}
             </ToolGroup>
 
-            <ToolGroup eyebrow="Constrain">
+            <ToolGroup
+              eyebrow="Constrain"
+              labelPriority={CONSTRAIN_LABEL_PRIORITY}
+            >
               {CONSTRAINT_GROUPS.map((group) => (
                 <Flyout
                   key={group.key}

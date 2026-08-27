@@ -9,17 +9,20 @@ import { createPartViaApi, distinctCanvasColors, seedSession } from "./support";
  * reload, delete the subject, switch sheets, tap instead of click — plus the
  * cross-item interference a per-item review cannot see.
  *
- * THREE CASES ARE `test.fail()`: they encode a defect as it exists today, so
- * the suite stays green while the bug is open and turns red the moment someone
- * fixes it without flipping the annotation (the `founder-picking.spec.ts`
- * convention). Each logs the measured values it failed ON — read WHY it failed,
- * never just that it did; a `test.fail()` that starts failing for a NEW reason
- * is a gate that has quietly stopped meaning anything.
+ * CASES ARE `test.fail()` WHILE THEIR DEFECT IS OPEN: they encode the bug as it
+ * exists today, so the suite stays green while it is open and turns red the
+ * moment someone fixes it without flipping the annotation (the
+ * `founder-picking.spec.ts` convention). Each logs the measured values it failed
+ * ON — read WHY it failed, never just that it did; a `test.fail()` that starts
+ * failing for a NEW reason is a gate that has quietly stopped meaning anything.
  *
- *   - QA-R1  the offer rail pushes FINISH/CANCEL SKETCH out of a 1280 window
- *   - QA-R2  an angle glyph keeps a value the solver has already moved off
- *   - QA-R3  a touch device cannot select two entities, so four of REACH-1's
- *            five new verbs are unreachable there
+ *   - QA-R1  CLOSED — the offer rail pushed FINISH/CANCEL SKETCH out of a 1280
+ *            (and 1366) window. Now a live REGRESSION gate at both widths: the
+ *            annotation is gone and the cases below must pass.
+ *   - QA-R2  OPEN — an angle glyph keeps a value the solver has already moved
+ *            off, on the expression/reference path.
+ *   - QA-R3  OPEN — a touch device cannot select two entities, so four of
+ *            REACH-1's five new verbs are unreachable there.
  *
  * `docs/QA-REVIEW.md` (2026-08-27) carries the full findings and evidence.
  */
@@ -437,72 +440,97 @@ async function clippedControls(
   }, containerTestId);
 }
 
-test.describe("REACH-1 QA — the offer rail at the 1280x800 quality floor", () => {
-  test.use({ viewport: { width: 1280, height: 800 } });
+// The two widths QA-R1 was measured failing at: the 1280 responsive floor and
+// 1366, the commonest laptop width in the wild. 1440/1600 were clean before the
+// fix and are held by the census case further down.
+for (const width of [1280, 1366]) {
+  test.describe(`REACH-1 QA — the offer rail at ${width}x800`, () => {
+    test.use({ viewport: { width, height: 800 } });
 
-  test("a live selection must not push FINISH SKETCH out of the window", async ({
-    page,
-  }) => {
-    // QA-R1 — OPEN. Measured every run: with two lines selected the strip runs
-    // to 1413 px in a 1280 px window and the document does not scroll, so the
-    // sketch's own commit and cancel are unreachable by mouse. Scoped to THIS
-    // test on purpose: a bare `test.fail()` at suite level marks every sibling.
-    test.fail();
-    const account = await seedSession(page);
-    const part = await createPartViaApi(page, account.token, "Floor gusset");
-    await page.goto(`/parts/${part.id}`);
-    await enterSketch(page, "XY");
-    const at = await calibratePlane(
+    test("a live selection must not push FINISH SKETCH out of the window", async ({
       page,
-      { x: 560, y: 520 },
-      { x: 860, y: 340 },
-    );
+    }) => {
+      // QA-R1 — was OPEN, now the regression gate. Measured 3/3 before the fix:
+      // with two lines selected the strip ran to 1413px in a 1280px window with
+      // `scrollWidth === clientWidth`, so the sketch's own commit and cancel
+      // were unreachable by mouse; ONE offer already cost CANCEL at 1280, and
+      // 1366 lost SAVE + EXIT. Two halves, and BOTH are needed: `toBeVisible()`
+      // is a CSS/box property and passes on a button 140px past the right edge,
+      // while a click alone would pass through Playwright's auto-scroll.
+      const account = await seedSession(page);
+      const part = await createPartViaApi(page, account.token, "Floor gusset");
+      await page.goto(`/parts/${part.id}`);
+      await enterSketch(page, "XY");
+      const at = await calibratePlane(
+        page,
+        { x: Math.round(width * 0.44), y: 520 },
+        { x: Math.round(width * 0.67), y: 340 },
+      );
 
-    await drawLine(page, at, { x: 0, y: 0 }, { x: 30, y: 10 });
-    await drawLine(page, at, { x: 0, y: 0 }, { x: 10, y: 30 });
+      await drawLine(page, at, { x: 0, y: 0 }, { x: 30, y: 10 });
+      await drawLine(page, at, { x: 0, y: 0 }, { x: 10, y: 30 });
 
-    // Baseline: with nothing selected the strip fits.
-    await page.keyboard.press("Escape");
-    const idle = await clippedControls(page, "sketch-strip");
-    expect(
-      idle.clipped,
-      `idle strip already clips: ${JSON.stringify(idle.clipped)}`,
-    ).toEqual([]);
+      // MEASURE FIRST, ASSERT LAST — deliberately. A failing assertion aborts
+      // the test, so an early one costs the evidence for every state after it:
+      // asserting the one-offer census before the two-offer screenshot means a
+      // regression at 1280 produces no picture of the state QA reported. The
+      // shots below are also the before/after pair for the founder update.
+      await page.keyboard.press("Escape");
+      const idle = await clippedControls(page, "sketch-strip");
 
-    // Select the two legs — the state the offer rail is built for.
-    await clickPlane(page, at, { x: 24, y: 8 });
-    await addPlane(page, at, { x: 8, y: 24 });
-    await expect(page.getByTestId("verb-hint-angle")).toBeVisible();
+      // ONE offer — the most ordinary state in a sketcher, and enough to cost
+      // CANCEL SKETCH at 1280 before the fix.
+      await clickPlane(page, at, { x: 24, y: 8 });
+      await expect(page.getByTestId("dimension-hint")).toBeVisible();
+      const single = await clippedControls(page, "sketch-strip");
+      console.log(`STRIP-CENSUS-1 ${width}`, JSON.stringify(single));
 
-    const live = await clippedControls(page, "sketch-strip");
-    console.log("STRIP-CENSUS", JSON.stringify(live));
-    await page.screenshot({
-      path: "test-results/qa-reach1-strip-1280.png",
+      // Select the two legs — the state the offer rail is built for.
+      await addPlane(page, at, { x: 8, y: 24 });
+      await expect(page.getByTestId("verb-hint-angle")).toBeVisible();
+
+      const live = await clippedControls(page, "sketch-strip");
+      console.log(`STRIP-CENSUS ${width}`, JSON.stringify(live));
+      await page.screenshot({
+        path: `test-results/qa-reach1-strip-${width}.png`,
+      });
+
+      // The functional half: can a POINTER still finish the sketch? A real
+      // mouse click at the control's own centre — not Playwright's
+      // auto-scrolling `locator.click()`, which papers over exactly this.
+      const saveBox = await page.getByTestId("sketch-save").boundingBox();
+      expect(saveBox, "no box for sketch-save").not.toBeNull();
+      const box = saveBox as {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      };
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      const stripGone = await page
+        .getByTestId("sketch-strip")
+        .waitFor({ state: "detached", timeout: 8_000 })
+        .then(() => true)
+        .catch(() => false);
+
+      expect(
+        idle.clipped,
+        `idle strip already clips: ${JSON.stringify(idle.clipped)}`,
+      ).toEqual([]);
+      expect(
+        single.clipped,
+        `one selected line clips: ${JSON.stringify(single.clipped)}`,
+      ).toEqual([]);
+      expect(
+        { clipped: live.clipped.map((c) => c.testId), stripGone },
+        "with two lines selected the sketch's own commit/cancel must stay reachable",
+      ).toEqual({ clipped: [], stripGone: true });
     });
-
-    // The functional half: can a POINTER still finish the sketch? A real mouse
-    // click at the control's own centre — not Playwright's auto-scrolling
-    // `locator.click()`, which papers over exactly this.
-    const saveBox = await page.getByTestId("sketch-save").boundingBox();
-    expect(saveBox, "no box for sketch-save").not.toBeNull();
-    const box = saveBox as {
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-    };
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-    const stripGone = await page
-      .getByTestId("sketch-strip")
-      .waitFor({ state: "detached", timeout: 8_000 })
-      .then(() => true)
-      .catch(() => false);
-
-    expect(
-      { clipped: live.clipped.map((c) => c.testId), stripGone },
-      "with two lines selected the sketch's own commit/cancel must stay reachable",
-    ).toEqual({ clipped: [], stripGone: true });
   });
+}
+
+test.describe("REACH-1 QA — the offer rail's other 1280 guarantees", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
 
   test("sketch verb keys do not leak into the model-mode create openers", async ({
     page,
@@ -1132,15 +1160,28 @@ test.describe("REACH-1 QA — how much room does the rail need?", () => {
       }
     }
     console.log("RAIL-BUDGET", JSON.stringify(table, null, 0));
-    // The widths that are clean today, asserted so they stay clean. 1280 and
-    // 1366 are the OPEN defect (QA-R1) and are reported by the log above.
-    const wide = table.filter(
-      (row) => (row as { width: number }).width >= 1440,
-    ) as Array<{ width: number; selection: string; clipped: string[] }>;
-    expect(wide.length).toBe(6);
+    // EVERY width in the sweep, not just the ones that happened to be clean.
+    // Until QA-R1 was fixed this asserted only >=1440 and the two widths that
+    // actually failed were merely LOGGED — a gate that reported the defect to
+    // a human instead of to CI. The whole table is the gate now, so the next
+    // cell that grows on this strip cannot pass by being wide enough for a
+    // developer's monitor.
+    const rows = table as Array<{
+      width: number;
+      selection: string;
+      offers: number;
+      clipped: string[];
+    }>;
+    expect(rows.length).toBe(12);
     expect(
-      wide.filter((row) => row.clipped.length > 0),
-      "1440 and 1600 must stay free of strip clipping",
+      rows.filter((row) => row.clipped.length > 0),
+      "no width in the sweep may clip a sketch-strip control",
+    ).toEqual([]);
+    // …and the offers really were live while it fitted: an empty rail is a
+    // trivially-fitting strip, which is how a broken pick reads as a pass.
+    expect(
+      rows.filter((row) => row.selection === "two lines" && row.offers < 2),
+      "two selected lines must offer at least two verbs to make the fit mean anything",
     ).toEqual([]);
   });
 });

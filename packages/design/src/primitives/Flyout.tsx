@@ -12,7 +12,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { cx } from "../cx";
 import { CaretDownIcon } from "./icons";
-import { Kbd } from "./ToolButton";
+import { Kbd, ToolStamp } from "./ToolButton";
 import type { ReactNode } from "react";
 
 export interface FlyoutItem {
@@ -44,6 +44,20 @@ export interface FlyoutProps {
 /**
  * A group trigger + its menu. The trigger mirrors `ToolButton` styling but
  * carries a caret and `aria-haspopup`; opening focuses the first enabled row.
+ *
+ * **The trigger label is part of the band's MEASURED label tier** — the same
+ * `data-labels` mechanism `ToolButton` honours, so one `CommandBand` probe
+ * governs every control on the row. It did not used to be, and that gap was
+ * QA-R1: `Flyout` is the only labelled control on the sketch strip (every
+ * `ToolButton` there is icon-only), so shedding "labels" saved the band 0 px
+ * and the strip ran 139.4 px past a 1280 px window with the sketch's own
+ * FINISH/CANCEL outside the frame and unclickable. A primitive that opts out
+ * of the layout contract its peers keep does not fail loudly; it fails as a
+ * surface that cannot shrink.
+ *
+ * Shed, the trigger keeps its icon and caret and gains the `ToolStamp` its
+ * peers have always had, so a label-less trigger still names itself to the
+ * pointer; `aria-label` carries the name for assistive tech either way.
  */
 export function Flyout({
   label,
@@ -153,14 +167,17 @@ export function Flyout({
         onClick={() => (open ? close(true) : setOpen(true))}
         onKeyDown={onTriggerKeyDown}
         className={cx(
-          "group/tt relative inline-flex select-none items-center gap-1.5 rounded-sm px-2.5 py-1.5",
+          "group/tt relative inline-flex select-none items-center gap-1.5 rounded-sm py-1.5",
+          // Same ≥32px target and the same padding step as `ToolButton` takes
+          // when its enclosing group sheds — one band row, one hover geometry.
+          "min-h-8 px-2.5 [[data-labels=off]_&]:px-1.5",
           "transition-colors duration-fast hover:bg-carbide",
           "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
           open ? "bg-carbide text-mist" : "text-mist",
         )}
       >
         <span className="flex shrink-0 items-center">{icon}</span>
-        <span className="font-display text-2xs uppercase tracking-[0.12em]">
+        <span className="font-display text-2xs uppercase tracking-[0.12em] [[data-labels=off]_&]:hidden">
           {label}
         </span>
         <span
@@ -172,6 +189,9 @@ export function Flyout({
         >
           <CaretDownIcon size={12} />
         </span>
+        {/* Not while the menu is down: the stamp and the menu occupy the same
+            strip of viewport, and a tooltip over an open menu is noise. */}
+        {open ? null : <ToolStamp label={label} />}
       </button>
 
       {open ? (

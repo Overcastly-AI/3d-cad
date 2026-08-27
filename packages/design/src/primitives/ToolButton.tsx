@@ -34,6 +34,60 @@ export function Kbd({ className, ...rest }: HTMLAttributes<HTMLElement>) {
   );
 }
 
+/**
+ * The stamped tooltip a band control wears — the accelerator engraved beside
+ * the name, with a quiet caption (count / reason) on a second line so the
+ * resting control stays a single icon-thin row.
+ *
+ * Extracted from `ToolButton` when `Flyout` became its second real user
+ * (DRY: extract on the second use, not the first imagined one). A flyout
+ * trigger that has shed its label under the band's measured tier is otherwise
+ * an unnamed pictograph, which is the "chrome that only decorates" defect in a
+ * different costume — the tooltip is what keeps the shed state honest.
+ *
+ * `data-tooltip` is the QA hook for z-order/occlusion asserts, and the node is
+ * always mounted (it hides by opacity, never unmount) so `aria-describedby`
+ * can point at the caption.
+ */
+export function ToolStamp({
+  label,
+  shortcut,
+  caption,
+  captionId,
+  side = "bottom",
+}: {
+  label: ReactNode;
+  shortcut?: string | undefined;
+  caption?: ReactNode | undefined;
+  captionId?: string | undefined;
+  side?: "bottom" | "top" | undefined;
+}) {
+  return (
+    <span
+      aria-hidden
+      data-tooltip
+      className={cx(
+        "pointer-events-none absolute left-1/2 z-30 -translate-x-1/2",
+        side === "bottom" ? "top-full mt-1.5" : "bottom-full mb-1.5",
+        "flex flex-col gap-0.5 whitespace-nowrap border border-hairline bg-anvil px-2 py-1",
+        "font-body text-2xs text-mist opacity-0",
+        "group-hover/tt:opacity-100 group-focus-visible/tt:opacity-100",
+        "motion-safe:transition-opacity motion-safe:duration-fast",
+      )}
+    >
+      <span className="flex items-center gap-1.5">
+        {label}
+        {shortcut ? <Kbd>{shortcut}</Kbd> : null}
+      </span>
+      {caption ? (
+        <span id={captionId} className="font-data text-2xs text-gauge">
+          {caption}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 export interface ToolButtonProps extends Omit<
   ButtonHTMLAttributes<HTMLButtonElement>,
   "aria-label"
@@ -185,35 +239,17 @@ export function ToolButton({
         />
       ) : null}
 
-      {/* Tooltip: an anvil stamp with the accelerator engraved, and the quiet
-          caption (count / reason) folded onto a second line so the resting
-          button stays a single icon-thin row. The z-30 is LOCAL to the
-          enclosing stacking context; page-level ordering (band above panels,
-          so this stamp never hides behind the feature tree) comes from the
-          `zLayer` scale on the band itself. `data-tooltip` is the QA hook for
-          z-order/occlusion asserts. */}
-      <span
-        aria-hidden
-        data-tooltip
-        className={cx(
-          "pointer-events-none absolute left-1/2 z-30 -translate-x-1/2",
-          tooltipSide === "bottom" ? "top-full mt-1.5" : "bottom-full mb-1.5",
-          "flex flex-col gap-0.5 whitespace-nowrap border border-hairline bg-anvil px-2 py-1",
-          "font-body text-2xs text-mist opacity-0",
-          "group-hover/tt:opacity-100 group-focus-visible/tt:opacity-100",
-          "motion-safe:transition-opacity motion-safe:duration-fast",
-        )}
-      >
-        <span className="flex items-center gap-1.5">
-          {label}
-          {shortcut ? <Kbd>{shortcut}</Kbd> : null}
-        </span>
-        {caption ? (
-          <span id={reasonId} className="font-data text-2xs text-gauge">
-            {caption}
-          </span>
-        ) : null}
-      </span>
+      {/* Tooltip: an anvil stamp with the accelerator engraved. The z-30 is
+          LOCAL to the enclosing stacking context; page-level ordering (band
+          above panels, so this stamp never hides behind the feature tree)
+          comes from the `zLayer` scale on the band itself. */}
+      <ToolStamp
+        label={label}
+        shortcut={shortcut}
+        caption={caption}
+        captionId={reasonId}
+        side={tooltipSide}
+      />
     </button>
   );
 }
