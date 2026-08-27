@@ -730,6 +730,29 @@ recipe here in the same commit as the fix.**
   the same moment were 1–3 commits behind, i.e. just normally trailing — so this
   is an occasional seeding fault, not a standing condition, which is exactly what
   makes it easy to stop checking for.
+- **`git add <my file> && git commit` IN ONE COMMAND IS THE SWEEP, and chaining
+  them is what defeats the protocol's own check.** Done by the ORCHESTRATOR on
+  2026-08-27, hours after quoting the rule at three separate agents: `4e41eb4`
+  says "fix(workflow): a subtree missing from the list is invisible" and carries
+  **1,538 lines of a live qa-tester's work** — its 14-case spec, its QA-REVIEW
+  entry, and three board items — because `git add` writes to the SHARED index and
+  `git commit` commits THE WHOLE INDEX, not the paths you just added. The QA agent
+  had staged its files minutes earlier. Nothing was lost; it annotated the record
+  in `b253980` rather than rewriting pushed history, which is the right call.
+  The existing recipe says to read `git diff --cached` immediately before
+  committing, and that WOULD have caught this — but chaining `add && commit` in a
+  single shell line leaves no moment to read anything, which is precisely why the
+  cheap path keeps winning. **So the rule is not "check the index", it is "never
+  put `git add` and `git commit` in the same command while other agents are
+  live."** Two separate calls, with the diff read in between.
+  And note the NEW half the victim found, which the recipe did not cover: it
+  documents the hazard from the COMMITTER's side, so its mitigation is a check the
+  committer runs. From the STAGER's side there is no check at all — the QA agent
+  staged correctly, ran its own `git diff --cached`, and was swept anyway by
+  somebody else's commit landing in between. Its tell is `git commit` replying
+  "nothing to commit, working tree clean" when you know you staged three files.
+  The only real protection for a stager is to not be one for long: stage and
+  commit in one tight window, or build against an isolated `GIT_INDEX_FILE`.
 - **PARAMS MODELS ARE PYDANTIC-DEFAULT `extra="ignore"`, so a payload that
   MISSPELLS a field validates, evaluates, and silently gives the OLD reading —
   and every gate agrees with it.** Found 2026-08-26 by the PATTERN-1 agent, in
