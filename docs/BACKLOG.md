@@ -15,230 +15,126 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication. **Pass 8-12 detail moved to `docs/CHANGELOG.md`.**
 
-- **Groom pass 13 (2026-08-26, this pass).** Ten items shipped from pass
-  11/12's in-flight batch, ticked below (Done archive): SETTLE-PERF-1
-  (883x speedup, and the timeout resource-exhaustion route removed), DXF-4,
-  DXF-5/T-16, PICK-2, FB-21, FB-9, NAME-2/T-21/T-8, EDGEFLANGE-1, and
-  T-22/REPICK-1 (+ the e2e fixture fix its landing exposed, `b036acd` — the
-  fixture was asserting the OLD reset behaviour, T-22 stands). **MATE-1
-  re-scoped, not closed:** `287510f` gated the kernel mate-pick seam and
-  measured 0 bad of 14 offered faces, worst deviation 0.0 — S-15 is a UI
-  (DOM-proxy picking) defect, not kernel; re-filed below, blocked on
-  viewport territory. Filed **NAME-2b** (P2): the client-facing re-anchor
-  surface (a `RE-ANCHORED` chip on edge-anchored features, mirroring
-  drawings') is the one piece of NAME-2 that did not ship — kernel-side the
-  defect is fully closed. Folded the standalone "promote the durable edge
-  tier" P2 item into NAME-2's closure (one commit did both). Noted design
-  decision `docs/design/pattern-scope.md` (`b7f1407`) against PATTERN-1.
+- **Groom pass 14 (2026-08-27, this pass).** The founder switched focus to
+  the frontend; Ready is now ranked frontend-first (backend items stay
+  visible, not deleted). Closed since pass 13, all verified against
+  `git log`: **SPEC-9** (`e8702d5`), **SPEC-10** (`42f6bbd`), **DOCTICK-GATE**
+  (`bd09f5b`, docstring fix `53e62b0`), **PATTERN-1's frontend half**
+  (`ec9c569`), **T-23/DRAG-1** (`35027ef` — the extrude gets a drag handle;
+  this UNBLOCKS MATE-1's UI half and ORTHO-1, both queued on
+  `apps/web/src/viewport/**` since pass 13), **SNAP-5** (`ecdf9ad`,
+  screenshots `31ba716`), **SIGNIN-1** (`bf65ddc`). Kernel-only halves
+  landed, frontend halves stay open: **REVOLVE-1** (`88b6074` — origin-axis
+  types now exist server-side; the Ready item is now purely the frontend
+  axis-list/preview work), **SKETCH-VOCAB-1** (`e46bf0c`, `eabbd36`,
+  `fead5bd`, `00c9d22`, `5fbf5d8` — angle/diameter/midpoint/collinear/
+  symmetric-two-lines all solve server-side; `apps/web` carries only
+  exhaustive-switch stub arms, no authoring UI — verified by diff, not
+  assumed). Also closed: the founder's parts-register directive
+  (`cb2e43e` resume band + REBUILD-column experiment, `d0b55b2` reverted the
+  REBUILD collapse after it broke `workspace.spec.ts` — see Done archive for
+  the reasoning, worth keeping since the next person to try the same
+  collapse will reach for it again). **Filed this pass:** REACH-2-FLOW and
+  REACH-3-FLOW (P1, frontend — the design-review flow gaps on `ec9c569` and
+  `5438b73` the builders didn't catch); REACH-1's flow gaps were already
+  filed as QA-R1/QA-R2/QA-R3 by the qa-tester, no duplicate needed. Noted
+  `scripts/check-ui-parity.py` + `.claude/workflows/loft-frontend-loop.js`
+  (`e9d31af`, subtree fix `4e41eb4`) exist and re-run every batch — the 39
+  measured gaps are NOT frozen onto the board (would go stale immediately);
+  triage them from the tool, not from a snapshot here.
   **✅ rows, still unqualified by an independent code-reviewer pass. ➖
-  rows:** Interop, Drawings. **❌ rows:** Assemblies (MATE-1's UI half still
-  open), Sheet metal (DXF-4/DXF-5/EDGEFLANGE-1/NAME-2 all shipped this pass
-  — worth a vision-steward re-check), Performance (SETTLE-PERF-1 shipped —
-  likewise worth a re-check), Collaboration & versioning,
-  Extensibility/scripting+MCP, Selection & direct manipulation (MATE-1's UI
-  half is this row).
+  rows:** Interop, Drawings. **❌ rows:** Assemblies (MATE-1's UI half —
+  unblocked, not yet built), Sheet metal (DXF-4/DXF-5/EDGEFLANGE-1/NAME-2 —
+  still owed a vision-steward re-check), Performance (SETTLE-PERF-1 —
+  likewise), Collaboration & versioning, Extensibility/scripting+MCP,
+  Selection & direct manipulation (MATE-1's UI half is this row).
 
-- **Prior passes (8-12):** reconciled in `docs/CHANGELOG.md`. Also flagged
-  there and still true: `docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` are stale
-  against the SOLVE-1/SETTLE/pass-13 batches — dispatch `geometry-qa` and
-  `frontend-qa` next batch.
+- **Prior passes (8-13):** reconciled in `docs/CHANGELOG.md`. Still true and
+  still open: `docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` are stale against
+  the SOLVE-1/SETTLE/pass-13/pass-14 batches — dispatch `geometry-qa` and
+  `frontend-qa` next batch; have the vision-steward re-check Sheet metal and
+  Performance now that DXF-4/DXF-5/EDGEFLANGE-1/NAME-2/SETTLE-PERF-1 have
+  all shipped (carried forward from pass 13, still not done).
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 13 (2026-08-26).** SETTLE-PERF-1, DXF-4,
-DXF-5/T-16, PICK-2, FB-21, FB-9, NAME-2/T-21/T-8, EDGEFLANGE-1, and
-T-22/REPICK-1 all shipped since pass 12 — see Done archive. MATE-1's kernel
-half also shipped (gate only — the seam measured clean, S-15 is UI-side);
-its remaining UI half is re-filed below, **BLOCKED** on
-`apps/web/src/viewport/**` — the extrude drag-handle work (T-23/DRAG-1) is
-in flight there now, so MATE-1's UI half and its same-territory neighbour
-ORTHO-1 queue behind it rather than dispatch this batch. **Excluded from
-this dispatch — already in flight or reserved, do not re-dispatch:**
-T-23/DRAG-1, MATE-1's UI half, ORTHO-1 (viewport territory occupied),
-SNAP-5, SKETCH-VOCAB-1's kernel half, PATTERN-1's kernel half, SIGNIN-1.
+**Dispatch order, groom pass 14 (2026-08-27) — founder has switched focus to
+the frontend, ranked accordingly.** SPEC-9, SPEC-10, DOCTICK-GATE,
+PATTERN-1(FE), T-23/DRAG-1, SNAP-5, SIGNIN-1 all shipped since pass 13 — see
+Done archive. T-23/DRAG-1 landing clears `apps/web/src/viewport/**`, so
+**MATE-1's UI half and ORTHO-1 are UNBLOCKED** — dispatch them, don't
+sequence them behind anything else in that territory. **Excluded from this
+dispatch — already in flight, do not re-dispatch:** the frontend batch
+about to launch, `apps/web/e2e/qa-reach-batch.spec.ts` (qa-tester, live).
 Ranked by priority then the operating question ("would a working engineer
-model a real part in this today?"), disjoint, parallel-dispatchable:
+model a real part in this today?"), frontend first per founder directive,
+disjoint, parallel-dispatchable:
 
-1. **SPEC-10** (P1, XS, frontend-builder, `apps/web/e2e/constraints.spec.ts`)
-   — asserts a pre-settle transient, same class as CI-4(d)/SPEC-9. Disjoint.
-2. **SPEC-9** (P1, XS, frontend-builder, `apps/web/e2e/sketch-drag-draw.spec.ts`)
-   — deterministic keystroke-races-armed-state red at two lines. Disjoint.
-3. **DOCTICK-GATE** (P1, S, platform-builder, `scripts/` + `ci.yml`) —
-   corroborated a THIRD time: 22 of the last 24 feat/fix/test commits
-   carried no ROADMAP/BACKLOG tick. Disjoint from everything above.
-4. **EXPORT-3** (P1, S, frontend-builder, `apps/web/src/components/
-   ExportRow.tsx`/`ExportToolGroup.tsx`) — one failed downstream feature
-   disables export of the entire tree, including the good body already
-   built. Disjoint from everything above.
-5. **SKETCH-VOCAB-1's frontend half** (P1, M, frontend-builder,
-   `apps/web/src/sketch/**`) — angle/diameter dimension UI, midpoint/
-   collinear, `Symmetric` on two lines + an axis. Disjoint. See Next
-   section for full ticket.
-6. **PATTERN-1's frontend half** (P1, M, frontend-builder, pattern form) —
-   `docs/design/pattern-scope.md` (`b7f1407`) decided the contract
-   (`scope: body | features`); the form now needs a seed picker and honest
-   status text. Disjoint from everything above.
-7. **REVOLVE-1** (P1, M, frontend-builder, `apps/web/src/routes/
-   PartPage.tsx` + `apps/web/src/sketch/**`) — revolve axis list offers
-   only profile edges, defaults silently to the wrong one, no preview.
-   Check for file overlap with SKETCH-VOCAB-1's frontend half in
-   `sketch/**` before parallelizing the two.
-8. **SNAP-4** (P2, S, frontend-builder, `apps/web/src/sketch/
-   constraints.ts` + `store.ts`) — an explicit Fix on a point the draw
-   already grounded double-constrains silently. Lower priority filler;
-   disjoint from everything above.
+1. **QA-R1** (P1, S, frontend-builder, `packages/design/src/**` +
+   `SketchStrip.tsx`) — the offer rail clips FINISH/CANCEL SKETCH off-screen
+   at 1280/1366. Disjoint.
+2. **QA-R2** (P1, S, frontend-builder, `apps/web/src/sketch/**` +
+   `ConstraintGlyphs.tsx`) — an angle glyph keeps a number the solver has
+   moved off. Disjoint from QA-R1 (different files), same territory family —
+   sequence if one agent takes both.
+3. **MATE-1 (UI half)** (P0, M, frontend-builder, `apps/web/src/viewport/**`)
+   — unblocked this pass. A mate-target face can be structurally unreachable;
+   raycast the real geometry, not a DOM proxy. See full ticket below.
+4. **REACH-2-FLOW** (P1, M, frontend-builder, `PartPage.tsx` + `ToolButton.tsx`
+   + `ScopeRow.tsx`) — the pattern-scope proposal is shed at 1280, destroyed
+   by Cancel/Escape, and names a subject nothing echoes. New this pass.
+5. **DOCTICK-GATE** — CLOSED this pass (`bd09f5b`); listed here only to
+   confirm removal from dispatch.
+6. **REVOLVE-1** (P1, M, frontend-builder, `apps/web/src/routes/
+   PartPage.tsx` + `apps/web/src/sketch/**`) — kernel half shipped
+   (`88b6074`, origin axes exist); pure frontend now: axis list, default,
+   preview. Check for file overlap with SKETCH-VOCAB-1's frontend half.
+7. **SKETCH-VOCAB-1's frontend half** (P1, M, frontend-builder,
+   `apps/web/src/sketch/**`) — kernel half fully shipped (five commits, pass
+   14); needs the dimension-type chooser UI + midpoint/collinear/symmetric
+   selection UI. Disjoint from REACH-2-FLOW.
+8. **ORTHO-1** (P1, M, frontend-builder, `apps/web/src/viewport/**`) —
+   unblocked alongside MATE-1; sequence the two rather than parallelize,
+   same territory.
 
-**MATE-1 (UI half) and ORTHO-1 are next up once `apps/web/src/viewport/**`
-clears** (T-23/DRAG-1 lands) — both re-scoped/verified this pass, see full
-tickets below.
+**QA-R3** (P2, touch), **NAME-2b** (P2), **REACH-3-FLOW** (P1, new this
+pass), **EXPORT-3**, **SNAP-4** and the P1/P2 backend items below are next
+up — see full tickets in place.
 
-**Process/loop-health flag (not a ticket):** `docs/GEOMETRY-QA.md` and
-`docs/UI-REVIEW.md` are stale against the last two batches (SOLVE-1/SETTLE
-and this pass's nine-item closure) — dispatch `geometry-qa` +
-`frontend-qa` this batch, and have the vision-steward re-check Sheet metal
-and Performance now that DXF-4/DXF-5/EDGEFLANGE-1/NAME-2/SETTLE-PERF-1 are
-all shipped.
+**Process/loop-health flag, carried from pass 13, still true:**
+`docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` are stale against the SOLVE-1/
+SETTLE/pass-13/pass-14 batches — dispatch `geometry-qa` + `frontend-qa` next
+batch; vision-steward still owes the Sheet metal/Performance scorecard
+re-check now that DXF-4/DXF-5/EDGEFLANGE-1/NAME-2/SETTLE-PERF-1 are shipped.
 
 Everything else below is reprioritized but not yet dispatched this batch.
 
-- [ ] (P1, XS) **SPEC-10 — `constraints.spec.ts:240` is intermittently red
-      (1 pass / 3 fail across 4 runs) because it asserts a PRE-SETTLE
-      transient, not the settled answer — same defect class as CI-4(d)/
-      SPEC-9, new instance.** kind: defect (test). MEASURED
-      (`docs/AUDIT-ENGINEERING.md` "Pass 10" N13(b), uncommitted at
-      grooming time): same failing line every run (a stationary failure
-      point, not the wandering-point flake signature CLAUDE.md's own
-      discriminator calls out) — `Received string: "DOF 0 · CONVERGED"`
-      where the spec expects `/DOF \d+ · UNDER-CONSTRAINED/` at `:337`.
-      `DOF 0 · CONVERGED` is ARITHMETICALLY CORRECT for the constraint set
-      the spec's own comment enumerates (11 constraints removing 16 DOF
-      from 4 lines) — the spec's poll (`:320-333`) and assertion (`:337`)
-      describe an intermediate evaluation, and the one run that "passed"
-      did so by sampling the readout before the final solve landed. A
-      green result there was never evidence of anything.
-      HYPOTHESIS, not a claim (discriminator given, don't skip it): the
-      same batch's SETTLE-PERF-1 slowdown (a rectangle dimension edit went
-      0.2ms->17.2ms) may have widened the window during which the stale
-      readout is visible — i.e. this may be newly-EXPOSED rather than
-      newly-introduced. Verify by running this one spec against a geometry
-      service built from `c02743e` (pre-SOLVE-1) and counting passes;
-      record the result in the commit either way, since it decides whether
-      this is "fix the assertion" alone or also a product-latency note
-      back onto SETTLE-PERF-1.
-      FIX: assert the settled answer, not a transient (same shape as
-      CI-4(d)'s fix) — poll until status/DOF stabilizes across consecutive
-      reads before asserting, and make sure the worked-example screenshot
-      two lines later captures the settled state too.
-      ACCEPTANCE: `constraints.spec.ts:240` passes 4/4 consecutive runs.
-      [src: docs/AUDIT-ENGINEERING.md "Pass 10" N13(b), uncommitted at
-      grooming time, filed by backlog-groomer pass 12]
-      TERRITORY: `apps/web/e2e/constraints.spec.ts`. agentType:
-      frontend-builder.
+**SPEC-10 and SNAP-5 are both SHIPPED (`42f6bbd`, `ecdf9ad`+`31ba716`) — see
+Done archive for evidence/gates.**
 
-- [ ] (P1, S) **SNAP-5 — line-by-line drawing never infers horizontal/
-      vertical, and SOLVE-1's own reproduction is independent evidence for
-      why that is more than a convenience gap: it is why an axis-aligned
-      profile solves at a materially higher DOF than it looks like it
-      should.** kind: capability. VERIFIED against source (not assumed from
-      `docs/COMPETITIVE.md`'s prior flag): `shapeRigidity`
-      (`apps/web/src/sketch/drawDimensions.ts:272-276`) authors rigidity
-      only for `shape === "rect"` (`rectangleRigidity`, four coincidences +
-      2H/2V) — `"line"` and `"circle"` return `[]`. `store.ts` infers
-      coincidence on snap (SNAP-3, `inferredCoincidents`,
-      `store.ts:974-1129`) but has no equivalent inference for H/V anywhere
-      in the module (`grep -n horizontal apps/web/src/sketch/store.ts`
-      empty). So a line-by-line-drawn profile — the ordinary way to sketch
-      anything that isn't a rectangle — carries no axis constraints at all
-      unless the user explicitly adds them.
-      WHY THIS MATTERS MORE THAN THE PRIOR "P3, convenience" FILING
-      (`docs/COMPETITIVE.md`'s "Automatic constraint inference" row,
-      2026-08-16/21 passes): SOLVE-1 (`7183955`, closed above) fixed the
-      sketch solver to HOLD free DOF at the author's input rather than let
-      an edit walk them wherever DogLeg's trajectory lands — but it is a
-      safety net for looseness, not a substitute for the constraints a
-      real CAD tool would have inferred in the first place. The auditor's
-      flanged-coupling profile (six consistent driving dims: 27, 8, 21, 22,
-      6, 30 — consistent by construction as an axis-aligned staircase
-      outline: 21+6=27 horizontal, 8+22=30 vertical) solved at **DOF 6, not
-      the DOF 2 an H/V-inferred version of the same axis-aligned shape
-      would carry** (per the SOLVE-1 builder's own report). No H or V
-      constraint was ever authored on any of its six edges, because
-      line-by-line drawing doesn't author them — that gap is what this
-      ticket closes. Given the constraint set we actually build today,
-      SOLVE-1's hold-the-input behavior is the CORRECT response to an
-      edit — that is not in question. What SNAP-5 closes is why the set
-      is looser than Fusion's/SolidWorks'/Onshape's would be for the
-      identical drawn shape, which is the reason our sketches carry more
-      accepted-but-unintended DOF than an incumbent's for the same
-      gesture.
-      FIX: extend `shapeRigidity`'s pattern to the `"line"` case — when a
-      freshly-drawn line's angle is within a tolerance of axis-aligned
-      (mirror Fusion's near-axis-aligned threshold; cite the source before
-      picking a number), author a `horizontal`/`vertical` constraint on it
-      at placement, the same moment `rectangleRigidity` authors a rect's
-      four coincidences. No modifier-key opt-out infrastructure exists in
-      `apps/web/src/sketch/*.ts` today (`grep -n ctrlKey\|metaKey` is
-      empty) — decide and justify whether SNAP-5 ships without an opt-out
-      gesture (simplest, matches "we don't have this machinery yet") or
-      adds the minimal plumbing for one; don't silently drop the Fusion
-      parity claim either way, name the decision in the commit.
-      ACCEPTANCE: a line drawn within tolerance of horizontal/vertical
-      carries the matching constraint immediately at placement (assert on
-      the returned `SketchConstraint[]`, mirroring
-      `drawDimensions.test.ts`'s existing `rectangleRigidity` coverage); a
-      line drawn clearly off-axis carries none (regression guard — this
-      must not become RECT-1's bug in the other direction, forcing
-      geometry the user did NOT draw); an e2e spec draws a near-axis-
-      aligned two-point line and confirms the H/V glyph and DOF count both
-      reflect the inferred constraint. Does not reopen VISION.md's
-      Sketching row by itself — filed as a capability gap, not a defect;
-      that's the vision-steward's call.
-      [src: docs/COMPETITIVE.md "Automatic constraint inference while
-      sketching" row (2026-08-16, re-verified 2026-08-21, residual (3) of
-      three); independent severity evidence from SOLVE-1's DOF-6-vs-DOF-2
-      reproduction, filed by backlog-groomer pass 10]
-      TERRITORY: `apps/web/src/sketch/drawDimensions.ts`,
-      `apps/web/src/sketch/store.ts`, `apps/web/src/sketch/
-      drawDimensions.test.ts`. Disjoint from PICK-2/MATE-1's
-      `PartPage.tsx`/`viewport/**` territory — safe to parallelize.
-      agentType: frontend-builder.
-
-- [ ] (P1, M) **SKETCH-VOCAB-1 — the sketcher has no angle or diameter
-      dimension, no midpoint/collinear constraint, and `Symmetric` refuses
-      the selection every engineer makes first.** kind: capability
-      (scorecard-relevant — see below). MEASURED (`docs/AUDIT-PRODUCT.md`
-      "Pass 2026-08-24 (fourth pass)" T-5), enumerated live from the three
-      constraint menus: geometric = horizontal, vertical, parallel,
-      perpendicular, tangent; dimensional = distance, radius, equal;
-      relational = coincident, concentric, symmetric, fixed. Missing
-      against every incumbent: **angle** (any non-orthogonal rib, gusset or
-      dovetail is un-dimensionable), **diameter** (holes are specified by
-      diameter on every drawing and fastener table; forcing a halved radius
-      into the model means the on-screen number never matches the
-      drawing), **midpoint**, **collinear**. `Symmetric` also accepts only
-      *two points + a line* — two parallel *lines* + an axis, which is
-      what an engineer selects first and what SolidWorks/Onshape both
-      accept, is refused with "Select two points and a line."
-      SCORECARD: the vision-steward's fifth-pass note recommends
-      `Sketching & constraints` move ✅→➖ on this gap alone — SOLVE-1/
-      SETTLE-2/SETTLE-3 (closed, Done archive) fixed the solver behaving
-      well with the constraints we DO have; a ✅ means "better than
-      SolidWorks/Fusion/Onshape," and all three ship this vocabulary.
-      FIX: add angle and diameter dimensional-constraint types (kernel:
-      planegcs constraint authoring; frontend: the dimension-type chooser),
-      midpoint and collinear geometric constraints, and accept two lines +
-      an axis for Symmetric. ACCEPTANCE: an angle dimension between two
-      non-orthogonal lines solves and displays; a diameter dimension on a
-      circle displays `⌀N` and drives the same radius internally; Symmetric
-      accepts two parallel lines + an axis and produces the same result as
-      the existing two-points-and-a-line path on an equivalent fixture.
+- [ ] (P1, M) **SKETCH-VOCAB-1 — kernel half SHIPPED (`e46bf0c` angle,
+      `eabbd36` diameter, `fead5bd` midpoint, `00c9d22` collinear, `5fbf5d8`
+      symmetric-two-lines), frontend half still open: there is no UI to
+      AUTHOR any of these five.** kind: capability (scorecard-relevant).
+      VERIFIED by diff, not assumed: all five kernel commits touch only
+      `services/geometry/src/geometry/sketch/**`; the only `apps/web`
+      changes are exhaustive-switch stub arms in `constraints.ts`/
+      `ConstraintGlyphs.tsx` (2-12 lines each, display-only, explicitly
+      noted in each commit message as "totality-only arms"). A user can see
+      an angle/diameter/midpoint/collinear/symmetric-lines constraint if one
+      already exists in a fixture; nobody can create one through the UI.
+      FIX: the dimension-type chooser (angle, diameter alongside existing
+      distance/radius), midpoint and collinear entries in the geometric-
+      constraint menu, and accept two lines + an axis for Symmetric (today's
+      UI still only offers two points + a line). ACCEPTANCE: each of the
+      five is authorable from the sketch toolbar/menu and round-trips
+      through save/reload; `Symmetric` accepts the two-lines-plus-axis
+      selection and produces the same result as the existing path on an
+      equivalent fixture.
       [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fourth pass)" T-5,
-      filed by backlog-groomer pass 11]
-      TERRITORY: `services/geometry/src/geometry/sketch/**` (constraint
-      types), `apps/web/src/sketch/**` (dimension-type UI). agentType:
-      kernel-architect (constraint solving) + frontend-builder (UI),
-      split like PATTERN-1. Disjoint from PICK-2/MATE-1's viewport
-      territory.
+      filed by backlog-groomer pass 11; kernel half closed pass 14]
+      TERRITORY: `apps/web/src/sketch/**` (dimension-type UI, constraint
+      menus). agentType: frontend-builder only now — kernel work is done.
 
 - [ ] (P0, M) **MATE-1 RE-SCOPED, groom pass 13 (2026-08-26) — the kernel
       half is DONE, this ticket is now UI-only.** `287510f`
@@ -299,9 +195,9 @@ Everything else below is reprioritized but not yet dispatched this batch.
       mate authoring. [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fourth
       pass)" T-13/T-14]
       TERRITORY: `apps/web/src/viewport/**` (pick marker / raycast model),
-      mate-authoring UI. **BLOCKED this batch: T-23/DRAG-1 is in flight in
-      this same territory. Next up once it lands; ORTHO-1 shares the
-      territory too and sequences behind MATE-1, don't parallelize either.**
+      mate-authoring UI. **UNBLOCKED groom pass 14 — T-23/DRAG-1 (`35027ef`)
+      landed in this territory and is done. Dispatch now; ORTHO-1 shares the
+      territory too, sequence the two rather than parallelize.**
       agentType: frontend-builder.
 
 - [ ] (P2, S) **NAME-2b — the durable-tier re-match NAME-2 shipped
@@ -327,70 +223,8 @@ Everything else below is reprioritized but not yet dispatched this batch.
       PartPage.tsx` / tree panel. agentType: backend-builder +
       frontend-builder.
 
-- [ ] (P1, S) **DOCTICK-GATE — no gate enforces CLAUDE.md's "every feat/fix
-      commit ticks ROADMAP/BACKLOG in the same commit," and it silently
-      stopped happening for an entire batch.** kind: capability (the loop
-      cannot currently verify doc-sync at all). MEASURED
-      (`docs/AUDIT-ENGINEERING.md` "Pass 7" M2): over 27 commits, 1 touched
-      `docs/ROADMAP.md`, 5 touched `docs/BACKLOG.md`, and **ZERO of the 11
-      feature/fix commits touched either** — the exact batch this groom pass
-      is reconciling (EXPORT-1/2, REGISTER-1/2, VIEWCUBE-1, DXF-2a/2b/3,
-      DIM-3, ESC-2 all shipped with no tick). Root cause per the audit: every
-      one of those commits landed from an isolated worktree, where the
-      shared-tree staging protocol doesn't apply and the tick got dropped
-      along with it. FIX: `scripts/check-doc-tick.py` — a commit whose diff
-      touches `apps/`, `services/`, or `packages/` and whose subject is
-      `feat`/`fix` must also touch `docs/ROADMAP.md` or `docs/BACKLOG.md`;
-      wire into `just lint` (local, informational — a single commit can't be
-      checked against a range locally) and as a CI job step over the pushed
-      commit range. ACCEPTANCE: `--self-test` reproduces the failure against
-      a fixture shaped like `5bfb528` (app-code diff, no doc diff, `feat:`
-      subject) and demands the gate exits 1; a fixture with a doc-touching
-      commit passes; the two `check-mutation-markers.py`/`check-workflow-
-      concurrency.py`-style vacuity traps (empty check list, no count floor)
-      are avoided from the start — see GATE-FLOOR below for why that matters.
-      [src: docs/AUDIT-ENGINEERING.md "Pass 7" M2, filed by backlog-groomer
-      pass 8]
-      **CORROBORATED A THIRD TIME, groom pass 11 (2026-08-24, engineering
-      Pass 9 N5): 22 of the last 24 feat/fix/test commits carried NO
-      ROADMAP/BACKLOG tick, including all five product commits of the
-      SOLVE-1/SETTLE batch.** Also flags that CLAUDE.md and
-      `.claude/ORCHESTRATOR.md` now disagree about who owns the tick ("every
-      commit MUST" vs. "the groomer owns BACKLOG.md") — in practice the
-      groomer reconciles after the fact, which this gate would make
-      visible rather than eliminate; worth the orchestrator's attention
-      alongside the build fix. [src: docs/AUDIT-ENGINEERING.md "Pass 9" N5]
-      TERRITORY: `scripts/check-doc-tick.py` (new), `justfile`,
-      `.github/workflows/ci.yml`. agentType: platform-builder.
-
-- [ ] (P1, XS) **SPEC-9 — `sketch-drag-draw.spec.ts:221` and `:300`×2 are
-      deterministically red at HEAD: the same "keystroke races the
-      armed-state commit" defect CI-4(d) already root-caused once, in a
-      second file.** kind: defect (test). MEASURED
-      (`docs/AUDIT-ENGINEERING.md` "Pass 8" N10, uncommitted, recovered and
-      preserved by backlog-groomer pass 9): 3/10 tests failed in 4
-      consecutive runs, same 3 lines every time, including single-file
-      isolated runs on a quiet CPU — not the wandering-failure-point flake
-      signature CI-4 otherwise shows. Proven with a control/hypothesis
-      pair: pressing Tab/typing with no wait (the shipped sequence) FAILS
-      3/3; waiting for `draw-dimensions`'s `data-state="armed"` first
-      PASSES 3/3. FIX: add `await expect(page.getByTestId(
-      "draw-dimensions")).toHaveAttribute("data-state", "armed")` before
-      the first key at both sites.
-      FOLLOW-UP (do in the same pass if time allows, else file separately):
-      sweep all 115 specs for `mouse.up()`/`dragDraw(...)` immediately
-      followed by `keyboard.*` — a bounded, greppable class, not a
-      mysterious substrate, likely retiring most of CI-4. Also flags a
-      possible small PRODUCT gap worth measuring, not dismissing: the
-      armed cells appear one React commit after mouse release, so a user
-      typing in the same instant may lose the first keystroke (the exact
-      thing FB-16 promised not to happen).
-      ACCEPTANCE: both sites pass 4/4 after the fix (already proven as the
-      negative control that reverting the wait reproduces the failure).
-      [src: docs/AUDIT-ENGINEERING.md "Pass 8" N10, filed by
-      backlog-groomer pass 9]
-      TERRITORY: `apps/web/e2e/sketch-drag-draw.spec.ts`. agentType:
-      frontend-builder.
+**DOCTICK-GATE (`bd09f5b`, docstring fix `53e62b0`) and SPEC-9 (`e8702d5`)
+are both SHIPPED — see Done archive for evidence/gates.**
 
 **RECT-1, SNAP-2, SNAP-3 and MIRROR-1 are all SHIPPED — see Done archive
 for full evidence/gates.** Their two live follow-ups stay in Ready:
