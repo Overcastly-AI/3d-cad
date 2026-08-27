@@ -124,6 +124,8 @@ import {
   suppressFeature,
   updateFeature,
   updatePartUnit,
+  FeatureOrderRefusedError,
+  reorderFeatures,
   type LengthUnit,
 } from "../api/parts";
 import { BodyInspector } from "../components/BodyInspector";
@@ -149,7 +151,10 @@ import { EdgeFlangeEditor } from "../components/EdgeFlangeEditor";
 import { HemEditor } from "../components/HemEditor";
 import { CornerReliefEditor } from "../components/CornerReliefEditor";
 import { FeatureDeleteConfirm } from "../components/FeatureDeleteConfirm";
-import { FeatureTreePanel } from "../components/FeatureTreePanel";
+import {
+  FeatureTreePanel,
+  type FeatureOrderRefusal,
+} from "../components/FeatureTreePanel";
 import { FilletEditor } from "../components/FilletEditor";
 import { LoftEditor } from "../components/LoftEditor";
 import { MirrorEditor } from "../components/MirrorEditor";
@@ -3446,6 +3451,68 @@ export function PartPage() {
     [partId, freshTreeVersion, queryClient],
   );
 
+  // REORDER (REACH-ORDER). Apply a new BUILD ORDER — the full permutation the
+  // documents route takes — under the same write grammar every other tree edit
+  // uses: freshest version, one soft-resync retry on a stale-version race, then
+  // refresh tree + body. The order is what a feature MEANS (a fillet before a
+  // hole and after it are different solids), so this is a full rebuild, and
+  // `beginTreeWrite` holds SOLVE at "Solving…" from the click until the rebuilt
+  // body is on screen.
+  //
+  // A `reference_not_earlier` refusal is HANDED BACK rather than raised as a
+  // banner: the tree states it at the seat the drop was aimed at, where the
+  // user is looking, and offers the legal seat. Everything else is a real
+  // failure and surfaces the server's own message.
+  const reorderTree = useCallback(
+    async (order: string[]): Promise<FeatureOrderRefusal | null> => {
+      useMeasureStore.getState().deactivate();
+      setTreeActionError(null);
+      beginTreeWrite();
+      try {
+        const attempt = (version: number) =>
+          reorderFeatures(partId, order, version);
+        let restored;
+        try {
+          restored = await attempt(await freshTreeVersion());
+        } catch (error) {
+          if (error instanceof StaleTreeVersionError) {
+            restored = await attempt(
+              (await fetchFeatureTree(partId)).tree_version,
+            );
+          } else {
+            throw error;
+          }
+        }
+        noteWrittenTreeVersion(restored.tree_version);
+        await refreshTreeAndBody();
+        return null;
+      } catch (error) {
+        if (error instanceof FeatureOrderRefusedError) {
+          return {
+            featureId: error.featureId,
+            referencesFeatureId: error.referencesFeatureId,
+          };
+        }
+        setTreeActionError(
+          error instanceof Error
+            ? error.message
+            : "The feature order could not be changed.",
+        );
+        return null;
+      } finally {
+        endTreeWrite();
+      }
+    },
+    [
+      partId,
+      freshTreeVersion,
+      refreshTreeAndBody,
+      beginTreeWrite,
+      endTreeWrite,
+      noteWrittenTreeVersion,
+    ],
+  );
+
   // Viewport right-click: open the menu at the pointer, but only when the view
   // rig owns the camera (mode off) — sketch/plane modes own their own gestures.
   const openViewportMenu = useCallback(
@@ -4972,6 +5039,7 @@ export function PartPage() {
                     renamingId={renamingId}
                     onCommitRename={commitRename}
                     onCancelRename={() => setRenamingId(null)}
+                    onReorder={reorderTree}
                   />
                   {bodies.length > 0 ? (
                     <BodiesPanel

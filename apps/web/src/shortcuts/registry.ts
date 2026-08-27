@@ -103,6 +103,27 @@ export const PART_CREATE_SHORTCUTS: readonly (Shortcut & { key: string })[] = [
  */
 export const KEY_ISOLATE = "v";
 
+/**
+ * Move the SELECTED feature up or down the build order (REACH-ORDER). A chord
+ * rather than a letter because it acts on a selection and every bare letter in
+ * the workspace is a create verb; `Alt` is unclaimed — every other keydown
+ * handler on this surface bails on `altKey`.
+ *
+ * Declared here and read by `FeatureTreePanel`'s handler, so the sheet and the
+ * keyboard are the same fact. The grip's own `ArrowUp`/`ArrowDown` (no
+ * modifier, only while it has focus) is a control-local binding, not a global
+ * accelerator, so it stays off the sheet — it is described by the grip's
+ * accessible name where a user meets it.
+ */
+export const KEY_REORDER_EARLIER = "ArrowUp";
+export const KEY_REORDER_LATER = "ArrowDown";
+
+/** How the sheet prints an arrow the handler names by its `event.key`. */
+const ARROW_GLYPH: Record<string, string> = {
+  ArrowUp: "↑",
+  ArrowDown: "↓",
+};
+
 // --- (1) rows DERIVED from the tables the handlers index -------------------------
 
 /** Title Case for a tool/constraint name the tables hold as an identifier. */
@@ -194,6 +215,25 @@ export function shortcutGroups(): ShortcutGroup[] {
         {
           keys: `Shift+${KEY_ISOLATE.toUpperCase()}`,
           action: "Isolate it — or show everything again",
+        },
+      ],
+    },
+    {
+      // Its OWN group, not a Modelling row: the Modelling note says "with no
+      // command open", and these two deliberately work WHILE an editor is
+      // open — selecting a row opens its editor, which is the state that arms
+      // them. A row filed under a note that contradicts it teaches the wrong
+      // thing.
+      title: "Feature tree",
+      note: "With a row selected. The row's number is also a drag handle.",
+      shortcuts: [
+        {
+          keys: `Alt+${ARROW_GLYPH[KEY_REORDER_EARLIER]}`,
+          action: "Move the feature earlier in the build",
+        },
+        {
+          keys: `Alt+${ARROW_GLYPH[KEY_REORDER_LATER]}`,
+          action: "Move it later",
         },
       ],
     },
