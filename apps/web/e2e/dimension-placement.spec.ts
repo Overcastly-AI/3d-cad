@@ -41,6 +41,22 @@ async function layOutPlateDrawing(page: Page, token: string): Promise<string> {
   return id;
 }
 
+/**
+ * Every pick in this file is made the way a user makes it — a plain `.click()`
+ * with Playwright's actionability check LIVE, or a literal `page.mouse.click`.
+ *
+ * It used to be `click({ force: true })`, which skips the one check that asks
+ * whether a real pointer could have reached the target, and that is why a
+ * defect this suite was 4/4 green over went unseen for a fortnight: the view's
+ * own drawn polyline outline sat ON TOP of its own 40 mm pick band, so a real
+ * mouse click at the midpoint — where a user aims — did nothing at all,
+ * silently. Measured before the fix: 9 of 18 points along the FRONT view's
+ * 40 mm edge resolved to the pick target, and the central run resolved to
+ * `polyline` inside `drawing-view`. See CLAUDE.md, "click({ force: true })
+ * DISABLES THE ONLY CHECK …". If a pick in here starts failing, read it as the
+ * target having become unreachable, not as the spec having become fussy.
+ */
+
 /** The longest horizontal (≈ 40 mm) line pick-target in a view, by bbox width. */
 async function longestHorizontalEdge(page: Page, view: string) {
   const edges = page.locator(
@@ -147,6 +163,51 @@ async function storedDimensions(
   return tree.sheets.flatMap((s) => s.dimensions) as never;
 }
 
+test("a real pointer reaches the pick targets — drawn ink never eats one", async ({
+  page,
+}) => {
+  const account = await seedSession(page);
+  await layOutPlateDrawing(page, account.token);
+
+  // Walk the FRONT view's 40 mm edge and ask the BROWSER what a click at each
+  // point would hit. Before this gate existed, three of the central points —
+  // the midpoint, where a user aims — resolved to the view's own dashed
+  // `polyline` outline, which is decoration: it has no handler, so the click
+  // went nowhere and nothing at all happened.
+  const front = await longestHorizontalEdge(page, "front");
+  const box = await front.boundingBox();
+  if (!box) throw new Error("front 40 mm edge has no box");
+  const y = box.y + box.height / 2;
+  const hits = await Promise.all(
+    Array.from({ length: 18 }, (_, i) =>
+      page.evaluate(
+        ({ px, py }) => {
+          const el = document.elementFromPoint(px, py);
+          // Any real pick CONTROL is a pass — an edge target or a vertex
+          // handle. What must never win is inert drafting ink.
+          const control = el?.closest(
+            '[data-testid="drawing-pick-edge"],[data-testid="drawing-pick-vertex"]',
+          );
+          return control
+            ? (control.getAttribute("data-testid") ?? "?")
+            : `INK:${el?.tagName ?? "null"}`;
+        },
+        { px: box.x + (box.width * (i + 0.5)) / 18, py: y },
+      ),
+    ),
+  );
+  expect(hits.filter((h) => h.startsWith("INK:"))).toEqual([]);
+  expect(hits.filter((h) => h === "drawing-pick-edge").length).toBeGreaterThan(
+    9,
+  );
+
+  // And the user's own mechanism, end to end: a literal mouse click at the
+  // midpoint of that edge opens the author menu. `click({ force: true })`
+  // passed here for a fortnight while this did nothing.
+  await page.mouse.click(box.x + box.width / 2, y);
+  await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
+});
+
 test("drag a linear dimension onto the side of the paper you want", async ({
   page,
 }) => {
@@ -155,7 +216,7 @@ test("drag a linear dimension onto the side of the paper you want", async ({
 
   // --- Pick the 40 mm edge and choose Length. ------------------------------
   const longEdge = await longestHorizontalEdge(page, "top");
-  await longEdge.click({ force: true });
+  await longEdge.click();
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-linear").click();
 
@@ -233,7 +294,7 @@ test("place a linear dimension from the keyboard alone", async ({ page }) => {
   const drawingId = await layOutPlateDrawing(page, account.token);
 
   const longEdge = await longestHorizontalEdge(page, "top");
-  await longEdge.click({ force: true });
+  await longEdge.click();
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-linear").click();
 
@@ -273,7 +334,7 @@ test("escape backs out of the placement without losing the pick", async ({
   await layOutPlateDrawing(page, account.token);
 
   const longEdge = await longestHorizontalEdge(page, "top");
-  await longEdge.click({ force: true });
+  await longEdge.click();
   await page.getByTestId("dimension-type-linear").click();
   await expect(page.getByTestId("dimension-ghost")).toHaveCount(1);
 
@@ -302,7 +363,7 @@ test("drag a diameter's value off the hole and it stays there", async ({
       '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
     )
     .first();
-  await topCircle.click({ force: true });
+  await topCircle.click();
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-diameter").click();
 

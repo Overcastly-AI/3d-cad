@@ -301,6 +301,16 @@ function EdgeShape({
     fill: "none" as const,
     strokeLinecap: "round" as const,
     strokeLinejoin: "round" as const,
+    // DRAWN INK NEVER TAKES A PICK (frontend-QA 2026-08-27, P3-D). An SVG
+    // stroke is `visiblePainted` by default, so every outline painted after a
+    // neighbour's transparent hit band sat ON TOP of it — and a view's own
+    // polyline outline sat on top of its own 40 mm edge target, exactly at the
+    // midpoint a user aims for. Measured on the FRONT view before this line:
+    // 9 of 18 points along the edge resolved to the pick target, the central
+    // run resolved to `polyline` inside `drawing-view`, and a real
+    // `page.mouse.click` at the midpoint did nothing at all. The specs did not
+    // see it because they picked with `click({ force: true })`.
+    pointerEvents: "none" as const,
     "data-edge": edge.kind,
     "data-edge-role": edge.edgeRole,
     ...(bendIndex >= 0 ? { "data-bend-index": String(bendIndex) } : {}),
@@ -320,6 +330,7 @@ function EdgeShape({
               strokeLinecap: "round",
               strokeLinejoin: "round",
               opacity: 0.5,
+              pointerEvents: "none",
               "data-testid": "drawing-edge-focus-ring",
             },
             "ring",
@@ -330,17 +341,47 @@ function EdgeShape({
   );
 }
 
+/**
+ * One transparent band of pick width swept along the segment `a`→`b`.
+ *
+ * A stroked `<line>` would be the obvious way to write this and it is the wrong
+ * one: Chrome's `getBoundingClientRect` on an SVG `<line>` reports the GEOMETRY
+ * box and ignores the stroke, so a horizontal 40 mm edge measured **118.1 x
+ * 0.0 px** — a control of zero area. The pointer still hit it (hit-testing does
+ * honour the stroke), so the app "worked", but every consumer that reasons
+ * about BOUNDS saw nothing there: assistive technology, any touch-target audit,
+ * and Playwright, whose actionability check calls a zero-area element invisible
+ * and refuses to click it. That is why the drawing specs had all acquired
+ * `click({ force: true })` — the force flag was papering over a real geometric
+ * defect in the control (frontend-QA 2026-08-27, P3-D).
+ *
+ * A rotated `<rect>` carries the SAME band (`pickHitMm` wide, centred on the
+ * line, so no pick moves) with real area, so the box a machine measures and the
+ * band a finger hits are finally the same thing.
+ */
+function HitBand({ a, b }: { a: Point2D; b: Point2D }) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-9) return null;
+  const half = drawing.pickHitMm / 2;
+  return (
+    <rect
+      x={a.x}
+      y={a.y - half}
+      width={len}
+      height={drawing.pickHitMm}
+      transform={`rotate(${(Math.atan2(dy, dx) * 180) / Math.PI} ${a.x} ${a.y})`}
+      fill="transparent"
+    />
+  );
+}
+
 /** A transparent, generously-wide hit region over one shape. */
 function HitShape({ edge }: { edge: SvgEdge }) {
-  const stroke = {
-    stroke: "transparent",
-    strokeWidth: drawing.pickHitMm,
-    fill: "none" as const,
-    pointerEvents: "stroke" as const,
-  };
   if (edge.kind === "line") {
     return (
-      <line x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} {...stroke} />
+      <HitBand a={{ x: edge.x1, y: edge.y1 }} b={{ x: edge.x2, y: edge.y2 }} />
     );
   }
   if (edge.kind === "circle") {
@@ -356,11 +397,13 @@ function HitShape({ edge }: { edge: SvgEdge }) {
       />
     );
   }
+  // One band per segment: a polyline's own stroke has the same zero-area box.
   return (
-    <polyline
-      points={edge.points.map((p) => `${p.x},${p.y}`).join(" ")}
-      {...stroke}
-    />
+    <>
+      {edge.points.slice(1).map((p, i) => (
+        <HitBand key={i} a={edge.points[i]!} b={p} />
+      ))}
+    </>
   );
 }
 
@@ -1316,6 +1359,9 @@ function SheetView({
       )}
       <text
         data-testid="drawing-view-label"
+        // Sits in the gutter BETWEEN views, painted after this view's geometry
+        // — so it lands on a neighbour's pick band. Ink, not a control.
+        pointerEvents="none"
         x={composedView.label_pos.x_mm}
         y={composedView.label_pos.y_mm}
         textAnchor="middle"
@@ -1914,14 +1960,20 @@ export function DrawingSheet({
           />
         );
       })}
-      <TitleBlock block={composed.title_block} />
-      {composed.bend_table ? <BendTable table={composed.bend_table} /> : null}
-      {(composed.notes ?? []).map((note, i) => (
-        <SheetNote key={i} note={note} />
-      ))}
-      {/* Stamped LAST, exactly as the server serializers order it — the banner
-          reads over anything it lands on. */}
-      <SheetBanner composed={composed} />
+      {/* Sheet-level ink — the title block, the bend schedule, the notes and the
+          layout banner. All of it is painted AFTER every view, so all of it used
+          to sit on top of the views' pick targets; none of it is interactive, so
+          none of it should ever take a pointer (frontend-QA P2-B/P3-D — drawn
+          ink never takes a pick). The banner is stamped LAST, exactly as the
+          server serializers order it, so it reads over anything it lands on. */}
+      <g data-sheet-ink="true" pointerEvents="none">
+        <TitleBlock block={composed.title_block} />
+        {composed.bend_table ? <BendTable table={composed.bend_table} /> : null}
+        {(composed.notes ?? []).map((note, i) => (
+          <SheetNote key={i} note={note} />
+        ))}
+        <SheetBanner composed={composed} />
+      </g>
       {/* The placement gesture: a full-sheet capture plate that owns the pointer
           for as long as the ghost is up, with the ghost painted over it. Nothing
           underneath can take the click — the next click means "here", full
