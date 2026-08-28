@@ -3,6 +3,7 @@ import type { Locator } from "@playwright/test";
 import { expect, test, type Page } from "./fixtures";
 
 import { setupTwoInstances } from "./assemblyFlow";
+import { installSceneProbe, waitForCameraRest } from "./invariants";
 import {
   labelIsWall,
   litAfterHiding,
@@ -572,6 +573,95 @@ async function confirmsPlacementFace(
   return stampSettles(page, "data-hole-point-hover", { kind: "present" });
 }
 
+/**
+ * TILT OFF THE FACE VIEW, so a BURIED edge has a screen position of its own.
+ *
+ * Why this exists (ORTHO-1, 2026-08-28). The occluded-plate fixture is framed
+ * FRONT-ON, and a front view is now ORTHOGRAPHIC — as every incumbent's named
+ * views are. Under a parallel projection the plate's back-bottom edge and its
+ * front-bottom twin project to *the same screen line*, exactly (measured
+ * 0.0016 px apart), because the only thing that used to separate them was
+ * perspective foreshortening — and that is precisely the quantity a parallel
+ * projection removes by definition. It is not a fixture that broke; it is a
+ * separation that was never real, and a probe on it was measuring the VISIBLE
+ * edge while claiming to measure the buried one. The guard in `buriedPair`
+ * caught it rather than producing a wrong answer, and it stays.
+ *
+ * There is no repair available inside a face view: for an axis-aligned box
+ * seen face-on in parallel projection, EVERY back edge coincides with a front
+ * edge. So the camera has to leave the face — and it leaves through the
+ * product's own control, the reference cube's TOP-FRONT edge cubelet, which
+ * `ViewCube.onPick` routes to `requestDirection` like any other cube pick.
+ *
+ * The resulting 45 degree front-top view keeps BOTH halves of the subject:
+ *
+ *  · the wall still stands between the camera and the probed edge — the ray
+ *    from the plate's back-bottom edge (30, 50, 0) toward the camera enters
+ *    the wall's top face at (30, 10, 40) and leaves through its back face at
+ *    (30, 20, 30), so a hidden wall is still the nearest discarded hit, which
+ *    is the mechanism SEL-6 exists to pin; and
+ *  · the edge is still buried in the STILL-DRAWN plate — that same ray crosses
+ *    14.1 mm of plate before it reaches the top face at (30, 40, 10).
+ *
+ * The separation it buys is a projection-plane one: 20 mm of depth becomes
+ * 20 · sin 45 = 14.1 mm of screen height, which does not depend on how far away
+ * the camera is. That is the property the old fixture lacked.
+ *
+ * The cubelet's seat is drei's, not ours: `GizmoViewcube` scales its group by
+ * 60 and seats each edge cubelet at 0.38 of that along its two axes, and our
+ * cube canvas is orthographic at zoom 1, so one scene unit is one CSS pixel
+ * (see the comment block at the top of `viewport/ViewCube.tsx`). Front-on, the
+ * top-front cubelet therefore sits 22.8 px above the cube's centre. If drei
+ * ever moves it, the direction assertion below fails by name instead of the
+ * click silently landing on the FRONT face and leaving the view where it was.
+ */
+const CUBE_EDGE_OFFSET_PX = 0.38 * 60;
+
+async function tiltOffTheFaceView(page: Page): Promise<void> {
+  const viewport = page.getByTestId("viewport");
+  const cube = page.getByTestId("view-cube");
+  const seat = await cube.boundingBox();
+  expect(seat, "the reference cube has a rect to click").not.toBeNull();
+  if (seat === null) throw new Error("no reference cube");
+  await page.evaluate(() => {
+    document
+      .querySelector('[data-testid="viewport"]')
+      ?.removeAttribute("data-view");
+  });
+  await page.mouse.click(
+    seat.x + seat.width / 2,
+    seat.y + seat.height / 2 - CUBE_EDGE_OFFSET_PX,
+  );
+  await expect(viewport).toHaveAttribute("data-view", "direction", {
+    timeout: 20_000,
+  });
+
+  // The click reached an EDGE cubelet and not the FRONT face: the view
+  // direction must be oblique in both scene axes. Asserted on the live camera
+  // rather than on the stamp, because the stamp says "a direction was applied"
+  // and this says WHICH — a face pick would satisfy the first and not the
+  // second, and would leave the twins coincident all over again.
+  const pose = await waitForCameraRest(page);
+  const [, dirY, dirZ] = pose.direction;
+  expect(
+    [Math.abs(dirY), Math.abs(dirZ)].map((v) => Number(v.toFixed(2))),
+    `the cube's top-front edge should give a 45 degree front-top view (got ${pose.direction.map((v) => v.toFixed(3)).join(",")})`,
+  ).toEqual([0.71, 0.71]);
+
+  // Re-frame at the new attitude. `fit` deliberately does not touch the
+  // projection (`viewCommands.orients`), so this is still the orthographic
+  // view the ticket is about.
+  await viewport.evaluate((node) => {
+    node.dataset["fitRect"] = "";
+  });
+  await page.getByTestId("view-fit").click();
+  await expect(viewport).not.toHaveAttribute("data-fit-rect", "", {
+    timeout: 20_000,
+  });
+  await expect(viewport).toHaveAttribute("data-projection", "orthographic");
+  await waitForFrames(page, 6);
+}
+
 async function armFilletPick(page: Page): Promise<void> {
   await expect(page.getByTestId("new-fillet")).toBeEnabled({ timeout: 30_000 });
   await page.getByTestId("new-fillet").click();
@@ -1106,6 +1196,11 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     // hidden body every edge was accepted, including edges buried inside the
     // still-DRAWN plate. Both faces close together, because the hidden
     // triangle now never reaches the intersection list at all.
+    //
+    // The scene probe is installed for `tiltOffTheFaceView`, which asserts on
+    // the live camera's direction rather than on a stamp; `addInitScript` only
+    // applies to loads that come after it, so it must precede the fixture.
+    await installSceneProbe(page);
     const viewport = await openOccludedPlate(page);
     const litWithout = [
       await litAfterHiding(page, 0),
@@ -1117,18 +1212,35 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
       `the two bodies must be tellable apart by silhouette: ${litWithout.join(" vs ")} lit points`,
     ).toBeGreaterThan(1.5);
 
+    // Leave the face view before arming: under an orthographic FRONT view the
+    // buried edge has no screen position of its own. See the helper.
+    await tiltOffTheFaceView(page);
     await armFilletPick(page);
 
     /**
-     * The plate's BACK-BOTTOM edge and its visible y = 30 twin, named by their
-     * own OCCT mid-spans rather than by kernel indices.
+     * The plate's BACK-BOTTOM edge and its y = 30 twin, named by their own OCCT
+     * mid-spans rather than by kernel indices.
      *
      * That edge is the one entity of this fixture that is unambiguously INSIDE
-     * the solid from the front: the plate's underside faces away from the
-     * camera, and under perspective the far edge projects ~29 px ABOVE its near
-     * twin — outside the 12 px corridor, so IT and not the visible edge is the
-     * nearest band hit on its own line. A probe there is a probe on material
-     * you cannot see, with drawn plate in the way.
+     * the solid: its two faces (the plate's underside and its back) both point
+     * away from the camera, so a ray to it crosses 14.1 mm of still-drawn plate
+     * — and, while the wall is drawn, the wall as well. The twin is the
+     * silhouette edge between the plate's visible front and bottom faces.
+     *
+     * The 45 degree tilt `tiltOffTheFaceView` applies is what makes the two
+     * SEPARABLE, and it separates them in the PROJECTION PLANE rather than by
+     * foreshortening — so the guard below no longer depends on how far away the
+     * camera happens to be framed. Measured across the three regimes, on the
+     * same fixture and the same two 60 mm edges:
+     *
+     *   orthographic FRONT (what CI hit)     0.0016 px   — coincident
+     *   perspective FRONT (what this was)      ~29    px   — depth parallax
+     *   orthographic 45 deg front-top         166.8   px   — projection plane
+     *
+     * The guard demands 12. The middle row is the one to keep in mind: it was
+     * only ever twice the corridor, and it was a function of the fit distance,
+     * so this probe was one framing change away from going vacuous even before
+     * the projection changed.
      */
     const buriedPair = async () => {
       const marks = await edgeMarks(page);
@@ -1186,8 +1298,8 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     //    `surfaceDistance` stayed null, and the buried edge answered.
     //
     //    The marks are RE-READ rather than reused: the framing follows the
-    //    visible bounds, so hiding the wall moves every mark on screen (~29 px
-    //    here) and a stale coordinate would probe empty space.
+    //    visible bounds, so hiding the wall moves every mark on screen and a
+    //    stale coordinate would probe empty space.
     await setBodyMode(page, wall, "hidden");
     await waitForFrames(page, 6);
     const behind = await buriedPair();
