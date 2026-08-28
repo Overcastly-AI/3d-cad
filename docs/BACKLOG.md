@@ -684,6 +684,42 @@ below.**
 
 ## Next (P2)
 
+- [ ] (P2, S) **HEM-1C — the hem editor still says the radius is inherited
+      from the base flange, and nudges the user toward the one value the
+      server now refuses.** kind: defect (HEM-1 fallout, found by qa-tester
+      2026-08-28 repairing the e2e; `docs/QA-REVIEW.md` same date). Territory
+      `apps/web/src/components/HemEditor.tsx` +
+      `apps/web/src/features/sheetMetal.ts`. MEASURED off the live app on a
+      2 mm gauge / 3 mm part radius fixture, two false strings: (a)
+      `"Inherits 3 mm from the base flange."` — HEM-1 removed that
+      inheritance entirely, so the form states the defect as if it were the
+      rule; (b) `"A tight closed hem uses a small radius (~1 mm)."`, computed
+      `Math.round(thicknessMm * 5) / 10` = 0.5 x gauge, which is the OPEN-hem
+      ratio — **the tool suggests 1.00 mm and the evaluator refuses 1.00 mm
+      with `hem_type_radius_conflict`**, and the hint persists into the EDIT
+      form after the refusal, so following it repeats the error. FIX: read
+      the radius from the same rule the server uses — the closed default is
+      0.05 x gauge (0.1 mm here), the ceiling 0.125 x gauge (0.25 mm) — and
+      state THAT, not the base flange. Better still, show the resulting AIR
+      GAP (`2 x radius`), which is what the number means. ACCEPTANCE: no
+      string in the hem editor claims base-flange inheritance for the radius;
+      the suggested/placeholder value submits without a conflict on 2 mm and
+      1.5 mm gauge; an e2e case asserts the suggested number is accepted (the
+      assertion must FAIL if the hint is reverted to 0.5 x gauge).
+
+- [ ] (P3, S) **HEM-1D — the UI cannot author an `open` hem at all.** kind:
+      gap (HEM-1 fallout, same pass). `buildHemParams` hardcodes
+      `hem_type: "closed"` and `HemEditor` has no type control, so the `open`
+      hem HEM-1 shipped on the API is unreachable by clicking — and an open
+      hem is the ONLY way to get the wide gap the old default was silently
+      producing, so users who wanted that shape now have no route to it.
+      Related: `scripts/check-ui-parity.py` scores `hem_type: "open"` as
+      authorable and `"closed"` as render-only, which is exactly backwards
+      (CHECKUIPARITY-FP-1). ACCEPTANCE: a closed/open selector in the hem
+      editor; the fold readout tracks it (`180 deg (open)`); an e2e case
+      authors an open hem and asserts the plate stands `2 x gauge + 1 x gauge`
+      = 6.0 mm against the type rule, not merely that it solved.
+
 - [ ] (P2, S) **HEM-1B — repairing a hem after an unrelated edit hits a
       silent, unexplained disabled Save.** kind: defect (split from HEM-1,
       groom pass 16 — the geometry half is elevated to P0; this half is a

@@ -12,6 +12,99 @@ blocked or lies · **P2** a real flow is worse than it should be · **P3** polis
 
 ---
 
+## 2026-08-28 — HEM-1's e2e fallout: the spec was TYPING the defect, and the old spec could not have caught it
+
+**Verdict: case (b) — the spec drove the UI into the new
+`hem_type_radius_conflict` refusal. NOT a regression; the feature is working.
+Repaired, plus one NEW P2 the repair exposed: the hem editor still tells the
+user the radius is inherited from the base flange, and nudges them toward the
+one number the server now refuses.**
+
+**The failure, verbatim** (`sheet-metal-hem-corner-relief.spec.ts:191`,
+reproduced locally on ports 8060/8061/8062 — CI shard 4/4 run 33142734288):
+
+```
+Error: expect(locator).toHaveText(expected) failed
+Locator:  getByTestId('eval-status')
+Expected: "Solved"
+Received: "Failed"
+```
+
+**Why.** The spec overrode the hem radius to 1 mm on 2 mm sheet, with this
+comment: *"A tight hem needs a small radius (a 2 mm gauge, 3 mm base radius
+would gap wide); override to ~1 mm so the layers close."* Under HEM-1 a closed
+hem's radius comes from the type and the gauge, and 1 mm is 0.5 x gauge — the
+OPEN-hem ratio. The evaluate payload, read off the live gateway:
+
+```json
+{"code": "hem_type_radius_conflict",
+ "message": "A closed hem is pressed flat against the parent face, so its layers
+  must very nearly touch; a 1 mm inner radius leaves a 2 mm air gap on 2 mm
+  sheet, which is an OPEN hem. Use hem_type='open' to keep that gap, or a radius
+  of at most 0.25 mm (the default is 0.1 mm) for a closed hem."}
+```
+
+The refusal reaches the user intact and recoverably: the tree row reads `ERR`,
+`feature-error-2` carries the code and the full message, the body falls back to
+the bare 2 mm plate (extents `50 x 30 x 2`, `last_good_feature_id` = the base
+flange), and re-opening the editor and clearing the override rebuilds. That is
+the feature behaving, so the spec — not the app — was wrong.
+
+**THE OLD SPEC PASSED AGAINST THE DEFECT IT EXISTED TO COVER.** Measured, not
+argued: the pre-HEM-1 behaviour was restored in `evaluate.py` (`_hem_radius`
+returns `defaults.bend_radius_mm`), geometry restarted, and the **committed**
+spec run against it — **3 passed**. It asserted `eval-status = "Solved"` and
+`faces > 6`, and both are true of a hem with three gauges of air in it. Same
+family as `toBeVisible()` on an off-frame control: the assertion could not
+observe the failure mode.
+
+**What the repair asserts instead — numbers, from the panels a user reads.**
+A closed hem is R = 0.05 x gauge, so the fold's `2 x radius` gap makes the
+hemmed plate stand `gauge + gap + gauge`:
+
+| readout | correct (R 0.10) | pre-HEM-1 inherit (R 3.00) |
+| --- | --- | --- |
+| `prop-extents` height | **4.2 mm** | 10.0 mm |
+| `prop-extents` length | 52.1 mm | 55.0 mm |
+| bend-table radius cell | **R0.10** | R3.00 |
+| bend-table allowance `pi(R + Kt)` | 3.08 mm | 12.19 mm |
+
+**Mutation evidence** (pre-HEM-1 inherit live, reverted after):
+
+```
+Expected: 4.2      <- HEMMED_HEIGHT_MM, derived from the type rule
+Received: 10
+Expected difference: < 0.0005 / Received difference: 5.8
+```
+
+and the refusal case: `Expected: "Failed" / Received: "Solved"`. The corner-relief
+and small-laptop cases stayed green under the same mutation — it is scoped to
+hems, so the negative control holds.
+
+The second case is new: it drives the refusal deliberately, asserts the message
+names both ways out, checks nothing half-built was fused, and then recovers in
+the editor (no dead end). 11/11 green across the hem, authoring and flat-pattern
+specs; `just lint` exit 0. Founder shots refreshed — the committed
+`sheet-metal-hem-body-1440.png` was a picture of the P0.
+
+**NEW, filed as HEM-1C (P2): the hem editor's copy is now false, and its hint is
+a trap.** `HemEditor.tsx` still renders, verbatim from the live app:
+
+- `"Inherits 3 mm from the base flange."` on the radius override — the exact
+  inheritance HEM-1 removed. The radius is not inherited, in either direction.
+- `"A tight closed hem uses a small radius (~1 mm)."` — computed
+  `Math.round(thicknessMm * 5) / 10`, i.e. 0.5 x gauge, the OPEN ratio. **On
+  this fixture the tool suggests 1.00 mm and the server refuses 1.00 mm.** The
+  hint survives into the EDIT form after the refusal, so a user who follows it
+  is told to retype the number they were just rejected for.
+
+Also noted (HEM-1D, P3): `buildHemParams` hardcodes `hem_type: "closed"` and the
+editor has no type control, so the `"open"` hem HEM-1 shipped is unreachable
+from the UI. Neither is wrong geometry and neither is kernel work — both are
+`apps/web` copy/affordance, so this is not case (c).
+
+---
+
 ## 2026-08-28 — the `force: true` audit: all 22 call sites, measured
 
 **Verdict: 18 of 22 were pure cargo, 1 was hiding an assertion that could never

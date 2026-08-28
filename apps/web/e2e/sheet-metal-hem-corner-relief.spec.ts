@@ -15,8 +15,12 @@ import {
  *
  *   (a) a PLATE with a CLOSED HEM — a base flange, then a hem folded 180° back
  *       off a picked edge; the body renders + the flat pattern develops the
- *       hemmed edge as a bend row.
- *   (b) a TRAY with a RELIEVED CORNER — a base flange + two PERPENDICULAR edge
+ *       hemmed edge as a bend row. Asserted by SIZE, not by status: a closed
+ *       hem's radius is 0.05 × gauge, so the hemmed plate stands 4.2 mm and the
+ *       bend table reads R0.10 (HEM-1 — see `HEM_CLOSED_RADIUS_MM`).
+ *   (b) a CLOSED HEM REFUSING an open-hem radius — the other half of that rule,
+ *       with the recovery a user needs when they hit it.
+ *   (c) a TRAY with a RELIEVED CORNER — a base flange + two PERPENDICULAR edge
  *       flanges (adjacent edges meeting at a corner), then a corner relief that
  *       references those two edge-flange FEATURES; the notch appears in the body
  *       and the flat pattern.
@@ -95,8 +99,56 @@ async function faceCount(page: Page): Promise<number> {
   return Number.parseInt(text.replace(/[^\d]/g, ""), 10);
 }
 
+/**
+ * The bounding-box EXTENTS readout as [dx, dy, dz] in mm — the product's own
+ * numbers, read the way a user reads them (the inspector row, not the wire).
+ * The readout renders "Extents / 50 <times> 30 <times> 2 / mm"; the value line
+ * is the one carrying the separator glyph.
+ */
+async function extentsMm(page: Page): Promise<number[]> {
+  const line = (await page.getByTestId("prop-extents").innerText())
+    .split("\n")
+    .find((l) => l.includes("×"));
+  const nums = (line?.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+  expect(nums, `extents readout was ${JSON.stringify(line)}`).toHaveLength(3);
+  return nums;
+}
+
 /** The base flange's gauge (mm) — `authorBaseFlange` sets it; top-plate edges sit here. */
 const GAUGE_MM = 2;
+
+/**
+ * The base flange's GENERAL bend radius (mm) — `authorBaseFlange` sets it. It
+ * describes a free-standing die bend (what an edge flange IS), and a hem must
+ * NOT inherit it: see `HEM_CLOSED_RADIUS_MM`.
+ */
+const PART_BEND_RADIUS_MM = 3;
+
+/** The base flange's K-factor default. A hem DOES inherit K — it is a material
+ *  property (where the neutral surface sits), unlike the radius. */
+const K_FACTOR = 0.44;
+
+/**
+ * A CLOSED hem's inner bend radius = 0.05 x gauge (HEM-1). The rule the product
+ * ships: a hem's radius is a function of its TYPE and the part's GAUGE, never of
+ * the base flange's general radius. Restated here rather than imported because a
+ * spec that computed its expectation from the code under test could not fail.
+ *
+ * The fold's cross-section puts the two layers exactly `2 * radius` apart, so on
+ * this fixture (2 mm gauge, 3 mm part radius):
+ *   correct   R 0.10 mm -> 0.20 mm air gap -> the hemmed plate stands 4.2 mm
+ *   inherited R 3.00 mm -> 6.00 mm air gap -> it stood 10.0 mm  (the HEM-1 defect)
+ * Both readings pass `eval-status = Solved`, which is why the assertions below
+ * are on the NUMBERS and not on the status.
+ */
+const HEM_CLOSED_RADIUS_MM = 0.05 * GAUGE_MM;
+
+/** Overall height of a hemmed plate: parent layer + air gap + returned layer. */
+const HEMMED_HEIGHT_MM = GAUGE_MM + 2 * HEM_CLOSED_RADIUS_MM + GAUGE_MM;
+
+/** A radius that describes an OPEN hem on this gauge — refused for a closed one
+ *  (`hem_type_radius_conflict`). 1 mm is 0.5 x gauge, the open-hem ratio. */
+const OPEN_HEM_RADIUS_MM = 1;
 
 /**
  * Click the TOP-PLATE edge whose mid-span is extreme along `axis` (x or y) — the
@@ -141,8 +193,10 @@ async function authorBaseFlange(page: Page): Promise<void> {
   });
   await page.getByTestId("new-base-flange").click();
   await expect(page.getByTestId("base-flange-editor")).toBeVisible();
-  await page.getByTestId("base-flange-thickness").fill("2");
-  await page.getByTestId("base-flange-bend-radius").fill("3");
+  await page.getByTestId("base-flange-thickness").fill(String(GAUGE_MM));
+  await page
+    .getByTestId("base-flange-bend-radius")
+    .fill(String(PART_BEND_RADIUS_MM));
   await page.getByTestId("base-flange-submit").click();
   await expect(page.getByTestId("base-flange-editor")).toBeHidden();
   await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
@@ -199,7 +253,11 @@ test("model a plate with a closed hem by clicking: base flange → hem → flat 
   await authorBaseFlange(page);
   await expect(page.getByTestId("feature-row")).toHaveCount(2);
 
-  // 2) A closed hem folded 180° back off the far (+x) edge.
+  // 2) A closed hem folded 180° back off the far (+x) edge. NO radius override:
+  //    a closed hem's radius is 0.05 × gauge by the type rule, and taking the
+  //    default is the only way this spec exercises that rule at all (an override
+  //    would test the number the spec itself chose — this spec used to override
+  //    to 1 mm, which is why the defect below sailed past it for weeks).
   await expect(page.getByTestId("new-hem")).toBeEnabled();
   await page.getByTestId("new-hem").click();
   await expect(page.getByTestId("hem-editor")).toBeVisible();
@@ -208,10 +266,6 @@ test("model a plate with a closed hem by clicking: base flange → hem → flat 
   await expect(page.getByTestId("hem-fold-readout")).toHaveText(
     "180° (closed)",
   );
-  // A tight hem needs a small radius (a 2 mm gauge, 3 mm base radius would gap
-  // wide); override to ~1 mm so the layers close.
-  await page.getByTestId("hem-override-radius").click();
-  await page.getByTestId("hem-bend-radius").fill("1");
   await pickTopEdge(page, "x", 1);
   await expect(page.getByTestId("hem-pick-count")).toHaveText("1 edge picked");
   await page.getByTestId("hem-length").fill("8");
@@ -231,6 +285,23 @@ test("model a plate with a closed hem by clicking: base flange → hem → flat 
     .poll(() => distinctCanvasColors(page), { timeout: 20_000 })
     .toBeGreaterThan(24);
 
+  // THE HEM IS CLOSED — asserted as a NUMBER, in the panel a user reads.
+  // `Solved` was true throughout the HEM-1 defect and so was `faces > 6`; the
+  // ONLY thing that told closed from three-gauges-of-air was the size of the
+  // thing. The plate is 2 mm; hemmed it must stand gauge + gap + gauge = 4.2 mm,
+  // and it stood 10.0 mm while the hem inherited the part's 3 mm bend radius.
+  // Read via `expect.poll` because the inspector repaints from the same
+  // evaluation `eval-status` reports — condition-based, never a sleep.
+  await expect
+    .poll(async () => (await extentsMm(page))[2], { timeout: 30_000 })
+    .toBeCloseTo(HEMMED_HEIGHT_MM, 3);
+  // …and in plan: the return folds BACK over the plate, so the blank's 30 mm
+  // width is untouched and the length grows only by the fold's outer bulge,
+  // radius + gauge = 2.1 mm. (Under the inherited radius this read 55.0.)
+  const [dx, dy] = await extentsMm(page);
+  expect(dy).toBeCloseTo(30, 3);
+  expect(dx).toBeCloseTo(50 + HEM_CLOSED_RADIUS_MM + GAUGE_MM, 3);
+
   // Founder frame of the hemmed plate (desktop).
   await page.mouse.move(700, 450);
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -239,13 +310,91 @@ test("model a plate with a closed hem by clicking: base flange → hem → flat 
     path: `${SCREENSHOT_DIR}/sheet-metal-hem-body-1440.png`,
   });
 
-  // 3) Flat pattern — the hemmed edge develops as a bend row.
+  // 3) Flat pattern — the hemmed edge develops as a bend row, and the SHOP gets
+  //    the same number the solid has. The bend table is where a wrong radius
+  //    would reach the press brake, so it is asserted cell by cell against the
+  //    type rule rather than merely counted.
   await openFlatPattern(page);
   await expect(page.getByTestId("drawing-bend-table")).toBeVisible();
-  await expect(page.getByTestId("drawing-bend-row")).toHaveCount(1);
+  const bendRows = page.getByTestId("drawing-bend-row");
+  await expect(bendRows).toHaveCount(1);
+  const cells = await bendRows.first().locator("text").allTextContents();
+  expect(cells[1]).toBe("180.0°");
+  // R0.10 — the closed-hem rule. It read R3.00 (the part's die-bend radius)
+  // while the defect shipped, on the same green spec.
+  expect(cells[2]).toBe(`R${HEM_CLOSED_RADIUS_MM.toFixed(2)}`);
+  // Bend allowance π(R + K·t): K IS inherited from the base flange (a material
+  // property), the radius is not — so this cell moves with both and pins the
+  // distinction. 3.08 mm correct; 12.19 mm under the inherited radius.
+  expect(cells[4]).toBe(
+    (Math.PI * (HEM_CLOSED_RADIUS_MM + K_FACTOR * GAUGE_MM)).toFixed(2),
+  );
   await page.screenshot({
     path: `${SCREENSHOT_DIR}/sheet-metal-hem-flat-1440.png`,
   });
+});
+
+test("a closed hem REFUSES an open-hem radius, names the fix, and the editor recovers", async ({
+  page,
+}) => {
+  // The other half of HEM-1: `bend_radius_mm` is honoured, never inherited, and
+  // REFUSED when it contradicts `hem_type`. 1 mm on 2 mm sheet is 0.5 × gauge —
+  // an OPEN hem's radius — so a hem labelled "closed" cannot take it. Before the
+  // fix this was silently accepted and built a 2 mm air gap under a "closed"
+  // label; the spec above used to type exactly this number, which is why the
+  // refusal needs a case of its own rather than being a hole where a test was.
+  const partId = await seedSketchPart(page, "Hem refusal (clicked)", 50, 30);
+  await page.goto(`/parts/${partId}`);
+  await authorBaseFlange(page);
+
+  await page.getByTestId("new-hem").click();
+  await expect(page.getByTestId("hem-editor")).toBeVisible();
+  await page.getByTestId("hem-override-radius").click();
+  await page.getByTestId("hem-bend-radius").fill(String(OPEN_HEM_RADIUS_MM));
+  await pickTopEdge(page, "x", 1);
+  await expect(page.getByTestId("hem-pick-count")).toHaveText("1 edge picked");
+  await page.getByTestId("hem-length").fill("8");
+  await page.getByTestId("hem-submit").click();
+  await expect(page.getByTestId("hem-editor")).toBeHidden({ timeout: 30_000 });
+
+  // The build stops, in the open, with the typed code and a message that names
+  // the two ways out (retype the hem, or come under the ceiling).
+  await expect(page.getByTestId("eval-status")).toHaveText("Failed", {
+    timeout: 30_000,
+  });
+  const failure = page.getByTestId("feature-error-2");
+  // The code as the DOM holds it — the panel's `uppercase` is CSS, so asserting
+  // the SCREAMING form would be asserting the stylesheet, not the payload.
+  await expect(failure).toContainText("hem_type_radius_conflict");
+  await expect(failure).toContainText("2 mm air gap on 2 mm sheet");
+  await expect(failure).toContainText("hem_type='open'");
+  await expect(failure).toContainText("at most 0.25 mm");
+  // NOTHING half-built was fused: the body is still the bare 2 mm plate. A
+  // refusal that left a mislabelled solid behind would be the defect wearing a
+  // red badge, so the geometry is checked and not just the banner.
+  const plate = await extentsMm(page);
+  expect(plate[0]).toBeCloseTo(50, 3);
+  expect(plate[1]).toBeCloseTo(30, 3);
+  expect(plate[2]).toBeCloseTo(GAUGE_MM, 3);
+
+  // NO DEAD END (design mandate): re-open the hem, drop the override, and the
+  // part builds to the closed-hem rule — the same 4.2 mm the case above asserts.
+  await page.getByTestId("feature-select-2").click();
+  await expect(page.getByTestId("hem-editor")).toBeVisible();
+  await expect(page.getByTestId("hem-bend-radius")).toHaveValue(
+    new RegExp(`^${OPEN_HEM_RADIUS_MM}(\\.0+)?$`),
+  );
+  await page.getByTestId("hem-override-radius").click();
+  await expect(page.getByTestId("hem-bend-radius")).toHaveCount(0);
+  await page.getByTestId("hem-submit").click();
+  await expect(page.getByTestId("hem-editor")).toBeHidden({ timeout: 30_000 });
+  await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId("feature-error-2")).toHaveCount(0);
+  await expect
+    .poll(async () => (await extentsMm(page))[2], { timeout: 30_000 })
+    .toBeCloseTo(HEMMED_HEIGHT_MM, 3);
 });
 
 test("model a tray with a relieved corner by clicking: two edge flanges → corner relief", async ({

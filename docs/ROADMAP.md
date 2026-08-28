@@ -57,6 +57,33 @@ with `nearestDrawnHit` returning the FARTHEST survivor: 173 of 838 in-wall
 answers name the plate, against 0 of 841 on the correct build. 16/16 green
 (`qa-sel6-verify` 3, `pick-affordance` 13); `just lint` exit 0.
 
+**Shard 4/4 e2e DIAGNOSED and CLOSED (qa-tester, 2026-08-28) — the hem spec
+was TYPING the defect HEM-1 fixed, and the old spec could not have caught it.**
+Case (b), not a regression: `sheet-metal-hem-corner-relief.spec.ts` overrode the
+hem radius to 1 mm on 2 mm sheet ("so the layers close"), which is 0.5 x gauge —
+an OPEN hem — so HEM-1's symmetric guard now refuses it. Verbatim: expected
+`"Solved"`, received `"Failed"`, with `hem_type_radius_conflict` and a message
+naming both ways out; the tree row reads `ERR`, the body falls back to the bare
+plate, and clearing the override in the editor rebuilds — the feature working.
+The decisive measurement is that the **committed spec passes 3/3 against the
+restored pre-HEM-1 inherit**: it asserted only `Solved` and `faces > 6`, both
+true of a hem with three gauges of air in it. The repair asserts NUMBERS from
+the panels a user reads — hemmed height `gauge + 2R + gauge` = **4.2 mm**
+(10.0 mm under the inherit), bend-table **R0.10** (R3.00), allowance
+`pi(R + Kt)` **3.08** (12.19) — plus a new case driving the refusal and its
+recovery. Mutation-tested: `Expected 4.2 / Received 10`, and
+`Expected "Failed" / Received "Solved"`; corner-relief and small-laptop cases
+stayed green, so the mutation's scope is the negative control. 11/11 green
+across the hem, authoring and flat-pattern specs; `just lint` exit 0; founder
+shots refreshed (the committed `sheet-metal-hem-body-1440.png` was a picture of
+the P0). NOTE the "Shipped since pass 16" paragraph above says HEM-1 sets the
+radius at "~0.5x thickness" — measured, that is the **open**-hem ratio; a
+closed hem is **0.05 x** thickness (0.1 mm on 2 mm sheet) and 0.5 x is what the
+guard refuses for `hem_type: "closed"`. Two P2/P3 items filed from the repair:
+**HEM-1C** — the editor still claims the radius is inherited from the base
+flange and suggests ~1 mm, the exact value the server refuses; **HEM-1D** — the
+UI cannot author an `open` hem at all.
+
 **Still open, unchanged in substance:** REACH-2-FLOW, REACH-3-FLOW,
 EXPORT-3, NAME-2b, TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1, SEL-8,
 MEASURE-PROXY-1, MATE-OBS-2, SKETCH-COVERAGE-1, SOLVER-DOC-1, HEM-1B — see
