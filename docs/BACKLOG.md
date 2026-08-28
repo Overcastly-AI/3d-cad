@@ -411,7 +411,7 @@ audited: 18 cargo removed, 3 legitimate refusals proven via a new
 `clickRefusedControl` helper, 1 vacuous test fixed. `force: true` now
 appears exactly once in `apps/web/e2e/`. See Done archive.**
 
-- [ ] (P1, S) **PGTEST-GATE — 172 of the documents service's tests (37% of
+- [x] (P1, S) **PGTEST-GATE — 172 of the documents service's tests (37% of
       that suite, including the entire alembic migration chain) silently
       skip with exit 0 when PostgreSQL server binaries are absent, and CI
       installs none.** kind: defect. MEASURED
@@ -450,6 +450,28 @@ appears exactly once in `apps/web/e2e/`. See Done archive.**
       top of that.
       TERRITORY: `services/documents/tests/conftest.py`,
       `.github/workflows/ci.yml`. agentType: platform-builder.
+      **DONE 2026-08-28 (platform-builder) — the silence is closed and the
+      pass-8 correction is CONFIRMED from the source, not inherited.**
+      `ubuntu-latest` is Ubuntu 24.04 and that image ships PostgreSQL 16.15
+      (actions/runner-images `Ubuntu2404-Readme.md`, fetched), whose binaries
+      sit at the Debian path `find_pg_bin()` already searched — so the 172
+      have almost certainly been running, and the real defect was that no log
+      said so. Both halves landed independently: (a) `pg_server` now routes
+      every unusable exit through `_refuse_or_skip`, which `pytest.fail`s when
+      `LOFT_REQUIRE_PG` (defaulting to `CI`) says a real server is required
+      and still skips helpfully otherwise; (b) every run ends with a
+      `== postgres (documents suite) ==` verdict naming the search path, the
+      requirement and its source, and how many tests were HANDED a database —
+      a fixture side effect, cross-checked against the reports and refusing a
+      verdict when the two disagree. Negative control `CI=1
+      PG_BIN_DIR=/nonexistent uv run pytest services/documents/tests/` exits
+      **1** (296 passed, 172 refused) against **0** before; positive control
+      468 passed with `served a real database: 172`; whole-repo `uv run
+      pytest` 4090 passed / exit 0. Mutation-tested: neutering the `CI` branch
+      turns the negative control back to exit 0 and reddens 2 of the 11 new
+      `test_pg_gate.py` cases. Cost in CI is ~0 (those tests already ran); the
+      workflow step prints what it found, installs `postgresql` only if a
+      future image drops it, and exits 1 rather than continuing without.
 
 - [ ] (P1, XS) **GATE-FLOOR — two of the five `scripts/` lint gates still
       have the `all([]) is True` vacuity hole that was already fixed in

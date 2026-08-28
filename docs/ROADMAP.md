@@ -200,6 +200,36 @@ gained a canvas-measured select-overflow gate whose negative control reproduces
 the defect by name (`needs 147px, has 132px`). Contrast unchanged at 7.18:1
 worst, no clipped labels, 2192 unit tests + 40 e2e green, `just lint` exit 0.
 
+**PGTEST-GATE CLOSED (platform-builder, 2026-08-28) — a suite that could lose
+37% of itself and still exit 0 now says so, in the log, last.** 172 of the
+documents service's 468 tests need real PostgreSQL server binaries, including
+the only check that the 16-migration alembic chain upgrades, downgrades and
+matches the models; absent `initdb` they skipped with **the same exit code as
+a full pass**. Two independent changes. (a) The refusal: `pg_server` routes
+every unusable exit through one helper that `pytest.fail`s when
+`LOFT_REQUIRE_PG` — defaulting to `CI`, explicit either way, with `=0` as an
+honest escape hatch — says a real server is required, and still skips with a
+useful reason on a contributor's laptop. (b) The loudness: every run ends with
+a `== postgres (documents suite) ==` verdict naming where it searched, what it
+found, who required it, and how many tests were HANDED a database. That last
+count is a fixture side effect only real execution can produce; it is
+cross-checked against the collected reports and the block REFUSES a verdict
+when the two disagree rather than picking one. It is emitted from
+`pytest_unconfigure`, not `pytest_terminal_summary`, because the latter runs
+BEFORE the short summary and with 172 refusals the verdict landed at line 870
+of 1563 where no fixed `tail_lines` could reach it — measured, then fixed to
+532 lines with the verdict last. Evidence: negative control `CI=1
+PG_BIN_DIR=/nonexistent` exits **1** (was **0**); positive control 468 passed,
+`served a real database: 172`; whole-repo `uv run pytest` 4090 passed, exit 0,
+22m08s. Mutation-tested both ways — neutering the `CI` branch restores the old
+silent exit 0 and reddens 2 of 11 new `test_pg_gate.py` cases. The fact the
+board had been arguing about is now established rather than assumed:
+`ubuntu-latest` is Ubuntu 24.04 and ships PostgreSQL 16.15 at the Debian path
+the fixture already searched, so those tests were already running and this
+costs CI nothing; the new workflow step prints what it found, installs
+`postgresql` only if a future image drops it, and exits 1 rather than
+proceeding blind.
+
 **Still open, unchanged in substance:** REACH-2-FLOW, REACH-3-FLOW,
 NAME-2b, TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1, SEL-8,
 MEASURE-PROXY-1, MATE-OBS-2, SKETCH-COVERAGE-1, SOLVER-DOC-1, HEM-1B — see

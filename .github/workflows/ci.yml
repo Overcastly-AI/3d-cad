@@ -107,7 +107,61 @@ jobs:
         run: uv run ruff format --check .
       - name: Pyright (strict)
         run: uv run pyright
+      # PGTEST-GATE. 172 of the documents suite's 468 tests (37%) need REAL
+      # PostgreSQL SERVER binaries — including the only check that the
+      # alembic chain upgrades, downgrades and matches the models. They used
+      # to skip with exit 0 when `initdb` was absent, so whether they had
+      # ever run here was a question nobody could answer from a log.
+      #
+      # The answer, established 2026-08-28 rather than assumed: they DO run.
+      # `ubuntu-latest` is Ubuntu 24.04 and that image ships PostgreSQL 16.15
+      # (actions/runner-images images/ubuntu/Ubuntu2404-Readme.md), whose
+      # server binaries live at /usr/lib/postgresql/16/bin — exactly the
+      # Debian fallback conftest.py already searched. So this step adds no
+      # test time; it makes an invisible dependency explicit.
+      #
+      # It is worth a step anyway because the dependency MOVES: `-latest`
+      # tracks the newest stable image (26.04 is already in public preview)
+      # and image contents are not an API. Three properties, in order:
+      #   1. it PRINTS what it found, so the log answers the question;
+      #   2. it INSTALLS postgresql if the image ever stops shipping it, so a
+      #      future image bump degrades to +30s rather than to a red build;
+      #   3. it FAILS if it still cannot find initdb — no silent third path.
+      # The refusal in services/documents/tests/conftest.py is independent of
+      # all three: if this step were deleted tomorrow, a missing server would
+      # still be red, not a quiet 37% coverage loss.
+      - name: Resolve PostgreSQL server binaries (PGTEST-GATE)
+        run: |
+          set -euo pipefail
+          resolve() {
+            if command -v initdb >/dev/null 2>&1; then
+              dirname "$(command -v initdb)"
+            else
+              # Debian/Ubuntu keep server binaries off PATH, one dir per
+              # major version. Highest version wins, matching conftest.py.
+              ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1
+            fi
+          }
+          bin="$(resolve || true)"
+          echo "image-provided server binaries: ${bin:-<none>}"
+          if [ -z "$bin" ] || [ ! -x "$bin/initdb" ]; then
+            echo "::warning::no PostgreSQL server binaries in the runner image; installing"
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql
+            bin="$(resolve || true)"
+          fi
+          if [ -z "$bin" ] || [ ! -x "$bin/initdb" ]; then
+            echo "FATAL: no initdb after install; the documents suite would lose 172 tests"
+            exit 1
+          fi
+          echo "PG_BIN_DIR=$bin" >> "$GITHUB_ENV"
+          echo "resolved PG_BIN_DIR=$bin -> $("$bin/initdb" --version)"
       - name: Pytest
+        env:
+          # Belt to the CI-detection braces in conftest.py: state the
+          # requirement here too, so this job's posture is readable in this
+          # file rather than inferred from a variable GitHub happens to set.
+          LOFT_REQUIRE_PG: "1"
         run: uv run pytest
 
   ts:
