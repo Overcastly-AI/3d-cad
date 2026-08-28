@@ -871,6 +871,51 @@ export const viewCube = {
   inset: VIEW_CUBE_MARGIN - VIEW_CUBE_SIZE / 2,
 } as const;
 
+/**
+ * THE SKETCH PROPOSAL — the leader note the viewport writes on a face the
+ * pointer has come to rest on, offering the sketch that face affords (FLOW-1,
+ * design mandate: "the tool proposes, the user disposes").
+ *
+ * It is a drafting LEADER NOTE, not a tooltip: a dot on the exact point the
+ * note is about, a hairline stub, and the verb at the end of it — the
+ * vernacular of the drawing this product exists to produce. That is the whole
+ * of its boldness; the chip at the end of the leader is the quietest card in
+ * the app, and the face's own hover tint (SEL-1) carries the rest.
+ *
+ * The numbers live here because THREE things must agree about them and two are
+ * not CSS: the chip's rendered width, the edge-flip arithmetic that keeps it
+ * inside the frame (a chip hanging half off-screen is an unhittable control —
+ * the zero-area defect class in a different costume), and the leader's own
+ * geometry. A width transcribed into a placement function is a copy waiting to
+ * drift from the width in the stylesheet.
+ */
+export const proposal = {
+  /**
+   * Chip width. FIXED rather than content-sized, because `placeProposal` has to
+   * know it BEFORE layout to choose which side of the anchor the chip goes on —
+   * a measured width would arrive a frame late, which is to say after the flash.
+   */
+  chipWidth: 112,
+  /** Chip height — the dense target floor, met by SIZE (see `target`). */
+  chipHeight: target.dense,
+  /**
+   * Diagonal offset of the chip's near bottom corner from the anchor dot. Far
+   * enough that the chip never sits under the cursor (occluding the very face
+   * it describes), near enough to stay one short move away from the hand.
+   */
+  offset: 14,
+  /**
+   * How long the pointer must REST before the note is written. This is the
+   * reason the affordance does not fight the viewport: sweeping across a model
+   * proposes nothing at all, and a note only ever appears where attention has
+   * already stopped. Below ~250 ms it flickers on every pass; above ~450 ms it
+   * reads as broken.
+   */
+  dwellMs: 320,
+  /** Keep-out from the frame edge when the chip is flipped or clamped. */
+  margin: spacing["3"],
+} as const;
+
 /** Fixed layout dimensions (px) of the shell. */
 export const layout = {
   toolbarHeight: 44,

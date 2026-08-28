@@ -81,6 +81,13 @@ describe("tailwind utility resolution", () => {
           "right-view-cube",
           "h-view-cube",
           "w-view-cube",
+          // The hover-to-sketch proposal chip (FLOW-1). Its width is ALSO the
+          // number `placeProposal` flips against, so a dead class here would
+          // not merely shrink the chip — it would put the arithmetic and the
+          // box on screen into disagreement, and the flip would keep a
+          // zero-width control "inside the frame" while nobody could hit it.
+          "h-proposal",
+          "w-proposal",
           "rounded-none",
           "rounded-sm",
           "rounded-md",

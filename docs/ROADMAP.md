@@ -131,6 +131,47 @@ of one fact, and "excluded from it onward" was itself off by one. Gates:
 e2e green on the real stack. Shots:
 `docs/screenshots/export-partial-{before,after}-1280.png`.
 
+**HOVER-TO-SKETCH SHIPPED (frontend-builder, 2026-08-28) — the founder's
+2026-08-14 report, and the design mandate's first flow test in its purest
+form.** Rest the pointer on a face with no command armed and the viewport
+writes a drafting LEADER NOTE — an anchor dot on the point, a hairline stub,
+and a `Sketch ↵` chip at the end of it. Click it or press `Enter` and a sketch
+opens on that face. The capability was always there; it was unreachable
+without naming the verb before the noun.
+
+Four decisions, each one a way this could have gone wrong. (a) **The face's
+own SEL-1 hover tint carries the proposal; the chip only confirms it** — a
+second highlight would have been the loud, viewport-fighting answer, and what
+was actually missing was somewhere to click. (b) **Written on REST, not on
+hover** (`proposal.dwellMs` 320 ms), so sweeping a model proposes nothing at
+all and a note only ever arrives where attention already stopped. (c) **Once
+written it LATCHES** — the chip is DOM over the canvas, so travelling onto it
+takes the pointer off the mesh and r3f fires `pointerout`; the first build
+therefore withdrew the note in the instant the user reached for it, and the
+e2e click landed on empty space while every earlier assertion passed. (d)
+**Keyboard:** `Enter` accepts the showing note, declared in
+`shortcuts/registry.ts`, printed on the chip (so the mouse teaches the
+keyboard) and on the key sheet; tabbing through named faces stays the Sketch
+command's own, better-suited job.
+
+Evidence, because "a sketch opened" is true of a wrong plane too. The
+proposal calls the SAME `handleNewSketch` + `authorFacePlane(face)` pair the
+toolbar flow calls, and a new e2e case records the `on_face` datum POST from
+BOTH paths for one face and compares them byte-for-byte — **ablated by
+perturbing the centroid 1 mm, it reports `"z":10` vs `"z":11` with every other
+field identical.** Reachability is measured with the user's own mechanism, not
+a proxy: a real `page.mouse.click` at the box's centre plus `elementFromPoint`
+resolving to the chip, no `force: true` anywhere — **ablated by removing the
+chip's `pointer-events`, it reports `"viewport"`.** The chip's width is a
+`@loft/design` token that the edge-flip arithmetic and the stylesheet both
+read, and `h-proposal`/`w-proposal` are in the Tailwind resolution guard —
+ablated, that guard names `w-proposal` — so the class of defect where a
+missing utility silently yields a zero-area control cannot reach this one.
+5/5 new e2e green; `sketch-on-face`, `full-flow`, `nav-chrome` 15/15 green;
+2067 web + 134 design unit tests green; `just lint` exit 0. Founder shots:
+`docs/screenshots/hover-sketch-{before,after}-{1280x800,1600x1000}.png` —
+pixel-aligned pairs from one frame, so the only difference is the new layer.
+
 **Still open, unchanged in substance:** REACH-2-FLOW, REACH-3-FLOW,
 NAME-2b, TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1, SEL-8,
 MEASURE-PROXY-1, MATE-OBS-2, SKETCH-COVERAGE-1, SOLVER-DOC-1, HEM-1B — see

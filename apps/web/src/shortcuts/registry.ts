@@ -93,6 +93,21 @@ export const KEY_SHORTCUT_SHEET = "?";
 export const KEY_SNAP = "g";
 /** Arm the measure tool — `PartPage`. */
 export const KEY_MEASURE = "m";
+/**
+ * Accept the sketch proposal the viewport is offering — `SketchProposal`.
+ *
+ * `Enter` rather than a letter, for two reasons. Every bare letter in this
+ * workspace is already a create verb (the table below), and more importantly
+ * the binding is not "start a sketch": it ACCEPTS a specific proposal that is
+ * on screen at that moment, naming a specific face. Accept is what Enter means
+ * everywhere else in the product, and a proposal that could be committed by
+ * some other key would be teaching a second accept vocabulary for one surface.
+ *
+ * It is live ONLY while the note is showing, which is why the chip prints the
+ * glyph itself: the fastest way to teach a keyboard path is to put it on the
+ * thing the mouse is already pointing at.
+ */
+export const KEY_ACCEPT_PROPOSAL = "Enter";
 
 /**
  * The part workspace's create/modify accelerators, each with the condition the
@@ -226,6 +241,11 @@ export function shortcutGroups(): ShortcutGroup[] {
           when,
         })),
         { keys: KEY_MEASURE.toUpperCase(), action: "Measure" },
+        {
+          keys: KEY_ACCEPT_PROPOSAL,
+          action: "Sketch on the face under the pointer",
+          when: "while the proposal is showing",
+        },
         {
           keys: KEY_ISOLATE.toUpperCase(),
           action: "Hide or show the addressed body",

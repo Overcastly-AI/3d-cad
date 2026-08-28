@@ -14,6 +14,7 @@ import {
   fontSize,
   layout,
   progress,
+  proposal,
   radius,
   spacing,
   target,
@@ -75,6 +76,8 @@ export const loftPreset = {
         "view-cube": px(viewCube.size),
         /** The indeterminate carriage's bed — see `progress.trackHeight`. */
         track: px(progress.trackHeight),
+        /** The sketch proposal's chip — see `proposal.chipHeight`. */
+        proposal: px(proposal.chipHeight),
       },
       width: {
         inspector: px(layout.inspectorWidth),
@@ -85,6 +88,12 @@ export const loftPreset = {
         "view-cube": px(viewCube.size),
         /** The indeterminate carriage's share of its bed — see `progress`. */
         carriage: `${progress.carriage}%`,
+        /**
+         * The sketch proposal's chip. The SAME number `placeProposal` flips
+         * against, so the stylesheet and the arithmetic cannot disagree about
+         * where the chip's right edge lands — see `proposal.chipWidth`.
+         */
+        proposal: px(proposal.chipWidth),
       },
       /**
        * The written TARGET-SIZE policy as utilities (`min-h-target`,

@@ -839,6 +839,14 @@ export interface ViewportProps {
    */
   onContextMenu?: (event: ReactMouseEvent) => void;
   /**
+   * The `body.faces()` ordinal the pointer is addressing, or null. Already
+   * stamped on the container for QA (`data-hovered-face`); this hands the SAME
+   * value to the workspace, which is what lets an idle hover propose a sketch
+   * on that face (FLOW-1). Fires only when the addressed face CHANGES, never
+   * per pointer move.
+   */
+  onFaceHover?: (ordinal: number | null) => void;
+  /**
    * Draw the single aggregate contact pool under `bounds`. The assembly turns
    * this OFF and seats EACH instance on its own pool instead (UI audit #19d —
    * one big blob under a multi-part scene reads flat; per-part shadows give the
@@ -867,6 +875,7 @@ export function Viewport({
   bodySelected = false,
   bodySelectedFaces = null,
   onContextMenu,
+  onFaceHover,
   groundShadow = true,
 }: ViewportProps) {
   const reducedMotion = useReducedMotion();
@@ -956,13 +965,17 @@ export function Viewport({
    */
   const handleFaceHover = useCallback(
     (ordinal: number | null, total: number) => {
+      // The workspace hears about it FIRST and unconditionally: the stamp is a
+      // QA hook that no-ops before the container mounts, and a proposal that
+      // silently depended on that ref would be a feature gated on a test hook.
+      onFaceHover?.(ordinal);
       const node = containerRef.current;
       if (node === null) return;
       if (ordinal === null) delete node.dataset["hoveredFace"];
       else node.dataset["hoveredFace"] = String(ordinal);
       node.dataset["totalFaces"] = String(total);
     },
-    [],
+    [onFaceHover],
   );
 
   /**

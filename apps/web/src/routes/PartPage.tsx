@@ -328,6 +328,7 @@ import {
 } from "../components/HistoryErrorAlert";
 import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { FacePickOverlay } from "../viewport/FacePickOverlay";
+import { SketchProposal } from "../viewport/SketchProposal";
 import { pickRefusal } from "../viewport/pickTargets";
 import { useSketchStore } from "../sketch/store";
 import { TOOL_SHORTCUTS } from "../sketch/tools";
@@ -1569,6 +1570,61 @@ export function PartPage() {
     pickTargetState,
     "Add a feature that creates a body before sketching on a face.",
   );
+
+  // --- Hover-to-sketch (FLOW-1, founder report 2026-08-14) --------------------
+  //
+  // The face the pointer is addressing while NOTHING is armed. Idle hover used
+  // to light a face (SEL-1) and mean nothing — no click handler, no selection —
+  // so there is no existing meaning for the proposal to collide with; it gives
+  // that highlight the action it was already implying.
+  const [hoveredFaceOrdinal, setHoveredFaceOrdinal] = useState<number | null>(
+    null,
+  );
+  const noteFaceHover = useCallback((ordinal: number | null) => {
+    setHoveredFaceOrdinal((current) =>
+      current === ordinal ? current : ordinal,
+    );
+  }, []);
+  /**
+   * The context a proposal may be offered in — the SAME conditions that make
+   * the body interactive, plus PICK-2's refusal (a tip that builds no body has
+   * no faces to sketch on, and an offer that cannot be honoured is worse than
+   * no offer).
+   */
+  const proposalContext =
+    mode === "off" &&
+    editor === null &&
+    !measureActive &&
+    hasBody &&
+    facePickRefusal === null;
+  const proposalArmed = proposalContext && hoveredFaceOrdinal !== null;
+  // LAZY on purpose: nothing is requested until the pointer first addresses a
+  // face. Same request/key as every other overlay (`staleTime: Infinity`), so
+  // this is one shared cache entry — the first idle hover warms the very entry
+  // the Sketch, measure, hole and datum flows all go on to reuse.
+  const proposalFacesQuery = useQuery({
+    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryFn: () =>
+      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    enabled: proposalArmed && tree.data !== undefined && meshGlbId !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+  /**
+   * The hovered face, resolved to one a sketch can actually sit on. A
+   * non-planar face carries no signature and is NOT proposable — the same rule
+   * `FacePickOverlay` applies, so the two surfaces offer exactly the same set
+   * and hovering a fillet proposes nothing rather than proposing a dead end.
+   */
+  const proposedFace = useMemo(() => {
+    if (!proposalArmed) return null;
+    const faces = proposalFacesQuery.data?.faces;
+    if (faces === undefined) return null;
+    const hit = faces.find(
+      (candidate) => candidate.index === hoveredFaceOrdinal,
+    );
+    return hit !== undefined && isPickableFace(hit) ? hit : null;
+  }, [proposalArmed, proposalFacesQuery.data, hoveredFaceOrdinal]);
 
   // PICK-1 (M16) — the anchor a SUBSHAPE REFERENCE gets stamped with, which is
   // NOT always `bodyFeatureId`. A reference must name a feature strictly earlier
@@ -3692,6 +3748,26 @@ export function PartPage() {
     }
   }, [bodyFeatureId, handleNewSketch, authorFacePlane]);
 
+  /**
+   * Accept the viewport's sketch proposal (FLOW-1).
+   *
+   * Deliberately the SAME two calls the toolbar's Sketch -> pick-a-face flow
+   * makes, in the same order and with the same arguments — `handleNewSketch()`
+   * then `authorFacePlane(face)` with the overlay face the user addressed. A
+   * second way to compute a sketch plane would be a second thing to keep
+   * correct, and the two would drift silently: nothing would fail, the planes
+   * would just stop agreeing. `remember` is left at its default, exactly as a
+   * clicked face in the pick overlay is (UI-W3), because this IS a face clicked
+   * in the viewport.
+   */
+  const acceptSketchProposal = useCallback(
+    (face: OverlayFace & { signature: PlanarFaceSignature }) => {
+      handleNewSketch();
+      authorFacePlane(face);
+    },
+    [handleNewSketch, authorFacePlane],
+  );
+
   // Datum-editor face picking. Arming a slot highlights the body's planar faces
   // in the viewport (the shared FacePickOverlay); a click resolves to a
   // full-precision signature the editor folds into that slot. The anchor is the
@@ -4526,6 +4602,7 @@ export function PartPage() {
               bodyInteractive={
                 mode === "off" && editor === null && !measureActive
               }
+              onFaceHover={noteFaceHover}
               bodySelected={
                 mode === "off" &&
                 !measureActive &&
@@ -4537,6 +4614,14 @@ export function PartPage() {
                   <SketchDro solving={syncPending || evaluation.isFetching} />
                   <SolveDiagnostic />
                   <MeasureReadout />
+                  {/* Rest on a face with nothing armed and the viewport offers
+                    the sketch that face affords (FLOW-1). It proposes; the
+                    click or Enter disposes. */}
+                  <SketchProposal
+                    enabled={proposalContext}
+                    face={proposedFace}
+                    onAccept={acceptSketchProposal}
+                  />
                   {/* Inert DOM signal that the live extrude ghost is on screen
                     (the ghost itself is WebGL) — a raster-independent hook QA
                     drives the "preview responds before Save" assertion from. */}

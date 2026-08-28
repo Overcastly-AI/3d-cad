@@ -1265,7 +1265,27 @@ bend radius. See Done archive for evidence/gates.**
       fb19-chrome-density.spec.ts` only if it needs a fix. agentType:
       frontend-builder or qa-tester.
 
-- [ ] (P1, M) **FOUNDER — no Fusion-style hover-a-face-to-sketch.** Founder
+- [x] (P1, M) **FOUNDER — no Fusion-style hover-a-face-to-sketch.** DONE —
+      rest the pointer on a face with nothing armed and the viewport writes a
+      drafting LEADER NOTE (anchor dot + hairline stub + a `Sketch ↵` chip);
+      click it or press Enter and a sketch opens on that face. It calls the
+      SAME `handleNewSketch` + `authorFacePlane(face)` pair the toolbar flow
+      calls — proven byte-identical at the wire by a new e2e case that records
+      the `on_face` datum POST from BOTH paths for one face and compares them
+      (ablation: perturbing the centroid by 1 mm reports `"z":10` vs `"z":11`).
+      UX decided by the builder, per the item: the note is written on REST
+      (`proposal.dwellMs` 320 ms) not on hover, so sweeping the model proposes
+      nothing; the face's own SEL-1 tint carries the proposal and the chip only
+      confirms it; and once written it LATCHES — travelling onto the chip takes
+      the pointer off the mesh, and the first build withdrew the note in the
+      instant the user reached for it. Keyboard: `Enter` accepts the showing
+      note (declared in `shortcuts/registry.ts`, printed on the chip, on the
+      key sheet); tabbing to named faces stays the Sketch command's job.
+      Reachability measured, not assumed — `elementFromPoint` at the chip's
+      centre resolves to the chip, and removing its `pointer-events` reports
+      `"viewport"`. Founder shots: `docs/screenshots/hover-sketch-{before,
+      after}-{1280x800,1600x1000}.png`, pixel-aligned pairs.
+      ORIGINAL REPORT, for the record:
       complaint: today, starting a sketch requires clicking the Sketch
       command FIRST, then picking a plane/face; Fusion lets you hover an
       empty-context face and click a glow-in affordance to sketch on it
@@ -4448,6 +4468,9 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
   Ticked ORTHO-1, REACH-ASMDRAW, REACH-ORDER, FORCE-CLICK-AUDIT-1,
   DRAWING-VERTEX-PICK-1; elevated HEM-1 P1→P0 (wrong geometry); filed
   ASMDRAW-FIT-1a/1b, PLAYWRIGHT-TOUCH-1, EXTRUDE-COARSE-STEP-1, HEM-1B.
+- 2026-08-28 — **hover-a-face-to-sketch shipped (frontend-builder):** resting
+  on a face with nothing armed writes a leader note offering the sketch; click
+  or `Enter` opens it on that face, byte-identical to Sketch -> pick that face.
 - 2026-08-28 — **Groom pass 17 (backlog-groomer):** ticked HEM-1 (P0),
   ASMDRAW-FIT-1a/1b, EXTRUDE-COARSE-STEP-1; filed CHECKUIPARITY-FP-1,
   NUDGE-PLACEMENT-QUANTISE-1, CI-4(e); recorded e2e RED on shard 3/4 for
