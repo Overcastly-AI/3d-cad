@@ -34,6 +34,7 @@ import {
   EyeGhostIcon,
   EyeIcon,
   EyeOffIcon,
+  FieldRow,
   IsolateIcon,
   Panel,
   PanelSection,
@@ -216,7 +217,10 @@ export function BodiesPanel({
                           }
                     }
                   >
-                    <div className="flex items-baseline gap-2 py-1 pr-3 pl-[10px]">
+                    {/* One 24px band, the tree's own row rhythm — the bodies
+                        list and the feature list are the same instrument and
+                        were two different heights (density pass 2026-08-28). */}
+                    <div className="flex min-h-target-dense items-center gap-2 py-0 pr-3 pl-[10px]">
                       <button
                         type="button"
                         onClick={() => {
@@ -251,13 +255,17 @@ export function BodiesPanel({
                         aria-pressed={selected}
                         aria-label={`Select ${label}`}
                         data-testid={`body-select-${body.ordinal - 1}`}
-                        className="flex grow items-baseline gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+                        // Measured 262x19.5 before this pass — under the 24px
+                        // dense floor (`target.dense`, WCAG 2.2 SC 2.5.8). It
+                        // is the row's PRIMARY action, so it takes the row's
+                        // full height rather than floating on a baseline in it.
+                        className="flex min-h-target-dense grow items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
                       >
                         <span className="w-5 shrink-0 font-data text-xs tabular-nums text-gauge">
                           {String(body.ordinal).padStart(2, "0")}
                         </span>
                         <span
-                          className={`grow truncate font-data text-base ${
+                          className={`grow truncate font-data text-sm ${
                             mode === "hidden" ? "text-gauge" : "text-mist"
                           }`}
                         >
@@ -287,12 +295,20 @@ export function BodiesPanel({
                       // the stops disclose under it. Only one row is addressed
                       // at a time, so the per-stop test ids need no ordinal
                       // suffix; the wrapper carries it for QA.
-                      <div
-                        className="px-2 pb-2 pl-8"
+                      // Caption BESIDE the control, not stacked over it — the
+                      // last stacked form label in the overlay panels after the
+                      // 2026-08-28 density pass, and one loose row is all it
+                      // takes for a panel to read as a dialog again. The
+                      // control keeps its own accessible name (`hideLabel`),
+                      // and the row's visible caption states the same word.
+                      <FieldRow
+                        label="Opacity"
+                        className="pl-8"
                         data-testid={`body-opacity-${body.ordinal - 1}`}
                       >
                         <SegmentedControl<VisibilityMode>
                           label="Opacity"
+                          hideLabel
                           value={mode}
                           options={OPACITY_OPTIONS.map((option) => ({
                             ...option,
@@ -304,7 +320,7 @@ export function BodiesPanel({
                             setMode(key, next);
                           }}
                         />
-                      </div>
+                      </FieldRow>
                     ) : null}
                   </li>
                 );

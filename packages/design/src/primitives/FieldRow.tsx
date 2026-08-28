@@ -78,6 +78,18 @@ export interface FieldRowProps {
   noteLabel?: string | undefined;
   /** `flag` pins the note OPEN in flag ink — a warning is never behind a click. */
   noteTone?: "quiet" | "flag" | undefined;
+  /**
+   * A quiet READ-ONLY reading pinned to the row's right edge, after the control
+   * — a per-body mass beside its material picker, a computed count beside the
+   * thing that drives it. It never shrinks, so the control gives up width
+   * first: a truncated value is a wrong number, while a truncated NAME is still
+   * recoverable (the control keeps its full accessible name and `title`).
+   *
+   * It is a slot rather than something the caller lays out beside the row,
+   * because a caption/control/reading row is the title-block's own anatomy and
+   * hand-rolling it per call site is how two panels end up with two densities.
+   */
+  trailing?: ReactNode | undefined;
   /** Test hook on the NOTE text (the toggle gets `${noteTestId}-toggle`). */
   noteTestId?: string | undefined;
   children: ReactNode;
@@ -98,6 +110,7 @@ export function FieldRow({
   noteLabel,
   noteTone = "quiet",
   noteTestId,
+  trailing,
   children,
   className,
   ...rest
@@ -122,6 +135,11 @@ export function FieldRow({
           )
         ) : null}
         <div className="flex min-w-0 grow items-center gap-2">{children}</div>
+        {trailing !== undefined ? (
+          <span className="shrink-0 font-data text-xs text-mist tabular-nums">
+            {trailing}
+          </span>
+        ) : null}
         {note !== undefined && !warns ? (
           <button
             type="button"

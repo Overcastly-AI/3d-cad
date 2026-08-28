@@ -3300,6 +3300,19 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
 
 ## Done — archive
 
+### PANEL-DENSITY-1 CLOSED — the overlay panels were a settings dialog, not an instrument (2026-08-28, frontend-builder, founder-directed)
+
+- **PANEL-DENSITY-1** (P1, founder-directed, standing design mandate) — "item
+  tree and material selector … not in any form compact like the header."
+  Measured against that reference (`e2e/panel-density.spec.ts`, before/after):
+  feature-row pitch 34.6px -> 24px, cell pitch 27.5 -> 24, section pitch 122.5
+  -> 101, overlay chrome 31.8% -> 25.8% of a 1280x800 frame. Fixed in
+  `packages/design` primitives (ruled `PanelSection` caption bar, 24px
+  `PanelRow` band, `FieldRow.trailing`, inline `SelectField`), never per
+  instance. Also closed three pre-existing sub-24px target violations, and
+  added a canvas-measured gate for native-`<select>` value clipping (which the
+  pass itself regressed and the label-overflow walker could not see).
+
 ### Groom pass 17 closures (2026-08-28, backlog-groomer — HEM-1 wrong-geometry P0 and both ASMDRAW-FIT halves)
 
 All verified against `git show`, not assumed from commit subjects.

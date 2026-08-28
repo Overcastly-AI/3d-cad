@@ -172,6 +172,34 @@ missing utility silently yields a zero-area control cannot reach this one.
 `docs/screenshots/hover-sketch-{before,after}-{1280x800,1600x1000}.png` —
 pixel-aligned pairs from one frame, so the only difference is the new layer.
 
+**PANEL-DENSITY-1 SHIPPED (frontend-builder, 2026-08-28) — the overlay panels
+now hold the header's own row rhythm.** Founder, verbatim: *"For the panels
+overlaying the screen. Item tree and material selector. These are not in any
+form compact like the header. These need to be reworked. Reference fusion
+360."* The complaint was NOT layout — the panels have floated over a full-bleed
+canvas since the Batch 1 makeover — it was DENSITY inside them, so the work is
+measured rather than asserted (`apps/web/e2e/panel-density.spec.ts`, before/after
+via `SHOT_TAG`). Feature-row pitch **34.6px -> 24px**, inspector cell pitch
+**27.5 -> 24**, section pitch **122.5 -> 101**, tree panel **475 -> 318px** tall,
+and the two panels' share of a 1280x800 frame **31.8% -> 25.8%** — a quarter of
+the overlay chrome handed back to the viewport. Fixed in the PRIMITIVES, not the
+instances: `PanelSection` gained the ruled caption bar (the one bold move — a
+drawing's schedule rules its captions, and the rule does the separating that
+12px of air was doing), `PanelRow` became a 24px band, and the material selector
+dropped its stacked labels for `SelectField layout="inline"` — the dense
+`FieldRow` anatomy FB-19 built for the editors and the panels never adopted.
+**Three measured floor violations that pre-dated the pass are now fixed** (the
+suppress toggle at 18x18, `body-select` at 262x19.5, the material picker at
+276x19 — all under the 24px `target.dense` floor); 19/19 controls now pass, all
+reachable at their own centre, proven with a real `page.mouse.click`. **One
+regression was introduced and caught by measurement**: squeezing the material
+picker clipped "Steel (AISI 1018)" to "Steel (AISI 101" — a native `<select>`
+hard-clips and cannot ellipsize, and the existing label-overflow check could not
+see it because it walks text nodes. The inline cell now sets 12px, and the spec
+gained a canvas-measured select-overflow gate whose negative control reproduces
+the defect by name (`needs 147px, has 132px`). Contrast unchanged at 7.18:1
+worst, no clipped labels, 2192 unit tests + 40 e2e green, `just lint` exit 0.
+
 **Still open, unchanged in substance:** REACH-2-FLOW, REACH-3-FLOW,
 NAME-2b, TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1, SEL-8,
 MEASURE-PROXY-1, MATE-OBS-2, SKETCH-COVERAGE-1, SOLVER-DOC-1, HEM-1B — see

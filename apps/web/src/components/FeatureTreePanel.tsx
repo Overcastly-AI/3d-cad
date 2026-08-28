@@ -539,7 +539,14 @@ export function FeatureTreePanel({
                         if (node === null) rowRefs.current.delete(feature.id);
                         else rowRefs.current.set(feature.id, node);
                       }}
-                      className={`group/row flex items-baseline gap-2 border-l-2 py-1 pr-2 pl-[10px] ${
+                      // ONE 24px BAND, the header's own tool-row height. It was
+                      // `py-1` around a `min-h-target-dense` button, i.e. a
+                      // 24px control in a 35px row — 11px of slack per feature,
+                      // on the panel a modeller scans most (founder,
+                      // 2026-08-28). `items-center` so the ordinal chip, the
+                      // name and the status badge share one centre line instead
+                      // of hanging from a baseline at the top of the band.
+                      className={`group/row flex min-h-target-dense items-center gap-2 border-l-2 py-0 pr-2 pl-[10px] ${
                         selected ? "border-brass" : "border-transparent"
                       } ${drag?.id === feature.id ? "bg-carbide" : ""}`}
                       data-testid="feature-row"
@@ -620,10 +627,10 @@ export function FeatureTreePanel({
                           aria-pressed={selected}
                           aria-label={`Select ${feature.name}`}
                           data-testid={`feature-select-${index}`}
-                          className="flex min-h-target-dense grow items-baseline gap-2 py-0.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+                          className="flex min-h-target-dense grow items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
                         >
                           <span
-                            className={`grow truncate font-data text-base ${
+                            className={`grow truncate font-data text-sm ${
                               suppressed
                                 ? "text-gauge line-through decoration-etch"
                                 : rolledBack
@@ -649,7 +656,13 @@ export function FeatureTreePanel({
                         aria-busy={suppressBusy}
                         aria-label={`Suppress ${feature.name}`}
                         data-testid={`feature-suppress-${index}`}
-                        className={`shrink-0 rounded-sm p-0.5 transition-colors duration-fast focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass disabled:cursor-default ${
+                        // Measured 18x18 before this pass — under the 24px floor
+                        // this product wrote down for itself (`target.dense`,
+                        // WCAG 2.2 SC 2.5.8). A density pass is the moment that
+                        // gets fixed, not the moment it gets worse: the row is
+                        // 24px now, so the toggle fills it rather than sitting
+                        // inside a 35px row at 18px.
+                        className={`flex min-h-target-dense min-w-target-dense shrink-0 items-center justify-center rounded-sm transition-colors duration-fast focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:cursor-default ${
                           suppressed
                             ? "text-brass"
                             : "text-gauge opacity-60 hover:text-mist hover:opacity-100 group-focus-within/row:opacity-100 group-hover/row:opacity-100"
@@ -766,12 +779,15 @@ export function FeatureTreePanel({
         {/* Title-block footer: the one vital that MOVES — the solve state.
             FEATURES folded into the eyebrow; TREE (the internal optimistic-
             concurrency version) was decorative and is gone (Track B). */}
-        <div className="border-t border-hairline px-3 py-2">
-          <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
+        {/* One ruled cell, not a stacked pair: caption and vital share a line
+            exactly as every readout above them does. Stacking cost two lines
+            plus `py-2` to say one short word. */}
+        <div className="flex min-h-target-dense items-center gap-2 border-t border-hairline px-3 py-0.5">
+          <span className="shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-gauge">
             Solve
           </span>
           <span
-            className="block font-data text-xs text-mist"
+            className="grow text-right font-data text-sm text-mist"
             data-testid="eval-status"
             aria-live="polite"
           >
@@ -990,7 +1006,7 @@ function ViewRow({
   const action = `${drawn ? "Hide" : "Show"} ${label}`;
   return (
     <li
-      className="flex items-center gap-2 border-l-2 border-transparent py-0.5 pr-2 pl-2"
+      className="flex min-h-target-dense items-center gap-2 border-l-2 border-transparent py-0 pr-2 pl-2"
       data-testid={rowTestId}
       data-drawn={drawn || undefined}
     >
@@ -1011,7 +1027,7 @@ function ViewRow({
         <Glyph size={16} />
       </button>
       <span
-        className={`grow truncate font-data text-base ${
+        className={`grow truncate font-data text-sm ${
           drawn ? "text-mist" : "text-gauge"
         }`}
       >

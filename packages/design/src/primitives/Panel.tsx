@@ -45,10 +45,30 @@ export function PanelSection({
       aria-label={eyebrow}
       {...rest}
     >
-      <h2 className="font-display text-2xs uppercase tracking-[0.18em] text-gauge px-3 pt-3 pb-1">
+      {/*
+        THE RULED CAPTION BAR — the density pass's one bold move (founder,
+        2026-08-28: "not in any form compact like the header").
+
+        The eyebrow used to float on `pt-3 pb-1` with the body carrying another
+        `pb-2`: 39px of chrome per section before a single row of content, and
+        an inspector with six sections spent 234px saying nothing. A drawing's
+        schedule does not float its captions — it RULES them, and this file has
+        claimed the title-block metaphor since day one without ever drawing that
+        line. Ruling the caption is what lets the padding go: the rule does the
+        separating that 12px of air was doing, so the section reads as MORE of a
+        title block at 24px than it did at 39.
+
+        Measured on the part workspace (`e2e/panel-density.spec.ts`, before vs
+        after): section-to-section pitch 122.5px -> 101px, and the caption band
+        itself is a 24px row like every other row in the panel.
+
+        The accessible name is untouched (`aria-label={eyebrow}`) — several suites
+        address these groups by name, and a density pass may not rename anything.
+      */}
+      <h2 className="flex min-h-target-dense items-center border-b border-hairline px-3 py-1 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
         {eyebrow}
       </h2>
-      <div className="pb-2">{children}</div>
+      <div className="py-0.5">{children}</div>
     </div>
   );
 }
@@ -144,7 +164,11 @@ export function PanelActionCell({
       aria-describedby={describedBy}
       onClick={handleClick}
       className={cx(
-        "block w-full px-3 py-2 text-left transition-colors duration-fast",
+        // `min-h-target` (32px, comfortable) rather than the 24px dense floor:
+        // this is an ACTION, and the density pass is not licence to shrink the
+        // things a modeller commits with. The 8px of vertical padding it used
+        // to carry on top of that was slack, not target.
+        "block min-h-target w-full px-3 py-1 text-left transition-colors duration-fast",
         "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
         isDisabled ? "cursor-not-allowed opacity-50" : "hover:bg-carbide",
         className,
@@ -197,13 +221,28 @@ export function PanelActionCell({
 export function PanelRow({ label, unit, children, ...rest }: PanelRowProps) {
   return (
     <div
-      className="flex items-baseline gap-2 px-3 py-1"
+      // ONE 24px BAND per cell — the same target height the header's tool row
+      // holds (`target.dense`, WCAG 2.2 SC 2.5.8), so a modeller reading the
+      // inspector is reading the toolbar's rhythm. `py-1` + a 13px value made
+      // this 27.5px, which is the pitch of a settings dialog, not an instrument.
+      //
+      // `items-center` rather than `items-baseline`: inside a min-height band a
+      // baseline pins the text to the TOP and leaves the slack below, which is
+      // what makes a nominally-dense row still photograph as loose. The
+      // label/value size difference is 1px, so nothing reads as misaligned.
+      className="flex min-h-target-dense items-center gap-2 px-3 py-0.5"
+      // Density hook: `e2e/panel-density.spec.ts` measures the PITCH of this
+      // row family against the header's tool row. Most cells are read-only
+      // readouts that carry no testid because nothing drives them, so the
+      // family needs a name of its own or the measurement has to guess
+      // structurally — and a structural guess breaks the moment the markup does.
+      data-panel-cell
       data-testid={rest["data-testid"]}
     >
       <span className="font-body text-xs text-gauge min-w-12 shrink-0">
         {label}
       </span>
-      <span className="font-data text-base text-mist text-right grow tabular-nums break-all">
+      <span className="font-data text-sm text-mist text-right grow tabular-nums break-all">
         {children}
       </span>
       {unit ? (
