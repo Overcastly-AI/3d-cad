@@ -15,10 +15,42 @@ import {
   ViewTopIcon,
 } from "@loft/design";
 
-import { useViewCommandStore } from "../viewport/viewCommands";
+import {
+  PROJECTION_SHORTCUT,
+  useViewCommandStore,
+} from "../viewport/viewCommands";
+
+/**
+ * The projection cell — the rail's one WORD, and deliberately a word.
+ *
+ * A drawing states its projection convention in the title block, in engraved
+ * caps, because the reader has to know which one they are measuring against;
+ * this rail cell is the same statement about the live view. It is a readout AND
+ * the control that changes it: the projection moves on its own when a named
+ * view is asked for (`viewCommands.orients`), so a plain icon toggle would
+ * leave the modeller guessing which mode a snap had just put them in. The word
+ * always says which. Brass = parallel, i.e. what you see is what you can
+ * measure; mist = perspective, the free look.
+ *
+ * Typeset with `ToolButton`'s own label classes so the cell is
+ * indistinguishable from a labelled tool — no new primitive, no second visual
+ * language in a six-button rail.
+ */
+function ProjectionMark({ parallel }: { parallel: boolean }) {
+  return (
+    <span className="font-display text-2xs uppercase tracking-[0.12em]">
+      {parallel ? "Ortho" : "Persp"}
+    </span>
+  );
+}
 
 export function ViewBar() {
   const request = useViewCommandStore((state) => state.request);
+  const projection = useViewCommandStore((state) => state.projection);
+  const toggleProjection = useViewCommandStore(
+    (state) => state.toggleProjection,
+  );
+  const parallel = projection === "orthographic";
   return (
     <div
       data-testid="view-bar"
@@ -78,6 +110,22 @@ export function ViewBar() {
         tooltipSide="top"
         data-testid="view-iso"
         onClick={() => request("iso")}
+      />
+      <span aria-hidden className="my-1 w-px bg-hairline" />
+      <ToolButton
+        icon={<ProjectionMark parallel={parallel} />}
+        // The tooltip names the state; the caption names the action, so the
+        // button never has to be both at once.
+        label={parallel ? "Orthographic" : "Perspective"}
+        caption={parallel ? "Switch to perspective" : "Switch to orthographic"}
+        shortcut={PROJECTION_SHORTCUT}
+        active={parallel}
+        tooltipSide="top"
+        data-testid="view-projection"
+        aria-label={
+          parallel ? "Projection: orthographic" : "Projection: perspective"
+        }
+        onClick={toggleProjection}
       />
     </div>
   );

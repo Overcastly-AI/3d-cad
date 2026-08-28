@@ -1,7 +1,12 @@
 import { Vector3 } from "three";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-import { safeUp, upFor, VIEW_DIRECTIONS } from "./viewCommands";
+import {
+  safeUp,
+  upFor,
+  useViewCommandStore,
+  VIEW_DIRECTIONS,
+} from "./viewCommands";
 
 /**
  * The camera-basis helpers behind every framing (FB-20).
@@ -99,5 +104,80 @@ describe("safeUp", () => {
     const rolled = new Vector3(0.3, 0.9, 0).normalize();
     const view = dir(0.6, 0.5, 0.6);
     expect(safeUp(view, rolled)).toBe(rolled);
+  });
+});
+
+/**
+ * WHICH COMMANDS ARM ORTHOGRAPHIC (ORTHO-1).
+ *
+ * The policy lives on the store because every instrument routes through it —
+ * the rail, the numeric snaps, the viewport context menu and the reference
+ * cube. These cases are what stops it becoming four policies.
+ */
+describe("projection policy", () => {
+  beforeEach(() => {
+    useViewCommandStore.setState({ command: null, projection: "perspective" });
+  });
+
+  it("opens perspective — the resting bench view keeps its depth", () => {
+    expect(useViewCommandStore.getState().projection).toBe("perspective");
+  });
+
+  it("arms orthographic for every named view", () => {
+    // The ticket's whole complaint: FRONT is opened to CHECK something, and a
+    // perspective FRONT cannot answer the question it was opened for.
+    for (const kind of ["front", "top", "right", "iso", "home"] as const) {
+      useViewCommandStore.setState({ projection: "perspective" });
+      useViewCommandStore.getState().request(kind);
+      expect(useViewCommandStore.getState().projection, kind).toBe(
+        "orthographic",
+      );
+    }
+  });
+
+  it("arms orthographic for a reference-cube pick", () => {
+    // A cube facet click is the same act as pressing FRONT, by another
+    // instrument — landing in a perspective view of a face is the same defect
+    // from the other direction.
+    useViewCommandStore.getState().requestDirection([0, 0, 1]);
+    expect(useViewCommandStore.getState().projection).toBe("orthographic");
+  });
+
+  it("leaves the projection alone on FIT — it frames, it does not orient", () => {
+    // Fit is also fired by the chrome itself when a panel collapses
+    // (`VIEWPORT_CHROME_EVENT`). A fit that switched projection would mean
+    // closing the inspector silently changed how the model is drawn.
+    useViewCommandStore.getState().request("fit");
+    expect(useViewCommandStore.getState().projection).toBe("perspective");
+    useViewCommandStore.setState({ projection: "orthographic" });
+    useViewCommandStore.getState().request("fit");
+    expect(useViewCommandStore.getState().projection).toBe("orthographic");
+  });
+
+  it("still issues the command it was asked for", () => {
+    // The projection is a side effect; nonce-keyed command dispatch is the job.
+    const before = useViewCommandStore.getState().command?.nonce ?? 0;
+    useViewCommandStore.getState().request("front");
+    const command = useViewCommandStore.getState().command;
+    expect(command?.kind).toBe("front");
+    expect(command?.nonce).toBe(before + 1);
+  });
+
+  it("toggles both ways and is its own inverse", () => {
+    const { toggleProjection } = useViewCommandStore.getState();
+    toggleProjection();
+    expect(useViewCommandStore.getState().projection).toBe("orthographic");
+    toggleProjection();
+    expect(useViewCommandStore.getState().projection).toBe("perspective");
+  });
+
+  it("keeps the projection through a free orbit — nothing silently flips it", () => {
+    // The decision stated in the commit: orbiting away from a named view does
+    // NOT hand perspective back. Orbit writes no command at all, so the only
+    // way the projection can move is a named view or the toggle — which is
+    // exactly what makes the rail's word trustworthy.
+    useViewCommandStore.getState().request("front");
+    useViewCommandStore.setState({ command: null }); // an orbit issues nothing
+    expect(useViewCommandStore.getState().projection).toBe("orthographic");
   });
 });

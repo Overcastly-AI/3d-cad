@@ -205,6 +205,23 @@ export function perspectiveMmPerPixel(
   );
 }
 
+/**
+ * The parallel-projection counterpart: one screen pixel in world mm under an
+ * ORTHOGRAPHIC camera (ORTHO-1).
+ *
+ * Neither distance nor field of view appears, because neither can change the
+ * scale of a parallel projection — that is the definition of one. With r3f's
+ * frustum convention (canvas half-extents in CSS pixels) one world unit
+ * measures exactly `zoom` pixels, so the inverse is the whole formula.
+ *
+ * Returns 0 for a nonsensical zoom, matching `perspectiveMmPerPixel`'s
+ * degenerate contract, so a caller's drag rate collapses to "no movement"
+ * rather than to infinity.
+ */
+export function orthographicMmPerPixel(zoom: number): number {
+  return zoom > 0 ? 1 / zoom : 0;
+}
+
 /** Clamp a depth into the range the form can actually submit. */
 export function clampDepth(mm: number): number {
   return Math.min(MAX_DEPTH_MM, Math.max(MIN_DEPTH_MM, mm));

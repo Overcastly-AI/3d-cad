@@ -75,6 +75,7 @@ import {
   MAX_DEPTH_MM,
   MIN_DEPTH_MM,
   nudgeDepth,
+  orthographicMmPerPixel,
   perspectiveMmPerPixel,
   quantizeDepth,
   screenDragDepth,
@@ -321,6 +322,17 @@ export function ExtrudeDragHandle({
       } else {
         const rect = canvas.getBoundingClientRect();
         const at = tipPoint(axis, depthMm);
+        // Under a PARALLEL projection the scale is a property of the camera
+        // alone — depth cannot change it — so the perspective formula (which is
+        // all distance) would report a drag rate that is simply wrong once
+        // ORTHO-1's toggle is on. Read the zoom instead; see
+        // `orthographicMmPerPixel`.
+        const parallel =
+          "isOrthographicCamera" in camera &&
+          (camera as { isOrthographicCamera?: boolean })
+            .isOrthographicCamera === true
+            ? (camera as unknown as { zoom: number }).zoom
+            : null;
         const fov =
           "isPerspectiveCamera" in camera &&
           (camera as { isPerspectiveCamera?: boolean }).isPerspectiveCamera ===
@@ -331,11 +343,14 @@ export function ExtrudeDragHandle({
           mode: "screen",
           y: event.clientY,
           depth: depthMm,
-          mmPerPixel: perspectiveMmPerPixel(
-            fov,
-            camera.position.distanceTo(at),
-            rect.height,
-          ),
+          mmPerPixel:
+            parallel !== null
+              ? orthographicMmPerPixel(parallel)
+              : perspectiveMmPerPixel(
+                  fov,
+                  camera.position.distanceTo(at),
+                  rect.height,
+                ),
         };
       }
       setGrabbed(true);
