@@ -798,6 +798,25 @@ recipe here in the same commit as the fix.**
   and **an SVG stroke is not a hit box**, so any pick affordance drawn as a bare
   stroked `line`/`path` needs an explicit filled hit region or it does not exist
   as a control at all.
+  **AUDITED 2026-08-27 — the answer is ONE of 22, so this was one bad affordance
+  and NOT a systemic pattern.** 18 were cargo (removing the flag changed nothing;
+  the targets measured 39×39 px at 18/18 reachable points, and a 40 mm line
+  156.2×10.2 at 14/18 with its centre resolving to itself), 3 were legitimate
+  (`aria-disabled` controls a spec deliberately clicks through), and 1 was
+  vacuous. `force: true` now appears once in `apps/web/e2e/`, inside a
+  `clickRefusedControl` helper that asserts area and `elementFromPoint`
+  reachability BEFORE forcing.
+  **The vacuous one is worth its own rule: `sr-only` IS VISIBLE to every
+  visibility API.** `nav-chrome.spec.ts` claimed "a stray click on the locked
+  Extrude is inert". While a command is open the whole tool band is `sr-only` —
+  measured `1×1 @ (-1,43)`, `clip: rect(0,0,0,0)`, `overflow:hidden`. Not
+  zero-area: *clipped out of the frame*. **`checkVisibility()` and Playwright's
+  `isVisible()` both return TRUE for it**, so the visibility check the spec was
+  leaning on could never fire, and `force` sent the synthetic click to whatever
+  was topmost — measured, `header[topbar]`. The Extrude handler was never
+  invoked, so all three assertions would have passed identically had the handler
+  discarded every pick. A test asserting something is INERT must prove the
+  handler ran and did nothing, not that a click went somewhere.
   **This is the THIRD member of one family and the family is the lesson:** an
   assertion that cannot observe the failure mode. `toBeVisible()` is a box
   property, so it passed a SAVE control shoved outside the frame; `toHaveText
