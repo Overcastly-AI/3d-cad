@@ -238,6 +238,67 @@ describe("nudgeDepth — the slider's keyboard, and only its keys", () => {
     expect(nudgeDepth(0.2, "ArrowDown", "mm", false)).toBe(MIN_DEPTH_MM);
   });
 
+  // --- the grid a press lands on (the P1-D defect, on this surface) --------
+
+  it("lands a FINE press on the fine grid, from a value a drag left behind", () => {
+    // A free (Ctrl) drag ends on whatever the pointer said. The old nudge ADDED
+    // its step to that, so 12.4713 walked to 12.9713, 13.4713, 13.9713 … and
+    // 12.5 was not reachable by any number of presses.
+    expect(nudgeDepth(12.4713, "ArrowUp", "mm", false)).toBeCloseTo(12.5, 9);
+    expect(nudgeDepth(12.4713, "ArrowDown", "mm", false)).toBeCloseTo(12, 9);
+    expect(nudgeDepth(12.7, "ArrowUp", "mm", false)).toBeCloseTo(13, 9);
+    expect(nudgeDepth(12.7, "ArrowDown", "mm", false)).toBeCloseTo(12.5, 9);
+  });
+
+  it("lands a COARSE press on the COARSE grid — 11 goes to 15, not 16", () => {
+    // Shift quantises to ITS OWN grid, the drawing sheet's rule (`nudgePlacement`,
+    // 1e8d8a3). A coarse press is for traversing to the round numbers a part is
+    // dimensioned in, and those are the decade marks the gauge's ladder draws.
+    expect(nudgeDepth(11, "ArrowUp", "mm", true)).toBe(15);
+    expect(nudgeDepth(11, "ArrowDown", "mm", true)).toBe(10);
+    expect(nudgeDepth(12.4713, "ArrowUp", "mm", true)).toBe(15);
+    expect(nudgeDepth(12.4713, "PageUp", "mm", false)).toBe(15);
+  });
+
+  it("lets two separately-dragged depths meet on the same number", () => {
+    // THE POINT of all of the above: a boss and the pocket that has to clear it
+    // must be able to be given the same depth from the keyboard. Two values a
+    // pointer produced independently, each pressed once, arrive together.
+    expect(nudgeDepth(12.4713, "ArrowUp", "mm", false)).toBe(
+      nudgeDepth(12.31, "ArrowUp", "mm", false),
+    );
+    expect(nudgeDepth(23.71, "ArrowUp", "mm", true)).toBe(
+      nudgeDepth(22.04, "ArrowUp", "mm", true),
+    );
+    // …and the drawing surface's own headline case, in depth: a value a drag
+    // left at 23.71 reaches the round 25 in ONE coarse press.
+    expect(nudgeDepth(23.71, "ArrowUp", "mm", true)).toBe(25);
+  });
+
+  it("always moves, and always in the direction pressed", () => {
+    // `round(v/s)` is within half a step of `v/s`, so one step along it always
+    // clears `v` — a quantising nudge can never no-op or reverse.
+    for (const from of [0.7, 3.2, 10, 12.4713, 99.99, 1000.25]) {
+      for (const shift of [false, true]) {
+        const up = nudgeDepth(from, "ArrowUp", "mm", shift) as number;
+        const down = nudgeDepth(from, "ArrowDown", "mm", shift) as number;
+        expect(up).toBeGreaterThan(from);
+        expect(down).toBeLessThan(from);
+      }
+    }
+  });
+
+  it("keeps the imperial grid exact — no addition dust off 1/32 in", () => {
+    const step = SNAP_MM.in;
+    for (let i = 1; i <= 8; i += 1) {
+      const from = step * i + 0.0001;
+      const up = nudgeDepth(from, "ArrowUp", "in", false) as number;
+      // Exactly a multiple of the step, not merely close to one: the value is
+      // computed as ONE multiply, so it is the float nearest to (i+1)*step.
+      expect(up).toBe(step * (i + 1));
+    }
+  });
+
   it("returns null for a key that is not ours, so the app still sees it", () => {
     // Enter must reach the editor's submit, Escape its cancel: a slider that
     // swallowed them would make the handle a dead end.

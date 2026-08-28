@@ -68,6 +68,27 @@ export function keyStepMm(unit: LengthUnit): number {
 /** Coarse multiplier for Shift + arrow / PageUp / PageDown. */
 export const COARSE_STEP_FACTOR = 10;
 
+/**
+ * How close two depths must be to count as THE SAME LENGTH — 1e-4 mm, the
+ * kernel's own linear tolerance.
+ *
+ * Used by the handle to recognise its own value coming back around the
+ * round trip. It cannot be an exact comparison: the value passes through the
+ * editor's field as a DISPLAY STRING, and `lengthInputValue` guarantees only
+ * that the shown value round-trips to within 1e-5 mm of the stored one (see its
+ * note — the seed precision is deliberately unit-aware for exactly this
+ * reason). On a millimetre document the round trip is exact; on an inch one it
+ * is not, and an equality test would therefore read every acknowledgement as a
+ * stranger's edit — on inch parts only, which is the worst way for a bug to be
+ * unit-dependent.
+ */
+export const DEPTH_EPSILON_MM = 1e-4;
+
+/** True when two depths are the same length to within {@link DEPTH_EPSILON_MM}. */
+export function sameDepth(a: number, b: number): boolean {
+  return Math.abs(a - b) <= DEPTH_EPSILON_MM;
+}
+
 /** Where the gauge is anchored and which way it pulls, in scene mm. */
 export interface HandleAxis {
   /** Anchor on the sketch plane — the profile's area-weighted centre. */
@@ -249,21 +270,89 @@ export function quantizeDepth(
 }
 
 /**
+ * How near a multiple of the step counts as ON it — a relative epsilon, applied
+ * to the step COUNT rather than to the length, because that is the quantity
+ * {@link steppedDepth} floors.
+ */
+const GRID_EPSILON = 1e-9;
+
+/**
+ * One press of `step`, from wherever you are: THE NEXT MULTIPLE OF `step` IN
+ * THE DIRECTION PRESSED.
+ *
+ * THE GRID YOU LAND ON IS THE GRID OF THE KEY YOU PRESSED — that is the whole
+ * rule, and it is the drawing sheet's rule too (`nudgePlacement`,
+ * `apps/web/src/drawing/authoring.ts`, fixed in `1e8d8a3`; see the note on
+ * {@link nudgeDepth} for why the two are not one function). The step used to be
+ * ADDED to whatever the drag left behind, which sounds like a spinner and is a
+ * much weaker promise: a free (Ctrl) drag leaves 12.4713, and every press after
+ * it lands on 12.9713, 13.4713, 17.4713 — an offset lattice with no round
+ * number anywhere in it. The damage is not the ugly figure. It is that TWO
+ * features dragged separately could then never be given the same depth, so a
+ * boss and the pocket that has to clear it could not be made to agree from the
+ * keyboard, and a chain of features that cannot share a dimension is the same
+ * failure as a chain of dimensions that cannot line up.
+ *
+ * Every fine press therefore lands on the fine grid and every coarse press on
+ * the COARSE one — 11 mm, Shift+Up, gives 15, not 16. That is deliberate: the
+ * coarse step exists to traverse, the round numbers a part is dimensioned in
+ * are the decade marks, and those are the very graduations {@link ladderTicks}
+ * draws on the gauge, so a coarse press lands on a tick the user can see.
+ *
+ * NEXT multiple, not "nearest multiple then one along". The two differ only off
+ * the grid and the difference is the whole usefulness of the first press: from
+ * 12.4713 this gives 12.5, where nearest-then-along gives 13 and SKIPS the very
+ * value the user is standing next to. (It also stops Shift+Down from 11 mm
+ * meaning 5 mm — nearest-then-along rounds 11 to 10 and then subtracts a whole
+ * coarse step. It means 10, which is what anyone would expect.) It cannot
+ * no-op: a value already on the grid moves one full step, which is the
+ * `already` branch.
+ */
+export function steppedDepth(
+  current: number,
+  step: number,
+  sign: 1 | -1,
+): number {
+  if (!Number.isFinite(step) || step <= 0) {
+    return clampDepth(current + sign * step);
+  }
+  const count = current / step;
+  const nearest = Math.round(count);
+  const already = Math.abs(count - nearest) <= GRID_EPSILON;
+  const landing = already
+    ? nearest + sign
+    : sign > 0
+      ? Math.floor(count) + 1
+      : Math.ceil(count) - 1;
+  // ONE multiply, so the answer is the float nearest to a multiple of the step
+  // and carries no addition dust — which matters for the imperial steps (1/32
+  // in is 0.79375 mm) that {@link quantizeDepth} deliberately declines to round.
+  return clampDepth(landing * step);
+}
+
+/**
  * The depth a key press means, or null when the key is not ours.
  *
  * Up/Right grow the sweep, Down/Left shrink it — the direction the value moves
  * on screen, not the direction of the axis in space (which points wherever the
  * camera happens to have put it). Shift and the Page keys take ten steps, the
- * spinner convention every numeric control in this app already follows.
+ * spinner convention every numeric control in this app already follows, and
+ * each modifier quantises to ITS OWN grid ({@link steppedDepth}).
  *
  * Null for any other key, which is load-bearing rather than tidy: Enter must
  * still reach the editor's submit and Escape its cancel, or the one control
  * that finally lets you set a depth by hand becomes the one place you cannot
  * finish (the flow rule's "no dead ends").
  *
- * The step is ADDED, not rounded onto a grid: a value arrived at by a free drag
- * keeps its offset, exactly as a spinner does, and adding an exact step to it
- * costs nothing in precision.
+ * NOT SHARED WITH THE DRAWING SHEET'S NUDGE, deliberately. `nudgePlacement`
+ * moves a 2-D seat on an authoring state machine in sheet millimetres; this
+ * moves a 1-D depth clamped to a submittable range, with the step derived from
+ * the document unit and a key map of its own. The only thing genuinely common
+ * to them is `round(v/s)*s`, three lines of arithmetic — extracting THAT into a
+ * shared module would move a primitive out of both files without removing a
+ * line of duplicated logic from either, which is the premature abstraction the
+ * DRY rule explicitly excludes. What the two must share is the RULE, so it is
+ * stated in both places and each points at the other.
  */
 export function nudgeDepth(
   current: number,
@@ -275,14 +364,14 @@ export function nudgeDepth(
   switch (key) {
     case "ArrowUp":
     case "ArrowRight":
-      return clampDepth(current + step);
+      return steppedDepth(current, step, 1);
     case "ArrowDown":
     case "ArrowLeft":
-      return clampDepth(current - step);
+      return steppedDepth(current, step, -1);
     case "PageUp":
-      return clampDepth(current + step * COARSE_STEP_FACTOR);
+      return steppedDepth(current, step * COARSE_STEP_FACTOR, 1);
     case "PageDown":
-      return clampDepth(current - step * COARSE_STEP_FACTOR);
+      return steppedDepth(current, step * COARSE_STEP_FACTOR, -1);
     default:
       return null;
   }
