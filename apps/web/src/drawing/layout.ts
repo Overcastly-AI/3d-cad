@@ -16,6 +16,7 @@
 import { drawing } from "@loft/design";
 
 import type {
+  BoundingBox,
   ComposedEdge,
   EdgeSignature,
   ProjectedPoint,
@@ -312,6 +313,23 @@ export interface ModelExtents {
   x: number;
   y: number;
   z: number;
+}
+
+/**
+ * The side lengths of a world-mm AABB — the ONE conversion between what the
+ * server reports (min/max corners) and what {@link fitScale} reads.
+ *
+ * Shared on purpose: a part reads its box off `evaluate`'s mass properties and
+ * an assembly off `GET /assemblies/{id}/extents`, and both are the same
+ * generated `BoundingBox`. Two hand-rolled `max.x - min.x` triples are how the
+ * assembly branch came to be forgotten in the first place (ASMDRAW-FIT-1b).
+ */
+export function boxExtents(box: BoundingBox): ModelExtents {
+  return {
+    x: box.max.x - box.min.x,
+    y: box.max.y - box.min.y,
+    z: box.max.z - box.min.z,
+  };
 }
 
 /** Margin (sheet mm) kept between a view's footprint and its cell edge.

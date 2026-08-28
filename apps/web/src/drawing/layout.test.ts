@@ -5,6 +5,7 @@ import { drawing } from "@loft/design";
 import type { EdgeSignature, ProjectedViewEdge } from "../api/drawings";
 import {
   SHEET_SIZE_OPTIONS,
+  boxExtents,
   endpointHandlesForEdge,
   fitScale,
   sheetDimensions,
@@ -65,6 +66,27 @@ describe("SHEET_SIZE_OPTIONS (the size picker's choices)", () => {
   });
 });
 
+describe("boxExtents (the one min/max -> side-lengths conversion)", () => {
+  it("reads side lengths off a world-mm AABB, wherever it came from", () => {
+    // The assembly route's answer for the reference rig: the solved compound
+    // spans 40 x 25 x 20 with the second plate stacked on top of the first.
+    expect(
+      boxExtents({ min: { x: 0, y: 0, z: 0 }, max: { x: 40, y: 25, z: 20 } }),
+    ).toEqual({ x: 40, y: 25, z: 20 });
+  });
+
+  it("is origin-independent — a box away from the origin has the same extents", () => {
+    // A solved pose puts the compound wherever the mates put it; only the SIZE
+    // fits a scale, so a translated box must read identically.
+    expect(
+      boxExtents({
+        min: { x: -12.5, y: 4, z: -3 },
+        max: { x: 27.5, y: 29, z: 17 },
+      }),
+    ).toEqual({ x: 40, y: 25, z: 20 });
+  });
+});
+
 describe("fitScale (auto-layout fit — WB-64 dogfooding fix)", () => {
   const a4 = sheetDimensions("A4", "landscape");
 
@@ -119,6 +141,26 @@ describe("fitScale (auto-layout fit — WB-64 dogfooding fix)", () => {
     expect(onA3.numerator / onA3.denominator).toBeGreaterThan(
       onA4.numerator / onA4.denominator,
     );
+  });
+
+  it("the SOLVED and SEEDED readings of the reference rig fit DIFFERENT scales (ASMDRAW-FIT-1b)", () => {
+    // The arithmetic the assembly-fit e2e leans on, pinned here so a change to
+    // the cell model cannot quietly make that spec vacuous.
+    //
+    // Two 40x25x10 plates, the second seeded 80 mm along x and then bolted
+    // flush onto the first:
+    //   seeded roll-up  -> 120 x 25 x 10  (front view 120 mm wide, cell is 98.9)
+    //   solved compound ->  40 x 25 x 20  (everything inside its cell at 1:1)
+    // So a client that folded the graph's own placements picks 1:2 where the
+    // right answer is 1:1 — and from a 2:1 ceiling the two readings stay
+    // distinct, which is what makes "the fit ran" and "the fit ran on the
+    // solved pose" separately observable.
+    const seeded = { x: 120, y: 25, z: 10 };
+    const solved = { x: 40, y: 25, z: 20 };
+    expect(fitScale(seeded, a4, "1:1").value).toBe("1:2");
+    expect(fitScale(solved, a4, "1:1").value).toBe("1:1");
+    expect(fitScale(seeded, a4, "2:1").value).toBe("1:2");
+    expect(fitScale(solved, a4, "2:1").value).toBe("1:1");
   });
 
   it("portrait sheet swaps the cell aspect", () => {

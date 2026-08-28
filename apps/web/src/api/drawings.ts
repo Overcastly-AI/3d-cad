@@ -24,6 +24,12 @@ export type ViewUpdate = components["schemas"]["ViewUpdate"];
 export type ViewScale = components["schemas"]["ViewScale"];
 /** What a view references: a part, or an assembly (§7 — the assembly compound). */
 export type RefDocumentKind = ViewResponse["ref_document_kind"];
+/** World-mm AABB of a body/compound — the shape both a part's mass properties
+ * and an assembly's solved extents report (one schema, two sources). */
+export type BoundingBox = components["schemas"]["BoundingBox"];
+/** The SOLVED compound's extents + the solve they came out of (§4). */
+export type AssemblyExtentsResponse =
+  components["schemas"]["AssemblyExtentsResponse"];
 /** A drawing sheet's numbered bill of materials (design §7 BOM). */
 export type DrawingBomResponse = components["schemas"]["DrawingBomResponse"];
 /** One numbered parts-list line: item number + resolved name + quantity. */
@@ -414,6 +420,46 @@ export async function deleteAnnotation(
   );
   if (error !== undefined) {
     throw new Error(envelopeMessage(error, "The note could not be deleted."));
+  }
+  return data;
+}
+
+/**
+ * How big is this assembly, SOLVED — the one reading a sheet needs to fit a
+ * scale to an assembly source (ASMDRAW-FIT-1b).
+ *
+ * The assembly twin of the `bounding_box` a part caller reads off
+ * `POST /parts/{id}/evaluate`, and the reason it must be a SERVER call rather
+ * than a client-side roll-up: `bounding_box` is the union over the instances'
+ * MATE-SOLVED world poses, never their authored seeds. On the reference rig
+ * (two plates seeded 80 mm apart, then bolted flush) the seeds span 120 mm in x
+ * while the solved compound spans 40 — a client that folded the graph's own
+ * placements would lay out a sheet for a part that does not exist.
+ *
+ * `bounding_box` is null when no instance produced a body (an empty assembly):
+ * nothing to fit, never a zero box. `status` travels with the numbers, and is
+ * deliberately NOT a gate here — geometry's own
+ * `test_status_alone_cannot_distinguish_the_two` proves a seating solve and a
+ * constraint-free one both report `under_constrained`, so branching on it would
+ * behave identically in a world where the route returned seeds.
+ *
+ * NB this belongs beside its siblings in `../api/assemblies`; it lives here
+ * because the drawing fit is its only caller and this batch's territory split
+ * gives that file to another builder. Same shape either way — generated client,
+ * generated response type, server envelope message on failure.
+ */
+export async function fetchAssemblyExtents(
+  assemblyId: string,
+  client: GatewayClient = gatewayClient,
+): Promise<AssemblyExtentsResponse> {
+  const { data, error } = await client.GET(
+    "/api/v1/assemblies/{assembly_id}/extents",
+    { params: { path: { assembly_id: assemblyId } } },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The assembly could not be measured."),
+    );
   }
   return data;
 }

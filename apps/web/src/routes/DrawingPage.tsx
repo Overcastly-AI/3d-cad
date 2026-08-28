@@ -36,6 +36,7 @@ import {
   deleteAnnotation,
   deleteDimension,
   evaluateDrawingViews,
+  fetchAssemblyExtents,
   fetchDrawing,
   fetchDrawingBom,
   updateView,
@@ -100,6 +101,8 @@ import {
   SCALE_OPTIONS,
   STANDARD_VIEWS,
   VIEW_LABEL,
+  type ModelExtents,
+  boxExtents,
   fitScale,
   sheetDimensions,
   standardLayout,
@@ -150,7 +153,44 @@ const OTHER_ORIENTATION: Record<SheetOrientation, SheetOrientation> = {
 };
 
 /**
- * What each paper orientation buys THIS part, and which one the part's own
+ * How big is the drafted document — the ONE reading every fit on this page
+ * takes, for EITHER kind of source (ASMDRAW-FIT-1b).
+ *
+ * A part reads the bbox off its evaluation's mass properties; an assembly reads
+ * the SOLVED compound's extents off `GET /assemblies/{id}/extents`. The second
+ * is the whole point of this seam: an assembly's instances carry authored seed
+ * placements, and folding those client-side would size the sheet for a pose the
+ * mates have already moved. On the reference rig (two 40x25x10 plates seeded
+ * 80 mm apart, then bolted flush) the seeds span 120 mm in x and the solved
+ * compound 40 — different paper, different scale, and only the second one is
+ * the drawing the user asked for.
+ *
+ * `null` means there is nothing to fit — an assembly whose instances produced
+ * no body, or a part whose evaluation reported no box. Callers keep the user's
+ * picked scale in that case rather than substituting one: a fit with no
+ * measurement behind it is a guess, and a silently-guessed scale is worse than
+ * an honest one the sheet's own layout checks can then complain about.
+ *
+ * NB the assembly branch does NOT gate on the solve `status`. Geometry's
+ * `test_status_alone_cannot_distinguish_the_two` shows a seating solve and a
+ * constraint-free one both report `under_constrained`, so a status gate here
+ * would behave identically in a world where the route answered with seeds.
+ */
+async function fetchSourceExtents(
+  sourceId: string,
+  kind: RefDocumentKind,
+): Promise<ModelExtents | null> {
+  if (kind === "assembly") {
+    const { bounding_box: box } = await fetchAssemblyExtents(sourceId);
+    return box ? boxExtents(box) : null;
+  }
+  const evaluated = await evaluatePart(sourceId);
+  const box = evaluated.properties?.bounding_box;
+  return box ? boxExtents(box) : null;
+}
+
+/**
+ * What each paper orientation buys THIS document, and which one its own
  * extents therefore argue for. The create flow already had to fit a scale to
  * pick one (see `handleLayout`); this reuses that reading to make the choice
  * rather than defaulting to landscape and letting the user discover the cost.
@@ -416,29 +456,31 @@ export function DrawingPage() {
   });
   const partTree = partTreeQuery.data;
 
-  // The drafted part's bounding box — the ONLY input the orientation proposal
-  // needs. The layout action already evaluates the part to fit a scale; hoisting
-  // that reading here lets the sheet header say what each paper orientation
-  // buys BEFORE the user commits to one (REACH-3). A part that fails to
-  // evaluate simply yields no proposal — the cells then read state only.
-  const partBoxQuery = useQuery({
-    queryKey: ["drawing-part-box", effectivePartId, partTree?.tree_version],
-    enabled: effectivePartId !== null,
-    queryFn: () => evaluatePart(effectivePartId as string),
+  // The drafted document's extents — the ONLY input the orientation proposal
+  // needs, and the SAME reading the layout action fits its scale from
+  // (`fetchSourceExtents`), so the header cell can never promise a scale the
+  // next "Lay out" does not deliver. An assembly source is measured too
+  // (ASMDRAW-FIT-1b): before that, an assembly sheet's orientation cells read
+  // state only, silently, which is the same missing branch in a second place.
+  // A source that cannot be measured yields no proposal — the cells then read
+  // state only, honestly.
+  const sourceExtentsQuery = useQuery({
+    queryKey: [
+      "drawing-source-extents",
+      effectiveSourceId,
+      effectiveSourceKind,
+      partTree?.tree_version,
+    ],
+    enabled: effectiveSourceId !== null,
+    queryFn: () =>
+      fetchSourceExtents(effectiveSourceId as string, effectiveSourceKind),
     staleTime: Infinity,
   });
   const orientationFit = useMemo<OrientationFit | null>(() => {
-    const box = partBoxQuery.data?.properties?.bounding_box;
-    if (!box) return null;
-    return proposeOrientation(
-      {
-        x: box.max.x - box.min.x,
-        y: box.max.y - box.min.y,
-        z: box.max.z - box.min.z,
-      },
-      sizeValue,
-    );
-  }, [partBoxQuery.data, sizeValue]);
+    const extents = sourceExtentsQuery.data;
+    if (!extents) return null;
+    return proposeOrientation(extents, sizeValue);
+  }, [sourceExtentsQuery.data, sizeValue]);
 
   // Project the part into the standard views (exact HLR, server-side).
   const evalQuery = useQuery({
@@ -597,37 +639,38 @@ export function DrawingPage() {
           sheet?.orientation ?? "landscape",
         );
         const anchors = standardLayout(dims);
-        // Fit-scale: never lay out views that overflow their cells — evaluate
-        // the part's bbox and reduce the scale until the four standard views
-        // fit (the user's picked scale is a ceiling; see fitScale). A part
-        // that fails to evaluate keeps the picked scale — the layout still
-        // lands, just unfitted, and the sheet surfaces the eval error.
+        // Fit-scale: never lay out views that overflow their cells — measure
+        // the source and reduce the scale until the four standard views fit
+        // (the user's picked scale is a ceiling; see fitScale). EITHER kind of
+        // source is measurable now (`fetchSourceExtents`): a part by its bbox,
+        // an ASSEMBLY by its SOLVED compound's extents. Before that route
+        // existed the assembly branch kept the picked scale, and a rig whose
+        // instances were seeded apart laid out at 1:1 with its right view
+        // straddling the title block (ASMDRAW-FIT-1b, and the founder's
+        // parts-list screenshot).
         //
-        // An ASSEMBLY keeps the picked scale for now: fitting one needs the
-        // SOLVED compound's extents, which is a mate solve rather than the
-        // single-part bbox `fitScale` reads. Same honest posture the lone
-        // flat-pattern view takes below; the composer's own `views_overlap` /
-        // `views_crowded` measurements still surface in the check strip, so an
-        // unfitted assembly sheet says so rather than looking fine. (BACKLOG.)
+        // A source that cannot be measured keeps the picked scale — the layout
+        // still lands, just unfitted, and the composer's own `views_overlap` /
+        // `views_crowded` measurements surface in the check strip, so a sheet
+        // that could not be fitted says so rather than looking fine.
+        //
+        // This fit runs ONCE, here, at layout time. A later re-solve that moves
+        // the extents does NOT re-scale a sheet already on screen: the scale of
+        // a laid-out sheet is the user's (they can re-pick it, and a dragged
+        // view is pinned `auto_place:false`), and re-flowing paper under
+        // someone editing mates in another tab is the "no surprises" half of
+        // the flow rule. The check strip tells them; it never moves them.
         let fittedValue = scaleValue;
-        if (selectedSourceKind === "part") {
-          try {
-            const evaluated = await evaluatePart(selectedSourceId);
-            const box = evaluated.properties?.bounding_box;
-            if (box) {
-              fittedValue = fitScale(
-                {
-                  x: box.max.x - box.min.x,
-                  y: box.max.y - box.min.y,
-                  z: box.max.z - box.min.z,
-                },
-                dims,
-                scaleValue,
-              ).value;
-            }
-          } catch {
-            // keep the picked scale
+        try {
+          const extents = await fetchSourceExtents(
+            selectedSourceId,
+            selectedSourceKind,
+          );
+          if (extents) {
+            fittedValue = fitScale(extents, dims, scaleValue).value;
           }
+        } catch {
+          // keep the picked scale
         }
         const scale = scaleFromValue(fittedValue);
         for (const projection of STANDARD_VIEWS) {
