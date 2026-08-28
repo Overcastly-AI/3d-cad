@@ -20,6 +20,14 @@ import {
  *       bend table reads R0.10 (HEM-1 — see `HEM_CLOSED_RADIUS_MM`).
  *   (b) a CLOSED HEM REFUSING an open-hem radius — the other half of that rule,
  *       with the recovery a user needs when they hit it.
+ *   (b1) the RADIUS THE EDITOR SUGGESTS being one the evaluator accepts — the
+ *       hint used to name 0.5 × gauge (the OPEN ratio) for a closed hem, so the
+ *       product walked the user into (b)'s refusal and then repeated the advice
+ *       in the edit form (HEM-1C). The number is read off the rendered card and
+ *       typed back in, so the case cannot pass by agreeing with itself.
+ *   (b2) an OPEN HEM authored by clicking (HEM-1D) — `hem_type` was hardcoded
+ *       `closed`, so the shape the API ships was unreachable. Asserted by the
+ *       gap it leaves (1 × gauge), not by a 2xx.
  *   (c) a TRAY with a RELIEVED CORNER — a base flange + two PERPENDICULAR edge
  *       flanges (adjacent edges meeting at a corner), then a corner relief that
  *       references those two edge-flange FEATURES; the notch appears in the body
@@ -143,12 +151,30 @@ const K_FACTOR = 0.44;
  */
 const HEM_CLOSED_RADIUS_MM = 0.05 * GAUGE_MM;
 
-/** Overall height of a hemmed plate: parent layer + air gap + returned layer. */
-const HEMMED_HEIGHT_MM = GAUGE_MM + 2 * HEM_CLOSED_RADIUS_MM + GAUGE_MM;
+/** Overall height of a plate hemmed at `radiusMm`: layer + air gap (2R) + layer. */
+function hemmedHeightMm(radiusMm: number): number {
+  return GAUGE_MM + 2 * radiusMm + GAUGE_MM;
+}
+
+/** Overall height of a plate with the DEFAULT closed hem. */
+const HEMMED_HEIGHT_MM = hemmedHeightMm(HEM_CLOSED_RADIUS_MM);
 
 /** A radius that describes an OPEN hem on this gauge — refused for a closed one
  *  (`hem_type_radius_conflict`). 1 mm is 0.5 x gauge, the open-hem ratio. */
 const OPEN_HEM_RADIUS_MM = 1;
+
+/**
+ * The closed/open BOUNDARY on this gauge: 0.125 x 2 mm. A closed hem is refused
+ * a radius above it, an open hem one below it, and it belongs to both. Restated
+ * here rather than imported for the same reason as `HEM_CLOSED_RADIUS_MM`: a
+ * band computed from the code under test could not fail.
+ */
+const HEM_BOUNDARY_RADIUS_MM = 0.25;
+
+/** Every number in a string, as numbers — the reading a user does off the card. */
+function numbersIn(text: string): number[] {
+  return (text.match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
+}
 
 /**
  * Click the TOP-PLATE edge whose mid-span is extreme along `axis` (x or y) — the
@@ -395,6 +421,158 @@ test("a closed hem REFUSES an open-hem radius, names the fix, and the editor rec
   await expect
     .poll(async () => (await extentsMm(page))[2], { timeout: 30_000 })
     .toBeCloseTo(HEMMED_HEIGHT_MM, 3);
+});
+
+test("the radius the hem editor suggests is one the evaluator accepts", async ({
+  page,
+}) => {
+  // HEM-1C. The card used to advise `≈0.5 × gauge` for a CLOSED hem — the OPEN
+  // ratio, and the exact value the case above proves is refused — so following
+  // the product's own guidance produced `hem_type_radius_conflict`, and the hint
+  // persisted into the EDIT form afterwards: the only advice on screen was the
+  // advice that had just failed. This types the card's OWN number back in, so it
+  // cannot pass by agreeing with itself.
+  const partId = await seedSketchPart(page, "Hem hint (clicked)", 50, 30);
+  await page.goto(`/parts/${partId}`);
+  await authorBaseFlange(page);
+
+  await page.getByTestId("new-hem").click();
+  await expect(page.getByTestId("hem-editor")).toBeVisible();
+
+  // With no override, the card states where the radius COMES from. It must not
+  // claim the base flange (a hem does not inherit it — HEM-1) and must name the
+  // derived value, so the number is legible before anything is typed.
+  const derived = page.getByTestId("hem-override-radius");
+  await expect(derived).not.toContainText("base flange");
+  await expect(derived).toContainText(`${HEM_CLOSED_RADIUS_MM} mm`);
+  // The gap is what that radius MEANS — the reading a feeler gauge would give.
+  await expect(page.getByTestId("hem-gap-readout")).toHaveText(
+    `${2 * HEM_CLOSED_RADIUS_MM} mm (0.1 × gauge)`,
+  );
+
+  // Turn the override on and read the guidance the user reads.
+  await page.getByTestId("hem-override-radius").click();
+  const hint = (await derived.innerText()).replace(
+    /^Override bend radius\n/,
+    "",
+  );
+  const suggested = numbersIn(hint);
+  expect(suggested.length, `guidance named no number: ${hint}`).toBeGreaterThan(
+    0,
+  );
+  // EVERY number the card offers must be one a closed hem can take. Before the
+  // fix this line reported 1 — 0.5 × gauge, four times the ceiling.
+  for (const value of suggested) {
+    expect(
+      value,
+      `the card offers ${value} mm, which a closed hem is refused for`,
+    ).toBeLessThanOrEqual(HEM_BOUNDARY_RADIUS_MM);
+    expect(value).toBeGreaterThan(0);
+  }
+
+  // Type the first number the card named, and build it.
+  const typed = suggested[0] as number;
+  await page.getByTestId("hem-bend-radius").fill(String(typed));
+  // Nothing objects to the card's own suggestion (the advisory note is for a
+  // radius that contradicts the type — see the next case).
+  await expect(page.getByTestId("hem-radius-conflict")).toHaveCount(0);
+  await pickTopEdge(page, "x", 1);
+  await expect(page.getByTestId("hem-pick-count")).toHaveText("1 edge picked");
+  await page.getByTestId("hem-length").fill("8");
+
+  // Founder frame: the card as the user reads it while typing the radius.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.mouse.move(700, 450);
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/sheet-metal-hem-radius-1280.png`,
+  });
+
+  await page.getByTestId("hem-submit").click();
+  await expect(page.getByTestId("hem-editor")).toBeHidden({ timeout: 30_000 });
+  // It SOLVES. This is the assertion the defect fails: the suggested 1 mm came
+  // back `Failed` with `hem_type_radius_conflict`.
+  await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId("feature-error-2")).toHaveCount(0);
+  // …and it builds the hem the number describes — the gap is exactly 2 × R.
+  await expect
+    .poll(async () => (await extentsMm(page))[2], { timeout: 30_000 })
+    .toBeCloseTo(hemmedHeightMm(typed), 3);
+});
+
+test("an OPEN hem is authorable by clicking, and leaves one gauge of air", async ({
+  page,
+}) => {
+  // HEM-1D. `buildHemParams` hardcoded `hem_type: "closed"` and the card had no
+  // type control, so the open hem HEM-1 shipped on the API could not be reached
+  // by clicking at all — and an open hem is the only route to the wide gap the
+  // old default was silently producing.
+  const partId = await seedSketchPart(page, "Open hem (clicked)", 50, 30);
+  await page.goto(`/parts/${partId}`);
+  await authorBaseFlange(page);
+
+  await page.getByTestId("new-hem").click();
+  await expect(page.getByTestId("hem-editor")).toBeVisible();
+  await expect(page.getByTestId("hem-fold-readout")).toHaveText(
+    "180° (closed)",
+  );
+
+  // A user who wants the opening reaches it in one click, and the card says what
+  // they will get BEFORE the rebuild.
+  await page.getByTestId("hem-type-open").click();
+  await expect(page.getByTestId("hem-type-open")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByTestId("hem-fold-readout")).toHaveText("180° (open)");
+  await expect(page.getByTestId("hem-gap-readout")).toHaveText(
+    `${2 * OPEN_HEM_RADIUS_MM} mm (1 × gauge)`,
+  );
+
+  await pickTopEdge(page, "x", 1);
+  await expect(page.getByTestId("hem-pick-count")).toHaveText("1 edge picked");
+  await page.getByTestId("hem-length").fill("8");
+  await page.getByTestId("hem-submit").click();
+  await expect(page.getByTestId("hem-editor")).toBeHidden({ timeout: 30_000 });
+  await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+    timeout: 30_000,
+  });
+
+  // ASSERTED ON THE BUILT BODY, not on a 2xx. A params model is pydantic-default
+  // `extra="ignore"`, so a misspelled `hem_type` would validate, evaluate and
+  // quietly give the CLOSED reading — which stands 4.2 mm, not 6.0. Two
+  // independent readings, because the radius moves both: the plate must stand
+  // gauge + 1 gauge of air + gauge, and grow in plan by radius + gauge.
+  await expect
+    .poll(async () => (await extentsMm(page))[2], { timeout: 30_000 })
+    .toBeCloseTo(hemmedHeightMm(OPEN_HEM_RADIUS_MM), 3);
+  const [dx, dy] = await extentsMm(page);
+  expect(dy).toBeCloseTo(30, 3);
+  expect(dx).toBeCloseTo(50 + OPEN_HEM_RADIUS_MM + GAUGE_MM, 3);
+
+  // The type PERSISTED: re-opening the feature seeds the form from the stored
+  // params, so a hem that merely built wide would show as closed here.
+  await page.getByTestId("feature-select-2").click();
+  await expect(page.getByTestId("hem-editor")).toBeVisible();
+  await expect(page.getByTestId("hem-type-open")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByTestId("hem-fold-readout")).toHaveText("180° (open)");
+
+  // NO DEAD END: the radius that the closed hem refuses is legal HERE, and the
+  // card says so — the same 1 mm, now with the type that means it.
+  await page.getByTestId("hem-override-radius").click();
+  await page.getByTestId("hem-bend-radius").fill(String(OPEN_HEM_RADIUS_MM));
+  await expect(page.getByTestId("hem-radius-conflict")).toHaveCount(0);
+  // …and switching back to closed states the refusal BEFORE the rebuild, naming
+  // the way out, instead of spending a rebuild to discover it.
+  await page.getByTestId("hem-type-closed").click();
+  const conflict = page.getByTestId("hem-radius-conflict");
+  await expect(conflict).toContainText(`${2 * OPEN_HEM_RADIUS_MM} mm gap`);
+  await expect(conflict).toContainText("Switch the type to Open");
+  await expect(conflict).toContainText(`at most ${HEM_BOUNDARY_RADIUS_MM} mm`);
 });
 
 test("model a tray with a relieved corner by clicking: two edge flanges → corner relief", async ({

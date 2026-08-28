@@ -739,11 +739,25 @@ below.**
 
 ## Next (P2)
 
-- [ ] (P2, S) **HEM-1C — the hem editor still says the radius is inherited
-      from the base flange, and nudges the user toward the one value the
-      server now refuses.** **IN FLIGHT (frontend-builder,
-      `apps/web/src/components/HemEditor.tsx`) — do not dispatch, groom pass
-      18.** kind: defect (HEM-1 fallout, found by qa-tester
+- [x] (P2, S) **HEM-1C CLOSED (frontend-builder, 2026-08-28) — the hem card now
+      derives every number it shows from the hem rule, and a spec types the
+      card's own suggestion back in.** Both false strings are gone: the radius
+      row reads "Set by the hem type and the 2 mm gauge: 0.1 mm" (no base-flange
+      claim; K-factor still says "Inherits 0.44 from the base flange", because K
+      IS inherited), and the override guidance reads "Use at most 0.25 mm for a
+      closed hem; 0.1 mm presses it flat" — every number in it one the evaluator
+      accepts. The ratios live in ONE place (`sheetMetal.ts`, mirrored from
+      `py_kit.schemas.features`) and a unit test PINS all three against the
+      py-kit source, so the mirror cannot drift silently. New: a live `Gap`
+      readout (`0.2 mm (0.1 × gauge)`) — the quantity HEM-1 got wrong while
+      every status read ok — and an advisory that states the refusal BEFORE the
+      rebuild, naming the one-click fix. MUTATION EVIDENCE: restoring the
+      0.5 × gauge hint reddens the e2e three independent ways — "the card offers
+      1 mm, which a closed hem is refused for (expected <= 0.25)", the advisory
+      firing on the card's own suggestion, and `eval-status` = Failed on submit.
+      ORIGINAL ENTRY: **HEM-1C — the hem editor still says the radius is
+      inherited from the base flange, and nudges the user toward the one value
+      the server now refuses.** kind: defect (HEM-1 fallout, found by qa-tester
       2026-08-28 repairing the e2e; `docs/QA-REVIEW.md` same date). Territory
       `apps/web/src/components/HemEditor.tsx` +
       `apps/web/src/features/sheetMetal.ts`. MEASURED off the live app on a
@@ -764,7 +778,16 @@ below.**
       1.5 mm gauge; an e2e case asserts the suggested number is accepted (the
       assertion must FAIL if the hint is reverted to 0.5 x gauge).
 
-- [ ] (P3, S) **HEM-1D — the UI cannot author an `open` hem at all.** kind:
+- [x] (P3, S) **HEM-1D CLOSED (frontend-builder, 2026-08-28) — a Closed/Open
+      segment authors the shape; `buildHemParams` sends the user's choice.**
+      The fold readout tracks it (`180° (open)`) and so does the gap readout
+      (`2 mm (1 × gauge)`). `teardrop`/`rolled` stay out, as the Literal does.
+      ASSERTED ON THE BUILT BODY, not on a 2xx (the `extra="ignore"` trap): the
+      open-hemmed plate stands `hemmedHeightMm(1)` = **6.0 mm** and grows in
+      plan by radius + gauge to 53.0 mm — a misspelled `hem_type` would give the
+      closed reading, 4.2 mm. The type also round-trips: re-opening the feature
+      shows Open pressed.
+      ORIGINAL ENTRY: **HEM-1D — the UI cannot author an `open` hem at all.** kind:
       gap (HEM-1 fallout, same pass). `buildHemParams` hardcodes
       `hem_type: "closed"` and `HemEditor` has no type control, so the `open`
       hem HEM-1 shipped on the API is unreachable by clicking — and an open
@@ -4596,3 +4619,7 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
   INVARIANTS-PROJECTION-1 (P3), PGTEST-GATE-VACUOUS-NONGOAL (P3). Marked
   HEM-1C in-flight; collapsed a duplicated SEL-6 paragraph pair in
   `docs/ROADMAP.md`.
+- 2026-08-28 — **HEM-1C + HEM-1D shipped (frontend-builder):** the hem card
+  derives its radius guidance from the hem rule instead of a drifted copy that
+  suggested the refused value, adds a live air-gap readout, and offers the
+  Closed/Open segment that makes the `open` hem authorable (6.0 mm measured).

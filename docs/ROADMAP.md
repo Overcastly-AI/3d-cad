@@ -31,8 +31,52 @@ only `Solved`/`faces > 6`, both true of the pre-HEM-1 inherit too. Fixed
 the now-correct refusal and its recovery. 11/11 green across hem/authoring/
 flat-pattern specs; founder shots refreshed. Two follow-ups filed from the
 repair: HEM-1C (editor still claims base-flange inheritance for the radius
-and suggests the exact value the server refuses — **IN FLIGHT now**) and
-HEM-1D (UI cannot author an `open` hem at all).
+and suggests the exact value the server refuses) and HEM-1D (UI cannot author
+an `open` hem at all) — **BOTH CLOSED**, see the entry below.
+
+**HEM-1C + HEM-1D CLOSED (frontend-builder, 2026-08-28) — the hem card was
+advising the one value the evaluator refuses, and the shape that would have
+made it legal could not be clicked.** Not stale copy: a flow dead end. The hint
+computed `Math.round(thickness * 5) / 10` — 0.5 x gauge, the OPEN ratio — so on
+2 mm sheet the form said "≈1 mm" and the evaluator answered
+`hem_type_radius_conflict`; the same hint then persisted into the EDIT form, so
+the only guidance on screen after a refusal was the guidance that had just
+failed. A second false string claimed the radius was inherited from the base
+flange, the inheritance HEM-1 removed.
+
+Fixed by DERIVING, not by retyping the number. The three ratios now live once in
+`apps/web/src/features/sheetMetal.ts`, mirrored from
+`py_kit.schemas.features`, and a unit test PINS all three against the py-kit
+source — a hand-kept number that agrees with the server today is the same defect
+with a later date on it. Every hem string and readout resolves from that one
+rule, so they cannot disagree with each other. The card gained a live **Gap**
+readout (`0.2 mm (0.1 × gauge)`) — the quantity HEM-1 got wrong while every
+status read `ok`, and the thing a feeler gauge would actually find — and a
+**Closed/Open** segment (HEM-1D: `buildHemParams` hardcoded `closed`, so the
+open hem HEM-1 shipped on the API was unreachable by clicking). K-factor still
+says "Inherits 0.44 from the base flange", because K is a material property and
+only the radius stopped being inherited.
+
+The client ADVISES; the evaluator DECIDES. A conflicting radius is stated in the
+form before the rebuild — naming the switch that resolves it, now one click —
+but is NOT blocked, so a mirror that ever drifts costs a wrong sentence rather
+than a lockout on a value the server would accept (and the existing spec that
+drives the real refusal end-to-end keeps working).
+
+MUTATION EVIDENCE, restoring the 0.5 x gauge hint: the new e2e case reddens
+three independent ways — `the card offers 1 mm, which a closed hem is refused
+for: expected <= 0.25, received 1`; the advisory firing on the card's OWN
+suggestion; and, with both disabled, `expected "Solved" / received "Failed"` on
+submitting exactly what the card told the user to type. The DOM-tier case fails
+with the same first message, and mutating `HEM_CLOSED_RADIUS_RATIO` 0.05 -> 0.06
+reddens the py-kit pin 4 ways. HEM-1D is asserted on the BUILT BODY, never a
+2xx (params models are `extra="ignore"`): the open-hemmed plate stands
+**6.0 mm** (`gauge + 1 gauge of air + gauge`) and 53.0 mm in plan, where a
+misspelled `hem_type` would give the closed reading of 4.2 mm; the type also
+round-trips into the edit form. Gates: `just lint` exit 0, 2093/2093 web unit
+tests, 13/13 e2e across the hem, authoring and flat-pattern specs on a real
+stack; founder shots `sheet-metal-hem-edit-1280.png` (refreshed) and
+`sheet-metal-hem-radius-1280.png` (new).
 
 **EXPORT-3 CLOSED (frontend-builder, 2026-08-28) — the export of a partially
 built part, and the gate that was refusing a file the server would have

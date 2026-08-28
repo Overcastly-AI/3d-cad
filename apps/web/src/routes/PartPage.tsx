@@ -2369,9 +2369,9 @@ export function PartPage() {
     });
   }, [bodyFeatureId]);
 
-  // A closed hem folds ONE picked straight edge 180° back onto the sheet
-  // (parity §2). It picks like an edge flange (single-select), so it only needs
-  // a sheet body to exist.
+  // A hem folds ONE picked straight edge 180° back onto the sheet (parity §2) —
+  // closed (pressed flat) or open (a deliberate gap), chosen in the editor. It
+  // picks like an edge flange (single-select), so it only needs a sheet body.
   const openCreateHem = useCallback(() => {
     useMeasureStore.getState().deactivate();
     setEditorError(null);

@@ -11,7 +11,7 @@
  * MODIFIES that sheet body: it folds a leg off one picked STRAIGHT edge
  * (§4.2), inheriting the base flange's radius / K unless overridden per-bend.
  */
-import type { LengthUnit } from "@loft/design";
+import { formatLength, type LengthUnit } from "@loft/design";
 
 import type { Vec3 } from "../api/measure";
 import type {
@@ -440,29 +440,149 @@ export function canSubmitEdgeFlange(
 }
 
 // ---------------------------------------------------------------------------
-// Hem (closed) — parity §2
+// Hem (closed / open) — parity §2
 // ---------------------------------------------------------------------------
 /**
- * The editable closed-hem form. A closed hem is mechanically an edge flange
- * folded 180° back onto the sheet, so it mirrors the edge-flange form MINUS the
- * fold-angle field (the angle is always 180°): the return `length_mm` is the
- * parametric handle; the bend radius and K-factor INHERIT the base-flange
- * defaults unless their override toggle is on. The picked edge lives in the
+ * Which hem the fold makes. The wire Literal is the source (`teardrop`/`rolled`
+ * wrap past 180° and this fold cannot build them, so they are deliberately not
+ * members) — naming a shape here that the schema does not admit would be the
+ * defect HEM-1 removed, in the other direction.
+ */
+export type HemType = SheetMetalHemParams["hem_type"];
+
+/**
+ * THE HEM RADIUS RULE (HEM-1), mirrored from `py_kit.schemas.features`:
+ * `HEM_CLOSED_RADIUS_RATIO` / `HEM_CLOSED_MAX_RADIUS_RATIO` /
+ * `HEM_OPEN_RADIUS_RATIO` and `resolve_hem_bend_radius_mm`.
+ *
+ * A hem's inner radius is a function of its TYPE and the part's GAUGE, never of
+ * the base flange's general bend radius (that describes a free-standing die
+ * bend — what an edge flange IS and a hem is not). The fold's cross-section puts
+ * the two layers exactly `2 × radius` apart, so the radius IS the hem's defining
+ * dimension.
+ *
+ * WHY A MIRROR AND NOT AN IMPORT. The ratios are module constants behind
+ * `resolve_hem_bend_radius_mm`, not schema FIELDS, so nothing in the generated
+ * client carries them — there is no wire value to read. The editor still has to
+ * state the number BEFORE the user types (that is the whole of HEM-1C: it used
+ * to state `0.5 × gauge` for a closed hem, i.e. the one value the evaluator
+ * refuses by name). So the rule is written once HERE, for every hem string and
+ * readout the UI shows, and `sheetMetal.test.ts` pins these three constants
+ * against the py-kit source itself — a hand-maintained number that agrees with
+ * the server today is the same defect with a later date on it.
+ *
+ * The client ADVISES; the evaluator DECIDES. `hemRadiusConflict` is stated in
+ * the form rather than enforced by it (see `canSubmitHem`), so a mirror that
+ * ever drifts costs a wrong sentence, never a lockout on a legal value.
+ */
+export const HEM_CLOSED_RADIUS_RATIO = 0.05;
+
+/** The closed/open boundary as a multiple of gauge; it belongs to BOTH types. */
+export const HEM_CLOSED_MAX_RADIUS_RATIO = 0.125;
+
+/** An open hem's inner radius: 0.5 × gauge puts the inside DIAMETER at one gauge. */
+export const HEM_OPEN_RADIUS_RATIO = 0.5;
+
+/** The inner radius (mm) a hem of `hemType` folds at on `thicknessMm` gauge. */
+export function derivedHemRadiusMm(
+  hemType: HemType,
+  thicknessMm: number,
+): number {
+  const ratio =
+    hemType === "open" ? HEM_OPEN_RADIUS_RATIO : HEM_CLOSED_RADIUS_RATIO;
+  return ratio * thicknessMm;
+}
+
+/** The radius (mm) that divides a closed hem from an open one on this gauge. */
+export function hemRadiusBoundaryMm(thicknessMm: number): number {
+  return HEM_CLOSED_MAX_RADIUS_RATIO * thicknessMm;
+}
+
+/**
+ * The air gap (mm) between the hem's two layers — exactly twice the inner
+ * radius, which is what makes the radius the thing worth showing.
+ */
+export function hemGapMm(radiusMm: number): number {
+  return 2 * radiusMm;
+}
+
+/**
+ * The gap in gauges — `0.1 t` closed, `1 t` open. Hem practice sizes every hem
+ * feature in multiples of gauge, so this is the reading an engineer checks.
+ */
+export function hemGapInGauges(radiusMm: number, thicknessMm: number): number {
+  return thicknessMm > 0 ? hemGapMm(radiusMm) / thicknessMm : 0;
+}
+
+/**
+ * The hem's resolved inner radius (mm): the override when it is set and parses,
+ * otherwise the radius the type + gauge derive. Null when the part has no gauge
+ * (no sheet body) or an enabled override has not been typed yet — there is
+ * nothing honest to show, so the readout says so rather than guessing.
+ */
+export function resolvedHemRadiusMm(
+  form: HemForm,
+  defaults: SheetMetalDefaults | null,
+  unit: LengthUnit,
+): number | null {
+  if (defaults === null) return null;
+  if (form.overrideBendRadius) {
+    return parsePositiveLengthMm(form.bendRadiusInput, unit);
+  }
+  return derivedHemRadiusMm(form.hemType, defaults.thicknessMm);
+}
+
+/**
+ * The conflict message for a radius that describes the OTHER hem type, or null
+ * when it is consistent (or unknowable). It mirrors `resolve_hem_bend_radius_mm`'s
+ * refusal so the user reads it while typing instead of after a failed rebuild,
+ * and it names BOTH ways out — switch the type, or come inside the boundary.
+ * The boundary belongs to both types, so the two bands partition the line.
+ */
+export function hemRadiusConflict(
+  hemType: HemType,
+  radiusMm: number,
+  thicknessMm: number,
+  unit: LengthUnit,
+): string | null {
+  const boundary = hemRadiusBoundaryMm(thicknessMm);
+  const gap = (r: number): string => formatLength(hemGapMm(r), unit);
+  if (hemType === "closed" && radiusMm > boundary) {
+    return `A closed hem presses flat, so ${formatLength(radiusMm, unit)} is an open hem's radius — it leaves a ${gap(radiusMm)} gap. Switch the type to Open to keep that gap, or use at most ${formatLength(boundary, unit)}.`;
+  }
+  if (hemType === "open" && radiusMm < boundary) {
+    return `An open hem keeps a deliberate gap, and ${formatLength(radiusMm, unit)} leaves only ${gap(radiusMm)} — that is a closed hem. Switch the type to Closed for a flattened fold, or use at least ${formatLength(boundary, unit)}.`;
+  }
+  return null;
+}
+
+/**
+ * The editable hem form. A hem is mechanically an edge flange folded 180° back
+ * onto the sheet, so it mirrors the edge-flange form MINUS the fold-angle field
+ * (the angle is always 180°): the return `length_mm` is the parametric handle.
+ * `hemType` chooses the shape — and with it the fold's radius and air gap.
+ *
+ * The K-factor INHERITS the base-flange default unless overridden (K is a
+ * MATERIAL property — where the neutral surface sits). The bend radius does
+ * NOT: it comes from the type and the gauge (HEM-1), and its override replaces
+ * that derived value rather than the part's. The picked edge lives in the
  * shared edge-pick store (with the viewport overlay), so the form stays
  * serialisable — identical to the edge flange.
  */
 export interface HemForm {
   lengthInput: string;
+  hemType: HemType;
   overrideBendRadius: boolean;
   bendRadiusInput: string;
   overrideKFactor: boolean;
   kFactorInput: string;
 }
 
-/** The default new-hem form: a 6 mm folded-back return, defaults inherited. */
+/** The default new-hem form: a 6 mm folded-back return, closed, radius derived. */
 export function defaultHemForm(): HemForm {
   return {
     lengthInput: "6",
+    hemType: "closed",
     overrideBendRadius: false,
     bendRadiusInput: "",
     overrideKFactor: false,
@@ -481,6 +601,9 @@ export function formFromHemParams(
     params.k_factor !== null && params.k_factor !== undefined;
   return {
     lengthInput: lengthInputValue(params.length_mm, unit),
+    // Absent reads "closed" on the wire (the schema default); a feature stored
+    // before `hem_type` shipped therefore round-trips as the closed hem it is.
+    hemType: params.hem_type ?? "closed",
     overrideBendRadius,
     bendRadiusInput: overrideBendRadius
       ? lengthInputValue(params.bend_radius_mm as number, unit)
@@ -509,7 +632,13 @@ export function hemLengthError(input: string, unit: LengthUnit): string | null {
  * Build `SheetMetalHemParamsV1` from the form + the ONE picked edge, or null
  * when the length is invalid, exactly one straight edge is not picked, an
  * enabled override is blank/invalid, or there is no sheet-body anchor. The fold
- * angle is implicit (180°) and `hem_type` is fixed at `"closed"` in v1.
+ * angle is implicit (180°); `hem_type` is the user's choice (HEM-1D — it was
+ * hardcoded `"closed"`, so the `open` hem the API ships could not be authored).
+ *
+ * A radius that contradicts the type is NOT blocked here: `hemRadiusConflict`
+ * states it in the form, and the evaluator — which owns the rule — refuses it
+ * with a typed error. Blocking on a client-side mirror would turn any future
+ * drift into a lockout on a value the server would have accepted.
  */
 export function buildHemParams(
   form: HemForm,
@@ -538,7 +667,7 @@ export function buildHemParams(
   const params: SheetMetalHemParams = {
     edge: edgeSubshapeRef(bodyFeatureId, signature),
     length_mm: length,
-    hem_type: "closed",
+    hem_type: form.hemType,
   };
   // Omit inherited defaults (null) so the wire falls back to the base flange's.
   if (bendRadius !== null) params.bend_radius_mm = bendRadius;
@@ -766,9 +895,10 @@ export interface SheetMetalDefaults {
 
 /**
  * The part's sheet-metal defaults from the FIRST non-rolled-back base flange,
- * or null when the part is not sheet metal. Edge-flange / hem editors show the
- * radius + K as the inherited values behind their per-bend overrides; the
- * corner-relief editor uses the gauge thickness to preview the ratio-sized notch.
+ * or null when the part is not sheet metal. The edge-flange editor shows the
+ * radius + K as the inherited values behind its per-bend overrides; the hem
+ * editor inherits only K and derives its radius from the gauge + hem type
+ * (HEM-1); the corner-relief editor uses the gauge to preview the notch.
  */
 export function sheetMetalDefaults(
   features: readonly FeatureResponse[],

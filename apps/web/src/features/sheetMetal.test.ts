@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import type {
@@ -24,6 +28,7 @@ import {
   defaultCornerReliefForm,
   defaultEdgeFlangeForm,
   defaultHemForm,
+  derivedHemRadiusMm,
   edgeFlangeOptions,
   edgeFlangeSpanPreview,
   flangeLengthError,
@@ -33,7 +38,14 @@ import {
   formFromCornerReliefParams,
   formFromEdgeFlangeParams,
   formFromHemParams,
+  HEM_CLOSED_MAX_RADIUS_RATIO,
+  HEM_CLOSED_RADIUS_RATIO,
+  HEM_OPEN_RADIUS_RATIO,
+  hemGapInGauges,
+  hemGapMm,
   hemLengthError,
+  hemRadiusBoundaryMm,
+  hemRadiusConflict,
   isSheetMetalPart,
   kFactorError,
   parseBendAngleDeg,
@@ -42,6 +54,7 @@ import {
   pickedFromEdgeFlangeParams,
   pickedFromHemParams,
   reliefRatioError,
+  resolvedHemRadiusMm,
   SHEET_METAL_DEFAULT_K_FACTOR,
   sheetMetalDefaults,
   thicknessError,
@@ -441,12 +454,188 @@ describe("part sheet-metal state", () => {
   });
 });
 
-describe("closed hem form", () => {
-  it("defaults to a 6 mm folded-back return, defaults inherited", () => {
+/**
+ * The py-kit module the client's hem rule mirrors. Named by path deliberately:
+ * if the schema module moves, this fails loudly instead of quietly guarding
+ * nothing (the `thread.test.ts` idiom).
+ */
+const PY_KIT_FEATURES = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../../../packages/py-kit/src/py_kit/schemas/features.py",
+);
+
+/** Read a module-level `NAME = <float>` constant out of the py-kit source. */
+function pyConstant(source: string, name: string): number {
+  const match = new RegExp(`^${name} = ([\\d.]+)$`, "m").exec(source);
+  expect(match, `py-kit constant ${name} not found`).not.toBe(null);
+  return Number((match as RegExpExecArray)[1]);
+}
+
+describe("the hem radius rule mirrors py-kit", () => {
+  // HEM-1C's whole cause was a SECOND, drifted copy of this rule: the editor
+  // hinted 0.5 x gauge for a closed hem — the OPEN ratio, and the one value the
+  // evaluator refuses by name. The ratios are module constants behind
+  // `resolve_hem_bend_radius_mm`, not schema fields, so the generated client
+  // carries no wire value to read; this pin is what keeps the copy honest.
+  const source = readFileSync(PY_KIT_FEATURES, "utf8");
+
+  it("uses py_kit's own ratios, not a hand-kept second opinion", () => {
+    expect(HEM_CLOSED_RADIUS_RATIO).toBe(
+      pyConstant(source, "HEM_CLOSED_RADIUS_RATIO"),
+    );
+    expect(HEM_CLOSED_MAX_RADIUS_RATIO).toBe(
+      pyConstant(source, "HEM_CLOSED_MAX_RADIUS_RATIO"),
+    );
+    expect(HEM_OPEN_RADIUS_RATIO).toBe(
+      pyConstant(source, "HEM_OPEN_RADIUS_RATIO"),
+    );
+  });
+
+  it("mirrors the refusal the evaluator actually raises", () => {
+    // The client says this BEFORE the rebuild, so it has to be the same rule:
+    // a closed hem refuses a radius ABOVE the boundary, an open one BELOW it,
+    // and the boundary itself belongs to both (the bands partition the line).
+    expect(source).toContain("if override_mm > boundary:");
+    expect(source).toContain("if override_mm < boundary:");
+    expect(source).toContain("boundary = HEM_CLOSED_MAX_RADIUS_RATIO");
+  });
+});
+
+describe("the hem radius rule", () => {
+  // 2 mm gauge, the fixture the HEM-1 defect was measured on.
+  const T = 2;
+
+  it("derives the radius from the TYPE and the gauge", () => {
+    expect(derivedHemRadiusMm("closed", T)).toBeCloseTo(0.1, 12);
+    expect(derivedHemRadiusMm("open", T)).toBeCloseTo(1, 12);
+    // Gauge-proportional, so a second gauge exercises the rule rather than a
+    // memorised pair of numbers.
+    expect(derivedHemRadiusMm("closed", 1.5)).toBeCloseTo(0.075, 12);
+    expect(derivedHemRadiusMm("open", 1.5)).toBeCloseTo(0.75, 12);
+  });
+
+  it("reads the gap as twice the radius — 0.1 t closed, 1 t open", () => {
+    expect(hemGapMm(derivedHemRadiusMm("closed", T))).toBeCloseTo(0.2, 12);
+    expect(hemGapMm(derivedHemRadiusMm("open", T))).toBeCloseTo(2, 12);
+    expect(hemGapInGauges(derivedHemRadiusMm("closed", T), T)).toBeCloseTo(
+      0.1,
+      12,
+    );
+    expect(hemGapInGauges(derivedHemRadiusMm("open", T), T)).toBeCloseTo(1, 12);
+  });
+
+  it("refuses a radius that describes the OTHER type, naming both ways out", () => {
+    // 1 mm on 2 mm sheet is 0.5 x gauge — the OPEN ratio, and exactly what the
+    // editor used to suggest for a CLOSED hem (HEM-1C).
+    const closedTooWide = hemRadiusConflict("closed", 1, T, "mm");
+    expect(closedTooWide).toContain("2 mm gap");
+    expect(closedTooWide).toContain("Open");
+    expect(closedTooWide).toContain("at most 0.25 mm");
+
+    const openTooTight = hemRadiusConflict("open", 0.1, T, "mm");
+    expect(openTooTight).toContain("Closed");
+    expect(openTooTight).toContain("at least 0.25 mm");
+  });
+
+  it("accepts the boundary for BOTH types — no gap, no overlap", () => {
+    const boundary = hemRadiusBoundaryMm(T);
+    expect(boundary).toBeCloseTo(0.25, 12);
+    expect(hemRadiusConflict("closed", boundary, T, "mm")).toBe(null);
+    expect(hemRadiusConflict("open", boundary, T, "mm")).toBe(null);
+    // …and each type's own derived radius is, of course, consistent with it.
+    expect(
+      hemRadiusConflict("closed", derivedHemRadiusMm("closed", T), T, "mm"),
+    ).toBe(null);
+    expect(
+      hemRadiusConflict("open", derivedHemRadiusMm("open", T), T, "mm"),
+    ).toBe(null);
+  });
+
+  it("resolves the radius the card shows: override first, else derived", () => {
+    const defaults = { thicknessMm: T, bendRadiusMm: 3, kFactor: 0.44 };
+    const base = defaultHemForm();
+    // The part's own 3 mm bend radius is NEVER the answer (HEM-1).
+    expect(resolvedHemRadiusMm(base, defaults, "mm")).toBeCloseTo(0.1, 12);
+    expect(
+      resolvedHemRadiusMm({ ...base, hemType: "open" }, defaults, "mm"),
+    ).toBeCloseTo(1, 12);
+    expect(
+      resolvedHemRadiusMm(
+        { ...base, overrideBendRadius: true, bendRadiusInput: "0.2" },
+        defaults,
+        "mm",
+      ),
+    ).toBeCloseTo(0.2, 12);
+    // Nothing honest to show: an enabled-but-empty override, or no sheet body.
+    expect(
+      resolvedHemRadiusMm(
+        { ...base, overrideBendRadius: true, bendRadiusInput: "" },
+        defaults,
+        "mm",
+      ),
+    ).toBe(null);
+    expect(resolvedHemRadiusMm(base, null, "mm")).toBe(null);
+  });
+});
+
+describe("hem form", () => {
+  it("defaults to a 6 mm folded-back return, closed, radius derived", () => {
     const form = defaultHemForm();
     expect(form.lengthInput).toBe("6");
+    expect(form.hemType).toBe("closed");
     expect(form.overrideBendRadius).toBe(false);
     expect(form.overrideKFactor).toBe(false);
+  });
+
+  it("authors an OPEN hem — the type is the user's, not a hardcode", () => {
+    // HEM-1D: `buildHemParams` pinned `hem_type: "closed"`, so the open hem the
+    // API ships could not be reached by clicking at all.
+    const params = buildHemParams(
+      { ...defaultHemForm(), hemType: "open" },
+      [SIG],
+      "bf",
+      "mm",
+    );
+    expect(params?.hem_type).toBe("open");
+    // Still no radius on the wire: the type derives it server-side.
+    expect("bend_radius_mm" in (params as object)).toBe(false);
+  });
+
+  it("round-trips an open hem, and reads absent as closed", () => {
+    const open: SheetMetalHemParams = {
+      edge: {
+        kind: "subshape",
+        feature_id: "bf",
+        subshape_type: "edge",
+        selector: { selector_version: 1, signature: SIG },
+      },
+      length_mm: 8,
+      hem_type: "open",
+    };
+    expect(formFromHemParams(open, "mm").hemType).toBe("open");
+    expect(
+      buildHemParams(formFromHemParams(open, "mm"), [SIG], "bf", "mm"),
+    ).toEqual(open);
+    // A feature stored before `hem_type` shipped reads as the closed hem it is.
+    const legacy = { ...open } as Partial<SheetMetalHemParams>;
+    delete legacy.hem_type;
+    expect(formFromHemParams(legacy as SheetMetalHemParams, "mm").hemType).toBe(
+      "closed",
+    );
+  });
+
+  it("still BUILDS a conflicting radius — the card advises, the kernel decides", () => {
+    // Deliberate: the client mirrors the rule to state it early, and blocking on
+    // a mirror would turn any drift into a lockout on a value the evaluator
+    // would have accepted. The typed `hem_type_radius_conflict` is the gate.
+    const form = {
+      ...defaultHemForm(),
+      overrideBendRadius: true,
+      bendRadiusInput: "1",
+    };
+    expect(hemRadiusConflict("closed", 1, 2, "mm")).not.toBe(null);
+    expect(canSubmitHem(form, [SIG], "bf", "mm")).toBe(true);
+    expect(buildHemParams(form, [SIG], "bf", "mm")?.bend_radius_mm).toBe(1);
   });
 
   it("needs exactly one picked edge and a body anchor", () => {

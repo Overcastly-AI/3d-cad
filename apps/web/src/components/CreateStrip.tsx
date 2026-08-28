@@ -156,11 +156,11 @@ export interface CreateStripProps {
   /** Fold a leg off a picked straight edge of the sheet body. */
   onNewEdgeFlange?: () => void;
   /**
-   * The part is sheet metal (a base flange exists), so a closed hem can fold a
-   * picked straight edge 180° back onto the sheet — the same gate as edge flange.
+   * The part is sheet metal (a base flange exists), so a hem can fold a picked
+   * straight edge 180° back onto the sheet — the same gate as edge flange.
    */
   canHem?: boolean;
-  /** Fold a picked straight edge 180° back onto the sheet (a closed hem). */
+  /** Fold a picked straight edge 180° back onto the sheet (a closed or open hem). */
   onNewHem?: () => void;
   /**
    * The part has ≥2 edge flanges whose bends can meet at a corner, so a corner
@@ -726,7 +726,7 @@ export function CreateStrip({
             data-testid="new-hem"
             aria-label={
               hemReady
-                ? "Hem — fold a straight edge of the sheet 180° back onto itself (a closed hem)"
+                ? "Hem — fold a straight edge of the sheet 180° back onto itself (closed or open)"
                 : "Hem — add a base flange first"
             }
             caption={captionFor(hemReady, "Add a base flange first")}
