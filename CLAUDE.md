@@ -817,6 +817,17 @@ recipe here in the same commit as the fix.**
   invoked, so all three assertions would have passed identically had the handler
   discarded every pick. A test asserting something is INERT must prove the
   handler ran and did nothing, not that a click went somewhere.
+  **A THIRD ZERO-AREA MECHANISM, 2026-08-27: A TAILWIND UTILITY THAT DOES NOT
+  EXIST IS SILENT.** `w-32` was written on a progress bed; this theme's spacing
+  scale is **closed at 12**, so the class produced no rule at all and the element
+  resolved to **zero width** — the DOM looked perfect, every attribute was right,
+  and Playwright called the `role="progressbar"` *hidden*. Tailwind does not warn
+  on an unknown utility; it simply emits nothing. So the three zero-area defects
+  this week each had a different cause — an SVG stroke that `getBoundingClientRect`
+  ignores, an `sr-only` element clipped out of frame, and a utility class that was
+  never generated — and all three presented identically as "the control is there
+  and cannot be touched". When an element measures 0 in either axis, suspect the
+  STYLE was never applied before you suspect the layout.
   **This is the THIRD member of one family and the family is the lesson:** an
   assertion that cannot observe the failure mode. `toBeVisible()` is a box
   property, so it passed a SAVE control shoved outside the frame; `toHaveText
