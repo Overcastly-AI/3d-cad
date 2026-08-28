@@ -893,6 +893,30 @@ recipe here in the same commit as the fix.**
   proves a USER can do something, assert with the user's own mechanism — a real
   `page.mouse.click` at the control's centre, or `elementFromPoint` resolving to
   the control — never a proxy that skips the step you are claiming works.
+- **`git stash` IS NOT ISOLATED BY A WORKTREE — THE STASH LIST IS SHARED, AND
+  POPPING HANDS YOU WHOEVER STASHED LAST.** Found 2026-08-28 by the hover-to-
+  sketch agent, which caused the incident and recovered it. Worktrees give every
+  builder its own branch, index and working tree, so the reasonable assumption is
+  that `git stash` is private too. It is not: `refs/stash` lives in the SHARED
+  `.git`, so a `stash push` → `reset --hard` → `stash pop` cycle in one worktree
+  raced a sibling's stash and popped **the sibling's payload into this agent's
+  tree** while its own went to them. The failure is silent and success-shaped —
+  `git stash pop` reported `Dropped refs/stash@{0}` and exited 0, which is the
+  same shape as the worktree-push trap and the zero-byte-200: a reassuring
+  sentence over the wrong bytes. It is also worse than the `git add` sweep,
+  because a sweep leaves the work in a commit somebody can read, whereas a lost
+  pop leaves it nowhere either agent is looking.
+  **Use a patch file, never `git stash`:** `git diff > $SCRATCHPAD/<slug>.patch`
+  (add `--cached` for staged work, or `git diff HEAD` for both), then
+  `git apply` it back. A path you named yourself cannot be taken by a sibling.
+  If you have already popped somebody else's work: do NOT drop it. Revert their
+  files out of your tree, save their diff to a patch file, and put it back with
+  `git stash create` + `git stash store -m "RECOVERED <whose> work — <why>"` so
+  the list entry says what it is; then tell the orchestrator. That is exactly
+  what happened here and nothing was lost. Before dropping such an entry, prove
+  containment rather than assuming it — compare `git show 'stash@{0}:<file>'`
+  against `git show HEAD:<file>` per file and read the diffs, because "their work
+  landed" is a claim about every file in the stash, not about the branch.
 - **`git add <my file> && git commit` IN ONE COMMAND IS THE SWEEP, and chaining
   them is what defeats the protocol's own check.** Done by the ORCHESTRATOR on
   2026-08-27, hours after quoting the rule at three separate agents: `4e41eb4`
