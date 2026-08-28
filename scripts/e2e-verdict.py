@@ -46,11 +46,30 @@ import sys
 from pathlib import Path
 from typing import Any, cast
 
-# Playwright's spec-level `tests[].status`. Anything outside this set is a shape
-# this script has never seen; it is reported as unclassified and treated as a
-# failure rather than skipped over, because the alternative is a silent green.
+# `tests[].status` is Playwright's OWN RECONCILED VERDICT, and it is the only
+# honest thing to classify from. `results[].status` is the raw outcome of an
+# attempt, and the two deliberately disagree for an annotated test.
+#
+# MEASURED against a real Playwright 1.56 report (the probe that found this;
+# `stats` alongside, for the cross-check):
+#
+#   case                              tests[].status  expectedStatus  results[]
+#   plain pass                        expected        passed          passed
+#   plain fail                        unexpected      passed          failed
+#   test.fail() that FAILS            expected        failed          failed
+#   test.fail() that PASSES           unexpected      failed          passed
+#   test.fixme() / test.skip()        skipped         skipped         skipped
+#
+# The first version of this script classified from `results[]`, so a
+# `test.fail()` case that failed AS DECLARED was reported as a failure. Live on
+# run 33142734288 shard 3/4 that turned one genuine failure into "2 failed" and
+# named an innocent spec — and the ONLY reason it was caught within one line is
+# that the `stats` cross-check refused to agree with it (`unexpected: walked 2,
+# stats say 1`). Keep that cross-check firing in BOTH directions; it is the
+# thing that made this a small fix instead of a wrong number nobody questioned.
 KNOWN_TEST_STATUSES = frozenset({"expected", "unexpected", "flaky", "skipped"})
-# Result-level `results[].status`.
+# Result-level `results[].status` — used ONLY as a fallback when a report
+# carries no `tests[].status` at all, never to overrule one that is present.
 FAILED_RESULT_STATUSES = frozenset({"failed", "timedOut", "interrupted"})
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -64,35 +83,58 @@ SEP = "\u203a"
 # summary: `  1) e2e/foo.spec.ts:7:3 <SEP> group <SEP> title ────────`.
 LIST_FAILURE = re.compile(rf"^\s{{0,6}}\d+\)\s+(\S+:\d+:\d+\s+{SEP}\s+.*?)\s*$")
 TITLE_CAP = 120
+# Declared-fail lines are context, not evidence; they must never crowd the
+# failure list out of a 40-line tail.
+XFAIL_CAP = 3
 RULE = "=" * 63
 
 
 class Finding:
-    """One line of the failure list."""
+    """One line of the failure list.
 
-    def __init__(self, kind: str, where: str, title: str) -> None:
+    `note` is kept OUT of the title on purpose: the title is what gets
+    truncated, and on an XPASS line the note ("the annotation no longer holds")
+    is the whole point of the line. Truncating a long spec title must never eat
+    the sentence that tells you what kind of failure you are looking at.
+    """
+
+    def __init__(self, kind: str, where: str, title: str, note: str = "") -> None:
         self.kind = kind
         self.where = where
         self.title = title
+        self.note = note
 
     def render(self) -> str:
         title = self.title
         if len(title) > TITLE_CAP:
             title = title[: TITLE_CAP - 1] + "…"
-        if self.where:
-            return f"  {self.kind:<5} {self.where} {SEP} {title}"
-        return f"  {self.kind:<5} {title}"
+        head = (
+            f"  {self.kind:<5} {self.where} {SEP} {title}"
+            if self.where
+            else (f"  {self.kind:<5} {title}")
+        )
+        return f"{head}  [{self.note}]" if self.note else head
 
 
 class Parsed:
     """What one report yielded — findings plus the counts to print above them."""
 
     def __init__(self) -> None:
+        # findings = the FAILURE evidence, and the set the empty-summary guard
+        # is satisfied by. Nothing informational may go in here: a red run whose
+        # only "finding" was a declared-fail would then look explained when it
+        # is not.
         self.findings: list[Finding] = []
+        # notes = printed, but never evidence. Declared-fail cases live here.
+        self.notes: list[Finding] = []
         self.failed = 0
         self.passed = 0
         self.skipped = 0
         self.flaky = 0
+        # `test.fail()` cases that failed as declared. Playwright counts these
+        # under stats.expected, so they are NOT failures — but they are not
+        # silence either: the counts line names them.
+        self.xfail = 0
         self.unclassified = 0
         self.total = 0
         self.source = ""
@@ -110,10 +152,16 @@ class Parsed:
         return self.total > 0 or self.source.startswith("report")
 
     def counts_line(self) -> str:
-        return (
+        # `passed` here means "passed as expected"; declared-fails are counted
+        # separately and appended ONLY when there are any, so the ordinary green
+        # line keeps the shape everybody now reads at a glance.
+        line = (
             f"{self.failed} failed, {self.passed} passed, "
             f"{self.skipped} skipped, {self.flaky} flaky of {self.total}"
         )
+        if self.xfail:
+            line += f" ({self.xfail} declared-fail)"
+        return line
 
 
 # JSON from an external tool is `Any`; these three keep the traversal honest
@@ -146,7 +194,14 @@ def _walk(suite: dict[str, Any], ancestors: list[str], parsed: Parsed) -> None:
         spec = _obj(raw_spec)
         parsed.total += 1
         tests = [_obj(test) for test in _arr(spec.get("tests"))]
-        statuses = [_text(test.get("status")) or "unknown" for test in tests]
+        statuses = [_text(test.get("status")) for test in tests]
+        # `expectedStatus == "failed"` is how a `test.fail()` annotation reaches
+        # the report. Reading the annotation array would work too, but this
+        # field is what Playwright itself reconciles `status` against, so it is
+        # the same source of truth rather than a parallel one.
+        declared_fail = any(
+            _text(test.get("expectedStatus")) == "failed" for test in tests
+        )
         results: list[str] = [
             _text(_obj(result).get("status")) or "unknown"
             for test in tests
@@ -159,26 +214,64 @@ def _walk(suite: dict[str, Any], ancestors: list[str], parsed: Parsed) -> None:
         title = f" {SEP} ".join(p for p in path if p)
 
         unknown = [s for s in statuses if s not in KNOWN_TEST_STATUSES]
-        failed = "unexpected" in statuses or any(
-            r in FAILED_RESULT_STATUSES for r in results
-        )
-        if unknown:
+        if not statuses:
+            # A spec with no tests at all. Counting it as a pass would be a
+            # silent invention; say so instead.
             parsed.unclassified += 1
             parsed.failed += 1
             parsed.findings.append(
-                Finding("?????", where, f"{title}  [unknown status {unknown}]")
+                Finding("?????", where, title, "spec carries no tests")
             )
-        elif failed:
+        elif unknown:
+            # An unfamiliar shape falls back to the RESULTS, and says it did.
+            # Never silently pass: the fallback can only add evidence here.
+            parsed.unclassified += 1
             parsed.failed += 1
-            parsed.findings.append(Finding("FAIL", where, title))
+            fell_back = any(r in FAILED_RESULT_STATUSES for r in results)
+            parsed.findings.append(
+                Finding(
+                    "?????",
+                    where,
+                    title,
+                    f"unknown status {unknown}; results say "
+                    f"{'FAILED' if fell_back else results}",
+                )
+            )
+        elif "unexpected" in statuses:
+            parsed.failed += 1
+            if declared_fail:
+                # A test.fail() case that PASSED. It is a real failure and
+                # Playwright counts it as unexpected — but naming it "FAIL"
+                # sends the reader hunting for a broken assertion inside a test
+                # that passed. The gap it documents has closed, or the
+                # annotation was always wrong; either way the annotation is the
+                # thing to fix.
+                parsed.findings.append(
+                    Finding(
+                        "XPASS",
+                        where,
+                        title,
+                        "test.fail() annotation NO LONGER HOLDS — it PASSED; "
+                        "remove the annotation or reopen the gap it documents",
+                    )
+                )
+            else:
+                parsed.findings.append(Finding("FAIL", where, title))
         elif "flaky" in statuses:
             parsed.flaky += 1
             # No retries are configured (GATE-1a), so a flaky result can only
             # mean retries came back — the reconcile job fails on it, and it
             # belongs in the list rather than in a count nobody reads.
             parsed.findings.append(Finding("FLAKY", where, title))
-        elif statuses and all(s == "skipped" for s in statuses):
+        elif all(s == "skipped" for s in statuses):
             parsed.skipped += 1
+        elif declared_fail:
+            # `expected` + `expectedStatus: failed` = it failed as declared.
+            # Playwright counts it under stats.expected, so this counts as a
+            # pass for the cross-check — but it goes in `notes`, never in
+            # `findings`, so it can never satisfy the empty-summary guard.
+            parsed.xfail += 1
+            parsed.notes.append(Finding("xfail", where, title, "failed as declared"))
         else:
             parsed.passed += 1
     for nested in _arr(suite.get("suites")):
@@ -304,9 +397,13 @@ def build_block(
     stats_failed = 0
     if parsed.stats is not None and not parsed.problem:
         stats_failed = parsed.stats.get("unexpected", 0)
+        # `stats.expected` counts ordinary passes AND declared-fails that failed
+        # as declared — Playwright makes no distinction there, so the walk must
+        # add them back to compare like with like. Getting this mapping wrong
+        # would silence the cross-check on exactly the case it just caught.
         mine = {
             "unexpected": parsed.failed,
-            "expected": parsed.passed,
+            "expected": parsed.passed + parsed.xfail,
             "skipped": parsed.skipped,
             "flaky": parsed.flaky,
         }
@@ -328,6 +425,12 @@ def build_block(
             f"  … and {len(findings) - len(shown)} more — full list in "
             f"{report if report is not None else 'the JSON report'}"
         )
+    # Declared-fails are named, below the real failures and capped hard: they
+    # are context, and the failure list is what the tail budget is for.
+    for note in parsed.notes[:XFAIL_CAP]:
+        out.append(note.render())
+    if len(parsed.notes) > XFAIL_CAP:
+        out.append(f"  xfail … and {len(parsed.notes) - XFAIL_CAP} more declared-fail")
 
     exit_code = 0
     # ── The guard. Three ways the block can lie, and all are loud. ────────────
@@ -427,7 +530,14 @@ def main(argv: list[str] | None = None) -> int:
 # thing it measures rather than constant.
 
 
-def _spec(title: str, line: int, status: str, result: str | None = None) -> Any:
+def _spec(
+    title: str,
+    line: int,
+    status: str,
+    result: str | None = None,
+    expected_status: str = "passed",
+    annotations: list[str] | None = None,
+) -> Any:
     return {
         "title": title,
         "file": "e2e/synthetic.spec.ts",
@@ -437,10 +547,97 @@ def _spec(title: str, line: int, status: str, result: str | None = None) -> Any:
         "tests": [
             {
                 "status": status,
+                "expectedStatus": expected_status,
+                "annotations": [{"type": a} for a in annotations or []],
                 "results": [{"status": result or status, "duration": 10}],
             }
         ],
     }
+
+
+# VERBATIM from a real Playwright 1.56 JSON report — the probe run that
+# diagnosed the live defect on run 33142734288. Copied field-for-field rather
+# than invented, because the whole bug was an assumption about this shape: the
+# previous self-test's fixtures never carried `expectedStatus` at all, so it
+# could not have failed for the reason that mattered. Its `stats` block is the
+# report's own, so the cross-check is exercised against real arithmetic too.
+# (Reproduce: a spec with `test.fail()` + a failing expect, and another with
+# `test.fail()` + a passing expect; `playwright test --reporter=json`.)
+REAL_ANNOTATED_SPECS: list[Any] = [
+    {
+        "title": "plain pass",
+        "line": 4,
+        "tests": [
+            {
+                "expectedStatus": "passed",
+                "status": "expected",
+                "annotations": [],
+                "results": [{"status": "passed"}],
+            }
+        ],
+    },
+    {
+        "title": "plain fail",
+        "line": 8,
+        "tests": [
+            {
+                "expectedStatus": "passed",
+                "status": "unexpected",
+                "annotations": [],
+                "results": [{"status": "failed"}],
+            }
+        ],
+    },
+    {
+        "title": "declared-fail that FAILS as declared",
+        "line": 12,
+        "tests": [
+            {
+                "expectedStatus": "failed",
+                "status": "expected",
+                "annotations": [{"type": "fail"}],
+                "results": [{"status": "failed"}],
+            }
+        ],
+    },
+    {
+        "title": "declared-fail that PASSES (annotation no longer holds)",
+        "line": 17,
+        "tests": [
+            {
+                "expectedStatus": "failed",
+                "status": "unexpected",
+                "annotations": [{"type": "fail"}],
+                "results": [{"status": "passed"}],
+            }
+        ],
+    },
+    {
+        "title": "fixme",
+        "line": 22,
+        "tests": [
+            {
+                "expectedStatus": "skipped",
+                "status": "skipped",
+                "annotations": [{"type": "fixme"}],
+                "results": [{"status": "skipped"}],
+            }
+        ],
+    },
+    {
+        "title": "skipped",
+        "line": 26,
+        "tests": [
+            {
+                "expectedStatus": "skipped",
+                "status": "skipped",
+                "annotations": [{"type": "skip"}],
+                "results": [{"status": "skipped"}],
+            }
+        ],
+    },
+]
+REAL_ANNOTATED_STATS = {"expected": 2, "skipped": 2, "unexpected": 2, "flaky": 0}
 
 
 def _write(
@@ -500,6 +697,138 @@ def self_test() -> int:
             text,
         )
         check("red: fits in a 40-line tail", len(block) <= 40, str(len(block)))
+
+        # ── ANNOTATED CASES, against the real report's own field values ──────
+        # This is the defect that shipped: classifying from results[] made a
+        # `test.fail()` case that failed AS DECLARED read as a failure.
+        annotated = _write(
+            root / "annotated.json", REAL_ANNOTATED_SPECS, stats=REAL_ANNOTATED_STATS
+        )
+        block, code = build_block(1, annotated, None, "annot", 25)
+        text = "\n".join(block)
+        check(
+            "declared-fail that FAILS: not counted as a failure",
+            "2 failed, 1 passed, 2 skipped, 0 flaky of 6 (1 declared-fail)" in text,
+            text,
+        )
+        check(
+            "declared-fail that FAILS: named, not silent",
+            "xfail" in text and "failed as declared" in text,
+            text,
+        )
+        check(
+            "declared-fail that FAILS: not in the failure list",
+            "FAIL  e2e/synthetic.spec.ts:12" not in text,
+            text,
+        )
+        check(
+            "declared-fail that PASSES: a failure, named as a stale annotation",
+            "XPASS" in text and "NO LONGER HOLDS" in text,
+            text,
+        )
+        check(
+            "declared-fail that PASSES: NOT labelled an ordinary FAIL",
+            "FAIL  e2e/synthetic.spec.ts:17" not in text,
+            text,
+        )
+        check(
+            "annotated report agrees with the real stats (no disagreement line)",
+            code == 0 and "disagrees" not in text,
+            text,
+        )
+        # The negative control for the fix itself: the SHIPPED predicate, spelled
+        # out verbatim — `"unexpected" in statuses or any(result failed)` — must
+        # produce the wrong answer (3) on this fixture, where the correct answer
+        # is 2. Without this, "2 failed" could be right for the wrong reason and
+        # the fixture would prove nothing. Note the earlier draft of this control
+        # modelled only the results[] half and computed 2, i.e. it agreed with
+        # the fix and would have passed for a script that never changed.
+        old_way_failed = sum(
+            1
+            for spec in REAL_ANNOTATED_SPECS
+            for test in spec["tests"]
+            if test["status"] == "unexpected"
+            or any(r["status"] in FAILED_RESULT_STATUSES for r in test["results"])
+        )
+        check(
+            "negative control: the OLD rule would say 3 failed where the truth is 2",
+            old_way_failed == 3,
+            f"got {old_way_failed}",
+        )
+
+        # A declared-fail must never satisfy the empty-summary guard: a red run
+        # whose only note is an xfail is still unexplained.
+        only_xfail = _write(
+            root / "only-xfail.json",
+            [
+                _spec("passes", 10, "expected", "passed"),
+                _spec(
+                    "declared fail",
+                    20,
+                    "expected",
+                    "failed",
+                    expected_status="failed",
+                    annotations=["fail"],
+                ),
+            ],
+        )
+        block, code = build_block(1, only_xfail, None, "", 25)
+        text = "\n".join(block)
+        check(
+            "a red explained only by an xfail still trips the guard",
+            code == 3 and "found NO failures" in text and "xfail" in text,
+            text,
+        )
+
+        # ── The live case: run 33142734288 shard 3/4, reconstructed ──────────
+        # 167 tests, 165 ordinary passes, ONE genuine failure
+        # (qa-sel6-verify.spec.ts:252) and ONE test.fail()-annotated case that
+        # failed as declared (qa-reach-batch.spec.ts:1443, `test.fail()` is on
+        # line 1447 of the real spec). Playwright reported
+        # stats {expected: 166, unexpected: 1}; the shipped verdict said
+        # "2 failed" and named the innocent spec.
+        shard3 = _write(
+            root / "shard3.json",
+            [
+                *(
+                    _spec(f"ordinary pass {n}", 100 + n, "expected", "passed")
+                    for n in range(165)
+                ),
+                _spec(
+                    "four of the five new verbs need two entities",
+                    1443,
+                    "expected",
+                    "failed",
+                    expected_status="failed",
+                    annotations=["fail"],
+                ),
+                _spec(
+                    "hiding the occluder hands the pick to the plate's NEAR face",
+                    252,
+                    "unexpected",
+                    "failed",
+                ),
+            ],
+            stats={"expected": 166, "unexpected": 1, "skipped": 0, "flaky": 0},
+        )
+        block, code = build_block(1, shard3, None, "shard 3/4", 25)
+        text = "\n".join(block)
+        check(
+            "live shard 3/4: one failure, not two",
+            "1 failed, 165 passed, 0 skipped, 0 flaky of 167 (1 declared-fail)" in text,
+            text,
+        )
+        check(
+            "live shard 3/4: names the GENUINE failure only",
+            "hiding the occluder" in text
+            and "FAIL  e2e/synthetic.spec.ts:1443" not in text,
+            text,
+        )
+        check(
+            "live shard 3/4: reconciles with stats (walked 165+1 = expected 166)",
+            code == 0 and "disagrees" not in text,
+            text,
+        )
 
         green = _write(root / "green.json", [_spec("passes", 10, "expected", "passed")])
         block, code = build_block(0, green, None, "shard 1/4", 25)

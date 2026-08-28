@@ -1720,6 +1720,33 @@ to the Ready section, top of queue.
       mutation as the negative control.
       [src: orchestrator, 2026-08-28]
 
+- [x] (P1, XS) **CI-5a CLOSED — the verdict counted a `test.fail()` case that
+      failed AS DECLARED as a failure, and its own cross-check is what caught
+      it** (`scripts/e2e-verdict.py`). First live run (33142734288, shard 3/4):
+      "2 failed" where Playwright said 1, naming `qa-reach-batch.spec.ts:1443`
+      — a `test.fail()`-annotated case documenting the QA-R3 touch gap, i.e. a
+      test that is SUPPOSED to fail. CAUSE, measured against a real 1.56
+      report, not assumed: the walk classified from `tests[].results[].status`
+      (`failed` — the attempt really did fail) instead of `tests[].status`,
+      which is Playwright's already-reconciled verdict and reads `expected`
+      for a declared-fail. Now classified from `tests[].status`, with
+      `expectedStatus == "failed"` distinguishing the annotated cases;
+      `results[]` survives only as a fallback for a report carrying no status
+      at all. The INVERSION is handled too and named differently: a
+      `test.fail()` case that PASSES is a real failure (`unexpected`) reported
+      as `XPASS … [annotation NO LONGER HOLDS]`, so nobody hunts for a broken
+      assertion inside a passing test. Declared-fails are counted separately
+      (`(1 declared-fail)`) and listed as `xfail` in `notes`, never in
+      `findings` — so they can never satisfy the empty-summary guard. The
+      cross-check maps walked `passed + xfail` onto `stats.expected` and still
+      refuses on ANY disagreement in either direction; it was not widened to
+      make this instance quiet. Self-test 23 -> 37 checks, its fixtures now
+      VERBATIM from a real report (the old ones carried no `expectedStatus`,
+      so they could not have failed for this reason) plus a reconstruction of
+      the live shard and a negative control that reproduces the shipped
+      predicate and demands the wrong answer.
+      [src: orchestrator CI read, 2026-08-28]
+
 - [x] (P2, XS) **CI-2 — `deploy-path` never got the per-SHA concurrency fix, so
       it is still evicting runs** (`.github/workflows`). Filed 2026-08-08 by the
       orchestrator from the CI board. `ci.yml` and `e2e.yml` both key their PUSH

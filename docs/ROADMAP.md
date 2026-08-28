@@ -275,6 +275,21 @@ carry forward as blocked board items.
       list output as a second source when the JSON report is unusable. Service
       logs stay inline (180 lines -> ~24, routine 2xx/3xx dropped and counted).
       23-check `--self-test` in `just lint` and the reconcile job
+- ✅ CI-5a — the verdict's FIRST live run answered a red shard in one
+      `tail_lines: 45` pull (33142734288, shard 4/4) and its own `stats`
+      cross-check caught a defect in the verdict itself on shard 3/4: a
+      `test.fail()`-annotated case that failed AS DECLARED was counted as a
+      failure ("2 failed" against Playwright's 1), because the walk classified
+      from `results[].status` rather than `tests[].status`, Playwright's
+      reconciled verdict. Measured against a real 1.56 report rather than
+      assumed. Declared-fails are now counted separately and listed as `xfail`
+      in notes — never as evidence the empty-summary guard can be satisfied by
+      — and the inversion (a `test.fail()` case that PASSES, a real failure) is
+      reported as `XPASS … [annotation NO LONGER HOLDS]` so nobody hunts for a
+      broken assertion in a passing test. The cross-check was NOT widened to
+      silence the instance it caught: it maps `passed + xfail` onto
+      `stats.expected` and still refuses on any disagreement either way.
+      Self-test 23 -> 37 checks, fixtures now verbatim from a real report
 - ✅ Geometry golden-suite harness (first golden model: the cube) + STEP
       round-trip test — data-driven runner over `services/geometry/goldens/`
       (documented per-model tolerances, exact topology/mesh counts,
