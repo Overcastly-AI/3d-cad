@@ -1,6 +1,11 @@
 import { expect, test, type Page } from "./fixtures";
 
-import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
+import {
+  clickRefusedControl,
+  createPartViaApi,
+  SCREENSHOT_DIR,
+  seedSession,
+} from "./support";
 
 /**
  * PICK-2 — a pick mode is never armed with nothing to pick.
@@ -212,8 +217,10 @@ test.describe("pick modes refuse to arm with nothing to pick (PICK-2)", () => {
     // "element is not enabled"), so an ordinary click would prove the ARIA
     // attribute a second time and never reach the handler. Forcing the event
     // through is what tests the refusal itself, which is the thing that has to
-    // hold if the styling ever changes.
-    await blockedPick.click({ force: true });
+    // hold if the styling ever changes. `clickRefusedControl` adds the half
+    // `force` throws away: that a pointer aimed at this control's centre really
+    // lands on it, so the refusal below is the app's and not a stray click's.
+    await clickRefusedControl(page, blockedPick, "hole-face-pick");
     await expect(blockedPick).toHaveAttribute("aria-pressed", "false");
     await expect(blockedPick).toHaveText("Change");
 

@@ -2,6 +2,7 @@ import { expect, test, type Page } from "./fixtures";
 
 import { createFeature, SQUARE_20 } from "./partSeed";
 import {
+  clickRefusedControl,
   createPartViaApi,
   SCREENSHOT_DIR,
   seedSession,
@@ -131,11 +132,13 @@ async function openPart(
 /**
  * Did clicking this cell actually produce a file?
  *
- * `force` on purpose: a gated `PanelActionCell` uses `aria-disabled` rather than
- * the native attribute (so the reason it is grey has somewhere to live), and it
- * SWALLOWS the activation itself. Forcing past Playwright's actionability check
- * is therefore the only way to prove the swallow — a user cannot get a file out
- * of this cell even by trying.
+ * `clickRefusedControl` forces past Playwright's actionability check — a gated
+ * `PanelActionCell` uses `aria-disabled` rather than the native attribute (so
+ * the reason it is grey has somewhere to live) and SWALLOWS the activation
+ * itself, so an ordinary click never reaches the handler under test. It first
+ * proves a real pointer aimed at the cell's centre lands ON the cell, so "no
+ * download" means the app refused rather than the synthetic click having gone
+ * somewhere else entirely.
  */
 async function clickProducesDownload(
   page: Page,
@@ -145,7 +148,7 @@ async function clickProducesDownload(
     .waitForEvent("download", { timeout: 3_000 })
     .then(() => true)
     .catch(() => false);
-  await page.getByTestId(testId).click({ force: true });
+  await clickRefusedControl(page, page.getByTestId(testId), testId);
   return settled;
 }
 

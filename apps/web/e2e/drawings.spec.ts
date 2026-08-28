@@ -464,7 +464,7 @@ test("author a diameter on the hole and a linear on the 40 mm edge", async ({
       '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
     )
     .first();
-  await topCircle.click({ force: true });
+  await topCircle.click();
 
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-diameter").click();
@@ -488,7 +488,7 @@ test("author a diameter on the hole and a linear on the 40 mm edge", async ({
 
   // --- Linear: pick a 40 mm edge in the top view, author the length. -------
   const longEdge = await longestHorizontalEdge(page, "top");
-  await longEdge.click({ force: true });
+  await longEdge.click();
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-linear").click();
   await page.keyboard.press("Enter");
@@ -533,7 +533,7 @@ test("author an angular dimension between two perpendicular edges", async ({
   // Pick the 40 mm bottom edge in the top view, then choose "Angle" — this ARMS
   // a second-edge pick rather than authoring (the staged two-edge flow).
   const horizontal = await longestHorizontalEdge(page, "top");
-  await horizontal.click({ force: true });
+  await horizontal.click();
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-start_angular").click();
 
@@ -543,7 +543,7 @@ test("author an angular dimension between two perpendicular edges", async ({
   // Pick a perpendicular (vertical, 25 mm) edge → the gated menu now offers the
   // angular type; author it.
   const vertical = await tallestVerticalEdge(page, "top");
-  await vertical.click({ force: true });
+  await vertical.click();
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-angular").click();
   await page.keyboard.press("Enter");
@@ -584,11 +584,11 @@ test("author a point-to-point linear between two picked vertices", async ({
   await expect(vertices.first()).toBeAttached();
 
   // First vertex → the "pick the second point" hint (no menu, sheet stays live).
-  await vertices.nth(0).click({ force: true });
+  await vertices.nth(0).click();
   await expect(page.getByTestId("dimension-pick-hint")).toBeVisible();
 
   // A DISTINCT second vertex → the gated menu offers point-to-point; author it.
-  await vertices.nth(2).click({ force: true });
+  await vertices.nth(2).click();
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-point_to_point").click();
   await page.keyboard.press("Enter");
@@ -677,7 +677,7 @@ test("export the laid-out sheet as a standalone .svg", async ({ page }) => {
       '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
     )
     .first();
-  await topCircle.click({ force: true });
+  await topCircle.click();
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-diameter").click();
   await page.keyboard.press("Enter");
@@ -737,7 +737,7 @@ test("export the laid-out sheet as a server-composed .pdf", async ({
       '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
     )
     .first();
-  await topCircle.click({ force: true });
+  await topCircle.click();
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-diameter").click();
   await page.keyboard.press("Enter");
@@ -803,7 +803,7 @@ test("export the laid-out sheet as a server-composed .dxf", async ({
       '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
     )
     .first();
-  await topCircle.click({ force: true });
+  await topCircle.click();
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-diameter").click();
   await page.keyboard.press("Enter");

@@ -41,6 +41,75 @@ export function uniqueEmail(): string {
 }
 
 /**
+ * Click a control that is expected to REFUSE the activation.
+ *
+ * This is the one legitimate use of `force: true` in the suite. A gated
+ * `PanelActionCell` / `ToolButton` carries `aria-disabled` rather than the
+ * native attribute (so the reason it is grey has somewhere to live) and
+ * SWALLOWS the activation itself; Playwright's actionability check would
+ * therefore wait forever on "element is not enabled" and never reach the
+ * handler, and the handler is the thing under test.
+ *
+ * `force` on its own proves nothing, which is the trap this helper exists to
+ * close. It skips the HIT-TARGET check, so the synthetic mouse event is
+ * delivered to whatever is topmost at that point — which need not be the
+ * control. Measured 2026-08-28 on `nav-chrome.spec.ts`: a forced click on the
+ * locked Extrude button landed on `header[topbar]`, the button's own handler
+ * was never invoked, and the "the picks survived" assertion passed for a reason
+ * that had nothing to do with Extrude. It would have passed identically if the
+ * handler HAD discarded the picks.
+ *
+ * So: assert the control is where a real pointer would actually land, and only
+ * then force the event through. A pass then means "a user aimed at this and the
+ * app refused", not "the click went somewhere else and nothing happened".
+ */
+export async function clickRefusedControl(
+  page: Page,
+  locator: Locator,
+  label: string,
+): Promise<void> {
+  await expect(
+    locator,
+    `${label}: must be in the DOM to be refused`,
+  ).toHaveCount(1);
+  const handle = await locator.elementHandle();
+  const probe = await page.evaluate((el) => {
+    const target = el as Element;
+    const r = target.getBoundingClientRect();
+    const cx = r.x + r.width / 2;
+    const cy = r.y + r.height / 2;
+    const hit = document.elementFromPoint(cx, cy);
+    const name = (x: Element | null): string => {
+      if (x === null) return "nothing";
+      const tagged = x.closest("[data-testid]");
+      return `${x.tagName.toLowerCase()}${
+        tagged === null ? "" : `[${tagged.getAttribute("data-testid")}]`
+      }`;
+    };
+    return {
+      width: r.width,
+      height: r.height,
+      reached: hit !== null && target.contains(hit),
+      resolvesTo: name(hit),
+    };
+  }, handle);
+  await handle?.dispose();
+
+  expect(
+    probe.width * probe.height,
+    `${label}: the control has no area (${probe.width.toFixed(1)} x ${probe.height.toFixed(
+      1,
+    )}) — a pointer cannot aim at it, so forcing a click past the actionability check would prove nothing`,
+  ).toBeGreaterThan(0);
+  expect(
+    probe.reached,
+    `${label}: a pointer aimed at the control's centre lands on ${probe.resolvesTo} instead — forcing a click here would exercise that element, not the refusal`,
+  ).toBe(true);
+
+  await locator.click({ force: true });
+}
+
+/**
  * Both History buttons settled at the given server gates (`can_undo` /
  * `can_redo` → aria-disabled). Shared by the part and assembly undo/redo
  * specs — the two workspaces render the SAME HistoryGroup, so the assertion

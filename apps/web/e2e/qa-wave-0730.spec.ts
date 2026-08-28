@@ -27,7 +27,12 @@ import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "./fixtures";
 
 import { createFeature, SQUARE_20 } from "./partSeed";
-import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
+import {
+  clickRefusedControl,
+  createPartViaApi,
+  SCREENSHOT_DIR,
+  seedSession,
+} from "./support";
 
 /** Founder-shot tag: `SHOT_TAG=before` captures the pre-change pass. */
 const SHOT_TAG = process.env["SHOT_TAG"] ?? "after";
@@ -486,7 +491,7 @@ test.describe("B — a print survives a revision", () => {
         '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
       )
       .first();
-    await circle.click({ force: true });
+    await circle.click();
     await page.getByTestId("dimension-type-diameter").click();
     // REACH-3: choosing the type now opens the PLACE stage (the ghost tracks
     // the pointer). Enter commits it UNMOVED, which sends no placement at all —
@@ -499,7 +504,7 @@ test.describe("B — a print survives a revision", () => {
     ).toHaveCount(1, { timeout: 60_000 });
 
     const thickness = await tallestVerticalEdge(page, "front");
-    await thickness.click({ force: true });
+    await thickness.click();
     await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
     await page.getByTestId("dimension-type-linear").click();
     await page.keyboard.press("Enter");
@@ -567,7 +572,7 @@ test.describe("B — a print survives a revision", () => {
         '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
       )
       .first();
-    await circle.click({ force: true });
+    await circle.click();
     await page.getByTestId("dimension-type-diameter").click();
     await page.keyboard.press("Enter");
     await expect(
@@ -623,7 +628,7 @@ test.describe("B — a print survives a revision", () => {
         '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
       )
       .first();
-    await circle.click({ force: true });
+    await circle.click();
     await page.getByTestId("dimension-type-diameter").click();
     await page.keyboard.press("Enter");
     await expect(
@@ -854,7 +859,11 @@ test.describe("D — one story about a broken part", () => {
       .waitForEvent("download", { timeout: 3_000 })
       .then(() => true)
       .catch(() => false);
-    await page.getByTestId("part-export-step").click({ force: true });
+    await clickRefusedControl(
+      page,
+      page.getByTestId("part-export-step"),
+      "part-export-step",
+    );
     expect(await forced).toBe(false);
     // 5) The VIEWPORT says the solid is not the part.
     await expect(page.getByTestId("partial-body-notice")).toContainText(

@@ -194,9 +194,41 @@ test.describe("an open command scopes the band", () => {
     await expect(extrude).toBeDisabled();
     await expect(extrude).toContainText("Finish Fillet first");
 
-    // A stray click on the locked Extrude is inert — the Fillet command and its
-    // picked edge survive (the silent pick-loss the audit found is gone).
-    await extrude.click({ force: true }).catch(() => {});
+    // A stray Extrude activation is inert — the Fillet command and its picked
+    // edge survive (the silent pick-loss the audit found is gone).
+    //
+    // This used to be `extrude.click({ force: true }).catch(() => {})` and it
+    // proved nothing. While a command is open the whole `tool-groups` band is
+    // `sr-only` (measured: `1x1@(-1,43)`, `clip: rect(0,0,0,0)`), so the button
+    // is CLIPPED OUT OF THE FRAME — `checkVisibility()` and Playwright's
+    // `isVisible()` both still say true, which is why nobody noticed. `force`
+    // skips the hit-target check, so the synthetic click was delivered to
+    // whatever was topmost at those coordinates: measured 2026-08-28, it landed
+    // on `header[topbar]`, and the Extrude handler was never invoked. The
+    // assertions below would have passed identically had the handler discarded
+    // the picks — which is the whole thing this test exists to catch.
+    //
+    // So assert BOTH halves separately. First: a stray POINTER click is
+    // impossible by construction, because the band is not on screen.
+    const bandHidden = await page.evaluate(() => {
+      const group = document.querySelector('[data-testid="tool-groups"]');
+      if (group === null) return null;
+      const r = group.getBoundingClientRect();
+      return { w: r.width, h: r.height };
+    });
+    expect(
+      bandHidden,
+      "the tool band is in the DOM while a command is open",
+    ).not.toBeNull();
+    expect(
+      Math.max(bandHidden!.w, bandHidden!.h),
+      "an open command clips the tool band out of the frame, so no pointer can reach Extrude",
+    ).toBeLessThanOrEqual(2);
+
+    // Second: the activation path that IS still reachable — a direct activation
+    // (assistive tech, a stale focus, a rogue accelerator) — must be refused by
+    // the handler itself. Dispatched ON the element, so it cannot land elsewhere.
+    await extrude.dispatchEvent("click");
     await expect(page.getByTestId("fillet-editor")).toBeVisible();
     await expect(page.getByTestId("selected-count")).toHaveText(
       "1 edge picked",

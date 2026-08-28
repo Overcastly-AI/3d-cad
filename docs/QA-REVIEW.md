@@ -12,6 +12,121 @@ blocked or lies · **P2** a real flow is worse than it should be · **P3** polis
 
 ---
 
+## 2026-08-28 — the `force: true` audit: all 22 call sites, measured
+
+**Verdict: 18 of 22 were pure cargo, 1 was hiding an assertion that could never
+fail, 3 were legitimate but unproven. Nothing in the suite still hides an
+unhittable target — but the audit found one NEW product defect the specs could
+never have caught, because no spec picks an edge that small.**
+
+**The count the audit was for.** Yesterday's `dimension-placement` finding was a
+zero-area SVG `<line>` hit region, fixed with a rotated `<rect>`. The question
+was whether that was one bad affordance or a systemic pattern. **It was one.**
+Re-measured on the branch tip, every drawing pick target now has real area and
+answers `elementFromPoint` at its own centre: the hole circle **39.0 x 39.0 px,
+18/18 sample points**, the 40 mm edge **156.2 x 10.2 px, 14/18, centre resolves
+to itself**, the vertex handles **20.3 x 20.3 px, 18/18**. Removing `force` from
+all 18 drawing picks and re-running: **48/48 green**, no product change, no
+assertion weakened. The flag was residue of the defect that is already fixed.
+
+(NB the file count was 25 in the brief; three of those are prose in
+`dimension-placement.spec.ts` describing the fix. There were 22 real calls.)
+
+| call site | class | measured |
+| --- | --- | --- |
+| `drawings.spec.ts` x9 | **(a) cargo** | circle 18/18, lines 14/18, vertices 18/18 — all reach centre |
+| `drawing-wall-thickness.spec.ts` x4 | **(a) cargo** | shell wall faces, plain `.click()` green |
+| `qa-wave-0730.spec.ts` x4 (drawing picks) | **(a) cargo** | same targets |
+| `drawing-reanchor.spec.ts` x1 | **(a) cargo** | 100 mm top-view edge |
+| `body-status.spec.ts` x1 | **(d) legitimate** | `aria-disabled` export cell, centre resolves to itself |
+| `pick-no-body.spec.ts` x1 | **(d) legitimate** | `hole-face-pick`, centre resolves to itself |
+| `qa-wave-0730.spec.ts:857` x1 | **(d) legitimate** | `part-export-step`, centre resolves to itself |
+| `nav-chrome.spec.ts:199` x1 | **VACUOUS** | see below |
+
+### P2 (test integrity, now fixed) — the forced click never reached the button
+
+`nav-chrome.spec.ts:199` claimed "a stray click on the locked Extrude is inert —
+the Fillet command and its picked edge survive". While a command is open,
+`CreateStrip` gives the whole `tool-groups` band `sr-only`: measured
+**`1x1@(-1,43)`, `clip: rect(0,0,0,0)`, `overflow:hidden`** — the button is
+clipped out of the frame. `checkVisibility()` and Playwright's `isVisible()`
+BOTH return true for `sr-only`, which is why nobody noticed. `force` skips the
+hit-target check, so the synthetic click went to whatever was topmost at those
+coordinates: **measured, it landed on `header[topbar]`**, and the Extrude
+handler was never invoked. The three assertions that followed would have passed
+identically had the handler discarded the picks — the one thing the test exists
+to catch. Same family as `toBeVisible()` on an off-frame SAVE control.
+
+The product behaviour is genuinely correct: dispatching the activation directly
+at the button (`el.click()`) leaves `fillet-editor` open, the selection at
+`"1 edge picked"`, and `extrude-distance` at count 0. So the fix is the spec's.
+It now asserts the two halves separately — that the band is clipped (no pointer
+can reach it) and that a direct activation is refused by the handler.
+
+### P2 (product, NOT fixed — needs a `DrawingSheet` change) — a small feature's edge cannot be picked at all
+
+The already-filed finding is that the always-present vertex hit rects take 4 of
+18 points on a 40 mm edge. **The severity is worse than "an invisible control
+beats a visible one": below a threshold the edge disappears entirely.**
+
+A `VertexHandle`'s transparent target is `pickHitMm` (2.6 mm) in every
+direction, so the two endpoint rects together consume **5.2 sheet-mm** of any
+straight edge, from both ends, regardless of how long the edge is. Measured on a
+laid-out 40 x 25 x 10 plate: a 156.2 px (40 mm) edge loses 6/41 sample points,
+a 97.6 px edge loses 10/41, and a 39.0 px (10 mm) edge loses **22 of 41 — more
+than half the edge is not the edge**.
+
+Below 5.2 mm there is nothing left. Confirmed by construction rather than
+arithmetic, on a 40 x 4 x 10 rib:
+
+```
+top/line len= 15.6px  reachable= 0/41   centre -> drawing-pick-vertex
+top/line len=156.2px  reachable=35/41   centre -> drawing-pick-edge
+top/line len=156.2px  reachable=35/41   centre -> drawing-pick-edge
+top/line len= 15.6px  reachable= 0/41   centre -> drawing-pick-vertex
+
+real page.mouse.click at the SHORT edge's centre:
+  dimension-author-menu = false      <- the user's actual intent
+  dimension-pick-hint   = true       <- silently armed a point-to-point pick
+```
+
+So a user aiming at a 4 mm edge to dimension it does not get "nothing happens" —
+they get a DIFFERENT TOOL, with no explanation, and the sheet is now waiting for
+a second vertex they never asked to pick. The threshold scales with sheet scale:
+5.2 mm of paper is a 5.2 mm feature at 1:1, 10.4 mm at 1:2, 26 mm at 1:5. Thin
+ribs, wall thicknesses and small bosses on a scaled-down sheet are all inside it.
+
+Not fixed here: the cure is in `apps/web/src/components/DrawingSheet.tsx`
+(`VertexHandle`'s always-present rect), which a concurrent agent holds. Two
+shapes worth considering — clamp the vertex rect to a fraction of the shorter
+adjoining edge, or make the always-present vertex target conditional on the
+point-to-point pick actually being armed (it is already drawn conditionally;
+only the hit rect is unconditional, and the comment says it is unconditional so
+a *forced* e2e click can reach it — a reason that no longer exists now that no
+spec forces).
+
+### The guard, so this cannot come back quietly
+
+`force: true` now appears exactly once in `apps/web/e2e/`, inside
+`clickRefusedControl` in `support.ts`. It asserts the control has real area AND
+that a pointer aimed at its centre resolves to the control, and only then forces
+the event past the `aria-disabled` actionability check. **Negative control run,
+because a guard that cannot fail is not a guard**: pointed at the sr-only locked
+Extrude it refuses with `a pointer aimed at the control's centre lands on
+h2[feature-tree-section] instead`.
+
+**Method / load.** Native stack per CLAUDE.md (registry 403-blocked): geometry
+:8032, documents :8031, gateway :8030 on agent-prefixed SQLite files, Vite
+:5230, real Chromium at 1600x1000. The final 48-test sweep ran with one sibling
+agent's Playwright live, load average **1.5 on 4 cores** — noted because a red
+run under load is unconfirmed; this one was 48/48 green, so the load is
+irrelevant to the verdict. All measured values above were reproduced across
+separate runs with identical numbers. NB `apps/web/playwright.config.ts` defines
+no touch project, so the "desktop AND touch" half of the QA remit has no
+harness to run in for these files.
+
+---
+
 ## 2026-08-27 — REACH batch, independent QA (REACH-1 / REACH-2 / REACH-3)
 
 > **Provenance note (annotation, not a rewrite).** This entry, the QA-R1/R2/R3

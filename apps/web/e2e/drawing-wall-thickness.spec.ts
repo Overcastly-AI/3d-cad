@@ -254,7 +254,7 @@ test("dimension a shell wall thickness edge to edge", async ({ page }) => {
 
   // Pick the outer wall face, then reach for the across-the-wall dimension: it
   // ARMS a second-edge pick rather than authoring (the staged two-edge flow).
-  await pickEdge(page, "top", outer!.index).click({ force: true });
+  await pickEdge(page, "top", outer!.index).click();
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-start_edge_to_edge").click();
   await expect(page.getByTestId("dimension-pick-hint")).toContainText(
@@ -263,7 +263,7 @@ test("dimension a shell wall thickness edge to edge", async ({ page }) => {
 
   // Pick the inner wall face → the gated menu offers the distance (first, because
   // that is what was armed) AND the angle, so a mis-entry is never a dead end.
-  await pickEdge(page, "top", inner!.index).click({ force: true });
+  await pickEdge(page, "top", inner!.index).click();
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await expect(page.getByTestId("dimension-type-angular")).toBeVisible();
   await page.getByTestId("dimension-type-edge_to_edge").click();
@@ -321,10 +321,10 @@ test("refuse an edge-to-edge dimension between non-parallel edges", async ({
   expect(verticals[0]).toBeDefined();
   expect(horizontals[0]).toBeDefined();
 
-  await pickEdge(page, "top", verticals[0]!.index).click({ force: true });
+  await pickEdge(page, "top", verticals[0]!.index).click();
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-start_edge_to_edge").click();
-  await pickEdge(page, "top", horizontals[0]!.index).click({ force: true });
+  await pickEdge(page, "top", horizontals[0]!.index).click();
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-edge_to_edge").click();
   await page.keyboard.press("Enter");
