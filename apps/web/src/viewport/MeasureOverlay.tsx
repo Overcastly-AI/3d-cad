@@ -33,7 +33,7 @@ import { useMeasureStore } from "../measure/store";
 import { EdgeBandLayer } from "./EdgeBandLayer";
 import type { EdgeBandInput } from "./edgeBand";
 import { useHiddenPicks } from "./hiddenPicks";
-import { concatPositions, Segments } from "./overlaySegments";
+import { concatPositions, HighlightLines, Segments } from "./overlaySegments";
 import { useViewportPickStamp } from "./pickStamp";
 
 /**
@@ -196,11 +196,23 @@ export function MeasureOverlay() {
         onPick={pickEdge}
       />
 
-      {/* Edge highlights (hover under selection). */}
-      <Segments positions={hoveredEdgePositions} color={measure.edgeHover} />
-      <Segments
+      {/* Edge highlights (hover under selection). `HighlightLines`, not
+          `Segments`: an edge highlight is coincident with the body's own
+          surface, so a plain GL line at that depth loses the depth test and is
+          discarded — this overlay measured 0 brass pixels on a hovered edge
+          before SEL-8, with the hover stamp firing correctly throughout. */}
+      <HighlightLines
+        positions={hoveredEdgePositions}
+        color={measure.edgeHover}
+        widthPx={measure.edgeWidthPx}
+        xrayOpacity={measure.edgeXrayOpacity}
+      />
+      <HighlightLines
         positions={selectedEdgePositions}
         color={measure.edgeSelected}
+        widthPx={measure.edgeWidthPx}
+        xrayOpacity={measure.edgeXrayOpacity}
+        renderOrder={2}
       />
 
       {/* Pickable edges — diamond marks at each edge's TRUE mid-span. Rendered

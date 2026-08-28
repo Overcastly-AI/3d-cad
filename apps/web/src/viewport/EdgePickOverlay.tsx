@@ -11,8 +11,13 @@
  * neither corridor, nor mark, nor highlight.
  *
  * The highlight draws (selected = brass, hover = brass-hover) reuse the shared
- * `measure` tokens and the shared `Segments` layer — one selection palette, one
- * highlight primitive across both overlays (CLAUDE.md DRY rule). Selection is
+ * `measure` tokens and the shared `HighlightLines` layer — one selection
+ * palette, one highlight primitive across both overlays (CLAUDE.md DRY rule).
+ * `HighlightLines` and not `Segments`: an edge highlight is coincident with the
+ * body's own surface, and a plain GL line at that depth is discarded outright
+ * (SEL-8 — the hover state was firing all along and drawing nothing).
+ *
+ * Selection is
  * keyed by full-precision `EdgeSignature`, never the transient overlay index,
  * so a refetch never mismarks a pick. Presentational only: the parent store
  * owns the picked set + hover.
@@ -34,7 +39,7 @@ import {
 import { EdgeBandLayer } from "./EdgeBandLayer";
 import type { EdgeBandInput } from "./edgeBand";
 import { useHiddenPicks } from "./hiddenPicks";
-import { concatPositions, Segments } from "./overlaySegments";
+import { concatPositions, HighlightLines } from "./overlaySegments";
 import { useViewportPickStamp } from "./pickStamp";
 
 /** Edge marks sit just under the HUD strips (same band as measurement edges). */
@@ -142,8 +147,19 @@ export function EdgePickOverlay() {
       />
 
       {/* Highlights (hover under selection), brass token — one palette. */}
-      <Segments positions={hoveredPositions} color={measure.edgeHover} />
-      <Segments positions={selectedPositions} color={measure.edgeSelected} />
+      <HighlightLines
+        positions={hoveredPositions}
+        color={measure.edgeHover}
+        widthPx={measure.edgeWidthPx}
+        xrayOpacity={measure.edgeXrayOpacity}
+      />
+      <HighlightLines
+        positions={selectedPositions}
+        color={measure.edgeSelected}
+        widthPx={measure.edgeWidthPx}
+        xrayOpacity={measure.edgeXrayOpacity}
+        renderOrder={2}
+      />
 
       {/* Pickable edges — a diamond mark at each edge's true mid-span. */}
       {offered.map(({ edge, index }) => {

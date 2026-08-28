@@ -66,8 +66,11 @@ disjoint, parallel-dispatchable:
 2. **REACH-2-FLOW** (P1, M, frontend-builder, `PartPage.tsx` +
    `ScopeRow.tsx`) — the pattern-scope proposal is shed at 1280, destroyed
    by Cancel/Escape, names a subject nothing echoes. Sequence after #1.
-3. **SEL-8** (P1, S, frontend-builder, `apps/web/src/viewport/**`) — armed
-   edge picks in Fillet have no hover highlight on the real edge.
+3. ~~**SEL-8**~~ — CLOSED 2026-08-28 (frontend-builder). The hit-test was
+   never the defect: the hover fired correctly and the highlight was
+   discarded by the depth test (0 px of brass; 348 after). Its second half —
+   marks drawn over material that hides the edge they name, 8/21 agreement —
+   is split out as **PICKMARK-OCCLUDE-1** (P1, S, same territory).
 4. **MEASURE-PROXY-1** (P1, S, frontend-builder, `apps/web/src/viewport/**`)
    — T-14's residual: a Measure click on a marker's own bounding box is
    blocked by a neighbouring proxy. Sequence after #3, same territory.
@@ -275,31 +278,38 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
 ABSENT-tier literal in the gateway contract. See Done archive for
 evidence/gates.**
 
-- [ ] (P1, S) **SEL-8 — armed edge picks (Fillet's `PICK EDGES` mode) are 21
-      floating DOM proxy diamonds with NO hover highlight on the real edge —
-      apparently contradicting SEL-4 (`docs/BACKLOG.md` Done archive,
-      "armed edge/shell/draft picks got the shared raycast hit-test").**
-      kind: defect. MEASURED (`docs/AUDIT-PRODUCT.md` R-8, 2026-08-21 pass):
-      switching Fillet to `PICK EDGES` spawns 21 `edge-pick-N` 24x24px
-      diamonds, several sitting mid-FACE rather than on any visible edge; a
-      5px-step sweep straight across the hub/flange junction produced no
-      hover highlight, no readout, no preselection anywhere along the real
-      edge — only its diamond is a target. **CHECK FIRST**: SEL-4 is
-      recorded shipped; determine whether this is a REGRESSION, whether
-      SEL-4's raycast hit-test covered CLICK but never HOVER, or whether
-      Fillet's edge-pick mode specifically never got wired to it (grep
-      `PickNode`/raycast usage across fillet/chamfer/shell/draft call
-      sites) — do not assume duplication or regression without checking.
-      ACCEPTANCE: hovering the real edge geometry (not just its diamond) in
-      Fillet's `PICK EDGES` mode highlights it; a regression test pins
-      whichever of the three causes above is found, with a mutation check
-      proving it would have caught SEL-4's actual gap.
-      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-8, filed by
-      backlog-groomer pass 8]
-      TERRITORY: `apps/web/src/viewport/**` (edge pick overlay/raycast),
-      investigate before assuming file scope. **Shares viewport territory
-      with FB-21/FB-9/PICK-2 — sequence after those land.** agentType:
-      frontend-builder.
+- [ ] (P1, S) **PICKMARK-OCCLUDE-1 — a pick diamond is drawn at full strength
+      over material that hides the edge it names, so 13 of 21 marks point at
+      geometry the band refuses.** kind: defect. **Split out of SEL-8, whose
+      hover half is closed** — this is R-8's other sentence ("several sitting
+      mid-FACE rather than on any visible edge"), which is a distinct defect
+      and was never the reason hover looked dead. MEASURED on the same
+      coupling fixture, with the marks' own `pointer-events` disabled so the
+      BAND answers at each mark's centre (disable the drei `Html` WRAPPER too,
+      or every probe reads "refused" for the wrong reason — the first run of
+      this measurement said 0/21 and was wrong): **8/21 agree**, 8 read `none`
+      (the edge is behind the body at its own mid-span, so the mark floats over
+      a face), and 5 resolve to a DIFFERENT edge (`edge-pick-2`->6, 3->20,
+      4->18, 10->6, 13->20) — click the mark and you pick edge 2, click one
+      pixel outside it and you pick edge 6. Two hit-tests for one entity that
+      disagree about reachability. FIX: occlude the mark when its edge is
+      hidden (drei `Html` `occlude`, or a depth test against the pick
+      surface). ACCEPTANCE: a mark whose edge the band refuses at that point
+      is not drawn there; the agreement census rises from 8/21; the 60 fps
+      orbit budget holds with 21 marks mounted (measure it — a per-frame
+      raycast per mark is the obvious risk). NB the marks must stay reachable
+      by KEYBOARD regardless: they are the screen-reader and tab affordance,
+      and hiding them from the pointer must not remove them from the tab
+      order. TERRITORY: `apps/web/src/viewport/EdgePickOverlay.tsx` +
+      `MeasureOverlay.tsx`. agentType: frontend-builder.
+
+- [x] (P1, S) **SEL-8 — CLOSED 2026-08-28. Armed edge picks (Fillet's
+      `PICK EDGES` mode) had no hover highlight on the real edge.** The
+      ticket's three candidate causes were all wrong; the hit-test was fine
+      and the DRAW was discarded by the depth test. Evidence, the mutation
+      run and the design argument for keeping the marks: Done archive.
+      The mid-face-marks half is NOT closed — see PICKMARK-OCCLUDE-1 above.
+      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-8]
 
 - [x] (P1, S) **A11Y-TOOLBTN-1 CLOSED — `ToolButton` only wired
       `aria-describedby` to its caption while DISABLED, so an
@@ -3493,6 +3503,29 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
       Pass 7 M6(a); docs/RETRO.md §1.1]
 
 ## Done — archive
+
+### SEL-8 CLOSED — the hover was firing all along and drawing nothing (2026-08-28, frontend-builder)
+
+- **SEL-8** (P1) — R-8's three candidate causes were all wrong, and the answer
+  is a fourth: SEL-4's hit-test was intact and covered BOTH hover and click,
+  but the highlight was a 1 px `lineBasicMaterial` drawn coincident with the
+  body's own surface, so it lost the depth test and was discarded. Measured on
+  the audit's own part (Ø70 flange / Ø28 hub coupling, 21 edges, its labels
+  verbatim): hovering the hub/flange junction set `data-edge-pick-hover=18`
+  and changed **13 of 1,363,200 canvas pixels** — 0 px of brass. After:
+  **348 px** hover, 299 px selection. The same primitive left MEASURE's edge
+  highlight equally invisible (0 -> 350 px), fixed in the same place.
+  Fix: `overlaySegments.HighlightLines`, the two-pass draw `FaceTrace` already
+  used for the FACE half of this problem — an x-ray pass saying the edge closes
+  round the back, under a `LineSegments2` ribbon (instanced quads, so
+  `polygonOffset` genuinely applies) biased toward the camera.
+  `e2e/edge-highlight.spec.ts` asserts on PIXELS, not the stamp; mutation-run
+  against the pre-fix code it fails `Received: 0` on both cases while every
+  stamp assertion stays green — which is exactly why the old specs never saw
+  this. Diamonds kept deliberately: they are wired to keyboard focus, the
+  accessible name and the touch target, and `PickNode`'s 60 % recede floor is
+  already the furthest they can go and stay above WCAG 1.4.11's 3:1. See
+  PICKMARK-OCCLUDE-1 for the half of R-8 this does NOT close.
 
 ### PANEL-DENSITY-1 CLOSED — the overlay panels were a settings dialog, not an instrument (2026-08-28, frontend-builder, founder-directed)
 

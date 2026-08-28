@@ -275,11 +275,40 @@ costs CI nothing; the new workflow step prints what it found, installs
 `postgresql` only if a future image drops it, and exits 1 rather than
 proceeding blind.
 
+**SEL-8 CLOSED (2026-08-28, frontend-builder) — the hovered edge was being
+recorded and not drawn, and every pick spec agreed with the recording.**
+AUDIT-PRODUCT R-8 offered three causes (a regression, a hover path SEL-4 never
+wired, or Fillet never wired at all) and the measurement rejected all three:
+the hit-test was intact and hover fired correctly along the real edge the whole
+time. The highlight was a 1 px `lineBasicMaterial` sitting exactly on the
+body's own surface, so the depth test discarded it. On the audit's own part
+(Ø70 flange / Ø28 hub coupling, 21 edges, its accessible names reproduced
+verbatim) hovering the hub/flange junction set `data-edge-pick-hover=18` and
+changed **13 of 1,363,200 canvas pixels** — **0 px of brass**. After:
+**348 px** hover, 299 px selection, and MEASURE's edge highlight — the same
+primitive, equally invisible — 0 -> 350 px. Fixed once, in
+`overlaySegments.HighlightLines`, as the two-pass draw `FaceTrace` had already
+reached for the FACE half of this problem: an x-ray pass saying the edge closes
+round the back, under a `LineSegments2` ribbon whose instanced quads make
+`polygonOffset` actually apply. `e2e/edge-highlight.spec.ts` asserts on PIXELS
+rather than the stamp, and the mutation run is the point of it — against the
+pre-fix code both cases fail `Received: 0` while every stamp assertion stays
+green, which is precisely how this survived SEL-4, SEL-6 and two QA passes.
+The first draft of that spec swept for the first live edge and landed on the
+hub's convex top circle, which scores **68 px against a floor of 60 even
+broken**; the mutation run caught it and the spec now names the concave
+junction the auditor actually swept. Gates: `just lint` 0, 2207 TS unit tests,
+50 e2e across `pick-affordance`/`qa-sel4`/`qa-sel6`/`sketch-on-face`/
+`full-flow`/`measure`/`fillet-*`. Before/after at 1280x800 in
+`docs/screenshots/sel8-edge-hover-{before,after}-1280.png`. R-8's other
+sentence — marks drawn over material that hides the edge they name, measured at
+**8/21 agreement** — is a distinct defect and is filed as PICKMARK-OCCLUDE-1.
+
 **Still open, unchanged in substance:** REACH-2-FLOW, REACH-3-FLOW,
-NAME-2b, TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1, SEL-8,
-MEASURE-PROXY-1, MATE-OBS-2, SKETCH-COVERAGE-1, SOLVER-DOC-1, HEM-1B,
-HEM-1D — see BACKLOG for current tickets. HEM-1C is IN FLIGHT
-(frontend-builder).
+NAME-2b, TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1,
+PICKMARK-OCCLUDE-1, MEASURE-PROXY-1, MATE-OBS-2, SKETCH-COVERAGE-1,
+SOLVER-DOC-1, HEM-1B, HEM-1D — see BACKLOG for current tickets. HEM-1C is
+IN FLIGHT (frontend-builder).
 
 **Still owed, carried forward again:** `docs/GEOMETRY-QA.md`/
 `docs/UI-REVIEW.md` refresh against the last seven batches; the

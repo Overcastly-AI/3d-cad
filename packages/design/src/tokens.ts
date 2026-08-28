@@ -37,6 +37,19 @@ export const color = {
 } as const;
 
 /**
+ * Strength of the BEHIND-THE-BODY pass of any geometry highlight — a face
+ * trace's far seam, a bore's bottom circle, the far half of a highlighted
+ * circular edge.
+ *
+ * One value, referenced by both the face trace and the edge highlight, because
+ * they are the same statement: "the thing you are addressing continues out of
+ * sight." It is drawn, because that is information; it is drawn FAINTLY,
+ * because at full strength it paints over the material in front of it and
+ * stops being a statement about geometry at all (code review, 2026-08-06).
+ */
+const highlightXrayOpacity = 0.22;
+
+/**
  * WebGL scene palette — consumed by the r3f viewport. Values reference the
  * DOM palette above so the two renderers can never drift.
  *
@@ -185,7 +198,7 @@ export const viewport = {
      * and stops being a trace of anything (code review, 2026-08-06).
      */
     hoverEdgeWidthPx: 2,
-    hoverEdgeXrayOpacity: 0.22,
+    hoverEdgeXrayOpacity: highlightXrayOpacity,
   },
   /** The view reference cube (orientation gizmo) — a machinist's block. */
   gizmo: {
@@ -386,6 +399,22 @@ export const measure = {
   dimension: color.brass,
   /** Witness-point marker size (px, screen space — sizeAttenuation off). */
   witnessSizePx: 8,
+  /**
+   * Width of a highlighted edge, in SCREEN pixels (SEL-8).
+   *
+   * A highlighted edge is drawn as a screen-space ribbon rather than a GL line
+   * for the same reason the face trace is: it is numerically coincident with
+   * the body's own B-rep edge overlay, so a 1 px `lineBasicMaterial` at equal
+   * depth is discarded outright and the modeller sees nothing at all.
+   *
+   * Half a pixel heavier than `viewport.facePick.hoverEdgeWidthPx` and that is
+   * a decision, not drift. A face trace states its subject with a whole closed
+   * LOOP; an edge highlight has one line to say it with, so it needs a little
+   * more weight per line to carry the same signal.
+   */
+  edgeWidthPx: 2.5,
+  /** Strength of the far half of a highlighted edge — see the shared value. */
+  edgeXrayOpacity: highlightXrayOpacity,
 } as const;
 
 /**
