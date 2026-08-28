@@ -1,7 +1,7 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
 import { seedOccludedEdgePlate } from "./partSeed";
-import { litPoints } from "./reachability";
+import { litPoints, type Point } from "./reachability";
 import {
   createPartViaApi,
   distinctCanvasColors,
@@ -128,6 +128,157 @@ export function labelCentroid(label: string): {
  */
 export function labelIsWall(label: string): boolean {
   return labelCentroid(label).y < 25;
+}
+
+/** A screen-space axis-aligned rect in PAGE pixels — `page.mouse` space. */
+export interface ScreenRect {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+}
+
+/** Shrink a rect on all four sides; a NEGATIVE `by` grows it. */
+export function insetRect(rect: ScreenRect, by: number): ScreenRect {
+  return {
+    x0: rect.x0 + by,
+    x1: rect.x1 - by,
+    y0: rect.y0 + by,
+    y1: rect.y1 - by,
+  };
+}
+
+/** Strictly inside — a point ON the boundary does not count as covered. */
+export function containsPoint(rect: ScreenRect, point: Point): boolean {
+  return (
+    point.x > rect.x0 &&
+    point.x < rect.x1 &&
+    point.y > rect.y0 &&
+    point.y < rect.y1
+  );
+}
+
+export interface BodyScreenRects {
+  /** Where the WALL — the body in FRONT — covers the screen. */
+  wall: ScreenRect;
+  /** Where the PLATE — the body BEHIND — covers the screen. */
+  plate: ScreenRect;
+  /**
+   * Screen distance between the wall's FRONT (OCCT y = 0) and BACK (y = 20)
+   * face-mark centres — the depth parallax this derivation must NOT have.
+   * Reported so a caller can print the number that licensed its region.
+   */
+  parallaxPx: number;
+}
+
+/**
+ * The most depth parallax {@link bodyScreenRects} will derive a rect through.
+ *
+ * The number is not arbitrary and it is not slack: for a box tilted by θ about
+ * the view-up axis the silhouette is 40·cos θ + 20·sin θ wide while the centroid
+ * bounding box is 40·cos θ, so the rect's error and the measured front/back
+ * parallax are THE SAME 20·sin θ. The tolerance therefore IS the worst-case
+ * error of the region, in pixels, and 12 px is half the census grid step — the
+ * rect cannot be wrong by a whole sample column.
+ *
+ * Measured both ways rather than assumed. In the pinned front view, across five
+ * runs: **0.45, 0.71, 0.76, 1.63, 2.19 px** — the view is axis-aligned to about
+ * a third of a degree, and the spread is the fit's own settle, not the spec's.
+ * Its negative control is the 45 degree front-top view `pick-affordance.spec.ts`
+ * tilts into through the reference cube: **166.77 px**, refused by name. So the
+ * guard has ~5x headroom below and ~14x above, and it has been SEEN to fire.
+ */
+export const FRONT_ON_TOLERANCE_PX = 12;
+
+/**
+ * WHERE EACH BODY COVERS THE SCREEN, from the product's own face marks.
+ *
+ * WHY THIS EXISTS, because it is the seat of a trap that has already been paid
+ * for once. A spec asking an OCCLUSION question needs the REGION the occluder
+ * covers, and until ORTHO-1 (`9a04a6a`) it was possible to skip that and use a
+ * whole-frame SHARE instead: under the perspective front view this fixture used
+ * to open in, the nearer wall was magnified enough to cover all but a ~0.8 mm
+ * sliver of the 60 mm plate, so "the plate answered at all" and "the plate
+ * answered THROUGH the wall" were within 0.6 % of each other and a 5 % ceiling
+ * separated them. A parallel projection removes the magnification, so the
+ * plate's two 10 mm overhangs became their true size and answer 68 of 1003
+ * points (6.8 %) with nothing wrong — the app is correct and the SHARE stopped
+ * meaning what it was standing in for. The region is the quantity that was
+ * always intended; a third consumer should take it from here rather than
+ * re-derive a proxy for it.
+ *
+ * HOW, and why the marks rather than the camera. Each `shell-face-N` mark is a
+ * DOM node seated on its face's centroid, so front-on the wall's four SIDE
+ * faces (x = 10, x = 50, z = 0, z = 40) put a mark centre exactly on each of
+ * the four silhouette edges. Measured against the same rect projected through
+ * the live camera (`projectionMatrix · matrixWorldInverse`, the arithmetic
+ * `projection.spec.ts` uses): agreement of **0.2 px or better on all four
+ * edges** — 424.9 vs 424.7, 1175.1 vs 1175.3, 127.9 vs 127.8, 878.1 vs 878.2.
+ * So the marks are exact here and cost no duplicated projection maths.
+ *
+ * AND THE GUARD, which is the whole reason this can be shared. A centroid
+ * bounding box is the silhouette ONLY while the view has no depth parallax; in
+ * an oblique view it UNDER-claims, which is the silent direction — a genuine
+ * leak would fall outside the rect and pass. So the helper measures the
+ * parallax it depends on, from the wall's own front and back face marks — the
+ * quantity a parallel front-on projection sets to zero — and REFUSES above
+ * {@link FRONT_ON_TOLERANCE_PX} rather than returning a rect that is quietly
+ * too small. Requires the shell pick to be armed so the marks exist.
+ */
+
+export async function bodyScreenRects(page: Page): Promise<BodyScreenRects> {
+  const nodes = page.locator('[data-testid^="shell-face-"]');
+  await expect(nodes.first()).toBeVisible({ timeout: 20_000 });
+  const seats: { centre: Point; y: number; wall: boolean }[] = [];
+  for (const node of await nodes.all()) {
+    const label = (await node.getAttribute("aria-label")) ?? "";
+    const box = await node.boundingBox();
+    expect(box, `a seated face mark: ${label}`).not.toBeNull();
+    if (box === null) continue;
+    seats.push({
+      centre: { x: box.x + box.width / 2, y: box.y + box.height / 2 },
+      y: labelCentroid(label).y,
+      wall: labelIsWall(label),
+    });
+  }
+  const rectOf = (which: boolean): ScreenRect => {
+    const centres = seats.filter((s) => s.wall === which).map((s) => s.centre);
+    expect(
+      centres.length,
+      `${which ? "the wall" : "the plate"} offers the four side-face marks its rect is derived from`,
+    ).toBeGreaterThanOrEqual(4);
+    return {
+      x0: Math.min(...centres.map((c) => c.x)),
+      x1: Math.max(...centres.map((c) => c.x)),
+      y0: Math.min(...centres.map((c) => c.y)),
+      y1: Math.max(...centres.map((c) => c.y)),
+    };
+  };
+  const wallSeats = [...seats.filter((s) => s.wall)].sort((a, b) => a.y - b.y);
+  const front = wallSeats[0];
+  const back = wallSeats[wallSeats.length - 1];
+  expect(front, "the wall's nearest face is on offer").toBeDefined();
+  expect(back, "the wall's farthest face is on offer").toBeDefined();
+  if (front === undefined || back === undefined) {
+    throw new Error("the wall's faces are not on offer");
+  }
+  // Both ends must be REAL ends, or the parallax below is measured between two
+  // faces at the same depth and says nothing about the projection.
+  expect(
+    back.y - front.y,
+    `the wall's front and back faces must be a depth apart, got y=${front.y} and y=${back.y}`,
+  ).toBeGreaterThan(1);
+  const parallaxPx = Math.hypot(
+    front.centre.x - back.centre.x,
+    front.centre.y - back.centre.y,
+  );
+  expect(
+    parallaxPx,
+    `this region is a centroid bounding box, which is the silhouette ONLY without depth ` +
+      `parallax: the wall's y=${front.y} and y=${back.y} face marks are ${parallaxPx.toFixed(2)} px ` +
+      `apart, so the view is oblique and the rect would UNDER-claim`,
+  ).toBeLessThan(FRONT_ON_TOLERANCE_PX);
+  return { wall: rectOf(true), plate: rectOf(false), parallaxPx };
 }
 
 /**

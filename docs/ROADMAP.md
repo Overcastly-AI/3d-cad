@@ -40,6 +40,23 @@ job log; a platform-builder is on it now).
 evidence under CI-4, cause not yet diagnosed (reproduction in progress
 locally).
 
+**Shard 3/4 e2e DIAGNOSED and CLOSED (qa-tester, 2026-08-28) — a STALE
+THRESHOLD in the spec, not a defect in the app.** `qa-sel6-verify`'s occlusion
+control asserted that the plate behind the wall takes < 5 % of ALL answers, a
+number calibrated at 0.6 % under the PERSPECTIVE front view: the nearer wall
+was magnified enough to cover all but a ~0.8 mm sliver of the 60 mm plate.
+ORTHO-1 (`9a04a6a`) removed the magnification, so the plate's two 10 mm
+overhangs are their true size and legitimately answer 68 of 1003 points
+(6.8 %). Measured through the live camera: all 68 lie OUTSIDE the wall's own
+screen rect (left group max x 420 against the wall's edge at 424.7; right group
+min x 1188 against 1175.3) and ZERO lie inside it at any inset — depth order is
+correct. The control now scopes its claim to the region the wall covers, taken
+from the wall's own face marks (agreeing with the projected rect to 0.2 px on
+all four edges) behind a guard that refuses an oblique view. Mutation-tested
+with `nearestDrawnHit` returning the FARTHEST survivor: 173 of 838 in-wall
+answers name the plate, against 0 of 841 on the correct build. 16/16 green
+(`qa-sel6-verify` 3, `pick-affordance` 13); `just lint` exit 0.
+
 **Still open, unchanged in substance:** REACH-2-FLOW, REACH-3-FLOW,
 EXPORT-3, NAME-2b, TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1, SEL-8,
 MEASURE-PROXY-1, MATE-OBS-2, SKETCH-COVERAGE-1, SOLVER-DOC-1, HEM-1B — see

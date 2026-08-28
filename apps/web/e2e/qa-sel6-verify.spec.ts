@@ -1,11 +1,15 @@
 import { expect, test, type Page } from "./fixtures";
 
 import {
+  bodyScreenRects,
+  containsPoint,
   discoverWallRow,
+  insetRect,
   labelCentroid,
   labelIsWall,
   openOccludedPlate,
   setBodyMode,
+  type ScreenRect,
 } from "./occludedPlate";
 import { VIEWPORT_CANVAS } from "./perception";
 import { litPoints, type Point } from "./reachability";
@@ -36,7 +40,8 @@ import { waitForFrames } from "./support";
  *    middle 40 mm of a 60 mm plate, so a fix that restored only the unoccluded
  *    third would land around 33 %. The claim being verified is that the
  *    OCCLUDED span answers, so this file holds the same measurement to 85 %
- *    (measured 94.8 %) and prints the number whether it passes or fails.
+ *    (measured 94.8 % under perspective, 98.2 % since ORTHO-1) and prints the
+ *    number whether it passes or fails.
  *
  * 3. **A hand.** No SEL-6 gate ever completed a pick: they all read a hover
  *    stamp. The touch leg here taps where the wall used to be and demands the
@@ -65,7 +70,12 @@ import { waitForFrames } from "./support";
  *   touch leg's offer check fails. The census leg does NOT notice — see the note
  *   in it.
  * - **Farthest drawn hit instead of nearest**: every fraction unchanged; caught
- *   only by the occluded-share control (20 % against a 5 % ceiling).
+ *   only by the control that scopes its claim to the region the wall covers.
+ *   Under perspective that control was a whole-frame SHARE (20 % against a 5 %
+ *   ceiling); ORTHO-1 made the share stop meaning what it stood for and it is
+ *   now the region itself — see the long note at the assertion. Re-measured
+ *   under the same mutation on 2026-08-28: **173 of 838** answers inside the
+ *   wall's rect name the plate, against **0 of 841** on the correct build.
  * - **The fix applied to half the model** (see-past only left of scene x = 30):
  *   51.9 % — clears the >= 50 % acceptance floor, caught by the 85 % one.
  * - **Double-sided pick surface + farthest hit**: 94.8 %, controls all green,
@@ -79,6 +89,23 @@ function report(label: string, value: string): void {
 }
 
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+
+/**
+ * How far INSIDE the wall's own screen rect a point must be to count as a point
+ * the wall covers.
+ *
+ * One census grid step. Not slack for a wobbly measurement — the rect is known
+ * to 0.2 px — but for the one class of answer that is genuinely ambiguous: a
+ * ray at the wall's silhouette GRAZES it, and whether the triangle at the very
+ * edge is struck is a sub-pixel question the pick is not being asked to settle.
+ * It costs almost nothing: the wall covers the plate over 751 x 189 px, so the
+ * inset still leaves ~29 x 7 grid points of overlap for a depth-order defect to
+ * show up in, and 841 of 1003 answers survive it (measured).
+ */
+const WALL_INSET_PX = 24;
+
+/** Sub-pixel tolerance when asking whether a point is inside a rect at all. */
+const BOUNDARY_PX = 4;
 
 /** A shell face mark on offer, with the position its own label carries. */
 interface OfferedFace {
@@ -181,12 +208,24 @@ function nearestPlateFace(faces: readonly OfferedFace[]): OfferedFace {
   return near;
 }
 
+interface StampAnswer {
+  point: Point;
+  ordinal: string;
+}
+
 interface StampCensus {
   sampled: number;
   answered: number;
   fraction: number;
   /** How many points each ordinal absorbed — WHICH face answered, not whether. */
   tally: Map<string, number>;
+  /**
+   * WHERE each answer was made, kept so a claim can be scoped to a REGION of
+   * the frame rather than to the whole of it. A whole-frame share cannot tell
+   * "the plate answered past the wall's edge" from "the plate answered through
+   * the wall"; a coordinate can.
+   */
+  answers: StampAnswer[];
 }
 
 /** The most-answered ordinal, or null when nothing answered. */
@@ -222,6 +261,7 @@ async function stampCensus(
 ): Promise<StampCensus> {
   const viewport = page.getByTestId("viewport");
   const tally = new Map<string, number>();
+  const answers: StampAnswer[] = [];
   let answered = 0;
   for (const point of points) {
     await page.mouse.move(point.x, point.y);
@@ -229,13 +269,25 @@ async function stampCensus(
     if (stamped === null) continue;
     answered += 1;
     tally.set(stamped, (tally.get(stamped) ?? 0) + 1);
+    answers.push({ point, ordinal: stamped });
   }
   return {
     sampled: points.length,
     answered,
     fraction: points.length === 0 ? 0 : answered / points.length,
     tally,
+    answers,
   };
+}
+
+/** `x,y->ordinal`, the form every region-scoped failure message reports in. */
+function describeAnswer(answer: StampAnswer): string {
+  return `${Math.round(answer.point.x)},${Math.round(answer.point.y)}->${answer.ordinal}`;
+}
+
+function describeRect(rect: ScreenRect): string {
+  const r = (n: number) => Math.round(n);
+  return `x ${r(rect.x0)}..${r(rect.x1)} y ${r(rect.y0)}..${r(rect.y1)}`;
 }
 
 /** The stamp must clear off the body, or every census above scored for free. */
@@ -329,17 +381,69 @@ test.describe("SEL-6 QA — the census, and WHICH face answered", () => {
     // while the wall's own face still wins the count, because the wall is 40 mm
     // tall against the plate's 10 mm and dominates the frame either way
     // (measured under exactly that mutation: face 0 still took 723 of 935
-    // answers, so the dominant assertion above passes). What moves is the SHARE
-    // the occluded body takes: 6 of 935 answers here (0.6 % — the thin
-    // perspective sliver of plate visible past a nearer, magnified wall), 187 of
-    // 935 (20 %) with the ordering reversed.
-    const occludedShare =
-      (bothDrawn.tally.get(near.ordinal) ?? 0) /
-      Math.max(1, bothDrawn.answered);
+    // answers, so the dominant assertion above passes).
+    //
+    // THIS WAS A WHOLE-FRAME SHARE UNTIL 2026-08-28, AND THE SHARE WAS A PROXY
+    // FOR A REGION. It read "the plate takes < 5 % of all answers", calibrated
+    // against 0.6 % measured under the PERSPECTIVE front view this fixture used
+    // to open in — where the nearer wall was magnified enough to cover all but a
+    // ~0.8 mm sliver of the 60 mm plate, so "the plate answered" and "the plate
+    // answered through the wall" were nearly the same statement. ORTHO-1
+    // (`9a04a6a`) made named views orthographic and a parallel projection has no
+    // magnification, so the plate's two 10 mm overhangs are their true size and
+    // legitimately answer: 68 of 1003 points, 6.8 %, against a 5 % ceiling. The
+    // app was right and the ceiling was stale — measured here, every one of
+    // those 68 lies OUTSIDE the wall's own screen rect (left group max x 420 vs
+    // the wall's edge at 424.7; right group min x 1188 vs 1175.3), and ZERO lie
+    // inside it at any inset.
+    //
+    // So the claim is now made where it belongs, over the region the wall
+    // covers: inside the wall's rect, every answer must be one of the WALL's
+    // faces. That is projection-independent (the region is re-derived from the
+    // live frame each run), it needs no calibrated number, and its correct value
+    // is zero rather than "small". It is also STRICTLY stronger than the share:
+    // the share watched one ordinal, this rejects ANY face of the body behind —
+    // including the plate's BACK face, which is the mutation the old control
+    // could not see and "the dominant face is the NEAR one" had to catch.
+    const regions = await bodyScreenRects(page);
+    const covered = insetRect(regions.wall, WALL_INSET_PX);
+    report(
+      "the region the wall covers",
+      `wall ${describeRect(regions.wall)}, plate ${describeRect(regions.plate)}, ` +
+        `front/back parallax ${regions.parallaxPx.toFixed(2)} px; probing ${describeRect(covered)}`,
+    );
+    // The rect is a bounding box of the wall's own face-mark centres, so before
+    // any claim is made ON it, check it really is where the wall is: every point
+    // the WALL answered at must lie inside it. Not circular — that is the
+    // CONVERSE of the claim below, and it holds under the mutation the claim
+    // catches (the wall keeps answering over the span with nothing behind it).
+    const wallAnsweredOutside = bothDrawn.answers.filter(
+      (a) =>
+        wallOrdinals.has(a.ordinal) &&
+        !containsPoint(insetRect(regions.wall, -BOUNDARY_PX), a.point),
+    );
     expect(
-      occludedShare,
-      `control: the plate must not answer THROUGH the wall — ${describeCensus(bothDrawn)}`,
-    ).toBeLessThan(0.05);
+      wallAnsweredOutside.map(describeAnswer),
+      `the derived rect must be where the wall IS: ${describeRect(regions.wall)}`,
+    ).toEqual([]);
+    const insideCovered = bothDrawn.answers.filter((a) =>
+      containsPoint(covered, a.point),
+    );
+    // NON-VACUITY: "nothing behind answers here" is free if nothing is sampled
+    // here. Measured 841 of the 1003 answers land inside the inset rect.
+    expect(
+      insideCovered.length,
+      `answers sampled inside the wall's own rect — with none, the claim below is free (${describeCensus(bothDrawn)})`,
+    ).toBeGreaterThan(400);
+    const throughTheWall = insideCovered.filter(
+      (a) => !wallOrdinals.has(a.ordinal),
+    );
+    expect(
+      throughTheWall.map(describeAnswer),
+      `control: nothing BEHIND the wall may answer where the wall covers it — ` +
+        `${throughTheWall.length} of ${insideCovered.length} answers inside ` +
+        `${describeRect(covered)} name a face behind it; ${describeCensus(bothDrawn)}`,
+    ).toEqual([]);
     expect(
       plateHidden.fraction,
       `control, the body BEHIND hidden (${record})`,
@@ -365,7 +469,8 @@ test.describe("SEL-6 QA — the census, and WHICH face answered", () => {
     // (b) …and a floor that actually means "the OCCLUDED span answers". The
     //     wall covers the middle 40 mm of a 60 mm plate, so restoring only the
     //     unoccluded overhangs would score around a third and still clear 50 %
-    //     on a generous framing. Measured after the fix: 94.8 %.
+    //     on a generous framing. Measured after the fix: 94.8 % under the
+    //     perspective front view, 98.2 % since ORTHO-1 made it orthographic.
     expect(
       wallHidden.fraction,
       `the occluded span itself must answer, not just the overhangs (${record})`,
@@ -589,7 +694,8 @@ test.describe("SEL-6 QA — TOUCH", () => {
       );
     // THE CLAIM, restated on a touch-sized frame before any tap: the span the
     // wall used to cover answers, and answers with the plate's NEAR face.
-    // Measured 82.1 % here against 94.8 % at 1600 × 1000 — the difference is
+    // Measured 82.1 % here against 94.8 % at 1600 × 1000 under the perspective
+    // front view, and 78.6-82.1 % against 98.2 % since ORTHO-1 — the difference is
     // this framing, not the pick: the plate is a 240 × 40 px strip, so the rows
     // at its top and bottom graze the z = 0 / z = 10 faces.
     const scan = await stampCensus(page, inSpan);

@@ -35,6 +35,12 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
   Selection & direct manipulation — all owed a vision-steward re-check, now
   FIVE passes overdue.
 
+- **QA-SEL6-ORTHO-1 CLOSED (qa-tester, 2026-08-28) — the shard-3/4 e2e red was
+  a STALE THRESHOLD in the spec, not an app defect.** `qa-sel6-verify`'s
+  occlusion control was a whole-frame SHARE calibrated under the perspective
+  front view ORTHO-1 replaced; it is now the REGION the wall covers. Measured:
+  0 of 841 in-wall answers name the body behind (mutation: 173 of 838).
+
 - **Prior passes (8-16):** reconciled in `docs/CHANGELOG.md` / Done archive.
   Still true and still open: `docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` are
   stale against the last six batches — dispatch `geometry-qa` and
