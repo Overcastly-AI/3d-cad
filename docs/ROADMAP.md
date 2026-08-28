@@ -244,6 +244,20 @@ carry forward as blocked board items.
       parallel jobs, uv cache keyed on uv.lock); workflow authored + every
       job's commands verified passing locally — first hosted run occurs on
       push (per-package path filtering deferred until job times warrant)
+- ✅ CI-5 — a red e2e shard now ENDS with its failure list, so the one channel
+      that can read CI can actually read it (`scripts/e2e-verdict.py`, wired
+      into `scripts/e2e.sh` + a final `if: always()` step in
+      `.github/workflows/e2e.yml`). Measured 2026-08-28 on run 33139349952
+      (`69b3ef7`, shard 3/4): `get_job_logs` returns a TAIL and artifact
+      download is policy-denied here, so tails of 60/190/255 lines all missed
+      the failures behind ~300 lines of log dump and upload chatter — the shard
+      was re-run locally instead, ~20 min for information CI already had. The
+      block is counts + one `<spec>:<line> › <title>` per failure; an empty
+      block under a non-zero status is `::error::` + exit 3 rather than
+      silence, cross-checked against the report's own `stats`, with the tee'd
+      list output as a second source when the JSON report is unusable. Service
+      logs stay inline (180 lines -> ~24, routine 2xx/3xx dropped and counted).
+      23-check `--self-test` in `just lint` and the reconcile job
 - ✅ Geometry golden-suite harness (first golden model: the cube) + STEP
       round-trip test — data-driven runner over `services/geometry/goldens/`
       (documented per-model tolerances, exact topology/mesh counts,

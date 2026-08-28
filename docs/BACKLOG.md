@@ -1691,6 +1691,29 @@ to the Ready section, top of queue.
       service-log dump moved to a step that runs before the test step so it
       doesn't sit between the verdict and the tail).
 
+- [x] (P1, S) **CI-5 CLOSED — a red e2e shard's failure list was unreachable
+      from the orchestrator's only channel** (`scripts/e2e.sh`,
+      `scripts/e2e-verdict.py`, `.github/workflows/e2e.yml`). Measured
+      2026-08-28 on run 33139349952 (`69b3ef7`, shard 3/4): `get_job_logs`
+      returns a TAIL, artifact download is policy-denied from this container
+      (`CONNECT tunnel failed, 403`), and tails of 60/190/255 lines ALL failed
+      to reach the failure list — ~300 lines of service-log dump plus
+      upload-artifact chatter sat after it. The shard was re-run locally
+      instead: ~20 min for information CI had already computed. FIX: the last
+      thing every run prints is a compact verdict (`N failed, M passed, K
+      skipped of T` + one `<spec>:<line> › <title>` line per failure, capped at
+      25), re-printed by a final `if: always()` workflow step so the uploads
+      cannot bury it. THE GUARD is the point: a non-zero status with an empty
+      failure list is `::error::` + exit 3, never silence, and the report's own
+      `stats` block cross-checks the suite walk so one derivation cannot
+      quietly agree with itself. Second source when the JSON report is
+      absent/malformed: the tee'd list-reporter output. Service logs stay
+      inline (artifacts are unreadable here) but drop routine 2xx/3xx access
+      lines, counted not hidden: 180 lines -> ~24. `--self-test` (23 checks, in
+      `just lint` and the reconcile job) proves the guard fires, with an input
+      mutation as the negative control.
+      [src: orchestrator, 2026-08-28]
+
 - [x] (P2, XS) **CI-2 — `deploy-path` never got the per-SHA concurrency fix, so
       it is still evicting runs** (`.github/workflows`). Filed 2026-08-08 by the
       orchestrator from the CI board. `ci.yml` and `e2e.yml` both key their PUSH

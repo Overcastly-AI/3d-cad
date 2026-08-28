@@ -115,6 +115,15 @@ lint:
     # above: it builds the failing case and demands a failure.
     python3 scripts/check-doc-tick.py --self-test
     python3 scripts/check-doc-tick.py --warn-only
+    # ~30ms. The verdict block scripts/e2e.sh ends with is the ONLY readable
+    # channel into a red CI shard — `get_job_logs` returns a tail and artifact
+    # download is policy-denied here — so a summariser that emits nothing on an
+    # unfamiliar report shape leaves a red exactly as unreadable as it was
+    # before it existed. Its self-test proves the empty-summary guard FIRES
+    # (negative control: strip the failures out of a red report and it must go
+    # red) and stays quiet on an ordinary red. Same reasoning as its five
+    # neighbours: a gate that cannot fail is not a gate.
+    python3 scripts/e2e-verdict.py --self-test
 
 # Unit tests: pytest across the uv workspace + vitest via pnpm (recursive)
 test:

@@ -289,6 +289,36 @@ jobs:
             ${{ runner.temp }}/e2e-metrics-shard-${{ matrix.shard }}
           if-no-files-found: warn
           retention-days: 7
+      # LAST STEP ON PURPOSE, and it is a re-print of something the script
+      # already said.
+      #
+      # Reading a red shard means `get_job_logs`, which returns the TAIL of the
+      # job log — artifact download is policy-denied from the dev container
+      # (`CONNECT tunnel failed, 403` on the blob URL), so the JSON report three
+      # steps up is unreachable and the log is the only channel. On 2026-08-28,
+      # run 33139349952 shard 3/4, tails of 60, 190 and 255 lines ALL failed to
+      # reach the failure list; the shard was re-run locally instead, a ~20 min
+      # detour for information CI had already computed. scripts/e2e.sh now ends
+      # with the verdict, but the three upload steps above append ~120 lines
+      # after it, so "last in the script" is not "last in the job log".
+      #
+      # Budget when tailing: this block is <= 20 lines and the runner's own
+      # post-job cleanup (cache save/prune) still prints after it, so
+      # tail_lines: 60 is the safe ask; 40 will usually do.
+      - name: Verdict (kept last so a tail of the job log finds it)
+        if: always()
+        run: |
+          verdict="${{ runner.temp }}/e2e-logs-shard-${{ matrix.shard }}/verdict.txt"
+          if [[ -s "$verdict" ]]; then
+            cat "$verdict"
+            exit 0
+          fi
+          # No verdict file means scripts/e2e.sh never reached its own last
+          # line — the shard died in setup (uv sync, pnpm install, browser
+          # install, the Vite preflight) or was killed by the step timeout.
+          # Saying which is worth more than an empty tail.
+          echo "::error::no verdict file at $verdict — scripts/e2e.sh never reached its summary, so this shard died BEFORE or DURING setup (uv sync / pnpm install / browser install / Vite preflight), or hit the 40-minute step timeout. Its reason is in the 'Playwright shard' step above, not here."
+          ls -la "${{ runner.temp }}/e2e-logs-shard-${{ matrix.shard }}" || true
 
   # The control that keeps the sharding honest, and the single job to read.
   #
@@ -344,6 +374,15 @@ jobs:
       # voting. Same discipline as `just licence-selftest`.
       - name: The audit must be able to fail
         run: python3 scripts/e2e-shard-audit.py --self-test
+      # Same discipline for the verdict summariser the shards end with: it is
+      # the ONLY channel into a red shard (artifact download is policy-denied
+      # from the dev container), so a version of it that silently prints nothing
+      # on an unfamiliar report shape would leave every red exactly as
+      # unreadable as before. Its self-test proves the empty-summary guard fires
+      # — including with playwright's status as the only evidence — and that it
+      # stays quiet on an ordinary red. ~30 ms, stdlib only.
+      - name: The verdict must be able to fail
+        run: python3 scripts/e2e-verdict.py --self-test
       # --timeline: prints each shard's tests in execution order with their
       # offset into the shard, the failing test's ordinal, the slowest 10 and
       # the per-shard wall. Costs no new capture — it reads the reports already
