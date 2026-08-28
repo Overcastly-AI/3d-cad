@@ -242,6 +242,78 @@ async function drillMirrorableHole(
   return { y, thickness: box.max[2] - box.min[2] };
 }
 
+/**
+ * What a USER can actually read on screen for `testId` — measured with the
+ * user's own mechanisms, never with a proxy that skips the step being claimed.
+ *
+ * Three of this repo's green-suite/broken-product defects came from assertions
+ * that could not observe their own failure mode, and every one of them would
+ * sail through a naive check here. `toBeVisible()` returns TRUE for a node
+ * clipped to `1x1 @ (-1,43)`. `toContainText` reads `textContent`, so a label
+ * hidden by `display:none` still matches — which is precisely what the band's
+ * shed labels are, and why the existing `toContainText("Repeat Hole1")`
+ * assertion above passes at a width where those words are not on screen. And a
+ * tooltip's copy is in the DOM at all times, so containment cannot tell a
+ * proposal from a hover hint.
+ *
+ * So this returns the painted box AND what `elementFromPoint` finds at its
+ * centre: is this node what a mouse would land on, or is something over it?
+ */
+async function paintedNode(
+  page: Page,
+  testId: string,
+): Promise<{
+  text: string;
+  width: number;
+  height: number;
+  hit: boolean;
+} | null> {
+  return page.evaluate((id) => {
+    const node = document.querySelector(`[data-testid="${id}"]`);
+    if (node === null) return null;
+    const box = node.getBoundingClientRect();
+    const at = document.elementFromPoint(
+      box.left + box.width / 2,
+      box.top + box.height / 2,
+    );
+    return {
+      text: (node.textContent ?? "").trim(),
+      width: box.width,
+      height: box.height,
+      hit:
+        at !== null && (at === node || node.contains(at) || at.contains(node)),
+    };
+  }, testId);
+}
+
+/**
+ * The painted width of a band tool's own LABEL — the channel P1-1 says is shed.
+ * Zero means the band measured itself into the icon tier and the renamed verb
+ * is NOT on screen, which is the state the scope cell exists to answer. The
+ * tooltip stamp is excluded by name: it carries the same words and is exactly
+ * the hover-only channel under complaint.
+ */
+async function verbLabelWidth(
+  page: Page,
+  testId: string,
+  word: string,
+): Promise<number> {
+  return page.evaluate(
+    ([id, needle]) => {
+      const button = document.querySelector(`[data-testid="${id}"]`);
+      if (button === null) return -1;
+      let widest = 0;
+      for (const child of Array.from(button.children)) {
+        if (child.hasAttribute("data-tooltip")) continue;
+        if (!(child.textContent ?? "").includes(needle as string)) continue;
+        widest = Math.max(widest, child.getBoundingClientRect().width);
+      }
+      return widest;
+    },
+    [testId, word],
+  );
+}
+
 test.describe("pattern scope — the tree selection is what gets repeated", () => {
   test("select Hole1, press Pattern, get six holes (not a six-times plate)", async ({
     page,
@@ -553,6 +625,245 @@ test.describe("mirror scope — the same question, the same words", () => {
       boreVolumeMm3(drilled.thickness),
       1,
     );
+  });
+});
+
+/**
+ * REACH-2-FLOW — the proposal PATTERN-1 shipped was reachable and not yet
+ * DISCOVERABLE. Four separately-measured flow defects, one case each, so a
+ * regression in one cannot hide behind the other three.
+ */
+test.describe("REACH-2-FLOW — the proposal survives the 1280 floor and Cancel", () => {
+  test("P1-1/P1-2/P1-3: the subject is painted, marked, and kept through Cancel", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Scope reach");
+    await page.goto(`/parts/${part.id}`);
+
+    await buildPlate(page);
+    await drillOffCentreHole(page);
+
+    // Name the subject the way the ticket advertises it.
+    await page.getByTestId("feature-select-2").click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("hole-editor")).toHaveCount(0);
+
+    // ---- P1-1: THE PROPOSAL IS ON SCREEN, NOT UNDER THE POINTER ---------
+    // First the premise, so this case cannot pass for the wrong reason: the
+    // band really has shed the renamed verb at this width. If the label were
+    // painted, the scope cell would be belt-and-braces rather than the only
+    // channel, and a later band change could silently make this case vacuous.
+    expect(
+      await verbLabelWidth(page, "new-pattern", "Repeat"),
+      "the Modify verb's own label must be shed at 1280x800 — if it is not, this case is not testing what it claims",
+    ).toBe(0);
+
+    const cell = await paintedNode(page, "band-scope-subject");
+    expect(cell, "the band's scope cell must exist at 1280x800").not.toBeNull();
+    expect(cell?.text).toBe("Hole1");
+    // A real box, not a `1x1` clip and not a zero-height stroke — the three
+    // shapes this repo has measured an "invisible visible" element taking.
+    expect(cell?.width ?? 0).toBeGreaterThan(24);
+    expect(cell?.height ?? 0).toBeGreaterThan(8);
+    // …and nothing is on top of it, so the words reach a real pair of eyes.
+    expect(cell?.hit).toBe(true);
+
+    // The cell is a control, not a tile: it retires the state it announces.
+    // (Mandate 3a(c) — chrome that only decorates is a defect.)
+    await expect(page.getByTestId("band-scope-clear")).toHaveAttribute(
+      "aria-label",
+      "Clear Hole1 — pattern and mirror go back to the whole body",
+    );
+
+    await page.getByTestId("new-pattern").click();
+    await expect(page.getByTestId("pattern-editor")).toBeVisible();
+
+    // The in-command band keeps saying what the command holds — under its OWN
+    // hooks. While a command is open the tool groups stay in the DOM as
+    // `sr-only`, so a shared id would put two nodes behind one testid and let a
+    // spec be answered by the hidden one (`sr-only` is VISIBLE to every
+    // visibility API — this repo has measured that).
+    await expect(page.getByTestId("in-command-scope-subject")).toHaveText(
+      "Hole1",
+    );
+    expect(await page.getByTestId("band-scope").count()).toBe(1);
+
+    // ---- P1-2: SOMETHING IN THE FRAME ECHOES THE SUBJECT ----------------
+    // The editor names HOLE1 in a side panel; on a plate with two identical
+    // bores that settles nothing. The tree row and the timeline chip now carry
+    // the same brass SCOPE stamp — one word, one meaning, three surfaces.
+    await expect(page.getByTestId("feature-row").nth(2)).toHaveAttribute(
+      "data-scoped",
+      "true",
+    );
+    const treeStamp = await paintedNode(page, "feature-scoped-2");
+    expect(treeStamp?.text).toBe("Scope");
+    expect(treeStamp?.width ?? 0).toBeGreaterThan(8);
+    expect(treeStamp?.height ?? 0).toBeGreaterThan(8);
+    await expect(page.getByTestId("timeline-chip-2")).toHaveAttribute(
+      "data-scoped",
+      "true",
+    );
+    const chipStamp = await paintedNode(page, "timeline-scoped-2");
+    expect(chipStamp?.width ?? 0).toBeGreaterThan(8);
+
+    // The mark tracks the COMMAND, not the selection, so it must go away the
+    // instant the user chooses the other reading — a mark that outlives the
+    // fact it states is worse than no mark at all.
+    await page.getByTestId("pattern-scope-body").click();
+    await expect(page.getByTestId("feature-row").nth(2)).not.toHaveAttribute(
+      "data-scoped",
+      "true",
+    );
+    await expect(page.getByTestId("timeline-chip-2")).not.toHaveAttribute(
+      "data-scoped",
+      "true",
+    );
+    await page.getByTestId("pattern-scope-features").click();
+    await expect(page.getByTestId("feature-row").nth(2)).toHaveAttribute(
+      "data-scoped",
+      "true",
+    );
+
+    // ---- P1-3: BACKING OUT IS FREE --------------------------------------
+    // Cancel used to destroy the very selection that made the proposal
+    // possible, so trying again cost the whole click/Escape/press sequence.
+    // The band says as much before you press it.
+    await expect(page.getByTestId("in-command-cancel")).toContainText(
+      "Esc — keeps Hole1",
+    );
+    await page.getByTestId("in-command-cancel").click();
+    await expect(page.getByTestId("pattern-editor")).toHaveCount(0);
+
+    // The selection is intact on every surface it was ever shown on…
+    await expect(page.getByTestId("feature-select-2")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    const kept = await paintedNode(page, "band-scope-subject");
+    expect(kept?.text).toBe("Hole1");
+    // …and the very next press is scoped, with no re-selection in between.
+    await page.getByTestId("new-pattern").click();
+    await expect(page.getByTestId("pattern-scope-features")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByTestId("pattern-scope-features")).toHaveText(
+      "Hole1",
+    );
+
+    // Escape is the keyboard twin of Cancel and must not disagree with it.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("pattern-editor")).toHaveCount(0);
+    await expect(page.getByTestId("feature-select-2")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    // The retraction works, and it is the only thing that clears the subject.
+    await page.getByTestId("band-scope-clear").click();
+    await expect(page.getByTestId("band-scope")).toHaveCount(0);
+    await expect(page.getByTestId("feature-select-2")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  test("P1-4: a seed is taken from the row without opening that feature's editor", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Seed from row");
+    await page.goto(`/parts/${part.id}`);
+
+    await buildPlate(page);
+    await drillOffCentreHole(page);
+
+    // Point the tree selection somewhere ELSE first, using only the gestures
+    // that predate this change. Two things then follow from one setup: the seed
+    // below cannot be coming from the selection (it is Extrude1), and this case
+    // owes nothing to the band's scope cell, so reverting either fix reddens
+    // exactly one of the two cases rather than both.
+    await page.getByTestId("feature-select-1").click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("feature-select-1")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    // The advertised gesture used to charge a toll: clicking the row opens that
+    // feature's own editor, which locks the band AND the accelerators, so the
+    // real sequence was "open a dialog nobody asked for, abandon it, press P".
+    // The row's own menu asks the question directly.
+    const row = page.getByTestId("feature-row").nth(2);
+    const box = await row.boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.click(
+      (box?.x ?? 0) + (box?.width ?? 0) / 2,
+      (box?.y ?? 0) + (box?.height ?? 0) / 2,
+      { button: "right" },
+    );
+
+    const repeat = page.getByTestId("tree-ctx-pattern");
+    await expect(repeat).toHaveText(/Repeat Hole1/);
+    // A real mouse click at the item's centre — not a `force`, not a keyboard
+    // shortcut standing in for one.
+    const itemBox = await repeat.boundingBox();
+    expect(itemBox).not.toBeNull();
+    await page.mouse.click(
+      (itemBox?.x ?? 0) + (itemBox?.width ?? 0) / 2,
+      (itemBox?.y ?? 0) + (itemBox?.height ?? 0) / 2,
+    );
+
+    // The pattern opens scoped to Hole1 — and the HOLE editor never appeared,
+    // which is the acceptance criterion stated as a negative.
+    await expect(page.getByTestId("pattern-editor")).toBeVisible();
+    await expect(page.getByTestId("hole-editor")).toHaveCount(0);
+    await expect(page.getByTestId("pattern-scope-features")).toHaveText(
+      "Hole1",
+    );
+    await expect(page.getByTestId("pattern-scope-features")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByTestId("feature-row").nth(2)).toHaveAttribute(
+      "data-scoped",
+      "true",
+    );
+
+    // Mirror asks the same question on the same menu — two verbs, one grammar.
+    await page.keyboard.press("Escape");
+    await page.mouse.click(
+      (box?.x ?? 0) + (box?.width ?? 0) / 2,
+      (box?.y ?? 0) + (box?.height ?? 0) / 2,
+      { button: "right" },
+    );
+    await expect(page.getByTestId("tree-ctx-mirror")).toHaveText(
+      /Mirror Hole1/,
+    );
+
+    // …and it is not offered where the kernel cannot honour it: a fillet has a
+    // result and no rigid tool, so the row does not pretend it can be repeated
+    // (pattern-scope §7 rule 4 — refused kinds are never offered).
+    await page.keyboard.press("Escape");
+    await page.getByTestId("new-fillet").click();
+    await page.getByTestId("fillet-radius").fill("3");
+    await page.getByTestId("fillet-radius").press("Enter");
+    await expect(
+      page.getByTestId("feature-row").filter({ hasText: "Fillet1" }),
+    ).toBeVisible();
+    const filletRow = page.getByTestId("feature-row").nth(3);
+    const filletBox = await filletRow.boundingBox();
+    await page.mouse.click(
+      (filletBox?.x ?? 0) + (filletBox?.width ?? 0) / 2,
+      (filletBox?.y ?? 0) + (filletBox?.height ?? 0) / 2,
+      { button: "right" },
+    );
+    await expect(page.getByTestId("tree-ctx-edit")).toBeVisible();
+    await expect(page.getByTestId("tree-ctx-pattern")).toHaveCount(0);
   });
 });
 

@@ -14,6 +14,7 @@ import {
   ViewIsoIcon,
   ViewRightIcon,
   ViewTopIcon,
+  VerbGlyph,
 } from "@loft/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -193,7 +194,11 @@ import {
   formFromPatternParams,
   type PatternForm,
 } from "../features/pattern";
-import { scopeSeed } from "../features/patternScope";
+import {
+  scopeFeature,
+  type ScopeSeed,
+  scopeSeed,
+} from "../features/patternScope";
 import {
   defaultSweepForm,
   defaultSweepPathId,
@@ -1398,6 +1403,13 @@ export function PartPage() {
     patternScopeSeed !== null && patternScopeSeed.fromSelection
       ? patternScopeSeed.name
       : null;
+  // What the OPEN command actually acts on, published by its scope row (see
+  // `usePublishedScope`). Distinct from the selection above and worth the
+  // second channel for two reasons: the scope row is flippable, so a selection-
+  // driven mark would keep pointing at `Hole1` after the user chose `This
+  // body`; and an editor seeded from the TIP feature has a subject while
+  // nothing at all is selected. Empty whenever no command names a subject.
+  const scopedFeatureIds = useCommandActionStore((s) => s.scopedFeatureIds);
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   // UX audit #20e — a feature can SAVE cleanly yet fail to REBUILD (the create
@@ -2177,14 +2189,27 @@ export function PartPage() {
 
   // A pattern needs no sketch profile — it repeats the body, or the FEATURE the
   // tree named — so it only requires a solid to exist (canModify), unlike
-  // extrude/revolve. The seed is read BEFORE the selection is cleared: clearing
-  // first (which is what this did) is exactly how the tree's answer to "what am
-  // I repeating?" used to be thrown away at the door.
+  // extrude/revolve.
+  //
+  // IT KEEPS THE SELECTION, and it is the only opener here that does, alongside
+  // its mirror twin (REACH-2-FLOW P1-3). Every other verb seeds from a FACE or
+  // EDGE preselect, which lives in `usePreselectStore` and survives the editor
+  // on its own; these two seed from `selectedFeatureId`, so clearing it at the
+  // door destroys the very thing that made the proposal — and Cancel then has
+  // nothing to hand back, costing the user the whole click/Escape/press
+  // sequence to try again. Reading the seed before clearing (which is what this
+  // did) kept the FORM right and left the frame wrong: nothing echoed the
+  // subject while the editor named it, and backing out was a dead end.
+  //
+  // Keeping it is not merely undo-safe, it is what makes the subject visible:
+  // the tree row keeps its rail, the timeline chip its edge, and the viewport
+  // its feature-localized tint — `selectionActive` deliberately does not gate
+  // on `editor === null`, precisely so a selection stays lit through the
+  // command it armed.
   const openCreatePattern = useCallback(() => {
     const seed = patternScopeSeed;
     useMeasureStore.getState().deactivate();
     setEditorError(null);
-    setSelectedFeatureId(null);
     setEditor({
       kind: "pattern",
       mode: "create",
@@ -2306,17 +2331,66 @@ export function PartPage() {
   // A mirror, like pattern/fillet/shell, reflects the current BODY about a
   // plane (no sketch profile) — it only needs a solid to exist (canModify), so
   // it mirrors those guards. v1 needs only a plane choice: no face/point pick.
+  // Keeps the selection for the same reason `openCreatePattern` does — the two
+  // verbs share one subject and must not treat it two different ways.
   const openCreateMirror = useCallback(() => {
     const seed = patternScopeSeed;
     useMeasureStore.getState().deactivate();
     setEditorError(null);
-    setSelectedFeatureId(null);
     setEditor({
       kind: "mirror",
       mode: "create",
       initial: defaultMirrorForm(seed),
     });
   }, [patternScopeSeed]);
+
+  /**
+   * THE SEED GESTURE, TAKEN DIRECTLY FROM A ROW (REACH-2-FLOW P1-4).
+   *
+   * The advertised flow is "name Hole1, then repeat it". Reaching the verb
+   * through the BAND requires the row to be selected, and selecting a row opens
+   * that feature's own editor — which then locks the band and the accelerators,
+   * so the gesture in practice is "open an editor nobody asked for, abandon it,
+   * then press P". That is a dialog charged as a toll, and it is the flow
+   * mandate's "no dead ends" test failing.
+   *
+   * Offering the two verbs on the row's own menu removes the toll without
+   * re-teaching what a click does: right-click Hole1 -> Repeat Hole1, and the
+   * feature's editor never opens. It is also the incumbent gesture — a
+   * right-click on a timeline feature in Fusion/Onshape/SolidWorks asks exactly
+   * this question, "what can I do with this one?" — and it costs no band width,
+   * so the resting chrome is unchanged.
+   *
+   * The seed is passed EXPLICITLY rather than through `setSelectedFeatureId` +
+   * `patternScopeSeed`: that memo is derived from state this render has not
+   * committed yet, so routing through it would open the editor on the PREVIOUS
+   * selection. The selection is still set, because the row genuinely is the
+   * subject from here on and the band must say so.
+   */
+  const openScopedVerb = useCallback(
+    (verb: "pattern" | "mirror", feature: FeatureResponse) => {
+      const picked = scopeFeature(feature);
+      if (picked === null) return;
+      const seed: ScopeSeed = { ...picked, fromSelection: true };
+      useMeasureStore.getState().deactivate();
+      setEditorError(null);
+      setSelectedFeatureId(feature.id);
+      setEditor(
+        verb === "pattern"
+          ? {
+              kind: "pattern",
+              mode: "create",
+              initial: defaultPatternForm(seed),
+            }
+          : {
+              kind: "mirror",
+              mode: "create",
+              initial: defaultMirrorForm(seed),
+            },
+      );
+    },
+    [],
+  );
 
   // A datum plane needs no sketch/body — it's a construction plane parallel to
   // an origin datum. Available as soon as the tree exists (its own feature row).
@@ -4423,7 +4497,12 @@ export function PartPage() {
     feature: FeatureResponse,
   ): ContextMenuSection[] => {
     const suppressed = feature.feature.suppressed ?? false;
-    return [
+    // Only offered where the kernel can actually repeat this row on its own —
+    // a fillet/shell/boolean has a result and no rigid tool, so naming one is a
+    // rebuild error, and pattern-scope §7 rule 4 says a refused kind is not
+    // OFFERED rather than refused after the fact.
+    const seedable = hasBody && scopeFeature(feature) !== null;
+    const sections: ContextMenuSection[] = [
       {
         key: "feature",
         label: feature.name,
@@ -4463,6 +4542,35 @@ export function PartPage() {
         ],
       },
     ];
+    // A SECOND SECTION, not four more items in the first: Edit/Rename/Suppress/
+    // Delete are things you do TO the row, these make a NEW feature out of it.
+    // The verbs read as sentences ("Repeat Hole1") for the same reason the band
+    // renames itself — the menu proposes the next step by name.
+    if (seedable) {
+      sections.push({
+        key: "scope",
+        label: "Repeat",
+        items: [
+          {
+            key: "pattern",
+            label: `Repeat ${feature.name}`,
+            icon: <VerbGlyph verb="pattern" />,
+            shortcut: "P",
+            onSelect: () => openScopedVerb("pattern", feature),
+            "data-testid": "tree-ctx-pattern",
+          },
+          {
+            key: "mirror",
+            label: `Mirror ${feature.name}`,
+            icon: <VerbGlyph verb="mirror" />,
+            shortcut: "I",
+            onSelect: () => openScopedVerb("mirror", feature),
+            "data-testid": "tree-ctx-mirror",
+          },
+        ],
+      });
+    }
+    return sections;
   };
 
   // The breadcrumb's mode leaf: sketch step / measure / open command / model.
@@ -4524,6 +4632,7 @@ export function PartPage() {
               onChamfer={openCreateChamfer}
               onPattern={openCreatePattern}
               scopeSubject={scopeSubject}
+              onClearScope={() => setSelectedFeatureId(null)}
               onShell={openCreateShell}
               onDraft={openCreateDraft}
               onHole={openCreateHole}
@@ -5115,6 +5224,7 @@ export function PartPage() {
                     evaluation={evaluation.data}
                     build={build}
                     selectedFeatureId={selectedFeatureId}
+                    scopedFeatureIds={scopedFeatureIds}
                     onSelectFeature={selectFeature}
                     onKeepAsOneBody={keepAsOneBody}
                     recoveringDisjoint={disjointRecovering}
@@ -5224,6 +5334,7 @@ export function PartPage() {
           tree={tree.data}
           evaluation={evaluation.data}
           selectedFeatureId={selectedFeatureId}
+          scopedFeatureIds={scopedFeatureIds}
           onSelectFeature={selectFeature}
           onMoveRollback={moveRollback}
           // The stop also holds while a history step is restoring (the mutual

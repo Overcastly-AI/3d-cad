@@ -1110,9 +1110,38 @@ edge reclaims the band it lost. See Done archive.**
 Its own design review found four flow gaps the builder did not catch; filed
 below as REACH-2-FLOW rather than reopening PATTERN-1 itself.
 
-- [ ] (P1, M) **REACH-2-FLOW — the pattern-scope proposal PATTERN-1 shipped
-      is reachable and not yet discoverable: shed at 1280, destroyed by
-      Cancel/Escape, and names a subject nothing in the frame echoes.**
+- [x] (P1, M) **REACH-2-FLOW CLOSED (frontend-builder, 2026-08-28) — the
+      proposal now has a channel the icon tier cannot shed, three surfaces
+      echo the subject, and backing out costs nothing.** SHIPPED: a
+      `BandStateCell` primitive (extracted from `CreateStrip`'s in-command
+      block on its second real use) renders a SCOPE cell that is not part of
+      any `ToolGroup`, so the shed pass never reaches it — measured 104px
+      painted at 1280x800 with `elementFromPoint` resolving to it, against a
+      Modify label measured at **0px wide** in the same frame;
+      `openCreatePattern`/`openCreateMirror` no longer clear
+      `selectedFeatureId` (they were the only two openers whose subject IS
+      the tree selection), which also restores the tree rail, the timeline
+      chip edge and the viewport face tint through the whole command;
+      `usePublishedScope` carries the editor's LIVE scope out to a brass
+      `Scope` stamp on the tree row and the timeline chip, so flipping to
+      `This body` unmarks; the row's context menu gained `Repeat <name>` /
+      `Mirror <name>`, offered only where `scopeFeature` says the kernel can
+      honour it. GATES: `just lint` 0, `pnpm -r typecheck`, 2234 unit tests,
+      `pattern-scope` 7/7, plus `nav-chrome`/`pattern`/`mirror`/
+      `feature-selection`/`feature-reorder` 24/24 and `full-flow`/
+      `qa-reach-batch`/`toolbar-overflow`/`panel-density`/`fb19` 47/47.
+      MUTATION EVIDENCE, one leg per sub-defect with the served bytes
+      verified by `curl` each time (a stale Vite transform makes this
+      evidence lie): removing the cell reddens P1-1 alone; unpublishing the
+      scope reddens the `data-scoped` assertions alone; restoring
+      `setSelectedFeatureId(null)` reddens P1-3 alone and leaves P1-4 green;
+      removing the menu items reddens P1-4 alone. SCREENSHOTS:
+      `docs/screenshots/reach2-flow-{proposal,scoped,after-cancel}-{before,after}.png`
+      at 1280x800. Two halves deliberately DEFERRED, not forgotten — see
+      REACH-2-FLOW-B and REACH-2-FLOW-C below. The original report follows.
+      ORIGINAL: the pattern-scope proposal PATTERN-1 shipped was reachable
+      and not yet discoverable: shed at 1280, destroyed by Cancel/Escape,
+      and naming a subject nothing in the frame echoed.
       kind: defect (flow, not capability — `ec9c569` genuinely made
       `params.scope` authorable; this is the "reachable but does not flow"
       class CLAUDE.md's design mandate calls out by name). MEASURED
@@ -1157,6 +1186,63 @@ below as REACH-2-FLOW rather than reopening PATTERN-1 itself.
       `openCreateMirror`, tree row activation), `packages/design/src/
       primitives/ToolButton.tsx`, `apps/web/src/components/ScopeRow.tsx`.
       agentType: frontend-builder.
+
+- [ ] (P2, S) **REACH-2-FLOW-B — a viewport face highlight that follows the
+      COMMAND's scope, not just the tree selection.** kind: enhancement.
+      DELIBERATELY DEFERRED from REACH-2-FLOW (b), not forgotten: SEL-8 was
+      live in `apps/web/src/viewport/**` while REACH-2-FLOW was built, so
+      that territory was foreign. WHAT ALREADY LANDS WITHOUT IT: keeping the
+      selection through the command (P1-3's fix) means `selectionActive`
+      stays true, and it deliberately does not gate on `editor === null`, so
+      the seed's faces DO stay tinted through the pattern/mirror editor —
+      measured in `reach2-flow-scoped-after.png`, no viewport file touched.
+      WHAT IS STILL MISSING, and it is the honest gap: that tint follows the
+      SELECTION, so on a plate with two identical bores it goes on saying
+      `Hole1` after the user flips the scope row to `This body`, and it says
+      nothing at all when the editor seeded from the TIP with no selection.
+      The tree and timeline already read `scopedFeatureIds` from
+      `useCommandActionStore` and get both cases right; the viewport should
+      read the same source. FIX: drive the face overlay from
+      `scopedFeatureIds` when it is non-empty, falling back to
+      `selectedFeatureId`. ACCEPTANCE: flipping the scope row to `This body`
+      clears the viewport tint in the same frame it clears the tree stamp; a
+      tip-seeded pattern tints its subject with nothing selected.
+      TERRITORY: `apps/web/src/viewport/**`, `apps/web/src/routes/
+      PartPage.tsx` (`selectedFaceIndices`). agentType: frontend-builder.
+
+- [ ] (P2, M) **REACH-2-FLOW-C — the feature tree has no gesture that
+      selects WITHOUT entering a command, and the band is out of room at
+      1280.** kind: defect (flow). Two findings from REACH-2-FLOW that are
+      each too large to be a clause of it, with the measurements that size
+      them. (1) **The select/edit split.** `selectFeature` unconditionally
+      opens the row's editor, which locks both the band (`sr-only`) and the
+      accelerators, so "select Hole1, press Pattern" really costs an
+      Escape. Fusion/Onshape/SolidWorks all separate single-click-selects
+      from double-click-edits, and our row button is already NAMED
+      `Select <name>`, so the destination is not in doubt. The cost is: **75
+      references across 28 e2e spec files**, roughly half of which click a
+      row expecting an editor — a re-training event for every existing flow,
+      not a sub-clause. REACH-2-FLOW shipped the narrow half instead (the
+      row's context menu offers `Repeat`/`Mirror` directly, so the toll is
+      gone for the seed gesture) and this is the general fix. Ship the
+      second affordance in the SAME commit or editing becomes undiscoverable:
+      double-click, Enter on the focused row, and the existing
+      `tree-ctx-edit`. (2) **The band's budget.** Measured at 1280x800: the
+      resting row is 1241px of 1280, i.e. **39px of slack**, and the label
+      budget affords exactly EXPORT (+160) and INSPECT (+37). Any
+      always-visible cell therefore drops the band to the icon tier —
+      REACH-2-FLOW's 104px scope cell does, costing EXPORT its format codes
+      while a scope is held (it gets them back the moment the cell's `x` is
+      pressed, measured). `CommandBand`'s own doc names the fix: an explicit
+      overflow flyout. A cheaper prize sits beside it — SHEET METAL is 215px
+      of icons for a family "inert on every part that is not sheet metal".
+      ACCEPTANCE: (1) a tree row can be selected without opening its editor,
+      and editing is reachable by at least two visible gestures; (2) holding
+      a scope at 1280x800 no longer costs EXPORT its labels.
+      [src: REACH-2-FLOW build, 2026-08-28, frontend-builder]
+      TERRITORY: `apps/web/src/components/FeatureTreePanel.tsx`,
+      `apps/web/src/routes/PartPage.tsx`, `packages/design/src/primitives/
+      CommandBand.tsx`, `apps/web/e2e/**`. agentType: frontend-builder.
 
 **ORTHO-1 is CLOSED (`9a04a6a`, groom pass 16) — an ORTHO/PERSP toggle in the
 view rail; orienting commands (Home/Front/Top/Right/Iso, their accelerators,

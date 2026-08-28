@@ -34,6 +34,66 @@ repair: HEM-1C (editor still claims base-flange inheritance for the radius
 and suggests the exact value the server refuses) and HEM-1D (UI cannot author
 an `open` hem at all) — **BOTH CLOSED**, see the entry below.
 
+**REACH-2-FLOW CLOSED (frontend-builder, 2026-08-28) — the pattern-scope
+proposal was reachable and could not be seen, could not be kept, and named a
+subject nothing in the frame echoed.** All four measured sub-defects, one fix
+each. (P1-1) At the 1280x800 quality floor the band measures Modify into the
+icon tier, so `verbLabel()`'s "Repeat Hole1" — the entire visible payload of
+the proposal — was shed to a hover tooltip. The subject now rides a
+`BandStateCell`, a new `packages/design` primitive extracted from
+`CreateStrip`'s own in-command block on its second real use; it is not part of
+any `ToolGroup`, so the shed pass cannot reach it. Measured, in the same frame:
+the Modify label is **0px wide** and the SCOPE cell is **104px** with
+`elementFromPoint` at its centre resolving to itself. The existing spec's
+`toContainText("Repeat Hole1")` passed throughout — `textContent` includes
+`display:none` nodes, so it could never observe this failure, which is the
+fourth member of the assertion-cannot-see-its-own-failure family in CLAUDE.md.
+(P1-3) `openCreatePattern`/`openCreateMirror` cleared `selectedFeatureId` at
+the door. They are the only two openers whose subject IS the tree selection —
+every other verb seeds from a face/edge preselect that survives on its own — so
+reading the seed before clearing kept the FORM right and left the frame wrong,
+and Cancel had nothing to hand back. They now keep it, and the in-command
+Cancel cell says so (`Esc — keeps Hole1`) rather than leaving the user to guess
+whether backing out is free. (P1-2) That one change also restores the tree
+rail, the timeline chip edge AND the viewport face tint through the whole
+command, because `selectionActive` deliberately does not gate on `editor ===
+null` — no viewport file was touched, SEL-8's territory was left alone. On top
+of it, `usePublishedScope` carries the editor's LIVE scope out of `ScopeRow` to
+a brass `Scope` stamp on the tree row and the timeline chip; it is derived from
+the form and not from the selection, so flipping the scope row to `This body`
+unmarks in the same frame. (P1-4) The row's context menu gained
+`Repeat <name>` / `Mirror <name>`, offered only where `scopeFeature` says the
+kernel can honour it, so the seed gesture no longer costs opening and
+abandoning an editor nobody asked for.
+
+Two halves were deliberately NOT shipped, and both are filed rather than
+forgotten. **REACH-2-FLOW-B**: the viewport tint follows the SELECTION, so it
+still says `Hole1` after the user flips to `This body`; it should read the same
+`scopedFeatureIds` the tree does. **REACH-2-FLOW-C**: the ticket proposed
+Fusion's single-click-selects / double-click-edits for the whole tree. That is
+the right destination — every incumbent separates them and our row button is
+already named `Select <name>` — but it is **75 references across 28 e2e spec
+files**, about half of which click a row expecting an editor, i.e. a
+re-training event for every existing flow rather than a clause of this ticket.
+The narrow half shipped instead. The same item carries the band's measured
+budget: 1241px of a 1280px frame leaves **39px of slack**, so ANY always-
+visible cell drops the band to the icon tier — the scope cell costs EXPORT its
+format codes while a scope is held, reclaimed by the cell's own `x` (measured:
+clearing restores `["Inspect","Export"]`). The `x` is free in tier terms; the
+cell is 80px without it and EXPORT's cliff is 76px.
+
+GATES: `just lint` exit 0, `pnpm -r typecheck`, 2234 unit tests, `pattern-scope`
+7/7, `nav-chrome`/`pattern`/`mirror`/`feature-selection`/`feature-reorder`
+24/24, `full-flow`/`qa-reach-batch`/`toolbar-overflow`/`panel-density`/`fb19`
+47/47. MUTATION EVIDENCE, one leg per sub-defect with the served bytes checked
+by `curl` before each verdict (a stale Vite transform of a linked workspace
+package makes exactly this evidence lie, and did so on `ToolButton.tsx` hours
+earlier): removing the cell reddens P1-1 alone; unpublishing the scope reddens
+the `data-scoped` assertions alone; restoring `setSelectedFeatureId(null)`
+reddens P1-3 alone and leaves P1-4 green; removing the menu items reddens P1-4
+alone. Before/after founder shots at 1280x800:
+`docs/screenshots/reach2-flow-{proposal,scoped,after-cancel}-{before,after}.png`.
+
 **HEM-1C + HEM-1D CLOSED (frontend-builder, 2026-08-28) — the hem card was
 advising the one value the evaluator refuses, and the shape that would have
 made it legal could not be clicked.** Not stale copy: a flow dead end. The hint

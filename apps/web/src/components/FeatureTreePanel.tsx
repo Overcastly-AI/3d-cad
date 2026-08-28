@@ -17,6 +17,7 @@ import {
   EyeOffIcon,
   Panel,
   PanelSection,
+  Stamp,
   SuppressIcon,
   TextField,
 } from "@loft/design";
@@ -88,6 +89,16 @@ export interface FeatureTreePanelProps {
   build: PartBuild;
   /** Selected feature id (brass left-rule); extrude rows open their editor. */
   selectedFeatureId: string | null;
+  /**
+   * The feature ids the OPEN command will act on — the pattern/mirror scope,
+   * published by its editor's scope row (REACH-2-FLOW P1-2). Marked distinctly
+   * from selection because it answers a different question: selection is what
+   * the user pointed at, scope is what the command in progress will change, and
+   * on a plate with two identical holes the editor naming `HOLE1` in a side
+   * panel settles neither. Empty whenever no command names a subject, which is
+   * nearly always — so the mark stays rare, and therefore legible.
+   */
+  scopedFeatureIds?: readonly string[];
   onSelectFeature: (feature: FeatureResponse) => void;
   /** Guided recovery for a `boolean_disjoint` error (MB-4c): re-run this boolean
    * with `allow_disjoint` on, keeping the disconnected pieces as one multi-lump
@@ -189,6 +200,7 @@ export function FeatureTreePanel({
   evaluation,
   build,
   selectedFeatureId,
+  scopedFeatureIds,
   onSelectFeature,
   onKeepAsOneBody,
   recoveringDisjoint = false,
@@ -477,6 +489,8 @@ export function FeatureTreePanel({
                 const status = result?.status;
                 const rolledBack = index > barSlot;
                 const selected = feature.id === selectedFeatureId;
+                // The open command will change THIS row (see the prop doc).
+                const scoped = scopedFeatureIds?.includes(feature.id) ?? false;
                 // Suppressed reads from the persisted envelope flag (authoritative
                 // the instant the tree refetches, before the re-evaluate lands)
                 // OR the evaluate's dedicated `suppressed` status — either marks
@@ -547,9 +561,12 @@ export function FeatureTreePanel({
                       // name and the status badge share one centre line instead
                       // of hanging from a baseline at the top of the band.
                       className={`group/row flex min-h-target-dense items-center gap-2 border-l-2 py-0 pr-2 pl-[10px] ${
-                        selected ? "border-brass" : "border-transparent"
+                        selected || scoped
+                          ? "border-brass"
+                          : "border-transparent"
                       } ${drag?.id === feature.id ? "bg-carbide" : ""}`}
                       data-testid="feature-row"
+                      data-scoped={scoped || undefined}
                       data-rolled-back={rolledBack || undefined}
                       data-suppressed={suppressed || undefined}
                       data-blocked-by={blockedBy ?? undefined}
@@ -640,9 +657,25 @@ export function FeatureTreePanel({
                           >
                             {feature.name}
                           </span>
-                          <span className="shrink-0 font-body text-xs text-gauge">
-                            {featureBadge(feature.feature, features)}
-                          </span>
+                          {/* The SCOPE stamp — the same word the command band
+                              uses for the same fact, so the two surfaces teach
+                              one vocabulary rather than two. It takes the badge
+                              slot rather than sitting beside it: while a
+                              command holds this row, what it is ABOUT TO
+                              CHANGE outranks what type it is, and a 24px row
+                              has no width for both. */}
+                          {scoped ? (
+                            <Stamp
+                              tone="brass"
+                              data-testid={`feature-scoped-${index}`}
+                            >
+                              Scope
+                            </Stamp>
+                          ) : (
+                            <span className="shrink-0 font-body text-xs text-gauge">
+                              {featureBadge(feature.feature, features)}
+                            </span>
+                          )}
                         </button>
                       )}
                       {/* Suppress toggle — quiet by default, brass when the

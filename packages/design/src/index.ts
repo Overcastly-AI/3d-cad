@@ -83,6 +83,10 @@ export {
   BandActionCell,
   type BandActionCellProps,
 } from "./primitives/BandActionCell";
+export {
+  BandStateCell,
+  type BandStateCellProps,
+} from "./primitives/BandStateCell";
 export { SketchGlyph, type SketchGlyphProps } from "./primitives/SketchGlyph";
 export { PickNode, type PickNodeProps } from "./primitives/PickNode";
 export { AxisGrip, type AxisGripProps } from "./primitives/AxisGrip";
