@@ -13,6 +13,8 @@
  *    neutral `ProjectedViewEdge` list (design §C) — positions are supplied by the
  *    composed geometry; this only resolves the canonical end_a/end_b labels.
  */
+import { drawing } from "@loft/design";
+
 import type {
   ComposedEdge,
   EdgeSignature,
@@ -242,6 +244,52 @@ export function endpointHandlesForEdge(
     { projected: p2(edge.start), endpoint: startIsA ? "end_a" : "end_b" },
     { projected: p2(edge.end), endpoint: startIsA ? "end_b" : "end_a" },
   ];
+}
+
+// --- the vertex/edge hit budget on a straight edge ---------------------------
+//
+// A vertex handle's grab is painted AFTER the edge band it sits on, so whatever
+// it claims, it claims OUT OF the edge. A flat +/-`pickHitMm` square therefore
+// took 5.2 sheet-mm off every straight line no matter how long the line was,
+// and any edge shorter than that had no reachable interior at all: aiming at a
+// 4 mm rib edge to dimension it armed the point-to-point pick instead, with
+// nothing on screen to say why. The wrong tool, silently, is worse than an
+// inert click. (It reads as a small-parts problem and is not one — the budget
+// is in SHEET mm, so at 1:5 the same 5.2 mm is 26 mm of the model.)
+//
+// The rule: **the ends belong to the vertex, the middle belongs to the edge.**
+// A vertex may claim at most a third of the shortest straight edge it
+// terminates, so the two ends of the shortest edge can never take more than
+// two thirds of it and a central third always survives — a guarantee derived
+// from the geometry rather than a constant that happens to work at one scale.
+
+/** Share of a straight edge one of its endpoint handles may claim. A third,
+ * so the two ends leave the edge its middle third at every length and scale. */
+export const VERTEX_EDGE_SHARE = 1 / 3;
+
+/**
+ * Half-side (sheet mm) of a vertex handle's transparent grab, given the length
+ * of the SHORTEST straight edge terminating at it. Full `pickHitMm` wherever
+ * that costs the edge nothing (any edge from 7.8 mm up, i.e. essentially all
+ * ordinary geometry), and proportional below it.
+ *
+ * A corner where a short and a long edge meet is budgeted by the SHORT one:
+ * a 2.6 mm grab and a reachable 4 mm edge cannot both exist in the same place,
+ * and the smaller grab costs the long edge nothing.
+ */
+export function vertexGrabMm(shortestIncidentMm: number): number {
+  if (!Number.isFinite(shortestIncidentMm) || shortestIncidentMm <= 0) {
+    return drawing.pickHitMm;
+  }
+  return Math.min(drawing.pickHitMm, shortestIncidentMm * VERTEX_EDGE_SHARE);
+}
+
+/** Half-side (sheet mm) of the DRAWN handle square for a given grab. Clamped to
+ * the grab so the painted affordance is never larger than the region that can
+ * be hit — a control that looks bigger than it is, is the same defect class as
+ * a control with no box at all (CLAUDE.md, "an SVG stroke is not a hit box"). */
+export function vertexPaintMm(grabMm: number): number {
+  return Math.min(drawing.vertexHandleMm, grabMm);
 }
 
 /** The scale options the picker offers, smallest reduction first. */

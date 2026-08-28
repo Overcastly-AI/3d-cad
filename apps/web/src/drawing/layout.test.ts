@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { drawing } from "@loft/design";
+
 import type { EdgeSignature, ProjectedViewEdge } from "../api/drawings";
 import {
   SHEET_SIZE_OPTIONS,
@@ -8,6 +10,8 @@ import {
   sheetDimensions,
   sheetSizeLabel,
   standardLayout,
+  vertexGrabMm,
+  vertexPaintMm,
 } from "./layout";
 
 describe("sheetDimensions", () => {
@@ -218,5 +222,60 @@ describe("endpoint handles (start_is_end_a correspondence)", () => {
     expect(endpointHandlesForEdge(noCorrespondence)).toBeNull();
     const noSource = { ...edge, source_edge: null };
     expect(endpointHandlesForEdge(noSource)).toBeNull();
+  });
+});
+
+describe("vertexGrabMm — the ends belong to the vertex, the middle to the edge", () => {
+  it("keeps the full pick radius wherever it costs the edge nothing", () => {
+    // 7.8 mm (3 x pickHitMm) is the break-even length; anything longer — i.e.
+    // essentially all ordinary geometry — is unchanged by this rule.
+    expect(vertexGrabMm(40)).toBeCloseTo(drawing.pickHitMm, 6);
+    expect(vertexGrabMm(7.8)).toBeCloseTo(drawing.pickHitMm, 6);
+  });
+
+  it("leaves a central third of EVERY straight edge to the edge itself", () => {
+    // The property, over lengths spanning three orders of magnitude rather
+    // than the one case that prompted the fix: two ends can never eat more
+    // than two thirds of the line between them.
+    for (const len of [0.4, 1, 2, 4, 7.79, 12, 40, 400]) {
+      const eaten = 2 * vertexGrabMm(len);
+      expect(len - eaten).toBeGreaterThanOrEqual(len / 3 - 1e-9);
+    }
+  });
+
+  it("gives the 4 mm rib edge a reachable interior it did not have", () => {
+    // Measured on a 40 x 4 x 10 rib: the top view's short edge is 4 sheet mm
+    // and a flat +/-2.6 mm grab ate 5.2 — more than the whole edge, so its
+    // centre resolved to the vertex and aiming there armed point-to-point.
+    expect(2 * drawing.pickHitMm).toBeGreaterThan(4);
+    expect(2 * vertexGrabMm(4)).toBeCloseTo(8 / 3, 6);
+    expect(2 * vertexGrabMm(4)).toBeLessThan(4);
+  });
+
+  it("budgets a mixed corner by the SHORT edge, which costs the long one nothing", () => {
+    // Where a 4 mm and a 40 mm edge meet, the grab is the 4 mm edge's third;
+    // the long edge simply keeps more of itself. Only the short one binds.
+    expect(vertexGrabMm(Math.min(4, 40))).toBeCloseTo(4 / 3, 6);
+  });
+
+  it("falls back to the full radius for a vertex with no incident edge", () => {
+    expect(vertexGrabMm(Number.POSITIVE_INFINITY)).toBe(drawing.pickHitMm);
+    expect(vertexGrabMm(0)).toBe(drawing.pickHitMm);
+    expect(vertexGrabMm(Number.NaN)).toBe(drawing.pickHitMm);
+  });
+});
+
+describe("vertexPaintMm", () => {
+  it("paints the usual square wherever the grab is unconstrained", () => {
+    expect(vertexPaintMm(drawing.pickHitMm)).toBe(drawing.vertexHandleMm);
+  });
+
+  it("never paints a handle larger than the region that can be hit", () => {
+    // A control drawn bigger than its hit box is the same defect class as one
+    // with no box at all: what you see stops being what you can click.
+    for (const len of [0.4, 1, 2, 4, 40]) {
+      const grab = vertexGrabMm(len);
+      expect(vertexPaintMm(grab)).toBeLessThanOrEqual(grab);
+    }
   });
 });
