@@ -61,6 +61,29 @@ transcribed (`carriageTravelPercent` from `progress.carriage`), with a unit
 test that lands the carriage flush with the end of its bed. 6 unit tests;
 cancel deliberately NOT in the primitive — see the wiring commit.
 
+**REACH-2-IMPORT-1 CLOSED — the empty assembly register is a fork, and a long
+import can be watched and stopped.** P1-A was a distance, and the second
+measurement is why it was a LAYOUT defect rather than a copy one: the import
+verb sat 422 px below the sentence naming it at 1280x800 and **622 px** below
+at 1600x1000 — the gap grew with the screen, so no rewording could reach it.
+The empty drawer now rules two columns of one ledger, "Start from scratch"
+and "Start from a STEP file", divided by the same hairline as every other
+rule on the page: import verb **51 px** below the copy at BOTH widths, the
+two ways in **22 px** apart (was 364), and the sentence has stopped giving
+directions. Placement is decided by the REGISTER (`RegisterOffer`, opt-in) —
+beside the create form when empty, the drawer's last line otherwise — because
+the page cannot know which it is; non-adopting registers emit byte-identical
+markup, pinned by a negative test, following the `SelectField` precedent.
+P1-B is wired: `ProgressTrack` + an `AbortController` behind `Stop` and
+`Escape`, with a withdrawn import landing on neither the error line nor the
+result line. Also closed: P2-A (a result gets the `Dismiss` the refusal
+always had) and P3-B (`I` reaches the shortcut sheet). Two defects found by
+the new spec and fixed at the source rather than the instance: `text-etch`
+eyebrows measured **3.07:1** on anvil (below AA — now `text-gauge`, 7.18:1),
+and a `tagName === "INPUT"` guard was swallowing `Escape` over the page's own
+hidden file input, so cancel worked by mouse and silently not by keyboard.
+10 e2e cases at 1280 and 1600, zero `force: true`.
+
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
 

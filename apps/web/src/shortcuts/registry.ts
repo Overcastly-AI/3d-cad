@@ -74,6 +74,19 @@ export interface ShortcutGroup {
 export const KEY_NEW_DOCUMENT = "n";
 /** Focus the register's filter field — `FilterField`, every register. */
 export const KEY_FILTER = "/";
+/**
+ * Open the file picker on a register that accepts one — `AssembliesPage`.
+ *
+ * `f4c590b` deliberately kept this out of the registry ("one register, extract
+ * on the second use"), and the reasoning was sound about the CONSTANT. It was
+ * wrong about the SHEET: this file is the only place the app teaches the
+ * keyboard, so a binding declared elsewhere is a binding nobody can find unless
+ * they are already standing on the page that has it (UI-REVIEW 2026-08-27
+ * P3-B) — and P1-A in the same pass is precisely that they may not be. The row
+ * carries a `when`, which is how the sheet already handles bindings that are
+ * live on some surfaces and not others.
+ */
+export const KEY_IMPORT = "i";
 /** Open THIS reference. `?` is the convention; the shift is implicit in the glyph. */
 export const KEY_SHORTCUT_SHEET = "?";
 /** Toggle grid snap while sketching — `PartPage`'s sketch cascade. */
@@ -191,6 +204,11 @@ export function shortcutGroups(): ShortcutGroup[] {
       shortcuts: [
         { keys: KEY_NEW_DOCUMENT.toUpperCase(), action: "Name a new document" },
         { keys: KEY_FILTER, action: "Filter by name" },
+        {
+          keys: KEY_IMPORT.toUpperCase(),
+          action: "Import a STEP file",
+          when: "assemblies",
+        },
         {
           keys: "Esc",
           action: "Clear the filter",

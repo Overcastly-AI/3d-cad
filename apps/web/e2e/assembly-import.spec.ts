@@ -152,13 +152,21 @@ test.describe("STEP assembly import", () => {
     await seedSession(page);
     await page.goto("/assemblies");
 
-    // The empty register leads with the import, because an empty register is
-    // where someone holding a supplier file lands.
-    await expect(page.getByTestId("assemblies-empty")).toContainText(
-      "Import a STEP",
+    // The empty register offers the import as an EQUAL to the scribe form, not
+    // as a sentence pointing at a strip 422 px down the page — see
+    // `assembly-import-flow.spec.ts`, which measures the geometry. This asserts
+    // the structure the copy used to have to describe: the copy now names both
+    // ways and points at neither, so a text match on "the slot below" is
+    // exactly what must NOT come back.
+    await expect(page.getByTestId("assemblies-empty-fork")).toBeVisible();
+    await expect(page.getByTestId("assemblies-empty")).not.toContainText(
+      "below",
     );
     await page.setViewportSize({ width: 1280, height: 800 });
-    await expect(page.getByTestId("assembly-import-slot")).toBeVisible();
+    await expect(page.getByTestId("assembly-import-slot")).toHaveAttribute(
+      "data-placement",
+      "fork",
+    );
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/assembly-import-empty-1280.png`,
     });

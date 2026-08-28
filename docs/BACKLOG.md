@@ -344,7 +344,7 @@ evidence/gates.**
       `ExportToolGroup.tsx` in the same session.** agentType:
       frontend-builder.
 
-- [ ] (P1, M) **REACH-2-IMPORT-1 — the STEP-import assembly feature
+- [x] (P1, M) **REACH-2-IMPORT-1 CLOSED — the STEP-import assembly feature
       (`f4c590b`) flows for the slot itself but fails both the approach and
       the wait.** kind: defect (flow, two independent findings from the
       same design review). MEASURED (`docs/UI-REVIEW.md` 2026-08-27 REACH-2
@@ -372,12 +372,24 @@ evidence/gates.**
       TERRITORY: `packages/design/src/primitives/` (new progress primitive),
       `apps/web/src/routes/` (STEP-import empty state / upload flow).
       agentType: frontend-builder.
-      PRIMITIVE LANDED — `ProgressTrack` is in `packages/design`
-      (`primitives/ProgressTrack.tsx`, 6 unit tests): named indeterminate
-      progressbar, reciprocating carriage under `motion-safe` only, and an
-      elapsed counter that carries the reduced-motion path because a CSS
-      animation runs on even when the main thread is wedged. Acceptance half
-      (b) still needs the wiring commit for Cancel; half (a) follows.
+      CLOSED 2026-08-28 (frontend-builder), two commits. (b) `ProgressTrack`
+      in `packages/design` (6 unit tests) + wired: named indeterminate
+      progressbar, `motion-safe`-only carriage, elapsed counter that carries
+      the reduced-motion path, `AbortController` behind a `Stop` verb and
+      `Escape`. (a) the empty register is a DOUBLE-ENTRY FORK — the register
+      itself now places the offer (`RegisterOffer`), beside the create form
+      when empty and as the drawer's last line otherwise, because only it
+      knows which it is. MEASURED 1280x800: import verb 422 px below the copy
+      -> **51 px**; the two ways in 364 px apart -> **22 px**. At 1600x1000
+      the old gap was 622 px and is now **51 px** — i.e. it no longer GROWS
+      with the screen, which was the tell that this was layout and not copy.
+      The sentence lost "from the slot below" and a spec now fails if it
+      comes back. Also closed from the same review: P2-A (a result carries
+      the `Dismiss` the refusal always had, and the slot's instruction
+      returns) and P3-B (`I` is in `shortcuts/registry.ts` and on the sheet).
+      10 e2e cases, no `force: true` — every reachability claim is
+      `elementFromPoint` at the control's centre, a real `locator.click()`
+      hit-target check, or a real `filechooser` event.
 
 - [ ] (P1, M) **FORCE-CLICK-AUDIT-1 — 25 of 26 `click({ force: true })`
       calls across 8 e2e spec files are unproven picks, and the one that
