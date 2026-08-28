@@ -225,10 +225,12 @@ export interface CreateStripProps {
    * notice — but the affordance the user reaches for survives a panel collapse.
    */
   onExport?: (format: ExportFormat) => Promise<ExportedFile>;
-  /** Why export is inert (no body / a feature failed), or undefined when ready. */
+  /** Why export is inert (nothing built / unverified), or undefined when ready. */
   exportDisabledReason?: string;
-  /** Allowed, but the file would be a prefix of the tree (a travel stop). */
+  /** Allowed, but the file would be a prefix of the tree. */
   exportPartial?: boolean;
+  /** What makes it a prefix, in a clause — `ExportGate.qualifier` (EXPORT-3). */
+  exportPartialQualifier?: string;
   /** QA hook: the export gate state name the workspace derived. */
   exportState?: string;
 }
@@ -286,6 +288,7 @@ export function CreateStrip({
   onExport,
   exportDisabledReason,
   exportPartial = false,
+  exportPartialQualifier,
   exportState,
 }: CreateStripProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -833,6 +836,7 @@ export function CreateStrip({
             // one honest reason as every other tool in the locked band.
             disabledReason={locked ? lockReason : exportDisabledReason}
             partial={exportPartial}
+            partialQualifier={exportPartialQualifier}
             state={exportState}
           />
         ) : null}

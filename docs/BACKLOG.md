@@ -65,10 +65,10 @@ open. Ranked, disjoint, parallel-dispatchable:
 4. **MEASURE-PROXY-1** (P1, S, frontend-builder, `apps/web/src/viewport/**`)
    — T-14's residual: a Measure click on a marker's own bounding box is
    blocked by a neighbouring proxy. Sequence after #3, same territory.
-5. **EXPORT-3** (P1, S, frontend-builder, `apps/web/src/components/
-   ExportRow.tsx` / `ExportToolGroup.tsx`) — one failed downstream feature
-   disables export of the whole tree, including the good body already
-   built. Disjoint from the viewport work above.
+5. ~~**EXPORT-3**~~ — CLOSED 2026-08-28 (frontend-builder). The gate was
+   entirely client-side: the gateway already served the last good body,
+   byte-identical to exporting the healthy prefix. See the ticket below for
+   evidence and the three-surface honesty rule.
 6. **REACH-3-FLOW** (P1, M, frontend-builder, `apps/web/src/routes/
    DrawingPage.tsx` + `PartPage.tsx` Sheet-1 create paths) — orientation
    proposal never fires on Sheet 1; flip-to-portrait is a dead end. Same
@@ -210,28 +210,55 @@ EXPORT-2, VISION-FIX-1 are all SHIPPED — see Done archive** (`3a7c4ca`,
 vision-steward `6dfb597`). Fresh Ready items from the same 2026-08-21
 rotational-part audit that produced SOLVE-1/PICK-2 above:
 
-- [ ] (P1, S) **EXPORT-3 — one failed downstream feature disables export of
-      the ENTIRE tree, including the good body already built and rendered.**
-      kind: defect. MEASURED (`docs/AUDIT-PRODUCT.md` R-6, the same
-      2026-08-21 pass as SOLVE-1/PICK-2, and flagged as "still live" from
+- [x] (P1, S) **EXPORT-3 CLOSED — one failed downstream feature disabled
+      export of the ENTIRE tree, including the good body already built and
+      rendered.** kind: defect. MEASURED (`docs/AUDIT-PRODUCT.md` R-6, the
+      same 2026-08-21 pass as SOLVE-1/PICK-2, and flagged "still live" from
       the prior 2026-08-16 pass too): after `Hole1` fails, all four export
-      formats (STEP/STL/3MF/GLB) show `Hole1 failed` and are disabled, even
-      though the part built cleanly through `Revolve1` and that partial
-      solid is exactly what the audit calls "what I would send a machinist
-      for a first look." FIX: allow export of the last good body (the tip of
-      the longest unbroken prefix of the tree) with an explicit label naming
-      what's excluded (e.g. "exported to Revolve1, 2 features excluded"),
-      instead of disabling every format. ACCEPTANCE: on a tree with a failed
-      mid-tree feature and at least one healthy feature before it, export
-      succeeds and the downloaded artifact matches the pre-failure body;
-      the export UI names the truncation point; a tree with NO successfully
-      built feature still disables export (negative control — nothing to
-      export).
+      formats showed `Hole1 failed` and went inert over a part that built
+      cleanly through `Revolve1` — "what I would send a machinist for a first
+      look."
+      CLOSED 2026-08-28 (frontend-builder). THE GATE WAS ENTIRELY
+      CLIENT-SIDE, established by measurement before a line was written:
+      `POST /parts/{id}/export?format=step` on the broken tree already
+      returned **200 / 15372 B of real STEP**, sha256-identical to exporting
+      the healthy prefix as its own part. Nothing changed server-side.
+      `exportGate` now separates the two axes it had conflated — `state`
+      names the CAUSE, `partial` says the artifact is a prefix — and refuses
+      only what it cannot vouch for (nothing built; stale provenance, which
+      is promoted above the failure branch because every allowed state makes
+      a positional claim the current tree may not support). A failure and a
+      travel stop now differ in wording and tone, never in permission.
+      THE TRUTH RIDES THREE SURFACES, so a machinist cannot receive a
+      truncated body believing it whole: the cell (`Partial`), the notice
+      ("Fillet1 failed, so the file stops at Extrude1 — 2 features are
+      excluded. Its name will say partial."), and `-partial` in the
+      DOWNLOAD, which outlives the screen. The band carries the clause on
+      each cell's accessible name — it is the surface a collapsed Inspector
+      leaves behind (EXPORT-1), so it must not be the quiet one.
+      ACCEPTANCE, all three: (1) asserted on the ARTIFACT, not a 2xx — the
+      downloaded STEP is parsed and measured at 1 solid / 6 faces / 6 planes
+      / 0 cylinders / bbox 0..20, and the discriminator is that the same tree
+      with a fillet that SUCCEEDS measures 26 faces and 12 cylinders, so the
+      numbers can fail; (2) the notice names the truncation point and counts
+      what is missing; (3) a tree with NO built feature still refuses, at the
+      client — the server 422s it too, which is exactly why the control
+      asserts `aria-disabled` and not merely "no download" (measured: with
+      the gate broken to allow always, no file arrived anyway because the
+      gateway refused, so a download-only control would have passed over a
+      UI that had stopped refusing).
+      MUTATION-TESTED BOTH DIRECTIONS: reverting the fix reddens 3 of 4 new
+      cases; allowing export unconditionally reddens exactly the negative
+      control. Also fixed en route, found in the 1280x800 founder shot: the
+      viewport notice and the export notice printed DIFFERENT counts for one
+      tree (1 vs 2) — two local derivations of one fact, the J2 shape — and
+      the sentence was wrong on its own terms, since "from it onward"
+      includes the failure. One count now, asserted to agree.
+      Gates: `just lint` 0, `pnpm --filter @loft/web typecheck`, 2064 unit
+      tests, 22 export/body-status e2e + 10 qa-wave e2e green on the real
+      stack. Shots: `docs/screenshots/export-partial-{before,after}-1280.png`.
       [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-6, previously noted
       2026-08-16 pass, filed by backlog-groomer pass 8]
-      TERRITORY: `apps/web/src/components/ExportRow.tsx` /
-      `ExportToolGroup.tsx` (export gate condition), gateway export route if
-      the gate is server-side. agentType: frontend-builder.
 
 **REVOLVE-1 is fully SHIPPED (`1b28dd5`, groom pass 15) — closes the last
 ABSENT-tier literal in the gateway contract. See Done archive for

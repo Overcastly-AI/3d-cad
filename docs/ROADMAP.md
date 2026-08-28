@@ -84,8 +84,55 @@ guard refuses for `hem_type: "closed"`. Two P2/P3 items filed from the repair:
 flange and suggests ~1 mm, the exact value the server refuses; **HEM-1D** — the
 UI cannot author an `open` hem at all.
 
+**EXPORT-3 CLOSED (frontend-builder, 2026-08-28) — the export of a partially
+built part, and the gate that was refusing a file the server would have
+served.** A part that built cleanly through `Revolve1` and then broke showed
+four inert export cells, over a body the product audit called "what I would
+send a machinist for a first look". Live across two audit passes (2026-08-16,
+2026-08-21).
+
+WHERE THE GATE WAS, settled by measurement before any code changed, because
+the ticket itself hedged between client and server: the gateway already
+answered the broken tree with **200 / 15372 B of real STEP**, sha256-identical
+to exporting the healthy prefix as its own part (two accounts, same part name,
+pinned STEP timestamp). The gate was 100 % client-side; no service changed.
+The server's refusal is reserved for the case that earns it — a tree with no
+body is a 422 `tree_export_failed`.
+
+THE FIX IS AN AXIS SPLIT, not a loosened condition. `exportGate` conflated
+"why is this body a prefix" with "may a file be written"; `state` now names the
+cause and `partial` names the consequence, and refusal is reserved for what
+cannot be vouched for: nothing built, or stale provenance — promoted above the
+failure branch, because every allowed state makes a positional claim ("stops at
+Extrude1") that a moved tree cannot support. A feature error and a travel stop
+differ in tone and wording, never in permission.
+
+REFUSING WAS THE SILENT OPTION, NOT THE HONEST ONE. The J2 concern that earned
+the old refusal — "a wrong label is a wrong FILE" — is answered by telling the
+truth three times rather than withholding the file: the cell says `Partial`,
+the notice names the truncation point and counts what is missing, and
+`-partial` goes in the DOWNLOAD, which outlives the screen that explained it.
+The command band carries the clause on each cell's accessible name, since it is
+the export surface a collapsed Inspector leaves behind (EXPORT-1).
+
+EVIDENCE. Asserted on the ARTIFACT: the downloaded STEP is parsed and measured
+— 1 solid, 6 faces, 6 planes, 0 cylinders, bbox 0..20 — and the discriminator
+is that the same tree with a fillet that SUCCEEDS measures 26 faces / 12
+cylinders / 63751 B, so those numbers can fail. Mutation-tested in both
+directions: reverting the fix reddens 3 of 4 new cases; allowing export
+unconditionally reddens exactly the negative control. That control asserts
+`aria-disabled`, not merely "no download" — measured, with the gate broken to
+allow always, no file arrived anyway because the gateway refused, so a
+download-only control would have passed over a UI that had stopped refusing.
+Found in the founder shot and fixed en route: the viewport notice and the
+export notice printed different counts for one tree (1 vs 2), two derivations
+of one fact, and "excluded from it onward" was itself off by one. Gates:
+`just lint` 0, typecheck, 2064 unit tests, 22 export/body-status + 10 qa-wave
+e2e green on the real stack. Shots:
+`docs/screenshots/export-partial-{before,after}-1280.png`.
+
 **Still open, unchanged in substance:** REACH-2-FLOW, REACH-3-FLOW,
-EXPORT-3, NAME-2b, TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1, SEL-8,
+NAME-2b, TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1, SEL-8,
 MEASURE-PROXY-1, MATE-OBS-2, SKETCH-COVERAGE-1, SOLVER-DOC-1, HEM-1B — see
 BACKLOG for current tickets.
 

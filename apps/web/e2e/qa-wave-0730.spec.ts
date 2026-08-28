@@ -27,12 +27,7 @@ import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "./fixtures";
 
 import { createFeature, SQUARE_20 } from "./partSeed";
-import {
-  clickRefusedControl,
-  createPartViaApi,
-  SCREENSHOT_DIR,
-  seedSession,
-} from "./support";
+import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
 
 /** Founder-shot tag: `SHOT_TAG=before` captures the pre-change pass. */
 const SHOT_TAG = process.env["SHOT_TAG"] ?? "after";
@@ -850,21 +845,25 @@ test.describe("D — one story about a broken part", () => {
     const holeError = page.getByTestId("feature-error-2");
     await expect(holeError).toContainText("hole_off_body");
     await expect(holeError).toContainText("no material is removed");
-    // 4) The EXPORT gate refuses, and forcing it produces nothing.
+    // 4) The EXPORT gate offers the last good body and MARKS it (EXPORT-3).
+    //    It used to refuse, which said nothing about what the file would have
+    //    contained; the file now exists and carries the claim in its own name.
     await expect(page.getByTestId("part-export-controls")).toHaveAttribute(
       "data-export-state",
       "feature-error",
     );
-    const forced = page
-      .waitForEvent("download", { timeout: 3_000 })
-      .then(() => true)
-      .catch(() => false);
-    await clickRefusedControl(
-      page,
-      page.getByTestId("part-export-step"),
-      "part-export-step",
+    await expect(page.getByTestId("part-export-notice")).toContainText(
+      "Hole1 failed, so the file stops at",
     );
-    expect(await forced).toBe(false);
+    const brokenDownload = page.waitForEvent("download", { timeout: 30_000 });
+    await page.getByTestId("part-export-step").click();
+    const brokenFile = await brokenDownload;
+    expect(brokenFile.suggestedFilename()).toMatch(/-partial\.step$/);
+    expect(
+      (await readFile(await brokenFile.path(), "utf-8")).startsWith(
+        "ISO-10303-21",
+      ),
+    ).toBe(true);
     // 5) The VIEWPORT says the solid is not the part.
     await expect(page.getByTestId("partial-body-notice")).toContainText(
       "Hole1 failed",

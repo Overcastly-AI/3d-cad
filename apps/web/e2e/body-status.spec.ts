@@ -2,7 +2,6 @@ import { expect, test, type Page } from "./fixtures";
 
 import { createFeature, SQUARE_20 } from "./partSeed";
 import {
-  clickRefusedControl,
   createPartViaApi,
   SCREENSHOT_DIR,
   seedSession,
@@ -129,29 +128,6 @@ async function openPart(
   });
 }
 
-/**
- * Did clicking this cell actually produce a file?
- *
- * `clickRefusedControl` forces past Playwright's actionability check — a gated
- * `PanelActionCell` uses `aria-disabled` rather than the native attribute (so
- * the reason it is grey has somewhere to live) and SWALLOWS the activation
- * itself, so an ordinary click never reaches the handler under test. It first
- * proves a real pointer aimed at the cell's centre lands ON the cell, so "no
- * download" means the app refused rather than the synthetic click having gone
- * somewhere else entirely.
- */
-async function clickProducesDownload(
-  page: Page,
-  testId: string,
-): Promise<boolean> {
-  const settled = page
-    .waitForEvent("download", { timeout: 3_000 })
-    .then(() => true)
-    .catch(() => false);
-  await clickRefusedControl(page, page.getByTestId(testId), testId);
-  return settled;
-}
-
 test.describe("body status honesty — 1440x900", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -193,17 +169,20 @@ test.describe("body status honesty — 1440x900", () => {
       "Fillet1 failed",
     );
 
-    // 3) EXPORT — was "Ready", and would have written a partial STEP.
+    // 3) EXPORT — was "Ready" over this tree (J2), then swung to inert over it
+    //    (the EXPORT-3 dead end). It now says the SAME word the status cell
+    //    does, and adds what that costs the file. The artifact-level proof that
+    //    the file really is the pre-failure body lives in
+    //    `export-partial-body.spec.ts`; this spec's job is that the three cells
+    //    tell one story.
     await expect(page.getByTestId("part-export-controls")).toHaveAttribute(
       "data-export-state",
       "feature-error",
     );
-    await expect(page.getByTestId("part-export-status")).toHaveText(
-      "Fillet1 failed",
+    await expect(page.getByTestId("part-export-status")).toHaveText("Partial");
+    await expect(page.getByTestId("part-export-notice")).toContainText(
+      "Fillet1 failed, so the file stops at Extrude1",
     );
-    await expect(page.getByTestId("part-export-step")).toBeDisabled();
-    expect(await clickProducesDownload(page, "part-export-step")).toBe(false);
-    expect(await clickProducesDownload(page, "part-export-stl")).toBe(false);
 
     // The viewport says the solid is not the part (N3), and offers the fix.
     const notice = page.getByTestId("partial-body-notice");

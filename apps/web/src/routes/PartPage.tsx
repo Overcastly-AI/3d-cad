@@ -4478,6 +4478,7 @@ export function PartPage() {
               onExport={partExport.exporter}
               exportDisabledReason={partExport.gate.blockedReason}
               exportPartial={partExport.gate.partial}
+              exportPartialQualifier={partExport.gate.qualifier ?? undefined}
               exportState={partExport.gate.state}
             />
           ) : (

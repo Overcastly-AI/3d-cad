@@ -75,4 +75,4 @@ export const test = base.extend({
 });
 
 export { expect };
-export type { Locator, Page } from "@playwright/test";
+export type { Download, Locator, Page } from "@playwright/test";
