@@ -236,7 +236,11 @@ test.describe("export of a partially built part — 1280x800", () => {
     // EXPORT-1's lesson applied to EXPORT-3: the band is the export surface
     // that survives collapsing the Inspector, so it is the one that must not go
     // quiet about a truncated file. The strip has a notice line; the band
-    // carries the same fact on each cell's accessible name.
+    // carries the same fact on each cell's accessible DESCRIPTION — which is
+    // where an enabled-but-qualified caption lands since A11Y-TOOLBTN-1. It was
+    // the accessible NAME until then, because the primitive announced a caption
+    // only while DISABLED and this cell is enabled; that workaround renamed the
+    // control whenever the gate state moved, so it is retired here.
     const partId = await seedBrokenPart(page);
     await openPart(page, partId, 4);
     await expect(page.getByTestId("eval-status")).toHaveText("Failed", {
@@ -245,8 +249,9 @@ test.describe("export of a partially built part — 1280x800", () => {
 
     const bandCell = page.getByTestId("part-export-band-step");
     await expect(bandCell).toBeEnabled();
-    await expect(bandCell).toHaveAccessibleName(/stops at Extrude1/);
-    await expect(bandCell).toHaveAccessibleName(/marked partial/);
+    await expect(bandCell).toHaveAccessibleName("Export STEP (exact B-rep)");
+    await expect(bandCell).toHaveAccessibleDescription(/stops at Extrude1/);
+    await expect(bandCell).toHaveAccessibleDescription(/marked partial/);
   });
 
   test("a tree with NOTHING built still refuses — the negative control", async ({

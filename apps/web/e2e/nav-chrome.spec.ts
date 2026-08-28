@@ -156,6 +156,39 @@ test.describe("gated tools explain themselves", () => {
     await extrude.focus();
     await expect(extrude).toBeFocused();
   });
+
+  test("a band tool's caption is announced whether it is gated or merely qualified", async ({
+    page,
+  }) => {
+    // A11Y-TOOLBTN-1. `ToolButton` used to wire `aria-describedby` only while
+    // disabled, so an ENABLED tool whose caption QUALIFIES the click ("Switch
+    // to orthographic", "marks the file partial") was hover-only — the sighted
+    // user was told and the screen-reader user was not.
+    //
+    // Asserted through `toHaveAccessibleDescription`, which computes the
+    // description the way an AT does: it resolves `aria-describedby` against
+    // the document, so an id pointing at nothing fails here. The unit suite
+    // uses jsdom's reimplementation; this is Chrome's own computation, which is
+    // the thing users actually get.
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Empty part");
+    await page.goto(`/parts/${part.id}`);
+
+    // GATED: the reason describes the cell, and the NAME stays the format. The
+    // name used to carry the reason too (an ExportToolGroup workaround for this
+    // very gap), which announced it twice and renamed the control per state.
+    const step = page.getByTestId("part-export-band-step");
+    await expect(step).toBeDisabled();
+    await expect(step).toHaveAccessibleName("Export STEP (exact B-rep)");
+    await expect(step).toHaveAccessibleDescription(/No body/);
+
+    // ENABLED-BUT-QUALIFIED: the projection toggle always works and always says
+    // what the click would switch TO. This description is empty before the fix.
+    const projection = page.getByTestId("view-projection");
+    await expect(projection).toBeEnabled();
+    await expect(projection).toHaveAccessibleName(/Projection:/);
+    await expect(projection).toHaveAccessibleDescription(/^Switch to /);
+  });
 });
 
 test.describe("an open command scopes the band", () => {

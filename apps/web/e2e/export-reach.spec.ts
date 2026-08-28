@@ -153,8 +153,11 @@ test.describe("Export is reachable", () => {
     const step = page.getByTestId("part-export-band-step");
     await expect(step).toBeDisabled();
     // The reason is on the CELL, reachable by keyboard and pointer alike — a
-    // grey button that will not say why is the same defect one layer down.
-    await expect(step).toHaveAccessibleName(/No body/);
+    // grey button that will not say why is the same defect one layer down. It
+    // rides the DESCRIPTION, not the name (A11Y-TOOLBTN-1): the cell is called
+    // the same thing gated or not, so a returning user recognises it.
+    await expect(step).toHaveAccessibleName("Export STEP (exact B-rep)");
+    await expect(step).toHaveAccessibleDescription(/No body/);
   });
 
   test("assembly: export without first choosing an inspector tab", async ({

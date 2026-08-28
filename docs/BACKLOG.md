@@ -59,10 +59,10 @@ Scorecard gaps above. **HEM-1C is IN FLIGHT (frontend-builder,
 `apps/web/src/components/HemEditor.tsx`) — do not dispatch.** Ranked,
 disjoint, parallel-dispatchable:
 
-1. **A11Y-TOOLBTN-1** (P1, S, frontend-builder,
-   `packages/design/src/primitives/ToolButton.tsx`) — the shared primitive
-   only wires `aria-describedby` while disabled; fix it first, REACH-2-FLOW's
-   part (a) depends on the same wiring.
+1. ~~**A11Y-TOOLBTN-1**~~ — CLOSED 2026-08-28 (frontend-builder). The
+   primitive now describes by caption in EVERY state, so REACH-2-FLOW part
+   (a) can rely on `scopeCaptionFor`'s enabled proposal actually reaching a
+   screen reader. See the ticket below for the measured blast radius.
 2. **REACH-2-FLOW** (P1, M, frontend-builder, `PartPage.tsx` +
    `ScopeRow.tsx`) — the pattern-scope proposal is shed at 1280, destroyed
    by Cancel/Escape, names a subject nothing echoes. Sequence after #1.
@@ -242,6 +242,11 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       DOWNLOAD, which outlives the screen. The band carries the clause on
       each cell's accessible name — it is the surface a collapsed Inspector
       leaves behind (EXPORT-1), so it must not be the quiet one.
+      [AMENDED 2026-08-28 by A11Y-TOOLBTN-1: the band's clause moved from the
+      accessible NAME to the accessible DESCRIPTION. Same fact, same surface,
+      announced once instead of twice and without renaming the cell per gate
+      state — the name-fold was a workaround for the primitive defect that
+      ticket fixed. `export-partial-body.spec.ts` asserts the description.]
       ACCEPTANCE, all three: (1) asserted on the ARTIFACT, not a 2xx — the
       downloaded STEP is parsed and measured at 1 solid / 6 faces / 6 planes
       / 0 cylinders / bbox 0..20, and the discriminator is that the same tree
@@ -296,9 +301,10 @@ evidence/gates.**
       with FB-21/FB-9/PICK-2 — sequence after those land.** agentType:
       frontend-builder.
 
-- [ ] (P1, S) **A11Y-TOOLBTN-1 — `ToolButton` only wires `aria-describedby`
-      to its caption while DISABLED, so an enabled-but-QUALIFIED state is
-      hover-only for a screen-reader user.** kind: defect. **BUMPED P2→P1,
+- [x] (P1, S) **A11Y-TOOLBTN-1 CLOSED — `ToolButton` only wired
+      `aria-describedby` to its caption while DISABLED, so an
+      enabled-but-QUALIFIED state was hover-only for a screen-reader user.**
+      kind: defect. **BUMPED P2→P1,
       groom pass 14: CORROBORATED a second time, more severely — REACH-2-FLOW
       P1-1 (above) hit the SAME gate hiding an entire proposed verb's label,
       not just a qualifier.** Found by the
@@ -364,6 +370,38 @@ evidence/gates.**
       alongside any other agent touching `ToolButton.tsx` or
       `ExportToolGroup.tsx` in the same session.** agentType:
       frontend-builder.
+      CLOSED 2026-08-28 (frontend-builder). `hasGateReason = isDisabled &&
+      Boolean(caption)` is now `hasCaption = Boolean(caption)`, and the doc
+      comment that called the gap the design is rewritten to say WHY both
+      states get one treatment: the caption is ONE node the tooltip renders
+      identically, the cannot/could-not distinction is already carried by
+      `aria-disabled` (announced before any description), and "captions
+      announce sometimes" is the defect itself. BLAST RADIUS MEASURED, not
+      argued — 44 `ToolButton` caption call sites classified by enclosing
+      element, then enumerated live from CHROME's own accessibility tree
+      (`page.accessibility.snapshot`) before and after. Most are
+      caption⟺disabled already (`CreateStrip`'s `captionFor` returns
+      undefined when ready; `AssemblyCommandBand`'s `mateReason` likewise),
+      so the real delta is small and all of it is enrichment: `view-
+      projection` "" → "Switch to orthographic"; sketch `undo-button` "" →
+      "the last sketch edit"; `sketch-save` "" → "4 entities"; `sketch-exit`
+      "" → "discards 4"; `DrawingCommandBand`'s seven ready captions
+      ("Download the sheet as .svg" etc.); `check-interference` "Scanning…".
+      THE WORKAROUND WAS NOT NEUTRAL EITHER: the gated export cell announced
+      "Export STEP (exact B-rep) — No body" as its NAME **and** "No body" as
+      its description, i.e. it already double-announced, and the cell
+      answered to a different name depending on the gate state. Unwound; the
+      name is the format in every state. EVIDENCE: 8 unit cases on the
+      primitive + a real-browser case in `nav-chrome.spec.ts`, all asserting
+      the COMPUTED accessible description (`toHaveAccessibleDescription` →
+      `computeAccessibleDescription`), never `toHaveAttribute`, which passes
+      on an id that resolves to nothing. Three mutations, each hitting only
+      its own side: reverting to `isDisabled && …` reddens the 3 enabled
+      cases (and the e2e case, `Received string: ""`) and no others;
+      `!isDisabled && …` reddens the 2 disabled cases and no others;
+      unconditional `true` reddens the 2 dangling-id cases. Caption node
+      measured 117.4x15.0 px, `clip: none` — a real box, transparent through
+      its parent, not the zero-area/`sr-only` family.
 
 - [x] (P1, M) **REACH-2-IMPORT-1 CLOSED — the STEP-import assembly feature
       (`f4c590b`) flows for the slot itself but fails both the approach and
@@ -3394,6 +3432,27 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
       slower runner. FIX: raise the budget or thin the sweep; same class as the
       contention-robustness hardening already applied to the founder-flow specs.
       [src: qa-tester, SEL-7 verification 2026-08-11]
+
+- [ ] (P3, XS) **A11Y-SKETCHSTRIP-DUP-1 — three `SketchStrip` buttons now say
+      the same thing twice, once in the name and once in the description.**
+      kind: polish. Surfaced by A11Y-TOOLBTN-1's blast-radius enumeration, from
+      Chrome's own accessibility tree on the real stack: `sketch-exit` announces
+      name "Exit sketch and discard 4 unsaved entities — asks first" and
+      description "discards 4"; `sketch-discard-confirm` name "…— this cannot be
+      undone" and caption "cannot be undone"; `sketch-save` (bound) name "Finish
+      sketch (edits are already saved)" and caption "edits save live". These
+      `aria-label`s are NOT the ExportToolGroup workaround — they are deliberate
+      FB-13 flow copy that predates the primitive fix and reads well on its own
+      — so they were left alone rather than churned by a builder whose ticket
+      was the primitive. The redundancy is the SAFE direction (both channels
+      agree; many AT configurations suppress descriptions entirely), which is
+      why this is P3 and not P2. FIX: decide per button whether the consequence
+      belongs to the name or the description and say it once; the primitive's
+      doc comment now states the rule ("do not fold a caption's words into
+      `aria-label`"). ACCEPTANCE: no `ToolButton` in `SketchStrip.tsx` has an
+      `aria-label` that repeats its own caption, and the FB-13 e2e cases still
+      assert the consequence is announced somewhere.
+      [src: frontend-builder, A11Y-TOOLBTN-1 measurement 2026-08-28]
 
 ## Blocked (environment/timing — not build-blocked)
 

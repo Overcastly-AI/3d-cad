@@ -106,8 +106,11 @@ the old refusal — "a wrong label is a wrong FILE" — is answered by telling t
 truth three times rather than withholding the file: the cell says `Partial`,
 the notice names the truncation point and counts what is missing, and
 `-partial` goes in the DOWNLOAD, which outlives the screen that explained it.
-The command band carries the clause on each cell's accessible name, since it is
-the export surface a collapsed Inspector leaves behind (EXPORT-1).
+The command band carries the clause on each cell — it is the export surface a
+collapsed Inspector leaves behind (EXPORT-1). It rode the accessible NAME until
+2026-08-28, when A11Y-TOOLBTN-1 made it so the caption is announced in every
+state and the clause moved to the accessible DESCRIPTION, where it is said once
+instead of twice and the cell keeps one name across gate states.
 
 EVIDENCE. Asserted on the ARTIFACT: the downloaded STEP is parsed and measured
 — 1 solid, 6 faces, 6 planes, 0 cylinders, bbox 0..20 — and the discriminator
@@ -124,6 +127,54 @@ of one fact, and "excluded from it onward" was itself off by one. Gates:
 `just lint` 0, typecheck, 2064 unit tests, 22 export/body-status + 10 qa-wave
 e2e green on the real stack. Shots:
 `docs/screenshots/export-partial-{before,after}-1280.png`.
+
+**A11Y-TOOLBTN-1 CLOSED (frontend-builder, 2026-08-28) — the caption is
+announced in every state, so a tool that WORKS can finally say what the click
+will cost.** `ToolButton` gated its `aria-describedby` wiring on `disabled`, and
+its own doc comment described that as the design, so an ENABLED-but-qualified
+tool told a sighted user on hover ("marks the file partial", "Switch to
+orthographic") what a screen-reader user was never told at all. Corroborated
+three times before it was fixed: EXPORT-1 found it, REACH-2-FLOW hit it hiding a
+whole proposed verb's label, and EXPORT-3 shipped a third instance the same
+week.
+
+ONE TREATMENT FOR BOTH MEANINGS, and the reasoning is the deliverable, because
+the obvious one-character fix leaves it unsaid. The caption carries a GATE
+REASON while disabled ("Solve a sketch first": why you cannot) and a QUALIFIER
+while enabled ("marks the file partial": what happens if you do). They get the
+same treatment because (a) they are literally one node — the tooltip renders
+them identically, so announcing only one would make the spoken UI and the drawn
+UI disagree about what the caption IS; (b) `aria-disabled` already carries the
+distinction and every screen reader announces it BEFORE the description, so a
+prefix would re-encode state the state attribute owns; and (c) "captions
+announce sometimes" is the defect, not a policy.
+
+BLAST RADIUS MEASURED, NOT ARGUED. 44 `ToolButton` caption call sites were
+classified by enclosing element, then enumerated live from Chrome's own
+accessibility tree before and after. Most were caption⟺disabled already, so the
+delta is small and every item of it is enrichment: `view-projection` gained
+"Switch to orthographic", sketch `undo-button` "the last sketch edit",
+`sketch-save` "4 entities", `sketch-exit` "discards 4", the seven ready
+`DrawingCommandBand` captions, `check-interference` "Scanning…".
+
+THE WORKAROUND IT RETIRED WAS NOT NEUTRAL. `ExportToolGroup` had been folding
+the qualifier into `aria-label`; measured, the gated STEP cell announced "Export
+STEP (exact B-rep) — No body" as its NAME *and* "No body" as its description —
+already double-announcing, and renaming the control whenever the gate moved.
+Unwound in the same commit; the name is the format in every state.
+
+EVIDENCE. Assertions go through the COMPUTED accessible description
+(`toHaveAccessibleDescription` → `computeAccessibleDescription`), never
+`toHaveAttribute("aria-describedby")`, which passes on an id resolving to
+nothing — this repo has now found seven green assertions that could not observe
+their own failure mode, and that is the family. Three mutations, each hitting
+only its own side: reverting to `isDisabled && …` reddens the 3 enabled cases
+and the e2e case (`Received string: ""`); `!isDisabled && …` reddens the 2
+disabled cases; unconditional `true` reddens the 2 dangling-id cases. Gates:
+`just lint` 0, `pnpm -r typecheck`, 2210 unit tests, 45 command-band/export/a11y
+e2e green on a real stack. Follow-up filed: A11Y-SKETCHSTRIP-DUP-1 (P3) — three
+`SketchStrip` buttons now say their consequence in both name and description,
+deliberate FB-13 copy left for its own ticket rather than churned here.
 
 **HOVER-TO-SKETCH SHIPPED (frontend-builder, 2026-08-28) — the founder's
 2026-08-14 report, and the design mandate's first flow test in its purest

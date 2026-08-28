@@ -89,11 +89,14 @@ export function ExportToolGroup({
           icon={icon}
           label={label}
           showLabel
-          // What this click would DO rides the accessible NAME, not only the
-          // tooltip: `ToolButton` describes a button by its caption while the
-          // button is disabled, so an ENABLED-but-qualified state ("the file
-          // will be a prefix") would otherwise be reachable by hover alone.
-          aria-label={qualifier === undefined ? name : `${name} — ${qualifier}`}
+          // The name is the FORMAT, in every state. What this click would DO
+          // rides the caption, which `ToolButton` now exposes as the accessible
+          // description whether the cell is gated or merely qualified
+          // (A11Y-TOOLBTN-1). This used to append the qualifier to the name,
+          // because the primitive announced a caption only while disabled — so
+          // the cell answered to a different name depending on the gate state,
+          // and the qualifier was announced twice the moment that was fixed.
+          aria-label={name}
           aria-busy={busy === format}
           disabled={blocked || busy !== null}
           caption={
