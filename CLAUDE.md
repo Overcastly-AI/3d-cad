@@ -799,6 +799,18 @@ recipe here in the same commit as the fix.**
   there is no hook here to put a check in. Until that changes the brief line IS
   the control, so it goes in every builder brief, every time. Do not let the fact
   that agents keep catching it become a reason to stop telling them to look.
+  **UPDATE 2026-08-28: it is NINE IN A ROW now, and the seed has merely moved on
+  to `03d2eca` — also a merge into `main`, 22 to 31 commits behind depending on
+  when the worktree was made.** All nine caught it because the brief carried the
+  check; without it the day's dispatches would have built against a tree up to a
+  month old, and the tell would have been a rebase conflict that reads as a
+  colleague's fault rather than a stale base. Two things this run settles. (a)
+  The rate is ~100%, not occasional — treat the reset as the FIRST step of every
+  brief and budget for it, rather than filing it as a precaution. (b) The seed is
+  always a MERGE INTO `main`, never an arbitrary point on the working branch,
+  which is the signature to detect on if a creation hook ever becomes available:
+  a HEAD that is not an ancestor of the branch. Until then the brief line is
+  still the whole control.
   **AND THE "AUDIT IT AFTER A BATCH" ADVICE THIS ENTRY ORIGINALLY GAVE DOES NOT
   WORK — measured 2026-08-27, do not retry it.** A behind-count over every
   worktree returned 47 "STALE" rows and not one was the fault: a worktree seeded
