@@ -145,6 +145,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assemblies/{assembly_id}/extents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Assembly Extents
+         * @description How big this assembly is once its mates are SOLVED (assemblies §4).
+         *
+         *     The two-hop aggregation ``POST /parts/{id}/evaluate`` already gives a part
+         *     caller, narrowed to the one quantity a caller who holds only an id can
+         *     otherwise not obtain: documents resolves the instance + mate graph
+         *     (``/assemblies/{id}/evaluation-request`` — principal-scoped, so ownership
+         *     and the uniform 404 come for free), geometry solves it, and the solved
+         *     compound's AABB comes back with the status it was solved under. Rolling
+         *     this by hand meant reproducing the whole graph-plus-part-trees read the
+         *     assembly editor does, which is why a drawing sheet drafting an assembly
+         *     could not fit its scale and overflowed its title block.
+         *
+         *     **SOLVED, not seeded.** The bbox is the union over each instance's part
+         *     bbox at its MATE-SOLVED world pose; the authored seed placements are what
+         *     produce the wrong (usually far too large) answer, so this route deliberately
+         *     pays for the solve rather than folding the graph's seeds client-side.
+         *
+         *     A GET because it is a read: nothing is persisted, the same assembly yields
+         *     the same extents (RESEARCH §9 determinism), and the caller sends no body.
+         *     Rate-limited on the compute bucket all the same — a solve IS geometry CPU,
+         *     whatever the verb.
+         *
+         *     Cost note: geometry has no mesh-free solve route, so this pays for the
+         *     per-unique-part tessellation as well. That is not free, but it is not waste
+         *     either — the default ``linear_deflection`` is used deliberately, so the
+         *     meshes warmed here are the SAME content-addressed meshes the viewport's own
+         *     ``/geometry/assembly/evaluate`` asks for. A ``tessellate: false`` request
+         *     flag is the follow-up if a profile ever shows this on a hot path.
+         */
+        get: operations["get_assembly_extents_api_v1_assemblies__assembly_id__extents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assemblies/{assembly_id}/instances": {
         parameters: {
             query?: never;
@@ -1972,6 +2019,54 @@ export interface components {
              * @description Assembly name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters
              */
             name: string;
+        };
+        /**
+         * AssemblyExtentsResponse
+         * @description How big is this assembly, SOLVED — the one number a sheet needs (§4).
+         *
+         *     The projection of :class:`EvaluateAssemblyResult` down to the question a
+         *     caller who only has an ``assembly_id`` can otherwise not ask: a drawing
+         *     fitting its scale, a sheet sizing its cells, a viewport framing a camera.
+         *     Served by ``GET /api/v1/assemblies/{assembly_id}/extents`` on the gateway,
+         *     which resolves the graph through documents and solves it through geometry —
+         *     the assembly twin of the ``bounding_box`` a part caller reads off
+         *     ``POST /parts/{id}/evaluate``.
+         *
+         *     **The extents are of the SOLVED compound, and that is the whole point.**
+         *     ``bounding_box`` is the roll-up over the instances' MATE-SOLVED world poses,
+         *     never their authored seeds; on an assembly whose instances were seeded apart
+         *     and then mated the two differ by however far the solver moved things, which
+         *     is exactly the error that makes an unfitted assembly sheet overflow its
+         *     frame. ``None`` means no instance produced a body (nothing to fit), never
+         *     zero.
+         *
+         *     ``status`` travels with the numbers because an under-constrained or
+         *     conflicting solve still returns a best-fit placement (§2.4) — the extents
+         *     are then honest about a pose the solver chose rather than one the mates
+         *     determined, and a caller may want to say so rather than silently scale to
+         *     it. Deliberately NOT carried: per-instance meshes, placements and mass
+         *     properties, all of which the caller with a real assembly graph in hand
+         *     already gets from ``POST /api/v1/geometry/assembly/evaluate``.
+         */
+        AssemblyExtentsResponse: {
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            /** @description World-mm AABB of the SOLVED compound (union of each instance's part bbox at its solved pose); null when no instance produced a body */
+            bounding_box: components["schemas"]["BoundingBox"] | null;
+            /**
+             * Status
+             * @description The solve these extents came out of. Anything other than `well_constrained` means the poses are a best fit, not a determined result (§2.4)
+             * @enum {string}
+             */
+            status: "well_constrained" | "under_constrained" | "over_constrained" | "conflicting" | "not_converged";
+            /**
+             * Version
+             * @description The assembly's `doc_version` the extents were solved from (cache/correlation key — a later edit bumps it)
+             */
+            version: number;
         };
         /**
          * AssemblyGraphResponse
@@ -10098,6 +10193,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssemblyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_assembly_extents_api_v1_assemblies__assembly_id__extents_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyExtentsResponse"];
                 };
             };
             /** @description Validation Error */
