@@ -306,6 +306,18 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   not a run that PASSED, and any reasoning that treats the spill as a board is
   reading a field that is not there. Use the spill for `head_sha` → `id` only,
   then take the verdict from `get_job_logs` as above.
+  **AND `failed_jobs: 0` ON AN UNFINISHED RUN IS NOT A PASS — READ `total_jobs`
+  IN THE SAME REPLY.** It means "nothing has failed YET", which is true of every
+  run that has barely started, and it reads exactly like green. Caught twice on
+  2026-08-28, the second time only because the number looked odd. The free
+  discriminator is already in the cheap call: `get_job_logs` reports
+  `total_jobs`, and a COMPLETE run has a known job count — **5 for `e2e`
+  (4 shards + `e2e complete`), 7 for `ci`**. So `total_jobs: 4` on an e2e run is
+  an UNFINISHED run, not a four-job one, and the `failed_jobs: 0` beside it says
+  nothing at all. Confirming it any other way is expensive: `list_workflow_jobs`
+  on a single run returns every step of every job with timestamps and cost ~8 k
+  tokens to learn that two shards were still running. Read the PAIR, not the
+  zero.
   **AND WHEN A JOB IS RED, `tail_lines` MAY NEVER REACH THE FAILURE — budget for
   a fixed tail, not an escalating one.** Cost most of an integration pass on
   2026-08-28: I pulled 60, then 190, then 255 lines of a red `playwright (shard
