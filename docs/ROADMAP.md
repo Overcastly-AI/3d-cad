@@ -2,87 +2,50 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-08-27 (backlog-groomer pass 15) — the
-branch merged to `main` at `03d2eca` (141 commits, all three CI workflows
-green at the tip): a release boundary, not a phase change.** Work
-continues on `claude/branch-review-development-hkbbnb`, whose tip
-(`6b26ff7`) is `03d2eca`'s merge-base. Shipped since pass 14, verified
-against `git log`/`git show` rather than assumed: **REVOLVE-1** (`1b28dd5`)
-closes the last ABSENT-tier literal in the gateway contract (zero remain,
-per `scripts/check-ui-parity.py`); **SKETCH-VOCAB-1** frontend half
-(`38e37f5`) — the constraint catalogue now lists all 16 verbs, not 12;
-**MATE-1** (`a2a6f9f`, gated `1ae3270`) — a buried mate face is reachable
-via a depth-stack "select other" control, closing T-13 (the real face's
-own boundary replaces an area-equivalent disc); **QA-R1** (`5957252`) and
-**QA-R2** (`0cee656`, e2e hardened `d2b1d26`) — both closed; **QA-R4**
-(`278c122`) and **MATE-OBS** (`6b26ff7`) — a body/assembly mid-write no
-longer reads as settled; four REACH-3 follow-ups (`ddab149`, `f832eae`,
-`1e8d8a3`, `ef704e7`) close the independent design review's P1-C/P1-D/
-P1-E/P2-B (placing ghost carries its own reading, offset gets a numeric+
-quantised route, a placed dimension can be moved, drawing ink stopped
-eating pick targets). That review (`3322892`) also filed fresh follow-ups
-now on `docs/BACKLOG.md` Ready/Next — see the Done archive's "Groom pass
-15 closures" for full evidence and what's newly filed. **Re-scoped or
-reprioritized this pass:** ORTHO-1 is now fully unblocked (sole occupant
-of `apps/web/src/viewport/**`, MATE-1's UI half no longer sequenced ahead
-of it); REACH-2-FLOW, REACH-3-FLOW (orientation half — distinct from the
-four fixes above), TITLEBLOCK-STAMP-1, EXPORT-3, NAME-2b and QA-R3 (touch
-— its upstream cause, additive selection, is explicitly unaffected by
-QA-R1's fix) all remain open, unchanged in substance.
+**Current focus, corrected 2026-08-28 (backlog-groomer pass 16) — the
+frontend reachability programme is COMPLETE.** `scripts/check-ui-parity.py`:
+**84/85 operations called, 97/109 literals AUTHORABLE, zero ABSENT-tier
+gaps** — up from 39 of 120 literals unreachable at first measurement
+(`e9d31af`, 2026-08-26). The one uncalled operation, `POST /api/v1/geometry/
+tessellate/meta`, is a deliberate omission (the mesh-less twin of
+`/tessellate`; the viewport always needs the mesh). **Reachability is no
+longer the frontier — the queue now ranks on friction and correctness.**
 
-**Hygiene, this pass: ~2,770 lines of pre-pass-13 ROADMAP narrative
-deleted** (the "Prior focus"/"Focus moves"/"Groom pass 9" dispatch prose
-and the long sequence of per-item "X CLOSED" write-ups spanning
-2026-07-12 through pass 10, 2026-08-22). Spot-checked against
-`docs/CHANGELOG.md` before deletion — SOLVE-1, GEOM-3, SKETCH-2, K7,
-SEL-6/6b/7, LIC-2/4, GATE-1, QA7-1 and the DIM-1 cluster are all already
-preserved there (and in `docs/BACKLOG.md`'s Done archive) in equivalent
-detail from the BACKLOG side; nothing here was uniquely sourced only in
-ROADMAP.md. This closes the "hygiene sweep for the pre-pass-9 history...
-still owed" note pass 13/14 deferred twice. Still owed, carried forward
-again: `docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` refresh against the last
-four batches; the vision-steward's Sheet metal/Performance scorecard
-re-check (carried since pass 13).
+Shipped since pass 15 (`7c9ac13`/`a29204c`), verified against `git show`:
+**REACH-2-IMPORT-1** (`ProgressTrack` design primitive + empty-register/
+Stop-and-cancel wiring) — a long STEP import can be watched and stopped;
+**REACH-ASMDRAW** (`02bd6ab`+`3e2d1e5`) — an assembly can be drafted on a
+sheet, with its numbered parts list (first caller for `GET /drawings/{id}/
+bom`); **REACH-ORDER** (`472f040`) — feature-tree reorder, closing
+`PUT .../features/order` (the row's own ordinal is the drag handle); the
+**force:true audit** (`6911352`) — 22 call sites reviewed, 18 cargo removed,
+3 legitimate refusals proven via a new `clickRefusedControl` helper, 1
+vacuous test fixed (`force: true` now appears exactly once in
+`apps/web/e2e/`); **`fe96d9b`** — a short drawing edge is pickable again (a
+vertex claims at most a third of its shortest incident edge); **ORTHO-1**
+(`9a04a6a`) — orthographic projection, named views default to it, closing a
+gap four consecutive audit passes reported; three environment recipes
+(`d6034a0`, `2df95e0`, `603493b`).
 
-**REACH-2-IMPORT-1 (b) — `packages/design` gains `ProgressTrack`, the
-indeterminate wait every long operation seats from now on.** UI-REVIEW
-2026-08-27 P1-B measured a STEP import with no `role="progressbar"` anywhere
-and `animationName: none` on every descendant of its busy line; the finding
-was HELD because the design system had nothing to fix it with. It does now: a
-carriage reciprocating along a hairline bed (`motion-safe` only), a named
-indeterminate progressbar with no `aria-valuenow` — the omission is how ARIA
-spells "we cannot predict this" — and an elapsed-seconds readout driven by
-React state, which is the load-bearing part: a CSS animation keeps running
-when the main thread is wedged, so it cannot distinguish "working" from
-"hung", which is the exact question the finding asks. That counter is
-therefore the liveness proof in BOTH motion modes, and is what carries
-`prefers-reduced-motion` rather than being an extra. Geometry is derived, not
-transcribed (`carriageTravelPercent` from `progress.carriage`), with a unit
-test that lands the carriage flush with the end of its bed. 6 unit tests;
-cancel deliberately NOT in the primitive — see the wiring commit.
+**Filed this pass** (`docs/BACKLOG.md` Ready/Next): ASMDRAW-FIT-1a/1b
+(assembly sheets are not fit-scaled — a documents-internal solved-extents
+route, then the frontend consumer; (a) reportedly has a backend-builder
+live), PLAYWRIGHT-TOUCH-1 (no touch project in `playwright.config.ts` — QA-R3
+could only be measured by hand), EXTRUDE-COARSE-STEP-1 (Shift+ArrowUp's
+coarse step on the extrude drag handle, reported broken by ORTHO-1's own
+gate, not fixed there), HEM-1B (split from HEM-1). **Elevated:** HEM-1
+P1→P0 — a "closed" hem defaults to a 6 mm air gap on 2 mm sheet, wrong
+geometry under a label that says otherwise.
 
-**REACH-2-IMPORT-1 CLOSED — the empty assembly register is a fork, and a long
-import can be watched and stopped.** P1-A was a distance, and the second
-measurement is why it was a LAYOUT defect rather than a copy one: the import
-verb sat 422 px below the sentence naming it at 1280x800 and **622 px** below
-at 1600x1000 — the gap grew with the screen, so no rewording could reach it.
-The empty drawer now rules two columns of one ledger, "Start from scratch"
-and "Start from a STEP file", divided by the same hairline as every other
-rule on the page: import verb **51 px** below the copy at BOTH widths, the
-two ways in **22 px** apart (was 364), and the sentence has stopped giving
-directions. Placement is decided by the REGISTER (`RegisterOffer`, opt-in) —
-beside the create form when empty, the drawer's last line otherwise — because
-the page cannot know which it is; non-adopting registers emit byte-identical
-markup, pinned by a negative test, following the `SelectField` precedent.
-P1-B is wired: `ProgressTrack` + an `AbortController` behind `Stop` and
-`Escape`, with a withdrawn import landing on neither the error line nor the
-result line. Also closed: P2-A (a result gets the `Dismiss` the refusal
-always had) and P3-B (`I` reaches the shortcut sheet). Two defects found by
-the new spec and fixed at the source rather than the instance: `text-etch`
-eyebrows measured **3.07:1** on anvil (below AA — now `text-gauge`, 7.18:1),
-and a `tagName === "INPUT"` guard was swallowing `Escape` over the page's own
-hidden file input, so cancel worked by mouse and silently not by keyboard.
-10 e2e cases at 1280 and 1600, zero `force: true`.
+**Still open, unchanged in substance:** REACH-2-FLOW, REACH-3-FLOW,
+EXPORT-3, NAME-2b, TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1, SEL-8,
+MEASURE-PROXY-1, MATE-OBS-2, SKETCH-COVERAGE-1, SOLVER-DOC-1 — see BACKLOG
+for current tickets.
+
+**Still owed, carried forward again:** `docs/GEOMETRY-QA.md`/
+`docs/UI-REVIEW.md` refresh against the last five batches; the
+vision-steward's Sheet metal/Performance/Assemblies/Selection scorecard
+re-check (four passes overdue).
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.

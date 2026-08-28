@@ -5,6 +5,55 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-08-27 (groom pass 14 — closed 9 shipped items, filed REACH-2/3-FLOW + TITLEBLOCK-STAMP-1)
+
+All verified against `git log`, not assumed from commit subjects alone.
+
+- **SPEC-9** (`e8702d5`) — waits for `draw-dimensions`'s armed state before
+  the first keystroke; **SPEC-10** (`42f6bbd`) — asserts the settled solve,
+  not a pre-settle transient. Both retire the CI-4(d) defect class in a
+  second/third file.
+- **DOCTICK-GATE** (`bd09f5b`, docstring fix `53e62b0`) — `scripts/
+  check-doc-tick.py` now judges a commit range for feat/fix commits missing
+  a ROADMAP/BACKLOG tick, wired into CI.
+- **SNAP-5** (`ecdf9ad`, screenshots `31ba716`) — a line drawn near-axis-
+  aligned now authors horizontal/vertical at placement, closing the
+  DOF-6-vs-DOF-2 gap SOLVE-1's report identified.
+- **SIGNIN-1** (`bf65ddc`) — the sign-in sheet is now a bounded, centred
+  object (45% of frame vs. the prior 5.2%) instead of a card pinned to a
+  corner of the unbounded browser window. Filed/reported four times since
+  2026-08-14.
+- **T-23/DRAG-1** (`35027ef`) — extrude gets a draggable depth gauge (grip +
+  graduated ladder), closing the design mandate's named "biggest gap"
+  (`apps/web/src/viewport/**`). Unblocks MATE-1's UI half and ORTHO-1.
+- **PATTERN-1's frontend half** (`ec9c569`) — tree-row selection seeds
+  `PatternParamsV1.scope`; `docs/design/pattern-scope.md`'s `body`/
+  `features` contract from pass 13 fully built. Independent design review
+  found four flow gaps (icon-tier proposal, no seed echo, Cancel destroys
+  selection, click-opens-editor) — filed as REACH-2-FLOW, not a reopen.
+- **REVOLVE-1 kernel half** (`88b6074`) — `RevolveAxis` is now a
+  discriminated union with three always-available world origin axes.
+  Frontend half (axis list, default, preview) stays open in Ready.
+- **SKETCH-VOCAB-1 kernel half** — five commits, all kernel-only (verified
+  by diff): **angle** (`e46bf0c`), **diameter** (`eabbd36`), **midpoint**
+  (`fead5bd`), **collinear** (`00c9d22`), **symmetric-two-lines-and-an-axis**
+  (`5fbf5d8`). `apps/web` gained only exhaustive-switch stub arms in each —
+  no authoring UI for any of the five. Frontend half stays open in Ready.
+- **Parts register resume band** (`cb2e43e`) — the register now proposes
+  "resume what you were doing" instead of only listing contents; had no
+  prior backlog entry (founder-direct). Its REBUILD-column collapse
+  (analogy to the UNITS column) broke `workspace.spec.ts` because a health
+  VERDICT is volatile per-row data, not a stable attribute like a unit —
+  reverted same-night in `d0b55b2`, which is the fix, not a regression to
+  re-file. The reasoning lives in-source at `showHealth` for the next
+  person tempted by the same analogy.
+
+Filed this pass, not yet built: REACH-2-FLOW, REACH-3-FLOW,
+TITLEBLOCK-STAMP-1. Noted, not filed: `scripts/check-ui-parity.py` +
+`.claude/workflows/loft-frontend-loop.js` (`e9d31af`, subtree fix `4e41eb4`)
+mechanically re-derive the reachable-vs-displayable gap every batch (39 gaps
+measured at filing time, of 120 request-side capability literals).
+
 ## 2026-08-26 (groom pass 13 — closed nine in-flight items, re-scoped MATE-1)
 
 - **Groom pass 13 (backlog-groomer).** Ten commits landed since pass 12,
