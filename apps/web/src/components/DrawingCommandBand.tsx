@@ -19,15 +19,21 @@ import {
 
 import {
   SCALE_OPTIONS,
-  SHEET_SIZE_OPTIONS,
   sheetSizeLabel,
+  sheetSizeOptions,
 } from "../drawing/layout";
 import {
   SOURCE_GROUP_LABEL,
   SOURCE_KIND_LABEL,
   type DrawingSourceOption,
 } from "../drawing/source";
-import type { RefDocumentKind, SheetSize } from "../api/drawings";
+import type {
+  RefDocumentKind,
+  SheetResponse,
+  SheetSize,
+} from "../api/drawings";
+
+type SheetOrientation = SheetResponse["orientation"];
 
 export interface DrawingCommandBandProps {
   /**
@@ -50,6 +56,20 @@ export interface DrawingCommandBandProps {
   /** The chosen sheet size before layout; the persisted sheet's size after. */
   sizeValue: SheetSize;
   onSelectSize: (value: SheetSize) => void;
+  /**
+   * The paper the next layout will actually make — the content-led proposal
+   * before layout, the persisted sheet's own orientation after. The size picker
+   * states THIS paper's extents (REACH-3-FLOW): "A4 · 297 × 210 mm" beside a
+   * proposal about to make a 210 × 297 sheet names the wrong paper at the
+   * moment the user is choosing it.
+   */
+  paperOrientation: SheetOrientation;
+  /**
+   * The scale that paper earns for the chosen source, or null when nothing was
+   * measured. Engraved on the layout tool's caption so the proposal is legible
+   * BEFORE the click, not discovered after it.
+   */
+  paperScale: string | null;
   /** True once the standard views have been laid out on the sheet. */
   hasLayout: boolean;
   /** True when the laid-out sheet is a flat-pattern (sheet-metal) sheet. */
@@ -84,6 +104,8 @@ export function DrawingCommandBand({
   onSelectScale,
   sizeValue,
   onSelectSize,
+  paperOrientation,
+  paperScale,
   hasLayout,
   isFlatPattern = false,
   draftedSourceName,
@@ -111,10 +133,17 @@ export function DrawingCommandBand({
     value: s.value,
     label: s.label,
   }));
-  const sizeOptions = SHEET_SIZE_OPTIONS.map((s) => ({
+  const sizeOptions = sheetSizeOptions(paperOrientation).map((s) => ({
     value: s.value,
     label: s.label,
   }));
+  // What the signature action is about to make, in the words the sheet header
+  // will then read back. Portrait only ever appears because the SOURCE argued
+  // for it, so naming it here is the proposal being visible from the state the
+  // user is in — not a decoration (mandate 3a).
+  const paperNote = `${sheetSizeLabel(sizeValue)} ${paperOrientation}${
+    paperScale === null ? "" : ` at ${paperScale}`
+  }`;
   const canLayout = !hasLayout && selectedSourceId !== null && !busy;
   const layoutReason = hasLayout
     ? "Views already laid out"
@@ -218,9 +247,12 @@ export function DrawingCommandBand({
               disabled={!canLayout}
               caption={
                 layoutReason ??
-                (busy ? "Projecting…" : "Front · Top · Right · Iso")
+                (busy
+                  ? "Projecting…"
+                  : `Front · Top · Right · Iso — on ${paperNote}`)
               }
               data-testid="drawing-autolayout"
+              data-paper={`${paperOrientation}${paperScale === null ? "" : ` ${paperScale}`}`}
               onClick={onLayout}
             />
             <ToolButton

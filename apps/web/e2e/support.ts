@@ -110,6 +110,72 @@ export async function clickRefusedControl(
 }
 
 /**
+ * Activate a control the way a user does: a REAL `page.mouse.click` at the
+ * control's own centre, after proving that point resolves TO the control.
+ *
+ * The mirror of {@link clickRefusedControl}. That one proves a gated control
+ * refuses; this one proves a live control can be reached at all — the property
+ * `locator.click()` quietly supplies for you (it scrolls, waits, and aims at a
+ * hit point it computes), and the property `click({ force: true })` throws away
+ * entirely. When a spec's claim is "the user can do this", the click has to be
+ * the user's, not Playwright's helpful approximation of it.
+ *
+ * Returns the measured box so a caller can also assert the control is PAINTED —
+ * `toBeVisible()` is a box property and returns true for a node clipped to
+ * `1x1 @ (-1,43)`.
+ */
+export async function clickForReal(
+  page: Page,
+  testId: string,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const locator = page.getByTestId(testId);
+  await expect(locator, `${testId}: must be in the DOM`).toHaveCount(1);
+  const handle = await locator.elementHandle();
+  const probe = await page.evaluate((el) => {
+    const target = el as Element;
+    const r = target.getBoundingClientRect();
+    const cx = r.x + r.width / 2;
+    const cy = r.y + r.height / 2;
+    const hit = document.elementFromPoint(cx, cy);
+    const name = (x: Element | null): string => {
+      if (x === null) return "nothing";
+      const tagged = x.closest("[data-testid]");
+      return `${x.tagName.toLowerCase()}${
+        tagged === null ? "" : `[${tagged.getAttribute("data-testid")}]`
+      }`;
+    };
+    return {
+      x: r.x,
+      y: r.y,
+      width: r.width,
+      height: r.height,
+      cx,
+      cy,
+      reached: hit !== null && target.contains(hit),
+      resolvesTo: name(hit),
+    };
+  }, handle);
+  await handle?.dispose();
+
+  expect(
+    probe.width * probe.height,
+    `${testId}: the control has no area (${probe.width.toFixed(1)} x ${probe.height.toFixed(1)}) — no pointer can aim at it`,
+  ).toBeGreaterThan(0);
+  expect(
+    probe.reached,
+    `${testId}: a pointer aimed at the control's centre lands on ${probe.resolvesTo} instead`,
+  ).toBe(true);
+
+  await page.mouse.click(probe.cx, probe.cy);
+  return {
+    x: probe.x,
+    y: probe.y,
+    width: probe.width,
+    height: probe.height,
+  };
+}
+
+/**
  * Both History buttons settled at the given server gates (`can_undo` /
  * `can_redo` → aria-disabled). Shared by the part and assembly undo/redo
  * specs — the two workspaces render the SAME HistoryGroup, so the assertion

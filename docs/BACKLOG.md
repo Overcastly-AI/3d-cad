@@ -78,11 +78,11 @@ disjoint, parallel-dispatchable:
    entirely client-side: the gateway already served the last good body,
    byte-identical to exporting the healthy prefix. See the ticket below for
    evidence and the three-surface honesty rule.
-6. **REACH-3-FLOW** (P1, M, frontend-builder, `apps/web/src/routes/
-   DrawingPage.tsx` + `PartPage.tsx` Sheet-1 create paths) — orientation
-   proposal never fires on Sheet 1; flip-to-portrait is a dead end. Same
-   file as #2 (`PartPage.tsx`, different region) — sequence, don't run
-   both at once in a shared checkout.
+6. ~~**REACH-3-FLOW**~~ — CLOSED 2026-08-28 (frontend-builder). Sheet 1 is
+   born from the proposal now (one `sheetHeaderForNewSheet()` for all four
+   create paths); the flip's dead end was the PROMISE, not the delivery —
+   documents refuses a per-view re-scale, so the fit comparison moved to the
+   set-up screen where the scale is still free. Residual: SHEET-RESCALE-1.
 
 **QA-R3** (P2, touch, harness gap now filed as PLAYWRIGHT-TOUCH-1), **NAME-2b**
 (P2), **TITLEBLOCK-STAMP-1** (P2, XS), **HEM-1B** (P2, split from HEM-1),
@@ -650,9 +650,34 @@ appears exactly once in `apps/web/e2e/`. See Done archive.**
 **QA-R2 is CLOSED (`0cee656`, e2e barrier hardened `d2b1d26`, groom pass
 15) — the angle glyph now reads `SolvedSketch.angles`. See Done archive.**
 
-- [ ] (P1, M) **REACH-3-FLOW — the projection-convention feature `5438b73`
+- [x] (P1, M) **REACH-3-FLOW — the projection-convention feature `5438b73`
       shipped is reachable exactly once per drawing, and orientation is a
-      dead end once flipped.** kind: defect (flow — the convention half
+      dead end once flipped.** CLOSED 2026-08-28 (frontend-builder).
+      (a) P1-1 fixed at the ROOT: `sourceExtentsQuery` was keyed on the
+      DRAFTED source, null until a sheet had views, so the proposal could not
+      be computed on the create screen at all. It now measures the SELECTED
+      source too, and one `sheetHeaderForNewSheet()` (in `drawing/layout.ts`,
+      unit-tested) serves all four create paths — proposal + inherited
+      convention + earned scale — with `handleLayout` reading the same cached
+      measurement so a fast click cannot fall back silently. The 40x40x150
+      column now lands Sheet 1 A4 PORTRAIT at 1:2, not landscape at 1:5.
+      Lone-view sheets (flat pattern, section) pass `fit: null` on purpose:
+      `fitScale` models the FOUR-quadrant footprint, and an unfolded blank is
+      not it — guessing there would be the same broken-promise defect in a new
+      place. (b) P1-2 resolved by the ticket's own alternative, because the
+      first branch is IMPOSSIBLE: measured against the real stack, documents
+      refuses a per-view re-scale with `sheet_view_scale_mismatch` (H2, one
+      sheet one scale) and `siblings[0]` always still holds the old scale, so
+      the first of four views is rejected in any order — no client write can
+      re-fit a laid-out sheet. So the cell stopped promising: the trade moved
+      to the set-up screen's new paper cell (where the scale is still free),
+      and the post-layout cell states the flip it performs while still naming
+      what a fresh sheet would buy. The flip does now RE-PLACE — a pinned view
+      at 270 mm on landscape A4 measured 99.3% of the portrait width before,
+      70.2% after. P2 flags all done: orientation-aware size labels, a capped
+      strip with a scrolling tab rail (cells were 1028.4px at 1024 before),
+      ADD moved out of the rail, active tab scrolled into view.
+      Residual: **SHEET-RESCALE-1**. kind: defect (flow — the convention half
       genuinely flows; the orientation half does not survive contact with
       the product). MEASURED (`docs/UI-REVIEW.md` 2026-08-27 REACH-3
       spot-check, real stack, 1280×800/1024×768, a deliberately tall
@@ -692,6 +717,33 @@ appears exactly once in `apps/web/e2e/`. See Done archive.**
       `apps/web/src/drawing/layout.ts` (Size readout),
       `apps/web/src/components/DrawingCommandBand.tsx`. agentType:
       frontend-builder.
+
+- [ ] (P2, S) **SHEET-RESCALE-1 — a laid-out sheet's scale cannot be
+      changed by anything, so the only way to re-scale a drawing is to start
+      another one.** kind: capability gap (not a regression — no client ever
+      could). MEASURED 2026-08-28 while closing REACH-3-FLOW, against the real
+      stack: `PATCH /views/{id}` with a new `scale` returns 422
+      `sheet_view_scale_mismatch` on any multi-view sheet (documents' H2 "one
+      sheet, one source, one scale" guard), and the refusal cannot be
+      sequenced around — the guard compares against `siblings[0]`, which still
+      holds the OLD scale whichever view you write first. There is no
+      sheet-level re-scale verb, and post-layout the web Scale control is a
+      read-only `Readout`, so the scale a sheet was laid out at is permanent.
+      Consequences the user feels: flipping paper orientation cannot re-fit
+      (REACH-3-FLOW closed this by making the cell honest instead), and a part
+      that grows after drafting can only be re-scaled by deleting the sheet.
+      FIX: a sheet-level re-scale on `PATCH /sheets/{sheet_id}` that rewrites
+      every view's scale in ONE transaction (the H2 invariant then holds
+      throughout — it is per-view writes that cannot satisfy it), plus the web
+      Scale picker staying live post-layout.
+      ACCEPTANCE: re-picking Scale on a laid-out four-view sheet re-draws every
+      view at the new scale with the title block agreeing; the H2 guard still
+      refuses a genuinely divergent PER-VIEW write; an orientation flip can
+      then offer the fit its own cell quotes.
+      [src: REACH-3-FLOW measurement, filed by frontend-builder 2026-08-28]
+      TERRITORY: `services/documents/src/documents/drawings.py`,
+      `services/gateway/**`, then `apps/web/src/routes/DrawingPage.tsx`.
+      agentType: backend-builder (then frontend-builder).
 
 - [ ] (P2, XS) **TITLEBLOCK-STAMP-1 — the projection-convention symbol
       `5438b73` shipped appears on screen and vanishes from every print.**
@@ -4789,6 +4841,9 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
   export tickets, SOLVE-1/PICK-2 cluster, SETTLE-PERF-1 883x speedup,
   NAME-2/edge durability, ORTHO-1/MATE-1/frontend-reachability complete,
   HEM-1 elevated P0. Full detail: `docs/CHANGELOG.md`.
+- 2026-08-28 — **REACH-3-FLOW shipped (frontend-builder):** Sheet 1 is born
+  from the orientation proposal (A4 portrait 1:2, was landscape 1:5); the
+  flip's dead end was the PROMISE. Filed SHEET-RESCALE-1.
 - 2026-08-28 — **Groom pass 18 (backlog-groomer):** CI-4 downgraded P1->P2
   (four separately-diagnosed causes closed: CI-5/CI-5a/QA-SEL6-ORTHO-1/hem-
   spec, systemic-instability question stays open); PGTEST-GATE's pass-8

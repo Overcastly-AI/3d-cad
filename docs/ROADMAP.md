@@ -34,6 +34,47 @@ repair: HEM-1C (editor still claims base-flange inheritance for the radius
 and suggests the exact value the server refuses) and HEM-1D (UI cannot author
 an `open` hem at all) — **BOTH CLOSED**, see the entry below.
 
+**REACH-3-FLOW CLOSED (frontend-builder, 2026-08-28) — the orientation
+proposal never fired on the only sheet most drawings have, and the paper cell
+quoted a scale it could not produce.** (P1-1) The proposal was structurally
+unreachable on Sheet 1, not merely unwired: the extents query that feeds it was
+keyed on the DRAFTED source, which is null until a sheet already has views, so
+`orientationFit` could not be computed on the create screen and all four Sheet-1
+paths wrote `orientation: "landscape"` as a literal. One `sheetHeaderForNewSheet()`
+derivation now serves every create path — proposal + inherited convention + the
+scale that orientation earns — and `handleLayout` takes its measurement through
+the same cached reading the cell displays, so a click that beats the query cannot
+silently fall back. Measured on the reference 40x40x150 column: Sheet 1 is A4
+portrait at 1:2 where it was landscape at 1:5, views 2.5x larger, zero extra
+clicks. (P1-2) Flipping a laid-out sheet cannot re-scale it and never could —
+MEASURED against the real stack, documents refuses a per-view re-scale with
+`sheet_view_scale_mismatch` (its H2 one-sheet-one-scale invariant), and the
+refusal cannot be sequenced around because `siblings[0]` always still holds the
+old scale, so the FIRST of the four views is rejected whichever order you write
+them in. The defect was therefore the PROMISE, not the delivery: the fit
+comparison moved to the set-up screen's new paper cell, where the scale is still
+free and the answer still free to give ("capture intent where it forms"), and the
+post-layout cell now states only what a flip does — the same scale on the other
+paper — while still naming what a fresh sheet would buy, which is the exit. The
+flip additionally RE-PLACES: a hand-placed view pinned at 270 mm on a 297 mm
+landscape sheet is off a 210 mm portrait one, and `auto_place:false` is honoured
+verbatim; it is now proportionally re-framed (measured 99.3% of the portrait
+width before, 70.2% after — its landscape composition preserved). P2 flags in the
+same pass: the size picker states the extents of the paper the layout will
+actually make (`A4 . 210 x 297 mm` under a portrait proposal, not `297 x 210`);
+the sheet-header strip is capped with a scrolling tab rail, so eleven sheets no
+longer push the convention and orientation cells off a 1024 viewport (measured
+1028.4px before), the ADD affordance moved OUT of the rail (it is an action, not
+a tab, and scrolling the only way to make a twelfth sheet off the end is its own
+dead end), and the active tab scrolls itself into view. Residual filed as
+SHEET-RESCALE-1 (a documents-service sheet-level re-scale verb; a laid-out
+sheet's scale is currently unchangeable by any client). Gates: `just lint` 0,
+`pnpm -r typecheck`, 2105 web + 141 design unit tests, sheet-convention 5/5 (four
+new cases), the drawing set 31/31, qa-reach-batch + toolbar-overflow + nav-chrome
+33/33. Mutation evidence, five legs each reverted independently: every fix
+removed reddens only its own case. Founder before/after at 1280x800 and 1024x768
+in `docs/screenshots/reach3-*`.
+
 **REACH-2-FLOW CLOSED (frontend-builder, 2026-08-28) — the pattern-scope
 proposal was reachable and could not be seen, could not be kept, and named a
 subject nothing in the frame echoed.** All four measured sub-defects, one fix

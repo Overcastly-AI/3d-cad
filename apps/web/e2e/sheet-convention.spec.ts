@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 
-import { SCREENSHOT_DIR, seedSession } from "./support";
+import { SCREENSHOT_DIR, clickForReal, seedSession } from "./support";
 
 /**
  * REACH-3 — a sheet DECLARES its projection convention, and can be first-angle
@@ -158,6 +158,71 @@ async function viewCentre(
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
+/**
+ * Every placed view lies inside the sheet's own paper, measured in SHEET
+ * millimetres off the `<svg>` viewBox rather than in page pixels — so the claim
+ * is "on the paper", not "somewhere in the frame". A flip that changed only the
+ * viewBox would leave a view hanging off the narrower edge.
+ */
+async function expectViewsOnPaper(
+  page: Page,
+  paper: { width: number; height: number },
+): Promise<void> {
+  const svg = page.getByTestId("drawing-sheet");
+  await expect(svg).toHaveAttribute(
+    "viewBox",
+    `0 0 ${paper.width} ${paper.height}`,
+  );
+  const boxes = await page.evaluate(() => {
+    const root = document.querySelector('[data-testid="drawing-sheet"]');
+    if (root === null) return [];
+    return [...root.querySelectorAll('[data-testid="drawing-view"]')].map(
+      (node) => {
+        const b = (node as SVGGraphicsElement).getBBox();
+        return {
+          view: node.getAttribute("data-view") ?? "?",
+          x: b.x,
+          y: b.y,
+          right: b.x + b.width,
+          bottom: b.y + b.height,
+        };
+      },
+    );
+  });
+  expect(boxes.length, "no placed views to measure").toBeGreaterThan(0);
+  for (const box of boxes) {
+    expect(box.x, `${box.view} runs off the left edge`).toBeGreaterThanOrEqual(
+      0,
+    );
+    expect(box.y, `${box.view} runs off the top edge`).toBeGreaterThanOrEqual(
+      0,
+    );
+    expect(
+      box.right,
+      `${box.view} runs off the right edge`,
+    ).toBeLessThanOrEqual(paper.width);
+    expect(
+      box.bottom,
+      `${box.view} runs off the bottom edge`,
+    ).toBeLessThanOrEqual(paper.height);
+  }
+}
+
+/** The front view's centre X in SHEET millimetres (the coordinate the pin is
+ * actually stored in), read off the composed SVG's own user space. */
+async function frontCentreMm(page: Page): Promise<number> {
+  const x = await page.evaluate(() => {
+    const node = document.querySelector(
+      '[data-testid="drawing-view"][data-view="front"]',
+    );
+    if (node === null) return null;
+    const b = (node as SVGGraphicsElement).getBBox();
+    return b.x + b.width / 2;
+  });
+  if (x === null) throw new Error("no front view to measure");
+  return x;
+}
+
 /** `"1:5"` -> 0.2 — bigger is a bigger drawing. */
 function scaleRatio(label: string): number {
   const [numerator, denominator] = label.split(":").map(Number);
@@ -240,21 +305,65 @@ test.describe("drawings — the sheet declares its projection convention", () =>
     expect(reloaded.right.x).toBeLessThan(reloaded.front.x);
   });
 
-  test("a tall part is offered portrait, at a strictly better scale", async ({
+  test("SHEET ONE is offered portrait, at a strictly better scale", async ({
     page,
   }) => {
     const account = await seedSession(page);
     const part = await createTallPartViaApi(page, account.token, "Tall column");
-    await seedLaidOutDrawing(page, part.id, "Portrait column");
 
-    // The first sheet is landscape, and the orientation cell says what that
-    // costs: the fitted scale for each paper, read off the SAME `fitScale` the
-    // layout action uses.
-    const orientation = page.getByTestId("sheet-orientation");
-    await expect(orientation).toHaveAttribute("data-orientation", "landscape");
-    await expect(orientation).toHaveAttribute("data-fit-portrait", /\d+:\d+/, {
+    // REACH-3-FLOW P1-1. The proposal used to fire only on the SECOND sheet,
+    // because all four Sheet-1 create paths wrote `orientation: "landscape"` as
+    // a literal and the extents query that feeds the proposal was keyed on the
+    // DRAFTED source — null until a sheet already had views. So on the only
+    // sheet most drawings have, the feature could not have fired.
+    await page.goto("/drawings");
+    await expect(page.getByTestId("nav-drawings")).toBeVisible();
+    await page.getByTestId("create-drawing-name").fill("Portrait column");
+    await page.getByTestId("create-drawing-submit").click();
+    const row = page.getByTestId("drawing-row").first();
+    await expect(row).toBeVisible();
+    await row.getByTestId("drawing-open").click();
+
+    // --- The SET-UP screen states the proposal BEFORE the click that spends it.
+    await expect(page.getByTestId("drawing-setup-hint")).toBeVisible();
+    await page.getByTestId("drawing-part-select").selectOption(part.id);
+    const setupPaper = page.getByTestId("setup-paper");
+    await expect(setupPaper).toHaveAttribute("data-orientation", "portrait", {
       timeout: 30_000,
     });
+    await expect(setupPaper).toHaveAttribute("data-proposed", "true");
+    await expect(setupPaper).toHaveAccessibleName(/portrait, fits 1:2/i);
+    // Painted, not merely "visible": a cell clipped to 1x1 passes toBeVisible.
+    const paperBox = await setupPaper.boundingBox();
+    expect(paperBox, "the set-up paper cell has no box").not.toBeNull();
+    expect(paperBox!.width).toBeGreaterThan(80);
+    expect(paperBox!.height).toBeGreaterThan(12);
+    // And the size picker names the paper that proposal will actually make.
+    await expect(page.getByTestId("drawing-size-select")).toContainText(
+      "A4 · 210 × 297 mm",
+    );
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.mouse.move(640, 700);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/drawing-setup-paper-proposal-1280.png`,
+    });
+
+    // --- Lay out: SHEET ONE is the portrait sheet, at the promised scale.
+    await page.getByTestId("drawing-autolayout").click();
+    const sheet = page.getByTestId("drawing-sheet");
+    await expect(sheet).toBeVisible({ timeout: 30_000 });
+    await expect(sheet).toHaveAttribute("viewBox", "0 0 210 297");
+    await expect(sheet).toHaveAccessibleName(/at 1:2/);
+    await expect(page.getByTestId("sheet-tabs").getByRole("tab")).toHaveCount(
+      1,
+    );
+    await expect(page.getByTestId("drawing-scale-readout")).toHaveText("1:2");
+
+    // The header cell agrees, and says what the other paper would cost.
+    const orientation = page.getByTestId("sheet-orientation");
+    await expect(orientation).toHaveAttribute("data-orientation", "portrait");
+    await expect(orientation).toHaveAttribute("data-proposed", "true");
     const landscapeFit = await orientation.getAttribute("data-fit-landscape");
     const portraitFit = await orientation.getAttribute("data-fit-portrait");
     expect(landscapeFit).toBe("1:5");
@@ -264,41 +373,234 @@ test.describe("drawings — the sheet declares its projection convention", () =>
     expect(scaleRatio(portraitFit as string)).toBeGreaterThan(
       scaleRatio(landscapeFit as string),
     );
-    // ...and the current landscape sheet is honestly NOT the proposed one.
-    await expect(orientation).toHaveAttribute("data-proposed", "false");
-
-    // The add affordance proposes portrait, naming the scale it earns.
-    const add = page.getByTestId("sheet-tab-add");
-    await expect(add).toHaveAttribute("data-proposed-orientation", "portrait");
-    await expect(add).toHaveAccessibleName(/portrait at 1:2/i);
-
-    await page.setViewportSize({ width: 1280, height: 800 });
-
-    // Accept it: the new sheet is created portrait.
-    await add.click();
-    await expect(page.getByTestId("sheet-tab-1")).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    await expect(page.getByTestId("sheet-orientation")).toHaveAttribute(
-      "data-orientation",
-      "portrait",
-    );
-    await expect(page.getByTestId("drawing-setup-hint")).toBeVisible();
-
-    // Lay the part out on it — the composed paper is A4 PORTRAIT (210 x 297 mm,
-    // the viewBox the sheet renders at) and the views are drawn at the better
-    // scale the cell promised, not the landscape one.
-    await page.getByTestId("drawing-part-select").selectOption(part.id);
-    await page.getByTestId("drawing-autolayout").click();
-    const sheet = page.getByTestId("drawing-sheet");
-    await expect(sheet).toBeVisible({ timeout: 30_000 });
-    await expect(sheet).toHaveAttribute("viewBox", "0 0 210 297");
-    await expect(sheet).toHaveAccessibleName(/at 1:2/);
 
     await page.mouse.move(640, 400);
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/drawing-sheet-portrait-1280.png`,
+    });
+  });
+
+  test("the paper cell promises exactly what the flip delivers", async ({
+    page,
+  }) => {
+    // REACH-3-FLOW P1-2. The cell used to read "switch to landscape (1:5)" and
+    // then hand back a sheet still drawn at 1:2 — a control quoting a scale it
+    // cannot produce. MEASURED against the real stack: documents refuses a
+    // per-view re-scale on a laid-out multi-view sheet
+    // (`sheet_view_scale_mismatch`, its H2 one-sheet-one-scale invariant) and
+    // the refusal cannot be sequenced around, so the promise is what had to
+    // change. The trade now lives on the SET-UP screen, where the scale is
+    // still free; here the cell states the flip, and the flip does it.
+    const account = await seedSession(page);
+    const part = await createTallPartViaApi(page, account.token, "Flip column");
+    await seedLaidOutDrawing(page, part.id, "Flip column drawing");
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    const sheet = page.getByTestId("drawing-sheet");
+    const scale = page.getByTestId("drawing-scale-readout");
+    const cell = page.getByTestId("sheet-orientation");
+    await expect(sheet).toHaveAttribute("viewBox", "0 0 210 297");
+    await expect(scale).toHaveText("1:2");
+
+    // THE CASE, stated as the cell states it: it names the paper it will make
+    // and the scale it will keep. Nothing here is a claim about a re-fit.
+    await expect(cell).toHaveAccessibleName(
+      /switch to landscape paper, keeping 1:2/i,
+    );
+    // ...and it still tells you what landscape WOULD buy, naming the sheet that
+    // could deliver it — the exit, not a promise this control can keep.
+    await expect(cell).toHaveAccessibleName(
+      /fresh landscape sheet would fit this at 1:5/i,
+    );
+
+    // Activate it the way a user does — a real mouse click at the control's
+    // centre, after proving that point actually resolves TO the control
+    // (`force: true` would skip exactly the check that matters here).
+    await clickForReal(page, "sheet-orientation");
+
+    await expect(cell).toHaveAttribute("data-orientation", "landscape", {
+      timeout: 30_000,
+    });
+    // Delivered: the paper changed, and the scale the cell said it would keep
+    // is the scale the title block states.
+    await expect(sheet).toHaveAttribute("viewBox", "0 0 297 210");
+    await expect(scale).toHaveText("1:2");
+    await expect(sheet).toHaveAccessibleName(/at 1:2/);
+    // Every view is still ON the new paper — a flip that only changed the
+    // viewBox would leave a hand-placed view off the narrower edge.
+    await expectViewsOnPaper(page, { width: 297, height: 210 });
+
+    await page.mouse.move(640, 400);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/drawing-sheet-flipped-landscape-1280.png`,
+    });
+
+    // ...and back again. No dead end either way.
+    await clickForReal(page, "sheet-orientation");
+    await expect(cell).toHaveAttribute("data-orientation", "portrait", {
+      timeout: 30_000,
+    });
+    await expect(sheet).toHaveAttribute("viewBox", "0 0 210 297");
+    await expectViewsOnPaper(page, { width: 210, height: 297 });
+
+    // It is the SHEET that changed, not the screen.
+    await page.reload();
+    await expect(page.getByTestId("drawing-sheet")).toHaveAttribute(
+      "viewBox",
+      "0 0 210 297",
+      { timeout: 30_000 },
+    );
+    await expect(page.getByTestId("drawing-scale-readout")).toHaveText("1:2");
+  });
+
+  test("a HAND-PLACED view survives the flip onto narrower paper", async ({
+    page,
+  }) => {
+    // The half of the flip that was never cosmetic. `auto_place:false` is
+    // honoured by the composer VERBATIM, so a view dragged to x = 270 mm on a
+    // 297 mm-wide landscape sheet is off the edge of a 210 mm-wide portrait
+    // one. An auto-placed view hides this — the composer re-derives it either
+    // way — so this case drags first, deliberately: an assertion that only ever
+    // sees auto-placed views cannot observe the failure it is standing in for.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const account = await seedSession(page);
+    const part = await createTallPartViaApi(page, account.token, "Pin column");
+    await seedLaidOutDrawing(page, part.id, "Pinned view flip");
+
+    // Start landscape so the flip NARROWS the paper (297 -> 210 mm).
+    await clickForReal(page, "sheet-orientation");
+    await expect(page.getByTestId("sheet-orientation")).toHaveAttribute(
+      "data-orientation",
+      "landscape",
+      { timeout: 30_000 },
+    );
+
+    // Drag the front view as far right as the sheet allows.
+    const front = page.locator(
+      '[data-testid="drawing-view"][data-view="front"]',
+    );
+    await expect(front).toBeVisible({ timeout: 30_000 });
+    await front.hover();
+    const grip = front.getByTestId("drawing-view-grip");
+    const gripBox = await grip.boundingBox();
+    if (!gripBox) throw new Error("grip has no box");
+    const gx = gripBox.x + gripBox.width / 2;
+    const gy = gripBox.y + gripBox.height / 2;
+    await page.mouse.move(gx, gy);
+    await page.mouse.down();
+    await page.mouse.move(gx + 150, gy, { steps: 6 });
+    await page.mouse.move(gx + 300, gy, { steps: 6 });
+    await page.mouse.up();
+    await expect(front).toHaveAttribute("data-placed", "true", {
+      timeout: 30_000,
+    });
+    const pinnedX = await frontCentreMm(page);
+    expect(
+      pinnedX,
+      "the drag must land the pin in the right-hand half of the landscape sheet",
+    ).toBeGreaterThan(297 / 2);
+
+    // Flip onto the narrower paper. The pin keeps its composition — right-hand
+    // side stays right-hand side — and lands somewhere that exists.
+    await clickForReal(page, "sheet-orientation");
+    await expect(page.getByTestId("sheet-orientation")).toHaveAttribute(
+      "data-orientation",
+      "portrait",
+      { timeout: 30_000 },
+    );
+    await expect(front).toHaveAttribute("data-placed", "true");
+    const reframedX = await frontCentreMm(page);
+    expect(reframedX, "the pin is off the narrower paper").toBeLessThan(210);
+    expect(reframedX / 210, "the pin lost its place on the sheet").toBeCloseTo(
+      pinnedX / 297,
+      1,
+    );
+    await expectViewsOnPaper(page, { width: 210, height: 297 });
+  });
+
+  test("the header cells survive an eleven-sheet drawing at 1024", async ({
+    page,
+  }) => {
+    // REACH-3-FLOW P2: with no cap and no scroll region the tab rail pushed the
+    // convention and orientation cells off the right of the viewport — the two
+    // controls that DECLARE the sheet's standard were the first thing a
+    // many-sheet drawing lost, with nothing to say where they had gone.
+    const account = await seedSession(page);
+    const part = await createTallPartViaApi(page, account.token, "Many column");
+    await seedLaidOutDrawing(page, part.id, "Eleven sheets");
+    await page.setViewportSize({ width: 1024, height: 768 });
+
+    const add = page.getByTestId("sheet-tab-add");
+    for (let n = 1; n < 11; n += 1) {
+      await add.click();
+      await expect(page.getByTestId(`sheet-tab-${n}`)).toHaveAttribute(
+        "aria-selected",
+        "true",
+        { timeout: 30_000 },
+      );
+    }
+    await expect(page.getByTestId("sheet-tabs").getByRole("tab")).toHaveCount(
+      11,
+    );
+    // A scrolling rail must still show you where you are: the tab that add just
+    // selected is fully inside the rail, not off its end.
+    const railFit = await page.evaluate(() => {
+      const rail = document.querySelector('[data-testid="sheet-tabs"]');
+      const tab = rail?.querySelector('[role="tab"][data-active]');
+      if (!rail || !tab) return null;
+      const r = rail.getBoundingClientRect();
+      const t = tab.getBoundingClientRect();
+      return { inside: t.left >= r.left - 0.5 && t.right <= r.right + 0.5 };
+    });
+    expect(railFit, "no active tab in the rail").not.toBeNull();
+    expect(railFit!.inside, "the active tab is scrolled off the rail").toBe(
+      true,
+    );
+
+    // Every control that is NOT a tab is still ON the paper — the two header
+    // cells and the add affordance. `+` is the one that makes a TWELFTH sheet,
+    // so scrolling it off the end of an eleven-sheet rail would be its own dead
+    // end: the rail scrolls, the actions do not.
+    for (const testid of [
+      "sheet-projection",
+      "sheet-orientation",
+      "sheet-tab-add",
+    ]) {
+      const box = await page.getByTestId(testid).boundingBox();
+      expect(box, `${testid} has no box`).not.toBeNull();
+      expect(
+        box!.x + box!.width,
+        `${testid} is off the right edge`,
+      ).toBeLessThan(1024);
+      expect(box!.x, `${testid} is off the left edge`).toBeGreaterThanOrEqual(
+        0,
+      );
+      // ...and a pointer aimed at it lands on it, without Playwright scrolling
+      // the rail on the user's behalf first.
+      const resolves = await page.evaluate((id) => {
+        const el = document.querySelector(`[data-testid="${id}"]`);
+        if (el === null) return "missing";
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(
+          r.x + r.width / 2,
+          r.y + r.height / 2,
+        );
+        return hit !== null && el.contains(hit) ? id : "occluded";
+      }, testid);
+      expect(resolves, `${testid} is not where a pointer would land`).toBe(
+        testid,
+      );
+    }
+    await clickForReal(page, "sheet-projection");
+    await expect(page.getByTestId("sheet-projection")).toHaveAttribute(
+      "data-projection",
+      "first_angle",
+      { timeout: 30_000 },
+    );
+
+    await page.mouse.move(512, 500);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/drawing-sheet-header-eleven-1024.png`,
     });
   });
 });

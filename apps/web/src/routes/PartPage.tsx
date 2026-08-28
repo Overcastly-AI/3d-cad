@@ -350,7 +350,7 @@ import {
   createView,
   DrawingNameTakenError,
 } from "../api/drawings";
-import { sheetDimensions } from "../drawing/layout";
+import { sheetDimensions, sheetHeaderForNewSheet } from "../drawing/layout";
 import { SketchScene, type SolvedSketchLayer } from "../viewport/SketchScene";
 import { ExtrudePreview } from "../viewport/ExtrudePreview";
 import { useViewCommandStore } from "../viewport/viewCommands";
@@ -2505,14 +2505,26 @@ export function PartPage() {
         if (drawing === null) {
           throw new Error("A drawing for this flat pattern already exists.");
         }
-        const sheet = await createSheet(drawing.id, {
+        // The SAME header derivation every other create path uses
+        // (REACH-3-FLOW): a lone flat-pattern sheet, so it takes the shop
+        // default paper rather than a proposal — the four-view fit the proposal
+        // reads does not model an unfolded blank, and this hand-off has no
+        // sheet to inherit a convention from either.
+        const header = sheetHeaderForNewSheet({
           name: "Sheet 1",
           size: "A4",
-          orientation: "landscape",
-          projection: "third_angle",
+          layout: "lone",
+          fit: null,
+          inherit: null,
+        });
+        const sheet = await createSheet(drawing.id, {
+          name: header.name,
+          size: header.size,
+          orientation: header.orientation,
+          projection: header.projection,
           expected_version: drawing.doc_version,
         });
-        const dims = sheetDimensions("A4", "landscape");
+        const dims = sheetDimensions(header.size, header.orientation);
         await createView(drawing.id, sheet.sheet.id, {
           projection: "flat_pattern",
           ref_document_id: partId,

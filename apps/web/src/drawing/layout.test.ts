@@ -4,12 +4,15 @@ import { drawing } from "@loft/design";
 
 import type { EdgeSignature, ProjectedViewEdge } from "../api/drawings";
 import {
-  SHEET_SIZE_OPTIONS,
   boxExtents,
   endpointHandlesForEdge,
   fitScale,
+  proposeOrientation,
+  reframePinnedCentre,
   sheetDimensions,
+  sheetHeaderForNewSheet,
   sheetSizeLabel,
+  sheetSizeOptions,
   standardLayout,
   vertexGrabMm,
   vertexPaintMm,
@@ -35,9 +38,9 @@ describe("sheetDimensions", () => {
   });
 });
 
-describe("SHEET_SIZE_OPTIONS (the size picker's choices)", () => {
+describe("sheetSizeOptions (the size picker's choices)", () => {
   it("offers every standard size, A4 first, ANSI last", () => {
-    const values = SHEET_SIZE_OPTIONS.map((o) => o.value);
+    const values = sheetSizeOptions("landscape").map((o) => o.value);
     expect(values).toEqual([
       "A4",
       "A3",
@@ -51,18 +54,158 @@ describe("SHEET_SIZE_OPTIONS (the size picker's choices)", () => {
     ]);
   });
 
-  it("labels carry the landscape mm extents (from SHEET_MM_LANDSCAPE, no drift)", () => {
-    const a4 = SHEET_SIZE_OPTIONS.find((o) => o.value === "A4");
+  it("labels carry the mm extents (from SHEET_MM_LANDSCAPE, no drift)", () => {
+    const a4 = sheetSizeOptions("landscape").find((o) => o.value === "A4");
     expect(a4?.label).toBe("A4 · 297 × 210 mm");
-    const a3 = SHEET_SIZE_OPTIONS.find((o) => o.value === "A3");
+    const a3 = sheetSizeOptions("landscape").find((o) => o.value === "A3");
     expect(a3?.label).toBe("A3 · 420 × 297 mm");
+  });
+
+  it("states the PORTRAIT extents when portrait is the paper being made", () => {
+    // REACH-3-FLOW P2: the picker used to read "297 × 210 mm" beside a proposal
+    // about to create a 210 × 297 sheet — the wrong paper, at the one moment
+    // the user is choosing paper.
+    const a4 = sheetSizeOptions("portrait").find((o) => o.value === "A4");
+    expect(a4?.label).toBe("A4 · 210 × 297 mm");
   });
 
   it("humanises the ANSI display name", () => {
     expect(sheetSizeLabel("A4")).toBe("A4");
     expect(sheetSizeLabel("ANSI_B")).toBe("ANSI B");
-    const ansiB = SHEET_SIZE_OPTIONS.find((o) => o.value === "ANSI_B");
+    const ansiB = sheetSizeOptions("landscape").find(
+      (o) => o.value === "ANSI_B",
+    );
     expect(ansiB?.label.startsWith("ANSI B ·")).toBe(true);
+  });
+});
+
+describe("proposeOrientation (which paper this document argues for)", () => {
+  /** The 40 x 40 x 150 mm column the REACH-3 specs draft — deliberately tall. */
+  const COLUMN = { x: 40, y: 40, z: 150 };
+  /** A 200 x 140 x 30 plate — wide, and the A3 size-picker spec's part. */
+  const PLATE = { x: 200, y: 140, z: 30 };
+
+  it("offers portrait to a tall part, at a strictly better scale", () => {
+    const fit = proposeOrientation(COLUMN, "A4");
+    expect(fit.proposed).toBe("portrait");
+    expect(fit.scaleByOrientation).toEqual({
+      landscape: "1:5",
+      portrait: "1:2",
+    });
+  });
+
+  it("keeps landscape for a wide part", () => {
+    expect(proposeOrientation(PLATE, "A3").proposed).toBe("landscape");
+  });
+
+  it("breaks a tie for landscape — the shop default, so no surprise", () => {
+    const cube = { x: 20, y: 20, z: 20 };
+    const fit = proposeOrientation(cube, "A4");
+    expect(fit.scaleByOrientation.landscape).toBe(
+      fit.scaleByOrientation.portrait,
+    );
+    expect(fit.proposed).toBe("landscape");
+  });
+});
+
+describe("sheetHeaderForNewSheet (the ONE header every create path uses)", () => {
+  const fit = proposeOrientation({ x: 40, y: 40, z: 150 }, "A4");
+
+  it("proposes the fitted orientation AND the scale it earns", () => {
+    // The REACH-3-FLOW P1-1 case: this is what Sheet 1 is now born with, where
+    // four call sites used to write `orientation: "landscape"` as a literal.
+    const header = sheetHeaderForNewSheet({
+      name: "Sheet 1",
+      size: "A4",
+      layout: "standard",
+      fit,
+      inherit: null,
+    });
+    expect(header.orientation).toBe("portrait");
+    expect(header.scaleValue).toBe("1:2");
+    expect(header.projection).toBe("third_angle");
+  });
+
+  it("inherits the convention from the sheet in hand", () => {
+    const header = sheetHeaderForNewSheet({
+      name: "Sheet 2",
+      size: "A4",
+      layout: "standard",
+      fit,
+      inherit: { projection: "first_angle" },
+    });
+    expect(header.projection).toBe("first_angle");
+  });
+
+  it("lets the user's override win outright, with the scale that follows", () => {
+    const header = sheetHeaderForNewSheet({
+      name: "Sheet 1",
+      size: "A4",
+      layout: "standard",
+      fit,
+      inherit: null,
+      override: "landscape",
+    });
+    expect(header.orientation).toBe("landscape");
+    expect(header.scaleValue).toBe("1:5");
+  });
+
+  it("keeps the default paper and promises NO scale for a lone-view sheet", () => {
+    // A flat pattern draws the UNFOLDED blank, which the four-quadrant fit does
+    // not model — proposing from it would promise a scale it cannot deliver.
+    const header = sheetHeaderForNewSheet({
+      name: "Sheet 1",
+      size: "A4",
+      layout: "lone",
+      fit,
+      inherit: null,
+    });
+    expect(header.orientation).toBe("landscape");
+    expect(header.scaleValue).toBeNull();
+  });
+
+  it("promises no scale when the source could not be measured", () => {
+    const header = sheetHeaderForNewSheet({
+      name: "Sheet 1",
+      size: "A4",
+      layout: "standard",
+      fit: null,
+      inherit: null,
+    });
+    expect(header.orientation).toBe("landscape");
+    expect(header.scaleValue).toBeNull();
+  });
+});
+
+describe("reframePinnedCentre (a hand-placed view survives the flip)", () => {
+  const landscape = sheetDimensions("A4", "landscape");
+  const portrait = sheetDimensions("A4", "portrait");
+
+  it("keeps a pin ON the paper when the paper narrows", () => {
+    // 270 mm across is 91% of a landscape A4 and OFF a 210 mm-wide portrait one.
+    const moved = reframePinnedCentre(
+      { x_mm: 270, y_mm: 40 },
+      landscape,
+      portrait,
+    );
+    expect(moved.x_mm).toBeLessThan(portrait.width);
+    expect(moved.y_mm).toBeLessThan(portrait.height);
+  });
+
+  it("preserves the composition — a title-block corner stays a corner", () => {
+    const moved = reframePinnedCentre(
+      { x_mm: 270, y_mm: 40 },
+      landscape,
+      portrait,
+    );
+    expect(moved.x_mm / portrait.width).toBeCloseTo(270 / landscape.width, 10);
+    expect(moved.y_mm / portrait.height).toBeCloseTo(40 / landscape.height, 10);
+  });
+
+  it("is a no-op when the paper does not change", () => {
+    expect(
+      reframePinnedCentre({ x_mm: 100, y_mm: 50 }, landscape, landscape),
+    ).toEqual({ x_mm: 100, y_mm: 50 });
   });
 });
 

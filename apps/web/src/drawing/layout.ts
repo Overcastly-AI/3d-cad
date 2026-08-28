@@ -52,6 +52,7 @@ export const VIEW_LABEL: Record<ViewProjection, string> = {
 
 type SheetSize = SheetResponse["size"];
 type Orientation = SheetResponse["orientation"];
+type Projection = SheetResponse["projection"];
 
 /** ISO / ANSI sheet dimensions in millimetres, given LANDSCAPE (w ≥ h). */
 const SHEET_MM_LANDSCAPE: Record<SheetSize, readonly [number, number]> = {
@@ -75,23 +76,29 @@ export function sheetSizeLabel(size: SheetSize): string {
 /**
  * The standard sheet SIZES the auto-layout picker offers, in the same order the
  * dimension table declares them (A4 first — the default — up through A0, then
- * the ANSI series). Each label carries its LANDSCAPE mm extents so an engineer
- * can see at a glance how much room a bigger sheet buys: the WB-64 finding was a
- * 258 mm part that fits A4 only at a tiny 1:5, where a larger sheet earns a far
- * more usable scale (the fit-scale half already reduces to the sheet; this lets
- * the sheet itself be chosen). Reads straight off SHEET_MM_LANDSCAPE so the
- * options can never drift from the dimensions the layout actually uses.
+ * the ANSI series). Each label carries the mm extents of the paper the layout
+ * will ACTUALLY make, so an engineer can see at a glance how much room a bigger
+ * sheet buys: the WB-64 finding was a 258 mm part that fits A4 only at a tiny
+ * 1:5, where a larger sheet earns a far more usable scale (the fit-scale half
+ * already reduces to the sheet; this lets the sheet itself be chosen).
+ *
+ * Orientation-aware because the create flow now PROPOSES an orientation
+ * (REACH-3-FLOW): a picker reading "A4 · 297 × 210 mm" beside a proposal that
+ * is about to make a 210 × 297 sheet states the wrong paper at the exact moment
+ * the user is choosing it. Derived from {@link sheetDimensions} — the same
+ * reading the layout uses — so the label can never drift from the sheet.
  */
-export const SHEET_SIZE_OPTIONS: readonly {
-  value: SheetSize;
-  label: string;
-}[] = (Object.keys(SHEET_MM_LANDSCAPE) as SheetSize[]).map((size) => {
-  const [long, short] = SHEET_MM_LANDSCAPE[size];
-  return {
-    value: size,
-    label: `${sheetSizeLabel(size)} · ${long} × ${short} mm`,
-  };
-});
+export function sheetSizeOptions(
+  orientation: Orientation,
+): readonly { value: SheetSize; label: string }[] {
+  return (Object.keys(SHEET_MM_LANDSCAPE) as SheetSize[]).map((size) => {
+    const { width, height } = sheetDimensions(size, orientation);
+    return {
+      value: size,
+      label: `${sheetSizeLabel(size)} · ${width} × ${height} mm`,
+    };
+  });
+}
 
 export interface SheetDims {
   /** Sheet width in mm (the SVG viewBox width). */
@@ -405,4 +412,143 @@ export function fitScale(
     }
   }
   return candidates[candidates.length - 1] ?? SCALE_OPTIONS[0]!;
+}
+
+// --- the orientation proposal, and the ONE header every new sheet is born with
+
+/**
+ * What each paper orientation buys THIS document, and which one its own extents
+ * therefore argue for.
+ */
+export interface OrientationFit {
+  /** Fitted scale label per orientation ("1:2" / "1:5"). */
+  scaleByOrientation: Record<Orientation, string>;
+  /** The orientation that fits the document largest (landscape wins a tie — the
+   * shop default, so a document with no preference gets no surprise). */
+  proposed: Orientation;
+}
+
+/**
+ * The orientation proposal for a document on a given paper size. Both
+ * orientations are fitted against the SAME {@link fitScale} the layout action
+ * uses, with a 1:1 ceiling: auto-fit only ever REDUCES, so 1:1 is the neutral
+ * maximum and the comparison answers "at best, how big can this be drawn either
+ * way?" — which is the question that chooses a paper. (A user's own scale pick
+ * stays a ceiling on the LAYOUT; it is not a claim about the paper.)
+ */
+export function proposeOrientation(
+  extents: ModelExtents,
+  size: SheetSize,
+): OrientationFit {
+  const landscape = fitScale(
+    extents,
+    sheetDimensions(size, "landscape"),
+    "1:1",
+  );
+  const portrait = fitScale(extents, sheetDimensions(size, "portrait"), "1:1");
+  const ratio = (o: { numerator: number; denominator: number }) =>
+    o.numerator / o.denominator;
+  return {
+    scaleByOrientation: {
+      landscape: landscape.value,
+      portrait: portrait.value,
+    },
+    proposed: ratio(portrait) > ratio(landscape) ? "portrait" : "landscape",
+  };
+}
+
+/**
+ * Which shape of drawing a new sheet is being born for. `standard` is the four
+ * quadrant views {@link fitScale} models; `lone` is a single centred view (a
+ * flat pattern, a section).
+ */
+export type SheetLayoutKind = "standard" | "lone";
+
+/** The header a `SheetCreate` is built from, plus the scale that header earns. */
+export interface NewSheetHeader {
+  name: string;
+  size: SheetSize;
+  orientation: Orientation;
+  projection: Projection;
+  /**
+   * The scale the proposed orientation earns, or null when nothing argues for
+   * one — an unmeasurable source, or a lone-view sheet whose drawn footprint is
+   * not the four-view footprint this fit models. Null means "leave the user's
+   * picked scale alone" (the `bounding_box: null` rule from `69b3ef7`): a
+   * silently-guessed scale is worse than an honest one.
+   */
+  scaleValue: string | null;
+}
+
+/**
+ * The ONE header derivation every create path uses — REACH-3-FLOW.
+ *
+ * The proposal used to live at a single call site (`handleAddSheet`, the SECOND
+ * sheet) while all four Sheet-1 paths wrote `orientation: "landscape"` as a
+ * literal, so the feature never fired on the only sheet most drawings have. A
+ * proposal that never fires on the first sheet is worse than no proposal: the
+ * user learns the tool has no opinion and stops looking for one.
+ *
+ * Three things are decided here, together, because they are one decision:
+ *   - ORIENTATION — proposed from the document's own extents for a four-view
+ *     sheet; landscape (the shop default) for a lone-view sheet, whose drawn
+ *     footprint {@link fitScale} does not model. Guessing there would be exactly
+ *     the "promises a scale it will not deliver" defect in a new place.
+ *   - CONVENTION — INHERITED from the sheet in hand, so a first-angle shop
+ *     states its standard once per drawing rather than once per sheet.
+ *   - SCALE — the one that orientation actually earns, so the very next layout
+ *     lands at the size the header cell promised.
+ *
+ * Nothing here is a dead end: both fields are one keystroke away on the sheet
+ * header cells, and flipping orientation re-fits.
+ */
+export function sheetHeaderForNewSheet(input: {
+  name: string;
+  size: SheetSize;
+  layout: SheetLayoutKind;
+  /** The measured proposal, or null when the source could not be measured. */
+  fit: OrientationFit | null;
+  /** The sheet whose convention a new sheet inherits (null → the ISO default). */
+  inherit: Pick<SheetResponse, "projection"> | null;
+  /**
+   * The user's own answer to the proposal, when they gave one — the "disposes"
+   * half. It wins outright: a proposal the user has already overruled is not a
+   * proposal any more.
+   */
+  override?: Orientation | null;
+}): NewSheetHeader {
+  const standard = input.layout === "standard";
+  const orientation: Orientation =
+    input.override ??
+    (standard ? (input.fit?.proposed ?? "landscape") : "landscape");
+  return {
+    name: input.name,
+    size: input.size,
+    orientation,
+    projection: input.inherit?.projection ?? "third_angle",
+    scaleValue:
+      standard && input.fit ? input.fit.scaleByOrientation[orientation] : null,
+  };
+}
+
+/**
+ * Where a HAND-PLACED view centre lands when the paper it was pinned to changes
+ * shape. Proportional in each axis, so the composition the user arranged keeps
+ * its relative position — a view pinned beside the title block stays beside the
+ * title block — and, crucially, a pin can never fall off the new paper.
+ *
+ * Auto-placed views need none of this (the server re-derives them from the
+ * sheet's own extents); this exists because `auto_place: false` means the
+ * composer honours the stored mm verbatim, and 270 mm across is off the edge of
+ * a 210 mm-wide portrait sheet.
+ */
+export function reframePinnedCentre(
+  centre: { x_mm: number; y_mm: number },
+  from: SheetDims,
+  to: SheetDims,
+): { x_mm: number; y_mm: number } {
+  return {
+    x_mm: (centre.x_mm / from.width) * to.width,
+    y_mm: (centre.y_mm / from.height) * to.height,
+  };
 }
