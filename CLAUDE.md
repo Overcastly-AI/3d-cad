@@ -1140,6 +1140,27 @@ recipe here in the same commit as the fix.**
   symptom is identical to the stale-handle case above and to the stale-Vite case,
   so before diagnosing a 500 at register, restart YOUR stack on YOUR own files and
   re-run; three separate environment faults wear the same mask.
+- **`pytest_terminal_summary` RUNS BEFORE THE SHORT TEST SUMMARY, so a verdict
+  written there lands in the MIDDLE of the log — use `pytest_unconfigure`.**
+  Measured 2026-08-28 by the PGTEST-GATE agent, and it is the THIRD instance of
+  one pattern this week: **whatever a job writes LAST is its only interface,
+  because the log tail is the only channel** (the e2e shard verdict, the pytest
+  verdict, and `scripts/e2e.sh`'s service dump are all the same lesson). The
+  mechanism here has a second half worth knowing: when a SESSION-SCOPED FIXTURE
+  fails, pytest repeats its reason once per dependent test, so a 4-line failure
+  reason across 172 tests produced a **1563-line log with the verdict at line
+  870** — no fixed `tail_lines` could reach it. Fixed by making the reason ONE
+  line and moving the verdict to `pytest_unconfigure`, which runs after the
+  reporter's final stats line: **532 lines, verdict last, `tail -6` gets the
+  whole answer.** Related, same measurement: a `pytest_report_header` in a
+  SUBDIRECTORY conftest never fires on a whole-repo run — it is not an initial
+  conftest — while `pytest_unconfigure` and `pytest_terminal_summary` both do,
+  because the conftest is registered by collection time.
+- **`pytest -q` ON THE CLI PLUS `-q` IN `addopts` MAKES `-qq`, WHICH SILENTLY
+  DELETES THE PASS/FAIL SUMMARY LINE.** The dot-line still prints, so the run
+  looks complete and the count is simply gone — a green-shaped output with no
+  number in it. Same family as the zero-byte 200: the shape of success survives
+  while the content that makes it checkable does not.
 - **A `conftest.py` env var leaks ACROSS services, because pytest collects every
   conftest before running any test.** `services/gateway/tests/conftest.py` does
   `os.environ.setdefault("LOFT_ENV", "dev")` so the gateway suite can build
