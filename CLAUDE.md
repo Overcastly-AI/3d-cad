@@ -298,6 +298,49 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   `get_workflow_run` for when you need the commit message or the run's own
   `conclusion` string (e.g. telling `cancelled` from `failure`). The ids still
   come from the spilled `list_workflow_runs` parse, which is unavoidable.
+  **CORRECTION 2026-08-28: `list_workflow_runs` NO LONGER RETURNS `conclusion`
+  AT ALL, so the parse above cannot give you a verdict — only ids.** Measured:
+  the run objects in the spill carry `status` (`completed`/`in_progress`) and
+  fourteen other keys, and `conclusion` is not among them; a `KeyError` is what
+  told me. So a completed run in that listing is a run that FINISHED, which is
+  not a run that PASSED, and any reasoning that treats the spill as a board is
+  reading a field that is not there. Use the spill for `head_sha` → `id` only,
+  then take the verdict from `get_job_logs` as above.
+  **AND WHEN A JOB IS RED, `tail_lines` MAY NEVER REACH THE FAILURE — budget for
+  a fixed tail, not an escalating one.** Cost most of an integration pass on
+  2026-08-28: I pulled 60, then 190, then 255 lines of a red `playwright (shard
+  3/4)` job and got three service logs and `upload-artifact` chatter every time,
+  because `scripts/e2e.sh` dumped 180 lines of `INFO: 127.0.0.1 … 200 OK` AFTER
+  Playwright's summary and the runner appended ~120 more. Each pull cost
+  thousands of tokens to learn nothing, and the artifact that holds the answer
+  is unreachable — `curl` of the Azure blob URL `download_workflow_run_artifact`
+  hands back is `CONNECT tunnel failed, response 403`, same policy-denial class
+  as the docker registry. **The job log is the ONLY channel, so what a job
+  writes LAST is a first-class interface, not cosmetics.** Fixed in `2874f0a`:
+  every shard now ends with an `== e2e verdict ==` block naming each failed
+  test, emitted by a final `if: always()` workflow step (the script cannot be
+  last — the upload steps run after it exits). Measured after: ONE
+  `tail_lines: 45` call returned the complete verdict where three escalating
+  pulls had returned nothing. Two things generalise. (a) When you own the thing
+  producing the log, put the verdict last and keep it short; a diagnostic dump
+  that outweighs the diagnosis is worse than no dump. (b) An escalating tail is
+  a losing strategy against an unknown amount of trailing noise — measure the
+  trailer once, fix it, and then a fixed small tail always works.
+  **AND THE VERDICT MUST NOT COUNT AN EXPECTED FAILURE AS A FAILURE.** On its
+  first live run the new block reported `2 failed` on a shard that had one, the
+  extra being a `test.fail()`-annotated case that documents a known gap and is
+  SUPPOSED to fail: Playwright reconciles that into `tests[].status: "expected"`,
+  while the raw `tests[].results[].status` reads `failed`, and a summariser that
+  walks results rather than statuses inverts the annotation's whole meaning.
+  Note the inverse is a REAL failure and needs saying by name — a `test.fail()`
+  case that PASSES means the gap has closed and the annotation is now a lie.
+  What saved this was the block's own cross-check against the report's `stats`,
+  which printed "this summary disagrees with the report's own stats (expected:
+  walked 165, stats say 166; unexpected: walked 2, stats say 1) — trust neither
+  until checked" instead of confidently reporting a phantom. **A second,
+  independently-derived count is what turns a wrong summary into a legible one**
+  — the same lesson `stage-doc-hunks.py` paid for three times, and the reason a
+  guard should refuse rather than guess when its two readings disagree.
 - **FIXED 2026-07-30 — `cancel-in-progress` is now PR-only, so a branch run
   that has STARTED is no longer killed by the next push. MEASURED, with one
   caveat below.** History, because the reasoning matters: the
