@@ -5,6 +5,24 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-08-27 (groom pass 15 — branch merged to main, reachability push)
+
+Branch merged to `main` (`03d2eca`); ticked REVOLVE-1, SKETCH-VOCAB-1(FE),
+MATE-1, QA-R1/QA-R2/QA-R4, MATE-OBS, four REACH-3 fixes; filed 7 new tickets;
+pruned ~2,770 lines of redundant ROADMAP narrative.
+
+## 2026-08-28 (groom pass 16 — frontend reachability programme COMPLETE)
+
+`scripts/check-ui-parity.py`: 84/85 operations called, 97/109 literals
+AUTHORABLE, zero ABSENT-tier gaps — up from 39/120 literals unreachable at
+first measurement (`e9d31af`, 2026-08-26). Sole uncalled op, `POST
+/api/v1/geometry/tessellate/meta`, is a deliberate omission (mesh-less twin
+of `/tessellate`). Closed since pass 15: **ORTHO-1** (`9a04a6a`),
+**REACH-ASMDRAW** (`02bd6ab`+`3e2d1e5`), **REACH-ORDER** (`472f040`),
+**FORCE-CLICK-AUDIT-1** (`6911352`), **DRAWING-VERTEX-PICK-1** (`fe96d9b`).
+Filed: ASMDRAW-FIT-1a/1b, PLAYWRIGHT-TOUCH-1, EXTRUDE-COARSE-STEP-1, HEM-1B
+(split from HEM-1). Elevated: HEM-1 P1->P0 (wrong geometry).
+
 ## 2026-08-27 (groom pass 14 — closed 9 shipped items, filed REACH-2/3-FLOW + TITLEBLOCK-STAMP-1)
 
 All verified against `git log`, not assumed from commit subjects alone.

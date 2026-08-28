@@ -2,50 +2,53 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-08-28 (backlog-groomer pass 16) — the
-frontend reachability programme is COMPLETE.** `scripts/check-ui-parity.py`:
-**84/85 operations called, 97/109 literals AUTHORABLE, zero ABSENT-tier
-gaps** — up from 39 of 120 literals unreachable at first measurement
-(`e9d31af`, 2026-08-26). The one uncalled operation, `POST /api/v1/geometry/
-tessellate/meta`, is a deliberate omission (the mesh-less twin of
-`/tessellate`; the viewport always needs the mesh). **Reachability is no
-longer the frontier — the queue now ranks on friction and correctness.**
+**Current focus, corrected 2026-08-28 (backlog-groomer pass 17) — HEM-1
+(wrong geometry, P0) and both ASMDRAW-FIT halves are CLOSED; reachability
+stays complete.** `scripts/check-ui-parity.py`'s 84/85 operations / 97/109
+literals reading is unchanged this pass (see pass 16 note in
+`docs/CHANGELOG.md`), but **the scan itself carries a known false positive**
+(`hem_type: "open"` reads authorable, `"closed"` — the value the UI actually
+authors — reads render-only; a bare-substring match, filed as
+CHECKUIPARITY-FP-1, see BACKLOG).
 
-Shipped since pass 15 (`7c9ac13`/`a29204c`), verified against `git show`:
-**REACH-2-IMPORT-1** (`ProgressTrack` design primitive + empty-register/
-Stop-and-cancel wiring) — a long STEP import can be watched and stopped;
-**REACH-ASMDRAW** (`02bd6ab`+`3e2d1e5`) — an assembly can be drafted on a
-sheet, with its numbered parts list (first caller for `GET /drawings/{id}/
-bom`); **REACH-ORDER** (`472f040`) — feature-tree reorder, closing
-`PUT .../features/order` (the row's own ordinal is the drag handle); the
-**force:true audit** (`6911352`) — 22 call sites reviewed, 18 cargo removed,
-3 legitimate refusals proven via a new `clickRefusedControl` helper, 1
-vacuous test fixed (`force: true` now appears exactly once in
-`apps/web/e2e/`); **`fe96d9b`** — a short drawing edge is pickable again (a
-vertex claims at most a third of its shortest incident edge); **ORTHO-1**
-(`9a04a6a`) — orthographic projection, named views default to it, closing a
-gap four consecutive audit passes reported; three environment recipes
-(`d6034a0`, `2df95e0`, `603493b`).
+**Shipped since pass 16, verified against `git show`:** **HEM-1** (`db05e13`,
+P0) — a "closed" hem now closes: its radius comes from the hem type and gauge
+(~0.5x thickness), not the part's general bend radius; **ASMDRAW-FIT-1a**
+(`79ca41c`) — `GET /assemblies/{id}/extents` returns the mate-SOLVED
+compound's AABB; **ASMDRAW-FIT-1b** (`69b3ef7`) — the assembly drawing sheet
+now fit-scales off those solved extents (1:1 -> 1:2 on the founder's rig,
+title-block overlap gone); **EXTRUDE-COARSE-STEP-1** (`1661a5b`) — two
+independent defects, both fixed: the coarse step now quantises to the next
+multiple in the direction pressed (matching the drawing-dimension rule
+`1e8d8a3` set), and a queued-ack race that dropped fast keyboard presses is
+gone; **SEL-6 fixture repair** (`f4283e2`) — ORTHO-1's orthographic FRONT view
+collapsed a test fixture's depth-parallax separation to 0; the probe now
+leaves the face via the ViewCube so the buried-edge subject still holds;
+**Tailwind scale gate** (`22ec441`) — `just lint` now catches a utility class
+outside this theme's closed scales (e.g. `w-32`), which previously emitted no
+rule at all and produced a silently zero-area element.
 
-**Filed this pass** (`docs/BACKLOG.md` Ready/Next): ASMDRAW-FIT-1a/1b
-(assembly sheets are not fit-scaled — a documents-internal solved-extents
-route, then the frontend consumer; (a) reportedly has a backend-builder
-live), PLAYWRIGHT-TOUCH-1 (no touch project in `playwright.config.ts` — QA-R3
-could only be measured by hand), EXTRUDE-COARSE-STEP-1 (Shift+ArrowUp's
-coarse step on the extrude drag handle, reported broken by ORTHO-1's own
-gate, not fixed there), HEM-1B (split from HEM-1). **Elevated:** HEM-1
-P1→P0 — a "closed" hem defaults to a 6 mm air gap on 2 mm sheet, wrong
-geometry under a label that says otherwise.
+**Filed this pass** (`docs/BACKLOG.md` Ready): CHECKUIPARITY-FP-1 (P3, the
+false positive above), NUDGE-PLACEMENT-QUANTISE-1 (P3, `nudgePlacement` still
+uses the round-then-add variant `1661a5b` deliberately left alone — bring its
+*behaviour* into line with the rule it already cites), and CI-4(e) (P2,
+in-flight umbrella sub-item — the e2e failure list is unreachable from the CI
+job log; a platform-builder is on it now).
+
+**e2e is RED on shard 3/4 for THREE consecutive pushes** (`22ec441`,
+`1661a5b`, `69b3ef7`) while `ci` stayed green on all three — recorded as
+evidence under CI-4, cause not yet diagnosed (reproduction in progress
+locally).
 
 **Still open, unchanged in substance:** REACH-2-FLOW, REACH-3-FLOW,
 EXPORT-3, NAME-2b, TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1, SEL-8,
-MEASURE-PROXY-1, MATE-OBS-2, SKETCH-COVERAGE-1, SOLVER-DOC-1 — see BACKLOG
-for current tickets.
+MEASURE-PROXY-1, MATE-OBS-2, SKETCH-COVERAGE-1, SOLVER-DOC-1, HEM-1B — see
+BACKLOG for current tickets.
 
 **Still owed, carried forward again:** `docs/GEOMETRY-QA.md`/
 `docs/UI-REVIEW.md` refresh against the last five batches; the
 vision-steward's Sheet metal/Performance/Assemblies/Selection scorecard
-re-check (four passes overdue).
+re-check (five passes overdue).
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
