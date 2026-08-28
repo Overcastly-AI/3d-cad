@@ -70,7 +70,10 @@ disjoint, parallel-dispatchable:
    never the defect: the hover fired correctly and the highlight was
    discarded by the depth test (0 px of brass; 348 after). Its second half —
    marks drawn over material that hides the edge they name, 8/21 agreement —
-   is split out as **PICKMARK-OCCLUDE-1** (P1, S, same territory).
+   is split out as **PICKMARK-OCCLUDE-1**, also now CLOSED (see 3a).
+3a. ~~**PICKMARK-OCCLUDE-1**~~ — CLOSED 2026-08-28 (frontend-builder). Marks
+   now seat where the band answers; census 8/21 -> 11/21 with drawn 11/11,
+   and the unreachable ten are buried without leaving the tab order.
 4. **MEASURE-PROXY-1** (P1, S, frontend-builder, `apps/web/src/viewport/**`)
    — T-14's residual: a Measure click on a marker's own bounding box is
    blocked by a neighbouring proxy. Sequence after #3, same territory.
@@ -278,30 +281,16 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
 ABSENT-tier literal in the gateway contract. See Done archive for
 evidence/gates.**
 
-- [ ] (P1, S) **PICKMARK-OCCLUDE-1 — a pick diamond is drawn at full strength
-      over material that hides the edge it names, so 13 of 21 marks point at
-      geometry the band refuses.** kind: defect. **Split out of SEL-8, whose
-      hover half is closed** — this is R-8's other sentence ("several sitting
-      mid-FACE rather than on any visible edge"), which is a distinct defect
-      and was never the reason hover looked dead. MEASURED on the same
-      coupling fixture, with the marks' own `pointer-events` disabled so the
-      BAND answers at each mark's centre (disable the drei `Html` WRAPPER too,
-      or every probe reads "refused" for the wrong reason — the first run of
-      this measurement said 0/21 and was wrong): **8/21 agree**, 8 read `none`
-      (the edge is behind the body at its own mid-span, so the mark floats over
-      a face), and 5 resolve to a DIFFERENT edge (`edge-pick-2`->6, 3->20,
-      4->18, 10->6, 13->20) — click the mark and you pick edge 2, click one
-      pixel outside it and you pick edge 6. Two hit-tests for one entity that
-      disagree about reachability. FIX: occlude the mark when its edge is
-      hidden (drei `Html` `occlude`, or a depth test against the pick
-      surface). ACCEPTANCE: a mark whose edge the band refuses at that point
-      is not drawn there; the agreement census rises from 8/21; the 60 fps
-      orbit budget holds with 21 marks mounted (measure it — a per-frame
-      raycast per mark is the obvious risk). NB the marks must stay reachable
-      by KEYBOARD regardless: they are the screen-reader and tab affordance,
-      and hiding them from the pointer must not remove them from the tab
-      order. TERRITORY: `apps/web/src/viewport/EdgePickOverlay.tsx` +
-      `MeasureOverlay.tsx`. agentType: frontend-builder.
+- [x] (P1, S) **PICKMARK-OCCLUDE-1 — CLOSED 2026-08-28. A pick diamond now
+      sits at a point of its edge the BAND answers with, or it is not drawn
+      there.** The agreement census rose 8/21 -> 11/21, and every mark that is
+      DRAWN agrees (11/11); the ten that answer nowhere are `buried` —
+      `opacity-0`, `pointer-events:none`, still tab-reachable and named, focus
+      restores them. Perf measured, not asserted: 0.259-0.270 ms per
+      band+surface hit-test, so the recompute is capped at 24 tests/frame
+      (~6.5 ms) with a rotating cursor; a 40-step orbit costs +17% blocking
+      over the same orbit with no marks. Three wrong turns and the evidence:
+      ROADMAP + Done archive. [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-8]
 
 - [x] (P1, S) **SEL-8 — CLOSED 2026-08-28. Armed edge picks (Fillet's
       `PICK EDGES` mode) had no hover highlight on the real edge.** The

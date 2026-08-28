@@ -462,3 +462,117 @@ export function rectangleSketch(x0: number, y0: number, w: number, h: number) {
     ],
   };
 }
+
+/**
+ * THE AUDIT'S SHAFT COUPLING — Ø70 x 8 flange, Ø28 x 22 hub, Ø16 bore, four
+ * Ø6.6 holes on a Ø52 bolt circle.
+ *
+ * Written for SEL-8 because it reproduces R-8's edge count of 21 and its
+ * accessible names verbatim ("Edge 19, circle, centred at -13.9, 0, 8
+ * millimetres" is quoted in the report), so a reader can tell the fixture is
+ * the reported case and not a lookalike. Moved here by PICKMARK-OCCLUDE-1,
+ * which is R-8's other half and needs the same part — the second real use, per
+ * the DRY rule. A revolved body is also the harder case on purpose: its edges
+ * are circles on curved surfaces, so most of them are hidden from any one
+ * camera, which is exactly the condition both tickets are about.
+ */
+export async function seedShaftCoupling(
+  page: Page,
+  token: string,
+  partId: string,
+): Promise<void> {
+  const section = await createFeature(page, token, partId, {
+    name: "Section",
+    feature: {
+      type: "sketch",
+      version: 1,
+      params: {
+        plane: { kind: "datum_plane", plane: "XZ" },
+        entities: [
+          {
+            id: "axis",
+            kind: "line",
+            start: { x: 0, y: -5 },
+            end: { x: 0, y: 30 },
+            construction: true,
+          },
+          {
+            id: "s1",
+            kind: "line",
+            start: { x: 8, y: 0 },
+            end: { x: 35, y: 0 },
+          },
+          {
+            id: "s2",
+            kind: "line",
+            start: { x: 35, y: 0 },
+            end: { x: 35, y: 8 },
+          },
+          {
+            id: "s3",
+            kind: "line",
+            start: { x: 35, y: 8 },
+            end: { x: 14, y: 8 },
+          },
+          {
+            id: "s4",
+            kind: "line",
+            start: { x: 14, y: 8 },
+            end: { x: 14, y: 22 },
+          },
+          {
+            id: "s5",
+            kind: "line",
+            start: { x: 14, y: 22 },
+            end: { x: 8, y: 22 },
+          },
+          {
+            id: "s6",
+            kind: "line",
+            start: { x: 8, y: 22 },
+            end: { x: 8, y: 0 },
+          },
+        ],
+        constraints: [],
+      },
+    },
+    expected_tree_version: 0,
+  });
+  const body = await createFeature(page, token, partId, {
+    name: "Coupling",
+    feature: {
+      type: "revolve",
+      version: 1,
+      params: {
+        profile: { kind: "feature", feature_id: section.feature.id },
+        axis: { kind: "sketch_line", entity: "axis" },
+        angle_deg: 360,
+        operation: "add",
+      },
+    },
+    expected_tree_version: section.tree_version,
+  });
+  const bores = await createFeature(page, token, partId, {
+    name: "Bolt circle",
+    feature: {
+      type: "sketch",
+      version: 1,
+      params: boltCircleSketch(4, { x: 0, y: 0 }, 26, 3.3),
+    },
+    expected_tree_version: body.tree_version,
+  });
+  await createFeature(page, token, partId, {
+    name: "Bores",
+    feature: {
+      type: "extrude",
+      version: 1,
+      params: {
+        profile: { kind: "feature", feature_id: bores.feature.id },
+        distance_mm: 8,
+        operation: "cut",
+        direction: "normal",
+      },
+    },
+    expected_tree_version: bores.tree_version,
+  });
+}

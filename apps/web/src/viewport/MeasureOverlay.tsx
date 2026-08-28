@@ -19,7 +19,7 @@ import { PickNode } from "@loft/design";
 import { measure } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BufferGeometry, Float32BufferAttribute } from "three";
 
 import type { Vec3 } from "../api/measure";
@@ -35,6 +35,7 @@ import type { EdgeBandInput } from "./edgeBand";
 import { useHiddenPicks } from "./hiddenPicks";
 import { concatPositions, HighlightLines, Segments } from "./overlaySegments";
 import { useViewportPickStamp } from "./pickStamp";
+import type { EdgeMarkAnchor } from "./useEdgeMarkAnchors";
 
 /**
  * Overlay pick-node stacking, kept under the HUD strips (Viewport hud sits at
@@ -91,6 +92,13 @@ export function MeasureOverlay() {
   const setHoverEdge = useMeasureStore((s) => s.setHoverEdge);
   const invalidate = useThree((s) => s.invalidate);
   const hiddenPicks = useHiddenPicks();
+  /**
+   * WHERE EACH EDGE DIAMOND SITS (PICKMARK-OCCLUDE-1) — the point of the edge
+   * the band answers with, not the mid-span wherever the mid-span is buried.
+   * Published by the same `EdgeBandLayer` the fillet overlay uses: one rule,
+   * two consumers.
+   */
+  const [anchors, setAnchors] = useState<readonly EdgeMarkAnchor[]>([]);
 
   /** QA hook: which edge the measurement is addressing (SEL-4 / A2). */
   useViewportPickStamp("measureEdgeHover", active ? hoverEdge : null);
@@ -194,6 +202,7 @@ export function MeasureOverlay() {
         edges={bandEdges}
         onHover={setHoverEdge}
         onPick={pickEdge}
+        onAnchors={setAnchors}
       />
 
       {/* Edge highlights (hover under selection). `HighlightLines`, not
@@ -226,10 +235,13 @@ export function MeasureOverlay() {
           the band cannot steal it. The `VERTEX_Z_RANGE` / `EDGE_Z_RANGE` split
           still settles edge-mark versus vertex-mark, which is a DOM-to-DOM
           contest. Asserted in `pick-affordance.spec.ts`, not assumed. */}
-      {offeredEdges.map(({ edge, index }) => (
+      {offeredEdges.map(({ edge, index }, slot) => (
         <Html
           key={`e${index}`}
-          position={occtToScene(polylineMidpoint(edge.polyline))}
+          position={
+            anchors[slot]?.position ??
+            occtToScene(polylineMidpoint(edge.polyline))
+          }
           center
           zIndexRange={EDGE_Z_RANGE}
         >
@@ -238,8 +250,10 @@ export function MeasureOverlay() {
             // A7's recession: the edge band is this pick's primary hit-test
             // now, so the mark is the keyboard/touch fallback.
             recede
+            occluded={anchors[slot]?.buried ?? false}
             selected={selectedEdges.has(index)}
             data-testid={`measure-edge-${index}`}
+            data-buried={anchors[slot]?.buried === true ? "true" : "false"}
             aria-label={`Edge ${index + 1}, ${edge.kind}`}
             onClick={() => pickEdge(index)}
             onPointerOver={() => setHoverEdge(index)}

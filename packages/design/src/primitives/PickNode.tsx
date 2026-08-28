@@ -43,6 +43,21 @@ export interface PickNodeProps extends Omit<
    * block below for the measured contrast either way.
    */
   recede?: boolean;
+  /**
+   * NO PART OF THIS MARK'S ENTITY IS ADDRESSABLE FROM THE CURRENT CAMERA — it
+   * is behind the material (PICKMARK-OCCLUDE-1).
+   *
+   * The mark then draws nothing and takes no pointer, because a diamond at full
+   * strength over a face that hides its edge is a promise the hit-test refuses
+   * to keep: measured on the audit's coupling, 13 of 21 marks pointed at
+   * geometry the band would not give you, 5 of them silently handing back a
+   * DIFFERENT edge. It is NOT hidden, though — `opacity-0` keeps the button in
+   * the tab order with its accessible name intact, and focus brings it back at
+   * full strength, so the keyboard and screen-reader route to a buried edge is
+   * exactly as long as it was. `visibility:hidden` or `display:none` would take
+   * that away, which is why neither is used.
+   */
+  occluded?: boolean;
   /** Required: the target's accessible name (e.g. "Vertex at 10, 20, 30 mm"). */
   "aria-label": string;
 }
@@ -51,6 +66,7 @@ export function PickNode({
   shape = "vertex",
   selected = false,
   recede = false,
+  occluded = false,
   className,
   type,
   ...rest
@@ -65,6 +81,18 @@ export function PickNode({
         // cluttering the model, and independent of any padding collapse.
         "group/pn grid h-6 w-6 place-items-center rounded-full",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass",
+        // A buried mark is out of the pointer's way and out of the picture, and
+        // still on the tab route. Focus restores both, so a keyboard user is
+        // never sent to a control they cannot see.
+        // `focus:`, not `focus-visible:`. Chromium's focus-visible heuristic
+        // says NO to a programmatic `.focus()` that follows a mouse gesture,
+        // and something that deliberately moves focus to a mark — a roving
+        // tab-stop, a "go to edge" action, an AT — has just as much right to
+        // see it as a Tab press does. Measured: with `focus-visible:` the
+        // opacity stayed 0 after `element.focus()`.
+        occluded
+          ? "pointer-events-none opacity-0 focus:pointer-events-auto focus:opacity-100"
+          : null,
         className,
       )}
       {...rest}

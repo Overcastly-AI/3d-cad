@@ -376,6 +376,51 @@ costs CI nothing; the new workflow step prints what it found, installs
 `postgresql` only if a future image drops it, and exits 1 rather than
 proceeding blind.
 
+**PICKMARK-OCCLUDE-1 CLOSED (2026-08-28, frontend-builder) — a pick diamond now sits where its edge answers, or it is not drawn there.**
+R-8's other sentence ("several sitting mid-FACE rather than on any visible
+edge") is a distinct defect from SEL-8's missing highlight, with a distinct
+cause. Measured on the same coupling with every mark's `pointer-events`
+disabled — the drei `Html` WRAPPER included, or the census reads 0/21 for the
+wrong reason — the BAND answered at each mark's own centre: **8 of 21 agreed**,
+8 read nothing (the mark floats over material that hides its edge, so
+`resolveBandEdge` refuses) and 5 named a DIFFERENT edge
+(`edge-pick-1`->6, 3->20, 4->18, 10->6, 13->20). Click the mark and you pick
+edge 1; click one pixel outside it and you pick edge 6. After: **11 of 21
+agree, and every mark that is DRAWN agrees, 11/11** — the ten that answer
+nowhere along their edge are `buried`, drawn at `opacity-0` with
+`pointer-events: none`, still in the tab order with their accessible name, and
+focus brings them back at full strength (the x-ray highlight then shows the
+hidden edge through the material). Three things were wrong on the way and each
+is worth the next reader's time. (a) The first oracle was a CHEAPER question —
+"is this point in front of the drawn surface?" — and it made the census WORSE
+(9/21, wrong-edge 5 -> 10), because a point can clear the surface test and
+still lose the band to a nearer edge in the same 24 px corridor; the oracle is
+now `resolveBandIntersections` over a real raycast of the real band and the
+real pick surface, so the mark cannot be wrong about what the pointer will do.
+(b) A remembered seat consulted BEFORE the mid-span let a placement chosen
+during the opening camera flight survive into the settled view; the seat is now
+a pure function of the current camera. (c) Seats were indexed by polyline
+VERTEX, and a straight edge's polyline is `[start, end]`, so its "middle" was
+an END VERTEX — a corner shared with two neighbours; `pick-affordance`'s reach
+sweep caught it (a 40 px corridor became 28 px) and seats are now arc-length
+fractions through one shared `polylineAt`, inset 8% off both ends.
+**The 60 fps budget is measured, not asserted:** one band+surface hit-test
+costs **0.259-0.270 ms** (420 timed calls at 1600x1000) and an unbudgeted pass
+over 21 edges is 109 tests = **28.2 ms**, over a 16.67 ms frame — so the
+recompute spends at most `ANCHOR_FRAME_BUDGET` = 24 tests (~6.5 ms) per frame
+and carries the rest on a rotating cursor that does not reset when the camera
+moves. End-to-end A/B in one process: the same 40-step orbit costs 11.8 s of
+blocking with no marks and 13.9 s with 21 marks and their seats live (+17%);
+an absolute long-task ceiling would have been a lie, because software-GL
+rasterisation alone produces a 148 ms worst task. `data-edge-mark-seats`
+(`pending`/`settled`) is what lets a spec census a drained pass rather than a
+half-finished one. Gates: `just lint` 0; 17 new unit tests; 16 e2e green across
+`pick-mark-seat` (new), `pick-affordance`, `qa-sel4-verify`, `qa-sel6-verify`,
+`edge-highlight`, `measure`, `fillet-edge-pick`. Mutation, reverted
+independently: `chooseAnchor` returning the mid-span unconditionally reddens
+the new spec at **drawn 6/21** with the disagreements named. Before/after at
+1280x800 in `docs/screenshots/pickmark-seats-{before,after}-1280.png`.
+
 **SEL-8 CLOSED (2026-08-28, frontend-builder) — the hovered edge was being
 recorded and not drawn, and every pick spec agreed with the recording.**
 AUDIT-PRODUCT R-8 offered three causes (a regression, a hover path SEL-4 never
@@ -407,7 +452,7 @@ sentence — marks drawn over material that hides the edge they name, measured a
 
 **Still open, unchanged in substance:** REACH-2-FLOW, REACH-3-FLOW,
 NAME-2b, TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1,
-PICKMARK-OCCLUDE-1, MEASURE-PROXY-1, MATE-OBS-2, SKETCH-COVERAGE-1,
+MEASURE-PROXY-1, MATE-OBS-2, SKETCH-COVERAGE-1,
 SOLVER-DOC-1, HEM-1B, HEM-1D — see BACKLOG for current tickets. HEM-1C is
 IN FLIGHT (frontend-builder).
 
