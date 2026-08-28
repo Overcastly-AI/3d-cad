@@ -15,43 +15,49 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
-- **Groom pass 17 (2026-08-28, this pass) — HEM-1 (P0, wrong geometry) and
-  both ASMDRAW-FIT halves CLOSED.** Verified against `git show`: **HEM-1**
-  (`db05e13`) — a "closed" hem's radius now comes from the hem type + gauge,
-  not the part's general bend radius; **ASMDRAW-FIT-1a/1b** (`79ca41c`,
-  `69b3ef7`) — an assembly sheet fit-scales off the mate-solved compound's
-  extents; **EXTRUDE-COARSE-STEP-1** (`1661a5b`) — quantised coarse step +
-  dropped-keypress race both fixed. `check-ui-parity.py`'s 84/85 / 97/109
-  reading is unchanged (see pass 16 in CHANGELOG.md) but the scan itself has
-  a known false positive on hem_type — filed CHECKUIPARITY-FP-1 (P3). **Filed
-  this pass:** CHECKUIPARITY-FP-1, NUDGE-PLACEMENT-QUANTISE-1 (both P3), CI-4
-  sub-item (e2e failure list unreachable from the CI job log, P2, in-flight).
-  **e2e RED on shard 3/4 for three consecutive pushes** (`22ec441`,
-  `1661a5b`, `69b3ef7`) while `ci` stayed green — recorded under CI-4,
-  reproduction in progress, no cause yet.
+- **Groom pass 18 (2026-08-28, this pass) — CI-4 substantially de-risked
+  (four separately-diagnosed, separately-fixed causes, not one shared
+  substrate defect); no new P0.** CI-5 (`2874f0a`, verdict unreadable from
+  the job log) and CI-5a (`ecc1fb7`, the verdict's own miscount of a
+  declared `test.fail()`) were already closed; QA-SEL6-ORTHO-1 (`153681b`,
+  shard 3/4's occlusion threshold was stale after ORTHO-1, not an app
+  defect) likewise; this pass adds the shard-4/4 diagnosis (`0c24947` — the
+  hem spec was TYPING the exact defect HEM-1 fixed, asserting only
+  `Solved`/`faces > 6`, both true of a hem with three gauges of air in it)
+  and folds CI-4(e) into CI-5 (closed, do not dispatch separately). **The
+  umbrella's ORIGINAL question — is the e2e suite systemically unstable
+  under runner load — stays open**; these are four specific causes, not a
+  verdict on the substrate. See CI-4's own ticket for the reprioritization.
+  PGTEST-GATE's pass-8 self-correction is now confirmed from source
+  (`ef5d1c5`: Ubuntu 24.04 ships PostgreSQL 16.15 at the Debian path
+  already searched, so no coverage was ever missing) and closed with a loud
+  verdict rather than a silent skip. **HEM-1C is IN FLIGHT
+  (frontend-builder, `apps/web/src/components/HemEditor.tsx`) — do not
+  dispatch.** Filed this pass: a `stage-doc-hunks.py` truncation on a
+  heading+list-item boundary (P2), `apps/web/e2e/invariants.ts` camera-
+  projection extraction (P3, second real use), PGTEST-GATE's stated
+  non-goal on the vacuous zero-database case (P3). Collapsed a duplicated
+  SEL-6 paragraph pair left in `docs/ROADMAP.md` by pass 17 + the QA
+  agent's rebase.
   **✅ rows, still unqualified by an independent code-reviewer pass. ➖
   rows:** Interop, Drawings. **❌ rows:** Assemblies, Sheet metal,
   Performance, Collaboration & versioning, Extensibility/scripting+MCP,
   Selection & direct manipulation — all owed a vision-steward re-check, now
-  FIVE passes overdue.
+  SIX passes overdue.
 
-- **QA-SEL6-ORTHO-1 CLOSED (qa-tester, 2026-08-28) — the shard-3/4 e2e red was
-  a STALE THRESHOLD in the spec, not an app defect.** `qa-sel6-verify`'s
-  occlusion control was a whole-frame SHARE calibrated under the perspective
-  front view ORTHO-1 replaced; it is now the REGION the wall covers. Measured:
-  0 of 841 in-wall answers name the body behind (mutation: 173 of 838).
-
-- **Prior passes (8-16):** reconciled in `docs/CHANGELOG.md` / Done archive.
+- **Prior passes (8-17):** reconciled in `docs/CHANGELOG.md` / Done archive.
   Still true and still open: `docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` are
-  stale against the last six batches — dispatch `geometry-qa` and
+  stale against the last seven batches — dispatch `geometry-qa` and
   `frontend-qa` next batch.
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 17 (2026-08-28) — HEM-1 (P0, wrong geometry) and
-both ASMDRAW-FIT halves are CLOSED (see Scorecard gaps above and Done
-archive).** EXTRUDE-COARSE-STEP-1 also shipped (`1661a5b`). No P0 remains
-open. Ranked, disjoint, parallel-dispatchable:
+**Dispatch order, groom pass 18 (2026-08-28) — no new P0.** HOVER-TO-SKETCH,
+PANEL-DENSITY-1 and PGTEST-GATE shipped this batch (see Done archive); CI-4's
+readability sub-item (CI-4(e)) is folded into the already-closed CI-5 — see
+Scorecard gaps above. **HEM-1C is IN FLIGHT (frontend-builder,
+`apps/web/src/components/HemEditor.tsx`) — do not dispatch.** Ranked,
+disjoint, parallel-dispatchable:
 
 1. **A11Y-TOOLBTN-1** (P1, S, frontend-builder,
    `packages/design/src/primitives/ToolButton.tsx`) — the shared primitive
@@ -77,17 +83,17 @@ open. Ranked, disjoint, parallel-dispatchable:
 
 **QA-R3** (P2, touch, harness gap now filed as PLAYWRIGHT-TOUCH-1), **NAME-2b**
 (P2), **TITLEBLOCK-STAMP-1** (P2, XS), **HEM-1B** (P2, split from HEM-1),
-**MATE-OBS-2** (P2), **SKETCH-COVERAGE-1** (P2), **CI-4(e)** (P2, in-flight —
-a platform-builder is live on it now, do not dispatch), **CHECKUIPARITY-FP-1**
-(P3), **NUDGE-PLACEMENT-QUANTISE-1** (P3), **SOLVER-DOC-1** (P3, XS),
-**SNAP-4** and the P1/P2 backend items below are next up — see full tickets
-in place.
+**HEM-1C** (P2, IN FLIGHT — do not dispatch), **MATE-OBS-2** (P2),
+**SKETCH-COVERAGE-1** (P2), **STAGE-DOC-HUNKS-HEADING-1** (P2, new this pass),
+**CHECKUIPARITY-FP-1** (P3), **NUDGE-PLACEMENT-QUANTISE-1** (P3),
+**SOLVER-DOC-1** (P3, XS), **HEM-1D** (P3), **SNAP-4** and the P1/P2 backend
+items below are next up — see full tickets in place.
 
-**Process/loop-health flag, carried four passes now:**
-`docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` are stale against the last five
+**Process/loop-health flag, carried five passes now:**
+`docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` are stale against the last seven
 batches — dispatch `geometry-qa` + `frontend-qa` next batch; the
 vision-steward's Sheet metal/Performance/Assemblies/Selection scorecard
-re-check is overdue (four passes).
+re-check is overdue (six passes).
 
 Everything else below is reprioritized but not yet dispatched this batch.
 
@@ -735,7 +741,9 @@ below.**
 
 - [ ] (P2, S) **HEM-1C — the hem editor still says the radius is inherited
       from the base flange, and nudges the user toward the one value the
-      server now refuses.** kind: defect (HEM-1 fallout, found by qa-tester
+      server now refuses.** **IN FLIGHT (frontend-builder,
+      `apps/web/src/components/HemEditor.tsx`) — do not dispatch, groom pass
+      18.** kind: defect (HEM-1 fallout, found by qa-tester
       2026-08-28 repairing the e2e; `docs/QA-REVIEW.md` same date). Territory
       `apps/web/src/components/HemEditor.tsx` +
       `apps/web/src/features/sheetMetal.ts`. MEASURED off the live app on a
@@ -859,6 +867,36 @@ below.**
       [src: MATE-OBS (`6b26ff7`) follow-up, filed by backlog-groomer pass 15]
       TERRITORY: `apps/web/src/components/AssemblyTreePanel.tsx`,
       `apps/web/src/features/assemblySolve.ts`. agentType: frontend-builder.
+
+- [ ] (P2, S) **STAGE-DOC-HUNKS-HEADING-1 — `stage-doc-hunks.py` truncated a
+      BACKLOG entry again, this time on a heading-immediately-followed-by-
+      list-item boundary its own fixtures cannot reach.** kind: defect
+      (tooling — the fourth silent failure of this script, all four
+      catalogued in CLAUDE.md's staging-protocol section; this is a new
+      TRIGGER for the same "invented boundary" failure mode CLAUDE.md already
+      records for a bold-continuation line). MEASURED: the PANEL-DENSITY-1
+      agent's marker landed on a `###` heading, and the entry's own BODY was a
+      `- **ID**` list item directly beneath it — `ENTRY_START` reads a list
+      item as always starting a new entry, so it split the agent's own
+      10-line body off from its heading and staged only the heading, printing
+      `left 0 hunk(s) unstaged` while the body sat unstaged for nobody (the
+      agent, not a colleague, so nothing was swept — but the commit shipped
+      with a decapitated entry until caught by `git show :docs/BACKLOG.md`,
+      the doc-hygiene check the staging protocol already mandates). FIX: teach
+      `ENTRY_START` (or the cross-check) that a list item directly beneath a
+      heading with no intervening blank line continues that heading's entry
+      rather than starting a new one — the same "an entry boundary only opens
+      where an entry CAN begin" principle the bold-continuation fix already
+      applies, extended to the heading+list-item shape. ACCEPTANCE: a
+      `--self-test` fixture reproduces this exact shape (a `###`/bold heading
+      immediately followed by a `- **ID**` list-item body, both added in one
+      hunk, one marker on the heading line) and demands the heading+body stage
+      together; the existing three fixtures (plain BACKLOG list items, bold-lead
+      ROADMAP paragraphs, bold-continuation) are unaffected; the cross-check's
+      negative control still refuses on a deliberately-reverted boundary rule.
+      [src: PANEL-DENSITY-1 agent report, 2026-08-28, reproduced via
+      `git show :docs/BACKLOG.md` after the fact]
+      TERRITORY: `scripts/stage-doc-hunks.py`. agentType: platform-builder.
 
 **DRAWING-VERTEX-PICK-1 is CLOSED (`fe96d9b`, groom pass 16) — a vertex now
 claims at most a third of its shortest incident edge (`vertexGrabMm`), so the
@@ -1688,9 +1726,13 @@ to the Ready section, top of queue.
       assert it FAILS with the `invalidate()` removed.
       [src: ultracode review, 2026-08-13]
 
-- [ ] (P1, M) **CI-4 — the e2e suite has gone systemically unstable: THREE
+- [ ] (P2, M) **CI-4 — the e2e suite has gone systemically unstable: THREE
       mechanisms in FOUR consecutive runs, so no commit's CI signal can be
-      trusted right now** (`apps/web`, `.github/workflows`). Filed 2026-08-11 by
+      trusted right now** (`apps/web`, `.github/workflows`). **Downgraded
+      P1->P2 groom pass 18: the load-bearing half of "cannot be trusted" —
+      the board being unable to READ its own CI verdict — is closed (CI-5/
+      CI-5a below); what remains is a standing umbrella for the next
+      unexplained red, not an active fire.** Filed 2026-08-11 by
       the orchestrator. This is the umbrella over CI-3 and SPEC-3; it outranks
       both, because the rule "every commit green on its own" is unenforceable
       while the suite fails for a different reason every other run.
@@ -1783,24 +1825,27 @@ to the Ready section, top of queue.
       [src: orchestrator CI root-cause, 2026-08-11; substrate pass 2026-08-15]
       **NEW EVIDENCE, groom pass 17 (2026-08-28): e2e RED on shard 3/4 for
       THREE consecutive pushes** — `22ec441`, `1661a5b`, `69b3ef7` — while
-      `ci` stayed green on all three. Cause NOT YET DIAGNOSED (a
-      reproduction of shard 3/4 locally was in progress at groom time); do
-      not guess at a cause ahead of that reproduction.
-      **CI-4(e), IN FLIGHT (a platform-builder is live on this now, do not
-      dispatch) — the failure list is UNREADABLE from the CI job log
-      itself.** Measured on run 33139349952: the orchestrator pulled 60,
-      then 190, then 255 tail lines of the red shard's job log and never
-      reached the Playwright failure list, because `scripts/e2e.sh` dumps
-      ~180 lines of service log and the upload steps add ~120 more after
-      it, pushing the verdict off whatever tail window is pulled. Artifact
-      download is policy-denied from this container (403 at the Azure
-      blob), so the job log is the ONLY channel available to the
-      orchestrator, and it does not carry the verdict. ACCEPTANCE: the
-      Playwright failure summary (spec names + assertion) is readable from
-      `get_job_logs` within a bounded tail (e.g. printed LAST, after the
-      service-log dump and before/without the upload noise, or the
-      service-log dump moved to a step that runs before the test step so it
-      doesn't sit between the verdict and the tail).
+      `ci` stayed green on all three. Cause not yet diagnosed at groom time.
+      **RESOLVED, groom pass 18 (2026-08-28) — FOUR separately-diagnosed,
+      separately-fixed causes, not one shared substrate defect.** (1) The
+      verdict itself was unreadable from the job log — CI-5 (`2874f0a`),
+      closed below. (2) The verdict then miscounted a `test.fail()` case and
+      reported a green shard red — CI-5a (`ecc1fb7`), closed below. (3)
+      Shard 3/4's `qa-sel6-verify` red was a stale occlusion threshold
+      calibrated under the perspective front view ORTHO-1 replaced, not an
+      app defect — QA-SEL6-ORTHO-1 (`153681b`), 0 of 841 in-wall answers
+      name the body behind (mutation: 173 of 838). (4) Shard 4/4's hem spec
+      was TYPING the exact defect HEM-1 fixed (`0c24947`) — it asserted only
+      `Solved`/`faces > 6`, both true of a hem with three gauges of air in
+      it; the repair now asserts the numbers a user actually reads (hemmed
+      height, bend-table radius, allowance). **CI-4(e) is therefore CLOSED,
+      folded into CI-5 — do not dispatch it separately.** What remains OPEN
+      under this umbrella is the ORIGINAL question the ticket was filed to
+      answer — whether the e2e suite is *systemically* unstable under
+      runner load — which none of these four answers; they were four
+      specific, separately-caused failures, not a diagnosis of the
+      substrate. Keep this ticket open as a standing umbrella for the next
+      unexplained red (hence the P1->P2 downgrade above, not a closure).
 
 - [x] (P1, S) **CI-5 CLOSED — a red e2e shard's failure list was unreachable
       from the orchestrator's only channel** (`scripts/e2e.sh`,
@@ -2645,6 +2690,51 @@ frame refactor are v2/§11. Spike de-collected.
       engineering-auditor F2]
 
 ## Later (P3)
+
+- [ ] (P3, XS) **INVARIANTS-PROJECTION-1 — the camera-projection helper
+      `projection.spec.ts` uses privately now has a second real use, this
+      repo's own stated threshold for extraction.** kind: capability
+      (DRY — CLAUDE.md: "extract on the second real use, not the first
+      imagined one"). Flagged by the SEL-6 qa-tester agent (`153681b`) while
+      building `qa-sel6-verify`'s occlusion-region control: it needed the
+      same orthographic/perspective camera-projection reasoning
+      `projection.spec.ts` already carries privately, and duplicated the
+      minimum needed rather than importing it, since it lives in a spec
+      file, not a shared helper. FIX: move the helper into
+      `apps/web/e2e/invariants.ts` (this repo's existing home for shared
+      e2e assertions) and have both `projection.spec.ts` and
+      `qa-sel6-verify`'s occlusion control import it. ACCEPTANCE: one
+      definition, two call sites, no behaviour change (both existing specs
+      stay green); a third future consumer needs no duplication to reuse it.
+      [src: SEL-6 qa-tester agent report on `153681b`, filed by
+      backlog-groomer pass 18]
+      TERRITORY: `apps/web/e2e/invariants.ts`,
+      `apps/web/e2e/projection.spec.ts`,
+      `apps/web/e2e/pick-affordance.spec.ts` (or wherever
+      `qa-sel6-verify` lives). agentType: frontend-builder or qa-tester.
+
+- [ ] (P3, XS) **PGTEST-GATE-VACUOUS-NONGOAL — record, don't fix, the one
+      case PGTEST-GATE's verdict deliberately leaves unfloored: PostgreSQL
+      present but zero pg-requiring tests selected.** kind: process note
+      (deliberate non-goal, not a gap to close). PGTEST-GATE (`ef5d1c5`)
+      made a silent 37%-skip loud, but there is no failing floor for the
+      vacuous case where a real server is available and the pg-marked tests
+      happen to be deselected to zero (e.g. `-k` filtering them all out) —
+      the verdict prints `NOTE: no test asked for a database this run` and
+      the report/verdict cross-check refuses on disagreement, but a
+      hardcoded "must serve >= N" count would rot the moment the suite's pg
+      test count changes, becoming exactly the kind of gate-cannot-fail
+      vacuity GATE-FLOOR exists to catch elsewhere. This item exists so a
+      future pass does not "fix" the non-goal with a magic number: the
+      correct floor for THIS case is the existing whole-suite test-count
+      floor (`services/documents/tests/` collected count), not a
+      pg-specific one layered on top of it. ACCEPTANCE: none — this ticket
+      closes by staying a documented decision, unless a future audit finds
+      the vacuous case actually masking a real regression, in which case
+      re-open with that evidence.
+      [src: PGTEST-GATE platform-builder report, 2026-08-28, recorded by
+      backlog-groomer pass 18]
+      TERRITORY: none (process note). agentType: n/a.
 
 - [ ] (P3, S) **AUDIT-HOUSEKEEPING — bundle of small engineering-audit
       carry-overs (`docs/AUDIT-ENGINEERING.md` "Pass 7" M6(b)+M10), one
@@ -4494,19 +4584,15 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
-- 2026-08-17..27 — Groom passes 7-15: file-page/export tickets, SOLVE-1/
-  PICK-2 cluster, SETTLE-PERF-1 883x speedup, NAME-2/edge durability,
-  ORTHO-1/MATE-1 unblocked, branch merged to `main`. Full detail:
-  `docs/CHANGELOG.md`.
-- 2026-08-28 — **Groom pass 16 (backlog-groomer):** the frontend
-  reachability programme is COMPLETE (84/85 ops, 97/109 literals, 0 ABSENT).
-  Ticked ORTHO-1, REACH-ASMDRAW, REACH-ORDER, FORCE-CLICK-AUDIT-1,
-  DRAWING-VERTEX-PICK-1; elevated HEM-1 P1→P0 (wrong geometry); filed
-  ASMDRAW-FIT-1a/1b, PLAYWRIGHT-TOUCH-1, EXTRUDE-COARSE-STEP-1, HEM-1B.
-- 2026-08-28 — **hover-a-face-to-sketch shipped (frontend-builder):** resting
-  on a face with nothing armed writes a leader note offering the sketch; click
-  or `Enter` opens it on that face, byte-identical to Sketch -> pick that face.
-- 2026-08-28 — **Groom pass 17 (backlog-groomer):** ticked HEM-1 (P0),
-  ASMDRAW-FIT-1a/1b, EXTRUDE-COARSE-STEP-1; filed CHECKUIPARITY-FP-1,
-  NUDGE-PLACEMENT-QUANTISE-1, CI-4(e); recorded e2e RED on shard 3/4 for
-  three consecutive pushes (`22ec441`/`1661a5b`/`69b3ef7`), cause unknown.
+- 2026-08-17..28 — Groom passes 7-17, hover-a-face-to-sketch ship: file-page/
+  export tickets, SOLVE-1/PICK-2 cluster, SETTLE-PERF-1 883x speedup,
+  NAME-2/edge durability, ORTHO-1/MATE-1/frontend-reachability complete,
+  HEM-1 elevated P0. Full detail: `docs/CHANGELOG.md`.
+- 2026-08-28 — **Groom pass 18 (backlog-groomer):** CI-4 downgraded P1->P2
+  (four separately-diagnosed causes closed: CI-5/CI-5a/QA-SEL6-ORTHO-1/hem-
+  spec, systemic-instability question stays open); PGTEST-GATE's pass-8
+  self-correction confirmed and closed; ticked EXPORT-3, HOVER-TO-SKETCH,
+  PANEL-DENSITY-1, PGTEST-GATE. Filed STAGE-DOC-HUNKS-HEADING-1 (P2),
+  INVARIANTS-PROJECTION-1 (P3), PGTEST-GATE-VACUOUS-NONGOAL (P3). Marked
+  HEM-1C in-flight; collapsed a duplicated SEL-6 paragraph pair in
+  `docs/ROADMAP.md`.

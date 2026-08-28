@@ -640,3 +640,25 @@ STEP hardening + WB-64/TB-1 dogfooding)
   housekeeping items). Top 3 dispatched: SOLVE-1 (kernel-architect), PICK-2
   (frontend-builder), DOCTICK-GATE (platform-builder). Batch kind split:
   2 defect / 1 capability.
+- **2026-08-28 — Groom pass 16 (backlog-groomer):** frontend reachability
+  programme COMPLETE (84/85 ops, 97/109 literals, 0 ABSENT). Ticked ORTHO-1,
+  REACH-ASMDRAW, REACH-ORDER, FORCE-CLICK-AUDIT-1, DRAWING-VERTEX-PICK-1;
+  elevated HEM-1 P1->P0; filed ASMDRAW-FIT-1a/1b, PLAYWRIGHT-TOUCH-1,
+  EXTRUDE-COARSE-STEP-1, HEM-1B.
+- **2026-08-28 — hover-a-face-to-sketch shipped (frontend-builder):** resting
+  on a face with nothing armed writes a leader note offering the sketch;
+  click or `Enter` opens it, byte-identical to Sketch -> pick that face.
+- **2026-08-28 — Groom pass 17 (backlog-groomer):** ticked HEM-1 (P0),
+  ASMDRAW-FIT-1a/1b, EXTRUDE-COARSE-STEP-1; filed CHECKUIPARITY-FP-1,
+  NUDGE-PLACEMENT-QUANTISE-1, CI-4(e); recorded e2e RED on shard 3/4 for
+  three consecutive pushes, cause unknown at groom time.
+- **2026-08-28 — QA-SEL6-ORTHO-1 CLOSED (qa-tester):** the shard-3/4 e2e red
+  was a stale occlusion threshold calibrated under the perspective front
+  view ORTHO-1 replaced, not an app defect — 0 of 841 in-wall answers name
+  the body behind (mutation: 173 of 838).
+- **2026-08-28 — EXPORT-3, HOVER-TO-SKETCH, PANEL-DENSITY-1, PGTEST-GATE all
+  shipped (frontend-builder/platform-builder), same session:** a broken
+  downstream feature no longer disables export of the good prefix; resting
+  on a face offers Sketch inline; overlay panels adopted the header's row
+  rhythm; a missing PostgreSQL now fails loudly instead of skipping 37%
+  silently.

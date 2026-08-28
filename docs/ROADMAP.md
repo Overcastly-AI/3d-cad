@@ -2,87 +2,37 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-08-28 (backlog-groomer pass 17) — HEM-1
-(wrong geometry, P0) and both ASMDRAW-FIT halves are CLOSED; reachability
-stays complete.** `scripts/check-ui-parity.py`'s 84/85 operations / 97/109
-literals reading is unchanged this pass (see pass 16 note in
-`docs/CHANGELOG.md`), but **the scan itself carries a known false positive**
-(`hem_type: "open"` reads authorable, `"closed"` — the value the UI actually
-authors — reads render-only; a bare-substring match, filed as
-CHECKUIPARITY-FP-1, see BACKLOG).
+**Current focus, corrected 2026-08-28 (backlog-groomer pass 18) — no new P0;
+CI-4 downgraded P1→P2 (four separately-diagnosed e2e causes closed, the
+original "is the suite systemically unstable" question stays open);
+reachability stays complete.** `scripts/check-ui-parity.py`'s 84/85
+operations / 97/109 literals reading is unchanged (see pass 16 note in
+`docs/CHANGELOG.md`); the scan's hem_type false positive is filed as
+CHECKUIPARITY-FP-1 (P3, BACKLOG). Pass 16/17 detail (HEM-1, ASMDRAW-FIT-1a/1b,
+EXTRUDE-COARSE-STEP-1, the Tailwind scale gate) is in `docs/CHANGELOG.md`.
 
-**Shipped since pass 16, verified against `git show`:** **HEM-1** (`db05e13`,
-P0) — a "closed" hem now closes: its radius comes from the hem type and gauge
-(~0.5x thickness), not the part's general bend radius; **ASMDRAW-FIT-1a**
-(`79ca41c`) — `GET /assemblies/{id}/extents` returns the mate-SOLVED
-compound's AABB; **ASMDRAW-FIT-1b** (`69b3ef7`) — the assembly drawing sheet
-now fit-scales off those solved extents (1:1 -> 1:2 on the founder's rig,
-title-block overlap gone); **EXTRUDE-COARSE-STEP-1** (`1661a5b`) — two
-independent defects, both fixed: the coarse step now quantises to the next
-multiple in the direction pressed (matching the drawing-dimension rule
-`1e8d8a3` set), and a queued-ack race that dropped fast keyboard presses is
-gone; **SEL-6 fixture repair** (`f4283e2`) — ORTHO-1's orthographic FRONT view
-collapsed a test fixture's depth-parallax separation to 0; the probe now
-leaves the face via the ViewCube so the buried-edge subject still holds;
-**Tailwind scale gate** (`22ec441`) — `just lint` now catches a utility class
-outside this theme's closed scales (e.g. `w-32`), which previously emitted no
-rule at all and produced a silently zero-area element.
-
-**Filed this pass** (`docs/BACKLOG.md` Ready): CHECKUIPARITY-FP-1 (P3, the
-false positive above), NUDGE-PLACEMENT-QUANTISE-1 (P3, `nudgePlacement` still
-uses the round-then-add variant `1661a5b` deliberately left alone — bring its
-*behaviour* into line with the rule it already cites), and CI-4(e) (P2,
-in-flight umbrella sub-item — the e2e failure list is unreachable from the CI
-job log; a platform-builder is on it now).
-
-**e2e is RED on shard 3/4 for THREE consecutive pushes** (`22ec441`,
-`1661a5b`, `69b3ef7`) while `ci` stayed green on all three — recorded as
-evidence under CI-4, cause not yet diagnosed (reproduction in progress
-locally).
-
-**Shard 3/4 e2e DIAGNOSED and CLOSED (qa-tester, 2026-08-28) — a STALE
-THRESHOLD in the spec, not a defect in the app.** `qa-sel6-verify`'s occlusion
-control asserted that the plate behind the wall takes < 5 % of ALL answers, a
-number calibrated at 0.6 % under the PERSPECTIVE front view: the nearer wall
-was magnified enough to cover all but a ~0.8 mm sliver of the 60 mm plate.
-ORTHO-1 (`9a04a6a`) removed the magnification, so the plate's two 10 mm
-overhangs are their true size and legitimately answer 68 of 1003 points
-(6.8 %). Measured through the live camera: all 68 lie OUTSIDE the wall's own
-screen rect (left group max x 420 against the wall's edge at 424.7; right group
-min x 1188 against 1175.3) and ZERO lie inside it at any inset — depth order is
-correct. The control now scopes its claim to the region the wall covers, taken
-from the wall's own face marks (agreeing with the projected rect to 0.2 px on
-all four edges) behind a guard that refuses an oblique view. Mutation-tested
-with `nearestDrawnHit` returning the FARTHEST survivor: 173 of 838 in-wall
-answers name the plate, against 0 of 841 on the correct build. 16/16 green
-(`qa-sel6-verify` 3, `pick-affordance` 13); `just lint` exit 0.
-
-**Shard 4/4 e2e DIAGNOSED and CLOSED (qa-tester, 2026-08-28) — the hem spec
-was TYPING the defect HEM-1 fixed, and the old spec could not have caught it.**
-Case (b), not a regression: `sheet-metal-hem-corner-relief.spec.ts` overrode the
-hem radius to 1 mm on 2 mm sheet ("so the layers close"), which is 0.5 x gauge —
-an OPEN hem — so HEM-1's symmetric guard now refuses it. Verbatim: expected
-`"Solved"`, received `"Failed"`, with `hem_type_radius_conflict` and a message
-naming both ways out; the tree row reads `ERR`, the body falls back to the bare
-plate, and clearing the override in the editor rebuilds — the feature working.
-The decisive measurement is that the **committed spec passes 3/3 against the
-restored pre-HEM-1 inherit**: it asserted only `Solved` and `faces > 6`, both
-true of a hem with three gauges of air in it. The repair asserts NUMBERS from
-the panels a user reads — hemmed height `gauge + 2R + gauge` = **4.2 mm**
-(10.0 mm under the inherit), bend-table **R0.10** (R3.00), allowance
-`pi(R + Kt)` **3.08** (12.19) — plus a new case driving the refusal and its
-recovery. Mutation-tested: `Expected 4.2 / Received 10`, and
-`Expected "Failed" / Received "Solved"`; corner-relief and small-laptop cases
-stayed green, so the mutation's scope is the negative control. 11/11 green
-across the hem, authoring and flat-pattern specs; `just lint` exit 0; founder
-shots refreshed (the committed `sheet-metal-hem-body-1440.png` was a picture of
-the P0). NOTE the "Shipped since pass 16" paragraph above says HEM-1 sets the
-radius at "~0.5x thickness" — measured, that is the **open**-hem ratio; a
-closed hem is **0.05 x** thickness (0.1 mm on 2 mm sheet) and 0.5 x is what the
-guard refuses for `hem_type: "closed"`. Two P2/P3 items filed from the repair:
-**HEM-1C** — the editor still claims the radius is inherited from the base
-flange and suggests ~1 mm, the exact value the server refuses; **HEM-1D** — the
-UI cannot author an `open` hem at all.
+**e2e shard reds across the last several pushes are now FULLY DIAGNOSED —
+four separate causes, not one shared substrate defect; CI-4's own umbrella
+question (systemic instability under runner load) is answered "not yet
+demonstrated," not "no."** (1) The verdict itself was unreadable from the CI
+job log — CI-5 (`2874f0a`). (2) The verdict then miscounted a declared
+`test.fail()` case as a real failure — CI-5a (`ecc1fb7`). (3) Shard 3/4's
+`qa-sel6-verify` occlusion control asserted the plate behind the wall takes
+< 5% of ALL answers, calibrated at 0.6% under the PERSPECTIVE front view;
+ORTHO-1 (`9a04a6a`) removed that magnification, so the plate's true-sized
+overhangs legitimately answer 6.8% — QA-SEL6-ORTHO-1 (`153681b`) rescoped the
+claim to the region the wall covers (0 of 841 in-wall answers name the plate,
+mutation: 173 of 838), not an app defect. (4) Shard 4/4's
+`sheet-metal-hem-corner-relief.spec.ts` was TYPING the exact defect HEM-1
+fixed: it overrode the hem radius to 0.5x gauge (an OPEN hem) and asserted
+only `Solved`/`faces > 6`, both true of the pre-HEM-1 inherit too. Fixed
+(`0c24947`) to assert the numbers a user reads — hemmed height 4.2 mm (was
+10.0), bend-table R0.10 (R3.00), allowance 3.08 (12.19) — plus a case driving
+the now-correct refusal and its recovery. 11/11 green across hem/authoring/
+flat-pattern specs; founder shots refreshed. Two follow-ups filed from the
+repair: HEM-1C (editor still claims base-flange inheritance for the radius
+and suggests the exact value the server refuses — **IN FLIGHT now**) and
+HEM-1D (UI cannot author an `open` hem at all).
 
 **EXPORT-3 CLOSED (frontend-builder, 2026-08-28) — the export of a partially
 built part, and the gate that was refusing a file the server would have
@@ -232,13 +182,14 @@ proceeding blind.
 
 **Still open, unchanged in substance:** REACH-2-FLOW, REACH-3-FLOW,
 NAME-2b, TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1, SEL-8,
-MEASURE-PROXY-1, MATE-OBS-2, SKETCH-COVERAGE-1, SOLVER-DOC-1, HEM-1B — see
-BACKLOG for current tickets.
+MEASURE-PROXY-1, MATE-OBS-2, SKETCH-COVERAGE-1, SOLVER-DOC-1, HEM-1B,
+HEM-1D — see BACKLOG for current tickets. HEM-1C is IN FLIGHT
+(frontend-builder).
 
 **Still owed, carried forward again:** `docs/GEOMETRY-QA.md`/
-`docs/UI-REVIEW.md` refresh against the last five batches; the
+`docs/UI-REVIEW.md` refresh against the last seven batches; the
 vision-steward's Sheet metal/Performance/Assemblies/Selection scorecard
-re-check (five passes overdue).
+re-check (six passes overdue).
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
