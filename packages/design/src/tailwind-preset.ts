@@ -6,12 +6,14 @@ import type { Config } from "tailwindcss";
 import plugin from "tailwindcss/plugin";
 
 import {
+  carriageTravelPercent,
   color,
   drawing,
   duration,
   font,
   fontSize,
   layout,
+  progress,
   radius,
   spacing,
   target,
@@ -71,6 +73,8 @@ export const loftPreset = {
         timeline: px(layout.timelineHeight),
         /** Square host of the reference cube — see `viewCube.size`. */
         "view-cube": px(viewCube.size),
+        /** The indeterminate carriage's bed — see `progress.trackHeight`. */
+        track: px(progress.trackHeight),
       },
       width: {
         inspector: px(layout.inspectorWidth),
@@ -79,6 +83,8 @@ export const loftPreset = {
         "field-label": px(layout.fieldLabelWidth),
         /** Square host of the reference cube — see `viewCube.size`. */
         "view-cube": px(viewCube.size),
+        /** The indeterminate carriage's share of its bed — see `progress`. */
+        carriage: `${progress.carriage}%`,
       },
       /**
        * The written TARGET-SIZE policy as utilities (`min-h-target`,
@@ -95,6 +101,14 @@ export const loftPreset = {
       minWidth: {
         target: px(target.comfortable),
         "target-dense": px(target.dense),
+        /**
+         * The indeterminate carriage's bed. A MINIMUM rather than a width so
+         * the bed can still take the slack of the line it sits in, but can
+         * never collapse: its only child is absolutely positioned, so its
+         * content width is 0 and a missing width makes the whole progressbar
+         * measure as hidden. See `progress.bedWidth`.
+         */
+        progress: px(progress.bedWidth),
       },
       inset: {
         /** HUD-card left anchor clearing the floating tree panel. */
@@ -152,6 +166,27 @@ export const loftPreset = {
       boxShadow: {
         /** Floating instrument panels lifting off the scene (token ground). */
         float: `0 2px 6px ${color.carbide}99, 0 12px 32px ${color.carbide}CC`,
+      },
+      /**
+       * THE CARRIAGE TRAVERSING ITS BED — the one motion an indeterminate wait
+       * is allowed (`ProgressTrack`). Both the distance and the period are
+       * DERIVED from `progress` in tokens.ts, so the carriage's width and its
+       * travel cannot drift apart the way a transcribed `357%` would.
+       *
+       * Consumed as `motion-safe:animate-travel`, never bare: under
+       * `prefers-reduced-motion` the carriage holds still and the elapsed
+       * readout carries the liveness instead.
+       */
+      keyframes: {
+        travel: {
+          "0%": { transform: "translateX(0)" },
+          "100%": {
+            transform: `translateX(${carriageTravelPercent.toFixed(4)}%)`,
+          },
+        },
+      },
+      animation: {
+        travel: `travel ${progress.travelMs}ms cubic-bezier(0.45, 0, 0.55, 1) infinite alternate`,
       },
       /** Named page-level stacking layers (`z-overlay` … `z-menu`) — see
           `zLayer` in tokens.ts. Page-level contexts use these, never bare

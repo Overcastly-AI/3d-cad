@@ -372,6 +372,12 @@ evidence/gates.**
       TERRITORY: `packages/design/src/primitives/` (new progress primitive),
       `apps/web/src/routes/` (STEP-import empty state / upload flow).
       agentType: frontend-builder.
+      PRIMITIVE LANDED — `ProgressTrack` is in `packages/design`
+      (`primitives/ProgressTrack.tsx`, 6 unit tests): named indeterminate
+      progressbar, reciprocating carriage under `motion-safe` only, and an
+      elapsed counter that carries the reduced-motion path because a CSS
+      animation runs on even when the main thread is wedged. Acceptance half
+      (b) still needs the wiring commit for Cancel; half (a) follows.
 
 - [ ] (P1, M) **FORCE-CLICK-AUDIT-1 — 25 of 26 `click({ force: true })`
       calls across 8 e2e spec files are unproven picks, and the one that

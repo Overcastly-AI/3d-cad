@@ -783,6 +783,52 @@ export const duration = {
 } as const;
 
 /**
+ * THE CARRIAGE — the geometry of an indeterminate wait (`ProgressTrack`).
+ *
+ * A machine tool that is cutting has a carriage travelling its bed, and that is
+ * the only honest picture of work whose END IS NOT KNOWN: something is moving,
+ * and the distance covered means nothing. A bar that fills would be a claim
+ * about remaining time the client does not have — the server is parsing a solid
+ * model and no byte count predicts how long that takes.
+ *
+ * The carriage RECIPROCATES rather than wrapping: it runs to the end of its
+ * travel and comes back, so there is no frame where it teleports. It also stays
+ * wholly inside the bed (`translateEnd` is derived from its own share of the
+ * width, not guessed), so the track never reads as empty.
+ *
+ * Everything here is derived rather than transcribed: the keyframe end in the
+ * Tailwind preset is a function of `carriage`, so changing the carriage width
+ * cannot leave the travel wrong.
+ */
+export const progress = {
+  /** One traverse, in ms. `alternate` makes the visible cycle twice this. */
+  travelMs: 900,
+  /** The bed's thickness (px) — a rule, not a bar. */
+  trackHeight: 2,
+  /**
+   * The bed's resting LENGTH (px). It belongs to the primitive, not to each
+   * caller, and the reason is a measured defect rather than a preference: the
+   * first draft let the caller size it with `w-32`, which does not exist —
+   * this theme's spacing scale is CLOSED and stops at 12 — so the class was
+   * dropped, the bed's only child is absolutely positioned, and the bed
+   * resolved to ZERO WIDTH. Playwright reported the progressbar as `hidden`
+   * while the DOM node was present and correct, which is the same
+   * looks-fine-reads-wrong shape as an SVG stroke with no hit box.
+   */
+  bedWidth: 96,
+  /** The carriage's share of the bed's width (%). */
+  carriage: 28,
+} as const;
+
+/**
+ * How far the carriage moves, as a percentage of ITS OWN width — which is what
+ * `translateX` is relative to. Derived so the carriage lands exactly flush with
+ * the far end of the bed and never overshoots it.
+ */
+export const carriageTravelPercent =
+  ((100 - progress.carriage) / progress.carriage) * 100;
+
+/**
  * The REFERENCE CUBE — the machinist's block that names the view, and the one
  * piece of geometry the DOM and the WebGL scene both have to agree on. ONE
  * source, two renderers, exactly like the palette above.

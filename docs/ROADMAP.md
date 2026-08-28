@@ -44,6 +44,22 @@ again: `docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` refresh against the last
 four batches; the vision-steward's Sheet metal/Performance scorecard
 re-check (carried since pass 13).
 
+**REACH-2-IMPORT-1 (b) — `packages/design` gains `ProgressTrack`, the
+indeterminate wait every long operation seats from now on.** UI-REVIEW
+2026-08-27 P1-B measured a STEP import with no `role="progressbar"` anywhere
+and `animationName: none` on every descendant of its busy line; the finding
+was HELD because the design system had nothing to fix it with. It does now: a
+carriage reciprocating along a hairline bed (`motion-safe` only), a named
+indeterminate progressbar with no `aria-valuenow` — the omission is how ARIA
+spells "we cannot predict this" — and an elapsed-seconds readout driven by
+React state, which is the load-bearing part: a CSS animation keeps running
+when the main thread is wedged, so it cannot distinguish "working" from
+"hung", which is the exact question the finding asks. That counter is
+therefore the liveness proof in BOTH motion modes, and is what carries
+`prefers-reduced-motion` rather than being an extra. Geometry is derived, not
+transcribed (`carriageTravelPercent` from `progress.carriage`), with a unit
+test that lands the carriage flush with the end of its bed. 6 unit tests;
+cancel deliberately NOT in the primitive — see the wiring commit.
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.

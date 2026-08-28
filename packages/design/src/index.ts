@@ -106,6 +106,10 @@ export {
   type ScrollEdges,
 } from "./primitives/ScrollRegion";
 export {
+  ProgressTrack,
+  type ProgressTrackProps,
+} from "./primitives/ProgressTrack";
+export {
   SelectField,
   type SelectFieldProps,
   type SelectFieldOption,
