@@ -285,8 +285,19 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   **`per_page` is IGNORED** — asking for 1 still returns 30 runs and the same
   ~430 KB, so do not bother trying to trim the payload that way; the spill +
   parse is the only cheap path;
-  (b) `get_workflow_run` on ONE id is small and is the cheap way to re-check a
-  known run.
+  (b) `get_workflow_run` on ONE id is small-ISH but carries the entire commit
+  message, which in this repo runs to thousands of tokens per call — three
+  commits' verdicts cost more context than the whole rest of an integration
+  pass.
+  **THE CHEAPEST VERDICT READ IS `get_job_logs` WITH `failed_only: true` AND
+  `return_content: false`** — measured 2026-08-27, it returns one line
+  (`{"failed_jobs":0,"message":"No failed jobs found","total_jobs":7}`) and it
+  answers the question you actually have. Green is `failed_jobs: 0`; red names
+  the failing jobs, and you then re-call the same tool with `return_content:
+  true` and a `tail_lines` on the ONE job you care about. Reserve
+  `get_workflow_run` for when you need the commit message or the run's own
+  `conclusion` string (e.g. telling `cancelled` from `failure`). The ids still
+  come from the spilled `list_workflow_runs` parse, which is unavoidable.
 - **FIXED 2026-07-30 — `cancel-in-progress` is now PR-only, so a branch run
   that has STARTED is no longer killed by the next push. MEASURED, with one
   caveat below.** History, because the reasoning matters: the
