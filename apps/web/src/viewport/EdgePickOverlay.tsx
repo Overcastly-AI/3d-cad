@@ -24,7 +24,6 @@
  */
 import { PickNode } from "@loft/design";
 import { measure } from "@loft/design/tokens";
-import { Html } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -39,6 +38,7 @@ import {
 import { EdgeBandLayer } from "./EdgeBandLayer";
 import type { EdgeBandInput } from "./edgeBand";
 import { useHiddenPicks } from "./hiddenPicks";
+import { PickMark } from "./PickMark";
 import { concatPositions, HighlightLines } from "./overlaySegments";
 import { useViewportPickStamp } from "./pickStamp";
 import type { EdgeMarkAnchor } from "./useEdgeMarkAnchors";
@@ -177,10 +177,9 @@ export function EdgePickOverlay() {
         const midpoint = polylineMidpoint(edge.polyline);
         const anchor = anchors[slot];
         return (
-          <Html
+          <PickMark
             key={`e${index}`}
             position={anchor?.position ?? occtToScene(midpoint)}
-            center
             zIndexRange={EDGE_Z_RANGE}
           >
             <PickNode
@@ -200,7 +199,7 @@ export function EdgePickOverlay() {
               onFocus={() => setHoverEdge(index)}
               onBlur={() => setHoverEdge(null)}
             />
-          </Html>
+          </PickMark>
         );
       })}
     </group>

@@ -74,9 +74,10 @@ disjoint, parallel-dispatchable:
 3a. ~~**PICKMARK-OCCLUDE-1**~~ — CLOSED 2026-08-28 (frontend-builder). Marks
    now seat where the band answers; census 8/21 -> 11/21 with drawn 11/11,
    and the unreachable ten are buried without leaving the tab order.
-4. **MEASURE-PROXY-1** (P1, S, frontend-builder, `apps/web/src/viewport/**`)
-   — T-14's residual: a Measure click on a marker's own bounding box is
-   blocked by a neighbouring proxy. Sequence after #3, same territory.
+4. ~~**MEASURE-PROXY-1**~~ — CLOSED 2026-08-28 (frontend-builder). The
+   occluder was drei's own positioning wrapper, not a coincident face; 5 marks
+   on a bare box -> 0. The ticket's prescribed face depth-stack does not apply
+   — Measure has no faces.
 5. ~~**EXPORT-3**~~ — CLOSED 2026-08-28 (frontend-builder). The gate was
    entirely client-side: the gateway already served the last good body,
    byte-identical to exporting the healthy prefix. See the ticket below for
@@ -113,26 +114,21 @@ archive for evidence/gates.**
 archive for evidence/gates. T-13 closes with it. T-14 (a different
 surface) does NOT — re-filed narrower below.**
 
-- [ ] (P1, S) **MEASURE-PROXY-1 — a Measure click at the exact centre of a
-      marker's own bounding box registers no selection because a
-      neighbouring proxy sits on top of it.** kind: defect. This is T-14
-      (`docs/AUDIT-PRODUCT.md` "Pass 2026-08-24 (fourth pass)"), MATE-1's
-      own sibling finding, on the same DOM-proxy-grid mechanism — but
-      MATE-1's fix (`a2a6f9f`) deliberately scoped its first slice to mate
-      authoring (`AssemblyScene`'s `mateDepthStack`/`MateColumnStrip`); the
-      Measure tool's pick surface is a separate call site and was not
-      touched. Playwright's own actionability check refused the click as
-      "not stable," meaning a real user's click at the same point silently
-      does nothing. FIX: apply the same depth-stack "select other" pattern
-      (`faceColumnRaycast` + a column-strip affordance) to Measure's pick
-      surface. ACCEPTANCE: reproduce T-14's fixture (two coincident faces
-      under Measure) — the buried face is selectable via the same
-      mechanism MATE-1 shipped; a regression spec pins it.
-      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fourth pass)" T-14,
-      MATE-1's own scope note, filed by backlog-groomer pass 15]
-      TERRITORY: `apps/web/src/viewport/**` (Measure pick surface, reusing
-      `a2a6f9f`'s depth-stack primitives). Sequence behind ORTHO-1/SEL-8 in
-      the same territory. agentType: frontend-builder.
+- [x] (P1, S) **MEASURE-PROXY-1 — CLOSED 2026-08-28. A Measure click at a
+      mark's own centre now reaches the mark: drei's positioning wrapper is no
+      longer a pointer target.** The ticket's inferred cause (coincident faces,
+      fix by MATE-1's `faceColumnRaycast`) does NOT apply — Measure offers no
+      faces. The real occluder is drei `Html`'s wrapper div: `pointer-events:
+      auto`, no handler, the mark's 24x24 box, while `PickNode` is a Ø24 circle
+      inside it — so ~21% of every mark's box was dead, and a neighbour's dead
+      corner sat on other marks' centres. Measured on a rebuild of T-14's plate
+      (26 vertex + 39 edge, its counts verbatim): **5 marks on a bare box -> 0**.
+      Fixed in one place (`viewport/PickMark.tsx`, now hosting all 13 mark
+      sites) with `PickNode` opting itself back in. Residue named in ROADMAP:
+      two genuine overlaps where the band AGREES with the DOM, so no proxy
+      contradicts the hit-test. A "select other" for Measure is a separate,
+      larger surface — file it if wanted.
+      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fourth pass)" T-14]
 
 - [ ] (P2, S) **NAME-2b — the durable-tier re-match NAME-2 shipped
       resolves silently; surface it on `FeatureResult` so an edge-anchored

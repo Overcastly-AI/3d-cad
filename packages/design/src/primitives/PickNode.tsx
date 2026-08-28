@@ -81,6 +81,17 @@ export function PickNode({
         // cluttering the model, and independent of any padding collapse.
         "group/pn grid h-6 w-6 place-items-center rounded-full",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass",
+        // OPTS ITSELF BACK IN. The scene plants every mark inside a wrapper
+        // that is deliberately inert (`viewport/PickMark.tsx`), because that
+        // wrapper is a rectangle with no handler sitting over its neighbours'
+        // targets — MEASURE-PROXY-1 measured three marks whose own centre it
+        // swallowed. A control that cannot be pointed at is not a control, so
+        // re-enabling events belongs here, in the primitive, and not at each
+        // of the thirteen call sites. Emitted ONLY when the mark is live: a
+        // Tailwind class list is not ordered, so shipping both
+        // `pointer-events-auto` and the buried `pointer-events-none` would let
+        // stylesheet order decide, and the loser would be silent.
+        occluded ? null : "pointer-events-auto",
         // A buried mark is out of the pointer's way and out of the picture, and
         // still on the tab route. Focus restores both, so a keyboard user is
         // never sent to a control they cannot see.

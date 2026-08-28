@@ -376,6 +376,50 @@ costs CI nothing; the new workflow step prints what it found, installs
 `postgresql` only if a future image drops it, and exits 1 rather than
 proceeding blind.
 
+**MEASURE-PROXY-1 CLOSED (2026-08-28, frontend-builder) — a mark's own centre now reaches the mark, because the empty box around every mark stopped being a pointer target.**
+T-14 reported "a click at the exact centre of `measure-edge-4`'s bounding box
+registered NO SELECTION AT ALL because a neighbouring marker sat on top of it",
+and the ticket inferred coincident FACES and prescribed MATE-1's face
+depth-stack. **That is not the mechanism, and the prescription does not apply:
+Measure offers no faces at all, only edges and vertices** — so there is no
+column of coincident faces to select from, and reusing `faceColumnRaycast`
+here would have meant inventing a face pick the tool does not have. What
+actually sits on top is drei's own wrapper. `Html` (non-`transform` mode) gives
+every mark an absolutely-positioned div that inherits `pointer-events: auto`,
+carries no handler, and takes the mark's 24x24 BOX — while `PickNode` is
+`rounded-full`, so its hit region is the inscribed Ø24 circle. The ~21% of the
+box outside that circle was a pointer target that did nothing, and a
+NEIGHBOUR's corner lands on other marks' centres. Measured on a rebuild of the
+audit's own motor-mount plate that reproduces its counts verbatim (26 vertex +
+39 edge = 65 proxies over 15 faces): **5 marks resolved to a bare positioning
+box -> 0**, and a real `page.mouse.click` at those points went from doing
+nothing to reaching the geometry underneath. `ExtrudeDragHandle` already
+carried this fix for ONE instance, with a comment describing the same mechanism
+("without it the tag's box sits over the grip's 24 px target and swallows the
+press") — so the fix is a component, `viewport/PickMark.tsx`, now hosting all
+thirteen mark sites across seven overlays, and `PickNode` opts ITSELF back in
+(`pointer-events-auto`), because a control that cannot be pointed at is not a
+control and that is the primitive's business. NB `<Html pointerEvents="none">`
+— drei's own prop — is a NO-OP in the mode we use: read in the shipped source
+it is applied to `transformInnerStyles`, rendered only on the `transform`
+branch. Residue, named rather than hidden: two genuine overlaps remain on that
+camera — `measure-edge-0` under `measure-vertex-4` (centres 12.1 px apart, i.e.
+exactly on the vertex's 24 px circle, resolved by the DOCUMENTED
+vertex-over-edge precedence, which is the snap a user wants at a corner) and
+`measure-edge-13` under `measure-edge-31`, where the BAND independently agrees
+with the DOM about which edge is in front. Neither is a proxy contradicting the
+hit-test, so neither is this defect; a "select other" for Measure would be a new
+surface (an edge/vertex depth stack plus a strip) and is worth its own ticket if
+the founder wants it. Gates: `just lint` 0; 2122 TS unit tests; 56 e2e green
+across `measure-proxy` (new), `pick-mark-seat`, `pick-affordance`,
+`qa-sel4-verify`, `qa-sel6-verify`, `edge-highlight`, `measure`,
+`fillet-edge-pick`, `hole-placement`, `full-flow`, `sketch-on-face`,
+`mate-buried-face`, `shell`. Mutation, reverted independently of
+PICKMARK-OCCLUDE-1's: dropping the inert style from `PickMark` puts 5 marks
+back on a bare box and reddens the new spec, with the served bytes checked.
+No before/after screenshot: the change is pointer-events only and the frames
+are pixel-identical — the evidence is the census, not the picture.
+
 **PICKMARK-OCCLUDE-1 CLOSED (2026-08-28, frontend-builder) — a pick diamond now sits where its edge answers, or it is not drawn there.**
 R-8's other sentence ("several sitting mid-FACE rather than on any visible
 edge") is a distinct defect from SEL-8's missing highlight, with a distinct
@@ -452,7 +496,7 @@ sentence — marks drawn over material that hides the edge they name, measured a
 
 **Still open, unchanged in substance:** REACH-2-FLOW, REACH-3-FLOW,
 NAME-2b, TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1,
-MEASURE-PROXY-1, MATE-OBS-2, SKETCH-COVERAGE-1,
+MATE-OBS-2, SKETCH-COVERAGE-1,
 SOLVER-DOC-1, HEM-1B, HEM-1D — see BACKLOG for current tickets. HEM-1C is
 IN FLIGHT (frontend-builder).
 

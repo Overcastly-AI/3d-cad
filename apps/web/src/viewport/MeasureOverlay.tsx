@@ -17,7 +17,6 @@
  */
 import { PickNode } from "@loft/design";
 import { measure } from "@loft/design/tokens";
-import { Html } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useState } from "react";
 import { BufferGeometry, Float32BufferAttribute } from "three";
@@ -33,6 +32,7 @@ import { useMeasureStore } from "../measure/store";
 import { EdgeBandLayer } from "./EdgeBandLayer";
 import type { EdgeBandInput } from "./edgeBand";
 import { useHiddenPicks } from "./hiddenPicks";
+import { PickMark } from "./PickMark";
 import { concatPositions, HighlightLines, Segments } from "./overlaySegments";
 import { useViewportPickStamp } from "./pickStamp";
 import type { EdgeMarkAnchor } from "./useEdgeMarkAnchors";
@@ -236,13 +236,12 @@ export function MeasureOverlay() {
           still settles edge-mark versus vertex-mark, which is a DOM-to-DOM
           contest. Asserted in `pick-affordance.spec.ts`, not assumed. */}
       {offeredEdges.map(({ edge, index }, slot) => (
-        <Html
+        <PickMark
           key={`e${index}`}
           position={
             anchors[slot]?.position ??
             occtToScene(polylineMidpoint(edge.polyline))
           }
-          center
           zIndexRange={EDGE_Z_RANGE}
         >
           <PickNode
@@ -261,7 +260,7 @@ export function MeasureOverlay() {
             onFocus={() => setHoverEdge(index)}
             onBlur={() => setHoverEdge(null)}
           />
-        </Html>
+        </PickMark>
       ))}
 
       {/* Pickable vertices — round snap nodes, rendered LAST + in the higher z
@@ -274,10 +273,9 @@ export function MeasureOverlay() {
           which is the exact trade A7 refuses (`PickNode.tsx`'s opacity block
           states the same rule from the primitive's side). */}
       {offeredVertices.map(({ vertex, index }) => (
-        <Html
+        <PickMark
           key={`v${index}`}
           position={occtToScene(vertex)}
-          center
           zIndexRange={VERTEX_Z_RANGE}
         >
           <PickNode
@@ -287,7 +285,7 @@ export function MeasureOverlay() {
             aria-label={`Vertex at ${formatVec3Mm(vertex)} millimetres`}
             onClick={() => pickVertex(index, vertex)}
           />
-        </Html>
+        </PickMark>
       ))}
 
       {/* The dimension line + witness marks — brass, always on top. */}
