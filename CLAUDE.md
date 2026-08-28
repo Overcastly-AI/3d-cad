@@ -1271,6 +1271,25 @@ recipe here in the same commit as the fix.**
   Same rule for uvicorns: match on the port you booted, not on `*.main:app`.
   Agents booting an isolated frontend MUST kill their Vite in teardown, not just
   their uvicorns — and MUST kill only their own.
+- **VITE CAN SERVE A STALE TRANSFORM OF A WORKSPACE PACKAGE, WHICH MAKES A
+  MUTATION CHECK PASS WHEN IT MUST HAVE FAILED — the worst failure in this whole
+  family, because it corrupts the EVIDENCE rather than the run.** Found
+  2026-08-28 by the A11Y-TOOLBTN-1 agent. It edited
+  `packages/design/src/primitives/ToolButton.tsx` under a running Vite,
+  reintroduced the original defect to prove its new e2e case could see it, and
+  the case went **GREEN** — the fix appeared to be unnecessary. `curl` of the
+  served module showed the OLD condition while disk had the new one; only
+  bouncing Vite made served bytes match disk, and the case then reddened as it
+  should. **Every other trap in this file costs you a run; this one costs you a
+  wrong conclusion, and the conclusion is "my test is fine" or "this fix does
+  nothing".** Note this is the QUIET half of the stale-Vite entry below: that one
+  is a stale PROXY TARGET and it is loud (every spec 500s at register), whereas
+  this is a stale TRANSFORM of a linked workspace package and everything looks
+  normal. Rule: **when mutation-testing a `packages/**` primitive through the
+  browser, restart Vite between legs and verify the SERVED bytes**, e.g.
+  `curl -s http://127.0.0.1:<port>/@fs<abs path> | grep <the line you changed>`.
+  A mutation that does not redden is a claim about the served bundle until you
+  have checked which bytes it was.
 - **A TAILWIND PRESET CHANGE IS A BUILD-CONFIG CHANGE, NOT A SOURCE CHANGE — a
   running Vite will not pick it up, and the symptom is "your new feature is
   broken", never a build error.** Measured 2026-08-17 recovering VIEWCUBE-1.
