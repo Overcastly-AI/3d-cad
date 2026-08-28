@@ -88,6 +88,17 @@ lint:
     # halves still hold.
     python3 scripts/check-mutation-markers.py --self-test
     python3 scripts/check-mutation-markers.py
+    # ~0.9s over 429 scanned files. A Tailwind utility outside the CLOSED token
+    # scales emits no rule at all — no warning, no build error — so the element
+    # gets no style and measures ZERO. `w-32` on a progress bed (spacing is
+    # closed at 12) was the third zero-area defect of 2026-08-27/28 and the only
+    # one a static check can catch. The sibling vitest guard
+    # (apps/web/src/test/tailwindUtilities.test.ts) compiles through the real
+    # Tailwind and stays authoritative; this runs at LINT time, where the class
+    # is still on screen, and additionally reads interpolated template literals,
+    # which that guard's literal regex cannot match at all.
+    python3 scripts/check-tailwind-scale.py --self-test
+    python3 scripts/check-tailwind-scale.py
     # ~150ms. stage-doc-hunks.py is the control EVERY agent uses on the shared
     # docs, and it had no test until it silently relocated an author's own entry
     # to the end of BACKLOG.md while printing success (2026-08-01, found by the

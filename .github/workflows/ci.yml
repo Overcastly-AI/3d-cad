@@ -201,6 +201,17 @@ jobs:
         run: |
           python3 scripts/check-mutation-markers.py --self-test
           python3 scripts/check-mutation-markers.py
+      # A Tailwind utility this theme cannot generate emits NO rule — no
+      # warning, no build error — so the element gets no style and measures
+      # zero. `w-32` on a progress bed (the spacing scale is closed at 12) cost
+      # real debugging time on 2026-08-28: the DOM looked perfect, every
+      # attribute was right, and Playwright called the progressbar hidden.
+      # Same reasoning as its neighbours for living in the fast job: stdlib
+      # only, no node, no uv environment, ~0.9s over 429 scanned files.
+      - name: Tailwind utilities the theme cannot emit (+ prove the gate can fail)
+        run: |
+          python3 scripts/check-tailwind-scale.py --self-test
+          python3 scripts/check-tailwind-scale.py
 
   doc-tick:
     # DOCTICK-GATE — CLAUDE.md calls it NON-NEGOTIABLE that "every commit that

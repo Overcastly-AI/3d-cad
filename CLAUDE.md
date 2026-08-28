@@ -1317,3 +1317,25 @@ recipe here in the same commit as the fix.**
   (your whole change), e.g. `uv run pyright <each changed .py>` + `ruff` on all
   of them — never just the one file you were "mainly" editing. A signature change
   breaks its callers and tests, which single-file scoping can't see.
+- **TO COMPILE THE REAL TAILWIND AGAINST OUR PRESET FROM A SCRATCH SCRIPT, the
+  script must sit OUTSIDE `node_modules` with a `node_modules` SYMLINK beside
+  it** — three separate resolution traps stack up and each one looks like the
+  last. Measured 2026-08-28 while cross-checking `scripts/check-tailwind-scale.py`
+  against the compiler. (a) `postcss` is not a dependency of `packages/design`
+  and pnpm's strict layout means there is no root `node_modules/postcss` either;
+  only `apps/web` has both `postcss` and `tailwindcss`. (b) `tailwindcss@3.4` has
+  **no `exports` map**, so Node ESM cannot resolve the bare `tailwindcss/plugin`
+  our preset imports — it needs the literal `tailwindcss/plugin.js`. (c) Node
+  refuses to type-strip a `.ts` file under `node_modules/`
+  (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`), so the obvious hiding place
+  for a throwaway probe — the one the `apps/web/node_modules/.vp1a/` recipe above
+  endorses for Playwright configs — cannot import the preset at all. What works:
+  put the probe in the session scratchpad, `ln -s <repo>/apps/web/node_modules`
+  next to it so bare specifiers resolve, and import the preset through a copy
+  whose two specifiers are rewritten (`tailwindcss/plugin.js`, plus an absolute
+  path to the REAL `tokens.ts` so the scale under test is the committed one).
+  Node 22.22 then type-strips both `.ts` files and `postcss([tailwind({...})])`
+  runs. Worth the setup: it turns "I think this family reads `spacing`" into a
+  measurement — 2664 family x value pairs, 0 disagreements — and it is what
+  removed `leading-` (reads `lineHeight`) and `z-` (extended, not replaced) from
+  that gate's coverage before they could cry wolf.
