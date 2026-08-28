@@ -1028,6 +1028,18 @@ recipe here in the same commit as the fix.**
   `pnpm --filter @loft/web {typecheck,test}` + `just lint` + geometry `pytest`.
   (Only `just dev` / `docker compose` proper — which build the container images —
   still can't run; use the native boot above instead of the compose stack.)
+- **DO NOT BOOT THE NATIVE STACK WITH `Bash(run_in_background)` — it dies, and it
+  dies wearing the readonly-SQLite mask.** Found 2026-08-28 by the ORTHO-1 agent.
+  `uv run uvicorn` produces a second bind attempt that exits 3; the harness reads
+  that as the task failing, and reaps the **surviving** listener along with it. The
+  symptom is all three services answering 200 one minute and **000** the next,
+  which is exactly what the stale-handle fault above looks like — so you will
+  "fix" it by restarting, get another ten minutes, and lose the same time again.
+  Use `setsid nohup … < /dev/null &` from a script, with a health-poll loop; that
+  survives across tool calls. This is now the FOURTH distinct fault presenting as
+  "my stack was up and now it is not" (stale handle, a sibling's `rm -f`, a
+  sibling's un-scoped teardown, and this), so when a healthy stack goes silent,
+  identify WHICH before acting — they have four different fixes.
 - **A long-running native uvicorn on a scratchpad SQLite file starts returning
   `attempt to write a readonly database` after ~10 minutes, and it reads exactly
   like a code regression.** Symptom: register -> 500, every spec dies at
