@@ -79,8 +79,7 @@
             }
           },
           "hem_type": "closed",
-          "length_mm": 15.0,
-          "bend_radius_mm": 1.0
+          "length_mm": 15.0
         }
       }
     }

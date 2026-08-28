@@ -62,7 +62,7 @@ when 3+ flanges make the selects "blind") + P3 a11y nits filed to
 | **Fold** (fold a bent-line sketch on a flat face into a 3D bend — the authoring counterpart to Sketched Bend, §1) | Fusion ▸ Sheet Metal ▸ Create ▸ Fold — same doc as above | ❌ | Depends on Sketched Bend (§1) shipping first. | M (bundled with sketched bend) |
 | **Cross-breaks** (a cosmetic stiffening crease across a flat face — HVAC/duct convention; a graphical annotation, NOT a geometric bend) | Cross Break command inserts a graphical crease indicator; explicitly **does not alter part geometry** — [Cross Breaks](https://help.solidworks.com/2025/english/Solidworks/sldworks/c_cross_break.htm) | ❌ | No equivalent. Genuinely low-risk (it's cosmetic, not geometric — no unfold interaction) but also low-value outside HVAC/duct work; **candidate for explicit deprioritization**, see §Verdict. | S, low priority |
 | **Jog** (two bends with no length between — a stepped offset of a flat face) | Jog tool: sketch a single line, the tool inserts two bends (a "Z-step") to offset the face by a set distance while keeping it parallel — [Jogs](https://help.solidworks.com/2020/english/SolidWorks/sldworks/c_jogs.htm) | ❌ | Geometrically a **degenerate two-bend depth-1 chain with zero flange length between the bends** — since depth-≥2 bend-tree unfold now ships, a jog is much closer to reachable than it looked when `sheet-metal.md` was written (it predates depth-2). Needs: (a) a dedicated feature type (two coupled bend params, not two independent edge-flange authorings) or (b) confirmation the existing chain machinery composes correctly at zero intermediate length (an edge case worth a golden, not an assumption). | S–M — reassess priority now that depth-2 unfold exists |
-| **Hem** — open, closed, teardrop, rolled | Four hem types: **Closed** (bent 180° flat against the parent, zero inside radius, cheapest/most common), **Open** (curved outer edge, air gap — safe-to-touch edges/handles), **Teardrop** (rounded tear-shaped profile — brittle materials like aluminum), **Rolled** (full circular edge — eliminates raw edges, doors/furniture) — [SolidWorks hem tutorial summary](https://solidworkstutorialsforbeginners.com/solidworks-sheetmetal-hem/), [Approved Sheet Metal — hem types](https://www.approvedsheetmetal.com/blog/what-type-of-hem-does-your-custom-sheet-metal-part-need). Fusion's Hem tool: pick edge(s), flip fold direction, **Miter Corners** option, **Override Rules** per-feature — [Create hem](https://help.autodesk.com/view/fusion360/ENU/?contextId=SM-CREATE-HEM-FLANGE) | 🟡 **closed shipped** (2026-07-19, kernel-architect) | **CLOSED hem SHIPPED** as a first-class feature `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`, edge ref + `length_mm` + optional `bend_radius_mm`/`k_factor`, `hem_type="closed"`) — kernel finding: the closed hem is even freer than predicted. `build_edge_flange` at `bend_angle_deg=180` with a small radius produces **ONE clean valid solid** (BRepCheck-valid, one shell) and `unfold_sheet_metal` develops it correctly (BA = π·(r+K·t)); the near-flat fold **cannot self-intersect** — the return sits ~2·radius above the base with an air gap, verified valid down to r=1e-6 — so no guard or rescope was needed, the hem reuses the edge-flange bend + unfold machinery verbatim (a fixed 180° fold, DRY-shared `_fold_flange_off_edge`). Golden `closed-hem-plate` (valid solid + analytic unfold + area conservation + byte-determinism). Honest degradation (parity §3): a zero-radius/zero-gap hem is a typed schema rejection; a kernel fold failure is a typed `edge_flange_failed`. **Closed-hem authoring UI SHIPPED** (2026-07-19, frontend-builder): a `HemEditor` in the SHEET METAL toolbar group next to Base/Edge flange — single-select edge pick (reuses the edge-flange overlay), brass `length_mm` handle, a fixed "180° (closed)" fold readout (no angle field), inherited radius/K overrides; e2e models a plate with a closed hem by clicking, body + flat pattern render (`sheet-metal-hem-*.png`). **Deferred:** open / teardrop / rolled — each a genuinely different **curved cross-section profile** at the fold tip the exact-cross-section extrude does not build. | S ✅ (closed geom + UI) / M (open/teardrop/rolled — curved cross-section) |
+| **Hem** — open, closed, teardrop, rolled | Four hem types: **Closed** (bent 180° flat against the parent, zero inside radius, cheapest/most common), **Open** (curved outer edge, air gap — safe-to-touch edges/handles), **Teardrop** (rounded tear-shaped profile — brittle materials like aluminum), **Rolled** (full circular edge — eliminates raw edges, doors/furniture) — [SolidWorks hem tutorial summary](https://solidworkstutorialsforbeginners.com/solidworks-sheetmetal-hem/), [Approved Sheet Metal — hem types](https://www.approvedsheetmetal.com/blog/what-type-of-hem-does-your-custom-sheet-metal-part-need). Fusion's Hem tool: pick edge(s), flip fold direction, **Miter Corners** option, **Override Rules** per-feature — [Create hem](https://help.autodesk.com/view/fusion360/ENU/?contextId=SM-CREATE-HEM-FLANGE) | 🟡 **closed + open shipped** (2026-07-19; radius rule corrected by HEM-1, 2026-08-28) | **CLOSED hem SHIPPED** as a first-class feature `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`, edge ref + `length_mm` + optional `bend_radius_mm`/`k_factor`, `hem_type="closed"`) — kernel finding: the closed hem is even freer than predicted. `build_edge_flange` at `bend_angle_deg=180` with a small radius produces **ONE clean valid solid** (BRepCheck-valid, one shell) and `unfold_sheet_metal` develops it correctly (BA = π·(r+K·t)); the near-flat fold **cannot self-intersect** — the return sits ~2·radius above the base with an air gap, verified valid down to r=1e-6 — so no guard or rescope was needed, the hem reuses the edge-flange bend + unfold machinery verbatim (a fixed 180° fold, DRY-shared `_fold_flange_off_edge`). Golden `closed-hem-plate` (valid solid + analytic unfold + area conservation + byte-determinism). Honest degradation (parity §3): a zero-radius/zero-gap hem is a typed schema rejection; a kernel fold failure is a typed `edge_flange_failed`. **Closed-hem authoring UI SHIPPED** (2026-07-19, frontend-builder): a `HemEditor` in the SHEET METAL toolbar group next to Base/Edge flange — single-select edge pick (reuses the edge-flange overlay), brass `length_mm` handle, a fixed "180° (closed)" fold readout (no angle field), inherited radius/K overrides; e2e models a plate with a closed hem by clicking, body + flat pattern render (`sheet-metal-hem-*.png`). **HEM-1 (2026-08-28) — the radius rule was wrong and it made this row's own definition false.** A hem's inner radius now comes from its TYPE and the part's GAUGE, never from the base flange's general bend radius: `closed` = 0.05 x gauge (gap 0.1 t), `open` = 0.5 x gauge (inside diameter = one gauge). Inheriting the general radius gave a 'closed' hem a **6.00 mm air gap on 2 mm sheet** with `status: ok` and a correct-reading label. An explicit `bend_radius_mm` is honoured in range and REFUSED out of it (`hem_type_radius_conflict`, symmetric); a sub-tolerance gap is `hem_gap_degenerate`. Note this row's cited 'zero inside radius' is the physical IDEAL, not a buildable one — measured, `r = 0` is OCCT `StdFail_NotDone` and any gap under the 1e-4 mm kernel tolerance is a zero-width slit. **`open` SHIPPED with the fix** (the same 180 deg fold at a one-gauge gap — it is what the defect was already building; retyping the shipped hems to `open` kept their geometry byte-identical). **Deferred:** teardrop / rolled — both wrap PAST 180 deg (mouth narrower than the bore), a genuinely different **curved cross-section profile** the exact-cross-section extrude does not build; they are deliberately absent from the `hem_type` Literal rather than named and unbuildable. | S ✅ (closed + open geom, closed UI) / M (teardrop/rolled — curved cross-section) |
 
 ## 3. Corners
 
@@ -154,9 +154,45 @@ research, called out inline.
    radius through `build_edge_flange` + the shipped unfold, no new kernel
    geometry, no guard needed (the fold-back cannot self-intersect). **Hem authoring
    UI SHIPPED 2026-07-19** (a `HemEditor` — single-select edge pick, brass length
-   handle, fixed 180° fold readout, inherited radius/K overrides). Remaining:
-   **open / teardrop / rolled** (each a new curved cross-section profile — a
-   genuinely different geometry), sequenced as the predicted fast-follows.
+   handle, fixed 180° fold readout, inherited radius/K overrides).
+
+   **HEM-1 (2026-08-28) — "a small radius" was never actually small, and OPEN
+   hems shipped by accident.** The 2026-07-19 slice let `bend_radius_mm` inherit
+   the part's GENERAL base-flange radius when omitted, and the fold's
+   cross-section makes the layers' air gap exactly `2 × radius`. So a
+   `hem_type="closed"` hem on 2 mm sheet with a 3 mm part radius built a **6.00 mm
+   gap — three gauges of air** — while the status read `ok`, the form read "NEW
+   CLOSED HEM" and the readout read `Fold 180° (closed)`. Wrong geometry asserted
+   to be correct; the golden could not catch it because it OVERRODE the radius and
+   so never exercised the default that was wrong.
+
+   **The rule now: a hem's inner radius is a function of its TYPE and the part's
+   GAUGE, never of the base flange's general radius** (which describes a
+   free-standing die bend — the thing an edge flange is, and a hem is not).
+   `closed` → `0.05 × gauge` (gap 0.1 t, the residual of a flattening press);
+   `open` → `0.5 × gauge` (inside diameter = one gauge, the standard minimum
+   opening). An explicit `bend_radius_mm` is honoured inside its type's range and
+   **refused** outside it (`hem_type_radius_conflict`), symmetrically in both
+   directions, so the label, the number and the solid cannot disagree. A gap at or
+   below the kernel's 1e-4 mm linear tolerance is refused as `hem_gap_degenerate`
+   — measured: `r = 0` is `StdFail_NotDone`, `r ≤ 1e-7` leaves no findable bend
+   cylinder (no flat pattern), and `r = 1e-6` builds a BRepCheck-VALID solid that
+   `find_zero_width_slits` calls degenerate. Zero inside radius is therefore the
+   physical ideal and not a buildable one; §2's row is corrected accordingly.
+
+   **`open` SHIPPED with the fix**, because it is the shape the defect was already
+   building: retyping the two previously-shipped "closed" hems (1.0 mm radius on
+   1.5–2.0 mm gauge) to `hem_type="open"` left their geometry and their
+   determinism hashes **byte-identical**, which is the proof they were open hems
+   all along under the wrong name. Goldens: `closed-hem-plate` (2 mm gauge, now
+   taking the DEFAULT radius) and `closed-hem-guard-panel` (a 300 × 180 mm guard
+   panel, 1.5 mm gauge, closed hems on both long edges — a second gauge, so the
+   gauge-proportional rule is exercised rather than assumed); both assert the AIR
+   GAP measured on the built solid, the property the feature's own name claims.
+   Remaining: **teardrop / rolled** — both wrap PAST 180°, so the mouth is
+   narrower than the bore and the exact-cross-section extrude cannot build them.
+   They are deliberately NOT `hem_type` members: naming a shape we cannot honour
+   is the same defect this rule exists to remove.
 4. **Jogs** (❌, §2). Research correction: **jogs got easier, not harder,
    since `sheet-metal.md` was written** — it predates the now-shipped
    depth-≥2 bend-tree unfold, and a jog is exactly a degenerate two-bend

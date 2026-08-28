@@ -273,7 +273,7 @@
               }
             }
           },
-          "hem_type": "closed",
+          "hem_type": "open",
           "length_mm": 8.0,
           "bend_radius_mm": 1.0
         }
@@ -313,7 +313,7 @@
               }
             }
           },
-          "hem_type": "closed",
+          "hem_type": "open",
           "length_mm": 8.0,
           "bend_radius_mm": 1.0
         }

@@ -391,6 +391,18 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   in docs/GEOMETRY-QA.md 2026-07-30). Same posture as
   `removal_reaches_body`: one predicate, asked by every verb that can produce
   the condition, never re-implemented per verb.
+  **And a verb whose own PARAMETERS determine the degeneracy refuses it in
+  advance rather than detecting it afterwards** (HEM-1, 2026-08-28). The
+  sheet-metal hem is the first case: its fold puts the two layers exactly
+  `2 * bend_radius` apart, so a sub-tolerance gap is arithmetic on an input, not
+  a discovery about an output. It used to be neither — the fold path did not ask
+  the predicate at all, so `bend_radius_mm = 1e-6` shipped a BRepCheck-VALID
+  solid carrying 300 mm² of coincident face with `status: ok` (recorded as a live
+  limit in `test_degenerate.py`, now promoted to the guard it documented). The
+  hem now refuses it as a typed `hem_gap_degenerate` before the fuse. The
+  predicate remains the one shared *definition* of the condition — the arithmetic
+  check is that definition applied to a case where the answer is knowable early,
+  not a second implementation of it.
 - **A SIMPLIFICATION may not change material, and no body reaches the user
   unchecked.** The third posture in the same family, and the one that closes it
   (finding CM-6 / QA-1, decision + evidence in docs/GEOMETRY-QA.md 2026-07-30).

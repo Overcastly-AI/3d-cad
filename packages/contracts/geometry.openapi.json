@@ -6805,7 +6805,7 @@
         "type": "object"
       },
       "SheetMetalHemParamsV1": {
-        "description": "A hem folded off a straight edge of the sheet \u2014 v1 CLOSED hem (parity \u00a72).\n\nA closed hem folds the picked edge ~180 deg back FLAT against the parent face,\nwith a small inner ``bend_radius_mm`` giving the doubled edge its tight,\nnear-zero air gap (the gap between the two layers is ~2 * bend_radius). It is a\nspecialization of the edge flange: the geometry side reuses ``build_edge_flange``\nwith the fold angle FIXED at 180 deg, so the fused body is one clean solid and\nthe flat pattern develops it as any bend (``BA = pi * (radius + K * thickness)``,\n\u00a71) \u2014 its bend-table row reads angle 180 deg.\n\n``edge`` is an :class:`EdgeSubshapeRef` naming the base-flange edge to hem \u2014 the\nSAME stage-1 :class:`EdgeSignature` machinery a fillet/chamfer or edge-flange\npick uses (topological-naming \u00a710); its ``feature_id`` materialises the\ndependency on the base-flange feature. ``length_mm`` is the developed flat\nlength of the folded-back return (to the bend tangent line, \u00a79 golden #1's\nconvention). ``bend_radius_mm`` / ``k_factor`` default from the part's base\nflange (:class:`SheetMetalBaseFlangeParamsV1`) when omitted (``None``) and may\nbe OVERRIDDEN per-hem \u2014 a tight closed hem sets a SMALL radius (e.g. ~0.5 *\nthickness) rather than the part's general bend radius.\n\nA ZERO ``bend_radius_mm`` (a truly zero-gap / zero-radius closed hem) is a\ndegenerate fold; the ``gt=0`` bound rejects it as a typed validation error\nrather than admitting a degenerate solid (honest degradation \u2014 parity \u00a73).\n\nLike a fillet/shell it MODIFIES the implicit single body chain (design \u00a77.6) \u2014\nit carries no ``merge`` (it always fuses into the sheet body the edge belongs\nto) \u2014 so its only whole-feature dependency is the named-edge ref + tree order.",
+        "description": "A hem folded off a straight edge of the sheet \u2014 closed or open (parity \u00a72).\n\nA hem folds the picked edge ~180 deg back over the parent face. It is a\nspecialization of the edge flange: the geometry side reuses ``build_edge_flange``\nwith the fold angle FIXED at 180 deg, so the fused body is one clean solid and\nthe flat pattern develops it as any bend (``BA = pi * (radius + K * thickness)``,\n\u00a71) \u2014 its bend-table row reads angle 180 deg.\n\n``edge`` is an :class:`EdgeSubshapeRef` naming the base-flange edge to hem \u2014 the\nSAME stage-1 :class:`EdgeSignature` machinery a fillet/chamfer or edge-flange\npick uses (topological-naming \u00a710); its ``feature_id`` materialises the\ndependency on the base-flange feature. ``length_mm`` is the developed flat\nlength of the folded-back return (to the bend tangent line, \u00a79 golden #1's\nconvention).\n\n**THE RADIUS COMES FROM THE HEM TYPE AND THE GAUGE, NOT FROM THE PART'S GENERAL\nBEND RADIUS** (HEM-1; :func:`resolve_hem_bend_radius_mm` and the block comment\nabove are the rule and its derivation). The fold's cross-section makes the air\ngap between the two layers exactly ``2 * bend_radius``, so the radius IS the\nhem's defining dimension: a ``closed`` hem is pressed flat (gap 0.1 * gauge \u2014\nthe residual of a flattening press; true zero is not buildable) and an ``open``\nhem leaves a deliberate opening (gap one gauge \u2014 inside diameter = gauge, the\nstandard minimum). ``bend_radius_mm`` overrides that per-hem, but a value that\ndescribes the OTHER hem type is REFUSED with a typed error naming the fix,\nrather than silently building a hem the label misdescribes.\n\n``k_factor`` still defaults from the part's base flange when omitted (``None``):\nK is a MATERIAL property (where the neutral surface sits), so unlike the radius\nit is genuinely a part-level default the hem inherits.\n\nA ZERO ``bend_radius_mm`` is a degenerate fold; the ``gt=0`` bound rejects it as\na typed validation error rather than admitting a degenerate solid (honest\ndegradation \u2014 parity \u00a73).\n\nLike a fillet/shell it MODIFIES the implicit single body chain (design \u00a77.6) \u2014\nit carries no ``merge`` (it always fuses into the sheet body the edge belongs\nto) \u2014 so its only whole-feature dependency is the named-edge ref + tree order.",
         "properties": {
           "bend_radius_mm": {
             "anyOf": [
@@ -6817,7 +6817,7 @@
                 "type": "null"
               }
             ],
-            "description": "INNER bend radius (mm) of the hem fold; the layers' air gap is ~2 * this. Omitted (None) inherits the part's base-flange default `bend_radius_mm`; a value overrides it per-hem. A tight closed hem uses a SMALL radius (~0.5 * thickness). A zero radius (zero-gap degenerate fold) is rejected by the `gt=0` bound.",
+            "description": "INNER bend radius (mm) of the hem fold; the layers' air gap is exactly 2 x this. Omitted (None) is derived from `hem_type` and the part's gauge \u2014 0.05 x gauge closed, 0.5 x gauge open. It is NOT inherited from the part's base-flange `bend_radius_mm` (that describes a free-standing die bend, and inheriting it put a 6 mm gap inside a 'closed' hem on 2 mm sheet \u2014 HEM-1). A value overrides the derived radius, but one that describes the OTHER hem type is REFUSED (`hem_type_radius_conflict`) rather than silently building a mislabelled hem: at most 0.125 x gauge for 'closed', at least 0.125 x gauge for 'open'. A zero radius (zero-gap degenerate fold) is rejected by the `gt=0` bound.",
             "title": "Bend Radius Mm"
           },
           "edge": {
@@ -6825,9 +6825,12 @@
             "description": "The base-flange STRAIGHT edge to hem (a stage-1 EdgeSignature reference resolved against the current sheet body). The return folds ~180 deg back over this edge's adjacent flat face."
           },
           "hem_type": {
-            "const": "closed",
             "default": "closed",
-            "description": "Hem shape. v1 ships 'closed' only (the return folds flat back against the parent \u2014 parity \u00a72). Open / teardrop / rolled hems each need a curved cross-section profile and are deferred (additive Literal members, no param_version bump). Absent reads 'closed'.",
+            "description": "Hem shape, which DETERMINES the fold's inner radius from the part's gauge (the air gap between the two layers is exactly 2 x that radius). 'closed' presses the return flat against the parent (gap 0.1 x gauge \u2014 the residual of a flattening press; a true zero radius is not buildable); 'open' leaves a deliberate opening (gap 1 x gauge, i.e. inside diameter = gauge, the standard minimum). Teardrop and rolled hems wrap PAST 180 deg and are not representable by this fold, so they are deliberately not values here (additive Literal members if that changes, no param_version bump). Absent reads 'closed'.",
+            "enum": [
+              "closed",
+              "open"
+            ],
             "title": "Hem Type",
             "type": "string"
           },
@@ -6842,7 +6845,7 @@
                 "type": "null"
               }
             ],
-            "description": "Neutral-axis fraction K in [0, 1] for the hem's bend allowance (\u00a71). Omitted (None) inherits the part's base-flange default `k_factor` (0.44 v1 baseline); a value overrides it per-hem.",
+            "description": "Neutral-axis fraction K in [0, 1] for the hem's bend allowance (\u00a71). Omitted (None) inherits the part's base-flange default `k_factor` (0.44 v1 baseline) \u2014 K is a material property, so unlike the radius it IS a part-level default; a value overrides it per-hem.",
             "title": "K Factor"
           },
           "length_mm": {
