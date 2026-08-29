@@ -327,6 +327,66 @@ DELETED in this commit and replaced by two ordinary gates — nothing raises, an
 no solved payload ships a circle that is not there; the second is not a
 restatement of the first and is what covers trials 644/926.
 
+**ARC-DEGENERATE-1 CLOSED (kernel-architect, 2026-08-29) — the same collapse on
+an ARC had no loud half at all, so it was shipping 27 payloads of absent
+geometry that every gate agreed with.** The ticket was filed off an ASYMMETRY
+rather than a failure, and that turned out to be the only signal available:
+`_add_entity` raises `SketchDefinitionError` on an arc whose start coincides
+with its centre, so the solver refused to ACCEPT a shape it would happily EMIT.
+Nothing downstream asked, and nothing could — a `SketchArc` carries
+`center`/`start`/`end` and DERIVES its radius, so there is no `gt=0` field to
+refuse an annihilated one, and the residual is **zero**, because a constraint
+satisfied by putting a point on a point is satisfied exactly. Measured on
+PBT-1's own corpus: **27 of 2000** sketches shipped one (25 `overconstrained`,
+2 `underconstrained`), against 12 crashes for the circle.
+**The prior question was re-asked and re-measured, because SOLVE-CRASH-1's
+answer to it was BOTH and one rule for all twelve would have been wrong.** Two
+independent probes per case — pin a radius any non-degenerate solution could
+reach, and re-solve from 8 configurations with the arc pushed 7 mm off the
+degenerate one — put it at **26 forced, 1 branch**. Sixteen of the 26 minimise
+to a SINGLE constraint, `coincident` between an arc's own centre and its own
+endpoint, which is literally the shape `_add_entity` refuses on input, authored
+as a constraint instead of as coordinates. The fix is the circle's with no new
+machinery: `_shippable_arc_points` returns the author's own arc translated to
+the solved centre, which then fails the very constraint that annihilated it, and
+the EXISTING payload gate reclassifies it as `sketch_conflicting` with that
+constraint NAMED. The input refusal keeps its exception (the `SketchSolver`
+contract reserves those for malformed INPUT) but is now the same MAGNITUDE test
+rather than `== 0.0`, which had admitted an authored arc of radius 1e-14 mm.
+**THE THRESHOLD IS NOT THE CIRCLE'S, AND THE REASON GENERALISES.** A circle's
+radius is the solver's own PARAMETER and lands at `0.0`; an arc's is a DERIVED
+distance between two independently-solved points and carries DogLeg's
+convergence residue. Every annihilated arc in the corpus sat at or below
+**4.0e-14 mm**, so the circle's `1e-9` floor looked like five orders of
+headroom. It was not — **the fix moved its own population**: with the
+substitution in place `_geometry_says_satisfied` correctly stops agreeing with
+an annihilated arc, so the settle refuses every hold on such a sketch, and the
+settle had been what drove trial 458's arc from the raw solve's **4.5e-9 mm**
+down to `0.0`. At `1e-9` the fix therefore shipped one case it had created.
+`DEGENERATE_ARC_RADIUS_MM = SATISFIED_TOL_MM` (1e-7 mm) is the tolerance at
+which this module already declares a constraint satisfied — a radius the solver
+cannot tell from zero. Headroom is untouched: the smallest real arc in the
+corpus is **0.71 mm** and the kernel's linear tolerance is 1e-4 mm. The rule
+worth carrying past this ticket: **a floor measured from a population the fix
+itself perturbs must be re-measured AFTER the fix.**
+**MUTATION EVIDENCE, three mutants, all restored.** (a) Reverting `read_back` to
+the raw endpoints reproduces the original census exactly — **27 annihilated
+arcs, solvable 1328, conflicting 287, overconstrained 282** — and reddens 6
+tests. (b) Using the CIRCLE's `DEGENERATE_RADIUS_MM` (the fix I nearly shipped)
+leaves **1** annihilated arc, trial 458 at 4.5e-9 mm under `overconstrained`,
+caught by 3 assertions. (c) Reverting the input refusal to `== 0.0` admits an
+authored arc of radius 1e-14 mm, caught by 1.
+**Sweep census, before -> after:** annihilated arcs 27 -> **0**, conflicting
+287 -> 314, overconstrained 282 -> 257, underconstrained 1297 -> 1295, solvable
+1328 -> 1326, raised 0 -> 0, violated 0 -> 0, reversed 0 -> 0.
+**ONE RECORDED LIVE LIMIT REMAINS, DELIBERATELY.** Trial 1906's tangency admits
+`r2 = 2*r1` as well as `r2 = 0` — 4 of 8 pushed starts reach it at residual
+`0.0` — so that sketch is SOLVABLE and now gets `conflicting`. That is wrong,
+and saying so is the point: it is less wrong than shipping a void (the user is
+told and the sketch stays editable), and choosing the branch is a solver change
+filed as ARC-BRANCH-1, not something to improvise inside a payload gate. The
+test bounds it BOTH ways, so closing the gap reddens the suite.
+
 **REACH-3-FLOW CLOSED (frontend-builder, 2026-08-28) — the orientation
 proposal never fired on the only sheet most drawings have, and the paper cell
 quoted a scale it could not produce.** (P1-1) The proposal was structurally

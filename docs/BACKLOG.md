@@ -36,7 +36,10 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
   moved the census. SOLVE-CRASH-1 (the crash PBT-1 found) is also closed —
   see BACKLOG entry. Filed this pass: ARC-DEGENERATE-1 (P2 — the solver
   refuses a degenerate arc on input but emits one on output, flagged by
-  the SOLVE-CRASH-1 agent, out of that ticket's scope). Collapsed the
+  the SOLVE-CRASH-1 agent, out of that ticket's scope) — **now also CLOSED
+  (2026-08-29): 27 of 2000 payloads were shipping a collapsed arc at a
+  residual of zero; follow-ups ARC-BRANCH-1 (P2) and ARC-EXTRUDE-EPS-1
+  (P3) filed.** Collapsed the
   now-closed Ready-queue items (A11Y-TOOLBTN-1, MEASURE-PROXY-1, EXPORT-3,
   REACH-2-IMPORT-1, REACH-3-FLOW, REACH-2-FLOW, HEM-1C, HEM-1D, PGTEST-GATE,
   K2, PBT-1, SOLVE-CRASH-1, CI-BAL) into the Done archive.
@@ -74,10 +77,10 @@ Ranked, disjoint, parallel-dispatchable:
    sketch entry even though the GHOST opacity control already exists.
 5. **STEPNAME-1** (P1, XS, kernel-architect) — assembly STEP export names
    components with raw UUIDs instead of their part names.
-6. **ARC-DEGENERATE-1** (P2, S, kernel-architect, new this pass) — the
-   solver refuses an arc driven onto its own centre on INPUT but emits one
-   on OUTPUT with no complaint; same class as SOLVE-CRASH-1, out of that
-   ticket's scope.
+6. **ARC-DEGENERATE-1 is SHIPPED** (kernel-architect, 2026-08-29) — 27 of
+   2000 payloads were shipping an arc collapsed onto its own centre, at a
+   residual of zero; now `sketch_conflicting` with the constraint named. See
+   the entry below and ROADMAP for the census and the two follow-ups filed.
 7. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
    unrelated edit hits a silent, unexplained disabled Save.
 8. **SNAP-4** (P2, S, frontend-builder) — an explicit Fix on a point the
@@ -142,35 +145,85 @@ See Done archive.**
       PartPage.tsx` / tree panel. agentType: backend-builder +
       frontend-builder.
 
-- [ ] (P2, S) **ARC-DEGENERATE-1 — an arc whose start is driven onto its own
-      centre still ships without complaint; the solver refuses that shape on
-      INPUT but emits one on OUTPUT.** kind: defect (contract, same class as
-      SOLVE-CRASH-1). Flagged by the SOLVE-CRASH-1 agent (2026-08-29) as out
-      of that ticket's scope, no gate covers it. `_add_entity` raises
-      `SketchDefinitionError` if an arc's start point coincides with its
-      centre on the way IN, but nothing stops a chain of constraints from
-      driving an already-accepted arc's start onto its centre during solve,
-      and the resulting degenerate arc (zero radius / undefined angle) is
-      read back and shipped as if it were an ordinary solved entity. SOLVE-
-      CRASH-1's lesson applies directly: a loud defect (a crash, an input
-      refusal) and a silent one (a degenerate payload nothing objects to) are
-      different defects, and the obvious minimal fix (refusing malformed
-      input) only closes the loud half. FIX: extend the same magnitude-based
-      degenerate-geometry gate SOLVE-CRASH-1 added for circles
-      (`DEGENERATE_RADIUS_MM`) to cover an arc's start-to-centre distance on
-      OUTPUT, reclassifying a solve that produces one as `sketch_conflicting`
-      rather than shipping it. ACCEPTANCE: a sketch construction that drives
-      an arc's start onto its own centre via constraints (not by direct
-      input) is reproduced first (measure the population, per PBT-1's own
-      sweep, before choosing a fix — do not assume the count); the fixed
-      solver ships `sketch_conflicting` for that population instead of a
-      degenerate arc; a golden/property test pins the new floor so a future
-      regression cannot silently reopen it.
+- [x] (P2, S) **ARC-DEGENERATE-1 — SHIPPED (kernel-architect, 2026-08-29).
+      27 of 2000 payloads shipped an arc collapsed onto its own centre, and
+      every gate agreed with all 27.** The asymmetry the ticket named was the
+      only signal there was: a `SketchArc` derives its radius from three
+      coordinates, so an annihilated one is a valid DTO whose residual is
+      *zero* — a constraint satisfied by putting a point on a point is
+      satisfied exactly. Population measured before choosing a fix, per the
+      ticket: 25 `overconstrained`, 2 `underconstrained`, all at 4e-14 mm or
+      less. Prior question re-asked (pin a reachable radius; re-solve from 8
+      pushed starts): **26 forced, 1 branch**; 16 of the 26 minimise to a
+      single `coincident` between an arc's own centre and its own endpoint —
+      literally the input shape `_add_entity` refuses, authored as a
+      constraint. Fix is SOLVE-CRASH-1's with no new machinery
+      (`_shippable_arc_points` -> the existing payload gate ->
+      `sketch_conflicting`, constraint named); the input refusal keeps its
+      exception but is now the same magnitude test rather than `== 0.0`.
+      **The floor is NOT the circle's** — an arc's radius is a derived
+      distance, not a solver parameter, and the fix's own effect on the settle
+      moved trial 458 to 4.5e-9 mm, above `DEGENERATE_RADIUS_MM`; hence
+      `DEGENERATE_ARC_RADIUS_MM = SATISFIED_TOL_MM`, re-measured after the
+      fix. Census: annihilated arcs 27 -> 0, conflicting 287 -> 314,
+      overconstrained 282 -> 257, solvable 1328 -> 1326, violated still 0.
+      Three mutants, all restored. Gates: `just lint` exit 0, `uv run
+      pyright` clean, geometry suite green. Filed as follow-ups: ARC-BRANCH-1,
+      ARC-EXTRUDE-EPS-1.
       [src: SOLVE-CRASH-1 agent report, kernel-architect, 2026-08-29, filed
       by backlog-groomer pass 19]
+
+- [ ] (P2, S) **ARC-BRANCH-1 — a solve picks the DEGENERATE branch of a
+      tangency that also has a real one, so a solvable sketch now reports
+      `conflicting`.** kind: defect (solver branch selection). Found and
+      recorded as a live limit by ARC-DEGENERATE-1 (2026-08-29), which
+      deliberately did NOT fix it: PBT-1 trial 1906 puts one arc's centre on
+      another arc's endpoint and makes the two tangent, which admits both
+      `r2 = 0` and `r2 = 2*r1`. From the author's own starting configuration
+      the solver lands on `r2 = 3.9e-14`; **4 of 8 starts with the arc pushed
+      7 mm away reach `r2 = 29.236` mm at a residual of exactly `0.0`.**
+      Before ARC-DEGENERATE-1 that sketch shipped a void under
+      `underconstrained`; after it, `conflicting`. Both are wrong — the
+      sketch is solvable — and the second is only the better of two wrong
+      answers. This is a change to how the solver CHOOSES a branch, which is
+      the same family as SETTLE-2's "a settle must refine the plain solve,
+      never jump branches", and it does not belong inside a payload gate.
+      ACCEPTANCE: the sketch pinned by
+      `test_the_branch_case_is_a_recorded_live_limit_not_a_forced_collapse`
+      solves to the non-degenerate branch deterministically (RESEARCH §9 —
+      same input, same branch, every time); that test is DELETED in the same
+      commit, as its own docstring requires; the PBT-1 census is re-reported.
+      [src: ARC-DEGENERATE-1, kernel-architect, 2026-08-29]
       TERRITORY: `services/geometry/src/geometry/sketch/planegcs_solver.py`,
-      `services/geometry/tests/test_sketch_solver_sweep.py` (extend the
-      sweep's own gates, per PBT-1's pattern). agentType: kernel-architect.
+      `services/geometry/tests/test_sketch_degenerate_arc.py`. agentType:
+      kernel-architect.
+
+- [ ] (P3, XS) **ARC-EXTRUDE-EPS-1 — the kernel's degenerate-arc guard is a
+      `<= 0.0` test where the values that reach it straddle zero.** kind:
+      defect (tolerance). Found by ARC-DEGENERATE-1 (2026-08-29):
+      `kernel/extrude.py` refuses an arc with `radius <= 0.0`, but the
+      annihilated arcs measured in PBT-1's corpus include values of `1.6e-14`
+      and `3.9e-14` mm, which clear that guard and become OCCT edges five
+      orders under the 1e-7 m kernel tolerance. Exactly the seam
+      SOLVE-CRASH-1 documented, one layer down. NOT fixed with
+      ARC-DEGENERATE-1 for a reason worth keeping: `geometry.kernel` has NO
+      dependency on `geometry.sketch` today, so importing
+      `DEGENERATE_ARC_RADIUS_MM` there is a layering change, and writing
+      `1e-9`/`1e-7` down a third time is the DRY violation the constant
+      already documents itself against. P3 rather than P2 because
+      ARC-DEGENERATE-1 closed both ends of the SOLVER, so nothing in the
+      service can currently hand `extrude` such an arc — this is
+      belt-and-braces against a future producer. ACCEPTANCE: decide where a
+      shared degenerate-curve tolerance lives (a neutral module both packages
+      may import, or an explicit reviewed kernel->sketch dependency), apply it
+      in `extrude.py` and `revolve.py` (which has NO guard at all — a
+      zero-radius arc contributes `_ARC_SAMPLES+1` identical samples at the
+      centre and silently mis-reports the revolve extent), with a test at the
+      measured magnitudes rather than at zero.
+      [src: ARC-DEGENERATE-1, kernel-architect, 2026-08-29]
+      TERRITORY: `services/geometry/src/geometry/kernel/extrude.py`,
+      `revolve.py`, plus wherever the shared constant lands. agentType:
+      kernel-architect.
 
 **DOCTICK-GATE (`bd09f5b`, docstring fix `53e62b0`) and SPEC-9 (`e8702d5`)
 are both SHIPPED — see Done archive for evidence/gates.**

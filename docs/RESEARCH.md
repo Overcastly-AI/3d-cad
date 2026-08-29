@@ -241,6 +241,46 @@ annihilated-circle fixture) — the crash traded for a lie. Net over the corpus:
 crashes 12 -> **0**, solvable 1327 -> 1328, conflicting 276 -> 287, violated
 still 0.
 
+**The same collapse on an ARC had no loud half at all, shipped 27 payloads of
+absent geometry, and needed a WIDER floor than the circle's**
+(ARC-DEGENERATE-1, 2026-08-29). A `SketchArc` carries `center`/`start`/`end` and
+DERIVES its radius, so there is no `gt=0` field to refuse an annihilated one: the
+DTO is valid, and — the reason no gate saw it — the residual is **zero**, because
+a constraint satisfied by putting a point on a point is satisfied exactly. The
+same PBT-1 corpus shipped **27 arcs collapsed onto their own centre**, 25 under
+`overconstrained` and 2 under `underconstrained`, all at 4e-14 mm or less. What
+pointed at it was an ASYMMETRY, not a failure: `_add_entity` refuses that exact
+shape on INPUT, so the solver refused to accept what it would happily emit. The
+prior question SOLVE-CRASH-1 turned on was re-asked and measured — pin a radius
+any real solution could reach, and re-solve from eight pushed configurations —
+and here the answer is **26 forced, 1 branch**: sixteen of the 26 minimise to a
+SINGLE `coincident` between an arc's own centre and its own endpoint, which is
+literally the refused input shape authored as a constraint. The fix is the
+circle's, with no new machinery: `_shippable_arc_points` returns the author's own
+arc translated to the solved centre, which fails the very constraint that
+annihilated it, and the existing payload gate reclassifies it as
+`sketch_conflicting` with that constraint NAMED.
+
+**The arc's floor is `SATISFIED_TOL_MM` (1e-7 mm), NOT the circle's 1e-9, and the
+reason generalises past this ticket.** A circle's radius is the solver's own
+PARAMETER — a constraint annihilating it sets it to `0.0`. An arc's is a DERIVED
+distance between two independently-solved points, so it carries DogLeg's
+convergence residue rather than float noise. Every arc in the corpus sat at or
+below 4e-14 mm, so 1e-9 looked like five orders of headroom; it was not, because
+**the fix itself moved the population**: with the substitution in place the
+settle correctly stops holding anything on such a sketch, and the settle had been
+what drove trial 458's arc from the raw solve's **4.5e-9 mm** down to `0.0`. Set
+at 1e-9 the fix therefore shipped one case it had created. The rule to carry: **a
+tolerance measured from a population the fix perturbs must be re-measured AFTER
+the fix.** Headroom is unaffected — the smallest real arc in the corpus is
+0.71 mm and the kernel's own linear tolerance is 1e-4 mm, so nothing legitimate
+lives in the band. Net over the corpus: annihilated arcs 27 -> **0**, conflicting
+287 -> 314, overconstrained 282 -> 257, solvable 1328 -> 1326, violated still 0.
+**One recorded live limit remains and is deliberate:** trial 1906's tangency
+admits `r2 = 2*r1` as well as `r2 = 0`, so that sketch is SOLVABLE and now gets
+`conflicting` — wrong, but less wrong than shipping a void, and choosing the
+branch is a solver change (ARC-BRANCH-1), not a payload gate.
+
 **Spline FIT POINTS are constrainable (v1.1, 2026-07-15); the spline CURVE is
 not.** planegcs still has no spline primitive, so the curve carries no
 tangent/curvature constraints. What v1.1 adds is that each fit point is

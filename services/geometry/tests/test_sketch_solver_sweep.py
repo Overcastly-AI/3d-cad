@@ -10,11 +10,12 @@ not be swept the same way, and the alarming number that sweep produced — **7 o
 success** (RESEARCH §2) — was unverifiable and unmonitored. There was no way to
 show it is now 0, and no way to notice it regress.
 
-**Re-measured on this corpus: 0 of 1328** (it was 0 of 1327 at the commit that
-added this module; SOLVE-CRASH-1 turned three formerly-crashing sketches into
-real solves). The 95% upper bound on the violation rate is therefore
-3/1328 = 0.23% (rule of three), against the 4.5% the original sweep measured.
-That number is now a gate.
+**Re-measured on this corpus: 0 of 1326** (1327 at the commit that added this
+module; 1328 after SOLVE-CRASH-1 turned three formerly-crashing sketches into
+real solves; 1326 after ARC-DEGENERATE-1 reclassified two annihilated-arc
+payloads out of ``underconstrained``). The 95% upper bound on the violation rate
+is therefore 3/1326 = 0.23% (rule of three), against the 4.5% the original sweep
+measured. That number is now a gate.
 
 The sweep did not come back empty, though — it found three OTHER things, all
 reported rather than folded into a green test: an unhandled
@@ -35,6 +36,22 @@ last DogLeg iterate landed on the positive side of zero, and no property here
 could see them. The fix moved 9 of the 12 crashes and both of those to
 ``conflicting`` (276 -> 287) and turned the other 3 into real solves
 (solvable 1327 -> 1328), each with a worst residual under ``1.8e-13`` mm.
+
+**The SAME defect on an ARC had no loud half at all, and took a fourth gate to
+see** (ARC-DEGENERATE-1,
+:func:`test_no_solved_payload_ships_an_arc_that_is_not_there`). An arc DERIVES
+its radius from three coordinates instead of carrying it in a ``gt=0`` field, so
+there was never a crash to notice: **27 payloads here shipped an arc collapsed
+onto its own centre**, 25 under ``overconstrained`` and 2 under
+``underconstrained``, all at ``4e-14`` mm or less and all with a worst residual
+under ``6e-11`` mm — because a constraint satisfied by putting a point on a point
+is satisfied EXACTLY. Every property in this module agreed with all 27, and the
+ticket was filed off an asymmetry (``_add_entity`` refuses that shape on INPUT)
+rather than off any failure here. That is the lesson worth carrying: **a residual
+oracle cannot see a degeneracy its own constraint is happy with**, so "no
+violated constraint" and "no absent geometry" are two properties and each needs
+its own assertion. Census after: ``conflicting`` 287 -> 314, ``overconstrained``
+282 -> 257, ``underconstrained`` 1297 -> 1295, solvable 1328 -> 1326.
 
 Seeded fixed corpus, NOT hypothesis
 -----------------------------------
@@ -163,6 +180,7 @@ from geometry.sketch import (
 from geometry.sketch.angles import angle_frames
 from geometry.sketch.expression import evaluate_driving_dimensions
 from geometry.sketch.planegcs_solver import (
+    DEGENERATE_ARC_RADIUS_MM,
     DEGENERATE_RADIUS_MM,
     SATISFIED_TOL_MM,
     _GcsBuild,  # pyright: ignore[reportPrivateUsage]
@@ -180,12 +198,12 @@ SOLVER: SketchSolver = PlanegcsSketchSolver()
 SWEEP_SEED = 20260822
 
 #: Trials per run. 2000 rather than the original 400 because the question this
-#: module answers is now "is the violation rate zero", and a zero over 1328
+#: module answers is now "is the violation rate zero", and a zero over 1326
 #: solvable sketches bounds the rate at 0.23% where 155 bounded it only at 1.9%.
 #: Measured cost is ~6 ms/trial, so the whole module is ~12 s.
 SWEEP_TRIALS = 2000
 
-#: Vacuity floor. The measured solvable count is 1328 of 2000; this is ~60% of
+#: Vacuity floor. The measured solvable count is 1326 of 2000; this is ~60% of
 #: it, low enough that ordinary solver churn does not trip it and high enough
 #: that the sweep cannot quietly stop exercising anything. A run below this is
 #: not a weaker sweep, it is a sweep whose generator has broken.
@@ -473,6 +491,28 @@ def shipped_residual(sketch: SketchDefinition, shipped: list[SketchEntity]) -> f
     )
 
 
+def _arc_radius(entity: SketchArc) -> float:
+    """An arc's radius as every consumer derives it, from its WORSE endpoint.
+
+    Re-derived here rather than imported from
+    :mod:`geometry.sketch.residual`, for the same reason
+    :func:`_reversed_entities` re-derives SETTLE-2's dot product: the shipped
+    payload is what is under test, and an oracle that borrows the production
+    helper cannot see a mutation of it.
+
+    ``max``, matching
+    :func:`~geometry.sketch.planegcs_solver._shippable_arc_points`: an arc is
+    ANNIHILATED only when both endpoints have reached the centre. One endpoint
+    there and the other 10 mm away is a different defect — an arc that is not
+    internally an arc — which ``entity_residual`` catches through
+    :func:`shipped_residual` and which this must not claim as its own.
+    """
+    return max(
+        math.hypot(entity.start.x - entity.center.x, entity.start.y - entity.center.y),
+        math.hypot(entity.end.x - entity.center.x, entity.end.y - entity.center.y),
+    )
+
+
 def _senses(entities: list[SketchEntity]) -> dict[str, tuple[float, float]]:
     return {
         entity.id: (
@@ -572,6 +612,13 @@ class Census:
     #: :data:`~geometry.sketch.planegcs_solver.DEGENERATE_RADIUS_MM` — the
     #: SILENT half of SOLVE-CRASH-1 (see the module docstring).
     annihilated: list[Finding] = field(default_factory=list["Finding"])
+    #: Payloads shipping an ARC the solve drove onto its own centre
+    #: (ARC-DEGENERATE-1). Counted separately from :attr:`annihilated` and
+    #: against a different threshold
+    #: (:data:`~geometry.sketch.planegcs_solver.DEGENERATE_ARC_RADIUS_MM`),
+    #: because an arc's radius is a derived distance rather than a solver
+    #: parameter — merging the two would hide which of the two floors moved.
+    annihilated_arcs: list[Finding] = field(default_factory=list["Finding"])
     moved_passthrough: list[Finding] = field(default_factory=list["Finding"])
     dirty_overconstrained: list[Finding] = field(default_factory=list["Finding"])
 
@@ -583,7 +630,8 @@ class Census:
             f"  orientation-checked {self.orientation_checked}; "
             f"overconstrained returned as input {self.overconstrained_passthrough}",
             f"  raised {len(self.crashed)}; annihilated circles "
-            f"{len(self.annihilated)}; recorded live limit: "
+            f"{len(self.annihilated)}; annihilated arcs "
+            f"{len(self.annihilated_arcs)}; recorded live limit: "
             f"{len(self.moved_passthrough)} moved-passthrough",
             f"  sweep wall clock {self.seconds:.1f}s "
             f"({1000 * self.seconds / max(self.trials, 1):.1f} ms/trial)",
@@ -626,6 +674,22 @@ def run_sweep(trials: int = SWEEP_TRIALS, seed: int = SWEEP_SEED) -> Census:
                         f"status={solved.status} ships circle(s) {annihilated} "
                         f"below {DEGENERATE_RADIUS_MM} mm",
                         "annihilated",
+                    )
+                )
+            flat_arcs = [
+                entity.id
+                for entity in solved.entities
+                if isinstance(entity, SketchArc)
+                and _arc_radius(entity) < DEGENERATE_ARC_RADIUS_MM
+            ]
+            if flat_arcs:
+                census.annihilated_arcs.append(
+                    Finding(
+                        trial,
+                        sketch,
+                        f"status={solved.status} ships arc(s) {flat_arcs} "
+                        f"below {DEGENERATE_ARC_RADIUS_MM} mm",
+                        "annihilated_arc",
                     )
                 )
         if solved.status in PASSTHROUGH_STATUSES:
@@ -788,6 +852,25 @@ def _reproduces(finding: Finding) -> Callable[[SketchDefinition], bool]:
             )
 
         return annihilates
+
+    if finding.kind == "annihilated_arc":
+
+        def flattens(candidate: SketchDefinition) -> bool:
+            try:
+                solved = SOLVER.solve(candidate)
+            except Exception:
+                return False
+            if [e.model_dump() for e in solved.entities] == [
+                e.model_dump() for e in candidate.entities
+            ]:
+                return False
+            return any(
+                isinstance(entity, SketchArc)
+                and _arc_radius(entity) < DEGENERATE_ARC_RADIUS_MM
+                for entity in solved.entities
+            )
+
+        return flattens
 
     def violates(candidate: SketchDefinition) -> bool:
         try:
@@ -967,6 +1050,33 @@ def test_no_solved_payload_ships_a_circle_that_is_not_there(census: Census) -> N
         f"{len(census.annihilated)} payloads ship a circle the solve drove "
         f"below {DEGENERATE_RADIUS_MM} mm, i.e. geometry that is not there:\n"
         f"{_report(census.annihilated)}"
+    )
+
+
+def test_no_solved_payload_ships_an_arc_that_is_not_there(census: Census) -> None:
+    """ARC-DEGENERATE-1 — the same defect with NO loud half at all.
+
+    A circle annihilated by a solve at least crashed, because ``radius`` is
+    ``gt=0``. An arc DERIVES its radius from ``center``/``start``/``end``, so
+    annihilating one builds a DTO nothing refuses, and the residual is **zero** —
+    a constraint satisfied by putting a point on a point is satisfied exactly. So
+    this corpus was shipping **27 arcs of radius 4e-14 mm or less** (25 under
+    ``overconstrained``, 2 under ``underconstrained``) and every property in this
+    module agreed with all of them, which is why the ticket was filed off an
+    ASYMMETRY — ``_add_entity`` refuses that exact shape on INPUT — rather than
+    off any failure.
+
+    Deliberately a separate assertion from
+    :func:`test_no_solved_payload_ships_a_circle_that_is_not_there` even though
+    both say "no geometry that is not there": the thresholds differ
+    (``DEGENERATE_ARC_RADIUS_MM`` vs ``DEGENERATE_RADIUS_MM``, for the measured
+    reason in the constant's own docstring), so one message must not be able to
+    stand in for the other when a floor moves.
+    """
+    assert not census.annihilated_arcs, (
+        f"{len(census.annihilated_arcs)} payloads ship an arc the solve drove "
+        f"onto its own centre (below {DEGENERATE_ARC_RADIUS_MM} mm), i.e. "
+        f"geometry that is not there:\n{_report(census.annihilated_arcs)}"
     )
 
 
