@@ -221,4 +221,133 @@ test.describe("inspector at the 1280x800 floor — nothing is silently cut", () 
       path: `${SCREENSHOT_DIR}/t18-inspector-1280-scrolled.png`,
     });
   });
+
+  /**
+   * LAYOUT-1's own acceptance criterion, which T-18's case does not cover.
+   *
+   * The two claims are different and the difference is the whole ticket. T-18
+   * asks "can the user REACH every readout" and answers it by scrolling each row
+   * into view first. LAYOUT-1 asks the geometric question the audit actually
+   * measured — "does the pinned strip DRAW OVER a row that is on screen" — and a
+   * spec that scrolls before probing can never see that, because scrolling is
+   * what moves the row out from under the strip.
+   *
+   * It has to be CLIP-AWARE, and that is the trap in writing it. A row below the
+   * fold has a `getBoundingClientRect` that runs straight through the strip's
+   * band — the rect is the row's LAYOUT position, which a scroll container does
+   * not intersect for you — so a naive rect-vs-rect sweep reports an overlap on
+   * a perfectly healthy panel and would have "found" this defect on any build.
+   * (Measured on the fixed tree: eight of ten rows report a rect that overlaps
+   * the strip, and every one of them is simply scrolled away.) The visible band
+   * is the scroll viewport's own rect; a row's REAL extent is its rect clipped to
+   * that, and a row with nothing left is off-sheet, not covered.
+   */
+  test("LAYOUT-1: the pinned strip never draws over a readout on screen", async ({
+    page,
+  }) => {
+    const partId = await seedPlate(page);
+    await page.goto(`/parts/${partId}`);
+    await expect(page.getByTestId("prop-volume")).toContainText("96,000", {
+      timeout: 30_000,
+    });
+    // The audit measured a FINISHED part: a material adds Mass and Centre of
+    // mass, the two rows that pushed the bounding box down into the strip.
+    await page
+      .getByTestId("material-default-select")
+      .selectOption("steel_1018");
+    await expect(page.getByTestId("prop-mass")).toBeVisible({
+      timeout: 30_000,
+    });
+
+    // Captured BEFORE the assertions so a red run still leaves the frame that
+    // failed — the evidence is worth more when the gate is the thing that broke.
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/layout1-inspector-1280.png`,
+    });
+
+    const layout = await page.evaluate(() => {
+      const panel = document.querySelector<HTMLElement>(
+        '[data-viewport-chrome="panel-inspector"]',
+      );
+      const viewport = panel?.querySelector<HTMLElement>(
+        "[data-scroll-edges] .scrollbar-instrument",
+      );
+      const strip = document.querySelector<HTMLElement>(
+        '[data-testid="panel-footer-inspector"]',
+      );
+      if (!panel || !viewport || !strip) return null;
+      const P = panel.getBoundingClientRect();
+      const V = viewport.getBoundingClientRect();
+      const S = strip.getBoundingClientRect();
+      const rows = Array.from(
+        panel.querySelectorAll<HTMLElement>("[data-testid^='prop-']"),
+      ).map((row) => {
+        const r = row.getBoundingClientRect();
+        // The row as the USER has it: its box clipped to the visible band.
+        const top = Math.max(r.top, V.top);
+        const bottom = Math.min(r.bottom, V.bottom);
+        const id = row.getAttribute("data-testid") ?? "";
+        if (bottom - top <= 0) return { id, onScreen: false, owner: id };
+        const hit = document.elementFromPoint(
+          r.x + r.width / 2,
+          (top + bottom) / 2,
+        );
+        const owner = hit?.closest("[data-testid]") ?? null;
+        return {
+          id,
+          onScreen: true,
+          owner:
+            owner === null
+              ? `UNOWNED:${hit?.tagName ?? "nothing"}`
+              : (owner.getAttribute("data-testid") ?? ""),
+        };
+      });
+      return {
+        stripTopMinusBandBottom: S.top - V.bottom,
+        stripBottomMinusPanelBottom: S.bottom - P.bottom,
+        onScreenCount: rows.filter((row) => row.onScreen).length,
+        rows,
+      };
+    });
+    expect(
+      layout,
+      "the inspector panel, its scroll band and its strip",
+    ).not.toBeNull();
+    if (layout === null) return;
+
+    // 1. THE GEOMETRY. The scrolling band ends exactly where the pinned strip
+    //    begins: they abut, they never intersect. The audit measured a 73 px
+    //    intersection here (`BOUNDING BOX` y=410..532 under an export band at
+    //    y=459..590), which is the number this bound exists to keep at zero.
+    expect(
+      layout.stripTopMinusBandBottom,
+      "the EXPORT strip must begin at or below the scrolling band's last pixel",
+    ).toBeGreaterThanOrEqual(-1);
+
+    // 2. And the strip stays inside the panel rather than hanging past it —
+    //    the other way this collision can present, and the one that would put
+    //    the strip over the reference cube instead of over the readouts.
+    expect(
+      layout.stripBottomMinusPanelBottom,
+      "the EXPORT strip must not hang below the panel it is pinned to",
+    ).toBeLessThanOrEqual(1);
+
+    // 3. Every row the user can actually SEE answers to itself at its own
+    //    centre — the audit's probe, run WITHOUT scrolling first, which is the
+    //    condition under which it returned `SPAN:"Export"`. A count floor comes
+    //    with it: a panel that rendered nothing would satisfy "no row is
+    //    covered" vacuously, and a vacuous gate is the failure mode this repo
+    //    keeps paying for.
+    expect(
+      layout.onScreenCount,
+      "at least the properties block must be on screen at the 1280x800 floor",
+    ).toBeGreaterThanOrEqual(6);
+    for (const row of layout.rows) {
+      if (!row.onScreen) continue;
+      expect(
+        row.owner,
+        `${row.id} is on screen but a pointer at its centre lands on ${row.owner}`,
+      ).toBe(row.id);
+    }
+  });
 });

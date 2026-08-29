@@ -38,6 +38,42 @@ repair: HEM-1C (editor still claims base-flange inheritance for the radius
 and suggests the exact value the server refuses) and HEM-1D (UI cannot author
 an `open` hem at all) — **BOTH CLOSED**, see the entry below.
 
+**LAYOUT-1 CLOSED BY MEASUREMENT, NOT BY A FIX (frontend-builder, 2026-08-29)
+— the inspector overlap corroborated three times does NOT reproduce on HEAD,
+and the ticket was one groom pass away from being fixed twice.** T-18's
+`ScrollRegion` (`a67f4bc`) and the density pass (`54d12bf`) between them had
+already resolved it; nobody re-measured. Measured at the documented 1280x800
+floor on the audit's own subject (150x80x8 plate, steel assigned, so Mass and
+Centre of mass are present): scrolling band y=112..474.5, pinned EXPORT strip
+y=474.5..590 — **they abut at 0.0 px, where the audit measured a 73 px
+intersection** — and all **8** rows on screen resolve to THEMSELVES under
+`elementFromPoint` at their own centres, including `Extents`, which the audit
+reported half-covered by `EXPORT Ready`. The 137 px below the fold is clipped,
+marked (`data-scroll-edges=bottom` + break rule + travel mark) and keyboard-
+reachable, which is T-18's shipped answer, not a residual defect.
+**The trap in re-measuring this, worth writing down: a naive rect-vs-rect
+sweep "reproduces" the defect on a healthy panel.** A row below the fold keeps
+its LAYOUT rect, which runs straight through the strip's band — a scroll
+container does not intersect it for you — so 8 of 10 rows report an overlap
+that is only a scroll away. The claim has to be clip-aware: a row's real
+extent is its rect clipped to the scroll VIEWPORT's rect, and a row with
+nothing left is off-sheet, not covered.
+What ships is the ticket's own acceptance criterion as a permanent gate, in
+`apps/web/e2e/inspector-scroll.spec.ts` beside T-18's case, because the two
+ask different questions — T-18 scrolls each row into view first, which is
+exactly the motion that hides this defect. Three bounds: band and strip never
+intersect; the strip never hangs past the panel; every on-screen row answers to
+itself, under a count floor of 6 so an empty panel cannot pass vacuously.
+Mutation evidence, each reverted independently and each with Vite restarted and
+the SERVED bytes re-read: dropping `min-h-0` from `ScrollRegion` (the primitive
+that makes the band clamp) → red on "must not hang below the panel"; making
+`FloatingPanel`'s footer `absolute bottom-0` → red on "must begin at or below
+the band's last pixel", and the probe under that mutation reproduces the audit
+verbatim — `prop-faces` fully on screen with `elementFromPoint` returning
+`part-export-controls`. No product code changed; no new token needed.
+Frames: `docs/screenshots/layout1-reported-defect-1280.png` (the ticket's
+picture, reproduced under mutation) vs `layout1-inspector-1280.png` (HEAD).
+
 **CI-4's ORIGINAL QUESTION ANSWERED (qa-tester, 2026-08-29) — the suite is
 NOT systemically unstable; shard 3/4 IS structurally overloaded, and the
 alternating reds are three independent spec defects that the overload makes

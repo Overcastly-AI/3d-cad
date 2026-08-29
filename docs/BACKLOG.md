@@ -66,9 +66,10 @@ Ranked, disjoint, parallel-dispatchable:
 2. **MATEUI-1** (P1, S, frontend-builder or backend-builder) — the
    mate-conflict diagnosis prints a raw Python `repr` of a UUID list to the
    user and names a mate the panel cannot identify.
-3. **LAYOUT-1** (P1, XS, frontend-builder) — the inspector panel overlaps
-   its own content at the documented 1280x800 floor; corroborated a third
-   time on an unrelated part.
+3. ~~**LAYOUT-1**~~ — **CLOSED BY MEASUREMENT 2026-08-29, no fix needed.**
+   Does not reproduce on HEAD (band and strip abut at 0.0 px; the audit
+   measured 73 px). T-18 + the density pass had already fixed it. A
+   clip-aware regression gate ships in its place.
 4. **GHOST-1** (P1, XS, frontend-builder) — a body doesn't auto-ghost on
    sketch entry even though the GHOST opacity control already exists.
 5. **STEPNAME-1** (P1, XS, kernel-architect) — assembly STEP export names
@@ -981,8 +982,28 @@ bend radius. See Done archive for evidence/gates.**
       agentType: frontend-builder (or backend-builder if the string is
       assembled server-side).
 
-- [ ] (P1, XS) **IN FLIGHT (frontend-builder, groom pass 11) —
-      CORROBORATED A THIRD TIME (T-18).** **LAYOUT-1 — the inspector panel
+- [x] (P1, XS) **CLOSED BY MEASUREMENT (frontend-builder, 2026-08-29) — DOES
+      NOT REPRODUCE ON HEAD; T-18's `ScrollRegion` (`a67f4bc`) and the density
+      pass (`54d12bf`) had already fixed it and nobody re-measured, so this was
+      one groom pass from being fixed twice.** Re-measured at 1280x800 on the
+      audit's own subject (150x80x8 plate, steel assigned): band y=112..474.5,
+      strip y=474.5..590 — **abutting at 0.0 px against the reported 73 px
+      overlap** — and all 8 on-screen rows resolve to THEMSELVES under
+      `elementFromPoint`, `Extents` included. The 137 px below the fold is
+      clipped, marked and keyboard-reachable (T-18's shipped answer). NOTE the
+      trap: a naive rect-vs-rect sweep "reproduces" this on a healthy panel,
+      because a row below the fold keeps its layout rect — 8 of 10 rows report
+      an overlap that is only a scroll away. Shipped instead: the ticket's own
+      acceptance criterion as a permanent clip-aware gate in
+      `apps/web/e2e/inspector-scroll.spec.ts` (band/strip never intersect;
+      strip never hangs past the panel; every on-screen row answers to itself;
+      count floor 6 against a vacuous pass). Two mutations, each reverted and
+      each with Vite restarted + served bytes re-read, turn it red — the
+      `FloatingPanel`-footer one reproduces the audit verbatim (`prop-faces`
+      on screen, `elementFromPoint` → `part-export-controls`). No product code
+      changed. Frames: `docs/screenshots/layout1-reported-defect-1280.png` vs
+      `layout1-inspector-1280.png`.
+      **LAYOUT-1 — the inspector panel
       overlaps its own content at
       the documented responsive floor (1280x800), violating CLAUDE.md's
       stated quality floor directly.** kind: defect. MEASURED
@@ -4532,6 +4553,10 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-08-29 — **LAYOUT-1 closed by measurement (frontend-builder):** the
+  three-times-corroborated inspector overlap does not reproduce on HEAD (band
+  and strip abut at 0.0 px vs a reported 73 px); a clip-aware regression gate
+  ships in place of a fix. No product code changed.
 - 2026-08-29 — **Groom pass 19 (backlog-groomer):** CI-4's original question
   ANSWERED (not systemically unstable); K2, PBT-1, SOLVE-CRASH-1, CI-BAL all
   shipped and ticked. Corrected CI-BAL's headroom claim (2.1x local-box ->
