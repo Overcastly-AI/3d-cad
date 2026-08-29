@@ -38,6 +38,56 @@ repair: HEM-1C (editor still claims base-flange inheritance for the radius
 and suggests the exact value the server refuses) and HEM-1D (UI cannot author
 an `open` hem at all) — **BOTH CLOSED**, see the entry below.
 
+**GHOST-1 CLOSED (frontend-builder, 2026-08-29) — a body now ghosts itself
+while a sketch is open, and the modeler's own word about a body is never
+overridden to do it.** A flow defect, not a missing capability: the GHOST stop
+has existed since UI-W2 and the sketcher simply never used it, so sketching on
+a part with a body meant drawing white ink onto a lit aluminium face. Two
+judgements, both deliberate. (a) It is a **derived default**, not an
+entry/exit override — the same contract `sketchIsDrawn` has held since UI-W2.
+Nothing is written on entry, so there is no restore step on exit that can go
+wrong; a stop the modeler SET wins at every moment, in either direction; and a
+stop set WHILE the sketch is open wins then and keeps winning afterwards,
+rather than being quietly reverted. (b) It applies to **every body**, not just
+the one being sketched on: occlusion is a property of the camera and the plane,
+not of which face was picked, so on a multi-body part the solid in the way is
+routinely a neighbour. Ghost is see-through, so no context is lost. HIDE is
+never implied — only `ghost` moves, so isolate, show-all, the ISOLATED stamp
+and the pick-occlusion set are untouched.
+One derivation (`partView.bodyView`) feeds BOTH the Bodies row and the WebGL
+material split, so the eye cannot disagree with the pixels; `sketchOpen` is a
+REQUIRED argument rather than a defaulted one, and making it so is what found
+all five call sites at compile time. Published by `SketchScene` on `draw` (not
+`plane` — while the plane is still being picked the modeler is aiming at the
+solid's own faces). No new token: the ghost is the existing
+`viewport.preview.surfaceOpacity` (0.42).
+**A MEASUREMENT TRAP WORTH THE ENTRY: the canvas band census CANNOT be
+compared across sketch entry or exit.** The sketcher parks the camera normal
+to the plane and exiting leaves it there — measured, TOP view after exit,
+BRIGHT 310289 -> 24675 with `data-drawn-faces` 6 and `data-ghost-faces` 0 at
+both ends and unchanged after a further 2 s, i.e. the body was drawn solid the
+whole time and only the framing moved. The first draft of the spec asserted
+across that boundary and failed for a reason that had nothing to do with the
+feature. Worse, the BRIGHT/MID bands cannot see the difference even at ONE
+camera in the sketcher: parked head-on the body is a single flat lit face, so
+ghost and solid both sit in BRIGHT — 26935 vs 27299, a **1.3 %** gap no honest
+bound goes through. The instrument that works is the SPECULAR PEAK (luminance
+> 210), and it follows from what a ghost is rather than from this frame: at
+0.42 over the dark bench a ghosted face cannot reach the specular the same
+face reaches opaque. Measured twice each: **ghosted 0 / 0, solid 525.**
+Gates: `partView` unit 25/25; `part-visibility` 9/9 including two new cases;
+23/23 across the six sketch specs and 19/19 across the body/pick specs; `just
+lint` 0; `pnpm -r test` 2270. Mutation (`bodyView` ignores `sketchOpen`, Vite
+restarted and served bytes re-read): the auto-ghost e2e case and 2 unit cases
+go red, while the "explicit SOLID is not overridden" case correctly stays
+green — it guards the override, not the feature.
+Frames: `docs/screenshots/ghost1-sketch-open-before.png` /
+`ghost1-sketch-open-after.png`, matched so only the ghost differs.
+**Filed while measuring, NOT fixed here: exiting a sketch leaves the camera
+parked in the sketch's TOP view rather than restoring the view you came
+from.** Pre-existing, unrelated to this ticket, and the reason the census
+above is unusable across the boundary.
+
 **LAYOUT-1 CLOSED BY MEASUREMENT, NOT BY A FIX (frontend-builder, 2026-08-29)
 — the inspector overlap corroborated three times does NOT reproduce on HEAD,
 and the ticket was one groom pass away from being fixed twice.** T-18's

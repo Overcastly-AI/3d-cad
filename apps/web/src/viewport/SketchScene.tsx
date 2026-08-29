@@ -1992,6 +1992,21 @@ export function SketchScene({ solved, facePicking = false }: SketchSceneProps) {
   const drawn = solved.filter((layer) =>
     sketchIsDrawn(partView, layer.featureId, bodyPresent),
   );
+  // GHOST-1 — publish "a sketch is open on the board" so the solids can get out
+  // of the way (`partView.bodyView`). `draw`, not `plane`: while the plane is
+  // still being picked the modeler is aiming at the solid's own faces, and
+  // ghosting the thing they are picking would be the opposite of helping. This
+  // component is the publisher because it is the only one that both reads the
+  // sketch store and is unconditionally mounted in the part workspace — the
+  // same arrangement `ModelMesh` has for `bodyPresent`, and it keeps `partView`
+  // free of a cross-store import.
+  const setSketchOpen = usePartViewStore((state) => state.setSketchOpen);
+  useEffect(() => {
+    setSketchOpen(mode === "draw");
+  }, [mode, setSketchOpen]);
+  // A sketcher that unmounts mid-session must not leave the bodies ghosted with
+  // nothing on screen explaining why.
+  useEffect(() => () => usePartViewStore.getState().setSketchOpen(false), []);
   useSnapModifiers(mode === "draw");
   return (
     <group>

@@ -94,6 +94,11 @@ export function BodiesPanel({
 }: BodiesPanelProps) {
   const eyebrow = `Bodies · ${bodies.length}`;
   const view = usePartViewStore((state) => state.view);
+  // GHOST-1: while a sketch is open, an untouched body is DRAWN ghosted, so the
+  // row has to say GHOST. A row showing SOLID over a see-through solid is the
+  // eye disagreeing with the pixels, which is the defect this panel's whole
+  // derivation exists to prevent.
+  const sketchOpen = usePartViewStore((state) => state.sketchOpen);
   const addressedKey = usePartViewStore((state) => state.addressedKey);
   const partitioned = usePartViewStore((state) => state.partitioned);
   const setBodies = usePartViewStore((state) => state.setBodies);
@@ -128,7 +133,7 @@ export function BodiesPanel({
   const hiddenCount = hiddenBodyCount(view, bodyViews);
 
   const buildSections = (body: PartBodyView): ContextMenuSection[] => {
-    const hidden = bodyMode(view, body.key) === "hidden";
+    const hidden = bodyMode(view, body.key, sketchOpen) === "hidden";
     return [
       {
         key: "view",
@@ -192,7 +197,7 @@ export function BodiesPanel({
                 );
                 const key = bodyKey(body.baseFeatureId);
                 const label = `Body ${body.ordinal}`;
-                const mode = bodyMode(view, key);
+                const mode = bodyMode(view, key, sketchOpen);
                 const EyeGlyph = EYE_GLYPH[mode];
                 const bodyView = bodyViews[index];
                 return (

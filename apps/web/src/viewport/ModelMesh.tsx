@@ -26,8 +26,7 @@ import {
   subsetEdges,
 } from "./glbGeometry";
 import { FaceTrace } from "./faceTrace";
-import { instanceView } from "./instanceVisibility";
-import { usePartViewStore } from "./partView";
+import { bodyView, usePartViewStore } from "./partView";
 import { drawnSurfaceRaycast, hiddenTriangleTest } from "./pickRaycast";
 import { studioMatcap } from "./studioMatcap";
 
@@ -125,6 +124,10 @@ export function ModelMesh({
   const [hoveredFace, setHoveredFace] = useState<number | null>(null);
   const partBodies = usePartViewStore((state) => state.bodies);
   const partView = usePartViewStore((state) => state.view);
+  // GHOST-1: a body with no stop of its own ghosts while a sketch is open, so
+  // the solid stops standing in front of the work. Read through `bodyView`, the
+  // same derivation the Bodies row reads, so the eye and the pixels agree.
+  const sketchOpen = usePartViewStore((state) => state.sketchOpen);
 
   // The selected feature's face set — null unless a non-empty ordinal list
   // arrived (an unloaded overlay / a body-less feature leaves it null).
@@ -165,12 +168,12 @@ export function ModelMesh({
     partBodies.forEach((body, index) => {
       const faces = perBodyFaces[index];
       if (faces === undefined) return;
-      const stop = instanceView(partView, body.key);
+      const stop = bodyView(partView, body.key, sketchOpen);
       if (stop.hidden) for (const face of faces) hiddenFaces.add(face);
       else if (stop.ghost) for (const face of faces) ghosted.add(face);
     });
     return { ghosted, hidden: hiddenFaces };
-  }, [perBodyFaces, partBodies, partView]);
+  }, [perBodyFaces, partBodies, partView, sketchOpen]);
   /** Any face not drawn at full opacity — the mesh needs the four-way split. */
   const bodyStatesActive =
     bodyFaceState.ghosted.size > 0 || bodyFaceState.hidden.size > 0;

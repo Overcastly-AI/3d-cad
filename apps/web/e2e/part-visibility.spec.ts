@@ -2,6 +2,7 @@ import { expect, test, type Page } from "./fixtures";
 
 import { seedCube } from "./partSeed";
 import {
+  clickForReal,
   createPartViaApi,
   SCREENSHOT_DIR,
   seedSession,
@@ -61,6 +62,49 @@ async function canvasBands(page: Page): Promise<Bands> {
       else if (lum > 45) mid += 1;
     }
     return { bright, mid };
+  });
+}
+
+/**
+ * Pixels at FULL-STRENGTH specular — the brightest ink a lit matcap face
+ * produces (luminance > 210). The GHOST discriminator that survives the
+ * sketcher's head-on camera, where {@link canvasBands} does not.
+ *
+ * Why a second instrument. The BRIGHT/MID bands separate ghost from solid at
+ * the iso camera, where the matcap sweeps a wide luminance range across a
+ * body seen at an angle. Parked normal to the sketch plane the body is one
+ * flat face lit head-on, so ghost and solid BOTH sit in BRIGHT and the bands
+ * barely move — measured on this exact frame, BRIGHT 26935 ghosted vs 27299
+ * solid, a 1.3 % difference that no honest bound can be drawn through.
+ *
+ * The peak is categorical instead of marginal, and it follows from what a
+ * ghost IS rather than from this frame: at `viewport.preview.surfaceOpacity`
+ * (0.42) composited over the dark bench, a ghosted face CANNOT reach the
+ * specular the same face reaches opaque. Measured, same frame, twice each:
+ * ghosted 0 / 0, solid 525.
+ */
+async function peakLitPixels(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>(
+      '[data-testid="viewport"] canvas',
+    );
+    if (!canvas) return 0;
+    const probe = document.createElement("canvas");
+    probe.width = canvas.width;
+    probe.height = canvas.height;
+    const ctx = probe.getContext("2d");
+    if (!ctx) return 0;
+    ctx.drawImage(canvas, 0, 0);
+    const { data } = ctx.getImageData(0, 0, probe.width, probe.height);
+    let count = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const lum =
+        0.2126 * (data[i] ?? 0) +
+        0.7152 * (data[i + 1] ?? 0) +
+        0.0722 * (data[i + 2] ?? 0);
+      if (lum > 210) count += 1;
+    }
+    return count;
   });
 }
 
@@ -281,6 +325,148 @@ test.describe("UI-W2 part half — the browser controls what is drawn", () => {
     const restored = await settled(page, () => canvasBands(page));
     expect(restored.bright).toBeGreaterThan(solid.bright * 0.8);
     await expect(stamp).toHaveCount(0);
+  });
+
+  /**
+   * GHOST-1 — the solid gets out of the way while you sketch.
+   *
+   * A flow defect, not a missing capability: the GHOST stop has existed since
+   * UI-W2 and the sketcher simply never used it, so opening a sketch on a part
+   * that already has a body left the modeler drawing white ink onto a lit
+   * aluminum face. Fusion and Onshape both ghost on entry.
+   *
+   * It ships as a DERIVED DEFAULT rather than an entry/exit override, and most
+   * of what these two cases assert is that distinction: nothing is written on
+   * the way in, so nothing has to be restored on the way out, and a stop the
+   * modeler set themselves is never touched in either direction.
+   *
+   * MEASUREMENT NOTE, because it invalidated the obvious assertion. A canvas
+   * luminance census CANNOT be compared across sketch entry or exit: the
+   * sketcher parks the camera normal to the plane and exiting leaves it there.
+   * Measured — TOP view after exit, BRIGHT 310289 -> 24675, with
+   * `data-drawn-faces` 6 and `data-ghost-faces` 0 at BOTH ends and unchanged
+   * after a further 2 s, i.e. the body is drawn solid the whole time and only
+   * the framing moved. So the pixel witness has to be an A/B taken at ONE
+   * camera, inside the sketch, and the entry/exit claims rest on the state
+   * attributes plus a face-count floor that an empty scene cannot satisfy.
+   */
+  test("a body ghosts itself while a sketch is open, and un-ghosts on exit", async ({
+    page,
+  }) => {
+    await openCubePart(page);
+    const viewport = page.getByTestId("viewport");
+    const bodyRow = page.getByTestId("body-row");
+
+    // ADDRESS the row without touching its stop, so the opacity control is
+    // disclosed later when the pixel A/B needs it. Right-click addresses and
+    // opens the menu; Escape closes the menu and leaves the row addressed. The
+    // eye would address it too, and would also hide the body, which is exactly
+    // the explicit stop this case must not have.
+    await bodyRow.click({ button: "right" });
+    await expect(page.getByTestId("body-context-menu")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("body-opacity-0")).toBeVisible();
+
+    // --- BEFORE: solid, and the row says so ----------------------------
+    await expect(viewport).toHaveAttribute("data-drawn-faces", "6");
+    await expect(viewport).toHaveAttribute("data-ghost-faces", "0");
+    await expect(bodyRow).toHaveAttribute("data-visibility", "solid");
+
+    // --- ENTER the sketch, the way a modeler does ----------------------
+    await page.getByTestId("feature-row").first().click({ button: "right" });
+    await clickForReal(page, "tree-ctx-edit");
+    await expect(page.getByTestId("sketch-strip")).toBeVisible();
+
+    // EVERY face is ghosted, not just the one being sketched on: occlusion is
+    // a property of the camera and the plane, not of which face was picked.
+    // `data-drawn-faces` counts SOLID faces only, so 0 means "all six went
+    // see-through", and the ghost count says the same thing from the far side.
+    await expect(viewport).toHaveAttribute("data-ghost-faces", "6");
+    await expect(viewport).toHaveAttribute("data-drawn-faces", "0");
+    // The row agrees with the pixels. It has to: a row reading SOLID over a
+    // see-through solid is the eye disagreeing with the scene.
+    await expect(bodyRow).toHaveAttribute("data-visibility", "ghost");
+
+    await page.mouse.move(1400, 900); // park the cursor off the model
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/ghost1-sketch-open-after.png`,
+    });
+
+    // --- EXIT: back to solid, with nothing to restore ------------------
+    // Nothing was written on entry, so this is a derived default lapsing, not
+    // a saved value being put back — there is no restore step that can go
+    // wrong. The face-count floor is what keeps the claim honest:
+    // `data-ghost-faces` of "0" is also true of a scene with no body in it.
+    await page.getByTestId("sketch-save").click();
+    await expect(page.getByTestId("sketch-strip")).toHaveCount(0, {
+      timeout: 30_000,
+    });
+    await expect(viewport).toHaveAttribute("data-drawn-faces", "6");
+    await expect(viewport).toHaveAttribute("data-ghost-faces", "0");
+    await expect(bodyRow).toHaveAttribute("data-visibility", "solid");
+
+    // --- AND IT IS A LIVE DERIVATION, not a one-shot on first entry ----
+    await page.getByTestId("feature-row").first().click({ button: "right" });
+    await clickForReal(page, "tree-ctx-edit");
+    await expect(page.getByTestId("sketch-strip")).toBeVisible();
+    await expect(viewport).toHaveAttribute("data-ghost-faces", "6");
+
+    // THE PIXEL WITNESS, at one fixed camera. An attribute alone would pass on
+    // a control that moves no pixel (mandate 3c), and `data-ghost-faces` is
+    // derived from the same state the material split reads, so it cannot be
+    // the only witness. Overriding to SOLID here changes exactly one thing —
+    // the ghost — with camera, framing and sketch ink all held, which is the
+    // only way to compare pixels at all inside the sketcher (see the note
+    // above). The instrument is the specular peak, not the BRIGHT band: see
+    // `peakLitPixels` for why the bands cannot see this frame.
+    const ghosted = await settled(page, () => peakLitPixels(page));
+    await clickForReal(page, "body-opacity-solid");
+    await expect(viewport).toHaveAttribute("data-ghost-faces", "0");
+    const opaque = await settled(page, () => peakLitPixels(page));
+    // Translucent, and provably so: the opaque face reaches full specular and
+    // the ghosted one cannot. Measured 525 vs 0; the bounds carry real slack
+    // in both directions so this asserts the physics, not the frame.
+    expect(opaque).toBeGreaterThan(150);
+    expect(ghosted).toBeLessThan(opaque / 4);
+  });
+
+  test("a body the modeler set SOLID is not ghosted by opening a sketch", async ({
+    page,
+  }) => {
+    await openCubePart(page);
+    const viewport = page.getByTestId("viewport");
+    const bodyRow = page.getByTestId("body-row");
+
+    // Address the row (the eye, which does not open the base feature's editor)
+    // and state SOLID deliberately. This is the case the ticket warned about:
+    // a stop the modeler chose must not be silently overridden on the way in
+    // and silently restored on the way out.
+    await clickForReal(page, "body-visibility-0");
+    await clickForReal(page, "body-opacity-solid");
+    await expect(bodyRow).toHaveAttribute("data-visibility", "solid");
+
+    await page.getByTestId("feature-row").first().click({ button: "right" });
+    await clickForReal(page, "tree-ctx-edit");
+    await expect(page.getByTestId("sketch-strip")).toBeVisible();
+
+    // Still solid — and non-vacuously so: all six faces are still being drawn
+    // at full opacity, which a scene with nothing in it could not claim.
+    await expect(viewport).toHaveAttribute("data-ghost-faces", "0");
+    await expect(viewport).toHaveAttribute("data-drawn-faces", "6");
+    await expect(bodyRow).toHaveAttribute("data-visibility", "solid");
+
+    // And the manual control still works INSIDE the sketch — the derived
+    // default is a default, not a lock. Setting GHOST here is the modeler's
+    // word, so it also survives the sketch closing rather than being quietly
+    // reverted, which is the other half of "never silently restored".
+    await clickForReal(page, "body-opacity-ghost");
+    await expect(viewport).toHaveAttribute("data-ghost-faces", "6");
+    await page.getByTestId("sketch-save").click();
+    await expect(page.getByTestId("sketch-strip")).toHaveCount(0, {
+      timeout: 30_000,
+    });
+    await expect(viewport).toHaveAttribute("data-ghost-faces", "6");
+    await expect(bodyRow).toHaveAttribute("data-visibility", "ghost");
   });
 
   test("V and shift+V drive the addressed row from the keyboard", async ({

@@ -73,8 +73,10 @@ Ranked, disjoint, parallel-dispatchable:
    Does not reproduce on HEAD (band and strip abut at 0.0 px; the audit
    measured 73 px). T-18 + the density pass had already fixed it. A
    clip-aware regression gate ships in its place.
-4. **GHOST-1** (P1, XS, frontend-builder) — a body doesn't auto-ghost on
-   sketch entry even though the GHOST opacity control already exists.
+4. ~~**GHOST-1**~~ — **CLOSED 2026-08-29.** A body with no stop of its own
+   now ghosts while a sketch is open, as a derived default; a stop the
+   modeler set is never overridden or silently restored. Filed
+   CAMRESTORE-1 (P2) from the measurement.
 5. **STEPNAME-1** (P1, XS, kernel-architect) — assembly STEP export names
    components with raw UUIDs instead of their part names.
 6. **ARC-DEGENERATE-1 is SHIPPED** (kernel-architect, 2026-08-29) — 27 of
@@ -655,6 +657,28 @@ existing payload gate rather than crashing. No new machinery, no contract
 change. Census: raised 12 -> 0, solvable 1327 -> 1328, conflicting 276 -> 287.
 See Done archive / ROADMAP for the full two-defects-one-crash argument.**
 
+- [ ] (P2, S) **CAMRESTORE-1 — leaving a sketch strands the camera in the
+      sketch's own view instead of returning you to the one you came from.**
+      kind: defect, flow. MEASURED 2026-08-29 while closing GHOST-1 (which is
+      how it was found; it is pre-existing and unrelated to that change): open
+      a part at the default iso framing, edit a sketch on XY, save. The camera
+      stays parked normal to the plane — the ViewCube reads TOP and the part
+      renders as a flat diamond. Numerically, whole-canvas BRIGHT goes 310289
+      -> 24675 across the round trip with `data-drawn-faces` 6 and
+      `data-ghost-faces` 0 at BOTH ends and unchanged after a further 2 s, so
+      nothing about what is DRAWN changed — only the framing. Fusion returns
+      you to the view you were in. Cost beyond the annoyance: it makes a
+      canvas census uncomparable across sketch entry/exit, so any spec
+      asserting on pixels around that boundary has to work around it (see the
+      note in `part-visibility.spec.ts`). FIX: remember the part camera on
+      sketch entry and ease back to it on exit, the way the fit/view-rail
+      commands already ease. ACCEPTANCE: the ViewCube orientation and the
+      camera pose after exiting a sketch match the pose before entering
+      (tolerance documented, not ad-hoc); an e2e case asserts it, and the
+      band census becomes comparable across the boundary.
+      TERRITORY: `apps/web/src/viewport` (SketchCameraRig / CameraRig /
+      viewCommands). agentType: frontend-builder.
+
 - [ ] (P2, XS) **SOLVE-CONFLICT-MOVED-1 — a `conflicting` payload can ship
       geometry the solver MOVED, which the DTO promises it never does.** kind:
       defect (contract). MEASURED by PBT-1's sweep: **2 of 2000**.
@@ -1125,7 +1149,34 @@ bend radius. See Done archive for evidence/gates.**
       TERRITORY: apps/web inspector panel component (grep `part-export-
       controls` / `BOUNDING BOX` section). agentType: frontend-builder.
 
-- [ ] (P1, XS) **GHOST-1 — editing a sketch on a part that already has a
+- [x] (P1, XS) **CLOSED (frontend-builder, 2026-08-29).** A body with no stop
+      of its own now ghosts while a sketch is open, via a DERIVED DEFAULT
+      (`partView.bodyView`) on the same contract `sketchIsDrawn` has held
+      since UI-W2 — nothing is written on entry, so there is no restore step
+      on exit to get wrong, and a stop the modeler SET wins at every moment
+      including one set mid-sketch, which then survives the close. Applies to
+      EVERY body (occlusion follows the camera and the plane, not the picked
+      face); `hidden` never moves, so isolate / show-all / the ISOLATED stamp
+      / pick-occlusion are untouched. One derivation feeds the Bodies row AND
+      the material split, and `sketchOpen` is a required argument — which is
+      what surfaced every call site at compile time. Published by
+      `SketchScene` on `draw`, not `plane`. No new token (existing
+      `viewport.preview.surfaceOpacity` 0.42).
+      MEASUREMENT TRAP, recorded because the first draft fell in it: the
+      canvas band census cannot be compared across sketch entry/exit (the
+      sketcher parks the camera; BRIGHT 310289 -> 24675 with drawn=6/ghost=0
+      at both ends), and the bands cannot separate ghost from solid even at
+      one camera head-on (26935 vs 27299, 1.3%). The working instrument is the
+      SPECULAR PEAK (lum > 210): ghosted 0/0, solid 525.
+      Gates: partView unit 25/25, part-visibility 9/9, 23/23 sketch specs,
+      19/19 body/pick specs, `just lint` 0, `pnpm -r test` 2270. Mutation
+      (`bodyView` ignores `sketchOpen`, Vite restarted + served bytes checked)
+      reddens the new e2e case and 2 unit cases. Frames:
+      `docs/screenshots/ghost1-sketch-open-{before,after}.png`.
+      FOLLOW-UP FILED, not fixed here: exiting a sketch leaves the camera
+      parked in the sketch's TOP view instead of restoring the previous view
+      (pre-existing, unrelated, found while measuring) — see CAMRESTORE-1.
+      **GHOST-1 — editing a sketch on a part that already has a
       body is barely legible; the body doesn't auto-ghost even though a
       ghost control already exists.** kind: defect. MEASURED
       (`docs/AUDIT-PRODUCT.md` "Pass 2026-08-21 (second pass today)" S-34,
@@ -4650,6 +4701,9 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-08-29 — **GHOST-1 closed (frontend-builder):** a body auto-ghosts while
+  a sketch is open, as a DERIVED default — a stop the modeler set is never
+  overridden on entry nor silently restored on exit. Filed CAMRESTORE-1 (P2).
 - 2026-08-29 — **LAYOUT-1 closed by measurement (frontend-builder):** the
   three-times-corroborated inspector overlap does not reproduce on HEAD (band
   and strip abut at 0.0 px vs a reported 73 px); a clip-aware regression gate
