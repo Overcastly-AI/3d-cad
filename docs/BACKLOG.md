@@ -824,26 +824,38 @@ below.**
 
 ## Next (P2)
 
-- [ ] (P2, S) **SOLVE-CRASH-1 — a sketch whose solve drives a circle's radius
-      through zero raises an unhandled `pydantic.ValidationError` out of
-      `PlanegcsSketchSolver.solve()`, reaching the user as an untyped 500.**
-      kind: defect. **RECOMMEND P1 — groomer to arbitrate;** filed P2 only
-      because the finder was not the board's owner. MEASURED by PBT-1's sweep
-      (`test_sketch_solver_sweep.py`, seed 20260822): **12 of 2000 generated
-      sketches, 0.6%**, on shapes a user can author (tangent + concentric +
-      equal on two circles is enough). `SketchCircle.radius` is `gt=0`, nothing
-      constrains planegcs to keep it positive, and `read_back()` then constructs
-      a DTO the DTO refuses. `evaluate_sketch` catches only
-      `SketchDefinitionError`, so this is not a typed `sketch_invalid` — it is
-      an exception escaping the feature evaluator. FIX is a decision, not a
-      patch: refuse the solve as degenerate (typed `sketch_invalid`), clamp, or
-      admit a signed radius and normalise. Recorded as an executable live limit
-      by `test_the_solver_still_crashes_on_a_circle_it_drives_through_zero`,
-      which is bounded BOTH ways — closing the defect reddens it, and that test
-      must be deleted in the same commit as the fix.
+- [x] (P1, S) **SOLVE-CRASH-1 CLOSED 2026-08-29 (arbitrated P2->P1 by the
+      orchestrator) — the untyped 500 is gone, and the twelve crashes were TWO
+      defects wanting opposite answers.** The prior question the ticket turned
+      on — no positive-radius solution, or a bad branch of one that exists? —
+      was measured before a fix was chosen, and the answer is BOTH, so no single
+      rule was right. THREE had a negative radius of real magnitude, which in
+      planegcs is the same circle under its branch convention
+      (`tangent_circle_circle` is `d - (r1 + r2)`, so `r2 < 0` is internal
+      tangency at `|r2|`); with `abs` applied all three come back as ordinary
+      solves at a worst residual of **1.8e-13 mm**, so refusing them — the
+      going-in prior — would have rejected three SOLVABLE sketches. The other
+      NINE are annihilated, nearly all one shape (a `tangent` to a line the
+      circle's centre is pinned onto), where `r = 0` is the unique solution.
+      Fix: normalise the sign as a de-parameterisation, and where the radius is
+      ANNIHILATED return the author's value from `read_back` so the geometry
+      fails its own tangency residual and the EXISTING payload gate reclassifies
+      it. No new machinery, no new error code, no contract change — the user
+      gets `sketch_conflicting` (HTTP 200, typed, constraint index named,
+      `sketch_diagnosis` beside it) and the sketch stays editable. Clamping was
+      rejected for HEM-1's reason; a `SketchDefinitionError` was rejected
+      because the `SketchSolver` contract reserves exceptions for malformed
+      INPUT. **The crash was the loud half only:** the nine straddle zero by
+      float noise (seven at `0.0`, two at ~`1.5e-15`), and two MORE were already
+      shipping at `8.9e-16` and `2.7e-15` mm under `underconstrained` with an
+      empty conflict list, so the threshold is a MAGNITUDE
+      (`DEGENERATE_RADIUS_MM = 1e-9`, the same constant role as
+      `sketch/edit.py`'s `sketch_degenerate_result`), not the DTO's `> 0` —
+      which, mutated in, ships `radius=2.27e-16` and inflates solvable to 1335.
+      Census 12 raised -> **0**; solvable 1327 -> 1328; conflicting 276 -> 287;
+      violated 0. The live limit is deleted and replaced by two gates (nothing
+      raises; no solved payload ships a circle that is not there).
       [src: PBT-1 sweep, kernel-architect 2026-08-29]
-      TERRITORY: `services/geometry/src/geometry/sketch/planegcs_solver.py`.
-      agentType: kernel-architect.
 
 - [ ] (P2, XS) **SOLVE-CONFLICT-MOVED-1 — a `conflicting` payload can ship
       geometry the solver MOVED, which the DTO promises it never does.** kind:

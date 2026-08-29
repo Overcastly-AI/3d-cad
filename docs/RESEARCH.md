@@ -198,6 +198,49 @@ identical answers up to 24 entities, all 207 SOLVE-1/SETTLE-2/SETTLE-3 tests
 green, and a `sketch_solve` benchmark group at 48 and 96 lines because the
 correctness corpus tops out at twelve — which is why nobody saw this.
 
+**planegcs's radius is a SIGNED parameter and the DTO's is a magnitude, and
+conflating the two produced an untyped 500 on 0.6 % of authorable sketches**
+(SOLVE-CRASH-1, 2026-08-29). `SketchCircle.radius` is `gt=0`; nothing constrains
+planegcs to keep its radius parameter positive; `read_back()` therefore built a
+DTO the DTO refuses and a `pydantic.ValidationError` escaped the feature
+evaluator. Measured by the PBT-1 sweep at **12 of 2000** generated sketches —
+tangent + concentric + equal on two circles is enough. **The twelve are two
+defects wanting opposite answers, and one rule for all of them would have been
+wrong either way.** Three had a NEGATIVE radius of real magnitude, which is not
+a degenerate circle at all: planegcs reads the sign as a choice of tangency
+branch (`tangent_circle_circle` is `d - (r1 + r2)`, so `r2 < 0` is the INTERNAL
+tangency of a circle of radius `|r2|`), and with `abs` applied all three come
+back as ordinary solves with a worst residual of **1.8e-13 mm** — a
+positive-radius solution existed and the solver had found it, so refusing those
+would have made legal models unbuildable with nothing telling the user why. The
+other nine were annihilated, nearly all one shape: a `tangent` between a line
+and a circle whose centre another constraint puts ON that line, where `r = 0` is
+the unique solution and there is no positive-radius answer to find. So `abs` is
+applied as a de-parameterisation (not a correction), and a radius the solve has
+annihilated returns the author's
+own value from `read_back` — geometry that then fails its own tangency residual
+by the whole radius, which the EXISTING payload gate reclassifies as the
+conflict it is, with the offending constraint NAMED in
+`conflicting_constraints`. Nothing new decides the outcome: a solve outcome
+belongs in `status` (the `SketchSolver` contract reserves exceptions for
+malformed input), and `conflicting` already means "your constraints cannot be
+satisfied", already returns the input untouched, and keeps the sketch editable
+instead of dead-ending on a 500.
+
+**The threshold is a MAGNITUDE test (`DEGENERATE_RADIUS_MM = 1e-9`, the same
+number and role as `sketch/edit.py`'s collapsed-radius test behind
+`sketch_degenerate_result`), NOT the DTO's own `> 0` — because the crash was
+only the loud half.** The nine annihilated circles straddle zero by float noise
+(seven at exactly `0.0`, two at `1.5e-15` / `1.9e-15` mm), and two MORE were
+already shipping under `status="underconstrained"` with an empty conflict list
+at `2.7e-15` and `8.9e-16` mm, purely because the last DogLeg iterate landed on
+the positive side; every property in the sweep agreed with them, since the
+residual of a tangency to a point-sized circle centred on the line is exactly
+zero. Deferring to `gt=0` stops the crash and ships `radius=2.27e-16` (measured on the
+annihilated-circle fixture) — the crash traded for a lie. Net over the corpus:
+crashes 12 -> **0**, solvable 1327 -> 1328, conflicting 276 -> 287, violated
+still 0.
+
 **Spline FIT POINTS are constrainable (v1.1, 2026-07-15); the spline CURVE is
 not.** planegcs still has no spline primitive, so the curve carries no
 tangent/curvature constraints. What v1.1 adds is that each fit point is

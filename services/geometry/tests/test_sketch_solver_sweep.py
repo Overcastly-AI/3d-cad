@@ -10,16 +10,31 @@ not be swept the same way, and the alarming number that sweep produced — **7 o
 success** (RESEARCH §2) — was unverifiable and unmonitored. There was no way to
 show it is now 0, and no way to notice it regress.
 
-**Re-measured on this corpus at the commit that adds it: 0 of 1327.** The 95%
-upper bound on the violation rate is therefore 3/1327 = 0.23% (rule of three),
-against the 4.5% the original sweep measured. That number is now a gate.
+**Re-measured on this corpus: 0 of 1328** (it was 0 of 1327 at the commit that
+added this module; SOLVE-CRASH-1 turned three formerly-crashing sketches into
+real solves). The 95% upper bound on the violation rate is therefore
+3/1328 = 0.23% (rule of three), against the 4.5% the original sweep measured.
+That number is now a gate.
 
 The sweep did not come back empty, though — it found three OTHER things, all
-reported rather than folded into a green test, and two of them recorded here as
-executable live limits: an unhandled ``pydantic.ValidationError`` escaping
-``solve()`` on 12 of 2000 sketches, 2 payloads that say ``conflicting`` over
-geometry the solver moved, and an ``overconstrained`` status a client cannot
-read (see the last three tests).
+reported rather than folded into a green test: an unhandled
+``pydantic.ValidationError`` escaping ``solve()`` on 12 of 2000 sketches, 2
+payloads that say ``conflicting`` over geometry the solver moved, and an
+``overconstrained`` status a client cannot read (see the last three tests).
+
+**The first of those is CLOSED (SOLVE-CRASH-1), so its recorded live limit is
+gone and two ordinary gates stand in its place**: nothing raises
+(:func:`test_no_generated_sketch_makes_the_solver_raise`) and no solved payload
+ships a circle that is not there
+(:func:`test_no_solved_payload_ships_a_circle_that_is_not_there`). The second
+gate is not a restatement of the first — it covers the SILENT half of the same
+defect the crash was only the loud end of: trials 644 and 926 were shipping
+circles of radius ``2.7e-15`` and ``8.9e-16`` mm under
+``status="underconstrained"`` with an empty conflict list, purely because the
+last DogLeg iterate landed on the positive side of zero, and no property here
+could see them. The fix moved 9 of the 12 crashes and both of those to
+``conflicting`` (276 -> 287) and turned the other 3 into real solves
+(solvable 1327 -> 1328), each with a worst residual under ``1.8e-13`` mm.
 
 Seeded fixed corpus, NOT hypothesis
 -----------------------------------
@@ -148,6 +163,7 @@ from geometry.sketch import (
 from geometry.sketch.angles import angle_frames
 from geometry.sketch.expression import evaluate_driving_dimensions
 from geometry.sketch.planegcs_solver import (
+    DEGENERATE_RADIUS_MM,
     SATISFIED_TOL_MM,
     _GcsBuild,  # pyright: ignore[reportPrivateUsage]
     _submitted_points,  # pyright: ignore[reportPrivateUsage]
@@ -164,12 +180,12 @@ SOLVER: SketchSolver = PlanegcsSketchSolver()
 SWEEP_SEED = 20260822
 
 #: Trials per run. 2000 rather than the original 400 because the question this
-#: module answers is now "is the violation rate zero", and a zero over 1327
+#: module answers is now "is the violation rate zero", and a zero over 1328
 #: solvable sketches bounds the rate at 0.23% where 155 bounded it only at 1.9%.
 #: Measured cost is ~6 ms/trial, so the whole module is ~12 s.
 SWEEP_TRIALS = 2000
 
-#: Vacuity floor. The measured solvable count is 1327 of 2000; this is ~60% of
+#: Vacuity floor. The measured solvable count is 1328 of 2000; this is ~60% of
 #: it, low enough that ordinary solver churn does not trip it and high enough
 #: that the sweep cannot quietly stop exercising anything. A run below this is
 #: not a weaker sweep, it is a sweep whose generator has broken.
@@ -505,11 +521,20 @@ def _plain_solve(sketch: SketchDefinition) -> list[SketchEntity] | None:
 
 @dataclass(frozen=True)
 class Finding:
-    """One trial that broke a property, with everything needed to reproduce it."""
+    """One trial that broke a property, with everything needed to reproduce it.
+
+    ``kind`` selects the minimiser's arbiter (:func:`_reproduces`) and is a
+    FIELD rather than a prefix sniffed off ``detail``: the shrink predicate must
+    be the one that matches this finding's defect class, or the minimal case
+    printed belongs to a different bug than the one being reported. It was a
+    ``detail.startswith("solve() raised")`` test until a second class of finding
+    arrived and would have fallen silently into the wrong arbiter.
+    """
 
     trial: int
     sketch: SketchDefinition
     detail: str
+    kind: str = "violates"
 
     def report(self) -> str:
         minimal = _minimise(self.sketch, _reproduces(self))
@@ -543,6 +568,10 @@ class Census:
     violated: list[Finding] = field(default_factory=list["Finding"])
     inside_out: list[Finding] = field(default_factory=list["Finding"])
     crashed: list[Finding] = field(default_factory=list["Finding"])
+    #: Payloads shipping a circle the solve drove below
+    #: :data:`~geometry.sketch.planegcs_solver.DEGENERATE_RADIUS_MM` — the
+    #: SILENT half of SOLVE-CRASH-1 (see the module docstring).
+    annihilated: list[Finding] = field(default_factory=list["Finding"])
     moved_passthrough: list[Finding] = field(default_factory=list["Finding"])
     dirty_overconstrained: list[Finding] = field(default_factory=list["Finding"])
 
@@ -553,7 +582,8 @@ class Census:
             f"  statuses: {dict(sorted(self.statuses.items()))}",
             f"  orientation-checked {self.orientation_checked}; "
             f"overconstrained returned as input {self.overconstrained_passthrough}",
-            f"  recorded live limits: {len(self.crashed)} crash, "
+            f"  raised {len(self.crashed)}; annihilated circles "
+            f"{len(self.annihilated)}; recorded live limit: "
             f"{len(self.moved_passthrough)} moved-passthrough",
             f"  sweep wall clock {self.seconds:.1f}s "
             f"({1000 * self.seconds / max(self.trials, 1):.1f} ms/trial)",
@@ -571,13 +601,33 @@ def run_sweep(trials: int = SWEEP_TRIALS, seed: int = SWEEP_SEED) -> Census:
             solved = SOLVER.solve(sketch)
         except Exception as exc:
             census.crashed.append(
-                Finding(trial, sketch, f"solve() raised {type(exc).__name__}")
+                Finding(trial, sketch, f"solve() raised {type(exc).__name__}", "raised")
             )
             continue
         census.statuses[solved.status] += 1
         untouched = [e.model_dump() for e in solved.entities] == [
             e.model_dump() for e in sketch.entities
         ]
+        if not untouched:
+            # Only geometry the SOLVER produced is in scope: a passthrough
+            # payload carries the author's own circles, and asserting about
+            # those would be asserting about this file's generator.
+            annihilated = [
+                entity.id
+                for entity in solved.entities
+                if isinstance(entity, SketchCircle)
+                and entity.radius < DEGENERATE_RADIUS_MM
+            ]
+            if annihilated:
+                census.annihilated.append(
+                    Finding(
+                        trial,
+                        sketch,
+                        f"status={solved.status} ships circle(s) {annihilated} "
+                        f"below {DEGENERATE_RADIUS_MM} mm",
+                        "annihilated",
+                    )
+                )
         if solved.status in PASSTHROUGH_STATUSES:
             if not untouched:
                 census.moved_passthrough.append(
@@ -709,7 +759,7 @@ def _reproduces(finding: Finding) -> Callable[[SketchDefinition], bool]:
     Derived from the finding's own class, so the minimiser cannot shrink toward
     a DIFFERENT defect and present it as this one's minimal case.
     """
-    if finding.detail.startswith("solve() raised"):
+    if finding.kind == "raised":
 
         def crashes(candidate: SketchDefinition) -> bool:
             try:
@@ -719,6 +769,25 @@ def _reproduces(finding: Finding) -> Callable[[SketchDefinition], bool]:
             return False
 
         return crashes
+
+    if finding.kind == "annihilated":
+
+        def annihilates(candidate: SketchDefinition) -> bool:
+            try:
+                solved = SOLVER.solve(candidate)
+            except Exception:
+                return False
+            if [e.model_dump() for e in solved.entities] == [
+                e.model_dump() for e in candidate.entities
+            ]:
+                return False
+            return any(
+                isinstance(entity, SketchCircle)
+                and entity.radius < DEGENERATE_RADIUS_MM
+                for entity in solved.entities
+            )
+
+        return annihilates
 
     def violates(candidate: SketchDefinition) -> bool:
         try:
@@ -853,26 +922,51 @@ def test_a_conflicting_or_diverged_payload_returns_the_input_untouched(
     )
 
 
-def test_the_solver_still_crashes_on_a_circle_it_drives_through_zero(
-    census: Census,
-) -> None:
-    """RECORDED LIVE LIMIT, found by this sweep: an unhandled ``ValidationError``.
+def test_no_generated_sketch_makes_the_solver_raise(census: Census) -> None:
+    """SOLVE-CRASH-1's gate, replacing the live limit that recorded it.
 
-    ``SketchCircle.radius`` is ``gt=0``, and nothing stops planegcs driving a
-    radius negative — so ``read_back()`` constructs a DTO the DTO refuses and a
-    ``pydantic.ValidationError`` escapes ``solve()``. ``evaluate_sketch``
-    catches only ``SketchDefinitionError``, so this reaches the caller as an
-    untyped 500 rather than a typed ``sketch_invalid``. **12 of 2000 trials
-    here — 0.6%, on sketches a user can author.**
+    The ``SketchSolver`` contract is that solve OUTCOMES are reported in
+    ``status`` and exceptions are reserved for malformed INPUT. Every sketch
+    this corpus generates is well-formed by construction (``_constraint`` draws
+    only type-valid operands), so ANY exception out of ``solve()`` is a breach
+    of that contract and reaches a user as an untyped 500 — a dead end with
+    nothing attached that says what is wrong.
 
-    Reported rather than fixed: the right answer is a design decision (refuse
-    the solve as degenerate, clamp, or admit a signed radius), not a patch.
-    Bounded both ways for the reason the test above gives.
+    It was 12 of 2000 (0.6%) when this sweep first ran: planegcs drove a
+    circle's radius through zero and ``read_back()`` built a DTO the DTO
+    refuses. Nine of those are now ``conflicting`` with the offending tangency
+    NAMED, and three of them solve — see
+    ``test_sketch_degenerate_radius.py`` for why those two answers are both
+    right and why one rule for all twelve would have been wrong.
     """
-    assert 1 <= len(census.crashed) <= 60, (
-        f"{len(census.crashed)} of {census.trials} sketches crashed the solver; "
-        "12 were recorded when this limit was written. If this is 0 the defect "
-        f"is FIXED — delete this test and say so.\n{_report(census.crashed)}"
+    assert not census.crashed, (
+        f"{len(census.crashed)} of {census.trials} sketches raised out of "
+        f"solve(); a solve outcome may not be an exception:\n"
+        f"{_report(census.crashed)}"
+    )
+
+
+def test_no_solved_payload_ships_a_circle_that_is_not_there(census: Census) -> None:
+    """SOLVE-CRASH-1's SILENT half, which no property here could see.
+
+    A crash is the loud end of this defect; the quiet end is the same collapse
+    landing a bit-width on the other side of zero. This corpus was shipping
+    circles of radius ``8.9e-16`` and ``2.7e-15`` mm under
+    ``status="underconstrained"`` with an empty conflict list (trials 644 and
+    926), and every property in this module agreed with it: the residual of a
+    tangency to a point-sized circle whose centre sits on the line is *zero*, so
+    the payload is self-consistent and geometrically absent.
+
+    Measured, and this is why the fix is a magnitude test rather than the DTO's
+    own ``gt=0``: with the minimal fix (substitute only when the DTO would
+    refuse) the annihilated-circle fixture in ``test_sketch_degenerate_radius``
+    ships ``radius=2.27e-16`` under ``underconstrained`` — the crash traded for
+    a lie. This assertion is what refuses that trade.
+    """
+    assert not census.annihilated, (
+        f"{len(census.annihilated)} payloads ship a circle the solve drove "
+        f"below {DEGENERATE_RADIUS_MM} mm, i.e. geometry that is not there:\n"
+        f"{_report(census.annihilated)}"
     )
 
 

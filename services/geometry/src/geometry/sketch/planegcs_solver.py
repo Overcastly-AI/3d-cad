@@ -63,6 +63,20 @@ the sweep that went looking for a lying residual found a lying STATUS instead:
 planegcs returns ``Success`` with ``conflicting=[]`` on a sketch carrying
 ``parallel`` and ``perpendicular`` between the same two lines
 (:func:`_violated_constraints`).
+
+**A planegcs radius is a SIGNED parameter; a DTO radius is a magnitude**
+(SOLVE-CRASH-1, RESEARCH §2). ``SketchCircle.radius`` is ``gt=0`` and nothing
+constrains the solver to keep its own parameter positive, so ``read_back`` used
+to build a DTO the DTO refuses and a ``pydantic.ValidationError`` escaped the
+feature evaluator as an untyped 500 — 12 of 2000 generated sketches. Those
+twelve are two defects with opposite right answers: a NEGATIVE radius is the
+same circle written under planegcs's branch convention and must be shipped
+(refusing it would reject a solvable sketch), while a radius the solve has
+ANNIHILATED is no circle at all and must not be. :func:`_shippable_radius` is
+that distinction; the outcome for the second case is decided by nothing new,
+because geometry carrying the author's radius where the solve found none fails
+its own tangency residual and :func:`_violated_constraints` already refuses to
+ship a payload its own constraints contradict.
 """
 
 import math
@@ -143,6 +157,30 @@ from geometry.sketch.solver import SketchDefinitionError
 #: residual before believing their own optimiser. This module had no residual
 #: concept at all until SOLVE-1 (docs/AUDIT-ENGINEERING.md Pass 8 N1).
 SATISFIED_TOL_MM = 1e-7
+
+#: Smallest radius (mm) at which a solved circle is still a circle.
+#:
+#: Deliberately the same number and the same role as ``geometry.sketch.edit``'s
+#: ``_TOL`` in ``_offset_circle``/``_offset_arc`` ("inward offset collapses the
+#: circle (radius <= 0)" -> ``sketch_degenerate_result``): an offset that drives
+#: a radius to nothing and a SOLVE that drives a radius to nothing are the same
+#: degeneracy, and the one service may not classify them differently. That
+#: module's own justification carries over unchanged — 1e-9 mm is far below any
+#: meaningful sketch feature size yet safely above double-precision noise at
+#: sketch magnitudes.
+#:
+#: **It is a magnitude test rather than a ``> 0`` test, and that is the whole
+#: point** (SOLVE-CRASH-1). ``SketchCircle.radius`` is ``gt=0``, so deferring to
+#: the DTO's own rule would draw the line at exactly zero — and the corpus that
+#: found this defect straddles it. Of the nine annihilated circles among the
+#: twelve crashes, seven reach exactly ``0.0`` and two stop at ``1.5e-15`` and
+#: ``1.9e-15`` mm; two MORE (trials 644 and 926, at ``2.7e-15`` and ``8.9e-16``)
+#: never crashed at all and shipped under ``status="underconstrained"`` with an
+#: empty conflict list, purely because the last DogLeg iterate landed on the
+#: positive side. One degeneracy, and which side of zero it lands on is float
+#: noise; a rule that gave those two groups different outcomes would encode that
+#: noise into a product decision.
+DEGENERATE_RADIUS_MM = 1e-9
 
 #: Work the settle's per-entity ladder may spend on TRIAL solves, in units of
 #: "one trial solve on a one-entity sketch". A trial solve costs about ``E**2``
@@ -521,6 +559,53 @@ def _entity_point_names(entity: SketchEntity) -> list[tuple[str, Point2D]]:
             return [(f"fit{index}", point) for index, point in enumerate(entity.points)]
         case _:  # pragma: no cover — the entity union is closed
             assert_never(entity)
+
+
+def _shippable_radius(solved: float, submitted: float) -> float:
+    """The DTO radius for planegcs's SIGNED radius parameter (SOLVE-CRASH-1).
+
+    Two different things happen here, and separating them is the whole content
+    of the fix — a sweep of 2000 generated sketches crashed on twelve, and the
+    twelve split into two groups that want OPPOSITE answers.
+
+    **A negative radius is not a degenerate circle; it is the same circle under
+    a sign convention the DTO does not have.** planegcs carries a circle's
+    radius as a signed parameter and reads the sign as a choice of BRANCH: its
+    ``tangent_circle_circle`` error is ``d - (r1 + r2)``, so ``r2 < 0``
+    describes the internal tangency of a circle of radius ``|r2|``. The point
+    set ``{p : |p - c| = r}`` is identical either way, so ``abs`` is the
+    de-parameterisation from a solver parameter to a geometric magnitude, not a
+    correction applied to a wrong answer. Measured: THREE of the twelve are this
+    case, and with ``abs`` applied all three come back as ordinary solves whose
+    worst residual over every constraint is **1.8e-13 mm**, six orders under
+    :data:`SATISFIED_TOL_MM` — the constraint sets DO have positive-radius
+    solutions and the solver had already found them. Refusing those sketches
+    would have made three legal models unbuildable, which is a worse defect than
+    the crash: the user has no way to tell it is our fault.
+
+    **A radius the solve has driven to nothing is not a circle at all.** No
+    ``SketchCircle`` can carry it (``radius`` is ``gt=0``), so this returns the
+    author's submitted value — read_back must produce a DTO — and the geometry
+    it produces then fails its own tangency residual by the whole radius, which
+    is what reclassifies the payload as the conflict it is
+    (:func:`_violated_constraints`). Nothing new decides that: the existing
+    payload gate already refuses to ship geometry a payload's own constraints
+    contradict, and a circle the constraints have annihilated is the sharpest
+    case of it. The other NINE of the twelve are this case, and nearly all are
+    one shape — ``tangent`` between a line and a circle whose centre some OTHER
+    constraint puts ON that line (``coincident`` with an endpoint, or
+    ``midpoint``), so the centre-to-line distance is zero and ``r = 0`` is the
+    unique solution. There is no positive-radius answer to find, and saying so
+    is honest.
+
+    The threshold is :data:`DEGENERATE_RADIUS_MM`, on the MAGNITUDE — see there
+    for why deferring to the DTO's own ``> 0`` would split one degeneracy in
+    half along a float-noise seam.
+    """
+    radius = abs(solved)
+    # NaN fails this comparison, which is the safe direction: a radius that is
+    # not a number is not a circle either, and it takes the degenerate path.
+    return radius if radius >= DEGENERATE_RADIUS_MM else submitted
 
 
 def _turns_geometry_inside_out(
@@ -1398,7 +1483,16 @@ class _GcsBuild:
             if entity.id == entity_id or not isinstance(entity, SketchCircle):
                 continue
             solved = self.gcs.get_circle(self._circles[entity.id])
-            worst = max(worst, abs(solved.radius - entity.radius))
+            # The radius that would SHIP, not the raw solver parameter: this
+            # asks how far the rest of the sketch has moved from what the author
+            # drew, and a sign flip moves nothing (:func:`_shippable_radius`).
+            # Read raw, a circle solved at -r reports a 2r drift it does not
+            # have, and the shape rung refuses a hold that costs nobody
+            # anything.
+            worst = max(
+                worst,
+                abs(_shippable_radius(solved.radius, entity.radius) - entity.radius),
+            )
         return worst
 
     def _try_hold_shape(
@@ -1659,7 +1753,10 @@ class _GcsBuild:
                             kind="circle",
                             construction=entity.construction,
                             center=Point2D(x=circle.center[0], y=circle.center[1]),
-                            radius=circle.radius,
+                            # planegcs's radius is a SIGNED parameter and can be
+                            # driven to nothing; the DTO's is a magnitude that
+                            # must be positive (SOLVE-CRASH-1).
+                            radius=_shippable_radius(circle.radius, entity.radius),
                         )
                     )
                 case SketchArc():

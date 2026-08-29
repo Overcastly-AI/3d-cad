@@ -212,7 +212,71 @@ that does not say whether the entities beside it are solved or the input (17 of
 282 are the input). The first two are recorded as executable live limits
 bounded BOTH ways, so closing either reddens the sweep and forces the record to
 be updated in the same commit — a limit that can only fail in one direction
-stops being a record the moment it is lifted.
+stops being a record the moment it is lifted. **SOLVE-CRASH-1 is now CLOSED and
+its live limit is deleted, exactly as designed — see the entry below.**
+
+**SOLVE-CRASH-1 CLOSED (kernel-architect, 2026-08-29, arbitrated P2->P1) — the
+untyped 500 is gone, and the twelve crashing sketches turned out to be TWO
+defects wanting opposite answers.** An untyped 500 on a sketch a user can author
+is a dead end with no explanation attached, which is worse for trust than a
+wrong answer that is at least labelled. Cause: planegcs carries a circle's
+radius as a SIGNED parameter, `SketchCircle.radius` is `gt=0`, so `read_back()`
+built a DTO the DTO refuses and a `pydantic.ValidationError` escaped the feature
+evaluator, which catches only `SketchDefinitionError`.
+**The prior question — is there no positive-radius solution, or did the solver
+walk into a bad branch of one? — was MEASURED before a fix was chosen, and the
+answer is BOTH, which rules out any single rule.** Three of the twelve had a
+NEGATIVE radius of real magnitude, which is not a degenerate circle at all:
+planegcs reads the sign as a choice of tangency branch
+(`tangent_circle_circle` is `d - (r1 + r2)`, so `r2 < 0` is the INTERNAL
+tangency of a circle of radius `|r2|`), and with `abs` applied all three come
+back as ordinary solves whose worst residual over every constraint is
+**1.8e-13 mm** — a positive-radius solution existed and the solver had already
+found it. Refusing those, which was the going-in prior, would have made three
+legal models unbuildable with nothing telling the user it was our fault. The
+other nine are annihilated, nearly all one shape — a `tangent` between a line
+and a circle whose centre another constraint puts ON that line — where `r = 0`
+is the unique solution and there is nothing to find. So the sign
+is normalised as a de-parameterisation (`_shippable_radius`), and an
+ANNIHILATED radius returns the author's own value from `read_back`, whose
+geometry then fails its own tangency residual by the whole radius and is
+reclassified by the gate that ALREADY refuses to ship a payload its own
+constraints contradict. **No new machinery, no new error code, no contract
+change:** the user gets `sketch_conflicting` — HTTP 200, feature status
+`error`, the offending constraint index named in the message, the typed
+`sketch_diagnosis` beside it — which is what any unsatisfiable sketch already
+gets, and which keeps the sketch editable rather than dead-ending. Clamping was
+rejected for HEM-1's reason (it would ship geometry the constraints do not
+satisfy, the class PBT-1 exists to catch); a `SketchDefinitionError` was
+rejected because the `SketchSolver` contract reserves exceptions for malformed
+INPUT and this input is well-formed.
+**The crash was only the LOUD half, and the quiet half is the reason the
+threshold is a magnitude and not the DTO's own `> 0`.** The nine annihilated
+circles straddle zero by float noise — seven at exactly `0.0`, two at `1.5e-15`
+and `1.9e-15` mm — and two MORE were already shipping under
+`status="underconstrained"` with an empty conflict list at `2.7e-15` and
+`8.9e-16` mm (trials 644, 926): identical collapse, silent because the last
+DogLeg iterate landed on the positive side of zero. Every property in the sweep
+agreed with them, since the residual of a tangency to a point-sized circle
+centred on the line is exactly zero. `DEGENERATE_RADIUS_MM = 1e-9` is the same
+number and role as
+`sketch/edit.py`'s collapsed-radius test behind `sketch_degenerate_result`, so
+an offset and a solve classify the same collapse the same way.
+**MUTATION EVIDENCE, two mutants, both restored.** (a) Reverting `read_back` to
+the raw parameter reproduces the original census exactly — **12 raised, 2
+annihilated, solvable 1327, conflicting 276** — and reddens three tests in
+`test_sketch_degenerate_radius.py` plus both new sweep gates. (b) The obvious
+MINIMAL fix (defer to the DTO's `gt=0`) stops the crash and reopens the silent
+half: **7 payloads** ship an annihilated circle, the annihilated-circle fixture
+returns `underconstrained` with `radius=2.27e-16`, and the solvable count
+inflates to 1335. Caught by five assertions.
+**Sweep census, before -> after:** crashes 12 -> **0**, solvable 1327 -> 1328,
+conflicting 276 -> 287, underconstrained 1296 -> 1297, violated 0 -> 0,
+reversed 0 -> 0. The
+`test_the_solver_still_crashes_on_a_circle_it_drives_through_zero` live limit is
+DELETED in this commit and replaced by two ordinary gates — nothing raises, and
+no solved payload ships a circle that is not there; the second is not a
+restatement of the first and is what covers trials 644/926.
 
 **REACH-3-FLOW CLOSED (frontend-builder, 2026-08-28) — the orientation
 proposal never fired on the only sheet most drawings have, and the paper cell
