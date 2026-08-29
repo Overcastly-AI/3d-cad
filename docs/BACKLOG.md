@@ -44,7 +44,9 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
   the name (STEPNAME-1B), while the real geometry defects were corrupted
   non-ASCII names and a file naming build123d as its author; STEPNAME-2 (P2)
   and STEPDET-1 (P1, a multi-body determinism hole both existing gates are
-  blind to) filed. Collapsed the
+  blind to) filed. **STEPNAME-1B is now CLOSED too (2026-08-29): the web
+  sends the instance name, proved on the exported part-21 bytes, and
+  reverting the line reproduces the audit's UUIDs exactly.** Collapsed the
   now-closed Ready-queue items (A11Y-TOOLBTN-1, MEASURE-PROXY-1, EXPORT-3,
   REACH-2-IMPORT-1, REACH-3-FLOW, REACH-2-FLOW, HEM-1C, HEM-1D, PGTEST-GATE,
   K2, PBT-1, SOLVE-CRASH-1, CI-BAL) into the Done archive.
@@ -1269,9 +1271,31 @@ bend radius. See Done archive for evidence/gates.**
       TERRITORY: `services/geometry/src/geometry/kernel/` STEP export path
       (assembly writer). agentType: kernel-architect.
 
-- [ ] (P1, XS) **STEPNAME-1B — the web builds the assembly evaluate request
+- [x] (P1, XS) **STEPNAME-1B — the web builds the assembly evaluate request
       without the instance `name`, so every user-facing STEP export falls
-      back to the UUID.** kind: defect. This is STEPNAME-1's ACTUAL headline
+      back to the UUID.** DONE 2026-08-29 (frontend-builder). One line —
+      `name: instance.name` — and the evidence that it means something.
+      **Asserted on the exported bytes, never on a 2xx**:
+      `apps/web/e2e/assembly-step-names.spec.ts` builds a part named
+      `Flänsch`, instances it twice through the real UI, clicks the real STEP
+      cell, and parses the part-21 text with the same `_LITERAL` rule the
+      kernel suite uses (both escapes undone, then UTF-8 decoded — a
+      substring check would have passed on the mojibake `6c52d5f` fixed).
+      Occurrences read `["Flänsch <1>", "Flänsch <2>"]`, the part gets ONE
+      shared `PRODUCT('Flänsch')`, and NO name in the file matches a UUID.
+      **Mutation evidence**: with the line reverted the same spec reports
+      `["9ed8bc86-…", "1a8c2497-…"]` — the audit's exact symptom, reproduced
+      — and the unit case reddens to `[undefined, undefined]`. The name is
+      sent VERBATIM (`"<part> <n>"`): the writer's contract puts the whole
+      name on the NAUO and the suffix-stripped form on the shared PRODUCT,
+      so pre-stripping client-side would have split one part into N
+      PRODUCTs. Acceptance's last clause checked: `buildEvaluateAssemblyRequest`
+      is the web's ONLY evaluate-request builder, so interference is fixed by
+      the same line (it ignores the field), and the assembly drawing path
+      builds no such request at all — it goes through documents, which has
+      always sent the name. Gates: `just lint` exit 0, `pnpm -r typecheck`,
+      `pnpm -r test` (2130 + 141), 13/13 assembly + export e2e green on an
+      isolated native stack. This is STEPNAME-1's ACTUAL headline
       cause, isolated by the kernel-architect on 2026-08-29 after measuring
       that the geometry writer has carried names correctly since `0d3ea59`.
       `apps/web/src/assembly/evaluateRequest.ts`'s

@@ -511,6 +511,34 @@ second. Recorded here as a live limit asserted in the failing direction, so
 closing it reddens the suite. Also filed: **STEPNAME-2** (P2) — the single-body
 export has both naming defects and is build123d's writer, not ours.
 
+**STEPNAME-1B CLOSED (frontend-builder, 2026-08-29) — the web half, and the
+one line that made the audit's UUIDs disappear.** `buildEvaluateAssemblyRequest`
+now sends `name: instance.name`. That request IS the export request
+(`exportAssembly` spreads it and adds a `format`), so the omission was reaching
+the user in the one artefact they hand to somebody else. **The evidence is the
+bytes, not a 2xx** — an optional field a producer omits is the `extra="ignore"`
+trap's shape, where everything validates and means nothing.
+`apps/web/e2e/assembly-step-names.spec.ts` instances a part named `Flänsch`
+twice through the real UI, clicks the real STEP cell, and parses the emitted
+part-21 text with the kernel suite's own literal rule: occurrences read
+`["Flänsch <1>", "Flänsch <2>"]`, ONE shared `PRODUCT('Flänsch')`, and no name
+in the file matches a UUID. The literal is UTF-8-DECODED and compared for
+equality rather than searched for, because the name was "in the file" before
+`6c52d5f` too — mojibaked — and a substring check would have passed on it.
+**Mutation-checked**: reverting the line reproduces the audit's exact symptom
+(`["9ed8bc86-…", "1a8c2497-…"]`) and reddens the unit case to
+`[undefined, undefined]`. Two decisions worth keeping. The name goes VERBATIM,
+including its `<n>`: the writer puts the whole name on the NAUO and the
+suffix-stripped form on the shared PRODUCT, so a client that pre-stripped would
+split one part into N PRODUCTs — match the writer's opinion rather than fight
+it. And the acceptance's "check the other callers" resolved to nothing to do:
+this is the web's ONLY evaluate-request builder, so interference inherits the
+fix (it ignores the field), while the assembly drawing path builds no such
+request at all. Gates: `just lint` exit 0, `pnpm -r typecheck`, `pnpm -r test`
+(2130 web + 141 design), 13/13 assembly + export e2e on an isolated native
+stack. **STEPNAME-2** (the single-body export) remains open and is the more
+common path — the user-visible split is still the wrong way round.
+
 **REACH-3-FLOW CLOSED (frontend-builder, 2026-08-28) — the orientation
 proposal never fired on the only sheet most drawings have, and the paper cell
 quoted a scale it could not produce.** (P1-1) The proposal was structurally

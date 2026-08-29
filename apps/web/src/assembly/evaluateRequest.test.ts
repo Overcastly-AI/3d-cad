@@ -206,6 +206,34 @@ describe("buildEvaluateAssemblyRequest", () => {
     });
   });
 
+  it("sends each instance's NAME, so the STEP export is not left naming components by UUID", () => {
+    // STEPNAME-1B. This request IS the export request (`exportAssembly` spreads
+    // it), and the writer falls back to the instance UUID when `name` is absent
+    // — which is what the audit read out of an assembly STEP. The non-ASCII case
+    // is here because it is the one that was corrupted end-to-end until `6c52d5f`
+    // fixed the kernel's `TCollection_ExtendedString` overload; a present-but-
+    // mojibaked name is worse than an absent one, so it gets pinned on both
+    // sides of the wire. The bytes themselves are asserted in
+    // `e2e/assembly-step-names.spec.ts` — a field in a request object proves
+    // only that we sent it.
+    const req = buildEvaluateAssemblyRequest(
+      graph({
+        instances: [
+          instance({ id: "i1", name: "Flänsch <1>" }),
+          instance({ id: "i2", name: "Flänsch <2>" }),
+        ],
+      }),
+      new Map([["part-1", tree("part-1")]]),
+    );
+    expect(req.instances.map((i) => i.name)).toEqual([
+      "Flänsch <1>",
+      "Flänsch <2>",
+    ]);
+    // Verbatim: the `<n>` suffix belongs on the occurrence, and the writer —
+    // not the client — strips it to name the shared PRODUCT.
+    expect(req.instances[1]?.name).not.toBe(req.instances[1]?.instance_id);
+  });
+
   it("contributes an empty prefix when a part tree is missing (no crash)", () => {
     const req = buildEvaluateAssemblyRequest(graph(), new Map());
     expect(req.instances[0]?.features).toEqual([]);
