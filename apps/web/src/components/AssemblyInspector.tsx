@@ -26,8 +26,11 @@ import {
 import type {
   EvaluateAssemblyResult,
   InstanceResponse,
+  MateResponse,
 } from "../api/assemblies";
+import { assemblyDiagnosisReadout } from "../assembly/diagnosis";
 import { assemblyMassState, combinedEyebrow } from "../assembly/mass";
+import { mateNamesById } from "../assembly/mates";
 import { assemblyReadout } from "../assembly/readout";
 import {
   assemblySolveLabel,
@@ -58,12 +61,28 @@ export interface AssemblyInspectorProps {
    * absent list only costs the notice its names, never its honesty.
    */
   instances?: readonly InstanceResponse[];
+  /**
+   * The graph's mates, in panel order — the NAMES behind the diagnosis's mate
+   * ids (MATEUI-1). Same list, same order as the tree panel's rows, so `M2` in
+   * the message and `M2` on a row are the same object by construction.
+   */
+  mates?: readonly MateResponse[];
+  /**
+   * Act on the diagnosis where it is read: remove a named offender without
+   * hunting for its row. Omitted (or `busy`) leaves the message as a message.
+   */
+  onDeleteMate?: (mate: MateResponse) => void;
+  /** A graph write is in flight — the remove actions are inert until it lands. */
+  busy?: boolean;
 }
 
 export function AssemblyInspector({
   evaluation,
   solve,
   instances = [],
+  mates = [],
+  onDeleteMate,
+  busy = false,
 }: AssemblyInspectorProps) {
   const em = "—";
   // Both cells read the SAME derivation. Reading `evaluation.diagnosis`
@@ -72,6 +91,15 @@ export function AssemblyInspector({
   // half of QA-R4, at this address.
   const diagnosis = solve.diagnosis;
   const status = solve.status;
+  // MATEUI-1: the paragraph is COMPOSED from the typed diagnosis, never from
+  // `diagnosis.message`/`suggested_fix` — those are the server's own prose and
+  // they carry a Python `repr` of a UUID list. `mateNamesById` is the tree
+  // panel's own numbering, so every mate the message names is findable.
+  const diagnosisReadout = assemblyDiagnosisReadout(
+    diagnosis,
+    mateNamesById(mates),
+  );
+  const mateById = new Map(mates.map((mate) => [mate.id, mate]));
   // Combined-mass / bbox readouts honor the document unit (FINDINGS burn-down
   // 2026-07-25 #7) — the same display-boundary conversion the part inspector
   // does, so an inch assembly and its inch parts speak one convention.
@@ -118,14 +146,52 @@ export function AssemblyInspector({
                 ? "0"
                 : em}
           </PanelRow>
-          {diagnosis && diagnosis.message ? (
-            <p
-              data-testid="assembly-diagnosis"
-              className="px-3 pt-1 pb-2 font-body text-xs text-gauge"
-            >
-              {diagnosis.message}
-              {diagnosis.suggested_fix ? ` ${diagnosis.suggested_fix}` : ""}
-            </p>
+          {diagnosisReadout !== null ? (
+            <div className="px-3 pt-1 pb-2">
+              <p
+                data-testid="assembly-diagnosis"
+                className="font-body text-xs text-gauge"
+              >
+                {diagnosisReadout.text}
+              </p>
+              {/* The named offenders, actionable where they are read. An error
+                  that names an object and leaves you to hunt for it is a dead
+                  end with extra steps (flow rule: no dead ends) — and the row
+                  is still there for anyone who wants the context. Same verb as
+                  the tree's own control, so the vocabulary holds.
+
+                  The chip spends the TAG only; the sentence directly above has
+                  just said "M1 Coincident", and repeating the kind on the
+                  button said nothing twice and stacked the chips onto two rows,
+                  pushing the bounding box below the fold at 1280. The
+                  accessible name keeps the full form (it CONTAINS the visible
+                  text, so speech input still matches — WCAG 2.5.3). */}
+              {onDeleteMate !== undefined &&
+              diagnosisReadout.subjects.length > 0 ? (
+                <div
+                  className="mt-1.5 flex flex-wrap gap-1.5"
+                  data-testid="assembly-diagnosis-actions"
+                >
+                  {diagnosisReadout.subjects.map((subject) => {
+                    const mate = mateById.get(subject.mateId);
+                    if (mate === undefined) return null;
+                    return (
+                      <button
+                        key={subject.mateId}
+                        type="button"
+                        onClick={() => onDeleteMate(mate)}
+                        disabled={busy}
+                        aria-label={`Remove ${subject.name}`}
+                        data-testid={`diagnosis-remove-${subject.mateId}`}
+                        className="rounded-sm border border-etch px-1.5 py-0.5 font-display text-2xs uppercase tracking-[0.14em] text-gauge outline-none transition-colors duration-fast hover:border-flag hover:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass disabled:opacity-50"
+                      >
+                        Remove {subject.tag}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
           ) : null}
         </PanelSection>
 

@@ -50,7 +50,12 @@ import type {
   InstanceResponse,
   MateResponse,
 } from "../api/assemblies";
-import { mateDetail, mateLabel, mateInstanceIds } from "../assembly/mates";
+import {
+  mateDetail,
+  mateLabel,
+  mateInstanceIds,
+  mateTag,
+} from "../assembly/mates";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import {
   visibilityModeOf,
@@ -341,18 +346,40 @@ export function AssemblyTreePanel({
             </p>
           ) : (
             <ul className="py-1" data-testid="mate-list">
-              {mates.map((mate) => {
+              {mates.map((mate, index) => {
                 const [a, b] = mateInstanceIds(mate.mate);
                 const failed = failedMateIds.has(mate.id);
                 const conflicting = conflictingMateIds.has(mate.id);
                 const sick = failed || conflicting;
+                const tag = mateTag(index);
                 return (
                   <li
                     key={mate.id}
                     data-testid="mate-row"
                     data-mate-id={mate.id}
+                    data-mate-tag={tag}
                     className="flex items-center gap-2 px-2 py-1"
                   >
+                    {/* The mate's handle (MATEUI-1). A component is a drafting
+                        balloon — a circle; a joint is not a part, so it takes a
+                        squared tag instead. One glance separates the two lists,
+                        and the number is the solver's own processing order, so
+                        a redundancy diagnosis reading "M3 is redundant" is
+                        saying something true about position, not decorating. */}
+                    <span
+                      // NOT aria-hidden, unlike the instance balloon: "1" on
+                      // its own is noise, but "M2" is the handle the diagnosis
+                      // names, so a screen-reader user needs to hear it to find
+                      // the row the message sent them to.
+                      data-testid={`mate-tag-${mate.id}`}
+                      className={`flex h-5 shrink-0 items-center justify-center rounded-sm border px-1 font-data text-2xs tabular-nums ${
+                        sick
+                          ? "border-flag text-flag"
+                          : "border-etch text-gauge"
+                      }`}
+                    >
+                      {tag}
+                    </span>
                     <span className="min-w-0 grow">
                       <span
                         className={`block font-body text-sm ${
@@ -386,7 +413,10 @@ export function AssemblyTreePanel({
                       type="button"
                       onClick={() => onDeleteMate(mate)}
                       disabled={busy}
-                      aria-label={`Remove ${mateLabel(mate.mate)} mate`}
+                      // Named with the TAG, so two Coincident mates between the
+                      // same pair no longer share one accessible name — and it
+                      // is word-for-word the inspector's own action label.
+                      aria-label={`Remove ${tag} ${mateLabel(mate.mate)}`}
                       data-testid={`mate-delete-${mate.id}`}
                       className="shrink-0 rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] text-gauge outline-none hover:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass disabled:opacity-50"
                     >

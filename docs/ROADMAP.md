@@ -38,6 +38,66 @@ repair: HEM-1C (editor still claims base-flange inheritance for the radius
 and suggests the exact value the server refuses) and HEM-1D (UI cannot author
 an `open` hem at all) — **BOTH CLOSED**, see the entry below.
 
+**MATEUI-1 CLOSED (frontend-builder, 2026-08-29) — the conflict diagnosis now
+names mates the panel can show you, and the mates panel finally numbers its
+rows.** The reported string was `mates [UUID('4ae95465-…'), UUID('b78a814e-…')]
+are mutually unsatisfiable Remove or relax mate 4ae95465-…`. Three faults, one
+cause, and the ANSWER TO THE QUESTION THE TICKET ASKED IS: the server already
+sends this typed. `AssemblySolveDiagnosis` carries `classification`,
+`conflicting_mates`, `redundant_mates` and `remaining_dof`; `message` /
+`suggested_fix` are prose the geometry service builds ALONGSIDE them for logs
+and API consumers, and the panel was printing the prose. So this is entirely a
+rendering fix — **nothing in `services/geometry` changed**, and no larger
+ticket is owed. (a) `f"mates {offending}"` interpolates a `list[uuid.UUID]`, so
+its repr reached a user. (b) The named mate was in NO panel row, because the
+mates list numbered nothing — two Coincidents on one pair rendered identically.
+(c) Neither server string is terminated, so any caller joining them makes a
+run-on; the healthy path has it too ("…at their seed placement Add mates to…").
+The fix, and the reason (b) is the one that mattered: `apps/web/src/assembly/
+diagnosis.ts` composes the sentence from the typed fields and **never reads
+`message`**, naming mates through `mateNamesById` — the SAME derivation the
+tree prints on the row — so a raw id cannot be the only handle, because a raw
+id is never printed at all. An id with no row is COUNTED ("and 1 further
+mate"), never printed; printing it "just this once" is the defect. `sentence()`
+terminates each clause before joining, so the separator cannot be forgotten by
+a caller. Mates gained a handle: `M1`, `M2` … in a **squared** tag beside the
+row, deliberately not the component balloon's circle (a joint is not a part),
+and the number is the solver's own front-to-back processing order, so "M3 is
+redundant" says something true about position rather than decorating. The tag
+is NOT `aria-hidden` (unlike the balloon: "1" alone is noise, "M2" is the
+handle the message sends you to), and the row's Remove is now named
+`Remove M2 Coincident`, so two mates of one kind no longer share an accessible
+name.
+JUDGEMENT ON THE THIRD ASK — the "remove this one" action ships in THIS commit,
+not as its own item: the message is one line above it, the handler already
+existed (`handleDeleteMate`), and an error that names an object and leaves you
+to hunt for it is the dead end the flow rule names. The chip spends the tag
+only (`Remove M1`) with the full form as its accessible name — labelling it
+`REMOVE M1 COINCIDENT` said the kind twice and stacked the chips onto a second
+row, pushing BOUNDING BOX below the fold at 1280; the first frame pair caught
+that and it was fixed before shipping.
+Gates: 19 new unit cases + 3 new e2e; `just lint` exit 0; `pnpm -r test` 2290;
+12/12 across `assembly`, `assembly-bom`, `assembly-inspect`, `mate-buried-face`
+and the new spec, plus 12/12 across `assembly-solve-provenance`,
+`assembly-undo-redo`, `assembly-visibility`, `assembly-units`.
+The e2e asserts on `innerText` (never `toContainText`, which reads
+`textContent` and sees `display:none`), refuses a UUID over the WHOLE message
+rather than the two ids the fixture holds, and — the point — parses the `M\d+`
+handles back OUT of the rendered text and demands each resolve to exactly one
+row whose tag is real ink (`elementFromPoint` at its centre answers to itself)
+rather than a data attribute standing in for a visible handle. The remove
+action is pressed with a real `page.mouse.click` at its centre, no `force`.
+Mutations, each reverted independently and verified byte-identical after: (1)
+print the server prose again -> the e2e reproduces the report VERBATIM
+(`mates [UUID('8bb6c743-…'), …] are mutually unsatisfiable Remove or relax
+mate …`) and fails; (2) delete the visible tag but KEEP `data-mate-tag` -> the
+findability case fails on the ink assertion, not the attribute; (3) drop
+`sentence()`'s terminator -> 11 of 19 unit cases fail with the exact run-on
+shape ("…at once Remove or relax one of them").
+Frames: `docs/screenshots/mateui1-before-1280.png` vs `mateui1-after-1280.png`
+— the same frame, the before half rebuilt from the strings captured OFF THE
+WIRE in that very run, so the pair differs only where the defect was.
+
 **GHOST-1 CLOSED (frontend-builder, 2026-08-29) — a body now ghosts itself
 while a sketch is open, and the modeler's own word about a body is never
 overridden to do it.** A flow defect, not a missing capability: the GHOST stop

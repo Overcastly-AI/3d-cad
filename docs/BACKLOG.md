@@ -73,9 +73,10 @@ Ranked, disjoint, parallel-dispatchable:
    sweep of the other three found two more holes (`check-build-context`'s
    MAIN path, `check-tailwind-scale`'s accidental `max()` floor). Residue
    filed as GATE-FLOOR-2 (P3).
-2. **MATEUI-1** (P1, S, frontend-builder or backend-builder) — the
-   mate-conflict diagnosis prints a raw Python `repr` of a UUID list to the
-   user and names a mate the panel cannot identify.
+2. ~~**MATEUI-1**~~ — **CLOSED 2026-08-29.** Rendering only: the diagnosis is
+   already typed on the wire, so nothing in `services/geometry` changed. Mates
+   now carry an `M1`/`M2` handle the message names and the panel shows; the
+   "remove this one" action shipped in the same commit. See the entry below.
 3. ~~**LAYOUT-1**~~ — **CLOSED BY MEASUREMENT 2026-08-29, no fix needed.**
    Does not reproduce on HEAD (band and strip abut at 0.0 px; the audit
    measured 73 px). T-18 + the density pass had already fixed it. A
@@ -1087,7 +1088,34 @@ a named view keeps it. Closes a gap four consecutive audit passes reported
 comes from the hem type and gauge (~0.5x thickness), not the part's general
 bend radius. See Done archive for evidence/gates.**
 
-- [ ] (P1, S) **MATEUI-1 — the mate-conflict diagnosis prints a Python
+- [x] (P1, S) **CLOSED (frontend-builder, 2026-08-29) — RENDERING ONLY; the
+      server already sends this typed, so no larger ticket is owed.**
+      `AssemblySolveDiagnosis` carries `classification`, `conflicting_mates`,
+      `redundant_mates`, `remaining_dof`; `message`/`suggested_fix` are prose
+      built ALONGSIDE them and the panel was printing the prose. Nothing in
+      `services/geometry` changed. `apps/web/src/assembly/diagnosis.ts`
+      composes the sentence from the typed fields and never reads `message`,
+      naming mates through `mateNamesById` — the same derivation the tree
+      prints on the row, so a raw id can never be the only handle because it is
+      never printed at all (an id with no row is COUNTED, never printed).
+      `sentence()` terminates each clause before joining, closing (c) here and
+      on the healthy path. Mates gained the handle they lacked: `M1`, `M2` … in
+      a squared tag (components are balloons/circles; a joint is not a part),
+      numbered in the solver's own processing order, not `aria-hidden`, and the
+      row's Remove is now `Remove M2 Coincident` so two mates of one kind no
+      longer share an accessible name. The "remove this one" action ships HERE
+      rather than as its own item — the handler existed and the message is one
+      line above it; the chip spends the tag only (`Remove M1`, full form as
+      accessible name) because the longer label stacked the chips and pushed
+      BOUNDING BOX below the fold at 1280. Gates: 19 unit + 3 e2e new,
+      `just lint` 0, `pnpm -r test` 2290, 24/24 across eight assembly specs.
+      Mutations, each reverted: server prose restored -> the e2e reproduces the
+      reported string verbatim; visible tag deleted with `data-mate-tag` kept ->
+      the findability case fails on the INK, not the attribute; `sentence()`'s
+      terminator dropped -> 11 of 19 unit cases fail with the exact run-on.
+      Frames: `docs/screenshots/mateui1-before-1280.png` /
+      `mateui1-after-1280.png`.
+      **MATEUI-1 — the mate-conflict diagnosis prints a Python
       `repr` of a UUID list to the user, and names a mate the UI cannot
       identify.** kind: defect. MEASURED (`docs/AUDIT-PRODUCT.md` "Pass
       2026-08-21 (second pass today)" S-18), verbatim from the SOLVE tab

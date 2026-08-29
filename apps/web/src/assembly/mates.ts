@@ -55,6 +55,53 @@ export function mateLabel(mate: Mate): string {
 }
 
 /**
+ * THE MATE'S HANDLE — the tag the panel prints on its row and the ONLY name any
+ * other surface may call it by.
+ *
+ * A component has a balloon number; a mate had nothing, so two Coincident mates
+ * between the same pair of instances rendered as two identical rows reading
+ * `Coincident · ①1 · ②2`. The solve diagnosis then said "Remove or relax mate
+ * 4ae95465-…" and the user was pointed at an object with no visible identity —
+ * a dead end with extra steps (MATEUI-1).
+ *
+ * The number is EARNED, not decoration (frontend-design §Structure): the solver
+ * processes mates front-to-back in `(order_index, id)` order and reports
+ * redundancy greedily in that same order, so "M2" is the position the solver
+ * considered it in, which is information a reader of a redundancy diagnosis
+ * actually needs. Components are circles (drafting balloons); mates are
+ * squared tags, because a joint is not a part.
+ */
+export function mateTag(index: number): string {
+  return `M${index + 1}`;
+}
+
+/** How a mate is identified everywhere outside its own row. */
+export interface MateIdentity {
+  /** The handle alone — `M2`. Enough on its own once the name is in context. */
+  readonly tag: string;
+  /** Handle plus kind — `M2 Coincident`. The full, unambiguous form. */
+  readonly name: string;
+}
+
+/**
+ * Every mate's panel-visible identity, keyed by id.
+ *
+ * ONE derivation, read by the tree (which prints the tag) and by the solve
+ * diagnosis (which names the offenders). A second, parallel numbering is how
+ * the message and the panel would drift apart again.
+ */
+export function mateNamesById(
+  mates: readonly { readonly id: string; readonly mate: Mate }[],
+): Map<string, MateIdentity> {
+  return new Map(
+    mates.map((row, index) => {
+      const tag = mateTag(index);
+      return [row.id, { tag, name: `${tag} ${mateLabel(row.mate)}` }];
+    }),
+  );
+}
+
+/**
  * The value echo for a parametric mate — the gap of a distance mate formatted
  * in the document `unit` (canonical mm → display), or the signed degrees of an
  * angle mate (angles are always degrees). `null` for non-parametric mates.

@@ -131,6 +131,7 @@ export function AssemblyPage() {
   const docVersion = graph?.doc_version ?? 0;
   const lengthUnit = graph?.assembly.length_unit ?? "mm";
   const instances = useMemo(() => graph?.instances ?? [], [graph]);
+  const mates = useMemo(() => graph?.mates ?? [], [graph]);
 
   // The bill of materials — the flat, direct-instance read model (one line per
   // referenced document, quantity = shared count). Keyed on doc_version so it
@@ -1209,6 +1210,9 @@ export function AssemblyPage() {
               bomLoading={bomQuery.isLoading}
               bomError={bomQuery.error}
               instances={instances}
+              mates={mates}
+              onDeleteMate={handleDeleteMate}
+              busy={busy || historyStep !== null}
               clashResult={clashResult}
               clashBusy={clashBusy}
               clashError={clashError}
