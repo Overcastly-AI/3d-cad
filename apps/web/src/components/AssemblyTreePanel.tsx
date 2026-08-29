@@ -46,7 +46,6 @@ import {
 
 import type {
   AssemblyGraphResponse,
-  EvaluateAssemblyResult,
   InstanceResponse,
   MateResponse,
 } from "../api/assemblies";
@@ -56,6 +55,7 @@ import {
   mateInstanceIds,
   mateTag,
 } from "../assembly/mates";
+import type { AssemblySolve } from "../features/assemblySolve";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import {
   visibilityModeOf,
@@ -66,7 +66,20 @@ import {
 export interface AssemblyTreePanelProps {
   graph: AssemblyGraphResponse | undefined;
   graphError: Error | null;
-  evaluation: EvaluateAssemblyResult | undefined;
+  /**
+   * WHAT MAY BE CLAIMED about the solve on screen (MATE-OBS-2) — the mate
+   * badges read `solve.mateErrors` / `solve.diagnosis`, never `evaluation`'s
+   * own fields.
+   *
+   * This panel used to take the raw `EvaluateAssemblyResult` and index
+   * `mate_errors` and `diagnosis.conflicting_mates` out of it, which is exactly
+   * the read MATE-OBS (`6b26ff7`) removed everywhere else: a solve superseded
+   * by a write in flight is retained by `keepPreviousData`, so a row could wear
+   * the previous solve's `conflict` stamp — or miss one it had just earned —
+   * for the ~600-840 ms the write takes. Taking the derived object instead of
+   * the raw result is what makes that unrepresentable rather than remembered.
+   */
+  solve: AssemblySolve;
   selectedInstanceId: string | null;
   /** Instances in a MEASURED clash from the last check — badged red inline. */
   clashingInstanceIds: ReadonlySet<string>;
@@ -124,7 +137,7 @@ function eyeAction(mode: VisibilityMode, name: string): string {
 export function AssemblyTreePanel({
   graph,
   graphError,
-  evaluation,
+  solve,
   selectedInstanceId,
   clashingInstanceIds,
   unverifiedInstanceIds,
@@ -148,12 +161,11 @@ export function AssemblyTreePanel({
   const matesEyebrow = mates.length > 0 ? `Mates · ${mates.length}` : "Mates";
   // Balloon number = 1-based position in the (order_index-sorted) instance list.
   const balloonById = new Map(instances.map((i, index) => [i.id, index + 1]));
-  const failedMateIds = new Set(
-    (evaluation?.mate_errors ?? []).map((e) => e.mate_id),
-  );
-  const conflictingMateIds = new Set(
-    evaluation?.diagnosis?.conflicting_mates ?? [],
-  );
+  // Both badge sets come from the STALENESS-GATED derivation, so during a write
+  // in flight both are empty and every row reads `pending` — no claim, rather
+  // than the previous solve's claim.
+  const failedMateIds = new Set(solve.mateErrors.map((e) => e.mate_id));
+  const conflictingMateIds = new Set(solve.diagnosis?.conflicting_mates ?? []);
 
   return (
     <aside
@@ -352,12 +364,22 @@ export function AssemblyTreePanel({
                 const conflicting = conflictingMateIds.has(mate.id);
                 const sick = failed || conflicting;
                 const tag = mateTag(index);
+                // The row's own word about itself, for a reader (and for QA)
+                // that wants to tell "no fault" from "not yet known".
+                const state = solve.stale
+                  ? "pending"
+                  : failed
+                    ? "unresolved"
+                    : conflicting
+                      ? "conflict"
+                      : "ok";
                 return (
                   <li
                     key={mate.id}
                     data-testid="mate-row"
                     data-mate-id={mate.id}
                     data-mate-tag={tag}
+                    data-mate-state={state}
                     className="flex items-center gap-2 px-2 py-1"
                   >
                     {/* The mate's handle (MATEUI-1). A component is a drafting

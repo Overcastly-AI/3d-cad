@@ -331,3 +331,55 @@ export async function authorBoltMates(
     timeout: 30_000,
   });
 }
+
+/**
+ * Author two mates that CANNOT both hold, leaving the assembly `conflicting`
+ * with every row badged.
+ *
+ * B's bottom face is pinned flush to A's top face (B lands at z = 10) and then
+ * held 20 mm off that same plane. One face, two parallel target planes at
+ * different heights — geometry's own
+ * `test_contradictory_mates_are_conflicting_with_offenders` shape, so the
+ * conflict is a translation along one axis with no rotation for the LM to
+ * iterate on and the verdict is `conflicting`, never `not_converged`.
+ *
+ * Shared by MATEUI-1 (the diagnosis names findable mates) and MATE-OBS-2 (the
+ * row badge is staleness-gated) — the two items that need a badged row.
+ */
+export async function authorConflictingMates(
+  page: Page,
+  idA: string,
+  idB: string,
+): Promise<void> {
+  await page.getByTestId("mate-coincident").click();
+  await expect(page.getByTestId("mate-hud")).toBeVisible();
+  await pickDispatch(
+    page,
+    `[data-testid^="mate-face-${idA}-"][aria-label*="12.5, 10 "]`,
+  );
+  await pickDispatch(
+    page,
+    `[data-testid^="mate-face-${idB}-"][aria-label*="12.5, 0 "]`,
+  );
+  await expect(page.getByTestId("mate-row")).toHaveCount(1, {
+    timeout: 30_000,
+  });
+  await waitForSolved(page);
+
+  await page.getByTestId("mate-distance").click();
+  await expect(page.getByTestId("mate-hud")).toBeVisible();
+  await pickDispatch(
+    page,
+    `[data-testid^="mate-face-${idA}-"][aria-label*="12.5, 10 "]`,
+  );
+  await pickDispatch(
+    page,
+    `[data-testid^="mate-face-${idB}-"][aria-label*="12.5, 0 "]`,
+  );
+  await page.getByTestId("mate-value").fill("20");
+  await page.getByTestId("mate-commit").click();
+  await expect(page.getByTestId("mate-row")).toHaveCount(2, {
+    timeout: 30_000,
+  });
+  await waitForSolved(page);
+}

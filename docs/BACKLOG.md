@@ -106,9 +106,10 @@ Ranked, disjoint, parallel-dispatchable:
 9. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
    select-without-editing gesture, and the command band is out of room at
    1280.
-10. **MATE-OBS-2** (P2, S, frontend-builder) — the assembly tree panel's
-    mate badge reads `evaluation.mate_errors` directly, missing the
-    staleness gate MATE-OBS added everywhere else.
+10. ~~**MATE-OBS-2**~~ — **CLOSED 2026-08-29.** `mateErrors` moved onto
+    `AssemblySolve` (empty whenever stale) and the panel takes `solve`, not the
+    raw evaluation, so there is nothing ungated left to read; the matrix gained
+    it as an eighth case with a non-vacuity settled branch. See the entry below.
 
 **Also ready, not yet dispatched:** QA-R3 (P2, touch — harness gap filed as
 PLAYWRIGHT-TOUCH-1), NAME-2b (P2), TITLEBLOCK-STAMP-1 (P2, XS),
@@ -822,7 +823,28 @@ CHECKUIPARITY-FP-1 (below) also names. See Done archive.**
       TERRITORY: `apps/web/playwright.config.ts`, `apps/web/e2e/*.spec.ts`
       (consolidation only, no product code). agentType: frontend-builder.
 
-- [ ] (P2, S) **MATE-OBS-2 — `AssemblyTreePanel` badges mates from
+- [x] (P2, S) **CLOSED (frontend-builder, 2026-08-29) — the field MOVED rather
+      than the call site being remembered.** `mateErrors` now lives on
+      `AssemblySolve`, empty whenever `stale`, and `AssemblyTreePanel` takes
+      `solve` instead of the raw `EvaluateAssemblyResult`, so it has nothing
+      ungated left to read (it was reading `diagnosis.conflicting_mates`
+      directly too, which the ticket did not name). A field that is not on
+      `AssemblySolve` is a field a consumer can read raw — that, not another
+      call-site audit, is what stops a ninth. Rows carry `data-mate-state`
+      (`ok`/`conflict`/`unresolved`/`pending`) so "no fault" and "not yet
+      known" are distinguishable. The matrix gains the consumer in three
+      places: the seven superseded-path rows, the 2^6 invariant over all 63
+      stale combinations, and the ONE settled combination asserting
+      `mateErrors` has length 1 — without which "empty whenever stale" would
+      hold in a build where the field is always empty. Measured on the real
+      stack at 25 ms across a superseding write:
+      `pre-write [conflict,conflict] inked=2` -> `t+0 stale=true
+      [pending,pending] inked=0` -> `t+861 [conflict,conflict] inked=2`.
+      Mutations, each reverted: panel back on the raw evaluation -> 2 rows
+      badged over a superseded solve at t+612/779/898 ms, by attribute AND by
+      ink; `mateErrors` ungated -> 8 of 13 matrix cases fail. Gates: `just
+      lint` 0, `pnpm -r test` 2291, 28/28 across eleven assembly/mate specs.
+      **MATE-OBS-2 — `AssemblyTreePanel` badges mates from
       `evaluation.mate_errors`, so it can carry a superseded solve's error
       set through the same staleness window MATE-OBS closed.** kind: defect
       (same family as MATE-OBS, `6b26ff7` — that fix made `evaluation` null

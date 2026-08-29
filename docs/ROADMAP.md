@@ -38,6 +38,46 @@ repair: HEM-1C (editor still claims base-flange inheritance for the radius
 and suggests the exact value the server refuses) and HEM-1D (UI cannot author
 an `open` hem at all) — **BOTH CLOSED**, see the entry below.
 
+**MATE-OBS-2 CLOSED (frontend-builder, 2026-08-29) — the eighth consumer, and
+the matrix that stops a ninth.** `AssemblyTreePanel` badged its mate rows from
+`evaluation.mate_errors` and `evaluation.diagnosis.conflicting_mates`
+DIRECTLY — the two fields MATE-OBS (`6b26ff7`) gated everywhere else — so
+through the same ~600-840 ms window a row could carry a superseded solve's
+`conflict`/`unresolved` stamp, or miss one it had just earned. It under-claims
+as readily as it over-claims, which is why it was P2 and not the P0 MATE-OBS
+was; the panel is not lying about geometry, it is answering from a solve that
+has been replaced.
+The fix is structural rather than a remembered check: `mateErrors` MOVED onto
+`AssemblySolve`, empty whenever `stale`, and the panel now takes `solve`
+instead of the raw `EvaluateAssemblyResult` — so it has nothing ungated left to
+read. **A field that is not on `AssemblySolve` is a field a consumer can read
+raw**, which is why the answer to "an eighth consumer appeared" is to move the
+field, not to audit call sites again. Rows also carry `data-mate-state`
+(`ok`/`conflict`/`unresolved`/`pending`), so "no fault" and "not yet known" are
+distinguishable to a reader and to QA.
+The matrix gained the consumer as its eighth case, in three places: the seven
+superseded-path rows each assert `mateErrors` is empty, the 2^6 invariant
+asserts it over all 63 stale combinations, and — the half that matters — the
+ONE settled combination asserts `mateErrors` has length 1 and the diagnosis
+still names its conflicting mate, so "empty whenever stale" cannot be satisfied
+by a build where the field is always empty.
+Measured on the real stack, sampling the rows at 25 ms across a superseding
+write (ground the free instance of a conflicting assembly):
+`t+1(pre-write) stale=false states=[conflict,conflict] inked=2` ->
+`t+0 stale=true states=[pending,pending] inked=0` ->
+`t+861 stale=false states=[conflict,conflict] inked=2`. The e2e reads the claim
+TWICE per sample — the row's state attribute and the INK on its second line —
+so clearing the attribute while leaving the word "conflict" on screen fails,
+and it carries three non-vacuity guards (the window was seen; the badges
+existed before the write; the badges CAME BACK), because a mute button passes
+any staleness assertion and breaks the panel.
+Mutations, each reverted and the tree verified byte-identical after: (1) put
+the panel back on the raw `evaluation` -> 2 rows badged over a superseded solve
+at t+612/779/898 ms, by attribute AND by ink; (2) ungate `mateErrors` in
+`deriveAssemblySolve` -> 8 of 13 matrix cases fail. Gates: `just lint` 0,
+`pnpm -r typecheck` clean, `pnpm -r test` 2291, 28/28 across eleven
+assembly/mate specs.
+
 **MATEUI-1 CLOSED (frontend-builder, 2026-08-29) — the conflict diagnosis now
 names mates the panel can show you, and the mates panel finally numbers its
 rows.** The reported string was `mates [UUID('4ae95465-…'), UUID('b78a814e-…')]

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "./fixtures";
 
 import {
+  authorConflictingMates,
   balloonPose,
   pickDispatch,
   setupTwoInstances,
@@ -343,5 +344,199 @@ test.describe("MATE-OBS — a mate in flight is never reported as the solve", ()
         `onto the grounded plate's, so a pose still at the seed means the ` +
         `barrier handed back the PREVIOUS solve — the defect, not a slow solve.`,
     ).toBeLessThan(seedX - 20);
+  });
+});
+
+/** One 25 ms sample of what the MATES list claims while a write is in flight. */
+interface BadgeTrace {
+  /** ms at which a row wore a fault badge while the stamp said "superseded". */
+  badgeLies: string[];
+  /** Samples taken while `data-eval-stale` was "true" — the window's width. */
+  staleSamples: number;
+  /** Rows seen badged BEFORE the write went out (the baseline to be lost). */
+  badgedBefore: number;
+  /** Rows seen badged AFTER the solve settled again (the badge came back). */
+  badgedAfter: number;
+  /** One line per CHANGE, for a human reading a failure. */
+  timeline: string[];
+  /** ms from the sampler's start at which the write was observed. */
+  armed: number;
+  /** ms from the write at which the stamp returned to "false". */
+  settledAt: number;
+}
+
+declare global {
+  interface Window {
+    __mateBadgeTrace?: BadgeTrace;
+  }
+}
+
+const EMPTY_BADGES: BadgeTrace = {
+  badgeLies: [],
+  staleSamples: 0,
+  badgedBefore: 0,
+  badgedAfter: 0,
+  timeline: [],
+  armed: -1,
+  settledAt: -1,
+};
+
+function readBadges(page: Page): Promise<BadgeTrace> {
+  return page.evaluate(
+    (empty) => window.__mateBadgeTrace ?? empty,
+    EMPTY_BADGES,
+  ) as Promise<BadgeTrace>;
+}
+
+test.describe("MATE-OBS-2 — a mate badge is a claim, so a superseded solve makes none", () => {
+  /**
+   * THE EIGHTH CONSUMER. `AssemblyTreePanel` read `evaluation.mate_errors` and
+   * `evaluation.diagnosis.conflicting_mates` DIRECTLY — the two fields MATE-OBS
+   * gated everywhere else — so for the same ~600-840 ms window a row could keep
+   * the previous solve's `conflict` stamp, or miss one it had just earned. It
+   * under-claims as readily as it over-claims, which is why it is P2 and not
+   * the P0 MATE-OBS was.
+   *
+   * The case exercises the WINDOW, not the accessor: it starts from a genuinely
+   * conflicting assembly (both rows badged), issues a graph write that
+   * supersedes the solve, and samples the rows at 25 ms throughout. A badge and
+   * a `data-eval-stale="true"` may never coexist.
+   *
+   * Three non-vacuity guards, because the load-bearing assertion is an empty
+   * list that a sampler watching nothing satisfies for free: the window must
+   * have been SEEN (`staleSamples > 0`), the badges must have been there BEFORE
+   * the write (else there was nothing to leak), and they must COME BACK
+   * afterwards (else the "fix" is a mute button, which would pass a staleness
+   * assertion while breaking the panel).
+   */
+  test("no row wears a fault badge while the solve on screen is superseded", async ({
+    page,
+  }) => {
+    const { idA, idB } = await setupTwoInstances(page);
+    await authorConflictingMates(page, idA, idB);
+    await expect(page.getByTestId("assembly-solve-status")).toHaveText(
+      "Conflicting",
+      { timeout: 30_000 },
+    );
+    // Both rows are badged at rest — this is the claim the window can leak.
+    await expect(page.locator('[data-mate-state="conflict"]')).toHaveCount(2);
+
+    await page.evaluate(() => {
+      const trace: BadgeTrace = {
+        badgeLies: [],
+        staleSamples: 0,
+        badgedBefore: 0,
+        badgedAfter: 0,
+        timeline: [],
+        armed: -1,
+        settledAt: -1,
+      };
+      window.__mateBadgeTrace = trace;
+      const started = Date.now();
+      let last = "";
+
+      const sample = () => {
+        const elapsed = Date.now() - started;
+        const stamp =
+          document
+            .querySelector('[data-testid="assembly-workspace"]')
+            ?.getAttribute("data-eval-stale") ?? "(absent)";
+        const rows = [
+          ...document.querySelectorAll('[data-testid="mate-row"]'),
+        ] as HTMLElement[];
+        // TWO independent readings of the same claim, because a data attribute
+        // is not what a user sees: the row's own state stamp, and the INK on
+        // its second line. A fix that only cleared the attribute would leave
+        // the word "conflict" on screen, and this catches that.
+        const states = rows.map((r) => r.dataset.mateState ?? "(none)");
+        const inked = rows.filter((r) =>
+          /conflict|unresolved/i.test(r.innerText),
+        ).length;
+        const badged = Math.max(
+          states.filter((s) => s === "conflict" || s === "unresolved").length,
+          inked,
+        );
+
+        if (trace.armed < 0) {
+          trace.badgedBefore = Math.max(trace.badgedBefore, badged);
+          if (stamp === "true") trace.armed = elapsed;
+        }
+
+        const line = `stale=${stamp} states=[${states.join(",")}] inked=${inked}`;
+        if (line !== last) {
+          last = line;
+          trace.timeline.push(
+            `t+${trace.armed < 0 ? `${elapsed}(pre-write)` : elapsed - trace.armed} ${line}`,
+          );
+        }
+
+        if (trace.armed >= 0) {
+          const at = elapsed - trace.armed;
+          if (stamp === "true") {
+            trace.staleSamples += 1;
+            if (badged > 0) {
+              trace.badgeLies.push(
+                `t+${at}ms: ${badged} row(s) badged over a superseded solve ` +
+                  `(states=[${states.join(",")}], inked=${inked})`,
+              );
+            }
+          } else if (stamp === "false") {
+            if (trace.settledAt < 0) trace.settledAt = at;
+            trace.badgedAfter = Math.max(trace.badgedAfter, badged);
+          }
+        }
+
+        const done =
+          trace.settledAt >= 0 && elapsed - trace.armed - trace.settledAt > 800;
+        if (!done && elapsed < 40_000) window.setTimeout(sample, 25);
+      };
+      sample();
+    });
+
+    // A graph write that supersedes the solve and KEEPS both mate rows, so the
+    // subject of the badge exists throughout: ground the free instance.
+    await page.getByTestId(`instance-ground-${idB}`).click();
+
+    await expect
+      .poll(async () => (await readBadges(page)).settledAt, {
+        timeout: 45_000,
+        message:
+          "the workspace never returned to a settled solve after the write, so " +
+          "the sampler never saw the window close and its silence proves nothing",
+      })
+      .toBeGreaterThanOrEqual(0);
+    await page.waitForTimeout(1000);
+    const trace = await readBadges(page);
+
+    console.log(
+      "MATE-OBS-2 timeline (ms from the write):\n  " +
+        trace.timeline.join("\n  "),
+    );
+    const tail = `Timeline:\n  ${trace.timeline.join("\n  ")}`;
+
+    // NON-VACUITY FIRST. Each of these is what makes the last one mean something.
+    expect(
+      trace.badgedBefore,
+      `the rows were never badged before the write, so there was no claim for ` +
+        `the window to carry and this gate measured nothing. ${tail}`,
+    ).toBeGreaterThan(0);
+    expect(
+      trace.staleSamples,
+      `the sampler never observed data-eval-stale="true", so it did not see ` +
+        `the window at all — a 25 ms poll that misses a ~600 ms window is ` +
+        `broken, not evidence. ${tail}`,
+    ).toBeGreaterThan(0);
+    expect(
+      trace.badgedAfter,
+      `no row was badged again once the solve settled. Suppressing the badge ` +
+        `permanently passes a staleness assertion and breaks the panel — the ` +
+        `gate must refuse a mute button. ${tail}`,
+    ).toBeGreaterThan(0);
+
+    expect(
+      trace.badgeLies,
+      `a mate row carried a fault badge from a SUPERSEDED solve:\n  ` +
+        `${trace.badgeLies.join("\n  ")}\n${tail}`,
+    ).toEqual([]);
   });
 });

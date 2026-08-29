@@ -1,6 +1,10 @@
 import { expect, test, type Page } from "./fixtures";
 
-import { pickDispatch, setupTwoInstances, waitForSolved } from "./assemblyFlow";
+import {
+  authorConflictingMates,
+  setupTwoInstances,
+  waitForSolved,
+} from "./assemblyFlow";
 import { SCREENSHOT_DIR } from "./support";
 
 /**
@@ -29,51 +33,6 @@ import { SCREENSHOT_DIR } from "./support";
 
 /** The UUID shape, anywhere in a string. */
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
-
-/**
- * Author two mates that cannot both hold: B's bottom face pinned flush to A's
- * top face (B lands at z = 10) and the SAME face held 20 mm off it. One face,
- * two parallel target planes at different heights — the solver's own
- * `test_contradictory_mates_are_conflicting_with_offenders` shape, so the
- * conflict is a translation along one axis with no rotation to iterate on.
- */
-async function authorConflictingMates(
-  page: Page,
-  idA: string,
-  idB: string,
-): Promise<void> {
-  await page.getByTestId("mate-coincident").click();
-  await expect(page.getByTestId("mate-hud")).toBeVisible();
-  await pickDispatch(
-    page,
-    `[data-testid^="mate-face-${idA}-"][aria-label*="12.5, 10 "]`,
-  );
-  await pickDispatch(
-    page,
-    `[data-testid^="mate-face-${idB}-"][aria-label*="12.5, 0 "]`,
-  );
-  await expect(page.getByTestId("mate-row")).toHaveCount(1, {
-    timeout: 30_000,
-  });
-  await waitForSolved(page);
-
-  await page.getByTestId("mate-distance").click();
-  await expect(page.getByTestId("mate-hud")).toBeVisible();
-  await pickDispatch(
-    page,
-    `[data-testid^="mate-face-${idA}-"][aria-label*="12.5, 10 "]`,
-  );
-  await pickDispatch(
-    page,
-    `[data-testid^="mate-face-${idB}-"][aria-label*="12.5, 0 "]`,
-  );
-  await page.getByTestId("mate-value").fill("20");
-  await page.getByTestId("mate-commit").click();
-  await expect(page.getByTestId("mate-row")).toHaveCount(2, {
-    timeout: 30_000,
-  });
-  await waitForSolved(page);
-}
 
 /**
  * What the user actually READS in the diagnosis: `innerText`, not

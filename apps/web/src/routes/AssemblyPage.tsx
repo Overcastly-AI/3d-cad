@@ -1180,7 +1180,7 @@ export function AssemblyPage() {
             <AssemblyTreePanel
               graph={graph}
               graphError={graphQuery.error}
-              evaluation={evaluation}
+              solve={solve}
               selectedInstanceId={selectedInstanceId}
               clashingInstanceIds={clashIds.measured}
               unverifiedInstanceIds={clashIds.unverifiedOnly}
