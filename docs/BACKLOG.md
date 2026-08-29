@@ -2074,9 +2074,9 @@ to the Ready section, top of queue.
       second.** REMAINING under this umbrella is therefore only whether to
       rebalance shard 3/4 at all, plus QA-CI4-MATE-1.
       **The rebalance question is now ANSWERED and DONE — CI-BAL below
-      (2026-08-29): the split is duration-aware, critical path 25.9 -> 19.0 min,
-      1.36x -> 1.00x of ideal, N stays 4. REMAINING under this umbrella is
-      QA-CI4-MATE-1 alone.**
+      (2026-08-29): the split is duration-aware, critical path 24.2 -> 18.4 min,
+      1.32x -> 1.00x of ideal, measured on a full green four-shard run, N stays
+      4. REMAINING under this umbrella is QA-CI4-MATE-1 alone.**
 
 - [x] (P2, M) **CI-BAL CLOSED — the e2e shard split is duration-aware, and the
       two cheaper fixes were ruled out by measurement rather than by taste**
@@ -2084,13 +2084,17 @@ to the Ready section, top of queue.
       `scripts/e2e.sh`, `.github/workflows/e2e.yml`, `justfile`). CI now passes
       `--balanced-shard=i/N`, packed longest-processing-time by measured
       duration over the set `playwright test --list` returns. Critical path
-      **25.9 -> 19.0 min, 1.36x -> 1.00x of ideal**, which turns the live risk
-      (the 40-minute STEP cap) from 1.5x runner-speed headroom into 2.1x. Those
-      are DERIVED — the packing arithmetic over CI-4's measured per-file
-      durations — and that is a measurement rather than a model because a
-      shard's summed per-file durations reproduce its observed wall to within
-      0.6 % on all four shards. A four-shard validating run follows in the next
-      commit.
+      **24.2 -> 18.4 min, 1.32x -> 1.00x of ideal**, which turns the live risk
+      (the 40-minute STEP cap) from 1.5x runner-speed headroom into 2.1x.
+      **VALIDATED BY A REAL RUN, not simulated: four balanced shards on this box
+      measured 1132 / 1085 / 1138 / 1116 s, all green, 686/686 expected, 0
+      unexpected, 0 flaky** — a 1.05x spread against the count-based cut's
+      1.58x, and within 0.3 % of the committed manifest's 19.0 min prediction.
+      The before/after comes from THAT SAME RUN (per-file durations are a
+      property of the file, so one measurement can be summed under both
+      partitions: count-based 965/958/**1452**/1028 s vs duration-aware
+      1102/1101/1101/1100 s), because absolute walls move ~30 % with contention
+      and a cross-day comparison would be confounded by it.
       **Splitting the two 5-minute spec files buys ZERO** — a simulator
       reproducing Playwright's count-based cut, validated against CI-4's real
       4-way membership (145/145 files; walls 978/980/1549/1046 s to the second),
@@ -2115,9 +2119,22 @@ to the Ready section, top of queue.
       a file in two); a broken `--list` refuses rather than planning over a
       truncated suite; a bad shard spec aborts `e2e.sh` (exit 2) with no
       fall-back to `--shard`, because a silent downgrade would restore the
-      imbalance while every log still said "balanced". `--self-test` (21 checks)
+      imbalance while every log still said "balanced". `--self-test` (24 checks)
       is in `just lint` and the reconcile job. The `e2e complete` coverage audit
-      is unchanged and is now an independent cross-check on OUR partition.
+      is unchanged and is now an independent cross-check on OUR partition — and
+      it was exercised on the real reports BOTH ways: 686 discovered / 686 run
+      exactly once -> exit 0, and with shard 3's report swapped for a green
+      EMPTY one -> exit 1, `172 discovered test(s) were run by NO shard`.
+      `--forbid-only` re-measured because its input changed: a planted
+      `test.only` reds only the shard owning that file (exit 1 on 2/4, 0 on the
+      rest), so nothing escapes and the red names the offender's shard. ONE
+      FOOTGUN FOUND IN THE TOOL AND CLOSED: `--drift` over a SINGLE shard's
+      report called 120 of 145 manifest entries "no longer exist" and printed
+      the refresh command below it — advice that deletes 120 measurements,
+      repacks those files at the pessimistic weight and undoes the balance
+      without failing any gate. Partial refreshes now refuse
+      (`--allow-shrink` overrides) and the advice is withdrawn when the report
+      set is partial.
       [src: platform-builder, 2026-08-29; measurement in docs/QA-REVIEW.md CI-4]
 
 - [x] (P1, S) **CI-5 CLOSED — a red e2e shard's failure list was unreachable

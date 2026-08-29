@@ -58,6 +58,10 @@ Usage:
     e2e-shard-plan.py --plan N [--list-json FILE]
     e2e-shard-plan.py --simulate 2-10
     e2e-shard-plan.py --emit-durations REPORT.json ... --out MANIFEST
+        Pass EVERY shard's report from ONE run. A refresh from a subset is
+        refused (--allow-shrink overrides): it would drop the other shards'
+        measurements, and each dropped file then packs at the pessimistic
+        weight — the balance quietly undone, with no gate to notice.
     e2e-shard-plan.py --drift REPORT.json ...
     e2e-shard-plan.py --self-test
 """
@@ -65,11 +69,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
+import io
 import json
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, cast
 
@@ -513,6 +520,29 @@ def cmd_emit(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    # THE PARTIAL-REFRESH GUARD. The empty case above is the easy half; the
+    # dangerous half is a refresh from SOME of the shards, which is what you
+    # have on hand after re-running one red shard locally. It writes a manifest
+    # that silently DROPS every file the other shards ran — 120 of 145 in the
+    # measured case — and each dropped file then packs at the pessimistic
+    # weight, so the balance this whole ticket bought is quietly undone by a
+    # command the tool itself printed. Coverage is never at risk (that is the
+    # GATE-1 asymmetry doing its job), which is exactly why nothing else would
+    # complain.
+    existing = load_manifest(args.out)
+    if existing and len(totals) < len(existing) and not args.allow_shrink:
+        missing = sorted(set(existing) - set(totals))
+        print(
+            f"e2e-shard-plan: these reports cover {len(totals)} file(s) but the "
+            f"manifest at {args.out} has {len(existing)} — refusing to drop "
+            f"{len(missing)} measurement(s) (e.g. {', '.join(missing[:4])}).\n"
+            "  A manifest refreshed from SOME shards packs every other file at "
+            "the pessimistic weight, undoing the balance without failing any "
+            "gate. Pass reports from ALL shards of one run, or --allow-shrink "
+            "if you really mean to shrink it.",
+            file=sys.stderr,
+        )
+        return 1
     write_manifest(args.out, totals, args.note)
     print(
         f"wrote {len(totals)} file durations to {args.out} "
@@ -552,13 +582,33 @@ def cmd_drift(args: argparse.Namespace) -> int:
         print(f"  {len(unknown)} file(s) not in the manifest (packed as HEAVIEST):")
         for f in unknown[:15]:
             print(f"    {observed[f] / 60:5.1f} min  {f}")
-    if gone:
+    # "In the manifest, absent from these reports" has TWO causes and they want
+    # opposite responses: the file was deleted (refresh), or you passed the
+    # reports from only some shards (do NOT refresh — see the guard in
+    # cmd_emit). Calling it "no longer exists" while printing the refresh
+    # command is how a partial refresh gets talked into being a good idea, so
+    # the wording is chosen by how much of the manifest these reports cover
+    # rather than asserted.
+    partial = bool(manifest) and len(observed) < 0.9 * len(manifest)
+    if partial:
+        print(
+            f"  these reports cover {len(observed)} of the manifest's "
+            f"{len(manifest)} files — a PARTIAL run (one shard?), so the "
+            f"{len(gone)} absent entries are not a deletion signal and this is "
+            "NOT a refresh you should act on."
+        )
+    elif gone:
         print(f"  {len(gone)} manifest entry/entries no longer exist: {gone[:10]}")
     if moved:
         print(f"  {len(moved)} file(s) moved by more than 2x:")
         for f, was, now in moved[:15]:
             print(f"    {was / 60:5.1f} -> {now / 60:5.1f} min  {f}")
-    if unknown or moved:
+    if partial:
+        # Deliberately no refresh command here. Printing one under a partial
+        # report set is the whole footgun: the advice is correct for the drift
+        # it just described and catastrophic for the manifest it would rewrite.
+        print("  -> re-run with ALL shards' reports before deciding anything.")
+    elif unknown or moved:
         print(
             "  -> refresh: python3 scripts/e2e-shard-plan.py --emit-durations "
             "shard-reports/*.json --out scripts/e2e-durations.json"
@@ -603,6 +653,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", type=Path, default=MANIFEST)
     parser.add_argument("--note", default="regenerated from a full sharded run")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--allow-shrink",
+        action="store_true",
+        help="let --emit-durations write a manifest with FEWER files than the "
+        "one it replaces (refused by default: that is the partial-refresh "
+        "footgun, and it degrades balance without failing any gate)",
+    )
     parser.add_argument(
         "--no-verify",
         action="store_true",
@@ -650,7 +707,7 @@ def main(argv: list[str] | None = None) -> int:
 
 #: See e2e-shard-audit.py — `all([])` is True, so a lost `checks.append` would
 #: remove coverage while the self-test still printed success.
-EXPECTED_CHECKS = 21
+EXPECTED_CHECKS = 24
 
 
 def self_test() -> int:
@@ -797,6 +854,71 @@ def self_test() -> int:
         and fingerprint(bins) != fingerprint(dropped),
         "…and CHANGES when the partition changes (so it can detect a mismatch)",
     )
+
+    # THE PARTIAL-REFRESH GUARD, end to end through the CLI, because this is a
+    # footgun the tool used to LOAD ITSELF: `--drift` on one shard's report
+    # called 120 of 145 manifest entries "no longer exist" and printed the
+    # refresh command underneath. Both halves are checked — the refusal, and
+    # that the advice is withdrawn.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        full = root / "manifest.json"
+        write_manifest(full, durations, "self-test")
+        one_shard = root / "shard.json"
+        one_shard.write_text(
+            json.dumps(
+                {
+                    "suites": [
+                        {
+                            "file": "qa-heavy-0.spec.ts",
+                            "specs": [
+                                {
+                                    "file": "qa-heavy-0.spec.ts",
+                                    "tests": [{"results": [{"duration": 900_000}]}],
+                                }
+                            ],
+                        }
+                    ]
+                }
+            )
+        )
+        # Swallow the refusal's own stderr: this self-test runs inside
+        # `just lint`, and a scary "refusing to drop 23 measurement(s)" in that
+        # output reads as a broken gate rather than as a guard doing its job.
+        quiet = io.StringIO()
+        with contextlib.redirect_stderr(quiet):
+            code = main(
+                [
+                    "--emit-durations",
+                    str(one_shard),
+                    "--out",
+                    str(full),
+                    "--durations",
+                    str(full),
+                ]
+            )
+        after = load_manifest(full)
+        ok(code == 1, "a refresh from ONE shard's report is REFUSED")
+        ok(
+            len(after) == len(durations),
+            "…and the good manifest it would have replaced is untouched",
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            override = main(
+                [
+                    "--emit-durations",
+                    str(one_shard),
+                    "--out",
+                    str(full),
+                    "--durations",
+                    str(full),
+                    "--allow-shrink",
+                ]
+            )
+        ok(
+            override == 0 and len(load_manifest(full)) == 1,
+            "…and --allow-shrink is the deliberate override (negative control)",
+        )
 
     for good, label in checks:
         print(f"  {'ok  ' if good else 'FAIL'} {label}")

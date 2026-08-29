@@ -92,14 +92,20 @@ met (~6 tests remain near 2x) and is split out as QA-CI4-HEADROOM-2 rather than
 left as an unmet criterion on a closed ticket.
 
 **CI-BAL (platform-builder, 2026-08-29) — the e2e shard split is now
-DURATION-aware: critical path 25.9 -> 19.0 min, 1.36x -> 1.00x of a balanced
+DURATION-aware: critical path 24.2 -> 18.4 min, 1.32x -> 1.00x of a balanced
 quarter, so the 40-minute step cap carries 2.1x of runner-speed headroom where
-it had 1.5x.** Those two numbers are DERIVED, and it is worth being exact about
-from what: they are the packing arithmetic applied to the CI-4 pass's measured
-per-file durations, and the reason that is a measurement rather than a model is
-that the sum of a shard's per-file durations reproduces its observed wall to
-within 0.6 % on all four shards (978/980/1549/1046 s summed vs 984/985/1555/1051
-observed). A four-shard validating run follows in the next commit.
+it had 1.5x.** **Measured, not modelled: a full four-shard balanced run on this
+box came in at 1132 / 1085 / 1138 / 1116 s, all green, 686/686 expected, 0
+unexpected, 0 flaky** — a 1.05x spread where the count-based cut measured 1.58x,
+and within 0.3 % of the 19.0 min the committed manifest predicted. The
+before/after is taken from THAT SAME RUN rather than from a different day: a
+file's duration is a property of the file, so its per-file numbers can be summed
+under both partitions — count-based 965/958/**1452**/1028 s (24.2 min, 1.32x)
+against duration-aware 1102/1101/1101/1100 s (18.4 min, 1.00x). Absolute walls
+move ~30 % with contention, so cutting one measurement two ways is the only
+comparison that is not confounded by it. (Against the CI-4 pass's quiet
+baseline the count-based figure was 25.9 min; the gap is `8ddb0ac`, which cut
+`qa-sel4-verify` to 0.83x and `qa-sketch-frame` to 0.76x.)
 Playwright's `--shard=i/N` cuts whole files in filesystem order on equal TEST
 COUNT; cost per test varies ~20x here and the expensive specs share prefixes,
 so they are alphabetically adjacent and pile into one shard. CI now passes
@@ -127,7 +133,19 @@ refused in both directions (a file in no bin, a file in two), a bad shard spec
 aborts `e2e.sh` with no fall-back to `--shard` (exit 2, before any service
 boots), and the `e2e complete` coverage audit is unchanged — it reconciles the
 union of what ran against `--list`, so it is now an independent cross-check on
-OUR partition rather than on Playwright's.
+OUR partition rather than on Playwright's. **That audit was exercised on the
+real reports, both ways:** 686 discovered / 686 executed exactly once -> exit 0;
+and with shard 3's report swapped for a green-but-EMPTY one — the "silently ran
+nothing" shape — exit 1 naming `172 discovered test(s) were run by NO shard`.
+`--forbid-only` was re-measured too, since its input changed: a planted
+`test.only` reds the ONE shard owning that file (exit 1 on 2/4, exit 0 on the
+other three) rather than all four, so nothing escapes and the red now names the
+offender's shard. One footgun found and closed in the tool itself: `--drift` on
+a SINGLE shard's report called 120 of 145 manifest entries "no longer exist" and
+printed the refresh command underneath — advice that would have deleted 120
+measurements and undone the balance without failing any gate. A partial refresh
+is now refused (`--allow-shrink` overrides) and the advice is withdrawn when the
+reports are partial.
 
 **REACH-3-FLOW CLOSED (frontend-builder, 2026-08-28) — the orientation
 proposal never fired on the only sheet most drawings have, and the paper cell
