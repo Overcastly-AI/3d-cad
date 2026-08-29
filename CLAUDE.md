@@ -1194,6 +1194,29 @@ recipe here in the same commit as the fix.**
   looks complete and the count is simply gone — a green-shaped output with no
   number in it. Same family as the zero-byte 200: the shape of success survives
   while the content that makes it checkable does not.
+- **WALKING FastAPI's RAW ROUTES REPORTS A CORRECTLY-AUTHENTICATED ROUTER AS
+  WIDE OPEN — use `fastapi.routing.iter_route_contexts`, not
+  `_IncludedRouter.original_router.routes`.** Measured 2026-08-29 while building
+  the K2 auth gate, and it is a correction to the advice this file and the
+  BACKLOG entry both previously gave. Recursing the raw included routers gets
+  the right route COUNT and two things wrong: (a) a router included into another
+  router keeps only its own prefix, so a route served at `/outer/inner/leaf`
+  reports as `/inner/leaf`; and (b) — the dangerous one —
+  `include_router(r, dependencies=[Depends(auth)])` records the dependency on the
+  INCLUSION, so the raw route's `dependant` is **empty** and a gate reading it
+  calls a properly-authenticated router unauthenticated. **That is a false
+  positive on a security gate, and a gate that cries wolf gets muted, which is
+  how it stops protecting anything.** Neither defect fires today (no service uses
+  nested inclusion or include-level auth), so the raw walk gives the right answer
+  now and a silently wrong one the first time someone reaches for a normal
+  FastAPI idiom. `iter_route_contexts` is the flattener FastAPI's own OpenAPI
+  generator uses: it composes prefixes and merges inclusion-level dependencies.
+  **The honest caveat that comes with it:** once the walk uses FastAPI's own
+  flattener, an OpenAPI cross-check is a CONSISTENCY check, not an independent
+  oracle — which is exactly why the count floor carries the weight. The general
+  lesson is the one this repo keeps paying for: **a walk that finds nothing makes
+  every "all of them are fine" assertion vacuously true**, so assert the count
+  you expect to walk, not only the property you expect to hold.
 - **A `conftest.py` env var leaks ACROSS services, because pytest collects every
   conftest before running any test.** `services/gateway/tests/conftest.py` does
   `os.environ.setdefault("LOFT_ENV", "dev")` so the gateway suite can build
