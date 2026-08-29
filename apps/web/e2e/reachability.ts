@@ -126,6 +126,104 @@ export async function litPoints(
 }
 
 /**
+ * How many pixels near each of `points` match `hex` — ONE readback for the lot.
+ *
+ * WHY BATCHED. Reading the canvas costs a `drawImage` of the ENTIRE frame
+ * regardless of how few pixels you then look at, so a per-point helper called
+ * in a loop pays for the whole canvas once per point. `qa-sketch-frame`'s ring
+ * scan did exactly that: 89 radii x 4 diagonals x 3 zoom legs = **1068
+ * full-frame copies to read nine pixels each**. Batching does not change a
+ * single measured value; it changes 1068 readbacks into 3.
+ *
+ * AND IT IS NOT A SPEED FIX — measured, because it looked like one. That scan
+ * was 190 ms of a 33.2 s test (0.6 %) while the test's zoom loop was 47 %, so
+ * batching it moved the wall clock by nothing at all (CI-4 headroom pass,
+ * 2026-08-29). Reach for this to stop wasting work and to keep one readback's
+ * worth of the frame CONSISTENT across every point in a census; do not reach
+ * for it to buy headroom.
+ *
+ * ONE CONSISTENT FRAME IS A BEHAVIOUR CHANGE, so callers must know it. The
+ * per-point form re-read the canvas for every probe and therefore saw whatever
+ * had been painted by then; this sees one instant. That is more correct for a
+ * census — but any caller relying on the old form's incidental latency to let a
+ * render land must now wait for the render EXPLICITLY. `measureRingRadiusPx`
+ * had exactly that dependency and started reading pre-paint frames until it
+ * gained a `waitForFrames`.
+ *
+ * The predicate is per-channel absolute difference <= 8, the same tolerance the
+ * per-point version used, over a `2*halfPx+1` box in CANVAS pixels centred on
+ * the point's canvas coordinate. A point whose box falls outside the canvas
+ * scores -1, exactly as before, so callers testing `> 0` are unaffected.
+ */
+export async function inkAt(
+  page: Page,
+  points: readonly Point[],
+  hex: string,
+  halfPx = 1,
+  selector = VIEWPORT_CANVAS,
+): Promise<number[]> {
+  return page.evaluate(
+    ({
+      points,
+      hex,
+      halfPx,
+      selector,
+    }: {
+      points: readonly Point[];
+      hex: string;
+      halfPx: number;
+      selector: string;
+    }): number[] => {
+      const canvas = document.querySelector<HTMLCanvasElement>(selector);
+      if (!canvas) return points.map(() => -1);
+      const rect = canvas.getBoundingClientRect();
+      const sx = canvas.width / rect.width;
+      const sy = canvas.height / rect.height;
+      const probe = document.createElement("canvas");
+      probe.width = canvas.width;
+      probe.height = canvas.height;
+      const ctx = probe.getContext("2d");
+      if (!ctx) return points.map(() => -1);
+      ctx.drawImage(canvas, 0, 0);
+      const { data } = ctx.getImageData(0, 0, probe.width, probe.height);
+      const target = [
+        Number.parseInt(hex.slice(1, 3), 16),
+        Number.parseInt(hex.slice(3, 5), 16),
+        Number.parseInt(hex.slice(5, 7), 16),
+      ];
+      const size = halfPx * 2 + 1;
+      return points.map(({ x, y }) => {
+        const x0 = Math.round((x - rect.left) * sx) - halfPx;
+        const y0 = Math.round((y - rect.top) * sy) - halfPx;
+        if (
+          x0 < 0 ||
+          y0 < 0 ||
+          x0 + size > probe.width ||
+          y0 + size > probe.height
+        ) {
+          return -1;
+        }
+        let hits = 0;
+        for (let dy = 0; dy < size; dy += 1) {
+          for (let dx = 0; dx < size; dx += 1) {
+            const i = ((y0 + dy) * probe.width + (x0 + dx)) * 4;
+            if (
+              Math.abs((data[i] as number) - (target[0] as number)) <= 8 &&
+              Math.abs((data[i + 1] as number) - (target[1] as number)) <= 8 &&
+              Math.abs((data[i + 2] as number) - (target[2] as number)) <= 8
+            ) {
+              hits += 1;
+            }
+          }
+        }
+        return hits;
+      });
+    },
+    { points, hex, halfPx, selector },
+  );
+}
+
+/**
  * Of `points`, the ones that are BACKGROUND with room to spare — no lit pixel
  * anywhere within `marginPx`.
  *

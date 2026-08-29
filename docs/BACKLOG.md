@@ -2068,7 +2068,11 @@ to the Ready section, top of queue.
       wall-clock wait sitting at 1.4x its worst QUIET observation.
       REMAINING under this umbrella: whether to rebalance shard 3/4 at all
       (a wall-clock/feedback-latency decision, not a correctness one) and
-      QA-CI4-HEADROOM-1, which names the next red before it happens.
+      QA-CI4-HEADROOM-1, which names the next red before it happens —
+      **now CLOSED (2026-08-29): both tests it named were already failing in
+      isolation, and are fixed by cutting work first and raising ceilings
+      second.** REMAINING under this umbrella is therefore only whether to
+      rebalance shard 3/4 at all, plus QA-CI4-MATE-1.
 
 - [x] (P1, S) **CI-5 CLOSED — a red e2e shard's failure list was unreachable
       from the orchestrator's only channel** (`scripts/e2e.sh`,
@@ -2932,24 +2936,77 @@ frame refactor are v2/§11. Spike de-collected.
       "fix" by re-running until green or by dropping the 40 px floor.
       [src: qa-tester CI-4 pass, 2026-08-29]
 
-- [ ] (P2, S) **QA-CI4-HEADROOM-1 — `qa-sketch-frame.spec.ts:478` runs at
-      1.1x its own timeout under load; it is the next shard-3/4 red and
-      neither CI-4 fix touches it.** kind: defect (e2e). Measured by the
-      CI-4 QA pass (2026-08-29): every shard-3/4 test's duration against its
-      effective ceiling, under two CPU spinners on a 4-core box — "the
-      founder's gesture: the drawn ring picks all the way round, at three
-      zoom levels" took **55.7 s against the default 60 s**, and
-      `qa-sel4-verify.spec.ts:503` ("seven bores, seven ordinals") 44.0 s
-      against 60 s. Both pass today only because this box is fast enough;
-      any runner ~10 % slower turns the first one red, and it would arrive
-      as an opaque "Test timeout of 60000ms exceeded". FIX: for each, decide
-      whether the test is doing too much per run (three zoom levels in one
-      case) or whether 60 s was never a considered number, and make the
-      ceiling a measured multiple of the observed cost the way
-      `pick-mark-seat`'s now is — with the number and its evidence written
-      beside it. ACCEPTANCE: no shard-3/4 test sits under 3x its ceiling
-      under 1.5x CPU oversubscription; the headroom census is re-run and
-      attached. [src: qa-tester CI-4 pass, 2026-08-29]
+- [x] (P2, S) **QA-CI4-HEADROOM-1 CLOSED — both tests were ALREADY failing,
+      the work was cut before the ceiling was raised, and my first theory
+      about the cost was wrong.** kind: defect (e2e). Filed and closed by the
+      CI-4 QA pass (2026-08-29); full write-up in `docs/QA-REVIEW.md`.
+      The in-shard headroom table understated it: run ALONE,
+      `qa-sketch-frame:478` timed out in 1 of 3 QUIET isolated runs and 3 of
+      3 under two CPU spinners, and `qa-sel4-verify:503` failed 3 of 3 under
+      load — every one as a bare "Test timeout of 60000ms exceeded" naming
+      none of the 54 clicks it might have died in. NOT the
+      `expectSeatsSettled` mechanism (a fixed frame count whose wall time
+      scales), and NOT the one I guessed either: I found the ring scan doing
+      1068 full-frame canvas readbacks, batched them 356:1, and the wall
+      clock did not move. Phase timers then showed the truth — the ZOOM LOOP
+      was 47 % of the test (15.8 s of 33.2 s) and the scan I had optimised
+      was 0.6 % (190 ms), because the loop re-parked the pointer with a
+      `mouse.move` before each of 48 wheel notches when the cursor was
+      already there. FIXED in this order: work cut (one park per leg; one
+      readback per scan; `qa-sel4-verify:382`'s hand-rolled 8 px halo now
+      calls `clearOfSilhouette` — its second real use), then ceilings raised
+      to 180 s from the measured distribution. After: `:478` 36.6-39.0 s
+      quiet (4/4) and 49.7-57.5 s loaded (7/7); `:503` 52.1-53.8 s quiet
+      (4/4) and **66 s** loaded (3/3) — a 10 % overshoot of the old 60 s,
+      which is why it could never pass under load. Its 504 sequential
+      pointer moves cannot be batched: the browser must hit-test each
+      position and the hit test IS the measurement. No assertion weakened.
+      Verified on a full shard 3/4 under two spinners: 171/171 expected, 0
+      unexpected, `load1` median 10.31 on 4 cores (~2.6x oversubscription,
+      heavier than the 1.5x this ticket's acceptance named).
+      **THE ACCEPTANCE CRITERION AS WRITTEN IS NOT MET, and this is closed on
+      the two tests it NAMED, not on that.** "No shard-3/4 test under 3x its
+      ceiling at 1.5x oversubscription" was over-broad for a ticket about two
+      specs: the two are now 3.1-3.6x and 2.7x, but `pick-affordance:911`,
+      `qa-reach-batch:298` and `qa-sel4-verify:382` were ~2.0x before this pass
+      and still are, and at 2.6x load the worst is `pick-affordance:926` at
+      1.4x. A shard-wide floor is a larger piece of work — most of the
+      remainder are census tests whose cost IS their assertion — and it wants
+      its own ticket rather than being smuggled in here. Filed as
+      QA-CI4-HEADROOM-2 below.
+      One side-finding worth keeping: batching the scan removed an
+      ACCIDENTAL settle (356 sequential awaits were letting the canvas
+      repaint after a DOM-only wait), which failed once as "the origin ring
+      must be visible ink"; fixed by stating the wait with `waitForFrames`
+      rather than by un-batching. RESIDUE, not re-filed as a defect:
+      `:478` is 49.7-57.5 s of REAL work under load, so a runner 3x slower
+      than this box approaches 180 s again. The durable fix is fewer zoom
+      legs or fewer notches, and both weaken a claim the test exists to
+      make — a product-QA trade for the spec's owner, not a timeout tweak.
+      [src: qa-tester CI-4 pass, 2026-08-29]
+
+- [ ] (P3, M) **QA-CI4-HEADROOM-2 — shard 3/4 still has ~6 tests at ~2x their
+      own timeout, and each needs the same one-at-a-time treatment.** kind:
+      defect (e2e). Split out of QA-CI4-HEADROOM-1 (2026-08-29) rather than
+      left as an unmet acceptance line on a closed ticket. That ticket named
+      two tests and fixed them; the blanket floor it also asked for — no
+      shard-3/4 test under 3x its ceiling at 1.5x CPU oversubscription — is
+      NOT met and was over-broad for its scope. Measured at 1.5x:
+      `pick-affordance:911` 2.0x, `qa-sel4-verify:382` 2.0x,
+      `qa-reach-batch:298` 2.1x. At 2.6x oversubscription the worst is
+      `pick-affordance:926` at 1.4x (43.3 s against the default 60 s). These
+      are mostly CENSUS tests whose cost IS their assertion — hundreds of
+      sequential pointer moves the browser must hit-test one at a time — so
+      the readback batching that helped elsewhere does not apply, and the
+      honest lever per test is either fewer sample points (weakens the claim,
+      needs an owner's call) or a ceiling set from a measured distribution.
+      FIX: work one test at a time, cutting redundant round trips first and
+      raising the ceiling second, with the numbers written beside each — the
+      pattern in `qa-sketch-frame:478`. DO NOT do a blanket sweep of
+      `test.setTimeout` values: a ceiling nobody measured is what produced
+      this ticket. ACCEPTANCE: every shard-3/4 test at >=3x its ceiling under
+      1.5x oversubscription, with the census attached; any test that cannot
+      reach it says why in its own comment. [src: qa-tester, 2026-08-29]
 
 ## Later (P3)
 

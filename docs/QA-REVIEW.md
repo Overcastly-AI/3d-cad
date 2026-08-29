@@ -12,6 +12,129 @@ blocked or lies · **P2** a real flow is worse than it should be · **P3** polis
 
 ---
 
+## 2026-08-29 — QA-CI4-HEADROOM-1 closed: the next red was already red, and my first theory about why was wrong
+
+**Verdict: both named tests were failing BEFORE anyone read them in CI —
+`qa-sketch-frame:478` timed out in 1 of 3 QUIET isolated runs and 3 of 3 under
+load; `qa-sel4-verify:503` failed 3 of 3 under load. Fixed by cutting the work
+first and raising the ceiling second, with the distribution to justify it.**
+
+### The prediction was too optimistic
+
+The headroom table that filed this ticket read those two at 1.1x and 1.4x from
+inside a full shard run. Run ALONE, they are worse:
+
+| test | quiet, isolated (before) | under 2 CPU spinners (before) |
+|---|---|---|
+| `qa-sketch-frame:478` | 45.9 s, 47.5 s, **TIMEOUT** | **0 of 3 passed** |
+| `qa-sel4-verify:503` | 37.0 s, 38.1 s, 56.9 s | **0 of 3 passed** |
+
+Every failure was the same bare line — `Test timeout of 60000ms exceeded`,
+followed by whichever `mouse.click` or `getAttribute` happened to be in flight.
+It names none of the 54 clicks and 81 settle-waits it might have died in, which
+is exactly the opaque shape the ticket predicted.
+
+### I was wrong about the mechanism, and the measurement is what said so
+
+The coordinator's steer was to check whether this ceiling stood for the same
+thing `expectSeatsSettled` did (a fixed frame count whose wall time scales). It
+does not. My own first theory was different and also wrong: I found that
+`measureRingRadiusPx` called a per-point canvas probe 356 times per zoom leg —
+**1068 full-frame `drawImage` copies to read nine pixels each** — and batched
+them into 3. Result: **no change in wall clock.** Before 45.9/47.5/timeout,
+after 49.3/46.3/44.7. Still 0 of 3 under load.
+
+So I instrumented the phases instead of theorising a third time:
+
+```
+[SKETCH-2] leg "as opened"  6531 ms = zoom     0 + calibrate 1550 + select 564 + ring scan 86 + gesture 4330
+[SKETCH-2] leg "zoomed in" 11438 ms = zoom  5427 + calibrate 1098 + select 509 + ring scan 61 + gesture 4342
+[SKETCH-2] leg "zoomed out"15235 ms = zoom 10340 + calibrate  943 + select 475 + ring scan 43 + gesture 3433
+```
+
+**The zoom loop was 47 % of the test (15.8 s of 33.2 s) and the scan I had just
+optimised was 0.6 % (190 ms).** The loop drove 48 wheel notches — `OrbitControls`
+dollies per wheel EVENT, so the notches are genuinely needed — but it re-parked
+the pointer with a `mouse.move` before every one of them, and the cursor was
+already there. 46 of 48 round trips moved the pointer nowhere.
+
+The general lesson, which is the same one this file keeps paying for: **a cost
+model is a hypothesis until it is measured.** Canvas readbacks are expensive per
+call and there were a thousand of them, which made the story compelling; they
+were still a rounding error next to sequential CDP input latency. The phase
+timers stay in the spec so nobody has to guess next time.
+
+### Batching removed an ACCIDENTAL settle, and that is worth its own note
+
+The batched scan then failed once, quiet, on `the origin ring must be visible
+ink`. Cause: the caller selects the origin by keyboard and waits for the
+selection READOUT, which is DOM, while the ring is CANVAS on a demand-rendered
+scene. The old code's 356 sequential awaits let the renderer win that race —
+nothing in the code said so. Taking one snapshot removed the slack and the scan
+read a pre-paint frame. Fixed by making the wait explicit (`waitForFrames`)
+rather than by un-batching: **an accidental settle is a latent flake whether or
+not anyone has tripped it**, and this pass converted one into a stated
+requirement.
+
+### What was actually done, in that order
+
+1. **Work cut** — the per-notch pointer re-park is gone (one park per leg); the
+   ring scan is one readback instead of 356; and `qa-sel4-verify:382`'s
+   hand-rolled 8 px silhouette halo (a per-point probe nested two deep, ~1000-2500
+   full-frame copies per run) now calls the `clearOfSilhouette` helper added
+   earlier today — its second real use, so the extraction is earned rather than
+   speculative. Census intact: **523-525 interior-unlit points probed**, floor 20.
+2. **Ceilings raised, from the distribution, only then.** Both to 180 s, which is
+   what this suite's other census tests already carry.
+
+| test | after, quiet | after, 2 spinners | ceiling | headroom |
+|---|---|---|---|---|
+| `qa-sketch-frame:478` | 36.6-39.0 s (4/4) | 49.7-57.5 s (7/7) | 180 s | 4.6x quiet, 3.1x loaded |
+| `qa-sel4-verify:503` | 52.1-53.8 s (4/4) | **66 s** (3/3) | 180 s | 3.3x quiet, 2.7x loaded |
+
+`qa-sel4-verify:503` needed **66 s against a 60 s ceiling** — a 10 % shortfall,
+which is why it could never pass under load and why no amount of tuning would
+have saved it. Its 504 sequential pointer moves cannot be batched: the browser
+must hit-test each position, and the hit test IS the measurement.
+
+**No assertion was weakened.** The gesture is still eight compass points plus
+the centre at three zoom levels on measured ink; the bolt circle still resolves
+seven distinct ordinals; the ghost sweep still demands zero. What changed is the
+harness's patience and the amount of work it spends getting there.
+
+### Verification
+
+A full shard 3/4 under two CPU spinners: **171/171 expected, 0 unexpected,
+2627 s**, with `load1` median **10.31** on 4 cores — i.e. ~2.6x
+oversubscription, heavier than the 1.5x the ticket's acceptance names, and it
+still came back clean.
+
+### Honest residue — the acceptance criterion I wrote is NOT met
+
+I filed this ticket with "no shard-3/4 test sits under 3x its ceiling under
+1.5x CPU oversubscription". **That is not true today and I am not going to call
+it closed on the two tests I happened to name.** At 1.5x, the two named tests
+now sit at 3.1-3.6x (`:478`) and 2.7x (`:503`), but several others were already
+around 2.0x before I started and still are — `pick-affordance:911`,
+`qa-reach-batch:298`, `qa-sel4-verify:382`. Under the heavier 2.6x load above,
+the worst is `pick-affordance:926` at **1.4x**.
+
+Two separate things, and conflating them is how a ticket gets closed while the
+problem stands:
+
+- **The two tests the ticket named are fixed** — they were actively failing,
+  they are not now, and the reason is measured. That is what is closed.
+- **A shard-wide "3x for everything" floor is a different, larger piece of
+  work**, because most of the remaining ~2x cases are census tests whose cost
+  IS their assertion. It needs the same treatment one test at a time, and it
+  should be its own ticket rather than a criterion smuggled into this one.
+
+And `qa-sketch-frame:478` keeps a specific residue: 49.7-57.5 s of its 180 s is
+real work, so a runner 3x slower than this box approaches the new ceiling
+again. The durable fix is fewer than three zoom legs or fewer than 48 notches,
+and both weaken a claim the test exists to make — a product-QA trade for the
+spec's owner, not something to do quietly under a ticket about timeouts.
+
 ## 2026-08-29 — CI-4 settled: shard 3/4 IS structurally overloaded, and the reds are three independent spec defects that the overload makes visible
 
 **Verdict, in one line: the suite is not systemically unstable, shard 3/4 IS

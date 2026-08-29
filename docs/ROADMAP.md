@@ -67,6 +67,30 @@ QA-CI4-MATE-1 (the third red, honestly unreproduced), QA-CI4-HEADROOM-1
 red), QA-CI4-LINES-1 (45 of 169 specs report a different `file:line` between
 runs of identical source).
 
+**QA-CI4-HEADROOM-1 CLOSED the same day (qa-tester) — and the cost model I
+filed it with was wrong, which the measurement caught before the "fix"
+shipped.** Both named tests were ALREADY failing in isolation, not merely
+close: `qa-sketch-frame:478` timed out in 1 of 3 QUIET runs and 3 of 3 under
+two CPU spinners; `qa-sel4-verify:503` failed 3 of 3 loaded, always as a bare
+`Test timeout of 60000ms exceeded`. The first theory — 1068 full-frame canvas
+readbacks in the ring scan — was batched 356:1 and the wall clock did not move;
+phase timers then showed the ZOOM LOOP at 47 % of the test (15.8 s of 33.2 s)
+against the scan's 0.6 % (190 ms), because it re-parked the pointer before each
+of 48 wheel notches with the cursor already there. Fixed in that order — work
+cut (one park per leg, one readback per scan, `qa-sel4-verify:382`'s
+hand-rolled 8 px halo replaced by `clearOfSilhouette`, its second real use),
+then ceilings raised to 180 s from the distribution. After: `:478` 36.6-39.0 s
+quiet (4/4) and 49.7-57.5 s loaded (7/7); `:503` 52.1-53.8 s quiet and **66 s**
+loaded (3/3) — a 10 % overshoot of the old 60 s, so it could never have passed
+under load. No assertion weakened. Side-finding: batching removed an ACCIDENTAL
+settle (356 awaits had been letting the canvas repaint after a DOM-only wait);
+the fix states the wait with `waitForFrames` rather than un-batching. Verified
+on a full shard 3/4 under two spinners — 171/171 expected, 0 unexpected, at a
+`load1` median of 10.31 on 4 cores. Closed on the two tests it NAMED: the
+blanket "no shard-3/4 test under 3x its ceiling" line it also carried is NOT
+met (~6 tests remain near 2x) and is split out as QA-CI4-HEADROOM-2 rather than
+left as an unmet criterion on a closed ticket.
+
 **REACH-3-FLOW CLOSED (frontend-builder, 2026-08-28) — the orientation
 proposal never fired on the only sheet most drawings have, and the paper cell
 quoted a scale it could not produce.** (P1-1) The proposal was structurally
