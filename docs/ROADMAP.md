@@ -171,6 +171,16 @@ entity kind required to appear among the sketches that actually SOLVE —
 `all([])` is True and this repo has shipped five gates with that shape. The
 census (generated / solvable / violated / reversed) prints from
 `pytest_unconfigure` so a green CI run shows what was exercised.
+**The floor was measured FIRING, not assumed:** forcing the solvable population
+to zero leaves both property tests GREEN — they are quantified over an empty
+set — and fails only the floor, `only 0 of 2000 generated sketches solved
+(floor 800)`. The first attempt at that negative control was itself inert and
+passed, which is the half worth keeping: `solvable` was derived by EXCLUSION
+while the `SOLVED_STATUSES` constant sat beside it documenting the rule and
+selecting nothing, so emptying it mutated dead code. Fixed by making the
+constant select the population. A mutation that does not redden is a claim
+about which bytes ran until it has been checked — the same lesson the stale-Vite
+transform taught, in a pure-Python costume.
 **MUTATION EVIDENCE against BOTH root causes it was built from.** (a) Reverting
 SETTLE-3's payload gate to SOLVE-1's driving-dimensions-only scope reddens TWO
 of its tests with **13 violated payloads** — and the solvable count rises by

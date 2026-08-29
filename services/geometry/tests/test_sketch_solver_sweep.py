@@ -80,6 +80,22 @@ counts are printed after the run (``sweep_census`` fixture ->
 ``pytest_unconfigure`` in ``conftest.py``) so a human reading CI sees what was
 actually exercised rather than a green dot.
 
+**That floor is not decoration; it was measured firing.** Emptying
+:data:`SOLVED_STATUSES` so the corpus yields 0 solvable sketches leaves
+:func:`test_no_solved_sketch_ships_a_violated_constraint` and
+:func:`test_no_settle_ever_turns_the_geometry_inside_out` BOTH GREEN — they are
+quantified over an empty set — while the floor fails with ``only 0 of 2000
+generated sketches solved (floor 800)``. Without it this module would be a
+green suite asserting nothing, which is the exact failure it is named after.
+
+The first attempt at that negative control was itself INERT and passed, which
+is the more useful half of the story: ``solvable`` was being derived by
+EXCLUSION (not passthrough, not overconstrained) while
+:data:`SOLVED_STATUSES` sat beside it documenting the rule and selecting
+nothing, so emptying the constant mutated dead code and the "control" came back
+green. A mutation that does not redden is a claim about which bytes ran until
+you have checked. The population is now selected BY that constant.
+
 Cost, measured on this container rather than estimated: the whole module is
 **10.1-10.5 s** (four runs), of which the sweep itself is ~5 ms/trial and the
 SETTLE-2 baseline solve is ~8% of that. The ``python`` CI job has been killed
@@ -583,6 +599,16 @@ def run_sweep(trials: int = SWEEP_TRIALS, seed: int = SWEEP_SEED) -> Census:
                         trial, sketch, f"overconstrained, MOVED, residual {residual}"
                     )
                 )
+            continue
+        if solved.status not in SOLVED_STATUSES:
+            # Not reachable today — the two branches above cover every status
+            # outside SOLVED_STATUSES — and asserted rather than assumed on
+            # purpose. Deriving the solvable population by EXCLUSION left
+            # :data:`SOLVED_STATUSES` documenting a rule the code did not read,
+            # so emptying it changed nothing: the negative control for the
+            # vacuity floor came back green having mutated a dead constant. A
+            # constant that names the population must be the one that selects
+            # it, or the next reader is calibrating against a comment.
             continue
         census.solvable += 1
         for constraint in sketch.constraints:
