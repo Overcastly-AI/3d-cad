@@ -1799,9 +1799,30 @@ bend radius. See Done archive for evidence/gates.**
       `pipefail`), `--self-test` against a harness-produced fixture with 4
       negative controls. [src: engineering-auditor pass 5, 2026-08-14 (K7)]
 
-- [ ] (P1, S) **K2 — BUMPED P2→P1 this pass: no route-sweep authn gate
-      exists, and this is the FOURTH consecutive engineering-audit pass
-      recommending it (J7→K2→L3→M3).** The gateway's unauthenticated surface
+- [x] (P1, S) **K2 SHIPPED 2026-08-29 — route-auth posture gate landed;
+      posture was already correct, no route changed.**
+      `services/gateway/tests/test_route_auth_posture.py` (one file, three
+      services, `integration`-marked) + the shared walker in `py_kit.routes`.
+      Measured gateway **89/84/5**, documents **64/60/4**, geometry **28
+      identity-free** — matching Pass 7 M3. Floors 88/64/28 PLUS an `unwalked`
+      cross-check against each app's own OpenAPI schema; exempt lists carry a
+      reason per entry, an asserted count, and a staleness check. The walker
+      delegates to `fastapi.routing.iter_route_contexts`, NOT the hand-recursion
+      this entry originally suggested: that gets the right count with the wrong
+      paths (a nested router keeps only its own prefix) and the wrong
+      dependencies (`include_router(..., dependencies=[...])` records on the
+      inclusion, so an authenticated router reads as wide open) — both measured
+      and pinned by tests. Controls: an unauthenticated route reddens it by
+      path; the naive walk is refused at `3 < 88` after being shown to PASS the
+      posture check alone; three exempt-list controls refuse while the real list
+      is accepted. 13 tests, `just lint` exit 0, no CI wiring needed. Counts
+      print last via `pytest_unconfigure`. Detail: `docs/ROADMAP.md` "K2
+      CLOSED". [src: engineering-auditor pass 5, 2026-08-14 (K2); was J7,
+      2026-07-30; re-recommended AUDIT-ENGINEERING.md Pass 7 M3, 2026-08-21]
+
+      ORIGINAL ENTRY — BUMPED P2→P1: no route-sweep authn gate exists, and
+      this is the FOURTH consecutive engineering-audit pass recommending it
+      (J7→K2→L3→M3). The gateway's unauthenticated surface
       is now 88 routes with nothing to catch a new one shipping without
       `CurrentUser` (`services/gateway/tests`). Posture is STILL correct
       (re-swept `docs/AUDIT-ENGINEERING.md` "Pass 7" M3: gateway 88/5 exempt,

@@ -526,6 +526,45 @@ gained a canvas-measured select-overflow gate whose negative control reproduces
 the defect by name (`needs 147px, has 132px`). Contrast unchanged at 7.18:1
 worst, no clipped labels, 2192 unit tests + 40 e2e green, `just lint` exit 0.
 
+**K2 CLOSED (backend-builder, 2026-08-29) — the unauthenticated surface of all
+three services is now asserted, after FOUR consecutive audit passes recommended
+it (J7 -> K2 -> L3 -> M3).** The posture was already correct and no route
+changed: measured **gateway 89 operations / 84 authenticated / 5 exempt**,
+**documents 64 / 60 / 4**, **geometry 28 identity-free**, matching
+`docs/AUDIT-ENGINEERING.md` "Pass 7" M3 exactly. What was missing was that
+nothing could notice it going wrong. `services/gateway/tests/
+test_route_auth_posture.py` now asserts two obligations that must BOTH hold —
+every operation is authenticated or on an exempt list with a written reason,
+AND the walk actually found the routes (count floors 88/64/28 plus an
+`unwalked` cross-check against the app's own OpenAPI schema). The second is not
+ceremony: **FastAPI >= 0.139 does not flatten included routers into
+`app.routes`, so the naive walk finds 3 of 89** — and against the real gateway
+that naive walk makes the posture assertion *pass*, over 3% of the app, which
+is precisely what the auditor's own first sweep did while auditing for this.
+Geometry's invariant is the INVERSE (no identity dependency may cross into the
+kernel), which is why the floor carries all the weight there: "nothing is
+authenticated" is trivially true of a walk that found nothing.
+The walker lives in `py_kit.routes` (three consumers, so py-kit per the DRY
+rule) and delegates to `fastapi.routing.iter_route_contexts` rather than
+hand-recursing `_IncludedRouter`, because the hand-rolled version gets the
+right COUNT with the wrong PATHS (a nested router keeps only its own prefix)
+and the wrong DEPENDENCIES (`include_router(..., dependencies=[...])` records
+on the inclusion, so a properly-authenticated router reads as wide open) —
+both measured, both pinned by tests, and the second is the direction that
+matters because a gate that cries wolf gets muted. Detection is by dependency
+object IDENTITY, never by name.
+Evidence: mutation control — a new `GET /api/v1/materials/leaked` without
+`CurrentUser` reddens the gate naming the path (restored, sha256 verified);
+naive-walk control refuses at `3 < 88` and names 86 missing operations, having
+first shown the posture check alone PASSES; three exempt-list controls (count
+drift, stale entry, empty reason) all refuse while the real list is accepted.
+13 new tests, `just lint` exit 0, `uv run pyright` 0 errors, gateway+py-kit 633
+passed, documents 479 passed. Counts print last via `pytest_unconfigure`, so a
+human reading a CI tail sees what was checked, and a partial sweep says
+`PARTIAL: 1 of 3 services` instead of looking complete. Zero CI wiring: it
+rides the existing `uv run pytest`. GATE-FLOOR's two vacuous gates are
+untouched and still open.
+
 **PGTEST-GATE CLOSED (platform-builder, 2026-08-28) — a suite that could lose
 37% of itself and still exit 0 now says so, in the log, last.** 172 of the
 documents service's 468 tests need real PostgreSQL server binaries, including
