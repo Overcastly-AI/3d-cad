@@ -2073,6 +2073,52 @@ to the Ready section, top of queue.
       isolation, and are fixed by cutting work first and raising ceilings
       second.** REMAINING under this umbrella is therefore only whether to
       rebalance shard 3/4 at all, plus QA-CI4-MATE-1.
+      **The rebalance question is now ANSWERED and DONE — CI-BAL below
+      (2026-08-29): the split is duration-aware, critical path 25.9 -> 19.0 min,
+      1.36x -> 1.00x of ideal, N stays 4. REMAINING under this umbrella is
+      QA-CI4-MATE-1 alone.**
+
+- [x] (P2, M) **CI-BAL CLOSED — the e2e shard split is duration-aware, and the
+      two cheaper fixes were ruled out by measurement rather than by taste**
+      (`scripts/e2e-shard-plan.py` NEW, `scripts/e2e-durations.json` NEW,
+      `scripts/e2e.sh`, `.github/workflows/e2e.yml`, `justfile`). CI now passes
+      `--balanced-shard=i/N`, packed longest-processing-time by measured
+      duration over the set `playwright test --list` returns. Critical path
+      **25.9 -> 19.0 min, 1.36x -> 1.00x of ideal**, which turns the live risk
+      (the 40-minute STEP cap) from 1.5x runner-speed headroom into 2.1x. Those
+      are DERIVED — the packing arithmetic over CI-4's measured per-file
+      durations — and that is a measurement rather than a model because a
+      shard's summed per-file durations reproduce its observed wall to within
+      0.6 % on all four shards. A four-shard validating run follows in the next
+      commit.
+      **Splitting the two 5-minute spec files buys ZERO** — a simulator
+      reproducing Playwright's count-based cut, validated against CI-4's real
+      4-way membership (145/145 files; walls 978/980/1549/1046 s to the second),
+      returns a byte-identical partition whether the top 2, 4 or 8 files are
+      halved, because a split file keeps its prefix and its halves stay
+      alphabetically adjacent. **More workers / `fullyParallel` ruled out** on
+      CI-4's own load data: 2 spinners took shard 3/4 from 1556-1567 s to
+      2003/2039 s and reddened 2 of 2 loaded runs vs 1 of 4 quiet, and these
+      specs assert on canvas pixels and settle stamps against ONE shared backend
+      stack on a 4-vCPU runner. **N stays 4 for the ordinary latency/cost trade,
+      not because imbalance defeats it** — with the cut fixed, every N from 2 to
+      10 simulates at 1.00x ideal, so shards now buy exactly proportional
+      latency at ~4 runner-minutes each; raise N when T/N approaches the cap.
+      GATE-1 IS THE LOAD-BEARING PROPERTY and it is proven, not intended: the
+      planner iterates the DISCOVERED set and looks the manifest up per file, so
+      an unmeasured file is still assigned and is weighted as the HEAVIEST in
+      the suite — staleness costs balance, never coverage. Live proof: a
+      throwaway spec in no manifest was discovered, packed into shard 2/4,
+      reported as unmeasured, EXECUTED through the real `e2e.sh
+      --balanced-shard=2/4`, and selected by exactly one shard (1/0/0/0). Also
+      asserted: a non-partition is refused in BOTH directions (a file in no bin,
+      a file in two); a broken `--list` refuses rather than planning over a
+      truncated suite; a bad shard spec aborts `e2e.sh` (exit 2) with no
+      fall-back to `--shard`, because a silent downgrade would restore the
+      imbalance while every log still said "balanced". `--self-test` (21 checks)
+      is in `just lint` and the reconcile job. The `e2e complete` coverage audit
+      is unchanged and is now an independent cross-check on OUR partition.
+      [src: platform-builder, 2026-08-29; measurement in docs/QA-REVIEW.md CI-4]
 
 - [x] (P1, S) **CI-5 CLOSED — a red e2e shard's failure list was unreachable
       from the orchestrator's only channel** (`scripts/e2e.sh`,

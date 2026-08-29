@@ -124,6 +124,16 @@ lint:
     # red) and stays quiet on an ordinary red. Same reasoning as its five
     # neighbours: a gate that cannot fail is not a gate.
     python3 scripts/e2e-verdict.py --self-test
+    # ~50ms. e2e-shard-plan.py decides WHICH specs each CI shard runs, so a
+    # defect in it is a coverage hole rather than a wrong number — the highest
+    # stakes of the three e2e self-tests. It pins GATE-1 by name (a spec absent
+    # from the duration manifest must still be assigned to exactly one shard,
+    # weighted as the HEAVIEST file rather than the lightest) and carries the
+    # negative control for the pattern anchoring: a bare `mirror\.spec\.ts$`
+    # also selects sketch-mirror.spec.ts, and there are four such
+    # basename-suffix pairs in the suite today, so an unanchored pattern would
+    # run four files twice and leave four shards short.
+    python3 scripts/e2e-shard-plan.py --self-test
 
 # Unit tests: pytest across the uv workspace + vitest via pnpm (recursive)
 test:

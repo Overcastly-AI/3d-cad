@@ -91,6 +91,44 @@ blanket "no shard-3/4 test under 3x its ceiling" line it also carried is NOT
 met (~6 tests remain near 2x) and is split out as QA-CI4-HEADROOM-2 rather than
 left as an unmet criterion on a closed ticket.
 
+**CI-BAL (platform-builder, 2026-08-29) — the e2e shard split is now
+DURATION-aware: critical path 25.9 -> 19.0 min, 1.36x -> 1.00x of a balanced
+quarter, so the 40-minute step cap carries 2.1x of runner-speed headroom where
+it had 1.5x.** Those two numbers are DERIVED, and it is worth being exact about
+from what: they are the packing arithmetic applied to the CI-4 pass's measured
+per-file durations, and the reason that is a measurement rather than a model is
+that the sum of a shard's per-file durations reproduces its observed wall to
+within 0.6 % on all four shards (978/980/1549/1046 s summed vs 984/985/1555/1051
+observed). A four-shard validating run follows in the next commit.
+Playwright's `--shard=i/N` cuts whole files in filesystem order on equal TEST
+COUNT; cost per test varies ~20x here and the expensive specs share prefixes,
+so they are alphabetically adjacent and pile into one shard. CI now passes
+`--balanced-shard=i/N`, which `scripts/e2e-shard-plan.py` packs
+(longest-processing-time) by measured duration over the set `playwright test
+--list` returns. **The cheap alternatives were ruled out by measurement, not by
+taste.** Splitting the two 5-minute spec files buys EXACTLY nothing: a
+simulator reproducing Playwright's cut — validated against the CI-4 pass's real
+4-way membership at 145/145 files and walls 978/980/1549/1046 s to the second —
+gives a byte-identical partition (25.82 min, 1.36x) whether the top 2, 4 or 8
+files are halved, because a split file keeps its prefix and its halves stay
+adjacent. More workers inside the heavy shard, and `fullyParallel`, are ruled
+out on CI-4's own load numbers: two CPU spinners took that shard from
+1556-1567 s to 2003/2039 s and produced a failure in 2 of 2 loaded runs against
+1 of 4 quiet, and the specs assert on canvas pixels against ONE shared backend
+stack. **GATE-1 — a spec named nowhere still runs — is preserved by
+construction and PROVEN, not intended:** the planner iterates the DISCOVERED
+set and looks the manifest up per file, so a file with no measurement is
+assigned anyway and weighted as the HEAVIEST in the suite (stale durations cost
+balance, never coverage). Proven live with a throwaway spec in no manifest: it
+was discovered, packed into shard 2/4, reported as unmeasured, and EXECUTED
+through the real `scripts/e2e.sh --balanced-shard=2/4` path — and selected by
+exactly one shard of the four (1/0/0/0). A deliberately broken partition is
+refused in both directions (a file in no bin, a file in two), a bad shard spec
+aborts `e2e.sh` with no fall-back to `--shard` (exit 2, before any service
+boots), and the `e2e complete` coverage audit is unchanged — it reconciles the
+union of what ran against `--list`, so it is now an independent cross-check on
+OUR partition rather than on Playwright's.
+
 **REACH-3-FLOW CLOSED (frontend-builder, 2026-08-28) — the orientation
 proposal never fired on the only sheet most drawings have, and the paper cell
 quoted a scale it could not produce.** (P1-1) The proposal was structurally

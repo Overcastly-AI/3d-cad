@@ -17,13 +17,24 @@
 #                        re-running the 2.4k geometry tests per shard would
 #                        pay ~12 min four times over for zero new coverage.
 #         --geometry-only  leg 1 only (no stack, no browser).
-#         trailing args  forwarded verbatim to `playwright test`, which is how
-#                        CI passes --shard=i/N. Sharding is why the per-push
-#                        browser gate is affordable, and it is DERIVED from the
-#                        filesystem: every spec lands in exactly one shard with
-#                        no list to maintain, so a new spec cannot be born
+#         trailing args  forwarded verbatim to `playwright test`, with ONE
+#                        substitution: `--balanced-shard=i/N` is expanded by
+#                        scripts/e2e-shard-plan.py into the file patterns for
+#                        that shard. That is how CI shards, and
+#                        `scripts/e2e.sh --web-only -- --balanced-shard=3/4`
+#                        reproduces a CI shard locally with one command.
+#
+#                        Sharding stays DERIVED from the filesystem: the
+#                        planner partitions the set `playwright test --list`
+#                        returns, so every spec lands in exactly one shard with
+#                        no list to maintain and a new spec cannot be born
 #                        outside the gate (the failure mode that has bitten
 #                        this repo four times — see docs/BACKLOG.md GATE-1).
+#                        What the committed duration manifest changes is only
+#                        WHICH shard, never WHETHER; see e2e-shard-plan.py.
+#                        Playwright's own `--shard=i/N` still works and is
+#                        still count-based — it is what CI used until CI-BAL
+#                        measured shard 3/4 at 1.58x the median.
 #
 # Env:    GATEWAY_PORT / DOCUMENTS_PORT / GEOMETRY_PORT
 #                                        override ports (default 8000/8001/8002)
@@ -303,6 +314,44 @@ fi
 echo
 echo "== e2e leg 2/2: Playwright suite (@loft/web) =="
 
+# --balanced-shard=i/N -> this shard's file patterns, chosen by measured
+# duration rather than by test count. Done HERE, before anything is booted, so
+# a planning failure costs a few seconds instead of a stack boot.
+#
+# It is a hard failure by design: there is no fall-back to `--shard=i/N`. A
+# silent downgrade would restore the 1.58x imbalance while every log still said
+# "balanced", which is the shape of every gate defect in docs/BACKLOG.md.
+BALANCED_SHARD=""
+if ((${#PLAYWRIGHT_ARGS[@]} > 0)); then
+  for arg in "${PLAYWRIGHT_ARGS[@]}"; do
+    [[ "$arg" == --balanced-shard=* ]] && BALANCED_SHARD="${arg#--balanced-shard=}"
+  done
+fi
+if [[ -n "$BALANCED_SHARD" ]]; then
+  plan_config=()
+  for arg in "${PLAYWRIGHT_ARGS[@]}"; do
+    [[ "$arg" == --config=* ]] && plan_config=(--config "${arg#--config=}")
+  done
+  plan_file="${RUN_DIR}/shard-patterns.txt"
+  echo "e2e: planning ${BALANCED_SHARD} by measured duration"
+  python3 scripts/e2e-shard-plan.py \
+    --shard "$BALANCED_SHARD" --args-out "$plan_file" "${plan_config[@]}"
+  mapfile -t plan_patterns <"$plan_file"
+  if ((${#plan_patterns[@]} == 0)); then
+    echo "e2e: the planner emitted no patterns for ${BALANCED_SHARD}." >&2
+    exit 1
+  fi
+  rebuilt=()
+  for arg in "${PLAYWRIGHT_ARGS[@]}"; do
+    if [[ "$arg" == --balanced-shard=* ]]; then
+      rebuilt+=("${plan_patterns[@]}")
+    else
+      rebuilt+=("$arg")
+    fi
+  done
+  PLAYWRIGHT_ARGS=("${rebuilt[@]}")
+fi
+
 # LOAD PREFLIGHT — say what the machine looked like at the start, and warn when
 # a red result will not be trustworthy.
 #
@@ -418,6 +467,13 @@ if ! printf '%s\n' "${PLAYWRIGHT_ARGS[@]-}" | grep -q -- '--reporter'; then
 fi
 # Label the verdict with the shard it belongs to — four shard logs otherwise
 # produce four indistinguishable verdict blocks.
+# --balanced-shard was expanded into file patterns above, so the label has to be
+# taken from the value we captured then — otherwise four balanced shards produce
+# four indistinguishable verdict blocks, which is the exact defect this label
+# was added to fix.
+if [[ -n "$BALANCED_SHARD" ]]; then
+  SHARD_LABEL="shard ${BALANCED_SHARD}"
+fi
 for arg in "${PLAYWRIGHT_ARGS[@]-}"; do
   if [[ "$arg" == --shard=* ]]; then
     SHARD_LABEL="shard ${arg#--shard=}"
