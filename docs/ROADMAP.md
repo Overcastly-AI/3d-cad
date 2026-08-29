@@ -2,14 +2,18 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-08-28 (backlog-groomer pass 18) — no new P0;
-CI-4 downgraded P1→P2 (four separately-diagnosed e2e causes closed, the
-original "is the suite systemically unstable" question stays open);
-reachability stays complete.** `scripts/check-ui-parity.py`'s 84/85
-operations / 97/109 literals reading is unchanged (see pass 16 note in
-`docs/CHANGELOG.md`); the scan's hem_type false positive is filed as
-CHECKUIPARITY-FP-1 (P3, BACKLOG). Pass 16/17 detail (HEM-1, ASMDRAW-FIT-1a/1b,
-EXTRUDE-COARSE-STEP-1, the Tailwind scale gate) is in `docs/CHANGELOG.md`.
+**Current focus, corrected 2026-08-29 (backlog-groomer pass 19) — no new P0;
+CI-4's original question is ANSWERED (not systemically unstable; shard 3/4 was
+structurally overloaded) and the umbrella is DOWN TO ONE unreproduced item
+(QA-CI4-MATE-1); K2 and PBT-1 both CLOSED this batch, closing the route-auth
+gap four audit passes asked for and re-measuring the sketch-solver sweep at
+0 violations; SOLVE-CRASH-1 (untyped 500 on user-authorable input) also
+closed.** `scripts/check-ui-parity.py`'s 84/85 operations / 97/109 literals
+reading is unchanged; the gateway's authenticated-route floor is now measured
+at 89 (documents 64, geometry 28 identity-free) — see K2 below; the CI-BAL
+headroom claim below is corrected against a real CI-runner measurement, not
+the local box it was first computed on. Pass 16/17/18 detail is in
+`docs/CHANGELOG.md`.
 
 **e2e shard reds across the last several pushes are now FULLY DIAGNOSED —
 four separate causes, not one shared substrate defect; CI-4's own umbrella
@@ -93,10 +97,19 @@ left as an unmet criterion on a closed ticket.
 
 **CI-BAL (platform-builder, 2026-08-29) — the e2e shard split is now
 DURATION-aware: critical path 24.2 -> 18.4 min, 1.32x -> 1.00x of a balanced
-quarter, so the 40-minute step cap carries 2.1x of runner-speed headroom where
-it had 1.5x.** **Measured, not modelled: a full four-shard balanced run on this
-box came in at 1132 / 1085 / 1138 / 1116 s, all green, 686/686 expected, 0
-unexpected, 0 flaky** — a 1.05x spread where the count-based cut measured 1.58x,
+quarter.** The step-cap headroom figure below was first computed from a
+LOCAL-box run and read 1.5x -> 2.1x; **CORRECTED, groom pass 19, from a real
+CI-runner run: per-shard walls 1425 / 1337 / 1550 / 1360 s, a 1.16x spread
+(down from 1.58x), critical path 25.8 min, headroom 1.55x, not 2.1x** — the
+duration manifest (`scripts/e2e-durations.json`) was measured on this
+container, and CI's relative per-file costs differ enough to move the
+answer. Say 1.55x, not the local figure. Follow-up filed: SHARD-MANIFEST-CI-1
+(BACKLOG, P3) — seed the manifest from CI's own uploaded reports instead of a
+local measurement.
+**Measured, not modelled (local-box figures, kept for the arithmetic they
+demonstrate): a full four-shard balanced run on this box came in at
+1132 / 1085 / 1138 / 1116 s, all green, 686/686 expected, 0 unexpected, 0
+flaky** — a 1.05x spread where the count-based cut measured 1.58x,
 and within 0.3 % of the 19.0 min the committed manifest predicted. The
 before/after is taken from THAT SAME RUN rather than from a different day: a
 file's duration is a property of the file, so its per-file numbers can be summed

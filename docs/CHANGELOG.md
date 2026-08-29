@@ -5,6 +5,29 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-08-28/29 (groom pass 18 + interim batch — pruned from BACKLOG.md pass 19)
+
+- **2026-08-29 — PBT-1 shipped (kernel-architect):** the SETTLE-2/3 sweep is
+  committed as a seeded 2000-trial corpus; the 7-of-155 violated-constraint
+  rate re-measures at 0 of 1327 (+10.3 s to pytest). Filed SOLVE-CRASH-1,
+  SOLVE-CONFLICT-MOVED-1, SOLVE-OVERCONSTRAINED-AMBIGUOUS-1 from its findings.
+- **2026-08-28 — REACH-3-FLOW shipped (frontend-builder):** Sheet 1 is born
+  from the orientation proposal (A4 portrait 1:2, was landscape 1:5); the
+  flip's dead end was the PROMISE. Filed SHEET-RESCALE-1.
+- **2026-08-28 — Groom pass 18 (backlog-groomer):** CI-4 downgraded P1->P2
+  (four separately-diagnosed causes closed: CI-5/CI-5a/QA-SEL6-ORTHO-1/hem-
+  spec, systemic-instability question stays open); PGTEST-GATE's pass-8
+  self-correction confirmed and closed; ticked EXPORT-3, HOVER-TO-SKETCH,
+  PANEL-DENSITY-1, PGTEST-GATE. Filed STAGE-DOC-HUNKS-HEADING-1 (P2),
+  INVARIANTS-PROJECTION-1 (P3), PGTEST-GATE-VACUOUS-NONGOAL (P3). Marked
+  HEM-1C in-flight; collapsed a duplicated SEL-6 paragraph pair in
+  `docs/ROADMAP.md`.
+- **2026-08-28 — HEM-1C + HEM-1D shipped (frontend-builder):** the hem card
+  derives its radius guidance from the hem rule instead of a drifted copy
+  that suggested the refused value, adds a live air-gap readout, and offers
+  the Closed/Open segment that makes the `open` hem authorable (6.0 mm
+  measured).
+
 ## 2026-08-27 (groom pass 15 — branch merged to main, reachability push)
 
 Branch merged to `main` (`03d2eca`); ticked REVOLVE-1, SKETCH-VOCAB-1(FE),

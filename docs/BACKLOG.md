@@ -15,89 +15,88 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
-- **Groom pass 18 (2026-08-28, this pass) — CI-4 substantially de-risked
-  (four separately-diagnosed, separately-fixed causes, not one shared
-  substrate defect); no new P0.** CI-5 (`2874f0a`, verdict unreadable from
-  the job log) and CI-5a (`ecc1fb7`, the verdict's own miscount of a
-  declared `test.fail()`) were already closed; QA-SEL6-ORTHO-1 (`153681b`,
-  shard 3/4's occlusion threshold was stale after ORTHO-1, not an app
-  defect) likewise; this pass adds the shard-4/4 diagnosis (`0c24947` — the
-  hem spec was TYPING the exact defect HEM-1 fixed, asserting only
-  `Solved`/`faces > 6`, both true of a hem with three gauges of air in it)
-  and folds CI-4(e) into CI-5 (closed, do not dispatch separately). **The
-  umbrella's ORIGINAL question — is the e2e suite systemically unstable
-  under runner load — stays open**; these are four specific causes, not a
-  verdict on the substrate. See CI-4's own ticket for the reprioritization.
-  PGTEST-GATE's pass-8 self-correction is now confirmed from source
-  (`ef5d1c5`: Ubuntu 24.04 ships PostgreSQL 16.15 at the Debian path
-  already searched, so no coverage was ever missing) and closed with a loud
-  verdict rather than a silent skip. **HEM-1C is IN FLIGHT
-  (frontend-builder, `apps/web/src/components/HemEditor.tsx`) — do not
-  dispatch.** Filed this pass: a `stage-doc-hunks.py` truncation on a
-  heading+list-item boundary (P2), `apps/web/e2e/invariants.ts` camera-
-  projection extraction (P3, second real use), PGTEST-GATE's stated
-  non-goal on the vacuous zero-database case (P3). Collapsed a duplicated
-  SEL-6 paragraph pair left in `docs/ROADMAP.md` by pass 17 + the QA
-  agent's rebase.
+- **Groom pass 19 (2026-08-29, this pass) — CI-4's ORIGINAL question is
+  ANSWERED (not systemically unstable; shard 3/4 was structurally
+  overloaded and duration-aware sharding fixes the imbalance); K2 and
+  PBT-1 both CLOSED; no new P0.** CI-4: eleven full-shard + 17 targeted
+  runs found three independent spec defects the overload made visible (two
+  fixed with controls, one — QA-CI4-MATE-1 — still an unreproduced
+  hypothesis); CI-BAL's duration-aware shard split is now verified on the
+  real CI runner (1425/1337/1550/1360 s, 1.16x spread, 25.8 min critical
+  path) — **correcting the local-box headroom claim from 2.1x to 1.55x**,
+  since the duration manifest was measured on this container and CI's
+  relative per-file costs differ (follow-up: SHARD-MANIFEST-CI-1, P3,
+  filed this pass). K2: the route-auth posture gate landed
+  (gateway 89/84/5, documents 64/60/4, geometry 28 identity-free) — posture
+  was already correct, no route changed. PBT-1: the sketch-solver sweep
+  shipped as a committed corpus, re-measuring 7-of-155 violated-constraint
+  at 0-of-1328; its two reported (not fixed) contract findings,
+  SOLVE-CONFLICT-MOVED-1 and SOLVE-OVERCONSTRAINED-AMBIGUOUS-1, are
+  reverified unchanged (2/2000, 282/17) after SOLVE-CRASH-1's own fix
+  moved the census. SOLVE-CRASH-1 (the crash PBT-1 found) is also closed —
+  see BACKLOG entry. Filed this pass: ARC-DEGENERATE-1 (P2 — the solver
+  refuses a degenerate arc on input but emits one on output, flagged by
+  the SOLVE-CRASH-1 agent, out of that ticket's scope). Collapsed the
+  now-closed Ready-queue items (A11Y-TOOLBTN-1, MEASURE-PROXY-1, EXPORT-3,
+  REACH-2-IMPORT-1, REACH-3-FLOW, REACH-2-FLOW, HEM-1C, HEM-1D, PGTEST-GATE,
+  K2, PBT-1, SOLVE-CRASH-1, CI-BAL) into the Done archive.
   **✅ rows, still unqualified by an independent code-reviewer pass. ➖
   rows:** Interop, Drawings. **❌ rows:** Assemblies, Sheet metal,
   Performance, Collaboration & versioning, Extensibility/scripting+MCP,
   Selection & direct manipulation — all owed a vision-steward re-check, now
-  SIX passes overdue.
+  SEVEN passes overdue.
 
-- **Prior passes (8-17):** reconciled in `docs/CHANGELOG.md` / Done archive.
+- **Prior passes (8-18):** reconciled in `docs/CHANGELOG.md` / Done archive.
   Still true and still open: `docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` are
-  stale against the last seven batches — dispatch `geometry-qa` and
+  stale against the last eight batches — dispatch `geometry-qa` and
   `frontend-qa` next batch.
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 18 (2026-08-28) — no new P0.** HOVER-TO-SKETCH,
-PANEL-DENSITY-1 and PGTEST-GATE shipped this batch (see Done archive); CI-4's
-readability sub-item (CI-4(e)) is folded into the already-closed CI-5 — see
-Scorecard gaps above. **HEM-1C is IN FLIGHT (frontend-builder,
-`apps/web/src/components/HemEditor.tsx`) — do not dispatch.** Ranked,
-disjoint, parallel-dispatchable:
+**Dispatch order, groom pass 19 (2026-08-29) — no new P0.** SOLVE-CRASH-1, K2,
+PBT-1, CI-BAL, MEASURE-PROXY-1, PICKMARK-OCCLUDE-1, EXPORT-3, REACH-3-FLOW,
+REACH-2-FLOW, A11Y-TOOLBTN-1, HEM-1C, HEM-1D, SEL-8 and PGTEST-GATE all
+shipped this batch or the last (see Done archive). Nothing is in flight.
+Ranked, disjoint, parallel-dispatchable:
 
-1. ~~**A11Y-TOOLBTN-1**~~ — CLOSED 2026-08-28 (frontend-builder). The
-   primitive now describes by caption in EVERY state, so REACH-2-FLOW part
-   (a) can rely on `scopeCaptionFor`'s enabled proposal actually reaching a
-   screen reader. See the ticket below for the measured blast radius.
-2. **REACH-2-FLOW** (P1, M, frontend-builder, `PartPage.tsx` +
-   `ScopeRow.tsx`) — the pattern-scope proposal is shed at 1280, destroyed
-   by Cancel/Escape, names a subject nothing echoes. Sequence after #1.
-3. ~~**SEL-8**~~ — CLOSED 2026-08-28 (frontend-builder). The hit-test was
-   never the defect: the hover fired correctly and the highlight was
-   discarded by the depth test (0 px of brass; 348 after). Its second half —
-   marks drawn over material that hides the edge they name, 8/21 agreement —
-   is split out as **PICKMARK-OCCLUDE-1**, also now CLOSED (see 3a).
-3a. ~~**PICKMARK-OCCLUDE-1**~~ — CLOSED 2026-08-28 (frontend-builder). Marks
-   now seat where the band answers; census 8/21 -> 11/21 with drawn 11/11,
-   and the unreachable ten are buried without leaving the tab order.
-4. ~~**MEASURE-PROXY-1**~~ — CLOSED 2026-08-28 (frontend-builder). The
-   occluder was drei's own positioning wrapper, not a coincident face; 5 marks
-   on a bare box -> 0. The ticket's prescribed face depth-stack does not apply
-   — Measure has no faces.
-5. ~~**EXPORT-3**~~ — CLOSED 2026-08-28 (frontend-builder). The gate was
-   entirely client-side: the gateway already served the last good body,
-   byte-identical to exporting the healthy prefix. See the ticket below for
-   evidence and the three-surface honesty rule.
-6. ~~**REACH-3-FLOW**~~ — CLOSED 2026-08-28 (frontend-builder). Sheet 1 is
-   born from the proposal now (one `sheetHeaderForNewSheet()` for all four
-   create paths); the flip's dead end was the PROMISE, not the delivery —
-   documents refuses a per-view re-scale, so the fit comparison moved to the
-   set-up screen where the scale is still free. Residual: SHEET-RESCALE-1.
+1. **GATE-FLOOR** (P1, XS, platform-builder) — two `scripts/` lint gates
+   still carry the `all([]) is True` vacuity hole a sibling pair already
+   fixed; reproduced unchanged THREE consecutive audit passes, a four-line
+   fix each time.
+2. **MATEUI-1** (P1, S, frontend-builder or backend-builder) — the
+   mate-conflict diagnosis prints a raw Python `repr` of a UUID list to the
+   user and names a mate the panel cannot identify.
+3. **LAYOUT-1** (P1, XS, frontend-builder) — the inspector panel overlaps
+   its own content at the documented 1280x800 floor; corroborated a third
+   time on an unrelated part.
+4. **GHOST-1** (P1, XS, frontend-builder) — a body doesn't auto-ghost on
+   sketch entry even though the GHOST opacity control already exists.
+5. **STEPNAME-1** (P1, XS, kernel-architect) — assembly STEP export names
+   components with raw UUIDs instead of their part names.
+6. **ARC-DEGENERATE-1** (P2, S, kernel-architect, new this pass) — the
+   solver refuses an arc driven onto its own centre on INPUT but emits one
+   on OUTPUT with no complaint; same class as SOLVE-CRASH-1, out of that
+   ticket's scope.
+7. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
+   unrelated edit hits a silent, unexplained disabled Save.
+8. **SNAP-4** (P2, S, frontend-builder) — an explicit Fix on a point the
+   draw already grounded misreports OVER-CONSTRAINED.
+9. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
+   select-without-editing gesture, and the command band is out of room at
+   1280.
+10. **MATE-OBS-2** (P2, S, frontend-builder) — the assembly tree panel's
+    mate badge reads `evaluation.mate_errors` directly, missing the
+    staleness gate MATE-OBS added everywhere else.
 
-**QA-R3** (P2, touch, harness gap now filed as PLAYWRIGHT-TOUCH-1), **NAME-2b**
-(P2), **TITLEBLOCK-STAMP-1** (P2, XS), **HEM-1B** (P2, split from HEM-1),
-**HEM-1C** (P2, IN FLIGHT — do not dispatch), **MATE-OBS-2** (P2),
-**SKETCH-COVERAGE-1** (P2), **STAGE-DOC-HUNKS-HEADING-1** (P2, new this pass),
-**CHECKUIPARITY-FP-1** (P3), **NUDGE-PLACEMENT-QUANTISE-1** (P3),
-**SOLVER-DOC-1** (P3, XS), **HEM-1D** (P3), **SNAP-4** and the P1/P2 backend
-items below are next up — see full tickets in place.
+**Also ready, not yet dispatched:** QA-R3 (P2, touch — harness gap filed as
+PLAYWRIGHT-TOUCH-1), NAME-2b (P2), TITLEBLOCK-STAMP-1 (P2, XS),
+SKETCH-COVERAGE-1 (P2), STAGE-DOC-HUNKS-HEADING-1 (P2), SOLVE-CONFLICT-MOVED-1
+(P2, XS), SOLVE-OVERCONSTRAINED-AMBIGUOUS-1 (P2, S), REACH-2-FLOW-B (P2, S),
+CHECKUIPARITY-FP-1 (P3), NUDGE-PLACEMENT-QUANTISE-1 (P3), SOLVER-DOC-1 (P3,
+XS), SHARD-MANIFEST-CI-1 (P3, new this pass) — see full tickets in place.
 
-**Process/loop-health flag, carried five passes now:**
-`docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` are stale against the last seven
+**Process/loop-health flag, carried six passes now:**
+`docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` are stale against the last eight
 batches — dispatch `geometry-qa` + `frontend-qa` next batch; the
 vision-steward's Sheet metal/Performance/Assemblies/Selection scorecard
 re-check is overdue (six passes).
@@ -114,21 +113,10 @@ archive for evidence/gates.**
 archive for evidence/gates. T-13 closes with it. T-14 (a different
 surface) does NOT — re-filed narrower below.**
 
-- [x] (P1, S) **MEASURE-PROXY-1 — CLOSED 2026-08-28. A Measure click at a
-      mark's own centre now reaches the mark: drei's positioning wrapper is no
-      longer a pointer target.** The ticket's inferred cause (coincident faces,
-      fix by MATE-1's `faceColumnRaycast`) does NOT apply — Measure offers no
-      faces. The real occluder is drei `Html`'s wrapper div: `pointer-events:
-      auto`, no handler, the mark's 24x24 box, while `PickNode` is a Ø24 circle
-      inside it — so ~21% of every mark's box was dead, and a neighbour's dead
-      corner sat on other marks' centres. Measured on a rebuild of T-14's plate
-      (26 vertex + 39 edge, its counts verbatim): **5 marks on a bare box -> 0**.
-      Fixed in one place (`viewport/PickMark.tsx`, now hosting all 13 mark
-      sites) with `PickNode` opting itself back in. Residue named in ROADMAP:
-      two genuine overlaps where the band AGREES with the DOM, so no proxy
-      contradicts the hit-test. A "select other" for Measure is a separate,
-      larger surface — file it if wanted.
-      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fourth pass)" T-14]
+**MEASURE-PROXY-1 is CLOSED (2026-08-28, frontend-builder) — the occluder was
+drei `Html`'s own wrapper div, not a coincident face (Measure has no faces); 5
+marks on a bare box -> 0 after `PickNode` opted back in, `viewport/PickMark.tsx`.
+See Done archive.**
 
 - [ ] (P2, S) **NAME-2b — the durable-tier re-match NAME-2 shipped
       resolves silently; surface it on `FeatureResult` so an edge-anchored
@@ -152,6 +140,36 @@ surface) does NOT — re-filed narrower below.**
       `services/gateway/**` (pass-through), `apps/web/src/routes/
       PartPage.tsx` / tree panel. agentType: backend-builder +
       frontend-builder.
+
+- [ ] (P2, S) **ARC-DEGENERATE-1 — an arc whose start is driven onto its own
+      centre still ships without complaint; the solver refuses that shape on
+      INPUT but emits one on OUTPUT.** kind: defect (contract, same class as
+      SOLVE-CRASH-1). Flagged by the SOLVE-CRASH-1 agent (2026-08-29) as out
+      of that ticket's scope, no gate covers it. `_add_entity` raises
+      `SketchDefinitionError` if an arc's start point coincides with its
+      centre on the way IN, but nothing stops a chain of constraints from
+      driving an already-accepted arc's start onto its centre during solve,
+      and the resulting degenerate arc (zero radius / undefined angle) is
+      read back and shipped as if it were an ordinary solved entity. SOLVE-
+      CRASH-1's lesson applies directly: a loud defect (a crash, an input
+      refusal) and a silent one (a degenerate payload nothing objects to) are
+      different defects, and the obvious minimal fix (refusing malformed
+      input) only closes the loud half. FIX: extend the same magnitude-based
+      degenerate-geometry gate SOLVE-CRASH-1 added for circles
+      (`DEGENERATE_RADIUS_MM`) to cover an arc's start-to-centre distance on
+      OUTPUT, reclassifying a solve that produces one as `sketch_conflicting`
+      rather than shipping it. ACCEPTANCE: a sketch construction that drives
+      an arc's start onto its own centre via constraints (not by direct
+      input) is reproduced first (measure the population, per PBT-1's own
+      sweep, before choosing a fix — do not assume the count); the fixed
+      solver ships `sketch_conflicting` for that population instead of a
+      degenerate arc; a golden/property test pins the new floor so a future
+      regression cannot silently reopen it.
+      [src: SOLVE-CRASH-1 agent report, kernel-architect, 2026-08-29, filed
+      by backlog-groomer pass 19]
+      TERRITORY: `services/geometry/src/geometry/sketch/planegcs_solver.py`,
+      `services/geometry/tests/test_sketch_solver_sweep.py` (extend the
+      sweep's own gates, per PBT-1's pattern). agentType: kernel-architect.
 
 **DOCTICK-GATE (`bd09f5b`, docstring fix `53e62b0`) and SPEC-9 (`e8702d5`)
 are both SHIPPED — see Done archive for evidence/gates.**
@@ -218,60 +236,12 @@ EXPORT-2, VISION-FIX-1 are all SHIPPED — see Done archive** (`3a7c4ca`,
 vision-steward `6dfb597`). Fresh Ready items from the same 2026-08-21
 rotational-part audit that produced SOLVE-1/PICK-2 above:
 
-- [x] (P1, S) **EXPORT-3 CLOSED — one failed downstream feature disabled
-      export of the ENTIRE tree, including the good body already built and
-      rendered.** kind: defect. MEASURED (`docs/AUDIT-PRODUCT.md` R-6, the
-      same 2026-08-21 pass as SOLVE-1/PICK-2, and flagged "still live" from
-      the prior 2026-08-16 pass too): after `Hole1` fails, all four export
-      formats showed `Hole1 failed` and went inert over a part that built
-      cleanly through `Revolve1` — "what I would send a machinist for a first
-      look."
-      CLOSED 2026-08-28 (frontend-builder). THE GATE WAS ENTIRELY
-      CLIENT-SIDE, established by measurement before a line was written:
-      `POST /parts/{id}/export?format=step` on the broken tree already
-      returned **200 / 15372 B of real STEP**, sha256-identical to exporting
-      the healthy prefix as its own part. Nothing changed server-side.
-      `exportGate` now separates the two axes it had conflated — `state`
-      names the CAUSE, `partial` says the artifact is a prefix — and refuses
-      only what it cannot vouch for (nothing built; stale provenance, which
-      is promoted above the failure branch because every allowed state makes
-      a positional claim the current tree may not support). A failure and a
-      travel stop now differ in wording and tone, never in permission.
-      THE TRUTH RIDES THREE SURFACES, so a machinist cannot receive a
-      truncated body believing it whole: the cell (`Partial`), the notice
-      ("Fillet1 failed, so the file stops at Extrude1 — 2 features are
-      excluded. Its name will say partial."), and `-partial` in the
-      DOWNLOAD, which outlives the screen. The band carries the clause on
-      each cell's accessible name — it is the surface a collapsed Inspector
-      leaves behind (EXPORT-1), so it must not be the quiet one.
-      [AMENDED 2026-08-28 by A11Y-TOOLBTN-1: the band's clause moved from the
-      accessible NAME to the accessible DESCRIPTION. Same fact, same surface,
-      announced once instead of twice and without renaming the cell per gate
-      state — the name-fold was a workaround for the primitive defect that
-      ticket fixed. `export-partial-body.spec.ts` asserts the description.]
-      ACCEPTANCE, all three: (1) asserted on the ARTIFACT, not a 2xx — the
-      downloaded STEP is parsed and measured at 1 solid / 6 faces / 6 planes
-      / 0 cylinders / bbox 0..20, and the discriminator is that the same tree
-      with a fillet that SUCCEEDS measures 26 faces and 12 cylinders, so the
-      numbers can fail; (2) the notice names the truncation point and counts
-      what is missing; (3) a tree with NO built feature still refuses, at the
-      client — the server 422s it too, which is exactly why the control
-      asserts `aria-disabled` and not merely "no download" (measured: with
-      the gate broken to allow always, no file arrived anyway because the
-      gateway refused, so a download-only control would have passed over a
-      UI that had stopped refusing).
-      MUTATION-TESTED BOTH DIRECTIONS: reverting the fix reddens 3 of 4 new
-      cases; allowing export unconditionally reddens exactly the negative
-      control. Also fixed en route, found in the 1280x800 founder shot: the
-      viewport notice and the export notice printed DIFFERENT counts for one
-      tree (1 vs 2) — two local derivations of one fact, the J2 shape — and
-      the sentence was wrong on its own terms, since "from it onward"
-      includes the failure. One count now, asserted to agree.
-      Gates: `just lint` 0, `pnpm --filter @loft/web typecheck`, 2064 unit
-      tests, 22 export/body-status e2e + 10 qa-wave e2e green on the real
-      stack. Shots: `docs/screenshots/export-partial-{before,after}-1280.png`.
-      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-6, previously noted
-      2026-08-16 pass, filed by backlog-groomer pass 8]
+**EXPORT-3 is CLOSED (2026-08-28, frontend-builder) — one failed downstream
+feature no longer takes the good body's export with it. The gate was entirely
+client-side (the gateway already served the healthy prefix, byte-identical);
+`exportGate` now separates CAUSE from PARTIAL and the truth rides three
+surfaces (cell, notice, `-partial` filename). Mutation-tested both directions.
+See Done archive.**
 
 **REVOLVE-1 is fully SHIPPED (`1b28dd5`, groom pass 15) — closes the last
 ABSENT-tier literal in the gateway contract. See Done archive for
@@ -296,221 +266,34 @@ evidence/gates.**
       The mid-face-marks half is NOT closed — see PICKMARK-OCCLUDE-1 above.
       [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-8]
 
-- [x] (P1, S) **A11Y-TOOLBTN-1 CLOSED — `ToolButton` only wired
-      `aria-describedby` to its caption while DISABLED, so an
-      enabled-but-QUALIFIED state was hover-only for a screen-reader user.**
-      kind: defect. **BUMPED P2→P1,
-      groom pass 14: CORROBORATED a second time, more severely — REACH-2-FLOW
-      P1-1 (above) hit the SAME gate hiding an entire proposed verb's label,
-      not just a qualifier.** Found by the
-      EXPORT-1 builder (`3a7c4ca`) while wiring `ExportToolGroup` and
-      reported rather than fixed — correctly: the fix touches a shared
-      primitive mid-batch and would change accessible descriptions for
-      every tool in every command band. Verified against source:
-      `packages/design/src/primitives/ToolButton.tsx:117` —
-      `const hasGateReason = isDisabled && Boolean(caption);` — gates the
-      `aria-describedby` wiring (`:118-121`) on `isDisabled` alone; the
-      doc comment above it (`:86-91`) even says "while disabled, the
-      button's `aria-describedby` points at the caption node," describing
-      the gap as the intended design. A working (enabled) `ToolButton` can
-      carry a `caption` that qualifies what the click will DO — the case
-      that exposed this, `ExportToolGroup.tsx`'s export cells, whose
-      caption reads `"${caption} · marks the file partial"` when the
-      export is allowed but would only write a prefix of the tree — and
-      that qualifier is visible on hover/focus (the tooltip) but never
-      reaches `aria-describedby`, so a screen-reader user gets only the
-      accessible NAME with no indication the file is partial. This is a
-      WCAG-relevant gap against CLAUDE.md's quality floor (visible focus,
-      AA contrast, and by extension not making state visual-only), and
-      because it's in the PRIMITIVE it is wrong everywhere `ToolButton` is
-      used with an enabled `caption` — not just at the export site that
-      surfaced it (grep `caption=` across `HoleEditor.tsx`,
-      `MirrorEditor.tsx`, `CreateStrip.tsx`, `SectionAuthorPanel.tsx`,
-      `SketchStrip.tsx`, `AssemblyCommandBand.tsx`, `DrawingCommandBand.tsx`,
-      `HistoryGroup.tsx` for other call sites carrying an enabled caption
-      before scoping the fix). WORKAROUND ALREADY IN TREE, must be unwound
-      in the same commit as the primitive fix or the qualifier announces
-      TWICE: `ExportToolGroup.tsx:71-75` folds the qualifier into the
-      accessible NAME instead (`aria-label={qualifier === undefined ? name
-      : \`${name} — ${qualifier}\`}`), with a comment explaining exactly
-      why. FIX: change `hasGateReason` (or equivalent) to key on
-      `Boolean(caption)` alone, not `isDisabled && Boolean(caption)`, so
-      `aria-describedby` always points at the caption node when one is
-      rendered — enabled or disabled; confirm this doesn't double-announce
-      already (a disabled button announces `aria-disabled` + description
-      today, so an enabled one gaining a description is the same shape,
-      not a new one). ACCEPTANCE: an ENABLED `ToolButton` with a non-empty
-      `caption` exposes `aria-describedby` pointing at the caption node
-      (new `ToolButton.test.tsx` case, mirroring the existing disabled-case
-      test); `ExportToolGroup.tsx`'s `aria-label` workaround removed in the
-      same commit, reverting to a plain `name`/`label` accessible name, with
-      an updated test asserting the qualifier now comes from the
-      description, not the name (no double-announcement). Mutation check:
-      reverting the `hasGateReason` condition back to
-      `isDisabled && Boolean(caption)` reddens the new enabled-caption test
-      only.
-      [src: EXPORT-1 builder report, 2026-08-17, verified against
-      `packages/design/src/primitives/ToolButton.tsx` and
-      `apps/web/src/components/ExportToolGroup.tsx` this pass]
-      TERRITORY: `packages/design/src/primitives/ToolButton.tsx`,
-      `packages/design/src/primitives/ToolButton.test.tsx`,
-      `apps/web/src/components/ExportToolGroup.tsx` (unwind the
-      `aria-label` workaround), `apps/web/src/components/
-      ExportToolGroup.test.tsx`. **Collides with EXPORT-1's own files
-      (`ExportToolGroup.tsx`) and with ANY other in-flight work on
-      `packages/design/src/primitives/ToolButton.tsx` — it is a shared
-      primitive consumed by every command band (`CreateStrip.tsx`,
-      `AssemblyCommandBand.tsx`, `DrawingCommandBand.tsx`, `HistoryGroup.tsx`,
-      `SketchStrip.tsx`, and the editors listed above); do not dispatch
-      alongside any other agent touching `ToolButton.tsx` or
-      `ExportToolGroup.tsx` in the same session.** agentType:
-      frontend-builder.
-      CLOSED 2026-08-28 (frontend-builder). `hasGateReason = isDisabled &&
-      Boolean(caption)` is now `hasCaption = Boolean(caption)`, and the doc
-      comment that called the gap the design is rewritten to say WHY both
-      states get one treatment: the caption is ONE node the tooltip renders
-      identically, the cannot/could-not distinction is already carried by
-      `aria-disabled` (announced before any description), and "captions
-      announce sometimes" is the defect itself. BLAST RADIUS MEASURED, not
-      argued — 44 `ToolButton` caption call sites classified by enclosing
-      element, then enumerated live from CHROME's own accessibility tree
-      (`page.accessibility.snapshot`) before and after. Most are
-      caption⟺disabled already (`CreateStrip`'s `captionFor` returns
-      undefined when ready; `AssemblyCommandBand`'s `mateReason` likewise),
-      so the real delta is small and all of it is enrichment: `view-
-      projection` "" → "Switch to orthographic"; sketch `undo-button` "" →
-      "the last sketch edit"; `sketch-save` "" → "4 entities"; `sketch-exit`
-      "" → "discards 4"; `DrawingCommandBand`'s seven ready captions
-      ("Download the sheet as .svg" etc.); `check-interference` "Scanning…".
-      THE WORKAROUND WAS NOT NEUTRAL EITHER: the gated export cell announced
-      "Export STEP (exact B-rep) — No body" as its NAME **and** "No body" as
-      its description, i.e. it already double-announced, and the cell
-      answered to a different name depending on the gate state. Unwound; the
-      name is the format in every state. EVIDENCE: 8 unit cases on the
-      primitive + a real-browser case in `nav-chrome.spec.ts`, all asserting
-      the COMPUTED accessible description (`toHaveAccessibleDescription` →
-      `computeAccessibleDescription`), never `toHaveAttribute`, which passes
-      on an id that resolves to nothing. Three mutations, each hitting only
-      its own side: reverting to `isDisabled && …` reddens the 3 enabled
-      cases (and the e2e case, `Received string: ""`) and no others;
-      `!isDisabled && …` reddens the 2 disabled cases and no others;
-      unconditional `true` reddens the 2 dangling-id cases. Caption node
-      measured 117.4x15.0 px, `clip: none` — a real box, transparent through
-      its parent, not the zero-area/`sr-only` family.
+**A11Y-TOOLBTN-1 is CLOSED (2026-08-28, frontend-builder) — `ToolButton` now
+wires `aria-describedby` to its caption in EVERY state, not only while
+disabled, so an enabled-but-qualified control (e.g. a partial export) reaches
+a screen reader instead of announcing nothing. Blast radius measured across
+44 call sites via Chrome's own accessibility tree; `ExportToolGroup`'s
+name-folding workaround unwound in the same commit. See Done archive.**
 
-- [x] (P1, M) **REACH-2-IMPORT-1 CLOSED — the STEP-import assembly feature
-      (`f4c590b`) flows for the slot itself but fails both the approach and
-      the wait.** kind: defect (flow, two independent findings from the
-      same design review). MEASURED (`docs/UI-REVIEW.md` 2026-08-27 REACH-2
-      spot-check on `f4c590b`): (a) the empty-state copy names the import
-      first but the import slot sits **423 px below it, past nine blank
-      ruled rows** — the copy has to give directions ("see below"), which is
-      the tell that placement failed the flow mandate; (b) a long import is
-      indistinguishable from a hung app: no `role="progressbar"` anywhere,
-      no animation, no cancel — one static sentence — against a 16 MiB
-      ceiling (measured 3.35 s for a 52 KB fixture; a file near the ceiling
-      would sit there far longer with zero feedback). FIX: (a) move the
-      import slot adjacent to the sentence that names it, or move the
-      sentence down to the slot — one derivation, not two independently
-      authored surfaces; (b) an indeterminate-progress primitive in
-      `packages/design` (none exists today — this is why the finding was
-      held rather than fixed inline) wired to the upload's in-flight state,
-      with a Cancel affordance. ACCEPTANCE: the empty-state copy and the
-      slot it describes are adjacent with no scrolling between them
-      (screenshot); a >2s import shows a live progress indicator and a
-      working Cancel; `packages/design` gains the primitive with its own
-      unit tests (indeterminate + determinate modes, `prefers-reduced-motion`
-      respected per CLAUDE.md's quality floor).
-      [src: docs/UI-REVIEW.md 2026-08-27 REACH-2 spot-check (frontend-qa) on
-      `f4c590b`, filed by backlog-groomer pass 15]
-      TERRITORY: `packages/design/src/primitives/` (new progress primitive),
-      `apps/web/src/routes/` (STEP-import empty state / upload flow).
-      agentType: frontend-builder.
-      CLOSED 2026-08-28 (frontend-builder), two commits. (b) `ProgressTrack`
-      in `packages/design` (6 unit tests) + wired: named indeterminate
-      progressbar, `motion-safe`-only carriage, elapsed counter that carries
-      the reduced-motion path, `AbortController` behind a `Stop` verb and
-      `Escape`. (a) the empty register is a DOUBLE-ENTRY FORK — the register
-      itself now places the offer (`RegisterOffer`), beside the create form
-      when empty and as the drawer's last line otherwise, because only it
-      knows which it is. MEASURED 1280x800: import verb 422 px below the copy
-      -> **51 px**; the two ways in 364 px apart -> **22 px**. At 1600x1000
-      the old gap was 622 px and is now **51 px** — i.e. it no longer GROWS
-      with the screen, which was the tell that this was layout and not copy.
-      The sentence lost "from the slot below" and a spec now fails if it
-      comes back. Also closed from the same review: P2-A (a result carries
-      the `Dismiss` the refusal always had, and the slot's instruction
-      returns) and P3-B (`I` is in `shortcuts/registry.ts` and on the sheet).
-      10 e2e cases, no `force: true` — every reachability claim is
-      `elementFromPoint` at the control's centre, a real `locator.click()`
-      hit-target check, or a real `filechooser` event.
+**REACH-2-IMPORT-1 is CLOSED (2026-08-28, frontend-builder) — the STEP-import
+empty-state slot now sits adjacent to the copy that names it (422px -> 51px
+gap at 1280, no growth with screen size) and a new `ProgressTrack` primitive
+gives long imports a real indeterminate progress bar + Cancel. See Done
+archive.**
 
 **FORCE-CLICK-AUDIT-1 is CLOSED (`6911352`, groom pass 16) — 22 call sites
 audited: 18 cargo removed, 3 legitimate refusals proven via a new
 `clickRefusedControl` helper, 1 vacuous test fixed. `force: true` now
 appears exactly once in `apps/web/e2e/`. See Done archive.**
 
-- [x] (P1, S) **PGTEST-GATE — 172 of the documents service's tests (37% of
-      that suite, including the entire alembic migration chain) silently
-      skip with exit 0 when PostgreSQL server binaries are absent, and CI
-      installs none.** kind: defect. MEASURED
-      (`docs/AUDIT-ENGINEERING.md` "Pass 7" M4): `pytest services/documents/
-      tests/` gives 468 passed with `PG_BIN_DIR` pointing at real binaries,
-      296 passed + **172 skipped** with `PG_BIN_DIR=/nonexistent` — same exit
-      code (0) both times, dot-line still looks busy. `.github/workflows/
-      ci.yml`'s `python` job installs no PostgreSQL and sets no
-      `PG_BIN_DIR`/`services:` container, so whether those 172 tests
-      (including the only check that the 16-migration alembic chain
-      upgrades/downgrades/matches models) run in CI depends entirely on
-      undocumented `ubuntu-latest` image contents. FIX:
-      `services/documents/tests/conftest.py:173-193`'s `pg_server` fixture
-      calls `pytest.fail(...)` instead of `pytest.skip(...)` when
-      `os.environ.get("CI")` (or a new `LOFT_REQUIRE_PG=1`) is set and
-      `initdb` cannot be found; `ci.yml`'s `python` job installs PostgreSQL
-      (package or a `services:` block) so the fail path is never hit for
-      real. ACCEPTANCE: `CI=1 PG_BIN_DIR=/nonexistent uv run pytest
-      services/documents/tests/` exits non-zero (negative control — proves
-      the gate can fail); the real CI run installs PG and all 468 tests run.
-      [src: docs/AUDIT-ENGINEERING.md "Pass 7" M4, filed by backlog-groomer
-      pass 8]
-      **CORRECTED this pass** (`docs/AUDIT-ENGINEERING.md` "Pass 8" N8,
-      the auditor's own correction to its prior M4): `ci.yml`'s
-      `ubuntu-latest` image ships PostgreSQL 16 at
-      `/usr/lib/postgresql/16/bin`, and `find_pg_bin()`
-      (`conftest.py:52-65`) already falls back to exactly that path — so
-      CI likely already RUNS these 172 tests, contradicting the original
-      "CI installs no PostgreSQL, so they silently skip" framing. **Do NOT
-      add a `services: postgres` block on the strength of the old claim.**
-      The real, narrower defect: a silent skip means nobody can tell from
-      the CI log which of the two happened. FIX (revised): make the
-      search LOUD — log at INFO+ which path was searched and whether
-      `initdb` was found, so the CI log itself is the evidence, before
-      deciding whether `pytest.fail` under `CI=1` is even still needed on
-      top of that.
-      TERRITORY: `services/documents/tests/conftest.py`,
-      `.github/workflows/ci.yml`. agentType: platform-builder.
-      **DONE 2026-08-28 (platform-builder) — the silence is closed and the
-      pass-8 correction is CONFIRMED from the source, not inherited.**
-      `ubuntu-latest` is Ubuntu 24.04 and that image ships PostgreSQL 16.15
-      (actions/runner-images `Ubuntu2404-Readme.md`, fetched), whose binaries
-      sit at the Debian path `find_pg_bin()` already searched — so the 172
-      have almost certainly been running, and the real defect was that no log
-      said so. Both halves landed independently: (a) `pg_server` now routes
-      every unusable exit through `_refuse_or_skip`, which `pytest.fail`s when
-      `LOFT_REQUIRE_PG` (defaulting to `CI`) says a real server is required
-      and still skips helpfully otherwise; (b) every run ends with a
-      `== postgres (documents suite) ==` verdict naming the search path, the
-      requirement and its source, and how many tests were HANDED a database —
-      a fixture side effect, cross-checked against the reports and refusing a
-      verdict when the two disagree. Negative control `CI=1
-      PG_BIN_DIR=/nonexistent uv run pytest services/documents/tests/` exits
-      **1** (296 passed, 172 refused) against **0** before; positive control
-      468 passed with `served a real database: 172`; whole-repo `uv run
-      pytest` 4090 passed / exit 0. Mutation-tested: neutering the `CI` branch
-      turns the negative control back to exit 0 and reddens 2 of the 11 new
-      `test_pg_gate.py` cases. Cost in CI is ~0 (those tests already ran); the
-      workflow step prints what it found, installs `postgresql` only if a
-      future image drops it, and exits 1 rather than continuing without.
+**PGTEST-GATE is CLOSED (`ef5d1c5`, 2026-08-28, platform-builder) — a missing
+PostgreSQL now fails loudly instead of silently skipping 37% of the documents
+suite. Pass-8's self-correction to Pass-7 M4 (CI's ubuntu-latest image already
+shipped PG 16.15 at the searched path, so the 172 tests were almost certainly
+already running) is CONFIRMED from source (`actions/runner-images` fetched
+directly), not inherited — see `docs/AUDIT-ENGINEERING.md` M4/N8 and the
+correction note there, still accurate, no further action needed. Negative
+control exit 0 -> 1; whole-repo suite unaffected (4090 passed). See Done
+archive. PGTEST-GATE-VACUOUS-NONGOAL (P3, below) records one deliberately
+unfloored case.**
 
 - [ ] (P1, XS) **GATE-FLOOR — two of the five `scripts/` lint gates still
       have the `all([]) is True` vacuity hole that was already fixed in
@@ -635,73 +418,13 @@ appears exactly once in `apps/web/e2e/`. See Done archive.**
 **QA-R2 is CLOSED (`0cee656`, e2e barrier hardened `d2b1d26`, groom pass
 15) — the angle glyph now reads `SolvedSketch.angles`. See Done archive.**
 
-- [x] (P1, M) **REACH-3-FLOW — the projection-convention feature `5438b73`
-      shipped is reachable exactly once per drawing, and orientation is a
-      dead end once flipped.** CLOSED 2026-08-28 (frontend-builder).
-      (a) P1-1 fixed at the ROOT: `sourceExtentsQuery` was keyed on the
-      DRAFTED source, null until a sheet had views, so the proposal could not
-      be computed on the create screen at all. It now measures the SELECTED
-      source too, and one `sheetHeaderForNewSheet()` (in `drawing/layout.ts`,
-      unit-tested) serves all four create paths — proposal + inherited
-      convention + earned scale — with `handleLayout` reading the same cached
-      measurement so a fast click cannot fall back silently. The 40x40x150
-      column now lands Sheet 1 A4 PORTRAIT at 1:2, not landscape at 1:5.
-      Lone-view sheets (flat pattern, section) pass `fit: null` on purpose:
-      `fitScale` models the FOUR-quadrant footprint, and an unfolded blank is
-      not it — guessing there would be the same broken-promise defect in a new
-      place. (b) P1-2 resolved by the ticket's own alternative, because the
-      first branch is IMPOSSIBLE: measured against the real stack, documents
-      refuses a per-view re-scale with `sheet_view_scale_mismatch` (H2, one
-      sheet one scale) and `siblings[0]` always still holds the old scale, so
-      the first of four views is rejected in any order — no client write can
-      re-fit a laid-out sheet. So the cell stopped promising: the trade moved
-      to the set-up screen's new paper cell (where the scale is still free),
-      and the post-layout cell states the flip it performs while still naming
-      what a fresh sheet would buy. The flip does now RE-PLACE — a pinned view
-      at 270 mm on landscape A4 measured 99.3% of the portrait width before,
-      70.2% after. P2 flags all done: orientation-aware size labels, a capped
-      strip with a scrolling tab rail (cells were 1028.4px at 1024 before),
-      ADD moved out of the rail, active tab scrolled into view.
-      Residual: **SHEET-RESCALE-1**. kind: defect (flow — the convention half
-      genuinely flows; the orientation half does not survive contact with
-      the product). MEASURED (`docs/UI-REVIEW.md` 2026-08-27 REACH-3
-      spot-check, real stack, 1280×800/1024×768, a deliberately tall
-      40×40×150 mm column):
-      (a) **P1-1** the orientation proposal never fires on Sheet 1 — the
-      only sheet most drawings have. All four Sheet-1 create paths
-      (`DrawingPage.tsx` ≈468/568/638, `PartPage.tsx:2312`) hardcode
-      `orientation: "landscape"`; `orientationFit` is computed and unused
-      at all four. Only `handleAddSheet` (the SECOND sheet) consults it.
-      (b) **P1-2** flipping orientation from the header cell delivers a
-      WORSE drawing than the cell promised and there is no way back:
-      `viewBox` changes but the views never re-fit, so a sheet promised
-      "portrait (1:2)" comes back portrait, still at 1:5, emptier than the
-      landscape it replaced — and once a sheet has a layout, Scale becomes
-      a read-only `Readout`, so the wrong scale cannot be corrected.
-      FIX: (a) one `sheetHeaderForNewSheet()` derivation every create path
-      calls (proposal + inherited convention + orientation-earned scale)
-      instead of four hardcoded literals and one smart call site.
-      (b) `reheadSheet` must re-fit and re-place at
-      `orientationFit.scaleByOrientation[next]` — the same reading
-      `handleAddSheet` already applies — or the cell must stop promising a
-      scale it will not deliver.
-      ACCEPTANCE: creating Sheet 1 on a part whose extents fit portrait
-      better proposes portrait at the correct scale (not just Sheet 2+);
-      flipping orientation on a laid-out sheet re-fits the views and the
-      title block's stated scale matches the fit actually produced.
-      Also flags (P2, roll into the same fix if convenient): both header
-      cells scroll off-screen at 1024×768 with 11+ sheets (no `max-w`, no
-      scroll region); absent from the pre-layout setup screen that is the
-      only place they'd prevent the problem in the first place; the Size
-      readout still states landscape extents (`297×210`) on a portrait
-      sheet.
-      [src: docs/UI-REVIEW.md 2026-08-27 REACH-3 spot-check (frontend-qa) on
-      `5438b73`, filed by backlog-groomer pass 14]
-      TERRITORY: `apps/web/src/routes/DrawingPage.tsx`,
-      `apps/web/src/routes/PartPage.tsx` (Sheet-1 create paths),
-      `apps/web/src/drawing/layout.ts` (Size readout),
-      `apps/web/src/components/DrawingCommandBand.tsx`. agentType:
-      frontend-builder.
+**REACH-3-FLOW is CLOSED (2026-08-28, frontend-builder) — Sheet 1 is now born
+from the orientation proposal (a 40x40x150 column lands A4 portrait at 1:2,
+was landscape at 1:5), via one `sheetHeaderForNewSheet()` derivation shared by
+all four create paths. The orientation-flip half's promised re-fit was
+IMPOSSIBLE server-side (documents refuses a per-view re-scale, H2), so the
+trade moved to the set-up screen instead of shipping a broken promise. See
+Done archive. Residual: **SHEET-RESCALE-1** below.**
 
 - [ ] (P2, S) **SHEET-RESCALE-1 — a laid-out sheet's scale cannot be
       changed by anything, so the only way to re-scale a drawing is to start
@@ -824,38 +547,15 @@ below.**
 
 ## Next (P2)
 
-- [x] (P1, S) **SOLVE-CRASH-1 CLOSED 2026-08-29 (arbitrated P2->P1 by the
-      orchestrator) — the untyped 500 is gone, and the twelve crashes were TWO
-      defects wanting opposite answers.** The prior question the ticket turned
-      on — no positive-radius solution, or a bad branch of one that exists? —
-      was measured before a fix was chosen, and the answer is BOTH, so no single
-      rule was right. THREE had a negative radius of real magnitude, which in
-      planegcs is the same circle under its branch convention
-      (`tangent_circle_circle` is `d - (r1 + r2)`, so `r2 < 0` is internal
-      tangency at `|r2|`); with `abs` applied all three come back as ordinary
-      solves at a worst residual of **1.8e-13 mm**, so refusing them — the
-      going-in prior — would have rejected three SOLVABLE sketches. The other
-      NINE are annihilated, nearly all one shape (a `tangent` to a line the
-      circle's centre is pinned onto), where `r = 0` is the unique solution.
-      Fix: normalise the sign as a de-parameterisation, and where the radius is
-      ANNIHILATED return the author's value from `read_back` so the geometry
-      fails its own tangency residual and the EXISTING payload gate reclassifies
-      it. No new machinery, no new error code, no contract change — the user
-      gets `sketch_conflicting` (HTTP 200, typed, constraint index named,
-      `sketch_diagnosis` beside it) and the sketch stays editable. Clamping was
-      rejected for HEM-1's reason; a `SketchDefinitionError` was rejected
-      because the `SketchSolver` contract reserves exceptions for malformed
-      INPUT. **The crash was the loud half only:** the nine straddle zero by
-      float noise (seven at `0.0`, two at ~`1.5e-15`), and two MORE were already
-      shipping at `8.9e-16` and `2.7e-15` mm under `underconstrained` with an
-      empty conflict list, so the threshold is a MAGNITUDE
-      (`DEGENERATE_RADIUS_MM = 1e-9`, the same constant role as
-      `sketch/edit.py`'s `sketch_degenerate_result`), not the DTO's `> 0` —
-      which, mutated in, ships `radius=2.27e-16` and inflates solvable to 1335.
-      Census 12 raised -> **0**; solvable 1327 -> 1328; conflicting 276 -> 287;
-      violated 0. The live limit is deleted and replaced by two gates (nothing
-      raises; no solved payload ships a circle that is not there).
-      [src: PBT-1 sweep, kernel-architect 2026-08-29]
+**SOLVE-CRASH-1 is CLOSED (2026-08-29, kernel-architect, arbitrated P2->P1) —
+the untyped 500 is gone. The twelve crashes were TWO defects wanting opposite
+answers, measured before a fix was chosen: 3 had a negative radius of real
+magnitude (a planegcs branch convention, not degeneracy) and now solve
+normally at 1.8e-13 mm worst residual; the other 9 are genuinely annihilated
+(`r=0` the unique solution) and now return `sketch_conflicting` via the
+existing payload gate rather than crashing. No new machinery, no contract
+change. Census: raised 12 -> 0, solvable 1327 -> 1328, conflicting 276 -> 287.
+See Done archive / ROADMAP for the full two-defects-one-crash argument.**
 
 - [ ] (P2, XS) **SOLVE-CONFLICT-MOVED-1 — a `conflicting` payload can ship
       geometry the solver MOVED, which the DTO promises it never does.** kind:
@@ -869,6 +569,11 @@ below.**
       cases. FIX: either return the input on that branch (matching the doc) or
       change the doc; one line either way, but it is a contract decision.
       Recorded as an executable live limit, bounded both ways.
+      **RE-VERIFIED unchanged, groom pass 19 (2026-08-29): SOLVE-CRASH-1 moved
+      the sweep's solvable/conflicting census (1327->1328, 276->287) but this
+      finding's own count is independent of that reclassification and still
+      reads "2 of 2000" verbatim in `test_sketch_solver_sweep.py`'s own
+      docstring/test comment — no correction needed.**
       [src: PBT-1 sweep, kernel-architect 2026-08-29]
       TERRITORY: `services/geometry/src/geometry/sketch/planegcs_solver.py`,
       `packages/py-kit/src/py_kit/schemas/sketch.py`. agentType: kernel-architect.
@@ -887,70 +592,26 @@ below.**
       the payload saying whether the entities were solved. This is why PBT-1's
       sweep excludes `overconstrained` from its solved population — an ambiguity
       in the contract becomes an ambiguity in every gate written against it.
+      **RE-VERIFIED unchanged, groom pass 19 (2026-08-29): the overconstrained
+      population (282, of which 17 are the input) is untouched by
+      SOLVE-CRASH-1's fix — none of the twelve crashing trials were
+      overconstrained — confirmed against the current
+      `test_sketch_solver_sweep.py` source.**
       [src: PBT-1 sweep, kernel-architect 2026-08-29]
       TERRITORY: `services/geometry/src/geometry/sketch/planegcs_solver.py`,
       `packages/py-kit/src/py_kit/schemas/sketch.py`. agentType: kernel-architect.
 
-- [x] (P2, S) **HEM-1C CLOSED (frontend-builder, 2026-08-28) — the hem card now
-      derives every number it shows from the hem rule, and a spec types the
-      card's own suggestion back in.** Both false strings are gone: the radius
-      row reads "Set by the hem type and the 2 mm gauge: 0.1 mm" (no base-flange
-      claim; K-factor still says "Inherits 0.44 from the base flange", because K
-      IS inherited), and the override guidance reads "Use at most 0.25 mm for a
-      closed hem; 0.1 mm presses it flat" — every number in it one the evaluator
-      accepts. The ratios live in ONE place (`sheetMetal.ts`, mirrored from
-      `py_kit.schemas.features`) and a unit test PINS all three against the
-      py-kit source, so the mirror cannot drift silently. New: a live `Gap`
-      readout (`0.2 mm (0.1 × gauge)`) — the quantity HEM-1 got wrong while
-      every status read ok — and an advisory that states the refusal BEFORE the
-      rebuild, naming the one-click fix. MUTATION EVIDENCE: restoring the
-      0.5 × gauge hint reddens the e2e three independent ways — "the card offers
-      1 mm, which a closed hem is refused for (expected <= 0.25)", the advisory
-      firing on the card's own suggestion, and `eval-status` = Failed on submit.
-      ORIGINAL ENTRY: **HEM-1C — the hem editor still says the radius is
-      inherited from the base flange, and nudges the user toward the one value
-      the server now refuses.** kind: defect (HEM-1 fallout, found by qa-tester
-      2026-08-28 repairing the e2e; `docs/QA-REVIEW.md` same date). Territory
-      `apps/web/src/components/HemEditor.tsx` +
-      `apps/web/src/features/sheetMetal.ts`. MEASURED off the live app on a
-      2 mm gauge / 3 mm part radius fixture, two false strings: (a)
-      `"Inherits 3 mm from the base flange."` — HEM-1 removed that
-      inheritance entirely, so the form states the defect as if it were the
-      rule; (b) `"A tight closed hem uses a small radius (~1 mm)."`, computed
-      `Math.round(thicknessMm * 5) / 10` = 0.5 x gauge, which is the OPEN-hem
-      ratio — **the tool suggests 1.00 mm and the evaluator refuses 1.00 mm
-      with `hem_type_radius_conflict`**, and the hint persists into the EDIT
-      form after the refusal, so following it repeats the error. FIX: read
-      the radius from the same rule the server uses — the closed default is
-      0.05 x gauge (0.1 mm here), the ceiling 0.125 x gauge (0.25 mm) — and
-      state THAT, not the base flange. Better still, show the resulting AIR
-      GAP (`2 x radius`), which is what the number means. ACCEPTANCE: no
-      string in the hem editor claims base-flange inheritance for the radius;
-      the suggested/placeholder value submits without a conflict on 2 mm and
-      1.5 mm gauge; an e2e case asserts the suggested number is accepted (the
-      assertion must FAIL if the hint is reverted to 0.5 x gauge).
+**HEM-1C is CLOSED (2026-08-28, frontend-builder) — the hem card now derives
+every number it shows from the hem rule instead of a stale base-flange claim,
+and the override guidance states only values the evaluator accepts. New live
+`Gap` readout. Ratios live in one place, pinned against the py-kit source by
+a unit test. Mutation-tested three independent ways. See Done archive.**
 
-- [x] (P3, S) **HEM-1D CLOSED (frontend-builder, 2026-08-28) — a Closed/Open
-      segment authors the shape; `buildHemParams` sends the user's choice.**
-      The fold readout tracks it (`180° (open)`) and so does the gap readout
-      (`2 mm (1 × gauge)`). `teardrop`/`rolled` stay out, as the Literal does.
-      ASSERTED ON THE BUILT BODY, not on a 2xx (the `extra="ignore"` trap): the
-      open-hemmed plate stands `hemmedHeightMm(1)` = **6.0 mm** and grows in
-      plan by radius + gauge to 53.0 mm — a misspelled `hem_type` would give the
-      closed reading, 4.2 mm. The type also round-trips: re-opening the feature
-      shows Open pressed.
-      ORIGINAL ENTRY: **HEM-1D — the UI cannot author an `open` hem at all.** kind:
-      gap (HEM-1 fallout, same pass). `buildHemParams` hardcodes
-      `hem_type: "closed"` and `HemEditor` has no type control, so the `open`
-      hem HEM-1 shipped on the API is unreachable by clicking — and an open
-      hem is the ONLY way to get the wide gap the old default was silently
-      producing, so users who wanted that shape now have no route to it.
-      Related: `scripts/check-ui-parity.py` scores `hem_type: "open"` as
-      authorable and `"closed"` as render-only, which is exactly backwards
-      (CHECKUIPARITY-FP-1). ACCEPTANCE: a closed/open selector in the hem
-      editor; the fold readout tracks it (`180 deg (open)`); an e2e case
-      authors an open hem and asserts the plate stands `2 x gauge + 1 x gauge`
-      = 6.0 mm against the type rule, not merely that it solved.
+**HEM-1D is CLOSED (2026-08-28, frontend-builder) — a Closed/Open segment now
+authors the shape (`buildHemParams` sends the user's choice, was hardcoded
+`closed`); asserted on the BUILT BODY (open hem stands 6.0 mm vs closed's
+4.2 mm), not a 2xx. Fixes the `check-ui-parity.py` false-positive direction
+CHECKUIPARITY-FP-1 (below) also names. See Done archive.**
 
 - [ ] (P2, S) **HEM-1B — repairing a hem after an unrelated edit hits a
       silent, unexplained disabled Save.** kind: defect (split from HEM-1,
@@ -1214,82 +875,17 @@ edge reclaims the band it lost. See Done archive.**
 Its own design review found four flow gaps the builder did not catch; filed
 below as REACH-2-FLOW rather than reopening PATTERN-1 itself.
 
-- [x] (P1, M) **REACH-2-FLOW CLOSED (frontend-builder, 2026-08-28) — the
-      proposal now has a channel the icon tier cannot shed, three surfaces
-      echo the subject, and backing out costs nothing.** SHIPPED: a
-      `BandStateCell` primitive (extracted from `CreateStrip`'s in-command
-      block on its second real use) renders a SCOPE cell that is not part of
-      any `ToolGroup`, so the shed pass never reaches it — measured 104px
-      painted at 1280x800 with `elementFromPoint` resolving to it, against a
-      Modify label measured at **0px wide** in the same frame;
-      `openCreatePattern`/`openCreateMirror` no longer clear
-      `selectedFeatureId` (they were the only two openers whose subject IS
-      the tree selection), which also restores the tree rail, the timeline
-      chip edge and the viewport face tint through the whole command;
-      `usePublishedScope` carries the editor's LIVE scope out to a brass
-      `Scope` stamp on the tree row and the timeline chip, so flipping to
-      `This body` unmarks; the row's context menu gained `Repeat <name>` /
-      `Mirror <name>`, offered only where `scopeFeature` says the kernel can
-      honour it. GATES: `just lint` 0, `pnpm -r typecheck`, 2234 unit tests,
-      `pattern-scope` 7/7, plus `nav-chrome`/`pattern`/`mirror`/
-      `feature-selection`/`feature-reorder` 24/24 and `full-flow`/
-      `qa-reach-batch`/`toolbar-overflow`/`panel-density`/`fb19` 47/47.
-      MUTATION EVIDENCE, one leg per sub-defect with the served bytes
-      verified by `curl` each time (a stale Vite transform makes this
-      evidence lie): removing the cell reddens P1-1 alone; unpublishing the
-      scope reddens the `data-scoped` assertions alone; restoring
-      `setSelectedFeatureId(null)` reddens P1-3 alone and leaves P1-4 green;
-      removing the menu items reddens P1-4 alone. SCREENSHOTS:
-      `docs/screenshots/reach2-flow-{proposal,scoped,after-cancel}-{before,after}.png`
-      at 1280x800. Two halves deliberately DEFERRED, not forgotten — see
-      REACH-2-FLOW-B and REACH-2-FLOW-C below. The original report follows.
-      ORIGINAL: the pattern-scope proposal PATTERN-1 shipped was reachable
-      and not yet discoverable: shed at 1280, destroyed by Cancel/Escape,
-      and naming a subject nothing in the frame echoed.
-      kind: defect (flow, not capability — `ec9c569` genuinely made
-      `params.scope` authorable; this is the "reachable but does not flow"
-      class CLAUDE.md's design mandate calls out by name). MEASURED
-      (`docs/UI-REVIEW.md` 2026-08-27 REACH-2 spot-check, real stack,
-      1280×800 and 1600×1000):
-      (a) **P1-1** at 1280×800 the Create/Modify band's MODIFY verb is in
-      the icon tier, so `verbLabel()`'s "Repeat Hole1" — the entire visible
-      payload of the proposal — is shed; only a hover tooltip survives, and
-      `aria-describedby` does NOT route it (`ToolButton.tsx:117` gates the
-      id on `isDisabled && Boolean(caption)`, same root cause A11Y-TOOLBTN-1
-      already tickets — this is its second, more severe reproduction: here
-      it hides an entire feature, not just a qualifier).
-      (b) **P1-2** the Pattern/Mirror editor names the seed (`HOLE1`) but
-      nothing echoes it — no tree-row highlight, no timeline chip, no
-      viewport highlight — on a part with two visually identical holes.
-      (c) **P1-3** pressing Cancel calls `setSelectedFeatureId(null)`
-      (`PartPage.tsx:2063`), destroying the very selection that made the
-      proposal possible; the user must repeat the whole click/Escape/press
-      sequence to try again.
-      (d) **P1-4** the advertised gesture ("select Hole1, press Pattern")
-      actually requires opening and abandoning an edit dialog nobody asked
-      for first (clicking a tree row opens its editor before Pattern can be
-      pressed), and that dialog locks the command band while open.
-      FIX: (a) give `CommandBand`/`ToolGroup` a proposal channel that
-      survives the icon tier (a scribe/subject chip, or the status rail
-      already at top-left) — fix in the primitive; separately, route
-      `aria-describedby` whenever a caption exists, not only while disabled.
-      (b) mark the scoped feature in the tree/timeline and highlight its
-      faces in the viewport with the existing selection token while a
-      command holds that scope. (c)/(d) stop clearing selection on
-      Cancel/Escape; give the tree single-click-selects / double-click-edits
-      (Fusion's model) so selecting a seed doesn't require opening and
-      dismissing its editor first.
-      ACCEPTANCE: at 1280×800 the proposed verb's subject is legible without
-      a hover (screenshot); the scoped feature is visibly marked in tree +
-      viewport while the pattern/mirror editor is open; Cancel/Escape leaves
-      the triggering selection intact; selecting a tree row for a pattern
-      seed does not open that feature's own editor first.
-      [src: docs/UI-REVIEW.md 2026-08-27 REACH-2 spot-check (frontend-qa) on
-      `ec9c569`, filed by backlog-groomer pass 14]
-      TERRITORY: `apps/web/src/routes/PartPage.tsx` (`openCreatePattern`/
-      `openCreateMirror`, tree row activation), `packages/design/src/
-      primitives/ToolButton.tsx`, `apps/web/src/components/ScopeRow.tsx`.
-      agentType: frontend-builder.
+**REACH-2-FLOW is CLOSED (2026-08-28, frontend-builder) — the pattern-scope
+proposal now has a channel the icon tier cannot shed (a `BandStateCell`
+primitive outside any `ToolGroup`, 104px painted vs 0px for the shed Modify
+label), three surfaces echo the subject (tree stamp, timeline chip, viewport
+tint via `usePublishedScope`), Cancel/Escape no longer destroys the
+triggering selection, and the row's context menu offers `Repeat`/`Mirror`
+directly so selecting a pattern seed no longer requires opening and
+dismissing its editor first. Mutation-tested per sub-defect. Two halves
+deliberately deferred, not forgotten — REACH-2-FLOW-B (viewport highlight
+should follow command scope, not just selection) and REACH-2-FLOW-C (tree
+select/edit split + band budget) below. See Done archive.**
 
 - [ ] (P2, S) **REACH-2-FLOW-B — a viewport face highlight that follows the
       COMMAND's scope, not just the tree selection.** kind: enhancement.
@@ -1811,93 +1407,31 @@ bend radius. See Done archive for evidence/gates.**
       `pipefail`), `--self-test` against a harness-produced fixture with 4
       negative controls. [src: engineering-auditor pass 5, 2026-08-14 (K7)]
 
-- [x] (P1, S) **K2 SHIPPED 2026-08-29 — route-auth posture gate landed;
-      posture was already correct, no route changed.**
-      `services/gateway/tests/test_route_auth_posture.py` (one file, three
-      services, `integration`-marked) + the shared walker in `py_kit.routes`.
-      Measured gateway **89/84/5**, documents **64/60/4**, geometry **28
-      identity-free** — matching Pass 7 M3. Floors 88/64/28 PLUS an `unwalked`
-      cross-check against each app's own OpenAPI schema; exempt lists carry a
-      reason per entry, an asserted count, and a staleness check. The walker
-      delegates to `fastapi.routing.iter_route_contexts`, NOT the hand-recursion
-      this entry originally suggested: that gets the right count with the wrong
-      paths (a nested router keeps only its own prefix) and the wrong
-      dependencies (`include_router(..., dependencies=[...])` records on the
-      inclusion, so an authenticated router reads as wide open) — both measured
-      and pinned by tests. Controls: an unauthenticated route reddens it by
-      path; the naive walk is refused at `3 < 88` after being shown to PASS the
-      posture check alone; three exempt-list controls refuse while the real list
-      is accepted. 13 tests, `just lint` exit 0, no CI wiring needed. Counts
-      print last via `pytest_unconfigure`. Detail: `docs/ROADMAP.md` "K2
-      CLOSED". [src: engineering-auditor pass 5, 2026-08-14 (K2); was J7,
-      2026-07-30; re-recommended AUDIT-ENGINEERING.md Pass 7 M3, 2026-08-21]
+**K2 is CLOSED (2026-08-29, backend-builder) — route-auth posture gate landed
+after four audit passes asking for it (J7 -> K2 -> L3 -> M3); posture was
+already correct, no route changed.** Current measurement: gateway **89/84/5**,
+documents **64/60/4**, geometry **28 identity-free**. Floors kept at 88/64/28
+DELIBERATELY (the count the gate must exceed, not a stale reading — one route
+has been added since Pass 7 M3 measured 88) plus an `unwalked` cross-check
+against each app's own OpenAPI schema. Walker uses
+`fastapi.routing.iter_route_contexts`, not hand-recursion — the latter gets
+the right count with wrong paths/dependencies on nested/include-level auth,
+a false-positive risk on a security gate documented in CLAUDE.md. 13 tests,
+controls proven (naive walk refused at `3 < 88` after passing the posture
+check alone). See Done archive / `docs/ROADMAP.md` "K2 CLOSED" for full
+detail. [src: engineering-auditor pass 5, 2026-08-14 (K2); was J7, 2026-07-30]
 
-      ORIGINAL ENTRY — BUMPED P2→P1: no route-sweep authn gate exists, and
-      this is the FOURTH consecutive engineering-audit pass recommending it
-      (J7→K2→L3→M3). The gateway's unauthenticated surface
-      is now 88 routes with nothing to catch a new one shipping without
-      `CurrentUser` (`services/gateway/tests`). Posture is STILL correct
-      (re-swept `docs/AUDIT-ENGINEERING.md` "Pass 7" M3: gateway 88/5 exempt,
-      documents 64/4 exempt, geometry 28 identity-free, all correct) but
-      remains asserted by nothing — and the auditor's own FIRST naive sweep
-      attempt this pass mis-measured it as "3 routes, nothing to check,"
-      reproducing live the exact failure the gate exists to prevent. NOTE
-      for whoever builds this: FastAPI ≥0.139 does not flatten included
-      routers into `app.routes` (`_IncludedRouter` wraps them) — recurse
-      through `_IncludedRouter.original_router.routes`. Gate must carry a
-      COUNT FLOOR (`>= 88`/`>= 64`/`>= 28` as appropriate — `all([])` over an
-      empty walk is vacuously true, this repo's recurring gate-cannot-fail
-      shape, see GATE-FLOOR above for two other live instances of it).
-      [src: engineering-auditor pass 5, 2026-08-14 (K2); was J7, 2026-07-30;
-      re-recommended AUDIT-ENGINEERING.md Pass 7 M3, 2026-08-21]
-
-- [x] (P1, S) **PBT-1 SHIPPED (2026-08-29, kernel-architect) — the sweep is
-      committed as a seeded fixed corpus, and the 7-of-155 is re-measured at
-      0 of 1327.** `services/geometry/tests/test_sketch_solver_sweep.py`,
-      2000 trials at `seed 20260822`, +10.3 s to the pytest job (0.9%).
-      Argued AGAINST `hypothesis` (MPL-2.0, so the licence guard does not
-      decide it): a CI failure must be reproducible from the commit alone
-      here, since only the orchestrator can read CI and the log tail is the
-      only channel. Shrinking is kept as an on-failure delta-debugger, not a
-      dependency. Mutation-checked against BOTH root causes: reverting
-      SETTLE-3's payload gate to driving-dimensions-only reddens two of its
-      tests with 13 violations (and the solvable count rises by exactly 13),
-      and disabling SETTLE-2's `_refinement_or` reddens the settle arm with 118
-      reversals; both restored and verified by sha256. ACCEPTANCE MET
-      DIRECTLY: under the first mutation the sweep's own property flags
-      `IMPOSSIBLE` — the `parallel`+`perpendicular` counter-example the
-      original sweep found and which survives hand-transcribed in
-      `test_sketch_residual_agreement.py` — at residual 0.7125.
-      **Three NEW findings reported rather than fixed — see the
-      three items filed below (SOLVE-CRASH-1, SOLVE-CONFLICT-MOVED-1,
-      SOLVE-OVERCONSTRAINED-AMBIGUOUS-1).**
-      ORIGINAL TICKET, for the record:
-      **the property-based sweep that found this repo's two
-      worst latent solver bugs was never committed; there is no
-      `hypothesis` dependency and the generator is gone.** kind: capability
-      (test infra). MEASURED (`docs/AUDIT-ENGINEERING.md` "Pass 9" N2): both
-      SETTLE-2 and SETTLE-3's root causes were found by a randomised sweep
-      whose own commit messages say so ("found by a randomised sweep,"
-      "400 generated sketches"), but `grep -c 'name = "hypothesis"' uv.lock`
-      is 0 and only three hand-transcribed counter-examples survive in the
-      test files — the 400-sketch generator itself is gone. Consequence:
-      the next solver change cannot be swept the same way, and the
-      alarming headline number from that sweep (7 of 155 solvable sketches
-      shipped a violated constraint despite `status=Success`) is
-      unverifiable and unmonitored — no way to show it is now 0, or to
-      notice it regress. FIX: land the generator as a seeded
-      (`seed 20260822`), fixed-trial-count test asserting zero violated
-      constraints and a floor on solvable-sketch count (so it can't
-      silently become a no-op), OR add `hypothesis` to the dev group and
-      write the sweep as a proper `@given` test. ACCEPTANCE: the committed
-      test reproduces at least one of the three hand-transcribed
-      counter-examples from `test_sketch_residual_agreement.py` when run
-      against a deliberately-reverted `settle()`.
-      [src: docs/AUDIT-ENGINEERING.md "Pass 9" N2, filed by backlog-groomer
-      pass 11]
-      TERRITORY: `services/geometry/tests/test_sketch_residual_agreement.py`,
-      `services/geometry/pyproject.toml` (dev deps) or new sweep file.
-      agentType: kernel-architect.
+**PBT-1 is CLOSED (2026-08-29, kernel-architect) — the randomised sweep that
+found SETTLE-2/3 is committed as a seeded fixed corpus** (2000 trials, `seed
+20260822`, +10.3s/0.9% of the pytest job), and its alarming 7-of-155
+violated-constraint headline is re-measured at 0-of-1328 (post SOLVE-CRASH-1).
+Argued against `hypothesis` (reproducibility from the commit alone, since
+only the orchestrator can read CI). Mutation-checked against both root
+causes it was built from. Three NEW findings reported rather than fixed —
+SOLVE-CRASH-1 (closed, above), SOLVE-CONFLICT-MOVED-1, and
+SOLVE-OVERCONSTRAINED-AMBIGUOUS-1 (both still open, below). See Done archive
+/ `docs/ROADMAP.md` "PBT-1 CLOSED" for the full argument.
+[src: docs/AUDIT-ENGINEERING.md "Pass 9" N2, filed by backlog-groomer pass 11]
 
 **SETTLE-BENCH-1 RENAMED/ELEVATED -> SETTLE-PERF-1 (P1->P0), groom pass
 12.** Uncommitted engineering-audit Pass 10 turned the "documented n^3
@@ -2029,272 +1563,59 @@ to the Ready section, top of queue.
       assert it FAILS with the `invalidate()` removed.
       [src: ultracode review, 2026-08-13]
 
-- [ ] (P2, M) **CI-4 — the e2e suite has gone systemically unstable: THREE
-      mechanisms in FOUR consecutive runs, so no commit's CI signal can be
-      trusted right now** (`apps/web`, `.github/workflows`). **Downgraded
-      P1->P2 groom pass 18: the load-bearing half of "cannot be trusted" —
-      the board being unable to READ its own CI verdict — is closed (CI-5/
-      CI-5a below); what remains is a standing umbrella for the next
-      unexplained red, not an active fire.** Filed 2026-08-11 by
-      the orchestrator. This is the umbrella over CI-3 and SPEC-3; it outranks
-      both, because the rule "every commit green on its own" is unenforceable
-      while the suite fails for a different reason every other run.
-      THE BOARD: `45c8592` FAIL, `7ffac16` PASS, `aea990a` FAIL, `688539d` PASS,
-      `c6b6c6d` FAIL. Always exactly ONE spec of 115-116, never the same one.
-      (a) `45c8592` — `interaction-depth.spec.ts:40`, colour count 316 vs > 336;
-      the ghost's raster-independent marker PASSED (see SPEC-3).
-      (b) `aea990a` — `sketch-drag-draw.spec.ts:258`, dying in `createPartViaApi`
-      with `502 upstream_unavailable / reason: ReadError`, on a commit holding
-      only a python script and `CLAUDE.md` (see CI-3).
-      (c) `c6b6c6d` — `sketch-visibility.spec.ts:164`, `countTokenPixels(page,
-      "#E9F1F8")` = ZERO against a floor of 120. Qualitatively different from a
-      thin margin: no scribe pixels at all. The `frame.pxPerMm < 40` assertion
-      immediately above it passed, so the frame WAS fitted.
-      WHY AN UMBRELLA AND NOT THREE SPEC PATCHES: three unrelated assertions
-      failing one-at-a-time across consecutive runs, including on a commit whose
-      diff cannot reach the app, is the signature of a shared substrate problem
-      — most likely resource pressure on the runner over a ~12 min shard —
-      rather than three independent spec bugs. Patching each assertion would
-      raise the pass rate while leaving the cause, which is the outcome this
-      repo's "no hand-waving" rule exists to prevent.
-      (d) `1e39c14` and `0628ceb` — `sketch-datum-flow.spec.ts:323`, FIXED
-      2026-08-16 and the FIRST instance of this umbrella to be root-caused
-      rather than hypothesised, so it is evidence for the resource-pressure
-      reading above and not merely another tally mark. The spec aimed its
-      second Shift-click at the rectangle's PRE-solve coordinates: pressing
-      `s` applies symmetric-about-X, the debounced solve translates the
-      profile -16 mm in y, and the two horizontal edges move from y = 8/24 to
-      y = +8/-8 — so y = 24 is empty steel and the pick appends nothing. It
-      had always been a race between the assertion and the solve round trip,
-      and it passed for two months only by WINNING. Measured on this branch:
-      6/6 quiet PASS, 6/6 FAIL under four CPU spinners, always at the same
-      line, always `1 ent` where `2 ents` was expected. Fix gates on the
-      ANSWER (`dro-solve` reaching `DOF 3`), not the keystroke, and re-aims
-      the clicks at the solved positions. Verified with the negative control
-      that makes the claim falsifiable: the original spec under the same load
-      failed 2/2 with exactly the CI string, the fixed spec passed 3/3.
-      NOTE this also CLEARS `1e39c14` (GEOM-3) — the two consecutive reds sat
-      either side of a kernel commit that cannot reach a viewport pick, which
-      is the shape that produced a false bisect on `pick-affordance` the same
-      morning.
-      FIRST MOVES, in order: (1) instrument rather than guess — have the shard
-      record wall-clock, RSS and CPU alongside each spec, and capture the three
-      services' logs as artifacts on failure (the gateway log would settle CI-3
-      immediately); (2) check whether failures cluster late in a shard;
-      (3) `sketch-visibility` ink = 0 must be reproduced LOCALLY at HEAD before
-      being called environmental — SEL-6 changed `pickSurface.tsx` and
-      `ModelMesh.tsx`, so a real sketch-on-face rendering regression is NOT ruled
-      out by CI alone, even though `7ffac16` and `688539d` (both carrying SEL-6)
-      ran that spec green.
-      DO NOT "fix" this by adding Playwright retries: `e2e complete` runs
-      `--fail-on-flaky` deliberately, and a retry would convert a real
-      intermittent product defect (CI-3 is one) into a green board.
-      PLATFORM SLICE SHIPPED 2026-08-11 (this commit) — move (1) and (2) are
-      done and the no-retry posture is now enforced by the workflow: service
-      logs survive the run (`E2E_LOG_DIR`, uploaded `if: always()`, tailed into
-      the job log on a red — the trap used to delete them before upload), a 2 s
-      resource sampler runs on green and red alike, `e2e-shard-audit.py
-      --timeline` prints where in the shard each test ran, and the verdict step
-      greps for retries. STILL OPEN: CI-3's gateway fix.
-      Re-derive shard ordinals per-SHA; the suite is 467 tests today.
-      FRONTEND SLICE SHIPPED 2026-08-11 (this commit) — F1/F2 landed and move
-      (3) is DONE: `waitForFrames` counted browser animation frames against a
-      silent 2 s valve while the viewport is `frameloop="demand"` (an idle page
-      ticks 92 frames in 1.5 s with ZERO renders), so it now waits on a real
-      r3f render counter and THROWS with the count achieved; every non-passing
-      test attaches the viewport readback + substrate. And ink = 0 REPRODUCES
-      locally at HEAD (5 of 10 runs) with the ink plainly on screen at 0.74
-      coverage — an anti-aliasing phase lottery in the census, not a rendering
-      regression, and not the runner. See SPEC-4.
-      **SUBSTRATE PASS 2026-08-15 (`8d5be24`) — one of the suite's two named
-      failures root-caused and fixed, the other filed honestly unreproduced.**
-      `cameraPose: no camera captured` (`sketch-orbit.spec.ts`) was the probe
-      reading the camera before the demand-mode scene had rendered even once;
-      it now polls rAF-paced with a bounded deadline and names which of three
-      causes it's in on timeout. Ablation: 2/4 pass under 6 CPU hogs before,
-      6/6 after. The `sketch-on-face` screenshot-variant failure could NOT be
-      reproduced in ~35 starved local runs across six load-generation methods;
-      three candidate shared mechanisms with the camera-probe fix were each
-      ruled out by instrumentation (not argument), so it stays filed rather
-      than force-unified. Separately, `pick-affordance.spec.ts`'s hole-scan
-      read a React-state attribute with zero settle after `page.mouse.move`
-      and produced a false accusation of DIM-1 (`a810524`) before being
-      root-caused and fixed (`c7d3f2a`, SPEC-5) — see the note on
-      `measureReach`'s sibling exposure, filed separately below. NOT the same
-      ticket as QAH-1 (`qa-harness.spec.ts`, "renders while orbiting") —
-      different assertion, different mechanism, and QAH-1 was already CLOSED
-      before this substrate pass (`c3019b6`, an ancestor of `a658db4` outside
-      the window this pass first searched — see Done archive).
-      [src: orchestrator CI root-cause, 2026-08-11; substrate pass 2026-08-15]
-      **NEW EVIDENCE, groom pass 17 (2026-08-28): e2e RED on shard 3/4 for
-      THREE consecutive pushes** — `22ec441`, `1661a5b`, `69b3ef7` — while
-      `ci` stayed green on all three. Cause not yet diagnosed at groom time.
-      **RESOLVED, groom pass 18 (2026-08-28) — FOUR separately-diagnosed,
-      separately-fixed causes, not one shared substrate defect.** (1) The
-      verdict itself was unreadable from the job log — CI-5 (`2874f0a`),
-      closed below. (2) The verdict then miscounted a `test.fail()` case and
-      reported a green shard red — CI-5a (`ecc1fb7`), closed below. (3)
-      Shard 3/4's `qa-sel6-verify` red was a stale occlusion threshold
-      calibrated under the perspective front view ORTHO-1 replaced, not an
-      app defect — QA-SEL6-ORTHO-1 (`153681b`), 0 of 841 in-wall answers
-      name the body behind (mutation: 173 of 838). (4) Shard 4/4's hem spec
-      was TYPING the exact defect HEM-1 fixed (`0c24947`) — it asserted only
-      `Solved`/`faces > 6`, both true of a hem with three gauges of air in
-      it; the repair now asserts the numbers a user actually reads (hemmed
-      height, bend-table radius, allowance). **CI-4(e) is therefore CLOSED,
-      folded into CI-5 — do not dispatch it separately.** What remains OPEN
-      under this umbrella is the ORIGINAL question the ticket was filed to
-      answer — whether the e2e suite is *systemically* unstable under
-      runner load — which none of these four answers; they were four
-      specific, separately-caused failures, not a diagnosis of the
-      substrate. Keep this ticket open as a standing umbrella for the next
-      unexplained red (hence the P1->P2 downgrade above, not a closure).
-      **THE ORIGINAL QUESTION IS NOW ANSWERED (qa-tester, 2026-08-29, eleven
-      full-shard runs + 17 targeted; full numbers in `docs/QA-REVIEW.md`).
-      NO: the suite is not systemically unstable. YES: shard 3/4 is
-      structurally overloaded, measurably and unfixably by sharding.**
-      Per-shard wall on one box, serial, same stack, all green: 985 s / 986 s
-      / **1556-1567 s** / 1052 s — shard 3/4 is 1.58x the median and 36 %
-      over a balanced quarter, because Playwright cuts whole files in
-      FILESYSTEM order on equal TEST COUNT while cost per test varies 20x,
-      and the suite's heaviest specs share prefixes (`pick-*`, `qa-*`) so
-      they are alphabetically ADJACENT. That shard holds 100 % of the
-      suite's settled-stamp probes and 88 % of its pixel censuses in the
-      FEWEST files (25 vs 45/37/38), and 22 raised `test.setTimeout`s
-      against 4/5/2. Simulated against measured per-file durations, raising
-      the matrix does NOT fix it: N=6 leaves a 19.1 min critical path
-      against a 12.7 ideal, worse in RATIO than today, because the heavy
-      block just moves. The real exposure is the 40-minute STEP cap — a
-      runner 1.5x slower than this box puts shard 3/4 at ~39 min while its
-      siblings sit at ~25. Six unmodified shard-3/4 runs produced THREE
-      distinct failures, never the same one twice (2 quiet-run failures, 1
-      loaded), i.e. the recorded contention-flake tell; two are now
-      root-caused and fixed with controls (see the QA-REVIEW entry), the
-      third is QA-CI4-MATE-1. Notably the perf assertion everyone suspected
-      — `pick-mark-seat`'s `ORBIT_COST_CEILING` — is the most robust thing
-      on the shard: 11 A/B pairs read 1.15-1.22 against a 2.00 ceiling while
-      the absolute cost moved 66 %. What failed in that test was a 30 s
-      wall-clock wait sitting at 1.4x its worst QUIET observation.
-      REMAINING under this umbrella: whether to rebalance shard 3/4 at all
-      (a wall-clock/feedback-latency decision, not a correctness one) and
-      QA-CI4-HEADROOM-1, which names the next red before it happens —
-      **now CLOSED (2026-08-29): both tests it named were already failing in
-      isolation, and are fixed by cutting work first and raising ceilings
-      second.** REMAINING under this umbrella is therefore only whether to
-      rebalance shard 3/4 at all, plus QA-CI4-MATE-1.
-      **The rebalance question is now ANSWERED and DONE — CI-BAL below
-      (2026-08-29): the split is duration-aware, critical path 24.2 -> 18.4 min,
-      1.32x -> 1.00x of ideal, measured on a full green four-shard run, N stays
-      4. REMAINING under this umbrella is QA-CI4-MATE-1 alone.**
+- [ ] (P3, S) **CI-4 — standing umbrella for e2e-suite instability under
+      runner load. ORIGINAL QUESTION ANSWERED 2026-08-29 (qa-tester, eleven
+      full-shard + 17 targeted runs): NO, the suite is not systemically
+      unstable — shard 3/4 was structurally overloaded (Playwright cuts
+      whole files in filesystem order on equal test COUNT, and the
+      heaviest specs share alphabetically-adjacent prefixes), measured at
+      1.58x the median wall.** Downgraded P2->P3 this pass: every diagnosed
+      cause is now closed (CI-5, CI-5a, QA-SEL6-ORTHO-1, the shard-4/4 hem
+      spec, QA-CI4-HEADROOM-1) and the imbalance itself is fixed (CI-BAL,
+      below, duration-aware sharding, verified on the real CI runner at
+      1.16x spread). **REMAINING under this umbrella: QA-CI4-MATE-1 alone**
+      (a mate-axis reachability scan measured zero addressable pixels once
+      under CPU load, in 1 of 6 runs — filed as its own ticket, unreproduced
+      hypothesis, do not "fix" by re-running until green). Kept open as a
+      standing umbrella for the next unexplained shard-3/4 red, not as an
+      active fire. Full incident history (the original three-mechanism
+      diagnosis, the substrate pass, the four separately-fixed causes): see
+      `docs/ROADMAP.md`'s CI-4 sections and Done archive.
+      [src: orchestrator CI root-cause, 2026-08-11; qa-tester CI-4 pass,
+      2026-08-29]
 
-- [x] (P2, M) **CI-BAL CLOSED — the e2e shard split is duration-aware, and the
-      two cheaper fixes were ruled out by measurement rather than by taste**
-      (`scripts/e2e-shard-plan.py` NEW, `scripts/e2e-durations.json` NEW,
-      `scripts/e2e.sh`, `.github/workflows/e2e.yml`, `justfile`). CI now passes
-      `--balanced-shard=i/N`, packed longest-processing-time by measured
-      duration over the set `playwright test --list` returns. Critical path
-      **24.2 -> 18.4 min, 1.32x -> 1.00x of ideal**, which turns the live risk
-      (the 40-minute STEP cap) from 1.5x runner-speed headroom into 2.1x.
-      **VALIDATED BY A REAL RUN, not simulated: four balanced shards on this box
-      measured 1132 / 1085 / 1138 / 1116 s, all green, 686/686 expected, 0
-      unexpected, 0 flaky** — a 1.05x spread against the count-based cut's
-      1.58x, and within 0.3 % of the committed manifest's 19.0 min prediction.
-      The before/after comes from THAT SAME RUN (per-file durations are a
-      property of the file, so one measurement can be summed under both
-      partitions: count-based 965/958/**1452**/1028 s vs duration-aware
-      1102/1101/1101/1100 s), because absolute walls move ~30 % with contention
-      and a cross-day comparison would be confounded by it.
-      **Splitting the two 5-minute spec files buys ZERO** — a simulator
-      reproducing Playwright's count-based cut, validated against CI-4's real
-      4-way membership (145/145 files; walls 978/980/1549/1046 s to the second),
-      returns a byte-identical partition whether the top 2, 4 or 8 files are
-      halved, because a split file keeps its prefix and its halves stay
-      alphabetically adjacent. **More workers / `fullyParallel` ruled out** on
-      CI-4's own load data: 2 spinners took shard 3/4 from 1556-1567 s to
-      2003/2039 s and reddened 2 of 2 loaded runs vs 1 of 4 quiet, and these
-      specs assert on canvas pixels and settle stamps against ONE shared backend
-      stack on a 4-vCPU runner. **N stays 4 for the ordinary latency/cost trade,
-      not because imbalance defeats it** — with the cut fixed, every N from 2 to
-      10 simulates at 1.00x ideal, so shards now buy exactly proportional
-      latency at ~4 runner-minutes each; raise N when T/N approaches the cap.
-      GATE-1 IS THE LOAD-BEARING PROPERTY and it is proven, not intended: the
-      planner iterates the DISCOVERED set and looks the manifest up per file, so
-      an unmeasured file is still assigned and is weighted as the HEAVIEST in
-      the suite — staleness costs balance, never coverage. Live proof: a
-      throwaway spec in no manifest was discovered, packed into shard 2/4,
-      reported as unmeasured, EXECUTED through the real `e2e.sh
-      --balanced-shard=2/4`, and selected by exactly one shard (1/0/0/0). Also
-      asserted: a non-partition is refused in BOTH directions (a file in no bin,
-      a file in two); a broken `--list` refuses rather than planning over a
-      truncated suite; a bad shard spec aborts `e2e.sh` (exit 2) with no
-      fall-back to `--shard`, because a silent downgrade would restore the
-      imbalance while every log still said "balanced". `--self-test` (24 checks)
-      is in `just lint` and the reconcile job. The `e2e complete` coverage audit
-      is unchanged and is now an independent cross-check on OUR partition — and
-      it was exercised on the real reports BOTH ways: 686 discovered / 686 run
-      exactly once -> exit 0, and with shard 3's report swapped for a green
-      EMPTY one -> exit 1, `172 discovered test(s) were run by NO shard`.
-      `--forbid-only` re-measured because its input changed: a planted
-      `test.only` reds only the shard owning that file (exit 1 on 2/4, 0 on the
-      rest), so nothing escapes and the red names the offender's shard. ONE
-      FOOTGUN FOUND IN THE TOOL AND CLOSED: `--drift` over a SINGLE shard's
-      report called 120 of 145 manifest entries "no longer exist" and printed
-      the refresh command below it — advice that deletes 120 measurements,
-      repacks those files at the pessimistic weight and undoes the balance
-      without failing any gate. Partial refreshes now refuse
-      (`--allow-shrink` overrides) and the advice is withdrawn when the report
-      set is partial.
-      [src: platform-builder, 2026-08-29; measurement in docs/QA-REVIEW.md CI-4]
+**CI-BAL is CLOSED (2026-08-29, platform-builder) — the e2e shard split is
+duration-aware (`scripts/e2e-shard-plan.py`, `scripts/e2e-durations.json`,
+longest-processing-time packing over measured per-file duration), and the
+two cheaper alternatives (splitting the heavy spec files; more workers /
+`fullyParallel`) were ruled out by measurement, not taste.**
+**VERIFIED ON THE REAL CI RUNNER, groom pass 19 (corrects the local-box
+figure this ticket originally shipped with): per-shard walls 1425/1337/1550/
+1360s, a 1.16x spread (down from 1.58x), 25.8 min critical path, step-cap
+headroom 1.55x (not the 2.1x first computed from a local-box run — the
+duration manifest was measured on this container and CI's relative per-file
+costs differ). Follow-up: SHARD-MANIFEST-CI-1 (P3, below) — seed the
+manifest from CI's own reports.** Local-box validation (kept for the
+GATE-1 coverage proof, which does not depend on absolute timings): a real
+four-shard run measured 1132/1085/1138/1116s, 686/686 expected, 0 flaky, a
+1.05x spread; GATE-1 (an unmeasured file is still assigned, weighted
+heaviest) proven live with a throwaway spec; `--drift`'s destructive-advice
+footgun on a partial report set found and closed (`--allow-shrink`).
+[src: platform-builder, 2026-08-29; measurement in docs/QA-REVIEW.md CI-4]
 
-- [x] (P1, S) **CI-5 CLOSED — a red e2e shard's failure list was unreachable
-      from the orchestrator's only channel** (`scripts/e2e.sh`,
-      `scripts/e2e-verdict.py`, `.github/workflows/e2e.yml`). Measured
-      2026-08-28 on run 33139349952 (`69b3ef7`, shard 3/4): `get_job_logs`
-      returns a TAIL, artifact download is policy-denied from this container
-      (`CONNECT tunnel failed, 403`), and tails of 60/190/255 lines ALL failed
-      to reach the failure list — ~300 lines of service-log dump plus
-      upload-artifact chatter sat after it. The shard was re-run locally
-      instead: ~20 min for information CI had already computed. FIX: the last
-      thing every run prints is a compact verdict (`N failed, M passed, K
-      skipped of T` + one `<spec>:<line> › <title>` line per failure, capped at
-      25), re-printed by a final `if: always()` workflow step so the uploads
-      cannot bury it. THE GUARD is the point: a non-zero status with an empty
-      failure list is `::error::` + exit 3, never silence, and the report's own
-      `stats` block cross-checks the suite walk so one derivation cannot
-      quietly agree with itself. Second source when the JSON report is
-      absent/malformed: the tee'd list-reporter output. Service logs stay
-      inline (artifacts are unreadable here) but drop routine 2xx/3xx access
-      lines, counted not hidden: 180 lines -> ~24. `--self-test` (23 checks, in
-      `just lint` and the reconcile job) proves the guard fires, with an input
-      mutation as the negative control.
-      [src: orchestrator, 2026-08-28]
+**CI-5 is CLOSED (`2874f0a`, 2026-08-28, orchestrator) — a red e2e shard's
+failure list was unreachable from the orchestrator's only channel (job-log
+tails of 60/190/255 lines all failed to reach it past service-log/upload
+chatter). Every run now ends with a compact verdict block naming each
+failure, guarded against silence (`::error::` + exit 3) and cross-checked
+against the report's own stats. See Done archive.**
 
-- [x] (P1, XS) **CI-5a CLOSED — the verdict counted a `test.fail()` case that
-      failed AS DECLARED as a failure, and its own cross-check is what caught
-      it** (`scripts/e2e-verdict.py`). First live run (33142734288, shard 3/4):
-      "2 failed" where Playwright said 1, naming `qa-reach-batch.spec.ts:1443`
-      — a `test.fail()`-annotated case documenting the QA-R3 touch gap, i.e. a
-      test that is SUPPOSED to fail. CAUSE, measured against a real 1.56
-      report, not assumed: the walk classified from `tests[].results[].status`
-      (`failed` — the attempt really did fail) instead of `tests[].status`,
-      which is Playwright's already-reconciled verdict and reads `expected`
-      for a declared-fail. Now classified from `tests[].status`, with
-      `expectedStatus == "failed"` distinguishing the annotated cases;
-      `results[]` survives only as a fallback for a report carrying no status
-      at all. The INVERSION is handled too and named differently: a
-      `test.fail()` case that PASSES is a real failure (`unexpected`) reported
-      as `XPASS … [annotation NO LONGER HOLDS]`, so nobody hunts for a broken
-      assertion inside a passing test. Declared-fails are counted separately
-      (`(1 declared-fail)`) and listed as `xfail` in `notes`, never in
-      `findings` — so they can never satisfy the empty-summary guard. The
-      cross-check maps walked `passed + xfail` onto `stats.expected` and still
-      refuses on ANY disagreement in either direction; it was not widened to
-      make this instance quiet. Self-test 23 -> 37 checks, its fixtures now
-      VERBATIM from a real report (the old ones carried no `expectedStatus`,
-      so they could not have failed for this reason) plus a reconstruction of
-      the live shard and a negative control that reproduces the shipped
-      predicate and demands the wrong answer.
-      [src: orchestrator CI read, 2026-08-28]
+**CI-5a is CLOSED (`ecc1fb7`, 2026-08-28, orchestrator) — the verdict block
+was miscounting a declared `test.fail()` case as a real failure (classified
+from `results[].status` instead of Playwright's reconciled `tests[].status`);
+its own cross-check is what caught it. The inversion (a declared-fail that
+PASSES) is now named too, as `XPASS … [annotation NO LONGER HOLDS]`. See Done
+archive.**
 
 - [x] (P2, XS) **CI-2 — `deploy-path` never got the per-SHA concurrency fix, so
       it is still evicting runs** (`.github/workflows`). Filed 2026-08-08 by the
@@ -3182,6 +2503,30 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Later (P3)
 
+- [ ] (P3, S) **SHARD-MANIFEST-CI-1 — the e2e duration manifest
+      (`scripts/e2e-durations.json`) was measured on this local container,
+      and CI's relative per-file costs differ enough to move the answer.**
+      kind: capability (process/tooling accuracy). Found by the orchestrator,
+      groom pass 19, while verifying CI-BAL's headroom claim on a real CI
+      run: the local-box manifest predicted a 1.05x shard spread and 2.1x
+      step-cap headroom; the real GitHub Actions runner measured a 1.16x
+      spread and 1.55x headroom — still a large improvement over the
+      count-based cut's 1.58x, but a materially different number from what
+      was shipped, because per-file cost RATIOS (not just absolute walls)
+      shift between this container and the runner. FIX: seed
+      `e2e-durations.json` from CI's own uploaded JSON reports (the
+      `e2e-shard-plan.py --emit-durations` path already exists locally;
+      extend it, or a new workflow step, to consume `playwright-report`
+      artifacts from a recent green `e2e` run instead of a local
+      `--self-test`/local measurement). ACCEPTANCE: the manifest's
+      provenance note states which run it was derived from; a re-measurement
+      on CI shows the shard spread converging closer to 1.00x than the
+      current 1.16x, or the ticket records why it does not.
+      [src: orchestrator CI-runner verification, filed by backlog-groomer
+      pass 19]
+      TERRITORY: `scripts/e2e-shard-plan.py`, `scripts/e2e-durations.json`,
+      `.github/workflows/e2e.yml`. agentType: platform-builder.
+
 - [ ] (P3, S) **QA-CI4-LINES-1 — a shard verdict's `file:line` is not a
       stable identifier: 45 of 169 specs report a different line between
       runs of byte-identical source.** kind: defect (tooling). Measured by
@@ -3942,6 +3287,55 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
       Pass 7 M6(a); docs/RETRO.md §1.1]
 
 ## Done — archive
+
+### Groom pass 19 closures (2026-08-29, backlog-groomer — CI-4's original question answered, K2 + PBT-1 land)
+
+All verified against `git show`/source, not assumed from commit subjects.
+Full evidence for each stays inline above (these entries were CLOSED by
+their builders in the same commit that shipped them; this section is the
+collapse-into-Done-archive step, not a re-derivation).
+
+- **K2** (backend-builder) — route-auth posture gate: gateway 89/84/5,
+  documents 64/60/4, geometry 28 identity-free; posture already correct, no
+  route changed; four audit passes asked for this (J7→K2→L3→M3).
+- **PBT-1** (kernel-architect) — sketch-solver sweep committed as a seeded
+  2000-trial corpus; 7-of-155 violated-constraint headline re-measured at
+  0-of-1328. Found three new contract defects: SOLVE-CRASH-1 (fixed, below),
+  SOLVE-CONFLICT-MOVED-1 and SOLVE-OVERCONSTRAINED-AMBIGUOUS-1 (still open).
+- **SOLVE-CRASH-1** (kernel-architect, arbitrated P2→P1) — an untyped 500 on
+  a solve driving a circle's radius through zero was two defects: 3 real
+  negative-radius solves (a planegcs branch convention) now solve normally;
+  9 genuinely-annihilated circles now return `sketch_conflicting` via the
+  existing payload gate. Census: raised 12→0, solvable 1327→1328,
+  conflicting 276→287.
+- **CI-4's original question** (qa-tester, eleven full-shard + 17 targeted
+  runs) — the e2e suite is NOT systemically unstable; shard 3/4 was
+  structurally overloaded by Playwright's filesystem-order file cut on
+  equal test count. Two of three shard-3/4 reds root-caused and fixed with
+  controls; QA-CI4-MATE-1 (unreproduced hypothesis) is the sole remainder.
+- **CI-BAL** (platform-builder) — duration-aware shard split; real-CI-runner
+  spread 1.16x (was 1.58x), 1.55x step-cap headroom (corrected from a
+  2.1x figure first computed on the local box — see SHARD-MANIFEST-CI-1).
+- **QA-CI4-HEADROOM-1** (qa-tester) — two shard-3/4 tests already failing
+  under load; fixed by cutting redundant work first (a re-parked pointer
+  costing 47% of one test's wall) and raising ceilings second, from a
+  measured distribution, not a guess.
+- **CI-5** (`2874f0a`) / **CI-5a** (`ecc1fb7`) (orchestrator) — a red
+  shard's failure list is now printed in a guarded verdict block immune to
+  log-tail truncation, and the verdict correctly distinguishes a declared
+  `test.fail()` from a real failure.
+- **PGTEST-GATE** (`ef5d1c5`, platform-builder) — a missing PostgreSQL now
+  fails loudly (exit 0→1) instead of silently skipping 37% of the documents
+  suite; Pass-8's self-correction to Pass-7 M4 confirmed from source.
+- **MEASURE-PROXY-1, PICKMARK-OCCLUDE-1, EXPORT-3, REACH-2-IMPORT-1,
+  REACH-3-FLOW, REACH-2-FLOW, A11Y-TOOLBTN-1, HEM-1C, HEM-1D** — all
+  frontend-builder, 2026-08-28, carried over from pass 18's batch and
+  collapsed into this archive this pass; full evidence in the pointer
+  entries left in place above (Ready/Next).
+
+**Filed this pass:** ARC-DEGENERATE-1 (P2 — a degenerate arc the solver
+refuses on input still ships on output), SHARD-MANIFEST-CI-1 (P3 — seed the
+duration manifest from CI's own reports).
 
 ### SEL-8 CLOSED — the hover was firing all along and drawing nothing (2026-08-28, frontend-builder)
 
@@ -5138,26 +4532,13 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
-- 2026-08-29 — **PBT-1 shipped (kernel-architect):** the SETTLE-2/3 sweep is
-  committed as a seeded 2000-trial corpus; the 7-of-155 violated-constraint
-  rate re-measures at **0 of 1327** (+10.3 s to pytest). Filed SOLVE-CRASH-1,
-  SOLVE-CONFLICT-MOVED-1, SOLVE-OVERCONSTRAINED-AMBIGUOUS-1 from its findings.
-- 2026-08-17..28 — Groom passes 7-17, hover-a-face-to-sketch ship: file-page/
-  export tickets, SOLVE-1/PICK-2 cluster, SETTLE-PERF-1 883x speedup,
-  NAME-2/edge durability, ORTHO-1/MATE-1/frontend-reachability complete,
-  HEM-1 elevated P0. Full detail: `docs/CHANGELOG.md`.
-- 2026-08-28 — **REACH-3-FLOW shipped (frontend-builder):** Sheet 1 is born
-  from the orientation proposal (A4 portrait 1:2, was landscape 1:5); the
-  flip's dead end was the PROMISE. Filed SHEET-RESCALE-1.
-- 2026-08-28 — **Groom pass 18 (backlog-groomer):** CI-4 downgraded P1->P2
-  (four separately-diagnosed causes closed: CI-5/CI-5a/QA-SEL6-ORTHO-1/hem-
-  spec, systemic-instability question stays open); PGTEST-GATE's pass-8
-  self-correction confirmed and closed; ticked EXPORT-3, HOVER-TO-SKETCH,
-  PANEL-DENSITY-1, PGTEST-GATE. Filed STAGE-DOC-HUNKS-HEADING-1 (P2),
-  INVARIANTS-PROJECTION-1 (P3), PGTEST-GATE-VACUOUS-NONGOAL (P3). Marked
-  HEM-1C in-flight; collapsed a duplicated SEL-6 paragraph pair in
-  `docs/ROADMAP.md`.
-- 2026-08-28 — **HEM-1C + HEM-1D shipped (frontend-builder):** the hem card
-  derives its radius guidance from the hem rule instead of a drifted copy that
-  suggested the refused value, adds a live air-gap readout, and offers the
-  Closed/Open segment that makes the `open` hem authorable (6.0 mm measured).
+- 2026-08-29 — **Groom pass 19 (backlog-groomer):** CI-4's original question
+  ANSWERED (not systemically unstable); K2, PBT-1, SOLVE-CRASH-1, CI-BAL all
+  shipped and ticked. Corrected CI-BAL's headroom claim (2.1x local-box ->
+  1.55x real-CI-runner) in ROADMAP + BACKLOG; filed ARC-DEGENERATE-1 (P2),
+  SHARD-MANIFEST-CI-1 (P3); collapsed ~13 closed items out of Ready/Next into
+  the Done archive. Full detail: `docs/CHANGELOG.md`.
+- 2026-08-17..29 — Groom passes 7-18, full reachability programme +
+  CI hardening: file-page/export tickets, SOLVE-1/PICK-2 cluster,
+  SETTLE-PERF-1 883x speedup, ORTHO-1/MATE-1 complete, HEM-1 (P0),
+  REACH-2/3-FLOW, PGTEST-GATE, CI-5/CI-5a. Full detail: `docs/CHANGELOG.md`.
