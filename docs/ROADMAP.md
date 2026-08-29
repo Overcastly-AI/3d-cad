@@ -83,6 +83,33 @@ go red, while the "explicit SOLID is not overridden" case correctly stays
 green — it guards the override, not the feature.
 Frames: `docs/screenshots/ghost1-sketch-open-before.png` /
 `ghost1-sketch-open-after.png`, matched so only the ghost differs.
+**GHOST-1 EVIDENCE PASS (frontend-builder, 2026-08-29, follow-up) — the first
+pair was correct and did not COMMUNICATE, so it has a companion that does, and
+the companion is a real test rather than a photo shoot.** A 20 mm cube seen
+head-on occupies ~8 % of the frame and its only occluder is the sketch's own
+body, which is the least interesting configuration and cannot tell "ghost the
+host" from "ghost everything" — precisely the decision `bodyView` documents. The
+new case (`a NEIGHBOUR body ghosts too`) seeds a two-body part where the HOST is
+extruded `direction: "reverse"`, so it sits behind the sheet and occludes
+nothing, while a separate `merge: false` bar stands in front across the right of
+the profile. A build that ghosted only the sketch's own body would leave that
+frame as broken as the bug report and still pass both original cases; it
+asserts all 12 faces ghost and both rows read GHOST. Three measurements were
+needed to make the frame legible, each one a wrong guess corrected: (a) the
+sketcher parks the camera square-on, where two boxes and a rectangle are
+overlapping quads, so the case ORBITS (VP-1's middle-drag) — **and dragging into
+the live park-ease loses the orbit entirely**, settling 0.02 deg from straight
+down, which reads exactly like an unbound button; the fix is to wait for camera
+rest BEFORE the gesture. (b) `sketch-orbit`'s documented (150, -110) drag turns
+72 deg, which is nearly edge-on and unreadable — (62, -46) gives 31.56 deg. (c)
+`waitForCameraRest`'s default 0.05 deg is unreachable: the coast decays per
+RENDERED frame, so it timed out at 15 s still moving; 0.3 deg settles. The
+settled direction is then reproducible to 1e-12 across runs and is PINNED in the
+spec (2 deg tolerance), because the pair is captured in two separate runs — the
+"before" needs the auto-ghost mutated out — and is only honest if both land on
+the same camera. Frames: `ghost1-neighbour-before.png` / `-after.png`; in the
+before the bar swallows the profile's right edge, its `46` dimension and the
+grid, and in the after all three read straight through it.
 **Filed while measuring, NOT fixed here: exiting a sketch leaves the camera
 parked in the sketch's TOP view rather than restoring the view you came
 from.** Pre-existing, unrelated to this ticket, and the reason the census

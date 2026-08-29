@@ -1182,6 +1182,23 @@ bend radius. See Done archive for evidence/gates.**
       (`bodyView` ignores `sketchOpen`, Vite restarted + served bytes checked)
       reddens the new e2e case and 2 unit cases. Frames:
       `docs/screenshots/ghost1-sketch-open-{before,after}.png`.
+      EVIDENCE PASS (same day, follow-up): the cube pair was correct and did
+      not COMMUNICATE — head-on, ~8% of frame, and the only occluder is the
+      sketch's own body, so it cannot tell "ghost the host" from "ghost
+      everything". Added `a NEIGHBOUR body ghosts too`: a two-body part whose
+      HOST is extruded `direction: "reverse"` (behind the sheet, occludes
+      nothing) with a `merge: false` bar standing in front of the profile —
+      the configuration the scope decision was made for, and one a
+      host-only build would fail. It orbits off the sketch normal for depth,
+      and three things had to be measured: dragging into the park-ease loses
+      the orbit (settles 0.02 deg from straight down, reads as an unbound
+      button — wait for camera rest first); the documented (150,-110) drag
+      turns 72 deg and is unreadable, (62,-46) gives 31.56 deg; and
+      `waitForCameraRest`'s 0.05 deg default is unreachable against a coast
+      that decays per rendered frame (0.3 deg settles). The settled pose is
+      reproducible to 1e-12 and is PINNED in the spec, because the pair is
+      shot in two runs and is only honest on one camera. Frames:
+      `docs/screenshots/ghost1-neighbour-{before,after}.png`.
       FOLLOW-UP FILED, not fixed here: exiting a sketch leaves the camera
       parked in the sketch's TOP view instead of restoring the previous view
       (pre-existing, unrelated, found while measuring) — see CAMRESTORE-1.
@@ -4825,6 +4842,10 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-08-29 — **GHOST-1 evidence pass (frontend-builder):** added the
+  multi-body case the scope decision was made for (a NEIGHBOUR occludes the
+  sketch, not the host) with a pinned orbited camera; founder frames
+  `ghost1-neighbour-{before,after}.png`. No product code changed.
 - 2026-08-29 — **GHOST-1 closed (frontend-builder):** a body auto-ghosts while
   a sketch is open, as a DERIVED default — a stop the modeler set is never
   overridden on entry nor silently restored on exit. Filed CAMRESTORE-1 (P2).

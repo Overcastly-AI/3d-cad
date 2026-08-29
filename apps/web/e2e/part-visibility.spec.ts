@@ -1,6 +1,11 @@
 import { expect, test, type Page } from "./fixtures";
 
-import { seedCube } from "./partSeed";
+import {
+  angleBetween,
+  installSceneProbe,
+  waitForCameraRest,
+} from "./invariants";
+import { createFeature, rectangleSketch, seedCube } from "./partSeed";
 import {
   clickForReal,
   createPartViaApi,
@@ -188,6 +193,28 @@ async function scribeInkPixels(page: Page): Promise<number> {
 async function settled<T>(page: Page, probe: () => Promise<T>): Promise<T> {
   await waitForFrames(page);
   return probe();
+}
+
+/**
+ * The settled view direction after the neighbour case's one orbit, measured on
+ * this build. Pinned so a drifting camera fails the test rather than quietly
+ * producing a before/after pair shot from two different viewpoints.
+ */
+const ORBITED_VIEW_DIR: [number, number, number] = [0.4093, -0.8521, -0.3262];
+
+/** Press, travel in steps, release — the gesture a hand actually makes. */
+async function drag(
+  page: Page,
+  button: "left" | "middle" | "right",
+  from: { x: number; y: number },
+  dx: number,
+  dy: number,
+): Promise<void> {
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down({ button });
+  await page.mouse.move(from.x + dx / 2, from.y + dy / 2, { steps: 6 });
+  await page.mouse.move(from.x + dx, from.y + dy, { steps: 6 });
+  await page.mouse.up({ button });
 }
 
 /** Seed a 20 mm cube part, open it and wait for the solid to render. */
@@ -467,6 +494,188 @@ test.describe("UI-W2 part half — the browser controls what is drawn", () => {
     });
     await expect(viewport).toHaveAttribute("data-ghost-faces", "6");
     await expect(bodyRow).toHaveAttribute("data-visibility", "ghost");
+  });
+
+  /**
+   * GHOST-1, the case the DECISION was actually made for: a NEIGHBOUR body is
+   * what stands between the eye and the sketch.
+   *
+   * The two cases above use a single cube, where the only solid in the way is
+   * the sketch's own. That is the least interesting configuration, and it
+   * cannot distinguish "ghost the host" from "ghost everything" — which is the
+   * choice `bodyView` documents. Here the host body is extruded the OTHER way
+   * (`direction: "reverse"`), so it sits BEHIND the sketch plane and occludes
+   * nothing, while a second, separate body (`merge: false`) stands in front of
+   * it across the right of the profile. A build that ghosted only the sketch's
+   * own body would leave this frame exactly as broken as the bug report, and
+   * would still pass both cases above.
+   *
+   * It is also the founder frame: the profile's horizontal edges run under the
+   * neighbour, so BEFORE they stop dead at it and AFTER they carry straight
+   * through — a difference that needs no caption.
+   */
+  test("a NEIGHBOUR body ghosts too, not just the sketch's own", async ({
+    page,
+  }) => {
+    const { token } = await seedSession(page);
+    const part = await createPartViaApi(page, token, "Bracket");
+    // Host: a 70 x 46 profile on XY, extruded DOWNWARD so that from the
+    // sketch's own side of the sheet it covers nothing.
+    //
+    // Both numbers are sized to the sketch camera rather than chosen for
+    // realism, and both were measured. CENTRED on the origin: the camera parks
+    // there, so a profile anchored at the origin sits entirely in one quadrant
+    // and runs off the frame (the first capture did). 70 mm rather than the
+    // 170 mm first tried: the sheet's 1 mm grid moires badly once ~170 cells
+    // span the frame, and the plate overflowed it — 70 keeps the grid legible
+    // while still filling far more of the frame than the 20 mm cube above.
+    const sketch = await createFeature(page, token, part.id, {
+      name: "Sketch1",
+      feature: {
+        type: "sketch",
+        version: 1,
+        params: rectangleSketch(-35, -23, 70, 46),
+      },
+      expected_tree_version: 0,
+    });
+    const host = await createFeature(page, token, part.id, {
+      name: "Extrude1",
+      feature: {
+        type: "extrude",
+        version: 1,
+        params: {
+          profile: { kind: "feature", feature_id: sketch.feature.id },
+          distance_mm: 8,
+          operation: "add",
+          direction: "reverse",
+        },
+      },
+      expected_tree_version: sketch.tree_version,
+    });
+    // Neighbour: a bar across the right of the profile, standing UP off the
+    // sheet and overhanging it in y, so it crosses both horizontal edges — the
+    // continuity of those edges through it is what the founder pair shows.
+    const bar = await createFeature(page, token, part.id, {
+      name: "Sketch2",
+      feature: {
+        type: "sketch",
+        version: 1,
+        params: rectangleSketch(8, -30, 22, 60),
+      },
+      expected_tree_version: host.tree_version,
+    });
+    await createFeature(page, token, part.id, {
+      name: "Extrude2",
+      feature: {
+        type: "extrude",
+        version: 1,
+        params: {
+          profile: { kind: "feature", feature_id: bar.feature.id },
+          distance_mm: 26,
+          operation: "add",
+          direction: "normal",
+          merge: false,
+        },
+      },
+      expected_tree_version: bar.tree_version,
+    });
+
+    // BEFORE the goto: `addInitScript` only applies to loads that follow it.
+    await installSceneProbe(page);
+    await page.goto(`/parts/${part.id}`);
+    await expect(page.getByTestId("body-inspector")).toBeVisible({
+      timeout: 60_000,
+    });
+    const viewport = page.getByTestId("viewport");
+    // Two boxes, six faces each — and the count is asserted because every
+    // claim below is "all twelve", which is vacuous if the part never built.
+    await expect(viewport).toHaveAttribute("data-total-faces", "12", {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("body-row")).toHaveCount(2);
+
+    // Address the NEIGHBOUR's row (Body 2) so its opacity stops are disclosed
+    // in the frame: with two bodies the panel is the only place a reader can
+    // see that BOTH went see-through, and one visible control says it.
+    await page.getByTestId("body-row").nth(1).click({ button: "right" });
+    await expect(page.getByTestId("body-context-menu")).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await expect(viewport).toHaveAttribute("data-drawn-faces", "12");
+    await expect(viewport).toHaveAttribute("data-ghost-faces", "0");
+    for (const index of [0, 1]) {
+      await expect(page.getByTestId("body-row").nth(index)).toHaveAttribute(
+        "data-visibility",
+        "solid",
+      );
+    }
+
+    // Open the HOST's sketch. The neighbour is not this sketch's body and has
+    // no stop of its own — it ghosts because it is in the way, which is the
+    // whole argument for the scope `bodyView` chose.
+    await page.getByTestId("feature-row").first().click({ button: "right" });
+    await clickForReal(page, "tree-ctx-edit");
+    await expect(page.getByTestId("sketch-strip")).toBeVisible();
+
+    // ORBIT OFF THE SKETCH NORMAL (VP-1's middle-drag). The sketcher parks the
+    // camera square-on to the plane, where two boxes and a rectangle all read
+    // as flat overlapping quads — true, and useless as evidence. One orbit puts
+    // the solids in three-quarter view while the sketch stays legible, which is
+    // the frame a modeler actually works in.
+    //
+    // Let the sketcher finish easing into its normal-on pose FIRST. Dragging
+    // into a live ease loses the orbit: measured, the settled direction came
+    // back 0.02 deg from straight down — the ease simply re-parked the camera
+    // afterwards, and a zero turn reads exactly like an unbound button.
+    await expect(page.getByTestId("sketch-dro")).toBeVisible();
+    await waitForCameraRest(page);
+    // Both axes matter: parked normal-on, a purely horizontal drag is a small
+    // roll about the view axis and looks like nothing happened. The magnitude
+    // is a THIRD of `sketch-orbit.spec.ts`'s (150, -110) on purpose — that one
+    // turns 72 deg, which puts the camera nearly edge-on to the sheet and was
+    // unreadable; measured here, (62, -46) settles at 31.56 deg.
+    await drag(page, "middle", { x: 800, y: 500 }, 62, -46);
+    // A coarser rest tolerance than the default 0.05 deg, and deliberately: the
+    // orbit's damping coast decays per RENDERED FRAME, so on a demand-render
+    // canvas it approaches zero without reaching 0.05 deg inside any sane
+    // budget — measured, `waitForCameraRest` timed out at 15 s still reporting
+    // motion. 0.3 deg is far below the 2 deg the pin allows, so the frames stay
+    // a matched pair either way.
+    const pose = await waitForCameraRest(page, {
+      epsilonDeg: 0.3,
+      timeoutMs: 40_000,
+    });
+    // PIN the viewpoint. The founder frames below are a matched pair captured in
+    // two separate runs (the "before" needs the auto-ghost mutated out), so they
+    // are only comparable if the camera lands in the same place both times —
+    // and an orbit coasts under damping, which is exactly the kind of thing that
+    // drifts silently. Asserting the settled direction makes a drifted pair a
+    // test failure instead of a misleading screenshot.
+    expect(
+      angleBetween(pose.direction, ORBITED_VIEW_DIR),
+      `the orbited viewpoint drifted (settled at ${pose.direction
+        .map((v) => v.toFixed(3))
+        .join(
+          ", ",
+        )}) — the before/after founder frames would no longer share a camera`,
+    ).toBeLessThan(2);
+
+    // Captured BEFORE the ghost assertions, so that a run with the auto-ghost
+    // mutated out still writes its frame — that run is how the "before" half of
+    // the founder pair is produced, and it is a FAILING run by construction.
+    await page.mouse.move(1400, 900); // park the cursor off the model
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/ghost1-neighbour-after.png`,
+    });
+
+    await expect(viewport).toHaveAttribute("data-ghost-faces", "12");
+    await expect(viewport).toHaveAttribute("data-drawn-faces", "0");
+    for (const index of [0, 1]) {
+      await expect(page.getByTestId("body-row").nth(index)).toHaveAttribute(
+        "data-visibility",
+        "ghost",
+      );
+    }
   });
 
   test("V and shift+V drive the addressed row from the keyboard", async ({
