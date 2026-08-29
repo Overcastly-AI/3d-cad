@@ -147,6 +147,63 @@ measurements and undone the balance without failing any gate. A partial refresh
 is now refused (`--allow-shrink` overrides) and the advice is withdrawn when the
 reports are partial.
 
+**PBT-1 CLOSED (kernel-architect, 2026-08-29) — the randomised sweep that
+found SETTLE-2 and SETTLE-3 is committed, and its alarming headline number is
+re-measured: 7 of 155 solvable sketches shipped a violated constraint then;
+0 of 1327 do now.** The generator those two fixes were found by was never
+committed — only three hand-transcribed counter-examples survived — so the
+number was unverifiable and unmonitored, which for a defect class whose whole
+signature is *`status=Success` over geometry that does not satisfy its
+constraints* is the worst possible state to leave it in. It is now
+`services/geometry/tests/test_sketch_solver_sweep.py`: 2000 sketches from
+`seed 20260822`, five entity kinds and all 17 constraint kinds, asserted on
+the GEOMETRY at `SATISFIED_TOL_MM` rather than on the status that lied.
+**+10.3 s to the pytest job (0.9 % of a ~19 min suite).** Shipped as a seeded
+fixed corpus rather than `hypothesis` — which is MPL-2.0, so the licence guard
+did not decide it (RESEARCH §8). The argument is local: only the orchestrator
+can read CI here and a fixed log tail is the whole channel, so a failure must
+be reproducible from the commit alone, and "trial 341" is that where a shrunk
+`@given` example is whatever survived the log. Shrinking is kept anyway as an
+on-failure delta-debugger (`_minimise`), which costs nothing on a green run.
+**It cannot go vacuous:** a floor on the solvable count (800 of a measured
+1327), a floor on the orientation-checked count, and every constraint and
+entity kind required to appear among the sketches that actually SOLVE —
+`all([])` is True and this repo has shipped five gates with that shape. The
+census (generated / solvable / violated / reversed) prints from
+`pytest_unconfigure` so a green CI run shows what was exercised.
+**MUTATION EVIDENCE against BOTH root causes it was built from.** (a) Reverting
+SETTLE-3's payload gate to SOLVE-1's driving-dimensions-only scope reddens TWO
+of its tests with **13 violated payloads** — and the solvable count rises by
+exactly 13 (1327 -> 1340), because those are precisely the sketches no longer
+reclassified as the conflicts they are. (b) Disabling SETTLE-2's
+`_refinement_or` orientation guard reddens the settle arm with **118
+reversals**, each naming the entity that runs backwards. Both mutations
+restored and verified by sha256.
+**The ticket's acceptance criterion is met directly, not by proxy:** under
+mutation (a) the sweep's own property flags `IMPOSSIBLE` — the `parallel` +
+`perpendicular` pair the ORIGINAL sweep found at its trial 89 and which
+survives hand-transcribed in `test_sketch_residual_agreement.py` — reporting
+`status=underconstrained, worst residual 0.7125`, where today the same sketch
+comes back `conflicting` and is not flagged. Its sibling counter-example (two
+coincident equal circles made tangent) reads 0 under BOTH arms, correctly: that
+one was a bug in the RESIDUAL FORMULA, which this sweep is deliberately not the
+oracle for. The formulas are guarded by the agreement suite, which compares them
+to planegcs away from a solution; this module guards the CONTRACT. Neither
+subsumes the other and the split is stated in the module docstring, because a
+sweep whose oracle shares a derivation with the thing it checks can only ever
+verify a claim against itself.
+**It also found three NEW defects, reported rather than fixed** (SOLVE-CRASH-1,
+SOLVE-CONFLICT-MOVED-1, SOLVE-OVERCONSTRAINED-AMBIGUOUS-1 in BACKLOG): an
+unhandled `pydantic.ValidationError` escaping `solve()` when planegcs drives a
+circle radius through zero (12 of 2000, an untyped 500 on user-authorable
+input); a `conflicting` payload shipping geometry the solver MOVED where the
+DTO promises the input unchanged (2 of 2000); and an `overconstrained` status
+that does not say whether the entities beside it are solved or the input (17 of
+282 are the input). The first two are recorded as executable live limits
+bounded BOTH ways, so closing either reddens the sweep and forces the record to
+be updated in the same commit — a limit that can only fail in one direction
+stops being a record the moment it is lifted.
+
 **REACH-3-FLOW CLOSED (frontend-builder, 2026-08-28) — the orientation
 proposal never fired on the only sheet most drawings have, and the paper cell
 quoted a scale it could not produce.** (P1-1) The proposal was structurally

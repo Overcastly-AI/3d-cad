@@ -824,6 +824,61 @@ below.**
 
 ## Next (P2)
 
+- [ ] (P2, S) **SOLVE-CRASH-1 — a sketch whose solve drives a circle's radius
+      through zero raises an unhandled `pydantic.ValidationError` out of
+      `PlanegcsSketchSolver.solve()`, reaching the user as an untyped 500.**
+      kind: defect. **RECOMMEND P1 — groomer to arbitrate;** filed P2 only
+      because the finder was not the board's owner. MEASURED by PBT-1's sweep
+      (`test_sketch_solver_sweep.py`, seed 20260822): **12 of 2000 generated
+      sketches, 0.6%**, on shapes a user can author (tangent + concentric +
+      equal on two circles is enough). `SketchCircle.radius` is `gt=0`, nothing
+      constrains planegcs to keep it positive, and `read_back()` then constructs
+      a DTO the DTO refuses. `evaluate_sketch` catches only
+      `SketchDefinitionError`, so this is not a typed `sketch_invalid` — it is
+      an exception escaping the feature evaluator. FIX is a decision, not a
+      patch: refuse the solve as degenerate (typed `sketch_invalid`), clamp, or
+      admit a signed radius and normalise. Recorded as an executable live limit
+      by `test_the_solver_still_crashes_on_a_circle_it_drives_through_zero`,
+      which is bounded BOTH ways — closing the defect reddens it, and that test
+      must be deleted in the same commit as the fix.
+      [src: PBT-1 sweep, kernel-architect 2026-08-29]
+      TERRITORY: `services/geometry/src/geometry/sketch/planegcs_solver.py`.
+      agentType: kernel-architect.
+
+- [ ] (P2, XS) **SOLVE-CONFLICT-MOVED-1 — a `conflicting` payload can ship
+      geometry the solver MOVED, which the DTO promises it never does.** kind:
+      defect (contract). MEASURED by PBT-1's sweep: **2 of 2000**.
+      `SolvedSketch.entities` documents "for conflicting/diverged sketches the
+      input positions are returned unchanged", and `solve()` honours it for a
+      diverged solve and for a payload the residual gate reclassifies — but when
+      planegcs itself diagnoses a conflict on a solve that CONVERGED, the branch
+      falls through to `read_back()`. So a client told "conflicting" is handed
+      moved geometry, and the UI's revert-to-input assumption is wrong for those
+      cases. FIX: either return the input on that branch (matching the doc) or
+      change the doc; one line either way, but it is a contract decision.
+      Recorded as an executable live limit, bounded both ways.
+      [src: PBT-1 sweep, kernel-architect 2026-08-29]
+      TERRITORY: `services/geometry/src/geometry/sketch/planegcs_solver.py`,
+      `packages/py-kit/src/py_kit/schemas/sketch.py`. agentType: kernel-architect.
+
+- [ ] (P2, S) **SOLVE-OVERCONSTRAINED-AMBIGUOUS-1 — `status="overconstrained"`
+      does not tell a client whether the entities beside it are SOLVED or the
+      input returned unchanged, and both happen.** kind: defect (contract).
+      MEASURED by PBT-1's sweep: of 282 overconstrained payloads, **17 returned
+      the input** and 265 carried solved geometry. `_map_status` puts `redundant`
+      ABOVE `not solved` in precedence, so a DIVERGED solve with a redundant
+      constraint is reported as `overconstrained` — the divergence is masked,
+      and the DTO's own hedge ("consistent overconstrained cases") is the only
+      hint that the two exist. Consequence: no consumer can decide whether to
+      adopt the returned coordinates, which is exactly the decision the sketch
+      UI makes on every solve. FIX options: a separate status, or a boolean on
+      the payload saying whether the entities were solved. This is why PBT-1's
+      sweep excludes `overconstrained` from its solved population — an ambiguity
+      in the contract becomes an ambiguity in every gate written against it.
+      [src: PBT-1 sweep, kernel-architect 2026-08-29]
+      TERRITORY: `services/geometry/src/geometry/sketch/planegcs_solver.py`,
+      `packages/py-kit/src/py_kit/schemas/sketch.py`. agentType: kernel-architect.
+
 - [x] (P2, S) **HEM-1C CLOSED (frontend-builder, 2026-08-28) — the hem card now
       derives every number it shows from the hem rule, and a spec types the
       card's own suggestion back in.** Both false strings are gone: the radius
@@ -1763,7 +1818,28 @@ bend radius. See Done archive for evidence/gates.**
       [src: engineering-auditor pass 5, 2026-08-14 (K2); was J7, 2026-07-30;
       re-recommended AUDIT-ENGINEERING.md Pass 7 M3, 2026-08-21]
 
-- [ ] (P1, S) **PBT-1 — the property-based sweep that found this repo's two
+- [x] (P1, S) **PBT-1 SHIPPED (2026-08-29, kernel-architect) — the sweep is
+      committed as a seeded fixed corpus, and the 7-of-155 is re-measured at
+      0 of 1327.** `services/geometry/tests/test_sketch_solver_sweep.py`,
+      2000 trials at `seed 20260822`, +10.3 s to the pytest job (0.9%).
+      Argued AGAINST `hypothesis` (MPL-2.0, so the licence guard does not
+      decide it): a CI failure must be reproducible from the commit alone
+      here, since only the orchestrator can read CI and the log tail is the
+      only channel. Shrinking is kept as an on-failure delta-debugger, not a
+      dependency. Mutation-checked against BOTH root causes: reverting
+      SETTLE-3's payload gate to driving-dimensions-only reddens two of its
+      tests with 13 violations (and the solvable count rises by exactly 13),
+      and disabling SETTLE-2's `_refinement_or` reddens the settle arm with 118
+      reversals; both restored and verified by sha256. ACCEPTANCE MET
+      DIRECTLY: under the first mutation the sweep's own property flags
+      `IMPOSSIBLE` — the `parallel`+`perpendicular` counter-example the
+      original sweep found and which survives hand-transcribed in
+      `test_sketch_residual_agreement.py` — at residual 0.7125.
+      **Three NEW findings reported rather than fixed — see the
+      three items filed below (SOLVE-CRASH-1, SOLVE-CONFLICT-MOVED-1,
+      SOLVE-OVERCONSTRAINED-AMBIGUOUS-1).**
+      ORIGINAL TICKET, for the record:
+      **the property-based sweep that found this repo's two
       worst latent solver bugs was never committed; there is no
       `hypothesis` dependency and the generator is gone.** kind: capability
       (test infra). MEASURED (`docs/AUDIT-ENGINEERING.md` "Pass 9" N2): both
@@ -5029,6 +5105,10 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-08-29 — **PBT-1 shipped (kernel-architect):** the SETTLE-2/3 sweep is
+  committed as a seeded 2000-trial corpus; the 7-of-155 violated-constraint
+  rate re-measures at **0 of 1327** (+10.3 s to pytest). Filed SOLVE-CRASH-1,
+  SOLVE-CONFLICT-MOVED-1, SOLVE-OVERCONSTRAINED-AMBIGUOUS-1 from its findings.
 - 2026-08-17..28 — Groom passes 7-17, hover-a-face-to-sketch ship: file-page/
   export tickets, SOLVE-1/PICK-2 cluster, SETTLE-PERF-1 883x speedup,
   NAME-2/edge durability, ORTHO-1/MATE-1/frontend-reachability complete,

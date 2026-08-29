@@ -223,3 +223,34 @@ def compose_flat_pattern() -> Callable[..., ComposedSheet]:
         )
 
     return compose
+
+
+#: Lines the sketch-solver sweep (``test_sketch_solver_sweep.py``) wants a human
+#: to see on a GREEN run. A passing test prints nothing under ``-q``, so
+#: "generated 2000, solvable 1327, violated 0" — the numbers that say the sweep
+#: exercised anything at all — would otherwise exist only in the source.
+_SWEEP_CENSUS: list[str] = []
+
+
+@pytest.fixture
+def sweep_census() -> list[str]:
+    """Collector for the sweep's census; printed by :func:`pytest_unconfigure`.
+
+    A fixture rather than an import because ``--import-mode=importlib`` blocks
+    test modules from importing each other (this file's docstring), and the
+    census has to reach a hook that lives here.
+    """
+    return _SWEEP_CENSUS
+
+
+def pytest_unconfigure() -> None:
+    """Print the sweep census AFTER everything else pytest prints.
+
+    Not ``pytest_terminal_summary``: that hook runs before the short test
+    summary, so on a red run the census lands in the middle of the log where a
+    fixed ``tail_lines`` read cannot reach it (measured — the trap CLAUDE.md
+    records for the e2e shards and for the documents verdict). ``pytest_
+    unconfigure`` runs after the reporter's final stats line.
+    """
+    if _SWEEP_CENSUS:
+        print("\n== sketch solver sweep ==\n" + "\n".join(_SWEEP_CENSUS))
