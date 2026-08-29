@@ -11,7 +11,12 @@ import {
   setBodyMode,
 } from "./occludedPlate";
 import { seedDenseHolePlate } from "./partSeed";
-import { litPoints, measureReachabilityWith, type Point } from "./reachability";
+import {
+  clearOfSilhouette,
+  litPoints,
+  measureReachabilityWith,
+  type Point,
+} from "./reachability";
 import {
   SCREENSHOT_DIR,
   createPartViaApi,
@@ -520,6 +525,16 @@ async function settledStampAt(
  * ORACLE_TIMEOUT_MS stays where a single decision hangs on one read.
  */
 const PROBE_SETTLE_MS = 1_500;
+
+/**
+ * How far a "vacated" grid point must be from any drawn pixel before the face
+ * oracle is asked about it. See `clearOfSilhouette` for the measurement: the
+ * rim + outline band around a body reads BELOW the luminance floor while being
+ * on the solid, so a point inside it is neither lit nor empty.
+ *
+ * 8 px is 1.6x the measured 5-px band and one third of the 24-px census grid.
+ */
+const SILHOUETTE_MARGIN_PX = 8;
 
 /** The sweep's probe position: `radius` px from `centre` along direction `d`. */
 function radialPoint(centre: Point, d: number, radius: number): Point {
@@ -1365,6 +1380,46 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
       "the wall really did cover part of the frame",
     ).toBeGreaterThan(20);
 
+    /*
+      "LIT BEFORE AND NOT LIT NOW" IS NOT "THE REGION THE WALL VACATED", and
+      the difference is what made this test fail 1 run in 4 (CI-4 pass,
+      2026-08-29). Two censuses taken under DIFFERENT camera framings — hiding
+      the wall refits the view to the visible bounds, so the plate moves and
+      grows — are differenced here, so `nowEmpty` picks up not only the wall's
+      old span but every pixel the REFIT moved, including the still-drawn
+      plate's own outline. `litPoints` reads one pixel against a luminance
+      floor, and a body's drawn edge is a dark rim plus an outline stroke ~5 px
+      wide that is under that floor while being squarely ON the solid.
+
+      Measured on the failing run: 5 ghosts, all five in ONE grid column at
+      x = 1236, with the plate's last lit pixel at x = 1234 on every one of
+      those rows (lum 178 at 1234, 65 at 1236, 89 at 1238, 18 at 1240). The
+      face oracle was RIGHT and the region was wrong.
+
+      So the sweep is restricted to points that are background with room to
+      spare. This is not a widened tolerance — the assertion below is still
+      `toBe(0)` — it is the census refusing to ask the oracle about pixels its
+      own classifier cannot decide. The strong claim, stated by ORDINAL over
+      the whole canvas rather than by luminance difference, is
+      `qa-sel6-verify.spec.ts`'s "a hidden body's ordinals answer at NO point
+      on the canvas" (1710 points, 0 naming a hidden face), so nothing this
+      erosion could hide is ungated.
+    */
+    const vacated = await clearOfSilhouette(page, nowEmpty, {
+      marginPx: SILHOUETTE_MARGIN_PX,
+    });
+    expect(
+      vacated.length,
+      `vacated points clear of the drawn body by ${SILHOUETTE_MARGIN_PX}px ` +
+        `(${nowEmpty.length - vacated.length} of ${nowEmpty.length} discarded ` +
+        `as silhouette-adjacent)`,
+    ).toBeGreaterThan(20);
+    console.log(
+      `    [SEL-6] vacated region: ${vacated.length} clear of ` +
+        `${nowEmpty.length} candidates ` +
+        `(${nowEmpty.length - vacated.length} within ${SILHOUETTE_MARGIN_PX}px of drawn pixels)`,
+    );
+
     // A FRACTION against a 50 % floor, measured at 99.3 % — parked once at the
     // start so the first probe cannot inherit the `setBodyMode` click's stamp,
     // then cheap per point. The margin is 66 of 135 points; no per-probe race
@@ -1386,7 +1441,7 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     // ways on this build, so in the healthy case this costs one park.
     await parkOffBody(page, "data-hovered-face");
     const ghosts: Point[] = [];
-    for (const point of nowEmpty) {
+    for (const point of vacated) {
       await page.mouse.move(point.x, point.y);
       if ((await viewport.getAttribute("data-hovered-face")) === null) continue;
       const settled = await settledStampAt(
@@ -1414,7 +1469,7 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     expect(
       ghosts.length,
       `points over the vacated region that still name a face, confirmed with ` +
-        `the pointer parked off the body first: ${ghosts.length}/${nowEmpty.length}` +
+        `the pointer parked off the body first: ${ghosts.length}/${vacated.length}` +
         (ghosts.length > 0
           ? ` at ${ghosts
               .slice(0, 8)

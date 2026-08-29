@@ -2040,6 +2040,35 @@ to the Ready section, top of queue.
       specific, separately-caused failures, not a diagnosis of the
       substrate. Keep this ticket open as a standing umbrella for the next
       unexplained red (hence the P1->P2 downgrade above, not a closure).
+      **THE ORIGINAL QUESTION IS NOW ANSWERED (qa-tester, 2026-08-29, eleven
+      full-shard runs + 17 targeted; full numbers in `docs/QA-REVIEW.md`).
+      NO: the suite is not systemically unstable. YES: shard 3/4 is
+      structurally overloaded, measurably and unfixably by sharding.**
+      Per-shard wall on one box, serial, same stack, all green: 985 s / 986 s
+      / **1556-1567 s** / 1052 s — shard 3/4 is 1.58x the median and 36 %
+      over a balanced quarter, because Playwright cuts whole files in
+      FILESYSTEM order on equal TEST COUNT while cost per test varies 20x,
+      and the suite's heaviest specs share prefixes (`pick-*`, `qa-*`) so
+      they are alphabetically ADJACENT. That shard holds 100 % of the
+      suite's settled-stamp probes and 88 % of its pixel censuses in the
+      FEWEST files (25 vs 45/37/38), and 22 raised `test.setTimeout`s
+      against 4/5/2. Simulated against measured per-file durations, raising
+      the matrix does NOT fix it: N=6 leaves a 19.1 min critical path
+      against a 12.7 ideal, worse in RATIO than today, because the heavy
+      block just moves. The real exposure is the 40-minute STEP cap — a
+      runner 1.5x slower than this box puts shard 3/4 at ~39 min while its
+      siblings sit at ~25. Six unmodified shard-3/4 runs produced THREE
+      distinct failures, never the same one twice (2 quiet-run failures, 1
+      loaded), i.e. the recorded contention-flake tell; two are now
+      root-caused and fixed with controls (see the QA-REVIEW entry), the
+      third is QA-CI4-MATE-1. Notably the perf assertion everyone suspected
+      — `pick-mark-seat`'s `ORBIT_COST_CEILING` — is the most robust thing
+      on the shard: 11 A/B pairs read 1.15-1.22 against a 2.00 ceiling while
+      the absolute cost moved 66 %. What failed in that test was a 30 s
+      wall-clock wait sitting at 1.4x its worst QUIET observation.
+      REMAINING under this umbrella: whether to rebalance shard 3/4 at all
+      (a wall-clock/feedback-latency decision, not a correctness one) and
+      QA-CI4-HEADROOM-1, which names the next red before it happens.
 
 - [x] (P1, S) **CI-5 CLOSED — a red e2e shard's failure list was unreachable
       from the orchestrator's only channel** (`scripts/e2e.sh`,
@@ -2883,7 +2912,65 @@ frame refactor are v2/§11. Spike de-collected.
       unchanged after N calls); evaluate-for-viewport path unaffected. [src:
       engineering-auditor F2]
 
+- [ ] (P3, S) **QA-CI4-MATE-1 — a mate axis measured ZERO addressable pixels
+      under CPU load, and it is the one of three shard-3/4 reds that is NOT
+      root-caused.** kind: defect (e2e, possibly app). Found by the CI-4 QA
+      pass (2026-08-29, `docs/QA-REVIEW.md`) while reproducing shard 3/4:
+      `pick-affordance.spec.ts:1680` ("assembly mates: each INSTANCE's own
+      geometry is the mate target") failed in 1 of 6 full shard runs, only
+      under two CPU spinners, with `mate axes addressable >= 40px along:
+      #13 0px #14 28px` — axis #13 not SHORT but ABSENT, while its sibling
+      #14 measured 28 px. 0 of 5 other runs. The leading hypothesis is that
+      the overlay or the camera had not settled when the reachability scan
+      ran, which is the same family as the two defects the pass DID close,
+      but it is a hypothesis and is filed as such rather than patched.
+      FIX: instrument first — record the mate-axis overlay's own settle
+      state and the camera pose at scan time, reproduce under load, and only
+      then decide whether the scan or the app is at fault. ACCEPTANCE: the
+      cause is named with a measurement, and whichever side is wrong is
+      fixed with a control that fails when the fix is reverted. DO NOT
+      "fix" by re-running until green or by dropping the 40 px floor.
+      [src: qa-tester CI-4 pass, 2026-08-29]
+
+- [ ] (P2, S) **QA-CI4-HEADROOM-1 — `qa-sketch-frame.spec.ts:478` runs at
+      1.1x its own timeout under load; it is the next shard-3/4 red and
+      neither CI-4 fix touches it.** kind: defect (e2e). Measured by the
+      CI-4 QA pass (2026-08-29): every shard-3/4 test's duration against its
+      effective ceiling, under two CPU spinners on a 4-core box — "the
+      founder's gesture: the drawn ring picks all the way round, at three
+      zoom levels" took **55.7 s against the default 60 s**, and
+      `qa-sel4-verify.spec.ts:503` ("seven bores, seven ordinals") 44.0 s
+      against 60 s. Both pass today only because this box is fast enough;
+      any runner ~10 % slower turns the first one red, and it would arrive
+      as an opaque "Test timeout of 60000ms exceeded". FIX: for each, decide
+      whether the test is doing too much per run (three zoom levels in one
+      case) or whether 60 s was never a considered number, and make the
+      ceiling a measured multiple of the observed cost the way
+      `pick-mark-seat`'s now is — with the number and its evidence written
+      beside it. ACCEPTANCE: no shard-3/4 test sits under 3x its ceiling
+      under 1.5x CPU oversubscription; the headroom census is re-run and
+      attached. [src: qa-tester CI-4 pass, 2026-08-29]
+
 ## Later (P3)
+
+- [ ] (P3, S) **QA-CI4-LINES-1 — a shard verdict's `file:line` is not a
+      stable identifier: 45 of 169 specs report a different line between
+      runs of byte-identical source.** kind: defect (tooling). Measured by
+      the CI-4 QA pass (2026-08-29) across five shard-3/4 runs at the same
+      commit: `parts-home.spec.ts`'s "create → list → open → back → delete →
+      persists" reports line 18 in four runs and 12 in the fifth; ten of
+      shard 3/4's 25 files are affected; and the list reporter printed
+      `qa-reach-batch.spec.ts:1290` for a test whose JSON report said 1448
+      and whose source says 1448. Nothing was misdiagnosed in that pass —
+      both CI-red tests reported their true line — but the job log is the
+      ONLY channel into a red CI shard, so a reader chasing a line can land
+      in the wrong test, and `e2e-verdict.py`'s list-output fallback path
+      would carry the wrong number into the verdict block. FIX: find the
+      mechanism (transform-cache state is the obvious suspect and is
+      unproven), and meanwhile make the verdict block identify tests by
+      TITLE with the line as secondary. ACCEPTANCE: the verdict names a
+      test the reader can find, demonstrated on a run that reproduces the
+      drift. [src: qa-tester CI-4 pass, 2026-08-29]
 
 - [ ] (P3, XS) **INVARIANTS-PROJECTION-1 — the camera-projection helper
       `projection.spec.ts` uses privately now has a second real use, this

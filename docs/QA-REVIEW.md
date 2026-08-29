@@ -12,6 +12,325 @@ blocked or lies · **P2** a real flow is worse than it should be · **P3** polis
 
 ---
 
+## 2026-08-29 — CI-4 settled: shard 3/4 IS structurally overloaded, and the reds are three independent spec defects that the overload makes visible
+
+**Verdict, in one line: the suite is not systemically unstable, shard 3/4 IS
+overloaded (1.58x the median shard's wall on identical hardware), and the
+alternating reds are THREE separate spec-side defects — none of them a product
+bug, none of them the perf assertion everyone suspected.**
+
+Method: an isolated native stack (:8160/:8161/:8162, own Vite on :5361, own
+SQLite prefix) and a Playwright config byte-identical to the committed one
+except for those ports — verified to select the same 171 tests for
+`--shard=3/4`, so nothing below is an artefact of a different harness.
+**Eleven full-shard runs plus 17 targeted ones**, just over five hours of wall
+clock.
+
+### 1. What is on shard 3/4, and why
+
+Playwright shards whole files in filesystem order, cutting on equal TEST COUNT.
+Test counts are near-equal by construction; **cost per test is not**, and the
+suite's heaviest specs share naming prefixes, so they are alphabetically
+ADJACENT and land in one shard together:
+
+| shard | files | tests | alphabetical span |
+|---|---|---|---|
+| 1/4 | 45 | 179 | `assembly-bom` … `face-hover` |
+| 2/4 | 37 | 169 | `fb19-chrome-density` … `panel-density` |
+| **3/4** | **25** | **171** | **`part-visibility` … `sheet-convention`** |
+| 4/4 | 38 | 167 | `sheet-metal-authoring` … `workspace` |
+
+That span is every `pick-*`, `preselection`, `projection`, `qa-*` and
+`repick-*` spec in the repo. A static census of what makes a spec expensive on
+a software rasteriser (no stack needed,
+`apps/web/node_modules/.ci4/heaviness.py` in this pass):
+
+| marker | s1 | s2 | **s3** | s4 |
+|---|---|---|---|---|
+| `test.setTimeout` overrides | 4 | 5 | **22** | 2 |
+| minutes of declared timeout | 16 | 24 | **104** | 9 |
+| `waitForFrames` call sites | 8 | 16 | **88** | 5 |
+| `litPoints` pixel censuses | 0 | 3 | **22** | 0 |
+| `stampAfterMove`/`settledStampAt` | 0 | 0 | **19** | 0 |
+
+Shard 3/4 holds **100 %** of the settled-stamp probes and **88 %** of the pixel
+censuses, in the FEWEST files. This is a fact about file naming, not about the
+tests.
+
+### 2. It costs what the census predicts — measured, all four shards, same box
+
+Serial, one worker, same stack, all green:
+
+| shard | wall | tests | s/test |
+|---|---|---|---|
+| 1/4 | **985 s** | 179 | 5.5 |
+| 2/4 | **986 s** | 169 | 5.8 |
+| **3/4** | **1556 / 1559 / 1567 s** (3 runs) | 171 | **9.1** |
+| 4/4 | **1052 s** | 167 | 6.3 |
+
+Whole suite 75.9 min; a perfectly balanced quarter is 19.0 min; shard 3/4 is
+**25.9 min — 36 % over, and on the critical path of every push**. Four files
+are 54 % of it: `pick-affordance` 18.6 %, `qa-sel4-verify` 17.6 %,
+`qa-reach-batch` 11.0 %, `pick-mark-seat` 6.8 %.
+
+**Raising the shard count does not fix this** — simulated against the measured
+per-file durations (`rebalance.py`, split rule validated against the real 4-way
+membership before use): N=5 → critical path 18.2 min (ideal 15.2), N=6 → **19.1**
+(ideal 12.7), N=8 → 14.1 (ideal 9.5). The heavy block simply moves to whichever
+shard contains it, and the imbalance RATIO gets worse, because equal-test-count
+sharding is blind to cost and a 4.8-minute file cannot be split at all.
+
+**The live risk is the step timeout, not correctness.** The Playwright step is
+capped at 40 min. Shard 3/4 takes 26 min here against 16-17 for its siblings; a
+runner ~1.5x slower than this box puts shard 3/4 at ~39 min while the others sit
+at ~25. That is the only way this imbalance can turn a shard red rather than
+merely slow, and it would arrive as a step timeout naming nothing.
+
+### 3. The reds reproduce, and the failure point MOVES
+
+Six full shard-3/4 runs at `671c874`, unmodified:
+
+| run | CPU | wall | unexpected failures |
+|---|---|---|---|
+| quiet 1 | idle | 1558 s | — |
+| quiet 2 | idle | 1567 s | `pick-affordance.spec.ts:1336` (SEL-6 face hover) |
+| quiet 3 | idle | 1556 s | — |
+| quiet 4 | idle | 1559 s | — |
+| loaded 1 | 2 spinners | 2003 s | — |
+| loaded 2 | 2 spinners | 2039 s | `pick-affordance.spec.ts:1680` (mate axes) **and** `pick-mark-seat.spec.ts:280` (orbit budget) |
+
+**Three distinct tests, never the same one twice, never the same run** — this
+project's recorded discriminator for a contention flake, satisfied outright. And
+the two tests CI went red on (`pick-affordance:1336` at `b65eb7e`,
+`pick-mark-seat:280` at `fdd5add`) both reproduced here at HEAD, on a tree where
+each also passed. Same bytes, different outcome; not a regression in either
+diff. Corroborating: `b65eb7e`'s diff (pattern/mirror context-menu items in the
+feature tree) cannot reach a 3-D face hover, and it ADDED `pattern-scope.spec.ts`
+— 7 tests sitting alphabetically immediately before `pick-affordance` — so it
+changed shard 3/4's SCHEDULE, not the behaviour under test.
+
+The `✘` that appears in EVERY run (`qa-reach-batch.spec.ts:1448`) is the
+`test.fail()`-annotated QA-R3 gap and is reconciled `expected`; it is not a
+failure.
+
+### 4. Root cause A — SEL-6's ghost sweep asks the oracle about the body it just excluded. FIXED.
+
+```
+Error: points over the vacated region that still name a face, confirmed with
+the pointer parked off the body first: 5/878 at
+1236,688 1236,712 1236,736 1236,760 1236,784
+Expected: 0   Received: 5
+```
+
+All five ghosts in ONE grid column. Measuring the failure frame itself
+(`test-failed-1.png`, 1600x1000) at those five rows: the plate's last lit pixel
+is **x = 1234** every time, and luminance across the boundary reads **178 at
+1234, 65 at 1236, 89 at 1238** (the outline stroke), **18 at 1240**.
+
+So the "vacated" region contained a 2-px strip of the STILL-DRAWN plate's own
+right edge. `litPoints` classifies one pixel against a luminance floor of 110,
+and a body's drawn edge is a rim plus an outline ~5 px wide that is under that
+floor while being squarely on the solid. The face oracle was right; the region
+was wrong. Two compounding causes: the census grid is fixed in CSS px
+(`step/2 + n*step` — x = 1236 is always sampled) while the body's edge is placed
+by the camera fit, which varies sub-pixel run to run; and `nowEmpty` differences
+two censuses taken under DIFFERENT framings, because hiding the wall refits the
+view, so it captures everything the refit moved as well as what the wall vacated.
+
+Fix: `clearOfSilhouette()` in `apps/web/e2e/reachability.ts` — a candidate is
+probed only if no lit pixel lies within 8 px (1.6x the measured band, one third
+of the 24 px grid). The assertion stays `toBe(0)`; what changed is which points
+the census is willing to speak about. **Not a widened tolerance, and here is the
+control:** replaying the rule over the real failure frame discards all five
+ghosts (nearest lit pixel at Chebyshev 1, 1, 1, 2, 1 px) and KEEPS five control
+points out in the wall's former span (nearest lit pixel: none within 39 px). A
+hidden body that had genuinely stayed pickable answers out there, not in a 2-px
+rim. The strong form of the claim — by ORDINAL, over the whole canvas — is
+`qa-sel6-verify.spec.ts:495` ("a hidden body's ordinals answer at NO point on
+the canvas", 1710 points), so nothing this erosion could hide is ungated.
+
+Caution for whoever re-runs this: **the test is deterministic in isolation**
+(12/12 green, 863 candidates and 0 discarded every single time) and the failing
+in-shard run had 878. Isolation proves nothing here; only an in-shard run does.
+
+### 5. Root cause B — the orbit-budget test. The perf assertion is the STRONGEST thing in it. FIXED elsewhere in the same test.
+
+The founder's suspicion was that `ORBIT_COST_CEILING` is too delicate for a
+shared runner. **The measurement says the opposite.** Eleven A/B pairs, spanning
+a 1.7x change in machine speed:
+
+| condition | bare blocked | armed blocked | ratio |
+|---|---|---|---|
+| quiet x4 | 19.5-20.0 s | 23.0-24.1 s | 1.17, 1.19, 1.20, 1.22 |
+| quiet x2 (isolated) | 20.2-20.6 s | 24.2-24.5 s | 1.19, 1.20 |
+| 2 spinners x5 | 31.5-33.7 s | 37.2-38.8 s | 1.15, 1.18, 1.18, 1.19, 1.20 |
+
+Range **1.15-1.22 against a 2.00 ceiling**, with the absolute cost moving 66 %.
+That is exactly what a same-run A/B is for, and it is the design to copy, not to
+retire: shared-mode noise cancels in the ratio. It has never been near failing.
+
+What actually failed, from the trace of loaded rep 2:
+
+```
+expect(locator).toHaveAttribute failed
+Locator: getByTestId('viewport')
+Expected: "settled"   Received: "pending"   Timeout: 30000ms
+  at pick-mark-seat.spec.ts:381
+```
+
+— the re-settle check AFTER the ratio assertion, which had just passed at 1.18x.
+Instrumented and measured, `mouse.up` to `data-edge-mark-seats="settled"`:
+
+```
+quiet, isolated       15 989 ms   21 323 ms
+under 2 spinners      28 957 ms   31 660 ms   25 483 ms
+```
+
+**The old 30 s ceiling sat at 1.4x the worst QUIET reading.** That is not
+headroom on any machine slower than this one. It always converged; the red run
+was still `pending`, not stuck.
+
+**And fixing only that site was not enough — the first post-fix loaded shard run
+went red at a DIFFERENT one.** `30_000` was written out longhand at **five call
+sites across two spec files**, all the same wait on the same attribute, none of
+them measured; the retry died at the drain that happens BEFORE the orbit, with
+21 marks freshly mounted. That is the DRY rule as a correctness property rather
+than a style one: five copies of a number meant five chances to fix four of
+them. All five now call one `expectSeatsSettled()` helper in
+`apps/web/e2e/support.ts` with one measured constant, and each call PRINTS its
+elapsed time.
+
+**That instrumentation immediately produced the real mechanism, which is
+sharper than "the seat pass is slow".** All five sites, one loaded shard run:
+
+| site | after | settled in |
+|---|---|---|
+| `measure-proxy` marks mounted (shard 2) | a view-fit | **730 / 727 ms** |
+| `fillet armed` | a view-fit | **635 / 487 ms** |
+| founder shot at 1280 | a view-fit | **409 ms** |
+| **`21 marks mounted`** | **a 40-step orbit** | **26 106 ms** |
+| **reseat after the armed orbit** | **a 40-step orbit** | **30 493 ms** |
+
+Sub-second from a rested camera; **26-30 s from a damping one** — a 40x split,
+and the two sites that ever failed are exactly the two that follow an orbit.
+The wait is not the seat pass draining; it is `OrbitControls`' damping TAIL,
+during which every changed pose re-owes all 21 edges so `settled` cannot latch
+until the camera quantises below the 1e-3 stamp. Damping decays per UPDATE, so
+the frame COUNT is a constant of the scene and the wall time is frame time times
+that count: halve the machine's speed and this doubles, deterministically. Not a
+race that can be won or lost — a duration that scales. And note the reseat came
+in at **30 493 ms**: it would have failed the old ceiling a third time, in the
+verification run.
+
+So the shared 90 s constant loosens nothing that was tight — three of the five
+sites sit 100x inside it and the log now says so per site, every run.
+
+Fixed: ceiling 90 s (4.2x worst quiet, 2.8x worst loaded), elapsed printed at
+every site, and the orbit test's own budget 300 s → 420 s so a slow machine
+fails on an assertion that names something rather than on the harness's patience
+(measured: 86 s quiet, 133-150 s loaded; 2.4 min in the post-fix loaded run,
+green).
+
+One observation for the frontend builder, offered as a measurement rather than a
+verdict: on this software renderer the pick diamonds hold STALE seats
+(`data-edge-mark-seats="pending"`) for the ~26-30 s of an orbit's damping tail,
+against under a second from a rested camera. On a GPU the frame count is the
+same and the wall time far smaller, so this may be entirely a software-GL
+artefact — but nobody has measured it on a GPU, and "how long after an orbit do
+the marks point at the right place" is a fair question to have an answer to.
+
+**Answering the question as asked: this test belongs in the per-push gate.** Its
+perf claim is the most machine-independent assertion on the shard. What did not
+belong there was a wall-clock ceiling set at 1.4x a quiet observation, and that
+is now a measured number with its evidence written beside it.
+
+### 6. Root cause C — mate-axis reachability. Diagnosed, NOT fixed. Filed as QA-CI4-MATE-1 (P2).
+
+Loaded rep 2, `pick-affordance.spec.ts:1680`:
+
+```
+Error: mate axes addressable >= 40px along: #13 0px #14 28px
+Expected: >= 1   Received: 0
+```
+
+Axis #13 measured **0 px** addressable — not "short", absent. Only under load,
+0 of 6 runs otherwise. Consistent with the overlay or the camera not having
+settled when the scan ran, but that is a hypothesis: it is not root-caused, and
+it is not being papered over. It needs the same instrument-then-decide treatment
+as B.
+
+### 7. The predictive artifact: which assertion goes red NEXT
+
+Every test's measured duration against its OWN effective ceiling, under 2
+spinners (`headroom.py`). This is what a slower runner eats first:
+
+| headroom | duration | ceiling | test |
+|---|---|---|---|
+| **1.1x** | 55.7 s | 60 s | `qa-sketch-frame.spec.ts:478` the founder's gesture: the drawn ring picks all the way round |
+| **1.4x** | 44.0 s | 60 s | `qa-sel4-verify.spec.ts:503` seven bores, seven ordinals, no neighbour answers |
+| 2.0x | 90.7 s | 180 s | `qa-sel4-verify.spec.ts:382` shell: a HIDDEN body's face is not pickable |
+| 2.0x | 30.1 s | 60 s | `pick-affordance.spec.ts:911` measure: an edge answers along its whole span |
+| 2.1x | 28.4 s | 60 s | `qa-reach-batch.spec.ts:298` re-open a feature-scoped pattern |
+| 2.3x | 133.0 s | 300 s | `pick-mark-seat.spec.ts:280` (now 420 s) |
+
+`qa-sketch-frame.spec.ts:478` at **1.1x** is the next red on this shard and it
+has nothing to do with either defect fixed here. Filed as QA-CI4-HEADROOM-1.
+
+### 8. Side finding: a shard verdict's `file:line` is not a stable identifier
+
+**45 of 169 specs report a DIFFERENT line number between runs of byte-identical
+source** (e.g. `parts-home.spec.ts` "create → list → open → back → delete →
+persists" reports 18 in four runs and 12 in a fifth; the list reporter printed
+`qa-reach-batch.spec.ts:1290` for a test whose JSON said 1448 and whose source
+says 1448). Ten of shard 3/4's 25 files are affected. No verdict in this pass
+was misread because of it — both CI-red tests report their true line — but a
+reader chasing a line from a shard log can land in the wrong test, and the
+`e2e-verdict.py` list-output fallback path would carry the wrong number.
+**Match on TITLE, not on line.** Mechanism unknown; filed as QA-CI4-LINES-1 (P3).
+
+### What was verified, and what "verified" is worth here
+
+- **The 8 px clearance rule, against the real failure frame**: all five ghosts
+  discarded (nearest lit pixel 1, 1, 1, 2, 1 px); five control points in the
+  wall's former span kept (no lit pixel within 39 px). Deterministic, and it
+  fails if the rule is reverted.
+- **The seat ceiling, against five instrumented sites**: 730 / 727 / 635 / 487 /
+  409 ms from a rested camera vs 26 106 / 30 493 ms from a damping one, the
+  second of which would have failed the old ceiling for a third time.
+- **Post-fix shard 3/4: loaded (2 spinners) 171/171 expected, 0 unexpected,
+  2001 s; quiet 171/171, 0 unexpected, 1542 s** — the same walls as before the
+  fixes (2003/2039 s and 1556-1567 s), so neither fix costs anything. Plus
+  `measure-proxy.spec.ts` (shard 2, shares the helper) green.
+- **What that is NOT**: proof. Each defect's own base rate is ~1-in-4 to
+  ~1-in-6 per shard run, so a green run is what you would expect most of the
+  time either way. The arguments above are what carry these two fixes — a
+  deterministic replay with a negative control, and a duration distribution
+  with a named mechanism — and the shard runs are a smoke check that nothing
+  else moved.
+
+### Verdict on CI-4
+
+- **Systemically unstable? No.** 4 quiet runs produced 1 failure; 2 loaded runs
+  produced 2; every one has a specific, reproducible, spec-side cause, and two
+  of the three are now root-caused with a control. There is no shared substrate
+  defect here.
+- **Shard 3/4 overloaded? Yes, measurably** — 1.58x the median shard, 36 % over
+  a balanced quarter, and it is not fixable by adding shards. It costs feedback
+  latency on every push and it is the only shard whose runner-side wall can
+  approach the 40-minute step cap.
+- **Three independent bugs that happen to be adjacent? Yes** — and the adjacency
+  is not coincidence: they are adjacent because the shard concentrates every
+  timing-sensitive viewport census in the suite, so it is where such defects
+  surface first and most often.
+- **How many runs would settle the residual?** Each defect's own base rate is
+  ~1-in-4 to ~1-in-6 per shard run, so distinguishing "fixed" from "lucky" at
+  95 % confidence needs **~11 post-fix shard runs per defect** (≈5 h each at
+  26 min). That is why root cause A is argued from the failure FRAME (a
+  deterministic replay with a negative control) rather than from a run count,
+  and B from the settle-time distribution rather than from green runs. Two
+  post-fix shard runs (one loaded, one quiet) are attached as a smoke check, not
+  as proof.
+
 ## 2026-08-28 — HEM-1's e2e fallout: the spec was TYPING the defect, and the old spec could not have caught it
 
 **Verdict: case (b) — the spec drove the UI into the new

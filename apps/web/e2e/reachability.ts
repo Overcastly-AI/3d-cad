@@ -125,6 +125,97 @@ export async function litPoints(
   );
 }
 
+/**
+ * Of `points`, the ones that are BACKGROUND with room to spare — no lit pixel
+ * anywhere within `marginPx`.
+ *
+ * WHY A CENSUS NEEDS THIS. `litPoints` classifies a single pixel, and a body's
+ * rendered edge is not a single pixel: it is a dark rim plus an outline stroke
+ * several pixels wide, all of it BELOW the luminance floor and all of it
+ * squarely on the body as far as a raycast is concerned. So a grid point that
+ * lands in that band is "not lit" and "on the solid" at the same time, and any
+ * assertion that treats not-lit as *nothing is there* is asking the oracle
+ * about the body it just excluded.
+ *
+ * MEASURED, on the failure that produced this helper (`pick-affordance`
+ * SEL-6's ghost sweep, 1 of 4 shard runs, 2026-08-29): five reported ghosts,
+ * all five in ONE grid column at x = 1236, and the plate's last lit pixel on
+ * every one of those rows was x = 1234. Luminance across the boundary read
+ * 178 (lit) at 1234, 65 at 1236, 89 at 1238 — the outline stroke — and 18 at
+ * 1240. So the "vacated" region included a 2-px-wide strip of the still-drawn
+ * plate's own right edge, and the plate's face answered there, correctly.
+ *
+ * It is a lottery rather than a constant because the grid is fixed in CSS px
+ * (`step/2 + n*step`) while the body's edge is placed by the camera fit, which
+ * varies sub-pixel between runs — so whether any column lands inside the ~5 px
+ * rim is decided per run.
+ *
+ * The default margin is 8 px: 1.6x the measured rim and one third of the
+ * coarsest grid this suite uses, so it can only ever discard points that
+ * straddle a silhouette boundary — never a point out in open background, which
+ * is where a body that had genuinely stayed pickable would answer.
+ */
+export async function clearOfSilhouette(
+  page: Page,
+  points: readonly Point[],
+  options: SamplingOptions & { marginPx?: number } = {},
+): Promise<Point[]> {
+  const {
+    marginPx = 8,
+    minLuminance = 110,
+    selector = VIEWPORT_CANVAS,
+  } = options;
+  return page.evaluate(
+    ({
+      points,
+      marginPx,
+      minLuminance,
+      selector,
+    }: {
+      points: readonly Point[];
+      marginPx: number;
+      minLuminance: number;
+      selector: string;
+    }): Point[] => {
+      const canvas = document.querySelector<HTMLCanvasElement>(selector);
+      if (!canvas) return [];
+      const probe = document.createElement("canvas");
+      probe.width = canvas.width;
+      probe.height = canvas.height;
+      const ctx = probe.getContext("2d");
+      if (!ctx) return [];
+      ctx.drawImage(canvas, 0, 0);
+      const { data } = ctx.getImageData(0, 0, probe.width, probe.height);
+      const rect = canvas.getBoundingClientRect();
+      const bx = probe.width / (canvas.clientWidth || probe.width);
+      const by = probe.height / (canvas.clientHeight || probe.height);
+      const lit = (px: number, py: number): boolean => {
+        if (px < 0 || py < 0 || px >= probe.width || py >= probe.height) {
+          return false;
+        }
+        const i = (py * probe.width + px) * 4;
+        const r = data[i] ?? 0;
+        const g = data[i + 1] ?? 0;
+        const b = data[i + 2] ?? 0;
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b > minLuminance;
+      };
+      const rx = Math.max(1, Math.round(marginPx * bx));
+      const ry = Math.max(1, Math.round(marginPx * by));
+      return points.filter(({ x, y }) => {
+        const cx = Math.floor((x - rect.left) * bx);
+        const cy = Math.floor((y - rect.top) * by);
+        for (let dy = -ry; dy <= ry; dy += 1) {
+          for (let dx = -rx; dx <= rx; dx += 1) {
+            if (lit(cx + dx, cy + dy)) return false;
+          }
+        }
+        return true;
+      });
+    },
+    { points, marginPx, minLuminance, selector },
+  );
+}
+
 /** What sits under a point, from the browser's own hit test. */
 export interface HitTarget {
   /** Nearest `data-testid` at or above the topmost element, if any. */

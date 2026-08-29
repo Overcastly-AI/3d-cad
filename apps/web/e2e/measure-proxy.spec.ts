@@ -44,6 +44,7 @@ import { createFeature } from "./partSeed";
 import {
   createPartViaApi,
   distinctCanvasColors,
+  expectSeatsSettled,
   seedSession,
   waitForFrames,
 } from "./support";
@@ -275,9 +276,7 @@ async function openPlateWithMeasureArmed(page: Page): Promise<void> {
   await expect(
     page.locator('[data-testid^="measure-edge-"]').first(),
   ).toBeAttached({ timeout: 20_000 });
-  await expect(viewport).toHaveAttribute("data-edge-mark-seats", "settled", {
-    timeout: 30_000,
-  });
+  await expectSeatsSettled(page, "measure marks mounted");
   await waitForFrames(page, 4);
 }
 

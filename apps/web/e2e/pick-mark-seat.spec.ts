@@ -35,6 +35,7 @@ import { seedShaftCoupling } from "./partSeed";
 import {
   createPartViaApi,
   distinctCanvasColors,
+  expectSeatsSettled,
   SCREENSHOT_DIR,
   seedSession,
   waitForFrames,
@@ -148,9 +149,7 @@ async function openCouplingWithFilletArmed(page: Page): Promise<void> {
   ).toBeAttached({ timeout: 20_000 });
   // The seats are placed over several frames under a fixed per-frame hit-test
   // budget, so a fixed number of frames would census a half-drained pass.
-  await expect(viewport).toHaveAttribute("data-edge-mark-seats", "settled", {
-    timeout: 30_000,
-  });
+  await expectSeatsSettled(page, "fillet armed");
 }
 
 test.describe("PICKMARK-OCCLUDE-1 — the diamond and the band agree", () => {
@@ -280,7 +279,13 @@ test.describe("PICKMARK-OCCLUDE-1 — the diamond and the band agree", () => {
   test("the seats hold the orbit budget with 21 marks mounted", async ({
     page,
   }) => {
-    test.setTimeout(300_000);
+    // 420 s, raised from 300 s, so that the assertion which fires on a slow
+    // machine NAMES something. Measured on a 4-core box: 86 s quiet, 133-150 s
+    // under 1.5x CPU oversubscription — 300 s was 2.0-3.5x the observation
+    // here, which is under 2x on any runner half this speed, and a harness
+    // timeout tells a reader nothing about which of two orbits, one reseat and
+    // eleven waits it ran out of patience during.
+    test.setTimeout(420_000);
     const account = await seedSession(page);
     const part = await createPartViaApi(page, account.token, "Shaft coupling");
     await seedShaftCoupling(page, account.token, part.id);
@@ -362,9 +367,10 @@ test.describe("PICKMARK-OCCLUDE-1 — the diamond and the band agree", () => {
     await expect(page.getByTestId("fillet-editor")).toBeVisible();
     await page.getByTestId("fillet-mode-pick").click();
     await expect(page.locator('[data-testid^="edge-pick-"]')).toHaveCount(21);
-    await expect(viewport).toHaveAttribute("data-edge-mark-seats", "settled", {
-      timeout: 30_000,
-    });
+    // The FIRST drain, with 21 marks freshly mounted and the camera at the fit
+    // pose. Its own 30 s ceiling took shard 3/4 red under load before the orbit
+    // below had even run — same mechanism as the reseat, same fix.
+    await expectSeatsSettled(page, "21 marks mounted");
     const armed = await orbit("21 marks + seats");
 
     console.log(
@@ -376,11 +382,29 @@ test.describe("PICKMARK-OCCLUDE-1 — the diamond and the band agree", () => {
       "mounting the marks and reseating them must not multiply the orbit's cost",
     ).toBeLessThan(bare * ORBIT_COST_CEILING);
 
-    // And the orbit left the seats CORRECT, not merely cheap — a recompute
-    // that gave up under load would pass every timing assertion above.
-    await expect(viewport).toHaveAttribute("data-edge-mark-seats", "settled", {
-      timeout: 30_000,
-    });
+    /*
+      And the orbit left the seats CORRECT, not merely cheap — a recompute that
+      gave up under load would pass every timing assertion above.
+
+      THE CEILING IS NOT THE CLAIM, and conflating the two is what made this
+      the second-most-likely red on shard 3/4. What is asserted here is that
+      the seats CONVERGE; how many wall-clock seconds that takes on a starved
+      software-rasterising runner is a different question, and it is the same
+      question the A/B comment above refuses to answer with an absolute number.
+      Convergence is frame-driven — `OrbitControls` damping decays per UPDATE,
+      and the seat pass drains a fixed per-frame budget — so the wall time to
+      settle scales with FRAME time, i.e. with how busy the machine is, while
+      the number of frames does not change at all.
+
+      MEASURED (CI-4 pass, 2026-08-29). Quiet, this reseat is far inside the
+      old 30 s. Under two CPU spinners on a 4-core box it exceeded it: shard
+      3/4 loaded rep 2 died here with `pending` after the full 30 s, having
+      passed the ratio assertion above at 1.18x — i.e. the perf claim held and
+      the WAIT is what broke. The elapsed time is printed below so the number
+      is in the shard log rather than in somebody's memory, and the ceiling is
+      set where a 4x-slower machine than this one still converges inside it.
+    */
+    await expectSeatsSettled(page, "reseat after the armed orbit");
     const marks = await markBoxes(page, "edge-pick-");
     expect(marks.length).toBe(21);
     expect(marks.filter((m) => !m.buried).length).toBeGreaterThan(0);
@@ -393,11 +417,7 @@ test.describe("PICKMARK-OCCLUDE-1 — the diamond and the band agree", () => {
     await openCouplingWithFilletArmed(page);
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.getByTestId("view-fit").click();
-    await expect(page.getByTestId("viewport")).toHaveAttribute(
-      "data-edge-mark-seats",
-      "settled",
-      { timeout: 30_000 },
-    );
+    await expectSeatsSettled(page, "founder shot at 1280");
     await waitForFrames(page, 6);
     // `fixtures.ts` gates the write: a routine run exercises the render and
     // leaves the committed PNG alone (UPDATE_SCREENSHOTS=1 refreshes it).

@@ -34,6 +34,39 @@ repair: HEM-1C (editor still claims base-flange inheritance for the radius
 and suggests the exact value the server refuses) and HEM-1D (UI cannot author
 an `open` hem at all) — **BOTH CLOSED**, see the entry below.
 
+**CI-4's ORIGINAL QUESTION ANSWERED (qa-tester, 2026-08-29) — the suite is
+NOT systemically unstable; shard 3/4 IS structurally overloaded, and the
+alternating reds are three independent spec defects that the overload makes
+visible.** Eleven full-shard runs plus 17 targeted ones against an isolated
+stack, full numbers in `docs/QA-REVIEW.md`. Per-shard wall on one box, serial,
+same stack, all green: 985 / 986 / **1556-1567** / 1052 s — shard 3/4 is 1.58x
+the median and 36 % over a balanced quarter. Cause is naming, not tests:
+Playwright cuts whole files in filesystem order on equal TEST COUNT, and the
+heaviest specs share prefixes (`pick-*`, `qa-*`), so that shard carries 100 %
+of the suite's settled-stamp probes and 88 % of its pixel censuses in the
+fewest files. Adding shards does not fix it — simulated on measured per-file
+durations, N=6 leaves a 19.1 min critical path against a 12.7 ideal, worse in
+ratio than today. Six unmodified runs produced THREE distinct failures, never
+the same one twice. Two are fixed here with controls, not with widened
+tolerances: (a) `pick-affordance`'s SEL-6 ghost sweep was asking the face
+oracle about a 2-px strip of the still-drawn plate's own edge — all five
+"ghosts" sat 1-2 px from lit pixels in the failure frame, which the new
+`clearOfSilhouette()` discards while keeping control points 39+ px out in open
+background; (b) `pick-mark-seat`'s red was NOT its perf assertion, which read
+1.15-1.22 against a 2.00 ceiling across 11 A/B pairs spanning a 66 % change in
+absolute cost, but a 30 s seat-settle wait sitting at 1.4x its worst QUIET
+observation (measured 16.0/21.3 s quiet, 25.5/29.0/31.7 s loaded; now 90 s).
+That number was written out longhand at FIVE call sites across two spec files
+and fixing one left the next loaded run red at another, so all five now share
+one `expectSeatsSettled()` helper that prints its own elapsed time — which
+immediately showed `measure-proxy`'s site at 730 ms, 41x inside the old
+ceiling, i.e. the shared constant loosens nothing that was tight. Three
+follow-ups filed:
+QA-CI4-MATE-1 (the third red, honestly unreproduced), QA-CI4-HEADROOM-1
+(`qa-sketch-frame:478` runs at 1.1x its own 60 s ceiling under load — the next
+red), QA-CI4-LINES-1 (45 of 169 specs report a different `file:line` between
+runs of identical source).
+
 **REACH-3-FLOW CLOSED (frontend-builder, 2026-08-28) — the orientation
 proposal never fired on the only sheet most drawings have, and the paper cell
 quoted a scale it could not produce.** (P1-1) The proposal was structurally

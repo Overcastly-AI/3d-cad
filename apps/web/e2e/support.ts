@@ -977,6 +977,71 @@ export async function waitForFrames(
   return waitForRenders(page, frames);
 }
 
+/**
+ * How long the edge-mark seat pass may take to drain.
+ *
+ * ONE CONSTANT FOR ONE MECHANISM. This was written out longhand as `30_000` at
+ * five call sites across two spec files, and every one of them was a ceiling
+ * nobody had measured. Two of the three reds this pass reproduced on shard 3/4
+ * were that number (CI-4 pass, 2026-08-29, `docs/QA-REVIEW.md`).
+ *
+ * WHY 30 s COULD NOT HOLD, and it is NOT that the seat pass is slow. Measured
+ * per site once this helper started printing the elapsed time:
+ *
+ *     after a view-fit (camera at rest)        409-730 ms   (3 sites)
+ *     after a 40-step orbit (camera damping)   16-31 s      (2 sites)
+ *
+ * A 40x split, and the two sites that ever went red are exactly the two that
+ * follow an orbit. What is being waited out is `OrbitControls`' damping TAIL:
+ * every changed pose re-owes all 21 edges, so `settled` cannot latch until the
+ * camera quantises below the 1e-3 stamp. Damping decays PER UPDATE, so the
+ * frame COUNT is a constant of the scene and the wall time is frame time times
+ * that count — on a software rasteriser, halve the machine's speed and this
+ * doubles, deterministically. It is not a race that can be won or lost; it is
+ * a duration that scales.
+ *
+ * The post-orbit readings, `mouse.up` to `settled`, on a 4-core box:
+ *
+ *     quiet, isolated       15 989 ms   16 168 ms   17 237 ms   21 323 ms
+ *     under 2 CPU spinners  25 483 ms   26 106 ms   28 957 ms   30 493 ms
+ *                                                              31 660 ms
+ *
+ * i.e. the old ceiling sat at 1.4x the worst QUIET reading, and FOUR loaded
+ * readings would have failed or nearly failed it. 90 s is 4.2x the worst quiet
+ * and 2.8x the worst loaded. It costs nothing when the seats converge, which
+ * they always did — the red runs were still `pending`, never stuck — and the
+ * three rested-camera sites sit 100x inside it, which the log now says out
+ * loud rather than leaving to be assumed.
+ */
+export const SEAT_SETTLE_TIMEOUT_MS = 90_000;
+
+/**
+ * Wait for the edge-mark seat pass to drain, and SAY HOW LONG IT TOOK.
+ *
+ * The elapsed time is the whole point of the helper existing rather than the
+ * assertion being inlined: the job log is the only channel into a red CI shard,
+ * so a convergence whose duration scales with the machine has to report that
+ * duration on GREEN runs too, or the next person to tighten the ceiling is
+ * guessing exactly as the last one was.
+ */
+export async function expectSeatsSettled(
+  page: Page,
+  label = "seats",
+): Promise<number> {
+  const started = Date.now();
+  await expect(page.getByTestId("viewport")).toHaveAttribute(
+    "data-edge-mark-seats",
+    "settled",
+    { timeout: SEAT_SETTLE_TIMEOUT_MS },
+  );
+  const elapsed = Date.now() - started;
+  console.log(
+    `    [seats] ${label}: settled in ${elapsed} ms ` +
+      `(ceiling ${SEAT_SETTLE_TIMEOUT_MS} ms)`,
+  );
+  return elapsed;
+}
+
 /** Count distinct colors on the WebGL canvas — proves a real render. */
 export async function distinctCanvasColors(page: Page): Promise<number> {
   return page.evaluate(() => {
