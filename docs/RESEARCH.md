@@ -527,11 +527,25 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   the EXPORT request only, never an evaluate request: a name must not be an input
   to geometry (finding N4).
 - **Export byte-determinism:** identical requests → byte-identical files in
-  every format. STEP's `FILE_NAME` creation timestamp — the one nondeterministic
-  byte range OCCT writes — is pinned kernel-side
-  (`geometry.kernel.export.STEP_EXPORT_TIMESTAMP`; decision + evidence in
-  docs/GEOMETRY-QA.md 2026-07-10). **3MF** (added EXPORT-2, 2026-08-17) is the
-  same shape of problem with a different clock: lib3mf stamps a fresh random
+  every format, **in one process as well as across a worker restart** — the
+  same-process case being the one that matters here, since every counter below
+  resets at an interpreter boundary and a fresh-process comparison would pass
+  while the property is false. STEP's `FILE_NAME` creation timestamp is pinned
+  kernel-side (`geometry.kernel.export.STEP_EXPORT_TIMESTAMP`; decision +
+  evidence in docs/GEOMETRY-QA.md 2026-07-10). It is **not** the only such byte
+  range, and this bullet said it was until STEPDET-1 (2026-08-29): the ASSEMBLY
+  writer additionally fills two labels from PROCESS-GLOBAL counters — the
+  `NEXT_ASSEMBLY_USAGE_OCCURRENCE` id, and the PRODUCT id/name of the extra
+  assembly level OCCT interposes around a MULTI-BODY component
+  (`'Open CASCADE STEP translator <ver> N.M.K'`). `_canonicalise_writer_counters`
+  renumbers both to appearance order; both are arbitrary labels, since STEP
+  cross-references use `#N` entity ids. The second went a month unnoticed because
+  every assembly golden was a single-`Solid` part, so no fixture reached the code
+  path and the determinism gates could not fail — the fixture, not the fix, is
+  what makes the guarantee checkable (`goldens-assembly/assembly-two-multibody-
+  brackets`; evidence in docs/GEOMETRY-QA.md 2026-08-29).
+  **3MF** (added EXPORT-2, 2026-08-17) is the same shape of problem with a
+  different clock: lib3mf stamps a fresh random
   production-extension UUID on every object, component, build item and the build
   itself — five per write, which also shifts the compressed length — so
   `_canonicalise_3mf_ids` derives them from `THREE_MF_UUID_NAMESPACE` instead. A

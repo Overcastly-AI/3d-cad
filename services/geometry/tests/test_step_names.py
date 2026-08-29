@@ -32,7 +32,14 @@ writer rather than by reading it:
 the_same_name_collide_on_product_id` and the module docstring of
 ``geometry.kernel.export``): the duplicate-``PRODUCT.id`` case is a deliberate
 decision to keep the user's own name verbatim, and the single-body export path
-is build123d's writer, which we cannot reach from here.
+is build123d's writer, which we cannot reach from here (STEPNAME-2, still open —
+that path is measured DETERMINISTIC, so STEPDET-1's fix neither touched it nor
+was needed there).
+
+**A third finding was recorded here as a live limit and is now CLOSED**: a
+multi-body component made the assembly export non-deterministic in-process
+(STEPDET-1). The failing-direction test that recorded it is gone, replaced by
+:func:`test_a_multi_body_part_export_is_byte_deterministic_in_process`.
 """
 
 import re
@@ -120,11 +127,11 @@ def _multi_body() -> BodyShape:
     """A MULTI-BODY part body (``Compound``), the other ``BodyShape`` member.
 
     Named rather than inlined because it is the shape that behaves differently:
-    OCCT wraps a compound in an extra, unnamed assembly level, which is what
-    makes the export non-deterministic in-process (STEPDET-1, filed — see
-    :func:`test_the_named_export_is_still_byte_deterministic`). The NAME
-    assertions must still cover it, because a multi-body part in an assembly is
-    ordinary (MB-0), and its names are exactly as load-bearing.
+    OCCT wraps a compound in an extra, unnamed assembly level, which is what USED
+    to make the export non-deterministic in-process (STEPDET-1, closed — see
+    :func:`test_a_multi_body_part_export_is_byte_deterministic_in_process`). The
+    NAME assertions must cover it too, because a multi-body part in an assembly
+    is ordinary (MB-0), and its names are exactly as load-bearing.
     """
     return Compound(
         [Solid.make_box(4, 4, 4), Solid.make_box(4, 4, 4).moved(Location((9, 0, 0)))]
@@ -329,29 +336,24 @@ def test_the_named_export_is_still_byte_deterministic() -> None:
     assert first == second
 
 
-def test_a_multi_body_part_makes_the_export_non_deterministic() -> None:
-    """RECORDED LIVE LIMIT, found by writing the test above (STEPDET-1, filed).
+def test_a_multi_body_part_export_is_byte_deterministic_in_process() -> None:
+    """STEPDET-1, CLOSED — this replaces the live limit recorded here.
 
-    Not a naming defect, and not caused by this commit — but found by it, and
-    left visible rather than avoided, because the existing determinism gates
-    structurally cannot see it. When a component's body is a ``Compound``
-    (i.e. a MULTI-BODY part, MB-0 — an ordinary thing to instance), OCCT wraps it
-    in an extra unnamed assembly level and names that level's ``PRODUCT``
-    ``'Open CASCADE STEP translator 7.9 N.M.K'``, where **N is a process-global
-    write counter**. Two exports of the same assembly in one worker therefore
-    differ — measured, first difference at byte 3462, ``1.1.1`` vs ``2.1.1``.
+    Until 2026-08-29 this file carried
+    ``test_a_multi_body_part_makes_the_export_non_deterministic``, asserted in the
+    FAILING direction, because a ``Compound`` body made OCCT interpose an extra
+    assembly level whose PRODUCT name carried a PROCESS-GLOBAL write counter
+    (``'Open CASCADE STEP translator 7.9 N.M.K'`` — measured, first difference at
+    byte 3462, ``1.1.1`` vs ``2.1.1``). ``_canonicalise_writer_counters`` now pins
+    it the same way it pins the NAUO id, and ``goldens-assembly/
+    assembly-two-multibody-brackets`` is what lets the export suite's determinism
+    gates see the code path at all.
 
-    It is precisely the defect ``_canonicalise_occurrence_ids`` already fixes for
-    the ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` id, in a second byte range nobody
-    looked at. ``test_assembly_export``'s in-process and interpreter-restart
-    determinism gates pass only because BOTH shipped assembly goldens are made
-    of single ``Solid`` parts, so the extra level never appears — the archetypal
-    gate that cannot fail for the reason you care about.
-
-    **Asserted in the failing direction on purpose.** If this starts failing, the
-    counter has been canonicalised and STEPDET-1 is CLOSED — delete this test and
-    say so in the commit. A limit that can only fail one way stops being a record
-    the moment it is lifted.
+    Kept HERE, in the naming suite, because the encoding fix these tests cover
+    reaches the same labels: a name conversion that allocated or ordered
+    differently per call would show up as a determinism failure and nowhere else.
+    **Same process, twice** — the counter resets at an interpreter boundary, so a
+    fresh-process comparison would pass while the property is false.
     """
     parts = [_component("Bracket <1>", _multi_body())]
     first = export_step_assembly_bytes("Chassis", parts)
@@ -360,9 +362,9 @@ def test_a_multi_body_part_makes_the_export_non_deterministic() -> None:
     counters = set(re.findall(rb"Open CASCADE STEP translator [\d.]+ (\d+)\.", first))
     assert counters, (
         "no translator PRODUCT in a compound-bodied export — the mechanism this "
-        "records has changed shape; re-measure before editing this test"
+        "covers has changed shape; re-measure before editing this test"
     )
-    assert first != second, (
-        "the compound-bodied assembly export is now byte-deterministic; "
-        "STEPDET-1 is CLOSED — delete this test and say so in the commit"
+    assert counters == {b"1"}, (
+        f"the process-global write counter reached the file as {sorted(counters)}"
     )
+    assert first == second

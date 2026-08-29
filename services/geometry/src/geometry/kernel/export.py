@@ -6,7 +6,8 @@ Every output is **byte-deterministic** for identical requests (RESEARCH §9); th
 geometry export gate asserts it:
 
 * **STEP:** OCCT stamps the file's ``FILE_NAME`` record with the wall-clock
-  creation time — the one nondeterministic byte range in the output. We pin
+  creation time — the one nondeterministic byte range in a SINGLE-BODY output
+  (the assembly writer adds two more; see the determinism note below). We pin
   it to :data:`STEP_EXPORT_TIMESTAMP` via ``export_step(timestamp=...)``
   (decision + evidence recorded in docs/GEOMETRY-QA.md, gap #4). Exporting
   through ``BytesIO`` also keeps filesystem paths out of the file — the
@@ -108,7 +109,11 @@ own label from ``shape.label`` through the same defaulted ``ExtendedString``
 overload — so a single-body STEP still names build123d and still mojibakes a
 non-ASCII part name. Both are measured, and neither is fixable from here without
 owning that writer end to end, which is a change to the most-used export path
-and its own decision (filed as STEPNAME-2).
+and its own decision (filed as STEPNAME-2). That path is NOT affected by
+STEPDET-1, which is measured rather than assumed: ``export_step_bytes`` does not
+build an XCAF assembly, so no extra level is interposed, no translator PRODUCT is
+emitted and two exports of the same multi-body part in one process are already
+byte-identical.
 
 *Why no MAPPED_ITEM.* AP214 has two encodings for "this geometry, placed there":
 ``MAPPED_ITEM``/``REPRESENTATION_MAP`` (a representation re-used inside another
@@ -116,17 +121,25 @@ representation) and the assembly product structure above. OCCT's XCAF writer
 emits the latter, which is the encoding every MCAD assembly exchange uses — the
 audit's ``MAPPED_ITEM`` count was a proxy for "is anything instanced at all",
 and the measurable that actually answers it is ``MANIFOLD_SOLID_BREP`` count ==
-unique part count (asserted on the emitted bytes by ``test_assembly_export``).
+the unique parts' BODY count — one B-rep per body, placed once per instance, so
+the file does not scale with the instance count (asserted on the emitted bytes by
+``test_assembly_export``; per BODY rather than per PART since a multi-body part
+legitimately writes several and instances all the same).
 
-Determinism (RESEARCH §9): the pinned timestamp above applies unchanged. The one
-EXTRA nondeterministic byte range this path introduces is a **process-global**
-occurrence counter OCCT stamps into each ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` id
-(it increments across writer invocations within a worker, so a second export of
-the same graph would differ); we canonicalise it to appearance order
-(:func:`_canonicalise_occurrence_ids`) so identical requests stay byte-identical
-(decision + evidence in docs/GEOMETRY-QA.md). The NAUO id is an arbitrary label
-— STEP cross-references use ``#N`` entity ids, not this string — so renumbering
-it is semantically inert.
+Determinism (RESEARCH §9): the pinned timestamp above applies unchanged. This
+path introduces TWO extra nondeterministic byte ranges, both fed by the same
+**process-global** counters OCCT increments across writer invocations within a
+worker: the ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` id, and — when a component's body
+is a ``Compound``, i.e. a MULTI-BODY part — the PRODUCT id/name of the extra
+assembly level OCCT interposes, ``'Open CASCADE STEP translator 7.9 N.M.K'``.
+:func:`_canonicalise_writer_counters` renumbers both to appearance order so
+identical requests stay byte-identical (decision + evidence in
+docs/GEOMETRY-QA.md). Both are arbitrary labels — STEP cross-references use
+``#N`` entity ids, not these strings — so renumbering them is semantically
+inert. The second range went unfixed for a month (STEPDET-1) because every
+shipped assembly golden was made of single-``Solid`` parts, so the determinism
+gates could not reach the code path; ``assembly-two-multibody-brackets`` is the
+fixture that makes them able to fail.
 
 The OCP wheel ships no type stubs, so the raw ``gp_Trsf`` / ``gp_Quaternion``
 transform calls the assembly placement uses are opaque to pyright; the directives
@@ -599,29 +612,88 @@ def _instanced_shape(component: AssemblyComponent) -> TopoDS_Shape:
 
 
 #: Matches the id (first) field of every ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` in a
-#: part-21 file — the one byte range OCCT's assembly writer fills from a
+#: part-21 file — one of the two byte ranges OCCT's assembly writer fills from a
 #: process-global counter. The name/reference fields that follow are untouched.
 _NAUO_ID_RE = re.compile(rb"(NEXT_ASSEMBLY_USAGE_OCCURRENCE\(')([^']*)(')")
 
+#: Matches the write counter inside the PRODUCT id/name OCCT gives an UNNAMED
+#: shape — ``'Open CASCADE STEP translator 7.9 N.M.K'``, where the prefix is the
+#: ``write.step.product.name`` static's value, ``N`` is the process-global write
+#: counter (the nondeterministic part) and ``M.K`` index the component and its
+#: sub-shape within THIS write (both deterministic). The version is matched as
+#: ``[\d.]+`` so an OCCT point release does not silently stop matching; the
+#: phrase itself is asserted against OCCT's own static by
+#: ``test_assembly_export``, so an upstream rewording fails loudly rather than
+#: quietly restoring the nondeterminism.
+_TRANSLATOR_PRODUCT_RE = re.compile(
+    rb"(Open CASCADE STEP translator [\d.]+ )(\d+)((?:\.\d+)*)"
+)
 
-def _canonicalise_occurrence_ids(data: bytes) -> bytes:
-    """Renumber ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` ids to appearance order (§9).
 
-    OCCT stamps each usage occurrence's id string from a counter that persists
-    ACROSS writer invocations in a worker process, so a second export of the
-    same graph would differ only in those ids. The id is an arbitrary label
-    (STEP cross-refs use ``#N`` entity ids, never this string), so rewriting it
-    to a deterministic ``1..N`` in file order — itself deterministic — makes the
-    whole file byte-identical for identical requests without touching geometry.
+def occt_default_product_name() -> str:
+    """OCCT's OWN ``write.step.product.name`` — what :data:`_TRANSLATOR_PRODUCT_RE`
+    hardcodes half of.
+
+    The pattern above matches a literal OCCT phrase, so an upstream rewording
+    would make it match nothing and silently restore the nondeterminism — the
+    quiet failure, since a canonicaliser that canonicalises nothing raises no
+    error. Exposed so the gate can compare the two readings rather than assert
+    our own constant against itself, and here (not in the test) because this is
+    the module that owns the OCP import and the ``reportMissingTypeStubs``
+    relaxation the un-stubbed wheel needs.
+
+    Initialises the controller first: the static is empty until it has run, and
+    an empty prefix would make any pattern derived from it match everything.
     """
-    counter = 0
+    STEPControl_Controller.Init_s()
+    return str(Interface_Static.CVal_s("write.step.product.name"))
+
+
+def _renumber_in_appearance_order(pattern: re.Pattern[bytes], data: bytes) -> bytes:
+    """Rewrite *pattern*'s counter group (2) to its FIRST-APPEARANCE rank.
+
+    Group 1 and group 3 are the surrounding text and are re-emitted verbatim.
+    Equal counters map to equal ranks, so the transform preserves whatever
+    identity structure OCCT authored while erasing the absolute values — which
+    are the process-global part.
+    """
+    ranks: dict[bytes, bytes] = {}
 
     def _renumber(match: re.Match[bytes]) -> bytes:
-        nonlocal counter
-        counter += 1
-        return match.group(1) + str(counter).encode("ascii") + match.group(3)
+        rank = ranks.setdefault(match.group(2), str(len(ranks) + 1).encode("ascii"))
+        return match.group(1) + rank + match.group(3)
 
-    return _NAUO_ID_RE.sub(_renumber, data)
+    return pattern.sub(_renumber, data)
+
+
+def _canonicalise_writer_counters(data: bytes) -> bytes:
+    """Pin every label OCCT fills from a PROCESS-GLOBAL counter (RESEARCH §9).
+
+    There are two such byte ranges, and they are the same defect twice:
+
+    * the ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` id, incremented per occurrence and
+      persisting across writer invocations in a worker (measured: one assembly's
+      four occurrences write ``3,1,2,4`` then ``7,5,6,8`` on the next export);
+    * the PRODUCT id and name OCCT gives an UNNAMED shape — ``'Open CASCADE STEP
+      translator 7.9 N.M.K'`` — whose leading ``N`` counts writes in the process
+      (STEPDET-1: ``1.1.1`` on the first export, ``2.1.1`` on the second).
+
+    The second only appears when a component's body is a ``Compound``, i.e. when
+    a MULTI-BODY part (§MB-0) is instanced: OCCT then wraps the component in an
+    extra assembly level whose per-body children we do not name, so they fall
+    back to that defaulted label. Every shipped assembly golden was a single
+    ``Solid`` part until ``assembly-two-multibody-brackets``, which is why the
+    in-process AND interpreter-restart determinism gates passed for months while
+    the property they assert was false — the fixture never reached the code path.
+
+    Both are arbitrary LABELS: STEP cross-references use ``#N`` entity ids, never
+    these strings, and the counter identifies nothing about the model. Rewriting
+    each to its first-appearance rank is therefore semantically inert and makes
+    identical requests byte-identical, in-process and across a worker restart.
+    """
+    return _renumber_in_appearance_order(
+        _TRANSLATOR_PRODUCT_RE, _renumber_in_appearance_order(_NAUO_ID_RE, data)
+    )
 
 
 #: The occurrence suffix an instance name carries ("Dowel Pin 8x24 <17>"). The
@@ -786,9 +858,11 @@ def export_step_assembly_bytes(
     of a dowel pin ARE one part (RESEARCH §10/§11; audit N8 — module docstring
     for the encoding and for why ``located()`` used to defeat this).
 
-    Deterministic (RESEARCH §9): the creation timestamp is pinned and the
-    per-occurrence id counter is canonicalised, so identical requests are
-    byte-identical in-process and across an interpreter restart.
+    Deterministic (RESEARCH §9): the creation timestamp is pinned and both
+    process-global writer counters are canonicalised
+    (:func:`_canonicalise_writer_counters`), so identical requests are
+    byte-identical in-process and across an interpreter restart — including when
+    a component is a MULTI-BODY part.
 
     Raises:
         ValueError: if *components* is empty (nothing to place — the caller maps
@@ -797,7 +871,7 @@ def export_step_assembly_bytes(
     if not components:
         raise ValueError("assembly STEP export requires at least one placed body")
     doc = _assembly_xde_document(assembly_name, components)
-    data = _canonicalise_occurrence_ids(_write_step_document(doc, assembly_name))
+    data = _canonicalise_writer_counters(_write_step_document(doc, assembly_name))
     if not data.startswith(STEP_MAGIC):
         raise RuntimeError("assembly STEP export produced a non-part-21 payload")
     return data

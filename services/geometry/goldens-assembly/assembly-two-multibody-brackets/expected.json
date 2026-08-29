@@ -1,0 +1,46 @@
+{
+  "description": "MULTI-BODY ASSEMBLY GOLDEN (STEPDET-1) — the fixture the two shipped assembly goldens could not be: a part that is TWO disjoint bodies, instanced twice. It is assembly-two-plates-bolted VERBATIM — the same two instances of the same 40 x 25 x 10 mm plate (two r5 through-holes at (12, 12.5) and (28, 12.5)), the same coincident + two concentric mates, the same seeded displacement (3, 2, 16) and ~5.7 deg spin about Z — with ONE extra feature pair appended to the part's tree: a 10 x 10 mm square at x in [55, 65], y in [7.5, 17.5] on the same XY datum, extruded 10 mm with merge=false, giving a second body 15 mm clear of the plate in x (docs/design/multi-body.md §MB-0). The joint is unchanged, so its analytic answer carries over from the bolted golden's reviewed derivation and the ONLY new variable is that the part is multi-body. WHY IT EXISTS: when a component's body is a Compound, OCCT wraps it in an extra unnamed assembly level and names that level's PRODUCT 'Open CASCADE STEP translator <ver> N.M.K', where N is a PROCESS-GLOBAL write counter — so two exports of one assembly in one worker differed (STEPDET-1, measured at byte 4024 of this golden's own STEP: '1.1.1' vs '2.1.1'). Both shipped assembly goldens are made of single Solid parts, so that extra level never appeared in them and test_assembly_export's in-process AND interpreter-restart determinism gates passed while the property they assert was false — a gate that cannot fail for the reason it exists. This golden is what makes them able to fail: it is the ONLY fixture in the inventory whose STEP carries a translator PRODUCT (2 of them), 2 MANIFOLD_SOLID_BREPs for 1 unique part, and 4 NEXT_ASSEMBLY_USAGE_OCCURRENCEs for 2 instances. It also extends the export gates' reach in three ways nothing else covered: a mate resolved by face/edge SIGNATURE against a multi-body part (the signature must find the plate's face among both bodies' faces), the STEP round trip at BODY granularity (4 solids recovered for 2 instances), and instancing of a multi-body part (one shared sub-assembly used twice, not two copies).",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded pipeline output (geometry-gates skill: a golden recorded from buggy output enshrines the bug). The plate body's own properties are the sketch-extrude-plate-2holes golden's, independently hand-derived there: volume 10000 - 500*pi = 8429.203673205104 mm^3, surface_area 2*(1000 - 50*pi) + 1300 + 2*(100*pi) = 3614.159265358979 mm^2, centroid (20, 12.5, 5), AABB [0,0,0]..[40,25,10], topology 8 faces / 18 edges / 1 shell.",
+    "The second body is a 10 mm cube spanning x in [55,65], y in [7.5,17.5], z in [0,10]: volume 1000 mm^3, surface_area 6*100 = 600 mm^2, centroid (60, 12.5, 5), AABB [55,7.5,0]..[65,17.5,10], topology 6 faces / 12 edges / 1 shell. It is DISJOINT from the plate (15 mm clear in x — they share no face, edge or vertex), which is what makes the part two bodies rather than one. Its y and z are chosen so the part centroid keeps y = 12.5 and z = 5 EXACTLY (the cube is centred on the plate's y midline and shares its z extent), leaving x as the only coordinate that has to be computed.",
+    "Per-instance part properties: volume = 8429.203673205104 + 1000 = 9429.203673205104 mm^3; surface_area = 3614.159265358979 + 600 = 4214.15926535898 mm^2 (every face of both bodies is external — nothing is fused); centroid x = (V_plate*20 + 1000*60)/(V_plate + 1000) = (260000 - 10000*pi)/(11000 - 500*pi) = (13000 - 500*pi)/(550 - 25*pi) = 24.242139780442724 mm, y = 12.5, z = 5. Topology per instance = 8+6 = 14 faces, 18+12 = 30 edges, 1+1 = 2 shells.",
+    "Solved placements are the bolted golden's, unchanged: the mates reference the PLATE's faces and hole axes only, and the solver moves each instance RIGIDLY, so the extra body rides along and contributes nothing to the residual. Plate A is grounded at identity -> position (0, 0, 0), orientation (0, 0, 0, 1). Plate B: coincident+flush puts B's bottom face (local z = 0) on A's top face (world z = 10) -> +10 in z; the two concentric mates align B's holes (local x = 12 and 28 at y = 12.5) with A's, and two holes at DISTINCT x pin the spin about z, forcing identity rotation and zero x/y translation. Solved B: position (0, 0, 10), orientation (0, 0, 0, 1); 0 remaining DOF, so well_constrained.",
+    "combined volume = 2 * 9429.203673205104 = 18858.407346410208 mm^3 (Sigma over instances; the roll-up does NO boolean, and the only contact is the plates' touching faces, which have zero volume). Measured deviation vs analytic: 0.0.",
+    "combined surface_area = 2 * 4214.15926535898 = 8428.31853071796 mm^2 (Sigma; the roll-up does not merge the touching faces). Measured deviation: 1.8e-12 mm^2 (the sum of four independent GProp integrations in float64).",
+    "combined centroid = (24.242139780442724, 12.5, 10): the two instances have equal volume, so x and y are the per-instance values unchanged and z is the mean of A's 5 and B's 5+10 = 15. Measured deviation: 1.1e-09 mm in x, 6.4e-10 in y, 8.9e-10 in z — the solver residual on B's placement carried into the volume-weighted mean, not a mass-property error.",
+    "combined bounding_box = [0,0,0]..[65,25,20]: per instance the AABB is the union of the plate's [0,0,0]..[40,25,10] and the cube's [55,7.5,0]..[65,17.5,10] = [0,0,0]..[65,25,10]; B is that translated +10 in z, and the union of the two is [0,0,0]..[65,25,20]. No rotation, so the corner-transform union is exact. Measured deviation: <= 1.2e-08 mm on every bound (B's solved z, below).",
+    "combined topology = 28 faces / 60 edges / 4 SHELLS: the roll-up SUMS per-instance counts (14/30/2 each) — no boolean merge, so all four lumps stay distinct. shells = 4 is the load-bearing multi-body assertion here: two instances of a two-body part, not two instances of one body.",
+    "distinct_mesh_count = 1: both instances share part_key 'part-plate-2holes@1', so the pipeline evaluates and tessellates the (two-body) part ONCE and both instances carry the same content-addressed part_mesh_glb_id (§6.4). Multi-body changes nothing about the dedup contract — the shared mesh is simply a compound of two bodies.",
+    "STEP structure, asserted on the exported bytes by test_assembly_export rather than expected here: 2 MANIFOLD_SOLID_BREP (the part's two bodies, written ONCE despite two instances), 4 NEXT_ASSEMBLY_USAGE_OCCURRENCE (2 named instance occurrences + 2 unnamed ones inside the shared sub-assembly, one per body), and 2 translator PRODUCTs for the unnamed bodies whose write counter STEPDET-1 canonicalises."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Measured first, then set (geometry-gates skill: never copy a bound blindly), and it is the SOLVER's bound, not the kernel's — the same 1e-6 the two sibling goldens carry, for the same reason and now re-measured on this joint. All axis/normal correspondences of this joint are vertical (parallel), so the closed-form fast path cannot pin the spin about z from directions alone and correctly defers to the deterministic Levenberg-Marquardt, which converges to a small residual rather than exact zero. Measured deviations vs the analytic values (2026-08-29, build123d 0.11.1 / OCCT 7.9, planegcs 0.8.0): instance B position 4.4e-09 in x, 2.5e-09 in y, 1.18e-08 in z, orientation 4.3e-10 as max |R - I| over the rotation matrix (the form the harness asserts, immune to the +/-q double cover); combined volume 0.0, surface_area 1.8e-12, centroid <= 1.1e-09, bounding box <= 1.2e-08. Documented ceiling 1e-6 is ~85x the observed worst case (1.18e-08, B's solved z), headroom for platform FP variation across OCCT/planegcs builds, and still 100x tighter than the standing kernel linear tolerance (1e-7 m = 1e-4 mm at model scale). The extra body contributes no error of its own: it is a prism whose GProp integration is exact to a few ulp (measured 1.8e-12 on the summed area) and it takes no part in the residual. Loosening this further requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "status": "well_constrained",
+  "distinct_mesh_count": 1,
+  "instances": [
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000001",
+      "placement": {
+        "position": { "x": 0.0, "y": 0.0, "z": 0.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    },
+    {
+      "instance_id": "00000000-0000-0000-0000-000000000002",
+      "placement": {
+        "position": { "x": 0.0, "y": 0.0, "z": 10.0 },
+        "orientation": { "x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0 }
+      }
+    }
+  ],
+  "properties": {
+    "volume": 18858.407346410208,
+    "surface_area": 8428.31853071796,
+    "centroid": { "x": 24.242139780442724, "y": 12.5, "z": 10.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 65.0, "y": 25.0, "z": 20.0 }
+    }
+  },
+  "topology": { "faces": 28, "edges": 60, "shells": 4 }
+}

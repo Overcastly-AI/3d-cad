@@ -7,6 +7,111 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-08-29 — STEPDET-1: the assembly STEP export was not deterministic, and both determinism gates were structurally unable to say so (kernel-architect)
+
+A determinism decision and its evidence, recorded here beside the pinned STEP
+timestamp (gap #4) and the pinned 3MF UUIDs, because it is the third instance of
+the same class: **a writer field OCCT fills from a process-global counter.**
+
+### The defect
+
+When a component's body is a `Compound` — a MULTI-BODY part (§MB-0), an ordinary
+thing to instance — OCCT interposes an extra assembly level and names that
+level's PRODUCT from the `write.step.product.name` static plus a counter:
+`'Open CASCADE STEP translator 7.9 N.M.K'`. `M.K` index the component and its
+sub-shape within the write and are deterministic; **`N` counts writes in the
+process**. Two exports of one assembly in one worker therefore differ.
+
+Measured on the new golden, in one process, second export against first:
+
+| | first export | second export |
+|---|---|---|
+| translator PRODUCT | `... 7.9 1.1.1` | `... 7.9 2.1.1` |
+| first differing byte | — | **4024** |
+| sha256 (raw writer output) | `22c81292802d…` | `28e705013764…` |
+
+The complete diff between the two exports is those PRODUCT id/name fields and
+nothing else (unified diff over 67 681 bytes: 4 entities, 8 lines).
+
+### Why every gate agreed with it
+
+`test_assembly_export` has asserted byte-determinism in-process AND across an
+interpreter restart since the assembly export landed. Both passed, for a month,
+over a writer that was not deterministic — because **both shipped assembly
+goldens are single-`Solid` parts**, so the extra level never appeared in any
+fixture. The gate was correct; it could not fail for the reason it exists.
+
+Note the same-process detail is load-bearing: the counter resets at an
+interpreter boundary, so a fresh-process comparison passes while the property is
+false. The restart gate only catches it because it compares a fresh process
+against a LOCAL process that has already exported at least once.
+
+### The fix, and what it does not move
+
+`_canonicalise_occurrence_ids` becomes `_canonicalise_writer_counters` and
+renumbers both counters — the NAUO id and this one — through one shared
+`_renumber_in_appearance_order`, mapping each distinct counter value to its
+first-appearance rank. Equal values stay equal, so whatever identity structure
+OCCT authored survives; the absolute values, which are the process-global part,
+do not. Both are arbitrary labels (STEP cross-references use `#N` entity ids).
+
+**No committed golden's bytes move**, verified rather than assumed by running the
+legacy and new canonicalisers over the same raw writer output for all three
+goldens: identical in every case, because a FIRST export in a process is already
+counter-1. The change is visible only on the repeat export, which is exactly the
+export that was wrong.
+
+### The fixture — `goldens-assembly/assembly-two-multibody-brackets`
+
+The bolted golden VERBATIM (same two instances of one plate part, same coincident
++ two concentric mates, same seeded displacement and spin) with one extra
+feature pair appended to the part's tree: a 10 mm cube 15 mm clear of the plate,
+`merge=false`. The joint is unchanged, so its reviewed analytic answer carries
+over and multi-body is the only new variable. Hand-derived expectations, measured
+deviations (build123d 0.11.1 / OCCT 7.9 / planegcs 0.8.0):
+
+| quantity | analytic | deviation |
+|---|---|---|
+| combined volume | 18858.407346410208 mm³ | **0.0** |
+| combined surface area | 8428.31853071796 mm² | 1.8e-12 |
+| combined centroid | (24.242139780442724, 12.5, 10) | ≤ 1.1e-09 |
+| instance B position | (0, 0, 10) | 1.18e-08 (z) |
+| instance B orientation | identity | 4.3e-10 (max abs, R−I) |
+| bounding box | [0,0,0]..[65,25,20] | ≤ 1.2e-08 |
+| topology | 28 faces / 60 edges / 4 shells | exact |
+
+Documented tolerance **1e-6** — the solver's bound, as on both sibling goldens,
+re-measured here rather than copied: 85× the observed worst case (1.18e-08).
+
+It is asserted to REACH the code path rather than assumed to: 2 translator
+PRODUCTs, 2 `MANIFOLD_SOLID_BREP` for 1 unique part, 4 `NEXT_ASSEMBLY_USAGE_
+OCCURRENCE` for 2 instances. A multi-body golden that happened to serialise as a
+single `Solid` would have left the blind spot exactly where it was.
+
+### Mutation evidence
+
+Reverting the new canonicalisation, with everything else unchanged:
+
+* **4 red**, all naming the multi-body case — in-process determinism, restart
+  determinism, the counter-pinned byte assertion, and the naming suite's
+  in-process one (`assert first == second` … `At index 4024 diff: b'1' != b'2'`).
+* **54 green**, including **every** determinism case of both older goldens in all
+  four formats. That is the measurement that the blind spot was real, not the
+  claim that it was.
+
+### Two neighbouring gates had the same blindness
+
+Not predicted, found by dropping the fixture in. `_expected_instances` matched
+re-imported solids per INSTANCE, and the instancing gate asserted one B-rep per
+unique PART — both true only while a part is one solid, so the new golden was
+rejected by an assertion (`2 B-reps written for 1 unique part(s)`) that had never
+been able to fail for its own reason. Both are now per-BODY, which is the
+granularity a STEP file actually has; the instance-identity claim moved to the
+NAMED occurrences, since OCCT adds an unnamed one per body. Coverage the
+inventory now has for the first time: a mate resolved by face/edge signature
+against a multi-body part, and a STEP round trip recovering 4 solids for 2
+instances.
+
 ## 2026-08-14 — GEOM-2 / M17: a face's identity encoded what had been DRILLED into it (kernel-architect)
 
 The audit's P0: thicken a bracket's plate 10 → 14 mm and **4 of 11 features go

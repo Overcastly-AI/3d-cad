@@ -599,6 +599,40 @@ request at all. Gates: `just lint` exit 0, `pnpm -r typecheck`, `pnpm -r test`
 stack. **STEPNAME-2** (the single-body export) remains open and is the more
 common path — the user-visible split is still the wrong way round.
 
+**STEPDET-1 CLOSED (kernel-architect, 2026-08-29) — the determinism hole is one
+pattern and a shared helper; the reason it survived a month is the part worth
+keeping.** A multi-body component made OCCT interpose an extra assembly level
+whose PRODUCT name carries a PROCESS-GLOBAL write counter, so two exports of one
+assembly in one worker differed. `_canonicalise_writer_counters` (the renamed
+`_canonicalise_occurrence_ids`) now renumbers BOTH counters through one shared
+`_renumber_in_appearance_order`, rather than growing a second, parallel
+mechanism beside the first.
+**The durable half is the fixture.** Both determinism gates passed throughout,
+because every shipped assembly golden was a single-`Solid` part and no fixture
+ever reached the code path — the gate was correct and structurally unable to
+fail. `goldens-assembly/assembly-two-multibody-brackets` is the bolted golden
+VERBATIM (same instances, same three mates, same seed) plus one disjoint 10 mm
+cube per part, so the joint's reviewed analytic answer carries over and the only
+new variable is multi-body. Measured against hand-derived values: volume
+deviation **0.0**, area 1.8e-12, centroid <= 1.1e-09, solved z 1.18e-08 against a
+documented 1e-6 (85x headroom).
+**Mutation evidence, restored.** Reverting the canonicalisation reddens **4**
+cases — the new golden's in-process and restart determinism gates, its
+counter-pinned byte assertion, and the naming suite's in-process one — while
+**54 pass**, including every determinism case of both older goldens in all four
+formats. That is the blind spot measured, not asserted: the old gates cannot
+fail for the reason they exist. In-process detail: `assert first == second` ...
+`At index 4024 diff: b'1' != b'2'`.
+**And the same blindness had spread to two gates nobody suspected.** The
+round-trip oracle was per-INSTANCE and the instancing gate counted one B-rep per
+PART — both true only while a part is one solid, so the new golden was rejected
+(`2 B-reps written for 1 unique part(s)`) by an assertion that had never been
+able to fail for its own reason. Both are now per-BODY, which is the granularity
+a STEP file actually has. The recorded live limit in `test_step_names.py` is
+DELETED and replaced by its positive form. STEPNAME-2 stays open and is
+unaffected: the single-body path builds no XCAF assembly, emits no translator
+PRODUCT, and is measured byte-deterministic already.
+
 **REACH-3-FLOW CLOSED (frontend-builder, 2026-08-28) — the orientation
 proposal never fired on the only sheet most drawings have, and the paper cell
 quoted a scale it could not produce.** (P1-1) The proposal was structurally

@@ -9,20 +9,28 @@ instances, real solved mate transforms) — the SAME requests
 :mod:`tests.test_assembly_goldens` locks the solve for — so the export path is
 exercised over genuinely-placed parts, not a hand-rigged pair. For each golden:
 
-* **Worked STEP round-trip:** export → ``build123d.import_step`` → recover N part
-  bodies; each re-imported solid's world mass-properties (rigid-invariant volume /
-  area, transformed centroid) match the instance's SOLVED placement applied to its
-  part's local properties, within the shared ``ROUNDTRIP_TOL`` (never an ad-hoc
-  epsilon — the kernel round-trip bound, conftest).
-* **Instanced product structure (audit N8):** each UNIQUE part is written as ONE
-  named ``PRODUCT`` and placed once per instance, so the solid count equals the
-  unique-part count (never the instance count) and the file stops growing with the
-  fastener count. Instance identity rides the per-occurrence
+* **Worked STEP round-trip:** export → ``build123d.import_step`` → recover every
+  placed BODY; each re-imported solid's world mass-properties (rigid-invariant
+  volume / area, transformed centroid) match its instance's SOLVED placement
+  applied to the body's local properties, within the shared ``ROUNDTRIP_TOL``
+  (never an ad-hoc epsilon — the kernel round-trip bound, conftest).
+* **Instanced product structure (audit N8):** each UNIQUE part's geometry is
+  written ONCE and placed once per instance, so the solid count equals the
+  unique parts' BODY count (never the instance count) and the file stops growing
+  with the fastener count. Instance identity rides the per-occurrence
   ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` name, so each recovered body is still
   traceable to its instance.
 * **Byte-determinism (RESEARCH §9):** identical requests → byte-identical STEP and
-  STL, in-process AND across an interpreter restart (the assembly writer's
-  process-global occurrence-id counter is canonicalised kernel-side).
+  STL, in-process AND across an interpreter restart (both of the assembly
+  writer's process-global counters are canonicalised kernel-side).
+
+**Every gate here is per-BODY, not per-instance, and it did not use to be**
+(STEPDET-1). While both goldens were single-``Solid`` parts the two granularities
+coincided, so three separate assertions quietly encoded "one part is one solid" —
+and the inventory had no multi-body assembly to contradict them, which is also
+why the determinism gates passed over a writer that was not deterministic.
+``assembly-two-multibody-brackets`` is the fixture that makes all of them able to
+fail; the ``@each_golden`` sweep is what carries it to every gate at once.
 
 Plus the error posture: a body-less assembly is a clean 422
 ``assembly_export_no_body`` envelope, never a zero-solid file; the single-part
@@ -49,11 +57,12 @@ import pytest
 from build123d import import_step  # pyright: ignore[reportUnknownVariableType]
 from fastapi.testclient import TestClient
 from geometry.assembly import evaluate_assembly
+from geometry.assembly.evaluate import solve_assembly
 from geometry.assembly.export import export_assembly
 from geometry.assembly.import_step import import_step_assembly
 from geometry.assembly.transform import Pose, as_vector
 from geometry.kernel import measure_shape
-from geometry.kernel.export import STEP_MAGIC
+from geometry.kernel.export import STEP_MAGIC, occt_default_product_name
 from geometry.main import app
 from py_kit.schemas.assemblies import (
     EvaluateAssemblyRequest,
@@ -106,8 +115,8 @@ def _entity_counts(step_bytes: bytes) -> collections.Counter[str]:
 
 
 @dataclass(frozen=True)
-class _ExpectedInstance:
-    """One instance's rigid-invariant + world properties, from the solve."""
+class _ExpectedBody:
+    """One placed BODY's rigid-invariant + world properties, from the solve."""
 
     volume: float
     surface_area: float
@@ -127,45 +136,71 @@ def _export_request(model_path: Path, fmt: ExportFormat) -> ExportAssemblyReques
     )
 
 
-def _expected_instances(request: EvaluateAssemblyRequest) -> list[_ExpectedInstance]:
-    """Each bodied instance's world mass-properties from ``evaluate_assembly``.
+def _expected_bodies(request: EvaluateAssemblyRequest) -> list[_ExpectedBody]:
+    """Each placed BODY's world mass-properties from the solve.
+
+    **Body granularity, not instance**, and that distinction is the whole reason
+    STEPDET-1 was invisible: a STEP file contains one solid per BODY, so an
+    instance-granular oracle is only correct while every part is a single
+    ``Solid``. It was, in both shipped goldens, so this gate quietly could not
+    accept a multi-body assembly at all — the same structural blindness as the
+    determinism gates it sits beside.
 
     Volume/area are rigid-invariant (compared against the re-imported solid
-    directly); the centroid is the part's LOCAL centroid carried through its
-    SOLVED placement — the exact world position the exported file must reproduce.
+    directly); the centroid is the body's LOCAL centroid carried through its
+    instance's SOLVED placement — the exact world position the exported file must
+    reproduce.
+
+    Cross-checked against the DTO the evaluate ROUTE publishes: the summed body
+    volumes must equal the summed per-instance volumes ``evaluate_assembly``
+    reports. A second, independently-derived reading, so a divergence between the
+    solve the export path consumes and the numbers the API returns fails here
+    instead of passing quietly in both.
     """
-    result = evaluate_assembly(request)
-    expected: list[_ExpectedInstance] = []
-    for inst in result.instances:
-        if inst.properties is None:
-            continue
-        world = Pose.from_placement(inst.placement).apply_point(
-            as_vector(inst.properties.centroid)
-        )
-        expected.append(
-            _ExpectedInstance(
-                volume=inst.properties.volume,
-                surface_area=inst.properties.surface_area,
-                world_centroid=(float(world[0]), float(world[1]), float(world[2])),
+    solved = solve_assembly(request)
+    expected: list[_ExpectedBody] = []
+    for placed in solved.placed:
+        pose = Pose.from_placement(placed.placement)
+        for solid in placed.body.solids():
+            props = measure_shape(solid)
+            world = pose.apply_point(as_vector(props.centroid))
+            expected.append(
+                _ExpectedBody(
+                    volume=props.volume,
+                    surface_area=props.surface_area,
+                    world_centroid=(float(world[0]), float(world[1]), float(world[2])),
+                )
             )
-        )
+
+    published = sum(
+        inst.properties.volume
+        for inst in evaluate_assembly(request).instances
+        if inst.properties is not None
+    )
+    assert sum(body.volume for body in expected) == pytest.approx(
+        published, rel=1e-12
+    ), (
+        "the bodies the export path composes do not sum to the volume the "
+        "evaluate route reports for the same request"
+    )
     return expected
 
 
 def _match_reimported(
     name: str,
     step_bytes: bytes,
-    expected: list[_ExpectedInstance],
+    expected: list[_ExpectedBody],
     tmp_path: Path,
     tol: float,
 ) -> None:
     """Assert the re-imported solids reproduce every expected placed body.
 
-    Recovers N solids (one per instance), measures each through the SAME GProp
-    pipeline, and bijectively matches them to the expected instances by nearest
-    world centroid — then asserts volume, area, and centroid all agree within
-    *tol* (the documented kernel round-trip bound, ``roundtrip_tol`` fixture). A
-    body that lands at the wrong placement, or a lost solid, fails the match.
+    Recovers N solids (one per BODY across all instances — a multi-body part
+    contributes several), measures each through the SAME GProp pipeline, and
+    bijectively matches them to the expected bodies by nearest world centroid —
+    then asserts volume, area, and centroid all agree within *tol* (the
+    documented kernel round-trip bound, ``roundtrip_tol`` fixture). A body that
+    lands at the wrong placement, or a lost solid, fails the match.
     """
     step_path = tmp_path / f"{name}.step"
     step_path.write_bytes(step_bytes)
@@ -218,7 +253,7 @@ def test_step_assembly_export_roundtrip(
     data = export_assembly(request)
     assert data.startswith(STEP_MAGIC), f"{name}: not a STEP part 21 file"
 
-    _match_reimported(name, data, _expected_instances(request), tmp_path, roundtrip_tol)
+    _match_reimported(name, data, _expected_bodies(request), tmp_path, roundtrip_tol)
 
     # Instance traceability: one named occurrence per instance. (The goldens carry
     # no instance names, so the composer falls back to the instance id — which is
@@ -250,7 +285,7 @@ def test_step_assembly_export_endpoint_roundtrip(
     )
     assert response.content.startswith(STEP_MAGIC), f"{name}: not a STEP part 21 file"
     _match_reimported(
-        name, response.content, _expected_instances(request), tmp_path, roundtrip_tol
+        name, response.content, _expected_bodies(request), tmp_path, roundtrip_tol
     )
 
 
@@ -259,16 +294,128 @@ def test_step_assembly_export_endpoint_roundtrip(
 def test_assembly_export_is_byte_deterministic_in_process(
     model_path: Path, fmt: ExportFormat
 ) -> None:
-    """Same request twice → byte-identical file (RESEARCH §9; a flake is P0).
+    """Same request twice IN ONE PROCESS → byte-identical file (RESEARCH §9).
 
-    Covers the assembly writer's process-global occurrence-id counter: without
-    the kernel-side canonicalisation a second in-process export would differ.
+    The same-process case is the whole point and not an incidental detail: both
+    counters this covers are PROCESS-global, so they reset at an interpreter
+    boundary and a fresh-process comparison would pass while the property is
+    false. A flake here is a P0, not a retry.
+
+    Covers the writer's occurrence-id counter and — since
+    ``assembly-two-multibody-brackets`` joined the inventory — the translator
+    PRODUCT counter a multi-body component drags in (STEPDET-1). Without the
+    kernel-side canonicalisation the second export differs: measured at byte 4024
+    of that golden's STEP, ``1.1.1`` against ``2.1.1``.
     """
     request = _export_request(model_path, fmt)
     first = export_assembly(request)
     second = export_assembly(request)
     assert first == second, (
         f"{model_path.parent.name}: {fmt} assembly export bytes differ between runs"
+    )
+
+
+#: The counter OCCT stamps into an UNNAMED shape's PRODUCT — ``N.M.K``, whose
+#: leading field counts WRITES in the process (STEPDET-1). Kept independent of
+#: the kernel's own pattern: an oracle imported from the code under test agrees
+#: with it by construction.
+_TRANSLATOR_COUNTER_RE = re.compile(rb"'Open CASCADE STEP translator [\d.]+ ([\d.]+)'")
+
+
+def test_the_inventory_carries_a_multi_body_assembly_golden() -> None:
+    """A multi-body part must be REACHABLE from the goldens, and it was not.
+
+    Until ``assembly-two-multibody-brackets`` every assembly golden was made of
+    single-``Solid`` parts, so OCCT never interposed the extra assembly level
+    whose PRODUCT carries the nondeterministic write counter — and the two
+    determinism gates above passed for a month over a writer that was not
+    deterministic (STEPDET-1). Discovery breakage or a deleted golden must fail
+    HERE, loudly, rather than by quietly returning those gates to a state where
+    they cannot fail.
+    """
+    multi = [
+        path.parent.name
+        for path in MODEL_FILES
+        if any(
+            count > 1
+            for count in _bodies_by_unique_part(_export_request(path, "step")).values()
+        )
+    ]
+    assert multi, (
+        "no assembly golden holds a MULTI-BODY part, so the export determinism "
+        "gates cannot reach OCCT's extra assembly level (STEPDET-1) — they would "
+        "pass whether or not the writer is deterministic"
+    )
+
+
+@each_golden
+def test_only_a_multi_body_component_adds_an_assembly_level_and_its_counter_is_pinned(
+    model_path: Path,
+) -> None:
+    """The fixture reaches the ``Compound`` path — ASSERTED, per golden, not assumed.
+
+    A golden could be authored as a multi-body part and still serialise as a
+    single ``Solid``, which would leave the blind spot exactly where it was while
+    looking like a fix. So this reads the emitted bytes and demands the
+    correspondence in BOTH directions: a golden whose part has more than one body
+    carries translator PRODUCTs (the extra level exists), and one whose parts are
+    all single-``Solid`` carries none (nothing else emits them, so the other
+    goldens really were structurally unable to fail).
+
+    Then the determinism half at the byte level rather than by comparing two
+    exports to each other: every counter's LEADING field — the process-global one
+    — must read 1, whatever the writer's counter had reached.
+
+    **The export is deliberately run twice and the SECOND one is read.** A first
+    export in a fresh process is already at counter 1, so a single export would
+    pass without any canonicalisation whenever this test happened to run early —
+    and the suite randomises order, so "early" is not something to rely on either
+    way. Warming the counter first makes the assertion detect the defect in any
+    order, which the pair-comparison gates above cannot claim.
+    """
+    name = model_path.parent.name
+    request = _export_request(model_path, "step")
+    multi_body = any(count > 1 for count in _bodies_by_unique_part(request).values())
+    export_assembly(request)  # advance OCCT's process-global write counter
+    counters = _TRANSLATOR_COUNTER_RE.findall(export_assembly(request))
+
+    if not multi_body:
+        assert not counters, (
+            f"{name}: every part is a single Solid, yet the file carries "
+            f"translator PRODUCTs {counters} — the mechanism STEPDET-1 records "
+            f"has changed shape; re-measure before editing this test"
+        )
+        return
+
+    assert counters, (
+        f"{name}: a multi-body part did NOT produce OCCT's extra assembly level, "
+        f"so this golden does not reach the code path it exists to cover"
+    )
+    assert {counter.split(b".")[0] for counter in counters} == {b"1"}, (
+        f"{name}: the process-global write counter leaked into the file as "
+        f"{sorted(set(counters))} — identical requests are not byte-identical "
+        f"(STEPDET-1, RESEARCH §9)"
+    )
+
+
+def test_the_translator_product_phrase_still_matches_occts_own_static() -> None:
+    """The kernel's pattern is a hardcoded OCCT string — tie it to OCCT's value.
+
+    ``_canonicalise_writer_counters`` matches ``Open CASCADE STEP translator
+    <version> N.M.K``. That prefix is the value of OCCT's ``write.step.product.
+    name`` static, so an upstream rewording would make the pattern match nothing
+    and silently restore the nondeterminism — the failure mode being the quiet
+    one, since a canonicaliser that canonicalises nothing raises no error. Read
+    the static and require the phrase, so the next OCCT bump fails HERE with the
+    reason in the message instead of somewhere downstream. (The version itself is
+    matched as ``[\\d.]+`` and is deliberately not pinned.)
+    """
+    product_name = occt_default_product_name()
+
+    assert product_name.startswith("Open CASCADE STEP translator"), (
+        f"OCCT's write.step.product.name is now {product_name!r}; "
+        "geometry.kernel.export._TRANSLATOR_PRODUCT_RE still matches the old "
+        "phrase, so the STEPDET-1 write counter is no longer canonicalised"
     )
 
 
@@ -595,28 +742,60 @@ def _unique_part_keys(request: ExportAssemblyRequest) -> set[str]:
     return {inst.part_key for inst in request.instances}
 
 
+def _bodies_by_unique_part(request: ExportAssemblyRequest) -> dict[str, int]:
+    """How many SOLIDS each UNIQUE part holds — the file's B-rep budget.
+
+    Not a count of parts: a multi-body part (§MB-0) legitimately writes one B-rep
+    per body, and what the instancing gate protects is that geometry is written
+    once and PLACED N times, not that each part is one solid. The oracle is the
+    kernel body the export path itself composes, measured before it reaches the
+    writer, so a writer that duplicated geometry per instance still fails.
+
+    Keyed by ``part_key``, so N instances of one part collapse to one entry —
+    which is exactly the property under test.
+    """
+    return {
+        placed.part_key: len(placed.body.solids())
+        for placed in solve_assembly(request).placed
+    }
+
+
 @each_golden
-def test_step_assembly_export_writes_one_brep_per_unique_part(
+def test_step_assembly_export_writes_one_brep_per_unique_part_body(
     model_path: Path,
 ) -> None:
-    """Every shipped golden: solid count == UNIQUE part count, not instance count.
+    """Solid count == the unique parts' BODY count, never the instance count.
 
-    Both goldens are two instances of ONE part, so a regression to per-instance
-    duplication doubles the B-rep count here and fails.
+    The audit-N8 property: geometry is written once per unique part and PLACED
+    per instance, so the file stops scaling with the fastener count. Counted per
+    BODY because a multi-body part writes one B-rep per body and still instances
+    correctly — ``assembly-two-multibody-brackets`` is 2 B-reps for 1 unique part
+    across 2 instances, and the version of this assertion that said
+    ``== unique part count`` rejected it (2 != 1) while being unable to fail for
+    any of the reasons it was written for.
+
+    Instance identity is asserted on the NAMED occurrences rather than on the raw
+    entity count for the same reason: OCCT interposes an extra, UNNAMED occurrence
+    per body inside a multi-body component, so the entity total is instances +
+    bodies, while "every instance is in the file exactly once" is a statement
+    about the named ones.
     """
     name = model_path.parent.name
     request = _export_request(model_path, "step")
-    counts = _entity_counts(export_assembly(request))
-    unique_parts = len(_unique_part_keys(request))
+    data = export_assembly(request)
+    counts = _entity_counts(data)
+    bodies = sum(_bodies_by_unique_part(request).values())
 
-    assert counts["MANIFOLD_SOLID_BREP"] == unique_parts, (
-        f"{name}: {counts['MANIFOLD_SOLID_BREP']} B-reps written for {unique_parts} "
-        f"unique part(s) across {len(request.instances)} instances — the geometry "
-        f"is duplicated per instance instead of instanced (audit N8)"
+    assert counts["MANIFOLD_SOLID_BREP"] == bodies, (
+        f"{name}: {counts['MANIFOLD_SOLID_BREP']} B-reps written for {bodies} "
+        f"body(s) across {len(_unique_part_keys(request))} unique part(s) and "
+        f"{len(request.instances)} instances — the geometry is duplicated per "
+        f"instance instead of instanced (audit N8)"
     )
-    assert counts["NEXT_ASSEMBLY_USAGE_OCCURRENCE"] == len(request.instances), (
-        f"{name}: {counts['NEXT_ASSEMBLY_USAGE_OCCURRENCE']} occurrences for "
-        f"{len(request.instances)} instances — an instance lost its placement"
+    named = [n for n in _OCCURRENCE_NAME_RE.findall(data) if n]
+    assert len(named) == len(request.instances), (
+        f"{name}: {len(named)} named occurrences for {len(request.instances)} "
+        f"instances — an instance lost its placement"
     )
 
 

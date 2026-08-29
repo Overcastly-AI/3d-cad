@@ -46,7 +46,11 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
   and STEPDET-1 (P1, a multi-body determinism hole both existing gates are
   blind to) filed. **STEPNAME-1B is now CLOSED too (2026-08-29): the web
   sends the instance name, proved on the exported part-21 bytes, and
-  reverting the line reproduces the audit's UUIDs exactly.** Collapsed the
+  reverting the line reproduces the audit's UUIDs exactly.** **STEPDET-1 is
+  also CLOSED (2026-08-29): one shared canonicaliser for both writer
+  counters, and the durable half is `assembly-two-multibody-brackets`, the
+  fixture that makes the determinism gates able to fail at all (mutation: 4
+  red, 54 green).** Collapsed the
   now-closed Ready-queue items (A11Y-TOOLBTN-1, MEASURE-PROXY-1, EXPORT-3,
   REACH-2-IMPORT-1, REACH-3-FLOW, REACH-2-FLOW, HEM-1C, HEM-1D, PGTEST-GATE,
   K2, PBT-1, SOLVE-CRASH-1, CI-BAL) into the Done archive.
@@ -1368,13 +1372,47 @@ bend radius. See Done archive for evidence/gates.**
       before anything else changes), or (b) upstreaming a parameter to
       build123d and pinning the version. Byte assertions mirroring
       `test_step_names.py`, on both defects.
+      **STILL OPEN after STEPDET-1 (2026-08-29), and that was checked rather
+      than assumed:** STEPDET-1's fix did not bring this path under our own
+      writer, and it did not need to — `export_step_bytes` builds no XCAF
+      assembly, so OCCT interposes no extra level, emits no translator
+      PRODUCT, and two exports of the same multi-body part in one process are
+      already byte-identical (measured). The two NAMING defects above are
+      unchanged and this stays P2 on its own terms.
       [src: STEPNAME-1, kernel-architect, 2026-08-29]
       TERRITORY: `services/geometry/src/geometry/kernel/export.py`
       (`export_step_bytes`). agentType: kernel-architect.
 
-- [ ] (P1, S) **STEPDET-1 — an assembly containing a MULTI-BODY part exports
-      different bytes every time, and both determinism gates are structurally
-      blind to it.** kind: defect (determinism, RESEARCH §9). Found by
+- [x] (P1, S) **STEPDET-1 — CLOSED (kernel-architect, 2026-08-29). The
+      canonicalisation is one pattern and a shared helper; the fixture that
+      makes the gates able to fail is the deliverable.** `_canonicalise_occurrence_ids` is now
+      `_canonicalise_writer_counters` and renumbers BOTH process-global
+      counters through one shared `_renumber_in_appearance_order` — an
+      extension, not a second parallel mechanism.
+      `goldens-assembly/assembly-two-multibody-brackets` is the bolted golden
+      verbatim (same instances, mates and seed) plus one disjoint 10 mm cube
+      per part, so the joint's reviewed analytic answer carries over and
+      multi-body is the only new variable; hand-derived, measured deviations
+      volume **0.0**, area 1.8e-12, centroid <= 1.1e-09, solved z 1.18e-08
+      against a documented 1e-6. It is ASSERTED to reach the `Compound` path
+      (2 translator PRODUCTs, 2 B-reps for 1 unique part, 4 NAUOs for 2
+      instances) rather than assumed. **Mutation:** reverting the
+      canonicalisation reddens 4 cases (both determinism gates on the new
+      golden, its counter-pinned byte assertion, the naming suite's
+      in-process one) while 54 pass — including every determinism case of
+      both older goldens in all four formats, which is the blind spot
+      measured. `At index 4024 diff: b'1' != b'2'`. Two neighbouring gates
+      carried the same "one part is one solid" assumption and rejected the
+      new golden (`2 B-reps written for 1 unique part(s)`); both are now
+      per-BODY. The recorded live limit in `test_step_names.py` is deleted
+      and replaced by its positive form. No golden's content hash moves: a
+      FIRST export in a process was already counter-1, so the fix changes
+      only the repeat export (verified legacy-vs-new byte comparison, all
+      three goldens). Gates: full geometry suite green, `just lint` 0,
+      pyright clean; no DTO touched. STEPNAME-2 is unaffected — measured, the
+      single-body path builds no XCAF assembly and is already byte-stable.
+      Original entry follows.
+      kind: defect (determinism, RESEARCH §9). Found by
       STEPNAME-1 (2026-08-29) while writing a determinism assertion for its
       own change — the assertion failed, and not for the reason expected.
       When a component's body is a `Compound` (i.e. a multi-body part, MB-0,
@@ -1394,7 +1432,7 @@ bend radius. See Done archive for evidence/gates.**
       archetypal gate that cannot fail for the reason you care about, and the
       reason the fix needs a GOLDEN, not only a canonicaliser. Impact: a
       worker re-exporting an unchanged assembly returns different bytes, so
-      any content-addressing over the artefact misses. ACCEPTANCE: a
+      any content-addressing over the artefact misses. ACCEPTANCE (all met): a
       multi-body assembly golden lands FIRST and is shown to fail the existing
       in-process + restart determinism gates (the negative control); the
       counter is then canonicalised the same way the NAUO id is; both gates go
