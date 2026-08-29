@@ -513,7 +513,28 @@ we are.**
   filtered `git apply --cached` (or `git add -p`) for these two files, and if you
   find you have already swept foreign text, annotate the record rather than
   rewriting shared history that other agents have already rebased onto.
-  **Use `python3 scripts/stage-doc-hunks.py <file> "<marker>"`** — it stages only
+  **IN A WORKTREE, DO NOT USE `stage-doc-hunks.py` AT ALL — stage the file whole
+  after reading `git diff` in full.** Established 2026-08-29, and it is a
+  simplification that has been available ever since worktree isolation became
+  mandatory for builders. A worktree has its OWN index and working tree, so the
+  only uncommitted text in it is YOURS; there is no colleague's entry to sweep,
+  which is the single hazard the tool exists to prevent. Against that zero
+  benefit, the measured cost is five silent failures — it has swept a
+  neighbour's entry, relocated the author's own entry to the end of the file,
+  truncated a 31-line entry to 7, truncated one to its heading, and staged 1 of
+  3 entries — every one of them reporting `left 0 hunk(s) unstaged` while doing
+  it, and every one caught only by a `git show :<file>` byte comparison. A tool
+  whose failures are success-shaped, run where it can protect nothing, is pure
+  downside. **The check that actually works is the cheap one and it still
+  applies: read `git diff --cached` IN FULL immediately before committing.**
+  The tool remains correct for the SHARED checkout (the orchestrator's own tree,
+  or any agent not in a worktree) — that is the case it was written for and the
+  only one where a foreign hunk can be present.
+  **In the shared checkout, use `python3 scripts/stage-doc-hunks.py <file>
+  "<marker>"`**, where the marker is a phrase from your entry's first line that
+  fits entirely on ONE line — it matches line by line, so a marker spanning a
+  line break matches nothing and then silently drops your whole entry (48 lines,
+  measured 2026-08-28). It stages only
   hunks that ADD a line containing your marker and leaves the rest unstaged for
   their author. It exists because this rule was broken TWICE in one day, the
   second time by the person who wrote it: the correct path was fiddly and
