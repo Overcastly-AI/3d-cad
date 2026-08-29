@@ -1332,6 +1332,33 @@ recipe here in the same commit as the fix.**
   renders and lies. **Restart Vite after touching `tailwind-preset.ts`,
   `tokens.ts`, `vite.config.ts`, or anything else Vite reads once at boot** —
   the same reflex as regenerating contracts after a pydantic change.
+- **MAKING A SPEC FASTER CAN DELETE AN ACCIDENTAL SETTLE — an implicit wait
+  nobody wrote down, which the slow version was providing for free.** Found
+  2026-08-29 while closing QA-CI4-HEADROOM-1. A ring scan did 1068 full-frame
+  canvas readbacks to read nine pixels each; batching them 356:1 was obviously
+  correct and immediately produced a new failure ("the origin ring must be
+  visible ink"). The caller waits on the selection readout, which is **DOM**,
+  while the ring it then measures is **canvas on a demand-rendered scene** — and
+  the 356 sequential awaits had been letting the renderer win that race, with
+  nothing in the code saying so. The fix is to STATE the wait (`waitForFrames`),
+  never to un-batch: **an accidental settle is a latent flake whether or not
+  anyone has tripped it yet**, and the optimisation only revealed it. Whenever a
+  spec mixes a DOM wait with a canvas assertion, the synchronisation between them
+  must be written down, because the thing that has been supplying it is
+  incidental timing.
+  **And in the same pass, TWO COST MODELS WERE WRONG BEFORE INSTRUMENTATION
+  SETTLED IT.** The orchestrator guessed the perf ceiling was too tight (it was
+  the most machine-independent assertion on the shard: 1.15-1.22 against a 2.00
+  ceiling while absolute cost moved 66%); the agent then guessed the readbacks
+  were the cost, batched them 356:1, and **the wall clock did not move**
+  (45.9/47.5/timeout → 49.3/46.3/44.7). Only a per-phase timer found it: the zoom
+  loop was **47% of the wall** (15.8 s of 33.2 s) and the scan it had just
+  optimised was **0.6%** (190 ms). The loop re-parked the pointer before each of
+  48 wheel notches with the cursor already there — 46 of 48 round trips moved it
+  nowhere, and the cost was sequential CDP latency, not pixels. **Instrument
+  before optimising a slow spec; the obvious expensive-looking operation is
+  routinely not the cost**, and in a browser-driven test the cost is usually the
+  number of round trips, not the work in any one of them.
 - **Run the batch-end `just e2e` in a QUIET window — never concurrent with
   heavy agents — and treat a red sweep run under CPU load as UNCONFIRMED.**
   Seen 2026-07-23: a batch-end sweep kicked off while 2-3 kernel agents were
