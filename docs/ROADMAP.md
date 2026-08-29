@@ -437,6 +437,53 @@ told and the sketch stays editable), and choosing the branch is a solver change
 filed as ARC-BRANCH-1, not something to improvise inside a payload gate. The
 test bounds it BOTH ways, so closing the gap reddens the suite.
 
+**STEPNAME-1 GEOMETRY HALF SHIPPED (kernel-architect, 2026-08-29) — the
+headline symptom was not a geometry defect, and looking for it found two that
+were.** The audit read an assembly STEP's components back as raw UUIDs. The
+writer has threaded the instance name into the NAUO and the PRODUCT since
+`0d3ea59` — three weeks BEFORE the audit — and does so correctly; asserted here
+on the emitted part-21 bytes rather than assumed from the source. The UUID is
+the documented FALLBACK for a request carrying no `name`, and the caller that
+omits it is `apps/web/src/assembly/evaluateRequest.ts`, which builds
+`EvaluateAssemblyRequest` without a field the DTO has had all along (documents
+DOES send it, which is why the gap is invisible from the backend). One line, in
+foreign territory: filed as **STEPNAME-1B**.
+**What exercising the writer DID find, both fixed here.** (1) **Every non-ASCII
+name was corrupted.** `TCollection_ExtendedString(str)` binds the
+`isMultiByte=False` overload, which walks the string's UTF-8 bytes ONE AT A TIME
+as characters: "Flänsch" measured **17 characters instead of 13** and landed in
+the file double-encoded. This is why fixing the web alone would have been the
+wrong outcome — a name that is present and corrupted is not better than one that
+is absent and obviously so, and it is the "new defect wearing a fix's clothes"
+case exactly. (2) The `FILE_NAME` originating system read `build123d`, so a file
+Loft authored named a library its recipient has no reason to have heard of.
+**DUPLICATE part names — decided, not deferred.** Two instances of ONE part
+share a name and correctly produce one PRODUCT used twice; that is the case that
+actually occurs and it already worked. Two DIFFERENT parts a user has both named
+"Bracket" produce two PRODUCTs colliding on `id` as well as `name`. We keep the
+name verbatim: disambiguating means mangling a part number in the file a
+supplier quotes from, which is worse than reproducing an ambiguity the user
+authored and that no CAD system resolves for them either. Pinned by a test whose
+docstring says so, so a future change is deliberate.
+**Two mutants, both restored:** reverting the encoding reddens 8 cases — all and
+only the non-ASCII ones, across both `BodyShape` members — while every ASCII
+case stays green; reverting the originating system reddens 1.
+**AND THE DETERMINISM ASSERTION WRITTEN FOR THIS CHANGE FAILED FOR A REASON
+NOBODY WAS LOOKING FOR — filed as STEPDET-1 (P1).** When a component's body is a
+`Compound` (a MULTI-BODY part, MB-0), OCCT wraps it in an extra unnamed assembly
+level and names that level's PRODUCT `'Open CASCADE STEP translator 7.9 N.M.K'`,
+where **N is a process-global write counter**: two exports of the same assembly
+in one worker differ, measured at byte 3462, `1.1.1` vs `2.1.1`. It is precisely
+the defect `_canonicalise_occurrence_ids` already fixes for the NAUO id, in a
+second byte range nobody looked at — and `test_assembly_export`'s in-process AND
+interpreter-restart determinism gates both pass, because BOTH shipped assembly
+goldens are made of single `Solid` parts so the extra level never appears in
+them. A gate that cannot fail for the reason you care about, which is why
+STEPDET-1's acceptance puts the multi-body GOLDEN first and the canonicaliser
+second. Recorded here as a live limit asserted in the failing direction, so
+closing it reddens the suite. Also filed: **STEPNAME-2** (P2) — the single-body
+export has both naming defects and is build123d's writer, not ours.
+
 **REACH-3-FLOW CLOSED (frontend-builder, 2026-08-28) — the orientation
 proposal never fired on the only sheet most drawings have, and the paper cell
 quoted a scale it could not produce.** (P1-1) The proposal was structurally

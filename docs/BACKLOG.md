@@ -39,7 +39,12 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
   the SOLVE-CRASH-1 agent, out of that ticket's scope) — **now also CLOSED
   (2026-08-29): 27 of 2000 payloads were shipping a collapsed arc at a
   residual of zero; follow-ups ARC-BRANCH-1 (P2) and ARC-EXTRUDE-EPS-1
-  (P3) filed.** Collapsed the
+  (P3) filed.** STEPNAME-1's geometry half also shipped (2026-08-29): the
+  UUIDs the audit saw are a fallback for a request `apps/web` builds without
+  the name (STEPNAME-1B), while the real geometry defects were corrupted
+  non-ASCII names and a file naming build123d as its author; STEPNAME-2 (P2)
+  and STEPDET-1 (P1, a multi-body determinism hole both existing gates are
+  blind to) filed. Collapsed the
   now-closed Ready-queue items (A11Y-TOOLBTN-1, MEASURE-PROXY-1, EXPORT-3,
   REACH-2-IMPORT-1, REACH-3-FLOW, REACH-2-FLOW, HEM-1C, HEM-1D, PGTEST-GATE,
   K2, PBT-1, SOLVE-CRASH-1, CI-BAL) into the Done archive.
@@ -77,8 +82,12 @@ Ranked, disjoint, parallel-dispatchable:
    now ghosts while a sketch is open, as a derived default; a stop the
    modeler set is never overridden or silently restored. Filed
    CAMRESTORE-1 (P2) from the measurement.
-5. **STEPNAME-1** (P1, XS, kernel-architect) — assembly STEP export names
-   components with raw UUIDs instead of their part names.
+5. **STEPNAME-1 is PART-SHIPPED, and the headline half is NOT ours**
+   (kernel-architect, 2026-08-29) — the geometry writer already carries the
+   instance name; the UUID is the fallback for a request that omits it, and
+   the caller that omits it is `apps/web`. Two REAL geometry defects found and
+   fixed alongside (non-ASCII names corrupted; the file named build123d as its
+   author). See the entry below; STEPNAME-1B is the remaining web half.
 6. **ARC-DEGENERATE-1 is SHIPPED** (kernel-architect, 2026-08-29) — 27 of
    2000 payloads were shipping an arc collapsed onto its own centre, at a
    residual of zero; now `sketch_conflicting` with the constraint named. See
@@ -1210,10 +1219,125 @@ bend radius. See Done archive for evidence/gates.**
       ACCEPTANCE: exporting the audit's two-part assembly and reading it
       back names both components by their part name, not a UUID; new
       golden/assertion on the STEP writer.
+      **GEOMETRY HALF SHIPPED (kernel-architect, 2026-08-29); THE HEADLINE
+      HALF IS NOT A GEOMETRY DEFECT.** The writer has threaded the instance
+      name into the NAUO and the PRODUCT since `0d3ea59` (2026-07-31, three
+      weeks BEFORE the audit) — asserted on the emitted bytes, not assumed.
+      The UUID the audit read is the documented FALLBACK for a request with
+      no `name`, and the caller that omits it is
+      `apps/web/src/assembly/evaluateRequest.ts`, which builds
+      `EvaluateAssemblyRequest` without the field the DTO has carried all
+      along. That is a one-line web change in foreign territory: STEPNAME-1B.
+      What WAS wrong here, found by exercising the writer rather than reading
+      it, and both fixed: (a) **every non-ASCII name was corrupted** —
+      `TCollection_ExtendedString(str)` binds the `isMultiByte=False`
+      overload and walks UTF-8 bytes as characters, so "Flänsch" measured 17
+      characters instead of 13 and reached the file double-encoded; (b) the
+      originating system read `build123d`, so a file Loft authored named a
+      library instead. Note (a) is why fixing the web alone would have been
+      wrong: a name that is present and corrupted is not better than one that
+      is absent and obvious. Duplicate part names DECIDED and pinned: two
+      instances of one part correctly share one PRODUCT (the case that
+      occurs); two DIFFERENT parts a user names alike keep the name verbatim
+      and collide on `PRODUCT.id`, which we do not disambiguate because that
+      means mangling a part number in the file a supplier quotes from. Two
+      mutants, both restored: reverting the encoding reddens 8 cases (all and
+      only the non-ASCII ones, on both `BodyShape` members); reverting the
+      originating system reddens 1. Filed alongside: STEPNAME-1B (web),
+      STEPNAME-2 (single-body path), STEPDET-1 (a determinism hole found by
+      writing the test). Gates: `just lint` exit 0, `uv run pyright` clean,
+      482 STEP-adjacent tests green.
       [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21 (second pass today)"
       S-22, filed by backlog-groomer pass 9]
       TERRITORY: `services/geometry/src/geometry/kernel/` STEP export path
       (assembly writer). agentType: kernel-architect.
+
+- [ ] (P1, XS) **STEPNAME-1B — the web builds the assembly evaluate request
+      without the instance `name`, so every user-facing STEP export falls
+      back to the UUID.** kind: defect. This is STEPNAME-1's ACTUAL headline
+      cause, isolated by the kernel-architect on 2026-08-29 after measuring
+      that the geometry writer has carried names correctly since `0d3ea59`.
+      `apps/web/src/assembly/evaluateRequest.ts`'s
+      `buildEvaluateAssemblyRequest` maps each instance to
+      `{instance_id, part_key, grounded, placement, features, materials}` and
+      omits `name`, which `EvaluatedInstance` has had (optional, defaulting
+      to `None`) since the naming work landed. `services/documents` DOES send
+      it (`assemblies.py` `build_evaluate_assembly_request`, `name=
+      instance.name`), which is why the defect is invisible from the backend
+      and why the audit — exporting through the app — saw UUIDs.
+      **Watch the class, not just the line:** an optional DTO field the
+      producer silently omits is the same shape as the `extra="ignore"` typo
+      trap in CLAUDE.md — everything validates, evaluates and returns 2xx
+      while meaning nothing. ACCEPTANCE: `name: instance.name` threaded
+      through; a test that asserts on the EXPORTED BYTES (or a re-import),
+      never on a 2xx — `services/geometry/tests/test_step_names.py` has the
+      part-21 literal parser to borrow, including the two escapes a naive
+      `[^']*` gets wrong; the audit's two-part assembly exports with both
+      components named. Check the drawings/interference callers for the same
+      omission while you are there.
+      [src: STEPNAME-1, kernel-architect, 2026-08-29]
+      TERRITORY: `apps/web/src/assembly/evaluateRequest.ts` + its unit test.
+      agentType: frontend-builder.
+
+- [ ] (P2, S) **STEPNAME-2 — a SINGLE-BODY STEP export still names build123d
+      as its author and still corrupts a non-ASCII part name.** kind: defect.
+      Measured by STEPNAME-1 (2026-08-29) on the emitted bytes: exporting a
+      part named "Flänsch 40°" produces `PRODUCT('FlÃ\x83Â¤nsch 40Ã\x82Â°')`
+      and `FILE_NAME(...,'build123d','Unknown')`. Same two defects the
+      assembly path just fixed, and NOT fixable the same way: the assembly
+      path drives `STEPCAFControl_Writer` itself, while
+      `export_step_bytes` goes through build123d's `export_step`, which
+      hardcodes `SetOriginatingSystem("build123d")` with no parameter and
+      builds its label from `shape.label` through the same defaulted
+      `ExtendedString` overload. Neither is reachable from a caller. Note the
+      part export is the MORE common one, so the user-visible split is the
+      wrong way round — it is P2 only because the fix is not small.
+      ACCEPTANCE: decide between (a) routing the single-body path through the
+      same owned writer as the assembly path (removes a duplicate writer;
+      needs `build123d.exporters3d._create_xde`, a private function, or our
+      own XDE build, and must be proved byte-equivalent for an ASCII name
+      before anything else changes), or (b) upstreaming a parameter to
+      build123d and pinning the version. Byte assertions mirroring
+      `test_step_names.py`, on both defects.
+      [src: STEPNAME-1, kernel-architect, 2026-08-29]
+      TERRITORY: `services/geometry/src/geometry/kernel/export.py`
+      (`export_step_bytes`). agentType: kernel-architect.
+
+- [ ] (P1, S) **STEPDET-1 — an assembly containing a MULTI-BODY part exports
+      different bytes every time, and both determinism gates are structurally
+      blind to it.** kind: defect (determinism, RESEARCH §9). Found by
+      STEPNAME-1 (2026-08-29) while writing a determinism assertion for its
+      own change — the assertion failed, and not for the reason expected.
+      When a component's body is a `Compound` (i.e. a multi-body part, MB-0,
+      an ordinary thing to instance), OCCT wraps it in an extra unnamed
+      assembly level and names that level's PRODUCT `'Open CASCADE STEP
+      translator 7.9 N.M.K'`, where **N is a process-global write counter**.
+      Two exports of the same assembly in one worker differ — measured, first
+      difference at byte 3462, `1.1.1` vs `2.1.1`. Reproduced deterministically
+      by `test_a_multi_body_part_makes_the_export_non_deterministic`, which
+      asserts in the FAILING direction so closing the gap reddens the suite.
+      **Why nothing caught it:** it is exactly the defect
+      `_canonicalise_occurrence_ids` already fixes for the NAUO id, in a
+      second byte range nobody looked at, and BOTH shipped assembly goldens
+      are made of single `Solid` parts, so the extra level never appears in
+      them. `test_assembly_export`'s in-process AND interpreter-restart
+      determinism gates therefore pass while the property is false — the
+      archetypal gate that cannot fail for the reason you care about, and the
+      reason the fix needs a GOLDEN, not only a canonicaliser. Impact: a
+      worker re-exporting an unchanged assembly returns different bytes, so
+      any content-addressing over the artefact misses. ACCEPTANCE: a
+      multi-body assembly golden lands FIRST and is shown to fail the existing
+      in-process + restart determinism gates (the negative control); the
+      counter is then canonicalised the same way the NAUO id is; both gates go
+      green on it; the recorded live limit in `test_step_names.py` is DELETED
+      in the same commit and the deletion is stated in the message.
+      [src: STEPNAME-1, kernel-architect, 2026-08-29]
+      TERRITORY: `services/geometry/src/geometry/kernel/export.py`
+      (`_canonicalise_occurrence_ids` and its neighbours),
+      `services/geometry/goldens-assembly/`,
+      `services/geometry/tests/test_assembly_export.py`,
+      `services/geometry/tests/test_step_names.py`. agentType:
+      kernel-architect.
 
 **SIGNIN-1 is SHIPPED (`bf65ddc`) — see Done archive for evidence/gates.**
 

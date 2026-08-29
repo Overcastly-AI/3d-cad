@@ -76,6 +76,40 @@ file finally says the twenty are the same part. We drive
 from every child in turn, so the shared PRODUCT would end up named after
 whichever instance happened to be written LAST ("Dowel Pin 8x24 <20>").
 
+*Name FIDELITY* (STEPNAME-1). A STEP file is what a user hands to a machinist or
+a supplier, so a name in it is read by a human in someone else's CAD — which
+makes "almost right" and "wrong" the same outcome. Three things were measured
+rather than assumed before this was called done:
+
+* **Non-ASCII was corrupted.** ``TCollection_ExtendedString(str)`` binds to the
+  ``isMultiByte=False`` overload, which reads the UTF-8 bytes one at a time as
+  characters, so ``"Flänsch"`` became 17 characters instead of 13 and reached the
+  file double-encoded. :func:`_xcaf_name` is the fix and the only place these
+  labels are built; the name now decodes back byte-exactly for accents, a degree
+  sign, an em dash and CJK.
+* **Apostrophes needed nothing.** OCCT's part-21 writer already doubles them
+  (``'Jim''s bracket'``), which is the standard's own escape. Asserted, not
+  assumed — the naive instinct is to escape them a second time, which would
+  corrupt the name in the other direction.
+* **DUPLICATE part names are kept VERBATIM, and that is a decision.** Two
+  instances of ONE part share a name and correctly produce one ``PRODUCT`` used
+  twice — the case that actually occurs, and it already worked. Two DIFFERENT
+  parts a user has both called "Bracket" produce two distinct ``PRODUCT``
+  entities whose ``id`` AND ``name`` both read ``'Bracket'``. That id collision
+  is real and is reproduced by ``test_step_names``. We do not disambiguate:
+  the id would have to be mangled to do it, and a mangled part number in the
+  file a supplier quotes from is worse than reproducing an ambiguity the user
+  authored in their own data — which no CAD system resolves for them either.
+
+*What this path does NOT fix.* The SINGLE-BODY export
+(:func:`export_step_bytes`) goes through build123d's ``export_step``, which
+hardcodes ``SetOriginatingSystem("build123d")`` with no parameter and builds its
+own label from ``shape.label`` through the same defaulted ``ExtendedString``
+overload — so a single-body STEP still names build123d and still mojibakes a
+non-ASCII part name. Both are measured, and neither is fixable from here without
+owning that writer end to end, which is a change to the most-used export path
+and its own decision (filed as STEPNAME-2).
+
 *Why no MAPPED_ITEM.* AP214 has two encodings for "this geometry, placed there":
 ``MAPPED_ITEM``/``REPRESENTATION_MAP`` (a representation re-used inside another
 representation) and the assembly product structure above. OCCT's XCAF writer
@@ -151,6 +185,24 @@ STEP_EXPORT_TIMESTAMP = datetime(2000, 1, 1, 0, 0, 0)
 
 #: Marker every STEP part 21 file starts with (sanity-checked after export).
 STEP_MAGIC = b"ISO-10303-21"
+
+#: What the assembly STEP's ``FILE_NAME`` originating-system field says
+#: (STEPNAME-1). It read ``'build123d'`` — the name of a library the recipient
+#: has no reason to have heard of — so a file Loft AUTHORED did not say so
+#: anywhere, and the one person who most needs to know where a suspect part came
+#: from (the machinist holding it) had nothing to go on. AP214 defines this field
+#: as the system that produced the file, which is this application, not the
+#: binding it drove OCCT through.
+#:
+#: ASCII by construction: this string lands in a part-21 header via
+#: ``TCollection_HAsciiString``, which is byte-transparent, so a non-ASCII value
+#: here would put raw UTF-8 into a header the standard does not permit it in.
+#: **It deliberately carries no version.** The timestamp beside it is already
+#: pinned to a sentinel for determinism (:data:`STEP_EXPORT_TIMESTAMP`), and a
+#: version string here would be the one byte range that changes on every release
+#: — turning every committed digest and every byte-equality assertion into a
+#: release-day failure for no provenance anyone acts on.
+STEP_ORIGINATING_SYSTEM = "Loft"
 
 #: Binary STL layout: 80-byte header + uint32 triangle count, then 50 bytes
 #: per triangle (normal + 3 vertices as float32 triples + uint16 attribute).
@@ -594,6 +646,36 @@ def _product_name(instance_name: str) -> str:
     return stripped or instance_name
 
 
+def _xcaf_name(text: str) -> TCollection_ExtendedString:
+    """A user-facing name as an OCCT wide string, WITHOUT double-encoding it.
+
+    ``TCollection_ExtendedString(str)`` binds to the overload whose second
+    argument is ``isMultiByte=False``, which walks the Python string's UTF-8
+    bytes ONE BYTE AT A TIME and stores each as a character. Every non-ASCII name
+    therefore reached the file mojibaked, and the corruption was the recoverable-
+    looking kind that survives every gate: ``"Flänsch"`` measured **17
+    characters instead of 13** and landed in the STEP as the UTF-8 encoding of
+    its own latin-1 misreading (STEPNAME-1). Passing ``isMultiByte=True`` is the
+    documented "this is UTF-8" overload; measured, the same name then reads back
+    as exactly 13 characters and the PRODUCT literal decodes UTF-8 to the string
+    that was submitted, for accents, a degree sign, an em dash and CJK alike.
+
+    This matters more than it looks. A STEP file is what a user hands to a
+    machinist or a supplier, so the component names in it are read by a human in
+    someone else's CAD — and a name is the one field where being *almost* right
+    is indistinguishable from being wrong. It is also the trap
+    :func:`_product_name` walks into: it strips an occurrence suffix by regex,
+    and a mojibaked name is a DIFFERENT string, so the part/instance split was
+    being computed on corrupted text as well.
+
+    Apostrophes need nothing here and are asserted anyway: OCCT's part-21 writer
+    already doubles them (``'Jim''s bracket'``), which is the standard's own
+    escape, so the naive worry about quoting is measured rather than guarded
+    against twice.
+    """
+    return TCollection_ExtendedString(text, True)
+
+
 def _assembly_xde_document(
     assembly_name: str, components: Sequence[AssemblyComponent]
 ) -> TDocStd_Document:
@@ -626,7 +708,7 @@ def _assembly_xde_document(
         builder.Add(compound, _instanced_shape(component))
 
     root = shape_tool.AddShape(compound, True)
-    TDataStd_Name.Set_s(root, TCollection_ExtendedString(assembly_name))
+    TDataStd_Name.Set_s(root, _xcaf_name(assembly_name))
 
     occurrences = TDF_LabelSequence()
     XCAFDoc_ShapeTool.GetComponents_s(root, occurrences)
@@ -638,16 +720,14 @@ def _assembly_xde_document(
     named_parts: list[TDF_Label] = []
     for index, component in enumerate(components, start=1):
         occurrence = occurrences.Value(index)
-        TDataStd_Name.Set_s(occurrence, TCollection_ExtendedString(component.name))
+        TDataStd_Name.Set_s(occurrence, _xcaf_name(component.name))
         part = TDF_Label()
         if not XCAFDoc_ShapeTool.GetReferredShape_s(occurrence, part) or part.IsNull():
             continue
         if any(part.IsEqual(seen) for seen in named_parts):
             continue  # a later occurrence of an already-named part
         named_parts.append(part)
-        TDataStd_Name.Set_s(
-            part, TCollection_ExtendedString(_product_name(component.name))
-        )
+        TDataStd_Name.Set_s(part, _xcaf_name(_product_name(component.name)))
     shape_tool.UpdateAssemblies()
     return doc
 
@@ -678,7 +758,9 @@ def _write_step_document(doc: TDocStd_Document, header_name: str) -> bytes:
         header.Apply(writer.Writer().Model())
     header.SetName(TCollection_HAsciiString(header_name))
     header.SetTimeStamp(TCollection_HAsciiString(STEP_EXPORT_TIMESTAMP.isoformat()))
-    header.SetOriginatingSystem(TCollection_HAsciiString("build123d"))
+    # The file says who AUTHORED it, not which binding drove OCCT
+    # (STEPNAME-1 — see :data:`STEP_ORIGINATING_SYSTEM`).
+    header.SetOriginatingSystem(TCollection_HAsciiString(STEP_ORIGINATING_SYSTEM))
 
     STEPCAFControl_Controller.Init_s()
     STEPControl_Controller.Init_s()
