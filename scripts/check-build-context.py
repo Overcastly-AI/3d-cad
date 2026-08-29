@@ -127,6 +127,17 @@ class DockerIgnore:
 #: joined. `--from=` sources come from an earlier build stage, not the context.
 _COPY = re.compile(r"^\s*(COPY|ADD)\s+(.*)$", re.IGNORECASE)
 
+#: The fewest COPY sources a healthy walk of this repo may find. A count floor
+#: exists because "no COPY source is unreachable" is vacuously true of a walk
+#: that examined none: if `_COPY` or the continuation joiner above ever stops
+#: matching the Dockerfile syntax in use, `checked` drops to 0, `failures` stays
+#: empty, and this gate prints "0 COPY source(s) reach the build context" and
+#: exits 0 — disarmed, in the exact CI job that exists to catch the failure the
+#: blocked Docker registry makes unreachable locally (measured 2026-08-29).
+#: The repo has one Dockerfile with 15 sources; a drop below half of that is a
+#: change worth a human look, while leaving room to retire a COPY or two.
+MIN_COPY_SOURCES = 8
+
 
 def copy_sources(dockerfile: Path) -> list[tuple[int, str]]:
     """(line number, source path) for every context-sourced COPY/ADD argument."""
@@ -160,8 +171,12 @@ def copy_sources(dockerfile: Path) -> list[tuple[int, str]]:
     return found
 
 
-def run(root: Path, quiet: bool = False) -> int:
-    """Check every Dockerfile under *root*. Non-zero when a COPY cannot resolve."""
+def run(root: Path, quiet: bool = False, min_sources: int = MIN_COPY_SOURCES) -> int:
+    """Check every Dockerfile under *root*. Non-zero when a COPY cannot resolve.
+
+    *min_sources* is the vacuity floor (see MIN_COPY_SOURCES); the self-test
+    fixtures are tiny by design and pass 1.
+    """
 
     def say(line: str) -> None:
         if not quiet:
@@ -222,6 +237,14 @@ def run(root: Path, quiet: bool = False) -> int:
     if failures:
         say(f"\ncheck-build-context: FAILED ({len(failures)} unreachable source(s))")
         return 1
+    if checked < min_sources:
+        say(
+            f"\ncheck-build-context: WALKED {checked} COPY source(s) of at least "
+            f"{min_sources} across {len(dockerfiles)} Dockerfile(s) — the walk "
+            "found (almost) nothing, so 'every COPY resolves' is vacuously true. "
+            "Either the COPY parser stopped matching, or the floor needs moving."
+        )
+        return 1
     say(f"\ncheck-build-context: {checked} COPY source(s) reach the build context")
     return 0
 
@@ -252,17 +275,31 @@ def self_test() -> int:
         (root / "Dockerfile").write_text(_SELF_TEST_DOCKERFILE)
         (root / ".dockerignore").write_text(_SELF_TEST_IGNORE)
 
-        before = run(root, quiet=True)
+        before = run(root, quiet=True, min_sources=1)
         print(f"  {'ok  ' if before == 1 else 'FAIL'} unnegated COPY source → exit 1")
 
         (root / ".dockerignore").write_text(
             _SELF_TEST_IGNORE + "!scripts/forgotten.py\n"
         )
-        after = run(root, quiet=True)
+        after = run(root, quiet=True, min_sources=1)
         print(f"  {'ok  ' if after == 0 else 'FAIL'} negation added → exit 0")
 
-    if before == 1 and after == 0:
-        print("\ncheck-build-context: self-test passed — the gate can fail.")
+        # NON-VACUITY: the fixture above resolves 2 sources cleanly, so asking
+        # for 3 is the "walked fewer than the floor" case with nothing else
+        # wrong — a gate that cannot fail here reports a disarmed parser as a
+        # clean build context.
+        under = run(root, quiet=True, min_sources=3)
+        print(f"  {'ok  ' if under == 1 else 'FAIL'} fewer than the floor → exit 1")
+
+        # NON-VACUITY: a Dockerfile the walk parses but finds no COPY in. This
+        # is the shape a broken `_COPY` regex takes, and it used to exit 0
+        # printing "0 COPY source(s) reach the build context".
+        (root / "Dockerfile").write_text("FROM scratch\nRUN true\n")
+        empty = run(root, quiet=True, min_sources=1)
+        print(f"  {'ok  ' if empty == 1 else 'FAIL'} a walk examining nothing → exit 1")
+
+    if before == 1 and after == 0 and under == 1 and empty == 1:
+        print("\ncheck-build-context: self-test passed (4 checks) — the gate can fail.")
         return 0
     print("\ncheck-build-context: SELF-TEST FAILED — this gate proves nothing.")
     return 1

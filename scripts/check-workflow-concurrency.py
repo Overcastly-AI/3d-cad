@@ -363,6 +363,14 @@ def run(root: Path, quiet: bool = False) -> int:
     return 0
 
 
+#: How many checks `self_test` is supposed to append. A count floor exists
+#: because the verdict is `all(ok for _, ok in results)` and `all([])` is True:
+#: a `results.append` lost to a refactor removes coverage silently and the
+#: self-test still prints "the gate can fail". `<`, not `!=`, so ADDING checks
+#: needs no edit here — only losing them is an error.
+EXPECTED_CHECKS = 8
+
+
 def _fixture(prefix: str, group: str | None, cancel: str = CANONICAL_CANCEL) -> str:
     """A minimal workflow file: push-triggered, with the given concurrency."""
     text = f"name: {prefix}\n\non:\n  push:\n    branches:\n      - main\n"
@@ -478,8 +486,18 @@ def self_test() -> int:
             verdict = "ok  " if ok else "FAIL"
             print(f"  {verdict} {label} → exit {actual} (expected {expected})")
 
+    if len(results) < EXPECTED_CHECKS:
+        print(
+            f"\ncheck-workflow-concurrency: SELF-TEST RAN {len(results)} of "
+            f"{EXPECTED_CHECKS} checks — the self-test lost coverage; it proves "
+            "nothing."
+        )
+        return 1
     if all(ok for _, ok in results):
-        print("\ncheck-workflow-concurrency: self-test passed — the gate can fail.")
+        print(
+            f"\ncheck-workflow-concurrency: self-test passed ({len(results)} "
+            "checks) — the gate can fail."
+        )
         return 0
     print("\ncheck-workflow-concurrency: SELF-TEST FAILED — this gate proves nothing.")
     return 1

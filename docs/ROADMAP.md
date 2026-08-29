@@ -678,6 +678,44 @@ human reading a CI tail sees what was checked, and a partial sweep says
 rides the existing `uv run pytest`. GATE-FLOOR's two vacuous gates are
 untouched and still open.
 
+**GATE-FLOOR CLOSED (platform-builder, 2026-08-29) — the two named gates were
+vacuous as audited for the fourth time, and looking at the other three found
+two MORE holes the audit's own table had cleared.** The named pair
+(`check-workflow-concurrency.py`, `check-mutation-markers.py`) now carry the
+`EXPECTED_CHECKS` floor their four siblings already had. Negative control, the
+same probe against committed HEAD and against the fix: HEAD exits **0** printing
+"self-test passed — the gate can fail" and "self-test passed - **0 cases**"; the
+fix exits **1** printing "SELF-TEST RAN 0 of 8 / 0 of 23 checks — the self-test
+lost coverage; it proves nothing." The two new findings are the point of having
+looked. (a) **`check-build-context.py`'s MAIN path** — the one CI runs — had the
+same hole: a Dockerfile it parses but finds no COPY in made `checked` 0,
+`failures` empty, and it printed "**0 COPY source(s) reach the build context**"
+and exited **0**. That is the gate standing in for the `docker build` this
+container cannot run, disarmed, in the job that exists because the registry is
+403-blocked here. Now floored at `MIN_COPY_SOURCES = 8` against a real 15, with
+two new self-test cases. The audit's table had marked this gate "n/a
+(straight-line, not list-driven)" — **true of its self-test, and blind to its
+main path**, because the table was pattern-matching the `all([])` idiom rather
+than asking the question the idiom stands for. (b) **`check-tailwind-scale.py`**
+was never in that table at all; it has the same `failed = 0` / `if failed`
+shape and exited 1 only because `max()` happens to raise on an empty sequence —
+an accidental floor that names neither the count nor the expectation and is one
+`default=0` from a silent pass. Now a diagnosis. Verified by sweeping **all
+seven** self-test gates with their check list emptied at the START of the
+verdict block: at HEAD 2 exit 0 and 1 dies in a `ValueError`; after, all 7 exit
+1. Methodology note worth keeping, because it nearly produced a false "the fix
+does not work": the first probe injected the emptying *after* the new floor, so
+the floor passed and the verdict was still vacuous — **a negative control aimed
+downstream of the guard it is testing measures nothing**, and a lost `append` is
+missing for the whole verdict, not just part of it. Also checked and sound:
+`check-doc-tick`, `stage-doc-hunks`, `e2e-shard-audit`, `e2e-shard-plan` (floors
+present and correctly placed BEFORE the verdict), `check-licences` (explicit
+empty-scan guard), `check-compose` (direct dict indexing raises rather than
+passing; it still has no `--self-test`, filed separately).
+`check-ui-parity.py` has the same main-path vacuity but gates nothing — it is
+wired into neither `just lint` nor CI. `just lint` exit 0; all four gates green
+on real inputs (15 COPY sources / 3 workflows / 1023 files / 1302 utilities).
+
 **PGTEST-GATE CLOSED (platform-builder, 2026-08-28) — a suite that could lose
 37% of itself and still exit 0 now says so, in the log, last.** 172 of the
 documents service's 468 tests need real PostgreSQL server binaries, including

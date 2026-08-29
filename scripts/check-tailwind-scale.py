@@ -999,6 +999,17 @@ def _naive_grid_theme() -> Theme:
     )
 
 
+#: How many checks `self_test` is supposed to record. A count floor exists
+#: because the verdict below is `failed = 0` / `if failed: return 1`, and a
+#: check list that lost its entries produces `failed == 0` — the same
+#: `all([]) is True` vacuity the sibling gates carry a floor for. Today an
+#: empty list happens to raise from `max()` on the width calculation, which
+#: exits non-zero for the right reason by pure accident: it names neither the
+#: count nor the expectation, and one `default=0` would turn it into a silent
+#: pass. `<`, not `!=`, so ADDING checks needs no edit here.
+EXPECTED_CHECKS = 16
+
+
 def self_test() -> int:
     checks: list[tuple[str, bool, str]] = []
 
@@ -1161,6 +1172,14 @@ def self_test() -> int:
         )
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+    if len(checks) < EXPECTED_CHECKS:
+        print(
+            f"\ncheck-tailwind-scale --self-test: RAN {len(checks)} of "
+            f"{EXPECTED_CHECKS} checks — the self-test lost coverage; it proves "
+            "nothing."
+        )
+        return 1
 
     width = max(len(name) for name, _, _ in checks)
     failed = 0

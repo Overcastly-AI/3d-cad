@@ -59,10 +59,10 @@ REACH-2-FLOW, A11Y-TOOLBTN-1, HEM-1C, HEM-1D, SEL-8 and PGTEST-GATE all
 shipped this batch or the last (see Done archive). Nothing is in flight.
 Ranked, disjoint, parallel-dispatchable:
 
-1. **GATE-FLOOR** (P1, XS, platform-builder) — two `scripts/` lint gates
-   still carry the `all([]) is True` vacuity hole a sibling pair already
-   fixed; reproduced unchanged THREE consecutive audit passes, a four-line
-   fix each time.
+1. ~~**GATE-FLOOR**~~ **DONE 2026-08-29** — both named gates floored, and the
+   sweep of the other three found two more holes (`check-build-context`'s
+   MAIN path, `check-tailwind-scale`'s accidental `max()` floor). Residue
+   filed as GATE-FLOOR-2 (P3).
 2. **MATEUI-1** (P1, S, frontend-builder or backend-builder) — the
    mate-conflict diagnosis prints a raw Python `repr` of a UUID list to the
    user and names a mate the panel cannot identify.
@@ -296,9 +296,34 @@ control exit 0 -> 1; whole-repo suite unaffected (4090 passed). See Done
 archive. PGTEST-GATE-VACUOUS-NONGOAL (P3, below) records one deliberately
 unfloored case.**
 
-- [ ] (P1, XS) **GATE-FLOOR — two of the five `scripts/` lint gates still
-      have the `all([]) is True` vacuity hole that was already fixed in
-      their two neighbours.** kind: defect. MEASURED
+- [x] (P1, XS) **GATE-FLOOR — DONE 2026-08-29 (platform-builder). The two
+      named gates were vacuous exactly as audited the fourth time, and
+      checking the other three found TWO MORE holes.** Fixed: the named pair
+      now carry `EXPECTED_CHECKS` (8 and 23). NEW, and the reason the
+      "check the others" instruction earned its keep — (a)
+      `check-build-context.py`'s **main** path (the one CI runs, standing in
+      for the `docker build` the 403-blocked registry makes unreachable here)
+      printed "0 COPY source(s) reach the build context" and exited **0** when
+      a Dockerfile parsed but yielded no COPY; now floored at
+      `MIN_COPY_SOURCES = 8` against a real 15, plus two self-test cases. The
+      audit table's "n/a (straight-line, not list-driven)" was true of its
+      SELF-TEST and blind to its main path — it matched the `all([])` idiom
+      instead of asking the question the idiom stands for. (b)
+      `check-tailwind-scale.py` was never in the table; same `failed = 0`
+      shape, exiting 1 only because `max()` raises on an empty sequence — an
+      accidental floor one `default=0` from a silent pass. EVIDENCE: identical
+      probe, committed HEAD vs fix — HEAD "self-test passed" / "passed - 0
+      cases" exit 0; fix "SELF-TEST RAN 0 of 8 / 0 of 23 checks" exit 1;
+      `check-build-context` zero-COPY case 0 -> 1; sweep of all seven
+      self-test gates with the list emptied at the START of the verdict block
+      = 7/7 exit 1 (was 2 vacuous + 1 `ValueError`). Real inputs unchanged and
+      green; `just lint` exit 0. Sound on inspection, no change needed:
+      `check-doc-tick`, `stage-doc-hunks`, `e2e-shard-audit`,
+      `e2e-shard-plan`, `check-licences`, `check-compose`.
+      `check-ui-parity.py` has the same main-path vacuity but gates nothing
+      (in neither `just lint` nor CI) — filed as GATE-FLOOR-2 below.
+      Original entry follows.
+      kind: defect. MEASURED
       (`docs/AUDIT-ENGINEERING.md` "Pass 7" M7, reproduced not inferred):
       `check-workflow-concurrency.py:481` and `check-mutation-markers.py:
       1115` both use `if all(ok for ok, _ in results)` with no count floor;
@@ -331,6 +356,25 @@ unfloored case.**
       names in N10.
       TERRITORY: `scripts/check-workflow-concurrency.py`,
       `scripts/check-mutation-markers.py`. agentType: platform-builder.
+
+- [ ] (P3, XS) **GATE-FLOOR-2 — the two vacuity gaps GATE-FLOOR found that
+      gate nothing today, so neither is urgent, but both become live the
+      moment somebody wires them in.** kind: defect, filed by platform-builder
+      2026-08-29 from the GATE-FLOOR sweep. (a) `check-ui-parity.py` has the
+      same main-path hole `check-build-context` had: `rows = classify(...)` then
+      `gaps = [... != AUTHORABLE]`, so a spec that fails to load or an empty
+      corpus yields no rows, no gaps, no orphans and exit 0 — and its numbers
+      are quoted in `docs/ROADMAP.md`'s Current focus (84/85 operations,
+      97/109 literals), i.e. already trusted as a measurement while being
+      unfloored. It is in neither `just lint` nor CI, which is the only reason
+      this is P3. (b) `check-compose.py` has no `--self-test` at all; it is
+      honest today only because direct `base["documents"]` indexing raises on
+      a missing service, which is a property of how it happens to be written
+      rather than a guarantee anybody checked. FIX: a count floor on
+      `check-ui-parity`'s literal/operation walk, and a `--self-test` for
+      `check-compose` carrying a negative control that reproduces a real
+      compose defect. TERRITORY: `scripts/check-ui-parity.py`,
+      `scripts/check-compose.py`. agentType: platform-builder.
 
 - [ ] (P2, S) **DEP-AUDIT — no dependency-vulnerability gate exists anywhere
       in the repo; a 60-second local `pnpm audit` finds 18 advisories (13
