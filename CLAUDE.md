@@ -1078,6 +1078,21 @@ recipe here in the same commit as the fix.**
   because that method is the depth-limited variant and directory pruning happens
   in `walk()`). (b) Ship the gate with a `--self-test` that reproduces the
   defect and demands a failure, exactly as `just licence-selftest` does.
+- **WHEN A NEW FIXTURE IS REJECTED BY EXISTING GATES, THAT REJECTION IS THE PROOF
+  THEY WERE BLIND — do not "fix" the fixture.** Measured 2026-08-29 on STEPDET-1.
+  A determinism hole survived because both assembly goldens were single-`Solid`
+  parts, so the gate could not fail for its own reason; adding a multi-body
+  golden was the durable half of the fix. That golden was then REJECTED by two
+  NEIGHBOURING gates — the round-trip oracle matched solids per **instance**, and
+  the instancing gate asserted one B-rep per **part**. Both assertions are true
+  only while a part is one solid, i.e. both had the same blindness as the gate
+  under repair, and both had been passing for years. The tempting read is "my
+  fixture is wrong"; the correct one is "three gates shared an assumption nobody
+  had written down". Both are now per-BODY, with instance identity moved to the
+  NAMED occurrences (OCCT adds an unnamed one per body). **A fixture built to
+  reach an uncovered path is a probe of every gate it passes through, not only of
+  the one you are fixing** — when it comes back rejected, read the rejection
+  before believing it.
 - **A NEGATIVE CONTROL AIMED DOWNSTREAM OF THE GUARD IT TESTS MEASURES NOTHING —
   and it reports a WORKING fix as broken.** Measured 2026-08-29 on GATE-FLOOR.
   The agent's probe emptied a gate's check list just before the `if all(...)`,
@@ -1280,6 +1295,20 @@ recipe here in the same commit as the fix.**
   `apps/web/vite.config.ts` sets `server.strictPort`, so a Vite that cannot take
   the port it was given FAILS instead of falling back to 5173. The swallowed
   argument is still silent — that part only discipline fixes.
+- **THE SESSION SCRATCHPAD IS SHARED, AND IT CONTAINS A STDLIB-SHADOWING
+  `inspect.py` — running `python <scratchpad>/x.py` breaks every import and reads
+  like a broken venv.** Reported 2026-08-29 by the STEPDET-1 agent and verified
+  by me: the file is really there. Python puts the SCRIPT'S OWN DIRECTORY on
+  `sys.path[0]`, so a throwaway script run from the scratchpad root shadows the
+  stdlib `inspect` for everything it imports, and the failure surfaces far from
+  the cause — `module 'inspect' has no attribute 'signature'` out of some
+  unrelated library's import. The natural diagnosis is "the shared `.venv` is
+  broken", which is expensive and wrong, and the natural next step (rebuilding
+  it) would break every sibling agent. **Work in a per-agent subdirectory**
+  (`$SCRATCHPAD/<slug>/`), which you should be doing anyway — the scratchpad is
+  shared, so an unprefixed filename is a collision waiting to happen, exactly as
+  it is for the SQLite DB files. Any stdlib name is a hazard here, not just this
+  one; `inspect.py` is simply the one somebody has already left behind.
 - **`apps/web/test-results/` LOOKS like the ideal scratch directory and Playwright
   WIPES IT at the start of every run — including your live SQLite files.** It is
   gitignored AND prettier-ignored AND inside the linted tree, which is exactly the
