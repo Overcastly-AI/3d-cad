@@ -1078,6 +1078,32 @@ recipe here in the same commit as the fix.**
   because that method is the depth-limited variant and directory pruning happens
   in `walk()`). (b) Ship the gate with a `--self-test` that reproduces the
   defect and demands a failure, exactly as `just licence-selftest` does.
+- **A NEGATIVE CONTROL AIMED DOWNSTREAM OF THE GUARD IT TESTS MEASURES NOTHING —
+  and it reports a WORKING fix as broken.** Measured 2026-08-29 on GATE-FLOOR.
+  The agent's probe emptied a gate's check list just before the `if all(...)`,
+  which was correct until the fix added a count floor EARLIER in the same block;
+  the clear then ran *after* the floor, so the first "after" reading said both
+  gates still exited 0 and the fix had failed. It had not. **When you add a
+  guard earlier in a function, every existing probe that injects its mutation
+  further down silently stops testing anything** — and the failure direction
+  here is the nasty one, because "my fix does not work" is a conclusion people
+  act on by rewriting working code. A lost `append` is missing for the WHOLE
+  verdict, so the injection belongs at the START of the verdict block. Same
+  family as the gates themselves: a check that cannot observe its subject.
+- **AN AUDIT THAT PATTERN-MATCHES AN IDIOM MISSES EVERY INSTANCE WEARING A
+  DIFFERENT SHAPE — ask the question the idiom stands for.** Same pass: the
+  audit table marked `check-build-context.py` *"n/a (straight-line, not
+  list-driven)"*, which was true of its self-test and blind to its MAIN path —
+  the path CI runs — which printed `0 COPY source(s) reach the build context`
+  and **exited 0**. That is the gate standing in for the `docker build` the
+  403-blocked registry makes unreachable here, silently disarmed. It was found
+  only because the brief said to check the others too. `check-tailwind-scale.py`
+  was not in the audit's table at all and had the same hole, saved only by
+  `max()` raising on an empty sequence — an accidental floor one `default=0`
+  away from a silent pass. **The brief said "check the other three"; the answer
+  was eleven checked and four holed.** When a defect class has recurred, audit
+  the whole class by its QUESTION ("what does this gate do when it examines
+  nothing?"), never by grepping the shape the last instance happened to have.
 - **The Docker *registry* is blocked here, but the stack does NOT need Docker —
   a native, container-free boot works and CAN drive `just e2e` + founder
   screenshots.** `docker pull` of `postgres:16` / `redis:7` / `minio/minio:*`
