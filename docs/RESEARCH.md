@@ -276,10 +276,58 @@ the fix.** Headroom is unaffected — the smallest real arc in the corpus is
 0.71 mm and the kernel's own linear tolerance is 1e-4 mm, so nothing legitimate
 lives in the band. Net over the corpus: annihilated arcs 27 -> **0**, conflicting
 287 -> 314, overconstrained 282 -> 257, solvable 1328 -> 1326, violated still 0.
-**One recorded live limit remains and is deliberate:** trial 1906's tangency
-admits `r2 = 2*r1` as well as `r2 = 0`, so that sketch is SOLVABLE and now gets
+**One recorded live limit remained and was deliberate:** trial 1906's tangency
+admits `r2 = 2*r1` as well as `r2 = 0`, so that sketch is SOLVABLE and got
 `conflicting` — wrong, but less wrong than shipping a void, and choosing the
-branch is a solver change (ARC-BRANCH-1), not a payload gate.
+branch is a solver change (ARC-BRANCH-1), not a payload gate. That limit is now
+LIFTED — see below.
+
+**A collapse the constraints do not FORCE is a bad starting guess, not a verdict,
+and the solver may re-ask from a different one exactly once** (ARC-BRANCH-1,
+2026-09-04). Geometry a solve has annihilated never reaches a payload — since
+SOLVE-CRASH-1 and ARC-DEGENERATE-1 `read_back` substitutes the author's own
+radius or arc and the payload gate reclassifies the result as `conflicting` — so
+such a solve is not an answer the author is being offered at all. Where a
+non-degenerate solution exists, refusing it is simply wrong. `plain_solve`
+therefore re-solves ONCE, and prefers the second answer only when it clears the
+bar the first could not (converged, nothing annihilated, no violated constraint).
+Measured over PBT-1's corpus: **38 solves annihilate an entity; 36 are FORCED and
+keep their `conflicting` unchanged, 2 are not.** Net: solvable 1326 -> **1328**,
+conflicting 314 -> **312**, violated still 0, reversed still 0, annihilated still
+0, and no other trial's payload changed by a bit.
+
+**The restart start pose is the AUTHOR's own sketch with only the collapsed
+entity relocated to the solved position — and the cheaper-looking alternative was
+built first and is measurably worse.** Restarting from the whole solved answer
+with the collapse undone also finds the branch, and inherits everything else the
+first solve did wrong: on trial 1906 it drags `e1` (an arc no constraint sizes)
+from the author's r = 14.618 to 8.242 and reverses its chord, so the baseline that
+SETTLE-2's `_turns_geometry_inside_out` judges against is itself reversed relative
+to the author, and the settle's correct recovery of `e1` is discarded — shipping
+`r1 = 10.029` where the author's pose ships **`r1 = 14.618, r2 = 29.236`**. Stated
+generally: SETTLE-2's guard rests on the premise that *the plain solve is itself a
+walk from the author's own values*, and a restart seeded from a solved answer is
+the one thing that breaks it. Seeded from the author's pose the premise holds.
+
+**This does NOT breach SETTLE-2, and the distinction is what the ticket turned
+on.** SETTLE-2 governs the settle's relationship to the plain solve it is handed,
+and that is untouched: the guard still runs, unchanged, over whatever
+`plain_solve` returns. The restart runs one layer up and only where the plain
+solve produced NO shippable answer, so the choice is between an answer and no
+answer rather than between two answers — the one case where re-asking cannot cost
+the author a solution they were already being shown. Determinism (§9) is
+preserved by construction: one restart, no loop, and a start pose that is a pure
+function of the sketch — no seed, no clock, no search. Verified by running the
+2000-sketch sweep twice in one process (identical census, and all 2000 payloads
+bitwise identical).
+
+**The mechanism is not arc-only, and the generality found a second defect.** The
+restart asks its question of any annihilated entity, because the collapse is one
+defect wearing two DTOs. The second of the two rescued trials is a CIRCLE (trial
+1593) minimising to the same two constraints as 1906 — `coincident` from one
+curve's centre to the other's endpoint, plus `tangent` — which SOLVE-CRASH-1 had
+counted among the annihilated circles it called forced. ARC-DEGENERATE-1's own
+asymmetry, one layer up.
 
 **Spline FIT POINTS are constrainable (v1.1, 2026-07-15); the spline CURVE is
 not.** planegcs still has no spline primitive, so the curve carries no

@@ -200,26 +200,37 @@ See Done archive.**
       [src: SOLVE-CRASH-1 agent report, kernel-architect, 2026-08-29, filed
       by backlog-groomer pass 19]
 
-- [ ] (P2, S) **ARC-BRANCH-1 — a solve picks the DEGENERATE branch of a
-      tangency that also has a real one, so a solvable sketch now reports
-      `conflicting`.** kind: defect (solver branch selection). Found and
-      recorded as a live limit by ARC-DEGENERATE-1 (2026-08-29), which
-      deliberately did NOT fix it: PBT-1 trial 1906 puts one arc's centre on
-      another arc's endpoint and makes the two tangent, which admits both
-      `r2 = 0` and `r2 = 2*r1`. From the author's own starting configuration
-      the solver lands on `r2 = 3.9e-14`; **4 of 8 starts with the arc pushed
-      7 mm away reach `r2 = 29.236` mm at a residual of exactly `0.0`.**
-      Before ARC-DEGENERATE-1 that sketch shipped a void under
-      `underconstrained`; after it, `conflicting`. Both are wrong — the
-      sketch is solvable — and the second is only the better of two wrong
-      answers. This is a change to how the solver CHOOSES a branch, which is
-      the same family as SETTLE-2's "a settle must refine the plain solve,
-      never jump branches", and it does not belong inside a payload gate.
-      ACCEPTANCE: the sketch pinned by
-      `test_the_branch_case_is_a_recorded_live_limit_not_a_forced_collapse`
-      solves to the non-degenerate branch deterministically (RESEARCH §9 —
-      same input, same branch, every time); that test is DELETED in the same
-      commit, as its own docstring requires; the PBT-1 census is re-reported.
+- [x] (P2, S) **ARC-BRANCH-1 — CLOSED (kernel-architect, 2026-09-04). A
+      collapse the constraints do not FORCE is a bad starting guess, not a
+      verdict, so the solver re-asks from a different one exactly once.**
+      Trial 1906 now ships `r1 = 14.618, r2 = 29.236` at a worst residual of
+      3.6e-15 mm — the author's own `e1` untouched, and the branch
+      ARC-DEGENERATE-1's live limit named; that test is DELETED here, as its
+      docstring required. **The SETTLE-2 tension is real and resolves cleanly:**
+      SETTLE-2 governs the settle's relationship to the plain solve it is
+      HANDED, and the guard still runs unchanged over whatever baseline it gets;
+      the restart runs one layer up and only where the plain solve produced NO
+      shippable answer (geometry `read_back` substitutes and the payload gate
+      refuses), so the choice is between an answer and no answer, never between
+      two answers. **The start pose is the author's own sketch with only the
+      collapsed entity relocated**, and the obvious alternative — restart from
+      the whole solved answer — was built first and is worse: it inherits the
+      first solve's unforced drag on `e1` and reverses the baseline SETTLE-2
+      judges against, so the settle's correct answer is discarded and it ships
+      `r1 = 10.029`. General finding: **SETTLE-2's guard rests on the premise
+      that the plain solve is a walk from the author's own values, and a restart
+      seeded from a solved answer is the one thing that breaks it.** Not
+      arc-only, and the generality found a second defect: of the **38** corpus
+      solves that annihilate an entity, **36 are forced** and 2 are not —
+      trial 1906 and trial **1593**, a CIRCLE in the same construction that
+      SOLVE-CRASH-1 had counted as forced. Census: solvable 1326 -> **1328**,
+      conflicting 314 -> **312**, underconstrained 1295 -> 1297; violated 0,
+      reversed 0, annihilated 0/0, raised 0, and no other trial's payload moved
+      by a bit. Determinism: two sweeps in one process, identical census and
+      2000 payloads bitwise identical. Mutants: disabling the restart reddens 3
+      of 5 new tests and restores the pre-fix census; the rejected pose reddens
+      2. Gates: `just lint` exit 0, `uv run pyright` clean, geometry suite
+      green.
       [src: ARC-DEGENERATE-1, kernel-architect, 2026-08-29]
       TERRITORY: `services/geometry/src/geometry/sketch/planegcs_solver.py`,
       `services/geometry/tests/test_sketch_degenerate_arc.py`. agentType:
@@ -4997,6 +5008,12 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
       engineering-audit debt items closed. [src: engineering-auditor]
 
 ## Changelog
+
+- 2026-09-04 — **ARC-BRANCH-1 closed (kernel-architect):** an annihilated entity
+  is a bad starting guess, not a verdict — one restart from the author's pose
+  with the collapsed entity relocated. Census solvable 1326 -> 1328,
+  conflicting 314 -> 312; 36 of 38 collapses still forced. Found a second
+  branch case on a CIRCLE (trial 1593). ARC-DEGENERATE-1's live limit deleted.
 
 - 2026-08-29 — **GHOST-1 evidence pass (frontend-builder):** added the
   multi-body case the scope decision was made for (a NEIGHBOUR occludes the

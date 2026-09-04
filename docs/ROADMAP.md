@@ -646,6 +646,60 @@ and saying so is the point: it is less wrong than shipping a void (the user is
 told and the sketch stays editable), and choosing the branch is a solver change
 filed as ARC-BRANCH-1, not something to improvise inside a payload gate. The
 test bounds it BOTH ways, so closing the gap reddens the suite.
+**LIFTED 2026-09-04 by ARC-BRANCH-1 — the bound fired as designed, and the test
+is deleted in that commit.**
+
+**ARC-BRANCH-1 CLOSED (kernel-architect, 2026-09-04) — a collapse the
+constraints do not FORCE is a bad starting guess, not a verdict, so the solver
+re-asks from a different one exactly once.** ARC-DEGENERATE-1's recorded live
+limit, lifted. Trial 1906 puts one arc's centre on another's endpoint and makes
+the two tangent, which admits `r2 = 0` and `r2 = 2*r1`; the sketch shipped a
+void under `underconstrained` before ARC-DEGENERATE-1 and a wrong `conflicting`
+after it, and both were wrong because the sketch solves. It now ships
+**`r1 = 14.618, r2 = 29.236` at a worst residual of 3.6e-15 mm** — the author's
+own `e1`, untouched, and the branch the old limit named.
+**THE TICKET TURNED ON RECONCILING THIS WITH SETTLE-2 ("a settle must REFINE the
+plain solve, never jump branches"), AND THEY DO NOT ACTUALLY COLLIDE.** SETTLE-2
+governs the settle's relationship to the plain solve it is HANDED, and that is
+untouched: `_turns_geometry_inside_out` still runs, unchanged, over whatever
+baseline it gets. The restart runs one layer up and only where the plain solve
+produced NO SHIPPABLE ANSWER — geometry `read_back` substitutes and the payload
+gate refuses, established by SOLVE-CRASH-1/ARC-DEGENERATE-1 — so the choice is
+between an answer and no answer, never between two answers. That is the one case
+where re-asking cannot cost the author a solution they were already being shown.
+**THE START POSE IS THE AUTHOR'S OWN SKETCH WITH ONLY THE COLLAPSED ENTITY
+RELOCATED, AND THE OTHER POSE WAS BUILT FIRST AND IS MEASURABLY WORSE.**
+Restarting from the whole solved answer with the collapse undone finds the branch
+too — and inherits the first solve's unforced drag on `e1` (r 14.618 -> 8.242,
+chord reversed), after which the settle's CORRECT recovery of `e1` is thrown away
+by SETTLE-2's guard, because the baseline it judges against is itself reversed
+relative to the author. That pose ships `r1 = 10.029`. Stated generally, and this
+is the finding worth carrying: **SETTLE-2's guard rests on the premise that the
+plain solve is itself a walk from the author's own values, and a restart seeded
+from a solved answer is the one thing that can break it.** Seeded from the
+author's pose the premise holds and the guard measures what it was built to
+measure. Both poses are pinned by tests, so the choice cannot be undone silently.
+**THE MECHANISM IS NOT ARC-ONLY, AND THE GENERALITY FOUND A SECOND DEFECT.** It
+asks its question of any annihilated entity, because the collapse is one defect
+wearing two DTOs. Of the **38** solves in PBT-1's corpus that annihilate
+something, **36 are FORCED** (unchanged, still `conflicting` with the constraint
+named) and **2 are not** — trial 1906, and trial **1593**, a CIRCLE minimising to
+the same two constraints, which SOLVE-CRASH-1 had counted among the circles it
+called forced. An arc-only fix would still be refusing a sketch that solves.
+**MUTATION EVIDENCE, both restored.** (a) Disabling the restart reproduces the
+pre-fix census exactly (**solvable 1326, conflicting 314**) and reddens 3 of the
+5 new tests; the two that stay green are the ones that assert the underlying
+collapse still happens and that a forced case is still refused — i.e. the
+negative controls, by design. (b) Switching to the whole-solved-answer pose
+reddens 2, on `r2 != 29.236` and on `e1` coming back resized.
+**DETERMINISM (RESEARCH §9):** one restart, no loop, and a start pose that is a
+pure function of the sketch — no seed, no clock, no search. Two full sweeps in
+ONE process give an identical census AND all 2000 payloads bitwise identical.
+**Sweep census, before -> after:** solvable 1326 -> **1328**, conflicting
+314 -> **312**, underconstrained 1295 -> **1297**, overconstrained 257 -> 257,
+converged 31 -> 31, diverged 103 -> 103, raised 0 -> 0, violated 0 -> 0,
+reversed 0 -> 0, annihilated circles 0 -> 0, annihilated arcs 0 -> 0 — and no
+OTHER trial's payload changed by a single bit.
 
 **STEPNAME-1 GEOMETRY HALF SHIPPED (kernel-architect, 2026-08-29) — the
 headline symptom was not a geometry defect, and looking for it found two that
