@@ -943,6 +943,21 @@ recipe here in the same commit as the fix.**
   proves a USER can do something, assert with the user's own mechanism — a real
   `page.mouse.click` at the control's centre, or `elementFromPoint` resolving to
   the control — never a proxy that skips the step you are claiming works.
+  **AND A UNIT ASSERTION CANNOT SEE WHAT ELSE IS ON THE SURFACE — a string can
+  satisfy every property you check about it and still be wrong because something
+  ELSE already says it.** Measured 2026-08-29 on REASON-GATE-1. The corner
+  relief's new blocker read `"Pick two different edge flanges."`, which is
+  verbatim the opening of that card's own inline field error — so the card
+  rendered the same sentence twice and a `getByText` resolved to two nodes.
+  Every unit assertion passed: non-empty, ≤48 characters, names the fix. They
+  had to, because **a unit test holds the string in isolation and isolation is
+  exactly the property that was violated.** Only the real browser could see it.
+  The general form: when a check validates a part, ask what the part is
+  ADJACENT to in the assembled thing, and put at least one assertion where the
+  adjacency exists. This is the same shape as the golden-suite blind spot (a
+  fixture that never reaches the path) and the downstream negative control (a
+  probe injected past the guard) — a correct check pointed somewhere the defect
+  is not.
 - **`git stash` IS NOT ISOLATED BY A WORKTREE — THE STASH LIST IS SHARED, AND
   POPPING HANDS YOU WHOEVER STASHED LAST.** Found 2026-08-28 by the hover-to-
   sketch agent, which caused the incident and recovered it. Worktrees give every
