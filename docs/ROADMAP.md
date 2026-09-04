@@ -15,6 +15,42 @@ headroom claim below is corrected against a real CI-runner measurement, not
 the local box it was first computed on. Pass 16/17/18 detail is in
 `docs/CHANGELOG.md`.
 
+**SEL-2 CLOSED (frontend-builder, 2026-09-04) — a sketch pick now names itself
+before the click, and the name is what the click actually takes.** Acceptance
+A3, `docs/design/pre-selection.md` §6, verbatim: *"Hovering a sketch line with
+no closer point present shows the extended `SnapMarker` naming the entity kind
+before the click; the click selects exactly the named candidate."* `pick.ts`
+resolved a winner on every hover and said nothing, so the founder's *"a sketch
+line that wouldn't even select"* was a mis-aim that stayed invisible until after
+the click. The drawing marker (UI-W5) is now the SELECTING marker too: one
+`CursorMark` renders both, four of the six pick glyphs ARE the snap glyphs
+(endpoint / centre / origin / X · Y axis), and exactly one is new —
+`SnapOnCurveIcon`, the drafting pick tick for "the curve itself, here". Words
+come from the subject: "Line" / "Circle" / "Arc" / "Spline" / "Endpoint" /
+"Fit point" / "Centre", and the frame keeps its own names rather than being
+called a Point and two Lines.
+The half with teeth is that `hoverPick` was `candidates[0]` while a plain click
+takes `applyPick`'s CYCLE step — so with one thing already held, the head of the
+list is not what the next click takes, and both the existing highlight and the
+new word would have promised a pick the click does not make. `replacementPick`
+now states that rule once and both sides read it; `toggleSelection` and the
+click-cycle are untouched (regression-proved by the 4-step walk in the e2e,
+where every step's word matches the selection the click produced).
+Evidence: 11 new unit cases (the cycle case asserts `replacementPick` against
+`applyPick` itself over 6 selections x 6 probes, with a non-vacuous floor of >4
+stacked-candidate probes) + 6 e2e cases at **1280x800**, all asserting the INK —
+`innerText` (so `text-transform` shows: the expectations read "LINE", not the
+DOM's "Line") plus a measured, in-frame box, never `toBeVisible()` and never
+`toContainText`. Two mutation legs, Vite restarted and served bytes checked
+between each: unwiring the mount reddens 5 of 6; keeping every `data-` attribute
+and hiding only the word reddens the same 5 on *"the marker's word has no box at
+all"* — which is the exact defect an attribute-shaped assertion would have
+missed. A held pointer suppresses the word (a camera drag aims no click), and
+the mark reappears on release with no further movement. Founder shots:
+`docs/screenshots/sel2-pick-marker-{before,after}-{line,endpoint,circle}-1280.png`.
+Not in scope and still open: the `+N` stacked-candidate badge is SEL-3, and
+`pick.ts` still has no keyboard path at all (SEL-6).
+
 **e2e shard reds across the last several pushes are now FULLY DIAGNOSED —
 four separate causes, not one shared substrate defect; CI-4's own umbrella
 question (systemic instability under runner load) is answered "not yet

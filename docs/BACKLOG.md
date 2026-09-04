@@ -2304,15 +2304,6 @@ archive.**
       boundary drew with no depth test, so a bore's far circle painted a bright
       ellipse across the outside of the plate.
 
-- [ ] (P1, S) **SEL-2 — a sketch pick never names what it's about to select**
-      (`apps/web`). `sketch/pick.ts` resolves a winning candidate silently;
-      extend the existing UI-W5 `SnapMarker` (glyph + word, already shipped
-      for drawing) to also render for `hoverPick` in select mode, with one new
-      "on-curve" glyph for the entity case (point cases reuse the endpoint/
-      centre glyphs already in `SNAP_MARKS`). No change to `toggleSelection`'s
-      click-cycle. Design + acceptance A3: `docs/design/pre-selection.md` §2,
-      §6. [src: founder]
-
 - [ ] (P1, M) **DRAG-1 — hovered-face normal arrow, doubling as the extrude/cut
       direction control** (`apps/web`, `packages/design`). A single brass
       arrow along the addressed face's normal (planar: `signature.normal`,
@@ -3746,6 +3737,22 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
       Pass 7 M6(a); docs/RETRO.md §1.1]
 
 ## Done — archive
+
+### SEL-2 CLOSED — the select tool says what the click will take (2026-09-04, frontend-builder)
+
+- **SEL-2** (P1, founder-sourced) — A3 met literally: hovering a line with no
+  closer point shows the extended marker naming the entity kind, and the click
+  takes exactly the named candidate. One `CursorMark` now serves drawing and
+  selecting; four of six pick glyphs ARE the snap glyphs, one is new
+  (`SnapOnCurveIcon`). Found and fixed in passing: `hoverPick` read
+  `candidates[0]` while a plain click takes the CYCLE step, so the word — and
+  the pre-existing highlight — would have named a pick the second click does
+  not make; `replacementPick` states that rule once for both. `toggleSelection`
+  and the click-cycle are untouched. 11 unit + 6 e2e cases at 1280x800 asserting
+  the INK (`innerText` + a measured in-frame box); mutation legs redden 5 of 6
+  both when the mount is removed AND when only the visible word is hidden with
+  every `data-` attribute intact. Shots:
+  `docs/screenshots/sel2-pick-marker-{before,after}-*-1280.png`.
 
 ### Groom pass 19 closures (2026-08-29, backlog-groomer — CI-4's original question answered, K2 + PBT-1 land)
 

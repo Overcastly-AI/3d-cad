@@ -14,6 +14,7 @@ import {
   SnapEndpointIcon,
   SnapIntersectionIcon,
   SnapMidpointIcon,
+  SnapOnCurveIcon,
   SnapOriginIcon,
   SnapXAxisIcon,
   SnapYAxisIcon,
@@ -89,10 +90,12 @@ import {
 } from "../sketch/datum";
 import {
   pickCandidates,
+  replacementPick,
   samePick,
   PICK_TOLERANCE_PX,
   type SketchPick,
 } from "../sketch/pick";
+import { pickMark, type PickMarkKind } from "../sketch/pickMark";
 import {
   DATUM_PLANES,
   sceneOriginBasis,
@@ -618,9 +621,17 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
           // highlights the hovered target only (points are irrelevant to them);
           // select keeps its finer point-first grain. In the mirror axis phase
           // the hovered line drives the live reflection ghost (DrawLayer).
+          //
+          // For SELECT that is `replacementPick`, not `all[0]`: with one thing
+          // already held, a repeat click WALKS the stack (`applyPick`'s
+          // click-through), so the head of the list is not what the next click
+          // takes. Naming it would make the mark (SEL-2) and the highlight
+          // promise a pick the click does not make — the defect the comment
+          // above claims this path avoids, half-implemented. The click rule
+          // itself is untouched; both sides now read it from one function.
           const candidate =
             (aimTool === "select"
-              ? all[0]
+              ? replacementPick(state.selection, all)
               : all.find((pick) => pick.kind === "entity")) ?? null;
           const previous = useSketchStore.getState().hoverPick;
           if (
@@ -856,12 +867,19 @@ const SNAP_MARKS: Record<SnapKind, (props: IconProps) => ReactElement> = {
 };
 
 /**
- * THE honesty cue (UI-W5): a mark at the candidate NAMING which snap this
- * click will take, before it is taken. A snap that silently grabs the wrong
- * thing is worse than no snap — the sketch ends up subtly wrong and nothing on
- * screen ever said so — so the mark carries both a distinct form and the WORD.
- * Competitors show the symbol alone; the word is the deliberate extra, because
- * a symbol only informs someone who already learned it.
+ * THE honesty cue (UI-W5, extended to selection by SEL-2): a mark at the
+ * candidate NAMING what this click will take, before it is taken. A click that
+ * silently grabs the wrong thing is worse than one that grabs nothing — the
+ * sketch ends up subtly wrong and nothing on screen ever said so — so the mark
+ * carries both a distinct form and the WORD. Competitors show the symbol alone;
+ * the word is the deliberate extra, because a symbol only informs someone who
+ * already learned it.
+ *
+ * ONE mark, two callers: {@link SnapMarker} while PLACING a point and
+ * {@link PickMarker} while SELECTING one. They differ only in what they resolve
+ * and what they call it — the glyph size, the chip, the z-range, the ink and the
+ * pointer-inertness are stated here once, so the two can never drift into two
+ * dialects of the same cue.
  *
  * Measured contrast on the carbide viewport ground (#0F141A): the mark in
  * `brass-hover` reads 11.80:1, and 5.49:1 in the worst case of sitting on a
@@ -873,40 +891,36 @@ const SNAP_MARKS: Record<SnapKind, (props: IconProps) => ReactElement> = {
  * Pointer-inert: the mark floats over the pointer catcher and must never eat
  * the click it is describing.
  */
-function SnapMarker({ basis }: { basis: PlaneBasis }) {
-  const candidate = useSketchStore((state) => state.snapCandidate);
-  const plane = useSketchStore((state) => state.plane);
-  if (candidate === null) return null;
-  const Mark = SNAP_MARKS[candidate.kind];
-  // The candidate's OWN word wins where it carries one: the origin's honest
-  // name depends on what this plane's zero is (`sketch/origin.ts`).
-  const label = candidate.label ?? SNAP_LABELS[candidate.kind];
-  // …and where that zero can MOVE — a seated face's area centroid — the caveat
-  // rides the accessible name, so the one surface that states it is the one the
-  // user is reading at the moment they take it.
-  const note = candidate.kind === "origin" ? originIdentity(plane).note : null;
+function CursorMark({
+  basis,
+  at,
+  mark: Mark,
+  label,
+  ariaLabel,
+  testId,
+  attributes,
+}: {
+  basis: PlaneBasis;
+  at: Point2D;
+  mark: (props: IconProps) => ReactElement;
+  label: string;
+  ariaLabel: string;
+  testId: string;
+  attributes?: Record<string, string | undefined>;
+}) {
   return (
     <Html
-      position={planeToWorld(basis, candidate.at)}
+      position={planeToWorld(basis, at)}
       center
       zIndexRange={SNAP_Z_RANGE}
       style={{ pointerEvents: "none" }}
     >
       <div
         className="relative"
-        data-testid="snap-marker"
-        data-snap-kind={candidate.kind}
-        data-snap-entities={
-          candidate.entities.length > 0
-            ? candidate.entities.join(" ")
-            : undefined
-        }
+        data-testid={testId}
+        {...attributes}
         role="img"
-        aria-label={
-          note === null
-            ? `Snapping to ${label.toLowerCase()}`
-            : `Snapping to ${label.toLowerCase()} — ${note}`
-        }
+        aria-label={ariaLabel}
       >
         <Mark size={SNAP_MARK_PX} className="block text-brass-hover" />
         {/* The word is a callout, offset clear of the mark's own strokes —
@@ -920,6 +934,153 @@ function SnapMarker({ basis }: { basis: PlaneBasis }) {
         </span>
       </div>
     </Html>
+  );
+}
+
+/** The mark while PLACING a point: which snap the click will take (UI-W5). */
+function SnapMarker({ basis }: { basis: PlaneBasis }) {
+  const candidate = useSketchStore((state) => state.snapCandidate);
+  const plane = useSketchStore((state) => state.plane);
+  if (candidate === null) return null;
+  // The candidate's OWN word wins where it carries one: the origin's honest
+  // name depends on what this plane's zero is (`sketch/origin.ts`).
+  const label = candidate.label ?? SNAP_LABELS[candidate.kind];
+  // …and where that zero can MOVE — a seated face's area centroid — the caveat
+  // rides the accessible name, so the one surface that states it is the one the
+  // user is reading at the moment they take it.
+  const note = candidate.kind === "origin" ? originIdentity(plane).note : null;
+  return (
+    <CursorMark
+      basis={basis}
+      at={candidate.at}
+      mark={SNAP_MARKS[candidate.kind]}
+      label={label}
+      testId="snap-marker"
+      attributes={{
+        "data-snap-kind": candidate.kind,
+        "data-snap-entities":
+          candidate.entities.length > 0
+            ? candidate.entities.join(" ")
+            : undefined,
+      }}
+      ariaLabel={
+        note === null
+          ? `Snapping to ${label.toLowerCase()}`
+          : `Snapping to ${label.toLowerCase()} — ${note}`
+      }
+    />
+  );
+}
+
+/**
+ * One mark per PICK kind. Four of the six are the drawing marks, referenced
+ * rather than re-listed: selection and placement address the same objects, so a
+ * user who learned the square while drawing must not meet a second dialect while
+ * selecting (`sketch/pickMark.ts`). Only the on-curve tick is new, because
+ * placement has no equivalent for "the curve itself, here".
+ */
+const PICK_MARKS: Record<PickMarkKind, (props: IconProps) => ReactElement> = {
+  endpoint: SNAP_MARKS.endpoint,
+  center: SNAP_MARKS.center,
+  origin: SNAP_MARKS.origin,
+  "x-axis": SNAP_MARKS["x-axis"],
+  "y-axis": SNAP_MARKS["y-axis"],
+  "on-curve": SnapOnCurveIcon,
+};
+
+/**
+ * Is a pointer button down right now? A held pointer means the gesture belongs
+ * to the CAMERA (Alt-orbit, middle-pan) or to nothing at all — the select tool
+ * commits on the release, and only if the pointer barely travelled (`isClick`).
+ * Either way no click is being aimed, so the word would be a label chasing the
+ * cursor across the frame: motion that says nothing, which is the definition of
+ * decoration this project treats as a defect (mandate 3c).
+ *
+ * Window-level, capturing, and `pointercancel`-aware, because the release that
+ * ends an orbit is frequently delivered somewhere other than the sheet.
+ */
+function usePointerHeld(): boolean {
+  const [held, setHeld] = useState(false);
+  useEffect(() => {
+    const down = () => setHeld(true);
+    const up = () => setHeld(false);
+    window.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
+    return () => {
+      window.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
+    };
+  }, []);
+  return held;
+}
+
+/**
+ * THE SAME HONESTY CUE, FOR SELECTING (SEL-2, acceptance A3). The founder's
+ * report was a sketch line that *"wouldn't even select"*; picking resolved a
+ * winner every time and never said which, so a mis-aim was invisible until after
+ * the click — the exact failure `SnapMarker` was built to end for placement.
+ *
+ * The pick it names is `hoverPick`, which the pointer handler resolves through
+ * the SAME call the click makes (`pickWithDatums` → `replacementPick`), so the
+ * word, the lit ink and the click cannot disagree — including in the
+ * click-through cycle, where the head of the candidate list is NOT what the next
+ * click takes.
+ *
+ * A tie between two candidates is not silence and not a coin flip: the ranking
+ * (`pickCandidates` — points before curves, nearest first, drawing order last)
+ * settles it, and this mark states the answer. What it does not yet state is
+ * that others were under the cursor at all; that count badge is SEL-3, and it
+ * hangs off this mark.
+ */
+function PickMarker({ basis }: { basis: PlaneBasis }) {
+  const hoverPick = useSketchStore((state) => state.hoverPick);
+  const entities = useSketchStore((state) => state.entities);
+  const cursor = useSketchStore((state) => state.cursor);
+  const tool = useSketchStore((state) => state.tool);
+  const plane = useSketchStore((state) => state.plane);
+  const frameHalfMm = useSketchStore((state) => state.datumFrameHalfMm);
+  const held = usePointerHeld();
+  const invalidate = useThree((state) => state.invalidate);
+  const mark = useMemo(
+    () =>
+      hoverPick === null || cursor === null
+        ? null
+        : pickMark(hoverPick, entities, cursor, datumFrame(frameHalfMm)),
+    [hoverPick, entities, cursor, frameHalfMm],
+  );
+  // Mounting an `Html` on a demand-rendered scene needs a frame to place it, and
+  // the release that un-suppresses this mark is not itself a pointer MOVE — so
+  // without this the mark would reappear at a stale spot until the user twitched.
+  useEffect(() => invalidate(), [held, invalidate]);
+  if (mark === null || held) return null;
+  // The frame's zero can MOVE on a face-seated sketch, and that caveat belongs
+  // wherever its name appears — the same sentence the snap mark carries.
+  const note = mark.kind === "origin" ? originIdentity(plane).note : null;
+  const named = `${mark.label.toLowerCase()}${note === null ? "" : ` — ${note}`}`;
+  return (
+    <CursorMark
+      basis={basis}
+      at={mark.at}
+      mark={PICK_MARKS[mark.kind]}
+      label={mark.label}
+      testId="pick-marker"
+      attributes={{
+        "data-pick-kind": mark.kind,
+        "data-pick-entity":
+          hoverPick === null
+            ? undefined
+            : hoverPick.kind === "entity"
+              ? hoverPick.id
+              : hoverPick.entity,
+      }}
+      ariaLabel={
+        tool === "select"
+          ? `Click to select ${named}`
+          : `Click to ${tool} ${named}`
+      }
+    />
   );
 }
 
@@ -1713,6 +1874,10 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
       <InkSegments positions={witness} color={sketch.glyphDimension} onTop />
       <Crosshair basis={basis} />
       <SnapMarker basis={basis} />
+      {/* Placement and selection never run at once — `hoverPick` is only set by
+          the tools that do NOT place points — so the two marks can never stack
+          on the same pixels. */}
+      <PickMarker basis={basis} />
       <DrawDimensionTag basis={basis} />
       <ConstraintGlyphs basis={basis} />
     </group>

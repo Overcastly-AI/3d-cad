@@ -17,6 +17,7 @@ import {
   SnapEndpointIcon,
   SnapIntersectionIcon,
   SnapMidpointIcon,
+  SnapOnCurveIcon,
   SnapOriginIcon,
   SnapXAxisIcon,
   SnapYAxisIcon,
@@ -60,6 +61,14 @@ const MARKS = {
   origin: <SnapOriginIcon />,
   "x-axis": <SnapXAxisIcon />,
   "y-axis": <SnapYAxisIcon />,
+  // The SELECT tool names its winning candidate with the same vocabulary
+  // (SEL-2), which puts one more mark in the set: the on-curve pick tick. It is
+  // held to the same contract because it is drawn at the same size in the same
+  // place as the rest, and the mark it is most at risk of converging with is the
+  // centre mark — both a curve plus a straight stroke. They differ by whole
+  // strokes: a CLOSED circle crossed twice through its middle, against an OPEN
+  // arc with one tick across it.
+  "on-curve": <SnapOnCurveIcon />,
 } as const;
 
 describe("sketch snap marks", () => {
