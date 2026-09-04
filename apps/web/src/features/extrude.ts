@@ -8,6 +8,7 @@ import type { LengthUnit } from "@loft/design";
 
 import type { DatumParams, ExtrudeParams, FeatureResponse } from "../api/parts";
 import { lengthInputValue, parsePositiveLengthMm } from "../units/length";
+import { fieldBlocker } from "./submitBlocker";
 
 export type ExtrudeOperation = ExtrudeParams["operation"];
 export type ExtrudeDirection = ExtrudeParams["direction"];
@@ -292,12 +293,25 @@ export function distanceError(input: string, unit: LengthUnit): string | null {
     : null;
 }
 
-/** True when the form can be submitted (a profile and a valid distance). */
-export function canSubmitExtrude(form: ExtrudeForm, unit: LengthUnit): boolean {
-  return (
-    form.profileFeatureId !== "" &&
-    parseDistanceMm(form.distanceInput, unit) !== null
+/**
+ * WHY the extrude cannot be created yet, or null when it can (REASON-GATE-1 —
+ * see `submitBlocker.ts` for the rule and the 48-character budget).
+ */
+export function extrudeSubmitBlocker(
+  form: ExtrudeForm,
+  unit: LengthUnit,
+): string | null {
+  if (form.profileFeatureId === "") return "Choose a sketch profile.";
+  return fieldBlocker(
+    form.distanceInput,
+    parseDistanceMm(form.distanceInput, unit),
+    "distance",
   );
+}
+
+/** True when the form can be submitted — the blocker, read as a verdict. */
+export function canSubmitExtrude(form: ExtrudeForm, unit: LengthUnit): boolean {
+  return extrudeSubmitBlocker(form, unit) === null;
 }
 
 /** The sketch features a new extrude may consume, in build order. */

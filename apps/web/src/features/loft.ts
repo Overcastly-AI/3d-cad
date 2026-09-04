@@ -115,10 +115,26 @@ export function moveSection(
  * repeated ref and the kernel reports a truly degenerate skin as `loft_failed`.
  */
 export function canSubmitLoft(form: LoftForm): boolean {
-  return (
-    form.sections.length >= MIN_LOFT_SECTIONS &&
-    form.sections.every((id) => id !== "")
-  );
+  return loftSubmitBlocker(form) === null;
+}
+
+/**
+ * WHY the loft cannot be created yet, or null when it can (REASON-GATE-1 — see
+ * `submitBlocker.ts` for the rule and the 48-character budget).
+ *
+ * An empty slot is named by its ORDINAL, the same two-digit numeral the section
+ * row carries ("Section 03"), because a stack of identical selects is exactly
+ * the form where "choose a sketch" leaves the user hunting for which one.
+ */
+export function loftSubmitBlocker(form: LoftForm): string | null {
+  if (form.sections.length < MIN_LOFT_SECTIONS) {
+    return `A loft needs at least ${MIN_LOFT_SECTIONS} sections.`;
+  }
+  const empty = form.sections.findIndex((id) => id === "");
+  if (empty !== -1) {
+    return `Choose a sketch for section ${String(empty + 1).padStart(2, "0")}.`;
+  }
+  return null;
 }
 
 /** Build the persisted params from valid form state, or null when incomplete. */

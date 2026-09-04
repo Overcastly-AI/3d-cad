@@ -28,6 +28,7 @@ import {
   parseSignedLengthMm,
 } from "../units/length";
 import { edgeSubshapeRef } from "./edge";
+import { fieldBlocker } from "./submitBlocker";
 
 /** The v1 pinned default neutral-axis fraction (air-bent mild steel, §1). */
 export const SHEET_METAL_DEFAULT_K_FACTOR = 0.44;
@@ -147,12 +148,40 @@ export function buildBaseFlangeParams(
   };
 }
 
+/**
+ * WHY the base flange cannot be created yet, or null when it can (REASON-GATE-1
+ * — see `submitBlocker.ts` for the rule and the 48-character budget).
+ *
+ * The profile is asked for FIRST even though `buildBaseFlangeParams` checks it
+ * last: it is the reference the whole feature hangs on, and a card that says
+ * "check the gauge" while no profile is chosen is answering the second question.
+ */
+export function baseFlangeSubmitBlocker(
+  form: BaseFlangeForm,
+  unit: LengthUnit,
+): string | null {
+  if (form.profileFeatureId === "") return "Choose a closed sketch profile.";
+  return (
+    fieldBlocker(
+      form.thicknessInput,
+      parsePositiveLengthMm(form.thicknessInput, unit),
+      "gauge",
+    ) ??
+    fieldBlocker(
+      form.bendRadiusInput,
+      parsePositiveLengthMm(form.bendRadiusInput, unit),
+      "bend radius",
+    ) ??
+    fieldBlocker(form.kFactorInput, parseKFactor(form.kFactorInput), "K-factor")
+  );
+}
+
 /** True when the base-flange form can be submitted. */
 export function canSubmitBaseFlange(
   form: BaseFlangeForm,
   unit: LengthUnit,
 ): boolean {
-  return buildBaseFlangeParams(form, unit) !== null;
+  return baseFlangeSubmitBlocker(form, unit) === null;
 }
 
 // ---------------------------------------------------------------------------
@@ -429,6 +458,71 @@ export function edgeFlangeSpanPreview(
   return { start, end, spanMm: width };
 }
 
+/**
+ * WHY the edge flange cannot be created yet, or null when it can (REASON-GATE-1
+ * — see `submitBlocker.ts` for the rule and the 48-character budget).
+ *
+ * The width extent is the one gate here that is not a single field: a centered
+ * span WIDER than the edge parses fine in its own box and is refused by the
+ * arithmetic, so it gets a sentence naming the relationship rather than the box.
+ * Overrides follow `hemSubmitBlocker`'s wording — a blank override is a state
+ * with two exits, and naming both is what stops it reading as a dead end.
+ */
+export function edgeFlangeSubmitBlocker(
+  form: EdgeFlangeForm,
+  picked: readonly EdgeSignature[],
+  bodyFeatureId: string | null,
+  unit: LengthUnit,
+): string | null {
+  if (bodyFeatureId === null) return "Add a base flange to fold from.";
+  const signature = picked.length === 1 ? picked[0] : undefined;
+  if (signature === undefined) {
+    return picked.length === 0
+      ? "Pick one straight edge to fold."
+      : "Press Clear, then pick one edge.";
+  }
+  const length = fieldBlocker(
+    form.flangeLengthInput,
+    parsePositiveLengthMm(form.flangeLengthInput, unit),
+    "flange length",
+  );
+  if (length !== null) return length;
+  const angle = fieldBlocker(
+    form.bendAngleInput,
+    parseBendAngleDeg(form.bendAngleInput),
+    "bend angle",
+  );
+  if (angle !== null) return angle;
+
+  if (form.widthExtent !== "full") {
+    const width = fieldBlocker(
+      form.widthInput,
+      parsePositiveLengthMm(form.widthInput, unit),
+      "flange width",
+    );
+    if (width !== null) return width;
+    if (form.widthExtent === "offset") {
+      const offsetMm = parseSignedLengthMm(form.offsetInput, unit);
+      if (offsetMm === null || offsetMm < 0) {
+        return fieldBlocker(form.offsetInput, null, "offset from edge start");
+      }
+    }
+    // Reached only when every field parses — so the span itself is the problem.
+    if (resolveEdgeFlangeExtent(form, signature.length_mm, unit) === null) {
+      return "The span runs off the end of the edge.";
+    }
+  }
+
+  if (form.overrideBendRadius) {
+    const radius = parsePositiveLengthMm(form.bendRadiusInput, unit);
+    if (radius === null) return "Type a radius, or uncheck the override.";
+  }
+  if (form.overrideKFactor && parseKFactor(form.kFactorInput) === null) {
+    return "Type a K-factor, or uncheck the override.";
+  }
+  return null;
+}
+
 /** True when the edge-flange form can be submitted (valid fields + one edge). */
 export function canSubmitEdgeFlange(
   form: EdgeFlangeForm,
@@ -436,7 +530,7 @@ export function canSubmitEdgeFlange(
   bodyFeatureId: string | null,
   unit: LengthUnit,
 ): boolean {
-  return buildEdgeFlangeParams(form, picked, bodyFeatureId, unit) !== null;
+  return edgeFlangeSubmitBlocker(form, picked, bodyFeatureId, unit) === null;
 }
 
 // ---------------------------------------------------------------------------
@@ -936,12 +1030,47 @@ export function buildCornerReliefParams(
   return params;
 }
 
+/**
+ * WHY the corner relief cannot be created yet, or null when it can
+ * (REASON-GATE-1 — see `submitBlocker.ts` for the rule and the 48-character
+ * budget).
+ *
+ * The two bends are asked for before the ratio: a corner relief is defined by
+ * WHICH corner, and the ratio has a working default, so pointing at the number
+ * first would answer a question the user has not reached.
+ *
+ * A bend whose flange no longer resolves is NOT here — that is an edit-mode
+ * fact about the tree, held by `CornerReliefEditor` alongside its own guard
+ * option, and composed into the same reason line there.
+ */
+export function cornerReliefSubmitBlocker(
+  form: CornerReliefForm,
+  unit: LengthUnit,
+): string | null {
+  if (form.bendAId === "") return "Choose bend A.";
+  if (form.bendBId === "") return "Choose bend B.";
+  if (form.bendAId === form.bendBId) return "Pick two different edge flanges.";
+  const ratio = fieldBlocker(
+    form.reliefRatioInput,
+    parseReliefRatio(form.reliefRatioInput),
+    "relief ratio",
+  );
+  if (ratio !== null) return ratio;
+  if (
+    form.overrideSize &&
+    parsePositiveLengthMm(form.sizeInput, unit) === null
+  ) {
+    return "Type a notch size, or uncheck the override.";
+  }
+  return null;
+}
+
 /** True when the corner-relief form can be submitted (valid ratio + two distinct bends). */
 export function canSubmitCornerRelief(
   form: CornerReliefForm,
   unit: LengthUnit,
 ): boolean {
-  return buildCornerReliefParams(form, unit) !== null;
+  return cornerReliefSubmitBlocker(form, unit) === null;
 }
 
 /** True when the part has ≥2 edge flanges to relieve a corner between (the gate). */
