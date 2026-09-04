@@ -1420,9 +1420,10 @@ NAME-2b, TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1,
 MATE-OBS-2, SKETCH-COVERAGE-1,
 SOLVER-DOC-1, HEM-1B, HEM-1D — see BACKLOG for current tickets. HEM-1C is
 IN FLIGHT (frontend-builder). **REASON-GATE-1 is IN FLIGHT
-(frontend-builder)** — the fifteen `*SubmitBlocker` functions and their
-cross-check against the pre-change predicates have landed; the editor wiring
-and the 1280x800 legibility case follow in this batch.
+(frontend-builder)** — the fifteen `*SubmitBlocker` functions, their cross-check
+against the pre-change predicates, and the editor wiring have landed; all
+seventeen commit actions now state a reason and sit in the pinned footer. The
+1280x800 pixel case and the founder shots follow in this batch.
 
 **Still owed, carried forward again:** `docs/GEOMETRY-QA.md`/
 `docs/UI-REVIEW.md` refresh against the last seven batches; the

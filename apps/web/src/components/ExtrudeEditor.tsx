@@ -36,7 +36,7 @@ import { lengthInputValue } from "../units/length";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { ExtrudeParams } from "../api/parts";
 import {
-  canSubmitExtrude,
+  extrudeSubmitBlocker,
   describeExtrudeDirection,
   distanceError,
   type ExtrudeDirection,
@@ -206,7 +206,12 @@ export function ExtrudeEditor({
   // options so retargeting the profile re-reads it.
   const provenance = optionProvenance(profiles, form.profileFeatureId);
   const distanceMsg = distanceError(form.distanceInput, unit);
-  const canSubmit = canSubmitExtrude(form, unit) && !saving;
+  // ONE computation, two readings (REASON-GATE-1): `canSubmit` is DEFINED as
+  // "nothing is blocking", so a grey Save with an empty reason line is
+  // unreachable rather than merely absent. Null while saving — the label says
+  // that already.
+  const blocker = saving ? null : extrudeSubmitBlocker(form, unit);
+  const canSubmit = blocker === null && !saving;
   useCommandBridge(submit, canSubmit);
   const profileName =
     profiles.find((p) => p.id === form.profileFeatureId)?.name ?? "—";
@@ -222,9 +227,54 @@ export function ExtrudeEditor({
   );
 
   return (
-    <EditorCard onKeyDown={onKeyDown}>
+    <EditorCard
+      onKeyDown={onKeyDown}
+      // THE ACTION ROW IS PINNED, not scrolled (REASON-GATE-1, the shape
+      // `HoleEditor` has used since UI-REVIEW 2026-07-30 P1 and `HemEditor`
+      // since HEM-1B). It used to ride inside the scrolling body, so at the
+      // 1280x800 floor a tall form could put the commit action — and the
+      // sentence explaining why it is grey — below the fold of its own card.
+      // An explanation the stuck user has to scroll for is the defect wearing
+      // a longer sentence.
+      footer={
+        <>
+          {error ? (
+            <p
+              role="alert"
+              data-testid="extrude-error"
+              className="border border-b-0 border-flag bg-anvil px-3 py-2 font-body text-xs text-flag"
+            >
+              {error}
+            </p>
+          ) : null}
+          <div className="grid grid-cols-2 divide-x divide-hairline border border-t-0 border-hairline bg-anvil">
+            <PanelActionCell
+              label="Cancel"
+              caption="Esc"
+              data-testid="extrude-cancel"
+              disabled={saving}
+              onClick={onCancel}
+            />
+            <PanelActionCell
+              label={saving ? "Saving…" : mode === "create" ? "Create" : "Save"}
+              caption="Enter"
+              data-testid="extrude-submit"
+              aria-busy={saving}
+              disabled={!canSubmit}
+              // The reason takes the caption's line while gated and is wired as
+              // the cell's `aria-describedby` — eye, pointer and screen reader
+              // get the same sentence. `blocker` is null while SAVING: the
+              // label already says so, and a second sentence saying it again
+              // would be the one accessory to remove.
+              disabledReason={blocker ?? undefined}
+              onClick={submit}
+            />
+          </div>
+        </>
+      }
+    >
       <Panel aria-label="Extrude" data-testid="extrude-editor">
-        <div className="border-b border-hairline">
+        <div>
           <h2 className="px-3 pb-1 pt-2 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
             {mode === "create" ? "New extrude" : "Edit extrude"}
           </h2>
@@ -328,35 +378,7 @@ export function ExtrudeEditor({
             ) : null}
           </div>
         </div>
-
-        <div className="grid grid-cols-2 divide-x divide-hairline">
-          <PanelActionCell
-            label="Cancel"
-            caption="Esc"
-            data-testid="extrude-cancel"
-            disabled={saving}
-            onClick={onCancel}
-          />
-          <PanelActionCell
-            label={saving ? "Saving…" : mode === "create" ? "Create" : "Save"}
-            caption="Enter"
-            data-testid="extrude-submit"
-            aria-busy={saving}
-            disabled={!canSubmit}
-            onClick={submit}
-          />
-        </div>
       </Panel>
-
-      {error ? (
-        <p
-          role="alert"
-          data-testid="extrude-error"
-          className="mt-2 max-w-full border border-flag bg-anvil px-3 py-2 font-body text-xs text-flag"
-        >
-          {error}
-        </p>
-      ) : null}
     </EditorCard>
   );
 }
