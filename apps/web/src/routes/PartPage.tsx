@@ -335,6 +335,7 @@ import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { FacePickOverlay } from "../viewport/FacePickOverlay";
 import { SketchProposal } from "../viewport/SketchProposal";
 import { pickRefusal } from "../viewport/pickTargets";
+import { highlightedFeatureIds } from "../viewport/scopeHighlight";
 import { useSketchStore } from "../sketch/store";
 import { TOOL_SHORTCUTS } from "../sketch/tools";
 import {
@@ -1408,7 +1409,8 @@ export function PartPage() {
   // second channel for two reasons: the scope row is flippable, so a selection-
   // driven mark would keep pointing at `Hole1` after the user chose `This
   // body`; and an editor seeded from the TIP feature has a subject while
-  // nothing at all is selected. Empty whenever no command names a subject.
+  // nothing at all is selected. `null` whenever no command is asking; `[]` when
+  // one is and its answer is the whole body (REACH-2-FLOW-B).
   const scopedFeatureIds = useCommandActionStore((s) => s.scopedFeatureIds);
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
@@ -1736,9 +1738,18 @@ export function PartPage() {
   // rendered body). Mirrors `bodySelected` exactly (selecting a feature opens
   // its editor, so it must NOT gate on `editor === null`) — it localizes the
   // same warm the body already shows, refining whole-body → this feature's faces.
+  //
+  // REACH-2-FLOW-B: WHAT gets tinted is the OPEN COMMAND's scope whenever one is
+  // asking, and the tree selection otherwise — the same source the tree stamp
+  // and the timeline chip read, so the three surfaces answer one question. See
+  // `viewport/scopeHighlight.ts` for why `This body` paints nothing.
   // ---------------------------------------------------------------------
+  const highlightFeatureIds = useMemo(
+    () => highlightedFeatureIds(scopedFeatureIds, selectedFeatureId),
+    [scopedFeatureIds, selectedFeatureId],
+  );
   const selectionActive =
-    mode === "off" && selectedFeatureId !== null && !measureActive;
+    mode === "off" && highlightFeatureIds.length > 0 && !measureActive;
   const selectionOverlayQuery = useQuery({
     queryKey: ["overlay", partId, treeVersion, meshGlbId],
     queryFn: () =>
@@ -1748,14 +1759,21 @@ export function PartPage() {
     retry: false,
   });
   const selectedFaceIndices = useMemo<number[] | null>(() => {
-    if (!selectionActive || selectedFeatureId === null) return null;
+    if (!selectionActive) return null;
     const faces = selectionOverlayQuery.data?.faces;
     if (faces === undefined) return null;
+    // `feature_id` is null/absent on any face the server did not attribute (an
+    // older payload, or a body past the provenance bound) — an unattributed
+    // face matches nothing, exactly as the single-id equality it replaces did.
+    const owners = new Set<string>(highlightFeatureIds);
     const owned = faces
-      .filter((face) => face.feature_id === selectedFeatureId)
+      .filter((face) => {
+        const owner = face.feature_id;
+        return owner !== null && owner !== undefined && owners.has(owner);
+      })
       .map((face) => face.index);
     return owned.length > 0 ? owned : null;
-  }, [selectionActive, selectedFeatureId, selectionOverlayQuery.data]);
+  }, [selectionActive, highlightFeatureIds, selectionOverlayQuery.data]);
 
   // ---------------------------------------------------------------------
   // Pre-selection highlight (UI-W3). A selection you cannot see is a trap: the
@@ -4727,7 +4745,8 @@ export function PartPage() {
               bodySelected={
                 mode === "off" &&
                 !measureActive &&
-                (selectedFeatureId !== null || preselectedFaceIndices !== null)
+                (highlightFeatureIds.length > 0 ||
+                  preselectedFaceIndices !== null)
               }
               bodySelectedFaces={selectedFaceIndices ?? preselectedFaceIndices}
               hud={
@@ -5236,7 +5255,7 @@ export function PartPage() {
                     evaluation={evaluation.data}
                     build={build}
                     selectedFeatureId={selectedFeatureId}
-                    scopedFeatureIds={scopedFeatureIds}
+                    scopedFeatureIds={scopedFeatureIds ?? undefined}
                     onSelectFeature={selectFeature}
                     onKeepAsOneBody={keepAsOneBody}
                     recoveringDisjoint={disjointRecovering}
@@ -5346,7 +5365,7 @@ export function PartPage() {
           tree={tree.data}
           evaluation={evaluation.data}
           selectedFeatureId={selectedFeatureId}
-          scopedFeatureIds={scopedFeatureIds}
+          scopedFeatureIds={scopedFeatureIds ?? undefined}
           onSelectFeature={selectFeature}
           onMoveRollback={moveRollback}
           // The stop also holds while a history step is restoring (the mutual

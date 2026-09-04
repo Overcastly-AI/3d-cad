@@ -15,6 +15,44 @@ headroom claim below is corrected against a real CI-runner measurement, not
 the local box it was first computed on. Pass 16/17/18 detail is in
 `docs/CHANGELOG.md`.
 
+**REACH-2-FLOW-B CLOSED (frontend-builder, 2026-09-04) — the viewport tint
+answers the COMMAND's question now, so the three surfaces that echo a scope
+stop disagreeing.** The deferred half of REACH-2-FLOW: keeping the selection
+alive through the editor restored the seed's face tint for free, but the tint
+read `selectedFeatureId`, so on a plate with two identical bores it went on
+saying `Hole1` after the user flipped the scope row to `This body`, and said
+nothing at all when the editor seeded itself from the TIP with nothing
+selected. The tree stamp and the timeline chip already read `scopedFeatureIds`
+and get both cases right; `viewport/scopeHighlight.ts` is now the one rule the
+viewport reads too, and `PartPage`'s `selectedFaceIndices` filters the overlay
+by that set instead of by one selected id.
+The load-bearing change is a THIRD STATE rather than a fallback on emptiness.
+`scopedFeatureIds` was `readonly string[]`, where `[]` meant both "the whole
+body" and "nobody is asking" — a conflation the tree and timeline can afford
+(neither has a fallback, so both readings render the same absence) and the
+viewport cannot, because it must fall back to the selection in one case and
+must not in the other. It is `readonly string[] | null` now: `null` is nobody
+asking, `[]` is asked-and-answered-the-whole-body.
+`This body` paints NOTHING, and that is a judgement, not a default: a highlight
+is a DIFFERENCER, legible only against the un-highlighted thing beside it, so a
+full-body brass would hide the machined read the user is about to pattern,
+collide with the distinct whole-body SELECT state that already means something
+else, and carry exactly as much information as painting none — while the words
+`This body` are already on the pressed segment with its note beneath.
+Evidence is the PAINTED FACE, not the store: the tint MULTIPLIES the studio
+matcap (matcaps carry no emissive channel), so no literal hex describes it and
+`countTokenPixels` cannot see it; what survives the multiply is the direction of
+the shift, so the census counts red-over-blue pixels. Same camera, same body,
+same editor, only the answer changed: scoped **384** warm px with
+`data-selected-faces` 1, `This body` **0** and 0, tip-seeded with nothing
+selected **473** and 1. Mutation-tested per half against the pre-fix
+selection-only reading, which gives 384/1 on `This body` (the tint that would
+not let go) and 0/0 tip-seeded (the tint that never arrived) — so neither half
+can pass for the other's reason. 6 unit cases on the rule, 1 e2e case at
+1280x800, and the existing selection/preselect/pattern-scope specs re-run
+green (18 cases). Founder shots:
+`docs/screenshots/reach2b-scope-{body,tip}-{before,after}-laptop.png`.
+
 **SEL-2 CLOSED (frontend-builder, 2026-09-04) — a sketch pick now names itself
 before the click, and the name is what the click actually takes.** Acceptance
 A3, `docs/design/pre-selection.md` §6, verbatim: *"Hovering a sketch line with
@@ -951,10 +989,9 @@ unmarks in the same frame. (P1-4) The row's context menu gained
 kernel can honour it, so the seed gesture no longer costs opening and
 abandoning an editor nobody asked for.
 
-Two halves were deliberately NOT shipped, and both are filed rather than
-forgotten. **REACH-2-FLOW-B**: the viewport tint follows the SELECTION, so it
-still says `Hole1` after the user flips to `This body`; it should read the same
-`scopedFeatureIds` the tree does. **REACH-2-FLOW-C**: the ticket proposed
+Two halves were deliberately NOT shipped, and both were filed rather than
+forgotten. **REACH-2-FLOW-B is now CLOSED** — see its own entry above.
+**REACH-2-FLOW-C**: the ticket proposed
 Fusion's single-click-selects / double-click-edits for the whole tree. That is
 the right destination — every incumbent separates them and our row button is
 already named `Select <name>` — but it is **75 references across 28 e2e spec

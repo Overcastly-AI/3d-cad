@@ -126,7 +126,7 @@ Ranked, disjoint, parallel-dispatchable:
 **Also ready, not yet dispatched:** QA-R3 (P2, touch — harness gap filed as
 PLAYWRIGHT-TOUCH-1), NAME-2b (P2), TITLEBLOCK-STAMP-1 (P2, XS),
 SKETCH-COVERAGE-1 (P2), STAGE-DOC-HUNKS-HEADING-1 (P2), SOLVE-CONFLICT-MOVED-1
-(P2, XS), SOLVE-OVERCONSTRAINED-AMBIGUOUS-1 (P2, S), REACH-2-FLOW-B (P2, S),
+(P2, XS), SOLVE-OVERCONSTRAINED-AMBIGUOUS-1 (P2, S),
 CHECKUIPARITY-FP-1 (P3), NUDGE-PLACEMENT-QUANTISE-1 (P3), SOLVER-DOC-1 (P3,
 XS), SHARD-MANIFEST-CI-1 (P3, new this pass) — see full tickets in place.
 
@@ -1098,28 +1098,27 @@ deliberately deferred, not forgotten — REACH-2-FLOW-B (viewport highlight
 should follow command scope, not just selection) and REACH-2-FLOW-C (tree
 select/edit split + band budget) below. See Done archive.**
 
-- [ ] (P2, S) **REACH-2-FLOW-B — a viewport face highlight that follows the
-      COMMAND's scope, not just the tree selection.** kind: enhancement.
-      DELIBERATELY DEFERRED from REACH-2-FLOW (b), not forgotten: SEL-8 was
-      live in `apps/web/src/viewport/**` while REACH-2-FLOW was built, so
-      that territory was foreign. WHAT ALREADY LANDS WITHOUT IT: keeping the
-      selection through the command (P1-3's fix) means `selectionActive`
-      stays true, and it deliberately does not gate on `editor === null`, so
-      the seed's faces DO stay tinted through the pattern/mirror editor —
-      measured in `reach2-flow-scoped-after.png`, no viewport file touched.
-      WHAT IS STILL MISSING, and it is the honest gap: that tint follows the
-      SELECTION, so on a plate with two identical bores it goes on saying
-      `Hole1` after the user flips the scope row to `This body`, and it says
-      nothing at all when the editor seeded from the TIP with no selection.
-      The tree and timeline already read `scopedFeatureIds` from
-      `useCommandActionStore` and get both cases right; the viewport should
-      read the same source. FIX: drive the face overlay from
-      `scopedFeatureIds` when it is non-empty, falling back to
-      `selectedFeatureId`. ACCEPTANCE: flipping the scope row to `This body`
-      clears the viewport tint in the same frame it clears the tree stamp; a
-      tip-seeded pattern tints its subject with nothing selected.
-      TERRITORY: `apps/web/src/viewport/**`, `apps/web/src/routes/
-      PartPage.tsx` (`selectedFaceIndices`). agentType: frontend-builder.
+- [x] (P2, S) **REACH-2-FLOW-B CLOSED (2026-09-04, frontend-builder) — the
+      viewport tint now answers the COMMAND's question, and the three surfaces
+      agree.** The tint read `selectedFeatureId`, so it went on saying `Hole1`
+      after the user flipped the scope row to `This body` and said nothing when
+      the editor seeded from the TIP with nothing selected. `viewport/
+      scopeHighlight.ts` is the one rule both cases read; `PartPage`'s
+      `selectedFaceIndices` filters the overlay by that set. THE FIX IS A THIRD
+      STATE, not a fallback on emptiness: `scopedFeatureIds` was
+      `readonly string[]` where `[]` meant BOTH "the whole body" and "nobody is
+      asking", which the tree and timeline can conflate (no fallback, same
+      absence) and the viewport cannot — it is now `readonly string[] | null`.
+      `This body` paints NOTHING, chosen: a highlight is a differencer, so a
+      full-body brass would hide the machined read, collide with the distinct
+      whole-body SELECT state, and carry as much information as none. Measured
+      in painted pixels (warmth census — the tint MULTIPLIES the matcap, so no
+      literal hex describes it), same camera either side of the flip: scoped
+      **384** warm px / `data-selected-faces` 1, `This body` **0** / 0, and
+      tip-seeded with nothing selected **473** / 1. Mutation-tested per half:
+      the pre-fix reading gives 384/1 on `This body` (the tint that would not
+      let go) and 0/0 tip-seeded (the tint that never arrived). Screenshots:
+      `docs/screenshots/reach2b-scope-{body,tip}-{before,after}-laptop.png`.
 
 - [ ] (P2, M) **REACH-2-FLOW-C — the feature tree has no gesture that
       selects WITHOUT entering a command, and the band is out of room at
