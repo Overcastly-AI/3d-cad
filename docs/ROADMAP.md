@@ -74,6 +74,74 @@ repair: HEM-1C (editor still claims base-flange inheritance for the radius
 and suggests the exact value the server refuses) and HEM-1D (UI cannot author
 an `open` hem at all) — **BOTH CLOSED**, see the entry below.
 
+**HEM-1B CLOSED (frontend-builder, 2026-09-04) — the disabled Save says why, and
+the state that silenced it cannot be clicked into. The reported ROOT CAUSE did
+not reproduce, and saying so is half the finding.** The audit (S-26) recorded
+`hem-submit` at `aria-disabled="true"` with an EMPTY `title` on the repair path,
+and attributed it to the edit form loading "Override K-factor" CHECKED with an
+empty value. Driving that exact sequence at HEAD — author a hem with no
+overrides, widen the blank 50 -> 60 mm through the API so the hemmed edge stops
+resolving (`subshape_unresolved`), re-open the feature — the form comes back
+`aria-checked="false"`, with no K field and Save ENABLED. The probe says why:
+the server stores `k_factor: null` for an inherited K, and `formFromHemParams`
+has always read null/absent as "not overridden". What DOES reproduce the audit's
+screenshot, in TWO clicks from that state, is ticking the override: the field
+opens blank, blank is "pending" to every field validator (so no red field, by
+design), and `canSubmitHem` returned false with nothing anywhere to read.
+
+Fixed at both ends rather than at the symptom. (a) `hemSubmitBlocker` in
+`apps/web/src/features/sheetMetal.ts` is now the SINGLE source of the gate and
+its sentence — `canSubmitHem` is *defined* as `blocker === null`, so a grey cell
+with an empty reason is unreachable by construction, and a unit case
+cross-checks the pair against `buildHemParams` (an independently written
+predicate) over 66 form/pick/anchor combinations, with a non-vacuity floor on
+how many of them must be gated. (b) Ticking an override SEEDS its field from the
+value it replaces — `derivedHemRadiusMm` for the radius (0.1 mm closed, 1 mm
+open on 2 mm sheet: always a value the evaluator accepts for that type), the
+inherited K the card already names for K-factor — so "checked with no value" is
+not a state clicking can produce, and a typed value is never overwritten.
+
+TWO THINGS THE WORK FOUND THAT THE TICKET DID NOT ASK FOR. First, the reason was
+initially 74 characters and `PanelActionCell` renders it in the footer cell it
+explains, which is HALF a card wide (~19 characters a line): it measured five
+wrapped lines and ate the card. Every reason is now ≤48 characters and names the
+field plus the way out ("Type a K-factor, or uncheck to inherit 0.44."), with
+the rule it broke left to the field's own inline error — one job each. Second,
+and worse: at the 1280x800 floor the sentence fell OUT of the card. The hem's
+action row rode inside `EditorCard`'s scrolling body, so the taller footer
+pushed it under the panel below — measured by the new e2e case, whose
+`elementFromPoint` at the reason's own centre returned **`feature-tree-section`**.
+The row now uses the pinned `footer` slot `HoleEditor` has had since UI-REVIEW
+2026-07-30 P1, and the case asserts legibility at 1280x800 (a box with area,
+whose centre hit-tests to `hem-submit`, whose text equals the button's
+accessible description) rather than at the 1600x1000 default, where it passed
+while the product was broken.
+
+MUTATION EVIDENCE, each reverted independently and green after. Removing the
+seeding reddens the unit case (`expected '' to be '0.44'`) and the DOM case, and
+the e2e case at `hem-k-factor` (`Expected "0.44", Received ""`). Removing
+`disabledReason` reddens three DOM cases (`expected '' to be 'Enter a
+K-factor…'`; `the gated Save said nothing: expected 0 to be greater than 20`)
+and the e2e case at the reason's own existence. Served bytes were checked with
+`curl` on each leg, since a stale Vite transform is how a mutation check passes
+when it must fail.
+
+SURVEY (the ticket's second half — measured, not fixed): **15 of the 16 editor
+commit actions state nothing when they gate.** `hole-submit` and now
+`hem-submit` are the only `PanelActionCell`s passing `disabledReason`; the other
+fifteen share the same `canSubmitX(...) && !saving` shape the hem had. The
+toolbar tier is the counter-example and the model: **41 of 43** gated
+`ToolButton`s carry a gate-aware `caption` ("Add a base flange first"), the
+exceptions being `add-instance` and `sketch-discard-confirm`. Filed as
+REASON-GATE-1 (P1, M) with the fix shape and an acceptance test per editor.
+
+Gates: `just lint` exit 0; `pnpm -r typecheck` clean; 2158 web + 141 design unit
+tests; 14/14 e2e across `sheet-metal-hem-corner-relief`, `sheet-metal-authoring`
+and `sheet-metal-flat-pattern` on a real native stack. Founder shots at
+1280x800: `docs/screenshots/hem-blocked-save-{before,after}-1280.png` — the
+before captured from a deliberately reverted build, since keeping the defect
+around to regenerate it is the one thing the fix forbids.
+
 **STEPNAME-2 CLOSED (kernel-architect, 2026-09-04) — the COMMON export was the
 broken one, and unifying the two writers turned out to cost nothing a consumer
 can see.** STEPNAME-1 fixed the assembly STEP's provenance and its non-ASCII

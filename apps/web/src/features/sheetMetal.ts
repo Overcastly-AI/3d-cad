@@ -675,14 +675,140 @@ export function buildHemParams(
   return params;
 }
 
-/** True when the hem form can be submitted (valid length + one edge). */
+/**
+ * WHY the hem cannot be saved yet — one sentence naming the field AND the way
+ * out — or null when it can. THE DISABLED SAVE IS THE SUBJECT HERE, not a
+ * by-product: HEM-1B measured a repair path where `hem-submit` carried
+ * `aria-disabled="true"` and an EMPTY `title`, with no error text and no red
+ * field, which is indistinguishable from a dead end (`docs/AUDIT-PRODUCT.md`
+ * S-26). An action that refuses without saying why is worse than an absent one,
+ * because the user cannot tell "not yet" from "not ever" (design mandate: no
+ * dead ends, no ambiguous exits).
+ *
+ * `canSubmitHem` is DEFINED as `hemSubmitBlocker(...) === null`, so the gate and
+ * its explanation cannot drift into disagreement — the failure mode where the
+ * cell is grey and the reason line says nothing is unreachable by construction.
+ * `sheetMetal.test.ts` cross-checks the pair against `buildHemParams`, which is
+ * an independently-written predicate: agreeing with itself would prove nothing.
+ *
+ * `defaults` only ENRICHES the sentence (it names the derived radius / the
+ * inherited K a user would fall back to); it never changes the verdict, which is
+ * why it is optional.
+ *
+ * WHY THESE ARE ~30 CHARACTERS. `PanelActionCell` renders the reason in the
+ * footer cell it explains, which is HALF a card wide (~19 characters a line at
+ * the data face) — a 74-character sentence measured five wrapped lines and ate
+ * the card. So each reason names the field and the way out and stops: the FIELD
+ * states the rule it broke (`kFactorError` etc. render inline, in red, on the
+ * input), and the Save cell states what to do to save. One job each.
+ */
+export function hemSubmitBlocker(
+  form: HemForm,
+  picked: readonly EdgeSignature[],
+  bodyFeatureId: string | null,
+  unit: LengthUnit,
+  defaults: SheetMetalDefaults | null = null,
+): string | null {
+  if (bodyFeatureId === null) return "Add a base flange to hem first.";
+  const signature = picked.length === 1 ? picked[0] : undefined;
+  if (signature === undefined) {
+    return picked.length === 0
+      ? "Pick one straight edge to hem."
+      : "Press Clear, then pick one edge.";
+  }
+  if (parsePositiveLengthMm(form.lengthInput, unit) === null) {
+    // Empty is a missing answer; anything else is a wrong one, and the field is
+    // already red with the rule — so the cell points at it rather than repeating.
+    return form.lengthInput.trim() === ""
+      ? "Enter the return length."
+      : "Check the return length.";
+  }
+  if (
+    form.overrideBendRadius &&
+    parsePositiveLengthMm(form.bendRadiusInput, unit) === null
+  ) {
+    const derived =
+      defaults === null
+        ? null
+        : formatLength(
+            derivedHemRadiusMm(form.hemType, defaults.thicknessMm),
+            unit,
+          );
+    return derived === null
+      ? "Type a radius, or uncheck the override."
+      : `Type a radius, or uncheck to fold at ${derived}.`;
+  }
+  if (form.overrideKFactor && parseKFactor(form.kFactorInput) === null) {
+    return defaults === null
+      ? "Type a K-factor, or uncheck the override."
+      : `Type a K-factor, or uncheck to inherit ${defaults.kFactor}.`;
+  }
+  return null;
+}
+
+/** True when the hem form can be submitted — the blocker, read as a verdict. */
 export function canSubmitHem(
   form: HemForm,
   picked: readonly EdgeSignature[],
   bodyFeatureId: string | null,
   unit: LengthUnit,
 ): boolean {
-  return buildHemParams(form, picked, bodyFeatureId, unit) !== null;
+  return hemSubmitBlocker(form, picked, bodyFeatureId, unit) === null;
+}
+
+/**
+ * The form after the bend-radius override is toggled. Turning it ON SEEDS the
+ * blank field with the radius the hem is folding at right now, so the toggle
+ * shows the value it is about to let you change instead of emptying the fold's
+ * defining dimension. A typed value is never overwritten — re-ticking restores
+ * what the user had.
+ *
+ * This is the HEM-1B hydration half, fixed at the source rather than at the
+ * symptom: "override checked, value empty" is a form that says a number is
+ * being overridden while naming none, and it is the state the audit found
+ * holding Save hostage. The seed is the SAME `derivedHemRadiusMm` the card's
+ * readouts use (HEM-1C's one rule), so it is always a radius the evaluator
+ * accepts for this type.
+ */
+export function withHemBendRadiusOverride(
+  form: HemForm,
+  on: boolean,
+  defaults: SheetMetalDefaults | null,
+  unit: LengthUnit,
+): HemForm {
+  if (!on) return { ...form, overrideBendRadius: false };
+  const blank = form.bendRadiusInput.trim() === "";
+  return {
+    ...form,
+    overrideBendRadius: true,
+    bendRadiusInput:
+      blank && defaults !== null
+        ? lengthInputValue(
+            derivedHemRadiusMm(form.hemType, defaults.thicknessMm),
+            unit,
+          )
+        : form.bendRadiusInput,
+  };
+}
+
+/**
+ * The form after the K-factor override is toggled — the same seeding rule, from
+ * the value the card says it inherits ("Inherits 0.44 from the base flange"), so
+ * the checkbox and the field can never contradict each other.
+ */
+export function withHemKFactorOverride(
+  form: HemForm,
+  on: boolean,
+  defaults: SheetMetalDefaults | null,
+): HemForm {
+  if (!on) return { ...form, overrideKFactor: false };
+  const blank = form.kFactorInput.trim() === "";
+  return {
+    ...form,
+    overrideKFactor: true,
+    kFactorInput:
+      blank && defaults !== null ? String(defaults.kFactor) : form.kFactorInput,
+  };
 }
 
 // ---------------------------------------------------------------------------

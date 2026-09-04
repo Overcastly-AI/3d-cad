@@ -30,6 +30,13 @@
  *
  * K-factor is still inherited and still says so: K is a material property, and
  * only the radius stopped being a part-level default.
+ *
+ * WHAT A GATED SAVE SAYS (HEM-1B). Every state that disables Save states its
+ * reason in the Save cell itself — `hemSubmitBlocker` is the single source of
+ * both the gate and the sentence, so a grey cell with nothing to read is
+ * unreachable. And an override toggle SEEDS its field from the value it is
+ * replacing, so "checked with no value" — the state the audit found holding a
+ * repair hostage — cannot be produced by clicking in the first place.
  */
 import {
   Checkbox,
@@ -47,7 +54,6 @@ import { useEdgePickStore } from "../features/edgePickStore";
 import {
   bendRadiusError,
   buildHemParams,
-  canSubmitHem,
   derivedHemRadiusMm,
   type HemForm,
   hemGapInGauges,
@@ -55,10 +61,13 @@ import {
   hemLengthError,
   hemRadiusBoundaryMm,
   hemRadiusConflict,
+  hemSubmitBlocker,
   type HemType,
   kFactorError,
   resolvedHemRadiusMm,
   type SheetMetalDefaults,
+  withHemBendRadiusOverride,
+  withHemKFactorOverride,
 } from "../features/sheetMetal";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import { EditorCard } from "./EditorCard";
@@ -125,7 +134,10 @@ export function HemEditor({
     [saving, submit],
   );
 
-  const canSubmit = canSubmitHem(form, picked, bodyFeatureId, unit) && !saving;
+  // WHY Save is gated, in the cell that is gated — never an unexplained grey
+  // control (HEM-1B). `canSubmitHem` IS "no blocker", so the two cannot disagree.
+  const blocker = hemSubmitBlocker(form, picked, bodyFeatureId, unit, defaults);
+  const canSubmit = blocker === null && !saving;
   useCommandBridge(submit, canSubmit);
 
   const inheritedK = defaults !== null ? String(defaults.kFactor) : "—";
@@ -172,9 +184,57 @@ export function HemEditor({
       : null;
 
   return (
-    <EditorCard onKeyDown={onKeyDown}>
+    <EditorCard
+      onKeyDown={onKeyDown}
+      // THE ACTION ROW IS PINNED, not scrolled (HEM-1B, the shape `HoleEditor`
+      // has used since UI-REVIEW 2026-07-30 P1). It used to ride inside the
+      // scrolling body, and at the 1280x800 floor the gated Save's REASON fell
+      // out of the card entirely: measured before this change, the sentence's
+      // own centre hit-tested to `feature-tree-section`, i.e. the explanation
+      // for a grey button was underneath the panel below it. An explanation the
+      // stuck user has to scroll for is the defect wearing a longer sentence.
+      footer={
+        <>
+          {error ? (
+            <p
+              role="alert"
+              data-testid="hem-error"
+              className="border border-b-0 border-flag bg-anvil px-3 py-2 font-body text-xs text-flag"
+            >
+              {error}
+            </p>
+          ) : null}
+          <div className="grid grid-cols-2 divide-x divide-hairline border border-t-0 border-hairline bg-anvil">
+            <PanelActionCell
+              label="Cancel"
+              caption="Esc"
+              data-testid="hem-cancel"
+              disabled={saving}
+              onClick={onCancel}
+            />
+            <PanelActionCell
+              label={saving ? "Saving…" : mode === "create" ? "Create" : "Save"}
+              caption="Enter"
+              data-testid="hem-submit"
+              aria-busy={saving}
+              disabled={!canSubmit}
+              // The reason takes the caption's line while gated and is wired as
+              // the cell's `aria-describedby` — eye, pointer and screen reader
+              // get the same sentence. While SAVING the label already says so,
+              // and a second sentence saying it again would be the one
+              // accessory to remove.
+              disabledReason={saving ? undefined : (blocker ?? undefined)}
+              onClick={submit}
+            />
+          </div>
+        </>
+      }
+    >
+      {/* The panel keeps its own bottom border: it is the rule the pinned
+          footer sits under (the footer draws `border-t-0`, exactly as
+          `HoleEditor`'s does), so the card still reads as one ruled block. */}
       <Panel aria-label="Hem" data-testid="hem-editor">
-        <div className="border-b border-hairline">
+        <div>
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
             {mode === "create" ? "New hem" : "Edit hem"}
           </h2>
@@ -273,8 +333,13 @@ export function HemEditor({
                 label="Override bend radius"
                 data-testid="hem-override-radius"
                 checked={form.overrideBendRadius}
-                onChange={(overrideBendRadius) =>
-                  setForm((f) => ({ ...f, overrideBendRadius }))
+                // Ticking it SEEDS the field with the radius in force, so the
+                // override opens on the number it replaces (HEM-1B) rather than
+                // on a blank that silently gates Save.
+                onChange={(on) =>
+                  setForm((f) =>
+                    withHemBendRadiusOverride(f, on, defaults, unit),
+                  )
                 }
                 description={form.overrideBendRadius ? radiusHint : derivedNote}
               />
@@ -308,8 +373,10 @@ export function HemEditor({
                 label="Override K-factor"
                 data-testid="hem-override-k"
                 checked={form.overrideKFactor}
-                onChange={(overrideKFactor) =>
-                  setForm((f) => ({ ...f, overrideKFactor }))
+                // Seeded from the inherited K the line below names, so the box
+                // and the field always agree (HEM-1B).
+                onChange={(on) =>
+                  setForm((f) => withHemKFactorOverride(f, on, defaults))
                 }
                 description={
                   form.overrideKFactor
@@ -332,35 +399,7 @@ export function HemEditor({
             </div>
           </div>
         </div>
-
-        <div className="grid grid-cols-2 divide-x divide-hairline">
-          <PanelActionCell
-            label="Cancel"
-            caption="Esc"
-            data-testid="hem-cancel"
-            disabled={saving}
-            onClick={onCancel}
-          />
-          <PanelActionCell
-            label={saving ? "Saving…" : mode === "create" ? "Create" : "Save"}
-            caption="Enter"
-            data-testid="hem-submit"
-            aria-busy={saving}
-            disabled={!canSubmit}
-            onClick={submit}
-          />
-        </div>
       </Panel>
-
-      {error ? (
-        <p
-          role="alert"
-          data-testid="hem-error"
-          className="mt-2 max-w-full border border-flag bg-anvil px-3 py-2 font-body text-xs text-flag"
-        >
-          {error}
-        </p>
-      ) : null}
     </EditorCard>
   );
 }

@@ -107,8 +107,12 @@ Ranked, disjoint, parallel-dispatchable:
    2000 payloads were shipping an arc collapsed onto its own centre, at a
    residual of zero; now `sketch_conflicting` with the constraint named. See
    the entry below and ROADMAP for the census and the two follow-ups filed.
-7. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
-   unrelated edit hits a silent, unexplained disabled Save.
+7. ~~**HEM-1B**~~ — **CLOSED 2026-09-04.** The gated Save states its reason and
+   an override toggle seeds its own field, so the audit's checked-and-empty dead
+   end cannot be clicked into. The reported hydration bug did NOT reproduce at
+   HEAD (measured: `k_factor: null` already loads unchecked). Filed
+   **REASON-GATE-1 (P1)** from the survey it asked for: 15 of the 16 editor
+   commit actions have the same silence, while 41 of 43 toolbar tools do not.
 8. **SNAP-4** (P2, S, frontend-builder) — an explicit Fix on a point the
    draw already grounded misreports OVER-CONSTRAINED.
 9. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
@@ -771,28 +775,56 @@ authors the shape (`buildHemParams` sends the user's choice, was hardcoded
 4.2 mm), not a 2xx. Fixes the `check-ui-parity.py` false-positive direction
 CHECKUIPARITY-FP-1 (below) also names. See Done archive.**
 
-- [ ] (P2, S) **HEM-1B — repairing a hem after an unrelated edit hits a
-      silent, unexplained disabled Save.** kind: defect (split from HEM-1,
-      groom pass 16 — the geometry half is elevated to P0; this half is a
-      papercut, not wrong geometry). MEASURED (`docs/AUDIT-PRODUCT.md` "Pass
-      2026-08-21 (second pass today)" S-26): after an unrelated edit
-      orphaned the hem, re-picking its face left `hem-submit`
-      `aria-disabled="true"` with an EMPTY `title` — no error text, no red
-      field, indistinguishable from a dead end. Root cause: the edit form
-      loads with "Override K-factor" CHECKED and its value EMPTY, an
-      override never authored at creation — a form-hydration bug.
-      Unchecking it enabled Save immediately. FIX: an unchecked override
-      must not load as checked-with-no-value; separately, a disabled
-      primary action must always state its reason (tooltip/inline text) —
-      apply this as the general rule the hem form violated. ACCEPTANCE:
-      re-opening an unmodified hem's editor loads Override K-factor
-      unchecked (matching creation) and Save is enabled; a genuinely
-      invalid form still disables Save WITH a stated reason (regression —
-      don't just remove the guard).
+- [x] (P2, S) **HEM-1B — CLOSED (frontend-builder, 2026-09-04). The gated Save
+      now says why, and "override checked with no value" is no longer a state a
+      click can reach.** The reported HYDRATION bug did not reproduce at HEAD
+      and the probe says why: the server stores `k_factor: null` for an
+      inherited K, and `formFromHemParams` already reads that as unchecked —
+      re-opening the orphaned hem gave `aria-checked="false"`, no K field, Save
+      ENABLED. What DOES reproduce, in two clicks, is the audit's screenshot:
+      ticking an override left the field blank, and blank is "pending" to every
+      field validator, so Save went `aria-disabled="true"` with `title: null`
+      and nothing on screen. Fixed at both ends — `hemSubmitBlocker` is now the
+      single source of the gate AND its sentence (`canSubmitHem` is defined as
+      "no blocker", cross-checked against `buildHemParams` over 66 form/pick/
+      anchor combinations), and ticking an override SEEDS the field from the
+      value it replaces. The action row also moved into `EditorCard`'s pinned
+      footer: at 1280x800 the reason's own centre hit-tested to
+      `feature-tree-section`, i.e. the explanation had fallen out of the card.
+      Survey filed as REASON-GATE-1 below (15 of 16 editor commit actions have
+      the same silence). Mutation evidence, gates and the before/after shots:
+      ROADMAP.
       [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21 (second pass today)"
       S-26, split from HEM-1 by backlog-groomer pass 16]
-      TERRITORY: hem edit form in `apps/web/src` (grep for the hem editor
-      component). agentType: frontend-builder.
+
+- [ ] (P1, M) **REASON-GATE-1 — 15 of the 16 editor commit actions can go grey
+      with no reason on screen, which is HEM-1B repeated once per verb.** kind:
+      defect (generalised from HEM-1B's second half, measured 2026-09-04 while
+      closing it). `PanelActionCell` has carried a `disabledReason` prop since
+      UI-REVIEW 2026-07-30 — it takes the caption's line while gated and is
+      wired as the button's `aria-describedby` — and only `hole-submit` and
+      (now) `hem-submit` pass it. The other fifteen (`base-flange`, `chamfer`,
+      `combine`, `corner-relief`, `datum`, `draft`, `edge-flange`, `extrude`,
+      `fillet`, `loft`, `mirror`, `pattern`, `revolve`, `shell`, `sweep`) share
+      the exact `canSubmitX(form, …) && !saving` -> `disabled={!canSubmit}`
+      shape the hem had, so every "no pick / no body / empty override" state is
+      a silent dead end there too. The TOOLBAR tier is fine by contrast and is
+      the model to copy: 41 of 43 gated `ToolButton`s carry a gate-aware
+      `caption` ("Add a base flange first"), the two exceptions being
+      `add-instance` (no caption) and `sketch-discard-confirm` (a constant one).
+      FIX: give each editor a `*SubmitBlocker` in its feature module, define
+      `canSubmitX` as `blocker === null` so the two cannot drift, and pass it as
+      `disabledReason` — the shape `HemEditor` + `apps/web/src/features/
+      sheetMetal.ts` now demonstrate. Keep each string ≤48 chars: the footer
+      cell is half a card wide (~19 chars a line) and a 74-char sentence
+      measured five wrapped lines. ACCEPTANCE: a property test per editor —
+      across every way its form can be invalid, a gated submit carries readable
+      text AND that text is its accessible description; plus one e2e case
+      proving it at 1280x800 with `elementFromPoint`, because a footer that is
+      not pinned puts the sentence outside the card (measured on the hem).
+      TERRITORY: `apps/web/src/components/*Editor.tsx` +
+      `apps/web/src/features/*.ts`. agentType: frontend-builder.
+      [src: HEM-1B survey, frontend-builder 2026-09-04]
 
 - [ ] (P2, M) **QA-R3 — on touch, four of REACH-1's five new verbs cannot be
       reached at all, because a tablet cannot select two entities.** The rail's
