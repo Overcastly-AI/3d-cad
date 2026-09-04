@@ -6,7 +6,12 @@ import {
   seedDenseHolePlate,
   seedOccludedEdgePlate,
 } from "./partSeed";
-import { litPoints, measureReachabilityWith, type Point } from "./reachability";
+import {
+  clearOfSilhouette,
+  litPoints,
+  measureReachabilityWith,
+  type Point,
+} from "./reachability";
 import {
   createPartViaApi,
   distinctCanvasColors,
@@ -92,36 +97,6 @@ async function stampAfterMove(
     last = next;
   }
   return last;
-}
-
-/** Is the canvas pixel under this point lit body rather than bench? */
-async function isLit(page: Page, point: Point): Promise<boolean> {
-  return page.evaluate(({ x, y }) => {
-    const canvas = document.querySelector<HTMLCanvasElement>(
-      '[data-testid="viewport"] canvas',
-    );
-    if (!canvas) return false;
-    const probe = document.createElement("canvas");
-    probe.width = canvas.width;
-    probe.height = canvas.height;
-    const ctx = probe.getContext("2d");
-    if (!ctx) return false;
-    ctx.drawImage(canvas, 0, 0);
-    const rect = canvas.getBoundingClientRect();
-    const px = Math.floor(
-      ((x - rect.left) * probe.width) / (canvas.clientWidth || probe.width),
-    );
-    const py = Math.floor(
-      ((y - rect.top) * probe.height) / (canvas.clientHeight || probe.height),
-    );
-    if (px < 0 || py < 0 || px >= probe.width || py >= probe.height) {
-      return false;
-    }
-    const d = ctx.getImageData(px, py, 1, 1).data;
-    return (
-      0.2126 * (d[0] ?? 0) + 0.7152 * (d[1] ?? 0) + 0.0722 * (d[2] ?? 0) > 110
-    );
-  }, point);
 }
 
 test.describe("SEL-4 QA — shell and draft refusals, and the draft half", () => {
@@ -456,34 +431,41 @@ test.describe("SEL-4 QA — shell and draft refusals, and the draft half", () =>
     const HALO = 8;
     let ghostHits = 0;
     const ghosts: string[] = [];
-    let unlitProbed = 0;
+    // The grid, then ONE readback to keep the points that are unlit AND clear
+    // of the silhouette by HALO. This was a per-point probe nested two deep —
+    // one full-frame canvas copy for the point and up to four more for its
+    // neighbours, ~1000-2500 copies for a 544-point grid.
+    //
+    // Stated carefully, because the sibling case in this pass taught it the
+    // hard way: removing those copies is NOT what makes this test affordable.
+    // Measured elsewhere on 2026-08-29, canvas readbacks were 0.6 % of a test
+    // that looked like it was drowning in them, and the real cost is the
+    // SEQUENTIAL round trips — here the 523 surviving points each get a
+    // `stampAfterMove`. This change is a redundancy removal and a DRY one
+    // (`clearOfSilhouette` is the shared form of exactly this halo), not a
+    // speed fix; do not credit it with headroom it did not buy.
+    //
+    // It asks the SAME question (luminance > 110, same HALO) over the whole
+    // square rather than four axis samples, so it is strictly stricter: it can
+    // only discard more points, never admit one the old code rejected.
+    // Measured after: 523-525 points survive, against a floor of 20.
+    const grid: Point[] = [];
     for (let y = box.y + 20; y < box.y + box.height - 20; y += 48) {
       for (let x = box.x + 20; x < box.x + box.width - 20; x += 48) {
-        const point = { x, y };
-        if (await isLit(page, point)) continue;
-        let onSilhouette = false;
-        for (const [dx, dy] of [
-          [HALO, 0],
-          [-HALO, 0],
-          [0, HALO],
-          [0, -HALO],
-        ] as const) {
-          if (await isLit(page, { x: x + dx, y: y + dy })) {
-            onSilhouette = true;
-            break;
-          }
-        }
-        if (onSilhouette) continue;
-        unlitProbed += 1;
-        const stamped = await stampAfterMove(
-          page,
-          point,
-          "data-shell-face-hover",
-        );
-        if (stamped !== null) {
-          ghostHits += 1;
-          ghosts.push(`${x},${y}->${stamped}`);
-        }
+        grid.push({ x, y });
+      }
+    }
+    const interior = await clearOfSilhouette(page, grid, { marginPx: HALO });
+    const unlitProbed = interior.length;
+    for (const point of interior) {
+      const stamped = await stampAfterMove(
+        page,
+        point,
+        "data-shell-face-hover",
+      );
+      if (stamped !== null) {
+        ghostHits += 1;
+        ghosts.push(`${point.x},${point.y}->${stamped}`);
       }
     }
     report(
@@ -503,6 +485,20 @@ test.describe("SEL-4 QA — the bolt circle resolves seven DISTINCT bores", () =
   test("seven bores, seven ordinals, no neighbour answers", async ({
     page,
   }) => {
+    /*
+      180 s, matching this file's other census tests. The default 60 s was never
+      sized against what this test does: 14 circular marks x 12 angles x 3 radii
+      = 504 SEQUENTIAL pointer moves, each followed by a stamp read. Unlike the
+      canvas readbacks elsewhere in this pass, that work cannot be batched away
+      — the browser must hit-test each pointer position, and the hit test IS the
+      measurement.
+
+      Measured on a 4-core box (CI-4 headroom pass, 2026-08-29): quiet 37.0-56.9
+      s across seven runs, and 0 of 7 completing under two CPU spinners, always
+      as a bare "Test timeout of 60000ms exceeded". Nothing here is a race that
+      can be won — it is 504 round trips whose cost scales with the machine.
+    */
+    test.setTimeout(180_000);
     await openDensePlate(page);
     const viewport = page.getByTestId("viewport");
     await expect(page.getByTestId("new-fillet")).toBeEnabled({

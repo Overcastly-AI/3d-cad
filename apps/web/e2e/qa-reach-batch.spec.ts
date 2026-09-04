@@ -1161,24 +1161,29 @@ test.describe("REACH-3 QA — the convention belongs to the sheet, not the app",
     const part = await createTallPartViaApi(page, account.token, "QA tall");
     await seedLaidOutDrawing(page, part.id, "QA portrait export");
 
-    // The landscape sheet's PDF is the control.
-    const landscapePdf = await downloadPdfBox(page);
-
-    // Accept the portrait proposal and lay the same part out on it.
-    await page.getByTestId("sheet-tab-add").click();
-    await expect(page.getByTestId("sheet-orientation")).toHaveAttribute(
-      "data-orientation",
-      "portrait",
-    );
-    await page.getByTestId("drawing-part-select").selectOption(part.id);
-    await page.getByTestId("drawing-autolayout").click();
+    // Since REACH-3-FLOW, SHEET ONE is the proposal's sheet — this tall column
+    // lands portrait without being asked twice, so the portrait deliverable is
+    // now the FIRST reading and the landscape control is taken by flipping.
     await expect(page.getByTestId("drawing-sheet")).toHaveAttribute(
       "viewBox",
       "0 0 210 297",
       { timeout: 30_000 },
     );
-
     const portraitPdf = await downloadPdfBox(page);
+
+    // Flip the paper: the control, and a second exercise of the re-fit.
+    await page.getByTestId("sheet-orientation").click();
+    await expect(page.getByTestId("sheet-orientation")).toHaveAttribute(
+      "data-orientation",
+      "landscape",
+      { timeout: 30_000 },
+    );
+    await expect(page.getByTestId("drawing-sheet")).toHaveAttribute(
+      "viewBox",
+      "0 0 297 210",
+      { timeout: 30_000 },
+    );
+    const landscapePdf = await downloadPdfBox(page);
     console.log("PDF-BOXES", JSON.stringify({ landscapePdf, portraitPdf }));
 
     expect(

@@ -47,9 +47,10 @@
  * see past it (SEL-6). One filter, one place, and both handlers inherit it.
  */
 import { Line } from "@react-three/drei";
-import type { ThreeEvent } from "@react-three/fiber";
-import { useCallback, useMemo, useRef } from "react";
-import type { BufferGeometry, Mesh } from "three";
+import { useThree, type ThreeEvent } from "@react-three/fiber";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { Raycaster, Vector2, Vector3 } from "three";
+import type { BufferGeometry, Intersection, Mesh } from "three";
 import type { LineSegments2 } from "three-stdlib";
 
 import {
@@ -62,6 +63,18 @@ import {
   EDGE_BAND_WIDTH_PX,
 } from "./edgeBand";
 import { PickSurface } from "./pickSurface";
+import { useEdgeMarkAnchors, type EdgeMarkAnchor } from "./useEdgeMarkAnchors";
+
+/**
+ * Scratch for the mark-seat oracle, held across frames so the recompute
+ * allocates nothing. `Vector3.project` and `Raycaster.setFromCamera` both write
+ * in place, and the hit array is truncated rather than replaced.
+ */
+const probeRaycaster = new Raycaster();
+const probeNdc = new Vector2();
+const probeWorld = new Vector3();
+const probeProjected = new Vector3();
+const probeHits: Intersection[] = [];
 
 export interface EdgeBandLayerProps {
   /** The pickable edges, each with the index a hit should report. */
@@ -75,6 +88,13 @@ export interface EdgeBandLayerProps {
   onHover: (index: number | null) => void;
   /** A click that resolved to an edge. */
   onPick?: (index: number) => void;
+  /**
+   * WHERE EACH EDGE'S PICK MARK BELONGS (PICKMARK-OCCLUDE-1), in the same order
+   * as `edges`. Published from here rather than computed by the overlay because
+   * the answer is the BAND's — one hit-test decides both where a mark sits and
+   * what a click on the geometry resolves to, so the two cannot disagree.
+   */
+  onAnchors?: (anchors: readonly EdgeMarkAnchor[]) => void;
 }
 
 export function EdgeBandLayer({
@@ -82,7 +102,9 @@ export function EdgeBandLayer({
   geometry,
   onHover,
   onPick,
+  onAnchors,
 }: EdgeBandLayerProps) {
+  const camera = useThree((s) => s.camera);
   const band = useMemo(() => buildEdgeBand(edges), [edges]);
   const bias = useMemo(
     () => edgeOcclusionBias(bandRadius(band.points)),
@@ -106,6 +128,50 @@ export function EdgeBandLayer({
       ),
     [band, bias],
   );
+
+  /**
+   * THE MARK-SEAT ORACLE. Fire the pointer's own question at a scene point:
+   * cast a ray through it and ask `resolveBandIntersections` — the very
+   * function the pointer handlers call — whether the answer is this edge.
+   *
+   * `intersectObject` sorts what it appends, so the combined list arrives
+   * near → far exactly as r3f delivers `event.intersections`; taking the first
+   * band hit is then the same choice r3f's per-object dedupe makes.
+   */
+  const addressable = useCallback(
+    (point: readonly [number, number, number], edgeIndex: number): boolean => {
+      const line = lineRef.current;
+      if (line === null) return true;
+      probeWorld.set(point[0] ?? 0, point[1] ?? 0, point[2] ?? 0);
+      probeProjected.copy(probeWorld).project(camera);
+      probeNdc.set(probeProjected.x, probeProjected.y);
+      probeRaycaster.setFromCamera(probeNdc, camera);
+      probeHits.length = 0;
+      probeRaycaster.intersectObject(line, false, probeHits);
+      const surface = surfaceRef.current;
+      if (surface !== null) {
+        probeRaycaster.intersectObject(surface, false, probeHits);
+      }
+      return (
+        resolveBandIntersections(
+          probeHits as unknown as BandIntersection[],
+          { band: line, surface },
+          band.edgeOfSegment,
+          bias,
+        ) === edgeIndex
+      );
+    },
+    [camera, band, bias],
+  );
+
+  const anchors = useEdgeMarkAnchors(
+    edges,
+    onAnchors === undefined ? undefined : addressable,
+  );
+
+  useEffect(() => {
+    onAnchors?.(anchors);
+  }, [anchors, onAnchors]);
 
   const handleMove = useCallback(
     (event: { intersections: readonly BandIntersection[] }) => {

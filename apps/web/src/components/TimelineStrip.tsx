@@ -40,7 +40,7 @@
  * The slot math is shared with nothing to translate: `features/rollback.ts` was
  * written for the vertical bar and ported to this axis unchanged.
  */
-import { BandActionCell, cx, layout, VerbGlyph } from "@loft/design";
+import { BandActionCell, cx, layout, Stamp, VerbGlyph } from "@loft/design";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 
@@ -66,6 +66,13 @@ export interface TimelineStripProps {
   evaluation: EvaluateTreeResult | undefined;
   /** Selected feature id (the addressed chip); clicking a chip selects it. */
   selectedFeatureId: string | null;
+  /**
+   * The feature ids the OPEN command will act on (the pattern/mirror scope).
+   * The strip carries this as well as the tree because the tree panel COLLAPSES
+   * and the strip does not — a subject mark that disappears with the panel is a
+   * mark the user cannot rely on (REACH-2-FLOW P1-2).
+   */
+  scopedFeatureIds?: readonly string[];
   onSelectFeature: (feature: FeatureResponse) => void;
   /** Move the travel stop (null = tip); the workspace re-evaluates. */
   onMoveRollback: (rollbackFeatureId: string | null) => void;
@@ -91,6 +98,7 @@ export function TimelineStrip({
   tree,
   evaluation,
   selectedFeatureId,
+  scopedFeatureIds,
   onSelectFeature,
   onMoveRollback,
   busy,
@@ -338,6 +346,7 @@ export function TimelineStrip({
               (feature.feature.suppressed ?? false) || status === "suppressed";
             const errored = status === "error" && !rolledBack;
             const selected = feature.id === selectedFeatureId;
+            const scoped = scopedFeatureIds?.includes(feature.id) ?? false;
             const active = index === slot;
             const name = feature.name;
             const state = rolledBack
@@ -352,13 +361,16 @@ export function TimelineStrip({
                 <button
                   type="button"
                   data-testid={`timeline-chip-${index}`}
+                  data-scoped={scoped || undefined}
                   data-rolled-back={rolledBack || undefined}
                   data-suppressed={suppressed || undefined}
                   data-status={status ?? undefined}
                   aria-pressed={selected}
                   aria-label={`${name} — ${featureTypeLabel(
                     feature.feature.type,
-                  )}, step ${index + 1} of ${count}${state}`}
+                  )}, step ${index + 1} of ${count}${state}${
+                    scoped ? ", in scope for the open command" : ""
+                  }`}
                   // Chip names truncate at 7.5rem; the pointer gets the full
                   // one back (the screen reader already had it, above).
                   title={name}
@@ -415,6 +427,22 @@ export function TimelineStrip({
                   >
                     {name}
                   </span>
+                  {/* The SCOPE stamp — the same `Stamp tone="brass"` the tree
+                      row wears for the same fact, so one mark means one thing
+                      across both surfaces. It does NOT break the strip's
+                      "brass is the travel stop alone" rule the way a brass
+                      CHIP would: the stop owns the accent among POSITION
+                      indicators, and this is not one — it is transient, it
+                      exists only while a command is open, and it is a word
+                      rather than a mark on the way. */}
+                  {scoped ? (
+                    <Stamp
+                      tone="brass"
+                      data-testid={`timeline-scoped-${index}`}
+                    >
+                      Scope
+                    </Stamp>
+                  ) : null}
                 </button>
 
                 {/* The way between this op and the next — and the slot the stop

@@ -17,13 +17,24 @@
 #                        re-running the 2.4k geometry tests per shard would
 #                        pay ~12 min four times over for zero new coverage.
 #         --geometry-only  leg 1 only (no stack, no browser).
-#         trailing args  forwarded verbatim to `playwright test`, which is how
-#                        CI passes --shard=i/N. Sharding is why the per-push
-#                        browser gate is affordable, and it is DERIVED from the
-#                        filesystem: every spec lands in exactly one shard with
-#                        no list to maintain, so a new spec cannot be born
+#         trailing args  forwarded verbatim to `playwright test`, with ONE
+#                        substitution: `--balanced-shard=i/N` is expanded by
+#                        scripts/e2e-shard-plan.py into the file patterns for
+#                        that shard. That is how CI shards, and
+#                        `scripts/e2e.sh --web-only -- --balanced-shard=3/4`
+#                        reproduces a CI shard locally with one command.
+#
+#                        Sharding stays DERIVED from the filesystem: the
+#                        planner partitions the set `playwright test --list`
+#                        returns, so every spec lands in exactly one shard with
+#                        no list to maintain and a new spec cannot be born
 #                        outside the gate (the failure mode that has bitten
 #                        this repo four times — see docs/BACKLOG.md GATE-1).
+#                        What the committed duration manifest changes is only
+#                        WHICH shard, never WHETHER; see e2e-shard-plan.py.
+#                        Playwright's own `--shard=i/N` still works and is
+#                        still count-based — it is what CI used until CI-BAL
+#                        measured shard 3/4 at 1.58x the median.
 #
 # Env:    GATEWAY_PORT / DOCUMENTS_PORT / GEOMETRY_PORT
 #                                        override ports (default 8000/8001/8002)
@@ -32,7 +43,10 @@
 #         E2E_JSON_REPORT                write Playwright's JSON report here
 #                                        (CI reconciles the executed test count
 #                                        against the discovered one, so a shard
-#                                        that silently ran nothing cannot pass)
+#                                        that silently ran nothing cannot pass).
+#                                        Unset -> one is still written, into the
+#                                        log dir, because the verdict block this
+#                                        script ends with is derived from it.
 #         E2E_LOG_DIR                    write the three service logs HERE and
 #                                        do NOT delete them on exit. Without it
 #                                        the logs live in a mktemp dir the exit
@@ -95,6 +109,10 @@ mkdir -p "$LOG_DIR"
 SERVICES=(geometry documents gateway)
 STARTED_PIDS=()
 SAMPLER_PID=""
+# Set once the browser leg is configured; print_verdict reads them.
+E2E_REPORT=""
+PLAYWRIGHT_LOG="${LOG_DIR}/playwright-output.log"
+SHARD_LABEL=""
 
 cleanup() {
   local pid
@@ -115,19 +133,54 @@ cleanup() {
 trap cleanup EXIT
 
 # Tail every service log to the job output. Called when the browser leg fails,
-# because an artifact nobody downloads is not evidence anybody reads: the point
-# of a CI log is that the failure explains itself in the page you are already
-# looking at. The full logs are in E2E_LOG_DIR when it is set.
+# because an artifact nobody downloads is not evidence anybody reads — and here
+# that is literal, not rhetorical: artifact download is POLICY-DENIED from the
+# dev container (curl of the Azure blob URL the GitHub MCP hands back ->
+# `CONNECT tunnel failed, 403`), so "it is in E2E_LOG_DIR" does not mean anybody
+# can read it. The job log is the only channel. That is why this stays inline
+# even though the directory now survives the run: preserved-for-download and
+# readable-in-the-log are different requirements and only the second is met.
+#
+# What DID change (2026-08-28): it no longer prints 180 lines. On a red shard
+# these logs are overwhelmingly `INFO: 127.0.0.1:53312 - "POST /api/v1/parts/…
+# HTTP/1.1" 200 OK` — routine successes, which by construction are not the
+# reason anything failed, and which were most of the ~300 lines that buried the
+# failure list. They are dropped and COUNTED; every other line (4xx, 5xx,
+# tracebacks, warnings, startup errors) is kept verbatim. The unfiltered log is
+# in E2E_LOG_DIR.
 dump_service_logs() {
-  local name log
+  local name log kept dropped
+  local routine='"[A-Z]+ [^"]*" (2[0-9]{2}|3[0-9]{2}) '
   for name in "${SERVICES[@]}"; do
     log="${LOG_DIR}/${name}.log"
     [[ -f "$log" ]] || continue
+    kept="$(grep -vE "$routine" "$log" | tail -n 30 || true)"
+    dropped="$(grep -cE "$routine" "$log" || true)"
     echo >&2
-    echo "e2e: ──── ${name}.log (last 60 lines) ────" >&2
-    tail -n 60 "$log" >&2 || true
+    echo "e2e: ──── ${name}.log (last 30 lines that are not routine 2xx/3xx" \
+      "access logs; ${dropped:-0} of those omitted) ────" >&2
+    if [[ -n "$kept" ]]; then
+      printf '%s\n' "$kept" >&2
+    else
+      echo "(nothing but routine access logs — this service reported no error)" >&2
+    fi
   done
   echo >&2
+}
+
+# THE LAST THING THIS SCRIPT PRINTS, on every path. See scripts/e2e-verdict.py
+# for why it has to be last: the orchestrator's only channel into a red CI shard
+# is `get_job_logs`, which returns the TAIL of the job log, and on 2026-08-28
+# tails of 60/190/255 lines all failed to reach the failure list of run
+# 33139349952's shard 3/4. A summary that is not last is a summary nobody can
+# read.
+print_verdict() {
+  local status="$1"
+  local args=(--status "$status" --out "${LOG_DIR}/verdict.txt")
+  [[ -n "$E2E_REPORT" ]] && args+=(--report "$E2E_REPORT")
+  [[ -f "$PLAYWRIGHT_LOG" ]] && args+=(--fallback-log "$PLAYWRIGHT_LOG")
+  [[ -n "$SHARD_LABEL" ]] && args+=(--label "$SHARD_LABEL")
+  python3 scripts/e2e-verdict.py "${args[@]}"
 }
 
 # HTTP code for a URL ("000" = no connection), never fails the script.
@@ -261,6 +314,44 @@ fi
 echo
 echo "== e2e leg 2/2: Playwright suite (@loft/web) =="
 
+# --balanced-shard=i/N -> this shard's file patterns, chosen by measured
+# duration rather than by test count. Done HERE, before anything is booted, so
+# a planning failure costs a few seconds instead of a stack boot.
+#
+# It is a hard failure by design: there is no fall-back to `--shard=i/N`. A
+# silent downgrade would restore the 1.58x imbalance while every log still said
+# "balanced", which is the shape of every gate defect in docs/BACKLOG.md.
+BALANCED_SHARD=""
+if ((${#PLAYWRIGHT_ARGS[@]} > 0)); then
+  for arg in "${PLAYWRIGHT_ARGS[@]}"; do
+    [[ "$arg" == --balanced-shard=* ]] && BALANCED_SHARD="${arg#--balanced-shard=}"
+  done
+fi
+if [[ -n "$BALANCED_SHARD" ]]; then
+  plan_config=()
+  for arg in "${PLAYWRIGHT_ARGS[@]}"; do
+    [[ "$arg" == --config=* ]] && plan_config=(--config "${arg#--config=}")
+  done
+  plan_file="${RUN_DIR}/shard-patterns.txt"
+  echo "e2e: planning ${BALANCED_SHARD} by measured duration"
+  python3 scripts/e2e-shard-plan.py \
+    --shard "$BALANCED_SHARD" --args-out "$plan_file" "${plan_config[@]}"
+  mapfile -t plan_patterns <"$plan_file"
+  if ((${#plan_patterns[@]} == 0)); then
+    echo "e2e: the planner emitted no patterns for ${BALANCED_SHARD}." >&2
+    exit 1
+  fi
+  rebuilt=()
+  for arg in "${PLAYWRIGHT_ARGS[@]}"; do
+    if [[ "$arg" == --balanced-shard=* ]]; then
+      rebuilt+=("${plan_patterns[@]}")
+    else
+      rebuilt+=("$arg")
+    fi
+  done
+  PLAYWRIGHT_ARGS=("${rebuilt[@]}")
+fi
+
 # LOAD PREFLIGHT — say what the machine looked like at the start, and warn when
 # a red result will not be trustworthy.
 #
@@ -359,10 +450,35 @@ fi
 # `pnpm run <script> -- <args>` DROPS the separator in pnpm 10 and the args
 # never reach the script (CLAUDE.md recipe), so invoke the binary directly —
 # --shard has to arrive intact or a shard silently runs the WHOLE suite.
-if [[ -n "${E2E_JSON_REPORT:-}" ]]; then
-  export PLAYWRIGHT_JSON_OUTPUT_NAME="$E2E_JSON_REPORT"
+#
+# The JSON report is no longer CI-only. The verdict block this script ends with
+# is DERIVED from it, and a summariser that only runs in CI is a summariser
+# nobody has exercised before the moment somebody needs it — so when
+# E2E_JSON_REPORT is unset we write one into the log dir anyway (RUN_DIR by
+# default, i.e. removed on exit; E2E_LOG_DIR keeps it). Local and CI then take
+# the SAME path, which is what makes `scripts/e2e.sh --web-only -- --shard=3/4`
+# a faithful reproduction of a red CI shard.
+# Escape hatch: a caller who passes their own --reporter keeps it, and the
+# verdict falls back to parsing the captured list-reporter output.
+if ! printf '%s\n' "${PLAYWRIGHT_ARGS[@]-}" | grep -q -- '--reporter'; then
+  E2E_REPORT="${E2E_JSON_REPORT:-${LOG_DIR}/playwright-report.json}"
+  export PLAYWRIGHT_JSON_OUTPUT_NAME="$E2E_REPORT"
   PLAYWRIGHT_ARGS+=(--reporter=list,json)
 fi
+# Label the verdict with the shard it belongs to — four shard logs otherwise
+# produce four indistinguishable verdict blocks.
+# --balanced-shard was expanded into file patterns above, so the label has to be
+# taken from the value we captured then — otherwise four balanced shards produce
+# four indistinguishable verdict blocks, which is the exact defect this label
+# was added to fix.
+if [[ -n "$BALANCED_SHARD" ]]; then
+  SHARD_LABEL="shard ${BALANCED_SHARD}"
+fi
+for arg in "${PLAYWRIGHT_ARGS[@]-}"; do
+  if [[ "$arg" == --shard=* ]]; then
+    SHARD_LABEL="shard ${arg#--shard=}"
+  fi
+done
 # Resource sampling covers the browser leg only — the stack is up, so the CSV's
 # first row is already the steady state the specs run against, and everything
 # after it is attributable to the suite. Killed by the exit trap.
@@ -382,12 +498,23 @@ fi
 # hand: a failing browser leg is exactly when the service logs are worth
 # printing, and the script used to tail them only when a service failed to
 # become READY — i.e. never in the case anybody has actually had to debug.
+#
+# `| tee` so the list reporter's own output is on disk as a SECOND, independent
+# source for the verdict: when the JSON report is absent or malformed — exactly
+# the case where a summariser would otherwise have nothing to say, and exactly
+# when somebody needs it to — e2e-verdict.py recovers the failing tests from
+# these lines instead of exiting quietly. PIPESTATUS[0], not $?, because tee
+# always succeeds.
 playwright_status=0
+set +e
 if ((${#PLAYWRIGHT_ARGS[@]} > 0)); then
-  pnpm --filter @loft/web exec playwright test "${PLAYWRIGHT_ARGS[@]}" || playwright_status=$?
+  pnpm --filter @loft/web exec playwright test "${PLAYWRIGHT_ARGS[@]}" 2>&1 |
+    tee "$PLAYWRIGHT_LOG"
 else
-  pnpm --filter @loft/web exec playwright test || playwright_status=$?
+  pnpm --filter @loft/web exec playwright test 2>&1 | tee "$PLAYWRIGHT_LOG"
 fi
+playwright_status=${PIPESTATUS[0]}
+set -e
 
 if ((playwright_status != 0)); then
   echo >&2
@@ -398,15 +525,30 @@ if ((playwright_status != 0)); then
   else
     echo "e2e: set E2E_LOG_DIR to keep the full logs past this run." >&2
   fi
-  exit "$playwright_status"
+else
+  echo
+  if [[ "$RUN_GEOMETRY" == 1 ]]; then
+    echo "e2e: all legs green."
+  else
+    # Not "all legs green" — leg 1 did not run, and a gate that overstates what
+    # it checked is how "geometry verified" ends up in a commit message that
+    # never ran a golden.
+    echo "e2e: browser leg green (--web-only; the geometry leg did NOT run)."
+  fi
 fi
 
-echo
-if [[ "$RUN_GEOMETRY" == 1 ]]; then
-  echo "e2e: all legs green."
-else
-  # Not "all legs green" — leg 1 did not run, and a gate that overstates what
-  # it checked is how "geometry verified" ends up in a commit message that
-  # never ran a golden.
-  echo "e2e: browser leg green (--web-only; the geometry leg did NOT run)."
+# The verdict goes LAST on both paths, after the service logs and after the
+# leg summary, so `tail_lines: 40` on the job log always contains the whole
+# thing. It exits 3 when it cannot reconcile itself with playwright's status
+# (a non-zero status it cannot explain, or a zero status over a report that
+# lists failures) — and that escalates a "green" run to red, because a pass we
+# cannot corroborate is not a pass.
+verdict_status=0
+print_verdict "$playwright_status" || verdict_status=$?
+if ((playwright_status != 0)); then
+  exit "$playwright_status"
+fi
+if ((verdict_status != 0)); then
+  echo "e2e: playwright exited 0 but the verdict above does not agree with it." >&2
+  exit "$verdict_status"
 fi

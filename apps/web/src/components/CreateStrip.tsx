@@ -13,7 +13,13 @@
  * accelerator is engraved in the tooltip so it teaches the keyboard the moment
  * it lights up), matching how Extrude greys out until a sketch is solved.
  */
-import { BandActionCell, ToolButton, ToolGroup, VerbGlyph } from "@loft/design";
+import {
+  BandActionCell,
+  BandStateCell,
+  ToolButton,
+  ToolGroup,
+  VerbGlyph,
+} from "@loft/design";
 import { useRef } from "react";
 
 import type { ExportedFile, ExportFormat } from "../api/exportPart";
@@ -133,6 +139,14 @@ export interface CreateStripProps {
    * would be noise, so only an explicit selection moves these words.
    */
   scopeSubject?: string | null;
+  /**
+   * Retire the tree selection that named {@link scopeSubject}, so the verbs go
+   * back to proposing the whole body. The band's SCOPE cell owns this because
+   * the band is where the consequence is stated — a state a surface announces
+   * and cannot retract is a dead end (design mandate, flow rule 4). Omit it and
+   * the cell renders as a pure readout.
+   */
+  onClearScope?: () => void;
   /** Hollow the current body to a uniform wall, opening picked faces (H). */
   onShell?: () => void;
   /** Taper picked faces for mold release about a neutral plane (D). */
@@ -156,11 +170,11 @@ export interface CreateStripProps {
   /** Fold a leg off a picked straight edge of the sheet body. */
   onNewEdgeFlange?: () => void;
   /**
-   * The part is sheet metal (a base flange exists), so a closed hem can fold a
-   * picked straight edge 180° back onto the sheet — the same gate as edge flange.
+   * The part is sheet metal (a base flange exists), so a hem can fold a picked
+   * straight edge 180° back onto the sheet — the same gate as edge flange.
    */
   canHem?: boolean;
-  /** Fold a picked straight edge 180° back onto the sheet (a closed hem). */
+  /** Fold a picked straight edge 180° back onto the sheet (a closed or open hem). */
   onNewHem?: () => void;
   /**
    * The part has ≥2 edge flanges whose bends can meet at a corner, so a corner
@@ -225,10 +239,12 @@ export interface CreateStripProps {
    * notice — but the affordance the user reaches for survives a panel collapse.
    */
   onExport?: (format: ExportFormat) => Promise<ExportedFile>;
-  /** Why export is inert (no body / a feature failed), or undefined when ready. */
+  /** Why export is inert (nothing built / unverified), or undefined when ready. */
   exportDisabledReason?: string;
-  /** Allowed, but the file would be a prefix of the tree (a travel stop). */
+  /** Allowed, but the file would be a prefix of the tree. */
   exportPartial?: boolean;
+  /** What makes it a prefix, in a clause — `ExportGate.qualifier` (EXPORT-3). */
+  exportPartialQualifier?: string;
   /** QA hook: the export gate state name the workspace derived. */
   exportState?: string;
 }
@@ -258,6 +274,7 @@ export function CreateStrip({
   onChamfer,
   onPattern,
   scopeSubject = null,
+  onClearScope,
   onShell,
   onDraft,
   onHole,
@@ -286,6 +303,7 @@ export function CreateStrip({
   onExport,
   exportDisabledReason,
   exportPartial = false,
+  exportPartialQualifier,
   exportState,
 }: CreateStripProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -388,25 +406,43 @@ export function CreateStrip({
           role="group"
           aria-label={`In command: ${activeCommand}`}
         >
-          <div className="flex flex-col justify-center gap-0.5 px-4">
-            <span className="font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-              In command
-            </span>
-            <span
-              data-testid="in-command-name"
-              className="flex items-center gap-1.5 font-data text-sm leading-none text-brass"
-            >
-              <span aria-hidden className="text-brass">
-                ▸
-              </span>
-              {activeCommand}
-            </span>
-          </div>
+          <BandStateCell
+            eyebrow="In command"
+            marker="▸"
+            value={activeCommand}
+            valueTestId="in-command-name"
+          />
           <span aria-hidden className="my-2 w-px bg-hairline" />
+          {/* The scope survives the command (REACH-2-FLOW P1-2/P1-3): the tree
+              selection that named the subject is no longer thrown away at the
+              door, so the band can keep saying what the open command is acting
+              on while it is open — the same cell, in the same place, before
+              and during. */}
+          {/* DISTINCT test hooks from the resting cell below, deliberately:
+              while a command is open the tool groups stay in the DOM (they go
+              `sr-only`, so the a11y tree and the lock survive), which means BOTH
+              cells exist at once. Sharing an id would make `getByTestId` a
+              strict-mode violation for the next spec that reaches for it — and,
+              worse, would let a spec assert the in-command cell and be answered
+              by the hidden one. */}
+          {scopeSubject !== null ? (
+            <BandStateCell
+              eyebrow="Scope"
+              value={scopeSubject}
+              valueTestId="in-command-scope-subject"
+              data-testid="in-command-scope"
+            />
+          ) : null}
           <div className="ml-auto flex items-stretch divide-x divide-hairline border-l border-hairline">
             <BandActionCell
               label="Cancel"
-              caption="Esc"
+              // FB-13, and P1-3's other half: a key that might discard your work
+              // makes people hesitate. Cancel now KEEPS the selection that armed
+              // the command, so say so — the caption is the only place a user
+              // learns that backing out is free.
+              caption={
+                scopeSubject === null ? "Esc" : `Esc — keeps ${scopeSubject}`
+              }
               data-testid="in-command-cancel"
               onClick={onCommandCancel}
             />
@@ -563,6 +599,59 @@ export function CreateStrip({
             onClick={onNewLoft}
           />
         </ToolGroup>
+
+        {/* THE SCOPE CELL — the proposal's visible channel, and the reason it
+            is a band CELL and not a tool label (REACH-2-FLOW P1-1). At
+            1280x800 the band has measured Create/Modify into the icon tier, so
+            `verbLabel()`'s "Repeat Hole1" — the entire visible payload of the
+            proposal — is shed and only a hover tooltip survives. A hover-only
+            proposal fails the flow mandate's first test ("the next step is
+            visible from the current state"), so the subject moves OUT of the
+            shed-able label tier and into a cell of its own, which no tier
+            touches.
+
+            Seated immediately before MODIFY because that is the group whose
+            verbs it renames — adjacency is what makes it read as their caption
+            rather than as a fifth readout. It is not inside the group's eyebrow
+            for the same reason it is not on the buttons: six of the eight tools
+            here (fillet, chamfer, shell, draft, hole, combine) act on picked
+            faces and edges, not on the tree row, and a heading that claimed
+            otherwise would be a lie for most of the row.
+
+            It renders only when there IS a subject, so the resting band pays
+            nothing for it, and it is retractable — a chip announcing a state
+            with no way out is the dead end mandate rule 4 names.
+
+            WHAT IT COSTS, MEASURED AT 1280x800, because it is a real trade and
+            not a free win. The resting band is 1241px of a 1280px frame, so
+            there are 39px of slack and the shed pass affords exactly EXPORT
+            (+160) and INSPECT (+37) out of a 236px label budget. The cell is
+            104px, so while a scope is held the band drops to the icon tier and
+            those two groups lose their words — including EXPORT's format codes,
+            which EXPORT-1 exists to keep findable. Three things make that the
+            right call rather than a regression: the cost is transient and the
+            `x` is the one-click reclaim (measured: clearing restores
+            `["Inspect","Export"]`); the export group keeps its eyebrow, glyphs
+            and per-tool tooltips, which is the icon tier's documented contract,
+            and export is reachable from the Inspector's own strip besides;
+            whereas the proposal had NO channel but hover. Note the `x` is free
+            in tier terms — without it the cell is 80px and still over EXPORT's
+            76px cliff — so the retraction costs nothing the readout had not
+            already spent. The real fix is the overflow flyout `CommandBand`'s
+            own doc names as the growth path; filed as a follow-up. */}
+        {scopeSubject !== null ? (
+          <div className="flex items-stretch">
+            <BandStateCell
+              eyebrow="Scope"
+              value={scopeSubject}
+              valueTestId="band-scope-subject"
+              data-testid="band-scope"
+              onClear={onClearScope}
+              clearLabel={`Clear ${scopeSubject} — pattern and mirror go back to the whole body`}
+              clearTestId="band-scope-clear"
+            />
+          </div>
+        ) : null}
 
         <ToolGroup eyebrow="Modify" labelPriority={LABEL_PRIORITY.modify}>
           <ToolButton
@@ -723,7 +812,7 @@ export function CreateStrip({
             data-testid="new-hem"
             aria-label={
               hemReady
-                ? "Hem — fold a straight edge of the sheet 180° back onto itself (a closed hem)"
+                ? "Hem — fold a straight edge of the sheet 180° back onto itself (closed or open)"
                 : "Hem — add a base flange first"
             }
             caption={captionFor(hemReady, "Add a base flange first")}
@@ -833,6 +922,7 @@ export function CreateStrip({
             // one honest reason as every other tool in the locked band.
             disabledReason={locked ? lockReason : exportDisabledReason}
             partial={exportPartial}
+            partialQualifier={exportPartialQualifier}
             state={exportState}
           />
         ) : null}

@@ -53,7 +53,7 @@ from py_kit.schemas.drawings import (
     EvaluateDrawingViewsRequest,
     ViewScale,
 )
-from py_kit.schemas.features import EvaluateTreeRequest
+from py_kit.schemas.features import HEM_CLOSED_RADIUS_RATIO, EvaluateTreeRequest
 
 _GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens-sheet-metal"
 _GOLDEN = _GOLDENS_DIR / "holed-bracket-flat-pattern-view"
@@ -546,7 +546,10 @@ def test_a_hole_in_the_base_of_a_hemmed_plate_develops() -> None:
     assert len(circles) == 1
     assert float(circles[0].r) == pytest.approx(2.5, abs=_TOL_MM)
     bend = next(e for e in pattern.outline if e.role == "bend")
-    ba = math.pi * (1.0 + 0.44 * 2.0)
+    # The hemmed plate's hem takes the DEFAULT radius, which is a function of
+    # its type and the 2 mm gauge (HEM-1) — derived from the rule, never a
+    # literal, so this assertion cannot drift from the geometry it describes.
+    ba = math.pi * (HEM_CLOSED_RADIUS_RATIO * 2.0 + 0.44 * 2.0)
     assert pattern.flat_length_mm == pytest.approx(15.0 + ba + 50.0, abs=_TOL_MM)
     # The hole is 50 - 12 = 38 mm from the plate's bend tangent; the fold LINE sits at
     # the middle of the allowance strip, so half an allowance further again.

@@ -3,6 +3,7 @@ import type { Locator } from "@playwright/test";
 import { expect, test, type Page } from "./fixtures";
 
 import { setupTwoInstances } from "./assemblyFlow";
+import { installSceneProbe, waitForCameraRest } from "./invariants";
 import {
   labelIsWall,
   litAfterHiding,
@@ -10,7 +11,12 @@ import {
   setBodyMode,
 } from "./occludedPlate";
 import { seedDenseHolePlate } from "./partSeed";
-import { litPoints, measureReachabilityWith, type Point } from "./reachability";
+import {
+  clearOfSilhouette,
+  litPoints,
+  measureReachabilityWith,
+  type Point,
+} from "./reachability";
 import {
   SCREENSHOT_DIR,
   createPartViaApi,
@@ -520,6 +526,16 @@ async function settledStampAt(
  */
 const PROBE_SETTLE_MS = 1_500;
 
+/**
+ * How far a "vacated" grid point must be from any drawn pixel before the face
+ * oracle is asked about it. See `clearOfSilhouette` for the measurement: the
+ * rim + outline band around a body reads BELOW the luminance floor while being
+ * on the solid, so a point inside it is neither lit nor empty.
+ *
+ * 8 px is 1.6x the measured 5-px band and one third of the 24-px census grid.
+ */
+const SILHOUETTE_MARGIN_PX = 8;
+
 /** The sweep's probe position: `radius` px from `centre` along direction `d`. */
 function radialPoint(centre: Point, d: number, radius: number): Point {
   const angle = (2 * Math.PI * d) / DIRECTIONS;
@@ -570,6 +586,95 @@ async function confirmsPlacementFace(
   await parkOffBody(page, "data-hole-point-hover");
   await page.mouse.move(point.x, point.y);
   return stampSettles(page, "data-hole-point-hover", { kind: "present" });
+}
+
+/**
+ * TILT OFF THE FACE VIEW, so a BURIED edge has a screen position of its own.
+ *
+ * Why this exists (ORTHO-1, 2026-08-28). The occluded-plate fixture is framed
+ * FRONT-ON, and a front view is now ORTHOGRAPHIC — as every incumbent's named
+ * views are. Under a parallel projection the plate's back-bottom edge and its
+ * front-bottom twin project to *the same screen line*, exactly (measured
+ * 0.0016 px apart), because the only thing that used to separate them was
+ * perspective foreshortening — and that is precisely the quantity a parallel
+ * projection removes by definition. It is not a fixture that broke; it is a
+ * separation that was never real, and a probe on it was measuring the VISIBLE
+ * edge while claiming to measure the buried one. The guard in `buriedPair`
+ * caught it rather than producing a wrong answer, and it stays.
+ *
+ * There is no repair available inside a face view: for an axis-aligned box
+ * seen face-on in parallel projection, EVERY back edge coincides with a front
+ * edge. So the camera has to leave the face — and it leaves through the
+ * product's own control, the reference cube's TOP-FRONT edge cubelet, which
+ * `ViewCube.onPick` routes to `requestDirection` like any other cube pick.
+ *
+ * The resulting 45 degree front-top view keeps BOTH halves of the subject:
+ *
+ *  · the wall still stands between the camera and the probed edge — the ray
+ *    from the plate's back-bottom edge (30, 50, 0) toward the camera enters
+ *    the wall's top face at (30, 10, 40) and leaves through its back face at
+ *    (30, 20, 30), so a hidden wall is still the nearest discarded hit, which
+ *    is the mechanism SEL-6 exists to pin; and
+ *  · the edge is still buried in the STILL-DRAWN plate — that same ray crosses
+ *    14.1 mm of plate before it reaches the top face at (30, 40, 10).
+ *
+ * The separation it buys is a projection-plane one: 20 mm of depth becomes
+ * 20 · sin 45 = 14.1 mm of screen height, which does not depend on how far away
+ * the camera is. That is the property the old fixture lacked.
+ *
+ * The cubelet's seat is drei's, not ours: `GizmoViewcube` scales its group by
+ * 60 and seats each edge cubelet at 0.38 of that along its two axes, and our
+ * cube canvas is orthographic at zoom 1, so one scene unit is one CSS pixel
+ * (see the comment block at the top of `viewport/ViewCube.tsx`). Front-on, the
+ * top-front cubelet therefore sits 22.8 px above the cube's centre. If drei
+ * ever moves it, the direction assertion below fails by name instead of the
+ * click silently landing on the FRONT face and leaving the view where it was.
+ */
+const CUBE_EDGE_OFFSET_PX = 0.38 * 60;
+
+async function tiltOffTheFaceView(page: Page): Promise<void> {
+  const viewport = page.getByTestId("viewport");
+  const cube = page.getByTestId("view-cube");
+  const seat = await cube.boundingBox();
+  expect(seat, "the reference cube has a rect to click").not.toBeNull();
+  if (seat === null) throw new Error("no reference cube");
+  await page.evaluate(() => {
+    document
+      .querySelector('[data-testid="viewport"]')
+      ?.removeAttribute("data-view");
+  });
+  await page.mouse.click(
+    seat.x + seat.width / 2,
+    seat.y + seat.height / 2 - CUBE_EDGE_OFFSET_PX,
+  );
+  await expect(viewport).toHaveAttribute("data-view", "direction", {
+    timeout: 20_000,
+  });
+
+  // The click reached an EDGE cubelet and not the FRONT face: the view
+  // direction must be oblique in both scene axes. Asserted on the live camera
+  // rather than on the stamp, because the stamp says "a direction was applied"
+  // and this says WHICH — a face pick would satisfy the first and not the
+  // second, and would leave the twins coincident all over again.
+  const pose = await waitForCameraRest(page);
+  const [, dirY, dirZ] = pose.direction;
+  expect(
+    [Math.abs(dirY), Math.abs(dirZ)].map((v) => Number(v.toFixed(2))),
+    `the cube's top-front edge should give a 45 degree front-top view (got ${pose.direction.map((v) => v.toFixed(3)).join(",")})`,
+  ).toEqual([0.71, 0.71]);
+
+  // Re-frame at the new attitude. `fit` deliberately does not touch the
+  // projection (`viewCommands.orients`), so this is still the orthographic
+  // view the ticket is about.
+  await viewport.evaluate((node) => {
+    node.dataset["fitRect"] = "";
+  });
+  await page.getByTestId("view-fit").click();
+  await expect(viewport).not.toHaveAttribute("data-fit-rect", "", {
+    timeout: 20_000,
+  });
+  await expect(viewport).toHaveAttribute("data-projection", "orthographic");
+  await waitForFrames(page, 6);
 }
 
 async function armFilletPick(page: Page): Promise<void> {
@@ -1106,6 +1211,11 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     // hidden body every edge was accepted, including edges buried inside the
     // still-DRAWN plate. Both faces close together, because the hidden
     // triangle now never reaches the intersection list at all.
+    //
+    // The scene probe is installed for `tiltOffTheFaceView`, which asserts on
+    // the live camera's direction rather than on a stamp; `addInitScript` only
+    // applies to loads that come after it, so it must precede the fixture.
+    await installSceneProbe(page);
     const viewport = await openOccludedPlate(page);
     const litWithout = [
       await litAfterHiding(page, 0),
@@ -1117,18 +1227,35 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
       `the two bodies must be tellable apart by silhouette: ${litWithout.join(" vs ")} lit points`,
     ).toBeGreaterThan(1.5);
 
+    // Leave the face view before arming: under an orthographic FRONT view the
+    // buried edge has no screen position of its own. See the helper.
+    await tiltOffTheFaceView(page);
     await armFilletPick(page);
 
     /**
-     * The plate's BACK-BOTTOM edge and its visible y = 30 twin, named by their
-     * own OCCT mid-spans rather than by kernel indices.
+     * The plate's BACK-BOTTOM edge and its y = 30 twin, named by their own OCCT
+     * mid-spans rather than by kernel indices.
      *
      * That edge is the one entity of this fixture that is unambiguously INSIDE
-     * the solid from the front: the plate's underside faces away from the
-     * camera, and under perspective the far edge projects ~29 px ABOVE its near
-     * twin — outside the 12 px corridor, so IT and not the visible edge is the
-     * nearest band hit on its own line. A probe there is a probe on material
-     * you cannot see, with drawn plate in the way.
+     * the solid: its two faces (the plate's underside and its back) both point
+     * away from the camera, so a ray to it crosses 14.1 mm of still-drawn plate
+     * — and, while the wall is drawn, the wall as well. The twin is the
+     * silhouette edge between the plate's visible front and bottom faces.
+     *
+     * The 45 degree tilt `tiltOffTheFaceView` applies is what makes the two
+     * SEPARABLE, and it separates them in the PROJECTION PLANE rather than by
+     * foreshortening — so the guard below no longer depends on how far away the
+     * camera happens to be framed. Measured across the three regimes, on the
+     * same fixture and the same two 60 mm edges:
+     *
+     *   orthographic FRONT (what CI hit)     0.0016 px   — coincident
+     *   perspective FRONT (what this was)      ~29    px   — depth parallax
+     *   orthographic 45 deg front-top         166.8   px   — projection plane
+     *
+     * The guard demands 12. The middle row is the one to keep in mind: it was
+     * only ever twice the corridor, and it was a function of the fit distance,
+     * so this probe was one framing change away from going vacuous even before
+     * the projection changed.
      */
     const buriedPair = async () => {
       const marks = await edgeMarks(page);
@@ -1186,8 +1313,8 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     //    `surfaceDistance` stayed null, and the buried edge answered.
     //
     //    The marks are RE-READ rather than reused: the framing follows the
-    //    visible bounds, so hiding the wall moves every mark on screen (~29 px
-    //    here) and a stale coordinate would probe empty space.
+    //    visible bounds, so hiding the wall moves every mark on screen and a
+    //    stale coordinate would probe empty space.
     await setBodyMode(page, wall, "hidden");
     await waitForFrames(page, 6);
     const behind = await buriedPair();
@@ -1253,6 +1380,46 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
       "the wall really did cover part of the frame",
     ).toBeGreaterThan(20);
 
+    /*
+      "LIT BEFORE AND NOT LIT NOW" IS NOT "THE REGION THE WALL VACATED", and
+      the difference is what made this test fail 1 run in 4 (CI-4 pass,
+      2026-08-29). Two censuses taken under DIFFERENT camera framings — hiding
+      the wall refits the view to the visible bounds, so the plate moves and
+      grows — are differenced here, so `nowEmpty` picks up not only the wall's
+      old span but every pixel the REFIT moved, including the still-drawn
+      plate's own outline. `litPoints` reads one pixel against a luminance
+      floor, and a body's drawn edge is a dark rim plus an outline stroke ~5 px
+      wide that is under that floor while being squarely ON the solid.
+
+      Measured on the failing run: 5 ghosts, all five in ONE grid column at
+      x = 1236, with the plate's last lit pixel at x = 1234 on every one of
+      those rows (lum 178 at 1234, 65 at 1236, 89 at 1238, 18 at 1240). The
+      face oracle was RIGHT and the region was wrong.
+
+      So the sweep is restricted to points that are background with room to
+      spare. This is not a widened tolerance — the assertion below is still
+      `toBe(0)` — it is the census refusing to ask the oracle about pixels its
+      own classifier cannot decide. The strong claim, stated by ORDINAL over
+      the whole canvas rather than by luminance difference, is
+      `qa-sel6-verify.spec.ts`'s "a hidden body's ordinals answer at NO point
+      on the canvas" (1710 points, 0 naming a hidden face), so nothing this
+      erosion could hide is ungated.
+    */
+    const vacated = await clearOfSilhouette(page, nowEmpty, {
+      marginPx: SILHOUETTE_MARGIN_PX,
+    });
+    expect(
+      vacated.length,
+      `vacated points clear of the drawn body by ${SILHOUETTE_MARGIN_PX}px ` +
+        `(${nowEmpty.length - vacated.length} of ${nowEmpty.length} discarded ` +
+        `as silhouette-adjacent)`,
+    ).toBeGreaterThan(20);
+    console.log(
+      `    [SEL-6] vacated region: ${vacated.length} clear of ` +
+        `${nowEmpty.length} candidates ` +
+        `(${nowEmpty.length - vacated.length} within ${SILHOUETTE_MARGIN_PX}px of drawn pixels)`,
+    );
+
     // A FRACTION against a 50 % floor, measured at 99.3 % — parked once at the
     // start so the first probe cannot inherit the `setBodyMode` click's stamp,
     // then cheap per point. The margin is 66 of 135 points; no per-probe race
@@ -1274,7 +1441,7 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     // ways on this build, so in the healthy case this costs one park.
     await parkOffBody(page, "data-hovered-face");
     const ghosts: Point[] = [];
-    for (const point of nowEmpty) {
+    for (const point of vacated) {
       await page.mouse.move(point.x, point.y);
       if ((await viewport.getAttribute("data-hovered-face")) === null) continue;
       const settled = await settledStampAt(
@@ -1302,7 +1469,7 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     expect(
       ghosts.length,
       `points over the vacated region that still name a face, confirmed with ` +
-        `the pointer parked off the body first: ${ghosts.length}/${nowEmpty.length}` +
+        `the pointer parked off the body first: ${ghosts.length}/${vacated.length}` +
         (ghosts.length > 0
           ? ` at ${ghosts
               .slice(0, 8)

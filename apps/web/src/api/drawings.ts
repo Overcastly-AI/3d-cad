@@ -22,6 +22,18 @@ export type ViewCreate = components["schemas"]["ViewCreate"];
  * `auto_place: true`. Every field optional; `expected_version` guards the OCC. */
 export type ViewUpdate = components["schemas"]["ViewUpdate"];
 export type ViewScale = components["schemas"]["ViewScale"];
+/** What a view references: a part, or an assembly (§7 — the assembly compound). */
+export type RefDocumentKind = ViewResponse["ref_document_kind"];
+/** World-mm AABB of a body/compound — the shape both a part's mass properties
+ * and an assembly's solved extents report (one schema, two sources). */
+export type BoundingBox = components["schemas"]["BoundingBox"];
+/** The SOLVED compound's extents + the solve they came out of (§4). */
+export type AssemblyExtentsResponse =
+  components["schemas"]["AssemblyExtentsResponse"];
+/** A drawing sheet's numbered bill of materials (design §7 BOM). */
+export type DrawingBomResponse = components["schemas"]["DrawingBomResponse"];
+/** One numbered parts-list line: item number + resolved name + quantity. */
+export type DrawingBomLine = components["schemas"]["DrawingBomLine"];
 /** A section view's cutting plane + half selection (drawings-section.md §1). The
  * `plane` is the EXACT `GeomRef` union a sketch's plane uses (DatumPlaneRef |
  * FeatureRef) — no parallel plane taxonomy (DRY). */
@@ -413,6 +425,46 @@ export async function deleteAnnotation(
 }
 
 /**
+ * How big is this assembly, SOLVED — the one reading a sheet needs to fit a
+ * scale to an assembly source (ASMDRAW-FIT-1b).
+ *
+ * The assembly twin of the `bounding_box` a part caller reads off
+ * `POST /parts/{id}/evaluate`, and the reason it must be a SERVER call rather
+ * than a client-side roll-up: `bounding_box` is the union over the instances'
+ * MATE-SOLVED world poses, never their authored seeds. On the reference rig
+ * (two plates seeded 80 mm apart, then bolted flush) the seeds span 120 mm in x
+ * while the solved compound spans 40 — a client that folded the graph's own
+ * placements would lay out a sheet for a part that does not exist.
+ *
+ * `bounding_box` is null when no instance produced a body (an empty assembly):
+ * nothing to fit, never a zero box. `status` travels with the numbers, and is
+ * deliberately NOT a gate here — geometry's own
+ * `test_status_alone_cannot_distinguish_the_two` proves a seating solve and a
+ * constraint-free one both report `under_constrained`, so branching on it would
+ * behave identically in a world where the route returned seeds.
+ *
+ * NB this belongs beside its siblings in `../api/assemblies`; it lives here
+ * because the drawing fit is its only caller and this batch's territory split
+ * gives that file to another builder. Same shape either way — generated client,
+ * generated response type, server envelope message on failure.
+ */
+export async function fetchAssemblyExtents(
+  assemblyId: string,
+  client: GatewayClient = gatewayClient,
+): Promise<AssemblyExtentsResponse> {
+  const { data, error } = await client.GET(
+    "/api/v1/assemblies/{assembly_id}/extents",
+    { params: { path: { assembly_id: assemblyId } } },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The assembly could not be measured."),
+    );
+  }
+  return data;
+}
+
+/**
  * Project a part into its requested standard drawing views: geometry evaluates
  * the part body ONCE then runs exact HLR per view, returning each view's
  * canonically-ordered visible+hidden 2D edges (or a typed per-view error). A
@@ -466,6 +518,41 @@ export async function composeDrawingSheet(
   if (error !== undefined) {
     throw new Error(
       envelopeMessage(error, "The drawing sheet could not be composed."),
+    );
+  }
+  return data;
+}
+
+/**
+ * The sheet's bill of materials — the numbered item list a parts list prints
+ * (design §7 BOM). A pure READ MODEL over the source assembly's DIRECT
+ * instances: one line per referenced document, `quantity` the instance count,
+ * and `item_number` DERIVED from the assembly's stable instance order (never
+ * stored on the drawing, so it cannot drift from the assembly it names).
+ *
+ * `sheetId` picks WHICH sheet to bill; omitting it bills the first, the same
+ * default compose/export take. A sheet that drafts a PART is a typed
+ * `drawing_bom_source_not_assembly` 422 rather than an empty list — "this
+ * assembly has no parts" is a different and false statement — so the caller
+ * gates on the source kind and this throw is the backstop, not the UI's path.
+ */
+export async function fetchDrawingBom(
+  drawingId: string,
+  sheetId?: string | null,
+  client: GatewayClient = gatewayClient,
+): Promise<DrawingBomResponse> {
+  const { data, error } = await client.GET(
+    "/api/v1/drawings/{drawing_id}/bom",
+    {
+      params: {
+        path: { drawing_id: drawingId },
+        query: sheetId ? { sheet: sheetId } : undefined,
+      },
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The parts list could not be loaded."),
     );
   }
   return data;

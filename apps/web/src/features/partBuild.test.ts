@@ -25,6 +25,7 @@ import {
   solveSummary,
 } from "./partBuild";
 import {
+  brokenBeforeAnyBody,
   brokenFillet,
   cleanCube,
   justWritten,
@@ -174,8 +175,10 @@ describe("derivePartBuild — a broken feature", () => {
     expect(excludedNote(build)).toBe(
       "Not attempted: the 3 features below. The build stops at the first failure, even for a feature that does not depend on Hole 1.",
     );
+    // "from it onward" INCLUDES `Hole 1`: three stranded features plus the one
+    // that broke, which is also the number the export notice spends.
     expect(partialBodySentence(build)).toBe(
-      "Showing the last good state — built to Base extrude. Hole 1 failed, so 3 features are excluded from it onward. Export is blocked until it builds.",
+      "Showing the last good state — built to Base extrude. Hole 1 failed, so 4 features are excluded from it onward. Export writes this body, named partial.",
     );
   });
 
@@ -199,7 +202,14 @@ describe("derivePartBuild — a broken feature", () => {
     expect(build.failed).toBe(true);
     expect(build.failure).toBeNull();
     expect(solveSummary(build)).toBe("Failed");
-    expect(exportGate(build).blockedReason).toBe("Feature error");
+    // No tree rows, so no NAMES to spend — the gate degrades to the generic
+    // wording rather than printing "undefined failed" at a user.
+    const gate = exportGate(build);
+    expect(gate.notice).toBe(
+      "A feature failed, so the file stops at the last good state — " +
+        "1 feature is excluded. Its name will say partial.",
+    );
+    expect(gate.qualifier).toBe("a prefix of the tree, marked partial");
   });
 });
 
@@ -219,14 +229,54 @@ describe("derivePartBuild — the travel stop", () => {
 });
 
 describe("the export gate", () => {
-  it("REFUSES over a broken tree and names the feature to fix", () => {
+  it("EXPORTS the last good body of a broken tree, and names where it stops", () => {
+    // EXPORT-3 (audit R-6). This used to be `blockedReason: "Fillet1 failed"`
+    // with all four formats inert over a cube that had built cleanly — the
+    // capability, the geometry and the server were all present and the client
+    // was the only thing saying no. Measured on the real stack: the gateway
+    // serves this tree a 200 whose STEP bytes are IDENTICAL to exporting
+    // Sketch1+Extrude1 alone.
     const gate = exportGate(brokenFillet());
     expect(gate.state).toBe("feature-error");
-    expect(gate.blockedReason).toBe("Fillet1 failed");
+    expect(gate.blockedReason).toBeUndefined();
+    expect(gate.partial).toBe(true);
+    // Permission is not the same as silence: the notice carries the cause, the
+    // truncation point, the count, and the promise the filename makes.
+    expect(gate.notice).toBe(
+      "Fillet1 failed, so the file stops at Extrude1 — 1 feature is excluded. " +
+        "Its name will say partial.",
+    );
+    expect(gate.qualifier).toBe("stops at Extrude1, marked partial");
+  });
+
+  it("counts the failure ITSELF among what the file is missing", () => {
+    // The audit's own phrasing is "exported to Revolve1, 2 features excluded"
+    // for one failure plus one stranded feature: the broken feature is absent
+    // from the artifact too, so a count of only the `skipped` casualties would
+    // under-report by exactly one — the feature the user most needs to know is
+    // missing.
+    const gate = exportGate(strandedDownstream());
+    expect(gate.partial).toBe(true);
+    expect(gate.notice).toBe(
+      "Hole 1 failed, so the file stops at Base extrude — 4 features are " +
+        "excluded. Its name will say partial.",
+    );
+  });
+
+  it("REFUSES when NOTHING built — the control that stops 'allow' from meaning 'always'", () => {
+    // Acceptance criterion 3. A prefix you can export requires a prefix that
+    // BUILT; here the first body-making feature is the one that failed. The
+    // server agrees (422 `tree_export_failed`), so this is not the client
+    // inventing a rule of its own.
+    const gate = exportGate(brokenBeforeAnyBody());
+    expect(gate.state).toBe("no-body");
     expect(gate.partial).toBe(false);
-    // No notice band: the status cell and both format cells already say
-    // "Fillet1 failed", and the viewport notice carries the consequence.
-    expect(gate.notice).toBeNull();
+    expect(gate.blockedReason).toBe("Fillet1 failed");
+    expect(gate.notice).toBe(
+      "Nothing was built before Fillet1, so there is no body to export. " +
+        "Fix Fillet1 to get a file.",
+    );
+    expect(gate.qualifier).toBeNull();
   });
 
   it("REFUSES while provenance is unverified — the server exports the CURRENT tree", () => {
@@ -235,11 +285,30 @@ describe("the export gate", () => {
     expect(gate.blockedReason).toBe("Unverified");
   });
 
+  it("will not name a truncation point it cannot vouch for", () => {
+    // A stale build that ALSO failed: the tree has moved, so "stops at
+    // Extrude1" would be a claim about a body the server will not export.
+    // Provenance outranks the failure precisely because the allowed states
+    // below it all make a positional claim.
+    const staleAndBroken = makeBuild({
+      tree: makeTree(["Sketch1", "Extrude1", "Fillet1"], { treeVersion: 5 }),
+      part: makePart(6),
+      evaluation: makeEvaluation(["ok", "ok", "error"], {
+        treeVersion: 5,
+        lastGoodFeatureId: "f2",
+      }),
+    });
+    expect(staleAndBroken.failed).toBe(true);
+    expect(exportGate(staleAndBroken).state).toBe("unverified");
+    expect(exportGate(staleAndBroken).blockedReason).toBe("Unverified");
+  });
+
   it("ALLOWS a deliberate rollback, marked partial in cell AND filename", () => {
     const gate = exportGate(rolledBack());
     expect(gate.blockedReason).toBeUndefined();
     expect(gate.partial).toBe(true);
     expect(gate.notice).toContain("partial");
+    expect(gate.qualifier).toBe("marks the file partial");
   });
 
   it("blames the TRAVEL STOP, not a missing body, when the stop is the cause", () => {
@@ -269,6 +338,7 @@ describe("the export gate", () => {
       state: "ready",
       partial: false,
       notice: null,
+      qualifier: null,
     });
     const sketchOnly = makeBuild({
       tree: makeTree(["Sketch1"]),
@@ -280,11 +350,59 @@ describe("the export gate", () => {
     });
     expect(exportGate(sketchOnly).blockedReason).toBe("No body");
   });
+
+  it("spends ONE count across the two surfaces that state it", () => {
+    // Found in the 1280x800 founder shot: the viewport notice said "1 feature
+    // is excluded" and the export strip said "2 features are excluded" about
+    // the same tree, on the same frame. Two local derivations of one fact is
+    // the J2 shape, so the number is asserted to agree rather than left to
+    // whoever edits one sentence next.
+    [brokenFillet(), strandedDownstream()].forEach((build) => {
+      const gate = exportGate(build);
+      const counted = /(\d+) features? (?:is|are) excluded/.exec(
+        gate.notice ?? "",
+      )?.[1];
+      const inSentence = /(\d+) features? (?:is|are) excluded/.exec(
+        partialBodySentence(build),
+      )?.[1];
+      expect(counted).toBeDefined();
+      expect(inSentence).toBe(counted);
+    });
+  });
+
+  it("never hands over a prefix without marking it — the J2 invariant", () => {
+    // The property that must hold however the gate is refactored: EVERY build
+    // whose body is a prefix either refuses, or is flagged `partial` (which is
+    // what puts `-partial` in the filename). There is no third answer, and a
+    // gate that returns `partial: false` with no `blockedReason` over a prefix
+    // is the original J2 defect returning.
+    [
+      brokenFillet(),
+      strandedDownstream(),
+      rolledBack(),
+      brokenBeforeAnyBody(),
+      unverified(),
+    ].forEach((build) => {
+      const gate = exportGate(build);
+      const refused = gate.blockedReason !== undefined;
+      expect(refused || gate.partial).toBe(true);
+      // And an allowed prefix always says so in words, not only in a boolean.
+      if (!refused) expect(gate.notice).toContain("partial");
+    });
+  });
 });
 
 describe("the three cells cannot disagree", () => {
   // The J2 invariant, asserted directly rather than left to three components:
   // for any build, a failure is a failure in ALL of Solve / Status / Export.
+  //
+  // EXPORT-3 sharpened what "Export agrees" MEANS. It used to be "the gate is
+  // blocked", which conflated the finding (this body is a prefix) with one
+  // possible response to it (refuse). The invariant was never about refusing —
+  // it was about no cell claiming the body is whole. So Export now agrees by
+  // declaring the file PARTIAL, which is the same fact the other two cells
+  // report and is strictly more honest than a locked button that says nothing
+  // about what the file would have contained.
   const scenarios = [
     { name: "clean", build: cleanCube(), agrees: false },
     { name: "broken fillet", build: brokenFillet(), agrees: true },
@@ -299,11 +417,14 @@ describe("the three cells cannot disagree", () => {
       if (agrees) {
         expect(solve).toBe("Failed");
         expect(status).toBe("partial");
-        expect(gate.blockedReason).toBeDefined();
+        expect(gate.partial).toBe(true);
+        expect(gate.state).toBe("feature-error");
+        expect(gate.notice).toContain("failed");
       } else {
         expect(solve).toBe("Solved");
         expect(status).toBe("up-to-date");
         expect(gate.state).toBe("ready");
+        expect(gate.partial).toBe(false);
       }
     });
   });

@@ -5,6 +5,96 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-08-28/29 (groom pass 18 + interim batch — pruned from BACKLOG.md pass 19)
+
+- **2026-08-29 — PBT-1 shipped (kernel-architect):** the SETTLE-2/3 sweep is
+  committed as a seeded 2000-trial corpus; the 7-of-155 violated-constraint
+  rate re-measures at 0 of 1327 (+10.3 s to pytest). Filed SOLVE-CRASH-1,
+  SOLVE-CONFLICT-MOVED-1, SOLVE-OVERCONSTRAINED-AMBIGUOUS-1 from its findings.
+- **2026-08-28 — REACH-3-FLOW shipped (frontend-builder):** Sheet 1 is born
+  from the orientation proposal (A4 portrait 1:2, was landscape 1:5); the
+  flip's dead end was the PROMISE. Filed SHEET-RESCALE-1.
+- **2026-08-28 — Groom pass 18 (backlog-groomer):** CI-4 downgraded P1->P2
+  (four separately-diagnosed causes closed: CI-5/CI-5a/QA-SEL6-ORTHO-1/hem-
+  spec, systemic-instability question stays open); PGTEST-GATE's pass-8
+  self-correction confirmed and closed; ticked EXPORT-3, HOVER-TO-SKETCH,
+  PANEL-DENSITY-1, PGTEST-GATE. Filed STAGE-DOC-HUNKS-HEADING-1 (P2),
+  INVARIANTS-PROJECTION-1 (P3), PGTEST-GATE-VACUOUS-NONGOAL (P3). Marked
+  HEM-1C in-flight; collapsed a duplicated SEL-6 paragraph pair in
+  `docs/ROADMAP.md`.
+- **2026-08-28 — HEM-1C + HEM-1D shipped (frontend-builder):** the hem card
+  derives its radius guidance from the hem rule instead of a drifted copy
+  that suggested the refused value, adds a live air-gap readout, and offers
+  the Closed/Open segment that makes the `open` hem authorable (6.0 mm
+  measured).
+
+## 2026-08-27 (groom pass 15 — branch merged to main, reachability push)
+
+Branch merged to `main` (`03d2eca`); ticked REVOLVE-1, SKETCH-VOCAB-1(FE),
+MATE-1, QA-R1/QA-R2/QA-R4, MATE-OBS, four REACH-3 fixes; filed 7 new tickets;
+pruned ~2,770 lines of redundant ROADMAP narrative.
+
+## 2026-08-28 (groom pass 16 — frontend reachability programme COMPLETE)
+
+`scripts/check-ui-parity.py`: 84/85 operations called, 97/109 literals
+AUTHORABLE, zero ABSENT-tier gaps — up from 39/120 literals unreachable at
+first measurement (`e9d31af`, 2026-08-26). Sole uncalled op, `POST
+/api/v1/geometry/tessellate/meta`, is a deliberate omission (mesh-less twin
+of `/tessellate`). Closed since pass 15: **ORTHO-1** (`9a04a6a`),
+**REACH-ASMDRAW** (`02bd6ab`+`3e2d1e5`), **REACH-ORDER** (`472f040`),
+**FORCE-CLICK-AUDIT-1** (`6911352`), **DRAWING-VERTEX-PICK-1** (`fe96d9b`).
+Filed: ASMDRAW-FIT-1a/1b, PLAYWRIGHT-TOUCH-1, EXTRUDE-COARSE-STEP-1, HEM-1B
+(split from HEM-1). Elevated: HEM-1 P1->P0 (wrong geometry).
+
+## 2026-08-27 (groom pass 14 — closed 9 shipped items, filed REACH-2/3-FLOW + TITLEBLOCK-STAMP-1)
+
+All verified against `git log`, not assumed from commit subjects alone.
+
+- **SPEC-9** (`e8702d5`) — waits for `draw-dimensions`'s armed state before
+  the first keystroke; **SPEC-10** (`42f6bbd`) — asserts the settled solve,
+  not a pre-settle transient. Both retire the CI-4(d) defect class in a
+  second/third file.
+- **DOCTICK-GATE** (`bd09f5b`, docstring fix `53e62b0`) — `scripts/
+  check-doc-tick.py` now judges a commit range for feat/fix commits missing
+  a ROADMAP/BACKLOG tick, wired into CI.
+- **SNAP-5** (`ecdf9ad`, screenshots `31ba716`) — a line drawn near-axis-
+  aligned now authors horizontal/vertical at placement, closing the
+  DOF-6-vs-DOF-2 gap SOLVE-1's report identified.
+- **SIGNIN-1** (`bf65ddc`) — the sign-in sheet is now a bounded, centred
+  object (45% of frame vs. the prior 5.2%) instead of a card pinned to a
+  corner of the unbounded browser window. Filed/reported four times since
+  2026-08-14.
+- **T-23/DRAG-1** (`35027ef`) — extrude gets a draggable depth gauge (grip +
+  graduated ladder), closing the design mandate's named "biggest gap"
+  (`apps/web/src/viewport/**`). Unblocks MATE-1's UI half and ORTHO-1.
+- **PATTERN-1's frontend half** (`ec9c569`) — tree-row selection seeds
+  `PatternParamsV1.scope`; `docs/design/pattern-scope.md`'s `body`/
+  `features` contract from pass 13 fully built. Independent design review
+  found four flow gaps (icon-tier proposal, no seed echo, Cancel destroys
+  selection, click-opens-editor) — filed as REACH-2-FLOW, not a reopen.
+- **REVOLVE-1 kernel half** (`88b6074`) — `RevolveAxis` is now a
+  discriminated union with three always-available world origin axes.
+  Frontend half (axis list, default, preview) stays open in Ready.
+- **SKETCH-VOCAB-1 kernel half** — five commits, all kernel-only (verified
+  by diff): **angle** (`e46bf0c`), **diameter** (`eabbd36`), **midpoint**
+  (`fead5bd`), **collinear** (`00c9d22`), **symmetric-two-lines-and-an-axis**
+  (`5fbf5d8`). `apps/web` gained only exhaustive-switch stub arms in each —
+  no authoring UI for any of the five. Frontend half stays open in Ready.
+- **Parts register resume band** (`cb2e43e`) — the register now proposes
+  "resume what you were doing" instead of only listing contents; had no
+  prior backlog entry (founder-direct). Its REBUILD-column collapse
+  (analogy to the UNITS column) broke `workspace.spec.ts` because a health
+  VERDICT is volatile per-row data, not a stable attribute like a unit —
+  reverted same-night in `d0b55b2`, which is the fix, not a regression to
+  re-file. The reasoning lives in-source at `showHealth` for the next
+  person tempted by the same analogy.
+
+Filed this pass, not yet built: REACH-2-FLOW, REACH-3-FLOW,
+TITLEBLOCK-STAMP-1. Noted, not filed: `scripts/check-ui-parity.py` +
+`.claude/workflows/loft-frontend-loop.js` (`e9d31af`, subtree fix `4e41eb4`)
+mechanically re-derive the reachable-vs-displayable gap every batch (39 gaps
+measured at filing time, of 120 request-side capability literals).
+
 ## 2026-08-26 (groom pass 13 — closed nine in-flight items, re-scoped MATE-1)
 
 - **Groom pass 13 (backlog-groomer).** Ten commits landed since pass 12,
@@ -573,3 +663,25 @@ STEP hardening + WB-64/TB-1 dogfooding)
   housekeeping items). Top 3 dispatched: SOLVE-1 (kernel-architect), PICK-2
   (frontend-builder), DOCTICK-GATE (platform-builder). Batch kind split:
   2 defect / 1 capability.
+- **2026-08-28 — Groom pass 16 (backlog-groomer):** frontend reachability
+  programme COMPLETE (84/85 ops, 97/109 literals, 0 ABSENT). Ticked ORTHO-1,
+  REACH-ASMDRAW, REACH-ORDER, FORCE-CLICK-AUDIT-1, DRAWING-VERTEX-PICK-1;
+  elevated HEM-1 P1->P0; filed ASMDRAW-FIT-1a/1b, PLAYWRIGHT-TOUCH-1,
+  EXTRUDE-COARSE-STEP-1, HEM-1B.
+- **2026-08-28 — hover-a-face-to-sketch shipped (frontend-builder):** resting
+  on a face with nothing armed writes a leader note offering the sketch;
+  click or `Enter` opens it, byte-identical to Sketch -> pick that face.
+- **2026-08-28 — Groom pass 17 (backlog-groomer):** ticked HEM-1 (P0),
+  ASMDRAW-FIT-1a/1b, EXTRUDE-COARSE-STEP-1; filed CHECKUIPARITY-FP-1,
+  NUDGE-PLACEMENT-QUANTISE-1, CI-4(e); recorded e2e RED on shard 3/4 for
+  three consecutive pushes, cause unknown at groom time.
+- **2026-08-28 — QA-SEL6-ORTHO-1 CLOSED (qa-tester):** the shard-3/4 e2e red
+  was a stale occlusion threshold calibrated under the perspective front
+  view ORTHO-1 replaced, not an app defect — 0 of 841 in-wall answers name
+  the body behind (mutation: 173 of 838).
+- **2026-08-28 — EXPORT-3, HOVER-TO-SKETCH, PANEL-DENSITY-1, PGTEST-GATE all
+  shipped (frontend-builder/platform-builder), same session:** a broken
+  downstream feature no longer disables export of the good prefix; resting
+  on a face offers Sketch inline; overlay panels adopted the header's row
+  rhythm; a missing PostgreSQL now fails loudly instead of skipping 37%
+  silently.

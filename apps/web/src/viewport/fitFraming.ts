@@ -252,6 +252,43 @@ export function fitDistance(
 }
 
 /**
+ * The ORTHOGRAPHIC counterpart of {@link fitDistance}: the camera `zoom` at
+ * which the subject exactly fills `free` under a parallel projection.
+ *
+ * Distance does not appear, and that absence IS the feature. Under a parallel
+ * projection screen size is a function of `zoom` alone, so a corner's depth
+ * (`c`) cannot make it project larger — which is why two equal features at
+ * different depths measure the same here and do not in `fitDistance`. Moving
+ * the camera in or out therefore only changes what the clip planes must cover,
+ * never the framing.
+ *
+ * The frustum convention is r3f's own (`updateCamera`: left/right/top/bottom
+ * are the canvas's CSS pixel half-extents), so one world unit maps to `zoom`
+ * pixels and the free rect can be compared in pixels directly.
+ *
+ * Returns 0 for a degenerate rect or a subject with no extent, so the caller
+ * can fall back rather than divide by zero and fly to infinity.
+ */
+export function fitZoom(
+  corners: readonly CameraSpacePoint[],
+  free: Rect,
+): number {
+  if (free.width <= 0 || free.height <= 0 || corners.length === 0) return 0;
+  let halfWidth = 0;
+  let halfHeight = 0;
+  for (const { a, b } of corners) {
+    halfWidth = Math.max(halfWidth, Math.abs(a));
+    halfHeight = Math.max(halfHeight, Math.abs(b));
+  }
+  const byWidth =
+    halfWidth > 0 ? free.width / 2 / (halfWidth * FIT_PADDING) : Infinity;
+  const byHeight =
+    halfHeight > 0 ? free.height / 2 / (halfHeight * FIT_PADDING) : Infinity;
+  const zoom = Math.min(byWidth, byHeight);
+  return Number.isFinite(zoom) ? zoom : 0;
+}
+
+/**
  * Where the orbit target must move, in the camera's own RIGHT / UP directions
  * and in world units, so that a subject centred on the target appears at the
  * centre of `free` instead of the centre of the canvas.

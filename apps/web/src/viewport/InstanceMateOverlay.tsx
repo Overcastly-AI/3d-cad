@@ -37,7 +37,6 @@
  */
 import { PickNode } from "@loft/design";
 import { measure } from "@loft/design/tokens";
-import { Html } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo } from "react";
 import type { BufferGeometry } from "three";
@@ -50,6 +49,7 @@ import { polylineMidpoint, polylineSegments } from "../measure/geometry";
 import { EdgeBandLayer } from "./EdgeBandLayer";
 import type { EdgeBandInput } from "./edgeBand";
 import { FaceTrace } from "./faceTrace";
+import { PickMark } from "./PickMark";
 import { Segments } from "./overlaySegments";
 
 export interface InstanceMateOverlayProps {
@@ -192,9 +192,8 @@ export function InstanceMateOverlay({
           {overlay.faces.map((face) =>
             isPickableFace(face) ? (
               <group key={`f${face.index}`}>
-                <Html
+                <PickMark
                   position={occtPointToScene(face.signature.centroid)}
-                  center
                   zIndexRange={[30, 10]}
                 >
                   <PickNode
@@ -211,7 +210,7 @@ export function InstanceMateOverlay({
                     onFocus={() => onHover(face.index)}
                     onBlur={() => clearHover(face.index)}
                   />
-                </Html>
+                </PickMark>
               </group>
             ) : null,
           )}
@@ -233,10 +232,9 @@ export function InstanceMateOverlay({
             color={measure.edgeSelected}
           />
           {circles.map(({ index, polyline, signature }) => (
-            <Html
+            <PickMark
               key={`e${index}`}
               position={occtPointToScene(polylineMidpoint(polyline))}
-              center
               zIndexRange={[30, 10]}
             >
               <PickNode
@@ -252,7 +250,7 @@ export function InstanceMateOverlay({
                 onFocus={() => onHover(index)}
                 onBlur={() => clearHover(index)}
               />
-            </Html>
+            </PickMark>
           ))}
         </>
       )}

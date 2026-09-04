@@ -231,18 +231,176 @@ test.describe("extrude drag handle", () => {
     await grip.press("ArrowUp");
     await expect.poll(() => distance(page)).toBeCloseTo(11, 6);
 
+    // 15, not 16. A coarse press lands on the COARSE grid (5 mm here — ten fine
+    // steps), which is the same rule the drawing sheet's nudge follows and the
+    // reason two independently-dragged depths can be made to meet. Adding 5 to
+    // 11 would give a number that is on no grid at all; see `steppedDepth`.
     await grip.press("Shift+ArrowUp");
-    await expect.poll(() => distance(page)).toBeCloseTo(16, 6);
+    await expect.poll(() => distance(page)).toBeCloseTo(15, 6);
 
     await grip.press("ArrowDown");
-    await expect.poll(() => distance(page)).toBeCloseTo(15.5, 6);
+    await expect.poll(() => distance(page)).toBeCloseTo(14.5, 6);
 
     // No dead end: the editor's own commit key still works from the handle.
     await grip.press("Enter");
     await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
       timeout: 30_000,
     });
-    await expect(page.getByTestId("prop-extents")).toContainText("15.5");
+    await expect(page.getByTestId("prop-extents")).toContainText("14.5");
+  });
+
+  test("keyboard: every press counts, however fast they come", async ({
+    page,
+  }) => {
+    // THE LOST UPDATE, which is a SECOND defect and not the quantiser's. The
+    // value round-trips handle -> editor -> ghost -> back, several commits long,
+    // and the handle's optimistic value used to be dropped by the
+    // acknowledgement of the PREVIOUS press — so a key arriving inside that
+    // window computed from a stale prop and overwrote the one before it. The
+    // browser said so itself, in an instrumented run of 20 fast sequences on the
+    // real stack, 13 of them wrong:
+    //
+    //     key=ArrowUp pending=null depthMm=10   from=10   next=10.5
+    //     key=ArrowUp pending=10.5 depthMm=10   from=10.5 next=11
+    //     effect depthMm=10.5 pending=11    <- ack for press 1 clears press 2
+    //     key=ArrowUp pending=null depthMm=10.5 from=10.5 next=15.5
+    //
+    // NOTE WHY THIS COUNTS FINE PRESSES rather than repeating that sequence.
+    // Quantising the coarse step MASKS the race for a coarse key — 10.5 and 11
+    // both land on 15 — so `Up, Up, Shift+Up` would go green with the race still
+    // live. Only a run of FINE presses, where a lost press is a lost half
+    // millimetre, can see it. Six presses, repeated, with no settle between
+    // them, because a settle is precisely what hides this.
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Hammered boss");
+    await page.goto(`/parts/${part.id}`);
+    await openExtrude(page);
+
+    const grip = page.getByRole("slider", { name: "Extrude depth" });
+    const field = page.getByTestId("extrude-distance");
+    const PRESSES = 6;
+
+    for (let run = 0; run < 4; run += 1) {
+      await field.fill("10");
+      await expect.poll(() => distance(page)).toBeCloseTo(10, 6);
+      await grip.focus();
+      for (let i = 0; i < PRESSES; i += 1) await grip.press("ArrowUp");
+      // Six presses, six steps: 10 -> 13, no matter how little time the round
+      // trip was given.
+      await expect
+        .poll(() => distance(page), { message: `fast run ${run}` })
+        .toBeCloseTo(10 + PRESSES * 0.5, 6);
+      // …and the grip says the same thing it asked for, so assistive tech and
+      // the field cannot disagree about where the arrow is.
+      await expect(grip).toHaveAttribute("aria-valuenow", "13");
+      // A coarse press on top still lands on the coarse grid, from a value the
+      // keyboard (not the pointer) produced.
+      await grip.press("Shift+ArrowUp");
+      await expect.poll(() => distance(page)).toBeCloseTo(15, 6);
+    }
+  });
+
+  test("keyboard: from a value a drag left behind, a press lands on the grid", async ({
+    page,
+  }) => {
+    // A free (Ctrl) drag ends wherever the pointer said — 12.4713 and the like.
+    // The nudge used to ADD its step to that, so the whole sequence after it sat
+    // on an offset lattice (12.9713, 13.4713, 17.4713 …) and no round number was
+    // reachable by any number of presses. This drives that exact start, and
+    // follows the value to the SOLID rather than stopping at the field: a
+    // quantiser that fixes the readout and not the geometry would pass a
+    // text assertion.
+    await installSceneProbe(page);
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Odd boss");
+    await page.goto(`/parts/${part.id}`);
+    await openExtrude(page);
+
+    const grip = page.getByRole("slider", { name: "Extrude depth" });
+    await page.getByTestId("extrude-distance").fill("12.4713");
+    await expect(page.getByTestId("extrude-preview-active")).toHaveAttribute(
+      "data-distance-mm",
+      "12.4713",
+    );
+
+    // The NEXT half-millimetre, not "the nearest one plus a step": 12.5 is the
+    // value the user is standing next to, and skipping it would be the same
+    // unreachability in a smaller costume.
+    await grip.focus();
+    await grip.press("ArrowUp");
+    await expect.poll(() => distance(page)).toBeCloseTo(12.5, 6);
+    // …and a coarse press from there reaches a decade mark, which is what a
+    // part is actually dimensioned in.
+    await grip.press("Shift+ArrowUp");
+    await expect.poll(() => distance(page)).toBeCloseTo(15, 6);
+
+    await grip.press("Enter");
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await expect
+      .poll(
+        async () => (await namedWorldBox(page, "model-body"))?.vertices ?? 0,
+        {
+          timeout: 30_000,
+        },
+      )
+      .toBeGreaterThan(0);
+    const body = await namedWorldBox(page, "model-body");
+    if (body === null) throw new Error("no body after save");
+    const height = body.max[1] - body.min[1];
+    console.log(`T-23 fractional start 12.4713 -> body height ${height}`);
+    expect(height).toBeCloseTo(15, 2);
+  });
+
+  test("the slider tells the truth about itself, steps included", async ({
+    page,
+  }) => {
+    // ARIA has no way to say what a press is WORTH, so a slider whose step lives
+    // only in the source is one a screen-reader user discovers by trial. The
+    // description names both steps; this asserts the named step is the APPLIED
+    // step, so the sentence cannot drift away from the behaviour.
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Spoken boss");
+    await page.goto(`/parts/${part.id}`);
+    await openExtrude(page);
+
+    const grip = page.getByRole("slider", { name: "Extrude depth" });
+    await expect(grip).toHaveAttribute("aria-valuenow", "10");
+    await expect(grip).toHaveAttribute("aria-valuemin", "0.1");
+    await expect(grip).toHaveAttribute("aria-valuemax", "10000");
+    await expect(grip).toHaveAttribute("aria-valuetext", "10 mm");
+
+    const hint = page.getByTestId("extrude-depth-steps");
+    await expect(hint).toHaveText(
+      "Arrow keys step 0.5 mm; Shift or Page keys step 5 mm. Enter saves.",
+    );
+    // The description is wired to the control, not merely present on the page.
+    const describedBy = await grip.getAttribute("aria-describedby");
+    expect(describedBy).toBe(await hint.getAttribute("id"));
+    // …and it is SPOKEN, not PAINTED. `sr-only` is a build-time utility, so a
+    // theme that failed to generate it would leave a sentence of body text
+    // sitting over the viewport beside the arrow — a real visual regression
+    // that every assertion above would sail past, since they all read the
+    // accessibility tree. Measured on the box, which is the only thing that can
+    // see it: `sr-only` clips to 1x1.
+    const hintBox = await hint.boundingBox();
+    if (hintBox === null) throw new Error("the step hint has no box");
+    expect(hintBox.width).toBeLessThanOrEqual(1);
+    expect(hintBox.height).toBeLessThanOrEqual(1);
+
+    // The spoken step IS the applied step.
+    const fine = Number(await grip.getAttribute("data-step-mm"));
+    const coarse = Number(await grip.getAttribute("data-coarse-step-mm"));
+    expect(fine).toBe(0.5);
+    expect(coarse).toBe(fine * 10);
+    await grip.focus();
+    await grip.press("ArrowUp");
+    await expect.poll(() => distance(page)).toBeCloseTo(10 + fine, 6);
+    await grip.press("Shift+ArrowUp");
+    await expect.poll(() => distance(page)).toBeCloseTo(15, 6);
+    await expect(grip).toHaveAttribute("aria-valuenow", "15");
+    await expect(grip).toHaveAttribute("aria-valuetext", "15 mm");
   });
 
   test("founder screenshot: the gauge on a live extrude (desktop)", async ({

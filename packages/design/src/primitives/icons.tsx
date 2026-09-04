@@ -845,6 +845,22 @@ export const SheetExportIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * Draft a drawing = the framed sheet ITSELF, with its title block scribed into
+ * the lower-right corner and a projected outline standing on it. Deliberately
+ * the same framed-sheet vocabulary as `SheetExportIcon` MINUS the descending
+ * arrow: that one takes a sheet away as a file, this one makes the sheet. A
+ * bare rectangle would have read as the rectangle sketch tool, which is
+ * already `RectIcon` on the drawing band.
+ */
+export const DrawingSheetIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={3} y={4} width={18} height={16} />
+    <path d="M14 20 V16 H21" />
+    <rect x={7} y={8} width={6} height={5} />
+  </Icon>
+);
+
 // --- Feature tree -----------------------------------------------------------
 //
 // The tree-row verbs, in the title-block idiom. Suppress = a feature struck

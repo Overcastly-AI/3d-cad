@@ -17,6 +17,7 @@ import type {
   EvaluateAssemblyResult,
   InstanceResponse,
   InterferenceResult,
+  MateResponse,
 } from "../api/assemblies";
 import { AssemblyBomPanel } from "./AssemblyBomPanel";
 import { AssemblyClashPanel } from "./AssemblyClashPanel";
@@ -40,6 +41,16 @@ export interface AssemblyInspectorPanelProps {
    * SOLVE view's names for any component the mass roll-up could not weigh.
    */
   instances: readonly InstanceResponse[];
+  /**
+   * The graph's mates, in panel order — the SOLVE view names the offenders a
+   * conflict/redundancy diagnosis reports by the tag the tree prints on the
+   * row (MATEUI-1), and offers to remove them from where the message is read.
+   */
+  mates: readonly MateResponse[];
+  /** Remove a mate the diagnosis named — the tree panel's own handler. */
+  onDeleteMate: (mate: MateResponse) => void;
+  /** A graph write is in flight; the diagnosis's remove actions are inert. */
+  busy: boolean;
   /** The last interference check's result, or null before the first run. */
   clashResult: InterferenceResult | null;
   clashBusy: boolean;
@@ -77,6 +88,9 @@ export function AssemblyInspectorPanel({
   bomLoading,
   bomError,
   instances,
+  mates,
+  onDeleteMate,
+  busy,
   clashResult,
   clashBusy,
   clashError,
@@ -97,6 +111,9 @@ export function AssemblyInspectorPanel({
           evaluation={evaluation}
           solve={solve}
           instances={instances}
+          mates={mates}
+          onDeleteMate={onDeleteMate}
+          busy={busy}
         />
       ) : view === "bom" ? (
         <AssemblyBomPanel bom={bom} loading={bomLoading} error={bomError} />

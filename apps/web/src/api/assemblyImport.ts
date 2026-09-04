@@ -43,16 +43,37 @@ export type StepImportResult = AssemblyImportResult | SingleBodyImportResult;
 export const IMPORT_NAME_MAX = 200;
 
 /**
+ * WITHDRAWING AN IMPORT IS A USER ACTION, NOT A FAILURE.
+ *
+ * `fetch` rejects an aborted request with a `DOMException` named
+ * `"AbortError"`, and the one thing a caller must never do with it is surface
+ * it as "the STEP file could not be imported" — the user knows perfectly well
+ * what happened; they did it. This predicate is exported so the page and the
+ * retry loop below both recognise it the same way, rather than each
+ * string-matching a message.
+ */
+export function isImportAborted(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+/**
  * Stream one STEP file at the import route and return the server's result.
  *
  * A name collision (409 `assembly_name_taken` / `part_name_taken`) throws the
  * typed {@link AssemblyNameTakenError} so the caller can retry under a free
  * name — see {@link importStepAsNewDocument}, which is what the register uses.
+ *
+ * `signal` withdraws the request in flight. It matters because the client's own
+ * ceiling is 16 MiB and a real supplier assembly parses server-side for as long
+ * as it takes: UI-REVIEW 2026-08-27 P1-B measured 3.35 s for a 52 KB fixture,
+ * over 300x smaller than a file this route will accept. A wait you cannot stop
+ * is a dead end, which this repo's flow rule forbids outright.
  */
 export async function importAssemblyStep(
   bytes: ArrayBuffer,
   name: string,
   client: GatewayClient = gatewayClient,
+  signal?: AbortSignal,
 ): Promise<StepImportResult> {
   const { data, error } = await client.POST("/api/v1/assemblies/import", {
     params: { query: { name } },
@@ -63,6 +84,7 @@ export async function importAssemblyStep(
     body: bytes as unknown as string,
     bodySerializer: (raw: unknown) => raw as BodyInit,
     headers: { "Content-Type": "application/octet-stream" },
+    signal,
   });
   if (error !== undefined) {
     const code = envelopeCode(error);
@@ -102,17 +124,24 @@ export async function importStepAsNewDocument(
   bytes: ArrayBuffer,
   baseName: string,
   client: GatewayClient = gatewayClient,
+  signal?: AbortSignal,
 ): Promise<StepImportResult> {
   // Leave room for the " (n)" the retries append, so a long supplier filename
   // cannot turn a collision into a length rejection.
   const stem = baseName.slice(0, IMPORT_NAME_MAX - 8);
   let lastTaken: AssemblyNameTakenError | null = null;
   for (let attempt = 1; attempt <= IMPORT_NAME_ATTEMPTS; attempt += 1) {
+    // A withdrawn import must not come back as attempt 2 under a new name.
+    // Aborting mid-loop is the case that would otherwise file a document the
+    // user had just told us to stop making — checked BEFORE the call so an
+    // abort between attempts is honoured too, not only one during a request.
+    signal?.throwIfAborted();
     try {
       return await importAssemblyStep(
         bytes,
         attempt === 1 ? stem : `${stem} (${attempt})`,
         client,
+        signal,
       );
     } catch (error) {
       if (!(error instanceof AssemblyNameTakenError)) throw error;

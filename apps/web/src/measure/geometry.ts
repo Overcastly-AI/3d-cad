@@ -66,14 +66,21 @@ export function polylineSegments(polyline: readonly Vec3[]): Float32Array {
 }
 
 /**
- * The point at HALF the accumulated arc length of a polyline, in OCCT coords —
- * the anchor for an edge's pick-mark. A straight edge's polyline is just
- * `[start, end]`, so the mark lands at `0.5·(start+end)` (the visual middle),
- * never on the end vertex; a tessellated curve's mark lands where its arc
- * length crosses the halfway point (interpolated within the straddling
- * segment), so it always sits mid-span and never coincides with a corner.
+ * The point at fraction `t` of a polyline's accumulated ARC LENGTH, in OCCT
+ * coords.
+ *
+ * Arc length and not vertex index, and the difference is not academic: a
+ * straight edge's polyline is just `[start, end]`, so an index-based "middle"
+ * lands on an END VERTEX — on the corner it shares with two neighbours, where
+ * their pick corridors are at least as close as its own. Interpolating by
+ * length puts `t = 0.5` at `0.5·(start + end)` for that edge and at the true
+ * halfway point of a tessellated curve, straddling segment included.
+ *
+ * Generalised from `polylineMidpoint` by PICKMARK-OCCLUDE-1, which needs other
+ * points of the same edge when the mid-span is buried — one interpolation, so
+ * a mark that MOVES cannot land in a different place from the one that stays.
  */
-export function polylineMidpoint(polyline: readonly Vec3[]): Vec3 {
+export function polylineAt(polyline: readonly Vec3[], t: number): Vec3 {
   if (polyline.length === 0) return { x: 0, y: 0, z: 0 };
   if (polyline.length === 1) return polyline[0] as Vec3;
 
@@ -84,24 +91,32 @@ export function polylineMidpoint(polyline: readonly Vec3[]): Vec3 {
   for (let i = 1; i < polyline.length; i += 1) {
     total += dist(polyline[i - 1] as Vec3, polyline[i] as Vec3);
   }
-  const half = total / 2;
+  const want = total * Math.min(1, Math.max(0, t));
 
   let acc = 0;
   for (let i = 1; i < polyline.length; i += 1) {
     const a = polyline[i - 1] as Vec3;
     const b = polyline[i] as Vec3;
     const seg = dist(a, b);
-    if (acc + seg >= half) {
-      const t = seg === 0 ? 0 : (half - acc) / seg;
+    if (acc + seg >= want) {
+      const local = seg === 0 ? 0 : (want - acc) / seg;
       return {
-        x: a.x + (b.x - a.x) * t,
-        y: a.y + (b.y - a.y) * t,
-        z: a.z + (b.z - a.z) * t,
+        x: a.x + (b.x - a.x) * local,
+        y: a.y + (b.y - a.y) * local,
+        z: a.z + (b.z - a.z) * local,
       };
     }
     acc += seg;
   }
   return polyline[polyline.length - 1] as Vec3;
+}
+
+/**
+ * The point at HALF the accumulated arc length — an edge's pick-mark anchor,
+ * and the point its accessible name describes.
+ */
+export function polylineMidpoint(polyline: readonly Vec3[]): Vec3 {
+  return polylineAt(polyline, 0.5);
 }
 
 export interface OverlayBounds {

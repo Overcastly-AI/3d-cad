@@ -1160,6 +1160,91 @@ export async function moveRollbackBar(
 }
 
 /**
+ * The tree order was refused because the permutation would put a feature BEFORE
+ * something it is built on (422 `reference_not_earlier`). Typed, and carrying
+ * BOTH ids the server named, for the same reason `FeatureHasDependentsError` is
+ * typed: a refusal a user can act on has to say which pair is wrong. Reducing
+ * it to a string would leave the tree unable to offer the repair.
+ */
+export class FeatureOrderRefusedError extends Error {
+  constructor(
+    readonly featureId: string,
+    readonly referencesFeatureId: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "FeatureOrderRefusedError";
+  }
+}
+
+/** Runtime narrowing of the reorder 422's `details` pair, or null. */
+export function parseOrderRefusal(
+  body: unknown,
+): { featureId: string; referencesFeatureId: string } | null {
+  if (typeof body !== "object" || body === null) return null;
+  const error = (body as Record<string, unknown>).error;
+  if (typeof error !== "object" || error === null) return null;
+  const details = (error as Record<string, unknown>).details;
+  if (typeof details !== "object" || details === null) return null;
+  const { feature_id: featureId, references_feature_id: referencesFeatureId } =
+    details as Record<string, unknown>;
+  if (
+    typeof featureId !== "string" ||
+    typeof referencesFeatureId !== "string"
+  ) {
+    return null;
+  }
+  return { featureId, referencesFeatureId };
+}
+
+/**
+ * Reorder the whole feature tree (docs/design/feature-tree.md §2.2) — the
+ * payload is the COMPLETE permutation of the part's feature ids in the desired
+ * evaluation order, so the server can re-check every backward-only reference
+ * under the new order before renumbering. A history-recording, undoable tree
+ * edit under the same optimistic-concurrency guard as every write.
+ *
+ * Two refusals are typed rather than flattened to a message, because the tree
+ * acts on both: `stale_tree_version` (soft-resync and retry, as every other
+ * write does) and `reference_not_earlier` (name the pair and offer the legal
+ * seat). `order_not_permutation` is a client bug, not a user-facing state, so
+ * it surfaces as the server's own message.
+ */
+export async function reorderFeatures(
+  partId: string,
+  order: readonly string[],
+  expectedTreeVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<FeatureTreeResponse> {
+  const { data, error } = await client.PUT(
+    "/api/v1/parts/{part_id}/features/order",
+    {
+      params: { path: { part_id: partId } },
+      body: { order: [...order], expected_tree_version: expectedTreeVersion },
+    },
+  );
+  if (error !== undefined) {
+    const message = envelopeMessage(
+      error,
+      "The feature order could not be changed.",
+    );
+    if (envelopeCode(error) === "stale_tree_version") {
+      throw new StaleTreeVersionError(message);
+    }
+    const refusal = parseOrderRefusal(error);
+    if (envelopeCode(error) === "reference_not_earlier" && refusal !== null) {
+      throw new FeatureOrderRefusedError(
+        refusal.featureId,
+        refusal.referencesFeatureId,
+        message,
+      );
+    }
+    throw new Error(message);
+  }
+  return data;
+}
+
+/**
  * Undo one feature-tree history step (docs/design/undo-redo.md): restore the
  * previous snapshot, ids verbatim. Undo IS a document edit — it takes the
  * client's `expected_tree_version` and returns the restored tree + the new

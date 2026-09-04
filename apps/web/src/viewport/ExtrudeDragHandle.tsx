@@ -31,8 +31,11 @@
  * over its point, the same split the measurement pick nodes make.
  *
  * KEYBOARD. The grip is a real slider: arrows step one snap increment, Shift
- * and the Page keys take ten, and the value it announces is the same one the
- * field shows. Nothing here is reachable only by pointer.
+ * and the Page keys take ten, each landing on ITS OWN grid rather than adding
+ * to whatever fraction a drag left behind ({@link steppedDepth}), and the value
+ * it announces is the same one the field shows. Both steps are named on the
+ * element, so a screen-reader user does not have to discover them by trying.
+ * Nothing here is reachable only by pointer.
  *
  * Every colour is a `@loft/design` token; GPU resources are disposed on change
  * and unmount; the render loop allocates nothing (the geometry rebuilds only
@@ -46,6 +49,7 @@ import { useThree } from "@react-three/fiber";
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -68,15 +72,19 @@ import type { PlaneBasis } from "../sketch/plane";
 import {
   arrowLength,
   ARROW_RADIUS_FRAC,
+  COARSE_STEP_FACTOR,
   depthAlongAxis,
   handleAxis,
+  keyStepMm,
   LADDER_HALF_WIDTH_FRAC,
   ladderTicks,
   MAX_DEPTH_MM,
   MIN_DEPTH_MM,
   nudgeDepth,
+  orthographicMmPerPixel,
   perspectiveMmPerPixel,
   quantizeDepth,
+  sameDepth,
   screenDragDepth,
   tipPoint,
 } from "./extrudeHandle";
@@ -129,7 +137,7 @@ export function ExtrudeDragHandle({
    * back.
    *
    * The value round-trips (handle -> editor form -> ghost -> back here), which
-   * is the right architecture — one value, one owner — and it is one or two
+   * is the right architecture — one value, one owner — and it is several
    * renders long. Two consequences, and the second is not cosmetic:
    *
    *  · the arrow would trail the cursor by a frame; and
@@ -138,14 +146,43 @@ export function ExtrudeDragHandle({
    *    11, intermittently, which is how it was found: the e2e passed alone and
    *    failed under load, the signature of a lost update rather than a flake.
    *
-   * So the handle holds its own answer until the prop agrees, and every input
-   * reads from `pending` first. `live` renders it; the effect below drops both
-   * the moment the real value lands (or the moment anything else moves it — a
-   * typed edit must win immediately, and it does, because it changes `depthMm`
-   * while no drag is in flight).
+   * THE FIRST VERSION OF THAT FIX HELD ONE PENDING VALUE AND DROPPED IT ON ANY
+   * CHANGE OF `depthMm`, WHICH LOSES THE UPDATE IT WAS BUILT TO SAVE. The
+   * acknowledgement that arrives is the one for the FIRST press, and dropping
+   * the pending value on it throws away the second. Measured over 20 fast
+   * `Up, Up, Shift+Up` sequences on the real stack, 13 came back wrong, the
+   * browser saying so itself:
+   *
+   *     key=ArrowUp  pending=null  depthMm=10    from=10    next=10.5
+   *     key=ArrowUp  pending=10.5  depthMm=10    from=10.5  next=11
+   *     effect depthMm=10.5 pending=11      <- ack for press 1 clears press 2
+   *     key=ArrowUp  pending=null  depthMm=10.5  from=10.5  next=15.5
+   *
+   * — 15.5 where 16 was asked for, and the same log shows the second variant,
+   * where the ack lands cleanly but the KEY HANDLER still reads the previous
+   * `depthMm` (the grip is portalled out through drei `Html`, so the prop the
+   * handler closes over can trail the effect by a commit). Both are the same
+   * mistake: reasoning from a value that is neither the last one requested nor
+   * the last one confirmed.
+   *
+   * So the handle keeps the QUEUE of values it has asked for, oldest first, and
+   * a `base` the next step reasons from:
+   *
+   *  · an arriving `depthMm` that MATCHES an outstanding ask (to within the
+   *    kernel's linear tolerance — the field is a display string, see
+   *    {@link sameDepth}) retires that ask and every older one, and leaves
+   *    `base` alone, because a later ask has already superseded it;
+   *  · an arriving `depthMm` that matches NOTHING we asked for is somebody
+   *    else's edit — a typed distance, a re-seeded editor — and wins outright:
+   *    the queue is abandoned and it becomes the new `base`.
+   *
+   * `live` renders the newest outstanding ask, so the arrow, the tag and
+   * `aria-valuenow` show what the user last asked for rather than a value two
+   * commits stale.
    */
   const [live, setLive] = useState<number | null>(null);
-  const pendingRef = useRef<number | null>(null);
+  const asksRef = useRef<readonly number[]>([]);
+  const baseRef = useRef(depthMm);
   const [grabbed, setGrabbed] = useState(false);
   const shown = live ?? depthMm;
 
@@ -303,24 +340,69 @@ export function ExtrudeDragHandle({
     | null
   >(null);
 
-  // The owner has spoken: drop the optimistic value. Skipped mid-drag, where
-  // the pointer is still the author and the props are chasing it.
+  /**
+   * Ask the editor for a depth — the ONE place a new value leaves this handle,
+   * whether it came from the pointer or from a key.
+   *
+   * The ask is recorded before it is sent, so the next input reasons from it
+   * even if no render has happened in between; that is the whole point of the
+   * queue described above.
+   */
+  const ask = useCallback(
+    (mm: number) => {
+      baseRef.current = mm;
+      // Mid-drag there is nothing to reconcile — the effect below stands aside
+      // for the pointer and `endDrag` empties the queue — so a drag does not
+      // grow one entry per `pointermove`, and the render loop stays as
+      // allocation-free as it was.
+      if (grabRef.current === null) asksRef.current = [...asksRef.current, mm];
+      setLive(mm);
+      onDepthChange(mm);
+    },
+    [onDepthChange],
+  );
+
+  // The owner has spoken. Retire the ask it acknowledges (and every older one);
+  // if it acknowledges none of ours, it is somebody else's edit and it wins.
+  // Skipped mid-drag, where the pointer is still the author and the props are
+  // chasing it.
   useEffect(() => {
     if (grabRef.current !== null) return;
-    pendingRef.current = null;
-    setLive(null);
+    const at = asksRef.current.findIndex((mm) => sameDepth(mm, depthMm));
+    if (at >= 0) {
+      asksRef.current = asksRef.current.slice(at + 1);
+    } else {
+      asksRef.current = [];
+      baseRef.current = depthMm;
+    }
+    setLive(asksRef.current.at(-1) ?? null);
   }, [depthMm]);
 
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return;
+      // `base`, not the prop: a grab taken straight after a key press must
+      // anchor on the value that press ASKED for, or the arrow jumps back a
+      // step the instant the pointer moves.
+      const from = baseRef.current;
       const ray = rayFor(event.clientX, event.clientY);
       const t = depthAlongAxis(axis, ray.origin, ray.direction);
       if (t !== null) {
-        grabRef.current = { mode: "axis", t, depth: depthMm };
+        grabRef.current = { mode: "axis", t, depth: from };
       } else {
         const rect = canvas.getBoundingClientRect();
-        const at = tipPoint(axis, depthMm);
+        const at = tipPoint(axis, from);
+        // Under a PARALLEL projection the scale is a property of the camera
+        // alone — depth cannot change it — so the perspective formula (which is
+        // all distance) would report a drag rate that is simply wrong once
+        // ORTHO-1's toggle is on. Read the zoom instead; see
+        // `orthographicMmPerPixel`.
+        const parallel =
+          "isOrthographicCamera" in camera &&
+          (camera as { isOrthographicCamera?: boolean })
+            .isOrthographicCamera === true
+            ? (camera as unknown as { zoom: number }).zoom
+            : null;
         const fov =
           "isPerspectiveCamera" in camera &&
           (camera as { isPerspectiveCamera?: boolean }).isPerspectiveCamera ===
@@ -330,22 +412,25 @@ export function ExtrudeDragHandle({
         grabRef.current = {
           mode: "screen",
           y: event.clientY,
-          depth: depthMm,
-          mmPerPixel: perspectiveMmPerPixel(
-            fov,
-            camera.position.distanceTo(at),
-            rect.height,
-          ),
+          depth: from,
+          mmPerPixel:
+            parallel !== null
+              ? orthographicMmPerPixel(parallel)
+              : perspectiveMmPerPixel(
+                  fov,
+                  camera.position.distanceTo(at),
+                  rect.height,
+                ),
         };
       }
       setGrabbed(true);
       setLadderOn(true);
-      setLive(depthMm);
+      setLive(from);
       event.currentTarget.setPointerCapture(event.pointerId);
       event.stopPropagation();
       event.preventDefault();
     },
-    [axis, camera, canvas, depthMm, rayFor],
+    [axis, camera, canvas, rayFor],
   );
 
   const onPointerMove = useCallback(
@@ -368,17 +453,22 @@ export function ExtrudeDragHandle({
         );
       }
       const free = event.ctrlKey || event.metaKey;
-      const next = quantizeDepth(raw, unit, free);
-      setLive(next);
-      onDepthChange(next);
+      ask(quantizeDepth(raw, unit, free));
     },
-    [axis, onDepthChange, rayFor, unit],
+    [ask, axis, rayFor, unit],
   );
 
   const endDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (grabRef.current === null) return;
     grabRef.current = null;
     setGrabbed(false);
+    // The pointer is done authoring, so the prop is the truth from here — but
+    // `base` keeps the value the drag ended on, so an arrow pressed straight
+    // afterwards steps off WHAT YOU DRAGGED TO, not off a prop that has not
+    // caught up yet. That is the case a free (Ctrl) drag makes load-bearing:
+    // it ends on something like 12.4713, and the first press has to be able to
+    // put it back on a grid.
+    asksRef.current = [];
     setLive(null);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
@@ -386,6 +476,11 @@ export function ExtrudeDragHandle({
   }, []);
 
   const requestSubmit = useCommandActionStore((s) => s.requestSubmit);
+
+  /** What a press is worth, in canonical mm — announced, and asserted against. */
+  const fineStepMm = keyStepMm(unit);
+  const coarseStepMm = fineStepMm * COARSE_STEP_FACTOR;
+  const stepHintId = useId();
 
   const onKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -401,16 +496,13 @@ export function ExtrudeDragHandle({
         requestSubmit();
         return;
       }
-      const from = pendingRef.current ?? depthMm;
-      const next = nudgeDepth(from, event.key, unit, event.shiftKey);
+      const next = nudgeDepth(baseRef.current, event.key, unit, event.shiftKey);
       if (next === null) return;
       event.preventDefault();
       event.stopPropagation();
-      pendingRef.current = next;
-      setLive(next);
-      onDepthChange(next);
+      ask(next);
     },
-    [depthMm, onDepthChange, requestSubmit, unit],
+    [ask, requestSubmit, unit],
   );
 
   if (regions.length === 0 || depthMm <= 0) return null;
@@ -442,8 +534,11 @@ export function ExtrudeDragHandle({
       <Html position={apex} center zIndexRange={GRIP_Z_RANGE}>
         <AxisGrip
           aria-label="Extrude depth"
+          aria-describedby={stepHintId}
           data-testid="extrude-depth-handle"
           data-depth-mm={shown}
+          data-step-mm={fineStepMm}
+          data-coarse-step-mm={coarseStepMm}
           value={shown}
           min={MIN_DEPTH_MM}
           max={MAX_DEPTH_MM}
@@ -459,6 +554,21 @@ export function ExtrudeDragHandle({
           onPointerEnter={() => setLadderOn(true)}
           onPointerLeave={() => setLadderOn(grabbed)}
         />
+        {/* ARIA has `aria-valuenow`/`min`/`max` and no way at all to say what a
+            press is WORTH, so a slider whose step is only in the source is a
+            slider a screen-reader user has to discover by trying it. The steps
+            are named here instead — in the document's own unit, from the same
+            constants the key handler uses, so the sentence cannot drift from
+            the behaviour — and the same two numbers are on the element as data
+            attributes, which is what lets a test assert that the spoken step
+            and the applied step are one thing. */}
+        <span
+          id={stepHintId}
+          className="sr-only"
+          data-testid="extrude-depth-steps"
+        >
+          {`Arrow keys step ${formatLength(fineStepMm, unit)}; Shift or Page keys step ${formatLength(coarseStepMm, unit)}. Enter saves.`}
+        </span>
       </Html>
       {/* `pointerEvents: none` on the WRAPPER, not just the tag: drei gives
           every `Html` its own positioned div, and this one is anchored at the

@@ -12,7 +12,7 @@
  * `GET /api/v1/materials` (a physical constant has one home); when it cannot be
  * loaded the cell says so and disables itself rather than guessing.
  */
-import { InlineSelect, PanelRow, SelectField } from "@loft/design";
+import { PanelRow, SelectField } from "@loft/design";
 
 import type {
   Material,
@@ -114,27 +114,39 @@ export function MaterialSection({
 
   return (
     <div data-testid="material-controls">
-      <div className="px-3 pb-1">
-        <SelectField
-          // The cell is already under a MATERIAL eyebrow, so the field's own
-          // label says what it APPLIES TO rather than repeating the word:
-          // "Whole part" when there is one body, "Default" when per-body rows
-          // sit under it and may override it.
-          label={multiBody ? "Default" : "Whole part"}
-          data-testid="material-default-select"
-          value={defaultMaterial ?? NONE}
-          disabled={busy || unavailable}
-          options={options}
-          error={error}
-          onChange={(event) =>
-            onAssignDefault(
-              event.target.value === NONE
-                ? null
-                : (event.target.value as MaterialKey),
-            )
-          }
-        />
-      </div>
+      {/*
+        INLINE, not stacked (founder, 2026-08-28: the material selector "is not
+        in any form compact like the header"). A stacked field spends a whole
+        line of leading on a caption before the control even starts — 49px for
+        one picker — and that is the anatomy of a settings dialog, which is
+        exactly what the founder was looking at.
+
+        `layout="inline"` is not new work: FB-19 built the dense caption-beside-
+        control cell (`FieldRow`) for the feature editors and the panels never
+        adopted it. Reaching for the primitive's existing dense mode is the
+        whole fix here; hand-tuning padding in this file would have produced a
+        second density language and left the next panel to be born wrong.
+      */}
+      <SelectField
+        // The cell is already under a MATERIAL eyebrow, so the field's own
+        // label says what it APPLIES TO rather than repeating the word:
+        // "Whole part" when there is one body, "Default" when per-body rows
+        // sit under it and may override it.
+        label={multiBody ? "Default" : "Whole part"}
+        layout="inline"
+        data-testid="material-default-select"
+        value={defaultMaterial ?? NONE}
+        disabled={busy || unavailable}
+        options={options}
+        error={error}
+        onChange={(event) =>
+          onAssignDefault(
+            event.target.value === NONE
+              ? null
+              : (event.target.value as MaterialKey),
+          )
+        }
+      />
 
       {density !== null ? (
         <PanelRow label="Density" unit="kg/m³" data-testid="material-density">
@@ -142,38 +154,39 @@ export function MaterialSection({
         </PanelRow>
       ) : null}
 
+      {/*
+        A body row is the SAME cell as the default picker above it — caption,
+        control, reading — rather than a bordered pill in a hand-rolled flex.
+        Two anatomies for "pick a material" was the reason this section read as
+        a form: the eye has to re-learn the row on the way down the panel.
+      */}
       {multiBody
         ? rows.map((row) => (
-            <div
+            <SelectField
               key={row.baseFeatureId}
-              className="flex items-center gap-2 px-3 py-1"
-              data-testid={`material-body-${row.ordinal}`}
-            >
-              <InlineSelect
-                eyebrow={shortName(row.name)}
-                title={row.name}
-                aria-label={`Material for ${row.name}`}
-                data-testid={`material-body-select-${row.ordinal}`}
-                className="min-w-0 grow"
-                value={row.override ?? NONE}
-                disabled={busy || unavailable}
-                options={bodyOptions}
-                onChange={(event) =>
-                  onAssignBody(
-                    row.baseFeatureId,
-                    event.target.value === NONE
-                      ? null
-                      : (event.target.value as MaterialKey),
-                  )
-                }
-              />
-              <span
-                className="shrink-0 font-data text-xs text-mist tabular-nums"
-                data-testid={`material-body-mass-${row.ordinal}`}
-              >
-                {row.massG !== null ? formatBodyMass(row.massG) : "—"}
-              </span>
-            </div>
+              label={shortName(row.name)}
+              layout="inline"
+              title={row.name}
+              aria-label={`Material for ${row.name}`}
+              data-testid={`material-body-select-${row.ordinal}`}
+              className="min-w-0"
+              value={row.override ?? NONE}
+              disabled={busy || unavailable}
+              options={bodyOptions}
+              trailing={
+                <span data-testid={`material-body-mass-${row.ordinal}`}>
+                  {row.massG !== null ? formatBodyMass(row.massG) : "—"}
+                </span>
+              }
+              onChange={(event) =>
+                onAssignBody(
+                  row.baseFeatureId,
+                  event.target.value === NONE
+                    ? null
+                    : (event.target.value as MaterialKey),
+                )
+              }
+            />
           ))
         : null}
 

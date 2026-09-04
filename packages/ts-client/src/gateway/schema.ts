@@ -145,6 +145,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assemblies/{assembly_id}/extents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Assembly Extents
+         * @description How big this assembly is once its mates are SOLVED (assemblies §4).
+         *
+         *     The two-hop aggregation ``POST /parts/{id}/evaluate`` already gives a part
+         *     caller, narrowed to the one quantity a caller who holds only an id can
+         *     otherwise not obtain: documents resolves the instance + mate graph
+         *     (``/assemblies/{id}/evaluation-request`` — principal-scoped, so ownership
+         *     and the uniform 404 come for free), geometry solves it, and the solved
+         *     compound's AABB comes back with the status it was solved under. Rolling
+         *     this by hand meant reproducing the whole graph-plus-part-trees read the
+         *     assembly editor does, which is why a drawing sheet drafting an assembly
+         *     could not fit its scale and overflowed its title block.
+         *
+         *     **SOLVED, not seeded.** The bbox is the union over each instance's part
+         *     bbox at its MATE-SOLVED world pose; the authored seed placements are what
+         *     produce the wrong (usually far too large) answer, so this route deliberately
+         *     pays for the solve rather than folding the graph's seeds client-side.
+         *
+         *     A GET because it is a read: nothing is persisted, the same assembly yields
+         *     the same extents (RESEARCH §9 determinism), and the caller sends no body.
+         *     Rate-limited on the compute bucket all the same — a solve IS geometry CPU,
+         *     whatever the verb.
+         *
+         *     Cost note: geometry has no mesh-free solve route, so this pays for the
+         *     per-unique-part tessellation as well. That is not free, but it is not waste
+         *     either — the default ``linear_deflection`` is used deliberately, so the
+         *     meshes warmed here are the SAME content-addressed meshes the viewport's own
+         *     ``/geometry/assembly/evaluate`` asks for. A ``tessellate: false`` request
+         *     flag is the follow-up if a profile ever shows this on a hot path.
+         */
+        get: operations["get_assembly_extents_api_v1_assemblies__assembly_id__extents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assemblies/{assembly_id}/instances": {
         parameters: {
             query?: never;
@@ -1972,6 +2019,54 @@ export interface components {
              * @description Assembly name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters
              */
             name: string;
+        };
+        /**
+         * AssemblyExtentsResponse
+         * @description How big is this assembly, SOLVED — the one number a sheet needs (§4).
+         *
+         *     The projection of :class:`EvaluateAssemblyResult` down to the question a
+         *     caller who only has an ``assembly_id`` can otherwise not ask: a drawing
+         *     fitting its scale, a sheet sizing its cells, a viewport framing a camera.
+         *     Served by ``GET /api/v1/assemblies/{assembly_id}/extents`` on the gateway,
+         *     which resolves the graph through documents and solves it through geometry —
+         *     the assembly twin of the ``bounding_box`` a part caller reads off
+         *     ``POST /parts/{id}/evaluate``.
+         *
+         *     **The extents are of the SOLVED compound, and that is the whole point.**
+         *     ``bounding_box`` is the roll-up over the instances' MATE-SOLVED world poses,
+         *     never their authored seeds; on an assembly whose instances were seeded apart
+         *     and then mated the two differ by however far the solver moved things, which
+         *     is exactly the error that makes an unfitted assembly sheet overflow its
+         *     frame. ``None`` means no instance produced a body (nothing to fit), never
+         *     zero.
+         *
+         *     ``status`` travels with the numbers because an under-constrained or
+         *     conflicting solve still returns a best-fit placement (§2.4) — the extents
+         *     are then honest about a pose the solver chose rather than one the mates
+         *     determined, and a caller may want to say so rather than silently scale to
+         *     it. Deliberately NOT carried: per-instance meshes, placements and mass
+         *     properties, all of which the caller with a real assembly graph in hand
+         *     already gets from ``POST /api/v1/geometry/assembly/evaluate``.
+         */
+        AssemblyExtentsResponse: {
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            /** @description World-mm AABB of the SOLVED compound (union of each instance's part bbox at its solved pose); null when no instance produced a body */
+            bounding_box: components["schemas"]["BoundingBox"] | null;
+            /**
+             * Status
+             * @description The solve these extents came out of. Anything other than `well_constrained` means the poses are a best fit, not a determined result (§2.4)
+             * @enum {string}
+             */
+            status: "well_constrained" | "under_constrained" | "over_constrained" | "conflicting" | "not_converged";
+            /**
+             * Version
+             * @description The assembly's `doc_version` the extents were solved from (cache/correlation key — a later edit bumps it)
+             */
+            version: number;
         };
         /**
          * AssemblyGraphResponse
@@ -8329,11 +8424,9 @@ export interface components {
         };
         /**
          * SheetMetalHemParamsV1
-         * @description A hem folded off a straight edge of the sheet — v1 CLOSED hem (parity §2).
+         * @description A hem folded off a straight edge of the sheet — closed or open (parity §2).
          *
-         *     A closed hem folds the picked edge ~180 deg back FLAT against the parent face,
-         *     with a small inner ``bend_radius_mm`` giving the doubled edge its tight,
-         *     near-zero air gap (the gap between the two layers is ~2 * bend_radius). It is a
+         *     A hem folds the picked edge ~180 deg back over the parent face. It is a
          *     specialization of the edge flange: the geometry side reuses ``build_edge_flange``
          *     with the fold angle FIXED at 180 deg, so the fused body is one clean solid and
          *     the flat pattern develops it as any bend (``BA = pi * (radius + K * thickness)``,
@@ -8344,14 +8437,26 @@ export interface components {
          *     pick uses (topological-naming §10); its ``feature_id`` materialises the
          *     dependency on the base-flange feature. ``length_mm`` is the developed flat
          *     length of the folded-back return (to the bend tangent line, §9 golden #1's
-         *     convention). ``bend_radius_mm`` / ``k_factor`` default from the part's base
-         *     flange (:class:`SheetMetalBaseFlangeParamsV1`) when omitted (``None``) and may
-         *     be OVERRIDDEN per-hem — a tight closed hem sets a SMALL radius (e.g. ~0.5 *
-         *     thickness) rather than the part's general bend radius.
+         *     convention).
          *
-         *     A ZERO ``bend_radius_mm`` (a truly zero-gap / zero-radius closed hem) is a
-         *     degenerate fold; the ``gt=0`` bound rejects it as a typed validation error
-         *     rather than admitting a degenerate solid (honest degradation — parity §3).
+         *     **THE RADIUS COMES FROM THE HEM TYPE AND THE GAUGE, NOT FROM THE PART'S GENERAL
+         *     BEND RADIUS** (HEM-1; :func:`resolve_hem_bend_radius_mm` and the block comment
+         *     above are the rule and its derivation). The fold's cross-section makes the air
+         *     gap between the two layers exactly ``2 * bend_radius``, so the radius IS the
+         *     hem's defining dimension: a ``closed`` hem is pressed flat (gap 0.1 * gauge —
+         *     the residual of a flattening press; true zero is not buildable) and an ``open``
+         *     hem leaves a deliberate opening (gap one gauge — inside diameter = gauge, the
+         *     standard minimum). ``bend_radius_mm`` overrides that per-hem, but a value that
+         *     describes the OTHER hem type is REFUSED with a typed error naming the fix,
+         *     rather than silently building a hem the label misdescribes.
+         *
+         *     ``k_factor`` still defaults from the part's base flange when omitted (``None``):
+         *     K is a MATERIAL property (where the neutral surface sits), so unlike the radius
+         *     it is genuinely a part-level default the hem inherits.
+         *
+         *     A ZERO ``bend_radius_mm`` is a degenerate fold; the ``gt=0`` bound rejects it as
+         *     a typed validation error rather than admitting a degenerate solid (honest
+         *     degradation — parity §3).
          *
          *     Like a fillet/shell it MODIFIES the implicit single body chain (design §7.6) —
          *     it carries no ``merge`` (it always fuses into the sheet body the edge belongs
@@ -8360,21 +8465,21 @@ export interface components {
         SheetMetalHemParamsV1: {
             /**
              * Bend Radius Mm
-             * @description INNER bend radius (mm) of the hem fold; the layers' air gap is ~2 * this. Omitted (None) inherits the part's base-flange default `bend_radius_mm`; a value overrides it per-hem. A tight closed hem uses a SMALL radius (~0.5 * thickness). A zero radius (zero-gap degenerate fold) is rejected by the `gt=0` bound.
+             * @description INNER bend radius (mm) of the hem fold; the layers' air gap is exactly 2 x this. Omitted (None) is derived from `hem_type` and the part's gauge — 0.05 x gauge closed, 0.5 x gauge open. It is NOT inherited from the part's base-flange `bend_radius_mm` (that describes a free-standing die bend, and inheriting it put a 6 mm gap inside a 'closed' hem on 2 mm sheet — HEM-1). A value overrides the derived radius, but one that describes the OTHER hem type is REFUSED (`hem_type_radius_conflict`) rather than silently building a mislabelled hem: at most 0.125 x gauge for 'closed', at least 0.125 x gauge for 'open'. A zero radius (zero-gap degenerate fold) is rejected by the `gt=0` bound.
              */
             bend_radius_mm?: number | null;
             /** @description The base-flange STRAIGHT edge to hem (a stage-1 EdgeSignature reference resolved against the current sheet body). The return folds ~180 deg back over this edge's adjacent flat face. */
             edge: components["schemas"]["EdgeSubshapeRef"];
             /**
              * Hem Type
-             * @description Hem shape. v1 ships 'closed' only (the return folds flat back against the parent — parity §2). Open / teardrop / rolled hems each need a curved cross-section profile and are deferred (additive Literal members, no param_version bump). Absent reads 'closed'.
+             * @description Hem shape, which DETERMINES the fold's inner radius from the part's gauge (the air gap between the two layers is exactly 2 x that radius). 'closed' presses the return flat against the parent (gap 0.1 x gauge — the residual of a flattening press; a true zero radius is not buildable); 'open' leaves a deliberate opening (gap 1 x gauge, i.e. inside diameter = gauge, the standard minimum). Teardrop and rolled hems wrap PAST 180 deg and are not representable by this fold, so they are deliberately not values here (additive Literal members if that changes, no param_version bump). Absent reads 'closed'.
              * @default closed
-             * @constant
+             * @enum {string}
              */
-            hem_type: "closed";
+            hem_type: "closed" | "open";
             /**
              * K Factor
-             * @description Neutral-axis fraction K in [0, 1] for the hem's bend allowance (§1). Omitted (None) inherits the part's base-flange default `k_factor` (0.44 v1 baseline); a value overrides it per-hem.
+             * @description Neutral-axis fraction K in [0, 1] for the hem's bend allowance (§1). Omitted (None) inherits the part's base-flange default `k_factor` (0.44 v1 baseline) — K is a material property, so unlike the radius it IS a part-level default; a value overrides it per-hem.
              */
             k_factor?: number | null;
             /**
@@ -10098,6 +10203,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssemblyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_assembly_extents_api_v1_assemblies__assembly_id__extents_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyExtentsResponse"];
                 };
             };
             /** @description Validation Error */

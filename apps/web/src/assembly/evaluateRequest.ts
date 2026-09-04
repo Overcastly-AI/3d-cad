@@ -49,6 +49,24 @@ function featurePrefix(tree: FeatureTreeResponse) {
  * did, so an assembly of fully-assigned parts came back `mass_g: null` forever
  * and the panel's mass row was unreachable code. Absent/unknown stays `null`,
  * which the roll-up reads as "no mass", never as zero.
+ *
+ * `name` is the same class of omission and the same fix (STEPNAME-1B). This
+ * request is also the EXPORT request — `exportAssembly` spreads it and adds a
+ * `format` — so an instance sent without a name is an instance the STEP writer
+ * has to fall back to naming by its UUID, which is what the audit read back out
+ * of an assembly STEP (`AUDIT-PRODUCT` S-22). The writer was never the defect:
+ * it has carried the name into the NAUO and the PRODUCT since `0d3ea59`, and
+ * `services/documents`' own builder sends it, which is why the gap was
+ * invisible from the backend. It matters more than its size: a STEP file is
+ * what the user hands to a machinist or a supplier, and a UUID is worse than no
+ * name — it is unreadable AND it looks deliberate.
+ *
+ * The name sent is the INSTANCE name (`"Bracket <2>"`), verbatim, because that
+ * is the shape the writer's contract is written against: the occurrence (NAUO)
+ * takes it whole, and the shared PRODUCT takes it with the `<n>` suffix
+ * stripped, so N instances of one part correctly share ONE named PRODUCT.
+ * `AssemblyPage` mints exactly that shape (`${part.name} <${n}>`), so the two
+ * halves already agree — this only stops throwing the name away in between.
  */
 export function buildEvaluateAssemblyRequest(
   graph: AssemblyGraphResponse,
@@ -63,6 +81,7 @@ export function buildEvaluateAssemblyRequest(
       const tree = partTrees.get(instance.ref_document_id);
       return {
         instance_id: instance.id,
+        name: instance.name,
         part_key: partKey(instance),
         grounded: instance.grounded,
         placement: instance.placement,

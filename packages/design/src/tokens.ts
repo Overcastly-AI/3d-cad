@@ -37,6 +37,19 @@ export const color = {
 } as const;
 
 /**
+ * Strength of the BEHIND-THE-BODY pass of any geometry highlight — a face
+ * trace's far seam, a bore's bottom circle, the far half of a highlighted
+ * circular edge.
+ *
+ * One value, referenced by both the face trace and the edge highlight, because
+ * they are the same statement: "the thing you are addressing continues out of
+ * sight." It is drawn, because that is information; it is drawn FAINTLY,
+ * because at full strength it paints over the material in front of it and
+ * stops being a statement about geometry at all (code review, 2026-08-06).
+ */
+const highlightXrayOpacity = 0.22;
+
+/**
  * WebGL scene palette — consumed by the r3f viewport. Values reference the
  * DOM palette above so the two renderers can never drift.
  *
@@ -185,7 +198,7 @@ export const viewport = {
      * and stops being a trace of anything (code review, 2026-08-06).
      */
     hoverEdgeWidthPx: 2,
-    hoverEdgeXrayOpacity: 0.22,
+    hoverEdgeXrayOpacity: highlightXrayOpacity,
   },
   /** The view reference cube (orientation gizmo) — a machinist's block. */
   gizmo: {
@@ -386,6 +399,22 @@ export const measure = {
   dimension: color.brass,
   /** Witness-point marker size (px, screen space — sizeAttenuation off). */
   witnessSizePx: 8,
+  /**
+   * Width of a highlighted edge, in SCREEN pixels (SEL-8).
+   *
+   * A highlighted edge is drawn as a screen-space ribbon rather than a GL line
+   * for the same reason the face trace is: it is numerically coincident with
+   * the body's own B-rep edge overlay, so a 1 px `lineBasicMaterial` at equal
+   * depth is discarded outright and the modeller sees nothing at all.
+   *
+   * Half a pixel heavier than `viewport.facePick.hoverEdgeWidthPx` and that is
+   * a decision, not drift. A face trace states its subject with a whole closed
+   * LOOP; an edge highlight has one line to say it with, so it needs a little
+   * more weight per line to carry the same signal.
+   */
+  edgeWidthPx: 2.5,
+  /** Strength of the far half of a highlighted edge — see the shared value. */
+  edgeXrayOpacity: highlightXrayOpacity,
 } as const;
 
 /**
@@ -783,6 +812,52 @@ export const duration = {
 } as const;
 
 /**
+ * THE CARRIAGE — the geometry of an indeterminate wait (`ProgressTrack`).
+ *
+ * A machine tool that is cutting has a carriage travelling its bed, and that is
+ * the only honest picture of work whose END IS NOT KNOWN: something is moving,
+ * and the distance covered means nothing. A bar that fills would be a claim
+ * about remaining time the client does not have — the server is parsing a solid
+ * model and no byte count predicts how long that takes.
+ *
+ * The carriage RECIPROCATES rather than wrapping: it runs to the end of its
+ * travel and comes back, so there is no frame where it teleports. It also stays
+ * wholly inside the bed (`translateEnd` is derived from its own share of the
+ * width, not guessed), so the track never reads as empty.
+ *
+ * Everything here is derived rather than transcribed: the keyframe end in the
+ * Tailwind preset is a function of `carriage`, so changing the carriage width
+ * cannot leave the travel wrong.
+ */
+export const progress = {
+  /** One traverse, in ms. `alternate` makes the visible cycle twice this. */
+  travelMs: 900,
+  /** The bed's thickness (px) — a rule, not a bar. */
+  trackHeight: 2,
+  /**
+   * The bed's resting LENGTH (px). It belongs to the primitive, not to each
+   * caller, and the reason is a measured defect rather than a preference: the
+   * first draft let the caller size it with `w-32`, which does not exist —
+   * this theme's spacing scale is CLOSED and stops at 12 — so the class was
+   * dropped, the bed's only child is absolutely positioned, and the bed
+   * resolved to ZERO WIDTH. Playwright reported the progressbar as `hidden`
+   * while the DOM node was present and correct, which is the same
+   * looks-fine-reads-wrong shape as an SVG stroke with no hit box.
+   */
+  bedWidth: 96,
+  /** The carriage's share of the bed's width (%). */
+  carriage: 28,
+} as const;
+
+/**
+ * How far the carriage moves, as a percentage of ITS OWN width — which is what
+ * `translateX` is relative to. Derived so the carriage lands exactly flush with
+ * the far end of the bed and never overshoots it.
+ */
+export const carriageTravelPercent =
+  ((100 - progress.carriage) / progress.carriage) * 100;
+
+/**
  * The REFERENCE CUBE — the machinist's block that names the view, and the one
  * piece of geometry the DOM and the WebGL scene both have to agree on. ONE
  * source, two renderers, exactly like the palette above.
@@ -823,6 +898,51 @@ export const viewCube = {
   size: VIEW_CUBE_SIZE,
   /** Inset of that host's bottom/right edges — derived, never transcribed. */
   inset: VIEW_CUBE_MARGIN - VIEW_CUBE_SIZE / 2,
+} as const;
+
+/**
+ * THE SKETCH PROPOSAL — the leader note the viewport writes on a face the
+ * pointer has come to rest on, offering the sketch that face affords (FLOW-1,
+ * design mandate: "the tool proposes, the user disposes").
+ *
+ * It is a drafting LEADER NOTE, not a tooltip: a dot on the exact point the
+ * note is about, a hairline stub, and the verb at the end of it — the
+ * vernacular of the drawing this product exists to produce. That is the whole
+ * of its boldness; the chip at the end of the leader is the quietest card in
+ * the app, and the face's own hover tint (SEL-1) carries the rest.
+ *
+ * The numbers live here because THREE things must agree about them and two are
+ * not CSS: the chip's rendered width, the edge-flip arithmetic that keeps it
+ * inside the frame (a chip hanging half off-screen is an unhittable control —
+ * the zero-area defect class in a different costume), and the leader's own
+ * geometry. A width transcribed into a placement function is a copy waiting to
+ * drift from the width in the stylesheet.
+ */
+export const proposal = {
+  /**
+   * Chip width. FIXED rather than content-sized, because `placeProposal` has to
+   * know it BEFORE layout to choose which side of the anchor the chip goes on —
+   * a measured width would arrive a frame late, which is to say after the flash.
+   */
+  chipWidth: 112,
+  /** Chip height — the dense target floor, met by SIZE (see `target`). */
+  chipHeight: target.dense,
+  /**
+   * Diagonal offset of the chip's near bottom corner from the anchor dot. Far
+   * enough that the chip never sits under the cursor (occluding the very face
+   * it describes), near enough to stay one short move away from the hand.
+   */
+  offset: 14,
+  /**
+   * How long the pointer must REST before the note is written. This is the
+   * reason the affordance does not fight the viewport: sweeping across a model
+   * proposes nothing at all, and a note only ever appears where attention has
+   * already stopped. Below ~250 ms it flickers on every pass; above ~450 ms it
+   * reads as broken.
+   */
+  dwellMs: 320,
+  /** Keep-out from the frame edge when the chip is flipped or clamped. */
+  margin: spacing["3"],
 } as const;
 
 /** Fixed layout dimensions (px) of the shell. */

@@ -23,6 +23,9 @@ const mated = {
   properties: null,
 } as unknown as EvaluateAssemblyResult;
 
+/** The mate id the PREVIOUS solve badged as unresolved (MATE-OBS-2). */
+const STALE_MATE = "9d3d1cf2-0f6a-4c1a-9c50-1f8f7c1d0001";
+
 /**
  * The answer the kernel gives for the SAME fixture with `mates=[]`
  * (remaining_dof 6) — the previous solve, and the reading the UI reported.
@@ -34,7 +37,18 @@ const mated = {
  */
 const preMate = {
   ...mated,
-  diagnosis: { ...mated.diagnosis, remaining_dof: 6 },
+  diagnosis: {
+    ...mated.diagnosis,
+    remaining_dof: 6,
+    conflicting_mates: [STALE_MATE],
+  },
+  // The EIGHTH CONSUMER's input (MATE-OBS-2): `AssemblyTreePanel` badged its
+  // rows from these two fields directly, so a retained solve put a `conflict` /
+  // `unresolved` stamp on a row for the length of every write. Both are
+  // populated here so a matrix row that leaked either one has something to leak.
+  mate_errors: [
+    { mate_id: STALE_MATE, error: { code: "mate_unresolved", message: "x" } },
+  ],
 } as unknown as EvaluateAssemblyResult;
 
 /** Settled: the evaluation on screen was solved from the key in force. */
@@ -58,7 +72,18 @@ describe("deriveAssemblySolve — a settled solve", () => {
     expect(solve.activity).toBe("idle");
     expect(solve.status).toBe("under_constrained");
     expect(solve.diagnosis?.remaining_dof).toBe(3);
+    expect(solve.mateErrors).toEqual([]);
     expect(assemblySolveLabel(solve)).toBe("Under constrained");
+  });
+
+  it("hands the tree panel the error set it is entitled to badge", () => {
+    // The EIGHTH CONSUMER, settled: `preMate` is only "previous" when
+    // something supersedes it, so at rest its error set is the current one and
+    // the badge must be drawn. The gate must not be a mute button.
+    const solve = deriveAssemblySolve(settled({ evaluation: preMate }));
+    expect(solve.stale).toBe(false);
+    expect(solve.mateErrors.map((e) => e.mate_id)).toEqual([STALE_MATE]);
+    expect(solve.diagnosis?.conflicting_mates).toEqual([STALE_MATE]);
   });
 
   it("says nothing when there is nothing solved yet", () => {
@@ -105,6 +130,9 @@ describe("deriveAssemblySolve — the superseded window", () => {
       expect(solve.stale).toBe(true);
       expect(solve.status).toBeNull();
       expect(solve.diagnosis).toBeNull();
+      // The eighth consumer: no badge can be drawn from a superseded solve,
+      // because there is no error set to draw one from (MATE-OBS-2).
+      expect(solve.mateErrors).toEqual([]);
       expect(assemblySolveLabel(solve)).not.toBe("Under constrained");
     });
   }
@@ -168,9 +196,15 @@ describe("deriveAssemblySolve — the invariant", () => {
         stalest += 1;
         expect(solve.status).toBeNull();
         expect(solve.diagnosis).toBeNull();
+        expect(solve.mateErrors).toEqual([]);
         expect(["Solving…", "—"]).toContain(assemblySolveLabel(solve));
       } else {
         settledCount += 1;
+        // NON-VACUITY for the new field: the one settled combination must
+        // actually HAND OVER the error set, or "empty whenever stale" would
+        // hold trivially in a build where `mateErrors` is always empty.
+        expect(solve.mateErrors).toHaveLength(1);
+        expect(solve.diagnosis?.conflicting_mates).toEqual([STALE_MATE]);
         // The ONE settled combination: solvable, nothing in flight, no
         // placeholder, no error.
         expect(over).toMatchObject({

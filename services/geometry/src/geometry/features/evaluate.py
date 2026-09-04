@@ -63,6 +63,7 @@ from typing import Literal
 from build123d import Compound, Face, Plane, Solid, Vertex, Wire
 from py_kit.errors import ValidationApiError
 from py_kit.schemas.features import (
+    HEM_CLOSED_RADIUS_RATIO,
     BodyLumpInfo,
     BooleanFeature,
     ChamferFeature,
@@ -86,6 +87,7 @@ from py_kit.schemas.features import (
     FeatureRef,
     FeatureResult,
     FilletFeature,
+    HemRadiusError,
     HoleBlindDepth,
     HoleCounterbore,
     HoleCountersink,
@@ -110,6 +112,7 @@ from py_kit.schemas.features import (
     SubshapeRef,
     SweepFeature,
     iter_feature_refs,
+    resolve_hem_bend_radius_mm,
 )
 from py_kit.schemas.geometry import MeshStats, ShapeProperties
 from py_kit.schemas.materials import (
@@ -217,6 +220,7 @@ from geometry.kernel import (
 from geometry.kernel.healing import body_is_valid, new_geometry_is_valid
 from geometry.kernel.lumps import lump_count
 from geometry.kernel.provenance import FaceProvenance, FaceProvenanceRecorder
+from geometry.kernel.tolerances import KERNEL_LINEAR_TOL_MM
 from geometry.kernel.types import BodyShape
 from geometry.mesh_store import store_mesh_glb
 from geometry.rebuild_cache import (
@@ -1215,6 +1219,7 @@ def _fold_flange_off_edge(
     subject: str,
     width_mm: float | None = None,
     offset_mm: float = 0.0,
+    radius_rule: Callable[[SheetMetalDefaults], float | FeatureError] | None = None,
 ) -> FeatureError | None:
     """Shared bend machinery for the edge-flange (§4.2) and hem (parity §2) folds.
 
@@ -1222,14 +1227,26 @@ def _fold_flange_off_edge(
     :func:`build_edge_flange` (a hem is an edge flange at a fixed 180 deg fold —
     parity §2 / DRY): resolve the picked edge (stage-1 :class:`EdgeSignature`,
     :func:`resolve_edge_durable` — strict, then the durable re-match that carries
-    the fold through a base-sketch dimension edit, NAME-2 / audit S-24), inherit
-    the part's gauge/K/radius defaults where the
-    per-feature value is omitted, build + fuse the bend, and record the bend
-    provenance (§5) keyed by this feature id. Every failure is a TYPED per-feature
+    the fold through a base-sketch dimension edit, NAME-2 / audit S-24), settle the
+    bend radius and K, build + fuse the bend, and record the bend
+    provenance (§5) keyed by this feature id.
+
+    THE RADIUS IS NOT SHARED, and conflating it shipped HEM-1. By default the fold
+    inherits the part's general base-flange ``bend_radius_mm`` when the feature's
+    own is omitted — right for an edge flange, which IS the free-standing die bend
+    that radius describes. A caller whose radius means something else passes
+    *radius_rule*, which is handed the part's :class:`SheetMetalDefaults` and
+    returns either the radius or a TYPED :class:`FeatureError` to degrade to; the
+    hem uses it because its radius is the air gap between the folded layers. K is
+    still inherited in both cases (it is a material property).
+
+    Every failure is a TYPED per-feature
     error (never a raw kernel exception or an invalid solid — parity §3): no prior
     body (``no_prior_body``), no recorded sheet-metal defaults (``no_base_flange``),
     an unresolvable / ambiguous edge (``subshape_unresolved`` /
-    ``subshape_ambiguous``), an unsuitable edge (``edge_flange_bad_edge``), or a
+    ``subshape_ambiguous``), an unsuitable edge (``edge_flange_bad_edge``), whatever
+    *radius_rule* returns (the hem's ``hem_type_radius_conflict`` /
+    ``hem_gap_degenerate``), or a
     degenerate/self-intersecting fold the kernel rejects (``edge_flange_failed`` —
     :func:`build_edge_flange` validates the fused solid count). ``subject`` names
     the feature in the no-body messages. The active body is only replaced on
@@ -1264,7 +1281,20 @@ def _fold_flange_off_edge(
     except SubshapeAmbiguousError as exc:
         return FeatureError(code="subshape_ambiguous", message=str(exc))
 
-    radius = override_radius_mm or defaults.bend_radius_mm
+    # The RADIUS RULE differs by verb, and conflating them shipped HEM-1. An edge
+    # flange inherits the part's general base-flange radius when its own is omitted
+    # — that radius describes exactly what an edge flange is, a free-standing die
+    # bend. A HEM does not: its radius IS the air gap between the folded layers
+    # (gap = 2r), so it is derived from the hem TYPE and the gauge instead
+    # (`radius_rule`, py_kit.resolve_hem_bend_radius_mm). Inheriting it there put
+    # 6 mm of air inside a "closed" hem on 2 mm sheet.
+    if radius_rule is not None:
+        resolved = radius_rule(defaults)
+        if isinstance(resolved, FeatureError):
+            return resolved
+        radius = resolved
+    else:
+        radius = override_radius_mm or defaults.bend_radius_mm
     k_factor = override_k_factor if override_k_factor is not None else defaults.k_factor
 
     try:
@@ -1367,33 +1397,75 @@ def _evaluate_sheet_metal_edge_flange(
 def _evaluate_sheet_metal_hem(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
-    """Fold a ~180 deg CLOSED hem off a base-flange edge (parity §2).
+    """Fold a ~180 deg hem — closed or open — off a base-flange edge (parity §2).
 
-    A closed hem is an edge flange at a FIXED 180 deg fold (parity §2 / §1): the
-    picked edge folds flat back onto the sheet with a small inner radius, forming a
-    doubled, safe edge. Delegates to :func:`_fold_flange_off_edge` with
-    ``bend_angle_deg = 180`` and the hem's ``length_mm`` as the developed return
-    length — no new kernel geometry code (the return sits ~2*radius above the base,
-    so the fold cannot self-intersect; verified down to radius 1e-6). The bend is
-    tagged with a :class:`CylindricalFaceSignature` (§5) so the unfold develops it
-    as any bend (BA = pi * (radius + K * thickness)); its bend-table row reads angle
-    180 deg. v1 handles ``hem_type = "closed"`` only (the schema forbids the rest);
-    open / teardrop / rolled are deferred (curved cross-section, parity §2).
+    A hem is an edge flange at a FIXED 180 deg fold (parity §2 / §1): the picked
+    edge folds back onto the sheet, forming a doubled, safe edge. Delegates to
+    :func:`_fold_flange_off_edge` with ``bend_angle_deg = 180`` and the hem's
+    ``length_mm`` as the developed return length — no new kernel geometry code. The
+    bend is tagged with a :class:`CylindricalFaceSignature` (§5) so the unfold
+    develops it as any bend (BA = pi * (radius + K * thickness)); its bend-table row
+    reads angle 180 deg.
+
+    **The radius comes from the hem TYPE and the part's GAUGE, never from the base
+    flange's general bend radius** (HEM-1 — see ``resolve_hem_bend_radius_mm``). The
+    fold's cross-section makes the air gap between the two layers exactly
+    ``2 * radius``, so inheriting the part's 3 mm die-bend radius on 2 mm sheet
+    built a 6 mm gap labelled "closed". Two typed refusals guard the label:
+
+    * ``hem_type_radius_conflict`` — an explicit ``bend_radius_mm`` that describes
+      the OTHER hem type. Refused, not ignored and not clamped: an ignored field is
+      the ``extra="ignore"`` defect class, and a clamped one is the same lie in the
+      other direction.
+    * ``hem_gap_degenerate`` — a radius so small the resulting gap is at or below
+      the kernel's linear tolerance, i.e. the two layers are the SAME PLACE to this
+      kernel and the body carries a zero-width slit (measured: at ``r = 1e-6`` the
+      fold builds a BRepCheck-valid solid that
+      :func:`geometry.kernel.degenerate.find_zero_width_slits` reports as degenerate;
+      the slit disappears at a gap of ``KERNEL_LINEAR_TOL_MM``). Same posture as
+      ``find_zero_width_slits``/``removal_reaches_body`` (RESEARCH §9): detect,
+      degrade to a typed error naming the fix, never ship the cracked body. The
+      check is arithmetic on the resolved radius, so it fires BEFORE the kernel
+      spends a fuse on a body that must be thrown away.
     """
     feature = item.feature
     assert isinstance(feature, SheetMetalHemFeature), (
         "registry dispatches on type='sheet_metal_hem'"
     )
     params = feature.params
+
+    def _hem_radius(defaults: SheetMetalDefaults) -> float | FeatureError:
+        try:
+            radius = resolve_hem_bend_radius_mm(
+                params.hem_type, defaults.thickness_mm, params.bend_radius_mm
+            )
+        except HemRadiusError as exc:
+            return FeatureError(code="hem_type_radius_conflict", message=str(exc))
+        if 2.0 * radius <= KERNEL_LINEAR_TOL_MM:
+            return FeatureError(
+                code="hem_gap_degenerate",
+                message=(
+                    f"A {radius:g} mm hem radius folds the return to within "
+                    f"{2 * radius:g} mm of the parent face, which is at or below "
+                    f"this kernel's {KERNEL_LINEAR_TOL_MM:g} mm linear tolerance — "
+                    f"the two layers would be one degenerate, zero-width slit "
+                    f"rather than a hem. Use a larger bend radius (a closed hem on "
+                    f"{defaults.thickness_mm:g} mm sheet folds at "
+                    f"{HEM_CLOSED_RADIUS_RATIO * defaults.thickness_mm:g} mm)."
+                ),
+            )
+        return radius
+
     return _fold_flange_off_edge(
         item,
         state,
         params.edge,
         flange_length_mm=params.length_mm,
         bend_angle_deg=180.0,
-        override_radius_mm=params.bend_radius_mm,
+        override_radius_mm=None,
         override_k_factor=params.k_factor,
         subject="A hem",
+        radius_rule=_hem_radius,
     )
 
 

@@ -15,7 +15,9 @@
  * two different ways (docs/design/pattern-scope.md §2).
  */
 import { SegmentedControl, type SegmentOption } from "@loft/design";
+import { useMemo } from "react";
 
+import { usePublishedScope } from "../features/commandActions";
 import {
   type ScopeFeature,
   type ScopeMode,
@@ -40,6 +42,22 @@ export interface ScopeRowProps {
 }
 
 export function ScopeRow({ verb, mode, features, onChange }: ScopeRowProps) {
+  // ECHO THE SUBJECT WHERE THE USER IS LOOKING (REACH-2-FLOW P1-2). This row
+  // names `HOLE1` in a panel at the edge of the frame; on a plate with two
+  // identical holes that name settles nothing on its own. Publishing the LIVE
+  // reading — not the tree selection — lets the tree row, the timeline chip and
+  // the viewport mark the actual subject, and stop marking it the instant the
+  // user flips back to `This body`.
+  //
+  // Published from the ROW rather than from each editor because both editors
+  // ask the identical question through this one control, so there is exactly
+  // one place the answer is known (the same reason this component exists).
+  const scopedIds = useMemo(
+    () => (mode === "features" ? features.map((f) => f.id) : []),
+    [mode, features],
+  );
+  usePublishedScope(scopedIds);
+
   // Nothing in this tree can be repeated on its own (a body of nothing but
   // modifiers): the body reading is the only honest one, so the control holds
   // there and the note says why rather than offering a dead segment.

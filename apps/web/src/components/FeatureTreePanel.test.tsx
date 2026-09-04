@@ -11,7 +11,7 @@
  * browser, so they live here.
  */
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type {
   EvaluateTreeResult,
@@ -151,6 +151,24 @@ function tappedHole(id: string, name: string): FeatureResponse {
           pitch_mm: 1.5,
         },
       },
+    },
+  };
+}
+
+/**
+ * An ALL-EDGES fillet — the predicate selector, which references nothing at
+ * all. That is what makes it the honest subject of the reorder cases: it can
+ * legally sit anywhere after a body exists, so a move that fails is the drop
+ * rule speaking, not the fixture.
+ */
+function fillet(id: string, name: string): FeatureResponse {
+  return {
+    ...sketch(id, name),
+    order_index: 3,
+    feature: {
+      type: "fillet",
+      version: 1,
+      params: { edges: { kind: "all_edges" }, radius_mm: 1 },
     },
   };
 }
@@ -527,5 +545,214 @@ describe("FeatureTreePanel origin datum table", () => {
     expect(cell).toHaveAccessibleName("Hide XZ plane");
     fireEvent.click(cell);
     expect(cell).toHaveAttribute("aria-pressed", "false");
+  });
+});
+
+/**
+ * REORDER (REACH-ORDER) — the grip, the keyboard, and the refusal.
+ *
+ * These are wiring decisions the pure `featureOrder` tests cannot see: that the
+ * grip appears on the SELECTED row and nowhere else, that Alt+Up sends the
+ * whole permutation (the shape the route takes — a partial payload is an
+ * `order_not_permutation` 422, so the SEND is the thing to assert), and that a
+ * refusal states its reason in the DOM rather than in a `title`.
+ */
+describe("FeatureTreePanel reorder", () => {
+  // jsdom implements pointer EVENTS but not pointer CAPTURE, which the drag
+  // relies on so the gesture survives the pointer leaving the 24px grip. It is
+  // an environment gap, not an app branch — stubbed here rather than guarded in
+  // the component, where the guard would exist only for the test.
+  beforeAll(() => {
+    Element.prototype.setPointerCapture ??= () => undefined;
+    Element.prototype.releasePointerCapture ??= () => undefined;
+  });
+
+  const rows = () => [
+    sketch("f1", "Sketch1"),
+    extrude("f2", "Extrude1"),
+    hole("f3", "Hole1"),
+    fillet("f4", "Fillet1"),
+  ];
+
+  it("shows the ordinal as a plain readout until the row is selected", () => {
+    renderPanel(rows(), undefined, { onReorder: vi.fn() });
+    expect(screen.getByTestId("feature-ordinal-3")).toHaveTextContent("04");
+    expect(screen.queryByTestId("feature-grip-3")).toBeNull();
+  });
+
+  it("turns the SELECTED row's ordinal into the grip, and only that row's", () => {
+    renderPanel(rows(), undefined, {
+      onReorder: vi.fn(),
+      selectedFeatureId: "f4",
+    });
+    const grip = screen.getByTestId("feature-grip-3");
+    expect(grip).toHaveTextContent("04");
+    expect(grip).toHaveAccessibleName(/Reorder Fillet1 — build step 4 of 4/);
+    expect(screen.queryByTestId("feature-grip-2")).toBeNull();
+    expect(screen.getByTestId("feature-ordinal-2")).toHaveTextContent("03");
+  });
+
+  it("offers no grip at all when the tree cannot be reordered", () => {
+    renderPanel(rows(), undefined, { selectedFeatureId: "f4" });
+    expect(screen.queryByTestId("feature-grip-3")).toBeNull();
+  });
+
+  it("Alt+ArrowUp sends the FULL permutation with the row moved up one", () => {
+    const onReorder = vi.fn().mockResolvedValue(null);
+    renderPanel(rows(), undefined, { onReorder, selectedFeatureId: "f4" });
+    fireEvent.keyDown(window, { key: "ArrowUp", altKey: true });
+    expect(onReorder).toHaveBeenCalledWith(["f1", "f2", "f4", "f3"]);
+  });
+
+  it("ArrowDown on the focused grip does what the drag does", () => {
+    const onReorder = vi.fn().mockResolvedValue(null);
+    renderPanel(rows(), undefined, { onReorder, selectedFeatureId: "f3" });
+    fireEvent.keyDown(screen.getByTestId("feature-grip-2"), {
+      key: "ArrowDown",
+    });
+    expect(onReorder).toHaveBeenCalledWith(["f1", "f2", "f4", "f3"]);
+  });
+
+  it("refuses a seat above a reference WITHOUT sending it, and names the pair", () => {
+    const onReorder = vi.fn().mockResolvedValue(null);
+    renderPanel(rows(), undefined, { onReorder, selectedFeatureId: "f3" });
+    fireEvent.keyDown(window, { key: "ArrowUp", altKey: true });
+    expect(onReorder).not.toHaveBeenCalled();
+    const refusal = screen.getByTestId("reorder-refusal");
+    expect(refusal).toHaveTextContent(
+      "Hole1 is built on Extrude1, so Extrude1 has to stay above it.",
+    );
+    // Reachable by the keyboard alone — not a hover-only tooltip.
+    expect(refusal).toHaveAttribute("tabindex", "0");
+    expect(refusal).toHaveAccessibleName(/Extrude1/);
+  });
+
+  it("offers no repair when the only legal seat is the one it started in", () => {
+    const onReorder = vi.fn().mockResolvedValue(null);
+    renderPanel(rows(), undefined, { onReorder, selectedFeatureId: "f3" });
+    fireEvent.keyDown(window, { key: "ArrowUp", altKey: true });
+    expect(screen.queryByTestId("reorder-repair")).toBeNull();
+    // A refusal with no repair still has an exit.
+    fireEvent.click(screen.getByTestId("reorder-refusal-dismiss"));
+    expect(screen.queryByTestId("reorder-refusal")).toBeNull();
+  });
+
+  /**
+   * Give the rows real bands. jsdom hands every element a zero rect, and the
+   * seat is computed from where the pointer is against those bands — so the
+   * drag cases are only meaningful once the list has a geometry to aim at.
+   */
+  const ROW_HEIGHT = 26;
+  function layOutRows(): void {
+    for (const [index, row] of screen.getAllByTestId("feature-row").entries()) {
+      const top = index * ROW_HEIGHT;
+      vi.spyOn(row, "getBoundingClientRect").mockReturnValue({
+        top,
+        bottom: top + ROW_HEIGHT,
+        left: 0,
+        right: 200,
+        width: 200,
+        height: ROW_HEIGHT,
+        x: 0,
+        y: top,
+        toJSON: () => ({}),
+      } as DOMRect);
+    }
+  }
+  /** The vertical middle of row `index`, in the stubbed layout. */
+  const midOf = (index: number) => index * ROW_HEIGHT + ROW_HEIGHT / 2;
+
+  it("paints a LEGAL seat while dragging, and commits it on release", () => {
+    const onReorder = vi.fn().mockResolvedValue(null);
+    renderPanel(rows(), undefined, { onReorder, selectedFeatureId: "f4" });
+    layOutRows();
+    const grip = screen.getByTestId("feature-grip-3");
+    fireEvent.pointerDown(grip, { button: 0, pointerId: 1, clientY: midOf(3) });
+    fireEvent.pointerMove(grip, { pointerId: 1, clientY: midOf(2) });
+    const seat = screen.getByTestId("reorder-seat");
+    expect(seat).toHaveAttribute("data-legal", "true");
+    expect(seat).not.toHaveTextContent("built on");
+    fireEvent.pointerUp(grip, { pointerId: 1 });
+    expect(onReorder).toHaveBeenCalledWith(["f1", "f2", "f4", "f3"]);
+  });
+
+  it("marks an ILLEGAL seat and states the reason ON it, before release", () => {
+    const onReorder = vi.fn().mockResolvedValue(null);
+    renderPanel(rows(), undefined, { onReorder, selectedFeatureId: "f3" });
+    layOutRows();
+    const grip = screen.getByTestId("feature-grip-2");
+    fireEvent.pointerDown(grip, { button: 0, pointerId: 1, clientY: midOf(2) });
+    fireEvent.pointerMove(grip, { pointerId: 1, clientY: midOf(0) });
+    const seat = screen.getByTestId("reorder-seat");
+    expect(seat).not.toHaveAttribute("data-legal");
+    expect(seat).toHaveTextContent(
+      "Hole1 is built on Extrude1, so Extrude1 has to stay above it.",
+    );
+    fireEvent.pointerUp(grip, { pointerId: 1 });
+    expect(onReorder).not.toHaveBeenCalled();
+  });
+
+  it("Escape abandons the drag — nothing sent, nothing seated", () => {
+    const onReorder = vi.fn().mockResolvedValue(null);
+    renderPanel(rows(), undefined, { onReorder, selectedFeatureId: "f4" });
+    layOutRows();
+    const grip = screen.getByTestId("feature-grip-3");
+    fireEvent.pointerDown(grip, { button: 0, pointerId: 1, clientY: midOf(3) });
+    fireEvent.pointerMove(grip, { pointerId: 1, clientY: midOf(1) });
+    expect(screen.getByTestId("reorder-seat")).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("reorder-seat")).toBeNull();
+    fireEvent.pointerUp(grip, { pointerId: 1 });
+    expect(onReorder).not.toHaveBeenCalled();
+    // The rows never moved, so the original order is still the one on screen.
+    expect(
+      screen.getAllByTestId("feature-row").map((r) => r.textContent),
+    ).toHaveLength(4);
+  });
+
+  it("turns a refused DROP into a one-click move to the legal seat", () => {
+    // Sketch, Extrude, Fillet, Hole — the hole dropped at slot 1 (above the
+    // extrude it is drilled into) is refused, and slot 2 is offered instead.
+    const order = [
+      sketch("f1", "Sketch1"),
+      extrude("f2", "Extrude1"),
+      fillet("f4", "Fillet1"),
+      hole("f3", "Hole1"),
+    ];
+    const onReorder = vi.fn().mockResolvedValue(null);
+    renderPanel(order, undefined, { onReorder, selectedFeatureId: "f3" });
+    layOutRows();
+    const grip = screen.getByTestId("feature-grip-3");
+    fireEvent.pointerDown(grip, { button: 0, pointerId: 1, clientY: midOf(3) });
+    fireEvent.pointerMove(grip, { pointerId: 1, clientY: midOf(1) });
+    fireEvent.pointerUp(grip, { pointerId: 1 });
+    expect(onReorder).not.toHaveBeenCalled();
+    const repair = screen.getByTestId("reorder-repair");
+    expect(repair).toHaveTextContent("Move Hole1 after Extrude1");
+    fireEvent.click(repair);
+    expect(onReorder).toHaveBeenCalledWith(["f1", "f2", "f3", "f4"]);
+  });
+
+  it("states a SERVER refusal in the same words as its own", async () => {
+    const onReorder = vi
+      .fn()
+      .mockResolvedValue({ featureId: "f3", referencesFeatureId: "f2" });
+    renderPanel(rows(), undefined, { onReorder, selectedFeatureId: "f4" });
+    fireEvent.keyDown(window, { key: "ArrowUp", altKey: true });
+    expect(await screen.findByTestId("reorder-refusal")).toHaveTextContent(
+      "Hole1 is built on Extrude1, so Extrude1 has to stay above it.",
+    );
+  });
+
+  it("ignores Alt+Arrow while a name is being typed", () => {
+    const onReorder = vi.fn().mockResolvedValue(null);
+    renderPanel(rows(), undefined, {
+      onReorder,
+      selectedFeatureId: "f4",
+      renamingId: "f4",
+    });
+    const field = screen.getByTestId("feature-rename-3");
+    fireEvent.keyDown(field, { key: "ArrowUp", altKey: true });
+    expect(onReorder).not.toHaveBeenCalled();
   });
 });

@@ -99,20 +99,26 @@ describe("body stops, isolate and the way back", () => {
   it("writes the three stops and keeps ghost under a hide", () => {
     const key = bodyKey("f1");
     usePartViewStore.getState().setMode(key, "ghost");
-    expect(bodyMode(usePartViewStore.getState().view, key)).toBe("ghost");
+    expect(bodyMode(usePartViewStore.getState().view, key, false)).toBe(
+      "ghost",
+    );
     usePartViewStore.getState().setMode(key, "hidden");
-    expect(bodyMode(usePartViewStore.getState().view, key)).toBe("hidden");
+    expect(bodyMode(usePartViewStore.getState().view, key, false)).toBe(
+      "hidden",
+    );
     // Un-hiding restores the ghost you had — the small honesty that makes the
     // control feel reliable.
     usePartViewStore.getState().toggle(key);
-    expect(bodyMode(usePartViewStore.getState().view, key)).toBe("ghost");
+    expect(bodyMode(usePartViewStore.getState().view, key, false)).toBe(
+      "ghost",
+    );
   });
 
   it("isolate keeps one body and hides the rest", () => {
     usePartViewStore.getState().isolate(bodyKey("f2"));
     const { view } = usePartViewStore.getState();
-    expect(bodyMode(view, bodyKey("f1"))).toBe("hidden");
-    expect(bodyMode(view, bodyKey("f2"))).toBe("solid");
+    expect(bodyMode(view, bodyKey("f1"), false)).toBe("hidden");
+    expect(bodyMode(view, bodyKey("f2"), false)).toBe("solid");
     expect(hiddenBodyCount(view, BODIES)).toBe(1);
     expect(isolatedBodyLabel(view, BODIES)).toBe("Body 2");
   });
@@ -215,5 +221,83 @@ describe("the raycast target the mesh publishes", () => {
     expect(state.pickGeometry).toBeNull();
     expect(state.pickHiddenFaces.size).toBe(0);
     geometry.dispose();
+  });
+});
+
+/**
+ * GHOST-1 — the solid gets out of the way while you sketch, and the modeler's
+ * own word about a body is never overridden to do it.
+ */
+describe("bodies auto-ghost while a sketch is open", () => {
+  beforeEach(reset);
+
+  const F1 = bodyKey("f1");
+  const F2 = bodyKey("f2");
+
+  it("ghosts an untouched body on sketch entry and restores it on exit", () => {
+    const { view } = usePartViewStore.getState();
+    expect(bodyMode(view, F1, false)).toBe("solid");
+    expect(bodyMode(view, F1, true)).toBe("ghost");
+    // Nothing is STORED to make that happen, which is why there is nothing to
+    // restore — and therefore nothing that can be restored wrongly.
+    expect(view[F1]).toBeUndefined();
+  });
+
+  it("ghosts EVERY body, not just the one being sketched on", () => {
+    // Occlusion is a property of the camera and the plane, not of which face
+    // was picked: on a multi-body part the solid standing between the eye and
+    // the sketch is routinely a neighbour.
+    const { view } = usePartViewStore.getState();
+    expect(bodyMode(view, F1, true)).toBe("ghost");
+    expect(bodyMode(view, F2, true)).toBe("ghost");
+  });
+
+  it("leaves a DELIBERATE stop alone, in both directions", () => {
+    // Solid on purpose stays solid — the modeler is looking at that body for a
+    // reason, and silently ghosting it is what the ticket warned against.
+    usePartViewStore.getState().setMode(F1, "solid");
+    // Hidden on purpose stays hidden — auto-ghost must never un-hide, or the
+    // ISOLATED stamp and its way back would start lying.
+    usePartViewStore.getState().setMode(F2, "hidden");
+    const { view } = usePartViewStore.getState();
+    expect(bodyMode(view, F1, true)).toBe("solid");
+    expect(bodyMode(view, F2, true)).toBe("hidden");
+  });
+
+  it("a stop set DURING the sketch wins then, and still wins afterwards", () => {
+    usePartViewStore.getState().setSketchOpen(true);
+    usePartViewStore.getState().setMode(F1, "solid");
+    let { view } = usePartViewStore.getState();
+    expect(bodyMode(view, F1, true)).toBe("solid");
+    // Closing the sketch does not quietly revert it. The user's word is final;
+    // an auto-restore here would be the silent override in the other direction.
+    usePartViewStore.getState().setSketchOpen(false);
+    view = usePartViewStore.getState().view;
+    expect(bodyMode(view, F1, false)).toBe("solid");
+  });
+
+  it("the eye flips from what the row is SHOWING, so hide/show keeps the ghost", () => {
+    usePartViewStore.getState().setSketchOpen(true);
+    usePartViewStore.getState().toggle(F1);
+    let { view } = usePartViewStore.getState();
+    expect(bodyMode(view, F1, true)).toBe("hidden");
+    usePartViewStore.getState().toggle(F1);
+    view = usePartViewStore.getState().view;
+    // Back to GHOST — what it looked like when it was touched. Coming back
+    // SOLID would quietly discard the state the row was displaying.
+    expect(bodyMode(view, F1, true)).toBe("ghost");
+  });
+
+  it("implies nothing about HIDE, so isolate and the stamp are untouched", () => {
+    const { view } = usePartViewStore.getState();
+    expect(entityIsDrawn(view, F1)).toBe(true);
+    expect(hiddenBodyCount(view, BODIES)).toBe(0);
+    expect(isolatedBodyLabel(view, BODIES)).toBeNull();
+  });
+
+  it("resets with the subject — a ghost cannot follow you to another part", () => {
+    usePartViewStore.getState().setSketchOpen(true);
+    usePartViewStore.getState().setSubject("part-b");
+    expect(usePartViewStore.getState().sketchOpen).toBe(false);
   });
 });

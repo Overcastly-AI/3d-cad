@@ -45,6 +45,9 @@
  * `body:*`     — one solid body, keyed by its base feature id (the same identity
  *               `features/bodies.ts` and the kernel partition use). SOLID /
  *               GHOST / HIDE, matching the assembly's per-instance behaviour.
+ *               Its DEFAULT is derived too, on exactly the sketch layer's
+ *               pattern: a body GHOSTS while a sketch is open (GHOST-1) and is
+ *               solid otherwise. See {@link bodyView}.
  *
  * ## Scope of the state
  *
@@ -63,8 +66,8 @@ import {
   isolateInstance,
   showAllInstances,
   toggleInstanceHidden,
-  visibilityModeOf,
   withVisibilityMode,
+  type InstanceView,
   type VisibilityMode,
   type VisibilityState,
 } from "./instanceVisibility";
@@ -149,6 +152,14 @@ interface PartViewState {
    */
   bodyPresent: boolean;
   /**
+   * Is a sketch open on the drawing board right now? Published by `SketchScene`
+   * (the one component that both reads the sketch store and is always mounted
+   * in the part workspace), read by everything that has to know how a body is
+   * drawn — see {@link bodyView} for what it means and why it is a published
+   * fact rather than a cross-store import.
+   */
+  sketchOpen: boolean;
+  /**
    * Could the fused mesh be split back into per-body face sets? Published by
    * the mesh, read by the Bodies panel so the two ends AGREE about when the
    * per-body eye is offered — a row whose eye is present but inert would be
@@ -195,6 +206,7 @@ interface PartViewState {
   setSubject: (subjectId: string) => void;
   setBodies: (bodies: readonly PartBodyView[]) => void;
   setBodyPresent: (present: boolean) => void;
+  setSketchOpen: (open: boolean) => void;
   setPartitioned: (partitioned: boolean) => void;
   setPickGeometry: (geometry: BufferGeometry | null) => void;
   setPickHiddenFaces: (ordinals: ReadonlySet<number>) => void;
@@ -221,6 +233,7 @@ export const usePartViewStore = create<PartViewState>((set, get) => ({
   view: seededOriginState(),
   bodies: [],
   bodyPresent: false,
+  sketchOpen: false,
   partitioned: false,
   addressedKey: null,
   pickGeometry: null,
@@ -233,6 +246,7 @@ export const usePartViewStore = create<PartViewState>((set, get) => ({
       view: seededOriginState(),
       bodies: [],
       bodyPresent: false,
+      sketchOpen: false,
       partitioned: false,
       addressedKey: null,
       pickGeometry: null,
@@ -247,6 +261,10 @@ export const usePartViewStore = create<PartViewState>((set, get) => ({
   setBodyPresent: (bodyPresent) => {
     if (get().bodyPresent === bodyPresent) return;
     set({ bodyPresent });
+  },
+  setSketchOpen: (sketchOpen) => {
+    if (get().sketchOpen === sketchOpen) return;
+    set({ sketchOpen });
   },
   setPartitioned: (partitioned) => {
     if (get().partitioned === partitioned) return;
@@ -270,7 +288,14 @@ export const usePartViewStore = create<PartViewState>((set, get) => ({
     set({ addressedKey });
   },
   toggle: (key) =>
-    set({ view: togglePartEntity(get().view, key, get().bodyPresent) }),
+    set({
+      view: togglePartEntity(
+        get().view,
+        key,
+        get().bodyPresent,
+        get().sketchOpen,
+      ),
+    }),
   setMode: (key, mode) =>
     set({ view: withVisibilityMode(get().view, key, mode) }),
   isolate: (key) =>
@@ -316,24 +341,79 @@ function sameOrdinals(a: ReadonlySet<number>, b: ReadonlySet<number>): boolean {
 }
 
 /**
- * The eye, one click. Bodies and origin rows store their stop, so this is the
- * plain flip. A SKETCH row's stop may still be DERIVED (never touched, so it is
- * showing whatever "does this part have a solid" implies), and the flip has to
- * start from what the row is SHOWING — otherwise the first click on an
- * already-receded sketch writes "hidden" over a derived hidden and nothing
+ * The eye, one click. An ORIGIN row stores its stop, so that is the plain flip.
+ * A SKETCH row's stop and — since GHOST-1 — a BODY's may still be DERIVED
+ * (never touched, so the row is showing whatever the context implies), and the
+ * flip has to start from what the row is SHOWING. Otherwise the first click on
+ * an already-receded sketch writes "hidden" over a derived hidden and nothing
  * happens on screen, which is the exact class of bug that makes a toggle feel
- * broken.
+ * broken; and the first click on an auto-ghosted body would drop it to solid on
+ * the way back, quietly discarding the state the row was displaying.
  */
 export function togglePartEntity(
   view: VisibilityState,
   key: string,
   bodyPresent: boolean,
+  sketchOpen: boolean,
 ): VisibilityState {
   if (view[key] === undefined && key.startsWith("sketch:")) {
     return withVisibilityMode(view, key, bodyPresent ? "solid" : "hidden");
   }
+  if (view[key] === undefined && key.startsWith("body:") && sketchOpen) {
+    // Materialise the ghost the row is currently showing, then hide. Un-hiding
+    // therefore returns it to GHOST, which is what it looked like when touched.
+    return { ...view, [key]: { hidden: true, ghost: true } };
+  }
   return toggleInstanceHidden(view, key);
 }
+
+/**
+ * How a body is drawn, DERIVED — the single answer the Bodies row and the WebGL
+ * mesh both read, so the eye can never disagree with the pixels.
+ *
+ * GHOST-1: **a body ghosts automatically while a sketch is open.** Sketching on
+ * a face with the solid sitting opaque in front of the work is the tool
+ * declining to get out of the way — the founder's flow rule, and the reason
+ * Fusion and Onshape both do this. The GHOST stop already existed; the sketcher
+ * simply never used it.
+ *
+ * Two judgements are encoded here, and both are load-bearing.
+ *
+ * **It is a DEFAULT, not an override.** A stop the modeler has actually SET
+ * wins, in either direction and at every moment — the auto-ghost applies only
+ * to a body nothing has touched. That is the same contract `sketchIsDrawn` has
+ * held since UI-W2, and it is what keeps the feature from being the thing the
+ * ticket warned about: a body silently overridden on the way in and silently
+ * restored on the way out. Nothing is stored on entry, so there is nothing to
+ * restore on exit and nothing to get wrong; leaving the sketch simply stops the
+ * condition being true. If the modeler changes a body's stop WHILE the sketch is
+ * open, that writes an explicit stop, which wins immediately and keeps winning
+ * after the sketch closes — their word is final and never quietly reverted.
+ *
+ * **It applies to EVERY body, not just the one being sketched on.** Occlusion
+ * is a property of the camera and the plane, not of which face was picked: on a
+ * multi-body part it is routinely a NEIGHBOURING solid standing between the eye
+ * and the sketch. Ghosting only the host body would leave the defect intact on
+ * exactly the parts where it hurts most. Ghost is see-through, not hidden, so
+ * no context is lost — and a modeler who wants one body solid while sketching
+ * says so once and it sticks.
+ *
+ * HIDE is never implied. Auto-ghosting changes `ghost` only, so `hidden` — and
+ * with it isolate, show-all, the ISOLATED stamp and the pick-occlusion set —
+ * behaves exactly as before.
+ */
+export function bodyView(
+  view: VisibilityState,
+  key: string,
+  sketchOpen: boolean,
+): InstanceView {
+  const stored = view[key];
+  if (stored !== undefined) return stored;
+  return sketchOpen ? AUTO_GHOSTED : SHOWN_SOLID_BODY;
+}
+
+const AUTO_GHOSTED: InstanceView = { hidden: false, ghost: true };
+const SHOWN_SOLID_BODY: InstanceView = { hidden: false, ghost: false };
 
 /**
  * Is this solved sketch drawn? The DERIVED default (see the module doc): shown
@@ -364,9 +444,21 @@ export function entityIsDrawn(view: VisibilityState, key: string): boolean {
   return !instanceView(view, key).hidden;
 }
 
-/** The three-stop projection for one body row. */
-export function bodyMode(view: VisibilityState, key: string): VisibilityMode {
-  return visibilityModeOf(view, key);
+/**
+ * The three-stop projection for one body row — the flattening of
+ * {@link bodyView}, so the row reads the same derivation the scene draws from.
+ *
+ * `sketchOpen` is REQUIRED rather than defaulted: a caller that forgot it would
+ * show SOLID on a row the viewport is drawing see-through, which is the one
+ * failure this whole design exists to prevent.
+ */
+export function bodyMode(
+  view: VisibilityState,
+  key: string,
+  sketchOpen: boolean,
+): VisibilityMode {
+  const stop = bodyView(view, key, sketchOpen);
+  return stop.hidden ? "hidden" : stop.ghost ? "ghost" : "solid";
 }
 
 /**

@@ -112,7 +112,13 @@ export interface ToolButtonProps extends Omit<
    * exactly that staleness). Outside a band the label simply shows.
    */
   showLabel?: boolean;
-  /** Quiet supplement (count / reason) — engraved in the tooltip, not stacked. */
+  /**
+   * Quiet supplement — engraved in the tooltip, not stacked, and ALWAYS the
+   * button's accessible description (see the component doc below). Two things
+   * legitimately ride it: why the tool is gated ("Solve a sketch first") and
+   * what a click would do ("marks the file partial"). Write it as the second
+   * line of a sentence the button's name starts, in either case.
+   */
   caption?: ReactNode;
   /**
    * Where the tooltip hangs. Top-anchored strips drop it BELOW (default);
@@ -137,12 +143,32 @@ export interface ToolButtonProps extends Omit<
  * clicks and Enter/Space are swallowed. Playwright's `toBeDisabled()` /
  * `toBeEnabled()` honor `aria-disabled`, so existing gate assertions still hold.
  *
- * The gate reason also reaches SCREEN READERS: while disabled, the button's
- * `aria-describedby` points at the caption node (which is always in the DOM —
- * the tooltip hides by opacity, not unmount), so `aria-disabled` announces WITH
- * its why. Directly-referenced nodes are exempt from `aria-hidden` in the
- * accessible name/description computation, so the visual tooltip behavior is
- * untouched (BACKLOG P2, UR2 QA pass 2026-07-17).
+ * The caption also reaches SCREEN READERS: whenever one is rendered, the
+ * button's `aria-describedby` points at the caption node (always in the DOM —
+ * the tooltip hides by opacity, not unmount). Directly-referenced nodes are
+ * exempt from `aria-hidden` in the accessible name/description computation, so
+ * the visual tooltip behavior is untouched (BACKLOG P2, UR2 QA 2026-07-17).
+ *
+ * That wiring used to be gated on `disabled`, which read as a deliberate design
+ * and was a defect (A11Y-TOOLBTN-1). The caption carries two different things —
+ * a GATE REASON while disabled ("Solve a sketch first": why you cannot) and a
+ * QUALIFIER while enabled ("marks the file partial": what happens if you do) —
+ * and only the first was ever announced, so an enabled-but-qualified tool told
+ * a sighted user on hover what a screen-reader user was never told at all.
+ *
+ * Both now get the SAME treatment, deliberately, for three reasons. (a) They
+ * are one node: the tooltip renders them identically, so announcing only one
+ * would make the spoken UI and the drawn UI disagree about what the caption is.
+ * (b) The distinction is already carried by `aria-disabled`, which every screen
+ * reader announces before the description — prefixing the text would re-encode
+ * state the state attribute already owns. (c) A rule of the form "captions
+ * announce sometimes" is the defect itself; "the caption always describes the
+ * button" is the only version a consumer can rely on without reading this file.
+ *
+ * Consequence for CONSUMERS: do not fold a caption's words into `aria-label` to
+ * force them out — that makes the accessible NAME change as state changes, so
+ * the same control answers to two names through one flow. Pass the sentence as
+ * `caption` and let it describe.
  */
 export function ToolButton({
   icon,
@@ -162,15 +188,18 @@ export function ToolButton({
   const accessibleName =
     rest["aria-label"] ?? (shortcut ? `${label} — ${shortcut}` : label);
   const isDisabled = disabled === true;
-  // Gate-reason description (see the doc comment above): while disabled, the
-  // caption node describes the button. A consumer-provided `aria-describedby`
-  // is preserved alongside it, never clobbered.
-  const reasonId = useId();
+  // Caption description (see the doc comment above): the caption node describes
+  // the button whenever there is one — gate reason or qualifier, disabled or
+  // enabled. A consumer-provided `aria-describedby` is preserved alongside it,
+  // never clobbered.
+  const captionId = useId();
   // Truthiness deliberately mirrors the caption render condition below, so the
   // id is only referenced when the caption node actually exists in the DOM.
-  const hasGateReason = isDisabled && Boolean(caption);
+  // NOT `isDisabled && …`: that was A11Y-TOOLBTN-1, and it silenced every
+  // enabled qualifier in every command band.
+  const hasCaption = Boolean(caption);
   const describedBy =
-    [describedByProp, hasGateReason ? reasonId : undefined]
+    [describedByProp, hasCaption ? captionId : undefined]
       .filter(Boolean)
       .join(" ") || undefined;
   const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
@@ -247,7 +276,7 @@ export function ToolButton({
         label={label}
         shortcut={shortcut}
         caption={caption}
-        captionId={reasonId}
+        captionId={captionId}
         side={tooltipSide}
       />
     </button>

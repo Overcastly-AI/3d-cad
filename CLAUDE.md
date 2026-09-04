@@ -285,8 +285,74 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   **`per_page` is IGNORED** — asking for 1 still returns 30 runs and the same
   ~430 KB, so do not bother trying to trim the payload that way; the spill +
   parse is the only cheap path;
-  (b) `get_workflow_run` on ONE id is small and is the cheap way to re-check a
-  known run.
+  (b) `get_workflow_run` on ONE id is small-ISH but carries the entire commit
+  message, which in this repo runs to thousands of tokens per call — three
+  commits' verdicts cost more context than the whole rest of an integration
+  pass.
+  **THE CHEAPEST VERDICT READ IS `get_job_logs` WITH `failed_only: true` AND
+  `return_content: false`** — measured 2026-08-27, it returns one line
+  (`{"failed_jobs":0,"message":"No failed jobs found","total_jobs":7}`) and it
+  answers the question you actually have. Green is `failed_jobs: 0`; red names
+  the failing jobs, and you then re-call the same tool with `return_content:
+  true` and a `tail_lines` on the ONE job you care about. Reserve
+  `get_workflow_run` for when you need the commit message or the run's own
+  `conclusion` string (e.g. telling `cancelled` from `failure`). The ids still
+  come from the spilled `list_workflow_runs` parse, which is unavoidable.
+  **CORRECTION 2026-08-28: `list_workflow_runs` NO LONGER RETURNS `conclusion`
+  AT ALL, so the parse above cannot give you a verdict — only ids.** Measured:
+  the run objects in the spill carry `status` (`completed`/`in_progress`) and
+  fourteen other keys, and `conclusion` is not among them; a `KeyError` is what
+  told me. So a completed run in that listing is a run that FINISHED, which is
+  not a run that PASSED, and any reasoning that treats the spill as a board is
+  reading a field that is not there. Use the spill for `head_sha` → `id` only,
+  then take the verdict from `get_job_logs` as above.
+  **AND `failed_jobs: 0` ON AN UNFINISHED RUN IS NOT A PASS — READ `total_jobs`
+  IN THE SAME REPLY.** It means "nothing has failed YET", which is true of every
+  run that has barely started, and it reads exactly like green. Caught twice on
+  2026-08-28, the second time only because the number looked odd. The free
+  discriminator is already in the cheap call: `get_job_logs` reports
+  `total_jobs`, and a COMPLETE run has a known job count — **5 for `e2e`
+  (4 shards + `e2e complete`), 7 for `ci`**. So `total_jobs: 4` on an e2e run is
+  an UNFINISHED run, not a four-job one, and the `failed_jobs: 0` beside it says
+  nothing at all. Confirming it any other way is expensive: `list_workflow_jobs`
+  on a single run returns every step of every job with timestamps and cost ~8 k
+  tokens to learn that two shards were still running. Read the PAIR, not the
+  zero.
+  **AND WHEN A JOB IS RED, `tail_lines` MAY NEVER REACH THE FAILURE — budget for
+  a fixed tail, not an escalating one.** Cost most of an integration pass on
+  2026-08-28: I pulled 60, then 190, then 255 lines of a red `playwright (shard
+  3/4)` job and got three service logs and `upload-artifact` chatter every time,
+  because `scripts/e2e.sh` dumped 180 lines of `INFO: 127.0.0.1 … 200 OK` AFTER
+  Playwright's summary and the runner appended ~120 more. Each pull cost
+  thousands of tokens to learn nothing, and the artifact that holds the answer
+  is unreachable — `curl` of the Azure blob URL `download_workflow_run_artifact`
+  hands back is `CONNECT tunnel failed, response 403`, same policy-denial class
+  as the docker registry. **The job log is the ONLY channel, so what a job
+  writes LAST is a first-class interface, not cosmetics.** Fixed in `2874f0a`:
+  every shard now ends with an `== e2e verdict ==` block naming each failed
+  test, emitted by a final `if: always()` workflow step (the script cannot be
+  last — the upload steps run after it exits). Measured after: ONE
+  `tail_lines: 45` call returned the complete verdict where three escalating
+  pulls had returned nothing. Two things generalise. (a) When you own the thing
+  producing the log, put the verdict last and keep it short; a diagnostic dump
+  that outweighs the diagnosis is worse than no dump. (b) An escalating tail is
+  a losing strategy against an unknown amount of trailing noise — measure the
+  trailer once, fix it, and then a fixed small tail always works.
+  **AND THE VERDICT MUST NOT COUNT AN EXPECTED FAILURE AS A FAILURE.** On its
+  first live run the new block reported `2 failed` on a shard that had one, the
+  extra being a `test.fail()`-annotated case that documents a known gap and is
+  SUPPOSED to fail: Playwright reconciles that into `tests[].status: "expected"`,
+  while the raw `tests[].results[].status` reads `failed`, and a summariser that
+  walks results rather than statuses inverts the annotation's whole meaning.
+  Note the inverse is a REAL failure and needs saying by name — a `test.fail()`
+  case that PASSES means the gap has closed and the annotation is now a lie.
+  What saved this was the block's own cross-check against the report's `stats`,
+  which printed "this summary disagrees with the report's own stats (expected:
+  walked 165, stats say 166; unexpected: walked 2, stats say 1) — trust neither
+  until checked" instead of confidently reporting a phantom. **A second,
+  independently-derived count is what turns a wrong summary into a legible one**
+  — the same lesson `stage-doc-hunks.py` paid for three times, and the reason a
+  guard should refuse rather than guess when its two readings disagree.
 - **FIXED 2026-07-30 — `cancel-in-progress` is now PR-only, so a branch run
   that has STARTED is no longer killed by the next push. MEASURED, with one
   caveat below.** History, because the reasoning matters: the
@@ -447,7 +513,28 @@ we are.**
   filtered `git apply --cached` (or `git add -p`) for these two files, and if you
   find you have already swept foreign text, annotate the record rather than
   rewriting shared history that other agents have already rebased onto.
-  **Use `python3 scripts/stage-doc-hunks.py <file> "<marker>"`** — it stages only
+  **IN A WORKTREE, DO NOT USE `stage-doc-hunks.py` AT ALL — stage the file whole
+  after reading `git diff` in full.** Established 2026-08-29, and it is a
+  simplification that has been available ever since worktree isolation became
+  mandatory for builders. A worktree has its OWN index and working tree, so the
+  only uncommitted text in it is YOURS; there is no colleague's entry to sweep,
+  which is the single hazard the tool exists to prevent. Against that zero
+  benefit, the measured cost is five silent failures — it has swept a
+  neighbour's entry, relocated the author's own entry to the end of the file,
+  truncated a 31-line entry to 7, truncated one to its heading, and staged 1 of
+  3 entries — every one of them reporting `left 0 hunk(s) unstaged` while doing
+  it, and every one caught only by a `git show :<file>` byte comparison. A tool
+  whose failures are success-shaped, run where it can protect nothing, is pure
+  downside. **The check that actually works is the cheap one and it still
+  applies: read `git diff --cached` IN FULL immediately before committing.**
+  The tool remains correct for the SHARED checkout (the orchestrator's own tree,
+  or any agent not in a worktree) — that is the case it was written for and the
+  only one where a foreign hunk can be present.
+  **In the shared checkout, use `python3 scripts/stage-doc-hunks.py <file>
+  "<marker>"`**, where the marker is a phrase from your entry's first line that
+  fits entirely on ONE line — it matches line by line, so a marker spanning a
+  line break matches nothing and then silently drops your whole entry (48 lines,
+  measured 2026-08-28). It stages only
   hunks that ADD a line containing your marker and leaves the rest unstaged for
   their author. It exists because this rule was broken TWICE in one day, the
   second time by the person who wrote it: the correct path was fiddly and
@@ -733,6 +820,18 @@ recipe here in the same commit as the fix.**
   there is no hook here to put a check in. Until that changes the brief line IS
   the control, so it goes in every builder brief, every time. Do not let the fact
   that agents keep catching it become a reason to stop telling them to look.
+  **UPDATE 2026-08-28: it is NINE IN A ROW now, and the seed has merely moved on
+  to `03d2eca` — also a merge into `main`, 22 to 31 commits behind depending on
+  when the worktree was made.** All nine caught it because the brief carried the
+  check; without it the day's dispatches would have built against a tree up to a
+  month old, and the tell would have been a rebase conflict that reads as a
+  colleague's fault rather than a stale base. Two things this run settles. (a)
+  The rate is ~100%, not occasional — treat the reset as the FIRST step of every
+  brief and budget for it, rather than filing it as a precaution. (b) The seed is
+  always a MERGE INTO `main`, never an arbitrary point on the working branch,
+  which is the signature to detect on if a creation hook ever becomes available:
+  a HEAD that is not an ancestor of the branch. Until then the brief line is
+  still the whole control.
   **AND THE "AUDIT IT AFTER A BATCH" ADVICE THIS ENTRY ORIGINALLY GAVE DOES NOT
   WORK — measured 2026-08-27, do not retry it.** A behind-count over every
   worktree returned 47 "STALE" rows and not one was the fault: a worktree seeded
@@ -787,6 +886,36 @@ recipe here in the same commit as the fix.**
   and **an SVG stroke is not a hit box**, so any pick affordance drawn as a bare
   stroked `line`/`path` needs an explicit filled hit region or it does not exist
   as a control at all.
+  **AUDITED 2026-08-27 — the answer is ONE of 22, so this was one bad affordance
+  and NOT a systemic pattern.** 18 were cargo (removing the flag changed nothing;
+  the targets measured 39×39 px at 18/18 reachable points, and a 40 mm line
+  156.2×10.2 at 14/18 with its centre resolving to itself), 3 were legitimate
+  (`aria-disabled` controls a spec deliberately clicks through), and 1 was
+  vacuous. `force: true` now appears once in `apps/web/e2e/`, inside a
+  `clickRefusedControl` helper that asserts area and `elementFromPoint`
+  reachability BEFORE forcing.
+  **The vacuous one is worth its own rule: `sr-only` IS VISIBLE to every
+  visibility API.** `nav-chrome.spec.ts` claimed "a stray click on the locked
+  Extrude is inert". While a command is open the whole tool band is `sr-only` —
+  measured `1×1 @ (-1,43)`, `clip: rect(0,0,0,0)`, `overflow:hidden`. Not
+  zero-area: *clipped out of the frame*. **`checkVisibility()` and Playwright's
+  `isVisible()` both return TRUE for it**, so the visibility check the spec was
+  leaning on could never fire, and `force` sent the synthetic click to whatever
+  was topmost — measured, `header[topbar]`. The Extrude handler was never
+  invoked, so all three assertions would have passed identically had the handler
+  discarded every pick. A test asserting something is INERT must prove the
+  handler ran and did nothing, not that a click went somewhere.
+  **A THIRD ZERO-AREA MECHANISM, 2026-08-27: A TAILWIND UTILITY THAT DOES NOT
+  EXIST IS SILENT.** `w-32` was written on a progress bed; this theme's spacing
+  scale is **closed at 12**, so the class produced no rule at all and the element
+  resolved to **zero width** — the DOM looked perfect, every attribute was right,
+  and Playwright called the `role="progressbar"` *hidden*. Tailwind does not warn
+  on an unknown utility; it simply emits nothing. So the three zero-area defects
+  this week each had a different cause — an SVG stroke that `getBoundingClientRect`
+  ignores, an `sr-only` element clipped out of frame, and a utility class that was
+  never generated — and all three presented identically as "the control is there
+  and cannot be touched". When an element measures 0 in either axis, suspect the
+  STYLE was never applied before you suspect the layout.
   **This is the THIRD member of one family and the family is the lesson:** an
   assertion that cannot observe the failure mode. `toBeVisible()` is a box
   property, so it passed a SAVE control shoved outside the frame; `toHaveText
@@ -797,6 +926,30 @@ recipe here in the same commit as the fix.**
   proves a USER can do something, assert with the user's own mechanism — a real
   `page.mouse.click` at the control's centre, or `elementFromPoint` resolving to
   the control — never a proxy that skips the step you are claiming works.
+- **`git stash` IS NOT ISOLATED BY A WORKTREE — THE STASH LIST IS SHARED, AND
+  POPPING HANDS YOU WHOEVER STASHED LAST.** Found 2026-08-28 by the hover-to-
+  sketch agent, which caused the incident and recovered it. Worktrees give every
+  builder its own branch, index and working tree, so the reasonable assumption is
+  that `git stash` is private too. It is not: `refs/stash` lives in the SHARED
+  `.git`, so a `stash push` → `reset --hard` → `stash pop` cycle in one worktree
+  raced a sibling's stash and popped **the sibling's payload into this agent's
+  tree** while its own went to them. The failure is silent and success-shaped —
+  `git stash pop` reported `Dropped refs/stash@{0}` and exited 0, which is the
+  same shape as the worktree-push trap and the zero-byte-200: a reassuring
+  sentence over the wrong bytes. It is also worse than the `git add` sweep,
+  because a sweep leaves the work in a commit somebody can read, whereas a lost
+  pop leaves it nowhere either agent is looking.
+  **Use a patch file, never `git stash`:** `git diff > $SCRATCHPAD/<slug>.patch`
+  (add `--cached` for staged work, or `git diff HEAD` for both), then
+  `git apply` it back. A path you named yourself cannot be taken by a sibling.
+  If you have already popped somebody else's work: do NOT drop it. Revert their
+  files out of your tree, save their diff to a patch file, and put it back with
+  `git stash create` + `git stash store -m "RECOVERED <whose> work — <why>"` so
+  the list entry says what it is; then tell the orchestrator. That is exactly
+  what happened here and nothing was lost. Before dropping such an entry, prove
+  containment rather than assuming it — compare `git show 'stash@{0}:<file>'`
+  against `git show HEAD:<file>` per file and read the diffs, because "their work
+  landed" is a claim about every file in the stash, not about the branch.
 - **`git add <my file> && git commit` IN ONE COMMAND IS THE SWEEP, and chaining
   them is what defeats the protocol's own check.** Done by the ORCHESTRATOR on
   2026-08-27, hours after quoting the rule at three separate agents: `4e41eb4`
@@ -925,6 +1078,47 @@ recipe here in the same commit as the fix.**
   because that method is the depth-limited variant and directory pruning happens
   in `walk()`). (b) Ship the gate with a `--self-test` that reproduces the
   defect and demands a failure, exactly as `just licence-selftest` does.
+- **WHEN A NEW FIXTURE IS REJECTED BY EXISTING GATES, THAT REJECTION IS THE PROOF
+  THEY WERE BLIND — do not "fix" the fixture.** Measured 2026-08-29 on STEPDET-1.
+  A determinism hole survived because both assembly goldens were single-`Solid`
+  parts, so the gate could not fail for its own reason; adding a multi-body
+  golden was the durable half of the fix. That golden was then REJECTED by two
+  NEIGHBOURING gates — the round-trip oracle matched solids per **instance**, and
+  the instancing gate asserted one B-rep per **part**. Both assertions are true
+  only while a part is one solid, i.e. both had the same blindness as the gate
+  under repair, and both had been passing for years. The tempting read is "my
+  fixture is wrong"; the correct one is "three gates shared an assumption nobody
+  had written down". Both are now per-BODY, with instance identity moved to the
+  NAMED occurrences (OCCT adds an unnamed one per body). **A fixture built to
+  reach an uncovered path is a probe of every gate it passes through, not only of
+  the one you are fixing** — when it comes back rejected, read the rejection
+  before believing it.
+- **A NEGATIVE CONTROL AIMED DOWNSTREAM OF THE GUARD IT TESTS MEASURES NOTHING —
+  and it reports a WORKING fix as broken.** Measured 2026-08-29 on GATE-FLOOR.
+  The agent's probe emptied a gate's check list just before the `if all(...)`,
+  which was correct until the fix added a count floor EARLIER in the same block;
+  the clear then ran *after* the floor, so the first "after" reading said both
+  gates still exited 0 and the fix had failed. It had not. **When you add a
+  guard earlier in a function, every existing probe that injects its mutation
+  further down silently stops testing anything** — and the failure direction
+  here is the nasty one, because "my fix does not work" is a conclusion people
+  act on by rewriting working code. A lost `append` is missing for the WHOLE
+  verdict, so the injection belongs at the START of the verdict block. Same
+  family as the gates themselves: a check that cannot observe its subject.
+- **AN AUDIT THAT PATTERN-MATCHES AN IDIOM MISSES EVERY INSTANCE WEARING A
+  DIFFERENT SHAPE — ask the question the idiom stands for.** Same pass: the
+  audit table marked `check-build-context.py` *"n/a (straight-line, not
+  list-driven)"*, which was true of its self-test and blind to its MAIN path —
+  the path CI runs — which printed `0 COPY source(s) reach the build context`
+  and **exited 0**. That is the gate standing in for the `docker build` the
+  403-blocked registry makes unreachable here, silently disarmed. It was found
+  only because the brief said to check the others too. `check-tailwind-scale.py`
+  was not in the audit's table at all and had the same hole, saved only by
+  `max()` raising on an empty sequence — an accidental floor one `default=0`
+  away from a silent pass. **The brief said "check the other three"; the answer
+  was eleven checked and four holed.** When a defect class has recurred, audit
+  the whole class by its QUESTION ("what does this gate do when it examines
+  nothing?"), never by grepping the shape the last instance happened to have.
 - **The Docker *registry* is blocked here, but the stack does NOT need Docker —
   a native, container-free boot works and CAN drive `just e2e` + founder
   screenshots.** `docker pull` of `postgres:16` / `redis:7` / `minio/minio:*`
@@ -987,6 +1181,18 @@ recipe here in the same commit as the fix.**
   `pnpm --filter @loft/web {typecheck,test}` + `just lint` + geometry `pytest`.
   (Only `just dev` / `docker compose` proper — which build the container images —
   still can't run; use the native boot above instead of the compose stack.)
+- **DO NOT BOOT THE NATIVE STACK WITH `Bash(run_in_background)` — it dies, and it
+  dies wearing the readonly-SQLite mask.** Found 2026-08-28 by the ORTHO-1 agent.
+  `uv run uvicorn` produces a second bind attempt that exits 3; the harness reads
+  that as the task failing, and reaps the **surviving** listener along with it. The
+  symptom is all three services answering 200 one minute and **000** the next,
+  which is exactly what the stale-handle fault above looks like — so you will
+  "fix" it by restarting, get another ten minutes, and lose the same time again.
+  Use `setsid nohup … < /dev/null &` from a script, with a health-poll loop; that
+  survives across tool calls. This is now the FOURTH distinct fault presenting as
+  "my stack was up and now it is not" (stale handle, a sibling's `rm -f`, a
+  sibling's un-scoped teardown, and this), so when a healthy stack goes silent,
+  identify WHICH before acting — they have four different fixes.
 - **A long-running native uvicorn on a scratchpad SQLite file starts returning
   `attempt to write a readonly database` after ~10 minutes, and it reads exactly
   like a code regression.** Symptom: register -> 500, every spec dies at
@@ -1008,6 +1214,50 @@ recipe here in the same commit as the fix.**
   symptom is identical to the stale-handle case above and to the stale-Vite case,
   so before diagnosing a 500 at register, restart YOUR stack on YOUR own files and
   re-run; three separate environment faults wear the same mask.
+- **`pytest_terminal_summary` RUNS BEFORE THE SHORT TEST SUMMARY, so a verdict
+  written there lands in the MIDDLE of the log — use `pytest_unconfigure`.**
+  Measured 2026-08-28 by the PGTEST-GATE agent, and it is the THIRD instance of
+  one pattern this week: **whatever a job writes LAST is its only interface,
+  because the log tail is the only channel** (the e2e shard verdict, the pytest
+  verdict, and `scripts/e2e.sh`'s service dump are all the same lesson). The
+  mechanism here has a second half worth knowing: when a SESSION-SCOPED FIXTURE
+  fails, pytest repeats its reason once per dependent test, so a 4-line failure
+  reason across 172 tests produced a **1563-line log with the verdict at line
+  870** — no fixed `tail_lines` could reach it. Fixed by making the reason ONE
+  line and moving the verdict to `pytest_unconfigure`, which runs after the
+  reporter's final stats line: **532 lines, verdict last, `tail -6` gets the
+  whole answer.** Related, same measurement: a `pytest_report_header` in a
+  SUBDIRECTORY conftest never fires on a whole-repo run — it is not an initial
+  conftest — while `pytest_unconfigure` and `pytest_terminal_summary` both do,
+  because the conftest is registered by collection time.
+- **`pytest -q` ON THE CLI PLUS `-q` IN `addopts` MAKES `-qq`, WHICH SILENTLY
+  DELETES THE PASS/FAIL SUMMARY LINE.** The dot-line still prints, so the run
+  looks complete and the count is simply gone — a green-shaped output with no
+  number in it. Same family as the zero-byte 200: the shape of success survives
+  while the content that makes it checkable does not.
+- **WALKING FastAPI's RAW ROUTES REPORTS A CORRECTLY-AUTHENTICATED ROUTER AS
+  WIDE OPEN — use `fastapi.routing.iter_route_contexts`, not
+  `_IncludedRouter.original_router.routes`.** Measured 2026-08-29 while building
+  the K2 auth gate, and it is a correction to the advice this file and the
+  BACKLOG entry both previously gave. Recursing the raw included routers gets
+  the right route COUNT and two things wrong: (a) a router included into another
+  router keeps only its own prefix, so a route served at `/outer/inner/leaf`
+  reports as `/inner/leaf`; and (b) — the dangerous one —
+  `include_router(r, dependencies=[Depends(auth)])` records the dependency on the
+  INCLUSION, so the raw route's `dependant` is **empty** and a gate reading it
+  calls a properly-authenticated router unauthenticated. **That is a false
+  positive on a security gate, and a gate that cries wolf gets muted, which is
+  how it stops protecting anything.** Neither defect fires today (no service uses
+  nested inclusion or include-level auth), so the raw walk gives the right answer
+  now and a silently wrong one the first time someone reaches for a normal
+  FastAPI idiom. `iter_route_contexts` is the flattener FastAPI's own OpenAPI
+  generator uses: it composes prefixes and merges inclusion-level dependencies.
+  **The honest caveat that comes with it:** once the walk uses FastAPI's own
+  flattener, an OpenAPI cross-check is a CONSISTENCY check, not an independent
+  oracle — which is exactly why the count floor carries the weight. The general
+  lesson is the one this repo keeps paying for: **a walk that finds nothing makes
+  every "all of them are fine" assertion vacuously true**, so assert the count
+  you expect to walk, not only the property you expect to hold.
 - **A `conftest.py` env var leaks ACROSS services, because pytest collects every
   conftest before running any test.** `services/gateway/tests/conftest.py` does
   `os.environ.setdefault("LOFT_ENV", "dev")` so the gateway suite can build
@@ -1045,6 +1295,20 @@ recipe here in the same commit as the fix.**
   `apps/web/vite.config.ts` sets `server.strictPort`, so a Vite that cannot take
   the port it was given FAILS instead of falling back to 5173. The swallowed
   argument is still silent — that part only discipline fixes.
+- **THE SESSION SCRATCHPAD IS SHARED, AND IT CONTAINS A STDLIB-SHADOWING
+  `inspect.py` — running `python <scratchpad>/x.py` breaks every import and reads
+  like a broken venv.** Reported 2026-08-29 by the STEPDET-1 agent and verified
+  by me: the file is really there. Python puts the SCRIPT'S OWN DIRECTORY on
+  `sys.path[0]`, so a throwaway script run from the scratchpad root shadows the
+  stdlib `inspect` for everything it imports, and the failure surfaces far from
+  the cause — `module 'inspect' has no attribute 'signature'` out of some
+  unrelated library's import. The natural diagnosis is "the shared `.venv` is
+  broken", which is expensive and wrong, and the natural next step (rebuilding
+  it) would break every sibling agent. **Work in a per-agent subdirectory**
+  (`$SCRATCHPAD/<slug>/`), which you should be doing anyway — the scratchpad is
+  shared, so an unprefixed filename is a collision waiting to happen, exactly as
+  it is for the SQLite DB files. Any stdlib name is a hazard here, not just this
+  one; `inspect.py` is simply the one somebody has already left behind.
 - **`apps/web/test-results/` LOOKS like the ideal scratch directory and Playwright
   WIPES IT at the start of every run — including your live SQLite files.** It is
   gitignored AND prettier-ignored AND inside the linted tree, which is exactly the
@@ -1077,9 +1341,22 @@ recipe here in the same commit as the fix.**
   also kill a stale Vite — but SCOPE THE KILL TO PORT 5173.** Resolve the pid
   from the listener, never from a process-name grep:
   ```bash
-  pid=$(ss -lptn 'sport = :5173' 2>/dev/null | grep -oP 'pid=\K[0-9]+' | head -1)
+  pid=$(lsof -ti :5173 2>/dev/null | head -1)
   [ -n "$pid" ] && kill "$pid"      # ONLY the process actually holding :5173
   ```
+  **USE `lsof -ti`, NOT `ss`. `ss -lptn` RESOLVES NOTHING IN THIS CONTAINER** — it
+  prints no row at all for a listener the calling shell owns, so a teardown built
+  on it **silently no-ops** and reads exactly like a clean teardown while every
+  service is still running. Found 2026-08-27 by the REACH-ORDER agent, and it is
+  my error twice over on the same recipe: the first version was a process-name
+  grep that killed every agent's Vite, and the "fix" was this inert one. Measured
+  against a real listener on :5399 — `ss -lptn` → nothing, `ss -ltn` → nothing,
+  `lsof -ti` → the pid, `fuser <port>/tcp` → the pid. A `/proc/net/tcp` inode scan
+  also works if neither binary is present. **The general rule: a teardown recipe
+  is a claim about this container, so verify it against a real listener before
+  writing it down.** Both of my versions were plausible and neither was tested;
+  one over-killed and one under-killed, and the silent one is worse, because
+  friendly fire at least announces itself.
   **THE EARLIER VERSION OF THIS RECIPE SAID `ps -eo pid,args | grep -E
   'vite/bin/vite'`, WHICH IS NOT PORT-SCOPED AND KILLS EVERY AGENT'S VITE.**
   Measured 2026-08-27 by the QA-R4 agent: every e2e leg it ran over ~10 minutes
@@ -1093,6 +1370,25 @@ recipe here in the same commit as the fix.**
   Same rule for uvicorns: match on the port you booted, not on `*.main:app`.
   Agents booting an isolated frontend MUST kill their Vite in teardown, not just
   their uvicorns — and MUST kill only their own.
+- **VITE CAN SERVE A STALE TRANSFORM OF A WORKSPACE PACKAGE, WHICH MAKES A
+  MUTATION CHECK PASS WHEN IT MUST HAVE FAILED — the worst failure in this whole
+  family, because it corrupts the EVIDENCE rather than the run.** Found
+  2026-08-28 by the A11Y-TOOLBTN-1 agent. It edited
+  `packages/design/src/primitives/ToolButton.tsx` under a running Vite,
+  reintroduced the original defect to prove its new e2e case could see it, and
+  the case went **GREEN** — the fix appeared to be unnecessary. `curl` of the
+  served module showed the OLD condition while disk had the new one; only
+  bouncing Vite made served bytes match disk, and the case then reddened as it
+  should. **Every other trap in this file costs you a run; this one costs you a
+  wrong conclusion, and the conclusion is "my test is fine" or "this fix does
+  nothing".** Note this is the QUIET half of the stale-Vite entry below: that one
+  is a stale PROXY TARGET and it is loud (every spec 500s at register), whereas
+  this is a stale TRANSFORM of a linked workspace package and everything looks
+  normal. Rule: **when mutation-testing a `packages/**` primitive through the
+  browser, restart Vite between legs and verify the SERVED bytes**, e.g.
+  `curl -s http://127.0.0.1:<port>/@fs<abs path> | grep <the line you changed>`.
+  A mutation that does not redden is a claim about the served bundle until you
+  have checked which bytes it was.
 - **A TAILWIND PRESET CHANGE IS A BUILD-CONFIG CHANGE, NOT A SOURCE CHANGE — a
   running Vite will not pick it up, and the symptom is "your new feature is
   broken", never a build error.** Measured 2026-08-17 recovering VIEWCUBE-1.
@@ -1114,6 +1410,33 @@ recipe here in the same commit as the fix.**
   renders and lies. **Restart Vite after touching `tailwind-preset.ts`,
   `tokens.ts`, `vite.config.ts`, or anything else Vite reads once at boot** —
   the same reflex as regenerating contracts after a pydantic change.
+- **MAKING A SPEC FASTER CAN DELETE AN ACCIDENTAL SETTLE — an implicit wait
+  nobody wrote down, which the slow version was providing for free.** Found
+  2026-08-29 while closing QA-CI4-HEADROOM-1. A ring scan did 1068 full-frame
+  canvas readbacks to read nine pixels each; batching them 356:1 was obviously
+  correct and immediately produced a new failure ("the origin ring must be
+  visible ink"). The caller waits on the selection readout, which is **DOM**,
+  while the ring it then measures is **canvas on a demand-rendered scene** — and
+  the 356 sequential awaits had been letting the renderer win that race, with
+  nothing in the code saying so. The fix is to STATE the wait (`waitForFrames`),
+  never to un-batch: **an accidental settle is a latent flake whether or not
+  anyone has tripped it yet**, and the optimisation only revealed it. Whenever a
+  spec mixes a DOM wait with a canvas assertion, the synchronisation between them
+  must be written down, because the thing that has been supplying it is
+  incidental timing.
+  **And in the same pass, TWO COST MODELS WERE WRONG BEFORE INSTRUMENTATION
+  SETTLED IT.** The orchestrator guessed the perf ceiling was too tight (it was
+  the most machine-independent assertion on the shard: 1.15-1.22 against a 2.00
+  ceiling while absolute cost moved 66%); the agent then guessed the readbacks
+  were the cost, batched them 356:1, and **the wall clock did not move**
+  (45.9/47.5/timeout → 49.3/46.3/44.7). Only a per-phase timer found it: the zoom
+  loop was **47% of the wall** (15.8 s of 33.2 s) and the scan it had just
+  optimised was **0.6%** (190 ms). The loop re-parked the pointer before each of
+  48 wheel notches with the cursor already there — 46 of 48 round trips moved it
+  nowhere, and the cost was sequential CDP latency, not pixels. **Instrument
+  before optimising a slow spec; the obvious expensive-looking operation is
+  routinely not the cost**, and in a browser-driven test the cost is usually the
+  number of round trips, not the work in any one of them.
 - **Run the batch-end `just e2e` in a QUIET window — never concurrent with
   heavy agents — and treat a red sweep run under CPU load as UNCONFIRMED.**
   Seen 2026-07-23: a batch-end sweep kicked off while 2-3 kernel agents were
@@ -1263,3 +1586,25 @@ recipe here in the same commit as the fix.**
   (your whole change), e.g. `uv run pyright <each changed .py>` + `ruff` on all
   of them — never just the one file you were "mainly" editing. A signature change
   breaks its callers and tests, which single-file scoping can't see.
+- **TO COMPILE THE REAL TAILWIND AGAINST OUR PRESET FROM A SCRATCH SCRIPT, the
+  script must sit OUTSIDE `node_modules` with a `node_modules` SYMLINK beside
+  it** — three separate resolution traps stack up and each one looks like the
+  last. Measured 2026-08-28 while cross-checking `scripts/check-tailwind-scale.py`
+  against the compiler. (a) `postcss` is not a dependency of `packages/design`
+  and pnpm's strict layout means there is no root `node_modules/postcss` either;
+  only `apps/web` has both `postcss` and `tailwindcss`. (b) `tailwindcss@3.4` has
+  **no `exports` map**, so Node ESM cannot resolve the bare `tailwindcss/plugin`
+  our preset imports — it needs the literal `tailwindcss/plugin.js`. (c) Node
+  refuses to type-strip a `.ts` file under `node_modules/`
+  (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`), so the obvious hiding place
+  for a throwaway probe — the one the `apps/web/node_modules/.vp1a/` recipe above
+  endorses for Playwright configs — cannot import the preset at all. What works:
+  put the probe in the session scratchpad, `ln -s <repo>/apps/web/node_modules`
+  next to it so bare specifiers resolve, and import the preset through a copy
+  whose two specifiers are rewritten (`tailwindcss/plugin.js`, plus an absolute
+  path to the REAL `tokens.ts` so the scale under test is the committed one).
+  Node 22.22 then type-strips both `.ts` files and `postcss([tailwind({...})])`
+  runs. Worth the setup: it turns "I think this family reads `spacing`" into a
+  measurement — 2664 family x value pairs, 0 disagreements — and it is what
+  removed `leading-` (reads `lineHeight`) and `z-` (extended, not replaced) from
+  that gate's coverage before they could cry wolf.

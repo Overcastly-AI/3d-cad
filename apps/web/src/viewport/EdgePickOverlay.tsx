@@ -11,17 +11,21 @@
  * neither corridor, nor mark, nor highlight.
  *
  * The highlight draws (selected = brass, hover = brass-hover) reuse the shared
- * `measure` tokens and the shared `Segments` layer — one selection palette, one
- * highlight primitive across both overlays (CLAUDE.md DRY rule). Selection is
+ * `measure` tokens and the shared `HighlightLines` layer — one selection
+ * palette, one highlight primitive across both overlays (CLAUDE.md DRY rule).
+ * `HighlightLines` and not `Segments`: an edge highlight is coincident with the
+ * body's own surface, and a plain GL line at that depth is discarded outright
+ * (SEL-8 — the hover state was firing all along and drawing nothing).
+ *
+ * Selection is
  * keyed by full-precision `EdgeSignature`, never the transient overlay index,
  * so a refetch never mismarks a pick. Presentational only: the parent store
  * owns the picked set + hover.
  */
 import { PickNode } from "@loft/design";
 import { measure } from "@loft/design/tokens";
-import { Html } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { Vec3 } from "../api/measure";
 import { edgeSignatureKey } from "../features/edge";
@@ -34,8 +38,10 @@ import {
 import { EdgeBandLayer } from "./EdgeBandLayer";
 import type { EdgeBandInput } from "./edgeBand";
 import { useHiddenPicks } from "./hiddenPicks";
-import { concatPositions, Segments } from "./overlaySegments";
+import { PickMark } from "./PickMark";
+import { concatPositions, HighlightLines } from "./overlaySegments";
 import { useViewportPickStamp } from "./pickStamp";
+import type { EdgeMarkAnchor } from "./useEdgeMarkAnchors";
 
 /** Edge marks sit just under the HUD strips (same band as measurement edges). */
 const EDGE_Z_RANGE: [number, number] = [17, 0];
@@ -54,6 +60,12 @@ export function EdgePickOverlay() {
   const setHoverEdge = useEdgePickStore((s) => s.setHoverEdge);
   const invalidate = useThree((s) => s.invalidate);
   const hiddenPicks = useHiddenPicks();
+  /**
+   * WHERE EACH DIAMOND SITS (PICKMARK-OCCLUDE-1) — published by the band,
+   * because the band is what decides whether a point of an edge is reachable.
+   * The mid-span is used until the first answer arrives.
+   */
+  const [anchors, setAnchors] = useState<readonly EdgeMarkAnchor[]>([]);
 
   /** QA hook: which edge the armed pick is addressing (SEL-4 / A2). */
   useViewportPickStamp("edgePickHover", hoverEdge);
@@ -139,20 +151,35 @@ export function EdgePickOverlay() {
         edges={bandEdges}
         onHover={setHoverEdge}
         onPick={pickBandEdge}
+        onAnchors={setAnchors}
       />
 
       {/* Highlights (hover under selection), brass token — one palette. */}
-      <Segments positions={hoveredPositions} color={measure.edgeHover} />
-      <Segments positions={selectedPositions} color={measure.edgeSelected} />
+      <HighlightLines
+        positions={hoveredPositions}
+        color={measure.edgeHover}
+        widthPx={measure.edgeWidthPx}
+        xrayOpacity={measure.edgeXrayOpacity}
+      />
+      <HighlightLines
+        positions={selectedPositions}
+        color={measure.edgeSelected}
+        widthPx={measure.edgeWidthPx}
+        xrayOpacity={measure.edgeXrayOpacity}
+        renderOrder={2}
+      />
 
-      {/* Pickable edges — a diamond mark at each edge's true mid-span. */}
-      {offered.map(({ edge, index }) => {
+      {/* Pickable edges — a diamond mark at the point of each edge the band
+          answers with (PICKMARK-OCCLUDE-1). The accessible NAME still carries
+          the true mid-span, because the name describes the EDGE and not where
+          its mark happens to be reachable from this camera. */}
+      {offered.map(({ edge, index }, slot) => {
         const midpoint = polylineMidpoint(edge.polyline);
+        const anchor = anchors[slot];
         return (
-          <Html
+          <PickMark
             key={`e${index}`}
-            position={occtToScene(midpoint)}
-            center
+            position={anchor?.position ?? occtToScene(midpoint)}
             zIndexRange={EDGE_Z_RANGE}
           >
             <PickNode
@@ -161,8 +188,10 @@ export function EdgePickOverlay() {
               // now, so the mark is the keyboard/touch fallback and may rest
               // quiet.
               recede
+              occluded={anchor?.buried ?? false}
               selected={pickedKeys.has(edgeSignatureKey(edge.signature))}
               data-testid={`edge-pick-${index}`}
+              data-buried={anchor?.buried === true ? "true" : "false"}
               aria-label={edgeLabel(index, edge.kind, midpoint)}
               onClick={() => toggle(edge.signature)}
               onPointerOver={() => setHoverEdge(index)}
@@ -170,7 +199,7 @@ export function EdgePickOverlay() {
               onFocus={() => setHoverEdge(index)}
               onBlur={() => setHoverEdge(null)}
             />
-          </Html>
+          </PickMark>
         );
       })}
     </group>

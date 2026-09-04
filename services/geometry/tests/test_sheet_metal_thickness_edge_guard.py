@@ -378,9 +378,13 @@ def _base_flange() -> dict[str, object]:
                 "type": "sheet_metal_hem",
                 "version": 1,
                 "params": {
+                    # No bend_radius_mm: a hem's radius comes from its type and the
+                    # part's gauge (HEM-1). The old fixture overrode it to 1.0 mm,
+                    # which on this 2 mm gauge is now an OPEN hem's radius under a
+                    # 'closed' label — the subject here is the thickness-edge guard,
+                    # so the fixture must not carry an unrelated parameter conflict.
                     "edge": _thickness_edge_ref(),
                     "length_mm": 6.0,
-                    "bend_radius_mm": 1.0,
                 },
             },
             id="hem",

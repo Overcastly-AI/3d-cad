@@ -1,13 +1,21 @@
 import { describe, expect, it } from "vitest";
 
+import { drawing } from "@loft/design";
+
 import type { EdgeSignature, ProjectedViewEdge } from "../api/drawings";
 import {
-  SHEET_SIZE_OPTIONS,
+  boxExtents,
   endpointHandlesForEdge,
   fitScale,
+  proposeOrientation,
+  reframePinnedCentre,
   sheetDimensions,
+  sheetHeaderForNewSheet,
   sheetSizeLabel,
+  sheetSizeOptions,
   standardLayout,
+  vertexGrabMm,
+  vertexPaintMm,
 } from "./layout";
 
 describe("sheetDimensions", () => {
@@ -30,9 +38,9 @@ describe("sheetDimensions", () => {
   });
 });
 
-describe("SHEET_SIZE_OPTIONS (the size picker's choices)", () => {
+describe("sheetSizeOptions (the size picker's choices)", () => {
   it("offers every standard size, A4 first, ANSI last", () => {
-    const values = SHEET_SIZE_OPTIONS.map((o) => o.value);
+    const values = sheetSizeOptions("landscape").map((o) => o.value);
     expect(values).toEqual([
       "A4",
       "A3",
@@ -46,18 +54,179 @@ describe("SHEET_SIZE_OPTIONS (the size picker's choices)", () => {
     ]);
   });
 
-  it("labels carry the landscape mm extents (from SHEET_MM_LANDSCAPE, no drift)", () => {
-    const a4 = SHEET_SIZE_OPTIONS.find((o) => o.value === "A4");
+  it("labels carry the mm extents (from SHEET_MM_LANDSCAPE, no drift)", () => {
+    const a4 = sheetSizeOptions("landscape").find((o) => o.value === "A4");
     expect(a4?.label).toBe("A4 · 297 × 210 mm");
-    const a3 = SHEET_SIZE_OPTIONS.find((o) => o.value === "A3");
+    const a3 = sheetSizeOptions("landscape").find((o) => o.value === "A3");
     expect(a3?.label).toBe("A3 · 420 × 297 mm");
+  });
+
+  it("states the PORTRAIT extents when portrait is the paper being made", () => {
+    // REACH-3-FLOW P2: the picker used to read "297 × 210 mm" beside a proposal
+    // about to create a 210 × 297 sheet — the wrong paper, at the one moment
+    // the user is choosing paper.
+    const a4 = sheetSizeOptions("portrait").find((o) => o.value === "A4");
+    expect(a4?.label).toBe("A4 · 210 × 297 mm");
   });
 
   it("humanises the ANSI display name", () => {
     expect(sheetSizeLabel("A4")).toBe("A4");
     expect(sheetSizeLabel("ANSI_B")).toBe("ANSI B");
-    const ansiB = SHEET_SIZE_OPTIONS.find((o) => o.value === "ANSI_B");
+    const ansiB = sheetSizeOptions("landscape").find(
+      (o) => o.value === "ANSI_B",
+    );
     expect(ansiB?.label.startsWith("ANSI B ·")).toBe(true);
+  });
+});
+
+describe("proposeOrientation (which paper this document argues for)", () => {
+  /** The 40 x 40 x 150 mm column the REACH-3 specs draft — deliberately tall. */
+  const COLUMN = { x: 40, y: 40, z: 150 };
+  /** A 200 x 140 x 30 plate — wide, and the A3 size-picker spec's part. */
+  const PLATE = { x: 200, y: 140, z: 30 };
+
+  it("offers portrait to a tall part, at a strictly better scale", () => {
+    const fit = proposeOrientation(COLUMN, "A4");
+    expect(fit.proposed).toBe("portrait");
+    expect(fit.scaleByOrientation).toEqual({
+      landscape: "1:5",
+      portrait: "1:2",
+    });
+  });
+
+  it("keeps landscape for a wide part", () => {
+    expect(proposeOrientation(PLATE, "A3").proposed).toBe("landscape");
+  });
+
+  it("breaks a tie for landscape — the shop default, so no surprise", () => {
+    const cube = { x: 20, y: 20, z: 20 };
+    const fit = proposeOrientation(cube, "A4");
+    expect(fit.scaleByOrientation.landscape).toBe(
+      fit.scaleByOrientation.portrait,
+    );
+    expect(fit.proposed).toBe("landscape");
+  });
+});
+
+describe("sheetHeaderForNewSheet (the ONE header every create path uses)", () => {
+  const fit = proposeOrientation({ x: 40, y: 40, z: 150 }, "A4");
+
+  it("proposes the fitted orientation AND the scale it earns", () => {
+    // The REACH-3-FLOW P1-1 case: this is what Sheet 1 is now born with, where
+    // four call sites used to write `orientation: "landscape"` as a literal.
+    const header = sheetHeaderForNewSheet({
+      name: "Sheet 1",
+      size: "A4",
+      layout: "standard",
+      fit,
+      inherit: null,
+    });
+    expect(header.orientation).toBe("portrait");
+    expect(header.scaleValue).toBe("1:2");
+    expect(header.projection).toBe("third_angle");
+  });
+
+  it("inherits the convention from the sheet in hand", () => {
+    const header = sheetHeaderForNewSheet({
+      name: "Sheet 2",
+      size: "A4",
+      layout: "standard",
+      fit,
+      inherit: { projection: "first_angle" },
+    });
+    expect(header.projection).toBe("first_angle");
+  });
+
+  it("lets the user's override win outright, with the scale that follows", () => {
+    const header = sheetHeaderForNewSheet({
+      name: "Sheet 1",
+      size: "A4",
+      layout: "standard",
+      fit,
+      inherit: null,
+      override: "landscape",
+    });
+    expect(header.orientation).toBe("landscape");
+    expect(header.scaleValue).toBe("1:5");
+  });
+
+  it("keeps the default paper and promises NO scale for a lone-view sheet", () => {
+    // A flat pattern draws the UNFOLDED blank, which the four-quadrant fit does
+    // not model — proposing from it would promise a scale it cannot deliver.
+    const header = sheetHeaderForNewSheet({
+      name: "Sheet 1",
+      size: "A4",
+      layout: "lone",
+      fit,
+      inherit: null,
+    });
+    expect(header.orientation).toBe("landscape");
+    expect(header.scaleValue).toBeNull();
+  });
+
+  it("promises no scale when the source could not be measured", () => {
+    const header = sheetHeaderForNewSheet({
+      name: "Sheet 1",
+      size: "A4",
+      layout: "standard",
+      fit: null,
+      inherit: null,
+    });
+    expect(header.orientation).toBe("landscape");
+    expect(header.scaleValue).toBeNull();
+  });
+});
+
+describe("reframePinnedCentre (a hand-placed view survives the flip)", () => {
+  const landscape = sheetDimensions("A4", "landscape");
+  const portrait = sheetDimensions("A4", "portrait");
+
+  it("keeps a pin ON the paper when the paper narrows", () => {
+    // 270 mm across is 91% of a landscape A4 and OFF a 210 mm-wide portrait one.
+    const moved = reframePinnedCentre(
+      { x_mm: 270, y_mm: 40 },
+      landscape,
+      portrait,
+    );
+    expect(moved.x_mm).toBeLessThan(portrait.width);
+    expect(moved.y_mm).toBeLessThan(portrait.height);
+  });
+
+  it("preserves the composition — a title-block corner stays a corner", () => {
+    const moved = reframePinnedCentre(
+      { x_mm: 270, y_mm: 40 },
+      landscape,
+      portrait,
+    );
+    expect(moved.x_mm / portrait.width).toBeCloseTo(270 / landscape.width, 10);
+    expect(moved.y_mm / portrait.height).toBeCloseTo(40 / landscape.height, 10);
+  });
+
+  it("is a no-op when the paper does not change", () => {
+    expect(
+      reframePinnedCentre({ x_mm: 100, y_mm: 50 }, landscape, landscape),
+    ).toEqual({ x_mm: 100, y_mm: 50 });
+  });
+});
+
+describe("boxExtents (the one min/max -> side-lengths conversion)", () => {
+  it("reads side lengths off a world-mm AABB, wherever it came from", () => {
+    // The assembly route's answer for the reference rig: the solved compound
+    // spans 40 x 25 x 20 with the second plate stacked on top of the first.
+    expect(
+      boxExtents({ min: { x: 0, y: 0, z: 0 }, max: { x: 40, y: 25, z: 20 } }),
+    ).toEqual({ x: 40, y: 25, z: 20 });
+  });
+
+  it("is origin-independent — a box away from the origin has the same extents", () => {
+    // A solved pose puts the compound wherever the mates put it; only the SIZE
+    // fits a scale, so a translated box must read identically.
+    expect(
+      boxExtents({
+        min: { x: -12.5, y: 4, z: -3 },
+        max: { x: 27.5, y: 29, z: 17 },
+      }),
+    ).toEqual({ x: 40, y: 25, z: 20 });
   });
 });
 
@@ -115,6 +284,26 @@ describe("fitScale (auto-layout fit — WB-64 dogfooding fix)", () => {
     expect(onA3.numerator / onA3.denominator).toBeGreaterThan(
       onA4.numerator / onA4.denominator,
     );
+  });
+
+  it("the SOLVED and SEEDED readings of the reference rig fit DIFFERENT scales (ASMDRAW-FIT-1b)", () => {
+    // The arithmetic the assembly-fit e2e leans on, pinned here so a change to
+    // the cell model cannot quietly make that spec vacuous.
+    //
+    // Two 40x25x10 plates, the second seeded 80 mm along x and then bolted
+    // flush onto the first:
+    //   seeded roll-up  -> 120 x 25 x 10  (front view 120 mm wide, cell is 98.9)
+    //   solved compound ->  40 x 25 x 20  (everything inside its cell at 1:1)
+    // So a client that folded the graph's own placements picks 1:2 where the
+    // right answer is 1:1 — and from a 2:1 ceiling the two readings stay
+    // distinct, which is what makes "the fit ran" and "the fit ran on the
+    // solved pose" separately observable.
+    const seeded = { x: 120, y: 25, z: 10 };
+    const solved = { x: 40, y: 25, z: 20 };
+    expect(fitScale(seeded, a4, "1:1").value).toBe("1:2");
+    expect(fitScale(solved, a4, "1:1").value).toBe("1:1");
+    expect(fitScale(seeded, a4, "2:1").value).toBe("1:2");
+    expect(fitScale(solved, a4, "2:1").value).toBe("1:1");
   });
 
   it("portrait sheet swaps the cell aspect", () => {
@@ -218,5 +407,60 @@ describe("endpoint handles (start_is_end_a correspondence)", () => {
     expect(endpointHandlesForEdge(noCorrespondence)).toBeNull();
     const noSource = { ...edge, source_edge: null };
     expect(endpointHandlesForEdge(noSource)).toBeNull();
+  });
+});
+
+describe("vertexGrabMm — the ends belong to the vertex, the middle to the edge", () => {
+  it("keeps the full pick radius wherever it costs the edge nothing", () => {
+    // 7.8 mm (3 x pickHitMm) is the break-even length; anything longer — i.e.
+    // essentially all ordinary geometry — is unchanged by this rule.
+    expect(vertexGrabMm(40)).toBeCloseTo(drawing.pickHitMm, 6);
+    expect(vertexGrabMm(7.8)).toBeCloseTo(drawing.pickHitMm, 6);
+  });
+
+  it("leaves a central third of EVERY straight edge to the edge itself", () => {
+    // The property, over lengths spanning three orders of magnitude rather
+    // than the one case that prompted the fix: two ends can never eat more
+    // than two thirds of the line between them.
+    for (const len of [0.4, 1, 2, 4, 7.79, 12, 40, 400]) {
+      const eaten = 2 * vertexGrabMm(len);
+      expect(len - eaten).toBeGreaterThanOrEqual(len / 3 - 1e-9);
+    }
+  });
+
+  it("gives the 4 mm rib edge a reachable interior it did not have", () => {
+    // Measured on a 40 x 4 x 10 rib: the top view's short edge is 4 sheet mm
+    // and a flat +/-2.6 mm grab ate 5.2 — more than the whole edge, so its
+    // centre resolved to the vertex and aiming there armed point-to-point.
+    expect(2 * drawing.pickHitMm).toBeGreaterThan(4);
+    expect(2 * vertexGrabMm(4)).toBeCloseTo(8 / 3, 6);
+    expect(2 * vertexGrabMm(4)).toBeLessThan(4);
+  });
+
+  it("budgets a mixed corner by the SHORT edge, which costs the long one nothing", () => {
+    // Where a 4 mm and a 40 mm edge meet, the grab is the 4 mm edge's third;
+    // the long edge simply keeps more of itself. Only the short one binds.
+    expect(vertexGrabMm(Math.min(4, 40))).toBeCloseTo(4 / 3, 6);
+  });
+
+  it("falls back to the full radius for a vertex with no incident edge", () => {
+    expect(vertexGrabMm(Number.POSITIVE_INFINITY)).toBe(drawing.pickHitMm);
+    expect(vertexGrabMm(0)).toBe(drawing.pickHitMm);
+    expect(vertexGrabMm(Number.NaN)).toBe(drawing.pickHitMm);
+  });
+});
+
+describe("vertexPaintMm", () => {
+  it("paints the usual square wherever the grab is unconstrained", () => {
+    expect(vertexPaintMm(drawing.pickHitMm)).toBe(drawing.vertexHandleMm);
+  });
+
+  it("never paints a handle larger than the region that can be hit", () => {
+    // A control drawn bigger than its hit box is the same defect class as one
+    // with no box at all: what you see stops being what you can click.
+    for (const len of [0.4, 1, 2, 4, 40]) {
+      const grab = vertexGrabMm(len);
+      expect(vertexPaintMm(grab)).toBeLessThanOrEqual(grab);
+    }
   });
 });

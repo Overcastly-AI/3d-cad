@@ -26,6 +26,29 @@ interface CommandActionState {
    */
   okReady: boolean;
   setOkReady: (ready: boolean) => void;
+  /**
+   * The feature ids the OPEN command will act on, published by the editor that
+   * owns the choice, so the tree and the timeline can mark them (REACH-2-FLOW
+   * P1-2: the pattern editor named `HOLE1` and nothing in the frame echoed it,
+   * on a part with two visually identical holes).
+   *
+   * Empty for a whole-body command and for every editor with no subject to
+   * name, which is most of them — so the mark stays rare, and legible.
+   *
+   * It is DERIVED from the editor's live form state rather than from the tree
+   * selection, and that difference is the point: the scope row is a two-state
+   * toggle the user can flip mid-command, so a selection-driven mark would keep
+   * pointing at `Hole1` after they chose `This body` — chrome stating something
+   * the command will not do. It also covers a case selection cannot: an editor
+   * seeded from the TIP feature has a subject while nothing at all is selected.
+   */
+  scopedFeatureIds: readonly string[];
+  setScopedFeatures: (ids: readonly string[]) => void;
+}
+
+/** Same members, same order — so re-publishing an unchanged scope is a no-op. */
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
 }
 
 export const useCommandActionStore = create<CommandActionState>((set, get) => ({
@@ -34,6 +57,11 @@ export const useCommandActionStore = create<CommandActionState>((set, get) => ({
   okReady: false,
   setOkReady: (ready) =>
     set((state) => (state.okReady === ready ? state : { okReady: ready })),
+  scopedFeatureIds: [],
+  setScopedFeatures: (ids) =>
+    set((state) =>
+      sameIds(state.scopedFeatureIds, ids) ? state : { scopedFeatureIds: ids },
+    ),
 }));
 
 /**
@@ -64,4 +92,25 @@ export function useCommandBridge(submit: () => void, ready: boolean): void {
   // cell falsely enabled on the next open (reset runs only on unmount —
   // `setOkReady` is a stable store setter).
   useEffect(() => () => setOkReady(false), [setOkReady]);
+}
+
+/**
+ * Publish what the open command acts on, for as long as it is open.
+ *
+ * Lives beside `useCommandBridge` because it is the same seam pointed the other
+ * way: the bridge carries the band's OK INTO the editor, this carries the
+ * editor's subject OUT to the tree and the timeline. Both clear on unmount, so
+ * a closed command can never leave a stale mark on the tree — which would make
+ * the mark worse than no mark at all.
+ */
+export function usePublishedScope(featureIds: readonly string[]): void {
+  const setScopedFeatures = useCommandActionStore((s) => s.setScopedFeatures);
+  // The array identity changes on nearly every render at the call site (it is
+  // mapped from form state), so the effect keys on the CONTENT, not the
+  // reference — otherwise it would re-publish forever.
+  const key = featureIds.join(" ");
+  useEffect(() => {
+    setScopedFeatures(key === "" ? [] : key.split(" "));
+  }, [key, setScopedFeatures]);
+  useEffect(() => () => setScopedFeatures([]), [setScopedFeatures]);
 }

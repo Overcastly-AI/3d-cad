@@ -2,10 +2,10 @@
  * The drawing command band — the full-width surface under the brand bar, the
  * sibling of the assembly command band. It carries the ONE signature action of
  * this workspace: drop the standard four views (front / top / right + iso) onto
- * the sheet. The reference part and scale are chosen here before layout; after
- * layout they become live readouts and the action re-projects the part against
- * its current tip (functional, never decorative — design mandate 3a). Chrome
- * recedes; the sheet is the hero.
+ * the sheet. The SOURCE — a part or an assembly — and the scale are chosen here
+ * before layout; after layout they become live readouts and the action
+ * re-projects that source against its current tip (functional, never
+ * decorative — design mandate 3a). Chrome recedes; the sheet is the hero.
  */
 import {
   FlatPatternIcon,
@@ -17,29 +17,65 @@ import {
   ToolGroup,
 } from "@loft/design";
 
-import type { PartResponse } from "../api/parts";
 import {
   SCALE_OPTIONS,
-  SHEET_SIZE_OPTIONS,
   sheetSizeLabel,
+  sheetSizeOptions,
 } from "../drawing/layout";
-import type { SheetSize } from "../api/drawings";
+import {
+  SOURCE_GROUP_LABEL,
+  SOURCE_KIND_LABEL,
+  type DrawingSourceOption,
+} from "../drawing/source";
+import type {
+  RefDocumentKind,
+  SheetResponse,
+  SheetSize,
+} from "../api/drawings";
+
+type SheetOrientation = SheetResponse["orientation"];
 
 export interface DrawingCommandBandProps {
-  parts: readonly PartResponse[];
-  selectedPartId: string | null;
-  onSelectPart: (partId: string) => void;
+  /**
+   * What this sheet can draft — parts AND assemblies (§7). One picker over both
+   * registers, grouped by kind; the value is the bare document id (see
+   * `drawing/source.ts` for why it is never a `kind:id` composite).
+   */
+  sources: readonly DrawingSourceOption[];
+  selectedSourceId: string | null;
+  onSelectSource: (sourceId: string) => void;
+  /**
+   * The kind of the chosen (pre-layout) or drafted (post-layout) source. Flat
+   * pattern and section are PART verbs — an unfold and a datum-plane cut are
+   * statements about one body — so they stay honestly disabled, with the
+   * reason, on an assembly sheet rather than failing at the server.
+   */
+  sourceKind: RefDocumentKind;
   scaleValue: string;
   onSelectScale: (value: string) => void;
   /** The chosen sheet size before layout; the persisted sheet's size after. */
   sizeValue: SheetSize;
   onSelectSize: (value: SheetSize) => void;
+  /**
+   * The paper the next layout will actually make — the content-led proposal
+   * before layout, the persisted sheet's own orientation after. The size picker
+   * states THIS paper's extents (REACH-3-FLOW): "A4 · 297 × 210 mm" beside a
+   * proposal about to make a 210 × 297 sheet names the wrong paper at the
+   * moment the user is choosing it.
+   */
+  paperOrientation: SheetOrientation;
+  /**
+   * The scale that paper earns for the chosen source, or null when nothing was
+   * measured. Engraved on the layout tool's caption so the proposal is legible
+   * BEFORE the click, not discovered after it.
+   */
+  paperScale: string | null;
   /** True once the standard views have been laid out on the sheet. */
   hasLayout: boolean;
   /** True when the laid-out sheet is a flat-pattern (sheet-metal) sheet. */
   isFlatPattern?: boolean;
-  /** Name of the part the sheet drafts (shown as a readout after layout). */
-  draftedPartName: string | null;
+  /** Name of the part/assembly the sheet drafts (a readout after layout). */
+  draftedSourceName: string | null;
   onLayout: () => void;
   /** Unfold the selected part's flat pattern onto a lone-view sheet (§7). */
   onFlatPattern: () => void;
@@ -60,16 +96,19 @@ export interface DrawingCommandBandProps {
 }
 
 export function DrawingCommandBand({
-  parts,
-  selectedPartId,
-  onSelectPart,
+  sources,
+  selectedSourceId,
+  onSelectSource,
+  sourceKind,
   scaleValue,
   onSelectScale,
   sizeValue,
   onSelectSize,
+  paperOrientation,
+  paperScale,
   hasLayout,
   isFlatPattern = false,
-  draftedPartName,
+  draftedSourceName,
   onLayout,
   onFlatPattern,
   onToggleSection,
@@ -81,46 +120,66 @@ export function DrawingCommandBand({
   exporting,
   busy,
 }: DrawingCommandBandProps) {
-  const noParts = parts.length === 0;
-  const partOptions = parts.map((part) => ({
-    value: part.id,
-    label: part.name,
+  const noSources = sources.length === 0;
+  // Grouped so the cell says WHICH REGISTER a name comes from — two documents
+  // can share a name across the parts and assemblies registers, and "Gearbox"
+  // alone cannot tell you which one this sheet will project.
+  const sourceOptions = sources.map((source) => ({
+    value: source.id,
+    label: source.name,
+    group: SOURCE_GROUP_LABEL[source.kind],
   }));
   const scaleOptions = SCALE_OPTIONS.map((s) => ({
     value: s.value,
     label: s.label,
   }));
-  const sizeOptions = SHEET_SIZE_OPTIONS.map((s) => ({
+  const sizeOptions = sheetSizeOptions(paperOrientation).map((s) => ({
     value: s.value,
     label: s.label,
   }));
-  const canLayout = !hasLayout && selectedPartId !== null && !busy;
+  // What the signature action is about to make, in the words the sheet header
+  // will then read back. Portrait only ever appears because the SOURCE argued
+  // for it, so naming it here is the proposal being visible from the state the
+  // user is in — not a decoration (mandate 3a).
+  const paperNote = `${sheetSizeLabel(sizeValue)} ${paperOrientation}${
+    paperScale === null ? "" : ` at ${paperScale}`
+  }`;
+  const canLayout = !hasLayout && selectedSourceId !== null && !busy;
   const layoutReason = hasLayout
     ? "Views already laid out"
-    : noParts
-      ? "Create a part first"
-      : selectedPartId === null
-        ? "Choose a part first"
+    : noSources
+      ? "Create a part or assembly first"
+      : selectedSourceId === null
+        ? "Choose a source first"
         : undefined;
+  // An assembly source keeps Lay out; it loses the two part-only verbs, and
+  // says so where the user is about to reach for them.
+  const partOnlyReason =
+    layoutReason ??
+    (sourceKind === "assembly" ? "Choose a part source" : undefined);
+  const canPartOnly = canLayout && sourceKind === "part";
 
   return (
     <div className="flex items-stretch divide-x divide-hairline">
       <div className="flex items-center gap-3 px-3">
         {hasLayout ? (
           <Readout
-            label="Part"
-            value={draftedPartName ?? "—"}
+            label={SOURCE_KIND_LABEL[sourceKind]}
+            value={draftedSourceName ?? "—"}
             testId="drawing-part-readout"
           />
         ) : (
+          // The testid stays `drawing-part-select` — the cell WIDENED from
+          // parts to every source a view can reference, and renaming the hook
+          // would have broken twenty green specs to say the same thing.
           <SelectField
-            label="Part"
-            options={partOptions}
-            value={selectedPartId ?? ""}
-            disabled={noParts || busy}
+            label="Source"
+            options={sourceOptions}
+            value={selectedSourceId ?? ""}
+            disabled={noSources || busy}
             data-testid="drawing-part-select"
             className="w-[11rem]"
-            onChange={(event) => onSelectPart(event.currentTarget.value)}
+            onChange={(event) => onSelectSource(event.currentTarget.value)}
           />
         )}
         {hasLayout ? (
@@ -188,9 +247,12 @@ export function DrawingCommandBand({
               disabled={!canLayout}
               caption={
                 layoutReason ??
-                (busy ? "Projecting…" : "Front · Top · Right · Iso")
+                (busy
+                  ? "Projecting…"
+                  : `Front · Top · Right · Iso — on ${paperNote}`)
               }
               data-testid="drawing-autolayout"
+              data-paper={`${paperOrientation}${paperScale === null ? "" : ` ${paperScale}`}`}
               onClick={onLayout}
             />
             <ToolButton
@@ -198,9 +260,9 @@ export function DrawingCommandBand({
               label="Flat pattern"
               showLabel
               shortcut="F"
-              disabled={!canLayout}
+              disabled={!canPartOnly}
               caption={
-                layoutReason ??
+                partOnlyReason ??
                 (busy ? "Unfolding…" : "Unfold a sheet-metal blank")
               }
               data-testid="drawing-flat-pattern"
@@ -212,9 +274,9 @@ export function DrawingCommandBand({
               showLabel
               shortcut="S"
               active={sectionOpen}
-              disabled={!canLayout}
+              disabled={!canPartOnly}
               caption={
-                layoutReason ?? (busy ? "Cutting…" : "Cut on a datum plane")
+                partOnlyReason ?? (busy ? "Cutting…" : "Cut on a datum plane")
               }
               data-testid="drawing-section"
               onClick={onToggleSection}

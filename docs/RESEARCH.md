@@ -198,6 +198,89 @@ identical answers up to 24 entities, all 207 SOLVE-1/SETTLE-2/SETTLE-3 tests
 green, and a `sketch_solve` benchmark group at 48 and 96 lines because the
 correctness corpus tops out at twelve — which is why nobody saw this.
 
+**planegcs's radius is a SIGNED parameter and the DTO's is a magnitude, and
+conflating the two produced an untyped 500 on 0.6 % of authorable sketches**
+(SOLVE-CRASH-1, 2026-08-29). `SketchCircle.radius` is `gt=0`; nothing constrains
+planegcs to keep its radius parameter positive; `read_back()` therefore built a
+DTO the DTO refuses and a `pydantic.ValidationError` escaped the feature
+evaluator. Measured by the PBT-1 sweep at **12 of 2000** generated sketches —
+tangent + concentric + equal on two circles is enough. **The twelve are two
+defects wanting opposite answers, and one rule for all of them would have been
+wrong either way.** Three had a NEGATIVE radius of real magnitude, which is not
+a degenerate circle at all: planegcs reads the sign as a choice of tangency
+branch (`tangent_circle_circle` is `d - (r1 + r2)`, so `r2 < 0` is the INTERNAL
+tangency of a circle of radius `|r2|`), and with `abs` applied all three come
+back as ordinary solves with a worst residual of **1.8e-13 mm** — a
+positive-radius solution existed and the solver had found it, so refusing those
+would have made legal models unbuildable with nothing telling the user why. The
+other nine were annihilated, nearly all one shape: a `tangent` between a line
+and a circle whose centre another constraint puts ON that line, where `r = 0` is
+the unique solution and there is no positive-radius answer to find. So `abs` is
+applied as a de-parameterisation (not a correction), and a radius the solve has
+annihilated returns the author's
+own value from `read_back` — geometry that then fails its own tangency residual
+by the whole radius, which the EXISTING payload gate reclassifies as the
+conflict it is, with the offending constraint NAMED in
+`conflicting_constraints`. Nothing new decides the outcome: a solve outcome
+belongs in `status` (the `SketchSolver` contract reserves exceptions for
+malformed input), and `conflicting` already means "your constraints cannot be
+satisfied", already returns the input untouched, and keeps the sketch editable
+instead of dead-ending on a 500.
+
+**The threshold is a MAGNITUDE test (`DEGENERATE_RADIUS_MM = 1e-9`, the same
+number and role as `sketch/edit.py`'s collapsed-radius test behind
+`sketch_degenerate_result`), NOT the DTO's own `> 0` — because the crash was
+only the loud half.** The nine annihilated circles straddle zero by float noise
+(seven at exactly `0.0`, two at `1.5e-15` / `1.9e-15` mm), and two MORE were
+already shipping under `status="underconstrained"` with an empty conflict list
+at `2.7e-15` and `8.9e-16` mm, purely because the last DogLeg iterate landed on
+the positive side; every property in the sweep agreed with them, since the
+residual of a tangency to a point-sized circle centred on the line is exactly
+zero. Deferring to `gt=0` stops the crash and ships `radius=2.27e-16` (measured on the
+annihilated-circle fixture) — the crash traded for a lie. Net over the corpus:
+crashes 12 -> **0**, solvable 1327 -> 1328, conflicting 276 -> 287, violated
+still 0.
+
+**The same collapse on an ARC had no loud half at all, shipped 27 payloads of
+absent geometry, and needed a WIDER floor than the circle's**
+(ARC-DEGENERATE-1, 2026-08-29). A `SketchArc` carries `center`/`start`/`end` and
+DERIVES its radius, so there is no `gt=0` field to refuse an annihilated one: the
+DTO is valid, and — the reason no gate saw it — the residual is **zero**, because
+a constraint satisfied by putting a point on a point is satisfied exactly. The
+same PBT-1 corpus shipped **27 arcs collapsed onto their own centre**, 25 under
+`overconstrained` and 2 under `underconstrained`, all at 4e-14 mm or less. What
+pointed at it was an ASYMMETRY, not a failure: `_add_entity` refuses that exact
+shape on INPUT, so the solver refused to accept what it would happily emit. The
+prior question SOLVE-CRASH-1 turned on was re-asked and measured — pin a radius
+any real solution could reach, and re-solve from eight pushed configurations —
+and here the answer is **26 forced, 1 branch**: sixteen of the 26 minimise to a
+SINGLE `coincident` between an arc's own centre and its own endpoint, which is
+literally the refused input shape authored as a constraint. The fix is the
+circle's, with no new machinery: `_shippable_arc_points` returns the author's own
+arc translated to the solved centre, which fails the very constraint that
+annihilated it, and the existing payload gate reclassifies it as
+`sketch_conflicting` with that constraint NAMED.
+
+**The arc's floor is `SATISFIED_TOL_MM` (1e-7 mm), NOT the circle's 1e-9, and the
+reason generalises past this ticket.** A circle's radius is the solver's own
+PARAMETER — a constraint annihilating it sets it to `0.0`. An arc's is a DERIVED
+distance between two independently-solved points, so it carries DogLeg's
+convergence residue rather than float noise. Every arc in the corpus sat at or
+below 4e-14 mm, so 1e-9 looked like five orders of headroom; it was not, because
+**the fix itself moved the population**: with the substitution in place the
+settle correctly stops holding anything on such a sketch, and the settle had been
+what drove trial 458's arc from the raw solve's **4.5e-9 mm** down to `0.0`. Set
+at 1e-9 the fix therefore shipped one case it had created. The rule to carry: **a
+tolerance measured from a population the fix perturbs must be re-measured AFTER
+the fix.** Headroom is unaffected — the smallest real arc in the corpus is
+0.71 mm and the kernel's own linear tolerance is 1e-4 mm, so nothing legitimate
+lives in the band. Net over the corpus: annihilated arcs 27 -> **0**, conflicting
+287 -> 314, overconstrained 282 -> 257, solvable 1328 -> 1326, violated still 0.
+**One recorded live limit remains and is deliberate:** trial 1906's tangency
+admits `r2 = 2*r1` as well as `r2 = 0`, so that sketch is SOLVABLE and now gets
+`conflicting` — wrong, but less wrong than shipping a void, and choosing the
+branch is a solver change (ARC-BRANCH-1), not a payload gate.
+
 **Spline FIT POINTS are constrainable (v1.1, 2026-07-15); the spline CURVE is
 not.** planegcs still has no spline primitive, so the curve carries no
 tangent/curvature constraints. What v1.1 adds is that each fit point is
@@ -391,6 +474,18 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   in docs/GEOMETRY-QA.md 2026-07-30). Same posture as
   `removal_reaches_body`: one predicate, asked by every verb that can produce
   the condition, never re-implemented per verb.
+  **And a verb whose own PARAMETERS determine the degeneracy refuses it in
+  advance rather than detecting it afterwards** (HEM-1, 2026-08-28). The
+  sheet-metal hem is the first case: its fold puts the two layers exactly
+  `2 * bend_radius` apart, so a sub-tolerance gap is arithmetic on an input, not
+  a discovery about an output. It used to be neither — the fold path did not ask
+  the predicate at all, so `bend_radius_mm = 1e-6` shipped a BRepCheck-VALID
+  solid carrying 300 mm² of coincident face with `status: ok` (recorded as a live
+  limit in `test_degenerate.py`, now promoted to the guard it documented). The
+  hem now refuses it as a typed `hem_gap_degenerate` before the fuse. The
+  predicate remains the one shared *definition* of the condition — the arithmetic
+  check is that definition applied to a case where the answer is knowable early,
+  not a second implementation of it.
 - **A SIMPLIFICATION may not change material, and no body reaches the user
   unchecked.** The third posture in the same family, and the one that closes it
   (finding CM-6 / QA-1, decision + evidence in docs/GEOMETRY-QA.md 2026-07-30).
@@ -432,11 +527,25 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   the EXPORT request only, never an evaluate request: a name must not be an input
   to geometry (finding N4).
 - **Export byte-determinism:** identical requests → byte-identical files in
-  every format. STEP's `FILE_NAME` creation timestamp — the one nondeterministic
-  byte range OCCT writes — is pinned kernel-side
-  (`geometry.kernel.export.STEP_EXPORT_TIMESTAMP`; decision + evidence in
-  docs/GEOMETRY-QA.md 2026-07-10). **3MF** (added EXPORT-2, 2026-08-17) is the
-  same shape of problem with a different clock: lib3mf stamps a fresh random
+  every format, **in one process as well as across a worker restart** — the
+  same-process case being the one that matters here, since every counter below
+  resets at an interpreter boundary and a fresh-process comparison would pass
+  while the property is false. STEP's `FILE_NAME` creation timestamp is pinned
+  kernel-side (`geometry.kernel.export.STEP_EXPORT_TIMESTAMP`; decision +
+  evidence in docs/GEOMETRY-QA.md 2026-07-10). It is **not** the only such byte
+  range, and this bullet said it was until STEPDET-1 (2026-08-29): the ASSEMBLY
+  writer additionally fills two labels from PROCESS-GLOBAL counters — the
+  `NEXT_ASSEMBLY_USAGE_OCCURRENCE` id, and the PRODUCT id/name of the extra
+  assembly level OCCT interposes around a MULTI-BODY component
+  (`'Open CASCADE STEP translator <ver> N.M.K'`). `_canonicalise_writer_counters`
+  renumbers both to appearance order; both are arbitrary labels, since STEP
+  cross-references use `#N` entity ids. The second went a month unnoticed because
+  every assembly golden was a single-`Solid` part, so no fixture reached the code
+  path and the determinism gates could not fail — the fixture, not the fix, is
+  what makes the guarantee checkable (`goldens-assembly/assembly-two-multibody-
+  brackets`; evidence in docs/GEOMETRY-QA.md 2026-08-29).
+  **3MF** (added EXPORT-2, 2026-08-17) is the same shape of problem with a
+  different clock: lib3mf stamps a fresh random
   production-extension UUID on every object, component, build item and the build
   itself — five per write, which also shifts the compressed length — so
   `_canonicalise_3mf_ids` derives them from `THREE_MF_UUID_NAMESPACE` instead. A

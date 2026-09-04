@@ -2330,38 +2330,182 @@ class SheetMetalEdgeFlangeParamsV1(BaseModel):
     )
 
 
-# --- Sheet-metal hem — a ~180 deg fold-back of an edge (v1: CLOSED) ---------------
+# --- Sheet-metal hem — a ~180 deg fold-back of an edge (CLOSED / OPEN) ------------
 #
 # A HEM folds the sheet's edge ~180 deg back onto itself, forming a doubled, safe
 # edge (the incumbents' Hem tool — SolidWorks/Fusion). It is the near-trivial win
 # of the parity roadmap (docs/design/sheet-metal-parity.md §2 Hem row / Parity
-# roadmap #3): a CLOSED hem is mechanically a SPECIALIZATION of the shipped edge
-# flange — a fixed 180 deg fold with a small inner radius, folding the return flat
-# back over the parent face. Verified geometrically (kernel-architect, 2026-07-19):
-# `build_edge_flange` at `bend_angle_deg = 180` with a small radius produces ONE
-# clean valid solid (the return sits 2*radius above the base with an air gap, so
-# it CANNOT self-intersect — proven down to radius 1e-6), and the shipped
+# roadmap #3): a hem is mechanically a SPECIALIZATION of the shipped edge flange —
+# a fixed 180 deg fold, folding the return back over the parent face. Verified
+# geometrically (kernel-architect, 2026-07-19): `build_edge_flange` at
+# `bend_angle_deg = 180` produces ONE clean valid solid, and the shipped
 # `unfold_sheet_metal` develops it correctly as a bend at pi (BA = pi * (radius +
-# K * thickness)). So a closed hem REUSES `build_edge_flange`'s bend machinery
-# verbatim (bend_angle fixed at 180) — no new kernel geometry code, no new unfold.
+# K * thickness)). So a hem REUSES `build_edge_flange`'s bend machinery verbatim
+# (bend_angle fixed at 180) — no new kernel geometry code, no new unfold.
 #
 # It is a DISTINCT feature type (not a `hem_type` flag on the edge flange) for the
 # same reasons the edge flange is distinct from a raw sweep (§4.2), plus one more:
 # a hem's authoring gesture NEVER sets a fold angle (it is always ~180) — the user
-# picks an edge + a return length, exactly the incumbent Hem tool. `hem_type`
-# forward-declares the four incumbent hem shapes; v1 ships `"closed"` only (open /
-# teardrop / rolled each need a NEW curved cross-section profile the exact-
-# cross-section extrude does not build, so they are separate fast-follow slices —
-# parity §2). Additive: a new `hem_type` Literal member lands with NO param_version
-# bump.
+# picks an edge + a return length, exactly the incumbent Hem tool.
+#
+# --- THE HEM RADIUS RULE (HEM-1, 2026-08-28) --------------------------------------
+#
+# **A hem's inner bend radius is a function of its TYPE and the part's GAUGE — never
+# of the part's general base-flange bend radius.** The base-flange radius describes
+# a FREE-STANDING bend formed in a die; a hem is a fold-back whose radius IS its
+# defining dimension, because the fold's cross-section makes the air gap between the
+# two layers exactly `2 * bend_radius` (measured, `edge_flange.build_edge_flange`'s
+# cross-section at theta = pi: the return's inner face lands at `b = 2r`).
+#
+# Inheriting the general radius is what shipped HEM-1: a `hem_type="closed"` hem on
+# 2 mm sheet with a 3 mm part radius built a **6.00 mm air gap** — three gauges of
+# air — under a label, a help text and a readout that all said "closed". Every gate
+# passed: the feature built, the status was `ok`, the label was right. That is wrong
+# geometry asserted to be correct, which this repo ranks above any missing feature.
+#
+# The rule, which follows from parity §2's own cited definitions of the four
+# incumbent hem shapes (a CLOSED hem is "bent 180 deg flat against the parent, ZERO
+# inside radius"; an OPEN hem is the one with the deliberate "air gap"):
+#
+#   | hem_type   | definition (parity §2)              | inner radius R   | gap=2R |
+#   |------------|-------------------------------------|------------------|--------|
+#   | `closed`   | pressed flat against the parent     | 0.05 * thickness | 0.1 t  |
+#   | `open`     | folded back, deliberate air gap     | 0.50 * thickness | 1.0 t  |
+#   | `teardrop` | >180 deg wrap, mouth narrower than ID| not representable|   -    |
+#   | `rolled`   | full curl                           | not representable|   -    |
+#
+# CLOSED — why not zero, and why 0.05 * t. Zero is the physical ideal and is NOT
+# buildable, measured three ways on the 50x20x2 plate:
+#   * `r = 0` exactly -> OCCT `StdFail_NotDone` (the inner arc's three points
+#     coincide), surfacing as the typed `edge_flange_failed`;
+#   * `r <= 1e-7` -> `NoBendFoundError`: the fold fuses to one valid solid but
+#     leaves no findable bend cylinder, so there is no bend provenance and the part
+#     has no flat pattern — a sheet-metal part that cannot be unfolded is not a
+#     sheet-metal part;
+#   * `r = 1e-6` / `1e-5` (gap 2e-6 / 2e-5 mm) -> the body BUILDS and
+#     `geometry.kernel.degenerate.find_zero_width_slits` reports **1 slit**: below
+#     the kernel's own linear tolerance (`KERNEL_LINEAR_TOL_MM = 1e-4` mm) the two
+#     layers are the SAME PLACE as far as this kernel is concerned, i.e. exactly the
+#     degeneracy RESEARCH §9 says to REFUSE rather than ship. The slit disappears at
+#     gap 1e-4 mm, the tolerance itself.
+# So a closed hem is modelled at the RESIDUAL opening a flattening press leaves, not
+# at zero. Hem practice sizes every hem feature in multiples of gauge (an open hem's
+# inside diameter >= 1 t; a teardrop's mouth >= 0.25 t), so gauge is the unit:
+# `0.05 * t` gives a gap of a TENTH of a gauge — 0.15 mm at our thinnest shipped
+# gauge (1.5 mm), which is 1500x the kernel tolerance and 3 orders clear of the slit
+# floor, while being 0.05 % of the 300 mm panel it sits on. It is the tightest gap
+# that is unambiguously material-in-contact to a reader and unambiguously NOT a
+# degeneracy to the kernel.
+#
+# OPEN — the shape the defect was actually building. `0.5 * t` puts the inside
+# DIAMETER at exactly one gauge, the standard minimum opening for an open hem, so
+# the previously-shipped hems (a 1.0 mm radius on 1.5-2.0 mm gauge) are honest OPEN
+# hems and keep byte-identical geometry under the right name.
+#
+# TEARDROP / ROLLED are deliberately NOT `hem_type` members: both need a fold that
+# wraps PAST 180 deg (a mouth narrower than the bore), which the exact-cross-section
+# extrude does not build. Naming them in the Literal would be the same defect this
+# rule exists to remove — a label the geometry cannot honour. A request naming them
+# fails schema validation, which is the honest refusal.
+#
+# `bend_radius_mm` is HONOURED WHEN SET, NEVER INHERITED, AND REFUSED WHEN IT
+# CONTRADICTS THE TYPE (`resolve_hem_bend_radius_mm`). Silently ignoring it would be
+# the `extra="ignore"` defect class (CLAUDE.md: a payload that misspells a field
+# validates, evaluates and gives the old reading); silently clamping it would be the
+# same lie in the other direction. Refusal is the only option under which the label,
+# the number and the solid can never disagree, and the API says so with a typed
+# feature error naming the fix. The guard is SYMMETRIC — a "closed" hem with an
+# open-hem radius and an "open" hem with a closed-hem radius are both refused —
+# because CLAUDE.md's own lesson from the staging tool is that a guard written
+# against one failure tends to encode that failure's DIRECTION.
+#
+# Additive: a new `hem_type` Literal member lands with NO param_version bump.
+
+#: Inner bend radius of a CLOSED hem as a multiple of gauge (air gap = 2x this, so
+#: a tenth of a gauge). A closed hem's physical ideal is ZERO inside radius (parity
+#: §2); zero is unbuildable and any gap below the kernel's 1e-4 mm linear tolerance
+#: is a zero-width slit RESEARCH §9 refuses, so this is the RESIDUAL opening of a
+#: flattened fold. Derivation + the three measurements that bound it: the block
+#: comment above. Pinned here so the schema, the evaluator and the goldens' hand
+#: derivation share ONE source (CLAUDE.md DRY rule).
+HEM_CLOSED_RADIUS_RATIO = 0.05
+
+#: The closed/open BOUNDARY, as a multiple of gauge. A `closed` hem refuses a
+#: `bend_radius_mm` ABOVE this (gap > 0.25 t is a deliberate opening, not a
+#: flattened fold — 0.25 t is the smallest opening hem practice names anywhere, the
+#: teardrop mouth minimum); an `open` hem refuses one BELOW it. The boundary belongs
+#: to both, so the two ranges partition the line with no gap and no overlap.
+HEM_CLOSED_MAX_RADIUS_RATIO = 0.125
+
+#: Inner bend radius of an OPEN hem as a multiple of gauge: 0.5 t puts the inside
+#: DIAMETER at one gauge — the standard minimum opening for an open hem — so the
+#: gap reads one full gauge, plainly an opening.
+HEM_OPEN_RADIUS_RATIO = 0.5
+
+
+class HemRadiusError(ValueError):
+    """A hem's ``bend_radius_mm`` contradicts its declared ``hem_type``.
+
+    Raised by :func:`resolve_hem_bend_radius_mm`. The geometry service maps it to a
+    typed ``hem_type_radius_conflict`` feature error; the message names the fix
+    (which ``hem_type`` the requested radius actually describes).
+    """
+
+
+def resolve_hem_bend_radius_mm(
+    hem_type: str, thickness_mm: float, override_mm: float | None = None
+) -> float:
+    """The inner bend radius a hem folds at — from its TYPE and the part's GAUGE.
+
+    This is the whole of the HEM-1 rule (block comment above), in one place so the
+    schema default, the evaluator and any later authoring UI cannot drift apart.
+
+    *override_mm* (the user's ``bend_radius_mm``) is HONOURED when it is consistent
+    with *hem_type* and REFUSED when it is not — never inherited from the part's
+    base flange, and never silently ignored or clamped. Omitted, the radius is
+    ``HEM_CLOSED_RADIUS_RATIO * thickness`` for a closed hem and
+    ``HEM_OPEN_RADIUS_RATIO * thickness`` for an open one.
+
+    Raises:
+        HemRadiusError: *override_mm* describes the other hem type (its message
+            names which), or *hem_type* is not a value this rule covers.
+    """
+    boundary = HEM_CLOSED_MAX_RADIUS_RATIO * thickness_mm
+    if hem_type == "closed":
+        if override_mm is None:
+            return HEM_CLOSED_RADIUS_RATIO * thickness_mm
+        if override_mm > boundary:
+            raise HemRadiusError(
+                f"A closed hem is pressed flat against the parent face, so its "
+                f"layers must very nearly touch; a {override_mm:g} mm inner radius "
+                f"leaves a {2 * override_mm:g} mm air gap on {thickness_mm:g} mm "
+                f"sheet, which is an OPEN hem. Use hem_type='open' to keep that "
+                f"gap, or a radius of at most {boundary:g} mm (the default is "
+                f"{HEM_CLOSED_RADIUS_RATIO * thickness_mm:g} mm) for a closed hem."
+            )
+        return override_mm
+    if hem_type == "open":
+        if override_mm is None:
+            return HEM_OPEN_RADIUS_RATIO * thickness_mm
+        if override_mm < boundary:
+            raise HemRadiusError(
+                f"An open hem folds back leaving a deliberate air gap; a "
+                f"{override_mm:g} mm inner radius leaves only "
+                f"{2 * override_mm:g} mm on {thickness_mm:g} mm sheet, which is a "
+                f"CLOSED hem. Use hem_type='closed' for a flattened fold, or a "
+                f"radius of at least {boundary:g} mm (the default is "
+                f"{HEM_OPEN_RADIUS_RATIO * thickness_mm:g} mm) for an open hem."
+            )
+        return override_mm
+    raise HemRadiusError(  # pragma: no cover - the Literal admits no other value
+        f"Unknown hem_type {hem_type!r}; this build folds 'closed' and 'open' hems."
+    )
 
 
 class SheetMetalHemParamsV1(BaseModel):
-    """A hem folded off a straight edge of the sheet — v1 CLOSED hem (parity §2).
+    """A hem folded off a straight edge of the sheet — closed or open (parity §2).
 
-    A closed hem folds the picked edge ~180 deg back FLAT against the parent face,
-    with a small inner ``bend_radius_mm`` giving the doubled edge its tight,
-    near-zero air gap (the gap between the two layers is ~2 * bend_radius). It is a
+    A hem folds the picked edge ~180 deg back over the parent face. It is a
     specialization of the edge flange: the geometry side reuses ``build_edge_flange``
     with the fold angle FIXED at 180 deg, so the fused body is one clean solid and
     the flat pattern develops it as any bend (``BA = pi * (radius + K * thickness)``,
@@ -2372,14 +2516,26 @@ class SheetMetalHemParamsV1(BaseModel):
     pick uses (topological-naming §10); its ``feature_id`` materialises the
     dependency on the base-flange feature. ``length_mm`` is the developed flat
     length of the folded-back return (to the bend tangent line, §9 golden #1's
-    convention). ``bend_radius_mm`` / ``k_factor`` default from the part's base
-    flange (:class:`SheetMetalBaseFlangeParamsV1`) when omitted (``None``) and may
-    be OVERRIDDEN per-hem — a tight closed hem sets a SMALL radius (e.g. ~0.5 *
-    thickness) rather than the part's general bend radius.
+    convention).
 
-    A ZERO ``bend_radius_mm`` (a truly zero-gap / zero-radius closed hem) is a
-    degenerate fold; the ``gt=0`` bound rejects it as a typed validation error
-    rather than admitting a degenerate solid (honest degradation — parity §3).
+    **THE RADIUS COMES FROM THE HEM TYPE AND THE GAUGE, NOT FROM THE PART'S GENERAL
+    BEND RADIUS** (HEM-1; :func:`resolve_hem_bend_radius_mm` and the block comment
+    above are the rule and its derivation). The fold's cross-section makes the air
+    gap between the two layers exactly ``2 * bend_radius``, so the radius IS the
+    hem's defining dimension: a ``closed`` hem is pressed flat (gap 0.1 * gauge —
+    the residual of a flattening press; true zero is not buildable) and an ``open``
+    hem leaves a deliberate opening (gap one gauge — inside diameter = gauge, the
+    standard minimum). ``bend_radius_mm`` overrides that per-hem, but a value that
+    describes the OTHER hem type is REFUSED with a typed error naming the fix,
+    rather than silently building a hem the label misdescribes.
+
+    ``k_factor`` still defaults from the part's base flange when omitted (``None``):
+    K is a MATERIAL property (where the neutral surface sits), so unlike the radius
+    it is genuinely a part-level default the hem inherits.
+
+    A ZERO ``bend_radius_mm`` is a degenerate fold; the ``gt=0`` bound rejects it as
+    a typed validation error rather than admitting a degenerate solid (honest
+    degradation — parity §3).
 
     Like a fillet/shell it MODIFIES the implicit single body chain (design §7.6) —
     it carries no ``merge`` (it always fuses into the sheet body the edge belongs
@@ -2391,12 +2547,17 @@ class SheetMetalHemParamsV1(BaseModel):
         "reference resolved against the current sheet body). The return folds ~180 "
         "deg back over this edge's adjacent flat face."
     )
-    hem_type: Literal["closed"] = Field(
+    hem_type: Literal["closed", "open"] = Field(
         default="closed",
-        description="Hem shape. v1 ships 'closed' only (the return folds flat back "
-        "against the parent — parity §2). Open / teardrop / rolled hems each need a "
-        "curved cross-section profile and are deferred (additive Literal members, "
-        "no param_version bump). Absent reads 'closed'.",
+        description="Hem shape, which DETERMINES the fold's inner radius from the "
+        "part's gauge (the air gap between the two layers is exactly 2 x that "
+        "radius). 'closed' presses the return flat against the parent (gap 0.1 x "
+        "gauge — the residual of a flattening press; a true zero radius is not "
+        "buildable); 'open' leaves a deliberate opening (gap 1 x gauge, i.e. inside "
+        "diameter = gauge, the standard minimum). Teardrop and rolled hems wrap PAST "
+        "180 deg and are not representable by this fold, so they are deliberately "
+        "not values here (additive Literal members if that changes, no "
+        "param_version bump). Absent reads 'closed'.",
     )
     length_mm: float = Field(
         gt=0,
@@ -2407,10 +2568,15 @@ class SheetMetalHemParamsV1(BaseModel):
         default=None,
         gt=0,
         description="INNER bend radius (mm) of the hem fold; the layers' air gap is "
-        "~2 * this. Omitted (None) inherits the part's base-flange default "
-        "`bend_radius_mm`; a value overrides it per-hem. A tight closed hem uses a "
-        "SMALL radius (~0.5 * thickness). A zero radius (zero-gap degenerate fold) "
-        "is rejected by the `gt=0` bound.",
+        "exactly 2 x this. Omitted (None) is derived from `hem_type` and the part's "
+        "gauge — 0.05 x gauge closed, 0.5 x gauge open. It is NOT inherited from the "
+        "part's base-flange `bend_radius_mm` (that describes a free-standing die "
+        "bend, and inheriting it put a 6 mm gap inside a 'closed' hem on 2 mm "
+        "sheet — HEM-1). A value overrides the derived radius, but one that "
+        "describes the OTHER hem type is REFUSED (`hem_type_radius_conflict`) "
+        "rather than silently building a mislabelled hem: at most 0.125 x gauge for "
+        "'closed', at least 0.125 x gauge for 'open'. A zero radius (zero-gap "
+        "degenerate fold) is rejected by the `gt=0` bound.",
     )
     k_factor: float | None = Field(
         default=None,
@@ -2418,7 +2584,8 @@ class SheetMetalHemParamsV1(BaseModel):
         le=1.0,
         description="Neutral-axis fraction K in [0, 1] for the hem's bend allowance "
         "(§1). Omitted (None) inherits the part's base-flange default `k_factor` "
-        "(0.44 v1 baseline); a value overrides it per-hem.",
+        "(0.44 v1 baseline) — K is a material property, so unlike the radius it IS "
+        "a part-level default; a value overrides it per-hem.",
     )
 
 

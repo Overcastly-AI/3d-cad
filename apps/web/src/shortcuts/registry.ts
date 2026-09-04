@@ -74,12 +74,40 @@ export interface ShortcutGroup {
 export const KEY_NEW_DOCUMENT = "n";
 /** Focus the register's filter field — `FilterField`, every register. */
 export const KEY_FILTER = "/";
+/**
+ * Open the file picker on a register that accepts one — `AssembliesPage`.
+ *
+ * `f4c590b` deliberately kept this out of the registry ("one register, extract
+ * on the second use"), and the reasoning was sound about the CONSTANT. It was
+ * wrong about the SHEET: this file is the only place the app teaches the
+ * keyboard, so a binding declared elsewhere is a binding nobody can find unless
+ * they are already standing on the page that has it (UI-REVIEW 2026-08-27
+ * P3-B) — and P1-A in the same pass is precisely that they may not be. The row
+ * carries a `when`, which is how the sheet already handles bindings that are
+ * live on some surfaces and not others.
+ */
+export const KEY_IMPORT = "i";
 /** Open THIS reference. `?` is the convention; the shift is implicit in the glyph. */
 export const KEY_SHORTCUT_SHEET = "?";
 /** Toggle grid snap while sketching — `PartPage`'s sketch cascade. */
 export const KEY_SNAP = "g";
 /** Arm the measure tool — `PartPage`. */
 export const KEY_MEASURE = "m";
+/**
+ * Accept the sketch proposal the viewport is offering — `SketchProposal`.
+ *
+ * `Enter` rather than a letter, for two reasons. Every bare letter in this
+ * workspace is already a create verb (the table below), and more importantly
+ * the binding is not "start a sketch": it ACCEPTS a specific proposal that is
+ * on screen at that moment, naming a specific face. Accept is what Enter means
+ * everywhere else in the product, and a proposal that could be committed by
+ * some other key would be teaching a second accept vocabulary for one surface.
+ *
+ * It is live ONLY while the note is showing, which is why the chip prints the
+ * glyph itself: the fastest way to teach a keyboard path is to put it on the
+ * thing the mouse is already pointing at.
+ */
+export const KEY_ACCEPT_PROPOSAL = "Enter";
 
 /**
  * The part workspace's create/modify accelerators, each with the condition the
@@ -102,6 +130,27 @@ export const PART_CREATE_SHORTCUTS: readonly (Shortcut & { key: string })[] = [
  * pinned by the behavioural test described in the module docstring.
  */
 export const KEY_ISOLATE = "v";
+
+/**
+ * Move the SELECTED feature up or down the build order (REACH-ORDER). A chord
+ * rather than a letter because it acts on a selection and every bare letter in
+ * the workspace is a create verb; `Alt` is unclaimed — every other keydown
+ * handler on this surface bails on `altKey`.
+ *
+ * Declared here and read by `FeatureTreePanel`'s handler, so the sheet and the
+ * keyboard are the same fact. The grip's own `ArrowUp`/`ArrowDown` (no
+ * modifier, only while it has focus) is a control-local binding, not a global
+ * accelerator, so it stays off the sheet — it is described by the grip's
+ * accessible name where a user meets it.
+ */
+export const KEY_REORDER_EARLIER = "ArrowUp";
+export const KEY_REORDER_LATER = "ArrowDown";
+
+/** How the sheet prints an arrow the handler names by its `event.key`. */
+const ARROW_GLYPH: Record<string, string> = {
+  ArrowUp: "↑",
+  ArrowDown: "↓",
+};
 
 // --- (1) rows DERIVED from the tables the handlers index -------------------------
 
@@ -171,6 +220,11 @@ export function shortcutGroups(): ShortcutGroup[] {
         { keys: KEY_NEW_DOCUMENT.toUpperCase(), action: "Name a new document" },
         { keys: KEY_FILTER, action: "Filter by name" },
         {
+          keys: KEY_IMPORT.toUpperCase(),
+          action: "Import a STEP file",
+          when: "assemblies",
+        },
+        {
           keys: "Esc",
           action: "Clear the filter",
           when: "in the filter field",
@@ -188,12 +242,36 @@ export function shortcutGroups(): ShortcutGroup[] {
         })),
         { keys: KEY_MEASURE.toUpperCase(), action: "Measure" },
         {
+          keys: KEY_ACCEPT_PROPOSAL,
+          action: "Sketch on the face under the pointer",
+          when: "while the proposal is showing",
+        },
+        {
           keys: KEY_ISOLATE.toUpperCase(),
           action: "Hide or show the addressed body",
         },
         {
           keys: `Shift+${KEY_ISOLATE.toUpperCase()}`,
           action: "Isolate it — or show everything again",
+        },
+      ],
+    },
+    {
+      // Its OWN group, not a Modelling row: the Modelling note says "with no
+      // command open", and these two deliberately work WHILE an editor is
+      // open — selecting a row opens its editor, which is the state that arms
+      // them. A row filed under a note that contradicts it teaches the wrong
+      // thing.
+      title: "Feature tree",
+      note: "With a row selected. The row's number is also a drag handle.",
+      shortcuts: [
+        {
+          keys: `Alt+${ARROW_GLYPH[KEY_REORDER_EARLIER]}`,
+          action: "Move the feature earlier in the build",
+        },
+        {
+          keys: `Alt+${ARROW_GLYPH[KEY_REORDER_LATER]}`,
+          action: "Move it later",
         },
       ],
     },

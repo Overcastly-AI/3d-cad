@@ -219,6 +219,30 @@ export function sketchOnly(): PartBuild {
 }
 
 /**
+ * EXPORT-3's NEGATIVE CONTROL: a failure with no successfully built body behind
+ * it. The fillet is the FIRST body-making operation attempted and it errors, so
+ * the strict-prefix rule has no prefix to fall back to — `mesh_glb_id` and
+ * `properties` are both null and there is genuinely nothing to write.
+ *
+ * This is the fixture that keeps "allow the last good body" from degenerating
+ * into "always allow": without it, enabling export unconditionally passes every
+ * other test in the file. Reproduced against the real stack on 2026-08-28 —
+ * the gateway answers this exact tree with a 422 `tree_export_failed`
+ * (`no_target_body`), so the client gate and the server agree.
+ */
+export function brokenBeforeAnyBody(): PartBuild {
+  return makeBuild({
+    tree: makeTree(["Sketch1", "Fillet1"], { treeVersion: 4 }),
+    part: makePart(4),
+    evaluation: makeEvaluation(["ok", "error"], {
+      treeVersion: 4,
+      meshGlbId: null,
+      properties: null,
+    }),
+  });
+}
+
+/**
  * QA-R4, the window itself: the user has submitted a feature edit and NO cache
  * knows yet — part, tree and evaluation all still read version 7, so the
  * provenance test comes out "current" about a body the server has already

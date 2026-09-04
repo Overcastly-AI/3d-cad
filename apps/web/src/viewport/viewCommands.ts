@@ -21,23 +21,66 @@ export type ViewCommand =
       nonce: number;
     };
 
+/**
+ * How the camera projects. Not a cosmetic preference — a perspective FRONT view
+ * cannot be used for the job people open FRONT to do (ORTHO-1, four audit
+ * passes): parallel edges converge, so equal features at different depths
+ * measure differently and the view lies about the alignment you opened it to
+ * check. Every incumbent (Fusion, SolidWorks, Onshape) opens a named view
+ * orthographic.
+ */
+export type Projection = "orthographic" | "perspective";
+
+/**
+ * WHICH COMMANDS ARM ORTHOGRAPHIC, in one place, because the rule has to hold
+ * for every caller — the view rail, the numeric snaps, the viewport context
+ * menu and the reference cube all route through this store, and a policy
+ * bolted onto one of them is a policy the other three break.
+ *
+ * A command that ORIENTS the camera (a named view, or a cube facet/edge/corner
+ * pick — the same act by another instrument) means "look along this axis", and
+ * looking along an axis to read it is what orthographic is for.
+ *
+ * `fit` is deliberately NOT here: it FRAMES, it does not orient, so it must
+ * leave the projection exactly as the modeler left it.
+ */
+function orients(command: ViewCommand): boolean {
+  return command.kind !== "fit";
+}
+
 interface ViewCommandState {
   command: ViewCommand | null;
+  /** What the camera does RIGHT NOW; the view rail's cell reads it back. */
+  projection: Projection;
   request: (kind: Exclude<ViewCommand["kind"], "direction">) => void;
   requestDirection: (dir: readonly [number, number, number]) => void;
+  toggleProjection: () => void;
 }
 
 export const useViewCommandStore = create<ViewCommandState>((set, get) => ({
   command: null,
-  request: (kind) =>
-    set({ command: { kind, nonce: (get().command?.nonce ?? 0) + 1 } }),
-  requestDirection: (dir) =>
+  // A part opens in perspective: the resting iso bench view reads better with
+  // depth, and free orbit is where the incumbents keep perspective too. The
+  // first named view the modeler asks for switches it (see `orients`).
+  projection: "perspective",
+  request: (kind) => {
+    const command = { kind, nonce: (get().command?.nonce ?? 0) + 1 } as const;
+    set(
+      orients(command) ? { command, projection: "orthographic" } : { command },
+    );
+  },
+  requestDirection: (dir) => {
+    const command = {
+      kind: "direction",
+      dir,
+      nonce: (get().command?.nonce ?? 0) + 1,
+    } as const;
+    set({ command, projection: "orthographic" });
+  },
+  toggleProjection: () =>
     set({
-      command: {
-        kind: "direction",
-        dir,
-        nonce: (get().command?.nonce ?? 0) + 1,
-      },
+      projection:
+        get().projection === "orthographic" ? "perspective" : "orthographic",
     }),
 }));
 
@@ -108,18 +151,32 @@ export const VIEW_SHORTCUTS: Record<
 };
 
 /**
+ * The projection toggle's accelerator — the next free digit after the four
+ * named views, so the whole view vocabulary stays numeric and adjacent.
+ */
+export const PROJECTION_SHORTCUT = "5";
+
+/**
  * Global view accelerators. Numeric on purpose: the letter vocabulary belongs
  * to the sketch/feature verbs, and digits are free in every workspace. Only
  * armed while the view rig owns the camera (`enabled` = not sketching).
  */
 export function useViewHotkeys(enabled: boolean): void {
   const request = useViewCommandStore((state) => state.request);
+  const toggleProjection = useViewCommandStore(
+    (state) => state.toggleProjection,
+  );
   useEffect(() => {
     if (!enabled) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)
         return;
       if (isTypingTarget(event.target)) return;
+      if (event.key === PROJECTION_SHORTCUT) {
+        event.preventDefault();
+        toggleProjection();
+        return;
+      }
       const kind = VIEW_SHORTCUTS[event.key];
       if (kind === undefined) return;
       event.preventDefault();
@@ -127,5 +184,5 @@ export function useViewHotkeys(enabled: boolean): void {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [enabled, request]);
+  }, [enabled, request, toggleProjection]);
 }

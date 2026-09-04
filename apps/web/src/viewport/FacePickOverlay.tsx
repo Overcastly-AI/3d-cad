@@ -28,7 +28,6 @@
  * parent owns that write + the sketch seating); this layer is presentational.
  */
 import { PickNode } from "@loft/design";
-import { Html } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -37,6 +36,7 @@ import { faceLabel, isPickableFace } from "../features/face";
 import { occtToScene } from "../measure/geometry";
 import { FacePatch } from "./facePatch";
 import { useHiddenPicks } from "./hiddenPicks";
+import { PickMark } from "./PickMark";
 import { PickSurface } from "./pickSurface";
 import { useViewportPickStamp } from "./pickStamp";
 
@@ -147,9 +147,8 @@ export function FacePickOverlay({
               selected={pendingIndex === face.index}
             />
           ) : null}
-          <Html
+          <PickMark
             position={occtToScene(face.signature.centroid)}
-            center
             zIndexRange={[30, 10]}
           >
             <PickNode
@@ -169,7 +168,7 @@ export function FacePickOverlay({
               onFocus={() => setHovered(face.index)}
               onBlur={() => setHovered((h) => (h === face.index ? null : h))}
             />
-          </Html>
+          </PickMark>
         </group>
       ))}
     </group>

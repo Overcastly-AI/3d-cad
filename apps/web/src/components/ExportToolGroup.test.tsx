@@ -78,9 +78,11 @@ describe("ExportToolGroup", () => {
 
     const step = screen.getByTestId("part-export-band-step");
     expect(step).toHaveAttribute("aria-disabled", "true");
-    // The reason reaches BOTH pointer and keyboard: it is the accessible name,
-    // not only a tooltip a mouse has to find.
-    expect(step).toHaveAccessibleName(/Fillet1 failed/);
+    // The reason reaches BOTH pointer and keyboard: `ToolButton` wires the
+    // caption as the accessible DESCRIPTION, so it is not only a tooltip a
+    // mouse has to find. The name stays the format, in every state.
+    expect(step).toHaveAccessibleName("Export STEP (exact B-rep)");
+    expect(step).toHaveAccessibleDescription(/Fillet1 failed/);
 
     fireEvent.click(step);
     fireEvent.click(screen.getByTestId("part-export-band-stl"));
@@ -98,10 +100,14 @@ describe("ExportToolGroup", () => {
       />,
     );
     const step = screen.getByTestId("part-export-band-step");
-    // Enabled, but qualified — and the qualification is in the NAME, so it is
-    // not hover-only (a `ToolButton` describes by caption only while disabled).
+    // Enabled, but qualified — and the qualification is in the DESCRIPTION, so
+    // it is not hover-only (A11Y-TOOLBTN-1: `ToolButton` describes by caption
+    // in every state). It must NOT be in the name: a control that renames
+    // itself when the gate state changes is a control a screen-reader user
+    // cannot recognise twice.
     expect(step).toBeEnabled();
-    expect(step).toHaveAccessibleName(/marks the file partial/);
+    expect(step).toHaveAccessibleName("Export STEP (exact B-rep)");
+    expect(step).toHaveAccessibleDescription(/marks the file partial/);
   });
 
   it("reports a failed write where a screen reader will hear it", async () => {

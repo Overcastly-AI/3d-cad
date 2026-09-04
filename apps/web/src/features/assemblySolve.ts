@@ -22,11 +22,23 @@
  * nothing distinguished a retained solve from a current one.
  *
  * THE RULE, and it is structural rather than a fourth flag a caller can forget:
- * `status` and `diagnosis` are the only things a surface may CLAIM, and they
- * are `null` whenever `stale` is true. There is no way to render a settled
- * verdict over a superseded solve, because the verdict does not exist in that
- * state. `assemblySolveLabel` then spends "Solving…" or "—" — a transient word
- * or an absence, never a claim.
+ * `status`, `diagnosis` and `mateErrors` are the only things a surface may
+ * CLAIM, and they are `null` / empty whenever `stale` is true. There is no way
+ * to render a settled verdict over a superseded solve, because the verdict does
+ * not exist in that state. `assemblySolveLabel` then spends "Solving…" or "—" —
+ * a transient word or an absence, never a claim.
+ *
+ * MATE-OBS-2 ADDED THE EIGHTH CONSUMER, and it is the reason `mateErrors` lives
+ * here rather than being read off the evaluation. `AssemblyTreePanel` badged its
+ * mate rows from `evaluation.mate_errors` and `evaluation.diagnosis
+ * .conflicting_mates` DIRECTLY — the two fields this module exists to gate —
+ * so for the same ~600-840 ms window a row could wear a superseded solve's
+ * `conflict` / `unresolved` stamp, or fail to wear one it had just earned. It
+ * under-claims as often as it over-claims, which is why it was P2 and not the
+ * P0 MATE-OBS was, and it was found only by walking the call sites rather than
+ * the paths. The lesson generalises past this one panel: a field that is not on
+ * `AssemblySolve` is a field a consumer can read raw, so the fix is to MOVE it
+ * here, not to remember to check `stale` at a ninth address.
  *
  * Every input is either a value the server sent or a request state the client
  * genuinely holds; nothing here is inferred from the solve's CONTENT. That
@@ -39,6 +51,7 @@ import type {
   AssemblySolveDiagnosis,
   AssemblyStatus,
   EvaluateAssemblyResult,
+  MateEvaluationError,
 } from "../api/assemblies";
 
 export interface AssemblySolveInput {
@@ -109,7 +122,20 @@ export interface AssemblySolve {
   readonly status: AssemblyStatus | null;
   /** The diagnosis a surface may CLAIM. Null while it is not established. */
   readonly diagnosis: AssemblySolveDiagnosis | null;
+  /**
+   * The per-mate resolution failures a surface may CLAIM (MATE-OBS-2).
+   *
+   * EMPTY while stale, for the same structural reason `status` is null: a badge
+   * on a mate row is a claim about the solve, and a superseded solve has none
+   * to make. Empty is the honest reading here — "nothing is known yet" and
+   * "nothing is wrong" both draw no badge, and `solve.activity` is what a
+   * surface spends if it wants to say which.
+   */
+  readonly mateErrors: readonly MateEvaluationError[];
 }
+
+/** Nothing known — one frozen empty, so a stale solve allocates nothing. */
+const NO_MATE_ERRORS: readonly MateEvaluationError[] = [];
 
 const STATUS_LABEL: Record<AssemblyStatus, string> = {
   well_constrained: "Well constrained",
@@ -154,6 +180,7 @@ export function deriveAssemblySolve({
     // caller reads anyway would be the same defect one indirection along.
     status: stale ? null : (evaluation?.status ?? null),
     diagnosis: stale ? null : (evaluation?.diagnosis ?? null),
+    mateErrors: stale ? NO_MATE_ERRORS : (evaluation?.mate_errors ?? []),
   };
 }
 

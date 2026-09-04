@@ -46,11 +46,16 @@ import {
 
 import type {
   AssemblyGraphResponse,
-  EvaluateAssemblyResult,
   InstanceResponse,
   MateResponse,
 } from "../api/assemblies";
-import { mateDetail, mateLabel, mateInstanceIds } from "../assembly/mates";
+import {
+  mateDetail,
+  mateLabel,
+  mateInstanceIds,
+  mateTag,
+} from "../assembly/mates";
+import type { AssemblySolve } from "../features/assemblySolve";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import {
   visibilityModeOf,
@@ -61,7 +66,20 @@ import {
 export interface AssemblyTreePanelProps {
   graph: AssemblyGraphResponse | undefined;
   graphError: Error | null;
-  evaluation: EvaluateAssemblyResult | undefined;
+  /**
+   * WHAT MAY BE CLAIMED about the solve on screen (MATE-OBS-2) — the mate
+   * badges read `solve.mateErrors` / `solve.diagnosis`, never `evaluation`'s
+   * own fields.
+   *
+   * This panel used to take the raw `EvaluateAssemblyResult` and index
+   * `mate_errors` and `diagnosis.conflicting_mates` out of it, which is exactly
+   * the read MATE-OBS (`6b26ff7`) removed everywhere else: a solve superseded
+   * by a write in flight is retained by `keepPreviousData`, so a row could wear
+   * the previous solve's `conflict` stamp — or miss one it had just earned —
+   * for the ~600-840 ms the write takes. Taking the derived object instead of
+   * the raw result is what makes that unrepresentable rather than remembered.
+   */
+  solve: AssemblySolve;
   selectedInstanceId: string | null;
   /** Instances in a MEASURED clash from the last check — badged red inline. */
   clashingInstanceIds: ReadonlySet<string>;
@@ -119,7 +137,7 @@ function eyeAction(mode: VisibilityMode, name: string): string {
 export function AssemblyTreePanel({
   graph,
   graphError,
-  evaluation,
+  solve,
   selectedInstanceId,
   clashingInstanceIds,
   unverifiedInstanceIds,
@@ -143,12 +161,11 @@ export function AssemblyTreePanel({
   const matesEyebrow = mates.length > 0 ? `Mates · ${mates.length}` : "Mates";
   // Balloon number = 1-based position in the (order_index-sorted) instance list.
   const balloonById = new Map(instances.map((i, index) => [i.id, index + 1]));
-  const failedMateIds = new Set(
-    (evaluation?.mate_errors ?? []).map((e) => e.mate_id),
-  );
-  const conflictingMateIds = new Set(
-    evaluation?.diagnosis?.conflicting_mates ?? [],
-  );
+  // Both badge sets come from the STALENESS-GATED derivation, so during a write
+  // in flight both are empty and every row reads `pending` — no claim, rather
+  // than the previous solve's claim.
+  const failedMateIds = new Set(solve.mateErrors.map((e) => e.mate_id));
+  const conflictingMateIds = new Set(solve.diagnosis?.conflicting_mates ?? []);
 
   return (
     <aside
@@ -341,18 +358,50 @@ export function AssemblyTreePanel({
             </p>
           ) : (
             <ul className="py-1" data-testid="mate-list">
-              {mates.map((mate) => {
+              {mates.map((mate, index) => {
                 const [a, b] = mateInstanceIds(mate.mate);
                 const failed = failedMateIds.has(mate.id);
                 const conflicting = conflictingMateIds.has(mate.id);
                 const sick = failed || conflicting;
+                const tag = mateTag(index);
+                // The row's own word about itself, for a reader (and for QA)
+                // that wants to tell "no fault" from "not yet known".
+                const state = solve.stale
+                  ? "pending"
+                  : failed
+                    ? "unresolved"
+                    : conflicting
+                      ? "conflict"
+                      : "ok";
                 return (
                   <li
                     key={mate.id}
                     data-testid="mate-row"
                     data-mate-id={mate.id}
+                    data-mate-tag={tag}
+                    data-mate-state={state}
                     className="flex items-center gap-2 px-2 py-1"
                   >
+                    {/* The mate's handle (MATEUI-1). A component is a drafting
+                        balloon — a circle; a joint is not a part, so it takes a
+                        squared tag instead. One glance separates the two lists,
+                        and the number is the solver's own processing order, so
+                        a redundancy diagnosis reading "M3 is redundant" is
+                        saying something true about position, not decorating. */}
+                    <span
+                      // NOT aria-hidden, unlike the instance balloon: "1" on
+                      // its own is noise, but "M2" is the handle the diagnosis
+                      // names, so a screen-reader user needs to hear it to find
+                      // the row the message sent them to.
+                      data-testid={`mate-tag-${mate.id}`}
+                      className={`flex h-5 shrink-0 items-center justify-center rounded-sm border px-1 font-data text-2xs tabular-nums ${
+                        sick
+                          ? "border-flag text-flag"
+                          : "border-etch text-gauge"
+                      }`}
+                    >
+                      {tag}
+                    </span>
                     <span className="min-w-0 grow">
                       <span
                         className={`block font-body text-sm ${
@@ -386,7 +435,10 @@ export function AssemblyTreePanel({
                       type="button"
                       onClick={() => onDeleteMate(mate)}
                       disabled={busy}
-                      aria-label={`Remove ${mateLabel(mate.mate)} mate`}
+                      // Named with the TAG, so two Coincident mates between the
+                      // same pair no longer share one accessible name — and it
+                      // is word-for-word the inspector's own action label.
+                      aria-label={`Remove ${tag} ${mateLabel(mate.mate)}`}
                       data-testid={`mate-delete-${mate.id}`}
                       className="shrink-0 rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] text-gauge outline-none hover:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass disabled:opacity-50"
                     >

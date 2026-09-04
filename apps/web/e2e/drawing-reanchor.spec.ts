@@ -209,7 +209,7 @@ test.describe("drawings — a resized part, said on screen", () => {
 
     // Dimension the 100 mm overall length in the top view.
     const edge = await longestHorizontalEdge(page, "top");
-    await edge.click({ force: true });
+    await edge.click();
     await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
     await page.getByTestId("dimension-type-linear").click();
     // REACH-3: choosing the type now opens the PLACE stage (the ghost tracks

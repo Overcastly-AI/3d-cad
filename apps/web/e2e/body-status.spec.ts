@@ -128,27 +128,6 @@ async function openPart(
   });
 }
 
-/**
- * Did clicking this cell actually produce a file?
- *
- * `force` on purpose: a gated `PanelActionCell` uses `aria-disabled` rather than
- * the native attribute (so the reason it is grey has somewhere to live), and it
- * SWALLOWS the activation itself. Forcing past Playwright's actionability check
- * is therefore the only way to prove the swallow — a user cannot get a file out
- * of this cell even by trying.
- */
-async function clickProducesDownload(
-  page: Page,
-  testId: string,
-): Promise<boolean> {
-  const settled = page
-    .waitForEvent("download", { timeout: 3_000 })
-    .then(() => true)
-    .catch(() => false);
-  await page.getByTestId(testId).click({ force: true });
-  return settled;
-}
-
 test.describe("body status honesty — 1440x900", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -190,17 +169,20 @@ test.describe("body status honesty — 1440x900", () => {
       "Fillet1 failed",
     );
 
-    // 3) EXPORT — was "Ready", and would have written a partial STEP.
+    // 3) EXPORT — was "Ready" over this tree (J2), then swung to inert over it
+    //    (the EXPORT-3 dead end). It now says the SAME word the status cell
+    //    does, and adds what that costs the file. The artifact-level proof that
+    //    the file really is the pre-failure body lives in
+    //    `export-partial-body.spec.ts`; this spec's job is that the three cells
+    //    tell one story.
     await expect(page.getByTestId("part-export-controls")).toHaveAttribute(
       "data-export-state",
       "feature-error",
     );
-    await expect(page.getByTestId("part-export-status")).toHaveText(
-      "Fillet1 failed",
+    await expect(page.getByTestId("part-export-status")).toHaveText("Partial");
+    await expect(page.getByTestId("part-export-notice")).toContainText(
+      "Fillet1 failed, so the file stops at Extrude1",
     );
-    await expect(page.getByTestId("part-export-step")).toBeDisabled();
-    expect(await clickProducesDownload(page, "part-export-step")).toBe(false);
-    expect(await clickProducesDownload(page, "part-export-stl")).toBe(false);
 
     // The viewport says the solid is not the part (N3), and offers the fix.
     const notice = page.getByTestId("partial-body-notice");

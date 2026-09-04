@@ -1,7 +1,8 @@
 import { expect, test, type Page } from "./fixtures";
 
 import { createFeature } from "./partSeed";
-import { createPartViaApi, seedSession } from "./support";
+import { inkAt } from "./reachability";
+import { createPartViaApi, seedSession, waitForFrames } from "./support";
 
 /**
  * QA of SKETCH-2 (independent of the builder's own
@@ -118,60 +119,6 @@ async function calibratePlane(
 }
 
 /**
- * Count canvas pixels matching `hex` inside a small CSS-pixel box centred on a
- * PAGE coordinate. The canvas census helpers in `support.ts` take canvas
- * coordinates; this converts, so a caller can probe where it clicked.
- */
-async function inkNear(
-  page: Page,
-  centre: Point,
-  hex: string,
-  halfPx = 2,
-): Promise<number> {
-  return page.evaluate(
-    ({ centre, hex, halfPx }) => {
-      const canvas = document.querySelector<HTMLCanvasElement>(
-        '[data-testid="viewport"] canvas',
-      );
-      if (!canvas) return -1;
-      const rect = canvas.getBoundingClientRect();
-      const sx = canvas.width / rect.width;
-      const sy = canvas.height / rect.height;
-      const probe = document.createElement("canvas");
-      probe.width = canvas.width;
-      probe.height = canvas.height;
-      const ctx = probe.getContext("2d");
-      if (!ctx) return -1;
-      ctx.drawImage(canvas, 0, 0);
-      const x = Math.round((centre.x - rect.left) * sx) - halfPx;
-      const y = Math.round((centre.y - rect.top) * sy) - halfPx;
-      const size = halfPx * 2 + 1;
-      if (x < 0 || y < 0 || x + size > probe.width || y + size > probe.height) {
-        return -1;
-      }
-      const { data } = ctx.getImageData(x, y, size, size);
-      const target = [
-        Number.parseInt(hex.slice(1, 3), 16),
-        Number.parseInt(hex.slice(3, 5), 16),
-        Number.parseInt(hex.slice(5, 7), 16),
-      ];
-      let hits = 0;
-      for (let i = 0; i < data.length; i += 4) {
-        if (
-          Math.abs((data[i] as number) - (target[0] as number)) <= 8 &&
-          Math.abs((data[i + 1] as number) - (target[1] as number)) <= 8 &&
-          Math.abs((data[i + 2] as number) - (target[2] as number)) <= 8
-        ) {
-          hits += 1;
-        }
-      }
-      return hits;
-    },
-    { centre, hex, halfPx },
-  );
-}
-
-/**
  * The radius (screen px) at which the ORIGIN RING is actually drawn, measured
  * off the canvas at 45 degrees — a diagonal so neither axis's ink can be
  * mistaken for the ring. Sampled while the origin is SELECTED so the ring is
@@ -182,24 +129,66 @@ async function measureRingRadiusPx(
   centre: Point,
   maxPx = 90,
 ): Promise<number> {
+  /*
+    THE SETTLE HAS TO BE EXPLICIT, and it was not — it was ACCIDENTAL, which is
+    how batching this scan briefly broke it (CI-4 headroom pass, 2026-08-29).
+
+    The caller selects the origin through the keyboard and waits for the
+    selection READOUT, which is DOM; the ring is CANVAS, drawn by a
+    demand-rendered r3f scene. So the readout can say "1 pt" a frame or more
+    before the brass ring is painted. The old per-point version issued 356
+    sequential awaits, and the renderer simply won the race inside the first few
+    of them — nothing in the code said so. Taking ONE snapshot removed that
+    incidental slack and the scan started reading a pre-paint frame, failing as
+    "the origin ring must be visible ink" in 1 of 4 quiet runs.
+
+    Waiting on real RENDERS rather than re-introducing latency is the fix: it
+    states the requirement, and it is what the batched version needs to be
+    correct rather than lucky.
+  */
+  await waitForFrames(page, 2);
   const diagonals = [
     [1, 1],
     [-1, 1],
     [1, -1],
     [-1, -1],
   ];
-  const hits: number[] = [];
+  // ONE readback for the whole scan. This used to call a per-point probe inside
+  // the loop, and reading the canvas costs a copy of the ENTIRE frame however
+  // few pixels you then inspect — so the scan paid 89 radii x 4 diagonals =
+  // 356 full-frame copies per leg, 1068 across the three zoom legs, to read
+  // nine pixels each time.
+  //
+  // AND IT WAS NOT THE PROBLEM, which is the useful half of this comment. That
+  // looked like an obvious cause for a test that had started timing out at 60 s
+  // (CI-4 headroom pass, 2026-08-29), and batching it changed the wall clock by
+  // NOTHING: the phase timers below put this scan at 190 ms of a 33.2 s test —
+  // 0.6 % — while the zoom loop was 47 %. Keep the batching, it is strictly
+  // less work; do not believe it bought any headroom. A cost model is a
+  // hypothesis until it is measured.
+  //
+  // Every sampled coordinate, tolerance and threshold below is unchanged; only
+  // the number of readbacks is.
+  const probes: { x: number; y: number }[] = [];
+  const radii: number[] = [];
   for (let r = 2; r <= maxPx; r += 1) {
-    let found = 0;
+    radii.push(r);
     for (const [dx, dy] of diagonals) {
-      const at = {
+      probes.push({
         x: centre.x + ((dx as number) * r) / Math.SQRT2,
         y: centre.y + ((dy as number) * r) / Math.SQRT2,
-      };
-      if ((await inkNear(page, at, INK_SELECTED, 1)) > 0) found += 1;
+      });
+    }
+  }
+  const counts = await inkAt(page, probes, INK_SELECTED, 1);
+  const hits: number[] = [];
+  radii.forEach((r, i) => {
+    let found = 0;
+    for (let d = 0; d < diagonals.length; d += 1) {
+      if ((counts[i * diagonals.length + d] ?? -1) > 0) found += 1;
     }
     if (found >= 3) hits.push(r);
-  }
+  });
   if (hits.length === 0) return NaN;
   // Two brass blobs answer here when the origin is held: the picked-point DOT
   // at the centre and the RING outside it. Split the hits into contiguous runs
@@ -478,6 +467,26 @@ test.describe("QA SKETCH-2 — grounding to the sketch frame", () => {
   test("the founder's gesture: the drawn ring picks all the way round, at three zoom levels", async ({
     page,
   }) => {
+    /*
+      180 s, and the DEFAULT 60 s was never a considered number — this test was
+      simply born under it (CI-4 headroom pass, 2026-08-29). Measured on a
+      4-core box before any change: 45.9 / 47.5 s quiet and a TIMEOUT in 1 of 3
+      quiet isolated runs, 0 of 3 passing under two CPU spinners, and the
+      failure arrives as "Test timeout of 60000ms exceeded", which names none of
+      the 54 clicks and 81 settle-waits it might have died in.
+
+      The work was cut first and the ceiling raised second, which is the order
+      that matters: the per-notch pointer re-park is gone (see the zoom loop)
+      and the ring scan takes one canvas readback instead of 356. After that,
+      quiet 36.6-39.0 s (4/4) and loaded 55.7-57.5 s (4/4) — so it now PASSES
+      under load, at 1.04x its old ceiling, which is not headroom.
+
+      180 s is 4.6x the worst quiet reading and 3.1x the worst loaded one, and
+      it is the ceiling this suite's other census tests already carry. What is
+      NOT being widened is any assertion: the gesture is still eight compass
+      points plus the centre, at three zoom levels, on measured ink.
+    */
+    test.setTimeout(180_000);
     const { token } = await seedSession(page);
     const part = await createPartViaApi(page, token, "Frame ink");
     await page.goto(`/parts/${part.id}`);
@@ -500,17 +509,32 @@ test.describe("QA SKETCH-2 — grounding to the sketch frame", () => {
       { label: "zoomed out", notches: 32 },
     ];
     const radii: Record<string, number> = {};
+    // Phase timing, printed. This test began TIMING OUT at 60 s (CI-4 headroom
+    // pass, 2026-08-29) and the first theory — that its ring scan's per-point
+    // canvas readbacks were the cost — was WRONG: batching them 356:1 changed
+    // the wall clock by nothing. So the split is measured here rather than
+    // reasoned about, and it stays in the log so the next person does not have
+    // to guess either.
     for (const leg of legs) {
+      const legStart = Date.now();
+      // The pointer is parked ONCE, not re-parked before every notch. Each
+      // `mouse.move` is its own CDP round trip and the cursor is already at
+      // (800, 500) after the first, so 46 of the 48 were paying full latency to
+      // move the pointer nowhere — and this loop is the single most expensive
+      // phase of the test (measured below: 15.8 s of 33.2 s quiet).
+      if (leg.notches !== 0) await page.mouse.move(800, 500);
       for (let i = 0; i < Math.abs(leg.notches); i += 1) {
-        await page.mouse.move(800, 500);
         await page.mouse.wheel(0, leg.notches < 0 ? -120 : 120);
       }
       if (leg.notches !== 0) await page.waitForTimeout(400);
+      const zoomMs = Date.now() - legStart;
+      const calStart = Date.now();
       const at = await calibratePlane(
         page,
         { x: 700, y: 620 },
         { x: 1000, y: 420 },
       );
+      const calibrateMs = Date.now() - calStart;
       const centre = at({ x: 0, y: 0 });
 
       // Select through the KEYBOARD handle so the ink can be measured without
@@ -527,7 +551,10 @@ test.describe("QA SKETCH-2 — grounding to the sketch frame", () => {
         page.getByTestId("selection-readout"),
         `${leg.label}: keyboard handle selects the origin`,
       ).toContainText("1 pt");
+      const selectMs = Date.now() - calStart - calibrateMs;
+      const scanStart = Date.now();
       const ringPx = await measureRingRadiusPx(page, centre);
+      const scanMs = Date.now() - scanStart;
       radii[leg.label] = ringPx;
       expect(
         ringPx,
@@ -535,6 +562,7 @@ test.describe("QA SKETCH-2 — grounding to the sketch frame", () => {
       ).toBeGreaterThan(2);
 
       // THE GESTURE: click ON the ink, all the way round.
+      const gestureStart = Date.now();
       const compass = [0, 45, 90, 135, 180, 225, 270, 315];
       for (const deg of compass) {
         const rad = (deg * Math.PI) / 180;
@@ -560,6 +588,11 @@ test.describe("QA SKETCH-2 — grounding to the sketch frame", () => {
         page.getByTestId("selection-readout"),
         `${leg.label}: click at the exact centre of the mark`,
       ).toContainText("1 pt");
+      console.log(
+        `    [SKETCH-2] leg "${leg.label}" ${Date.now() - legStart} ms = ` +
+          `zoom ${zoomMs} + calibrate ${calibrateMs} + select ${selectMs} + ` +
+          `ring scan ${scanMs} + gesture ${Date.now() - gestureStart}`,
+      );
     }
     // The legs really were different cameras — otherwise the loop above is one
     // measurement repeated three times and proves nothing about zoom.

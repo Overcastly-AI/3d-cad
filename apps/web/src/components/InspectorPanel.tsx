@@ -133,12 +133,17 @@ export function InspectorPanel({
 
         {/* Title-block footer: the one cell that MOVES — the mesh status.
             UNITS + KERNEL were decorative (UI-REVIEW 2026-07-16, Track B). */}
-        <div className="px-3 py-2" data-testid="titleblock-footer">
-          <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
+        {/* One ruled cell, matching the tree's SOLVE vital — caption and value
+            on a line, not stacked (density pass, 2026-08-28). */}
+        <div
+          className="flex min-h-target-dense items-center gap-2 px-3 py-0.5"
+          data-testid="titleblock-footer"
+        >
+          <span className="shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-gauge">
             Status
           </span>
           <span
-            className="block font-data text-xs text-mist"
+            className="grow text-right font-data text-sm text-mist"
             data-testid="tessellation-status"
             aria-live="polite"
           >

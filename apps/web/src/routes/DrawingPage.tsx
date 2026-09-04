@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import {
   type ReactNode,
   useCallback,
@@ -13,12 +14,15 @@ import { Button, NumberField, Stamp, TextField, drawing } from "@loft/design";
 import {
   type AnnotationResponse,
   type BendTableRow,
+  type ComposedView,
   type DimensionParams,
   type DimensionResponse,
+  type DrawingBomLine,
   type DrawingDimensionInput,
   type DrawingViewResult,
   type EvaluateDrawingViewsRequest,
   type MeasuredDimension,
+  type RefDocumentKind,
   type SectionViewParams,
   type SheetContent,
   type SheetResponse,
@@ -32,12 +36,15 @@ import {
   deleteAnnotation,
   deleteDimension,
   evaluateDrawingViews,
+  fetchAssemblyExtents,
   fetchDrawing,
+  fetchDrawingBom,
   updateView,
 } from "../api/drawings";
 import { gatewayClient } from "../api/client";
 import { envelopeMessage } from "../api/envelope";
 import { evaluatePart, fetchFeatureTree, fetchParts } from "../api/parts";
+import { fetchAssemblies } from "../api/assemblies";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { DimensionAuthorMenu } from "../components/DimensionAuthorMenu";
 import { DrawingCommandBand } from "../components/DrawingCommandBand";
@@ -94,10 +101,22 @@ import {
   SCALE_OPTIONS,
   STANDARD_VIEWS,
   VIEW_LABEL,
+  type ModelExtents,
+  type OrientationFit,
+  boxExtents,
   fitScale,
+  proposeOrientation,
+  reframePinnedCentre,
   sheetDimensions,
+  sheetHeaderForNewSheet,
+  sheetSizeLabel,
   standardLayout,
 } from "../drawing/layout";
+import {
+  drawingSourceKind,
+  drawingSourceName,
+  drawingSourceOptions,
+} from "../drawing/source";
 import { isTypingTarget } from "../lib/isTypingTarget";
 import { resolveDatumPlaneOptions } from "../sketch/plane";
 import { drawingRoute } from "../router";
@@ -139,43 +158,58 @@ const OTHER_ORIENTATION: Record<SheetOrientation, SheetOrientation> = {
 };
 
 /**
- * What each paper orientation buys THIS part, and which one the part's own
- * extents therefore argue for. The create flow already had to fit a scale to
- * pick one (see `handleLayout`); this reuses that reading to make the choice
- * rather than defaulting to landscape and letting the user discover the cost.
+ * How big is the drafted document — the ONE reading every fit on this page
+ * takes, for EITHER kind of source (ASMDRAW-FIT-1b).
+ *
+ * A part reads the bbox off its evaluation's mass properties; an assembly reads
+ * the SOLVED compound's extents off `GET /assemblies/{id}/extents`. The second
+ * is the whole point of this seam: an assembly's instances carry authored seed
+ * placements, and folding those client-side would size the sheet for a pose the
+ * mates have already moved. On the reference rig (two 40x25x10 plates seeded
+ * 80 mm apart, then bolted flush) the seeds span 120 mm in x and the solved
+ * compound 40 — different paper, different scale, and only the second one is
+ * the drawing the user asked for.
+ *
+ * `null` means there is nothing to fit — an assembly whose instances produced
+ * no body, or a part whose evaluation reported no box. Callers keep the user's
+ * picked scale in that case rather than substituting one: a fit with no
+ * measurement behind it is a guess, and a silently-guessed scale is worse than
+ * an honest one the sheet's own layout checks can then complain about.
+ *
+ * NB the assembly branch does NOT gate on the solve `status`. Geometry's
+ * `test_status_alone_cannot_distinguish_the_two` shows a seating solve and a
+ * constraint-free one both report `under_constrained`, so a status gate here
+ * would behave identically in a world where the route answered with seeds.
  */
-interface OrientationFit {
-  /** Fitted scale label per orientation ("1:2" / "1:5"). */
-  scaleByOrientation: Record<SheetOrientation, string>;
-  /** The orientation that fits the part largest (landscape wins a tie — the
-   * shop default, so a part with no preference gets no surprise). */
-  proposed: SheetOrientation;
+async function fetchSourceExtents(
+  sourceId: string,
+  kind: RefDocumentKind,
+): Promise<ModelExtents | null> {
+  if (kind === "assembly") {
+    const { bounding_box: box } = await fetchAssemblyExtents(sourceId);
+    return box ? boxExtents(box) : null;
+  }
+  const evaluated = await evaluatePart(sourceId);
+  const box = evaluated.properties?.bounding_box;
+  return box ? boxExtents(box) : null;
 }
 
 /**
- * The orientation proposal for a part on a given paper size. Both orientations
- * are fitted against the SAME `fitScale` the layout action uses, with a 1:1
- * ceiling: auto-fit only ever REDUCES, so 1:1 is the neutral maximum and the
- * comparison answers "at best, how big can this part be drawn either way?".
+ * The query the orientation proposal and the layout action BOTH read their
+ * measurement from — one definition, so the cell can never promise a scale from
+ * a different reading than the one the layout fits against, and selecting a
+ * source costs exactly one evaluation whether the user reads the proposal or
+ * goes straight to "Lay out".
  */
-function proposeOrientation(
-  extents: { x: number; y: number; z: number },
-  size: SheetSize,
-): OrientationFit {
-  const landscape = fitScale(
-    extents,
-    sheetDimensions(size, "landscape"),
-    "1:1",
-  );
-  const portrait = fitScale(extents, sheetDimensions(size, "portrait"), "1:1");
-  const ratio = (o: { numerator: number; denominator: number }) =>
-    o.numerator / o.denominator;
+function sourceExtentsQueryOptions(
+  sourceId: string,
+  kind: RefDocumentKind,
+  treeVersion: number | undefined,
+) {
   return {
-    scaleByOrientation: {
-      landscape: landscape.value,
-      portrait: portrait.value,
-    },
-    proposed: ratio(portrait) > ratio(landscape) ? "portrait" : "landscape",
+    queryKey: ["drawing-source-extents", sourceId, kind, treeVersion] as const,
+    queryFn: () => fetchSourceExtents(sourceId, kind),
+    staleTime: Infinity,
   };
 }
 
@@ -196,8 +230,8 @@ async function updateSheetHeader(
   body: { expected_version: number } & (
     { projection: SheetProjection } | { orientation: SheetOrientation }
   ),
-): Promise<void> {
-  const { error } = await gatewayClient.PATCH(
+): Promise<{ doc_version: number }> {
+  const { data, error } = await gatewayClient.PATCH(
     "/api/v1/drawings/{drawing_id}/sheets/{sheet_id}",
     {
       params: { path: { drawing_id: drawingId, sheet_id: sheetId } },
@@ -207,6 +241,7 @@ async function updateSheetHeader(
   if (error !== undefined) {
     throw new Error(envelopeMessage(error, "The sheet could not be updated."));
   }
+  return data;
 }
 
 /**
@@ -220,6 +255,7 @@ async function updateSheetHeader(
 export function DrawingPage() {
   const { drawingId } = drawingRoute.useParams();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const drawingQuery = useQuery({
     queryKey: ["drawing", drawingId],
@@ -310,9 +346,16 @@ export function DrawingPage() {
     return out;
   }, [dimensions, projectionByViewId]);
 
-  // The part the sheet drafts: the referenced part of its first view once laid
-  // out (v1 references a single part across the standard views).
-  const draftedPartId = hasLayout ? (views[0]?.ref_document_id ?? null) : null;
+  // The document the sheet drafts: the reference of its first view once laid
+  // out (the one-sheet-one-source invariant, §2.2). It is a PART or an
+  // ASSEMBLY — both have always been legal on the wire, and the assembly half
+  // is what a numbered parts list hangs off.
+  const draftedSourceId = hasLayout
+    ? (views[0]?.ref_document_id ?? null)
+    : null;
+  const draftedSourceKind: RefDocumentKind = hasLayout
+    ? (views[0]?.ref_document_kind ?? "part")
+    : "part";
 
   const partsQuery = useQuery({
     queryKey: ["parts"],
@@ -320,19 +363,63 @@ export function DrawingPage() {
     staleTime: 30_000,
   });
   const parts = useMemo(() => partsQuery.data ?? [], [partsQuery.data]);
+  const assembliesQuery = useQuery({
+    queryKey: ["assemblies"],
+    queryFn: () => fetchAssemblies(),
+    staleTime: 30_000,
+  });
+  const assemblies = useMemo(
+    () => assembliesQuery.data ?? [],
+    [assembliesQuery.data],
+  );
+  const sources = useMemo(
+    () => drawingSourceOptions(parts, assemblies),
+    [parts, assemblies],
+  );
 
-  // Pre-layout picker state (which part to draft, on what sheet, at what scale).
-  const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
+  // Pre-layout picker state (what to draft, on what sheet, at what scale).
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [scaleValue, setScaleValue] = useState("1:1");
   const [sizeValue, setSizeValue] = useState<SheetSize>("A4");
+  // `?source=<id>` pre-selects the picker — how the assembly workspace's
+  // "Drawing" action hands off, so the sheet opens already pointed at the
+  // assembly you were looking at instead of making you find it in a list.
+  // Honoured once, and only for a source that actually exists (a stale link
+  // must not strand the picker on an id nothing can project).
+  //
+  // Seeding is ONE effect on purpose. As two, the hand-off and the "default to
+  // the first source" rule both fired in the commit where the registers land —
+  // each reading the same `null` — and the default won, so the hand-off
+  // silently did nothing. Resolving both in one place makes the precedence
+  // explicit instead of a function of effect order.
+  const { source: requestedSourceId } = drawingRoute.useSearch();
+  const handedOff = useRef(false);
   useEffect(() => {
-    if (selectedPartId === null && parts.length > 0) {
-      setSelectedPartId(parts[0]?.id ?? null);
+    if (sources.length === 0) return;
+    if (
+      !handedOff.current &&
+      requestedSourceId !== undefined &&
+      sources.some((source) => source.id === requestedSourceId)
+    ) {
+      handedOff.current = true;
+      setSelectedSourceId(requestedSourceId);
+      return;
     }
-  }, [parts, selectedPartId]);
+    setSelectedSourceId((current) => current ?? sources[0]?.id ?? null);
+  }, [sources, requestedSourceId]);
+  const selectedSourceKind = drawingSourceKind(sources, selectedSourceId);
 
-  // The effective part + scale to project: the drafted part once laid out.
-  const effectivePartId = draftedPartId ?? null;
+  // The effective source + scale to project: the drafted one once laid out.
+  const effectiveSourceId = draftedSourceId ?? null;
+  const effectiveSourceKind: RefDocumentKind = hasLayout
+    ? draftedSourceKind
+    : selectedSourceKind;
+  // The part-shaped pipeline (feature tree → evaluate → pick provenance) runs
+  // for a part source ONLY. An assembly sheet is composed entirely server-side
+  // (the gateway resolves its instance+mate graph and geometry projects the
+  // SOLVED compound), so the browser has no feature tree to send and needs none.
+  const effectivePartId =
+    effectiveSourceKind === "part" ? effectiveSourceId : null;
   const effectiveScaleValue = hasLayout
     ? `${views[0]?.scale.numerator ?? 1}:${views[0]?.scale.denominator ?? 1}`
     : scaleValue;
@@ -353,29 +440,63 @@ export function DrawingPage() {
   });
   const partTree = partTreeQuery.data;
 
-  // The drafted part's bounding box — the ONLY input the orientation proposal
-  // needs. The layout action already evaluates the part to fit a scale; hoisting
-  // that reading here lets the sheet header say what each paper orientation
-  // buys BEFORE the user commits to one (REACH-3). A part that fails to
-  // evaluate simply yields no proposal — the cells then read state only.
-  const partBoxQuery = useQuery({
-    queryKey: ["drawing-part-box", effectivePartId, partTree?.tree_version],
-    enabled: effectivePartId !== null,
-    queryFn: () => evaluatePart(effectivePartId as string),
-    staleTime: Infinity,
+  // The document the proposal MEASURES: the drafted one once laid out, and the
+  // one the picker is pointing at before that. Reading `effectiveSourceId` here
+  // was the root of REACH-3-FLOW's P1-1 — it is null until a sheet has views, so
+  // the query never ran on the create screen and `orientationFit` was
+  // structurally null at every Sheet-1 create path. A proposal that cannot have
+  // been computed cannot fire.
+  const measuredSourceId = draftedSourceId ?? selectedSourceId;
+  const measuredSourceKind: RefDocumentKind = hasLayout
+    ? draftedSourceKind
+    : selectedSourceKind;
+
+  // The drafted document's extents — the ONLY input the orientation proposal
+  // needs, and the SAME reading the layout action fits its scale from
+  // (`fetchSourceExtents`), so the header cell can never promise a scale the
+  // next "Lay out" does not deliver. An assembly source is measured too
+  // (ASMDRAW-FIT-1b): before that, an assembly sheet's orientation cells read
+  // state only, silently, which is the same missing branch in a second place.
+  // A source that cannot be measured yields no proposal — the cells then read
+  // state only, honestly.
+  const sourceExtentsQuery = useQuery({
+    ...sourceExtentsQueryOptions(
+      measuredSourceId ?? "",
+      measuredSourceKind,
+      partTree?.tree_version,
+    ),
+    enabled: measuredSourceId !== null,
   });
+  // Fitted against the paper the sheet is ACTUALLY on (`effectiveSize`), not the
+  // picker's value: a laid-out A3 sheet whose picker still reads A4 would have
+  // had its header cell quote A4's fits.
   const orientationFit = useMemo<OrientationFit | null>(() => {
-    const box = partBoxQuery.data?.properties?.bounding_box;
-    if (!box) return null;
-    return proposeOrientation(
-      {
-        x: box.max.x - box.min.x,
-        y: box.max.y - box.min.y,
-        z: box.max.z - box.min.z,
-      },
-      sizeValue,
-    );
-  }, [partBoxQuery.data, sizeValue]);
+    const extents = sourceExtentsQuery.data;
+    if (!extents) return null;
+    return proposeOrientation(extents, effectiveSize);
+  }, [sourceExtentsQuery.data, effectiveSize]);
+  // The user's answer to the proposal, before any sheet exists to hold it. Once
+  // a sheet exists the SHEET holds the orientation (and the header cell re-heads
+  // it), so this only ever governs the very first create. Cleared whenever the
+  // thing being proposed about changes — a "portrait" the user chose for another
+  // part, on another paper, is not an answer to this question.
+  const [orientationOverride, setOrientationOverride] =
+    useState<SheetOrientation | null>(null);
+  useEffect(() => {
+    setOrientationOverride(null);
+  }, [selectedSourceId, sizeValue, activeIndex]);
+
+  // The paper the next layout will make: the persisted sheet's own orientation
+  // whenever a sheet exists (laid out or not — `handleLayout` honours it), and
+  // the proposal, or the user's override of it, before that.
+  const paperOrientation: SheetOrientation =
+    sheet?.orientation ??
+    orientationOverride ??
+    orientationFit?.proposed ??
+    "landscape";
+  const paperScale = orientationFit
+    ? orientationFit.scaleByOrientation[paperOrientation]
+    : null;
 
   // Project the part into the standard views (exact HLR, server-side).
   const evalQuery = useQuery({
@@ -440,16 +561,47 @@ export function DrawingPage() {
     queryKey: [
       "drawing-sheet",
       activeSheetId,
-      effectivePartId,
+      effectiveSourceId,
+      effectiveSourceKind,
       partTree?.tree_version,
       effectiveScaleValue,
       docVersion,
     ],
-    enabled: hasLayout && partTree !== undefined && activeSheetId !== null,
+    // A PART sheet waits for its feature tree (the compose is keyed on that
+    // tip, so composing before it lands would cache a stale sheet). An
+    // ASSEMBLY sheet has no client-side tree to wait for — the gateway
+    // resolves the instance+mate graph itself — so it composes as soon as the
+    // sheet exists. Re-project invalidates this key for both.
+    enabled:
+      hasLayout &&
+      activeSheetId !== null &&
+      (effectiveSourceKind === "assembly" || partTree !== undefined),
     queryFn: () => composeDrawingSheet(drawingId, activeSheetId),
     staleTime: Infinity,
   });
   const composed = sheetQuery.data;
+  // The PLACED views by projection — the reading the Views panel falls back to
+  // when there is no client-side evaluation to read (an assembly sheet).
+  const composedByProjection = useMemo(() => {
+    const map = new Map<ViewProjection, ComposedView>();
+    for (const view of composed?.views ?? []) map.set(view.projection, view);
+    return map;
+  }, [composed]);
+
+  // The sheet's numbered bill of materials (§7 BOM) — the parts list. A READ
+  // MODEL over the source assembly's direct instances, so it needs no
+  // evaluation and no geometry: quantities and item numbers are a pure
+  // function of the assembly graph, which is why the numbers are derived at
+  // read time and never stored on the drawing. Only an ASSEMBLY sheet has one;
+  // asking for a part sheet's BOM is a typed 422, and the panel says why
+  // rather than making the user find out by clicking.
+  const bomQuery = useQuery({
+    queryKey: ["drawing-bom", drawingId, activeSheetId, docVersion],
+    enabled:
+      hasLayout && activeSheetId !== null && effectiveSourceKind === "assembly",
+    queryFn: () => fetchDrawingBom(drawingId, activeSheetId),
+    staleTime: 30_000,
+  });
 
   // ---------------------------------------------------------------------
   // The auto-layout action: create the sheet (if needed) + the four views,
@@ -465,9 +617,10 @@ export function DrawingPage() {
   const [sectionOpen, setSectionOpen] = useState(false);
   const [sectionError, setSectionError] = useState<string | null>(null);
   const sectionPartTreeQuery = useQuery({
-    queryKey: ["drawing-section-part-tree", selectedPartId],
-    enabled: sectionOpen && selectedPartId !== null,
-    queryFn: () => fetchFeatureTree(selectedPartId as string),
+    queryKey: ["drawing-section-part-tree", selectedSourceId],
+    enabled:
+      sectionOpen && selectedSourceId !== null && selectedSourceKind === "part",
+    queryFn: () => fetchFeatureTree(selectedSourceId as string),
     staleTime: 30_000,
   });
   const sectionDatumOptions = useMemo(
@@ -476,19 +629,46 @@ export function DrawingPage() {
   );
 
   const handleLayout = useCallback(() => {
-    if (hasLayout || selectedPartId === null || busy) return;
+    if (hasLayout || selectedSourceId === null || busy) return;
     setBusy(true);
     setActionError(null);
     void (async () => {
       try {
         let version = docVersion;
         let sheetId = sheet?.id ?? null;
+        // Measure FIRST, through the same cache the header cell reads, so the
+        // paper is chosen from the document rather than after it (REACH-3-FLOW
+        // P1-1: Sheet 1 used to be born `orientation: "landscape"` as a
+        // literal). `ensureQueryData` shares the one evaluation the proposal
+        // already warmed — and closes the race where a user clicks "Lay out"
+        // before that query lands, which reading `orientationFit` here would
+        // have left as a silent fall back to landscape.
+        let extents: ModelExtents | null = null;
+        try {
+          extents = await queryClient.ensureQueryData(
+            sourceExtentsQueryOptions(
+              selectedSourceId,
+              selectedSourceKind,
+              partTree?.tree_version,
+            ),
+          );
+        } catch {
+          // unmeasurable — keep the picked scale and the default paper
+        }
+        const header = sheetHeaderForNewSheet({
+          name: "Sheet 1",
+          size: sizeValue,
+          layout: "standard",
+          fit: extents ? proposeOrientation(extents, sizeValue) : null,
+          inherit: sheet,
+          override: orientationOverride,
+        });
         if (sheetId === null) {
           const created = await createSheet(drawingId, {
-            name: "Sheet 1",
-            size: sizeValue,
-            orientation: "landscape",
-            projection: "third_angle",
+            name: header.name,
+            size: header.size,
+            orientation: header.orientation,
+            projection: header.projection,
             expected_version: version,
           });
           version = created.doc_version;
@@ -496,42 +676,45 @@ export function DrawingPage() {
         }
         // Lay out against the paper THIS sheet is actually on — a sheet added
         // portrait (REACH-3) must seed its anchors and fit its scale against
-        // 210x297, not the landscape default.
+        // 210x297, not the landscape default. For a sheet created a moment ago
+        // that is the proposed paper; for an existing empty sheet it is the one
+        // already persisted, which the user may have flipped by hand.
         const dims = sheetDimensions(
-          sheet?.size ?? sizeValue,
-          sheet?.orientation ?? "landscape",
+          sheet?.size ?? header.size,
+          sheet?.orientation ?? header.orientation,
         );
         const anchors = standardLayout(dims);
-        // Fit-scale: never lay out views that overflow their cells — evaluate
-        // the part's bbox and reduce the scale until the four standard views
-        // fit (the user's picked scale is a ceiling; see fitScale). A part
-        // that fails to evaluate keeps the picked scale — the layout still
-        // lands, just unfitted, and the sheet surfaces the eval error.
-        let fittedValue = scaleValue;
-        try {
-          const evaluated = await evaluatePart(selectedPartId);
-          const box = evaluated.properties?.bounding_box;
-          if (box) {
-            fittedValue = fitScale(
-              {
-                x: box.max.x - box.min.x,
-                y: box.max.y - box.min.y,
-                z: box.max.z - box.min.z,
-              },
-              dims,
-              scaleValue,
-            ).value;
-          }
-        } catch {
-          // keep the picked scale
-        }
+        // Fit-scale: never lay out views that overflow their cells — measure
+        // the source and reduce the scale until the four standard views fit
+        // (the user's picked scale is a ceiling; see fitScale). EITHER kind of
+        // source is measurable now (`fetchSourceExtents`): a part by its bbox,
+        // an ASSEMBLY by its SOLVED compound's extents. Before that route
+        // existed the assembly branch kept the picked scale, and a rig whose
+        // instances were seeded apart laid out at 1:1 with its right view
+        // straddling the title block (ASMDRAW-FIT-1b, and the founder's
+        // parts-list screenshot).
+        //
+        // A source that cannot be measured keeps the picked scale — the layout
+        // still lands, just unfitted, and the composer's own `views_overlap` /
+        // `views_crowded` measurements surface in the check strip, so a sheet
+        // that could not be fitted says so rather than looking fine.
+        //
+        // This fit runs ONCE, here, at layout time. A later re-solve that moves
+        // the extents does NOT re-scale a sheet already on screen: the scale of
+        // a laid-out sheet is the user's (they can re-pick it, and a dragged
+        // view is pinned `auto_place:false`), and re-flowing paper under
+        // someone editing mates in another tab is the "no surprises" half of
+        // the flow rule. The check strip tells them; it never moves them.
+        const fittedValue = extents
+          ? fitScale(extents, dims, scaleValue).value
+          : scaleValue;
         const scale = scaleFromValue(fittedValue);
         for (const projection of STANDARD_VIEWS) {
           const anchor = anchors[projection];
           const created = await createView(drawingId, sheetId, {
             projection,
-            ref_document_id: selectedPartId,
-            ref_document_kind: "part",
+            ref_document_id: selectedSourceId,
+            ref_document_kind: selectedSourceKind,
             scale,
             position: { x_mm: anchor.x, y_mm: anchor.y },
             // Auto-layout lands each standard view (bounds-aware); a later drag
@@ -561,13 +744,16 @@ export function DrawingPage() {
     })();
   }, [
     hasLayout,
-    selectedPartId,
+    selectedSourceId,
+    selectedSourceKind,
     busy,
     docVersion,
     sheet,
     drawingId,
     scaleValue,
     sizeValue,
+    partTree,
+    orientationOverride,
     queryClient,
   ]);
 
@@ -576,19 +762,35 @@ export function DrawingPage() {
   // no sheet-metal bends composes an honest `flat_pattern_not_sheet_metal` failed
   // view — surfaced inline, never a crash.
   const handleFlatPattern = useCallback(() => {
-    if (hasLayout || selectedPartId === null || busy) return;
+    // Part-only, and the guard is not redundant with the band's disabled cell:
+    // `F` reaches this handler directly from the keyboard.
+    if (hasLayout || selectedSourceId === null || busy) return;
+    if (selectedSourceKind !== "part") return;
     setBusy(true);
     setActionError(null);
     void (async () => {
       try {
         let version = docVersion;
         let sheetId = sheet?.id ?? null;
+        // A LONE-view sheet: `fit: null` on purpose, not by omission. The
+        // proposal is a reading of the FOUR-quadrant fit, and a flat pattern's
+        // drawn footprint is the UNFOLDED blank, which the client has not
+        // measured (see the scale note below). Proposing paper from the 3D bbox
+        // here would be the "promises what it will not deliver" defect
+        // REACH-3-FLOW's other half is about, in a new place.
+        const header = sheetHeaderForNewSheet({
+          name: "Sheet 1",
+          size: sizeValue,
+          layout: "lone",
+          fit: null,
+          inherit: sheet,
+        });
         if (sheetId === null) {
           const created = await createSheet(drawingId, {
-            name: "Sheet 1",
-            size: sizeValue,
-            orientation: "landscape",
-            projection: "third_angle",
+            name: header.name,
+            size: header.size,
+            orientation: header.orientation,
+            projection: header.projection,
             expected_version: version,
           });
           version = created.doc_version;
@@ -600,12 +802,12 @@ export function DrawingPage() {
         // four standard views are — a flat-pattern fit needs the UNFOLDED
         // extents (not the 3D bbox `fitScale` reads), a separate slice (BACKLOG).
         const dims = sheetDimensions(
-          sheet?.size ?? sizeValue,
-          sheet?.orientation ?? "landscape",
+          sheet?.size ?? header.size,
+          sheet?.orientation ?? header.orientation,
         );
         const created = await createView(drawingId, sheetId, {
           projection: "flat_pattern",
-          ref_document_id: selectedPartId,
+          ref_document_id: selectedSourceId,
           ref_document_kind: "part",
           scale: scaleFromValue(scaleValue),
           position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
@@ -628,7 +830,8 @@ export function DrawingPage() {
     })();
   }, [
     hasLayout,
-    selectedPartId,
+    selectedSourceId,
+    selectedSourceKind,
     busy,
     docVersion,
     sheet,
@@ -646,31 +849,43 @@ export function DrawingPage() {
   // guards it, and the sheet renders `section_plane_not_principal` readably.
   const handleAuthorSection = useCallback(
     (plane: SectionViewParams["plane"], flip: boolean) => {
-      if (hasLayout || selectedPartId === null || busy) return;
+      // Part-only (`S` reaches this from the keyboard too — see flat pattern).
+      if (hasLayout || selectedSourceId === null || busy) return;
+      if (selectedSourceKind !== "part") return;
       setBusy(true);
       setSectionError(null);
       void (async () => {
         try {
           let version = docVersion;
           let sheetId = sheet?.id ?? null;
+          // A lone centred cut, like the flat pattern above: the four-quadrant
+          // fit does not model it, so it takes the shop default rather than a
+          // proposal it cannot honour. Convention is still inherited.
+          const header = sheetHeaderForNewSheet({
+            name: "Sheet 1",
+            size: sizeValue,
+            layout: "lone",
+            fit: null,
+            inherit: sheet,
+          });
           if (sheetId === null) {
             const created = await createSheet(drawingId, {
-              name: "Sheet 1",
-              size: sizeValue,
-              orientation: "landscape",
-              projection: "third_angle",
+              name: header.name,
+              size: header.size,
+              orientation: header.orientation,
+              projection: header.projection,
               expected_version: version,
             });
             version = created.doc_version;
             sheetId = created.sheet.id;
           }
           const dims = sheetDimensions(
-            sheet?.size ?? sizeValue,
-            sheet?.orientation ?? "landscape",
+            sheet?.size ?? header.size,
+            sheet?.orientation ?? header.orientation,
           );
           await createView(drawingId, sheetId, {
             projection: "section",
-            ref_document_id: selectedPartId,
+            ref_document_id: selectedSourceId,
             ref_document_kind: "part",
             scale: scaleFromValue(scaleValue),
             position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
@@ -695,7 +910,8 @@ export function DrawingPage() {
     },
     [
       hasLayout,
-      selectedPartId,
+      selectedSourceId,
+      selectedSourceKind,
       busy,
       docVersion,
       sheet,
@@ -710,6 +926,26 @@ export function DrawingPage() {
     setSectionError(null);
     setSectionOpen((open) => !open);
   }, []);
+
+  // "What IS item 2?" — open the document a parts-list line names, in its own
+  // workspace. The list is the only place on this sheet where another document
+  // is named, so it is the only place that answer can be reached from; without
+  // it the numbers are a dead end (design mandate: no chrome that only reads).
+  const handleOpenBomLine = useCallback(
+    (line: DrawingBomLine) => {
+      if (line.missing) return;
+      void (line.ref_document_kind === "assembly"
+        ? navigate({
+            to: "/assemblies/$assemblyId",
+            params: { assemblyId: line.ref_document_id },
+          })
+        : navigate({
+            to: "/parts/$partId",
+            params: { partId: line.ref_document_id },
+          }));
+    },
+    [navigate],
+  );
 
   // Append a new (empty) sheet and switch to it (FINDINGS #18). The new sheet is
   // laid out through the SAME flow the first sheet uses — selecting it makes the
@@ -732,24 +968,24 @@ export function DrawingPage() {
     setActionError(null);
     void (async () => {
       try {
-        // The content proposes (REACH-3): a part whose projected extents fit
-        // portrait at a better scale gets a portrait sheet, with the scale
-        // picker moved to the scale that orientation actually earns — so the
-        // very next "Lay out" lands at the size the header cell promised. The
-        // convention is INHERITED from the sheet in hand, so a first-angle shop
-        // states it once. Both are one keystroke away on the header cells, so a
-        // wrong proposal is never a dead end.
-        const orientation = orientationFit?.proposed ?? "landscape";
-        await createSheet(drawingId, {
+        // The SAME derivation Sheet 1 is born from (`sheetHeaderForNewSheet`) —
+        // this used to be the one smart call site while the four Sheet-1 paths
+        // wrote literals, which is exactly the defect REACH-3-FLOW names.
+        const header = sheetHeaderForNewSheet({
           name: nextSheetName,
           size: sizeValue,
-          orientation,
-          projection: sheet?.projection ?? "third_angle",
+          layout: "standard",
+          fit: orientationFit,
+          inherit: sheet,
+        });
+        await createSheet(drawingId, {
+          name: header.name,
+          size: header.size,
+          orientation: header.orientation,
+          projection: header.projection,
           expected_version: docVersion,
         });
-        if (orientationFit) {
-          setScaleValue(orientationFit.scaleByOrientation[orientation]);
-        }
+        if (header.scaleValue !== null) setScaleValue(header.scaleValue);
         await queryClient.invalidateQueries({
           queryKey: ["drawing", drawingId],
         });
@@ -783,6 +1019,29 @@ export function DrawingPage() {
   // re-anchored by the composer from the sheet's own convention, so a flip
   // genuinely re-lays the drawing out — third angle puts the top view above
   // front and the right view to its right; first angle mirrors both.
+  //
+  // ORIENTATION additionally RE-PLACES every view onto the new paper
+  // (REACH-3-FLOW P1-2). A flip used to change the `viewBox` and nothing else,
+  // which for a HAND-PLACED view is not cosmetic: `auto_place:false` is honoured
+  // verbatim by the composer, and a view pinned 270 mm across a landscape A4 is
+  // off the edge of a 210 mm-wide portrait one.
+  //
+  // It does NOT re-scale, and the cell no longer claims it will. MEASURED
+  // 2026-08-28 against the real stack: documents refuses a per-view re-scale on
+  // a multi-view sheet with `sheet_view_scale_mismatch` (its H2 "one sheet, one
+  // source, one scale" invariant), and the refusal is unavoidable — `siblings[0]`
+  // always still holds the OLD scale, so the FIRST view of the four is always
+  // rejected whichever order you write them in. There is no sheet-level re-scale
+  // verb, so no sequence of frontend writes can re-fit a laid-out sheet.
+  //
+  // The half of P1-2 that was a genuine defect is therefore fixed at the
+  // PROMISE, not the delivery: the fit comparison now lives on the SET-UP
+  // screen's paper cell, where the scale is still free and the answer is still
+  // free to give, and the post-layout cell states only what it does. That is
+  // "capture intent where it forms, not afterwards" — the flow rule this ticket
+  // is judged by — rather than a control quoting a scale it cannot produce.
+  // The residual (an in-place sheet re-scale) is a documents-service verb;
+  // filed as SHEET-RESCALE-1.
   // ---------------------------------------------------------------------
   const [reheading, setReheading] = useState(false);
   const reheadSheet = useCallback(
@@ -791,14 +1050,38 @@ export function DrawingPage() {
         { projection: SheetProjection } | { orientation: SheetOrientation },
     ) => {
       if (reheading || sheet === null) return;
+      const from = sheet;
       setReheading(true);
       setActionError(null);
       void (async () => {
         try {
-          await updateSheetHeader(drawingId, sheet.id, {
+          const rehead = await updateSheetHeader(drawingId, from.id, {
             expected_version: docVersion,
             ...change,
           });
+          if ("orientation" in change && views.length > 0) {
+            const next = change.orientation;
+            const oldDims = sheetDimensions(from.size, from.orientation);
+            const newDims = sheetDimensions(from.size, next);
+            const anchors = standardLayout(newDims);
+            let version = rehead.doc_version;
+            for (const view of views) {
+              const updated = await updateView(drawingId, view.id, {
+                expected_version: version,
+                // An auto-placed view re-seeds to the new paper's anchors (the
+                // composer re-derives the final placement from them anyway); a
+                // HAND-PLACED one keeps its composition, remapped, so the pin
+                // lands on paper that exists.
+                position: view.auto_place
+                  ? {
+                      x_mm: anchors[view.projection].x,
+                      y_mm: anchors[view.projection].y,
+                    }
+                  : reframePinnedCentre(view.position, oldDims, newDims),
+              });
+              version = updated.doc_version;
+            }
+          }
           await queryClient.invalidateQueries({
             queryKey: ["drawing", drawingId],
           });
@@ -814,7 +1097,7 @@ export function DrawingPage() {
         }
       })();
     },
-    [reheading, sheet, drawingId, docVersion, queryClient],
+    [reheading, sheet, views, drawingId, docVersion, queryClient],
   );
   const handleFlipConvention = useCallback(() => {
     if (sheet === null) return;
@@ -824,6 +1107,21 @@ export function DrawingPage() {
     if (sheet === null) return;
     reheadSheet({ orientation: OTHER_ORIENTATION[sheet.orientation] });
   }, [sheet, reheadSheet]);
+  /**
+   * The paper control on the SET-UP screen — the one place a wrong proposal can
+   * be answered before it costs anything (REACH-3-FLOW's P2 flag: the header
+   * cells were post-layout only, i.e. absent from the only screen that could
+   * have prevented the problem). Same gesture either side of the sheet's
+   * existence: re-head the sheet if there is one, otherwise record the answer
+   * the very first create will be born with.
+   */
+  const handleFlipPaper = useCallback(() => {
+    if (sheet !== null) {
+      handleFlipOrientation();
+      return;
+    }
+    setOrientationOverride(OTHER_ORIENTATION[paperOrientation]);
+  }, [sheet, handleFlipOrientation, paperOrientation]);
 
   const handleReproject = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -1575,8 +1873,7 @@ export function DrawingPage() {
     handleExportDxf,
   ]);
 
-  const draftedPartName =
-    parts.find((part) => part.id === draftedPartId)?.name ?? null;
+  const draftedSourceName = drawingSourceName(sources, draftedSourceId);
 
   // The composer's own layout measurements (audit N2) — a colliding or crowded
   // pair of views, in millimetres, with the sentence every export stamps. The
@@ -1611,16 +1908,19 @@ export function DrawingPage() {
             out" against a not-yet-known doc_version (a stale-OCC race). */}
         {drawingQuery.isSuccess ? (
           <DrawingCommandBand
-            parts={parts}
-            selectedPartId={selectedPartId}
-            onSelectPart={setSelectedPartId}
+            sources={sources}
+            selectedSourceId={selectedSourceId}
+            onSelectSource={setSelectedSourceId}
+            sourceKind={effectiveSourceKind}
             scaleValue={effectiveScaleValue}
             onSelectScale={setScaleValue}
             sizeValue={effectiveSize}
             onSelectSize={setSizeValue}
+            paperOrientation={paperOrientation}
+            paperScale={paperScale}
             hasLayout={hasLayout}
             isFlatPattern={isFlatPatternSheet}
-            draftedPartName={draftedPartName}
+            draftedSourceName={draftedSourceName}
             onLayout={handleLayout}
             onFlatPattern={handleFlatPattern}
             onToggleSection={handleToggleSection}
@@ -1669,6 +1969,7 @@ export function DrawingPage() {
             adding={addingSheet}
             sheet={sheet}
             fit={orientationFit}
+            drawnScale={effectiveScaleValue}
             onFlipConvention={handleFlipConvention}
             onFlipOrientation={handleFlipOrientation}
             reheading={reheading}
@@ -1756,7 +2057,14 @@ export function DrawingPage() {
             body="Placing the standard views."
           />
         ) : (
-          <SetupHint hasParts={parts.length > 0} />
+          <SetupHint
+            hasParts={parts.length > 0}
+            size={effectiveSize}
+            orientation={paperOrientation}
+            fit={orientationFit}
+            onFlipPaper={handleFlipPaper}
+            busy={reheading || busy}
+          />
         )}
 
         {/* Honest projection-failure banner (part produced no body). */}
@@ -1811,6 +2119,7 @@ export function DrawingPage() {
                 projecting={projecting}
                 projections={requestedViews}
                 resultByProjection={resultByProjection}
+                composedByProjection={composedByProjection}
               />
               <BendSchedulePanel
                 rows={resultByProjection.get("flat_pattern")?.bend_table ?? []}
@@ -1829,6 +2138,14 @@ export function DrawingPage() {
                 busy={noteBusy}
                 onAdd={handleAddNote}
                 onDelete={handleDeleteNote}
+              />
+              <PartsListPanel
+                sourceKind={effectiveSourceKind}
+                lines={bomQuery.data?.lines ?? []}
+                totalInstances={bomQuery.data?.total_instances ?? 0}
+                loading={bomQuery.isLoading}
+                error={bomQuery.error}
+                onOpen={handleOpenBomLine}
               />
             </div>
           </FloatingPanel>
@@ -2100,8 +2417,14 @@ function SheetHeaderCell({
  * The convention cell stamps the ISO symbol for the sheet's projection standard
  * and flips it on activation; the orientation cell does the same for the paper,
  * and marks itself `data-proposed` when it already matches the orientation the
- * part's own extents argue for (with both fitted scales on the cell, so the
- * trade is visible rather than asserted).
+ * part's own extents argue for.
+ *
+ * The orientation cell states ONLY what it delivers (REACH-3-FLOW P1-2). It used
+ * to read "switch to portrait (1:2)" and then return a sheet still drawn at 1:5
+ * — documents refuses a per-view re-scale on a laid-out sheet, so no amount of
+ * client work can honour that. The fit comparison lives on the set-up screen's
+ * paper cell instead, where the scale is still free; here the cell says what a
+ * flip actually does, which is re-draft the SAME scale on the other paper.
  */
 function SheetTabs({
   sheets,
@@ -2111,6 +2434,7 @@ function SheetTabs({
   adding,
   sheet,
   fit,
+  drawnScale,
   onFlipConvention,
   onFlipOrientation,
   reheading,
@@ -2122,6 +2446,8 @@ function SheetTabs({
   adding: boolean;
   sheet: SheetResponse | null;
   fit: OrientationFit | null;
+  /** The scale the sheet is ACTUALLY drawn at, off the stored views. */
+  drawnScale: string;
   onFlipConvention: () => void;
   onFlipOrientation: () => void;
   reheading: boolean;
@@ -2130,17 +2456,27 @@ function SheetTabs({
   const orientation = sheet?.orientation ?? "landscape";
   const nextConvention = OTHER_CONVENTION[convention];
   const nextOrientation = OTHER_ORIENTATION[orientation];
-  // The fitted scale each orientation buys this part, read straight off the
-  // same `fitScale` the layout action uses — so the cell can never claim a
-  // scale the layout would not actually produce.
-  const fitNote = fit ? `, fits ${fit.scaleByOrientation[orientation]}` : "";
-  const nextFitNote = fit
-    ? ` (${fit.scaleByOrientation[nextOrientation]})`
-    : "";
+  // A scrolling rail must still show you where you ARE. Adding an eleventh
+  // sheet selects it, and without this the tab that just became active sits off
+  // the end of the rail — the switcher would say "SHEET 10" while the page
+  // showed sheet 11. Instant, not smooth: this is a state correction, not an
+  // animation, so there is no motion for `prefers-reduced-motion` to suppress.
+  const railRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const rail = railRef.current;
+    const tab = rail?.querySelector<HTMLElement>('[role="tab"][data-active]');
+    tab?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeIndex, sheets.length]);
+  // The strip is capped and the TAB RAIL scrolls inside it, so the two header
+  // cells stay put however many sheets exist. Before: eleven sheets pushed the
+  // convention and orientation cells off the right of a 1024 viewport — the
+  // controls that DECLARE the sheet's standard were the first thing a
+  // many-sheet drawing lost, with nothing to say where they had gone.
   return (
-    <div className="absolute left-3 top-3 z-overlay flex items-center gap-1 border border-hairline bg-anvil/95 px-1.5 py-1 shadow-float backdrop-blur-sm">
+    <div className="absolute left-3 top-3 z-overlay flex max-w-[calc(100%-1.5rem)] items-center gap-1 border border-hairline bg-anvil/95 px-1.5 py-1 shadow-float backdrop-blur-sm">
       <div
-        className="flex items-center gap-1"
+        ref={railRef}
+        className="flex min-w-0 items-center gap-1 overflow-x-auto"
         role="tablist"
         aria-label="Drawing sheets"
         data-testid="sheet-tabs"
@@ -2156,7 +2492,7 @@ function SheetTabs({
               data-testid={`sheet-tab-${index}`}
               data-active={active || undefined}
               onClick={() => onSelect(index)}
-              className={`border-b-2 px-2.5 py-1 font-display text-2xs uppercase tracking-[0.14em] transition-colors duration-fast focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass ${
+              className={`shrink-0 whitespace-nowrap border-b-2 px-2.5 py-1 font-display text-2xs uppercase tracking-[0.14em] transition-colors duration-fast focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass ${
                 active
                   ? "border-brass text-mist"
                   : "border-transparent text-gauge hover:text-mist"
@@ -2166,22 +2502,26 @@ function SheetTabs({
             </button>
           );
         })}
-        <button
-          type="button"
-          onClick={onAdd}
-          disabled={adding}
-          data-testid="sheet-tab-add"
-          aria-label={
-            fit
-              ? `Add sheet — ${ORIENTATION_NAME[fit.proposed]} at ${fit.scaleByOrientation[fit.proposed]}`
-              : "Add sheet"
-          }
-          data-proposed-orientation={fit?.proposed}
-          className="ml-0.5 shrink-0 rounded-sm px-1.5 py-1 font-display text-xs leading-none text-gauge transition-colors duration-fast hover:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:pointer-events-none disabled:opacity-40"
-        >
-          {adding ? "…" : "+"}
-        </button>
       </div>
+      {/* ADD sits OUTSIDE the scrolling rail, beside the header cells. It is an
+          action, not a tab (it never carried `role="tab"`, so it did not belong
+          inside the tablist either), and inside the rail an eleven-sheet drawing
+          would scroll the only way to make a twelfth off the end of it. */}
+      <button
+        type="button"
+        onClick={onAdd}
+        disabled={adding}
+        data-testid="sheet-tab-add"
+        aria-label={
+          fit
+            ? `Add sheet — ${ORIENTATION_NAME[fit.proposed]} at ${fit.scaleByOrientation[fit.proposed]}`
+            : "Add sheet"
+        }
+        data-proposed-orientation={fit?.proposed}
+        className="ml-0.5 shrink-0 rounded-sm px-1.5 py-1 font-display text-xs leading-none text-gauge transition-colors duration-fast hover:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:pointer-events-none disabled:opacity-40"
+      >
+        {adding ? "…" : "+"}
+      </button>
       {sheet ? (
         <>
           <span aria-hidden="true" className="mx-1 h-4 w-px bg-hairline" />
@@ -2198,7 +2538,11 @@ function SheetTabs({
           </SheetHeaderCell>
           <SheetHeaderCell
             testid="sheet-orientation"
-            label={`Sheet orientation: ${ORIENTATION_NAME[orientation]}${fitNote} — switch to ${ORIENTATION_NAME[nextOrientation]}${nextFitNote}`}
+            label={`Sheet orientation: ${ORIENTATION_NAME[orientation]}, drawn at ${drawnScale} — switch to ${ORIENTATION_NAME[nextOrientation]} paper, keeping ${drawnScale}${
+              fit
+                ? `. A fresh ${ORIENTATION_NAME[nextOrientation]} sheet would fit this at ${fit.scaleByOrientation[nextOrientation]}.`
+                : "."
+            }`}
             onActivate={onFlipOrientation}
             busy={reheading}
             attrs={{
@@ -2220,8 +2564,34 @@ function SheetTabs({
   );
 }
 
-/** The empty-bench invitation before any views are laid out. */
-function SetupHint({ hasParts }: { hasParts: boolean }) {
+/**
+ * The empty-bench invitation before any views are laid out — and the one place
+ * the orientation PROPOSAL is answerable before it costs anything.
+ *
+ * The paper cell is the same instrument the sheet header wears after layout
+ * (`SheetHeaderCell` + `OrientationSymbol`), deliberately: one vocabulary for
+ * one decision, so what the user learns here still reads after the sheet
+ * exists. It only appears once there is a measured proposal to state — an
+ * unmeasurable source gets no cell rather than a cell asserting the default,
+ * which would be chrome that only decorates (mandate 3a).
+ */
+function SetupHint({
+  hasParts,
+  size,
+  orientation,
+  fit,
+  onFlipPaper,
+  busy,
+}: {
+  hasParts: boolean;
+  size: SheetSize;
+  orientation: SheetOrientation;
+  fit: OrientationFit | null;
+  onFlipPaper: () => void;
+  busy: boolean;
+}) {
+  const next = OTHER_ORIENTATION[orientation];
+  const paper = `${sheetSizeLabel(size)} ${ORIENTATION_NAME[orientation]}`;
   return (
     <div
       data-testid="drawing-setup-hint"
@@ -2240,6 +2610,28 @@ function SetupHint({ hasParts }: { hasParts: boolean }) {
             ? "Choose a part, sheet size and scale above, then lay out the standard views — front, top, right and isometric — or unfold a sheet-metal part's flat pattern with its bend table."
             : "A drawing projects a part. Model a part, then return to draft it."}
         </p>
+        {hasParts && fit ? (
+          <div className="mt-4 flex items-center justify-center [pointer-events:auto]">
+            <SheetHeaderCell
+              testid="setup-paper"
+              label={`Sheet paper: ${paper}, fits ${fit.scaleByOrientation[orientation]} — switch to ${ORIENTATION_NAME[next]} (${fit.scaleByOrientation[next]})`}
+              onActivate={onFlipPaper}
+              busy={busy}
+              tone="stamp"
+              attrs={{
+                "data-orientation": orientation,
+                "data-fit-landscape": fit.scaleByOrientation.landscape,
+                "data-fit-portrait": fit.scaleByOrientation.portrait,
+                "data-proposed": String(orientation === fit.proposed),
+              }}
+            >
+              <OrientationSymbol orientation={orientation} />
+              <span>
+                {paper} · {fit.scaleByOrientation[orientation]}
+              </span>
+            </SheetHeaderCell>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -2254,10 +2646,20 @@ function ViewsPanel({
   projecting,
   projections,
   resultByProjection,
+  composedByProjection,
 }: {
   projecting: boolean;
   projections: readonly ViewProjection[];
   resultByProjection: Map<ViewProjection, DrawingViewResult>;
+  /**
+   * The PLACED views, which for an assembly sheet are the only reading there
+   * is: the part-shaped `evaluate` hop does not run for one (the gateway
+   * resolves the instance graph and geometry projects the solved compound), so
+   * `resultByProjection` is empty and this panel used to report "0 edges" over
+   * a sheet full of geometry. A readout that is confidently wrong is worse
+   * than one that is absent — same count, taken from what was drawn.
+   */
+  composedByProjection: Map<ViewProjection, ComposedView>;
 }) {
   const flatPattern = projections.includes("flat_pattern");
   const bendCount =
@@ -2281,8 +2683,11 @@ function ViewsPanel({
       <ul className="divide-y divide-hairline">
         {projections.map((projection) => {
           const result = resultByProjection.get(projection);
-          const failed = Boolean(result?.error);
-          const count = result?.edges?.length ?? 0;
+          const placed = composedByProjection.get(projection);
+          const failed = Boolean(result?.error ?? placed?.error);
+          // Prefer the evaluated reading (it exists the moment the projection
+          // lands, before the compose returns); fall back to what was placed.
+          const count = result?.edges?.length ?? placed?.edges?.length ?? 0;
           return (
             <li
               key={projection}
@@ -2486,6 +2891,187 @@ function BendSchedulePanel({ rows }: { rows: readonly BendTableRow[] }) {
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/**
+ * The Parts list — the sheet's numbered item table (design §7 BOM), the block a
+ * shop reads to know WHAT to make and HOW MANY. Sibling of the Notes panel, and
+ * the only surface in the workspace that names other documents, so each row is
+ * the way to open the one it names.
+ *
+ * The item NUMBER is the signature: a drafting balloon, the circled numeral
+ * that ties a row to the geometry on the paper. It is not decoration — the
+ * number is content here, DERIVED server-side from the assembly's stable
+ * instance order, which is why two reads of an unchanged assembly number
+ * identically and a rename never renumbers anything.
+ *
+ * A PART-sourced sheet has no bill of materials, and that is a fact worth
+ * stating rather than hiding: the block still renders, disabled, carrying the
+ * reason. The reason is focusable (`tabIndex={0}`) because a caption a mouse
+ * can read and a keyboard cannot is only half-shipped — this is the on-screen
+ * form of the server's own `drawing_bom_source_not_assembly`, made legible
+ * before anyone can hit it.
+ */
+function PartsListPanel({
+  sourceKind,
+  lines,
+  totalInstances,
+  loading,
+  error,
+  onOpen,
+}: {
+  sourceKind: RefDocumentKind;
+  lines: readonly DrawingBomLine[];
+  totalInstances: number;
+  loading: boolean;
+  error: unknown;
+  onOpen: (line: DrawingBomLine) => void;
+}) {
+  const unavailable = sourceKind !== "assembly";
+  return (
+    <div
+      className="border border-hairline bg-anvil"
+      data-testid="parts-list-panel"
+      data-source-kind={sourceKind}
+      data-disabled={unavailable ? "true" : "false"}
+    >
+      <header className="flex items-baseline gap-2 border-b border-hairline px-3 py-2">
+        <h2
+          className={`font-display text-2xs uppercase tracking-[0.18em] ${
+            unavailable ? "text-gauge/60" : "text-gauge"
+          }`}
+        >
+          Parts list
+        </h2>
+        <span className="grow" />
+        {unavailable ? null : (
+          <span
+            data-testid="parts-list-total"
+            className="font-data text-2xs tabular-nums text-gauge"
+          >
+            {totalInstances}
+          </span>
+        )}
+      </header>
+      {unavailable ? (
+        <p
+          tabIndex={0}
+          role="note"
+          data-testid="parts-list-unavailable"
+          className="px-3 py-2.5 font-body text-2xs text-gauge focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass"
+        >
+          A parts list needs an assembly source. This sheet drafts a part —
+          draft an assembly to number its items.
+        </p>
+      ) : error ? (
+        <p
+          role="alert"
+          data-testid="parts-list-error"
+          className="px-3 py-2.5 font-body text-2xs text-flag"
+        >
+          {error instanceof Error
+            ? error.message
+            : "The parts list could not be loaded."}
+        </p>
+      ) : loading ? (
+        <p
+          data-testid="parts-list-loading"
+          className="px-3 py-2.5 font-body text-2xs text-gauge"
+        >
+          Numbering the items…
+        </p>
+      ) : lines.length === 0 ? (
+        <p
+          data-testid="parts-list-empty"
+          className="px-3 py-2.5 font-body text-2xs text-gauge"
+        >
+          This assembly has no instances yet. Add parts to it and the items
+          number themselves.
+        </p>
+      ) : (
+        <table
+          className="w-full border-collapse"
+          aria-label={`Parts list, ${lines.length} items, ${totalInstances} instances`}
+        >
+          <caption className="sr-only">
+            One row per referenced document in item-number order: item number,
+            name, and the quantity of instances.
+          </caption>
+          <thead>
+            <tr className="border-b border-hairline">
+              <th
+                scope="col"
+                className="px-3 py-1.5 text-left font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+              >
+                No.
+              </th>
+              <th
+                scope="col"
+                className="px-2 py-1.5 text-left font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+              >
+                Item
+              </th>
+              <th
+                scope="col"
+                className="px-3 py-1.5 text-right font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+              >
+                Qty
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-hairline">
+            {lines.map((line) => (
+              <tr
+                key={`${line.item_number}:${line.ref_document_id}`}
+                data-testid="parts-list-row"
+                data-item-number={String(line.item_number)}
+                data-ref-document-id={line.ref_document_id}
+                data-ref-kind={line.ref_document_kind}
+              >
+                <td className="px-3 py-1.5">
+                  {/* The balloon — the drafting artifact, not an ornament: a
+                      circled numeral is how an item list points at the paper. */}
+                  <span
+                    data-testid="parts-list-item-number"
+                    className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-etch font-data text-2xs tabular-nums text-mist"
+                  >
+                    {line.item_number}
+                  </span>
+                </td>
+                <td className="px-2 py-1.5">
+                  {line.missing ? (
+                    <span
+                      data-testid="parts-list-name"
+                      className="font-body text-2xs text-flag"
+                    >
+                      Deleted document
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      data-testid="parts-list-name"
+                      title={line.name ?? undefined}
+                      aria-label={`Open ${line.name ?? "item"}`}
+                      onClick={() => onOpen(line)}
+                      className="block w-full truncate text-left font-body text-2xs text-mist transition-colors duration-fast hover:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass"
+                    >
+                      {line.name}
+                    </button>
+                  )}
+                </td>
+                <td
+                  data-testid="parts-list-qty"
+                  className="px-3 py-1.5 text-right font-data text-2xs tabular-nums text-mist"
+                >
+                  {line.quantity}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   chargedInsetChanged,
   fitDistance,
+  fitZoom,
   insetsFor,
   targetShift,
   unobstructedRect,
@@ -278,5 +279,69 @@ describe("chargedInsetChanged — what a rail may wake the camera for", () => {
   it("ignores sub-pixel jitter", () => {
     // Layout rounding, a scrollbar appearing inside a child, DPR arithmetic.
     expect(chargedInsetChanged(RAIL, { ...RAIL, width: 320.3 })).toBe(false);
+  });
+});
+
+describe("fitZoom — the parallel fit (ORTHO-1)", () => {
+  /** The 8 corners of a box of the given half-sizes, at depth offset `c`. */
+  function corners(hx: number, hy: number, hz: number) {
+    const out = [];
+    for (const a of [-hx, hx]) {
+      for (const b of [-hy, hy]) {
+        for (const c of [-hz, hz]) out.push({ a, b, c });
+      }
+    }
+    return out;
+  }
+
+  const FREE: Rect = { x: 356, y: 24, width: 728, height: 700 };
+  /** `FIT_PADDING` — the hair of slack the edge overlay's line width needs. */
+  const PADDING = 1.01;
+
+  it("puts the subject exactly inside the free rect", () => {
+    // One world unit measures `zoom` pixels, so the widest corner must land
+    // inside half the free rect — and touch it, or the fit is leaving frame on
+    // the table.
+    const zoom = fitZoom(corners(60, 40, 30), FREE);
+    expect(60 * zoom).toBeLessThanOrEqual(FREE.width / 2);
+    expect(40 * zoom).toBeLessThanOrEqual(FREE.height / 2);
+    const filled = Math.max(
+      (60 * zoom) / (FREE.width / 2),
+      (40 * zoom) / (FREE.height / 2),
+    );
+    expect(filled).toBeGreaterThan(0.98);
+  });
+
+  it("IGNORES depth — the property the whole feature exists for", () => {
+    // `fitDistance` carries `c` because a near corner projects wider. A
+    // parallel projection has no such term, so a subject ten times deeper
+    // frames identically. If this ever fails, the camera is not parallel.
+    const shallow = fitZoom(corners(60, 40, 3), FREE);
+    const deep = fitZoom(corners(60, 40, 300), FREE);
+    expect(deep).toBeCloseTo(shallow, 10);
+  });
+
+  it("binds on whichever axis runs out first", () => {
+    // A long broadside rail is width-bound, a tall one height-bound — the same
+    // aspect-ratio awareness `fitDistance` has, in zoom units.
+    const wide = fitZoom(corners(400, 10, 10), FREE);
+    expect(400 * wide).toBeCloseTo(FREE.width / 2 / PADDING, 6);
+    const tall = fitZoom(corners(10, 400, 10), FREE);
+    expect(400 * tall).toBeCloseTo(FREE.height / 2 / PADDING, 6);
+  });
+
+  it("survives a flat subject (a plane seen face-on)", () => {
+    // Zero extent on an axis must not divide by zero; the other axis frames.
+    const zoom = fitZoom(corners(60, 0, 0), FREE);
+    expect(zoom).toBeGreaterThan(0);
+    expect(60 * zoom).toBeCloseTo(FREE.width / 2 / PADDING, 6);
+  });
+
+  it("returns 0 for a degenerate rect or an empty scene, never Infinity", () => {
+    // The caller keeps its current zoom on a 0; an Infinity would fly the
+    // camera to a scale nothing recovers from.
+    expect(fitZoom(corners(60, 40, 30), { ...FREE, width: 0 })).toBe(0);
+    expect(fitZoom([], FREE)).toBe(0);
+    expect(fitZoom(corners(0, 0, 0), FREE)).toBe(0);
   });
 });

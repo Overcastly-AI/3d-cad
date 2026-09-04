@@ -1,7 +1,7 @@
 """Hemmed-wall tray gates — hem on a FLANGE top edge flat-patterns (BACKLOG
 2026-07-20, TB-1 founder dogfooding; docs/design/sheet-metal.md §4.3/§4.4/§9).
 
-The TB-1 tray (base + 4 walls + closed hems on both long-wall rims + 4 corner
+The TB-1 tray (base + 4 walls + OPEN hems on both long-wall rims + 4 corner
 reliefs) evaluated to one valid shell but could NOT flat-pattern: the hem bend's
 inner cylinder is tangent to FOUR coplanar planar faces (its real wall + return
 flanges, plus the two perpendicular walls' end faces which lie exactly in the
@@ -323,7 +323,7 @@ def test_unrelieved_tray_unfolds_through_the_bend_tree() -> None:
 
 
 def test_minimal_hemmed_wall_unfolds() -> None:
-    """The MINIMAL hemmed-wall part — plate + ONE wall + a closed hem on its top
+    """The MINIMAL hemmed-wall part — plate + ONE wall + an open hem on its top
     rim (the single most common real hem placement) — develops the analytic strip:
     base 180 + BA_wall + wall 80 + BA_hem + return 8, full 300 mm wide."""
     request, expected = _load()

@@ -17,10 +17,20 @@ import {
   EyeOffIcon,
   Panel,
   PanelSection,
+  Stamp,
   SuppressIcon,
   TextField,
 } from "@loft/design";
-import { useEffect, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 
 import type {
   EvaluateTreeResult,
@@ -36,8 +46,17 @@ import {
   REPICK_FACE_ACTION,
 } from "../features/featureErrors";
 import { featureTypeLabel } from "../features/featureLabels";
+import {
+  conflictMessage,
+  firstOrderConflict,
+  movedOrder,
+  nearestLegalIndex,
+  repairLabel,
+  type OrderConflict,
+} from "./featureOrder";
 import { scopeBadgeSuffix } from "../features/patternScope";
 import { holeThreadDesignation } from "../features/hole";
+import { KEY_REORDER_EARLIER, KEY_REORDER_LATER } from "../shortcuts/registry";
 import { usePrefetchIntent } from "../features/prefetch";
 import {
   excludedNote,
@@ -70,6 +89,16 @@ export interface FeatureTreePanelProps {
   build: PartBuild;
   /** Selected feature id (brass left-rule); extrude rows open their editor. */
   selectedFeatureId: string | null;
+  /**
+   * The feature ids the OPEN command will act on — the pattern/mirror scope,
+   * published by its editor's scope row (REACH-2-FLOW P1-2). Marked distinctly
+   * from selection because it answers a different question: selection is what
+   * the user pointed at, scope is what the command in progress will change, and
+   * on a plate with two identical holes the editor naming `HOLE1` in a side
+   * panel settles neither. Empty whenever no command names a subject, which is
+   * nearly always — so the mark stays rare, and therefore legible.
+   */
+  scopedFeatureIds?: readonly string[];
   onSelectFeature: (feature: FeatureResponse) => void;
   /** Guided recovery for a `boolean_disjoint` error (MB-4c): re-run this boolean
    * with `allow_disjoint` on, keeping the disconnected pieces as one multi-lump
@@ -98,6 +127,34 @@ export interface FeatureTreePanelProps {
   onCommitRename?: (feature: FeatureResponse, name: string) => void;
   /** Abandon an inline rename (Escape) without writing. */
   onCancelRename?: () => void;
+  /**
+   * Commit a new build order — the COMPLETE permutation of feature ids, which
+   * is what `PUT …/features/order` takes. Resolves with `null` when the tree
+   * accepted it, or with the pair the server refused so the panel can state the
+   * reason at the seat that was attempted. Absent = the tree is read-only for
+   * order (e.g. a reuse with no write path).
+   */
+  onReorder?: (order: string[]) => Promise<FeatureOrderRefusal | null>;
+}
+
+/** The pair a `reference_not_earlier` refusal named, as ids. */
+export interface FeatureOrderRefusal {
+  readonly featureId: string;
+  readonly referencesFeatureId: string;
+}
+
+/**
+ * A refused seat, held until the user does something else — the reason has to
+ * outlive the gesture that produced it, or a keyboard user never reads it.
+ */
+interface RefusedSeat {
+  /** Row index the refusal is drawn ABOVE — the seat that was attempted. */
+  readonly seat: number;
+  readonly conflict: OrderConflict;
+  /** Index of the moved row when it was refused (for the repair). */
+  readonly fromIndex: number;
+  /** Nearest seat the tree WOULD take, or null when there is no repair. */
+  readonly legalIndex: number | null;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -143,6 +200,7 @@ export function FeatureTreePanel({
   evaluation,
   build,
   selectedFeatureId,
+  scopedFeatureIds,
   onSelectFeature,
   onKeepAsOneBody,
   recoveringDisjoint = false,
@@ -153,6 +211,7 @@ export function FeatureTreePanel({
   renamingId = null,
   onCommitRename,
   onCancelRename,
+  onReorder,
 }: FeatureTreePanelProps) {
   const resultById = new Map<string, FeatureResult>(
     (evaluation?.features ?? []).map((f) => [f.feature_id, f]),
@@ -187,6 +246,226 @@ export function FeatureTreePanel({
   // and a bare "SKIP" badge made that look like a fillet bug (AUDIT-PRODUCT N3).
   const skipCause = skippedReason(build);
 
+  // ---------------------------------------------------------------------
+  // REORDER (`PUT …/features/order`). Three ways in, all anchored on the row
+  // the user is already pointing at: the selected row's ORDINAL becomes its
+  // grip, Alt+Up / Alt+Down move it, and a refused seat states its reason where
+  // the drop was aimed instead of vanishing with the gesture.
+  //
+  // Nothing in the list moves until the server accepts, which is what makes
+  // "Escape restores the original order" true by construction rather than by an
+  // undo: a drag paints a SEAT, it does not rehearse the permutation.
+  // ---------------------------------------------------------------------
+  const [drag, setDrag] = useState<{
+    id: string;
+    from: number;
+    seat: number;
+  } | null>(null);
+  const [refused, setRefused] = useState<RefusedSeat | null>(null);
+  const [reordering, setReordering] = useState(false);
+  /** Feature id whose grip should take focus once the tree has re-rendered. */
+  const [focusGripId, setFocusGripId] = useState<string | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLLIElement>());
+  const gripRefs = useRef(new Map<string, HTMLButtonElement>());
+  const canReorder = onReorder !== undefined && features.length > 1;
+
+  // A reorder renumbers every row, so the grip the user was holding is a
+  // different DOM node afterwards. Hand focus back to the SAME FEATURE — losing
+  // it after each Alt+Up would make the keyboard path a one-shot.
+  useEffect(() => {
+    if (focusGripId === null) return;
+    const grip = gripRefs.current.get(focusGripId);
+    if (grip === undefined) return;
+    grip.focus();
+    setFocusGripId(null);
+  }, [focusGripId, features]);
+
+  // A refusal describes ONE seat in ONE tree. Point somewhere else, or let the
+  // tree change under it, and it stops being true — so it goes, rather than
+  // sitting there as a stale red block the user has to reason about.
+  const treeVersion = tree?.tree_version ?? null;
+  useEffect(() => {
+    setRefused(null);
+  }, [selectedFeatureId, treeVersion]);
+
+  const attemptMove = useCallback(
+    (fromIndex: number, toIndex: number, restoreFocus: boolean) => {
+      if (onReorder === undefined || reordering) return;
+      const moved = features[fromIndex];
+      if (moved === undefined) return;
+      if (toIndex < 0 || toIndex >= features.length || toIndex === fromIndex) {
+        return;
+      }
+      const next = movedOrder(features, fromIndex, toIndex);
+      const conflict = firstOrderConflict(next);
+      if (conflict !== null) {
+        const legal = nearestLegalIndex(features, fromIndex, toIndex);
+        setRefused({
+          seat: toIndex,
+          conflict,
+          fromIndex,
+          legalIndex: legal === fromIndex ? null : legal,
+        });
+        return;
+      }
+      setRefused(null);
+      setReordering(true);
+      void onReorder(next.map((feature) => feature.id))
+        .then((refusal) => {
+          // The client rule and the server rule are the same edge set, so this
+          // branch is a race (another client changed the tree), not a routine
+          // path — it still has to say the same sentence rather than nothing.
+          if (refusal === null) {
+            if (restoreFocus) setFocusGripId(moved.id);
+            return;
+          }
+          const dependent = features.find((f) => f.id === refusal.featureId);
+          const reference = features.find(
+            (f) => f.id === refusal.referencesFeatureId,
+          );
+          setRefused({
+            seat: toIndex,
+            fromIndex,
+            legalIndex: null,
+            conflict: {
+              dependentId: refusal.featureId,
+              dependentName: dependent?.name ?? "This feature",
+              referenceId: refusal.referencesFeatureId,
+              referenceName: reference?.name ?? "the feature it is built on",
+            },
+          });
+        })
+        .finally(() => setReordering(false));
+    },
+    [features, onReorder, reordering],
+  );
+
+  // Alt+Up / Alt+Down on the SELECTED row — the keyboard path, and the reason
+  // this affordance is not drag-only (WCAG 2.2 SC 2.5.7). Every other handler
+  // in the workspace bails on `altKey`, so the chord is unclaimed.
+  useEffect(() => {
+    if (!canReorder || selectedFeatureId === null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.altKey || event.ctrlKey || event.metaKey) return;
+      if (
+        event.key !== KEY_REORDER_EARLIER &&
+        event.key !== KEY_REORDER_LATER
+      ) {
+        return;
+      }
+      // A ROW BEING RENAMED IS MID-EDIT — moving it out from under the field
+      // the user is typing in is the one case where the chord has to stand
+      // down. Anything else is fair game, and that is deliberate: selecting a
+      // row OPENS ITS EDITOR AND FOCUSES A FIELD (measured — clicking a fillet
+      // row leaves focus on `fillet-radius`), so a handler that bailed on any
+      // `<input>` would be unreachable in precisely the state that arms it.
+      // Alt+Arrow edits no text on any platform we target, and the chord is
+      // claimed by nothing else in the workspace.
+      if (renamingId !== null) return;
+      const target = event.target;
+      // `<select>` is the exception: Alt+Down OPENS the native picker, and
+      // stealing that would break a real control to serve a shortcut.
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === "SELECT" || target.isContentEditable)
+      ) {
+        return;
+      }
+      const from = features.findIndex((f) => f.id === selectedFeatureId);
+      if (from === -1) return;
+      event.preventDefault();
+      attemptMove(
+        from,
+        from + (event.key === KEY_REORDER_EARLIER ? -1 : 1),
+        true,
+      );
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [canReorder, selectedFeatureId, features, renamingId, attemptMove]);
+
+  // ESCAPE ABANDONS THE DRAG — and because the list never moved, abandoning it
+  // IS restoring the original order. A drag that committed on release with no
+  // way out is the "ambiguous exit" the flow rule calls a defect.
+  useEffect(() => {
+    if (drag === null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setDrag(null);
+      setRefused(null);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [drag]);
+
+  /**
+   * Which row's band the pointer is over — the seat it would take. Nearest
+   * band rather than "the gap between rows": a 26px row has no gap worth
+   * aiming at, and a seat model that demands one is a seat model that misses.
+   */
+  const seatAt = useCallback(
+    (clientY: number, fallback: number): number => {
+      let best = fallback;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      for (const [index, feature] of features.entries()) {
+        const row = rowRefs.current.get(feature.id);
+        if (row === undefined) continue;
+        const rect = row.getBoundingClientRect();
+        if (clientY >= rect.top && clientY <= rect.bottom) return index;
+        const distance =
+          clientY < rect.top ? rect.top - clientY : clientY - rect.bottom;
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = index;
+        }
+      }
+      return best;
+    },
+    [features],
+  );
+
+  const startDrag = useCallback(
+    (
+      event: ReactPointerEvent<HTMLButtonElement>,
+      index: number,
+      id: string,
+    ) => {
+      if (!canReorder || event.button !== 0) return;
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setRefused(null);
+      setDrag({ id, from: index, seat: index });
+    },
+    [canReorder],
+  );
+
+  const moveDrag = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (drag === null) return;
+      const seat = seatAt(event.clientY, drag.from);
+      if (seat !== drag.seat) setDrag({ ...drag, seat });
+    },
+    [drag, seatAt],
+  );
+
+  const endDrag = useCallback(() => {
+    if (drag === null) return;
+    const { from, seat } = drag;
+    setDrag(null);
+    if (seat !== from) attemptMove(from, seat, false);
+  }, [drag, attemptMove]);
+
+  /** The live drop rule: what is wrong with the seat under the pointer, now. */
+  const dragConflict = useMemo(
+    () =>
+      drag === null || drag.seat === drag.from
+        ? null
+        : firstOrderConflict(movedOrder(features, drag.from, drag.seat)),
+    [drag, features],
+  );
+
   return (
     <aside
       className="flex w-full flex-col gap-3"
@@ -210,6 +489,8 @@ export function FeatureTreePanel({
                 const status = result?.status;
                 const rolledBack = index > barSlot;
                 const selected = feature.id === selectedFeatureId;
+                // The open command will change THIS row (see the prop doc).
+                const scoped = scopedFeatureIds?.includes(feature.id) ?? false;
                 // Suppressed reads from the persisted envelope flag (authoritative
                 // the instant the tree refetches, before the re-evaluate lands)
                 // OR the evaluate's dedicated `suppressed` status — either marks
@@ -227,14 +508,69 @@ export function FeatureTreePanel({
                     : null;
                 return (
                   <FeatureRowGroup key={feature.id}>
+                    {/* THE SEAT. A 2px scribe line where the dragged row would
+                        land — brass when the tree will take it, flag with the
+                        reason written underneath when it will not. In the flow
+                        of the list, not a tooltip, so the pointer and the
+                        keyboard reach the same words. */}
+                    {drag !== null &&
+                    drag.seat === index &&
+                    drag.seat !== drag.from ? (
+                      <li
+                        className="pr-3 pl-[10px]"
+                        data-testid="reorder-seat"
+                        data-legal={dragConflict === null || undefined}
+                      >
+                        <span
+                          className={`block h-0.5 ${
+                            dragConflict === null ? "bg-brass" : "bg-flag"
+                          }`}
+                        />
+                        {dragConflict !== null ? (
+                          <span className="mt-1 block font-body text-xs text-flag">
+                            {conflictMessage(dragConflict)}
+                          </span>
+                        ) : null}
+                      </li>
+                    ) : null}
+                    {/* A REFUSED SEAT, held after the gesture ends. */}
+                    {refused !== null && refused.seat === index ? (
+                      <RefusedSeatRow
+                        refused={refused}
+                        features={features}
+                        onRepair={() => {
+                          const legal = refused.legalIndex;
+                          setRefused(null);
+                          if (legal !== null) {
+                            attemptMove(refused.fromIndex, legal, true);
+                          }
+                        }}
+                        onDismiss={() => setRefused(null)}
+                      />
+                    ) : null}
                     <li
-                      className={`group/row flex items-baseline gap-2 border-l-2 py-1 pr-2 pl-[10px] ${
-                        selected ? "border-brass" : "border-transparent"
-                      }`}
+                      ref={(node) => {
+                        if (node === null) rowRefs.current.delete(feature.id);
+                        else rowRefs.current.set(feature.id, node);
+                      }}
+                      // ONE 24px BAND, the header's own tool-row height. It was
+                      // `py-1` around a `min-h-target-dense` button, i.e. a
+                      // 24px control in a 35px row — 11px of slack per feature,
+                      // on the panel a modeller scans most (founder,
+                      // 2026-08-28). `items-center` so the ordinal chip, the
+                      // name and the status badge share one centre line instead
+                      // of hanging from a baseline at the top of the band.
+                      className={`group/row flex min-h-target-dense items-center gap-2 border-l-2 py-0 pr-2 pl-[10px] ${
+                        selected || scoped
+                          ? "border-brass"
+                          : "border-transparent"
+                      } ${drag?.id === feature.id ? "bg-carbide" : ""}`}
                       data-testid="feature-row"
+                      data-scoped={scoped || undefined}
                       data-rolled-back={rolledBack || undefined}
                       data-suppressed={suppressed || undefined}
                       data-blocked-by={blockedBy ?? undefined}
+                      data-dragging={drag?.id === feature.id || undefined}
                       onContextMenu={
                         onRowContextMenu
                           ? (event) => {
@@ -248,11 +584,30 @@ export function FeatureTreePanel({
                           : undefined
                       }
                     >
+                      <OrdinalCell
+                        index={index}
+                        count={features.length}
+                        name={feature.name}
+                        armed={canReorder && selected && !renaming}
+                        dragging={drag?.id === feature.id}
+                        busy={reordering}
+                        onRef={(node) => {
+                          if (node === null)
+                            gripRefs.current.delete(feature.id);
+                          else gripRefs.current.set(feature.id, node);
+                        }}
+                        onPointerDown={(event) =>
+                          startDrag(event, index, feature.id)
+                        }
+                        onPointerMove={moveDrag}
+                        onPointerUp={endDrag}
+                        onPointerCancel={() => setDrag(null)}
+                        onNudge={(delta) =>
+                          attemptMove(index, index + delta, true)
+                        }
+                      />
                       {renaming ? (
                         <div className="flex grow items-baseline gap-2">
-                          <span className="w-5 shrink-0 font-data text-xs tabular-nums text-gauge">
-                            {String(index + 1).padStart(2, "0")}
-                          </span>
                           <TextField
                             label={`Rename ${feature.name}`}
                             hideLabel
@@ -289,13 +644,10 @@ export function FeatureTreePanel({
                           aria-pressed={selected}
                           aria-label={`Select ${feature.name}`}
                           data-testid={`feature-select-${index}`}
-                          className="flex min-h-target-dense grow items-baseline gap-2 py-0.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+                          className="flex min-h-target-dense grow items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
                         >
-                          <span className="w-5 shrink-0 font-data text-xs tabular-nums text-gauge">
-                            {String(index + 1).padStart(2, "0")}
-                          </span>
                           <span
-                            className={`grow truncate font-data text-base ${
+                            className={`grow truncate font-data text-sm ${
                               suppressed
                                 ? "text-gauge line-through decoration-etch"
                                 : rolledBack
@@ -305,9 +657,25 @@ export function FeatureTreePanel({
                           >
                             {feature.name}
                           </span>
-                          <span className="shrink-0 font-body text-xs text-gauge">
-                            {featureBadge(feature.feature, features)}
-                          </span>
+                          {/* The SCOPE stamp — the same word the command band
+                              uses for the same fact, so the two surfaces teach
+                              one vocabulary rather than two. It takes the badge
+                              slot rather than sitting beside it: while a
+                              command holds this row, what it is ABOUT TO
+                              CHANGE outranks what type it is, and a 24px row
+                              has no width for both. */}
+                          {scoped ? (
+                            <Stamp
+                              tone="brass"
+                              data-testid={`feature-scoped-${index}`}
+                            >
+                              Scope
+                            </Stamp>
+                          ) : (
+                            <span className="shrink-0 font-body text-xs text-gauge">
+                              {featureBadge(feature.feature, features)}
+                            </span>
+                          )}
                         </button>
                       )}
                       {/* Suppress toggle — quiet by default, brass when the
@@ -321,7 +689,13 @@ export function FeatureTreePanel({
                         aria-busy={suppressBusy}
                         aria-label={`Suppress ${feature.name}`}
                         data-testid={`feature-suppress-${index}`}
-                        className={`shrink-0 rounded-sm p-0.5 transition-colors duration-fast focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass disabled:cursor-default ${
+                        // Measured 18x18 before this pass — under the 24px floor
+                        // this product wrote down for itself (`target.dense`,
+                        // WCAG 2.2 SC 2.5.8). A density pass is the moment that
+                        // gets fixed, not the moment it gets worse: the row is
+                        // 24px now, so the toggle fills it rather than sitting
+                        // inside a 35px row at 18px.
+                        className={`flex min-h-target-dense min-w-target-dense shrink-0 items-center justify-center rounded-sm transition-colors duration-fast focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:cursor-default ${
                           suppressed
                             ? "text-brass"
                             : "text-gauge opacity-60 hover:text-mist hover:opacity-100 group-focus-within/row:opacity-100 group-hover/row:opacity-100"
@@ -438,12 +812,15 @@ export function FeatureTreePanel({
         {/* Title-block footer: the one vital that MOVES — the solve state.
             FEATURES folded into the eyebrow; TREE (the internal optimistic-
             concurrency version) was decorative and is gone (Track B). */}
-        <div className="border-t border-hairline px-3 py-2">
-          <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
+        {/* One ruled cell, not a stacked pair: caption and vital share a line
+            exactly as every readout above them does. Stacking cost two lines
+            plus `py-2` to say one short word. */}
+        <div className="flex min-h-target-dense items-center gap-2 border-t border-hairline px-3 py-0.5">
+          <span className="shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-gauge">
             Solve
           </span>
           <span
-            className="block font-data text-xs text-mist"
+            className="grow text-right font-data text-sm text-mist"
             data-testid="eval-status"
             aria-live="polite"
           >
@@ -464,6 +841,163 @@ export function FeatureTreePanel({
 /** A fragment wrapper so each feature contributes several <li> siblings. */
 function FeatureRowGroup({ children }: { children: ReactNode }) {
   return <>{children}</>;
+}
+
+/**
+ * THE ITEM NUMBER IS THE CONTROL (the signature of this panel).
+ *
+ * The row number already states the one fact a reorder changes — where this
+ * feature sits in the build — so it is the number that becomes draggable, not a
+ * six-dot handle bolted beside it. At rest it is the quiet gauge slug the tree
+ * has always drawn. On the SELECTED row it lifts into a brass index tab: a
+ * ruled 24x24 cell with the number still in it, grab cursor, and a scribe tick
+ * on its left edge. Nothing is added to the row; an existing readout is given
+ * the job it was already describing.
+ *
+ * The tab is a real filled BUTTON, not a stroked glyph — a stroke has no hit
+ * box (`getBoundingClientRect` ignores stroke width), and a control a pointer
+ * cannot land on is not a control. 24x24 is the dense target floor
+ * (WCAG 2.2 SC 2.5.8), and Up/Down on the focused tab does what the drag does,
+ * so the affordance is never drag-only (SC 2.5.7).
+ */
+function OrdinalCell({
+  index,
+  count,
+  name,
+  armed,
+  dragging = false,
+  busy,
+  onRef,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
+  onNudge,
+}: {
+  index: number;
+  count: number;
+  name: string;
+  /** The row is selected and the tree can be reordered — show the grip. */
+  armed: boolean;
+  dragging?: boolean;
+  busy: boolean;
+  onRef: (node: HTMLButtonElement | null) => void;
+  onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onPointerMove: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onPointerUp: () => void;
+  onPointerCancel: () => void;
+  onNudge: (delta: -1 | 1) => void;
+}) {
+  const label = String(index + 1).padStart(2, "0");
+  if (!armed) {
+    return (
+      <span
+        className="w-6 shrink-0 text-center font-data text-xs tabular-nums text-gauge"
+        data-testid={`feature-ordinal-${index}`}
+      >
+        {label}
+      </span>
+    );
+  }
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    if (event.ctrlKey || event.metaKey || event.shiftKey) return;
+    event.preventDefault();
+    onNudge(event.key === "ArrowUp" ? -1 : 1);
+  };
+  return (
+    <button
+      ref={onRef}
+      type="button"
+      disabled={busy}
+      data-testid={`feature-grip-${index}`}
+      data-ordinal={label}
+      // The name says what it moves and where it is — a bare "Reorder" leaves a
+      // screen-reader user with no way to tell the move landed.
+      aria-label={`Reorder ${name} — build step ${index + 1} of ${count}. Up or down arrow to move it.`}
+      title={`Drag to reorder, or Alt+Up / Alt+Down (${index + 1} of ${count})`}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onKeyDown={onKeyDown}
+      className={`relative flex min-h-target-dense min-w-target-dense w-6 shrink-0 touch-none items-center justify-center rounded-sm border font-data text-xs tabular-nums transition-colors duration-fast focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass disabled:cursor-default ${
+        dragging
+          ? "cursor-grabbing border-brass bg-brass/20 text-brass"
+          : "cursor-grab border-etch text-brass hover:border-brass hover:bg-brass/10"
+      }`}
+    >
+      {/* The scribe tick: the drafting mark that says this cell is a rail, not
+          a label. Two hairlines, no new glyph, no decoration that does nothing
+          — it appears only where the grip is live. */}
+      <span
+        aria-hidden="true"
+        className="absolute top-1 bottom-1 left-0 w-px bg-brass/60"
+      />
+      {label}
+    </button>
+  );
+}
+
+/**
+ * THE REFUSAL, at the seat it was aimed at.
+ *
+ * It outlives the gesture on purpose: a reason that disappears with the pointer
+ * cannot be read by anyone who was not watching, and a reason that lives in a
+ * `title` cannot be read by the keyboard at all. So this is a focusable
+ * `role="alert"` — Tab lands on it and the words are its accessible name — with
+ * the one-click repair beside it when there is a seat the tree would take.
+ */
+function RefusedSeatRow({
+  refused,
+  features,
+  onRepair,
+  onDismiss,
+}: {
+  refused: RefusedSeat;
+  features: readonly FeatureResponse[];
+  onRepair: () => void;
+  onDismiss: () => void;
+}) {
+  const message = conflictMessage(refused.conflict);
+  return (
+    <li className="border-l-2 border-flag py-1 pr-3 pl-[26px]">
+      <div
+        role="alert"
+        tabIndex={0}
+        data-testid="reorder-refusal"
+        aria-label={`Order refused. ${message}`}
+        className="rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+      >
+        <span className="block font-display text-2xs uppercase tracking-[0.14em] text-flag">
+          Order refused
+        </span>
+        <span className="mt-0.5 block font-body text-xs text-mist">
+          {message}
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {refused.legalIndex !== null ? (
+          <Button
+            variant="ghost"
+            className="mt-1.5 py-0.5 text-xs"
+            data-testid="reorder-repair"
+            onClick={onRepair}
+          >
+            {repairLabel(features, refused.fromIndex, refused.legalIndex)}
+          </Button>
+        ) : null}
+        <Button
+          variant="ghost"
+          className="mt-1.5 py-0.5 text-xs"
+          data-testid="reorder-refusal-dismiss"
+          onClick={onDismiss}
+        >
+          Leave it here
+        </Button>
+      </div>
+    </li>
+  );
 }
 
 /**
@@ -505,7 +1039,7 @@ function ViewRow({
   const action = `${drawn ? "Hide" : "Show"} ${label}`;
   return (
     <li
-      className="flex items-center gap-2 border-l-2 border-transparent py-0.5 pr-2 pl-2"
+      className="flex min-h-target-dense items-center gap-2 border-l-2 border-transparent py-0 pr-2 pl-2"
       data-testid={rowTestId}
       data-drawn={drawn || undefined}
     >
@@ -526,7 +1060,7 @@ function ViewRow({
         <Glyph size={16} />
       </button>
       <span
-        className={`grow truncate font-data text-base ${
+        className={`grow truncate font-data text-sm ${
           drawn ? "text-mist" : "text-gauge"
         }`}
       >

@@ -363,6 +363,45 @@ export interface DocumentRegisterProps<T extends RegisterDocument> {
   onDuplicate: (document: T) => Promise<void>;
   /** Delete + invalidate. Rejects to pin the message beside the confirm. */
   onDelete: (document: T) => Promise<void>;
+  /**
+   * A SECOND WAY TO GET A DOCUMENT INTO THIS DRAWER — today the assemblies
+   * register's STEP import, tomorrow whatever else arrives already made.
+   *
+   * The register places it; the page draws it. That split is the whole reason
+   * this prop exists rather than the page simply rendering the control under
+   * the drawer, which is what shipped in `f4c590b` and what UI-REVIEW
+   * 2026-08-27 P1-A measured: the empty state's own copy proposed the import
+   * and the layout put it **422 px lower at 1280x800 and 622 px lower at
+   * 1600x1000** — the gap GROWS with the screen, because nine ruled rows that
+   * exist to make a full drawer read as a log book were between them. Only the
+   * register knows whether it is empty, so only the register can decide where
+   * the second way in belongs.
+   *
+   * Omit it and NOTHING changes: no wrapper, no divider, no eyebrow — the
+   * parts and drawings registers emit byte-identical markup, pinned by a test.
+   */
+  offer?: RegisterOffer;
+}
+
+/** {@link DocumentRegisterProps.offer} — one way in, drawn for two placements. */
+export interface RegisterOffer {
+  /**
+   * Eyebrow over the fork's second arm in an EMPTY drawer, written to be
+   * parallel with the first ("Start from a STEP file" against "Start from
+   * scratch") so the two read as alternatives rather than as steps.
+   */
+  label: string;
+  /**
+   * The control itself.
+   *
+   * - `fork` — beside the create form in an empty drawer, as an equal
+   *   proposition. It already sits inside the register's scribed margin, so it
+   *   draws no gutter and no rule of its own.
+   * - `line` — the drawer's last line, under the scribe line. It owns its
+   *   gutter and its rule here (see `REGISTER_GUTTER`), because only the page
+   *   knows when its own state — an armed drop target, say — should colour it.
+   */
+  render: (placement: "fork" | "line") => ReactNode;
 }
 
 export function DocumentRegister<T extends RegisterDocument>({
@@ -379,6 +418,7 @@ export function DocumentRegister<T extends RegisterDocument>({
   onDuplicate,
   onDelete,
   filing,
+  offer,
 }: DocumentRegisterProps<T>) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<RegisterSort>(DEFAULT_SORT);
@@ -551,6 +591,7 @@ export function DocumentRegister<T extends RegisterDocument>({
           copy={copy}
           onCreate={onCreate}
           idSingular={idSingular}
+          offer={offer}
         />
       ) : (
         <div className="flex min-h-0 grow flex-col">
@@ -640,6 +681,11 @@ export function DocumentRegister<T extends RegisterDocument>({
               filing={filing}
             />
           )}
+          {/* The drawer's LAST line — after the scribe line, because a sheet
+              that already exists is filed after the one you are about to
+              write. Exactly where `f4c590b` put it, which the review praised;
+              the register now owns the DECISION rather than the geometry. */}
+          {offer?.render("line")}
         </div>
       )}
     </section>
@@ -923,10 +969,22 @@ function NoMatches({
  * a drawer seeded in one session, not a property of the column. It is already
  * dropped below `md`, where the width actually runs out.
  */
+/**
+ * THE SCRIBED MARGIN'S WIDTH, for anything drawn as a line OF this register
+ * from outside it (a {@link RegisterOffer} in its `line` placement).
+ *
+ * Exported because `f4c590b` transcribed it as a literal `w-[3.5rem]` into
+ * `AssembliesPage`, which is the DRY rule's "a number copied between two files
+ * is a copy waiting to drift" in its most literal form: the drawer's left rule
+ * runs unbroken only while the two agree, and nothing would have told us when
+ * they stopped.
+ */
+export const REGISTER_GUTTER = "w-[3.5rem]";
+
 const COLUMN = {
   /** Scribed margin carrying the row ordinal — the table and the scribe line
    *  below it share this width so the log's left edge is one straight rule. */
-  gutter: "w-[3.5rem]",
+  gutter: REGISTER_GUTTER,
   units: "w-[4.5rem]",
   activity: "w-[9rem]",
   /** Wide enough for the longest stamped verdict ("Clean to stop") unwrapped. */
@@ -1337,20 +1395,55 @@ function RuledLines() {
   );
 }
 
+/**
+ * The eyebrow over one arm of the empty drawer's fork.
+ *
+ * The same face as "Empty register" above it, because these labels are
+ * STRUCTURE — they say "these two are alternatives, not steps" — and structure
+ * in this register is drawn in the log book's own hand, never in a new one.
+ *
+ * `text-gauge`, NOT the one-rank-quieter `text-etch` the first draft used and
+ * that the surrounding hierarchy argues for: etch on anvil measures **3.07:1**,
+ * which is below AA for 10 px text (it was 3.35:1 even on carbide). The
+ * hierarchy is carried by position and tracking instead. A rank of emphasis is
+ * never worth a rank of legibility, and the register has no token between the
+ * two — if it ever needs one, that is a token decision, not a per-site one.
+ */
+function ForkLabel({ children }: { children: ReactNode }) {
+  return (
+    <p className="font-display text-2xs uppercase tracking-[0.16em] text-gauge">
+      {children}
+    </p>
+  );
+}
+
 /** First run: an invitation with the create control, not a blank drawer. */
 function EmptyRegister({
   idPlural,
   idSingular,
   copy,
   onCreate,
+  offer,
 }: {
   idPlural: string;
   idSingular: string;
   copy: RegisterCopy;
   onCreate: (name: string, folderId: string | null) => Promise<void>;
+  offer?: RegisterOffer;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => inputRef.current?.focus(), []);
+  const createForm = (
+    <CreateForm
+      idSingular={idSingular}
+      copy={copy}
+      inputRef={inputRef}
+      submitLabel={copy.createFirstLabel}
+      // A drawer with nothing in it has no folders either, so the
+      // first document is always filed at the root.
+      onCreate={(name) => onCreate(name, null)}
+    />
+  );
   return (
     <div
       className="flex min-h-0 grow items-stretch"
@@ -1372,17 +1465,38 @@ function EmptyRegister({
           <p className="mt-1 max-w-md font-body text-sm text-gauge">
             {copy.emptyBody}
           </p>
-          <div className="mt-5 max-w-md">
-            <CreateForm
-              idSingular={idSingular}
-              copy={copy}
-              inputRef={inputRef}
-              submitLabel={copy.createFirstLabel}
-              // A drawer with nothing in it has no folders either, so the
-              // first document is always filed at the root.
-              onCreate={(name) => onCreate(name, null)}
-            />
-          </div>
+          {offer === undefined ? (
+            <div className="mt-5 max-w-md">{createForm}</div>
+          ) : (
+            /*
+              THE DOUBLE-ENTRY FORK (UI-REVIEW 2026-08-27 P1-A).
+              An empty log book has exactly two ways to gain an entry: write one
+              in, or paste one in. So they are ruled as two columns of one
+              ledger, at the same y, divided by the same hairline every other
+              rule on this page is drawn in — not two cards, which would be a
+              web page's answer to a question this drawer already knows how to
+              ask. The ruled remainder below is the drawer's ground; the fork
+              sits on it, so the register still reads as a log book and not as a
+              form floating in a void.
+
+              Below `sm` the rule turns horizontal and the arms stack: two
+              columns of a control each cannot be read at 640 px, and a fork you
+              cannot read is not a fork.
+            */
+            <div
+              className="mt-6 grid max-w-3xl grid-cols-1 divide-y divide-hairline sm:grid-cols-2 sm:divide-x sm:divide-y-0"
+              data-testid={`${idPlural}-empty-fork`}
+            >
+              <div className="min-w-0 pb-6 sm:pb-0 sm:pr-8">
+                <ForkLabel>Start from scratch</ForkLabel>
+                <div className="mt-3">{createForm}</div>
+              </div>
+              <div className="min-w-0 pt-6 sm:pl-8 sm:pt-0">
+                <ForkLabel>{offer.label}</ForkLabel>
+                <div className="mt-3">{offer.render("fork")}</div>
+              </div>
+            </div>
+          )}
         </div>
         <RuledLines />
       </div>

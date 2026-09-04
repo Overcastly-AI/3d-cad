@@ -486,7 +486,7 @@ test.describe("B — a print survives a revision", () => {
         '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
       )
       .first();
-    await circle.click({ force: true });
+    await circle.click();
     await page.getByTestId("dimension-type-diameter").click();
     // REACH-3: choosing the type now opens the PLACE stage (the ghost tracks
     // the pointer). Enter commits it UNMOVED, which sends no placement at all —
@@ -499,7 +499,7 @@ test.describe("B — a print survives a revision", () => {
     ).toHaveCount(1, { timeout: 60_000 });
 
     const thickness = await tallestVerticalEdge(page, "front");
-    await thickness.click({ force: true });
+    await thickness.click();
     await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
     await page.getByTestId("dimension-type-linear").click();
     await page.keyboard.press("Enter");
@@ -567,7 +567,7 @@ test.describe("B — a print survives a revision", () => {
         '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
       )
       .first();
-    await circle.click({ force: true });
+    await circle.click();
     await page.getByTestId("dimension-type-diameter").click();
     await page.keyboard.press("Enter");
     await expect(
@@ -623,7 +623,7 @@ test.describe("B — a print survives a revision", () => {
         '[data-testid="drawing-pick-edge"][data-view="top"][data-primitive="circle"]',
       )
       .first();
-    await circle.click({ force: true });
+    await circle.click();
     await page.getByTestId("dimension-type-diameter").click();
     await page.keyboard.press("Enter");
     await expect(
@@ -845,17 +845,25 @@ test.describe("D — one story about a broken part", () => {
     const holeError = page.getByTestId("feature-error-2");
     await expect(holeError).toContainText("hole_off_body");
     await expect(holeError).toContainText("no material is removed");
-    // 4) The EXPORT gate refuses, and forcing it produces nothing.
+    // 4) The EXPORT gate offers the last good body and MARKS it (EXPORT-3).
+    //    It used to refuse, which said nothing about what the file would have
+    //    contained; the file now exists and carries the claim in its own name.
     await expect(page.getByTestId("part-export-controls")).toHaveAttribute(
       "data-export-state",
       "feature-error",
     );
-    const forced = page
-      .waitForEvent("download", { timeout: 3_000 })
-      .then(() => true)
-      .catch(() => false);
-    await page.getByTestId("part-export-step").click({ force: true });
-    expect(await forced).toBe(false);
+    await expect(page.getByTestId("part-export-notice")).toContainText(
+      "Hole1 failed, so the file stops at",
+    );
+    const brokenDownload = page.waitForEvent("download", { timeout: 30_000 });
+    await page.getByTestId("part-export-step").click();
+    const brokenFile = await brokenDownload;
+    expect(brokenFile.suggestedFilename()).toMatch(/-partial\.step$/);
+    expect(
+      (await readFile(await brokenFile.path(), "utf-8")).startsWith(
+        "ISO-10303-21",
+      ),
+    ).toBe(true);
     // 5) The VIEWPORT says the solid is not the part.
     await expect(page.getByTestId("partial-body-notice")).toContainText(
       "Hole1 failed",

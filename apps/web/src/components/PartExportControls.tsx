@@ -21,10 +21,12 @@ export interface PartExportControlsProps {
  * as STEP or STL via the gateway's tree-export route — the file matches the
  * solid on screen, not a bare primitive.
  *
- * The strip refuses to write a file it cannot vouch for. A feature error or an
- * unverified rebuild makes it inert and names what to fix; a deliberate travel
- * stop still exports, with `Partial` in the cell AND `-partial` in the filename
- * (see `exportGate` for why those two prefixes get different answers).
+ * The strip refuses to write a file it cannot vouch for — nothing built, or an
+ * unverified rebuild — and names what to fix. A body that BUILT always exports,
+ * however it came to be a prefix (a travel stop, or a feature that failed
+ * downstream of it): `Partial` in the cell, the truncation point named in the
+ * notice, and `-partial` in the filename. See `exportGate` for why refusing the
+ * failure case was the dead end EXPORT-3 closed.
  *
  * The gate and the request that honours it come from `features/partExport.ts`,
  * which the command band's EXPORT tool group reads too: the strip is the NOTICE

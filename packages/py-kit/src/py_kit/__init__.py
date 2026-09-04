@@ -34,6 +34,15 @@ from py_kit.logging import (
 from py_kit.metrics import METRICS_PATH, install_metrics
 from py_kit.queue import QueueClient, QueueConfigurationError, redis_settings
 from py_kit.ratelimit import RateLimiter
+from py_kit.routes import (
+    Operation,
+    RouteSweep,
+    documented_operations,
+    iter_api_routes,
+    route_dependencies,
+    route_operations,
+    sweep_routes,
+)
 
 __all__ = [
     "DEV_ENV",
@@ -47,11 +56,13 @@ __all__ = [
     "ConflictError",
     "InternalError",
     "NotFoundError",
+    "Operation",
     "QueueClient",
     "QueueConfigurationError",
     "RateLimitExceededError",
     "RateLimiter",
     "ReadinessCheck",
+    "RouteSweep",
     "ServiceOverloadedError",
     "UnauthorizedError",
     "UpstreamTimeoutError",
@@ -61,10 +72,15 @@ __all__ = [
     "clear_request_context",
     "configure_logging",
     "create_app",
+    "documented_operations",
     "error_response",
     "get_logger",
     "install_error_handlers",
     "install_metrics",
     "is_dev_env",
+    "iter_api_routes",
     "redis_settings",
+    "route_dependencies",
+    "route_operations",
+    "sweep_routes",
 ]

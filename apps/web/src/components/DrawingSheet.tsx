@@ -53,6 +53,8 @@ import { edgeSignatureKey } from "../drawing/dimensions";
 import {
   VIEW_LABEL,
   endpointHandlesForEdge,
+  vertexGrabMm,
+  vertexPaintMm,
   type Point2D,
   type SvgEdge,
 } from "../drawing/layout";
@@ -583,10 +585,13 @@ function PickableEdge({
 /** One endpoint handle on a straight edge — the vertex pick for point-to-point.
  * It is NOT a persistent stamp: the drawn square + its tab stop only appear once
  * `revealed` (the edge is hovered/focused, the pick is armed, or the handle
- * itself is engaged). The transparent hit target is always present so a mouse
- * (or a forced e2e click) can pick the vertex the moment it is approached. */
+ * itself is engaged). The transparent grab IS always present, so the vertex can
+ * be picked the moment it is approached — but it is SIZED by the shortest edge
+ * it terminates (`grabMm`, from `vertexGrabMm`) rather than by a constant, so
+ * it can never swallow an edge's middle. */
 function VertexHandle({
   at,
+  grabMm,
   projection,
   viewId,
   viewAnchor,
@@ -597,6 +602,9 @@ function VertexHandle({
   onPickEndpoint,
 }: {
   at: Point2D;
+  /** Half-side (sheet mm) of this handle's grab — `vertexGrabMm` of the
+   * shortest straight edge terminating here. */
+  grabMm: number;
   projection: ViewProjection;
   viewId: string;
   /** This view's composed centre (sheet mm) — carried on the pick for placement. */
@@ -611,7 +619,7 @@ function VertexHandle({
 }) {
   const [hover, setHover] = useState(false);
   const [focus, setFocus] = useState(false);
-  const half = drawing.vertexHandleMm;
+  const half = vertexPaintMm(grabMm);
   // Hover recolors the square; focus adds a distinct deep-blue RING (a shape
   // cue, not a colour-only change) so keyboard focus reads differently from
   // mouse hover (WCAG 2.4.7) — the same seam `EdgeShape` uses (`pickFocusRingMm`).
@@ -657,13 +665,20 @@ function VertexHandle({
         }
       }}
     >
-      {/* Generous transparent hit target — always present so the vertex stays
-          pickable (and force-clickable in tests) even before it is revealed. */}
+      {/* The transparent grab — always present, so the vertex is pickable the
+          moment it is approached, but BUDGETED: `grabMm` is at most a third of
+          the shortest edge ending here, so the edge always keeps its middle.
+          A flat +/-`pickHitMm` here (justified, until `6911352`, by e2e picks
+          that FORCED past actionability) ate 5.2 sheet-mm off every line, and a
+          4 mm rib edge had no reachable interior at all — aiming at it armed
+          point-to-point instead of dimensioning it. No drawing spec forces a
+          pick any more, so nothing depends on the constant. */}
       <rect
-        x={at.x - drawing.pickHitMm}
-        y={at.y - drawing.pickHitMm}
-        width={drawing.pickHitMm * 2}
-        height={drawing.pickHitMm * 2}
+        data-grab-mm={grabMm.toFixed(3)}
+        x={at.x - grabMm}
+        y={at.y - grabMm}
+        width={grabMm * 2}
+        height={grabMm * 2}
         fill="transparent"
       />
       {drawn ? (
@@ -679,6 +694,12 @@ function VertexHandle({
               stroke={drawing.pickSelected}
               strokeWidth={drawing.pickFocusRingMm}
               opacity={0.5}
+              // Ink, not a control: the ring's 2.4 mm stroke straddles the
+              // square and would otherwise hit-test OUTSIDE the grab above,
+              // handing a focused handle back the edge middle this budget just
+              // gave the edge (`EdgeShape` keeps its ring off the picks the
+              // same way).
+              pointerEvents="none"
             />
           ) : null}
           <rect
@@ -691,6 +712,7 @@ function VertexHandle({
               emphasized ? drawing.pickSelected : drawing.vertexHandleRest
             }
             strokeWidth={emphasized ? 0.6 : 0.4}
+            pointerEvents="none"
           />
         </>
       ) : null}
@@ -1179,6 +1201,9 @@ interface VertexHandleSpec {
   key: string;
   at: Point2D;
   posKey: string;
+  /** Half-side (sheet mm) of this handle's grab — budgeted against the shortest
+   * straight edge terminating here, so a short edge keeps a pickable middle. */
+  grabMm: number;
   sourceEdge: EdgeSignature;
   endpoint: "end_a" | "end_b";
 }
@@ -1408,6 +1433,26 @@ function SheetView({
   // correspondence from the aligned evaluate edge's `start_is_end_a`.
   const posKeyOf = (p: Point2D): string =>
     `${p.x.toFixed(2)},${p.y.toFixed(2)}`;
+  // The shortest straight edge terminating at each position — the budget every
+  // vertex grab there is measured against (`vertexGrabMm`). Taken over ALL
+  // composed lines, not just the ones that offer a handle: any line ending here
+  // is a pick target this grab would be sitting on top of.
+  const shortestEdgeAt = new Map<string, number>();
+  for (const composed of composedEdges) {
+    if (composed.kind !== "line") continue;
+    const len = Math.hypot(
+      composed.x2 - composed.x1,
+      composed.y2 - composed.y1,
+    );
+    for (const end of [
+      { x: composed.x1, y: composed.y1 },
+      { x: composed.x2, y: composed.y2 },
+    ]) {
+      const k = posKeyOf(end);
+      const known = shortestEdgeAt.get(k);
+      if (known === undefined || len < known) shortestEdgeAt.set(k, len);
+    }
+  }
   const vertexHandles: VertexHandleSpec[] = [];
   if (onPickEndpoint && viewId !== null && !failed) {
     const seen = new Set<string>();
@@ -1436,6 +1481,9 @@ function SheetView({
           key: vertexKey(projection, evalEdge.source_edge, handle.endpoint),
           at,
           posKey,
+          grabMm: vertexGrabMm(
+            shortestEdgeAt.get(posKey) ?? Number.POSITIVE_INFINITY,
+          ),
           sourceEdge: evalEdge.source_edge,
           endpoint: handle.endpoint,
         });
@@ -1548,6 +1596,7 @@ function SheetView({
                 <VertexHandle
                   key={h.key}
                   at={h.at}
+                  grabMm={h.grabMm}
                   projection={projection}
                   viewId={viewId}
                   viewAnchor={viewAnchorPoint}

@@ -54,7 +54,10 @@ describe("AssemblyCommandBand — export", () => {
     // its reason stays hoverable and focusable (jest-dom's `toBeDisabled` reads
     // only the native one; Playwright's honours both).
     expect(step).toHaveAttribute("aria-disabled", "true");
-    expect(step).toHaveAccessibleName(/No body/);
+    // The reason is the DESCRIPTION, not the name (A11Y-TOOLBTN-1): the cell is
+    // called the same thing whether or not it is gated.
+    expect(step).toHaveAccessibleName("Export STEP (exact B-rep)");
+    expect(step).toHaveAccessibleDescription(/No body/);
   });
 
   it("renders no export group when the workspace supplies no exporter", () => {

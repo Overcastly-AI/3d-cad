@@ -125,6 +125,195 @@ export async function litPoints(
   );
 }
 
+/**
+ * How many pixels near each of `points` match `hex` — ONE readback for the lot.
+ *
+ * WHY BATCHED. Reading the canvas costs a `drawImage` of the ENTIRE frame
+ * regardless of how few pixels you then look at, so a per-point helper called
+ * in a loop pays for the whole canvas once per point. `qa-sketch-frame`'s ring
+ * scan did exactly that: 89 radii x 4 diagonals x 3 zoom legs = **1068
+ * full-frame copies to read nine pixels each**. Batching does not change a
+ * single measured value; it changes 1068 readbacks into 3.
+ *
+ * AND IT IS NOT A SPEED FIX — measured, because it looked like one. That scan
+ * was 190 ms of a 33.2 s test (0.6 %) while the test's zoom loop was 47 %, so
+ * batching it moved the wall clock by nothing at all (CI-4 headroom pass,
+ * 2026-08-29). Reach for this to stop wasting work and to keep one readback's
+ * worth of the frame CONSISTENT across every point in a census; do not reach
+ * for it to buy headroom.
+ *
+ * ONE CONSISTENT FRAME IS A BEHAVIOUR CHANGE, so callers must know it. The
+ * per-point form re-read the canvas for every probe and therefore saw whatever
+ * had been painted by then; this sees one instant. That is more correct for a
+ * census — but any caller relying on the old form's incidental latency to let a
+ * render land must now wait for the render EXPLICITLY. `measureRingRadiusPx`
+ * had exactly that dependency and started reading pre-paint frames until it
+ * gained a `waitForFrames`.
+ *
+ * The predicate is per-channel absolute difference <= 8, the same tolerance the
+ * per-point version used, over a `2*halfPx+1` box in CANVAS pixels centred on
+ * the point's canvas coordinate. A point whose box falls outside the canvas
+ * scores -1, exactly as before, so callers testing `> 0` are unaffected.
+ */
+export async function inkAt(
+  page: Page,
+  points: readonly Point[],
+  hex: string,
+  halfPx = 1,
+  selector = VIEWPORT_CANVAS,
+): Promise<number[]> {
+  return page.evaluate(
+    ({
+      points,
+      hex,
+      halfPx,
+      selector,
+    }: {
+      points: readonly Point[];
+      hex: string;
+      halfPx: number;
+      selector: string;
+    }): number[] => {
+      const canvas = document.querySelector<HTMLCanvasElement>(selector);
+      if (!canvas) return points.map(() => -1);
+      const rect = canvas.getBoundingClientRect();
+      const sx = canvas.width / rect.width;
+      const sy = canvas.height / rect.height;
+      const probe = document.createElement("canvas");
+      probe.width = canvas.width;
+      probe.height = canvas.height;
+      const ctx = probe.getContext("2d");
+      if (!ctx) return points.map(() => -1);
+      ctx.drawImage(canvas, 0, 0);
+      const { data } = ctx.getImageData(0, 0, probe.width, probe.height);
+      const target = [
+        Number.parseInt(hex.slice(1, 3), 16),
+        Number.parseInt(hex.slice(3, 5), 16),
+        Number.parseInt(hex.slice(5, 7), 16),
+      ];
+      const size = halfPx * 2 + 1;
+      return points.map(({ x, y }) => {
+        const x0 = Math.round((x - rect.left) * sx) - halfPx;
+        const y0 = Math.round((y - rect.top) * sy) - halfPx;
+        if (
+          x0 < 0 ||
+          y0 < 0 ||
+          x0 + size > probe.width ||
+          y0 + size > probe.height
+        ) {
+          return -1;
+        }
+        let hits = 0;
+        for (let dy = 0; dy < size; dy += 1) {
+          for (let dx = 0; dx < size; dx += 1) {
+            const i = ((y0 + dy) * probe.width + (x0 + dx)) * 4;
+            if (
+              Math.abs((data[i] as number) - (target[0] as number)) <= 8 &&
+              Math.abs((data[i + 1] as number) - (target[1] as number)) <= 8 &&
+              Math.abs((data[i + 2] as number) - (target[2] as number)) <= 8
+            ) {
+              hits += 1;
+            }
+          }
+        }
+        return hits;
+      });
+    },
+    { points, hex, halfPx, selector },
+  );
+}
+
+/**
+ * Of `points`, the ones that are BACKGROUND with room to spare — no lit pixel
+ * anywhere within `marginPx`.
+ *
+ * WHY A CENSUS NEEDS THIS. `litPoints` classifies a single pixel, and a body's
+ * rendered edge is not a single pixel: it is a dark rim plus an outline stroke
+ * several pixels wide, all of it BELOW the luminance floor and all of it
+ * squarely on the body as far as a raycast is concerned. So a grid point that
+ * lands in that band is "not lit" and "on the solid" at the same time, and any
+ * assertion that treats not-lit as *nothing is there* is asking the oracle
+ * about the body it just excluded.
+ *
+ * MEASURED, on the failure that produced this helper (`pick-affordance`
+ * SEL-6's ghost sweep, 1 of 4 shard runs, 2026-08-29): five reported ghosts,
+ * all five in ONE grid column at x = 1236, and the plate's last lit pixel on
+ * every one of those rows was x = 1234. Luminance across the boundary read
+ * 178 (lit) at 1234, 65 at 1236, 89 at 1238 — the outline stroke — and 18 at
+ * 1240. So the "vacated" region included a 2-px-wide strip of the still-drawn
+ * plate's own right edge, and the plate's face answered there, correctly.
+ *
+ * It is a lottery rather than a constant because the grid is fixed in CSS px
+ * (`step/2 + n*step`) while the body's edge is placed by the camera fit, which
+ * varies sub-pixel between runs — so whether any column lands inside the ~5 px
+ * rim is decided per run.
+ *
+ * The default margin is 8 px: 1.6x the measured rim and one third of the
+ * coarsest grid this suite uses, so it can only ever discard points that
+ * straddle a silhouette boundary — never a point out in open background, which
+ * is where a body that had genuinely stayed pickable would answer.
+ */
+export async function clearOfSilhouette(
+  page: Page,
+  points: readonly Point[],
+  options: SamplingOptions & { marginPx?: number } = {},
+): Promise<Point[]> {
+  const {
+    marginPx = 8,
+    minLuminance = 110,
+    selector = VIEWPORT_CANVAS,
+  } = options;
+  return page.evaluate(
+    ({
+      points,
+      marginPx,
+      minLuminance,
+      selector,
+    }: {
+      points: readonly Point[];
+      marginPx: number;
+      minLuminance: number;
+      selector: string;
+    }): Point[] => {
+      const canvas = document.querySelector<HTMLCanvasElement>(selector);
+      if (!canvas) return [];
+      const probe = document.createElement("canvas");
+      probe.width = canvas.width;
+      probe.height = canvas.height;
+      const ctx = probe.getContext("2d");
+      if (!ctx) return [];
+      ctx.drawImage(canvas, 0, 0);
+      const { data } = ctx.getImageData(0, 0, probe.width, probe.height);
+      const rect = canvas.getBoundingClientRect();
+      const bx = probe.width / (canvas.clientWidth || probe.width);
+      const by = probe.height / (canvas.clientHeight || probe.height);
+      const lit = (px: number, py: number): boolean => {
+        if (px < 0 || py < 0 || px >= probe.width || py >= probe.height) {
+          return false;
+        }
+        const i = (py * probe.width + px) * 4;
+        const r = data[i] ?? 0;
+        const g = data[i + 1] ?? 0;
+        const b = data[i + 2] ?? 0;
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b > minLuminance;
+      };
+      const rx = Math.max(1, Math.round(marginPx * bx));
+      const ry = Math.max(1, Math.round(marginPx * by));
+      return points.filter(({ x, y }) => {
+        const cx = Math.floor((x - rect.left) * bx);
+        const cy = Math.floor((y - rect.top) * by);
+        for (let dy = -ry; dy <= ry; dy += 1) {
+          for (let dx = -rx; dx <= rx; dx += 1) {
+            if (lit(cx + dx, cy + dy)) return false;
+          }
+        }
+        return true;
+      });
+    },
+    { points, marginPx, minLuminance, selector },
+  );
+}
+
 /** What sits under a point, from the browser's own hit test. */
 export interface HitTarget {
   /** Nearest `data-testid` at or above the topmost element, if any. */

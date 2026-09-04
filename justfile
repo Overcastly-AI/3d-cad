@@ -88,6 +88,17 @@ lint:
     # halves still hold.
     python3 scripts/check-mutation-markers.py --self-test
     python3 scripts/check-mutation-markers.py
+    # ~0.9s over 429 scanned files. A Tailwind utility outside the CLOSED token
+    # scales emits no rule at all — no warning, no build error — so the element
+    # gets no style and measures ZERO. `w-32` on a progress bed (spacing is
+    # closed at 12) was the third zero-area defect of 2026-08-27/28 and the only
+    # one a static check can catch. The sibling vitest guard
+    # (apps/web/src/test/tailwindUtilities.test.ts) compiles through the real
+    # Tailwind and stays authoritative; this runs at LINT time, where the class
+    # is still on screen, and additionally reads interpolated template literals,
+    # which that guard's literal regex cannot match at all.
+    python3 scripts/check-tailwind-scale.py --self-test
+    python3 scripts/check-tailwind-scale.py
     # ~150ms. stage-doc-hunks.py is the control EVERY agent uses on the shared
     # docs, and it had no test until it silently relocated an author's own entry
     # to the end of BACKLOG.md while printing success (2026-08-01, found by the
@@ -104,6 +115,25 @@ lint:
     # above: it builds the failing case and demands a failure.
     python3 scripts/check-doc-tick.py --self-test
     python3 scripts/check-doc-tick.py --warn-only
+    # ~30ms. The verdict block scripts/e2e.sh ends with is the ONLY readable
+    # channel into a red CI shard — `get_job_logs` returns a tail and artifact
+    # download is policy-denied here — so a summariser that emits nothing on an
+    # unfamiliar report shape leaves a red exactly as unreadable as it was
+    # before it existed. Its self-test proves the empty-summary guard FIRES
+    # (negative control: strip the failures out of a red report and it must go
+    # red) and stays quiet on an ordinary red. Same reasoning as its five
+    # neighbours: a gate that cannot fail is not a gate.
+    python3 scripts/e2e-verdict.py --self-test
+    # ~50ms. e2e-shard-plan.py decides WHICH specs each CI shard runs, so a
+    # defect in it is a coverage hole rather than a wrong number — the highest
+    # stakes of the three e2e self-tests. It pins GATE-1 by name (a spec absent
+    # from the duration manifest must still be assigned to exactly one shard,
+    # weighted as the HEAVIEST file rather than the lightest) and carries the
+    # negative control for the pattern anchoring: a bare `mirror\.spec\.ts$`
+    # also selects sketch-mirror.spec.ts, and there are four such
+    # basename-suffix pairs in the suite today, so an unanchored pattern would
+    # run four files twice and leave four shards short.
+    python3 scripts/e2e-shard-plan.py --self-test
 
 # Unit tests: pytest across the uv workspace + vitest via pnpm (recursive)
 test:

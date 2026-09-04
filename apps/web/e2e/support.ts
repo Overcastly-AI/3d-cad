@@ -41,6 +41,141 @@ export function uniqueEmail(): string {
 }
 
 /**
+ * Click a control that is expected to REFUSE the activation.
+ *
+ * This is the one legitimate use of `force: true` in the suite. A gated
+ * `PanelActionCell` / `ToolButton` carries `aria-disabled` rather than the
+ * native attribute (so the reason it is grey has somewhere to live) and
+ * SWALLOWS the activation itself; Playwright's actionability check would
+ * therefore wait forever on "element is not enabled" and never reach the
+ * handler, and the handler is the thing under test.
+ *
+ * `force` on its own proves nothing, which is the trap this helper exists to
+ * close. It skips the HIT-TARGET check, so the synthetic mouse event is
+ * delivered to whatever is topmost at that point — which need not be the
+ * control. Measured 2026-08-28 on `nav-chrome.spec.ts`: a forced click on the
+ * locked Extrude button landed on `header[topbar]`, the button's own handler
+ * was never invoked, and the "the picks survived" assertion passed for a reason
+ * that had nothing to do with Extrude. It would have passed identically if the
+ * handler HAD discarded the picks.
+ *
+ * So: assert the control is where a real pointer would actually land, and only
+ * then force the event through. A pass then means "a user aimed at this and the
+ * app refused", not "the click went somewhere else and nothing happened".
+ */
+export async function clickRefusedControl(
+  page: Page,
+  locator: Locator,
+  label: string,
+): Promise<void> {
+  await expect(
+    locator,
+    `${label}: must be in the DOM to be refused`,
+  ).toHaveCount(1);
+  const handle = await locator.elementHandle();
+  const probe = await page.evaluate((el) => {
+    const target = el as Element;
+    const r = target.getBoundingClientRect();
+    const cx = r.x + r.width / 2;
+    const cy = r.y + r.height / 2;
+    const hit = document.elementFromPoint(cx, cy);
+    const name = (x: Element | null): string => {
+      if (x === null) return "nothing";
+      const tagged = x.closest("[data-testid]");
+      return `${x.tagName.toLowerCase()}${
+        tagged === null ? "" : `[${tagged.getAttribute("data-testid")}]`
+      }`;
+    };
+    return {
+      width: r.width,
+      height: r.height,
+      reached: hit !== null && target.contains(hit),
+      resolvesTo: name(hit),
+    };
+  }, handle);
+  await handle?.dispose();
+
+  expect(
+    probe.width * probe.height,
+    `${label}: the control has no area (${probe.width.toFixed(1)} x ${probe.height.toFixed(
+      1,
+    )}) — a pointer cannot aim at it, so forcing a click past the actionability check would prove nothing`,
+  ).toBeGreaterThan(0);
+  expect(
+    probe.reached,
+    `${label}: a pointer aimed at the control's centre lands on ${probe.resolvesTo} instead — forcing a click here would exercise that element, not the refusal`,
+  ).toBe(true);
+
+  await locator.click({ force: true });
+}
+
+/**
+ * Activate a control the way a user does: a REAL `page.mouse.click` at the
+ * control's own centre, after proving that point resolves TO the control.
+ *
+ * The mirror of {@link clickRefusedControl}. That one proves a gated control
+ * refuses; this one proves a live control can be reached at all — the property
+ * `locator.click()` quietly supplies for you (it scrolls, waits, and aims at a
+ * hit point it computes), and the property `click({ force: true })` throws away
+ * entirely. When a spec's claim is "the user can do this", the click has to be
+ * the user's, not Playwright's helpful approximation of it.
+ *
+ * Returns the measured box so a caller can also assert the control is PAINTED —
+ * `toBeVisible()` is a box property and returns true for a node clipped to
+ * `1x1 @ (-1,43)`.
+ */
+export async function clickForReal(
+  page: Page,
+  testId: string,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const locator = page.getByTestId(testId);
+  await expect(locator, `${testId}: must be in the DOM`).toHaveCount(1);
+  const handle = await locator.elementHandle();
+  const probe = await page.evaluate((el) => {
+    const target = el as Element;
+    const r = target.getBoundingClientRect();
+    const cx = r.x + r.width / 2;
+    const cy = r.y + r.height / 2;
+    const hit = document.elementFromPoint(cx, cy);
+    const name = (x: Element | null): string => {
+      if (x === null) return "nothing";
+      const tagged = x.closest("[data-testid]");
+      return `${x.tagName.toLowerCase()}${
+        tagged === null ? "" : `[${tagged.getAttribute("data-testid")}]`
+      }`;
+    };
+    return {
+      x: r.x,
+      y: r.y,
+      width: r.width,
+      height: r.height,
+      cx,
+      cy,
+      reached: hit !== null && target.contains(hit),
+      resolvesTo: name(hit),
+    };
+  }, handle);
+  await handle?.dispose();
+
+  expect(
+    probe.width * probe.height,
+    `${testId}: the control has no area (${probe.width.toFixed(1)} x ${probe.height.toFixed(1)}) — no pointer can aim at it`,
+  ).toBeGreaterThan(0);
+  expect(
+    probe.reached,
+    `${testId}: a pointer aimed at the control's centre lands on ${probe.resolvesTo} instead`,
+  ).toBe(true);
+
+  await page.mouse.click(probe.cx, probe.cy);
+  return {
+    x: probe.x,
+    y: probe.y,
+    width: probe.width,
+    height: probe.height,
+  };
+}
+
+/**
  * Both History buttons settled at the given server gates (`can_undo` /
  * `can_redo` → aria-disabled). Shared by the part and assembly undo/redo
  * specs — the two workspaces render the SAME HistoryGroup, so the assertion
@@ -840,6 +975,71 @@ export async function waitForFrames(
   frames = 4,
 ): Promise<RenderWait> {
   return waitForRenders(page, frames);
+}
+
+/**
+ * How long the edge-mark seat pass may take to drain.
+ *
+ * ONE CONSTANT FOR ONE MECHANISM. This was written out longhand as `30_000` at
+ * five call sites across two spec files, and every one of them was a ceiling
+ * nobody had measured. Two of the three reds this pass reproduced on shard 3/4
+ * were that number (CI-4 pass, 2026-08-29, `docs/QA-REVIEW.md`).
+ *
+ * WHY 30 s COULD NOT HOLD, and it is NOT that the seat pass is slow. Measured
+ * per site once this helper started printing the elapsed time:
+ *
+ *     after a view-fit (camera at rest)        409-730 ms   (3 sites)
+ *     after a 40-step orbit (camera damping)   16-31 s      (2 sites)
+ *
+ * A 40x split, and the two sites that ever went red are exactly the two that
+ * follow an orbit. What is being waited out is `OrbitControls`' damping TAIL:
+ * every changed pose re-owes all 21 edges, so `settled` cannot latch until the
+ * camera quantises below the 1e-3 stamp. Damping decays PER UPDATE, so the
+ * frame COUNT is a constant of the scene and the wall time is frame time times
+ * that count — on a software rasteriser, halve the machine's speed and this
+ * doubles, deterministically. It is not a race that can be won or lost; it is
+ * a duration that scales.
+ *
+ * The post-orbit readings, `mouse.up` to `settled`, on a 4-core box:
+ *
+ *     quiet, isolated       15 989 ms   16 168 ms   17 237 ms   21 323 ms
+ *     under 2 CPU spinners  25 483 ms   26 106 ms   28 957 ms   30 493 ms
+ *                                                              31 660 ms
+ *
+ * i.e. the old ceiling sat at 1.4x the worst QUIET reading, and FOUR loaded
+ * readings would have failed or nearly failed it. 90 s is 4.2x the worst quiet
+ * and 2.8x the worst loaded. It costs nothing when the seats converge, which
+ * they always did — the red runs were still `pending`, never stuck — and the
+ * three rested-camera sites sit 100x inside it, which the log now says out
+ * loud rather than leaving to be assumed.
+ */
+export const SEAT_SETTLE_TIMEOUT_MS = 90_000;
+
+/**
+ * Wait for the edge-mark seat pass to drain, and SAY HOW LONG IT TOOK.
+ *
+ * The elapsed time is the whole point of the helper existing rather than the
+ * assertion being inlined: the job log is the only channel into a red CI shard,
+ * so a convergence whose duration scales with the machine has to report that
+ * duration on GREEN runs too, or the next person to tighten the ceiling is
+ * guessing exactly as the last one was.
+ */
+export async function expectSeatsSettled(
+  page: Page,
+  label = "seats",
+): Promise<number> {
+  const started = Date.now();
+  await expect(page.getByTestId("viewport")).toHaveAttribute(
+    "data-edge-mark-seats",
+    "settled",
+    { timeout: SEAT_SETTLE_TIMEOUT_MS },
+  );
+  const elapsed = Date.now() - started;
+  console.log(
+    `    [seats] ${label}: settled in ${elapsed} ms ` +
+      `(ceiling ${SEAT_SETTLE_TIMEOUT_MS} ms)`,
+  );
+  return elapsed;
 }
 
 /** Count distinct colors on the WebGL canvas — proves a real render. */

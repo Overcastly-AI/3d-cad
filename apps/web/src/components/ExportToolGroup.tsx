@@ -14,8 +14,19 @@ export interface ExportToolGroupProps {
    * so a collapsed panel cannot hide WHY the verb is unavailable.
    */
   disabledReason?: string;
-  /** Allowed, but the file would be a prefix of the tree (a travel stop). */
+  /** Allowed, but the file would be a prefix of the tree. */
   partial?: boolean;
+  /**
+   * What makes it a prefix, in a clause (`ExportGate.qualifier`) — e.g. "stops
+   * at Extrude1, marked partial".
+   *
+   * The band has no notice line, and after EXPORT-3 a prefix can be caused by a
+   * FAILURE as well as by a travel stop. "Marks the file partial" is true of
+   * both and names neither, so a user working with the Inspector collapsed —
+   * the exact case this group exists for — would get the file without ever
+   * being told where it stops. Falls back to the generic clause.
+   */
+  partialQualifier?: string;
   /**
    * QA hook stamped as `data-export-state` — the gate state name the caller
    * derived, so a spec asserts the DECISION, not the sentence it produced.
@@ -54,6 +65,7 @@ export function ExportToolGroup({
   testIdPrefix,
   disabledReason,
   partial = false,
+  partialQualifier,
   state,
   labelPriority,
 }: ExportToolGroupProps) {
@@ -61,7 +73,8 @@ export function ExportToolGroup({
   const blocked = disabledReason !== undefined;
   /** The clause every cell carries: why it is inert, or what the file will be. */
   const qualifier =
-    disabledReason ?? (partial ? "marks the file partial" : undefined);
+    disabledReason ??
+    (partial ? (partialQualifier ?? "marks the file partial") : undefined);
 
   return (
     <ToolGroup
@@ -76,11 +89,14 @@ export function ExportToolGroup({
           icon={icon}
           label={label}
           showLabel
-          // What this click would DO rides the accessible NAME, not only the
-          // tooltip: `ToolButton` describes a button by its caption while the
-          // button is disabled, so an ENABLED-but-qualified state ("the file
-          // will be a prefix") would otherwise be reachable by hover alone.
-          aria-label={qualifier === undefined ? name : `${name} — ${qualifier}`}
+          // The name is the FORMAT, in every state. What this click would DO
+          // rides the caption, which `ToolButton` now exposes as the accessible
+          // description whether the cell is gated or merely qualified
+          // (A11Y-TOOLBTN-1). This used to append the qualifier to the name,
+          // because the primitive announced a caption only while disabled — so
+          // the cell answered to a different name depending on the gate state,
+          // and the qualifier was announced twice the moment that was fixed.
+          aria-label={name}
           aria-busy={busy === format}
           disabled={blocked || busy !== null}
           caption={
@@ -89,8 +105,8 @@ export function ExportToolGroup({
               : (disabledReason ??
                 (failed === format
                   ? "Failed — check the gateway, then retry"
-                  : partial
-                    ? `${caption} · marks the file partial`
+                  : partial && qualifier !== undefined
+                    ? `${caption} · ${qualifier}`
                     : caption))
           }
           data-testid={`${testIdPrefix}-${format}`}

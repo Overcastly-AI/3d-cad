@@ -72,6 +72,7 @@ import {
 import { formatVec3Mm, occtToScene } from "../measure/geometry";
 import { sceneToOcctTuple } from "../sketch/plane";
 import { useIsHiddenFaceOrdinal } from "./hiddenPicks";
+import { PickMark } from "./PickMark";
 import { Segments } from "./overlaySegments";
 import { PickSurface } from "./pickSurface";
 import { useViewportPickStamp } from "./pickStamp";
@@ -390,7 +391,7 @@ export function HolePointOverlay({
           />
 
           {/* The face centre — the seed placement (a hole in the middle). */}
-          <Html position={occtToScene(centroid)} center zIndexRange={[36, 18]}>
+          <PickMark position={occtToScene(centroid)} zIndexRange={[36, 18]}>
             <PickNode
               shape="vertex"
               // A7's recession: the face itself is the placement target now, so
@@ -401,17 +402,16 @@ export function HolePointOverlay({
               aria-label={`Centre of the face at ${formatVec3Mm(centroid)} millimetres`}
               onClick={() => onPick(centroid)}
             />
-          </Html>
+          </PickMark>
 
           {/* The face's corners — snap the drill onto a vertex of the face. */}
           {cornerIndices.map((index) => {
             const vertex = vertices?.[index];
             if (vertex === undefined) return null;
             return (
-              <Html
+              <PickMark
                 key={`hp${index}`}
                 position={occtToScene(vertex)}
-                center
                 zIndexRange={[35, 17]}
               >
                 <PickNode
@@ -422,16 +422,15 @@ export function HolePointOverlay({
                   aria-label={`Corner at ${formatVec3Mm(vertex)} millimetres`}
                   onClick={() => onPick(vertex)}
                 />
-              </Html>
+              </PickMark>
             );
           })}
 
           {/* Circular-edge centres — concentric and bolt-circle placement. */}
           {circles.map((circle, index) => (
-            <Html
+            <PickMark
               key={`hc${index}`}
               position={occtToScene(circle.center)}
-              center
               zIndexRange={[36, 18]}
             >
               <PickNode
@@ -443,7 +442,7 @@ export function HolePointOverlay({
                 aria-label={`Centre of the Ø${formatLength(circle.radiusMm * 2, "mm")} circle at ${formatVec3Mm(circle.center)} millimetres`}
                 onClick={() => onPick(circle.center)}
               />
-            </Html>
+            </PickMark>
           ))}
         </>
       ) : null}

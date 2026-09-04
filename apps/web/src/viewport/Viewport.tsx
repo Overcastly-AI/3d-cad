@@ -13,6 +13,7 @@ import {
 } from "react";
 import {
   MOUSE,
+  OrthographicCamera,
   PerspectiveCamera,
   TOUCH,
   Vector3,
@@ -31,6 +32,7 @@ import { publishViewQuaternion } from "./cameraOrientation";
 import { isDragGesture, type PointerPoint } from "./contextMenuGesture";
 import {
   fitDistance,
+  fitZoom,
   measureChrome,
   targetShift,
   unobstructedRect,
@@ -38,6 +40,12 @@ import {
   type CameraSpacePoint,
   type Rect,
 } from "./fitFraming";
+import {
+  distanceForOrthoZoom,
+  orthoClipPlanes,
+  orthoFrustum,
+  orthoZoomForDistance,
+} from "./projection";
 import { groundShadowTexture } from "./groundShadow";
 import { ModelMesh, type BodyHighlight } from "./ModelMesh";
 import { OriginGeometry } from "./OriginGeometry";
@@ -55,6 +63,7 @@ import {
   useViewCommandStore,
   useViewHotkeys,
   VIEW_DIRECTIONS,
+  type Projection,
 } from "./viewCommands";
 
 /** The studio iso direction — every "home" has always opened here. */
@@ -63,6 +72,13 @@ const ISO_DIR = new Vector3(...VIEW_DIRECTIONS.iso).normalize();
 const FIT_FACTOR = 1.75;
 /** Default orbit radius when the scene is empty (the resting bench view). */
 const EMPTY_RADIUS = 200 * FIT_FACTOR;
+/**
+ * The scene camera's vertical field of view. Declared here rather than only in
+ * the `<Canvas camera>` prop because the projection swap has to reproduce this
+ * exact framing when it converts a zoom back into a distance — two copies of
+ * the number would be two framings that drift apart.
+ */
+const CAMERA_FOV_DEG = 40;
 
 interface CameraGoal {
   position: Vector3;
@@ -70,7 +86,17 @@ interface CameraGoal {
   target: Vector3;
   /** Named view stamped on the container once the move settles (QA hook). */
   view: string;
+  /**
+   * Orthographic framing (absent under perspective, where distance frames).
+   * Eased alongside the position — under a parallel projection the position
+   * carries NO size information, so a rig that only lerped the position would
+   * settle instantly with the subject still at its old scale.
+   */
+  zoom?: number;
 }
+
+/** Within this fraction of the goal zoom, a parallel framing has landed. */
+const ZOOM_SETTLE_EPSILON = 0.002;
 
 /**
  * The subject's eight bounding corners resolved onto the camera's own axes —
@@ -161,6 +187,16 @@ function CameraRig({
         camera.near = Math.max(diagonal / 100, 0.01);
         camera.far = Math.max(diagonal * 50, 5000);
         camera.updateProjectionMatrix();
+      } else if (camera instanceof OrthographicCamera) {
+        // Parallel depth is linear, so the slab is sized for CONTAINMENT, not
+        // for precision — see `orthoClipPlanes`.
+        const planes = orthoClipPlanes(
+          Math.max(diagonal, 1) * FIT_FACTOR,
+          diagonal,
+        );
+        camera.near = planes.near;
+        camera.far = planes.far;
+        camera.updateProjectionMatrix();
       }
     },
     [camera],
@@ -171,6 +207,10 @@ function CameraRig({
       if (instant) {
         camera.position.copy(pose.position);
         camera.up.copy(pose.up);
+        if (pose.zoom !== undefined && camera instanceof OrthographicCamera) {
+          camera.zoom = pose.zoom;
+          camera.updateProjectionMatrix();
+        }
         if (controls) {
           controls.target.copy(pose.target);
           controls.update();
@@ -215,24 +255,47 @@ function CameraRig({
     ): CameraGoal => {
       const measured = framing();
       framedRect.current = measured?.free ?? null;
-      if (measured === null || !(camera instanceof PerspectiveCamera)) {
-        return {
-          position: dir.clone().multiplyScalar(radius).add(center),
-          up,
-          target: center.clone(),
-          view,
-        };
-      }
+      const naive = (): CameraGoal => ({
+        position: dir.clone().multiplyScalar(radius).add(center),
+        up,
+        target: center.clone(),
+        view,
+      });
+      if (measured === null) return naive();
       const { canvas, free } = measured;
       // Camera basis at the goal attitude: forward is −dir (dir points from the
       // target TO the camera), so right = up × dir and trueUp = dir × right.
       const right = new Vector3().crossVectors(up, dir).normalize();
       const trueUp = new Vector3().crossVectors(dir, right).normalize();
+      const corners = boxCornersInCameraAxes(box, center, right, trueUp, dir);
+      if (camera instanceof OrthographicCamera) {
+        // A PARALLEL fit solves the ZOOM, not the distance: the standoff is
+        // only there to keep the subject inside the clip slab. Everything else
+        // — the free rect, the centring shift — is the perspective path's
+        // arithmetic in the units `fitZoom` documents.
+        const solvedZoom = fitZoom(corners, free);
+        const zoom = solvedZoom > 0 ? solvedZoom : camera.zoom;
+        const shift = targetShift(canvas, free, {
+          width: canvas.width / zoom,
+          height: canvas.height / zoom,
+        });
+        const target = center
+          .clone()
+          .add(right.clone().multiplyScalar(shift.right))
+          .add(trueUp.clone().multiplyScalar(shift.up));
+        return {
+          position: dir.clone().multiplyScalar(radius).add(target),
+          up,
+          target,
+          view,
+          zoom,
+        };
+      }
+      if (!(camera instanceof PerspectiveCamera)) return naive();
       // Solve the distance from the subject's ACTUAL projected extents rather
       // than a fixed multiple of its diagonal — so the part fills the frame it
       // was given whatever its aspect ratio (see `fitFraming.fitDistance`). The
       // diagonal rule stays as the fallback for a scene with no box.
-      const corners = boxCornersInCameraAxes(box, center, right, trueUp, dir);
       const solved = fitDistance(corners, canvas, free, camera.fov);
       const distance = solved > 0 ? solved : radius;
       const visibleHeight =
@@ -456,21 +519,167 @@ function CameraRig({
     const k = 1 - Math.exp(-Math.min(delta, 0.1) * 10);
     camera.position.lerp(g.position, k);
     camera.up.lerp(g.up, k).normalize();
+    // The parallel half of the ease. Under an orthographic camera the position
+    // carries no scale, so this — not the distance — is the move the user sees.
+    const zooming =
+      g.zoom !== undefined && camera instanceof OrthographicCamera
+        ? camera
+        : null;
+    if (zooming !== null && g.zoom !== undefined) {
+      zooming.zoom += (g.zoom - zooming.zoom) * k;
+      zooming.updateProjectionMatrix();
+    }
     if (controls) {
       controls.target.lerp(g.target, k);
       controls.update();
     } else {
       camera.lookAt(g.target);
     }
-    if (camera.position.distanceTo(g.position) < 0.05) {
+    const zoomLanded =
+      zooming === null ||
+      g.zoom === undefined ||
+      Math.abs(zooming.zoom - g.zoom) <= g.zoom * ZOOM_SETTLE_EPSILON;
+    if (camera.position.distanceTo(g.position) < 0.05 && zoomLanded) {
       camera.position.copy(g.position);
       camera.up.copy(g.up);
+      if (zooming !== null && g.zoom !== undefined) {
+        zooming.zoom = g.zoom;
+        zooming.updateProjectionMatrix();
+      }
       controls?.update();
       goal.current = null;
       onSettle(g.view, camera.position, framedRect.current);
     }
     invalidate();
   });
+
+  return null;
+}
+
+/**
+ * THE PROJECTION RIG (ORTHO-1) — swaps the scene camera between a perspective
+ * and an orthographic one, preserving pose, target and apparent size.
+ *
+ * Why a swap rather than a flag: three.js models the two projections as two
+ * CLASSES, so there is nothing to toggle on one camera. Everything that reads
+ * the camera — the pick raycaster, the fit, the reference cube's orientation
+ * feed — goes through `state.camera`, so replacing that one object is the only
+ * change any of them needs, and none of them has to learn a mode.
+ *
+ * Two things this has to get right, both invisible until they are wrong:
+ *
+ *  · APPARENT SIZE. Distance frames a perspective camera; zoom frames a
+ *    parallel one. `projection.ts` converts between them so the swap changes
+ *    the convergence of the edges and NOTHING else — a subject that filled the
+ *    frame still fills it. A swap that also resized would read as the viewport
+ *    losing the part, and the user would blame the button.
+ *  · THE ORBIT TARGET. drei's `OrbitControls` rebuilds its controls object when
+ *    the default camera changes (`useMemo(..., [explCamera])`), and a fresh
+ *    OrbitControls targets the WORLD ORIGIN. On a part modelled away from the
+ *    origin that silently re-centres the orbit on empty bench. So the target is
+ *    carried across the swap by hand and restored once the new controls exist.
+ *
+ * While the SKETCHER owns the camera the rig holds perspective: the sketch rig
+ * frames a plane by parking the camera at a computed DISTANCE
+ * (`SketchScene.sketchCameraDistanceMm`), which a parallel camera does not
+ * answer to. Nothing is hidden by this — the view rail and the cube unmount
+ * with `viewNav`, so the projection control is not on screen during authoring —
+ * and the modeller's choice is restored the moment the camera comes back.
+ */
+function ProjectionRig({
+  owns,
+  onProjection,
+}: {
+  owns: boolean;
+  onProjection: (projection: Projection) => void;
+}): null {
+  const camera = useThree((state) => state.camera);
+  const size = useThree((state) => state.size);
+  const set = useThree((state) => state.set);
+  const invalidate = useThree((state) => state.invalidate);
+  const controls = useThree(
+    (state) => state.controls,
+  ) as OrbitControlsImpl | null;
+  const chosen = useViewCommandStore((state) => state.projection);
+  const projection: Projection = owns ? chosen : "perspective";
+
+  /** The camera r3f built for the Canvas — reused, never rebuilt. */
+  const perspective = useRef<PerspectiveCamera | null>(null);
+  if (perspective.current === null && camera instanceof PerspectiveCamera) {
+    perspective.current = camera;
+  }
+  const orthographic = useRef<OrthographicCamera | null>(null);
+  /** The orbit target to restore once drei has rebuilt its controls. */
+  const carriedTarget = useRef<Vector3 | null>(null);
+
+  useEffect(() => {
+    const wantsParallel = projection === "orthographic";
+    if (wantsParallel === camera instanceof OrthographicCamera) return;
+    const target = controls?.target.clone() ?? new Vector3();
+    const offset = camera.position.clone().sub(target);
+    const distance = Math.max(offset.length(), 1e-3);
+    const direction =
+      offset.lengthSq() > 1e-12 ? offset.normalize() : new Vector3(0, 0, 1);
+
+    let next: PerspectiveCamera | OrthographicCamera;
+    if (wantsParallel) {
+      const ortho = (orthographic.current ??= new OrthographicCamera());
+      const frustum = orthoFrustum(size.width, size.height);
+      ortho.left = frustum.left;
+      ortho.right = frustum.right;
+      ortho.top = frustum.top;
+      ortho.bottom = frustum.bottom;
+      const zoom = orthoZoomForDistance(size.height, distance, CAMERA_FOV_DEG);
+      if (zoom > 0) ortho.zoom = zoom;
+      const planes = orthoClipPlanes(distance, distance);
+      ortho.near = planes.near;
+      ortho.far = planes.far;
+      ortho.position.copy(camera.position);
+      ortho.up.copy(camera.up);
+      ortho.quaternion.copy(camera.quaternion);
+      ortho.updateProjectionMatrix();
+      next = ortho;
+    } else {
+      const persp = perspective.current;
+      if (persp === null) return;
+      const zoom = camera instanceof OrthographicCamera ? camera.zoom : 0;
+      const back = distanceForOrthoZoom(size.height, zoom, CAMERA_FOV_DEG);
+      persp.position
+        .copy(target)
+        .add(direction.multiplyScalar(back > 0 ? back : distance));
+      persp.up.copy(camera.up);
+      persp.quaternion.copy(camera.quaternion);
+      persp.aspect = size.width / Math.max(size.height, 1);
+      persp.updateProjectionMatrix();
+      next = persp;
+    }
+    carriedTarget.current = target;
+    set({ camera: next });
+    invalidate();
+  }, [projection, camera, controls, size, set, invalidate]);
+
+  // Give the rebuilt controls their target back (see the doc comment). Guarded
+  // on `controls.object`, so it can only ever write into controls that already
+  // belong to the new camera.
+  useEffect(() => {
+    const target = carriedTarget.current;
+    if (target === null || controls === null || controls.object !== camera) {
+      return;
+    }
+    carriedTarget.current = null;
+    controls.target.copy(target);
+    controls.update();
+    invalidate();
+  }, [controls, camera, invalidate]);
+
+  // The stamp is derived from the CAMERA, never from the store: a readout that
+  // reported the intent would agree with itself even if the swap never
+  // happened, which is the one failure this feature has to be able to fail on.
+  useEffect(() => {
+    onProjection(
+      camera instanceof OrthographicCamera ? "orthographic" : "perspective",
+    );
+  }, [camera, onProjection]);
 
   return null;
 }
@@ -630,6 +839,14 @@ export interface ViewportProps {
    */
   onContextMenu?: (event: ReactMouseEvent) => void;
   /**
+   * The `body.faces()` ordinal the pointer is addressing, or null. Already
+   * stamped on the container for QA (`data-hovered-face`); this hands the SAME
+   * value to the workspace, which is what lets an idle hover propose a sketch
+   * on that face (FLOW-1). Fires only when the addressed face CHANGES, never
+   * per pointer move.
+   */
+  onFaceHover?: (ordinal: number | null) => void;
+  /**
    * Draw the single aggregate contact pool under `bounds`. The assembly turns
    * this OFF and seats EACH instance on its own pool instead (UI audit #19d —
    * one big blob under a multi-part scene reads flat; per-part shadows give the
@@ -658,6 +875,7 @@ export function Viewport({
   bodySelected = false,
   bodySelectedFaces = null,
   onContextMenu,
+  onFaceHover,
   groundShadow = true,
 }: ViewportProps) {
   const reducedMotion = useReducedMotion();
@@ -747,13 +965,17 @@ export function Viewport({
    */
   const handleFaceHover = useCallback(
     (ordinal: number | null, total: number) => {
+      // The workspace hears about it FIRST and unconditionally: the stamp is a
+      // QA hook that no-ops before the container mounts, and a proposal that
+      // silently depended on that ref would be a feature gated on a test hook.
+      onFaceHover?.(ordinal);
       const node = containerRef.current;
       if (node === null) return;
       if (ordinal === null) delete node.dataset["hoveredFace"];
       else node.dataset["hoveredFace"] = String(ordinal);
       node.dataset["totalFaces"] = String(total);
     },
-    [],
+    [onFaceHover],
   );
 
   /**
@@ -923,6 +1145,16 @@ export function Viewport({
     [rotateEnabled],
   );
 
+  /**
+   * QA hook: how the camera PROJECTS right now, stamped on the container.
+   * Written by `ProjectionRig` from the live camera object rather than from the
+   * store, so a toggle that never reached the camera cannot pass.
+   */
+  const handleProjection = useCallback((projection: Projection) => {
+    const node = containerRef.current;
+    if (node !== null) node.dataset["projection"] = projection;
+  }, []);
+
   /** QA hook: the settled view + camera position, stamped on the container. */
   const handleSettle = useCallback(
     (view: string, position: Vector3, framed: Rect | null) => {
@@ -990,7 +1222,7 @@ export function Viewport({
         frameloop="demand"
         dpr={[1, 2]}
         gl={{ antialias: true, preserveDrawingBuffer: true, alpha: true }}
-        camera={{ fov: 40, position: [45, 32, 60] }}
+        camera={{ fov: CAMERA_FOV_DEG, position: [45, 32, 60] }}
       >
         <RenderProbe />
         {groundGrid ? (
@@ -1053,6 +1285,10 @@ export function Viewport({
           owns={viewNav}
           onSettle={handleSettle}
         />
+        {/* Perspective ↔ orthographic (ORTHO-1). Mounted beside the pose rig
+            because they share one camera: this one decides HOW it projects,
+            that one decides where it looks. */}
+        <ProjectionRig owns={viewNav} onProjection={handleProjection} />
         <CameraBroadcast />
         <OrbitControls
           ref={orbitRef}

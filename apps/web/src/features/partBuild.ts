@@ -447,10 +447,25 @@ function excludedCount(count: number): string {
  * while `last_good_feature_id`, the datum that says exactly which state IS on
  * screen, was on the wire and used nowhere in the app. It is used here.
  *
- * The export clause belongs in the SAME breath: the gate refuses for exactly this
- * condition, and stating the consequence where the condition is explained beats a
- * fourth restatement down in the title block (the strip is one scroll away on a
- * 768px-tall screen).
+ * The export clause belongs in the SAME breath: this is the condition the gate
+ * qualifies a file for, and stating the consequence where the condition is
+ * explained beats a fourth restatement down in the title block (the strip is one
+ * scroll away on a 768px-tall screen).
+ *
+ * That clause used to read "Export is blocked until it builds." — true of the
+ * old gate and the reason EXPORT-3 was a dead end. What the sentence now
+ * promises is what the gate now does: the prefix on screen IS the file, and the
+ * file says so.
+ *
+ * THE COUNT IS `missingFromFile`, THE SAME ONE THE EXPORT NOTICE SPENDS — and
+ * it used to be `excluded.length`, which is a different number. Caught in the
+ * 1280x800 founder shot: this notice read "1 feature is excluded" while the
+ * export strip, six inches down the same frame, read "2 features are excluded"
+ * about the identical tree. Both were defensible in isolation (the failure
+ * itself is not among the `skipped`) and that is exactly the J2 defect's shape —
+ * two surfaces, two local derivations, one screen, and a user with no way to
+ * tell which to believe. It was also simply wrong on its own terms: "from it
+ * onward" INCLUDES it, so counting only what follows was off by one.
  */
 export function partialBodySentence(build: PartBuild): string {
   const built =
@@ -462,31 +477,53 @@ export function partialBodySentence(build: PartBuild): string {
       ? "A feature failed"
       : `${build.failure.name} failed`;
   const rest =
-    build.excluded.length === 0
+    build.failure === null
       ? "."
-      : `, so ${countClause(build.excluded.length)} from it onward.`;
-  return `Showing ${built}. ${cause}${rest} Export is blocked until it builds.`;
+      : `, so ${countClause(missingFromFile(build))} from it onward.`;
+  return `Showing ${built}. ${cause}${rest} Export writes this body, named partial.`;
 }
 
 /**
  * EXPORT — the cell where a wrong label becomes a wrong file.
  *
- * Two prefixes reach this gate and they are NOT the same event, so they get
- * different answers:
+ * TWO AXES, and keeping them apart is the whole design. `state` names the
+ * CAUSE; `partial` says whether the artifact is a prefix of the tree. A cause
+ * is not a permission — that conflation is what EXPORT-3 was.
  *
- *  - **a feature error** is an accident. The user did not ask for a truncated
- *    body and has no reason to suspect the file is one, so export REFUSES and
- *    names the feature to fix. Honest-and-blocked beats silently-wrong.
- *  - **the travel stop** is a deliberate act with a control on screen holding
- *    it. Refusing would be paternalistic, so export is ALLOWED — and both the
- *    cell and the FILENAME say `partial`, because a file outlives the screen
- *    that explained it.
+ * The gate refuses only when it cannot vouch for a file:
  *
- * A stale provenance is a third case: we do not know what the current tree
- * exports, and the server exports the CURRENT tree, so the honest answer is to
- * wait for the rebuild rather than to guess.
+ *  - **no body** — nothing was ever built, so there is nothing to write. The
+ *    server says the same thing (a 422 `tree_export_failed`), measured.
+ *  - **stale provenance** — the server exports the CURRENT tree, and we do not
+ *    know what that is. Worse than blocking, we could not honestly NAME the
+ *    truncation point, and a wrong truncation claim is the defect this module
+ *    exists to prevent. Wait for the rebuild rather than guess.
+ *
+ * Everything else exports, because a prefix that BUILT is a real body and a
+ * user is entitled to it. Two events produce one:
+ *
+ *  - **the travel stop** is deliberate, with a control on screen holding it;
+ *  - **a feature error** is an accident — the user did not ask for a truncated
+ *    body and has no reason to suspect the file is one.
+ *
+ * They differ in TONE and in WORDING, never in permission. EXPORT-3 (audit R-6,
+ * flagged live across two passes) is what the old asymmetry cost: after `Hole1`
+ * failed, all four formats went inert over a part that had built cleanly
+ * through `Revolve1` — "what I would send a machinist for a first look," in the
+ * auditor's words — while the gateway would have served that exact body. The
+ * client was the only thing saying no. Measured on the real stack 2026-08-28:
+ * the STEP exported from the broken tree is BYTE-IDENTICAL (sha256 7231e86e…,
+ * 15383 B) to exporting the healthy prefix on its own.
+ *
+ * Refusing was never the honest option; it was the SILENT one. The J2 concern
+ * that earned the refusal — "a wrong label is a wrong FILE" — is answered by
+ * telling the truth in three places at once, not by withholding the file:
+ * the status cell spends the word (`Partial`), the notice names the truncation
+ * point and counts what is missing, and `markFilenamePartial` stamps the
+ * DOWNLOAD, because a file outlives the screen that explained it.
  */
 export interface ExportGate {
+  /** Why the file is what it is. NOT a permission — read `blockedReason`. */
   readonly state:
     "ready" | "no-body" | "feature-error" | "unverified" | "partial";
   /** Set = the row is inert; this is the cell's text and the cells' reason. */
@@ -495,25 +532,30 @@ export interface ExportGate {
   readonly partial: boolean;
   /** The sentence rendered under the row (blocked or partial). */
   readonly notice: string | null;
+  /**
+   * The same truth in a clause, for a surface with no room for the sentence.
+   *
+   * The command band is the export surface that survives a collapsed Inspector
+   * (EXPORT-1), so it cannot be the one that stays quiet about a truncated
+   * file — it rides each cell's caption and accessible name instead.
+   */
+  readonly qualifier: string | null;
+}
+
+/** Everything the failure kept out of the file: itself, plus what it stranded. */
+function missingFromFile(build: PartBuild): number {
+  return 1 + build.excluded.length + build.rolledBack.length;
+}
+
+/** "built to Extrude1" → the name, or an honest stand-in for it. */
+function stopName(build: PartBuild): string | null {
+  return build.lastGood?.name ?? null;
 }
 
 export function exportGate(build: PartBuild): ExportGate {
-  if (build.failed) {
-    return {
-      state: "feature-error",
-      blockedReason:
-        build.failure === null
-          ? "Feature error"
-          : `${build.failure.name} failed`,
-      partial: false,
-      // No band. Three cells of this strip already carry "Fillet1 failed" (the
-      // status cell plus each format cell's reason), the STATUS cell above states
-      // what the body is, and the viewport notice states the consequence — a
-      // fourth copy would be the accessory to remove, and at 1366x768 it pushed
-      // the gated cells themselves below the panel's fold.
-      notice: null,
-    };
-  }
+  // ── REFUSED ───────────────────────────────────────────────────────────────
+  // Provenance first: a body we cannot place in the tree cannot be described,
+  // and every allowed state below makes a claim about WHERE the file stops.
   if (build.unverified) {
     return {
       state: "unverified",
@@ -522,23 +564,59 @@ export function exportGate(build: PartBuild): ExportGate {
       notice:
         "The tree changed after this body was built. Re-evaluate before " +
         "exporting so the file matches the part.",
+      qualifier: null,
     };
   }
   if (!build.hasBody) {
-    // "No body" is true of a sketch-only part and MISLEADING of a part whose
-    // body has been rolled away by the travel stop: the modeller has a body,
-    // they have parked the stop in front of it, and the fix is a control on
-    // screen (UI-REVIEW 2026-07-30 P3 — a wording bug fixed at the source, so
-    // every cell reading this derivation gets the corrected answer).
-    const byTravelStop = build.rolledBack.length > 0;
+    // THE NEGATIVE CONTROL (EXPORT-3): exporting a prefix needs a prefix that
+    // BUILT. Naming the cause beats naming the symptom — "Fillet1 failed" tells
+    // the user where to go; "No body" makes them hunt for it.
+    //
+    // "No body" is also MISLEADING of a part whose body has been rolled away by
+    // the travel stop: the modeller has a body, they have parked the stop in
+    // front of it, and the fix is a control on screen (UI-REVIEW 2026-07-30 P3).
+    const byTravelStop = !build.failed && build.rolledBack.length > 0;
+    const failureName = build.failure?.name ?? null;
     return {
       state: "no-body",
-      blockedReason: byTravelStop ? "Rolled back" : "No body",
+      blockedReason: build.failed
+        ? failureName === null
+          ? "Feature error"
+          : `${failureName} failed`
+        : byTravelStop
+          ? "Rolled back"
+          : "No body",
       partial: false,
-      notice: byTravelStop
-        ? "The travel stop is before the first feature that makes a body. " +
-          "Move it forward to export."
-        : null,
+      notice: build.failed
+        ? `Nothing was built before ${
+            failureName ?? "the failure"
+          }, so there is no body to export. Fix ${
+            failureName ?? "it"
+          } to get a file.`
+        : byTravelStop
+          ? "The travel stop is before the first feature that makes a body. " +
+            "Move it forward to export."
+          : null,
+      qualifier: null,
+    };
+  }
+
+  // ── ALLOWED, AND A PREFIX ─────────────────────────────────────────────────
+  // A failure outranks the travel stop in the WORDING because it is the thing
+  // the user did not choose; both write the same marked file.
+  if (build.failed) {
+    const stop = stopName(build);
+    const cause = build.failure === null ? "A feature" : build.failure.name;
+    return {
+      state: "feature-error",
+      partial: true,
+      notice:
+        `${cause} failed, so the file stops at ${stop ?? "the last good state"}` +
+        ` — ${countClause(missingFromFile(build))}. Its name will say partial.`,
+      qualifier:
+        stop === null
+          ? "a prefix of the tree, marked partial"
+          : `stops at ${stop}, marked partial`,
     };
   }
   if (build.rolledBack.length > 0) {
@@ -548,9 +626,10 @@ export function exportGate(build: PartBuild): ExportGate {
       notice: `${excludedCount(
         build.rolledBack.length,
       )} by the travel stop. The file will be the rolled-back body, and its name will say partial.`,
+      qualifier: "marks the file partial",
     };
   }
-  return { state: "ready", partial: false, notice: null };
+  return { state: "ready", partial: false, notice: null, qualifier: null };
 }
 
 /**

@@ -856,6 +856,16 @@ def _padding(count: int) -> dict[str, str]:
     }
 
 
+#: How many checks `self_test` is supposed to append. A count floor exists
+#: because the verdict is `all(ok for _, ok in results)` and `all([])` is True:
+#: a `results.append` lost to a refactor removes coverage silently and the
+#: self-test still prints that it passed. This gate already fixtures a corpus
+#: floor (MIN_FILES) for the tree it scans; this is the same floor for the
+#: check list that asserts it. `<`, not `!=`, so ADDING checks needs no edit
+#: here — only losing them is an error.
+EXPECTED_CHECKS = 23
+
+
 def self_test() -> int:
     """Reproduce the real defect and DEMAND a failure, then the controls.
 
@@ -1112,6 +1122,13 @@ def self_test() -> int:
             results.append((label, ok))
             print(f"  {'ok  ' if ok else 'FAIL'} {label} -> exit {actual} (want 1)")
 
+    if len(results) < EXPECTED_CHECKS:
+        print(
+            f"\ncheck-mutation-markers: SELF-TEST RAN {len(results)} of "
+            f"{EXPECTED_CHECKS} checks - the self-test lost coverage; it proves "
+            "nothing."
+        )
+        return 1
     if all(ok for _, ok in results):
         print(
             f"\ncheck-mutation-markers: self-test passed - {len(results)} cases; "

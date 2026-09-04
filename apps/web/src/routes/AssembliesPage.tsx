@@ -1,4 +1,4 @@
-import { Button, Chip, ImportStepIcon, Kbd } from "@loft/design";
+import { Button, Chip, ImportStepIcon, Kbd, ProgressTrack } from "@loft/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
@@ -20,11 +20,13 @@ import {
 } from "../api/assemblies";
 import {
   importStepAsNewDocument,
+  isImportAborted,
   type StepImportResult,
 } from "../api/assemblyImport";
 import {
   DocumentRegister,
   type RegisterCopy,
+  REGISTER_GUTTER,
 } from "../components/DocumentRegister";
 import { SheetGrid } from "../components/SheetGrid";
 import { TopBar } from "../components/TopBar";
@@ -32,6 +34,7 @@ import { useRegisterFiling } from "../components/useRegisterFiling";
 import { WorkspaceNav } from "../components/WorkspaceNav";
 import { precheckStepFile, stepFeatureName } from "../features/import";
 import { usePreferencesStore } from "../settings/preferences";
+import { KEY_IMPORT } from "../shortcuts/registry";
 
 /**
  * The assemblies register — the same drawer as parts (`DocumentRegister`) with
@@ -53,13 +56,18 @@ const COPY: RegisterCopy = {
   duplicateError: "The assembly could not be duplicated.",
   createError: "The assembly could not be created.",
   emptyHeadline: "No assemblies filed yet.",
-  // FLOW (CLAUDE.md design mandate): an empty register is where a migrating
-  // engineer lands HOLDING A SUPPLIER FILE, so "name your first assembly" —
-  // what this said before REACH-2 — proposed the wrong next step to the one
-  // user most likely to be here. The import slot below the drawer is named
-  // first, and the scribe line stays the answer for work that starts here.
+  // FLOW (CLAUDE.md design mandate). REACH-2 got the INSTINCT right — an empty
+  // register is where a migrating engineer lands holding a supplier file — and
+  // paid for it in prose: the sentence had to say "from the slot below",
+  // because the slot was 422 px below at 1280x800 and 622 px below at
+  // 1600x1000 (UI-REVIEW 2026-08-27 P1-A; the gap GREW with the screen, which
+  // is the tell that it was a layout problem wearing a copy problem's clothes).
+  //
+  // The layout is a fork now, so the copy can stop giving directions. It names
+  // both ways once, in the order the columns run, and never points: if this
+  // sentence ever needs a "below" again, the layout has regressed.
   emptyBody:
-    "Already have geometry? Import a STEP from the slot below and its parts, names and placements come with it. Otherwise name your first assembly, then add parts to it, ground one, and bolt the rest together with mates.",
+    "An assembly holds parts at their places, and the mates that keep them there. Start one from scratch, or bring in a STEP you already have — its parts, names and placements come across.",
   fieldLabel: "Assembly name",
   placeholder: "e.g. Bolted plates",
   createLabel: "New assembly",
@@ -67,15 +75,21 @@ const COPY: RegisterCopy = {
 };
 
 /**
- * The chord that opens the file picker, sitting beside the register's own `N`.
+ * Would this element SWALLOW a printable keystroke? Page accelerators stand
+ * down for those and only those.
  *
- * Deliberately NOT in `shortcuts/registry.ts` yet: importing INTO a register is
- * a one-register verb today (a drawing cannot be imported, and a part imports
- * from inside its own workspace), and the repo's DRY rule is to extract on the
- * second real use rather than the first imagined one. It moves to the registry
- * — and into the shortcut sheet — the day a second register grows an import.
+ * `tagName === "INPUT"` was the old test and it is too broad by exactly one
+ * case that matters here: the hidden `<input type="file">` this page owns. It
+ * takes focus when the picker closes, so `Escape` — the key that withdraws an
+ * import in flight — was landing on it and being dropped, which made the
+ * cancel path work by mouse and silently not by keyboard. A file input cannot
+ * consume a character; nothing is protected by ignoring keys over it.
  */
-const KEY_IMPORT = "i";
+function isTextEntry(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable || target.tagName === "TEXTAREA") return true;
+  return target instanceof HTMLInputElement && target.type !== "file";
+}
 
 export function AssembliesPage() {
   const queryClient = useQueryClient();
@@ -107,6 +121,21 @@ export function AssembliesPage() {
    * the reason this is a ref, not state: it must not drive a render itself.
    */
   const dragDepth = useRef(0);
+  /**
+   * The in-flight import's abort handle, so `Stop` and `Escape` can withdraw
+   * it. A ref rather than state: nothing renders FROM it (the `importing` name
+   * already says a request is live), and putting it in state would re-render
+   * the register on every start.
+   */
+  const abortRef = useRef<AbortController | null>(null);
+
+  /** Withdraw the import in flight, if any. Idle otherwise — safe to spam. */
+  const cancelImport = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
+  // Nothing should keep running against a page the user has left.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   /**
    * Read the chosen/dropped file and post its bytes at the import route.
@@ -118,6 +147,11 @@ export function AssembliesPage() {
    * query is invalidated so the new row appears without a reload, and the
    * result line names what the server actually made: a STEP with product
    * structure becomes an assembly, a flat one becomes a part.
+   *
+   * A WITHDRAWN import lands nowhere: not on the error line (the user did it
+   * deliberately; an "Import failed" they caused themselves is noise dressed as
+   * a fault), and not on the result line. The slot simply returns to its
+   * invitation, which is the state it was in before they started.
    */
   const importFile = useCallback(
     (file: File) => {
@@ -128,6 +162,11 @@ export function AssembliesPage() {
         setImportError(preError);
         return;
       }
+      // A second file chosen while one is in flight replaces it rather than
+      // racing it — two results would arrive into one line.
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
       setImporting(file.name);
       void (async () => {
         try {
@@ -135,19 +174,28 @@ export function AssembliesPage() {
           const result = await importStepAsNewDocument(
             bytes,
             stepFeatureName(file.name),
+            undefined,
+            controller.signal,
           );
           await queryClient.invalidateQueries({
             queryKey: [result.kind === "assembly" ? "assemblies" : "parts"],
           });
           setImported(result);
         } catch (error) {
-          setImportError(
-            error instanceof Error
-              ? error.message
-              : "The STEP file could not be imported.",
-          );
+          if (!isImportAborted(error)) {
+            setImportError(
+              error instanceof Error
+                ? error.message
+                : "The STEP file could not be imported.",
+            );
+          }
         } finally {
-          setImporting(null);
+          // Only the CURRENT request may clear the busy line: a superseded one
+          // resolving late would otherwise blank the line its replacement owns.
+          if (abortRef.current === controller) {
+            abortRef.current = null;
+            setImporting(null);
+          }
         }
       })();
     },
@@ -155,18 +203,21 @@ export function AssembliesPage() {
   );
 
   // `I` opens the picker from anywhere on the page, the way `N` jumps to the
-  // scribe line. Ignored inside a text field so it cannot eat a keystroke while
-  // an assembly is being named or the drawer filtered.
+  // scribe line; `Escape` withdraws an import in flight, which is the same key
+  // that backs out of every other command in the app. Both are ignored inside a
+  // text field so they cannot eat a keystroke while an assembly is being named
+  // or the drawer filtered.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      const target = event.target;
-      if (
-        target instanceof HTMLElement &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
-      ) {
+      if (isTextEntry(event.target)) return;
+      if (event.key === "Escape") {
+        // Only claim the key while there is something to withdraw — otherwise
+        // Escape still belongs to whatever else is listening for it.
+        if (abortRef.current !== null) {
+          event.preventDefault();
+          cancelImport();
+        }
         return;
       }
       if (event.key.toLowerCase() === KEY_IMPORT) {
@@ -176,7 +227,7 @@ export function AssembliesPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [cancelImport]);
 
   /** Only a drag CARRYING FILES arms the page; text/element drags pass through. */
   const carriesFiles = (event: DragEvent): boolean =>
@@ -275,15 +326,29 @@ export function AssembliesPage() {
               await deleteAssembly(assembly.id);
               await queryClient.invalidateQueries({ queryKey: ["assemblies"] });
             }}
-          />
-          <ImportSlot
-            fileInputRef={fileInputRef}
-            armed={armed}
-            importing={importing}
-            error={importError}
-            imported={imported}
-            onFile={importFile}
-            onDismissError={() => setImportError(null)}
+            // THE SECOND WAY IN. The register decides where this lands — beside
+            // the scribe form when the drawer is empty, as the drawer's last
+            // line once it is not — because only the register knows which of
+            // those it is. See `RegisterOffer`.
+            offer={{
+              label: "Start from a STEP file",
+              render: (placement) => (
+                <ImportSlot
+                  placement={placement}
+                  fileInputRef={fileInputRef}
+                  armed={armed}
+                  importing={importing}
+                  error={importError}
+                  imported={imported}
+                  onFile={importFile}
+                  onCancel={cancelImport}
+                  onDismiss={() => {
+                    setImportError(null);
+                    setImported(null);
+                  }}
+                />
+              ),
+            }}
           />
         </div>
       </main>
@@ -291,55 +356,80 @@ export function AssembliesPage() {
   );
 }
 
+/** The quiet brass verb shared by Dismiss, Stop and Open — one face, one rank. */
+const SLOT_VERB =
+  "shrink-0 rounded-sm font-display text-2xs uppercase tracking-[0.14em] text-brass outline-none transition-colors duration-fast hover:text-brass-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass";
+
 /**
- * THE IMPORT SLOT — the drawer's lip.
+ * THE IMPORT SLOT — one control, drawn for the two places the register puts it.
  *
- * The register is a log book: the scribe line at its foot opens a NEW entry,
- * and this strip, attached to the same bottom rule with no gap, takes a sheet
- * that already exists. That is why it is a line and not a card, why it sits on
- * the carbide gutter ground rather than the drawer's anvil, and why its verb is
- * `ghost` — the drawer already spends its one solid brass action on "New
- * assembly", and boldness goes in one place.
+ * `line` (a drawer with sheets in it) is the strip REACH-2 shipped and the
+ * review praised: the register is a log book, the scribe line at its foot opens
+ * a NEW entry, and this takes a sheet that already exists. That is why it is a
+ * line and not a card, why it sits on the carbide gutter ground rather than the
+ * drawer's anvil, and why its verb is `ghost` — the drawer spends its one solid
+ * brass action on "New assembly", and boldness goes in one place. It carries
+ * the drawer's scribed left margin (`REGISTER_GUTTER`, imported now rather than
+ * transcribed) so the log's left rule stays one straight line; measured at
+ * 1280, an un-indented strip broke it by 56 px and read as a toolbar bolted
+ * underneath. The margin is BLANK rather than numbered: the scribe line can
+ * print the next ordinal because it files exactly one assembly, and an import
+ * cannot — the server decides whether the file becomes an assembly or a part.
+ *
+ * `fork` (an EMPTY drawer) is the same control with its chrome removed, because
+ * there it is already inside the register's margin and beside the create form
+ * as its equal. Nothing is duplicated between the two: one component, one set
+ * of hooks, one state machine — the placement only decides whether the strip
+ * draws a rule and a gutter of its own.
  *
  * One line, one state at a time: the invitation, the armed drop, the read, the
  * refusal, or what was made. Every one of them is real state — nothing here
  * decorates.
- *
- * It carries the drawer's scribed left margin so the log's left rule stays one
- * straight line from the header to the frame's bottom edge — measured at 1280,
- * an un-indented strip broke it by 56 px and the strip read as a toolbar bolted
- * under the drawer instead of the drawer's own last line. The margin is BLANK
- * rather than numbered: the scribe line can print the next ordinal because it
- * files exactly one assembly, and an import cannot — the server decides whether
- * the file becomes an assembly or a part, and how many parts come with it.
  */
 function ImportSlot({
+  placement,
   fileInputRef,
   armed,
   importing,
   error,
   imported,
   onFile,
-  onDismissError,
+  onCancel,
+  onDismiss,
 }: {
+  placement: "fork" | "line";
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   armed: boolean;
   importing: string | null;
   error: string | null;
   imported: StepImportResult | null;
   onFile: (file: File) => void;
-  onDismissError: () => void;
+  onCancel: () => void;
+  onDismiss: () => void;
 }) {
+  const line = placement === "line";
   return (
     <div
       data-testid="assembly-import-slot"
-      className={`flex shrink-0 items-stretch border border-t-0 bg-carbide transition-colors duration-fast ${
-        armed ? "border-brass" : "border-hairline"
-      }`}
+      data-placement={placement}
+      className={
+        line
+          ? `flex shrink-0 items-stretch border-t bg-carbide transition-colors duration-fast ${
+              armed ? "border-brass" : "border-hairline"
+            }`
+          : "flex items-stretch"
+      }
     >
-      {/* The scribed margin, at the register's own gutter width. */}
-      <div className="w-[3.5rem] shrink-0" aria-hidden="true" />
-      <div className="flex min-w-0 grow flex-wrap items-center gap-x-4 gap-y-2 py-2.5 pr-3">
+      {/* The scribed margin, at the register's own gutter width — only in the
+          `line` placement; in the fork the register has already indented us. */}
+      {line ? (
+        <div className={`${REGISTER_GUTTER} shrink-0`} aria-hidden="true" />
+      ) : null}
+      <div
+        className={`flex min-w-0 grow flex-wrap items-center gap-x-4 gap-y-2 ${
+          line ? "py-2.5 pr-3" : ""
+        }`}
+      >
         {/* The native picker, kept in the DOM (hidden, non-tabbable) and opened
           by the verb or by `I`. Clearing the value lets the same file be
           re-chosen after a refusal. */}
@@ -373,14 +463,42 @@ function ImportSlot({
         </div>
 
         {importing !== null ? (
-          <p
-            role="status"
-            data-testid="assembly-import-busy"
-            className="min-w-0 grow font-body text-xs text-mist"
-          >
-            Reading <span className="font-data text-mist">{importing}</span> —
-            its products become parts and its occurrences become instances.
-          </p>
+          /*
+            THE READ (UI-REVIEW 2026-08-27 P1-B).
+            Three things the old busy line did not have, in the order they
+            answer "is this thing alive?": a moving carriage, a number that only
+            advances while the app is running, and a way out.
+
+            `role="status"` announces the sentence ONCE. The elapsed seconds sit
+            outside it deliberately — inside a live region they would be read
+            aloud every second, which is how a progress indicator becomes the
+            thing you turn off.
+          */
+          <div className="flex min-w-0 grow flex-wrap items-center gap-x-4 gap-y-1">
+            <p
+              role="status"
+              data-testid="assembly-import-busy"
+              className="min-w-0 grow font-body text-xs text-mist"
+            >
+              Reading <span className="font-data text-mist">{importing}</span> —
+              what is inside decides whether it files as an assembly or a part.
+            </p>
+            {/* No width from here: the bed carries its own floor
+                (`progress.bedWidth`), so a caller cannot collapse it. */}
+            <ProgressTrack
+              label={`Importing ${importing}`}
+              data-testid="assembly-import-progress"
+              className="shrink-0"
+            />
+            <button
+              type="button"
+              onClick={onCancel}
+              data-testid="assembly-import-cancel"
+              className={SLOT_VERB}
+            >
+              Stop
+            </button>
+          </div>
         ) : error !== null ? (
           <p
             role="alert"
@@ -393,15 +511,15 @@ function ImportSlot({
             <span className="min-w-0 text-mist">{error}</span>
             <button
               type="button"
-              onClick={onDismissError}
+              onClick={onDismiss}
               data-testid="assembly-import-dismiss"
-              className="shrink-0 rounded-sm font-display text-2xs uppercase tracking-[0.14em] text-brass outline-none transition-colors duration-fast hover:text-brass-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+              className={SLOT_VERB}
             >
               Dismiss
             </button>
           </p>
         ) : imported !== null ? (
-          <ImportedLine result={imported} />
+          <ImportedLine result={imported} onDismiss={onDismiss} />
         ) : (
           <p
             data-testid="assembly-import-hint"
@@ -409,7 +527,7 @@ function ImportSlot({
           >
             {armed
               ? "Drop it anywhere on this page — its parts and placements come with it."
-              : "Have one already? Choose a .step or .stp file, or drop it anywhere on this page."}
+              : "Choose a .step or .stp file, or drop it anywhere on this page."}
           </p>
         )}
       </div>
@@ -425,8 +543,32 @@ function ImportSlot({
  * guessing from the file. The single-body case is the one worth stating out
  * loud: a flat STEP is not a failed assembly import, it is a part, and saying
  * so — with a link to it — is the difference between a result and a dead end.
+ *
+ * IT HAS THE SAME `Dismiss` THE REFUSAL HAS (UI-REVIEW 2026-08-27 P2-A). It
+ * shipped without one, and because a result evicts `assembly-import-hint`, one
+ * import removed the slot's own instruction for the rest of the session: the
+ * strip stopped reading as an affordance and started reading as a log of the
+ * last thing that happened, permanently. A success is not more permanent than a
+ * failure, and the vocabulary of an interface should not depend on whether
+ * things went well.
  */
-function ImportedLine({ result }: { result: StepImportResult }) {
+function ImportedLine({
+  result,
+  onDismiss,
+}: {
+  result: StepImportResult;
+  onDismiss: () => void;
+}) {
+  const dismiss = (
+    <button
+      type="button"
+      onClick={onDismiss}
+      data-testid="assembly-import-dismiss"
+      className={SLOT_VERB}
+    >
+      Dismiss
+    </button>
+  );
   if (result.kind === "part") {
     return (
       <p
@@ -443,10 +585,11 @@ function ImportedLine({ result }: { result: StepImportResult }) {
           to="/parts/$partId"
           params={{ partId: result.part.id }}
           data-testid="assembly-import-open"
-          className="shrink-0 rounded-sm font-display text-2xs uppercase tracking-[0.14em] text-brass outline-none transition-colors duration-fast hover:text-brass-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+          className={SLOT_VERB}
         >
           Open part
         </Link>
+        {dismiss}
       </p>
     );
   }
@@ -470,10 +613,11 @@ function ImportedLine({ result }: { result: StepImportResult }) {
         to="/assemblies/$assemblyId"
         params={{ assemblyId: result.assembly.assembly.id }}
         data-testid="assembly-import-open"
-        className="shrink-0 rounded-sm font-display text-2xs uppercase tracking-[0.14em] text-brass outline-none transition-colors duration-fast hover:text-brass-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+        className={SLOT_VERB}
       >
         Open assembly
       </Link>
+      {dismiss}
     </p>
   );
 }

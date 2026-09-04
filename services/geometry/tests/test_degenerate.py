@@ -16,9 +16,13 @@ caller relies on:
   :mod:`geometry.kernel.interference` makes), and the report is ordered
   largest-first regardless of OCCT's face traversal.
 
-One OBSERVED LIMIT is pinned here rather than fixed: a closed hem authored with a
-bend radius below the kernel linear tolerance ships a slit body, because the
-sheet-metal fold path does not ask this predicate (see that test).
+The one OBSERVED LIMIT this module used to pin — a closed hem authored with a bend
+radius below the kernel linear tolerance shipping a slit body, because the
+sheet-metal fold path did not ask this predicate — is CLOSED as of HEM-1
+(2026-08-28) and its test is now the guard it documented: the fold refuses that
+radius outright (``hem_gap_degenerate``). A hem's layers sit exactly
+``2 * bend_radius`` apart, so the degeneracy is arithmetic on an input; the check
+therefore fires before the fuse rather than probing the body afterwards.
 """
 
 import json
@@ -30,7 +34,6 @@ from build123d import Axis, Face, Solid, Vector
 from geometry.features.evaluate import evaluate_tree
 from geometry.kernel.degenerate import (
     SLIT_AREA_FLOOR_MM2,
-    ZeroWidthSlit,
     find_zero_width_slits,
 )
 from geometry.kernel.healing import conform_solid
@@ -191,20 +194,24 @@ def test_every_shipped_golden_body_is_slit_free(model: Path) -> None:
     )
 
 
-def test_observed_limit_a_sub_tolerance_closed_hem_ships_a_slit() -> None:
-    """OBSERVED LIMIT (filed, not fixed here): the sheet-metal fold path does not
-    ask this predicate, so a hem whose air gap is below the kernel linear
-    tolerance ships a degenerate body.
+def test_a_sub_tolerance_hem_gap_is_refused_not_shipped() -> None:
+    """PROMOTED GUARD (HEM-1, 2026-08-28): the fold path now REFUSES the body this
+    file used to record as a live limit.
 
-    A closed hem's two layers are ``2 * bend_radius_mm`` apart and the schema only
-    requires ``> 0``, so ``bend_radius_mm = 1e-6`` gives a 2e-6 mm gap — a tenth of
-    a percent of the 1e-4 mm tolerance at which this kernel calls two faces the
-    same place. The predicate says so (300 mm^2 of coincident face over the 15 mm
-    return); the hem still reports ``ok``. Nobody authors a 1e-6 mm radius in mm
-    units, and the honest fix is a schema FLOOR on ``bend_radius_mm`` (py-kit,
-    outside the kernel's territory) rather than a per-verb probe, so this is
-    recorded as a live limit: if the fold path or the schema starts refusing it,
-    this test fails and gets promoted to the guard it documents.
+    A hem's two layers are ``2 * bend_radius_mm`` apart and the schema only requires
+    ``> 0``, so ``bend_radius_mm = 1e-6`` gives a 2e-6 mm gap — a tenth of a percent
+    of the 1e-4 mm tolerance at which this kernel calls two faces the same place.
+    Until HEM-1 the hem reported ``ok`` and shipped a body this predicate called
+    degenerate (``ZeroWidthSlit(area_mm2=300.0, at=(42.5, 10.0, 2.0))`` — 300 mm^2
+    of coincident face over the 15 mm return). The docstring of the limit said "if
+    the fold path or the schema starts refusing it, this test fails and gets
+    promoted to the guard it documents"; this is that promotion.
+
+    The refusal is arithmetic on the resolved radius (``hem_gap_degenerate``), so it
+    fires BEFORE the kernel spends a fuse on a body that must be thrown away — the
+    predicate is what DEFINES the floor, not what detects the failure after the
+    fact. Same posture as ``find_zero_width_slits``' other callers (RESEARCH §9):
+    detect, degrade to a typed error naming the fix, never ship the cracked body.
     """
     model = json.loads(
         (GOLDEN_ROOTS[1] / "closed-hem-plate" / "model.json").read_text(
@@ -217,8 +224,10 @@ def test_observed_limit_a_sub_tolerance_closed_hem_ships_a_slit() -> None:
     model["part_id"] = str(uuid.uuid4())
 
     evaluation = evaluate_tree(EvaluateTreeRequest.model_validate(model))
-    assert [r.status for r in evaluation.result.features] == ["ok", "ok", "ok"]
+    assert [r.status for r in evaluation.result.features] == ["ok", "ok", "error"]
+    error = evaluation.result.features[-1].error
+    assert error is not None and error.code == "hem_gap_degenerate", error
+    # Refused, so the last GOOD body is the plain plate — and it carries no slit.
     body = evaluation.body
     assert body is not None
-    slits = find_zero_width_slits(body)
-    assert slits == [ZeroWidthSlit(area_mm2=300.0, at=(42.5, 10.0, 2.0))], slits
+    assert find_zero_width_slits(body) == []

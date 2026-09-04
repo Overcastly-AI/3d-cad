@@ -881,6 +881,51 @@ class EvaluateAssemblyResult(BaseModel):
     )
 
 
+class AssemblyExtentsResponse(BaseModel):
+    """How big is this assembly, SOLVED — the one number a sheet needs (§4).
+
+    The projection of :class:`EvaluateAssemblyResult` down to the question a
+    caller who only has an ``assembly_id`` can otherwise not ask: a drawing
+    fitting its scale, a sheet sizing its cells, a viewport framing a camera.
+    Served by ``GET /api/v1/assemblies/{assembly_id}/extents`` on the gateway,
+    which resolves the graph through documents and solves it through geometry —
+    the assembly twin of the ``bounding_box`` a part caller reads off
+    ``POST /parts/{id}/evaluate``.
+
+    **The extents are of the SOLVED compound, and that is the whole point.**
+    ``bounding_box`` is the roll-up over the instances' MATE-SOLVED world poses,
+    never their authored seeds; on an assembly whose instances were seeded apart
+    and then mated the two differ by however far the solver moved things, which
+    is exactly the error that makes an unfitted assembly sheet overflow its
+    frame. ``None`` means no instance produced a body (nothing to fit), never
+    zero.
+
+    ``status`` travels with the numbers because an under-constrained or
+    conflicting solve still returns a best-fit placement (§2.4) — the extents
+    are then honest about a pose the solver chose rather than one the mates
+    determined, and a caller may want to say so rather than silently scale to
+    it. Deliberately NOT carried: per-instance meshes, placements and mass
+    properties, all of which the caller with a real assembly graph in hand
+    already gets from ``POST /api/v1/geometry/assembly/evaluate``.
+    """
+
+    assembly_id: uuid.UUID
+    version: int = Field(
+        description="The assembly's `doc_version` the extents were solved from "
+        "(cache/correlation key — a later edit bumps it)"
+    )
+    bounding_box: BoundingBox | None = Field(
+        description="World-mm AABB of the SOLVED compound (union of each "
+        "instance's part bbox at its solved pose); null when no instance "
+        "produced a body"
+    )
+    status: AssemblySolveStatus = Field(
+        description="The solve these extents came out of. Anything other than "
+        "`well_constrained` means the poses are a best fit, not a determined "
+        "result (§2.4)"
+    )
+
+
 # --- §interference contract (documents → geometry → gateway → web) --------------
 #
 # The clash-detection sibling of the evaluate contract: the SAME

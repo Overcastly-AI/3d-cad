@@ -24,11 +24,14 @@ from fastapi import APIRouter, Query, Request, status
 from py_kit.schemas.assemblies import (
     AssemblyBomResponse,
     AssemblyCreate,
+    AssemblyExtentsResponse,
     AssemblyGraphResponse,
     AssemblyListResponse,
     AssemblyResponse,
     AssemblyUndoRedoRequest,
     AssemblyUpdate,
+    EvaluateAssemblyRequest,
+    EvaluateAssemblyResult,
     InstanceCreate,
     InstanceMutationResponse,
     InstanceUpdate,
@@ -36,12 +39,18 @@ from py_kit.schemas.assemblies import (
     MateMutationResponse,
 )
 
+from gateway.affinity import forward_geometry
 from gateway.auth import CurrentUser
 from gateway.parts import DEPENDENCY_CONFLICT_RESPONSE, forward_documents
+from gateway.ratelimit import COMPUTE_RATE_LIMIT
 from gateway.upstream import raise_upstream_error
 
 #: Human-readable upstream name for shared error surfaces.
 _SERVICE = "Documents"
+
+#: The OTHER upstream this module reaches, on the extents path only: an
+#: assembly's SIZE is a mate solve, and geometry is the sole evaluator.
+_GEOMETRY = "Geometry"
 
 router = APIRouter(prefix="/api/v1/assemblies", tags=["assemblies"])
 
@@ -103,6 +112,68 @@ async def get_assembly_bom(
     if upstream.status_code != status.HTTP_200_OK:
         raise_upstream_error(upstream, service=_SERVICE)
     return AssemblyBomResponse.model_validate_json(upstream.content)
+
+
+@router.get("/{assembly_id}/extents", dependencies=[COMPUTE_RATE_LIMIT])
+async def get_assembly_extents(
+    assembly_id: uuid.UUID, user: CurrentUser, http_request: Request
+) -> AssemblyExtentsResponse:
+    """How big this assembly is once its mates are SOLVED (assemblies §4).
+
+    The two-hop aggregation ``POST /parts/{id}/evaluate`` already gives a part
+    caller, narrowed to the one quantity a caller who holds only an id can
+    otherwise not obtain: documents resolves the instance + mate graph
+    (``/assemblies/{id}/evaluation-request`` — principal-scoped, so ownership
+    and the uniform 404 come for free), geometry solves it, and the solved
+    compound's AABB comes back with the status it was solved under. Rolling
+    this by hand meant reproducing the whole graph-plus-part-trees read the
+    assembly editor does, which is why a drawing sheet drafting an assembly
+    could not fit its scale and overflowed its title block.
+
+    **SOLVED, not seeded.** The bbox is the union over each instance's part
+    bbox at its MATE-SOLVED world pose; the authored seed placements are what
+    produce the wrong (usually far too large) answer, so this route deliberately
+    pays for the solve rather than folding the graph's seeds client-side.
+
+    A GET because it is a read: nothing is persisted, the same assembly yields
+    the same extents (RESEARCH §9 determinism), and the caller sends no body.
+    Rate-limited on the compute bucket all the same — a solve IS geometry CPU,
+    whatever the verb.
+
+    Cost note: geometry has no mesh-free solve route, so this pays for the
+    per-unique-part tessellation as well. That is not free, but it is not waste
+    either — the default ``linear_deflection`` is used deliberately, so the
+    meshes warmed here are the SAME content-addressed meshes the viewport's own
+    ``/geometry/assembly/evaluate`` asks for. A ``tessellate: false`` request
+    flag is the follow-up if a profile ever shows this on a hot path.
+    """
+    upstream = await forward_documents(
+        http_request,
+        user,
+        "GET",
+        f"/api/v1/assemblies/{assembly_id}/evaluation-request",
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    evaluation_request = EvaluateAssemblyRequest.model_validate_json(upstream.content)
+
+    evaluated = await forward_geometry(
+        http_request,
+        str(user.id),
+        "POST",
+        "/api/v1/assembly/evaluate",
+        service=_GEOMETRY,
+        json_content=evaluation_request.model_dump_json(),
+    )
+    if evaluated.status_code != status.HTTP_200_OK:
+        raise_upstream_error(evaluated, service=_GEOMETRY)
+    result = EvaluateAssemblyResult.model_validate_json(evaluated.content)
+    return AssemblyExtentsResponse(
+        assembly_id=result.assembly_id,
+        version=result.version,
+        bounding_box=result.bounding_box,
+        status=result.status,
+    )
 
 
 @router.patch("/{assembly_id}")

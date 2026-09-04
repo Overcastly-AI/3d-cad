@@ -224,6 +224,7 @@ def _envelope(body: dict[str, Any]) -> dict[str, Any]:
         ("GET", "/api/v1/assemblies"),
         ("GET", f"/api/v1/assemblies/{ASSEMBLY}"),
         ("GET", f"/api/v1/assemblies/{ASSEMBLY}/bom"),
+        ("GET", f"/api/v1/assemblies/{ASSEMBLY}/extents"),
         ("PATCH", f"/api/v1/assemblies/{ASSEMBLY}"),
         ("DELETE", f"/api/v1/assemblies/{ASSEMBLY}"),
         ("POST", f"/api/v1/assemblies/{ASSEMBLY}/instances"),

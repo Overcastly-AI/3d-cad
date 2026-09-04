@@ -23,7 +23,6 @@
  * target was.
  */
 import { PickNode } from "@loft/design";
-import { Html } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo } from "react";
 
@@ -33,6 +32,7 @@ import { useFacePickStore } from "../features/facePickStore";
 import { occtToScene } from "../measure/geometry";
 import { FacePatch } from "./facePatch";
 import { useHiddenPicks } from "./hiddenPicks";
+import { PickMark } from "./PickMark";
 import { PickSurface } from "./pickSurface";
 import { useViewportPickStamp } from "./pickStamp";
 
@@ -138,9 +138,8 @@ export function ShellFaceOverlay({
               selected={pickedKeys.has(faceSignatureKey(face.signature))}
             />
           ) : null}
-          <Html
+          <PickMark
             position={occtToScene(face.signature.centroid)}
-            center
             zIndexRange={[30, 10]}
           >
             <PickNode
@@ -157,7 +156,7 @@ export function ShellFaceOverlay({
               onFocus={() => setHoverFace(face.index)}
               onBlur={() => setHoverFace(null)}
             />
-          </Html>
+          </PickMark>
         </group>
       ))}
     </group>

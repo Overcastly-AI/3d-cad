@@ -171,7 +171,7 @@ describe("BodyInspector status + export honesty", () => {
     expect(screen.getByTestId("part-export-status")).toHaveTextContent("Ready");
   });
 
-  it("calls a broken tree's body PARTIAL and blocks the export", () => {
+  it("calls a broken tree's body PARTIAL in the STATUS cell and in the strip", () => {
     renderInspector("mm", PROPERTIES, brokenFillet());
     const status = screen.getByTestId("body-status");
     expect(status).toHaveTextContent("Partial");
@@ -182,24 +182,25 @@ describe("BodyInspector status + export honesty", () => {
       "built to Extrude1",
     );
 
-    // ...and the file the strip would have written is refused, by name.
+    // ...and the strip agrees, in the SAME word the status cell just used
+    // (EXPORT-3: the strip used to say "Fillet1 failed" and go inert, which
+    // told the truth about the tree and nothing about the file). The two cells
+    // now report one fact — this body is a prefix — and the strip adds what
+    // that costs the artifact.
     expect(screen.getByTestId("part-export-status")).toHaveTextContent(
-      "Fillet1 failed",
+      "Partial",
     );
-    expect(screen.getByTestId("part-export-step")).toHaveAttribute(
+    expect(screen.getByTestId("part-export-notice")).toHaveTextContent(
+      "the file stops at Extrude1",
+    );
+    expect(screen.getByTestId("part-export-step")).not.toHaveAttribute(
       "aria-disabled",
       "true",
     );
-    expect(screen.getByTestId("part-export-stl")).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
-    // Each format cell carries the reason too (a gated cell a user tabs to has
-    // to explain itself), and the strip adds no fourth copy of it.
-    expect(screen.getByTestId("part-export-step")).toHaveTextContent(
-      "Fillet1 failed",
-    );
-    expect(screen.queryByTestId("part-export-notice")).toBeNull();
+    // The cell is a live action again, so it reads as one — the caption is the
+    // format's own ("B-rep"), and what makes the file a prefix is said once,
+    // in the notice, rather than stamped on all four cells.
+    expect(screen.getByTestId("part-export-step")).toHaveTextContent("B-rep");
   });
 
   it("names the failure and the state on screen in ONE register line", () => {

@@ -14,6 +14,7 @@ import {
   ViewIsoIcon,
   ViewRightIcon,
   ViewTopIcon,
+  VerbGlyph,
 } from "@loft/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -124,6 +125,8 @@ import {
   suppressFeature,
   updateFeature,
   updatePartUnit,
+  FeatureOrderRefusedError,
+  reorderFeatures,
   type LengthUnit,
 } from "../api/parts";
 import { BodyInspector } from "../components/BodyInspector";
@@ -149,7 +152,10 @@ import { EdgeFlangeEditor } from "../components/EdgeFlangeEditor";
 import { HemEditor } from "../components/HemEditor";
 import { CornerReliefEditor } from "../components/CornerReliefEditor";
 import { FeatureDeleteConfirm } from "../components/FeatureDeleteConfirm";
-import { FeatureTreePanel } from "../components/FeatureTreePanel";
+import {
+  FeatureTreePanel,
+  type FeatureOrderRefusal,
+} from "../components/FeatureTreePanel";
 import { FilletEditor } from "../components/FilletEditor";
 import { LoftEditor } from "../components/LoftEditor";
 import { MirrorEditor } from "../components/MirrorEditor";
@@ -188,7 +194,11 @@ import {
   formFromPatternParams,
   type PatternForm,
 } from "../features/pattern";
-import { scopeSeed } from "../features/patternScope";
+import {
+  scopeFeature,
+  type ScopeSeed,
+  scopeSeed,
+} from "../features/patternScope";
 import {
   defaultSweepForm,
   defaultSweepPathId,
@@ -323,6 +333,7 @@ import {
 } from "../components/HistoryErrorAlert";
 import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { FacePickOverlay } from "../viewport/FacePickOverlay";
+import { SketchProposal } from "../viewport/SketchProposal";
 import { pickRefusal } from "../viewport/pickTargets";
 import { useSketchStore } from "../sketch/store";
 import { TOOL_SHORTCUTS } from "../sketch/tools";
@@ -339,7 +350,7 @@ import {
   createView,
   DrawingNameTakenError,
 } from "../api/drawings";
-import { sheetDimensions } from "../drawing/layout";
+import { sheetDimensions, sheetHeaderForNewSheet } from "../drawing/layout";
 import { SketchScene, type SolvedSketchLayer } from "../viewport/SketchScene";
 import { ExtrudePreview } from "../viewport/ExtrudePreview";
 import { useViewCommandStore } from "../viewport/viewCommands";
@@ -1392,6 +1403,13 @@ export function PartPage() {
     patternScopeSeed !== null && patternScopeSeed.fromSelection
       ? patternScopeSeed.name
       : null;
+  // What the OPEN command actually acts on, published by its scope row (see
+  // `usePublishedScope`). Distinct from the selection above and worth the
+  // second channel for two reasons: the scope row is flippable, so a selection-
+  // driven mark would keep pointing at `Hole1` after the user chose `This
+  // body`; and an editor seeded from the TIP feature has a subject while
+  // nothing at all is selected. Empty whenever no command names a subject.
+  const scopedFeatureIds = useCommandActionStore((s) => s.scopedFeatureIds);
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   // UX audit #20e — a feature can SAVE cleanly yet fail to REBUILD (the create
@@ -1564,6 +1582,61 @@ export function PartPage() {
     pickTargetState,
     "Add a feature that creates a body before sketching on a face.",
   );
+
+  // --- Hover-to-sketch (FLOW-1, founder report 2026-08-14) --------------------
+  //
+  // The face the pointer is addressing while NOTHING is armed. Idle hover used
+  // to light a face (SEL-1) and mean nothing — no click handler, no selection —
+  // so there is no existing meaning for the proposal to collide with; it gives
+  // that highlight the action it was already implying.
+  const [hoveredFaceOrdinal, setHoveredFaceOrdinal] = useState<number | null>(
+    null,
+  );
+  const noteFaceHover = useCallback((ordinal: number | null) => {
+    setHoveredFaceOrdinal((current) =>
+      current === ordinal ? current : ordinal,
+    );
+  }, []);
+  /**
+   * The context a proposal may be offered in — the SAME conditions that make
+   * the body interactive, plus PICK-2's refusal (a tip that builds no body has
+   * no faces to sketch on, and an offer that cannot be honoured is worse than
+   * no offer).
+   */
+  const proposalContext =
+    mode === "off" &&
+    editor === null &&
+    !measureActive &&
+    hasBody &&
+    facePickRefusal === null;
+  const proposalArmed = proposalContext && hoveredFaceOrdinal !== null;
+  // LAZY on purpose: nothing is requested until the pointer first addresses a
+  // face. Same request/key as every other overlay (`staleTime: Infinity`), so
+  // this is one shared cache entry — the first idle hover warms the very entry
+  // the Sketch, measure, hole and datum flows all go on to reuse.
+  const proposalFacesQuery = useQuery({
+    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryFn: () =>
+      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    enabled: proposalArmed && tree.data !== undefined && meshGlbId !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+  /**
+   * The hovered face, resolved to one a sketch can actually sit on. A
+   * non-planar face carries no signature and is NOT proposable — the same rule
+   * `FacePickOverlay` applies, so the two surfaces offer exactly the same set
+   * and hovering a fillet proposes nothing rather than proposing a dead end.
+   */
+  const proposedFace = useMemo(() => {
+    if (!proposalArmed) return null;
+    const faces = proposalFacesQuery.data?.faces;
+    if (faces === undefined) return null;
+    const hit = faces.find(
+      (candidate) => candidate.index === hoveredFaceOrdinal,
+    );
+    return hit !== undefined && isPickableFace(hit) ? hit : null;
+  }, [proposalArmed, proposalFacesQuery.data, hoveredFaceOrdinal]);
 
   // PICK-1 (M16) — the anchor a SUBSHAPE REFERENCE gets stamped with, which is
   // NOT always `bodyFeatureId`. A reference must name a feature strictly earlier
@@ -2116,14 +2189,27 @@ export function PartPage() {
 
   // A pattern needs no sketch profile — it repeats the body, or the FEATURE the
   // tree named — so it only requires a solid to exist (canModify), unlike
-  // extrude/revolve. The seed is read BEFORE the selection is cleared: clearing
-  // first (which is what this did) is exactly how the tree's answer to "what am
-  // I repeating?" used to be thrown away at the door.
+  // extrude/revolve.
+  //
+  // IT KEEPS THE SELECTION, and it is the only opener here that does, alongside
+  // its mirror twin (REACH-2-FLOW P1-3). Every other verb seeds from a FACE or
+  // EDGE preselect, which lives in `usePreselectStore` and survives the editor
+  // on its own; these two seed from `selectedFeatureId`, so clearing it at the
+  // door destroys the very thing that made the proposal — and Cancel then has
+  // nothing to hand back, costing the user the whole click/Escape/press
+  // sequence to try again. Reading the seed before clearing (which is what this
+  // did) kept the FORM right and left the frame wrong: nothing echoed the
+  // subject while the editor named it, and backing out was a dead end.
+  //
+  // Keeping it is not merely undo-safe, it is what makes the subject visible:
+  // the tree row keeps its rail, the timeline chip its edge, and the viewport
+  // its feature-localized tint — `selectionActive` deliberately does not gate
+  // on `editor === null`, precisely so a selection stays lit through the
+  // command it armed.
   const openCreatePattern = useCallback(() => {
     const seed = patternScopeSeed;
     useMeasureStore.getState().deactivate();
     setEditorError(null);
-    setSelectedFeatureId(null);
     setEditor({
       kind: "pattern",
       mode: "create",
@@ -2245,17 +2331,66 @@ export function PartPage() {
   // A mirror, like pattern/fillet/shell, reflects the current BODY about a
   // plane (no sketch profile) — it only needs a solid to exist (canModify), so
   // it mirrors those guards. v1 needs only a plane choice: no face/point pick.
+  // Keeps the selection for the same reason `openCreatePattern` does — the two
+  // verbs share one subject and must not treat it two different ways.
   const openCreateMirror = useCallback(() => {
     const seed = patternScopeSeed;
     useMeasureStore.getState().deactivate();
     setEditorError(null);
-    setSelectedFeatureId(null);
     setEditor({
       kind: "mirror",
       mode: "create",
       initial: defaultMirrorForm(seed),
     });
   }, [patternScopeSeed]);
+
+  /**
+   * THE SEED GESTURE, TAKEN DIRECTLY FROM A ROW (REACH-2-FLOW P1-4).
+   *
+   * The advertised flow is "name Hole1, then repeat it". Reaching the verb
+   * through the BAND requires the row to be selected, and selecting a row opens
+   * that feature's own editor — which then locks the band and the accelerators,
+   * so the gesture in practice is "open an editor nobody asked for, abandon it,
+   * then press P". That is a dialog charged as a toll, and it is the flow
+   * mandate's "no dead ends" test failing.
+   *
+   * Offering the two verbs on the row's own menu removes the toll without
+   * re-teaching what a click does: right-click Hole1 -> Repeat Hole1, and the
+   * feature's editor never opens. It is also the incumbent gesture — a
+   * right-click on a timeline feature in Fusion/Onshape/SolidWorks asks exactly
+   * this question, "what can I do with this one?" — and it costs no band width,
+   * so the resting chrome is unchanged.
+   *
+   * The seed is passed EXPLICITLY rather than through `setSelectedFeatureId` +
+   * `patternScopeSeed`: that memo is derived from state this render has not
+   * committed yet, so routing through it would open the editor on the PREVIOUS
+   * selection. The selection is still set, because the row genuinely is the
+   * subject from here on and the band must say so.
+   */
+  const openScopedVerb = useCallback(
+    (verb: "pattern" | "mirror", feature: FeatureResponse) => {
+      const picked = scopeFeature(feature);
+      if (picked === null) return;
+      const seed: ScopeSeed = { ...picked, fromSelection: true };
+      useMeasureStore.getState().deactivate();
+      setEditorError(null);
+      setSelectedFeatureId(feature.id);
+      setEditor(
+        verb === "pattern"
+          ? {
+              kind: "pattern",
+              mode: "create",
+              initial: defaultPatternForm(seed),
+            }
+          : {
+              kind: "mirror",
+              mode: "create",
+              initial: defaultMirrorForm(seed),
+            },
+      );
+    },
+    [],
+  );
 
   // A datum plane needs no sketch/body — it's a construction plane parallel to
   // an origin datum. Available as soon as the tree exists (its own feature row).
@@ -2308,9 +2443,9 @@ export function PartPage() {
     });
   }, [bodyFeatureId]);
 
-  // A closed hem folds ONE picked straight edge 180° back onto the sheet
-  // (parity §2). It picks like an edge flange (single-select), so it only needs
-  // a sheet body to exist.
+  // A hem folds ONE picked straight edge 180° back onto the sheet (parity §2) —
+  // closed (pressed flat) or open (a deliberate gap), chosen in the editor. It
+  // picks like an edge flange (single-select), so it only needs a sheet body.
   const openCreateHem = useCallback(() => {
     useMeasureStore.getState().deactivate();
     setEditorError(null);
@@ -2370,14 +2505,26 @@ export function PartPage() {
         if (drawing === null) {
           throw new Error("A drawing for this flat pattern already exists.");
         }
-        const sheet = await createSheet(drawing.id, {
+        // The SAME header derivation every other create path uses
+        // (REACH-3-FLOW): a lone flat-pattern sheet, so it takes the shop
+        // default paper rather than a proposal — the four-view fit the proposal
+        // reads does not model an unfolded blank, and this hand-off has no
+        // sheet to inherit a convention from either.
+        const header = sheetHeaderForNewSheet({
           name: "Sheet 1",
           size: "A4",
-          orientation: "landscape",
-          projection: "third_angle",
+          layout: "lone",
+          fit: null,
+          inherit: null,
+        });
+        const sheet = await createSheet(drawing.id, {
+          name: header.name,
+          size: header.size,
+          orientation: header.orientation,
+          projection: header.projection,
           expected_version: drawing.doc_version,
         });
-        const dims = sheetDimensions("A4", "landscape");
+        const dims = sheetDimensions(header.size, header.orientation);
         await createView(drawing.id, sheet.sheet.id, {
           projection: "flat_pattern",
           ref_document_id: partId,
@@ -3446,6 +3593,68 @@ export function PartPage() {
     [partId, freshTreeVersion, queryClient],
   );
 
+  // REORDER (REACH-ORDER). Apply a new BUILD ORDER — the full permutation the
+  // documents route takes — under the same write grammar every other tree edit
+  // uses: freshest version, one soft-resync retry on a stale-version race, then
+  // refresh tree + body. The order is what a feature MEANS (a fillet before a
+  // hole and after it are different solids), so this is a full rebuild, and
+  // `beginTreeWrite` holds SOLVE at "Solving…" from the click until the rebuilt
+  // body is on screen.
+  //
+  // A `reference_not_earlier` refusal is HANDED BACK rather than raised as a
+  // banner: the tree states it at the seat the drop was aimed at, where the
+  // user is looking, and offers the legal seat. Everything else is a real
+  // failure and surfaces the server's own message.
+  const reorderTree = useCallback(
+    async (order: string[]): Promise<FeatureOrderRefusal | null> => {
+      useMeasureStore.getState().deactivate();
+      setTreeActionError(null);
+      beginTreeWrite();
+      try {
+        const attempt = (version: number) =>
+          reorderFeatures(partId, order, version);
+        let restored;
+        try {
+          restored = await attempt(await freshTreeVersion());
+        } catch (error) {
+          if (error instanceof StaleTreeVersionError) {
+            restored = await attempt(
+              (await fetchFeatureTree(partId)).tree_version,
+            );
+          } else {
+            throw error;
+          }
+        }
+        noteWrittenTreeVersion(restored.tree_version);
+        await refreshTreeAndBody();
+        return null;
+      } catch (error) {
+        if (error instanceof FeatureOrderRefusedError) {
+          return {
+            featureId: error.featureId,
+            referencesFeatureId: error.referencesFeatureId,
+          };
+        }
+        setTreeActionError(
+          error instanceof Error
+            ? error.message
+            : "The feature order could not be changed.",
+        );
+        return null;
+      } finally {
+        endTreeWrite();
+      }
+    },
+    [
+      partId,
+      freshTreeVersion,
+      refreshTreeAndBody,
+      beginTreeWrite,
+      endTreeWrite,
+      noteWrittenTreeVersion,
+    ],
+  );
+
   // Viewport right-click: open the menu at the pointer, but only when the view
   // rig owns the camera (mode off) — sketch/plane modes own their own gestures.
   const openViewportMenu = useCallback(
@@ -3624,6 +3833,26 @@ export function PartPage() {
       authorFacePlane({ signature: seed.signature }, { remember: false });
     }
   }, [bodyFeatureId, handleNewSketch, authorFacePlane]);
+
+  /**
+   * Accept the viewport's sketch proposal (FLOW-1).
+   *
+   * Deliberately the SAME two calls the toolbar's Sketch -> pick-a-face flow
+   * makes, in the same order and with the same arguments — `handleNewSketch()`
+   * then `authorFacePlane(face)` with the overlay face the user addressed. A
+   * second way to compute a sketch plane would be a second thing to keep
+   * correct, and the two would drift silently: nothing would fail, the planes
+   * would just stop agreeing. `remember` is left at its default, exactly as a
+   * clicked face in the pick overlay is (UI-W3), because this IS a face clicked
+   * in the viewport.
+   */
+  const acceptSketchProposal = useCallback(
+    (face: OverlayFace & { signature: PlanarFaceSignature }) => {
+      handleNewSketch();
+      authorFacePlane(face);
+    },
+    [handleNewSketch, authorFacePlane],
+  );
 
   // Datum-editor face picking. Arming a slot highlights the body's planar faces
   // in the viewport (the shared FacePickOverlay); a click resolves to a
@@ -4280,7 +4509,12 @@ export function PartPage() {
     feature: FeatureResponse,
   ): ContextMenuSection[] => {
     const suppressed = feature.feature.suppressed ?? false;
-    return [
+    // Only offered where the kernel can actually repeat this row on its own —
+    // a fillet/shell/boolean has a result and no rigid tool, so naming one is a
+    // rebuild error, and pattern-scope §7 rule 4 says a refused kind is not
+    // OFFERED rather than refused after the fact.
+    const seedable = hasBody && scopeFeature(feature) !== null;
+    const sections: ContextMenuSection[] = [
       {
         key: "feature",
         label: feature.name,
@@ -4320,6 +4554,35 @@ export function PartPage() {
         ],
       },
     ];
+    // A SECOND SECTION, not four more items in the first: Edit/Rename/Suppress/
+    // Delete are things you do TO the row, these make a NEW feature out of it.
+    // The verbs read as sentences ("Repeat Hole1") for the same reason the band
+    // renames itself — the menu proposes the next step by name.
+    if (seedable) {
+      sections.push({
+        key: "scope",
+        label: "Repeat",
+        items: [
+          {
+            key: "pattern",
+            label: `Repeat ${feature.name}`,
+            icon: <VerbGlyph verb="pattern" />,
+            shortcut: "P",
+            onSelect: () => openScopedVerb("pattern", feature),
+            "data-testid": "tree-ctx-pattern",
+          },
+          {
+            key: "mirror",
+            label: `Mirror ${feature.name}`,
+            icon: <VerbGlyph verb="mirror" />,
+            shortcut: "I",
+            onSelect: () => openScopedVerb("mirror", feature),
+            "data-testid": "tree-ctx-mirror",
+          },
+        ],
+      });
+    }
+    return sections;
   };
 
   // The breadcrumb's mode leaf: sketch step / measure / open command / model.
@@ -4381,6 +4644,7 @@ export function PartPage() {
               onChamfer={openCreateChamfer}
               onPattern={openCreatePattern}
               scopeSubject={scopeSubject}
+              onClearScope={() => setSelectedFeatureId(null)}
               onShell={openCreateShell}
               onDraft={openCreateDraft}
               onHole={openCreateHole}
@@ -4411,6 +4675,7 @@ export function PartPage() {
               onExport={partExport.exporter}
               exportDisabledReason={partExport.gate.blockedReason}
               exportPartial={partExport.gate.partial}
+              exportPartialQualifier={partExport.gate.qualifier ?? undefined}
               exportState={partExport.gate.state}
             />
           ) : (
@@ -4458,6 +4723,7 @@ export function PartPage() {
               bodyInteractive={
                 mode === "off" && editor === null && !measureActive
               }
+              onFaceHover={noteFaceHover}
               bodySelected={
                 mode === "off" &&
                 !measureActive &&
@@ -4469,6 +4735,14 @@ export function PartPage() {
                   <SketchDro solving={syncPending || evaluation.isFetching} />
                   <SolveDiagnostic />
                   <MeasureReadout />
+                  {/* Rest on a face with nothing armed and the viewport offers
+                    the sketch that face affords (FLOW-1). It proposes; the
+                    click or Enter disposes. */}
+                  <SketchProposal
+                    enabled={proposalContext}
+                    face={proposedFace}
+                    onAccept={acceptSketchProposal}
+                  />
                   {/* Inert DOM signal that the live extrude ghost is on screen
                     (the ghost itself is WebGL) — a raster-independent hook QA
                     drives the "preview responds before Save" assertion from. */}
@@ -4962,6 +5236,7 @@ export function PartPage() {
                     evaluation={evaluation.data}
                     build={build}
                     selectedFeatureId={selectedFeatureId}
+                    scopedFeatureIds={scopedFeatureIds}
                     onSelectFeature={selectFeature}
                     onKeepAsOneBody={keepAsOneBody}
                     recoveringDisjoint={disjointRecovering}
@@ -4972,6 +5247,7 @@ export function PartPage() {
                     renamingId={renamingId}
                     onCommitRename={commitRename}
                     onCancelRename={() => setRenamingId(null)}
+                    onReorder={reorderTree}
                   />
                   {bodies.length > 0 ? (
                     <BodiesPanel
@@ -5070,6 +5346,7 @@ export function PartPage() {
           tree={tree.data}
           evaluation={evaluation.data}
           selectedFeatureId={selectedFeatureId}
+          scopedFeatureIds={scopedFeatureIds}
           onSelectFeature={selectFeature}
           onMoveRollback={moveRollback}
           // The stop also holds while a history step is restoring (the mutual

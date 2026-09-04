@@ -817,3 +817,73 @@ describe("DocumentRegister — delete with dependents", () => {
     expect(screen.queryByTestId("part-delete-confirm")).toBeNull();
   });
 });
+
+/**
+ * THE SECOND WAY IN (UI-REVIEW 2026-08-27 P1-A).
+ *
+ * The finding was a distance: the empty state's copy proposed a STEP import and
+ * the layout put the control 422 px lower at 1280x800 and 622 px lower at
+ * 1600x1000 — the gap grew with the screen. The fix is that the REGISTER, which
+ * is the only thing that knows whether it is empty, now decides where the offer
+ * lands. jsdom cannot measure the 422 px; it can pin the decision that produced
+ * it, which is the part that can silently regress.
+ *
+ * The last case is the one that protects everybody else. `SelectField` set the
+ * precedent yesterday: an opt-in feature earns a NEGATIVE test proving every
+ * non-adopter still emits byte-identical markup, because "I only added a
+ * prop" is exactly the claim that is true right up until it is not.
+ */
+describe("DocumentRegister — the offer (opt-in)", () => {
+  const offer = {
+    label: "Start from a STEP file",
+    render: (placement: "fork" | "line") => (
+      <button type="button" data-testid="offer" data-at={placement}>
+        Import STEP
+      </button>
+    ),
+  };
+
+  it("puts the offer BESIDE the create form when the drawer is empty", () => {
+    renderRegister([], { offer });
+    const fork = screen.getByTestId("parts-empty-fork");
+    // Same parent, therefore the same y band — which is the whole finding.
+    expect(fork.contains(screen.getByTestId("create-part-submit"))).toBe(true);
+    expect(fork.contains(screen.getByTestId("offer"))).toBe(true);
+    expect(screen.getByTestId("offer")).toHaveAttribute("data-at", "fork");
+    // Both arms are announced as alternatives, in parallel construction.
+    expect(screen.getByText("Start from scratch")).toBeTruthy();
+    expect(screen.getByText("Start from a STEP file")).toBeTruthy();
+  });
+
+  it("puts the offer at the drawer's LAST line once there is something filed", () => {
+    renderRegister([worked], { offer });
+    expect(screen.queryByTestId("parts-empty-fork")).toBeNull();
+    const rendered = screen.getByTestId("offer");
+    expect(rendered).toHaveAttribute("data-at", "line");
+    // After the scribe line: a sheet that already exists is filed after the one
+    // you are about to write.
+    const scribe = screen.getByTestId("create-part-form");
+    expect(
+      scribe.compareDocumentPosition(rendered) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("changes NOTHING for a register that does not adopt it", () => {
+    const withOffer = renderRegister([], { offer });
+    const forked = document.body.innerHTML;
+    withOffer.unmount();
+
+    const without = renderRegister([]);
+    const plain = document.body.innerHTML;
+    without.unmount();
+
+    // The guard, stated positively so it cannot pass vacuously: the adopter's
+    // markup really does differ, and the non-adopter's really is the old one.
+    expect(forked).not.toBe(plain);
+    expect(plain).not.toContain("parts-empty-fork");
+    expect(plain).not.toContain("Start from scratch");
+    // The create form is still the single un-wrapped invitation it always was.
+    expect(plain).toContain('<div class="mt-5 max-w-md">');
+  });
+});
