@@ -113,6 +113,10 @@ Ranked, disjoint, parallel-dispatchable:
    HEAD (measured: `k_factor: null` already loads unchecked). Filed
    **REASON-GATE-1 (P1)** from the survey it asked for: 15 of the 16 editor
    commit actions have the same silence, while 41 of 43 toolbar tools do not.
+   ~~**REASON-GATE-1**~~ — **CLOSED 2026-09-04.** All seventeen say why, from one
+   computation (`canSubmitX` is DEFINED as `blocker === null`), and all seventeen
+   action rows moved into the pinned footer — a second unfinished rollout found
+   in the same files, and the one that made the sentence legible at 1280x800.
 8. **SNAP-4** (P2, S, frontend-builder) — an explicit Fix on a point the
    draw already grounded misreports OVER-CONSTRAINED.
 9. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
@@ -797,7 +801,7 @@ CHECKUIPARITY-FP-1 (below) also names. See Done archive.**
       [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21 (second pass today)"
       S-26, split from HEM-1 by backlog-groomer pass 16]
 
-- [ ] (P1, M) **REASON-GATE-1 — 15 of the 16 editor commit actions can go grey
+- [x] (P1, M) **REASON-GATE-1 — 15 of the 16 editor commit actions can go grey
       with no reason on screen, which is HEM-1B repeated once per verb.** kind:
       defect (generalised from HEM-1B's second half, measured 2026-09-04 while
       closing it). `PanelActionCell` has carried a `disabledReason` prop since
@@ -824,6 +828,30 @@ CHECKUIPARITY-FP-1 (below) also names. See Done archive.**
       not pinned puts the sentence outside the card (measured on the hem).
       TERRITORY: `apps/web/src/components/*Editor.tsx` +
       `apps/web/src/features/*.ts`. agentType: frontend-builder.
+      **CLOSED 2026-09-04 (frontend-builder), and the acceptance grew one clause
+      the ticket did not ask for.** All fifteen have an `xSubmitBlocker` with
+      `canSubmitX` defined as `blocker === null`; `fieldBlocker` in the new
+      `apps/web/src/features/submitBlocker.ts` is the one shared piece (the
+      blank-vs-wrong pair, fifteen real uses) and `edgeSelectorBlocker` the
+      second (fillet + chamfer). Evidence in three layers: 84 unit cases
+      cross-checking every blocker against the PRE-change predicate restated
+      literally (asking `canSubmitX` would be the new code agreeing with
+      itself), with floors of 15 subjects / >=2 gated states each / >=50 gated
+      total; a per-editor DOM case for all SEVENTEEN with the count asserted;
+      and 10 editors measured in real pixels at 1280x800 with `elementFromPoint`
+      resolving to their own Save cell. THE CLAUSE THAT GREW: every one of the
+      fifteen action rows also had to move into `EditorCard`'s pinned `footer`.
+      That slot has existed since UI-REVIEW 2026-07-30 P1 and only hole + hem
+      used it, so a reason line — which makes each card taller — would have
+      shipped the defect in a longer form; `docs/screenshots/reason-gate-draft-
+      before-1280.png` shows the CREATE row half-clipped at the fold with
+      nothing said. Mutation evidence: deleting `disabledReason` from ONE editor
+      reddens exactly its own case and leaves sixteen green; un-pinning ONE
+      footer reddens only that case. The e2e suite caught a copy defect the unit
+      tests could not — the corner relief's first reason repeated its own
+      FIELD's inline error verbatim, so the same sentence rendered twice on one
+      card (a `getByText` resolved to two nodes); it now says "Choose a
+      different flange for bend B." 2271 web + 141 design unit tests, 109 e2e.
       [src: HEM-1B survey, frontend-builder 2026-09-04]
 
 - [ ] (P2, M) **QA-R3 — on touch, four of REACH-1's five new verbs cannot be

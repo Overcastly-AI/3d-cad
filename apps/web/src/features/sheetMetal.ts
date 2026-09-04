@@ -1049,7 +1049,14 @@ export function cornerReliefSubmitBlocker(
 ): string | null {
   if (form.bendAId === "") return "Choose bend A.";
   if (form.bendBId === "") return "Choose bend B.";
-  if (form.bendAId === form.bendBId) return "Pick two different edge flanges.";
+  // NOT "Pick two different edge flanges" — that is the FIELD's own inline
+  // error, verbatim, and repeating it puts the same sentence on screen twice
+  // (it also made a `getByText` in `sheet-metal-hem-corner-relief.spec.ts`
+  // resolve to two nodes, which is the same duplication seen from the outside).
+  // The field states the rule; the cell states what to do about it.
+  if (form.bendAId === form.bendBId) {
+    return "Choose a different flange for bend B.";
+  }
   const ratio = fieldBlocker(
     form.reliefRatioInput,
     parseReliefRatio(form.reliefRatioInput),

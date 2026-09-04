@@ -112,6 +112,84 @@ repair: HEM-1C (editor still claims base-flange inheritance for the radius
 and suggests the exact value the server refuses) and HEM-1D (UI cannot author
 an `open` hem at all) — **BOTH CLOSED**, see the entry below.
 
+**REASON-GATE-1 CLOSED (frontend-builder, 2026-09-04) — all seventeen editor
+commit actions now say why they are grey, from ONE computation, and none of them
+can scroll the sentence out of its own card.** HEM-1B's survey measured 15 of 16
+editors gating in silence while 41 of 43 gated `ToolButton`s carried a caption:
+an unfinished rollout, not an open design question, so the fix is the hem's shape
+applied fifteen times rather than fifteen designs.
+
+Each feature module gained an `xSubmitBlocker` returning the sentence or null,
+and each `canSubmitX` is now DEFINED as `blocker === null` — passing a reason
+alongside an independently-computed boolean would have created fifteen fresh
+chances for the two to disagree. `fieldBlocker` (`apps/web/src/features/
+submitBlocker.ts`) is the one earned abstraction: "blank is a missing answer,
+anything else is a wrong one", so `Enter the bend radius.` / `Check the bend
+radius.`, with the RULE left where it always was — red, inline, on the field.
+Copy names the fix in the interface's own words, and the noun IS the field's
+label: `Enter the gauge.`, `Choose Tool (subtracted).`, `Choose a sketch for
+section 03.`, `Click one or more faces to taper.`, `Draw an open sketch to sweep
+along.` Two cases get their own sentence rather than the generic pair — a ZERO
+draft angle (it parses; "check the angle" would start a hunt for a typo that is
+not there) and an edge-flange span wider than its edge (every field is fine, the
+relationship is not).
+
+**A SECOND UNFINISHED ROLLOUT WAS FOUND IN THE SAME FILES AND HAD TO BE CLOSED
+TO MAKE THE FIRST ONE REAL.** `EditorCard` has had a pinned `footer` slot since
+UI-REVIEW 2026-07-30 P1 whose stated purpose is that the commit action never
+scrolls away; `HoleEditor` used it, `HemEditor` adopted it under HEM-1B, and the
+other fifteen kept the action row as the last child of the SCROLLING body.
+Adding a reason line makes every one of those cards taller, so shipping the
+sentence without pinning the row would have shipped the defect in a longer form
+— the before shot is the proof: `docs/screenshots/reason-gate-draft-before-1280.
+png` shows the Draft card's CANCEL/CREATE row half-clipped at the fold with
+nothing said, and `-after-1280.png` shows it pinned and legible. The error stamp
+moved with it (it used to sit outside `Panel` and scroll away too).
+
+EVIDENCE, in three layers because each sees what the others cannot.
+(a) `submitBlocker.test.ts` — 84 cases, every blocker cross-checked against the
+predicate that shipped BEFORE the change, restated literally rather than called
+(`canSubmitX` now agrees with the blocker by construction, so asking it would
+prove nothing); non-vacuity floors of 15 distinct subjects, >=2 gated and >=1
+live state each, >=50 gated total. (b) `editorSubmitReason.test.tsx` — one case
+per editor for ALL SEVENTEEN with the count asserted, checking the gate as a
+user meets it (`aria-disabled` + an inert click), non-empty ink within the
+48-character budget, that the ink IS the button's `aria-describedby` target, and
+that the cell has no `[data-scroll-edges]` ancestor. (c) `reason-gate.spec.ts` —
+**10 editors measured in real pixels at 1280x800**, each reason's own centre
+hit-testing to its own Save cell under `elementFromPoint`; `toBeVisible()` and
+`toContainText` are both refused here, because one is true of a node clipped to
+1x1 and the other of a `display:none` one. Measured widths 109-134 px:
+`extrude "Enter the distance." (129px)`, `loft "Choose a sketch for section 03."
+(134px)`, `hole "Click a face in the viewport to place the hole." (134px)`.
+
+MUTATION EVIDENCE (each reverted independently; green after). Deleting
+`disabledReason` from ONE editor reddens exactly its own case and leaves the
+other sixteen green — `pattern-submit … the gated action rendered no reason at
+all` — which is what proves the coverage is seventeen assertions rather than one
+generalised. Un-pinning ONE editor's footer reddens only that case, at the
+`data-scroll-edges` assertion.
+
+ONE COPY DEFECT THE E2E SUITE CAUGHT AND THE UNIT TESTS COULD NOT. The corner
+relief's first draft said `Pick two different edge flanges.` — which is, verbatim,
+the opening of the FIELD's own inline error, so the same sentence appeared twice
+on one card and a `getByText` in `sheet-metal-hem-corner-relief.spec.ts` resolved
+to two nodes. The strict-mode violation is the duplication seen from the outside;
+the cell now says `Choose a different flange for bend B.` The rule it enforces is
+the one the module header states: the field states the rule, the cell states what
+to do about it, one job each.
+
+Gates: `just lint` exit 0; `pnpm -r typecheck` clean; 2271 web + 141 design unit
+tests; **109 e2e green on a real native stack** across fillet-chamfer / draft /
+shell / loft / sweep / mirror / pattern / revolve-ui / extrude-ui / datum-plane
+(47), sheet-metal x3 / hole / multibody x2 / full-flow / reason-gate (45, after
+the copy fix), panel-density / chrome-density / inspector-scroll / makeover /
+first-impression / nav-chrome / interaction-depth / token-scale /
+fillet-edge-pick / pattern-scope / datum-face-pick / pick-no-body (55 — the
+layout specs, run because the card DOM changed). Founder shots:
+`docs/screenshots/reason-gate-{fillet,draft}-{before,after}-1280.png` (the before
+half captured from a deliberately reverted build).
+
 **HEM-1B CLOSED (frontend-builder, 2026-09-04) — the disabled Save says why, and
 the state that silenced it cannot be clicked into. The reported ROOT CAUSE did
 not reproduce, and saying so is half the finding.** The audit (S-26) recorded
@@ -1456,11 +1534,7 @@ sentence — marks drawn over material that hides the edge they name, measured a
 NAME-2b, TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1,
 MATE-OBS-2, SKETCH-COVERAGE-1,
 SOLVER-DOC-1, HEM-1B, HEM-1D — see BACKLOG for current tickets. HEM-1C is
-IN FLIGHT (frontend-builder). **REASON-GATE-1 is IN FLIGHT
-(frontend-builder)** — the fifteen `*SubmitBlocker` functions, their cross-check
-against the pre-change predicates, and the editor wiring have landed; all
-seventeen commit actions now state a reason and sit in the pinned footer. The
-1280x800 pixel case and the founder shots follow in this batch.
+IN FLIGHT (frontend-builder). REASON-GATE-1 is **CLOSED** — see the entry above.
 
 **Still owed, carried forward again:** `docs/GEOMETRY-QA.md`/
 `docs/UI-REVIEW.md` refresh against the last seven batches; the
