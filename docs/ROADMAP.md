@@ -15,6 +15,51 @@ headroom claim below is corrected against a real CI-runner measurement, not
 the local box it was first computed on. Pass 16/17/18 detail is in
 `docs/CHANGELOG.md`.
 
+**CAMRESTORE-1 CLOSED (frontend-builder, 2026-09-04) — leaving a sketch gives
+the VIEW back, not just the camera.** The sketcher parked the modeller normal-on
+to the plane and left them there, so entering a sketch to add one dimension cost
+a re-orientation on the way out. The pose the rig TAKES is now remembered and
+requested back through the same view-command seam the rail and the reference
+cube use — a new `restore` command kind carrying a `ViewPose` — so the PART rig
+performs it: one rig on the camera (two easing it deadlock, which is why this
+could not simply be done in place), the existing ease, `prefers-reduced-motion`
+honoured, and the clip planes re-solved for free.
+Measured on the camera itself rather than on a brightness census, because that
+census is precisely what this defect broke — the framing moves, so the number
+moves for reasons unrelated to the subject. Pre-fix the exit direction was
+**78.05 deg** off the pre-entry view and read (0,-1,0), straight down: the
+ticket's flat diamond. From a named FRONT it was **90.00 deg** off, and across
+the ticket's own draw-and-save flow **78.04 deg**. Post-fix all three are
+**<= 1 deg**, and on the path where nothing rebuilt the POSITION returns too
+(within 2% of the standoff). Only the direction is asserted across a save: the
+auto-fit is entitled to re-frame distance and target for new geometry, and
+taking that away would undo FB-1.
+Two judgements the ticket left open. A deliberate mid-sketch orbit (VP-1's
+middle button / Alt+left) is NOT overruled — the remembered pose is a DEFAULT
+and an explicit user action beats it, the same rule `905fcc4` used for the
+auto-ghost — while a gesture made DURING the entry ease does not count, because
+the ease overwrites it and the modeller sees no turn at all. And orthographic
+`zoom` is carried in the pose: a parallel camera frames by zoom, not distance,
+so restoring the attitude alone would return a modeller to the right view at the
+wrong size (asserted as painted body pixels, within 5%).
+Mutation-tested in BOTH directions, which is what separates the two halves: with
+no restore, 3 of the 4 e2e cases redden and the orbit case stays green; with an
+UNCONDITIONAL restore, only the orbit case reddens (27.25 deg of overruled turn).
+2 unit cases on the store (including that `restore` must not arm orthographic —
+`ProjectionRig` restores the modeller's own projection from that same field).
+Founder shots: `docs/screenshots/camrestore-sketch-exit-{before,after}-laptop.png`.
+Fallout, both stated rather than absorbed: `part-visibility`'s ghost pixel A/B
+was getting its camera settle by ACCIDENT (a stranded camera made the second
+sketch entry a no-op) and now waits on the camera explicitly; and the sweep
+turned up THREE cases RED at the tip for reasons of their own, each reproduced
+with this change reverted. `founder-picking`'s face-seat pick is repaired here
+because the fix was one line of spec — it aimed at the FIRST raster-order lit
+pixel, which is a silhouette-edge point by construction and misses the raycast.
+A sheet-metal strict-mode collision with `4009042`'s new disabled-reason spans
+was fixed upstream by `b9a77c5` while this was in flight (re-verified green).
+The third, a sketch pick that stopped landing after the SEL-2 commits, is filed
+as TIPRED-1 for the agent whose territory it is.
+
 **REACH-2-FLOW-B CLOSED (frontend-builder, 2026-09-04) — the viewport tint
 answers the COMMAND's question now, so the three surfaces that echo a scope
 stop disagreeing.** The deferred half of REACH-2-FLOW: keeping the selection

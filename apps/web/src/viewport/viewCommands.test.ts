@@ -171,6 +171,44 @@ describe("projection policy", () => {
     expect(useViewCommandStore.getState().projection).toBe("perspective");
   });
 
+  it("leaves the projection alone on RESTORE — it returns, it does not orient", () => {
+    // CAMRESTORE-1. Handing the camera back at the pose the sketcher took it
+    // from is not a request to look along an axis, so it must not change how
+    // the modeller was looking. `ProjectionRig` restores their chosen
+    // projection from this same field, so arming orthographic here would make
+    // leaving a sketch flatten a perspective bench view — a second, sneakier
+    // version of the very defect the restore exists to fix.
+    useViewCommandStore
+      .getState()
+      .requestPose({ position: [1, 2, 3], up: [0, 1, 0], target: [0, 0, 0] });
+    expect(useViewCommandStore.getState().projection).toBe("perspective");
+    useViewCommandStore.setState({ projection: "orthographic" });
+    useViewCommandStore
+      .getState()
+      .requestPose({ position: [1, 2, 3], up: [0, 1, 0], target: [0, 0, 0] });
+    expect(useViewCommandStore.getState().projection).toBe("orthographic");
+  });
+
+  it("carries the pose it was handed, under a fresh nonce", () => {
+    const before = useViewCommandStore.getState().command?.nonce ?? 0;
+    const pose = {
+      position: [10, 20, 30],
+      up: [0, 0, -1],
+      target: [1, 1, 1],
+      zoom: 4,
+    } as const;
+    useViewCommandStore.getState().requestPose(pose);
+    const command = useViewCommandStore.getState().command;
+    expect(command?.kind).toBe("restore");
+    expect(command?.nonce).toBe(before + 1);
+    // A repeated restore must re-fire (the rig is nonce-keyed), and the pose
+    // must survive verbatim — the rig re-solves nothing, so a dropped `zoom`
+    // would return a parallel camera at the wrong apparent size in silence.
+    expect(command?.kind === "restore" ? command.pose : null).toEqual(pose);
+    useViewCommandStore.getState().requestPose(pose);
+    expect(useViewCommandStore.getState().command?.nonce).toBe(before + 2);
+  });
+
   it("keeps the projection through a free orbit — nothing silently flips it", () => {
     // The decision stated in the commit: orbiting away from a named view does
     // NOT hand perspective back. Orbit writes no command at all, so the only

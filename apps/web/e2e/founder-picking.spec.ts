@@ -226,21 +226,50 @@ test.describe("founder picking reports", () => {
     // FB-13 case fell into, and the general rule this file already states —
     // read WHY it failed, never just that it did. A point taken from the lit
     // silhouette cannot drift out from under the assertion when the fit changes.
+    // …AND IT MUST BE INTERIOR TO THE SILHOUETTE, not merely lit. `litPoints`
+    // returns its samples in raster order, so `find` takes the TOP-most,
+    // LEFT-most one — which is on the silhouette EDGE by construction, half a
+    // sample off the body. That is a target no user aims at, and the raycast
+    // behind it misses: this case was RED at the branch tip, measured at
+    // 756,440 with `interior=false` and the step still reading "Pick a plane"
+    // after the click, 3 runs of 3.
+    //
+    // The point derivation was the whole defect — the fix is one line of spec
+    // and needed no product change, confirmed by running the repaired case
+    // against the tip's own viewport source. Same family as this repo's
+    // `force: true` and zero-area-hit-box findings: an assertion that claims a
+    // USER can click something must aim where a user would. Requiring the four
+    // neighbours a sample-step away to be lit is that claim, stated in the same
+    // pixels the point came from.
+    const STEP = 8;
     const markers = await nodes.all();
     const boxes = (
       await Promise.all(markers.map((n) => n.boundingBox()))
     ).flatMap((b) => (b === null ? [] : [b]));
     expect(boxes.length, "the PickNode markers are present").toBeGreaterThan(0);
-    const clear = (await litPoints(page, { step: 8 })).find((point) =>
-      boxes.every(
-        (b) =>
-          point.x < b.x - 12 ||
-          point.x > b.x + b.width + 12 ||
-          point.y < b.y - 12 ||
-          point.y > b.y + b.height + 12,
-      ),
+    const points = await litPoints(page, { step: STEP });
+    const key = (x: number, y: number): string =>
+      `${Math.round(x)},${Math.round(y)}`;
+    const lit = new Set(points.map((p) => key(p.x, p.y)));
+    const clear = points.find(
+      (point) =>
+        [
+          [STEP, 0],
+          [-STEP, 0],
+          [0, STEP],
+          [0, -STEP],
+        ].every(([dx, dy]) =>
+          lit.has(key(point.x + (dx as number), point.y + (dy as number))),
+        ) &&
+        boxes.every(
+          (b) =>
+            point.x < b.x - 12 ||
+            point.x > b.x + b.width + 12 ||
+            point.y < b.y - 12 ||
+            point.y > b.y + b.height + 12,
+        ),
     );
-    expect(clear, "a lit point clear of every marker").toBeDefined();
+    expect(clear, "an INTERIOR lit point clear of every marker").toBeDefined();
     if (clear === undefined) return;
     await page.mouse.click(clear.x, clear.y);
 

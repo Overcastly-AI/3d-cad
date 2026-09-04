@@ -39,6 +39,7 @@ import {
   BufferGeometry,
   Float32BufferAttribute,
   Matrix4,
+  OrthographicCamera,
   Quaternion,
   Vector3,
   type Camera,
@@ -74,6 +75,7 @@ import {
   SKETCH_CAMERA_DISTANCE_MM,
   SKETCH_CAMERA_FOV_DEG,
 } from "../sketch/origin";
+import { useViewCommandStore, type ViewPose } from "./viewCommands";
 import {
   DATUM_LABELS,
   DATUM_PICKS,
@@ -2026,6 +2028,29 @@ function sketchFrameHalfHeightMm(
 /**
  * Camera rig: eases to the plane-pick iso or the normal-on authoring pose
  * (instant under prefers-reduced-motion), releases the camera otherwise.
+ *
+ * GIVING THE CAMERA BACK MEANS GIVING THE VIEW BACK (CAMRESTORE-1). This rig
+ * used to hand back only the world up and leave the camera parked normal-on to
+ * the plane, so a modeller who entered a sketch to add one dimension came out
+ * looking at a flat diamond from TOP and had to re-orient by hand — measured
+ * across a round trip as canvas brightness 310289 -> 24675 with `data-drawn-
+ * faces` 6 at BOTH ends, i.e. nothing about what is DRAWN changed and only the
+ * framing moved. Fusion returns you to the view you were in. So the pose is
+ * remembered when this rig TAKES the camera and requested back when it releases
+ * it, through the same view-command seam the rail and the reference cube use —
+ * which means it eases, honours `prefers-reduced-motion`, and cannot fight the
+ * part rig, because that rig owns the camera again by the time it executes.
+ *
+ * EXCEPT WHEN THE MODELLER CHOSE OTHERWISE. Orbit is available mid-sketch on
+ * the middle button and on Alt+left (VP-1/VP-1a), and someone who turns the
+ * view while drawing has stated a preference that a remembered pose must not
+ * overrule — the same rule the auto-ghost follows, where the derived state is a
+ * DEFAULT an explicit user action beats. `tookTheCamera` is that action.
+ *
+ * It only counts a gesture made after the park has LANDED. During the entry
+ * ease this rig is writing the camera every frame, so a drag in that window is
+ * overwritten and the modeller sees no turn at all; treating it as a choice
+ * would suppress the restore on the strength of a gesture that had no effect.
  */
 function SketchCameraRig() {
   const mode = useSketchStore((state) => state.mode);
@@ -2036,11 +2061,25 @@ function SketchCameraRig() {
     (state) => state.controls,
   ) as OrbitControlsImpl | null;
   const invalidate = useThree((state) => state.invalidate);
+  const requestPose = useViewCommandStore((state) => state.requestPose);
   const goal = useRef<{
     position: Vector3;
     up: Vector3;
     target: Vector3;
   } | null>(null);
+  /** The part view this rig took the camera from; null when it holds none. */
+  const parked = useRef<ViewPose | null>(null);
+  /** Has the modeller moved the camera by hand since the park landed? */
+  const tookTheCamera = useRef(false);
+
+  useEffect(() => {
+    const onStart = () => {
+      // Mid-ease gestures do not count — see the doc comment.
+      if (goal.current === null) tookTheCamera.current = true;
+    };
+    controls?.addEventListener("start", onStart);
+    return () => controls?.removeEventListener("start", onStart);
+  }, [controls]);
 
   useEffect(() => {
     let pose: CameraPose | null = null;
@@ -2059,12 +2098,42 @@ function SketchCameraRig() {
         target: [0, 0, 0],
       };
     } else {
-      // Sketch over: give the camera back, restore the world up.
+      // Sketch over: give the camera back — the VIEW as well as the world up.
+      const remembered = parked.current;
+      const chose = tookTheCamera.current;
+      parked.current = null;
+      tookTheCamera.current = false;
       goal.current = null;
       camera.up.set(0, 1, 0);
       controls?.update();
       invalidate();
+      // The request goes through the store rather than moving the camera here,
+      // so the PART rig performs it: it owns the camera from this render on, it
+      // eases and re-clips exactly as it does for the view rail, and it is the
+      // only rig that may write the camera once the sketch is over (two rigs
+      // easing one camera deadlock — see `Viewport.CameraRig`'s release note).
+      if (remembered !== null && !chose) requestPose(remembered);
       return;
+    }
+    // Remember what we are taking, on the way in. Only on the FIRST sketch mode
+    // of a session in the sketcher: `plane` -> `draw` is one visit, and
+    // re-reading the camera there would remember the plane-pick iso this rig
+    // had just imposed rather than the view the modeller came from.
+    if (parked.current === null) {
+      const target = controls?.target ?? new Vector3();
+      parked.current = {
+        position: camera.position.toArray(),
+        up: camera.up.toArray(),
+        target: target.toArray(),
+        // A parallel camera frames by zoom, and `ProjectionRig` holds
+        // perspective for the duration of a sketch — so without this an
+        // orthographic modeller comes back to the right attitude at the wrong
+        // apparent size.
+        ...(camera instanceof OrthographicCamera
+          ? { zoom: camera.zoom }
+          : undefined),
+      };
+      tookTheCamera.current = false;
     }
     const next = {
       position: new Vector3(...pose.position),
@@ -2085,7 +2154,7 @@ function SketchCameraRig() {
       goal.current = next;
     }
     invalidate();
-  }, [mode, plane, reducedMotion, camera, controls, invalidate]);
+  }, [mode, plane, reducedMotion, camera, controls, invalidate, requestPose]);
 
   useFrame((_, delta) => {
     const g = goal.current;

@@ -701,27 +701,56 @@ existing payload gate rather than crashing. No new machinery, no contract
 change. Census: raised 12 -> 0, solvable 1327 -> 1328, conflicting 276 -> 287.
 See Done archive / ROADMAP for the full two-defects-one-crash argument.**
 
-- [ ] (P2, S) **CAMRESTORE-1 — leaving a sketch strands the camera in the
-      sketch's own view instead of returning you to the one you came from.**
-      kind: defect, flow. MEASURED 2026-08-29 while closing GHOST-1 (which is
-      how it was found; it is pre-existing and unrelated to that change): open
-      a part at the default iso framing, edit a sketch on XY, save. The camera
-      stays parked normal to the plane — the ViewCube reads TOP and the part
-      renders as a flat diamond. Numerically, whole-canvas BRIGHT goes 310289
-      -> 24675 across the round trip with `data-drawn-faces` 6 and
-      `data-ghost-faces` 0 at BOTH ends and unchanged after a further 2 s, so
-      nothing about what is DRAWN changed — only the framing. Fusion returns
-      you to the view you were in. Cost beyond the annoyance: it makes a
-      canvas census uncomparable across sketch entry/exit, so any spec
-      asserting on pixels around that boundary has to work around it (see the
-      note in `part-visibility.spec.ts`). FIX: remember the part camera on
-      sketch entry and ease back to it on exit, the way the fit/view-rail
-      commands already ease. ACCEPTANCE: the ViewCube orientation and the
-      camera pose after exiting a sketch match the pose before entering
-      (tolerance documented, not ad-hoc); an e2e case asserts it, and the
-      band census becomes comparable across the boundary.
-      TERRITORY: `apps/web/src/viewport` (SketchCameraRig / CameraRig /
-      viewCommands). agentType: frontend-builder.
+- [x] (P2, S) **CAMRESTORE-1 CLOSED (2026-09-04, frontend-builder) — leaving a
+      sketch gives the VIEW back, not just the camera.** The sketcher remembers
+      the pose it takes and requests it back through the same view-command seam
+      the rail and the reference cube use (a new `restore` kind carrying a
+      `ViewPose`), so the part rig performs it — one rig on the camera, an ease,
+      `prefers-reduced-motion` honoured. Measured with the direction read off
+      the live camera, not a brightness census (that census is exactly what this
+      defect broke): pre-fix the exit view was **78.05 deg** off the pre-entry
+      view (and read (0,-1,0) — straight down, the ticket's flat diamond),
+      **90.00 deg** from a named FRONT, and **78.04 deg** across the ticket's own
+      draw-and-save flow; post-fix all three are **<= 1 deg**. A deliberate
+      mid-sketch orbit is NOT overruled — the remembered pose is a default an
+      explicit action beats, the `905fcc4` rule — and mid-ease gestures do not
+      count, because the ease overwrites them. Orthographic zoom is carried, so
+      a parallel view returns at the same apparent size (5% band). 2 unit cases,
+      4 e2e cases, mutation-tested in both directions: no-restore reddens 3 of 4
+      and leaves the orbit case green; unconditional-restore reddens ONLY the
+      orbit case (27.25 deg of overruled turn). Screenshots:
+      `docs/screenshots/camrestore-sketch-exit-{before,after}-laptop.png`. Two
+      specs needed the wait they had been getting by accident stated out loud:
+      `part-visibility`'s ghost A/B (its second sketch entry now eases, where a
+      stranded camera used to make the park a no-op) and, separately,
+      `founder-picking`'s face-seat pick, which was RED at the tip for its own
+      reason — see the entry below.
+
+- [ ] (P1, XS) **TIPRED-1 — `qa-sketch-frame.spec.ts` "a FACE-SEATED sketch's
+      origin is selectable and grounds a profile to the face centroid" is RED at
+      the branch tip.** kind: defect (CI). Found while sweeping for CAMRESTORE-1
+      regressions and reproduced with `apps/web/src/viewport/**` reverted to the
+      tip, so it is not that change: after `parkThenClick` on a drawn corner the
+      selection readout never reaches "1 pt", i.e. the PICK does not land. 3 runs
+      of 3, and still red at `4d359dd`. The pick path was changed by the SEL-2
+      commits (`f4273d3`, `4009042`, `replacementPick`), which is the first place
+      to look. ACCEPTANCE: green, with the cause named rather than the assertion
+      loosened. agentType: frontend-builder.
+      NB the same sweep found `sheet-metal-hem-corner-relief.spec.ts` red on a
+      strict-mode collision with `4009042`'s new `data-disabled-reason` spans —
+      already fixed upstream by `b9a77c5` and re-verified green here, so it is
+      recorded rather than filed.
+
+- [ ] (P3, XS) **FLAKE-SEL4-DRILL-1 — `qa-sel4-verify.spec.ts` "a click on a
+      DIFFERENT face does not move the drill point" failed once inside a
+      24-case batch and passed 2 of 2 in isolation.** kind: flake. The fixture
+      is API-seeded and never enters the sketcher, so it is out of reach of both
+      2026-09-04 viewport changes; recorded so the next sighting has a prior
+      rather than starting a fresh hunt. It picks the FIRST raster-order lit
+      point that fails a hover probe, which is a silhouette-edge point by
+      construction — the same derivation that was making `founder-picking`'s
+      face-seat case red, so an interior-point filter is the likely fix.
+      agentType: qa-tester.
 
 - [ ] (P2, XS) **SOLVE-CONFLICT-MOVED-1 — a `conflicting` payload can ship
       geometry the solver MOVED, which the DTO promises it never does.** kind:

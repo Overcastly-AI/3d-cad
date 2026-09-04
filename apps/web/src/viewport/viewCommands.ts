@@ -11,13 +11,38 @@ import { create } from "zustand";
 
 import { isTypingTarget } from "../lib/isTypingTarget";
 
-/** A named view snap, a fit, or a raw cube direction. */
+/**
+ * A camera pose in SCENE world coordinates — everything needed to put the view
+ * back exactly where it was, and nothing that belongs to a projection.
+ *
+ * `zoom` is carried only because a PARALLEL camera frames by zoom rather than
+ * by distance, so restoring an orthographic pose without it would return the
+ * right attitude at the wrong apparent size. It is absent for a perspective
+ * pose and ignored by a perspective camera.
+ */
+export interface ViewPose {
+  position: readonly [number, number, number];
+  up: readonly [number, number, number];
+  target: readonly [number, number, number];
+  zoom?: number;
+}
+
+/** A named view snap, a fit, a raw cube direction, or a remembered pose. */
 export type ViewCommand =
   | { kind: "home" | "fit" | "front" | "top" | "right" | "iso"; nonce: number }
   | {
       kind: "direction";
       /** World-axis direction TO the camera (from the reference cube). */
       dir: readonly [number, number, number];
+      nonce: number;
+    }
+  | {
+      /**
+       * Put the camera back where it was (CAMRESTORE-1). Issued when the
+       * SKETCHER hands the camera back, carrying the pose it took it from.
+       */
+      kind: "restore";
+      pose: ViewPose;
       nonce: number;
     };
 
@@ -43,17 +68,27 @@ export type Projection = "orthographic" | "perspective";
  *
  * `fit` is deliberately NOT here: it FRAMES, it does not orient, so it must
  * leave the projection exactly as the modeler left it.
+ *
+ * Nor is `restore`, for the stronger version of the same reason: it puts the
+ * camera back at an attitude the modeler already had, so it is not a request to
+ * look along an axis and must not silently change how they were looking. The
+ * projection they left the sketcher with is restored by `ProjectionRig` from
+ * `projection`, which this must therefore not touch.
  */
 function orients(command: ViewCommand): boolean {
-  return command.kind !== "fit";
+  return command.kind !== "fit" && command.kind !== "restore";
 }
 
 interface ViewCommandState {
   command: ViewCommand | null;
   /** What the camera does RIGHT NOW; the view rail's cell reads it back. */
   projection: Projection;
-  request: (kind: Exclude<ViewCommand["kind"], "direction">) => void;
+  request: (
+    kind: Exclude<ViewCommand["kind"], "direction" | "restore">,
+  ) => void;
   requestDirection: (dir: readonly [number, number, number]) => void;
+  /** Put the camera back at a remembered pose (see {@link ViewPose}). */
+  requestPose: (pose: ViewPose) => void;
   toggleProjection: () => void;
 }
 
@@ -76,6 +111,14 @@ export const useViewCommandStore = create<ViewCommandState>((set, get) => ({
       nonce: (get().command?.nonce ?? 0) + 1,
     } as const;
     set({ command, projection: "orthographic" });
+  },
+  requestPose: (pose) => {
+    const command = {
+      kind: "restore",
+      pose,
+      nonce: (get().command?.nonce ?? 0) + 1,
+    } as const;
+    set({ command });
   },
   toggleProjection: () =>
     set({
@@ -137,10 +180,16 @@ export function safeUp(dir: Vector3, up: Vector3): Vector3 {
   return Math.abs(up.dot(dir)) > PARALLEL_DOT ? upFor(dir) : up;
 }
 
-/** Keyboard accelerators for the view rail (one numeric vocabulary). */
+/**
+ * Keyboard accelerators for the view rail (one numeric vocabulary).
+ *
+ * `restore` is excluded with `direction` because neither is a view a user ASKS
+ * for by name — both carry an argument no key could supply, and both are issued
+ * by an instrument (the reference cube; the sketcher handing the camera back).
+ */
 export const VIEW_SHORTCUTS: Record<
   string,
-  Exclude<ViewCommand["kind"], "direction">
+  Exclude<ViewCommand["kind"], "direction" | "restore">
 > = {
   "1": "front",
   "2": "top",
