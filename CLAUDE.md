@@ -832,6 +832,23 @@ recipe here in the same commit as the fix.**
   which is the signature to detect on if a creation hook ever becomes available:
   a HEAD that is not an ancestor of the branch. Until then the brief line is
   still the whole control.
+  **MECHANISM FOUND 2026-08-29, and it makes the SHA in this entry a moving
+  target — do not memorise it.** A container restart landed mid-turn and the
+  session's own checkout came back at `03d2eca` with the local branch ref stale,
+  while the remote was 70 commits ahead. **The container's default clone is
+  seeded at the last merge into `main`, and worktrees inherit that starting
+  point** — which is why every one of the nine arrived at the same commit rather
+  than at a random old one. It was never bad luck or a harness bug; it is the
+  clone's origin showing through. Two consequences. (a) **The specific SHA will
+  change every time `main` advances** — this entry named `3b0b29e`, then
+  `03d2eca`, and `main` is now `d4552e3`, so a brief that greps for a literal
+  commit will stop working the next time we merge. State the rule as "reset to
+  `origin/<branch>` first", never as "watch for commit X". (b) The same restart
+  leaves the ORCHESTRATOR's checkout stale in exactly the same way, and its
+  local branch ref can point at a commit the remote passed long ago — so after
+  any restart, `git fetch && git reset --hard origin/<branch>` before reading or
+  reasoning about anything, and check `git ls-remote` rather than the local ref
+  when you need to know where the branch actually is.
   **AND THE "AUDIT IT AFTER A BATCH" ADVICE THIS ENTRY ORIGINALLY GAVE DOES NOT
   WORK — measured 2026-08-27, do not retry it.** A behind-count over every
   worktree returned 47 "STALE" rows and not one was the fault: a worktree seeded
