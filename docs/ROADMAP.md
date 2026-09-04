@@ -38,6 +38,53 @@ repair: HEM-1C (editor still claims base-flange inheritance for the radius
 and suggests the exact value the server refuses) and HEM-1D (UI cannot author
 an `open` hem at all) — **BOTH CLOSED**, see the entry below.
 
+**STEPNAME-2 CLOSED (kernel-architect, 2026-09-04) — the COMMON export was the
+broken one, and unifying the two writers turned out to cost nothing a consumer
+can see.** STEPNAME-1 fixed the assembly STEP's provenance and its non-ASCII
+names; the SINGLE-BODY export kept both defects, because it went through
+build123d's `export_step` instead of our writer. That is the export a user
+reaches by downloading ONE PART, so the user-visible split was the wrong way
+round — the rare path correct, the common one naming a library the recipient has
+never heard of and double-encoding the part name. Measured on the bytes for
+`Flänsch 40°`: `FILE_NAME(...,'build123d','Unknown')` and
+`PRODUCT('FlÃ\x83Â¤nsch 40Ã\x82Â°')`.
+**The decision, stated rather than defaulted into.** Two options: route this path
+through the owned writer, or upstream two parameters to build123d and pin the
+version. The first was taken; the risk that made it a decision was that owning
+the writer might drag XCAF assembly structure into a file with none, changing the
+emitted shape for every existing user. **It does not, and that is measured, not
+argued** — `_single_body_xde_document` rebuilds exactly the document build123d's
+`_create_xde` builds for a shape with no children (`makeAssembly=False`,
+auto-naming ON), and the payload is BYTE-IDENTICAL to build123d's for a named
+solid (15 348 B), an unnamed solid (15 335), and a multi-body `Compound` named
+(29 169) and unnamed (29 193). The complete before/after diff of the shipped fix
+is the originating-system field and, for a non-ASCII name, the `PRODUCT` id/name.
+Nothing else. **No golden's content hash moves** — the sheet-metal `content_hash`
+values are sha256 of `FlatPattern.to_json_bytes()`, and no golden or test pins a
+digest over single-body STEP bytes (checked, not assumed).
+**Mutation evidence, four mutants, all restored.** Reverting the encoding reddens
+**8** — all and only the non-ASCII names, across both `BodyShape` members, while
+the three ASCII-punctuation shapes stay green because part 21 always handled
+them. Reverting the whole path to build123d reddens **10** (those 8 plus both
+originating-system cases). Dropping the "unnamed keeps OCCT's default" skip
+reddens **1**. And the negative control for the structural claim — flipping that
+one flag to `makeAssembly=True` — reddens **12**, including the byte-determinism
+gate: turning a part into an assembly reintroduces STEPDET-1's process-global
+counter, so "no structure" is a determinism property and not a matter of taste.
+Note only the MULTI-BODY cases fail under it; the solid ones stay green, which is
+the same blind spot STEPDET-1 paid for and the reason both fixtures are carried
+through every case here.
+A welcome side effect: the export no longer MUTATES the caller's shape (the old
+path borrowed `shape.label` and restored it in a `finally`). A limit recorded
+rather than folded in: `FILE_NAME`'s NAME field goes through
+`TCollection_HAsciiString`, so a non-ASCII document name lands in the header as
+raw UTF-8 rather than `\X2\` escapes — it round-trips byte-exactly here and is
+IDENTICAL in both paths, so it is not a new split; filed as STEPHDR-1 (P3).
+Gates: full geometry suite **3099 passed / 1 skipped** (was 3070/1; +29 is
+exactly `test_step_names_part`'s case count, so the conftest refactor that gave
+both naming suites one part-21 reader lost nothing), `just lint` exit 0, pyright
+clean, no pydantic model touched so contracts are unchanged.
+
 **MATE-OBS-2 CLOSED (frontend-builder, 2026-08-29) — the eighth consumer, and
 the matrix that stops a ninth.** `AssemblyTreePanel` badged its mate rows from
 `evaluation.mate_errors` and `evaluation.diagnosis.conflicting_mates`

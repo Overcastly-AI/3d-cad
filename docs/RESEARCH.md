@@ -552,6 +552,33 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   3MF package is self-contained (we emit no cross-package references), so this
   costs nothing a consumer can observe. **GLB** needs no pinning at all: it is
   the tessellation payload verbatim, whose determinism is already gated.
+- **We drive OCCT's STEP writer ourselves, and ONE writer serves both the part
+  and the assembly path** (`geometry.kernel.export._write_step_document`;
+  STEPNAME-1 2026-08-29, STEPNAME-2 2026-09-04). build123d's `export_step` is a
+  thin, opinionated wrapper: it hardcodes `SetOriginatingSystem("build123d")`
+  with no parameter, and it builds every XDE label through
+  `TCollection_ExtendedString(str)` — the `isMultiByte=False` overload, which
+  reads UTF-8 bytes one at a time as characters, so every non-ASCII name reached
+  the file double-encoded. Neither is reachable from a caller. A STEP file is
+  what a user hands to a machinist, so its provenance and its names are a
+  user-facing surface, and "almost right" and "wrong" are the same outcome there.
+  The assembly path had already left the wrapper (it needs to name the shared
+  part label itself); leaving the SINGLE-BODY path behind meant the **more
+  common** export — downloading one part — was the defective one.
+  **Unifying was a decision about file SHAPE, and the answer is measured, not
+  argued:** `_single_body_xde_document` rebuilds exactly the document
+  `build123d.exporters3d._create_xde` builds for a shape with no children
+  (`AddShape(..., makeAssembly=False)`, auto-naming ON), and the emitted DATA
+  section is BYTE-IDENTICAL to build123d's for a named solid, an unnamed solid
+  and a multi-body `Compound` both ways (`test_step_names_part`). So a part STEP
+  gains no assembly level, no extra `PRODUCT` and no occurrence, no golden's
+  digest moves for a structural reason, and the only bytes that changed are the
+  two that were wrong. This is also why the counters in the bullet above stay an
+  assembly-only concern: a single-body export interposes no extra level, so it
+  emits neither. The negative control is direct — flipping that one flag to
+  `makeAssembly=True` adds two occurrences and two `PRODUCT('SOLID')` to a
+  multi-body part AND breaks its in-process byte determinism.
+  Mesh exports (STL/3MF/GLB) still go through build123d/lib3mf; only STEP is ours.
 - **Each export format declares its OWN length unit, and `EXPORT_UNITS` is the
   single place that says which** (`py_kit.schemas.geometry`; EXPORT-2). STEP,
   STL and 3MF are millimetres and Z-up; **glTF/GLB is metres and Y-up by

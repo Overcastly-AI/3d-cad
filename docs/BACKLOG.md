@@ -50,7 +50,11 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
   also CLOSED (2026-08-29): one shared canonicaliser for both writer
   counters, and the durable half is `assembly-two-multibody-brackets`, the
   fixture that makes the determinism gates able to fail at all (mutation: 4
-  red, 54 green).** Collapsed the
+  red, 54 green).** **STEPNAME-2 is CLOSED as well (2026-09-04): the COMMON
+  export — one part — was the defective one, and routing it through the owned
+  writer is byte-identical to build123d's output in all four shape/name cases,
+  so no golden's hash moves; STEPHDR-1 (P3) filed from the measurement.**
+  Collapsed the
   now-closed Ready-queue items (A11Y-TOOLBTN-1, MEASURE-PROXY-1, EXPORT-3,
   REACH-2-IMPORT-1, REACH-3-FLOW, REACH-2-FLOW, HEM-1C, HEM-1D, PGTEST-GATE,
   K2, PBT-1, SOLVE-CRASH-1, CI-BAL) into the Done archive.
@@ -94,7 +98,11 @@ Ranked, disjoint, parallel-dispatchable:
    instance name; the UUID is the fallback for a request that omits it, and
    the caller that omits it is `apps/web`. Two REAL geometry defects found and
    fixed alongside (non-ASCII names corrupted; the file named build123d as its
-   author). See the entry below; STEPNAME-1B is the remaining web half.
+   author). See the entry below; STEPNAME-1B was the remaining web half and is
+   closed. **STEPNAME-2 is closed too (2026-09-04)** — the single-body export
+   carried both of those defects on the MORE common path, and now writes through
+   the same owned writer, proved byte-identical to build123d's output so no
+   file's shape and no golden's hash moved.
 6. **ARC-DEGENERATE-1 is SHIPPED** (kernel-architect, 2026-08-29) — 27 of
    2000 payloads were shipping an arc collapsed onto its own centre, at a
    residual of zero; now `sketch_conflicting` with the constraint named. See
@@ -1374,36 +1382,65 @@ bend radius. See Done archive for evidence/gates.**
       TERRITORY: `apps/web/src/assembly/evaluateRequest.ts` + its unit test.
       agentType: frontend-builder.
 
-- [ ] (P2, S) **STEPNAME-2 — a SINGLE-BODY STEP export still names build123d
-      as its author and still corrupts a non-ASCII part name.** kind: defect.
-      Measured by STEPNAME-1 (2026-08-29) on the emitted bytes: exporting a
-      part named "Flänsch 40°" produces `PRODUCT('FlÃ\x83Â¤nsch 40Ã\x82Â°')`
-      and `FILE_NAME(...,'build123d','Unknown')`. Same two defects the
-      assembly path just fixed, and NOT fixable the same way: the assembly
-      path drives `STEPCAFControl_Writer` itself, while
-      `export_step_bytes` goes through build123d's `export_step`, which
-      hardcodes `SetOriginatingSystem("build123d")` with no parameter and
-      builds its label from `shape.label` through the same defaulted
-      `ExtendedString` overload. Neither is reachable from a caller. Note the
-      part export is the MORE common one, so the user-visible split is the
-      wrong way round — it is P2 only because the fix is not small.
-      ACCEPTANCE: decide between (a) routing the single-body path through the
-      same owned writer as the assembly path (removes a duplicate writer;
-      needs `build123d.exporters3d._create_xde`, a private function, or our
-      own XDE build, and must be proved byte-equivalent for an ASCII name
-      before anything else changes), or (b) upstreaming a parameter to
-      build123d and pinning the version. Byte assertions mirroring
-      `test_step_names.py`, on both defects.
-      **STILL OPEN after STEPDET-1 (2026-08-29), and that was checked rather
-      than assumed:** STEPDET-1's fix did not bring this path under our own
-      writer, and it did not need to — `export_step_bytes` builds no XCAF
-      assembly, so OCCT interposes no extra level, emits no translator
-      PRODUCT, and two exports of the same multi-body part in one process are
-      already byte-identical (measured). The two NAMING defects above are
-      unchanged and this stays P2 on its own terms.
-      [src: STEPNAME-1, kernel-architect, 2026-08-29]
+- [x] (P2, S) **STEPNAME-2 — CLOSED (kernel-architect, 2026-09-04). Option (a):
+      the single-body export now writes through the SAME owned writer as the
+      assembly path, and unifying cost nothing a consumer can see.** The
+      defect, measured on the bytes for a part named "Flänsch 40°":
+      `PRODUCT('FlÃ\x83Â¤nsch 40Ã\x82Â°')` and
+      `FILE_NAME(...,'build123d','Unknown')` — the SAME two defects STEPNAME-1
+      fixed for the assembly, on the export a user reaches by downloading one
+      part, i.e. the common path was the broken one.
+      **THE DECISION, since this ticket was mostly a decision.** The worry that
+      made (a) a judgement call was that owning the writer would drag XCAF
+      assembly structure into a file with none, changing the emitted shape for
+      every user and moving every digest. **It does not** —
+      `_single_body_xde_document` rebuilds the document build123d's
+      `_create_xde` builds for a shape with no children (`makeAssembly=False`,
+      auto-naming ON) and the payload is BYTE-IDENTICAL to build123d's for a
+      named solid (15 348 B), an unnamed solid (15 335) and a multi-body
+      `Compound` named (29 169) / unnamed (29 193). The complete before/after
+      diff of the shipped fix is the originating-system field plus, for a
+      non-ASCII name, the `PRODUCT` id/name — nothing else. **No golden's
+      content hash moves**: the sheet-metal `content_hash` values are sha256 of
+      `FlatPattern.to_json_bytes()`, and nothing in the suite pins a digest over
+      single-body STEP bytes (checked, not assumed).
+      **Mutation evidence, four mutants, all restored:** encoding reverted ->
+      8 red (all and only the non-ASCII names x both `BodyShape` members; the
+      three ASCII-punctuation shapes stay green, as part 21 always handled
+      them); whole path back to `build123d.export_step` -> 10; the
+      "unnamed keeps OCCT's default" skip dropped -> 1; and the negative control
+      for the structural claim, `makeAssembly=True` -> 12, including the
+      byte-determinism gate, because turning a part into an assembly
+      reintroduces STEPDET-1's process-global counter. Only the MULTI-BODY cases
+      fail under that control — the same blind spot STEPDET-1 paid for.
+      Also: the export no longer mutates the caller's shape (it used to borrow
+      `shape.label`). Filed from the measurement: STEPHDR-1 (P3).
+      [src: STEPNAME-1, kernel-architect, 2026-08-29; closed 2026-09-04]
       TERRITORY: `services/geometry/src/geometry/kernel/export.py`
       (`export_step_bytes`). agentType: kernel-architect.
+
+- [ ] (P3, XS) **STEPHDR-1 — a non-ASCII document name reaches the part-21
+      HEADER as raw UTF-8 rather than the standard's `\X2\` escapes.** kind:
+      defect. `FILE_NAME`'s NAME field is set through
+      `TCollection_HAsciiString`, which is byte-transparent, so
+      `export_step_bytes(..., name="括号 A")` writes the raw UTF-8 bytes into a
+      header ISO-10303-21 defines over ISO-8859-1. Measured 2026-09-04
+      (STEPNAME-2): it round-trips byte-exactly under a UTF-8 decode, and every
+      reader we have tried is UTF-8-tolerant, but a strict reader would show
+      mojibake. **P3 for two reasons, both worth keeping in the record.** (a) It
+      is IDENTICAL in the part and assembly paths — `_write_step_document` is
+      the single call site — so this is not a re-creation of the part/assembly
+      split STEPNAME-2 closed, and fixing it fixes both at once. (b) The header
+      NAME is provenance metadata; the field a downstream tool actually keys on
+      is `PRODUCT`, which is correct in both paths as of STEPNAME-2. ACCEPTANCE:
+      encode the header name per part 21 (`\X2\<utf-16be hex>\X0\`) and assert
+      on the emitted bytes that a strict ISO-8859-1 read recovers the name, for
+      the same seven mangling shapes the two naming suites already share. Watch
+      the ASCII case stays byte-identical, or every existing digest moves for a
+      name that needed no escaping.
+      [src: STEPNAME-2, kernel-architect, 2026-09-04]
+      TERRITORY: `services/geometry/src/geometry/kernel/export.py`
+      (`_write_step_document`). agentType: kernel-architect.
 
 - [x] (P1, S) **STEPDET-1 — CLOSED (kernel-architect, 2026-08-29). The
       canonicalisation is one pattern and a shared helper; the fixture that
