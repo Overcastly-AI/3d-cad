@@ -168,6 +168,15 @@ Discover  →  Audit  →  Groom  →  Build  →  Review  →  Verify  →  Int
   worktree each** (`isolation: 'worktree'`, same as builders), or brief them to
   copy the tree first. Whichever, the brief must name the commit SHA, never a
   path a sibling is living in.
+  **AND TELL THE REVIEWER THE BOARD TICK IS FOLDED IN AT INTEGRATION, or it
+  will keep filing its absence as a red finding.** Two reviewers in a row did on
+  2026-09-06, correctly quoting CLAUDE.md's non-negotiable same-commit rule at a
+  commit that deliberately omits the tick because THIS file told the builder to
+  omit it. Both were right about the rule and wrong about the defect, and the
+  cost is not the wasted paragraph — it is that a spurious red sits beside the
+  real ones and trains you to skim the severity. One line in the brief: *"the
+  builder was told to commit code and tests only; ROADMAP/BACKLOG are ticked by
+  the orchestrator at integration, so their absence here is not a finding."*
 - **Integrate** — yours. Merge each green branch, verify the merged tree
   (typecheck + unit + targeted gates), push, read CI, then launch the next batch.
 
