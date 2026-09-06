@@ -81,35 +81,47 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 20 (2026-09-06).** Pass 19's whole list
-(GATE-FLOOR, MATEUI-1, LAYOUT-1, GHOST-1, STEPNAME-1/1B, ARC-DEGENERATE-1,
-MATE-OBS-2, K2, PBT-1, SOLVE-CRASH-1, CI-BAL) shipped — see Done archive.
-Nothing is in flight; tree clean at `717fcdb`. **This pass's find: two
-drawings-composition defects, reproduced first-hand while dogfooding
-`geometry.drawings` on a real modelled part** (see their full tickets below).
-Ranked, disjoint, parallel-dispatchable — **top 3 are this batch:**
+**Dispatch order, groom pass 20 (2026-09-06), updated same day on the
+DRAWSHEET-AUTOPLACE-1 build report.** Pass 19's whole list (GATE-FLOOR,
+MATEUI-1, LAYOUT-1, GHOST-1, STEPNAME-1/1B, ARC-DEGENERATE-1, MATE-OBS-2, K2,
+PBT-1, SOLVE-CRASH-1, CI-BAL) shipped — see Done archive. **DRAWSHEET-
+AUTOPLACE-1 is BUILT at `27c8d3f` (kernel-architect) but NOT YET INTEGRATED
+onto this branch — orchestrator's to land, not a fresh dispatch target.**
+Two follow-ups it produced are filed below: LAYOUTISSUE-OFFSHEET-1 (P1) and
+DRAWLAYOUT-INK-CENTER-1 (P3, unverified). Ranked, disjoint,
+parallel-dispatchable — **top 3 for the NEXT batch** (once
+DRAWSHEET-AUTOPLACE-1 integrates; #1 below reads its emitted
+`measure_sheet_overflow`, so it is sequenced after, not parallel with, that
+integration):
 
-1. **DRAWSHEET-AUTOPLACE-1** (P1, S, kernel-architect) —
-   `services/geometry/src/geometry/drawings/**`. A lone auto-placed standard
-   view can be anchored off the sheet with no diagnostic; reproduced and
-   root-caused this pass, not just observed.
+1. **LAYOUTISSUE-OFFSHEET-1** (P1, S, backend-builder + kernel-architect +
+   frontend-builder) — `packages/py-kit/src/py_kit/schemas/drawings.py`,
+   `packages/contracts/**`, `packages/ts-client/**`,
+   `services/geometry/src/geometry/drawings/compose.py`, `apps/web`. The
+   off-sheet measurement DRAWSHEET-AUTOPLACE-1 built is not wired to
+   `layout_issues` — until this lands, an off-sheet view still exports
+   silently. Depends on DRAWSHEET-AUTOPLACE-1 being integrated first.
 2. **SHEET-RESCALE-1** (P2, S, backend-builder then frontend-builder) —
    `services/documents/**`, `services/gateway/**`,
    `apps/web/src/routes/DrawingPage.tsx`. A laid-out sheet's scale cannot be
-   changed by anything.
+   changed by anything. Disjoint from #1 and #3.
 3. **SNAP-4** (P2, S, frontend-builder) — `apps/web/src/sketch/**`. An
    explicit Fix on a point the draw already grounded misreports
-   OVER-CONSTRAINED.
+   OVER-CONSTRAINED. Disjoint from #1 and #2.
 
-Also ranked and ready, not in this batch (territory conflicts with #1 or
+Also ranked and ready, not in this batch (territory conflicts or
 size/blast-radius reasons noted):
 
 4. **TITLEBLOCK-FIT-1** (P2, S, kernel-architect) — same file as
-   DRAWSHEET-AUTOPLACE-1 (`compose.py`); queue for the batch after it lands,
-   not parallel with it.
-5. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
+   DRAWSHEET-AUTOPLACE-1/LAYOUTISSUE-OFFSHEET-1's emission half
+   (`compose.py`); queue after those land, not parallel with either.
+5. **DRAWLAYOUT-INK-CENTER-1** (P3, S, kernel-architect) — UNVERIFIED,
+   pending geometry-qa; same file again. May turn out to be the real close
+   of "ink cannot leave the border" if confirmed — do not dispatch until
+   that measurement lands.
+6. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
    unrelated edit hits a silent, unexplained disabled Save.
-6. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
+7. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
    select-without-editing gesture, and the command band is out of room at
    1280. Large blast radius (75 refs across 28 e2e spec files) — best run
    alone, not paired with other `apps/web` work.
@@ -247,9 +259,29 @@ See Done archive.**
       `revolve.py`, plus wherever the shared constant lands. agentType:
       kernel-architect.
 
-- [ ] (P1, S) **DRAWSHEET-AUTOPLACE-1 — a lone auto-placed standard view can
-      be anchored off the sheet, with no diagnostic anywhere.** kind: defect
-      (drawings composition). Found and REPRODUCED this pass while dogfooding
+- [ ] (P1, S) **DRAWSHEET-AUTOPLACE-1 — BUILT at `27c8d3f` (kernel-architect,
+      on its own worktree branch — not yet integrated onto this branch; keep
+      unchecked until it lands). A lone auto-placed standard view can be
+      anchored off the sheet, with no diagnostic anywhere.** kind: defect
+      (drawings composition). **The defect was wider than either the founder
+      or the groomer framed it, per the builder's own measurement**: all 15
+      non-empty subsets of the standard front/top/right/iso quartet were
+      swept, and **8 of 15 were displaced**, always by exactly
+      `VIEW_GUTTER_MM/2` = 12.00 mm per affected axis — including `front`
+      ALONE, contrary to the intuition that its slot is the arrangement's
+      origin. The 7 correct cases are exactly those that already span the
+      full arrangement's bounding box, which is why the default
+      front/top/right/iso sheet never showed this. A SECOND, independent bug
+      was found and fixed alongside: `resolve_view_anchors` fed the
+      auto-layout every evaluated projection, including ones pinned
+      `auto_place=False` — so a hand-placed view could shove the auto-placed
+      views aside to make room for geometry drawn somewhere else on the
+      sheet entirely. **Two follow-ups filed from this build, both below:
+      LAYOUTISSUE-OFFSHEET-1 (P1 — the diagnostic this ticket's own title
+      promises is not yet wired to the contract) and
+      DRAWLAYOUT-INK-CENTER-1 (P3, unverified — auto-layout may still centre
+      on CONTENT, not INK, leaving the caption band able to overhang the
+      border even after this fix).** Found and REPRODUCED this pass while dogfooding
       `geometry.drawings` on a real modelled part (door-canopy bracket sheet,
       `docs/canopy/canopy_sheet.py` at `0d684b3`, fixed in the same session by
       switching to a hand-authored anchor at `717fcdb`) — then root-caused
@@ -289,6 +321,88 @@ See Done archive.**
       TERRITORY: `services/geometry/src/geometry/drawings/compose.py`
       (`bounds_aware_layout`, `resolve_view_anchors`), its test file.
       agentType: kernel-architect.
+
+- [ ] (P1, S) **LAYOUTISSUE-OFFSHEET-1 — the off-sheet measurement
+      DRAWSHEET-AUTOPLACE-1 built is not wired to the diagnostic contract, so
+      a view that runs off the paper still exports with NO banner and an
+      empty `layout_issues`.** kind: capability gap (contract change), filed
+      by backlog-groomer from the DRAWSHEET-AUTOPLACE-1 build (`27c8d3f`,
+      kernel-architect, this pass — relayed by the orchestrator, not
+      independently reproduced by the groomer). `compose.py` gained
+      `measure_sheet_overflow` and it is tested, but deliberately left
+      DISCONNECTED from `ComposedSheet.layout_issues`: `ComposedLayoutIssue.
+      code` is `Literal["views_overlap", "views_crowded"]` and its `views`
+      field is pinned `min_length=2, max_length=2` in `packages/py-kit`, both
+      frozen into `packages/contracts/{gateway,geometry}.openapi.json` and
+      `packages/ts-client` — a same-batch wire would have shipped a
+      gen-check-red commit, and contract regeneration was another agent's
+      territory that pass. WHY THIS IS P1 AND NOT A LOOSE END: without this,
+      DRAWSHEET-AUTOPLACE-1's own title ("no diagnostic anywhere") is still
+      literally true for any off-sheet case its centring fix does not
+      happen to catch (e.g. a genuinely oversized single view, or whatever
+      DRAWLAYOUT-INK-CENTER-1 below turns out to be) — the measurement
+      exists and is silent. FIX: extend the `code` literal with an
+      off-sheet value, relax `views` to `min_length=1, max_length=2` (an
+      off-sheet issue names ONE view, not a pair), emit it from
+      `place_sheet` using the existing `measure_sheet_overflow`, then `just
+      gen`/`just gen-verify` to regenerate contracts + ts-client. Render it
+      through the SAME two surfaces N1/N2 already built for `layout_issues`
+      (`docs/design/...` — the on-sheet check strip + the exported-SVG
+      `drawing-layout-issue` banner), so the print carries the warning too,
+      not just the screen. ACCEPTANCE: composing a sheet with a view that
+      overflows the border (DRAWSHEET-AUTOPLACE-1's own reproduction fixture,
+      run before its centring fix, is the obvious regression case) yields a
+      `layout_issues` entry naming the offending view; the check-strip banner
+      and the exported SVG both carry it; `just gen-verify` clean; the
+      existing two-view `views_overlap`/`views_crowded` cases are unaffected
+      by relaxing the length bound (regression).
+      [src: DRAWSHEET-AUTOPLACE-1 build, kernel-architect, relayed by
+      orchestrator 2026-09-06, filed by backlog-groomer groom pass 20]
+      TERRITORY: `packages/py-kit/src/py_kit/schemas/drawings.py`
+      (`ComposedLayoutIssue`), `packages/contracts/**` + `packages/ts-client/**`
+      (generated — `just gen`), `services/geometry/src/geometry/drawings/
+      compose.py` (`place_sheet` emission), `apps/web` (check-strip +
+      exported-SVG banner rendering). agentType: backend-builder (contract
+      shape) + kernel-architect (emission) + frontend-builder (rendering).
+
+- [ ] (P3, S) **DRAWLAYOUT-INK-CENTER-1 — UNVERIFIED, pending an
+      independent geometry-qa measurement: auto-layout may centre a view on
+      its CONTENT bbox, not its INK bbox, so the caption band can still
+      overhang the sheet border even after DRAWSHEET-AUTOPLACE-1.** kind:
+      defect candidate (drawings composition), filed by backlog-groomer from
+      the DRAWSHEET-AUTOPLACE-1 build — treat the number below as unverified
+      until geometry-qa's independent pass confirms or refutes it; the
+      orchestrator has already dispatched that check. MEASURED BY THE
+      BUILDER (not yet cross-checked): a view's ink includes a ~9.7 mm
+      caption band hanging below its content, so a centred view's ink box
+      sits ~4.85 mm low of where the content box says it is. On the
+      builder's A2 fixture the CONTENT stays inside the border (17–403 of
+      10–410 mm) while the INK runs ~2.7 mm past it. IF CONFIRMED: this means
+      DRAWSHEET-AUTOPLACE-1 does not fully close "ink cannot leave the
+      border" — a sheet can still print a clipped caption even with the
+      centring fix. WHY THIS IS P3 AND DELIBERATELY NOT BUNDLED WITH THE FIX
+      ABOVE: re-centring on ink instead of content moves the anchor of the
+      STANDARD quartet too, which breaks every committed byte-identity
+      golden in the drawings suite — a large, deliberate blast radius the
+      builder correctly declined to take inside this batch. FIX (once
+      confirmed): centre `bounds_aware_layout` (and `_free_slot_anchor`) on
+      each view's full ink extent (content + caption band), not content
+      alone, and re-baseline the byte-identity goldens on purpose in the
+      same commit — a silent bbox drift in those goldens going forward would
+      be the regression to guard against, not the byte change itself.
+      ACCEPTANCE (once confirmed): the builder's A2 fixture's ink stays
+      fully inside the sheet margins; every existing drawings golden is
+      re-generated and diffed BY HAND (not just re-recorded) to confirm the
+      only change is the ink-vs-content anchor shift, nothing else moved. IF
+      REFUTED: close this ticket with the geometry-qa measurement that
+      contradicts it, and correct DRAWSHEET-AUTOPLACE-1's own closure note to
+      say "ink cannot leave the border" is already fully closed.
+      [src: DRAWSHEET-AUTOPLACE-1 build, kernel-architect, relayed by
+      orchestrator 2026-09-06, pending geometry-qa confirmation, filed by
+      backlog-groomer groom pass 20]
+      TERRITORY: `services/geometry/src/geometry/drawings/compose.py`
+      (`bounds_aware_layout`, `_free_slot_anchor`), `services/geometry/
+      goldens/**` (drawings goldens), test file. agentType: kernel-architect.
 
 - [ ] (P2, S) **TITLEBLOCK-FIT-1 — title-block free text truncates at a
       fixed character count, not the cell's actual width.** kind: defect
@@ -5037,6 +5151,13 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-09-06 — **DRAWSHEET-AUTOPLACE-1 built at `27c8d3f`, not yet
+  integrated; two follow-ups filed (backlog-groomer):** the defect was wider
+  than scoped — 8 of 15 quartet subsets displaced 12mm/axis, plus a second
+  bug (auto-layout fed hand-placed views too). Filed LAYOUTISSUE-OFFSHEET-1
+  (P1 — the off-sheet measurement isn't wired to `layout_issues` yet, so a
+  bad sheet still exports silently) and DRAWLAYOUT-INK-CENTER-1 (P3,
+  unverified pending geometry-qa — ink may still overhang the border).
 - 2026-09-06 — **Groom pass 20 (backlog-groomer):** reconciled ROADMAP/
   BACKLOG against `git log` (already accurate at `717fcdb`, no app-code
   drift — the two new commits are `docs/canopy/**` dogfooding, not
