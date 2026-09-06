@@ -82,19 +82,23 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
 ## Ready (top of queue)
 
 **Dispatch order, groom pass 20 (2026-09-06), updated same day on
-DRAWSHEET-AUTOPLACE-1's, SHEET-RESCALE-1's and SNAP-4's code reviews.** Pass
-19's whole list (GATE-FLOOR, MATEUI-1, LAYOUT-1, GHOST-1, STEPNAME-1/1B,
-ARC-DEGENERATE-1, MATE-OBS-2, K2, PBT-1, SOLVE-CRASH-1, CI-BAL) shipped — see
-Done archive. **All three of this batch's items came back ship-with-fixes,
-not clean closes — none re-dispatch whole:** DRAWSHEET-AUTOPLACE-1
-(`27c8d3f`) stays open pending ARC-BOUNDS-INFLATE-1/LAYOUTISSUE-OFFSHEET-1/
-DRAWLAYOUT-PINNED-BLIND-1 below; SHEET-RESCALE-1 (`d19d257`) is
-built-not-closed pending SHEET-RESCALE-2 (P1, unreachable by mouse) and
-SHEET-RESCALE-ORIENTATION-1 (a product question, filed in Next (P2), not
-Ready); SNAP-4 (`40a14bd`) is built-not-closed pending SNAP4-SPEC-1 (P2,
-XS — completes SNAP-4's OWN third acceptance clause), with
-SNAP4-CYCLE-TEST-1 (P3) and SNAP4-MIXED-SELECTION-1 (P2, S) filed alongside.
-Ranked, disjoint, parallel-dispatchable — **top 3 for the NEXT batch:**
+DRAWSHEET-AUTOPLACE-1's integration + geometry-qa pass, SHEET-RESCALE-1's
+build + QA pass, and SNAP-4's code review.** Pass 19's whole list
+(GATE-FLOOR, MATEUI-1, LAYOUT-1, GHOST-1, STEPNAME-1/1B, ARC-DEGENERATE-1,
+MATE-OBS-2, K2, PBT-1, SOLVE-CRASH-1, CI-BAL) shipped — see Done archive.
+**DRAWSHEET-AUTOPLACE-1 is INTEGRATED (`eb113cb` + geometry-qa's test fix
+`c6ae762`) but STAYS OPEN** — geometry-qa found the headline defect shape
+survives through two OTHER paths, filed as DRAWLAYOUT-OFFSHEET-FALLBACK-1
+(P1, new) and a coverage gap as DRAWLAYOUT-GOLDEN-COVERAGE-1 (P2, new);
+DRAWLAYOUT-INK-CENTER-1 is now CONFIRMED (not unverified) and dispatchable.
+SHEET-RESCALE-1 (`d19d257`) is built-not-closed, and QA's own static proof
+sharpens SHEET-RESCALE-2 further (it's dead code from the UI, not merely
+hard to reach) while confirming the server side is exactly right;
+SHEET-RESCALE-ORIENTATION-1 stays a product question in Next (P2), not
+Ready. SNAP-4 (`40a14bd`) is built-not-closed pending SNAP4-SPEC-1 (P2,
+XS), with SNAP4-CYCLE-TEST-1 (P3) and SNAP4-MIXED-SELECTION-1 (P2, S) filed
+alongside. Ranked, disjoint, parallel-dispatchable — **top 3 for the NEXT
+batch:**
 
 1. **ARC-BOUNDS-INFLATE-1 + LAYOUTISSUE-OFFSHEET-1's `compose.py` half**
    (P1, S, kernel-architect, ONE dispatch not two) —
@@ -102,47 +106,65 @@ Ranked, disjoint, parallel-dispatchable — **top 3 for the NEXT batch:**
    bbox defect and emit `off_sheet` from `measure_sheet_overflow` in the same
    session, since both touch `_edge_points`/`view_bounds`/`place_sheet` and
    the reviewer explicitly asked for them together. LAYOUTISSUE-OFFSHEET-1's
-   contract half (`packages/py-kit`, `packages/contracts`, `packages/ts-client`)
-   and rendering half (`apps/web`) are separate territory once the emission
-   shape from this dispatch is agreed — see its own ticket.
+   value just grew — geometry-qa found it's the single choke point for THREE
+   silent off-sheet paths, not one, see DRAWLAYOUT-OFFSHEET-FALLBACK-1.
+   LAYOUTISSUE-OFFSHEET-1's contract half (`packages/py-kit`,
+   `packages/contracts`, `packages/ts-client`) and rendering half
+   (`apps/web`) are separate territory once the emission shape from this
+   dispatch is agreed — see its own ticket.
 2. **SHEET-RESCALE-2** (P1, XS, frontend-builder) —
    `apps/web/src/components/DrawingCommandBand.tsx`. SHEET-RESCALE-1's
-   re-scale verb is built and unreachable by mouse (still a read-only
-   `Readout`) — weighted P1 on CLAUDE.md's own "unreachable capability is
-   the defect" standing directive, not treated as routine follow-up. Fold in
-   QA's reachability finding when it lands. Disjoint from #1 and #3.
+   re-scale verb is proven DEAD CODE from the UI by QA's static analysis
+   (one call site, in the branch that's never rendered post-layout) — not
+   merely inconvenient to reach. Reconciles QA-REVIEW.md's
+   SHEET-RESCALE-1B; one ticket, not two. Disjoint from #1 and #3.
 3. **SNAP4-SPEC-1** (P2, XS, frontend-builder) — `apps/web/e2e/
    constraints.spec.ts`. Completes SNAP-4's own unmet acceptance clause: the
    spec still routes around the fix it's meant to prove. Small, precise,
    measured edit already in the ticket. Disjoint from #1 and #2.
 
-Also ranked and ready, not in this batch (territory conflicts or
-size/blast-radius reasons noted):
+Also ranked and ready, not in this batch (territory conflicts, sequencing
+dependencies, or size/blast-radius reasons noted):
 
-4. **SNAP4-MIXED-SELECTION-1** (P2, S, frontend-builder) — same files as
+4. **DRAWLAYOUT-INK-CENTER-1** (P3, S, kernel-architect) — same file as #1;
+   NOW CONFIRMED by geometry-qa to 0.01 mm (no longer blocked on
+   verification) — a 9.7 mm-wide band of part sizes where a caption prints
+   past the border, bounded and never clipping geometry. Sequence after #1
+   (goldens should reflect the arc fix before this one re-baselines them
+   again).
+5. **DRAWLAYOUT-OFFSHEET-FALLBACK-1** (P1, S, kernel-architect +
+   frontend-builder) — `apps/web/src/drawing/layout.ts` (`fitScale`),
+   `services/geometry/src/geometry/drawings/compose.py`
+   (`_free_slot_anchor`). Two more live off-sheet-with-no-diagnostic paths
+   (an oversize part's fallback scale, an additive view's crowded-sheet
+   fallback slot — the second WIDENED by this pass's own centring fix).
+   Depends on LAYOUTISSUE-OFFSHEET-1 landing first (needs `off_sheet` in the
+   contract to report through) — sequence after #1.
+6. **DRAWLAYOUT-GOLDEN-COVERAGE-1** (P2, S, kernel-architect) — same
+   goldens directory as #4; add 1-/2-/3-view sheet goldens so a
+   subset-only defect (this whole cluster's shape) can never again be
+   structurally invisible to the golden suite. Sequence after #1 so the new
+   goldens capture corrected, not buggy, geometry.
+7. **SNAP4-MIXED-SELECTION-1** (P2, S, frontend-builder) — same files as
    SNAP-4 itself (`constraints.ts`, `store.ts`); a mixed grounded+free
    selection drops the grounded point silently on Fix. Sequence with
    SNAP4-BINDING-CONSISTENCY-1 below (same files), not parallel.
-5. **SNAP4-CYCLE-TEST-1** (P3, XS, frontend-builder) — `constraints.test.ts`;
+8. **SNAP4-CYCLE-TEST-1** (P3, XS, frontend-builder) — `constraints.test.ts`;
    a cycle-safety test that cannot observe cycle safety (never enters its own
    BFS). Different file from the two above, could run parallel with either.
-6. **SNAP4-BINDING-CONSISTENCY-1** (P3, XS, frontend-builder) — same files as
+9. **SNAP4-BINDING-CONSISTENCY-1** (P3, XS, frontend-builder) — same files as
    SNAP4-MIXED-SELECTION-1; two small bundled inconsistencies (X-on-Origin
    vs X-on-a-point-grounded-to-Origin bind differently; the hint names the
    anchor but not the escape hatch).
-7. **TITLEBLOCK-FIT-1** (P2, S, kernel-architect) — same file as #1 above
-   (`compose.py`); queue after it lands, not parallel with it.
-8. **DRAWLAYOUT-PINNED-BLIND-1** (P3, S, kernel-architect) — same file
-   again; a pinned view is invisible to the auto-layout's centring (not
-   silent today — `views_overlap` catches it — but the coherent fix is
-   upstream, in `_free_slot_anchor`'s style of occupied-space accounting).
-9. **DRAWLAYOUT-INK-CENTER-1** (P3, S, kernel-architect) — UNVERIFIED,
-   pending geometry-qa; same file again. May turn out to be the real close
-   of "ink cannot leave the border" if confirmed — do not dispatch until
-   that measurement lands.
-10. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
+10. **TITLEBLOCK-FIT-1** (P2, S, kernel-architect) — same file as #1 above
+    (`compose.py`); queue after it lands, not parallel with it.
+11. **DRAWLAYOUT-PINNED-BLIND-1** (P3, S, kernel-architect) — same file
+    again; a pinned view is invisible to the auto-layout's centring (not
+    silent today — `views_overlap` catches it — but the coherent fix is
+    upstream, in `_free_slot_anchor`'s style of occupied-space accounting).
+12. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
     unrelated edit hits a silent, unexplained disabled Save.
-11. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
+13. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
     select-without-editing gesture, and the command band is out of room at
     1280. Large blast radius (75 refs across 28 e2e spec files) — best run
     alone, not paired with other `apps/web` work.
@@ -280,32 +302,35 @@ See Done archive.**
       `revolve.py`, plus wherever the shared constant lands. agentType:
       kernel-architect.
 
-- [ ] (P1, S) **DRAWSHEET-AUTOPLACE-1 — INTEGRATED 2026-09-06 from `27c8d3f`
-      (+ the geometry-qa test fix `10dd0ba`); CODE-REVIEWED and GEOMETRY-QA PASSED;
-      STAYS OPEN — the placement fix landed, the ticket's acceptance did not.
-      A lone auto-placed standard view can be anchored off the sheet, with no
-      diagnostic anywhere.** kind: defect (drawings composition). **Status:
-      the two placement hunks (the gutter-bias centring fix + the
-      pinned-view-leak fix) are GOOD and are now integrated.
-      GEOMETRY-QA 2026-09-06 PASSED all four gates and added two findings:
-      the five compose goldens were proved byte-identical by REGENERATING them
-      from their own request.json against both `de32969` and `27c8d3f` (35
-      fields, 0 differences) rather than from `git status`; determinism clean
-      over 61 sheets x 3 formats x 5 interpreters at differing PYTHONHASHSEED
-      (one digest); no perf regression (7.749 vs 7.811 ms/sheet — and note the
-      methodology warning it recorded, that a same-order A/B read a false
-      +12-25% until the order was reversed). Its NEW finding is the sharper
-      one and is tracked separately: this commit REMOVES the accidental 12 mm
-      of headroom that let a section view find a free slot on a tight sheet,
-      so `_free_slot_anchor` reaches its off-sheet fallback in 2 more of 33
-      standard+section configurations (27.5 mm off the paper, layout_issues
-      == []). Exposure, not a new defect — base was correct only by accident
-      of the bug — but it is exposure this commit created, which is why
-      LAYOUTISSUE-OFFSHEET-1 is P1 and sequenced immediately after this.
-      Coverage gap it named: every committed drawing golden is the same A4
-      landscape full quartet, with no serialized golden for a 1-, 2- or
-      3-view sheet, which is exactly why a subset-only defect shipped.
-      Reviewer
+- [ ] (P1, S) **DRAWSHEET-AUTOPLACE-1 — INTEGRATED 2026-09-06 as `eb113cb`
+      (+ the geometry-qa test fix `c6ae762`); CODE-REVIEWED and GEOMETRY-QA
+      PASSED; STAYS OPEN — the placement fix landed, the ticket's acceptance
+      did not. A lone auto-placed standard view can be anchored off the
+      sheet, with no diagnostic anywhere.** kind: defect (drawings
+      composition). **Status: the two placement hunks (the gutter-bias
+      centring fix + the pinned-view-leak fix) are GOOD and are now
+      integrated. GEOMETRY-QA 2026-09-06 PASSED all four gates**: the five
+      compose goldens were proved byte-identical by REGENERATING them from
+      their own request.json against both `de32969` and `eb113cb` (35
+      fields, 0 differences) rather than from `git status`; determinism
+      clean over 61 sheets x 3 formats x 5 interpreters at differing
+      PYTHONHASHSEED (one digest); no perf regression (7.749 vs 7.811
+      ms/sheet — and note the methodology warning it recorded, that a
+      same-order A/B read a false +12-25% until the order was reversed);
+      and the standing border-check gate's own blindness (line-edges only,
+      no caption band) is now fixed in the same commit, see
+      ARC-BOUNDS-INFLATE-1. **Two NEW findings, both tracked as their own
+      tickets below rather than folded in here: DRAWLAYOUT-OFFSHEET-FALLBACK-1
+      (P1, new) — the sheet can STILL export ink off the PAPER with
+      `layout_issues == []` via two live paths (a pre-existing oversize-part
+      fallback in `fitScale`, and an additive-view free-slot fallback this
+      commit's own centring fix WIDENED from 5 to 7 of 33 configurations,
+      because centring removed the accidental 12 mm of headroom a section
+      view used to fall into by luck) — and DRAWLAYOUT-GOLDEN-COVERAGE-1 (P2,
+      new) — every committed drawing golden is the same A4 landscape full
+      quartet, with no serialized golden for a 1-, 2- or 3-view sheet, which
+      is structurally why a subset-only defect like this one shipped
+      unnoticed.** Reviewer
       reproduced the negative control exactly (5 of 10 tests redden, each
       hunk independently load-bearing), confirmed the standard-quartet
       goldens are byte-identical, independently reproduced the 8-of-15
@@ -324,8 +349,8 @@ See Done archive.**
       below: LAYOUTISSUE-OFFSHEET-1 (P1, re-ranked and paired with
       ARC-BOUNDS-INFLATE-1 per code review — the banner on a now-partially-clean
       sheet is not deferred polish, the condition it reports is still live)
-      and DRAWLAYOUT-INK-CENTER-1 (P3, unverified — auto-layout may still
-      centre on CONTENT, not INK).** Found and REPRODUCED this pass while
+      and DRAWLAYOUT-INK-CENTER-1 (P3, CONFIRMED by geometry-qa to 0.01 mm —
+      auto-layout centres on CONTENT, not INK).** Found and REPRODUCED this pass while
       dogfooding `geometry.drawings` on a real modelled part (door-canopy
       bracket sheet, `docs/canopy/canopy_sheet.py` at `0d684b3`, fixed in the
       same session by switching to a hand-authored anchor at `717fcdb`) —
@@ -408,13 +433,17 @@ See Done archive.**
       sheet composes with all ink inside the border." Any regression fixture
       MUST carry arcs (a full circle AND a swept arc) — a rectangle-only
       fixture is exactly why this shipped unnoticed and cannot stand in for
-      one here. Note for whoever picks this up: `test_composed_sheets_place_
-      every_view_inside_the_border` currently walks only `ComposedLineEdge`
-      (silently drops circle/polyline edges) and omits the caption band, so
-      it could not have caught this or the 12 mm gutter bias in either form
-      — geometry-qa is independently investigating that test's own gap; read
-      its finding before assuming this ticket's new fixture is sufficient on
-      its own.
+      one here. **UPDATE 2026-09-06: `test_composed_sheets_place_every_view_
+      inside_the_border`'s own blind spot is now FIXED (geometry-qa,
+      `c6ae762`)** — it used to walk only `ComposedLineEdge` (silently
+      dropped circle/polyline edges) and omit the caption band, which is
+      exactly why this ticket's own defect and the 12 mm gutter bias both
+      shipped unnoticed. It now walks all three edge kinds, adds the band
+      via `_caption_band_mm()`, and is non-vacuity-proven (raising the
+      border inset by `slack + 0.001` fires on every golden, naming the
+      view and side). Whoever picks up this ticket inherits a working gate
+      to prove the arc fix against — this is a real safety net now, not an
+      open question.
       [src: code-reviewer, DRAWSHEET-AUTOPLACE-1 review, relayed by
       orchestrator 2026-09-06, filed by backlog-groomer]
       TERRITORY: `services/geometry/src/geometry/drawings/compose.py`
@@ -449,8 +478,8 @@ See Done archive.**
       a view that runs off the paper still exports with NO banner and an
       empty `layout_issues`.** kind: capability gap (contract change), filed
       by backlog-groomer from the DRAWSHEET-AUTOPLACE-1 build (`27c8d3f`,
-      kernel-architect, this pass — relayed by the orchestrator, not
-      independently reproduced by the groomer). `compose.py` gained
+      integrated as `eb113cb`, kernel-architect — relayed by the
+      orchestrator, not independently reproduced by the groomer). `compose.py` gained
       `measure_sheet_overflow` and it is tested, but deliberately left
       DISCONNECTED from `ComposedSheet.layout_issues`: `ComposedLayoutIssue.
       code` is `Literal["views_overlap", "views_crowded"]` and its `views`
@@ -470,7 +499,16 @@ See Done archive.**
       condition it would report is still live in a real artifact — the
       banner without the arc fix reports a defect that could have been
       prevented, and the arc fix without the banner leaves the NEXT one
-      silent. **Dispatch paired with ARC-BOUNDS-INFLATE-1 — same
+      silent. **STRENGTHENED FURTHER by geometry-qa's verification pass
+      (2026-09-06, relayed by orchestrator): the banner is needed for TWO
+      MORE live off-sheet paths beyond the arc fix, filed as their own
+      ticket, DRAWLAYOUT-OFFSHEET-FALLBACK-1 (P1) — an oversize part's
+      `fitScale` fallback, and an additive view's `_free_slot_anchor`
+      fallback that THIS PASS'S OWN centring fix widened from 5 to 7 of 33
+      configurations. This wiring is now the single choke point that would
+      surface all three silent paths (arc inflation, oversize part,
+      crowded-additive-view) at once, which raises its value beyond "closes
+      one ticket's residual".** **Dispatch paired with ARC-BOUNDS-INFLATE-1 — same
       session/agent for the `compose.py` half, not two parallel builders on
       the same file; the contract/gen half (`packages/py-kit`,
       `packages/contracts`, `packages/ts-client`) and the `apps/web`
@@ -499,44 +537,133 @@ See Done archive.**
       exported-SVG banner rendering). agentType: backend-builder (contract
       shape) + kernel-architect (emission) + frontend-builder (rendering).
 
-- [ ] (P3, S) **DRAWLAYOUT-INK-CENTER-1 — UNVERIFIED, pending an
-      independent geometry-qa measurement: auto-layout may centre a view on
-      its CONTENT bbox, not its INK bbox, so the caption band can still
-      overhang the sheet border even after DRAWSHEET-AUTOPLACE-1.** kind:
-      defect candidate (drawings composition), filed by backlog-groomer from
-      the DRAWSHEET-AUTOPLACE-1 build — treat the number below as unverified
-      until geometry-qa's independent pass confirms or refutes it; the
-      orchestrator has already dispatched that check. MEASURED BY THE
-      BUILDER (not yet cross-checked): a view's ink includes a ~9.7 mm
-      caption band hanging below its content, so a centred view's ink box
-      sits ~4.85 mm low of where the content box says it is. On the
-      builder's A2 fixture the CONTENT stays inside the border (17–403 of
-      10–410 mm) while the INK runs ~2.7 mm past it. IF CONFIRMED: this means
-      DRAWSHEET-AUTOPLACE-1 does not fully close "ink cannot leave the
-      border" — a sheet can still print a clipped caption even with the
-      centring fix. WHY THIS IS P3 AND DELIBERATELY NOT BUNDLED WITH THE FIX
-      ABOVE: re-centring on ink instead of content moves the anchor of the
-      STANDARD quartet too, which breaks every committed byte-identity
-      golden in the drawings suite — a large, deliberate blast radius the
-      builder correctly declined to take inside this batch. FIX (once
-      confirmed): centre `bounds_aware_layout` (and `_free_slot_anchor`) on
-      each view's full ink extent (content + caption band), not content
-      alone, and re-baseline the byte-identity goldens on purpose in the
+- [ ] (P3, S) **DRAWLAYOUT-INK-CENTER-1 — CONFIRMED by geometry-qa to
+      0.01 mm, 2026-09-06: auto-layout centres a view on its CONTENT bbox,
+      not its INK bbox, so a caption can print past the drafting border even
+      after DRAWSHEET-AUTOPLACE-1.** kind: defect (drawings composition),
+      filed by backlog-groomer from the DRAWSHEET-AUTOPLACE-1 build,
+      independently confirmed by geometry-qa (relayed by orchestrator
+      2026-09-06) — the earlier "unverified, treat the number with caution"
+      framing is resolved. MEASURED (geometry-qa, exact): on the ticket's A2
+      fixture (340 x 386 mm content, 594 x 420 mm sheet, 574 x 400 mm
+      border) — content y-extent 17.0000..403.0000 mm (centre 210.0000 =
+      sheet centre exactly); ink y-extent (content + the 9.7 mm caption
+      band) 17.0000..412.7000 mm; ink centre 4.8500 mm below sheet centre
+      (= band / 2); content clearance to the bottom border 7.0000 mm; ink
+      PAST the bottom border by 2.7000 mm; ink relative to the PAPER edge
+      -7.3000 mm (still inside the paper). Bisected per sheet size: on A4 a
+      lone view's ink crosses the border above half-size 85.300 mm while its
+      content only crosses above 95.000 mm — **a 9.700 mm-wide band of part
+      sizes** where the sheet exports with ink outside the drafting border
+      and reports nothing (the quartet's own band is narrower, 4.850 mm: A4
+      36.650 vs 41.500, A3 58.400 vs 63.250, A2 89.150 vs 94.000). A band,
+      not a knife edge. **P3 STANDS, NOW FOR A STATED REASON, not just
+      "unverified, presumed small"**: while content stays inside the border,
+      ink can cross by AT MOST 9.7 mm and therefore sits at worst 0.3 mm
+      inside the PAPER — this mechanism alone can never clip geometry off
+      the page. It is a frame violation (a caption printed on or through the
+      drafting border), deterministic and bounded, never lost ink. **Already
+      recorded in the suite as `test_a_centred_views_caption_stays_inside_
+      the_drafting_border`, `xfail(strict=True)`, with the measured numbers
+      in its reason and the assertion left UNWEAKENED** (geometry-qa,
+      `c6ae762`) — it goes XPASS-red the day the layout centres ink instead
+      of content, which is the correct signal to remove the marker. WHY
+      DELIBERATELY NOT BUNDLED WITH DRAWSHEET-AUTOPLACE-1's FIX: re-centring
+      on ink instead of content moves the anchor of the STANDARD quartet
+      too, breaking every committed byte-identity golden in the drawings
+      suite — a large, deliberate blast radius correctly declined inside
+      that batch. FIX: centre `bounds_aware_layout` (and `_free_slot_anchor`)
+      on each view's full ink extent (content + caption band), not content
+      alone, and re-baseline the byte-identity goldens ON PURPOSE in the
       same commit — a silent bbox drift in those goldens going forward would
       be the regression to guard against, not the byte change itself.
-      ACCEPTANCE (once confirmed): the builder's A2 fixture's ink stays
-      fully inside the sheet margins; every existing drawings golden is
-      re-generated and diffed BY HAND (not just re-recorded) to confirm the
-      only change is the ink-vs-content anchor shift, nothing else moved. IF
-      REFUTED: close this ticket with the geometry-qa measurement that
-      contradicts it, and correct DRAWSHEET-AUTOPLACE-1's own closure note to
-      say "ink cannot leave the border" is already fully closed.
-      [src: DRAWSHEET-AUTOPLACE-1 build, kernel-architect, relayed by
-      orchestrator 2026-09-06, pending geometry-qa confirmation, filed by
-      backlog-groomer groom pass 20]
+      ACCEPTANCE: the `xfail(strict=True)` marker above is REMOVED and the
+      test passes outright; the A2 fixture's ink stays fully inside the
+      sheet margins; every existing drawings golden is re-generated and
+      diffed BY HAND (not just re-recorded) to confirm the only change is
+      the ink-vs-content anchor shift, nothing else moved.
+      [src: DRAWSHEET-AUTOPLACE-1 build, kernel-architect, confirmed by
+      geometry-qa `c6ae762`, relayed by orchestrator 2026-09-06, filed by
+      backlog-groomer]
       TERRITORY: `services/geometry/src/geometry/drawings/compose.py`
       (`bounds_aware_layout`, `_free_slot_anchor`), `services/geometry/
       goldens/**` (drawings goldens), test file. agentType: kernel-architect.
+
+- [ ] (P1, S) **DRAWLAYOUT-OFFSHEET-FALLBACK-1 — two live fallback paths
+      still let a sheet export ink off the PAPER with `layout_issues == []`,
+      one of them widened by DRAWSHEET-AUTOPLACE-1's own fix.** kind: defect
+      (drawings composition), found by geometry-qa verifying
+      DRAWSHEET-AUTOPLACE-1, relayed by orchestrator 2026-09-06. This is the
+      headline defect shape DRAWSHEET-AUTOPLACE-1 set out to kill,
+      surviving through two OTHER code paths it didn't touch. **Path 1 —
+      oversize part, pre-existing, UI-reachable without user error.** A
+      400x300 mm front view at 1:1 on A4 composes at x -51.50..348.50,
+      y -45.00..255.00 — **51.5 mm off the paper** left/right, 45.0 mm
+      top/bottom — with `layout_issues == []` and valid SVG/PDF/DXF.
+      `apps/web/src/drawing/layout.ts`'s `fitScale` has a documented "falls
+      back to the smallest option when nothing fits (never throws)" branch,
+      and its OWN test pins a 5 m part on A4 at 1:10 — a 500 mm view on a
+      297 mm sheet, by design. **Path 2 — additive views, exposure this
+      pass's fix created.** Centring the standard views (DRAWSHEET-
+      AUTOPLACE-1) removes the accidental 12 mm of headroom that used to let
+      a section view find a free slot on a tight sheet, so `_free_slot_
+      anchor` reaches its own documented off-sheet fallback ("the right of
+      the block") more often: measured over 33 standard+section
+      configurations, base 5 problem cases, HEAD 7. The two new
+      (`A4|front+right+section`, `A4|top+iso+section`) put the section view
+      at x 254.50..324.50 on a 297 mm sheet — **27.5 mm off the paper**.
+      Both sheets are genuinely tight (three 70x50 mm views at 1:1 on A4);
+      base was correct only by accident of the bug this pass fixed, so this
+      is exposure, not a new regression — but it is exposure this pass
+      created. FOR CONTRAST, the pairwise half of the diagnostic vocabulary
+      already works: a diagonal `top`+`right` pair overlapping on A3 (front's
+      zero extent collapses the spacing) correctly returns `views_overlap`
+      at base and HEAD alike. FIX direction: `fitScale`'s fallback should
+      report the resulting overflow rather than silently accepting it (the
+      geometry service already computes exactly this via
+      `measure_sheet_overflow`, once LAYOUTISSUE-OFFSHEET-1 wires it); `_free_
+      slot_anchor`'s off-sheet fallback should do the same rather than
+      placing an additive view somewhere `layout_issues` cannot see.
+      ACCEPTANCE: the two measured cases above (the oversize A4 front view,
+      the two tight-A4 section configurations) both surface a `layout_issues`
+      entry naming the offending view once LAYOUTISSUE-OFFSHEET-1's
+      `off_sheet` code exists; a regression test pins the 5-vs-7 count on the
+      33-configuration sweep so a future layout change cannot silently widen
+      this exposure again without the count moving in review.
+      [src: geometry-qa, DRAWSHEET-AUTOPLACE-1 verification pass, relayed by
+      orchestrator 2026-09-06, filed by backlog-groomer]
+      TERRITORY: `apps/web/src/drawing/layout.ts` (`fitScale`),
+      `services/geometry/src/geometry/drawings/compose.py`
+      (`_free_slot_anchor`), test files on both sides. agentType:
+      kernel-architect + frontend-builder. Depends on LAYOUTISSUE-OFFSHEET-1
+      landing first (needs `off_sheet` in the contract to report through).
+
+- [ ] (P2, S) **DRAWLAYOUT-GOLDEN-COVERAGE-1 — every committed drawing
+      golden is the same A4 landscape full quartet; there is no serialized
+      golden for a 1-, 2- or 3-view sheet.** kind: test debt (gate hygiene —
+      the fixture-shaped version of the vacuous-assertion family already on
+      this board: `toBeVisible()`/`force: true`/SNAP4-CYCLE-TEST-1 are all
+      "the assertion cannot observe the failure", this is "the FIXTURE SET
+      cannot reach the failure"). Found by geometry-qa verifying
+      DRAWSHEET-AUTOPLACE-1, relayed by orchestrator 2026-09-06: a
+      subset-only defect (DRAWSHEET-AUTOPLACE-1's whole headline) was
+      structurally invisible to the golden suite, because every golden
+      happens to be the one configuration (the full standard quartet) where
+      the centring bug's own symmetry cancels it out. No amount of asserting
+      harder against that fixture set could have caught it. FIX: add
+      serialized goldens for at least one 1-view, one 2-view, and one 3-view
+      sheet (mixing standard + additive projections, per
+      DRAWLAYOUT-OFFSHEET-FALLBACK-1's own configurations above), so the
+      byte-identity suite can no longer be blind to a whole class of layout
+      by construction. ACCEPTANCE: at least 3 new goldens covering
+      1/2/3-view sheets are committed and pass; reverting
+      DRAWSHEET-AUTOPLACE-1's centring fix (or ARC-BOUNDS-INFLATE-1's, once
+      it lands) makes at least one of the new goldens fail, proving they can
+      observe the class of defect that motivated them.
+      [src: geometry-qa, DRAWSHEET-AUTOPLACE-1 verification pass, relayed by
+      orchestrator 2026-09-06, filed by backlog-groomer]
+      TERRITORY: `services/geometry/goldens/**` (drawings goldens), its test
+      file. agentType: kernel-architect.
 
 - [ ] (P2, S) **TITLEBLOCK-FIT-1 — title-block free text truncates at a
       fixed character count, not the cell's actual width.** kind: defect
@@ -1049,7 +1176,9 @@ Done archive. Residual: **SHEET-RESCALE-1** below.**
 
 - [ ] (P1, XS) **SHEET-RESCALE-2 — the re-scale verb SHEET-RESCALE-1 built
       ships unreachable by mouse: the Scale control is still a read-only
-      `Readout`.** kind: defect (flow — an existing, working capability with
+      `Readout`. CONFIRMED as dead code, not just unreachable, by QA's static
+      proof — reconciles QA-REVIEW.md's SHEET-RESCALE-1B, same finding, one
+      ticket.** kind: defect (flow — an existing, working capability with
       no way to reach it, CLAUDE.md's own named defect class: "the founder's
       own FB-1..FB-19 were almost all 'the capability was there and
       unreachable'"). Escalated by the SHEET-RESCALE-1 builder rather than
@@ -1063,15 +1192,29 @@ Done archive. Residual: **SHEET-RESCALE-1** below.**
       "built and unreachable" above "not built yet": until this lands,
       SHEET-RESCALE-1's re-scale exists only for API callers, which is the
       exact shape of gap the founder has flagged repeatedly as worse than a
-      missing feature. **QA has been asked to report reachability as a
-      finding, not a footnote — fold their verdict in when it arrives before
-      dispatching, in case they found the wiring is not as clean as
-      measured.** ACCEPTANCE: on a laid-out sheet, the Scale control in the
-      command band is a live, clickable `SelectField`; picking a new scale
-      re-draws every view via the verb SHEET-RESCALE-1 built; a Playwright
-      case drives it by mouse (click Scale → pick a value → assert the
-      redraw), not just by calling the API directly.
-      [src: SHEET-RESCALE-1 build, backend-builder, relayed by orchestrator
+      missing feature. **SHARPENED to P1 by QA's own pass (relayed by
+      orchestrator 2026-09-06) — the server side passes exactly** (ratio
+      0.250000 on all four views, measured three independent ways; viewless
+      refusal transactional; H2 guard intact and not narrowed; round-trip
+      clean; the negative control shows the no-op still returns 200) **but
+      reachability is now proven STATICALLY, not just observationally**:
+      `onSelectScale` has exactly one call site, in the
+      `hasLayout ? Readout : SelectField` FALSE branch, and `reheadSheet(
+      {scale})` has exactly one caller whose post-layout branch runs only
+      when `hasLayout` is TRUE — i.e. exactly when the control that would
+      call it is not rendered. Post-layout `drawing-scale-select` count is
+      0, with no interactive descendants and no tab stop. **This is dead
+      code from the UI's perspective, not merely hard to reach**: a user can
+      see the scale and cannot change it, structurally, not by omission of a
+      specific gesture. ACCEPTANCE: on a laid-out sheet, the Scale control in
+      the command band is a live, clickable `SelectField`; picking a new
+      scale re-draws every view via the verb SHEET-RESCALE-1 built; a
+      Playwright case drives it by mouse (click Scale → pick a value →
+      assert the redraw), not just by calling the API directly; the static
+      proof above (call-site count, branch reachability) is re-run and
+      confirmed to flip.
+      [src: SHEET-RESCALE-1 build, backend-builder; QA static proof
+      (docs/QA-REVIEW.md SHEET-RESCALE-1B), relayed by orchestrator
       2026-09-06, filed by backlog-groomer]
       TERRITORY: `apps/web/src/components/DrawingCommandBand.tsx`, its test
       file. agentType: frontend-builder.
@@ -5493,6 +5636,19 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-09-06 — **DRAWSHEET-AUTOPLACE-1 integrated (`eb113cb`+`c6ae762`);
+  geometry-qa found the defect survives two more paths; SHEET-RESCALE-1 QA
+  sharpens SHEET-RESCALE-2 (backlog-groomer, relaying orchestrator).** Filed
+  DRAWLAYOUT-OFFSHEET-FALLBACK-1 (P1 — an oversize part's `fitScale`
+  fallback and an additive view's `_free_slot_anchor` fallback, the second
+  widened 5→7/33 by this pass's own centring fix, both still export ink off
+  the paper silently) and DRAWLAYOUT-GOLDEN-COVERAGE-1 (P2 — no golden below
+  the full quartet, structurally why a subset-only defect shipped).
+  DRAWLAYOUT-INK-CENTER-1 is now CONFIRMED to 0.01 mm (9.7 mm band, bounded,
+  never clips) and recorded as `xfail(strict=True)`. SHEET-RESCALE-2's
+  reachability gap is now proven dead code by static analysis (one call
+  site, in the branch never rendered post-layout) — reconciled with
+  QA-REVIEW.md's SHEET-RESCALE-1B into one ticket.
 - 2026-09-06 — **SNAP-4 built at `40a14bd`, ship-with-fixes, three
   follow-ups filed (backlog-groomer, relaying orchestrator).** Reviewer
   verified the design AT THE SOLVER (a point transitively pinned via
