@@ -7,7 +7,12 @@
  */
 import type { components } from "@loft/ts-client/gateway";
 
-import { isDatumId, isDatumPin, selectionTouchesDatum } from "./datum";
+import {
+  DATUM_LABELS,
+  isDatumId,
+  isDatumPin,
+  selectionTouchesDatum,
+} from "./datum";
 import type { Point2D } from "./plane";
 import type { SketchPick } from "./pick";
 import { TOOL_SHORTCUTS, type SketchEntity } from "./tools";
@@ -598,6 +603,83 @@ export function sameConstraint(
   }
 }
 
+/**
+ * Point identity for set/map keys — `entity` and `point` together, always.
+ * Joined on a character no id or point name can contain, so two different refs
+ * cannot collide into one key by splitting the join differently.
+ */
+const refKey = (ref: EntityPointRef): string =>
+  `${ref.entity}\u0000${ref.point}`;
+
+/**
+ * THE PIN THAT ALREADY HOLDS THIS POINT STILL — or null when it can move.
+ *
+ * A `coincident` is a point-to-point IDENTITY: both coordinates, no residual
+ * freedom. So a point joined to a pinned one is not "nearly" fixed, it is
+ * fixed, and a second `fixed` on top of it states a fact the solver has
+ * already been told. It answers with the truth — OVER-CONSTRAINED — and that
+ * is where SNAP-4 came from: since SNAP-3 the draw itself authors the
+ * coincident when a click lands on the origin, so the user owns only ONE of
+ * the two redundant constraints and is asked to delete the other, which they
+ * never knowingly created.
+ *
+ * The walk is transitive because the defect is: a corner snapped onto a corner
+ * that was snapped onto the origin is just as grounded, one hop further out,
+ * and a rule that only looked at direct coincidents would refuse the first
+ * point and over-constrain the second — the same defect wearing a longer
+ * chain. It follows `coincident` and nothing else on purpose. `midpoint` and
+ * `symmetric` can also pin a point outright, but only in combination with what
+ * holds their line, and a REFUSAL is a dead end when it is wrong, so this
+ * answers only where the answer is exact.
+ *
+ * The returned ref is the pinned anchor itself, so a caller can name what is
+ * holding the point (`the Origin`) rather than asserting that something is.
+ */
+export function groundingAnchor(
+  point: EntityPointRef,
+  constraints: readonly SketchConstraint[],
+): EntityPointRef | null {
+  const pinned = new Map<string, EntityPointRef>();
+  for (const constraint of constraints) {
+    if (constraint.kind === "fixed") {
+      pinned.set(refKey(constraint.point), constraint.point);
+    }
+  }
+  if (pinned.size === 0) return null;
+  const seen = new Set<string>([refKey(point)]);
+  const queue: EntityPointRef[] = [point];
+  for (let head = 0; head < queue.length; head += 1) {
+    const at = queue[head] as EntityPointRef;
+    const anchor = pinned.get(refKey(at));
+    if (anchor !== undefined) return anchor;
+    for (const constraint of constraints) {
+      if (constraint.kind !== "coincident") continue;
+      const next = sameRef(constraint.a, at)
+        ? constraint.b
+        : sameRef(constraint.b, at)
+          ? constraint.a
+          : null;
+      if (next === null || seen.has(refKey(next))) continue;
+      seen.add(refKey(next));
+      queue.push(next);
+    }
+  }
+  return null;
+}
+
+/**
+ * What to say when Fix is refused because the point is already held. It names
+ * the ANCHOR, because the whole complaint in SNAP-4 is that the user cannot
+ * see why the tool is talking about a constraint they did not author: "already
+ * grounded" alone is the dead end, "grounded on the Origin" points at the C
+ * glyph sitting there, which is both the explanation and the exit (delete it
+ * and the point is free to be fixed anywhere).
+ */
+const groundedHint = (anchor: EntityPointRef): string =>
+  isDatumId(anchor.entity)
+    ? `Already grounded on the ${DATUM_LABELS[anchor.entity]} — the join there holds this point.`
+    : "Already grounded — this point is joined to a fixed one.";
+
 const measuredLength = (entity: SketchEntity): number =>
   entity.kind === "line"
     ? Math.hypot(entity.end.x - entity.start.x, entity.end.y - entity.start.y)
@@ -952,17 +1034,44 @@ export function applyConstraintAction(
       const points = selection.filter((pick) => pick.kind === "point");
       if (points.length === 0) return hint("Select a point to fix.");
       const added: SketchConstraint[] = [];
+      // The first anchor found, so the refusal can name what is already
+      // holding the point instead of asserting that something is. Whichever
+      // point the user picked first wins the wording, which is the one they
+      // aimed at when the selection is a stack.
+      let grounded: EntityPointRef | null = null;
       for (const pick of points) {
-        const constraint: SketchConstraint = {
-          kind: "fixed",
-          point: { entity: pick.entity, point: pick.point },
+        const point: EntityPointRef = {
+          entity: pick.entity,
+          point: pick.point,
         };
-        if (!constraints.some((c) => sameConstraint(c, constraint))) {
-          added.push(constraint);
+        const constraint: SketchConstraint = { kind: "fixed", point };
+        if (constraints.some((c) => sameConstraint(c, constraint))) continue;
+        // SNAP-4: A POINT THE SKETCH ALREADY HOLDS STILL CANNOT BE FIXED
+        // AGAIN. See `groundingAnchor` for why the second pin is redundant
+        // rather than merely inelegant, and why refusing beats the two
+        // alternatives: authoring it anyway reports OVER-CONSTRAINED and asks
+        // the user to delete a constraint the DRAW authored (the defect), and
+        // silently REPLACING the coincident with a `fixed` would throw away
+        // the very thing SNAP-3 exists to record — a join that survives a
+        // re-drive, and that follows a face-seated origin when the face
+        // changes — in exchange for a coordinate pin the user did not ask for
+        // either. Refusing keeps the sketch as drawn and says why; the verb
+        // still counts as intent (`already`), so the keystroke binds the
+        // sketch exactly as SNAP-5's "Already horizontal." does.
+        const anchor = groundingAnchor(point, constraints);
+        if (anchor !== null) {
+          grounded ??= anchor;
+          continue;
         }
+        added.push(constraint);
       }
-      if (added.length === 0) return alreadyHint("Already fixed.");
-      return { outcome: "added", constraints: added };
+      // A MIXED selection still fixes the points it can: an unheld point is
+      // not made unreachable by a held one sharing the pick, the same way a
+      // duplicate has never blocked its neighbours.
+      if (added.length > 0) return { outcome: "added", constraints: added };
+      return alreadyHint(
+        grounded === null ? "Already fixed." : groundedHint(grounded),
+      );
     }
     case "coincident": {
       const points = selection.filter((pick) => pick.kind === "point");

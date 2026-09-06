@@ -198,6 +198,10 @@ async function clickPlane(page: Page, at: Mapper, pt: Point): Promise<void> {
 const coincidentGlyph = (page: Page) =>
   page.locator('[data-testid^="glyph-"][data-kind="coincident"]');
 
+/** FIX glyphs alone, by kind — the datum's own pin deliberately draws none. */
+const fixGlyph = (page: Page) =>
+  page.locator('[data-testid^="glyph-"][data-kind="fixed"]');
+
 /** Click with Ctrl held — freehand: every snap suppressed (the UI-W5 polarity). */
 async function clickFreehand(page: Page, at: Mapper, pt: Point): Promise<void> {
   await page.keyboard.down("Control");
@@ -615,5 +619,220 @@ test.describe("SNAP-3 — a snap records the intent, not just the coordinate", (
       path: `${SCREENSHOT_DIR}/sketch-snap-coincident-after-1280.png`,
     });
     expect(token).not.toBe("");
+  });
+});
+
+/**
+ * SNAP-4 — TWO CORRECT FEATURES MEETING ON ONE POINT.
+ *
+ * Start a line ON the origin and SNAP-3 authors the coincident that grounds it.
+ * Press X (Fix) on that same endpoint — correct in isolation — and the point
+ * was pinned twice, so the sketch reported OVER-CONSTRAINED. The report was
+ * TRUE, which is what made it bad: the user authored one of the two
+ * constraints and the draw authored the other, so the tool was asking them to
+ * delete something they never knowingly created.
+ *
+ * A `coincident` is a point-to-point identity, so a point joined to a pinned
+ * one is not nearly fixed, it is fixed, and X now says so instead of restating
+ * it. The two tests below are the fix and its guard: the second proves the
+ * diagnosis was not bought by blinding it, because "no over-constraint" is
+ * trivially achievable by never reporting one.
+ */
+test.describe("SNAP-4 — Fix on a point the draw already grounded", () => {
+  test("is refused by name, and the sketch still converges", async ({
+    page,
+  }) => {
+    const { token } = await seedSession(page);
+    const part = await createPartViaApi(page, token, "Grounded fix");
+    await page.goto(`/parts/${part.id}`);
+    await enterSketch(page);
+    const at = await calibratePlane(
+      page,
+      { x: 700, y: 620 },
+      { x: 1000, y: 420 },
+    );
+
+    // The ticket's gesture. Aimed 0.3 mm off zero with the grid OFF, so only
+    // the origin magnet can land it — and at 37 deg, clear of SNAP-5's 3 deg
+    // axis inference, so the only inferred relation on this sketch is the one
+    // under test.
+    await page.keyboard.press("l");
+    await clickPlane(page, at, { x: 0.3, y: -0.2 });
+    await clickPlane(page, at, { x: 40.4, y: 30.4 });
+    await page.keyboard.press("Escape");
+
+    // The setup is really the ticket's setup: the draw authored the join. The
+    // sketch is NOT bound yet and therefore has no solve at all — an inferred
+    // constraint is the tool recording the aim, not the user asking for a
+    // relation (see `userConstrained`), so the Solve cell is not on screen.
+    await expect(coincidentGlyph(page)).toHaveCount(1);
+    await expect(page.getByTestId("dro-solve")).toHaveCount(0);
+
+    await clickPlane(page, at, { x: 0, y: 0 });
+    await expect(page.getByTestId("selection-readout")).toContainText("1 pt");
+    await page.keyboard.press("x");
+
+    // THE FIX. Pre-fix there is no hint at all here — the verb succeeded — so
+    // this assertion cannot pass on the old build for a timing reason: it
+    // waits for text that is never written.
+    await expect(page.getByTestId("constraint-hint")).toHaveText(
+      "Already grounded on the Origin — the join there holds this point.",
+    );
+    // …and nothing was authored: pre-fix a second pin lands on this point and
+    // a FIX glyph appears over the origin.
+    await expect(fixGlyph(page)).toHaveCount(0);
+
+    // THE STATUS THE USER READS, and the one this ticket is about. The
+    // keystroke still binds the sketch (the `already` seam SNAP-5 put there),
+    // so the solve runs and answers — pre-fix it answered OVER-CONSTRAINED
+    // about a constraint the user never authored. Waiting for the WHOLE cell
+    // rather than the absence of a banner: the solve is a debounced round
+    // trip, and an assertion made in the gap before the reply passes on a
+    // broken build.
+    await expect(page.getByTestId("dro-solve")).toHaveText(
+      "DOF 2 · UNDER-CONSTRAINED",
+      { timeout: 30_000 },
+    );
+    await expect(page.getByTestId("solve-diagnostic")).toHaveCount(0);
+
+    // THE FOUNDER SHOT, taken at exactly the moment the ticket is about — one
+    // line drawn from the origin, one X pressed on that endpoint. The "before"
+    // frame of the same moment is a flag-red OVER-CONSTRAINED cell, a banner
+    // reading "a redundant constraint is flagged … Remove it", and a red FIX
+    // over the origin the user never asked for.
+    await page.mouse.move(1400, 900); // park the cursor off the sheet
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/sketch-snap-fix-grounded-1600.png`,
+    });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/sketch-snap-fix-grounded-1280.png`,
+    });
+    await page.setViewportSize({ width: 1600, height: 1000 });
+
+    // THE VERB IS NOT DISABLED, it is answered. The far end still fixes, and
+    // takes the last two freedoms with it.
+    await clickPlane(page, at, { x: 40.4, y: 30.4 });
+    await expect(page.getByTestId("selection-readout")).toContainText("1 pt");
+    await page.keyboard.press("x");
+    await expect(fixGlyph(page)).toHaveCount(1);
+    await expect(page.getByTestId("dro-solve")).toHaveText(
+      "DOF 0 · CONVERGED",
+      {
+        timeout: 30_000,
+      },
+    );
+    await expect(page.getByTestId("solve-diagnostic")).toHaveCount(0);
+
+    await finishSketch(page);
+    const authored = await sketchParams(page, token, part.id);
+
+    // WHAT THE STATUS CLAIMED, CHECKED AGAINST WHAT WAS AUTHORED AND SOLVED.
+    // Exactly one user pin (the far end) and the frame's own; the inferred
+    // join SURVIVES — Fix refusing is not Fix quietly replacing it, which
+    // would have thrown away the relation SNAP-3 exists to record.
+    expect(
+      authored.constraints.filter(
+        (c) => c.kind === "fixed" && c.point?.entity !== "origin",
+      ),
+    ).toEqual([{ kind: "fixed", point: { entity: "e1", point: "end" } }]);
+    expect(
+      authored.constraints.some(
+        (c) => c.kind === "fixed" && c.point?.entity === "origin",
+      ),
+    ).toBe(true);
+    expect(
+      joins(
+        authored.constraints,
+        { entity: "e1", point: "start" },
+        { entity: "origin", point: "position" },
+      ),
+    ).toBe(true);
+
+    // And "grounded" is a claim about the geometry, not a word in a hint: the
+    // solver puts that endpoint on zero.
+    const solved = await solvedSketch(page, token, part.id);
+    expect(
+      dist(pointOf(solved, { entity: "e1", point: "start" }), { x: 0, y: 0 }),
+    ).toBeLessThan(1e-6);
+  });
+
+  test("a genuine over-constraint on the same sketch still stops the user", async ({
+    page,
+  }) => {
+    // THE GUARD. Refusing X is only a fix if the diagnosis it removed was the
+    // spurious one; a build that had simply stopped reporting redundancy would
+    // pass the test above. So: same grounded start, same refusal — then a
+    // redundancy the user really does author, on the same sketch, which must
+    // still stop them with a glyph they can see and delete.
+    const { token } = await seedSession(page);
+    const part = await createPartViaApi(page, token, "Grounded fix control");
+    await page.goto(`/parts/${part.id}`);
+    await enterSketch(page);
+    const at = await calibratePlane(
+      page,
+      { x: 700, y: 620 },
+      { x: 1000, y: 420 },
+    );
+
+    // The grounded line runs into the THIRD quadrant so it cannot cross the
+    // corner drawn below, which lives where this file's other over-constraint
+    // test already proves the gesture works.
+    await page.keyboard.press("l");
+    await clickPlane(page, at, { x: 0.3, y: -0.2 });
+    await clickPlane(page, at, { x: -40.4, y: -30.4 });
+    await page.keyboard.press("Escape");
+    await clickPlane(page, at, { x: 0, y: 0 });
+    await expect(page.getByTestId("selection-readout")).toContainText("1 pt");
+    await page.keyboard.press("x");
+    await expect(page.getByTestId("constraint-hint")).toContainText(
+      "Already grounded on the Origin",
+    );
+    await expect(page.getByTestId("dro-solve")).toHaveText(
+      "DOF 2 · UNDER-CONSTRAINED",
+      { timeout: 30_000 },
+    );
+
+    // A corner clear of the frame: one horizontal edge, one vertical edge, the
+    // second starting on the first's end. Escape FIRST — a refused verb leaves
+    // the selection standing (it is still the user's pick), and with a
+    // selection L is the perpendicular verb, not the Line tool.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("selection-readout")).toContainText(
+      "nothing selected",
+    );
+    await page.keyboard.press("l");
+    await clickPlane(page, at, { x: 10.4, y: 12.4 });
+    await clickPlane(page, at, { x: 50.4, y: 12.4 });
+    await clickPlane(page, at, { x: 50.7, y: 12.6 }); // snapped to the corner
+    await clickPlane(page, at, { x: 50.4, y: 44.4 });
+    await page.keyboard.press("Escape");
+
+    // Stated explicitly, whether or not SNAP-5 got there first — either way
+    // the sketch ends up holding both facts.
+    await clickPlane(page, at, { x: 30.4, y: 12.4 });
+    await expect(page.getByTestId("selection-readout")).toContainText("1 ent");
+    await page.keyboard.press("h");
+    await clickPlane(page, at, { x: 50.4, y: 28.4 });
+    await expect(page.getByTestId("selection-readout")).toContainText("1 ent");
+    await page.keyboard.press("v");
+
+    // A horizontal edge and a vertical one are ALREADY perpendicular, so
+    // saying so is redundant — and this one the user authored, can see, and
+    // can delete.
+    await clickPlane(page, at, { x: 30.4, y: 12.4 });
+    await page.keyboard.down("Shift");
+    await clickPlane(page, at, { x: 50.4, y: 28.4 });
+    await page.keyboard.up("Shift");
+    await expect(page.getByTestId("selection-readout")).toContainText("2 ents");
+    await page.keyboard.press("l"); // perpendicular
+
+    await expect(page.getByTestId("solve-diagnostic")).toContainText(
+      "Over-constrained",
+      { timeout: 30_000 },
+    );
+    const flagged = page.locator("[data-flagged]");
+    await expect(flagged.first()).toBeVisible();
+    await expect(flagged.first()).toHaveAttribute("data-testid", /^glyph-/);
   });
 });
