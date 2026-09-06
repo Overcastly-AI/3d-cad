@@ -12,6 +12,135 @@ blocked or lies · **P2** a real flow is worse than it should be · **P3** polis
 
 ---
 
+## 2026-09-06 — SNAP-4 independently verified: PASS, with four findings the builder's assertions could not observe
+
+**Verdict: PASS on `40a14bd`.** The ticket's defect is gone on the real stack,
+driven from the user's own gesture (`page.mouse.click` at coordinates read off
+the live DRO, `page.keyboard.press`) — no store pokes, no helper that authors
+constraints. The refusal is truthful, the recovery clause holds, and the verb is
+reachable on touch. Four defects filed below; none of them blocks the fix.
+
+Environment: native boot (uvicorn + SQLite) on isolated ports 8410/8411/8412,
+Vite 5412, a **private** worktree at `40a14bd`
+(`$SCRATCHPAD/qa-snap4/wt`) — a code-reviewer had write access to the shared
+worktree during part of this pass, so every number below was re-taken in the
+private copy behind a `PRECONDITION` case that reads the SERVED module from Vite
+and asserts `groundingAnchor` opens with `const` (the fix) and not `return` (the
+mutant). Spec: `apps/web/e2e/qa-snap4-verify.spec.ts`, 11 cases, one of them
+`test.fail()`-annotated (QA-SNAP4-4).
+
+### What was established
+
+| # | Question | Reading |
+|---|---|---|
+| 1 | Original defect gone, from the gesture | Draw one line from the origin, press `x` on that endpoint: hint `Already grounded on the Origin — the join there holds this point.`, **0** FIX glyphs, **no** `solve-diagnostic`, no `OVER-CONSTRAINED` anywhere on the page |
+| 2 | Not a dead end; cost in steps | **0 extra steps.** The refused keystroke still binds the sketch: feature count goes 0 → 1 and the DRO Solve cell appears reading `DOF 2 · UNDER-CONSTRAINED` |
+| 3 | Recovery clause | Fix the far end → `DOF 0 · CONVERGED`, no diagnostic. 2 further actions (pick + `x`) |
+| 4 | Refusal is truthful | The inferred `coincident` **survives** in the persisted params (not replaced); exactly one user pin exists (`e1.end`); the gateway's own evaluate puts `e1.start` at `\|p\| < 1e-6` of zero. Corroborated independently by the DOF count: a free line is 4 DOF and the solver reports **2**, i.e. it agrees the join removes both freedoms |
+| 5 | Touch | Reachable — see the touch section |
+| 6 | Is the DRO Solve cell a real discriminator? | **Yes, verified not assumed.** `dro-solve` count is 0 before the keystroke and the part carries 0 features at that moment; both flip after it |
+| — | Negative control | A genuine user-authored redundancy (perpendicular on an H/V corner) on the same sketch still reports `OVER-CONSTRAINED` with a visible `solve-diagnostic` |
+| — | Transitive walk | A second line whose start snaps onto the grounded start is also refused, no FIX authored, no diagnostic |
+| — | `verbIsAvailable` scoped to the held point | Catalogue row `data-available` is `true` on the free end and `false` on the held end |
+
+**Mutation control, byte-verified.** With `groundingAnchor` replaced by an early
+`return null` and the PRECONDITION inverted to demand the mutant in the served
+bytes: **7 of 11 cases fail**, and the failure frame is the ticket verbatim —
+`OVER-CONSTRAINED`, `Over-constrained`, *"A redundant constraint is flagged in
+the sketch. Remove it — the geometry is already determined without it."* The 4
+that stay green are exactly the ones with no dependency on the guard. Restored,
+the same 11 pass with the served module opening `const`.
+
+**Neighbours:** `constraints.spec.ts`, `sketch-snap-coincident.spec.ts`
+(including the builder's two new SNAP-4 cases) and `sketch-origin-constraint.spec.ts`
+— **20/20 green** against the same verified bytes.
+
+### Touch
+
+Two separate answers, and they should not be collapsed:
+
+- **The verb IS reachable.** On a `hasTouch` context at 1280×800: tapping the
+  grounded endpoint selects it (`1 pt`), tapping `constraint-group-relational`
+  then `constraint-fixed` produces the refusal hint AND binds the sketch
+  (`DOF 2 · UNDER-CONSTRAINED`), and the same door fixes the far end to
+  `DOF 0 · CONVERGED`. The offer rail never carries Fix — `fixed` is absent from
+  `VERB_OFFER_ORDER`, before and after this commit — so the catalogue is the only
+  pointer door either way, and it works. Unlike the previous batch's four-of-five,
+  this verb is not stranded on touch.
+- **Getting there is not** — see QA-SNAP4-2.
+
+### Defects
+
+- **QA-SNAP4-1 (P3, new, caused by this commit)** — *the constraint catalogue
+  tells the user the verb "needs a point" while they have a point selected.*
+  `Flyout` renders `requires` whenever `available === false`, and SNAP-4 makes
+  `verbIsAvailable("fixed", …)` false for a reason that has nothing to do with
+  the selection SHAPE. Measured on the held endpoint with `1 pt` selected:
+
+  ```
+  data-available="false"
+  aria-label="Fix point (X, on selected points) — needs a point"
+  visible sub-caption: "needs a point"
+  ```
+
+  The one thing the user has already done is the thing the row asks for, in the
+  visible caption and in the accessible name. The truthful reading is only
+  obtained by clicking through it. This is the "a hint becomes a lie" class the
+  catalogue's own comment says it was built to prevent. Fix shape: let the verb
+  supply the reason (an `unavailableReason` alongside `requires`), or leave the
+  row available and let the verb answer — the latter is what `Flyout`'s own doc
+  argues for. TERRITORY: `apps/web/src/components/SketchStrip.tsx`,
+  `packages/design/src/primitives/Flyout.tsx`,
+  `apps/web/src/sketch/constraints.ts`.
+
+- **QA-SNAP4-2 (P2, pre-existing, wider than SNAP-4)** — *a tap does not draw:
+  the sketcher's first gesture is unreachable on touch.* On a `hasTouch`
+  context, arming the Line tool by tap and tapping two points leaves the strip
+  reading **`0 entities`** and zero glyphs; the identical coordinates drawn with
+  the mouse produce the line and its inferred coincident. Every existing touch
+  spec in the repo draws with the MOUSE and taps only to select, so nothing was
+  covering this. Consequence for SNAP-4: the ticket's flow is verified end-to-end
+  on desktop and only from the SELECTION onward on touch. TERRITORY:
+  `apps/web/src/viewport/SketchScene.tsx`, `apps/web/src/sketch/store.ts`.
+
+- **QA-SNAP4-3 (P3, new, caused by this commit)** — *a partially-refused Fix
+  says nothing about the half it refused.* Select both endpoints of the grounded
+  line and press `x`: the free end is pinned, the sketch converges — and there is
+  **no hint at all** (`constraint-hint` count 0). `applyConstraintAction` returns
+  `added` the moment one point is fixable and discards the anchor it found for
+  the other, so "two points selected, one pinned" is indistinguishable from "two
+  points pinned". The mixed-selection comment in the source says an unheld point
+  must not be blocked by a held one — right — but silence is not the same as not
+  blocking. TERRITORY: `apps/web/src/sketch/constraints.ts` (the `fixed` arm).
+
+- **QA-SNAP4-4 (P2, pre-existing, made load-bearing by this commit)** — *no
+  non-dimension constraint glyph can be selected or deleted, so the exit the
+  refusal points at does not exist.* The hint names the join and the source's own
+  comment argues the C glyph is "both the explanation and the exit (delete it and
+  the point is free to be fixed anywhere)". Measured on `coincident` AND `fixed`
+  glyphs, at the origin and clear of it, with a real `page.mouse.click` at the
+  element centre AND with a synthetic `el.click()` that bypasses hit-testing
+  entirely: `aria-pressed` stays `"false"` and `Delete` removes nothing.
+  `elementFromPoint` at the glyph centre resolves to the glyph's own BUTTON, so
+  this is not an occlusion or a zero-area target — the selection simply does not
+  stick. The tell is that `selectAt` clears `selectedConstraint`, and the glyph's
+  `onClick` (unlike `SplineHandles`, two hundred lines above it in the same file)
+  does **not** `stopPropagation`. Only DIMENSION glyphs are removable, through
+  their own editor's Remove button — which is why `constraints.spec.ts`'s
+  conflict-recovery case has never caught it. Carried in the spec as a
+  `test.fail()` case; if it starts passing the gap has closed and the annotation
+  must go. TERRITORY: `apps/web/src/viewport/ConstraintGlyphs.tsx`,
+  `apps/web/src/sketch/store.ts`.
+
+### Note for the integrator
+
+The builder's three founder PNGs (`docs/screenshots/sketch-snap-fix-grounded-*.png`)
+are on disk **untracked** — `40a14bd` carries three files, none of them a
+screenshot. The design mandate wants those surfaced to the founder, so they need
+committing (or regenerating) before this is called done.
+
+---
+
 ## 2026-08-29 — QA-CI4-HEADROOM-1 closed: the next red was already red, and my first theory about why was wrong
 
 **Verdict: both named tests were failing BEFORE anyone read them in CI —
