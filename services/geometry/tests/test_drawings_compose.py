@@ -49,12 +49,14 @@ from geometry.drawings.compose import (
     measure_sheet_overflow,
     resolve_view_anchors,
     sheet_dimensions,
+    view_content_svg_rect,
     view_ink_rect,
     view_to_svg_edges,
 )
 from geometry.main import app
 from py_kit.schemas.drawings import (
     AngularDimensionParams,
+    ComposedCircleEdge,
     ComposedDimension,
     ComposedDimensionError,
     ComposedLineEdge,
@@ -1886,11 +1888,72 @@ def test_measure_sheet_overflow_names_each_border() -> None:
         ], side
 
 
+def _caption_band_mm() -> float:
+    """The ink band (mm) a stamped view caption adds BELOW the geometry.
+
+    Derived from the composer's own pair of public rect helpers rather than copied
+    as a literal, so it cannot drift from the band the serializers draw.
+    """
+    edges = _rect_edges(10.0, 10.0)
+    anchor = Vec2(100.0, 100.0)
+    content = view_content_svg_rect(edges, anchor, 200.0)
+    ink = view_ink_rect(edges, anchor, 200.0)
+    assert content is not None and ink is not None
+    return ink.max_y - content.max_y
+
+
+def _sheet_ink_rects(sheet: ComposedSheet) -> list[tuple[ViewProjection, SvgRect]]:
+    """Every placed view's INK box, read off the COMPOSED sheet's own emitted edges.
+
+    Two things the obvious walk gets wrong, both found by the geometry-QA pass on
+    DRAWSHEET-AUTOPLACE-1 (docs/GEOMETRY-QA.md 2026-09-06):
+
+    * a LINE-ONLY walk under-measures any view whose outermost feature is a circle
+      or a sampled curve. Today's goldens keep their holes inboard, so the line-only
+      and all-edge boxes coincide to 0.0000 mm on all four views of all five
+      goldens — the blindness is latent, not live, and this walks all three composed
+      edge kinds so it stays that way; and
+    * a CONTENT box is not the ink. The stamped caption hangs
+      9.7 mm (:func:`_caption_band_mm`) below the geometry and is ink on the
+      sheet exactly as :func:`view_ink_rect` says, so a content-only gate cannot
+      see a caption printed through the drafting border.
+    """
+    band = _caption_band_mm()
+    rects: list[tuple[ViewProjection, SvgRect]] = []
+    for view in sheet.views:
+        if view.failed:
+            continue
+        xs: list[float] = []
+        ys: list[float] = []
+        for edge in view.edges:
+            if isinstance(edge, ComposedLineEdge):
+                xs += [edge.x1, edge.x2]
+                ys += [edge.y1, edge.y2]
+            elif isinstance(edge, ComposedCircleEdge):
+                xs += [edge.cx - edge.r, edge.cx + edge.r]
+                ys += [edge.cy - edge.r, edge.cy + edge.r]
+            else:
+                xs += [point.x_mm for point in edge.points]
+                ys += [point.y_mm for point in edge.points]
+        if xs:
+            rects.append(
+                (
+                    view.projection,
+                    SvgRect(min(xs), min(ys), max(xs), max(ys) + band),
+                )
+            )
+    return rects
+
+
 def test_composed_sheets_place_every_view_inside_the_border() -> None:
-    """The standing gate over the composer: for the committed compose goldens, every
+    """The standing gate over the composer: for every committed compose golden, every
     placed view's INK — geometry plus its stamped caption — is inside the drafting
     border. This is the assertion the sheet was missing when it exported a drawing
-    that ran off the page."""
+    that ran off the page.
+
+    Measured over INK and over ALL THREE composed edge kinds (see
+    :func:`_sheet_ink_rects`); the tightest of the five goldens clears the border by
+    26.449 mm, so the stronger box costs nothing and closes two blind spots."""
     golden_request = _golden_request()
     golden_sheet = place_sheet(
         evaluate_drawing_views(golden_request),
@@ -1901,25 +1964,53 @@ def test_composed_sheets_place_every_view_inside_the_border() -> None:
         ("plate golden", golden_sheet),
         ("note golden", _compose_note_sheet()),
         ("title-block golden", _compose_tb_sheet()),
+        ("first-angle golden", _compose_fa_sheet()),
+        ("authored-placement golden", _compose_placement()),
     ):
-        rects: list[tuple[ViewProjection, SvgRect]] = []
-        for view in sheet.views:
-            if view.failed:
-                continue
-            xs: list[float] = []
-            ys: list[float] = []
-            for edge in view.edges:
-                if isinstance(edge, ComposedLineEdge):
-                    xs += [edge.x1, edge.x2]
-                    ys += [edge.y1, edge.y2]
-            if xs:
-                rects.append(
-                    (view.projection, SvgRect(min(xs), min(ys), max(xs), max(ys)))
-                )
+        rects = _sheet_ink_rects(sheet)
         assert rects, f"{name} composed no measurable view"
         assert (
             measure_sheet_overflow(
                 rects, Vec2(sheet.width_mm, sheet.height_mm), sheet.margin_mm
             )
             == []
+        ), name
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "DRAWSHEET-AUTOPLACE-1 residual, confirmed by geometry QA 2026-09-06: "
+        "bounds_aware_layout centres a view's CONTENT, but its INK carries a 9.7 mm "
+        "caption band BELOW that content, so a centred view's ink sits 4.85 mm low "
+        "and crosses the bottom drafting border whenever the content's own bottom "
+        "clearance is under 9.7 mm. Measured on this fixture: content clearance "
+        "7.00 mm, ink 2.70 mm past the border (still 7.30 mm inside the paper). "
+        "Remove this marker when the layout centres INK; do not weaken the "
+        "assertion."
+    ),
+)
+def test_a_centred_views_caption_stays_inside_the_drafting_border() -> None:
+    """A view whose geometry fits the border with room to spare must not print its
+    caption past that border.
+
+    The fixture is the ticket's own A2 lone-`right` case (340 x 386 mm of content in
+    a 574 x 400 mm border), which after the fix places its CONTENT dead centre —
+    17.0000 .. 403.0000 mm in y, 7.00 mm clear of the 410 mm border — and its INK at
+    17.0000 .. 412.7000 mm, i.e. 2.70 mm past it. `layout_issues` is empty and the
+    SVG/PDF/DXF all export, so nothing in the product says so."""
+    sheet = _lone_view_sheet()
+    assert sheet.layout_issues == []
+    content = _content_rect(sheet, "right")
+    assert content.max_y == pytest.approx(403.0, abs=_TOL)
+    assert (sheet.height_mm - sheet.margin_mm) - content.max_y == pytest.approx(
+        7.0, abs=_TOL
+    )
+    assert (
+        measure_sheet_overflow(
+            _sheet_ink_rects(sheet),
+            Vec2(sheet.width_mm, sheet.height_mm),
+            sheet.margin_mm,
         )
+        == []
+    )
