@@ -80,6 +80,26 @@ and you are re-creating the failure this playbook was written to end.
    not even show as untracked). Check all three: `git worktree list`, then
    `git -C <each worktree> status --short`, then in-flight agents' output
    mtimes. Anything stale beyond ~30 min with no known long gate is a death.
+   **THE OUTPUT-MTIME HALF OF THAT IS WRONG IN THIS HARNESS AND WILL TELL YOU TO
+   KILL HEALTHY AGENTS.** Measured 2026-09-06: the `tasks/<agentId>.output` file
+   is a **117-byte stub that never grows** — every one of six agents had exactly
+   117 bytes, including a COMPLETED agent that had just returned a long report,
+   and the two builders I was checking showed 36-minute-old mtimes while both
+   were actively mid-work. The file is written once at launch, so its mtime
+   measures when the agent STARTED, and by construction every long-running agent
+   looks dead. Following this rule literally reaps live agents and destroys their
+   uncommitted work, which is the one outcome §0.4 exists to prevent.
+   **Use the WORKTREE as the liveness signal instead** — it is where the work
+   actually accumulates:
+   ```
+   git -C .claude/worktrees/agent-<id> status --short
+   ```
+   Substantive modifications inside the agent's assigned territory = alive, even
+   with no commit yet and no output for half an hour. An empty worktree well past
+   the point where files should exist is the real death signal. (The streaming
+   transcripts do exist under `tasks/` but are named differently from the agent
+   id, so you cannot map one to an agent — do not go looking; reading one
+   overflows your context anyway.)
    You are its relauncher: judge the work, run the gates yourself, and commit it
    with honest provenance stating whether Review and Verify ran.
    **Never revert or discard it** — including the worktree.
