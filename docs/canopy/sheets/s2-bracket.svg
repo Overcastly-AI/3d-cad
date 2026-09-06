@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 594.0000 420.0000" width="594.0000mm" height="420.0000mm" preserveAspectRatio="xMidYMid meet">
+  <rect x="0" y="0" width="594.0000" height="420.0000" fill="#FFFFFF" stroke="#C9CFD7" stroke-width="0.6000"/>
+  <rect data-testid="drawing-border" x="10.0000" y="10.0000" width="574.0000" height="400.0000" fill="none" stroke="#1B222B" stroke-width="0.7000"/>
+    <g data-testid="drawing-view" data-view="right" data-view-error="false">
+      <line x1="317.5135" y1="147.8267" x2="317.5135" y2="109.7267" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="317.5135" y1="147.8267" x2="317.8310" y2="147.8267" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="317.5135" y1="109.7267" x2="317.8310" y2="109.7267" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="317.8310" y1="425.2892" x2="317.8310" y2="196.6892" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="317.8310" y1="425.2892" x2="340.0560" y2="425.2892" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="317.8310" y1="196.6892" x2="317.8310" y2="159.8750" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="317.8310" y1="196.6892" x2="340.0560" y2="196.6892" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="317.8310" y1="196.6892" x2="546.4310" y2="272.8892" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="317.8310" y1="159.8750" x2="317.8310" y2="151.8428" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="317.8310" y1="159.8750" x2="350.9638" y2="170.9193" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="317.8310" y1="151.8428" x2="317.8310" y2="149.1654" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="317.8310" y1="151.8428" x2="350.9638" y2="162.8871" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="317.8310" y1="151.8428" x2="560.7185" y2="232.8053" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="317.8310" y1="149.1654" x2="560.7185" y2="230.1279" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="317.8310" y1="147.8267" x2="350.9638" y2="158.8710" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="317.8310" y1="147.5092" x2="317.8310" y2="109.7267" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="317.8310" y1="147.5092" x2="350.9638" y2="158.5535" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="340.0560" y1="425.2892" x2="340.0560" y2="196.6892" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="340.0560" y1="412.5892" x2="340.0560" y2="388.3688" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="350.9638" y1="170.9193" x2="350.9638" y2="162.8871" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="350.9638" y1="170.9193" x2="382.9868" y2="181.5936" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="350.9638" y1="158.8710" x2="350.9638" y2="158.5535" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="382.9868" y1="181.5936" x2="382.9868" y2="173.5614" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="382.9868" y1="181.5936" x2="416.1195" y2="192.6379" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="382.9868" y1="173.5614" x2="416.1195" y2="184.6057" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="416.1195" y1="192.6379" x2="416.1195" y2="184.6057" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="416.1195" y1="192.6379" x2="448.1425" y2="203.3122" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="445.4757" y1="239.2374" x2="467.0560" y2="246.4309" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="448.1425" y1="203.3122" x2="448.1425" y2="195.2800" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="448.1425" y1="203.3122" x2="481.2753" y2="214.3564" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="448.1425" y1="195.2800" x2="481.2753" y2="206.3243" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="481.2753" y1="214.3564" x2="481.2753" y2="206.3243" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="481.2753" y1="214.3564" x2="513.2982" y2="225.0308" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="513.2982" y1="225.0308" x2="513.2982" y2="216.9986" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="513.2982" y1="225.0308" x2="546.4310" y2="236.0750" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="513.2982" y1="216.9986" x2="546.4310" y2="228.0428" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="546.4310" y1="279.2392" x2="546.4310" y2="236.0750" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="546.4310" y1="279.2392" x2="551.1935" y2="279.2392" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="546.4310" y1="236.0750" x2="546.4310" y2="228.0428" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="546.4310" y1="236.0750" x2="551.1935" y2="236.0750" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="551.1935" y1="279.2392" x2="551.1935" y2="236.0750" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="560.7185" y1="232.8053" x2="560.7185" y2="230.1279" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <polyline points="340.0560,412.5892 364.7158,400.6357 387.5669,385.5090 408.2034,367.4779 426.2589,346.8626 441.4125,324.0293 453.3951,299.3837 461.9939,273.3635 467.0560,246.4309" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <polyline points="340.0560,388.3688 361.0187,376.9330 380.3177,362.8704 397.6260,346.4195 412.6500,327.8591 425.1351,307.5039 434.8695,285.6990 441.6882,262.8142 445.4757,239.2374" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <text data-testid="drawing-view-label" x="309.0000" y="435.6155" text-anchor="middle" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.4" letter-spacing="0.6">RIGHT</text>
+    </g>
+    <g data-testid="drawing-title-block">
+      <rect x="488.0000" y="376.0000" width="96.0000" height="34.0000" fill="none" stroke="#1B222B" stroke-width="0.7000"/>
+      <line x1="545.6000" y1="376.0000" x2="545.6000" y2="410.0000" stroke="#1B222B" stroke-width="0.3500"/>
+      <line x1="545.6000" y1="393.0000" x2="584.0000" y2="393.0000" stroke="#1B222B" stroke-width="0.3500"/>
+      <text x="492.0000" y="384.0000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.3" letter-spacing="0.5">TITLE</text>
+      <text data-testid="title-block-name" x="492.0000" y="394.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.4">DOOR CANOPY - BRACKET…</text>
+      <text x="492.0000" y="406.0000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.3" letter-spacing="0.5">LOFT · PART DRAWING</text>
+      <text x="549.6000" y="384.0000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.3" letter-spacing="0.5">SCALE</text>
+      <text data-testid="title-block-scale" x="549.6000" y="390.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.4">1:4</text>
+      <text x="549.6000" y="401.0000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.3" letter-spacing="0.5">SIZE</text>
+      <text x="549.6000" y="406.0000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.4">A2</text>
+      <text x="492.0000" y="396.5000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.1" letter-spacing="0.4">DRAWN</text>
+      <text data-testid="title-block-author" x="506.0000" y="396.5000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.4">Loft parametric model - d…</text>
+      <text x="492.0000" y="399.5000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.1" letter-spacing="0.4">DATE</text>
+      <text data-testid="title-block-date" x="506.0000" y="399.5000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.4">scale 1:4   dimensions in…</text>
+      <text x="492.0000" y="402.5000" fill="#48525E" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.1" letter-spacing="0.4">NOTES</text>
+      <text data-testid="title-block-notes" x="506.0000" y="402.5000" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="2.4">Wall post, arm and curved…</text>
+    </g>
+</svg>
