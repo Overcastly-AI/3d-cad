@@ -9233,7 +9233,7 @@
         "type": "object"
       },
       "SheetUpdate": {
-        "description": "Update a sheet's header (design \u00a72.2). At least one field must be provided.",
+        "description": "Update a sheet's header (design \u00a72.2). At least one field must be provided.\n\n``scale`` is the SHEET-level re-scale (SHEET-RESCALE-1). It is not a header\ncolumn \u2014 a sheet has no scale of its own, its scale IS its views' shared scale\n(audit **H2**, ``_ensure_sheet_source``) \u2014 so the field is write-only and\nrewrites EVERY view on the sheet in one transaction. That transactionality is\nthe whole point: H2 compares each write against ``siblings[0]``, which still\nholds the OLD scale whichever view a client writes first, so no sequence of\nper-view ``ViewUpdate`` calls can ever re-scale a multi-view sheet. The\nper-view guard stays exactly as strict; this verb satisfies it rather than\nweakening it.",
         "properties": {
           "expected_version": {
             "description": "Optimistic-concurrency guard (design \u00a72.1)",
@@ -9283,6 +9283,17 @@
               }
             ],
             "title": "Projection"
+          },
+          "scale": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ViewScale"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Re-scale the WHOLE sheet: rewrites every view's scale in one transaction (the sheet's scale is its views' shared scale, audit H2). 422 `sheet_rescale_without_views` on a sheet that has no views."
           },
           "size": {
             "anyOf": [
@@ -13300,7 +13311,7 @@
         ]
       },
       "patch": {
-        "description": "Update a sheet's header (bumps ``doc_version``; 422 on empty/stale).",
+        "description": "Update a sheet's header, or RE-SCALE the sheet (bumps ``doc_version``).\n\n``SheetUpdate.scale`` re-scales every view on the sheet in one documents-side\ntransaction (SHEET-RESCALE-1) \u2014 the only verb that can, since the per-view H2\nguard refuses the first write of any view-by-view re-scale. Nothing to do here\nbeyond forwarding: the sheet's scale lives in its views, so the composed sheet\nthis gateway builds picks the new scale up from ``views[0].scale``\n(:func:`_compose_request`) and the title block follows it. 422 on empty\n(``empty_sheet_update``), stale (``stale_drawing_version``), or a re-scale of\na sheet with no views (``sheet_rescale_without_views``).",
         "operationId": "update_sheet_api_v1_drawings__drawing_id__sheets__sheet_id__patch",
         "parameters": [
           {

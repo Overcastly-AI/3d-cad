@@ -528,7 +528,21 @@ export interface paths {
         head?: never;
         /**
          * Update Sheet
-         * @description Update a sheet's header (bumps ``doc_version``).
+         * @description Update a sheet's header — and, via ``scale``, RE-SCALE the whole sheet
+         *     (bumps ``doc_version``).
+         *
+         *     ``scale`` is the sheet-level re-scale verb (SHEET-RESCALE-1). A sheet has no
+         *     scale column: its scale IS the one scale its views share (**H2**,
+         *     :func:`_ensure_sheet_source`), so re-scaling a sheet means rewriting every
+         *     view — and that is exactly what no client could do before this. The H2 guard
+         *     compares an incoming per-view scale against ``siblings[0]``, which still holds
+         *     the OLD scale whichever view is written first, so the FIRST write of any
+         *     view-by-view re-scale is always refused; the sequence has no legal ordering.
+         *     Rewriting all of them inside THIS transaction satisfies the invariant instead
+         *     of relaxing it: the sheet is one-scale before the commit and one-scale after,
+         *     and it is never observable in between. The per-view path
+         *     (:func:`update_view`) keeps refusing a divergent write, which is the check
+         *     that stops a genuinely mixed-scale sheet from ever being composed.
          */
         patch: operations["update_sheet_api_v1_drawings__drawing_id__sheets__sheet_id__patch"];
         trace?: never;
@@ -5936,6 +5950,16 @@ export interface components {
         /**
          * SheetUpdate
          * @description Update a sheet's header (design §2.2). At least one field must be provided.
+         *
+         *     ``scale`` is the SHEET-level re-scale (SHEET-RESCALE-1). It is not a header
+         *     column — a sheet has no scale of its own, its scale IS its views' shared scale
+         *     (audit **H2**, ``_ensure_sheet_source``) — so the field is write-only and
+         *     rewrites EVERY view on the sheet in one transaction. That transactionality is
+         *     the whole point: H2 compares each write against ``siblings[0]``, which still
+         *     holds the OLD scale whichever view a client writes first, so no sequence of
+         *     per-view ``ViewUpdate`` calls can ever re-scale a multi-view sheet. The
+         *     per-view guard stays exactly as strict; this verb satisfies it rather than
+         *     weakening it.
          */
         SheetUpdate: {
             /**
@@ -5949,6 +5973,8 @@ export interface components {
             orientation?: ("landscape" | "portrait") | null;
             /** Projection */
             projection?: ("third_angle" | "first_angle") | null;
+            /** @description Re-scale the WHOLE sheet: rewrites every view's scale in one transaction (the sheet's scale is its views' shared scale, audit H2). 422 `sheet_rescale_without_views` on a sheet that has no views. */
+            scale?: components["schemas"]["ViewScale"] | null;
             /** Size */
             size?: ("A4" | "A3" | "A2" | "A1" | "A0" | "ANSI_A" | "ANSI_B" | "ANSI_C" | "ANSI_D") | null;
             /** @description Replacement title block (None leaves it unchanged; clear via an empty TitleBlock) */

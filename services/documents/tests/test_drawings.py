@@ -811,6 +811,225 @@ def test_rescaling_the_only_view_of_a_sheet_is_allowed(client: TestClient) -> No
     assert response.json()["view"]["scale"] == {"numerator": 1, "denominator": 4}
 
 
+# --- sheet-level re-scale (SHEET-RESCALE-1) ---------------------------------------
+
+
+def _standard_layout(
+    client: TestClient, name: str, scale: dict[str, int]
+) -> tuple[str, str, int]:
+    """A four-view sheet at one scale — what the frontend's "Lay out" writes.
+
+    Returns the drawing id, the sheet id, and the drawing's ``doc_version`` after
+    the layout (six writes in, so hard-coding it in each test is a trap).
+    """
+    part = _create_part(client, f"{name}-part")
+    drawing_id = _create_drawing(client, name)
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    version = 1
+    for projection in ("front", "top", "right", "iso"):
+        response = _add_view(
+            client,
+            drawing_id,
+            sheet_id,
+            part,
+            version,
+            projection=projection,
+            scale=scale,
+        )
+        assert response.status_code == 201, response.text
+        version = response.json()["doc_version"]
+    return drawing_id, sheet_id, version
+
+
+def test_sheet_rescale_rewrites_every_view_at_once(client: TestClient) -> None:
+    """The capability SHEET-RESCALE-1 exists for: before it, a laid-out sheet's
+    scale was permanent, because H2 refuses the FIRST write of any view-by-view
+    re-scale (``siblings[0]`` still holds the old scale whichever order you use).
+    One sheet-level write moves all four together and the invariant never breaks.
+    """
+    drawing_id, sheet_id, version = _standard_layout(
+        client, "rescale-sheet", {"numerator": 1, "denominator": 2}
+    )
+
+    response = client.patch(
+        f"/api/v1/drawings/{drawing_id}/sheets/{sheet_id}",
+        json={
+            "expected_version": version,
+            "scale": {"numerator": 1, "denominator": 5},
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["doc_version"] == version + 1
+
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    views = tree["sheets"][0]["views"]
+    assert len(views) == 4
+    assert [v["scale"] for v in views] == [{"numerator": 1, "denominator": 5}] * 4
+    # The sheet is left composable: one source, one scale — the H2 invariant the
+    # gateway's read-side backstop (`_assert_single_source`) also demands.
+    assert len({v["ref_document_id"] for v in views}) == 1
+
+
+def test_sheet_rescale_leaves_placement_and_header_alone(client: TestClient) -> None:
+    """A re-scale is a scale change and nothing else: a hand-placed view keeps its
+    pin (and its ``auto_place: false``), and the sheet header is untouched."""
+    drawing_id, sheet_id, version = _standard_layout(
+        client, "rescale-placement", {"numerator": 1, "denominator": 1}
+    )
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    pinned = tree["sheets"][0]["views"][0]["id"]
+    pin = client.patch(
+        f"/api/v1/drawings/{drawing_id}/views/{pinned}",
+        json={
+            "expected_version": version,
+            "position": {"x_mm": 123.5, "y_mm": 87.25},
+            "auto_place": False,
+        },
+        headers=_headers(),
+    )
+    assert pin.status_code == 200, pin.text
+
+    response = client.patch(
+        f"/api/v1/drawings/{drawing_id}/sheets/{sheet_id}",
+        json={
+            "expected_version": pin.json()["doc_version"],
+            "scale": {"numerator": 2, "denominator": 1},
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["sheet"]["size"] == "A4"
+    assert response.json()["sheet"]["orientation"] == "landscape"
+
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    views = {v["id"]: v for v in tree["sheets"][0]["views"]}
+    assert all(v["scale"] == {"numerator": 2, "denominator": 1} for v in views.values())
+    assert views[pinned]["auto_place"] is False
+    assert views[pinned]["position"] == {"x_mm": 123.5, "y_mm": 87.25}
+
+
+def test_sheet_rescale_composes_with_a_header_change(client: TestClient) -> None:
+    """Scale and header travel in ONE request: an orientation flip that re-fits is
+    a single write, so the sheet is never briefly the new paper at the old scale.
+    """
+    drawing_id, sheet_id, version = _standard_layout(
+        client, "rescale-and-flip", {"numerator": 1, "denominator": 1}
+    )
+
+    response = client.patch(
+        f"/api/v1/drawings/{drawing_id}/sheets/{sheet_id}",
+        json={
+            "expected_version": version,
+            "orientation": "portrait",
+            "scale": {"numerator": 1, "denominator": 2},
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["sheet"]["orientation"] == "portrait"
+
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    assert tree["sheets"][0]["sheet"]["orientation"] == "portrait"
+    assert all(
+        v["scale"] == {"numerator": 1, "denominator": 2}
+        for v in tree["sheets"][0]["views"]
+    )
+
+
+def test_sheet_rescale_still_refuses_a_divergent_per_view_write(
+    client: TestClient,
+) -> None:
+    """The new verb SATISFIES H2, it does not relax it: after a sheet re-scale the
+    per-view guard refuses a divergent write exactly as before, so a mixed-scale
+    sheet still cannot be created."""
+    drawing_id, sheet_id, version = _standard_layout(
+        client, "rescale-then-diverge", {"numerator": 1, "denominator": 1}
+    )
+    rescale = client.patch(
+        f"/api/v1/drawings/{drawing_id}/sheets/{sheet_id}",
+        json={"expected_version": version, "scale": {"numerator": 1, "denominator": 2}},
+        headers=_headers(),
+    )
+    assert rescale.status_code == 200, rescale.text
+
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    one_view = tree["sheets"][0]["views"][0]["id"]
+    response = client.patch(
+        f"/api/v1/drawings/{drawing_id}/views/{one_view}",
+        json={
+            "expected_version": rescale.json()["doc_version"],
+            "scale": {"numerator": 1, "denominator": 3},
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == 422, response.text
+    error = _error(response.json())
+    assert error["code"] == "sheet_view_scale_mismatch"
+    assert error["details"]["sheet_scale"] == "1:2"
+
+
+def test_sheet_rescale_of_a_viewless_sheet_is_422(client: TestClient) -> None:
+    """A sheet with no views has no scale to change; reporting 200 for a write
+    that moved nothing is the success-shaped failure, so it is refused by name."""
+    drawing_id = _create_drawing(client, "empty-sheet")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+
+    response = client.patch(
+        f"/api/v1/drawings/{drawing_id}/sheets/{sheet_id}",
+        json={"expected_version": 1, "scale": {"numerator": 1, "denominator": 2}},
+        headers=_headers(),
+    )
+    assert response.status_code == 422, response.text
+    assert _error(response.json())["code"] == "sheet_rescale_without_views"
+
+    # The refusal is total: the header change that rode along did NOT land, and
+    # the version did not move (a partial write here would be worse than none).
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    assert tree["doc_version"] == 1
+
+
+def test_sheet_rescale_rolls_back_a_header_change_on_refusal(
+    client: TestClient,
+) -> None:
+    """One transaction, both fields: a refused re-scale takes the name with it."""
+    drawing_id = _create_drawing(client, "atomic-refusal")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+
+    response = client.patch(
+        f"/api/v1/drawings/{drawing_id}/sheets/{sheet_id}",
+        json={
+            "expected_version": 1,
+            "name": "Renamed",
+            "scale": {"numerator": 1, "denominator": 2},
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == 422, response.text
+
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    assert tree["sheets"][0]["sheet"]["name"] == "Sheet 1"
+
+
+def test_sheet_rescale_is_still_guarded_by_the_expected_version(
+    client: TestClient,
+) -> None:
+    drawing_id, sheet_id, _version = _standard_layout(
+        client, "rescale-stale", {"numerator": 1, "denominator": 1}
+    )
+    response = client.patch(
+        f"/api/v1/drawings/{drawing_id}/sheets/{sheet_id}",
+        json={"expected_version": 1, "scale": {"numerator": 1, "denominator": 2}},
+        headers=_headers(),
+    )
+    assert response.status_code == 422, response.text
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    assert all(
+        v["scale"] == {"numerator": 1, "denominator": 1}
+        for v in tree["sheets"][0]["views"]
+    )
+
+
 # --- one view per projection per sheet (engineering audit H3) ---------------------
 
 

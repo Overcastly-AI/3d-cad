@@ -646,7 +646,18 @@ class SheetCreate(BaseModel):
 
 
 class SheetUpdate(BaseModel):
-    """Update a sheet's header (design §2.2). At least one field must be provided."""
+    """Update a sheet's header (design §2.2). At least one field must be provided.
+
+    ``scale`` is the SHEET-level re-scale (SHEET-RESCALE-1). It is not a header
+    column — a sheet has no scale of its own, its scale IS its views' shared scale
+    (audit **H2**, ``_ensure_sheet_source``) — so the field is write-only and
+    rewrites EVERY view on the sheet in one transaction. That transactionality is
+    the whole point: H2 compares each write against ``siblings[0]``, which still
+    holds the OLD scale whichever view a client writes first, so no sequence of
+    per-view ``ViewUpdate`` calls can ever re-scale a multi-view sheet. The
+    per-view guard stays exactly as strict; this verb satisfies it rather than
+    weakening it.
+    """
 
     expected_version: int = Field(
         ge=0, description="Optimistic-concurrency guard (design §2.1)"
@@ -659,6 +670,12 @@ class SheetUpdate(BaseModel):
         default=None,
         description="Replacement title block (None leaves it unchanged; clear via "
         "an empty TitleBlock)",
+    )
+    scale: ViewScale | None = Field(
+        default=None,
+        description="Re-scale the WHOLE sheet: rewrites every view's scale in one "
+        "transaction (the sheet's scale is its views' shared scale, audit H2). "
+        "422 `sheet_rescale_without_views` on a sheet that has no views.",
     )
 
 

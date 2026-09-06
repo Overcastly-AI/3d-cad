@@ -2,6 +2,27 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
+**Sheet re-scale, 2026-09-06 (backend-builder, built `d19d257`, integrated on
+this branch):** `SheetUpdate.scale` re-scales a laid-out sheet, rewriting every
+view in ONE documents transaction. The shape is forced, not chosen — the
+per-view H2 guard compares an incoming scale against `siblings[0]`, which still
+holds the old scale whichever view is written first, so a view-by-view re-scale
+is refused in every ordering; doing them together SATISFIES the invariant
+rather than relaxing it. Proved at byte level in review: an AST comparison of
+`services/documents/src/documents/drawings.py` across base and HEAD shows
+`update_sheet` is the ONLY function that moved, with `update_view` and
+`_ensure_sheet_source` byte-for-byte identical. A viewless re-scale is refused
+by name; without that block it returns 200 AND bumps `doc_version`, burning the
+caller's optimistic-concurrency token on a write that moved nothing. Gates: 840
+documents+gateway tests, `just gen-verify` clean, e2e 3/3, negative controls
+6-of-7 and 2-of-3 red. **The item stays OPEN**: its own acceptance is a mouse
+gesture ("re-picking Scale on a laid-out four-view sheet re-draws every view"),
+and QA proved statically that no gesture exists — `onSelectScale`'s only call
+site is the `hasLayout ? Readout : SelectField` FALSE branch while
+`reheadSheet({scale})`'s only caller runs its post-layout path only when
+`hasLayout` is true. The verb is reachable by API and dead from the UI
+(SHEET-RESCALE-2).
+
 **Drawings placement, 2026-09-06 (kernel-architect, built `27c8d3f`, integrated on this branch):** a
 lone auto-placed standard view was centred on all four quartet anchor slots
 even when three were absent, displacing 8 of the 15 non-empty subsets by

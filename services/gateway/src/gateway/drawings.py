@@ -233,7 +233,17 @@ async def update_sheet(
     user: CurrentUser,
     http_request: Request,
 ) -> SheetMutationResponse:
-    """Update a sheet's header (bumps ``doc_version``; 422 on empty/stale)."""
+    """Update a sheet's header, or RE-SCALE the sheet (bumps ``doc_version``).
+
+    ``SheetUpdate.scale`` re-scales every view on the sheet in one documents-side
+    transaction (SHEET-RESCALE-1) — the only verb that can, since the per-view H2
+    guard refuses the first write of any view-by-view re-scale. Nothing to do here
+    beyond forwarding: the sheet's scale lives in its views, so the composed sheet
+    this gateway builds picks the new scale up from ``views[0].scale``
+    (:func:`_compose_request`) and the title block follows it. 422 on empty
+    (``empty_sheet_update``), stale (``stale_drawing_version``), or a re-scale of
+    a sheet with no views (``sheet_rescale_without_views``).
+    """
     upstream = await forward_documents(
         http_request,
         user,

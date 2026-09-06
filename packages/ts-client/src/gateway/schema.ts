@@ -677,7 +677,16 @@ export interface paths {
         head?: never;
         /**
          * Update Sheet
-         * @description Update a sheet's header (bumps ``doc_version``; 422 on empty/stale).
+         * @description Update a sheet's header, or RE-SCALE the sheet (bumps ``doc_version``).
+         *
+         *     ``SheetUpdate.scale`` re-scales every view on the sheet in one documents-side
+         *     transaction (SHEET-RESCALE-1) — the only verb that can, since the per-view H2
+         *     guard refuses the first write of any view-by-view re-scale. Nothing to do here
+         *     beyond forwarding: the sheet's scale lives in its views, so the composed sheet
+         *     this gateway builds picks the new scale up from ``views[0].scale``
+         *     (:func:`_compose_request`) and the title block follows it. 422 on empty
+         *     (``empty_sheet_update``), stale (``stale_drawing_version``), or a re-scale of
+         *     a sheet with no views (``sheet_rescale_without_views``).
          */
         patch: operations["update_sheet_api_v1_drawings__drawing_id__sheets__sheet_id__patch"];
         trace?: never;
@@ -8570,6 +8579,16 @@ export interface components {
         /**
          * SheetUpdate
          * @description Update a sheet's header (design §2.2). At least one field must be provided.
+         *
+         *     ``scale`` is the SHEET-level re-scale (SHEET-RESCALE-1). It is not a header
+         *     column — a sheet has no scale of its own, its scale IS its views' shared scale
+         *     (audit **H2**, ``_ensure_sheet_source``) — so the field is write-only and
+         *     rewrites EVERY view on the sheet in one transaction. That transactionality is
+         *     the whole point: H2 compares each write against ``siblings[0]``, which still
+         *     holds the OLD scale whichever view a client writes first, so no sequence of
+         *     per-view ``ViewUpdate`` calls can ever re-scale a multi-view sheet. The
+         *     per-view guard stays exactly as strict; this verb satisfies it rather than
+         *     weakening it.
          */
         SheetUpdate: {
             /**
@@ -8583,6 +8602,8 @@ export interface components {
             orientation?: ("landscape" | "portrait") | null;
             /** Projection */
             projection?: ("third_angle" | "first_angle") | null;
+            /** @description Re-scale the WHOLE sheet: rewrites every view's scale in one transaction (the sheet's scale is its views' shared scale, audit H2). 422 `sheet_rescale_without_views` on a sheet that has no views. */
+            scale?: components["schemas"]["ViewScale"] | null;
             /** Size */
             size?: ("A4" | "A3" | "A2" | "A1" | "A0" | "ANSI_A" | "ANSI_B" | "ANSI_C" | "ANSI_D") | null;
             /** @description Replacement title block (None leaves it unchanged; clear via an empty TitleBlock) */

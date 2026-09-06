@@ -219,6 +219,13 @@ function sourceExtentsQueryOptions(
  * out server-side (the composer re-derives every auto-placed anchor from the
  * sheet's own convention), so the client computes nothing.
  *
+ * `scale` is the sheet-level RE-SCALE (SHEET-RESCALE-1): documents rewrites every
+ * view on the sheet in one transaction. It is the only way to re-scale a laid-out
+ * sheet — a view-by-view walk is refused on its FIRST write, whichever order it
+ * uses, because the H2 guard compares against a sibling that still holds the old
+ * scale. Nothing to recompute here either: the composed sheet and its title block
+ * both derive from `views[0].scale`, so an invalidate is the whole client half.
+ *
  * NB this belongs beside `createSheet` in `../api/drawings`; it lives here only
  * because this batch's territory split gives that file to another builder. Same
  * shape as its siblings — generated client, generated body type, server envelope
@@ -228,7 +235,9 @@ async function updateSheetHeader(
   drawingId: string,
   sheetId: string,
   body: { expected_version: number } & (
-    { projection: SheetProjection } | { orientation: SheetOrientation }
+    | { projection: SheetProjection }
+    | { orientation: SheetOrientation }
+    | { scale: { numerator: number; denominator: number } }
   ),
 ): Promise<{ doc_version: number }> {
   const { data, error } = await gatewayClient.PATCH(
@@ -1026,28 +1035,27 @@ export function DrawingPage() {
   // verbatim by the composer, and a view pinned 270 mm across a landscape A4 is
   // off the edge of a 210 mm-wide portrait one.
   //
-  // It does NOT re-scale, and the cell no longer claims it will. MEASURED
-  // 2026-08-28 against the real stack: documents refuses a per-view re-scale on
-  // a multi-view sheet with `sheet_view_scale_mismatch` (its H2 "one sheet, one
-  // source, one scale" invariant), and the refusal is unavoidable — `siblings[0]`
-  // always still holds the OLD scale, so the FIRST view of the four is always
-  // rejected whichever order you write them in. There is no sheet-level re-scale
-  // verb, so no sequence of frontend writes can re-fit a laid-out sheet.
+  // An ORIENTATION flip still does not re-scale, and the cell still does not
+  // claim it will — that promise-side fix (REACH-3-FLOW P1-2) stands, and its
+  // reasoning is unchanged: the fit comparison belongs on the SET-UP screen
+  // where the scale is free, which is "capture intent where it forms".
   //
-  // The half of P1-2 that was a genuine defect is therefore fixed at the
-  // PROMISE, not the delivery: the fit comparison now lives on the SET-UP
-  // screen's paper cell, where the scale is still free and the answer is still
-  // free to give, and the post-layout cell states only what it does. That is
-  // "capture intent where it forms, not afterwards" — the flow rule this ticket
-  // is judged by — rather than a control quoting a scale it cannot produce.
-  // The residual (an in-place sheet re-scale) is a documents-service verb;
-  // filed as SHEET-RESCALE-1.
+  // What HAS changed is that re-scaling a laid-out sheet is now possible at all.
+  // SHEET-RESCALE-1 added `SheetUpdate.scale`: documents rewrites every view in
+  // ONE transaction, which is the only shape that can work — the per-view H2
+  // guard compares an incoming scale against `siblings[0]`, which still holds
+  // the OLD scale whichever view a client writes first, so a view-by-view walk
+  // is refused on its first write in every ordering. `reheadSheet` therefore
+  // carries a third change kind, and re-scaling costs one write, no client-side
+  // recomputation (the composed sheet and title block both read `views[0]`).
   // ---------------------------------------------------------------------
   const [reheading, setReheading] = useState(false);
   const reheadSheet = useCallback(
     (
       change:
-        { projection: SheetProjection } | { orientation: SheetOrientation },
+        | { projection: SheetProjection }
+        | { orientation: SheetOrientation }
+        | { scale: { numerator: number; denominator: number } },
     ) => {
       if (reheading || sheet === null) return;
       const from = sheet;
@@ -1107,6 +1115,28 @@ export function DrawingPage() {
     if (sheet === null) return;
     reheadSheet({ orientation: OTHER_ORIENTATION[sheet.orientation] });
   }, [sheet, reheadSheet]);
+  /**
+   * Picking a scale means two different things either side of the layout, and
+   * the same gesture has to serve both (the pattern `handleFlipPaper` already
+   * sets for paper): BEFORE there is a sheet it is INTENT — the ceiling the
+   * first layout fits under, held in local state and spent by `handleLayout`.
+   * AFTER, it is a WRITE, because a laid-out sheet's scale is not a preference
+   * any more, it is four stored view rows; so it goes to the server and the
+   * readout keeps deriving from what came back rather than from what was picked.
+   * That is deliberate: if the write fails, the cell must still show the scale
+   * the sheet is ACTUALLY drawn at, not the one that was asked for.
+   */
+  const handleSelectScale = useCallback(
+    (value: string) => {
+      if (!hasLayout || sheet === null) {
+        setScaleValue(value);
+        return;
+      }
+      if (value === effectiveScaleValue) return;
+      reheadSheet({ scale: scaleFromValue(value) });
+    },
+    [hasLayout, sheet, effectiveScaleValue, reheadSheet],
+  );
   /**
    * The paper control on the SET-UP screen — the one place a wrong proposal can
    * be answered before it costs anything (REACH-3-FLOW's P2 flag: the header
@@ -1913,7 +1943,7 @@ export function DrawingPage() {
             onSelectSource={setSelectedSourceId}
             sourceKind={effectiveSourceKind}
             scaleValue={effectiveScaleValue}
-            onSelectScale={setScaleValue}
+            onSelectScale={handleSelectScale}
             sizeValue={effectiveSize}
             onSelectSize={setSizeValue}
             paperOrientation={paperOrientation}

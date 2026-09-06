@@ -6311,7 +6311,7 @@
         "type": "object"
       },
       "SheetUpdate": {
-        "description": "Update a sheet's header (design \u00a72.2). At least one field must be provided.",
+        "description": "Update a sheet's header (design \u00a72.2). At least one field must be provided.\n\n``scale`` is the SHEET-level re-scale (SHEET-RESCALE-1). It is not a header\ncolumn \u2014 a sheet has no scale of its own, its scale IS its views' shared scale\n(audit **H2**, ``_ensure_sheet_source``) \u2014 so the field is write-only and\nrewrites EVERY view on the sheet in one transaction. That transactionality is\nthe whole point: H2 compares each write against ``siblings[0]``, which still\nholds the OLD scale whichever view a client writes first, so no sequence of\nper-view ``ViewUpdate`` calls can ever re-scale a multi-view sheet. The\nper-view guard stays exactly as strict; this verb satisfies it rather than\nweakening it.",
         "properties": {
           "expected_version": {
             "description": "Optimistic-concurrency guard (design \u00a72.1)",
@@ -6361,6 +6361,17 @@
               }
             ],
             "title": "Projection"
+          },
+          "scale": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ViewScale"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Re-scale the WHOLE sheet: rewrites every view's scale in one transaction (the sheet's scale is its views' shared scale, audit H2). 422 `sheet_rescale_without_views` on a sheet that has no views."
           },
           "size": {
             "anyOf": [
@@ -9496,7 +9507,7 @@
         ]
       },
       "patch": {
-        "description": "Update a sheet's header (bumps ``doc_version``).",
+        "description": "Update a sheet's header \u2014 and, via ``scale``, RE-SCALE the whole sheet\n(bumps ``doc_version``).\n\n``scale`` is the sheet-level re-scale verb (SHEET-RESCALE-1). A sheet has no\nscale column: its scale IS the one scale its views share (**H2**,\n:func:`_ensure_sheet_source`), so re-scaling a sheet means rewriting every\nview \u2014 and that is exactly what no client could do before this. The H2 guard\ncompares an incoming per-view scale against ``siblings[0]``, which still holds\nthe OLD scale whichever view is written first, so the FIRST write of any\nview-by-view re-scale is always refused; the sequence has no legal ordering.\nRewriting all of them inside THIS transaction satisfies the invariant instead\nof relaxing it: the sheet is one-scale before the commit and one-scale after,\nand it is never observable in between. The per-view path\n(:func:`update_view`) keeps refusing a divergent write, which is the check\nthat stops a genuinely mixed-scale sheet from ever being composed.",
         "operationId": "update_sheet_api_v1_drawings__drawing_id__sheets__sheet_id__patch",
         "parameters": [
           {

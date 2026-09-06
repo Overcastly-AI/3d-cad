@@ -802,22 +802,55 @@ async def update_sheet(
     owner_id: Principal,
     session: SessionDep,
 ) -> SheetMutationResponse:
-    """Update a sheet's header (bumps ``doc_version``)."""
+    """Update a sheet's header — and, via ``scale``, RE-SCALE the whole sheet
+    (bumps ``doc_version``).
+
+    ``scale`` is the sheet-level re-scale verb (SHEET-RESCALE-1). A sheet has no
+    scale column: its scale IS the one scale its views share (**H2**,
+    :func:`_ensure_sheet_source`), so re-scaling a sheet means rewriting every
+    view — and that is exactly what no client could do before this. The H2 guard
+    compares an incoming per-view scale against ``siblings[0]``, which still holds
+    the OLD scale whichever view is written first, so the FIRST write of any
+    view-by-view re-scale is always refused; the sequence has no legal ordering.
+    Rewriting all of them inside THIS transaction satisfies the invariant instead
+    of relaxing it: the sheet is one-scale before the commit and one-scale after,
+    and it is never observable in between. The per-view path
+    (:func:`update_view`) keeps refusing a divergent write, which is the check
+    that stops a genuinely mixed-scale sheet from ever being composed.
+    """
     if (
         request.name is None
         and request.size is None
         and request.orientation is None
         and request.projection is None
         and request.title_block is None
+        and request.scale is None
     ):
         raise ValidationApiError(
-            "Provide at least one of name, size, orientation, projection, or "
-            "title_block.",
+            "Provide at least one of name, size, orientation, projection, "
+            "title_block, or scale.",
             code="empty_sheet_update",
         )
     drawing = await get_owned_drawing(session, owner_id, drawing_id, for_update=True)
     _ensure_fresh(drawing, request.expected_version)
     sheet = await _get_sheet(session, drawing, sheet_id)
+
+    if request.scale is not None:
+        # An empty sheet has no scale to change, and reporting success for a
+        # write that moved nothing is the success-shaped failure this codebase
+        # keeps paying for. Refuse, and say where the scale actually lives.
+        views = await _sheet_views(session, sheet.id)
+        if not views:
+            raise ValidationApiError(
+                "This sheet has no views to re-scale: a sheet's scale is the "
+                "scale of its views. Lay out views first, or set the scale when "
+                "creating them.",
+                code="sheet_rescale_without_views",
+                details={"sheet_id": str(sheet.id)},
+            )
+        for view in views:
+            view.scale_num = request.scale.numerator
+            view.scale_den = request.scale.denominator
 
     if request.name is not None:
         sheet.name = request.name
@@ -836,6 +869,13 @@ async def update_sheet(
         "sheet_updated",
         drawing_id=str(drawing_id),
         sheet_id=str(sheet_id),
+        # A sheet-level re-scale rewrites rows the response does not carry, so it
+        # is the one field of this verb whose effect is otherwise invisible.
+        rescaled_to=(
+            None
+            if request.scale is None
+            else f"{request.scale.numerator}:{request.scale.denominator}"
+        ),
         doc_version=drawing.doc_version,
     )
     return SheetMutationResponse(

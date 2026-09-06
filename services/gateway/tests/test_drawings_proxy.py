@@ -35,6 +35,7 @@ from py_kit.schemas.drawings import (
     SheetMutationResponse,
     SheetPoint,
     SheetResponse,
+    SheetUpdate,
     ViewCreate,
     ViewMutationResponse,
     ViewResponse,
@@ -487,6 +488,72 @@ def test_crud_roundtrip_create_sheet_view_annotation_read(
         f"/api/v1/drawings/{DRAWING}/sheets/{SHEET}/annotations",
         f"/api/v1/drawings/{DRAWING}",
     }
+
+
+def test_sheet_rescale_forwards_the_scale_verbatim(
+    db_url: str, seen: list[httpx.Request]
+) -> None:
+    """SHEET-RESCALE-1: ``SheetUpdate.scale`` reaches documents intact.
+
+    Asserted on the FORWARDED BODY, not the status code. The DTOs are pydantic
+    default ``extra="ignore"``, so a mis-spelled or dropped field still returns
+    200 from this proxy and silently re-scales nothing — a green test that proves
+    only that the request parsed. The bytes on the wire are the claim.
+    """
+    with make_client(db_url, _echo_documents(seen)) as client:
+        _, bearer = _register(client)
+        response = client.patch(
+            f"/api/v1/drawings/{DRAWING}/sheets/{SHEET}",
+            json={
+                "expected_version": 4,
+                "scale": {"numerator": 1, "denominator": 5},
+            },
+            headers=bearer,
+        )
+    assert response.status_code == 200, response.text
+    SheetMutationResponse.model_validate(response.json())
+    [upstream] = seen
+    assert upstream.method == "PATCH"
+    assert upstream.url.path == f"/api/v1/drawings/{DRAWING}/sheets/{SHEET}"
+    forwarded = SheetUpdate.model_validate_json(upstream.content)
+    assert forwarded.scale == ViewScale(numerator=1, denominator=5)
+    # A pure re-scale must not smuggle a header change: every other field stays
+    # None, so documents leaves the sheet's own row alone.
+    assert (forwarded.name, forwarded.size, forwarded.orientation) == (
+        None,
+        None,
+        None,
+    )
+
+
+def test_sheet_rescale_without_views_resurfaces_its_typed_422(db_url: str) -> None:
+    """documents' refusal on a viewless sheet re-surfaces by code, not as a 500."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            422,
+            json={
+                "error": {
+                    "code": "sheet_rescale_without_views",
+                    "message": "upstream said so.",
+                    "details": {"sheet_id": str(SHEET)},
+                    "request_id": "upstream-id",
+                }
+            },
+        )
+
+    with make_client(db_url, handler) as client:
+        _, bearer = _register(client)
+        response = client.patch(
+            f"/api/v1/drawings/{DRAWING}/sheets/{SHEET}",
+            json={
+                "expected_version": 1,
+                "scale": {"numerator": 1, "denominator": 2},
+            },
+            headers=bearer,
+        )
+    assert response.status_code == 422
+    assert _envelope(response.json())["code"] == "sheet_rescale_without_views"
 
 
 def test_update_drawing_passthrough(db_url: str, seen: list[httpx.Request]) -> None:
