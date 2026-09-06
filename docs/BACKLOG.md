@@ -82,20 +82,19 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
 ## Ready (top of queue)
 
 **Dispatch order, groom pass 20 (2026-09-06), updated same day on
-DRAWSHEET-AUTOPLACE-1's code review and SHEET-RESCALE-1's build report.**
-Pass 19's whole list (GATE-FLOOR, MATEUI-1, LAYOUT-1, GHOST-1, STEPNAME-1/1B,
+DRAWSHEET-AUTOPLACE-1's, SHEET-RESCALE-1's and SNAP-4's code reviews.** Pass
+19's whole list (GATE-FLOOR, MATEUI-1, LAYOUT-1, GHOST-1, STEPNAME-1/1B,
 ARC-DEGENERATE-1, MATE-OBS-2, K2, PBT-1, SOLVE-CRASH-1, CI-BAL) shipped — see
-Done archive. **DRAWSHEET-AUTOPLACE-1's two placement hunks (`27c8d3f`,
-kernel-architect) are ship-with-fixes and being integrated, but the TICKET
-STAYS OPEN** — its own acceptance is not yet met on its originating
-fixture; see ARC-BOUNDS-INFLATE-1/LAYOUTISSUE-OFFSHEET-1/
-DRAWLAYOUT-PINNED-BLIND-1 below, filed from its code review. **SHEET-
-RESCALE-1's backend half is BUILT at `d19d257` (backend-builder, review + QA
-running)**, and also NOT a fresh dispatch target — its own two escalations
-are SHEET-RESCALE-2 (P1, the verb is unreachable by mouse) and
+Done archive. **All three of this batch's items came back ship-with-fixes,
+not clean closes — none re-dispatch whole:** DRAWSHEET-AUTOPLACE-1
+(`27c8d3f`) stays open pending ARC-BOUNDS-INFLATE-1/LAYOUTISSUE-OFFSHEET-1/
+DRAWLAYOUT-PINNED-BLIND-1 below; SHEET-RESCALE-1 (`d19d257`) is
+built-not-closed pending SHEET-RESCALE-2 (P1, unreachable by mouse) and
 SHEET-RESCALE-ORIENTATION-1 (a product question, filed in Next (P2), not
-Ready). Ranked, disjoint, parallel-dispatchable — **top 3 for the NEXT
-batch:**
+Ready); SNAP-4 (`40a14bd`) is built-not-closed pending SNAP4-SPEC-1 (P2,
+XS — completes SNAP-4's OWN third acceptance clause), with
+SNAP4-CYCLE-TEST-1 (P3) and SNAP4-MIXED-SELECTION-1 (P2, S) filed alongside.
+Ranked, disjoint, parallel-dispatchable — **top 3 for the NEXT batch:**
 
 1. **ARC-BOUNDS-INFLATE-1 + LAYOUTISSUE-OFFSHEET-1's `compose.py` half**
    (P1, S, kernel-architect, ONE dispatch not two) —
@@ -112,29 +111,41 @@ batch:**
    `Readout`) — weighted P1 on CLAUDE.md's own "unreachable capability is
    the defect" standing directive, not treated as routine follow-up. Fold in
    QA's reachability finding when it lands. Disjoint from #1 and #3.
-3. **SNAP-4** (P2, S, frontend-builder) — `apps/web/src/sketch/**`. An
-   explicit Fix on a point the draw already grounded misreports
-   OVER-CONSTRAINED. Disjoint from #1 and #2.
+3. **SNAP4-SPEC-1** (P2, XS, frontend-builder) — `apps/web/e2e/
+   constraints.spec.ts`. Completes SNAP-4's own unmet acceptance clause: the
+   spec still routes around the fix it's meant to prove. Small, precise,
+   measured edit already in the ticket. Disjoint from #1 and #2.
 
 Also ranked and ready, not in this batch (territory conflicts or
 size/blast-radius reasons noted):
 
-4. **TITLEBLOCK-FIT-1** (P2, S, kernel-architect) — same file as #1 above
+4. **SNAP4-MIXED-SELECTION-1** (P2, S, frontend-builder) — same files as
+   SNAP-4 itself (`constraints.ts`, `store.ts`); a mixed grounded+free
+   selection drops the grounded point silently on Fix. Sequence with
+   SNAP4-BINDING-CONSISTENCY-1 below (same files), not parallel.
+5. **SNAP4-CYCLE-TEST-1** (P3, XS, frontend-builder) — `constraints.test.ts`;
+   a cycle-safety test that cannot observe cycle safety (never enters its own
+   BFS). Different file from the two above, could run parallel with either.
+6. **SNAP4-BINDING-CONSISTENCY-1** (P3, XS, frontend-builder) — same files as
+   SNAP4-MIXED-SELECTION-1; two small bundled inconsistencies (X-on-Origin
+   vs X-on-a-point-grounded-to-Origin bind differently; the hint names the
+   anchor but not the escape hatch).
+7. **TITLEBLOCK-FIT-1** (P2, S, kernel-architect) — same file as #1 above
    (`compose.py`); queue after it lands, not parallel with it.
-5. **DRAWLAYOUT-PINNED-BLIND-1** (P3, S, kernel-architect) — same file
+8. **DRAWLAYOUT-PINNED-BLIND-1** (P3, S, kernel-architect) — same file
    again; a pinned view is invisible to the auto-layout's centring (not
    silent today — `views_overlap` catches it — but the coherent fix is
    upstream, in `_free_slot_anchor`'s style of occupied-space accounting).
-6. **DRAWLAYOUT-INK-CENTER-1** (P3, S, kernel-architect) — UNVERIFIED,
+9. **DRAWLAYOUT-INK-CENTER-1** (P3, S, kernel-architect) — UNVERIFIED,
    pending geometry-qa; same file again. May turn out to be the real close
    of "ink cannot leave the border" if confirmed — do not dispatch until
    that measurement lands.
-7. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
-   unrelated edit hits a silent, unexplained disabled Save.
-8. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
-   select-without-editing gesture, and the command band is out of room at
-   1280. Large blast radius (75 refs across 28 e2e spec files) — best run
-   alone, not paired with other `apps/web` work.
+10. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
+    unrelated edit hits a silent, unexplained disabled Save.
+11. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
+    select-without-editing gesture, and the command band is out of room at
+    1280. Large blast radius (75 refs across 28 e2e spec files) — best run
+    alone, not paired with other `apps/web` work.
 
 **Also ready, not yet dispatched:** QA-R3 (P2, touch — harness gap filed as
 PLAYWRIGHT-TOUCH-1), NAME-2b (P2), TITLEBLOCK-STAMP-1 (P2, XS),
@@ -550,38 +561,165 @@ are both SHIPPED — see Done archive for evidence/gates.**
 **RECT-1, SNAP-2, SNAP-3 and MIRROR-1 are all SHIPPED — see Done archive
 for full evidence/gates.** Their two live follow-ups stay in Ready:
 
-- [ ] (P2, S) **SNAP-4 — an explicit Fix on a point the draw already grounded
-      reads as OVER-CONSTRAINED, and the user did not ask for either half.**
-      kind: defect (interaction between two features that are each correct).
-      Found 2026-08-16 while integrating SNAP-3, by a test that stopped
-      passing for an informative reason rather than by inspection. Draw a line
-      starting ON the origin: SNAP-3 correctly authors a coincident from the
-      endpoint to the origin. Now press `x` (Fix) on that same endpoint —
-      also correct in isolation — and the two constraints pin the same point
-      twice, so the sketch reports OVER-CONSTRAINED. MEASURED: the
-      `constraints.spec.ts` conflict-recovery case, which removes a bad
-      dimension and expects `DOF 0 · CONVERGED`, instead reached
-      `OVER-CONSTRAINED` and could not recover; it now draws clear of the
-      origin to keep its own subject, which is a workaround in a test and not
-      a fix in the product. WHY IT MATTERS beyond the tidiness: the report is
-      TRUE — the point genuinely is over-determined — so the diagnosis is not
-      lying, but the user authored only one of the two constraints and the
-      other arrived silently from a snap. That is the "asks the user to delete
-      something they did not knowingly create" shape that SKETCH-2's follow-up
-      was filed for. OPTIONS, in preference order: (a) Fix on a point that
-      already carries a coincident to the frame REPLACES it (the explicit verb
-      supersedes the inferred one) and says so; (b) Fix is refused as "already
-      grounded", matching the "Already horizontal." precedent RECT-1 relies on;
-      (c) leave it and rely on the redundancy diagnosis — cheapest, and the
-      one to argue against. ACCEPTANCE: draw a line from the origin, press `x`
-      on that endpoint, and the sketch does NOT report over-constrained; a
-      GENUINE over-constraint on the same sketch still does (negative
-      control); `constraints.spec.ts`'s conflict case can be moved back onto
-      the origin and still recover to `DOF 0 · CONVERGED`.
-      [src: SNAP-3 integration, 2026-08-16]
+- [ ] (P2, S) **SNAP-4 — CODE-REVIEWED 2026-09-06: ship-with-fixes at
+      `40a14bd` (frontend-builder); do not close — its OWN third acceptance
+      clause is not yet met on HEAD, see SNAP4-SPEC-1 below. An explicit Fix
+      on a point the draw already grounded reads as OVER-CONSTRAINED, and the
+      user did not ask for either half.** kind: defect (interaction between
+      two features that are each correct). **Reviewer verified the design
+      call AT THE SOLVER, not just at the type** (relayed by orchestrator):
+      `fix_point` registers two tags at the pre-solve position while
+      `coincident` is a full point identity, so a point transitively joined
+      to a pinned one has zero remaining freedom — the second Fix is exactly
+      redundant, not approximately. The `already` seam is a real outcome (it
+      sets `userConstrained`, which is what starts the live-save loop on an
+      unbound sketch), and the escape hatch is reachable: click the inferred
+      `C` glyph, Delete, press X. **Three follow-ups filed from review, all
+      below: SNAP4-SPEC-1 (P2, XS — the ticket's own acceptance clause 3 is
+      satisfiable today and unmet on HEAD), SNAP4-CYCLE-TEST-1 (P3, XS — a
+      cycle-safety test that cannot observe cycle safety), and
+      SNAP4-MIXED-SELECTION-1 (P2, S — a mixed grounded+free selection drops
+      the grounded point silently).** Found 2026-08-16 while integrating
+      SNAP-3, by a test that stopped passing for an informative reason rather
+      than by inspection. Draw a line starting ON the origin: SNAP-3
+      correctly authors a coincident from the endpoint to the origin. Now
+      press `x` (Fix) on that same endpoint — also correct in isolation — and
+      the two constraints pin the same point twice, so the sketch reports
+      OVER-CONSTRAINED. MEASURED: the `constraints.spec.ts` conflict-recovery
+      case, which removes a bad dimension and expects `DOF 0 · CONVERGED`,
+      instead reached `OVER-CONSTRAINED` and could not recover; it now draws
+      clear of the origin to keep its own subject, which is a workaround in a
+      test and not a fix in the product. WHY IT MATTERS beyond the tidiness:
+      the report is TRUE — the point genuinely is over-determined — so the
+      diagnosis is not lying, but the user authored only one of the two
+      constraints and the other arrived silently from a snap. That is the
+      "asks the user to delete something they did not knowingly create" shape
+      that SKETCH-2's follow-up was filed for. OPTIONS, in preference order:
+      (a) Fix on a point that already carries a coincident to the frame
+      REPLACES it (the explicit verb supersedes the inferred one) and says
+      so; (b) Fix is refused as "already grounded", matching the "Already
+      horizontal." precedent RECT-1 relies on; (c) leave it and rely on the
+      redundancy diagnosis — cheapest, and the one to argue against.
+      ACCEPTANCE: draw a line from the origin, press `x` on that endpoint,
+      and the sketch does NOT report over-constrained; a GENUINE
+      over-constraint on the same sketch still does (negative control);
+      `constraints.spec.ts`'s conflict case can be moved back onto the origin
+      and still recover to `DOF 0 · CONVERGED` — **STILL UNMET ON HEAD, see
+      SNAP4-SPEC-1.**
+      [src: SNAP-3 integration, 2026-08-16; code review 2026-09-06 relayed by
+      orchestrator]
       TERRITORY: `apps/web/src/sketch/constraints.ts` (`applyConstraintAction`,
       the `fixed` branch), `apps/web/src/sketch/store.ts`. agentType:
       frontend-builder.
+
+- [ ] (P2, XS) **SNAP4-SPEC-1 — `constraints.spec.ts` is green-by-avoidance:
+      it still routes SNAP-4's own regression case around the fix instead of
+      through it, and SNAP-4's third acceptance clause is unmet until this
+      lands.** kind: test debt (cross-territory from SNAP-4's builder — the
+      spec file, not the fix). Found by code-reviewer during SNAP-4's review,
+      relayed by orchestrator 2026-09-06. MEASURED: the conflict-recovery
+      case still draws at `{x:5,y:8}` with a 25-line comment naming SNAP-4 as
+      the reason it avoids the origin frame. The reviewer moved it back onto
+      the origin and ran it against `40a14bd`: **it passes**, then restored
+      the file to leave the fix for a dedicated commit. PRECISE EDIT
+      MEASURED: start `{0.3,-0.2}`, select `{0,0}`, drop one `x` press,
+      mid-span dimension pick `{20,9}` -> `{17.5,5}`,
+      `toHaveCount(2)` -> `toHaveCount(1)`. Worth noting for whoever lands
+      this: **the builder's ORIGINAL prediction was right in outcome but
+      wrong in mechanism** — the grounded press authors *nothing*, so the FIX
+      count goes to 0 (not 1), and line 535 is the first assertion that
+      moves, not line 538 as originally guessed. ACCEPTANCE: the
+      conflict-recovery case draws its line from the origin (not
+      `{5,8}`), the stale 25-line SNAP-4-avoidance comment is removed, the
+      spec passes with the measured assertion edits above, and SNAP-4's own
+      acceptance clause 3 is ticked as met in the same commit.
+      [src: code-reviewer, SNAP-4 review, relayed by orchestrator 2026-09-06,
+      filed by backlog-groomer]
+      TERRITORY: `apps/web/e2e/constraints.spec.ts`. agentType:
+      frontend-builder.
+
+- [ ] (P3, XS) **SNAP4-CYCLE-TEST-1 — the cycle-safety test cannot observe
+      cycle safety; the implementation is genuinely safe, the test is not
+      proof of it.** kind: test debt (vacuous test — same family as the
+      `toBeVisible()`/`force: true` entries in CLAUDE.md's environment
+      recipes; worth recording as another instance since this pattern keeps
+      recurring). Found by code-reviewer during SNAP-4's review, relayed by
+      orchestrator 2026-09-06. MEASURED: `constraints.test.ts`'s "terminates
+      on a cycle of coincidents" case never enters its own BFS —
+      `groundingAnchor` returns at `if (pinned.size === 0) return null;`
+      BEFORE the walk, and the committed fixture pins nothing. Proof the test
+      is vacuous: deleting `seen.has(refKey(next))` from the guard, the
+      committed case **still passes**; the reviewer's own probe (the same
+      cycle plus a `fixed` that exists but is unreachable from the walk)
+      **hangs** without the guard and passes with it — that probe is the one
+      that actually exercises cycle safety. The comment on the committed test
+      describes a run that cannot happen. FIX is one line in the fixture: add
+      a `fixed` on an unrelated point so `pinned.size > 0` and the BFS is
+      actually entered. ACCEPTANCE: the committed case fails (hangs or times
+      out) if `seen.has(refKey(next))` is removed from the guard, and passes
+      with it present — i.e. the test can observe the property its name
+      claims.
+      [src: code-reviewer, SNAP-4 review, relayed by orchestrator 2026-09-06,
+      filed by backlog-groomer]
+      TERRITORY: `apps/web/src/sketch/constraints.test.ts`. agentType:
+      frontend-builder.
+
+- [ ] (P2, S) **SNAP4-MIXED-SELECTION-1 — pressing Fix on a mixed selection
+      (one already-grounded point + one free point) silently drops the
+      grounded one: no glyph, no message, nothing pinned for it.** kind:
+      defect (flow — a request the user made gets no acknowledgment either
+      way). Found by code-reviewer during SNAP-4's review, relayed by
+      orchestrator 2026-09-06. ROOT CAUSE, read directly: `constraints.ts:
+      1058-1072` computes `grounded` and DISCARDS it whenever
+      `added.length > 0`, and `store.ts:1327` sets `hint: null` on that
+      branch. So selecting one grounded point and one free point and
+      pressing X pins the free point, says nothing about the grounded one,
+      and leaves NO Fix glyph where the user aimed at it. **The
+      duplicate-constraint precedent (SNAP-4's own `already` seam) does not
+      cover this case**: a duplicate already has its glyph on screen, so the
+      visible state matches what was requested; here the grounded point's
+      state is correct but nothing on screen says so, and the user cannot
+      tell "ignored" from "forgotten." FIX direction: carry the discarded
+      `grounded` anchor into the `added` result instead of dropping it, and
+      surface it as a mixed-outcome hint — e.g. "1 of 2 — the other is
+      already grounded on the Origin" — rather than staying silent about
+      half the selection. ACCEPTANCE: selecting a grounded point + a free
+      point and pressing X pins the free point (unchanged), shows the Fix
+      glyph on the grounded point (not `hint: null`), and states both
+      outcomes in one readable message; selecting two free points still
+      behaves exactly as today (regression).
+      [src: code-reviewer, SNAP-4 review, relayed by orchestrator 2026-09-06,
+      filed by backlog-groomer]
+      TERRITORY: `apps/web/src/sketch/constraints.ts` (lines ~1058-1072),
+      `apps/web/src/sketch/store.ts` (~line 1327). agentType:
+      frontend-builder.
+
+- [ ] (P3, XS) **SNAP4-BINDING-CONSISTENCY-1 — two small SNAP-4-adjacent
+      inconsistencies, bundled since neither alone is worth a dedicated
+      ticket.** kind: defect/polish (pre-existing, both noted by
+      code-reviewer during SNAP-4's review, relayed by orchestrator
+      2026-09-06). (a) **Same gesture, two bindings.** X on the Origin
+      ITSELF hits `DATUM_SUBJECT_REFUSED` and returns a hint with no
+      `already` — it does NOT bind the sketch. X on a point grounded TO the
+      origin (SNAP-4's own case) now DOES bind it (`userConstrained`,
+      starting the live-save loop). Same gesture class, two different
+      binding outcomes, and nothing tells the user which one just happened.
+      (b) **The hint names the anchor, not the exit.** SNAP-4's own doc
+      comment claims that naming the Origin "points at the C glyph, which is
+      both the explanation and the exit" — but that is an inference the user
+      has to make unaided; the hint text does not itself say "click the C
+      glyph, Delete, then Fix again" anywhere. FIX direction: (a) decide
+      whether X-on-a-grounded-point SHOULD bind the sketch the way
+      X-on-the-Origin-itself deliberately does not, and make the two
+      consistent; (b) extend the hint copy to name the escape hatch
+      explicitly, not just the anchor. ACCEPTANCE: (a) X-on-Origin and
+      X-on-a-point-grounded-to-Origin either both bind or both refuse, by a
+      documented decision; (b) the hint text names the exit action, not just
+      the C glyph's existence.
+      [src: code-reviewer, SNAP-4 review, relayed by orchestrator 2026-09-06,
+      filed by backlog-groomer]
+      TERRITORY: `apps/web/src/sketch/constraints.ts`, `apps/web/src/sketch/
+      store.ts` (hint copy). agentType: frontend-builder.
 
 - [ ] (P2, S) **RECT-2 — should DRAWING alone persist a sketch?** kind: question
       (product decision, not a defect). Raised by RECT-1, which made it live:
@@ -5335,6 +5473,18 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-09-06 — **SNAP-4 built at `40a14bd`, ship-with-fixes, three
+  follow-ups filed (backlog-groomer, relaying orchestrator).** Reviewer
+  verified the design AT THE SOLVER (a point transitively pinned via
+  coincidence has zero remaining freedom, so the second Fix is exactly
+  redundant). Filed SNAP4-SPEC-1 (P2, XS — completes SNAP-4's own unmet
+  acceptance clause; `constraints.spec.ts` still avoids the case it names),
+  SNAP4-CYCLE-TEST-1 (P3, XS — a cycle-safety test that never enters its own
+  BFS), SNAP4-MIXED-SELECTION-1 (P2, S — a mixed grounded+free selection
+  drops the grounded point silently), and a bundled P3
+  SNAP4-BINDING-CONSISTENCY-1 for two smaller inconsistencies. Not filing
+  the missing-ROADMAP-tick finding the reviewer raised — that's the
+  orchestrator's integration-time process, not a builder defect.
 - 2026-09-06 — **SHEET-RESCALE-1 backend built at `d19d257`, two escalations
   filed (backlog-groomer, relaying orchestrator).** Sheet-level re-scale
   ships; the one-transaction shape is forced by the H2 guard, not chosen
