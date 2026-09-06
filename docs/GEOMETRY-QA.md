@@ -6681,3 +6681,192 @@ gives way at every size, gated by `test_sketch_settle_budget.py`, which also
 asserts the budget is a function of the sketch (not the clock) and that a
 budgeted settle is bitwise reproducible across repeats (RESEARCH §9). All 207
 tests of the SOLVE-1 / SETTLE-2 / SETTLE-3 suites are green.
+
+---
+
+## 2026-09-06 — DRAWSHEET-AUTOPLACE-1 verification: the quartet did not move, the measurement is sound, and the ticket closes less than it looks like (geometry-qa)
+
+Verifying `27c8d3f` on `worktree-agent-aa9ead6b227db9225` (parent `de32969`).
+**Verdict: PASS on all four gates asked, with two findings filed — one confirmed
+from the builder's own report and one new.** Nothing in the fix is wrong; what is
+wrong is how much of the failure class it closes, and both remaining paths are
+reachable from the UI today.
+
+### 1. Golden byte-identity — the standard four-view sheet did NOT move
+
+Not taken from `git status`. All five committed compose goldens were regenerated
+from their own `request.json` twice — once against `de32969`'s source and once
+against `27c8d3f`'s, the base source materialised into a scratch tree and put in
+front of the worktree's on `PYTHONPATH` — and every artefact hashed:
+
+| golden (sha256, first 16) | SVG | PDF | DXF | committed == base == HEAD |
+| --- | --- | --- | --- | --- |
+| compose_goldens | ebd4ba577ac3555d | 7952e56450bbfec6 | 670ab0427fd6e5b0 | yes |
+| compose_placement_goldens | 1c82b391655e5613 | 3543fe4d83fbc8fe | 9aeca3c9f4aef39b | yes |
+| compose_first_angle_goldens | 299154b2dad89e35 | 553a211cb924c35c | ba0fa28d0483f845 | yes |
+| compose_note_goldens | 3e472957c66a2c76 | a2946f223d5db17c | 9d131508a8af03ff | yes |
+| compose_title_block_goldens | 056c7334123984fc | 6b67158b4c169204 | c654e57c7acbf554 | yes |
+
+35 compared fields (3 artefact digests + 3 committed digests + the placed anchor
+string per dir), **0 differences** between base, HEAD and the committed bytes.
+The plate quartet's anchors are `front 93.5190,129.3506 / top 93.5190,80.3506 /
+right 157.5190,129.3506 / iso 157.5190,70.6494` in both trees, to 1e-6 mm.
+
+Then the space around the goldens, which the goldens do not cover: **1692
+configurations** (3 sheet sizes x 3 part sizes x 2 projection conventions x all
+15 non-empty view subsets x every `auto_place` assignment, plus 216 cases with an
+extra EVALUATED-but-not-laid-out projection), resolved through
+`resolve_view_anchors` in both trees. **1221 moved, 471 identical — and not one
+of the moved cases is the all-auto quartet** (`AAAA` does not appear in the moved
+set; the moved patterns are lone views, pairs, triples, any sheet with a pinned
+view, and every `EXTRA:` case). Of the 1221: 593 reduced the worst ink-past-border
+distance, 625 left it unchanged, and 3 increased it — all three by exactly
+3.70 mm, on `right+iso` first-angle sheets whose ink was already **49.3 to
+158.0 mm inside** the border (A4 -53.0 -> -49.3, A3 -96.5 -> -92.8, A2 -158.0 ->
+-154.3 mm, negative meaning clear), i.e. re-centrings, not overflows. This is the strongest form of the builder's claim and it holds.
+
+**Coverage gap, filed, not backfilled:** every committed drawing golden is the
+same shape — A4 landscape, all four standard views, `auto_place` defaulted true,
+one plate. There is no byte golden for a one-, two- or three-view sheet, and that
+is precisely why a defect confined to subsets shipped. The commit adds behavioural
+tests for subsets but no serialized golden; a lone-view SVG/PDF/DXF golden is the
+durable half of this fix.
+
+### 2. `measure_sheet_overflow` is numerically sound — the CALLER was not
+
+Sixteen checks on cases I chose, all green: fully inside -> silent; a rect exactly
+ON the border -> silent (documented convention); 0.001 mm past -> fires; a rect at
+x 5..30 on a 200x100 sheet with a 10 mm border -> `margin_mm 5.0`, `sheet_mm -5.0`,
+`side "left"`; a rect crossing two borders -> names the worse (`bottom`, 18.0);
+exact ties -> insertion order (`left` over `right`, `top` over `bottom`); four
+views -> one record each for the two offenders, in the given order; `margin_mm =
+0` -> the border IS the paper edge (1.0/1.0); and `margin_mm - sheet_mm == 10.0`
+on all four sides, so the sign convention is internally consistent and the worst
+side is the same under both readings.
+
+**But `measure_sheet_overflow` measures whatever rect it is handed, and the
+commit's own standing gate handed it the wrong one.**
+`test_composed_sheets_place_every_view_inside_the_border` says in its docstring
+that it measures "every placed view's INK — geometry plus its stamped caption",
+and its body built each rect from `ComposedLineEdge` only, with no caption band —
+a CONTENT box over one of three composed edge kinds. So the one gate standing over
+real composed sheets was blind to the exact residual the same commit reports
+(below), and would under-measure any view whose outermost feature is a circle or a
+sampled curve. Measured: on all five goldens the line-only and all-edge boxes
+agree to 0.0000 mm today (the plate's holes are inboard), so this was latent, not
+live. Fixed in this pass — the gate now walks all three edge kinds, adds the band
+via `_caption_band_mm()` (derived from `view_ink_rect` minus
+`view_content_svg_rect`, so it cannot drift from the drawn band: 9.7 mm), and
+covers all five goldens instead of three. Green: the tightest ink slack to the
+border is **26.4494 mm** (first-angle golden, `top`), 50.9494 mm on the other four.
+Non-vacuity proven rather than assumed: re-run with the border inset raised to
+`slack + 0.001` and every golden fires, naming the expected view and side.
+
+### 3. Determinism — byte-identical across processes and repeats
+
+- **61 sheets x 3 formats x 5 fresh interpreters**, each with a different
+  `PYTHONHASHSEED` (7919..39595): five runs, **one** total digest
+  `db42e5ae6c6f09a2e28fbed5ea6e265b55218a4f919eaaabe6c4d0dd867eeec4`, and no
+  per-case digest differed. The corpus is the five goldens plus every subset sheet
+  the fix newly reaches, in both auto and mixed auto/pinned form.
+- **25 in-process rebuilds** of all 15 subset sheets on A2 at 1:4 -> 1 distinct
+  digest. The new `auto_placed` set is membership-only and the placement loops
+  still walk the fixed `STANDARD_VIEWS` tuple, so no set-iteration order can leak.
+
+### 4. Performance — no regression, and a methodology note worth keeping
+
+`place_sheet` + `serialize_svg` on the plate golden, best of 5 x 40 iterations:
+**base 7.811 ms, HEAD 7.749 ms** per sheet. Well inside the 10% rule.
+
+The note: the first A/B, run HEAD-then-base three times under a live full-suite
+run, read **HEAD 12.556 / 11.243 / 9.926 vs base 10.740 / 8.607 / 8.013** — a
+consistent 12-25% "regression" in every round, which for a diff that adds one
+4-element comprehension per sheet was not credible. Reversing the order inverted
+it (base 7.908/7.811/9.539 vs HEAD 9.853/7.807/7.749). **Under background load the
+first process of a pair pays a systematic penalty, so a same-order A/B manufactures
+a stable, repeatable, entirely false delta.** Interleave both directions before
+believing any A/B taken on a busy box.
+
+### Finding A (CONFIRMED, and it is the builder's own) — a centred view's caption prints past the drafting border
+
+The report was right to 0.01 mm. On the ticket's A2 fixture (340 x 386 mm of
+content, 594 x 420 mm sheet, 574 x 400 mm border) at HEAD:
+
+| quantity | measured |
+| --- | ---: |
+| content y-extent | 17.0000 .. 403.0000 mm (centre 210.0000 = sheet centre) |
+| ink y-extent (content + 9.7 mm caption band) | 17.0000 .. 412.7000 mm |
+| ink centre below sheet centre | **4.8500 mm** (= band / 2) |
+| content clearance to the bottom border | 7.0000 mm |
+| ink past the bottom border | **2.7000 mm** |
+| ink relative to the PAPER edge | **-7.3000 mm** (inside) |
+
+Mechanism: `bounds_aware_layout` centres CONTENT, `view_ink_rect` (and every
+serializer) draws a caption `_VIEW_LABEL_DY + _VIEW_LABEL_MM / 2 = 9.7 mm` below
+it. So ink crosses the bottom border whenever the content's own bottom clearance
+is under 9.7 mm. Bisected the size window per sheet: on A4 a lone view's ink
+crosses above half-size 85.300 mm while its content only crosses above 95.000 mm —
+a **9.700 mm-wide band of part sizes** where the sheet exports with ink outside its
+border and reports nothing; the quartet's band is 4.850 mm (A4 36.650 vs 41.500,
+A3 58.400 vs 63.250, A2 89.150 vs 94.000). It is a band, not a knife edge.
+
+**Severity: P3, and the bound is the reason.** While the CONTENT is inside the
+border, ink can cross the border by at most 9.7 mm and therefore sits at worst
+0.3 mm INSIDE the paper — it can never be clipped off the page by this mechanism
+alone. It is a frame violation (a caption printed on or through the drafting
+border), deterministic and bounded, not lost geometry. Recorded as
+`test_a_centred_views_caption_stays_inside_the_drafting_border`,
+`xfail(strict=True)` with the measured numbers in its reason, asserting the
+CORRECT behaviour unweakened — it goes XPASS-red the day the layout centres ink,
+which is when the marker should come off. Verified it fails for its own reason:
+`SheetOverflow(view='right', side='bottom', margin_mm=2.6999999999999886,
+sheet_mm=-7.300000000000011)`.
+
+### Finding B (NEW) — the sheet still exports ink off the PAPER in silence, and the fix widens one of the two paths there
+
+`measure_sheet_overflow` is deliberately not wired to
+`ComposedSheet.layout_issues` this commit (the DTO's `code` Literal and 2-view
+`views` field are contract-frozen — a reasonable deferral, stated in the commit).
+The consequence is that the headline defect shape — *"the sheet reported success
+while placing ink outside its own bounds"* — is only half closed. Two paths still
+produce exactly that, measured at HEAD:
+
+- **An oversize part.** A 400 x 300 mm front view at 1:1 on A4 composes at
+  x -51.50..348.50, y -45.00..255.00 — **51.50 mm off the paper left and
+  right, 45.00 mm top and bottom** —
+  with `layout_issues == []` and valid SVG/PDF/DXF. This is UI-reachable without
+  the user doing anything unusual: `fitScale` (apps/web/src/drawing/layout.ts) has
+  a documented "falls back to the smallest option when nothing fits (never throws)"
+  branch, and its own test pins a 5 m part on A4 to **1:10** — a 500 mm view on a
+  297 mm sheet. Pre-existing, untouched by this commit.
+- **An additive (section / flat_pattern) view whose free slot no longer fits.**
+  `_free_slot_anchor` tries right/below/left/above and, when none fits, documents
+  a fallback to "the right of the block", which is off-sheet. Because the fix
+  CENTRES the standard views, it removes the accidental 12 mm of headroom that
+  used to let a section view fit on a tight sheet. Measured over 33
+  standard+section configurations: base 5 problem cases, HEAD 7 — the two new ones
+  are `A4|front+right+section` and `A4|top+iso+section`, where the section view
+  moves from an on-sheet slot to x 254.50..324.50 on a 297 mm sheet, i.e. **27.5 mm
+  off the paper**, `layout_issues == []`. Both sheets are genuinely tight (three
+  70 x 50 mm views at 1:1 on A4), and the base behaviour was correct only by
+  accident of the bug — so this is exposure, not a new defect, but it is exposure
+  created by this commit.
+
+Recommend the overflow wiring (`off_sheet` code in py-kit + regenerate + banner
+line) at **P1**, not P3: the geometry is right, but an exported deliverable
+silently loses ink, and the user's only signal today is looking at the PDF.
+For contrast, the mutually-crowded case IS reported — a diagonal `top`+`right`
+pair on A3 overlaps by construction (front's zero extent collapses the spacing)
+and `measure_layout_issues` correctly returns `views_overlap`, at base and at HEAD
+alike, so the pairwise half of the vocabulary works.
+
+### Gates run
+
+Full `services/geometry/tests` at the commit as received: **3080 passed, 1
+skipped, 5 deselected** in 1139.50 s. Drawings surface
+(`-k "drawing or compose or sheet"`): **712 passed** in 286.79 s as received, and
+**712 passed, 1 xfailed** in 303.57 s after this pass's test changes.
+`test_drawings_compose.py` alone: **86 passed, 1 xfailed** in 40.67 s.
+`ruff check` + `ruff format --check` + `pyright` clean on the changed test file.
+No application code was touched by this pass — `git diff -- services/geometry/src
+packages/` is empty.
