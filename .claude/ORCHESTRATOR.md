@@ -135,6 +135,18 @@ Discover  →  Audit  →  Groom  →  Build  →  Review  →  Verify  →  Int
   entire reports to session limits). Roughly every third batch; the board does
   not need refreshing every time.
 - **Groom** — `backlog-groomer` refreshes the Ready queue and returns the top
+  **GIVE THE GROOMER `isolation: 'worktree'` TOO — it is not a builder, but it
+  COMMITS, and in the shared checkout that costs a commit its CI run.** Measured
+  2026-09-06: the groomer runs in the main tree, so when it committed and pushed
+  its board update it carried MY integration commit (`03bb837`,
+  SHEET-RESCALE-1) up with it. GitHub fires one run per push EVENT keyed to the
+  head commit, so `03bb837` got no run at all — not a cancelled one, none —
+  which is the documented multi-commit-push hole, reached here without anyone
+  batching a push on purpose. Its descendant's green run verifies the TREE, not
+  that COMMIT. Two more side effects of the same sharing: the stop hook sees the
+  groomer's in-flight commit as unpushed work of mine, and its `git commit`
+  moves the main checkout's HEAD under me mid-integration. Nothing but the
+  orchestrator should move that HEAD.
   N **disjoint** items, each with `{id, title, ticket, agentType, territory}`.
 - **Build** — one agent per item, each with **`isolation: 'worktree'`**, owning
   the slice end to end: implement, self-review, QA, commit-if-green, leave it on
