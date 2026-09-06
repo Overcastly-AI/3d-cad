@@ -469,11 +469,33 @@ def bounds_aware_layout(
         "right": r,
         "iso": i,
     }
+    # Centre on the views that are ACTUALLY THERE (DRAWSHEET-AUTOPLACE-1). Every
+    # slot has a `rel` point whether or not a view occupies it, and three of those
+    # four points are non-zero by construction — `rel["top"]` sits a gutter above
+    # the front slot, `rel["iso"]` a gutter up-and-right of it — so centring on all
+    # four made ABSENT views vote. For a lone view the arrangement bbox then spanned
+    # from the empty front slot at the origin to the placed view, displacing the
+    # anchor by exactly VIEW_GUTTER_MM / 2 = 12.00 mm per affected axis on every
+    # sheet size and scale, in the direction of the slot the view occupies. Measured
+    # over all 15 non-empty subsets of the quartet: 8 were displaced (all four lone
+    # views on both axes, the four adjacent pairs on one), and the diagonal pairs,
+    # the triples and the quartet were centred — they already span the arrangement's
+    # bbox, so the empty slots had no vote left. Harmless alone; on a large view at
+    # a tight scale it
+    # pushed the drawn geometry over the sheet's own border, and the sheet composed
+    # and exported valid SVG/PDF/DXF while doing it (measured: a lone `right` view on
+    # A2 at 1:4 whose ink ran 4.70 mm past the 420 mm bottom edge, layout_issues
+    # empty). Bounds are None exactly for a slot that is not being placed, so the
+    # present set is the honest centring population; the full quartet has all four
+    # present and centres byte-identically to before.
+    present: list[ViewProjection] = [
+        v for v in STANDARD_VIEWS if bounds_by_projection.get(v) is not None
+    ]
     min_x = min_y = math.inf
     max_x = max_y = -math.inf
-    for v in STANDARD_VIEWS:
-        a = rel[v]
-        hh = half_of[v]
+    for placed in present:
+        a = rel[placed]
+        hh = half_of[placed]
         min_x = min(min_x, a.x - hh.x)
         max_x = max(max_x, a.x + hh.x)
         min_y = min(min_y, a.y - hh.y)
@@ -605,10 +627,25 @@ def resolve_view_anchors(
             "what makes this unreachable."
         )
 
+    # ONLY the views this call is actually auto-placing feed the auto-layout
+    # (DRAWSHEET-AUTOPLACE-1). `result_by_proj` is keyed off the EVALUATION, which
+    # can carry projections the layout never places — a view the request evaluated
+    # but did not lay out, or one the author pinned with `auto_place=False` and that
+    # pass 2 below honours at its own point. Feeding those in made them vote on the
+    # arrangement's centring while being drawn somewhere else entirely (or not at
+    # all), which is the same "an absent view moved a present one" defect
+    # `bounds_aware_layout` centres against. A sheet whose standard views are all
+    # auto-placed and all evaluated — the ordinary case, and every existing golden —
+    # sees the identical map and composes byte-identically.
+    auto_placed = {
+        vp.projection
+        for vp in layout.views
+        if vp.auto_place and vp.projection in STANDARD_VIEWS
+    }
     bounds_by_proj: dict[ViewProjection, ViewBounds | None] = {}
     for proj in STANDARD_VIEWS:
         r = result_by_proj.get(proj)
-        ok = r is not None and r.error is None
+        ok = proj in auto_placed and r is not None and r.error is None
         bounds_by_proj[proj] = view_bounds(r.edges) if (ok and r is not None) else None
     auto = bounds_aware_layout(bounds_by_proj, dims, layout.projection)
 
@@ -772,6 +809,82 @@ def measure_layout_issues(
                     ),
                 )
             )
+    return issues
+
+
+class SheetOverflow(NamedTuple):
+    """One placed view's ink measured against the sheet's own borders (mm).
+
+    Signed and POSITIVE-IS-BAD on every field, matching the sign convention
+    :class:`~py_kit.schemas.drawings.ComposedLayoutIssue` already uses for the
+    pairwise overlaps: ``margin_mm`` is how far the view's ink crosses the drafting
+    border (the inset frame the title block and the print live inside),
+    ``sheet_mm`` how far it crosses the PAPER edge — geometry past that one is not
+    on the drawing at all. ``side`` names the worst border, so a caller has
+    something to say in words rather than four numbers.
+    """
+
+    view: ViewProjection
+    side: str
+    margin_mm: float
+    sheet_mm: float
+
+
+def measure_sheet_overflow(
+    rects: Sequence[tuple[ViewProjection, SvgRect]],
+    dims: Vec2,
+    margin_mm: float,
+) -> list[SheetOverflow]:
+    """Measure every placed view against the SHEET BORDER (DRAWSHEET-AUTOPLACE-1).
+
+    The half of sheet verification that was missing. :func:`measure_layout_issues`
+    walks view PAIRS, so its whole vocabulary is "these two views are too close to
+    each other" — which is blind, by construction, to the failure that actually
+    shipped: a SINGLE view placed partly off the sheet. One view can never form a
+    pair, so a one-view sheet had no checks at all, and a sheet whose views were
+    mutually clear passed while hanging over the edge. That is the "a gate that
+    cannot observe the failure mode" class: composition reported success, the
+    serializers emitted valid SVG/PDF/DXF, and the drawing was unusable.
+
+    Measured in the same final SVG space (y-DOWN, top-left origin) as
+    :func:`view_ink_rect`, against the same ``margin_mm`` border the serializers
+    draw, and over a view's INK (geometry plus its stamped caption band) — a caption
+    printed off the paper is as lost as an edge is. Returns one record per view that
+    crosses the drafting border, in the given (canonical composed) order, each
+    naming that view's WORST border; a view inside the border yields nothing. Pure
+    and deterministic — ties resolve left/right/top/bottom by insertion order, and
+    no tolerance is involved, because this is a LAYOUT question in sheet millimetres,
+    not a geometric comparison (a view exactly on the border counts as inside it).
+
+    NB the composed-sheet DTO cannot yet carry this: ``ComposedLayoutIssue.code`` is
+    a two-member Literal and its ``views`` field is pinned to exactly two
+    projections, both of which are contract-frozen in ``packages/contracts``. Wiring
+    an ``off_sheet`` issue into ``ComposedSheet.layout_issues`` (and thus onto the
+    stamped sheet banner) is a py-kit + regenerate change; this function is the
+    measurement it will report, and the gate over it lives in the test suite until
+    then.
+    """
+    issues: list[SheetOverflow] = []
+    for view, rect in rects:
+        # Positive = the ink crosses that border by this much.
+        by_side = {
+            "left": (margin_mm - rect.min_x, 0.0 - rect.min_x),
+            "right": (rect.max_x - (dims.x - margin_mm), rect.max_x - dims.x),
+            "top": (margin_mm - rect.min_y, 0.0 - rect.min_y),
+            "bottom": (rect.max_y - (dims.y - margin_mm), rect.max_y - dims.y),
+        }
+        worst = max(by_side.items(), key=lambda kv: kv[1][0])
+        side, (over_margin, over_sheet) = worst
+        if over_margin <= 0.0:
+            continue
+        issues.append(
+            SheetOverflow(
+                view=view,
+                side=side,
+                margin_mm=over_margin,
+                sheet_mm=over_sheet,
+            )
+        )
     return issues
 
 
