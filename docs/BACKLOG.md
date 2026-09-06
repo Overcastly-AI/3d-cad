@@ -95,10 +95,12 @@ SHEET-RESCALE-1 (`d19d257`) is built-not-closed, and QA's own static proof
 sharpens SHEET-RESCALE-2 further (it's dead code from the UI, not merely
 hard to reach) while confirming the server side is exactly right;
 SHEET-RESCALE-ORIENTATION-1 stays a product question in Next (P2), not
-Ready. SNAP-4 (`40a14bd`) is built-not-closed pending SNAP4-SPEC-1 (P2,
-XS), with SNAP4-CYCLE-TEST-1 (P3) and SNAP4-MIXED-SELECTION-1 (P2, S) filed
-alongside. Ranked, disjoint, parallel-dispatchable — **top 3 for the NEXT
-batch:**
+Ready. SNAP-4 (`40a14bd`) is built-not-closed; QA PASSED it independently
+but found FOUR defects, one (QA-SNAP4-4) elevated to P1 because it
+contradicts the code review's own escape-hatch claim — the constraint glyph
+that review said was clickable is not, so SNAP-4's refusal message points
+at a dead end. Ranked, disjoint, parallel-dispatchable — **top 3 for the
+NEXT batch:**
 
 1. **ARC-BOUNDS-INFLATE-1 + LAYOUTISSUE-OFFSHEET-1's `compose.py` half**
    (P1, S, kernel-architect, ONE dispatch not two) —
@@ -118,21 +120,32 @@ batch:**
    (one call site, in the branch that's never rendered post-layout) — not
    merely inconvenient to reach. Reconciles QA-REVIEW.md's
    SHEET-RESCALE-1B; one ticket, not two. Disjoint from #1 and #3.
-3. **SNAP4-SPEC-1** (P2, XS, frontend-builder) — `apps/web/e2e/
-   constraints.spec.ts`. Completes SNAP-4's own unmet acceptance clause: the
-   spec still routes around the fix it's meant to prove. Small, precise,
-   measured edit already in the ticket. Disjoint from #1 and #2.
+3. **QA-SNAP4-4** (P1, S, frontend-builder) — `apps/web/src/viewport/
+   SketchScene.tsx` (constraint glyph `onClick`), `apps/web/src/sketch/
+   store.ts`. A constraint glyph cannot be selected at all (click lands,
+   `aria-pressed` never flips) — the ONLY escape hatch from SNAP-4's
+   redundancy refusal is dead. Flow-mandate dead-end, same class as FB-13.
+   Disjoint from #1 and #2.
 
 Also ranked and ready, not in this batch (territory conflicts, sequencing
 dependencies, or size/blast-radius reasons noted):
 
-4. **DRAWLAYOUT-INK-CENTER-1** (P3, S, kernel-architect) — same file as #1;
+4. **QA-SNAP4-2** (P2, M, frontend-builder) — `apps/web/src/viewport/
+   SketchScene.tsx` (line-tool pointer handling), `apps/web/e2e/**`. A tap
+   does not draw a line at all — bigger than SNAP-4, touch sketch authoring
+   is broken at the first gesture. Same file as #3 above; sequence after it,
+   not parallel. Coordinate with PLAYWRIGHT-TOUCH-1 on the harness half.
+5. **SNAP4-SPEC-1** (P2, XS, frontend-builder) — `apps/web/e2e/
+   constraints.spec.ts`. Completes SNAP-4's own unmet acceptance clause: the
+   spec still routes around the fix it's meant to prove. Small, precise,
+   measured edit already in the ticket. Disjoint from everything above.
+6. **DRAWLAYOUT-INK-CENTER-1** (P3, S, kernel-architect) — same file as #1;
    NOW CONFIRMED by geometry-qa to 0.01 mm (no longer blocked on
    verification) — a 9.7 mm-wide band of part sizes where a caption prints
    past the border, bounded and never clipping geometry. Sequence after #1
    (goldens should reflect the arc fix before this one re-baselines them
    again).
-5. **DRAWLAYOUT-OFFSHEET-FALLBACK-1** (P1, S, kernel-architect +
+7. **DRAWLAYOUT-OFFSHEET-FALLBACK-1** (P1, S, kernel-architect +
    frontend-builder) — `apps/web/src/drawing/layout.ts` (`fitScale`),
    `services/geometry/src/geometry/drawings/compose.py`
    (`_free_slot_anchor`). Two more live off-sheet-with-no-diagnostic paths
@@ -140,31 +153,37 @@ dependencies, or size/blast-radius reasons noted):
    fallback slot — the second WIDENED by this pass's own centring fix).
    Depends on LAYOUTISSUE-OFFSHEET-1 landing first (needs `off_sheet` in the
    contract to report through) — sequence after #1.
-6. **DRAWLAYOUT-GOLDEN-COVERAGE-1** (P2, S, kernel-architect) — same
-   goldens directory as #4; add 1-/2-/3-view sheet goldens so a
+8. **DRAWLAYOUT-GOLDEN-COVERAGE-1** (P2, S, kernel-architect) — same
+   goldens directory as #6; add 1-/2-/3-view sheet goldens so a
    subset-only defect (this whole cluster's shape) can never again be
    structurally invisible to the golden suite. Sequence after #1 so the new
    goldens capture corrected, not buggy, geometry.
-7. **SNAP4-MIXED-SELECTION-1** (P2, S, frontend-builder) — same files as
+9. **SNAP4-MIXED-SELECTION-1** (P2, S, frontend-builder) — same files as
    SNAP-4 itself (`constraints.ts`, `store.ts`); a mixed grounded+free
-   selection drops the grounded point silently on Fix. Sequence with
-   SNAP4-BINDING-CONSISTENCY-1 below (same files), not parallel.
-8. **SNAP4-CYCLE-TEST-1** (P3, XS, frontend-builder) — `constraints.test.ts`;
-   a cycle-safety test that cannot observe cycle safety (never enters its own
-   BFS). Different file from the two above, could run parallel with either.
-9. **SNAP4-BINDING-CONSISTENCY-1** (P3, XS, frontend-builder) — same files as
-   SNAP4-MIXED-SELECTION-1; two small bundled inconsistencies (X-on-Origin
-   vs X-on-a-point-grounded-to-Origin bind differently; the hint names the
-   anchor but not the escape hatch).
-10. **TITLEBLOCK-FIT-1** (P2, S, kernel-architect) — same file as #1 above
+   selection drops the grounded point silently on Fix (now also confirmed
+   end-to-end as QA-SNAP4-3, folded in rather than carried separately).
+   Sequence with SNAP4-BINDING-CONSISTENCY-1 below (same files), not
+   parallel.
+10. **SNAP4-CYCLE-TEST-1** (P3, XS, frontend-builder) — `constraints.test.ts`;
+    a cycle-safety test that cannot observe cycle safety (never enters its own
+    BFS). Different file from the two above, could run parallel with either.
+11. **QA-SNAP4-1** (P3, S, frontend-builder) — constraint catalogue /
+    `Flyout` caption derivation; the Fixed row's unavailable-caption lies
+    about why (says "needs a point" when the user has one, the real reason
+    is SNAP-4's own redundancy refusal). Same general area as #9/#10, small.
+12. **SNAP4-BINDING-CONSISTENCY-1** (P3, XS, frontend-builder) — same files as
+    SNAP4-MIXED-SELECTION-1; two small bundled inconsistencies (X-on-Origin
+    vs X-on-a-point-grounded-to-Origin bind differently; the hint names the
+    anchor but not the escape hatch).
+13. **TITLEBLOCK-FIT-1** (P2, S, kernel-architect) — same file as #1 above
     (`compose.py`); queue after it lands, not parallel with it.
-11. **DRAWLAYOUT-PINNED-BLIND-1** (P3, S, kernel-architect) — same file
+14. **DRAWLAYOUT-PINNED-BLIND-1** (P3, S, kernel-architect) — same file
     again; a pinned view is invisible to the auto-layout's centring (not
     silent today — `views_overlap` catches it — but the coherent fix is
     upstream, in `_free_slot_anchor`'s style of occupied-space accounting).
-12. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
+15. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
     unrelated edit hits a silent, unexplained disabled Save.
-13. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
+16. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
     select-without-editing gesture, and the command band is out of room at
     1280. Large blast radius (75 refs across 28 e2e spec files) — best run
     alone, not paired with other `apps/web` work.
@@ -726,7 +745,39 @@ for full evidence/gates.** Their two live follow-ups stay in Ready:
       satisfiable today and unmet on HEAD), SNAP4-CYCLE-TEST-1 (P3, XS — a
       cycle-safety test that cannot observe cycle safety), and
       SNAP4-MIXED-SELECTION-1 (P2, S — a mixed grounded+free selection drops
-      the grounded point silently).** Found 2026-08-16 while integrating
+      the grounded point silently).** **QA 2026-09-06: PASS on `40a14bd`,
+      independently verified on the real stack from the user's own gesture,
+      desktop and touch (relayed by orchestrator).** Contamination from an
+      earlier shared-worktree collision was properly ruled out (backup md5
+      matched the committed blob and was taken after the reviewer's own
+      checkout; QA re-took every number in a private worktree with a
+      precondition case that pulls the TRANSFORMED module from Vite and
+      asserts which bytes are actually running — a marker-COMMENT check
+      would have been vacuous, since esbuild strips comments). Positive
+      findings worth keeping: the refusal costs 0 extra steps (binds the
+      sketch, feature count 0 -> 1, Solve cell appears at `DOF 2 ·
+      UNDER-CONSTRAINED`, solved is 2 further actions away); truthfulness
+      confirmed on 4 independent readings including the solver placing
+      `e1.start` within 1e-6 of zero and DOF reporting 2 on a line otherwise
+      4; touch reaches the verb through the constraint catalogue, the only
+      door either way (`fixed` is absent from `VERB_OFFER_ORDER` before and
+      after). **QA found FOUR defects, one of which CONTRADICTS the code
+      review above and QA wins it: QA-SNAP4-4 (below) measured in-browser
+      that the review's claimed escape hatch (click the inferred `C` glyph,
+      Delete, press X) DOES NOT WORK** — `aria-pressed` stays `"false"` and
+      Delete removes nothing, on both `coincident` and `fixed` glyphs, with
+      both a real mouse click and a synthetic bypass-hit-testing `el.click()`.
+      **This means the `already` refusal's own message currently points at
+      an exit that does not exist** — a user who genuinely wants a real
+      coordinate pin on that point has NO path today. It does not unship
+      SNAP-4 (the alternative was a silent over-constrained sketch, still
+      strictly worse), but it is the strongest argument on this whole
+      cluster for going above P2 — see QA-SNAP4-4's own priority below.
+      Also filed from QA: QA-SNAP4-1 (P3 — the constraint catalogue's Fixed
+      row lies about WHY it's unavailable), QA-SNAP4-2 (P2, pre-existing and
+      wider than SNAP-4 — a tap does not draw a line at all), and
+      QA-SNAP4-3, reconciled into SNAP4-MIXED-SELECTION-1 below rather than
+      carried separately (same defect, now measured end-to-end). Found 2026-08-16 while integrating
       SNAP-3, by a test that stopped passing for an informative reason rather
       than by inspection. Draw a line starting ON the origin: SNAP-3
       correctly authors a coincident from the endpoint to the origin. Now
@@ -757,6 +808,105 @@ for full evidence/gates.** Their two live follow-ups stay in Ready:
       orchestrator]
       TERRITORY: `apps/web/src/sketch/constraints.ts` (`applyConstraintAction`,
       the `fixed` branch), `apps/web/src/sketch/store.ts`. agentType:
+      frontend-builder.
+
+- [ ] (P1, S) **QA-SNAP4-4 — the escape hatch the code review verified by
+      reading the routing DOES NOT WORK in the browser: a constraint glyph
+      cannot be selected at all, so a user who genuinely needs a real
+      coordinate pin on an already-grounded point has NO path.** kind:
+      defect (contradicts SNAP-4's own code review; QA's in-browser
+      measurement wins). Found by qa-tester verifying SNAP-4 (`40a14bd`),
+      relayed by orchestrator 2026-09-06. **Elevated from the reviewer's
+      suggested P2 to P1**: this is exactly the standing flow-mandate defect
+      class ("no dead ends, no ambiguous exits" — CLAUDE.md's FB-13
+      precedent), not a cosmetic gap, and it sits directly on SNAP-4's own
+      refusal message, which today names an exit it cannot deliver.
+      MEASURED: on `coincident` and `fixed` glyphs, at the origin and clear
+      of it, a real `page.mouse.click` at the glyph's element centre AND a
+      synthetic `el.click()` that bypasses hit-testing both leave
+      `aria-pressed` at `"false"`, and pressing Delete afterward removes
+      nothing. `elementFromPoint` at the centre resolves to the glyph's own
+      `BUTTON` — this is NEITHER occlusion NOR a zero-area target (the two
+      mechanisms behind every prior "unreachable control" entry in
+      CLAUDE.md); the click lands, the selection simply does not stick.
+      Only DIMENSION glyphs are removable today, via their editor's Remove
+      button — constraint glyphs (`coincident`/`fixed`) have no equivalent,
+      which is why `constraints.spec.ts`'s conflict-recovery case never
+      caught it (it only ever removes a dimension). LIKELY MECHANISM (from
+      QA, not yet confirmed by a builder): `selectAt` clears
+      `selectedConstraint`, and the constraint glyph's `onClick` does not
+      `stopPropagation` — unlike `SplineHandles` in the same file, which
+      does and works. Carried as a `test.fail()` case pending the fix.
+      ACCEPTANCE: clicking a `coincident` or `fixed` glyph sets
+      `aria-pressed="true"` and Delete removes that specific constraint; the
+      `test.fail()` case QA added is promoted to a real assertion and goes
+      green; SNAP-4's own refusal message is re-verified to point at a
+      working exit once this lands (or reworded if the fix takes a
+      different shape than "select the glyph, Delete").
+      [src: qa-tester, SNAP-4 verification, relayed by orchestrator
+      2026-09-06, filed by backlog-groomer]
+      TERRITORY: `apps/web/src/viewport/SketchScene.tsx` (or wherever the
+      constraint glyph `onClick`/`selectAt` live — grep for `SplineHandles`'
+      `stopPropagation` as the working precedent), `apps/web/src/sketch/
+      store.ts`. agentType: frontend-builder.
+
+- [ ] (P2, M) **QA-SNAP4-2 — a tap does not draw a line at all; the touch
+      story is broken at the FIRST sketch gesture, not the fifth verb.**
+      kind: defect (pre-existing, wider than SNAP-4 — found while verifying
+      it, not caused by it). Found by qa-tester verifying SNAP-4, relayed by
+      orchestrator 2026-09-06. MEASURED: Line tool armed by tap, two taps at
+      the same coordinates a mouse would use to draw a line — the strip
+      reads `0 entities` and no glyphs appear. The identical coordinates
+      driven by a mouse (`page.mouse.click` sequence) produce the line and
+      its coincident correctly. Every existing touch spec in the repo draws
+      geometry with the MOUSE and uses taps only to SELECT already-drawn
+      entities, which is exactly why nothing caught this — there is no
+      existing touch spec that exercises entity authoring by tap at all.
+      This is bigger than SNAP-4 or any single verb: if tapping cannot draw
+      a line, no touch-only sketch session can start. Cross-reference
+      PLAYWRIGHT-TOUCH-1 (still open — QA had to hand-roll a `hasTouch`
+      profile because the repo's `playwright.config.ts` declares no
+      `projects` array at all). FIX direction: find the pointer-event
+      handler the line tool's second tap should hit and confirm it fires on
+      `pointerup`/`touchend` the way the mouse path fires on the second
+      click, not just on drag. ACCEPTANCE: two taps at distinct points with
+      the Line tool armed produce a line entity and its authored
+      coincident(s), identically to the mouse path (assert entity count and
+      constraint set, not just "something drew"); a real `hasTouch` project
+      exists in `playwright.config.ts` (may ship as part of
+      PLAYWRIGHT-TOUCH-1 instead — do not duplicate that harness work here,
+      coordinate with it).
+      [src: qa-tester, SNAP-4 verification, relayed by orchestrator
+      2026-09-06, filed by backlog-groomer]
+      TERRITORY: `apps/web/src/viewport/SketchScene.tsx` (line-tool pointer
+      handling), `apps/web/e2e/**` (touch spec + `playwright.config.ts`).
+      agentType: frontend-builder.
+
+- [ ] (P3, S) **QA-SNAP4-1 — the constraint catalogue's Fixed row lies about
+      WHY it is unavailable, asking the user for the one thing they have
+      already done.** kind: defect (caused by this commit — a new instance
+      of the catalogue's own stated "a hint becomes a lie" failure class).
+      Found by qa-tester verifying SNAP-4, relayed by orchestrator
+      2026-09-06. MEASURED: with `1 pt` selected on an already-grounded
+      endpoint, the Fixed row renders `data-available="false"` with
+      `aria-label="Fix point (X, on selected points) — needs a point"` and a
+      visible `needs a point` sub-caption — but the user HAS selected a
+      point; the reason it's unavailable is SNAP-4's own `already`
+      redundancy check, not selection shape. `Flyout` renders `requires` for
+      every unavailable row uniformly, so a shape-based refusal message
+      (`needs a point`) is being reused for a state-based refusal
+      (`already grounded`), and the two need different copy. FIX: give the
+      Fixed row a distinct `already`-aware caption
+      ("already grounded on the Origin" or similar) instead of falling back
+      to the generic `needs a point` text when the block is redundancy, not
+      shape. ACCEPTANCE: selecting an already-grounded point shows a caption
+      naming the REAL reason (already grounded), not "needs a point"; a
+      genuine shape mismatch (e.g. 2 points selected when Fixed wants 1)
+      still shows `needs a point` (regression).
+      [src: qa-tester, SNAP-4 verification, relayed by orchestrator
+      2026-09-06, filed by backlog-groomer]
+      TERRITORY: `apps/web/src/sketch/` constraint catalogue / `Flyout`
+      caption derivation (grep for `requires`/`needs a point`). agentType:
       frontend-builder.
 
 - [ ] (P2, XS) **SNAP4-SPEC-1 — `constraints.spec.ts` is green-by-avoidance:
@@ -816,7 +966,11 @@ for full evidence/gates.** Their two live follow-ups stay in Ready:
       grounded one: no glyph, no message, nothing pinned for it.** kind:
       defect (flow — a request the user made gets no acknowledgment either
       way). Found by code-reviewer during SNAP-4's review, relayed by
-      orchestrator 2026-09-06. ROOT CAUSE, read directly: `constraints.ts:
+      orchestrator 2026-09-06; **CONFIRMED end-to-end by qa-tester
+      (QA-SNAP4-3, folded in here rather than carried as a separate ticket)
+      — select both endpoints, press `x`, the free one is pinned, the
+      sketch converges, and `constraint-hint` count is 0, indistinguishable
+      from "both pinned."** ROOT CAUSE, read directly: `constraints.ts:
       1058-1072` computes `grounded` and DISCARDS it whenever
       `added.length > 0`, and `store.ts:1327` sets `hint: null` on that
       branch. So selecting one grounded point and one free point and
@@ -835,8 +989,9 @@ for full evidence/gates.** Their two live follow-ups stay in Ready:
       glyph on the grounded point (not `hint: null`), and states both
       outcomes in one readable message; selecting two free points still
       behaves exactly as today (regression).
-      [src: code-reviewer, SNAP-4 review, relayed by orchestrator 2026-09-06,
-      filed by backlog-groomer]
+      [src: code-reviewer, SNAP-4 review, relayed by orchestrator 2026-09-06;
+      confirmed end-to-end by qa-tester (QA-SNAP4-3), relayed by orchestrator
+      2026-09-06, filed by backlog-groomer]
       TERRITORY: `apps/web/src/sketch/constraints.ts` (lines ~1058-1072),
       `apps/web/src/sketch/store.ts` (~line 1327). agentType:
       frontend-builder.
@@ -5636,6 +5791,17 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-09-06 — **SNAP-4 QA: PASS, but 4 defects filed, one overturning the
+  code review (backlog-groomer, relaying orchestrator).** QA-SNAP4-4 (P1,
+  elevated from the reviewer's suggested P2) — the review's claimed escape
+  hatch (click the glyph, Delete, X) does not work in the browser; a
+  constraint glyph cannot be selected at all, so SNAP-4's refusal message
+  points at a dead end. QA-SNAP4-2 (P2, M, pre-existing, wider than
+  SNAP-4) — a tap does not draw a line; touch sketch authoring is broken at
+  the first gesture. QA-SNAP4-1 (P3) — the Fixed row's unavailable-caption
+  lies about why. QA-SNAP4-3 folded into the existing
+  SNAP4-MIXED-SELECTION-1 rather than carried separately (same defect, now
+  confirmed end-to-end).
 - 2026-09-06 — **DRAWSHEET-AUTOPLACE-1 integrated (`eb113cb`+`c6ae762`);
   geometry-qa found the defect survives two more paths; SHEET-RESCALE-1 QA
   sharpens SHEET-RESCALE-2 (backlog-groomer, relaying orchestrator).** Filed
