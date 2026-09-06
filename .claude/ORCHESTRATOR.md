@@ -156,6 +156,18 @@ Discover  →  Audit  →  Groom  →  Build  →  Review  →  Verify  →  Int
   measured the consequence: three of the last five commits landed with no review
   and no QA. A build-only loop cannot produce reviewed work however good the
   builders are. The reviewer re-runs the builder's mutation evidence itself.
+  **AND BECAUSE IT RE-RUNS THE MUTATION EVIDENCE, IT MUTATES SOURCE — SO NEVER
+  POINT TWO AGENTS AT ONE WORKTREE.** My briefing error, 2026-09-06: I sent the
+  reviewer and geometry-qa at the same worktree, and the reviewer's negative
+  controls overwrote `compose.py` and restored it with `git checkout --` while
+  the QA agent held 93 uncommitted lines in the same tree. Nothing was lost, and
+  only luck decided that — a `git checkout --` on a file the sibling had edited
+  would have destroyed work with no warning and no way to tell afterwards.
+  Reproducing a negative control is not an optional flourish, it is the job, so
+  the fix is isolation and not caution: give Review and Verify **their own
+  worktree each** (`isolation: 'worktree'`, same as builders), or brief them to
+  copy the tree first. Whichever, the brief must name the commit SHA, never a
+  path a sibling is living in.
 - **Integrate** — yours. Merge each green branch, verify the merged tree
   (typecheck + unit + targeted gates), push, read CI, then launch the next batch.
 
