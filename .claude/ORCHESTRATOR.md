@@ -177,6 +177,20 @@ Discover  →  Audit  →  Groom  →  Build  →  Review  →  Verify  →  Int
   real ones and trains you to skim the severity. One line in the brief: *"the
   builder was told to commit code and tests only; ROADMAP/BACKLOG are ticked by
   the orchestrator at integration, so their absence here is not a finding."*
+  **AND THE RESTORE PRIMITIVE MATTERS MORE THAN THE MUTATION DOES: `cp` FROM A
+  PRE-EDIT COPY, NEVER `git checkout <path>`.** The sharper half of the lesson
+  above, disclosed by the reviewer that hit it. Mutating a file you share is
+  recoverable; `git checkout` on a shared path is not, because it reverts the
+  path to HEAD — including a sibling's in-flight edit it knows nothing about.
+  Measured 2026-09-06: the reviewer restored three of its four mutations by `cp`
+  from a copy taken before its first edit, and the fourth with `git checkout`,
+  which sat over a QA agent's own mutation for ~3 minutes. **The damage
+  direction is the quiet one** — the QA agent would have measured POST-fix code
+  while believing its mutation was live, producing a false GREEN that reads as
+  "my test does not gate this" and announces nothing. A `cp` from a pre-edit
+  copy cannot revert work that is not yours; that is the whole reason to prefer
+  it. If it happens anyway, the recovery is a timeline, not a diff: name the
+  window to the other agent and have it re-run any leg that spans it.
 - **Integrate** — yours. Merge each green branch, verify the merged tree
   (typecheck + unit + targeted gates), push, read CI, then launch the next batch.
 
