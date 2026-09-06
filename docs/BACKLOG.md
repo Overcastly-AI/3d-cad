@@ -81,26 +81,30 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 20 (2026-09-06), updated same day on the
-DRAWSHEET-AUTOPLACE-1 build report.** Pass 19's whole list (GATE-FLOOR,
+**Dispatch order, groom pass 20 (2026-09-06), updated same day on
+DRAWSHEET-AUTOPLACE-1's code review.** Pass 19's whole list (GATE-FLOOR,
 MATEUI-1, LAYOUT-1, GHOST-1, STEPNAME-1/1B, ARC-DEGENERATE-1, MATE-OBS-2, K2,
 PBT-1, SOLVE-CRASH-1, CI-BAL) shipped — see Done archive. **DRAWSHEET-
-AUTOPLACE-1 is BUILT at `27c8d3f` (kernel-architect) but NOT YET INTEGRATED
-onto this branch — orchestrator's to land, not a fresh dispatch target.**
-Two follow-ups it produced are filed below: LAYOUTISSUE-OFFSHEET-1 (P1) and
-DRAWLAYOUT-INK-CENTER-1 (P3, unverified). Ranked, disjoint,
-parallel-dispatchable — **top 3 for the NEXT batch** (once
-DRAWSHEET-AUTOPLACE-1 integrates; #1 below reads its emitted
-`measure_sheet_overflow`, so it is sequenced after, not parallel with, that
-integration):
+AUTOPLACE-1's two placement hunks (`27c8d3f`, kernel-architect) are
+ship-with-fixes and being integrated, but the TICKET STAYS OPEN — its own
+acceptance is not yet met on its originating fixture. Do not re-dispatch it
+whole; the residual work is the two items below.** Three follow-ups filed
+from its code review: **ARC-BOUNDS-INFLATE-1 (P1, new)** — an arc gets a
+full-circle bbox, the dominant cause of the residual overrun;
+**LAYOUTISSUE-OFFSHEET-1 (P1, re-ranked)** — paired with it per the
+reviewer's argument (the banner on a still-imperfect sheet is not deferred
+polish); **DRAWLAYOUT-PINNED-BLIND-1 (P3, new)**. Ranked, disjoint,
+parallel-dispatchable — **top 3 for the NEXT batch:**
 
-1. **LAYOUTISSUE-OFFSHEET-1** (P1, S, backend-builder + kernel-architect +
-   frontend-builder) — `packages/py-kit/src/py_kit/schemas/drawings.py`,
-   `packages/contracts/**`, `packages/ts-client/**`,
-   `services/geometry/src/geometry/drawings/compose.py`, `apps/web`. The
-   off-sheet measurement DRAWSHEET-AUTOPLACE-1 built is not wired to
-   `layout_issues` — until this lands, an off-sheet view still exports
-   silently. Depends on DRAWSHEET-AUTOPLACE-1 being integrated first.
+1. **ARC-BOUNDS-INFLATE-1 + LAYOUTISSUE-OFFSHEET-1's `compose.py` half**
+   (P1, S, kernel-architect, ONE dispatch not two) —
+   `services/geometry/src/geometry/drawings/compose.py`. Fix the arc-vs-circle
+   bbox defect and emit `off_sheet` from `measure_sheet_overflow` in the same
+   session, since both touch `_edge_points`/`view_bounds`/`place_sheet` and
+   the reviewer explicitly asked for them together. LAYOUTISSUE-OFFSHEET-1's
+   contract half (`packages/py-kit`, `packages/contracts`, `packages/ts-client`)
+   and rendering half (`apps/web`) are separate territory once the emission
+   shape from this dispatch is agreed — see its own ticket.
 2. **SHEET-RESCALE-1** (P2, S, backend-builder then frontend-builder) —
    `services/documents/**`, `services/gateway/**`,
    `apps/web/src/routes/DrawingPage.tsx`. A laid-out sheet's scale cannot be
@@ -112,16 +116,19 @@ integration):
 Also ranked and ready, not in this batch (territory conflicts or
 size/blast-radius reasons noted):
 
-4. **TITLEBLOCK-FIT-1** (P2, S, kernel-architect) — same file as
-   DRAWSHEET-AUTOPLACE-1/LAYOUTISSUE-OFFSHEET-1's emission half
-   (`compose.py`); queue after those land, not parallel with either.
-5. **DRAWLAYOUT-INK-CENTER-1** (P3, S, kernel-architect) — UNVERIFIED,
+4. **TITLEBLOCK-FIT-1** (P2, S, kernel-architect) — same file as #1 above
+   (`compose.py`); queue after it lands, not parallel with it.
+5. **DRAWLAYOUT-PINNED-BLIND-1** (P3, S, kernel-architect) — same file
+   again; a pinned view is invisible to the auto-layout's centring (not
+   silent today — `views_overlap` catches it — but the coherent fix is
+   upstream, in `_free_slot_anchor`'s style of occupied-space accounting).
+6. **DRAWLAYOUT-INK-CENTER-1** (P3, S, kernel-architect) — UNVERIFIED,
    pending geometry-qa; same file again. May turn out to be the real close
    of "ink cannot leave the border" if confirmed — do not dispatch until
    that measurement lands.
-6. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
+7. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
    unrelated edit hits a silent, unexplained disabled Save.
-7. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
+8. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
    select-without-editing gesture, and the command band is out of room at
    1280. Large blast radius (75 refs across 28 e2e spec files) — best run
    alone, not paired with other `apps/web` work.
@@ -259,37 +266,41 @@ See Done archive.**
       `revolve.py`, plus wherever the shared constant lands. agentType:
       kernel-architect.
 
-- [ ] (P1, S) **DRAWSHEET-AUTOPLACE-1 — BUILT at `27c8d3f` (kernel-architect,
-      on its own worktree branch — not yet integrated onto this branch; keep
-      unchecked until it lands). A lone auto-placed standard view can be
-      anchored off the sheet, with no diagnostic anywhere.** kind: defect
-      (drawings composition). **The defect was wider than either the founder
-      or the groomer framed it, per the builder's own measurement**: all 15
-      non-empty subsets of the standard front/top/right/iso quartet were
-      swept, and **8 of 15 were displaced**, always by exactly
-      `VIEW_GUTTER_MM/2` = 12.00 mm per affected axis — including `front`
-      ALONE, contrary to the intuition that its slot is the arrangement's
-      origin. The 7 correct cases are exactly those that already span the
-      full arrangement's bounding box, which is why the default
-      front/top/right/iso sheet never showed this. A SECOND, independent bug
-      was found and fixed alongside: `resolve_view_anchors` fed the
-      auto-layout every evaluated projection, including ones pinned
-      `auto_place=False` — so a hand-placed view could shove the auto-placed
-      views aside to make room for geometry drawn somewhere else on the
-      sheet entirely. **Two follow-ups filed from this build, both below:
-      LAYOUTISSUE-OFFSHEET-1 (P1 — the diagnostic this ticket's own title
-      promises is not yet wired to the contract) and
-      DRAWLAYOUT-INK-CENTER-1 (P3, unverified — auto-layout may still centre
-      on CONTENT, not INK, leaving the caption band able to overhang the
-      border even after this fix).** Found and REPRODUCED this pass while dogfooding
-      `geometry.drawings` on a real modelled part (door-canopy bracket sheet,
-      `docs/canopy/canopy_sheet.py` at `0d684b3`, fixed in the same session by
-      switching to a hand-authored anchor at `717fcdb`) — then root-caused
-      directly against `_compose_sheet`, not just observed: a single `right`
-      view, `auto_place: true`, A2 landscape (594×420 mm) at 1:4 composes with
-      its SVG bbox spanning y = 109.73–425.29 mm, **5.29 mm past the sheet's
-      own 420 mm bottom edge**, while the sheet still composes cleanly and
-      exports valid SVG/PDF/DXF. ROOT CAUSE, read in
+- [ ] (P1, S) **DRAWSHEET-AUTOPLACE-1 — CODE-REVIEWED 2026-09-06:
+      ship-with-fixes, STAYS OPEN, do not close on integration of `27c8d3f`.
+      A lone auto-placed standard view can be anchored off the sheet, with no
+      diagnostic anywhere.** kind: defect (drawings composition). **Status:
+      the two placement hunks (the gutter-bias centring fix + the
+      pinned-view-leak fix) are GOOD and are being integrated — reviewer
+      reproduced the negative control exactly (5 of 10 tests redden, each
+      hunk independently load-bearing), confirmed the standard-quartet
+      goldens are byte-identical, independently reproduced the 8-of-15
+      subset table below, and swept 6000 randomised cases at 0 off-centre.
+      But the ticket's OWN acceptance ("full projected bbox inside the sheet
+      margins") is NOT yet met on the fixture that found it**: with the
+      `717fcdb` hand-anchor workaround removed, the bracket sheet's
+      post-fix geometry still runs to y=413.29 mm against a 410.0 mm border
+      and its ink to 422.99 mm on a 420 mm sheet — `layout_issues == []`
+      (silent). Code review found the dominant cause is a SEPARATE,
+      pre-existing defect, not this ticket's gutter-bias fix — filed as
+      **ARC-BOUNDS-INFLATE-1 (P1, below)**: `_edge_points` gives an ARC the
+      same `centre ± radius` box as a full CIRCLE, inflating its view bbox
+      ~2x and displacing its centre. Full closure of THIS ticket depends on
+      that one landing. **Two other follow-ups filed from this build, both
+      below: LAYOUTISSUE-OFFSHEET-1 (P1, re-ranked and paired with
+      ARC-BOUNDS-INFLATE-1 per code review — the banner on a now-partially-clean
+      sheet is not deferred polish, the condition it reports is still live)
+      and DRAWLAYOUT-INK-CENTER-1 (P3, unverified — auto-layout may still
+      centre on CONTENT, not INK).** Found and REPRODUCED this pass while
+      dogfooding `geometry.drawings` on a real modelled part (door-canopy
+      bracket sheet, `docs/canopy/canopy_sheet.py` at `0d684b3`, fixed in the
+      same session by switching to a hand-authored anchor at `717fcdb`) —
+      then root-caused directly against `_compose_sheet`, not just observed:
+      a single `right` view, `auto_place: true`, A2 landscape (594×420 mm) at
+      1:4 composes with its SVG bbox spanning y = 109.73–425.29 mm, **5.29 mm
+      past the sheet's own 420 mm bottom edge**, while the sheet still
+      composes cleanly and exports valid SVG/PDF/DXF. ROOT CAUSE (this
+      ticket's own, now fixed and verified per above), read in
       `bounds_aware_layout` (`compose.py`): it always computes a reference
       anchor for all FOUR standard-view slots (front/top/right/iso) and
       centres the sheet on the bounding box of all four relative anchor
@@ -300,26 +311,103 @@ See Done archive.**
       centring by a constant `VIEW_GUTTER_MM / 2` (measured: 12 mm) toward
       +x/−y regardless of content — confirmed exactly: the measured anchor
       (y-up 198 mm) equals `dims.y/2 − VIEW_GUTTER_MM/2` (210 − 12) to the
-      mm. That 12 mm bias is harmless alone; it stacks with a tall/wide lone
-      view at a tight scale to push the view's own edge past the sheet
-      border. FIX direction: centre only on the anchor points of views
-      actually being auto-placed THIS call, not on all four nominal slots.
-      ACCEPTANCE: a lone non-front standard view (or any subset short of the
-      full quartet) auto-placed on any sheet size/scale composes with its
-      full projected bbox inside the sheet margins — a regression test
-      reproducing the measured A2/1:4/`right`-only case above reddens
-      against HEAD and passes after the fix; the standard front/top/right/iso
-      quartet's placement (`bounds_aware_layout`'s main case) stays
-      byte-identical (regression guard); `measure_layout_issues` (or a
-      sibling check) gains the view-vs-sheet-border floor the existing
-      "a sheet too small for its part is still silent" P3 item (above, Next
-      P2 section) already names as missing — this reproduction is direct
-      proof the gap is reachable via a normally-sized view, not only an
-      oversized part.
+      mm. **The 12 mm gutter bias was A cause; the arc-bounds inflation
+      (ARC-BOUNDS-INFLATE-1) is the DOMINANT one for the originating
+      bracket sheet** — its two knee-brace arcs inflate the view box by
+      roughly 2x, which dwarfs a 12 mm centring bias. A SECOND, independent
+      bug was found and fixed alongside the gutter-bias fix:
+      `resolve_view_anchors` fed the auto-layout every evaluated projection,
+      including ones pinned `auto_place=False` — so a hand-placed view could
+      shove the auto-placed views aside to make room for geometry drawn
+      somewhere else on the sheet entirely. ACCEPTANCE, corrected per code
+      review to a real-geometry oracle (a synthetic rectangle fixture is
+      precisely why the arc defect shipped unnoticed): **"remove the `place`
+      override in `docs/canopy/canopy_sheet.py`'s `SHEETS["s2-bracket"]` and
+      the bracket sheet composes with all ink inside the border."** Any
+      regression fixture written for this ticket's closure MUST carry arcs
+      (a full circle and a swept arc, not a rectangle-only case) — a
+      rectangle-only fixture cannot exercise ARC-BOUNDS-INFLATE-1 and would
+      re-create the exact gap that let it ship. Also required: the standard
+      front/top/right/iso quartet's placement stays byte-identical
+      (regression guard, already confirmed by review); `measure_layout_issues`
+      (or a sibling check, see LAYOUTISSUE-OFFSHEET-1) gains the
+      view-vs-sheet-border floor the existing "a sheet too small for its
+      part is still silent" P3 item (above, Next P2 section) already names
+      as missing. **Do not tick this box until the bracket-sheet oracle
+      above passes with all ink inside the border — that requires
+      ARC-BOUNDS-INFLATE-1 too.**
       [src: founder dogfooding session 2026-09-06, reproduced and root-caused
-      by backlog-groomer against `_compose_sheet` directly, groom pass 20]
+      by backlog-groomer against `_compose_sheet` directly, groom pass 20;
+      code review 2026-09-06 relayed by orchestrator]
       TERRITORY: `services/geometry/src/geometry/drawings/compose.py`
       (`bounds_aware_layout`, `resolve_view_anchors`), its test file.
+      agentType: kernel-architect.
+
+- [ ] (P1, S) **ARC-BOUNDS-INFLATE-1 — an arc gets the full-CIRCLE `centre ±
+      radius` box, inflating a view's bbox ~2x and displacing its centre.**
+      kind: defect (drawings composition — pre-existing, not introduced by
+      `27c8d3f`). Found by code-reviewer during DRAWSHEET-AUTOPLACE-1's
+      review, relayed by orchestrator 2026-09-06. ROOT CAUSE, read directly:
+      `_edge_points` (`compose.py:342-355`) appends `edge.center`
+      unconditionally and applies the full-circle `c ± r` box to ANY edge
+      carrying both `center` and `radius` — the comment says "a circle's
+      extent is its centre +/- radius" but the branch is not restricted to
+      circles, and `edge.points` is empty for an ARC at that stage (arcs are
+      sampled only at serialization), so nothing corrects the inflated box
+      for the common case. MEASURED on the canopy bracket's two knee-brace
+      arcs (`center x=-54.93`, `r=205.6`):
+      ```
+      view_bounds:  x -260.550 .. 242.888   y 416.774 .. 828.005   centre (-8.831, 622.389)
+      drawn tight:  x   -0.318 .. 242.888   y 419.100 .. 734.662   centre (121.285, 576.881)
+      ```
+      the box is ~2x the true width and its centre is displaced
+      (+130.1, -45.5). `view_transform` centres `bounds.center` on the
+      anchor, so the anchor lands correctly and the INK does not — this is
+      the dominant (not the only) cause of DRAWSHEET-AUTOPLACE-1's residual
+      overrun on its own originating fixture (see that entry). FIX
+      direction: restrict the `c ± r` branch to CIRCLE edges only (a full
+      circle genuinely is its centre ± radius); compute the arc's true swept
+      extent (or sample it) for `view_bounds`; a bare arc `center` must never
+      enter the box. ACCEPTANCE (real-geometry oracle, shared with
+      DRAWSHEET-AUTOPLACE-1): "remove the `place` override in
+      `docs/canopy/canopy_sheet.py`'s `SHEETS["s2-bracket"]` and the bracket
+      sheet composes with all ink inside the border." Any regression fixture
+      MUST carry arcs (a full circle AND a swept arc) — a rectangle-only
+      fixture is exactly why this shipped unnoticed and cannot stand in for
+      one here. Note for whoever picks this up: `test_composed_sheets_place_
+      every_view_inside_the_border` currently walks only `ComposedLineEdge`
+      (silently drops circle/polyline edges) and omits the caption band, so
+      it could not have caught this or the 12 mm gutter bias in either form
+      — geometry-qa is independently investigating that test's own gap; read
+      its finding before assuming this ticket's new fixture is sufficient on
+      its own.
+      [src: code-reviewer, DRAWSHEET-AUTOPLACE-1 review, relayed by
+      orchestrator 2026-09-06, filed by backlog-groomer]
+      TERRITORY: `services/geometry/src/geometry/drawings/compose.py`
+      (`_edge_points`, `view_bounds`), its test file. agentType:
+      kernel-architect. **Dispatch paired with LAYOUTISSUE-OFFSHEET-1
+      (below) per code review — same session/agent, not two parallel
+      builders (both touch `compose.py`).**
+
+- [ ] (P3, S) **DRAWLAYOUT-PINNED-BLIND-1 — a pinned (`auto_place=False`)
+      view is invisible to `bounds_aware_layout`'s centring, so an
+      auto-placed view can be dropped directly on top of it.** kind: defect,
+      filed from the DRAWSHEET-AUTOPLACE-1 review, relayed by orchestrator
+      2026-09-06. NOT silent today — the existing `views_overlap` check in
+      `measure_layout_issues` catches the resulting overlap and banners it —
+      but the coherent fix is for the auto-layout to treat a pinned view as
+      occupied space the way `_free_slot_anchor` already does for additive
+      (section/flat_pattern) views, rather than relying on the overlap check
+      to catch the collision after the fact. FIX: fold pinned-view rectangles
+      into `resolve_view_anchors`'s occupied-space accounting before
+      resolving the auto-placed quartet's centring. ACCEPTANCE: a sheet
+      mixing a pinned view with the auto-placed quartet never triggers
+      `views_overlap` between them; existing single-pinned-view +
+      full-quartet goldens stay byte-identical.
+      [src: code-reviewer, DRAWSHEET-AUTOPLACE-1 review, relayed by
+      orchestrator 2026-09-06, filed by backlog-groomer]
+      TERRITORY: `services/geometry/src/geometry/drawings/compose.py`
+      (`resolve_view_anchors`, `bounds_aware_layout`), its test file.
       agentType: kernel-architect.
 
 - [ ] (P1, S) **LAYOUTISSUE-OFFSHEET-1 — the off-sheet measurement
@@ -336,12 +424,24 @@ See Done archive.**
       frozen into `packages/contracts/{gateway,geometry}.openapi.json` and
       `packages/ts-client` — a same-batch wire would have shipped a
       gen-check-red commit, and contract regeneration was another agent's
-      territory that pass. WHY THIS IS P1 AND NOT A LOOSE END: without this,
+      territory that pass. WHY THIS IS P1 AND NOT A LOOSE END, RE-CONFIRMED
+      by code review 2026-09-06 (relayed by orchestrator): without this,
       DRAWSHEET-AUTOPLACE-1's own title ("no diagnostic anywhere") is still
       literally true for any off-sheet case its centring fix does not
-      happen to catch (e.g. a genuinely oversized single view, or whatever
-      DRAWLAYOUT-INK-CENTER-1 below turns out to be) — the measurement
-      exists and is silent. FIX: extend the `code` literal with an
+      happen to catch — and review found a REAL one, not a hypothetical:
+      ARC-BOUNDS-INFLATE-1 (above) leaves the bracket sheet's own ink
+      running past the border post-fix with `layout_issues == []`. The
+      reviewer's argument, which the orchestrator accepted: the banner on a
+      now-partially-clean sheet is not deferred polish, because the
+      condition it would report is still live in a real artifact — the
+      banner without the arc fix reports a defect that could have been
+      prevented, and the arc fix without the banner leaves the NEXT one
+      silent. **Dispatch paired with ARC-BOUNDS-INFLATE-1 — same
+      session/agent for the `compose.py` half, not two parallel builders on
+      the same file; the contract/gen half (`packages/py-kit`,
+      `packages/contracts`, `packages/ts-client`) and the `apps/web`
+      rendering half can proceed in their own territory once the emission
+      shape is agreed.** FIX: extend the `code` literal with an
       off-sheet value, relax `views` to `min_length=1, max_length=2` (an
       off-sheet issue names ONE view, not a pair), emit it from
       `place_sheet` using the existing `measure_sheet_overflow`, then `just
@@ -5151,6 +5251,15 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-09-06 — **DRAWSHEET-AUTOPLACE-1 code-reviewed: ship-with-fixes,
+  ticket STAYS OPEN (backlog-groomer, relaying orchestrator/reviewer).**
+  The two placement hunks land; the bracket-sheet fixture still overruns
+  post-fix (arc bbox is the dominant cause, not the gutter bias). Filed
+  ARC-BOUNDS-INFLATE-1 (P1) and DRAWLAYOUT-PINNED-BLIND-1 (P3); re-ranked
+  LAYOUTISSUE-OFFSHEET-1 to P1 paired with the arc fix; acceptance on both
+  DRAWSHEET-AUTOPLACE-1 and ARC-BOUNDS-INFLATE-1 is now a real-geometry
+  oracle (the bracket sheet with its `place` override removed) — a
+  rectangle-only fixture is explicitly disallowed.
 - 2026-09-06 — **DRAWSHEET-AUTOPLACE-1 built at `27c8d3f`, not yet
   integrated; two follow-ups filed (backlog-groomer):** the defect was wider
   than scoped — 8 of 15 quartet subsets displaced 12mm/axis, plus a second
