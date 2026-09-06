@@ -280,12 +280,32 @@ See Done archive.**
       `revolve.py`, plus wherever the shared constant lands. agentType:
       kernel-architect.
 
-- [ ] (P1, S) **DRAWSHEET-AUTOPLACE-1 — CODE-REVIEWED 2026-09-06:
-      ship-with-fixes, STAYS OPEN, do not close on integration of `27c8d3f`.
+- [ ] (P1, S) **DRAWSHEET-AUTOPLACE-1 — INTEGRATED 2026-09-06 from `27c8d3f`
+      (+ the geometry-qa test fix `10dd0ba`); CODE-REVIEWED and GEOMETRY-QA PASSED;
+      STAYS OPEN — the placement fix landed, the ticket's acceptance did not.
       A lone auto-placed standard view can be anchored off the sheet, with no
       diagnostic anywhere.** kind: defect (drawings composition). **Status:
       the two placement hunks (the gutter-bias centring fix + the
-      pinned-view-leak fix) are GOOD and are being integrated — reviewer
+      pinned-view-leak fix) are GOOD and are now integrated.
+      GEOMETRY-QA 2026-09-06 PASSED all four gates and added two findings:
+      the five compose goldens were proved byte-identical by REGENERATING them
+      from their own request.json against both `de32969` and `27c8d3f` (35
+      fields, 0 differences) rather than from `git status`; determinism clean
+      over 61 sheets x 3 formats x 5 interpreters at differing PYTHONHASHSEED
+      (one digest); no perf regression (7.749 vs 7.811 ms/sheet — and note the
+      methodology warning it recorded, that a same-order A/B read a false
+      +12-25% until the order was reversed). Its NEW finding is the sharper
+      one and is tracked separately: this commit REMOVES the accidental 12 mm
+      of headroom that let a section view find a free slot on a tight sheet,
+      so `_free_slot_anchor` reaches its off-sheet fallback in 2 more of 33
+      standard+section configurations (27.5 mm off the paper, layout_issues
+      == []). Exposure, not a new defect — base was correct only by accident
+      of the bug — but it is exposure this commit created, which is why
+      LAYOUTISSUE-OFFSHEET-1 is P1 and sequenced immediately after this.
+      Coverage gap it named: every committed drawing golden is the same A4
+      landscape full quartet, with no serialized golden for a 1-, 2- or
+      3-view sheet, which is exactly why a subset-only defect shipped.
+      Reviewer
       reproduced the negative control exactly (5 of 10 tests redden, each
       hunk independently load-bearing), confirmed the standard-quartet
       goldens are byte-identical, independently reproduced the 8-of-15

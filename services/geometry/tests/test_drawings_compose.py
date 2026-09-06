@@ -19,8 +19,10 @@ Three gates prove the server placement composer:
 
 from __future__ import annotations
 
+import itertools
 import subprocess
 import sys
+import uuid
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -35,14 +37,19 @@ from geometry.drawings import (
     serialize_svg,
 )
 from geometry.drawings.compose import (
+    SHEET_MARGIN_MM,
+    STANDARD_VIEWS,
+    VIEW_GUTTER_MM,
     SvgRect,
     Vec2,
     ViewBounds,
     bounds_aware_layout,
     build_dimension_annotation,
     format_dimension_label,
+    measure_sheet_overflow,
     resolve_view_anchors,
     sheet_dimensions,
+    view_ink_rect,
     view_to_svg_edges,
 )
 from geometry.main import app
@@ -57,7 +64,9 @@ from py_kit.schemas.drawings import (
     DiameterDimensionParams,
     DimensionEndpointRef,
     DimensionParams,
+    DrawingViewResult,
     EdgeToEdgeMeasurement,
+    EvaluateDrawingViewsResult,
     LinearDimensionParams,
     MeasuredDimension,
     PointToPointMeasurement,
@@ -66,9 +75,11 @@ from py_kit.schemas.drawings import (
     RadiusDimensionParams,
     SheetLayout,
     SheetPoint,
+    SheetSize,
     SheetViewPlacement,
     TitleBlock,
     ViewProjection,
+    ViewScale,
 )
 from py_kit.schemas.features import EdgeSignature
 from py_kit.schemas.geometry import Vec3
@@ -1553,3 +1564,362 @@ def test_a_layout_with_distinct_projections_still_resolves() -> None:
     anchors = resolve_view_anchors(layout, {}, Vec2(420.0, 297.0))
 
     assert set(anchors) == {"front", "top"}
+
+
+# --- DRAWSHEET-AUTOPLACE-1: a lone auto-placed view must stay ON the sheet -------
+# The defect, reproduced first-hand before it was fixed: a SINGLE `right` view with
+# `auto_place=True` on A2 landscape at 1:4 composed cleanly, exported valid
+# SVG/PDF/DXF, reported `layout_issues == []` — and drew its geometry 4.70 mm past
+# the sheet's own 420 mm bottom edge. `bounds_aware_layout` centred the arrangement
+# on the anchor points of all FOUR standard slots even when three of them held no
+# view, and those three still contribute non-zero points, so the centring carried a
+# constant VIEW_GUTTER_MM / 2 bias. Measured, not assumed: the displacement is
+# exactly 12.00 mm per affected axis on every sheet size and scale, and its DIRECTION
+# is set by which slot the view occupies (a lone `right` goes +x/-y, a lone `top`
+# -x/+y) — see the per-subset table in `..._every_subset_...` below.
+#
+# Two properties are gated here, and they are different questions:
+#   (a) PLACEMENT — a view being auto-placed lands centred on what is actually
+#       there, so its projected bbox stays inside the drafting border; and
+#   (b) OBSERVATION — `measure_sheet_overflow` can SEE a view placed off the sheet.
+# (b) matters independently of (a): the composer reported success while producing an
+# unusable drawing, and a gate that cannot fail for the reason you care about is the
+# real defect. Its negative control is `..._sees_the_pre_fix_placement` below, which
+# reconstructs the buggy anchor arithmetically and demands the check fire on it.
+
+#: The dogfooded case: a lone `right` view, A2 landscape, 1:4. Half-extents in SHEET
+#: mm (i.e. already scaled), sized so the drawn geometry genuinely fits an A2 sheet —
+#: 340 x 386 mm inside a 574 x 400 mm drafting border. The point is that a view that
+#: FITS was placed so that it did not.
+_LONE_HALF_W = 170.0
+_LONE_HALF_H = 193.0
+
+
+def _rect_edges(half_w: float, half_h: float) -> list[ProjectedViewEdge]:
+    """A closed rectangle centred on the projected origin, as canonical line edges."""
+    corners = [
+        (-half_w, -half_h),
+        (half_w, -half_h),
+        (half_w, half_h),
+        (-half_w, half_h),
+    ]
+    edges: list[ProjectedViewEdge] = []
+    for index, start in enumerate(corners):
+        end = corners[(index + 1) % len(corners)]
+        edges.append(
+            ProjectedViewEdge(
+                primitive="line",
+                visible=True,
+                start=_pt(*start),
+                end=_pt(*end),
+                midpoint=_pt((start[0] + end[0]) / 2, (start[1] + end[1]) / 2),
+            )
+        )
+    return edges
+
+
+def _lone_view_sheet(
+    projection: ViewProjection = "right",
+    size: SheetSize = "A2",
+    half_w: float = _LONE_HALF_W,
+    half_h: float = _LONE_HALF_H,
+) -> ComposedSheet:
+    """Compose a sheet carrying exactly ONE auto-placed standard view."""
+    scale = ViewScale(numerator=1, denominator=4)
+    evaluation = EvaluateDrawingViewsResult(
+        part_id=uuid.UUID(int=7),
+        tree_version=1,
+        views=[
+            DrawingViewResult(
+                view=projection, scale=scale, edges=_rect_edges(half_w, half_h)
+            )
+        ],
+    )
+    layout = SheetLayout(
+        size=size,
+        orientation="landscape",
+        title="DOOR CANOPY - BRACKET ELEVATION",
+        views=[
+            SheetViewPlacement(
+                projection=projection,
+                scale=scale,
+                auto_place=True,
+                position=SheetPoint(x_mm=0.0, y_mm=0.0),
+            )
+        ],
+    )
+    return place_sheet(evaluation, [], layout)
+
+
+def _content_rect(sheet: ComposedSheet, projection: ViewProjection) -> SvgRect:
+    """The placed view's drawn extent, read back off the COMPOSED sheet's own edges.
+
+    Deliberately measured from `sheet.views[...].edges` — the coordinates the
+    serializers actually emit — rather than by re-running the placement helpers, so
+    this asserts on what was drawn and not on a re-derivation of the same maths.
+    """
+    view = next(v for v in sheet.views if v.projection == projection)
+    xs: list[float] = []
+    ys: list[float] = []
+    for edge in view.edges:
+        assert isinstance(edge, ComposedLineEdge)
+        xs += [edge.x1, edge.x2]
+        ys += [edge.y1, edge.y2]
+    return SvgRect(min(xs), min(ys), max(xs), max(ys))
+
+
+def test_lone_auto_placed_view_stays_inside_the_sheet_margins() -> None:
+    """THE regression: a lone auto-placed `right` view's drawn geometry lands inside
+    the drafting border, measured off the composed sheet's own emitted edges.
+
+    Against the pre-fix composer this fails on `max_y`: the bbox ran to 424.70 mm on
+    a 420 mm sheet (4.70 mm past the PAPER edge, 14.70 mm past the border) while
+    composition reported success."""
+    sheet = _lone_view_sheet()
+    rect = _content_rect(sheet, "right")
+
+    assert (sheet.width_mm, sheet.height_mm) == (594.0, 420.0)
+    assert rect.min_x >= sheet.margin_mm
+    assert rect.max_x <= sheet.width_mm - sheet.margin_mm
+    assert rect.min_y >= sheet.margin_mm
+    assert rect.max_y <= sheet.height_mm - sheet.margin_mm
+
+
+def test_lone_auto_placed_view_is_centred_on_the_sheet() -> None:
+    """The lone view is centred on the sheet exactly — no residual gutter bias.
+
+    The sharpest statement of the root cause: pre-fix the centre sat at
+    (297 + 12, 210 - 12), i.e. displaced by VIEW_GUTTER_MM / 2 on BOTH axes by the
+    three empty slots voting on the arrangement's bounding box."""
+    rect = _content_rect(_lone_view_sheet(), "right")
+
+    assert (rect.min_x + rect.max_x) / 2 == pytest.approx(594.0 / 2, abs=_TOL)
+    assert (rect.min_y + rect.max_y) / 2 == pytest.approx(420.0 / 2, abs=_TOL)
+
+
+def test_every_lone_standard_view_centres_on_every_sheet_size() -> None:
+    """Not a `right`-specific fix: EVERY standard projection, alone, on every sheet
+    size, centres. All four were biased pre-fix — `front` too, by (-12, -12), even
+    though its own slot IS the arrangement origin, because the three empty slots
+    around it still pushed the bounding box out."""
+    for projection in STANDARD_VIEWS:
+        for size in ("A4", "A3", "A2", "A1", "ANSI_B"):
+            dims = sheet_dimensions(size, "landscape")
+            sheet = _lone_view_sheet(
+                projection, size, half_w=dims.x / 6, half_h=dims.y / 6
+            )
+            rect = _content_rect(sheet, projection)
+            where = f"{projection} on {size}"
+            assert (rect.min_x + rect.max_x) / 2 == pytest.approx(
+                dims.x / 2, abs=_TOL
+            ), where
+            assert (rect.min_y + rect.max_y) / 2 == pytest.approx(
+                dims.y / 2, abs=_TOL
+            ), where
+
+
+def test_every_subset_of_the_standard_quartet_is_centred() -> None:
+    """ "Any subset short of the full quartet" — all 15 non-empty subsets centre their
+    own arrangement in the sheet. Absent slots contribute nothing; present ones vote.
+
+    MEASURED against the pre-fix composer: 8 of these 15 were displaced, always by
+    exactly VIEW_GUTTER_MM / 2 = 12.00 mm, and the pattern says why. All four SINGLE
+    views were off on both axes (front (-12,-12), top (-12,+12), right (+12,-12),
+    iso (+12,+12)); the four ADJACENT pairs were off on one axis (front+top (-12,0),
+    front+right (0,-12), top+iso (0,+12), right+iso (+12,0)); and the two DIAGONAL
+    pairs, all four triples and the quartet were centred — because between them
+    those already span the arrangement's full bounding box, so the empty slots had
+    no vote left to cast. Only the 7 correct cases were reachable through the
+    default front/top/right/iso sheet, which is why this went unnoticed."""
+    dims = sheet_dimensions("A2", "landscape")
+    bounds = _square_bounds(30)
+    for size in range(1, len(STANDARD_VIEWS) + 1):
+        for subset in itertools.combinations(STANDARD_VIEWS, size):
+            anchors = bounds_aware_layout(
+                {v: (bounds if v in subset else None) for v in STANDARD_VIEWS}, dims
+            )
+            xs = [anchors[v].x for v in subset]
+            ys = [anchors[v].y for v in subset]
+            assert (min(xs) + max(xs)) / 2 == pytest.approx(dims.x / 2, abs=_TOL), (
+                subset
+            )
+            assert (min(ys) + max(ys)) / 2 == pytest.approx(dims.y / 2, abs=_TOL), (
+                subset
+            )
+
+
+def test_full_quartet_placement_is_unchanged_by_the_lone_view_fix() -> None:
+    """Regression guard on the main case: with all four views present, every slot is
+    `present`, so the centring population is the same set it always was and the
+    anchors are byte-identical to the pre-fix values.
+
+    The expected numbers are the pre-fix output, computed by hand from the
+    documented arrangement (front at the origin, top a gutter above, right a gutter
+    to the right, iso in the free upper-right corner) rather than captured from the
+    code under test."""
+    dims = sheet_dimensions("A3", "landscape")
+    h = 30.0
+    anchors = bounds_aware_layout({v: _square_bounds(h) for v in STANDARD_VIEWS}, dims)
+    step = h + VIEW_GUTTER_MM + h
+    # Arrangement spans front..iso on each axis, so its centre is half a step out.
+    ax = dims.x / 2 - step / 2
+    ay = dims.y / 2 - step / 2
+    assert anchors == {
+        "front": Vec2(ax, ay),
+        "top": Vec2(ax, ay + step),
+        "right": Vec2(ax + step, ay),
+        "iso": Vec2(ax + step, ay + step),
+    }
+
+
+def test_a_hand_placed_view_does_not_move_the_auto_placed_one() -> None:
+    """A view the author pinned with `auto_place=False` is drawn at its own point, so
+    it must not vote on where the AUTO views go — the same "something that is not
+    being auto-placed moved something that is" defect as the empty slots.
+
+    Pre-fix the front view was shoved left of centre to make room for a right view
+    that was never going to be there."""
+    scale = ViewScale(numerator=1, denominator=1)
+    evaluation = EvaluateDrawingViewsResult(
+        part_id=uuid.UUID(int=8),
+        tree_version=1,
+        views=[
+            DrawingViewResult(view="front", scale=scale, edges=_rect_edges(40.0, 30.0)),
+            DrawingViewResult(view="right", scale=scale, edges=_rect_edges(40.0, 30.0)),
+        ],
+    )
+    layout = SheetLayout(
+        size="A3",
+        orientation="landscape",
+        title="Mixed",
+        views=[
+            SheetViewPlacement(
+                projection="front",
+                scale=scale,
+                auto_place=True,
+                position=SheetPoint(x_mm=0.0, y_mm=0.0),
+            ),
+            SheetViewPlacement(
+                projection="right",
+                scale=scale,
+                auto_place=False,
+                position=SheetPoint(x_mm=360.0, y_mm=60.0),
+            ),
+        ],
+    )
+    sheet = place_sheet(evaluation, [], layout)
+
+    front = _content_rect(sheet, "front")
+    assert (front.min_x + front.max_x) / 2 == pytest.approx(420.0 / 2, abs=_TOL)
+    assert (front.min_y + front.max_y) / 2 == pytest.approx(297.0 / 2, abs=_TOL)
+    # …and the pinned view is still honoured verbatim (y-up -> y-down).
+    right = _content_rect(sheet, "right")
+    assert (right.min_x + right.max_x) / 2 == pytest.approx(360.0, abs=_TOL)
+    assert (right.min_y + right.max_y) / 2 == pytest.approx(297.0 - 60.0, abs=_TOL)
+
+
+# --- the OBSERVATION half: the gate can see a view placed off the sheet ----------
+def test_measure_sheet_overflow_is_silent_for_a_view_inside_the_border() -> None:
+    """Non-vacuity control: the check does not cry wolf on a correctly placed sheet."""
+    sheet = _lone_view_sheet(half_w=100.0, half_h=100.0)
+    result = next(v for v in sheet.views if v.projection == "right")
+    rect = view_ink_rect(
+        _rect_edges(100.0, 100.0),
+        Vec2(sheet.width_mm / 2, sheet.height_mm / 2),
+        sheet.height_mm,
+    )
+    assert rect is not None and result is not None
+    assert (
+        measure_sheet_overflow(
+            [("right", rect)], Vec2(sheet.width_mm, sheet.height_mm), sheet.margin_mm
+        )
+        == []
+    )
+
+
+def test_measure_sheet_overflow_sees_the_pre_fix_placement() -> None:
+    """THE negative control for the gate itself: fed the exact anchor the pre-fix
+    composer produced, `measure_sheet_overflow` reports the overflow in millimetres.
+
+    The buggy anchor is reconstructed arithmetically — sheet centre displaced by
+    VIEW_GUTTER_MM / 2 toward +x and -y, which is what three empty slots did to the
+    centring — so this stays a live check of the gate after the placement bug is
+    long gone. Without it, "the gate sees overflow" would be an untested claim about
+    a code path nothing reaches any more, which is precisely how a gate stops being
+    able to fail for its own reason.
+    """
+    dims = sheet_dimensions("A2", "landscape")
+    edges = _rect_edges(_LONE_HALF_W, _LONE_HALF_H)
+    pre_fix_anchor = Vec2(
+        dims.x / 2 + VIEW_GUTTER_MM / 2, dims.y / 2 - VIEW_GUTTER_MM / 2
+    )
+    rect = view_ink_rect(edges, pre_fix_anchor, dims.y)
+    assert rect is not None
+
+    overflow = measure_sheet_overflow([("right", rect)], dims, SHEET_MARGIN_MM)
+
+    assert len(overflow) == 1
+    assert overflow[0].view == "right"
+    assert overflow[0].side == "bottom"
+    # The measured numbers from the reproduction: 4.70 mm off the PAPER, 14.70 mm
+    # past the drafting border. Exact — this is sheet-mm layout arithmetic, not a
+    # geometric comparison, so no tolerance band applies.
+    assert overflow[0].sheet_mm == pytest.approx(4.70, abs=_TOL)
+    assert overflow[0].margin_mm == pytest.approx(14.70, abs=_TOL)
+
+
+def test_measure_sheet_overflow_names_each_border() -> None:
+    """Each of the four borders is reachable and named — a check that only ever
+    reports "bottom" would have passed the reproduction while being blind to the
+    +x half of the very same bias."""
+    dims = Vec2(200.0, 100.0)
+    cases = {
+        "left": SvgRect(-5.0, 40.0, 30.0, 60.0),
+        "right": SvgRect(170.0, 40.0, 205.0, 60.0),
+        "top": SvgRect(80.0, -5.0, 120.0, 30.0),
+        "bottom": SvgRect(80.0, 70.0, 120.0, 105.0),
+    }
+    for side, rect in cases.items():
+        overflow = measure_sheet_overflow([("front", rect)], dims, SHEET_MARGIN_MM)
+        assert [(o.side, o.sheet_mm, o.margin_mm) for o in overflow] == [
+            (side, pytest.approx(5.0, abs=_TOL), pytest.approx(15.0, abs=_TOL))
+        ], side
+
+
+def test_composed_sheets_place_every_view_inside_the_border() -> None:
+    """The standing gate over the composer: for the committed compose goldens, every
+    placed view's INK — geometry plus its stamped caption — is inside the drafting
+    border. This is the assertion the sheet was missing when it exported a drawing
+    that ran off the page."""
+    golden_request = _golden_request()
+    golden_sheet = place_sheet(
+        evaluate_drawing_views(golden_request),
+        golden_request.dimensions,
+        golden_request.layout,
+    )
+    for name, sheet in (
+        ("plate golden", golden_sheet),
+        ("note golden", _compose_note_sheet()),
+        ("title-block golden", _compose_tb_sheet()),
+    ):
+        rects: list[tuple[ViewProjection, SvgRect]] = []
+        for view in sheet.views:
+            if view.failed:
+                continue
+            xs: list[float] = []
+            ys: list[float] = []
+            for edge in view.edges:
+                if isinstance(edge, ComposedLineEdge):
+                    xs += [edge.x1, edge.x2]
+                    ys += [edge.y1, edge.y2]
+            if xs:
+                rects.append(
+                    (view.projection, SvgRect(min(xs), min(ys), max(xs), max(ys)))
+                )
+        assert rects, f"{name} composed no measurable view"
+        assert (
+            measure_sheet_overflow(
+                rects, Vec2(sheet.width_mm, sheet.height_mm), sheet.margin_mm
+            )
+            == []
+        )

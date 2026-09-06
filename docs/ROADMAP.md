@@ -2,6 +2,18 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
+**Drawings placement, 2026-09-06 (kernel-architect, built `27c8d3f`, integrated on this branch):** a
+lone auto-placed standard view was centred on all four quartet anchor slots
+even when three were absent, displacing 8 of the 15 non-empty subsets by
+exactly `VIEW_GUTTER_MM/2`, `front` alone included; a second fix stops
+hand-placed (`auto_place=False`) views feeding the auto-layout. Found by
+dogfooding the drawing engine on a real part, not by a test. **The ticket
+stays OPEN**: its acceptance is "full projected bbox inside the sheet
+margins" and its own originating sheet still fails that, because
+`_edge_points` gives an arc the full-circle centre±radius box
+(ARC-BOUNDS-INFLATE-1, P1). Byte-identity of the standard quartet proved by
+regeneration, not inspection.
+
 **Current focus, corrected 2026-08-29 (backlog-groomer pass 19) — no new P0;
 CI-4's original question is ANSWERED (not systemically unstable; shard 3/4 was
 structurally overloaded) and the umbrella is DOWN TO ONE unreproduced item
