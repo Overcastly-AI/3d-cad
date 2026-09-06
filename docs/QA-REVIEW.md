@@ -12,6 +12,161 @@ blocked or lies · **P2** a real flow is worse than it should be · **P3** polis
 
 ---
 
+## 2026-09-06 — SHEET-RESCALE-1 (`d19d257`) independently verified: the verb is correct and exact; nobody can reach it
+
+**Verdict: the SERVER half PASSES on every criterion I could measure, with
+better numbers than the commit message claims. The TICKET is not closed — its
+first acceptance criterion is a user gesture ("re-picking Scale on a laid-out
+four-view sheet"), and there is no gesture. Filed below as SHEET-RESCALE-1B
+(P2).**
+
+Verified against a native stack booted from this commit on isolated ports
+(gateway 8473 / documents 8474 / geometry 8475), proven mine by value before
+anything was measured: all three listeners' `/proc/<pid>/cwd` resolve into this
+worktree, and both services' served `/openapi.json` carry this commit's
+`SheetUpdate.scale` description. Exit codes and 200s were not treated as
+evidence anywhere in this pass — see the negative control, where the mutated
+server returns **200 while changing nothing**.
+
+### 1-2. The re-scale is exact, and both labels follow
+
+Composed the sheet through `POST /drawings/{id}/sheet` before and after a
+1:1 -> 1:4 write and measured the **projected edges** out of the composed model
+(`ComposedLineEdge`/`Polyline`/`Circle`), which is server arithmetic with no
+browser or chrome in it:
+
+| view | total edge length | longest edge | ratio |
+|---|---|---|---|
+| front | 180.0000 -> 45.0000 | 60.0000 -> 15.0000 | **0.250000** |
+| top | 200.0000 -> 50.0000 | 60.0000 -> 15.0000 | **0.250000** |
+| right | 140.0000 -> 35.0000 | 40.0000 -> 10.0000 | **0.250000** |
+| iso | 424.5782 -> 106.1446 | 48.9898 -> 12.2474 | **0.250000** |
+
+The absolute numbers are a second, independent check that this is real: at 1:1
+the front view's longest edge is 60.0000 mm and the right view's 40.0000 mm —
+the block's actual dimensions — so the composer is drawing `model_mm * num/den`
+and the ratio is not an artefact of comparing two wrong numbers.
+`scale_label` and `title_block.scale` both read `1:4` afterwards.
+
+In the browser the same claim was re-derived a THIRD way, from the DOM rather
+than the compose payload: `HitBand` draws each pick target as a `<rect>` whose
+`width` IS the segment length in sheet mm, so the attribute is the projected
+length exactly. Every view halves to within 5e-6 across a reload.
+
+**A near-miss that was mine, recorded because it is the trap this ticket is
+about.** My first DOM helper took `hypot()` of the pick GROUP's `getBBox()` and
+reported **0.5056**, not 0.5. That is small enough to be waved through as
+tolerance, and it is not tolerance: the group's box mixes in the constant
+`pickHitMm` band, and solving `hypot(15,p)/hypot(30,p) = 0.50556` gives
+`p = 2.60` — `drawing.pickHitMm`, to three figures. This is the builder's own
+view-GROUP finding (label and frame do not scale, so the group only shrinks to
+0.69) one level further in, and it is the same lesson twice: **a re-scale
+assertion must measure geometry that scales and nothing else, or it degrades
+into "it got somewhat smaller".**
+
+### 3. The viewless refusal is by name, and it rolls back
+
+`PATCH /sheets/{id}` with `scale` on a sheet with no views -> **422
+`sheet_rescale_without_views`**, with the sheet id in `details` and a message
+that says where a sheet's scale actually lives. Combined with a `name` change
+in the same body, the rename is rolled back too (`'Sheet'` -> `'Sheet'`,
+`doc_version` 1 -> 1), so the refusal is transactional and not partial.
+
+### 4. The H2 per-view guard is intact
+
+A per-view `PATCH /views/{id}` with a divergent scale on a four-view sheet ->
+**422 `sheet_view_scale_mismatch`** ("this sheet drafts at 1:4"), all four view
+scales unchanged, `doc_version` unchanged. A SINGLE-view sheet still accepts a
+per-view re-scale (1:1 -> 1:3, 200), so the guard was narrowed by nothing.
+
+### 5. Round trip
+
+Re-scale, `page.reload()`, then read everything from the server again: title
+block `1:4`, scale readout `1:4`, all four persisted view scales `1:4`,
+`doc_version` exactly +1, edge count per view unchanged, and every edge at 0.5
+of its former length. Nothing in the assertion path reads a value the client
+held in memory.
+
+### Negative control — the assertions are not vacuous
+
+With the four-line view-rewrite loop in `update_sheet` replaced by `pass` and
+documents restarted, the re-scale write **still returns 200** and every measured
+ratio becomes **1.000000**, with `scale_label` and `title_block.scale` stuck at
+`1:1`. My case 1 goes red; cases 2, 3 and 4 stay green, which is correct — the
+guard, the viewless refusal and the reachability finding do not depend on that
+loop. The app source was restored byte-for-byte afterwards
+(`git status` on `services/`, `packages/`, `apps/web/src/` clean).
+
+That 200-on-a-no-op is worth keeping in view: it is exactly why the commit's own
+gateway test asserts on the forwarded BODY rather than the status, and why
+nothing here is verified by status code.
+
+### 6. Reachability — the finding
+
+- [ ] (P2, S) **SHEET-RESCALE-1B — the sheet re-scale verb has no gesture: a
+      user still cannot change a laid-out sheet's scale, only an API client
+      can.** kind: flow gap (the server half of SHEET-RESCALE-1 is correct and
+      shipped; this is its other half, which the commit message itself flags as
+      the deliberate follow-up). MEASURED 2026-09-06 against the running app at
+      `d19d257`, desktop AND touch: after `drawing-autolayout`,
+      `drawing-scale-select` has **count 0** and only `drawing-scale-readout`
+      remains; the readout contains **0** focusable or interactive descendants
+      (`select, input, button, [role=button], [role=combobox],
+      [contenteditable], [tabindex]:not([tabindex="-1"])`) and is not in the tab
+      order. Before the layout the picker is real and hittable — 
+      `elementFromPoint` at its centre resolves to the control itself — so the
+      post-layout absence is a gap, not a decision that scale is immutable.
+      Static confirmation: `onSelectScale` has exactly ONE call site
+      (`DrawingCommandBand.tsx:218`, the `hasLayout ? Readout : SelectField`
+      FALSE branch) and `reheadSheet({ scale })` has exactly one caller
+      (`handleSelectScale`), whose post-layout branch is entered only when
+      `hasLayout` is true — precisely when the control that would call it is not
+      rendered. **So `handleSelectScale`'s post-layout branch, and the whole
+      `SheetUpdate.scale` verb behind it, are dead code from the UI.**
+      Consequence the user feels is unchanged from the original ticket: a part
+      that grows after drafting still cannot be re-scaled without deleting the
+      sheet — the capability now exists and is not reachable, which CLAUDE.md's
+      standing design mandate treats as a defect in its own right ("every chrome
+      element is functional — a tile/readout that only decorates is a defect;
+      wire it or delete it").
+      FIX: render the post-layout Scale cell as the live `SelectField` (it
+      already calls `handleSelectScale`, which already writes) rather than a
+      `Readout`; keep deriving the displayed value from the server response so a
+      failed write shows the scale the sheet is actually drawn at.
+      ACCEPTANCE: on a laid-out four-view sheet, picking a new Scale with the
+      MOUSE (a real `page.mouse.click`, not `force`) re-draws every view and
+      updates the title block; same on touch.
+      [src: qa-tester independent verification of `d19d257`, 2026-09-06]
+      TERRITORY: `apps/web/src/components/DrawingCommandBand.tsx`.
+      agentType: frontend-builder.
+
+Two notes that belong with it rather than as separate items. (a) `Source` and
+`Size` freeze into readouts at the same seam, and `SheetUpdate.size` is likewise
+a real verb with no post-layout gesture — same shape, pre-existing, not this
+commit's doing. (b) The ticket's third acceptance clause ("an orientation flip
+can then offer the fit its own cell quotes") is also not delivered; the commit
+says so deliberately, and `sheet-convention.spec.ts`'s "the paper cell promises
+exactly what the flip delivers" is green, so the cell is honest rather than
+lying. Both are follow-ups, neither is a regression.
+
+### 7. Touch
+
+Both projects, 4/4 each. `apps/web/playwright.config.ts` still declares no
+`projects` array at all (PLAYWRIGHT-TOUCH-1 open), so the touch profile was
+hand-rolled in an isolated config — a 1366x1024 viewport with `hasTouch: true`.
+The re-scale behaves identically, and the reachability gap is identical: touch
+has no path to the verb either.
+
+### Evidence
+
+`apps/web/e2e/qa-sheet-rescale-verify.spec.ts` (new, 4 cases, written
+independently of the builder's `drawing-rescale.spec.ts` and measuring by a
+different derivation). Desktop 4/4, touch 4/4. Regression sweep of the adjacent
+drawing surface — `drawings`, `drawing-rescale`, `drawing-sheets`,
+`drawing-place-view`, `drawing-reanchor`, `drawing-parts-list`,
+`sheet-convention` — **26/26 green**, including the builder's own three cases.
+`pnpm exec tsc --noEmit` clean; the new spec is prettier-clean.
+
 ## 2026-09-06 — SNAP-4 independently verified: PASS, with four findings the builder's assertions could not observe
 
 **Verdict: PASS on `40a14bd`.** The ticket's defect is gone on the real stack,
