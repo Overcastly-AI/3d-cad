@@ -36,7 +36,8 @@ SHEETS: dict[str, dict[str, object]] = {
         "title": "DOOR CANOPY - BRACKET ELEVATION",
         "views": ["right"],
         "size": "A2",
-        "scale": (1, 4),
+        "scale": (1, 5),
+        "place": (150.0, 300.0),
         "notes": "Wall post, arm and curved knee brace. Two required, handed pair.",
     },
 }
@@ -45,6 +46,7 @@ SHEETS: dict[str, dict[str, object]] = {
 def compose(name: str, spec: dict[str, object]) -> object:
     features, _ = C.feature_tree()
     num, den = spec["scale"]  # type: ignore[misc]
+    place: tuple[float, float] | None = spec.get("place")  # type: ignore[assignment]
     request = ComposeDrawingRequest.model_validate(
         {
             "part_id": "c0000000-0000-0000-0000-00000000cafe",
@@ -67,8 +69,11 @@ def compose(name: str, spec: dict[str, object]) -> object:
                 "views": [
                     {
                         "projection": v,
-                        "position": {"x_mm": 0.0, "y_mm": 0.0},
-                        "auto_place": True,
+                        "position": {
+                            "x_mm": place[0] if place else 0.0,
+                            "y_mm": place[1] if place else 0.0,
+                        },
+                        "auto_place": place is None,
                     }
                     for v in spec["views"]
                 ],
