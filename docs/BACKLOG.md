@@ -82,19 +82,20 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
 ## Ready (top of queue)
 
 **Dispatch order, groom pass 20 (2026-09-06), updated same day on
-DRAWSHEET-AUTOPLACE-1's code review.** Pass 19's whole list (GATE-FLOOR,
-MATEUI-1, LAYOUT-1, GHOST-1, STEPNAME-1/1B, ARC-DEGENERATE-1, MATE-OBS-2, K2,
-PBT-1, SOLVE-CRASH-1, CI-BAL) shipped — see Done archive. **DRAWSHEET-
-AUTOPLACE-1's two placement hunks (`27c8d3f`, kernel-architect) are
-ship-with-fixes and being integrated, but the TICKET STAYS OPEN — its own
-acceptance is not yet met on its originating fixture. Do not re-dispatch it
-whole; the residual work is the two items below.** Three follow-ups filed
-from its code review: **ARC-BOUNDS-INFLATE-1 (P1, new)** — an arc gets a
-full-circle bbox, the dominant cause of the residual overrun;
-**LAYOUTISSUE-OFFSHEET-1 (P1, re-ranked)** — paired with it per the
-reviewer's argument (the banner on a still-imperfect sheet is not deferred
-polish); **DRAWLAYOUT-PINNED-BLIND-1 (P3, new)**. Ranked, disjoint,
-parallel-dispatchable — **top 3 for the NEXT batch:**
+DRAWSHEET-AUTOPLACE-1's code review and SHEET-RESCALE-1's build report.**
+Pass 19's whole list (GATE-FLOOR, MATEUI-1, LAYOUT-1, GHOST-1, STEPNAME-1/1B,
+ARC-DEGENERATE-1, MATE-OBS-2, K2, PBT-1, SOLVE-CRASH-1, CI-BAL) shipped — see
+Done archive. **DRAWSHEET-AUTOPLACE-1's two placement hunks (`27c8d3f`,
+kernel-architect) are ship-with-fixes and being integrated, but the TICKET
+STAYS OPEN** — its own acceptance is not yet met on its originating
+fixture; see ARC-BOUNDS-INFLATE-1/LAYOUTISSUE-OFFSHEET-1/
+DRAWLAYOUT-PINNED-BLIND-1 below, filed from its code review. **SHEET-
+RESCALE-1's backend half is BUILT at `d19d257` (backend-builder, review + QA
+running)**, and also NOT a fresh dispatch target — its own two escalations
+are SHEET-RESCALE-2 (P1, the verb is unreachable by mouse) and
+SHEET-RESCALE-ORIENTATION-1 (a product question, filed in Next (P2), not
+Ready). Ranked, disjoint, parallel-dispatchable — **top 3 for the NEXT
+batch:**
 
 1. **ARC-BOUNDS-INFLATE-1 + LAYOUTISSUE-OFFSHEET-1's `compose.py` half**
    (P1, S, kernel-architect, ONE dispatch not two) —
@@ -105,10 +106,12 @@ parallel-dispatchable — **top 3 for the NEXT batch:**
    contract half (`packages/py-kit`, `packages/contracts`, `packages/ts-client`)
    and rendering half (`apps/web`) are separate territory once the emission
    shape from this dispatch is agreed — see its own ticket.
-2. **SHEET-RESCALE-1** (P2, S, backend-builder then frontend-builder) —
-   `services/documents/**`, `services/gateway/**`,
-   `apps/web/src/routes/DrawingPage.tsx`. A laid-out sheet's scale cannot be
-   changed by anything. Disjoint from #1 and #3.
+2. **SHEET-RESCALE-2** (P1, XS, frontend-builder) —
+   `apps/web/src/components/DrawingCommandBand.tsx`. SHEET-RESCALE-1's
+   re-scale verb is built and unreachable by mouse (still a read-only
+   `Readout`) — weighted P1 on CLAUDE.md's own "unreachable capability is
+   the defect" standing directive, not treated as routine follow-up. Fold in
+   QA's reachability finding when it lands. Disjoint from #1 and #3.
 3. **SNAP-4** (P2, S, frontend-builder) — `apps/web/src/sketch/**`. An
    explicit Fix on a point the draw already grounded misreports
    OVER-CONSTRAINED. Disjoint from #1 and #2.
@@ -840,32 +843,80 @@ IMPOSSIBLE server-side (documents refuses a per-view re-scale, H2), so the
 trade moved to the set-up screen instead of shipping a broken promise. See
 Done archive. Residual: **SHEET-RESCALE-1** below.**
 
-- [ ] (P2, S) **SHEET-RESCALE-1 — a laid-out sheet's scale cannot be
-      changed by anything, so the only way to re-scale a drawing is to start
-      another one.** kind: capability gap (not a regression — no client ever
-      could). MEASURED 2026-08-28 while closing REACH-3-FLOW, against the real
-      stack: `PATCH /views/{id}` with a new `scale` returns 422
-      `sheet_view_scale_mismatch` on any multi-view sheet (documents' H2 "one
-      sheet, one source, one scale" guard), and the refusal cannot be
-      sequenced around — the guard compares against `siblings[0]`, which still
-      holds the OLD scale whichever view you write first. There is no
-      sheet-level re-scale verb, and post-layout the web Scale control is a
-      read-only `Readout`, so the scale a sheet was laid out at is permanent.
-      Consequences the user feels: flipping paper orientation cannot re-fit
-      (REACH-3-FLOW closed this by making the cell honest instead), and a part
-      that grows after drafting can only be re-scaled by deleting the sheet.
-      FIX: a sheet-level re-scale on `PATCH /sheets/{sheet_id}` that rewrites
-      every view's scale in ONE transaction (the H2 invariant then holds
-      throughout — it is per-view writes that cannot satisfy it), plus the web
-      Scale picker staying live post-layout.
-      ACCEPTANCE: re-picking Scale on a laid-out four-view sheet re-draws every
-      view at the new scale with the title block agreeing; the H2 guard still
-      refuses a genuinely divergent PER-VIEW write; an orientation flip can
-      then offer the fit its own cell quotes.
-      [src: REACH-3-FLOW measurement, filed by frontend-builder 2026-08-28]
+- [ ] (P2, S) **SHEET-RESCALE-1 — BACKEND HALF BUILT at `d19d257`
+      (backend-builder; review + QA running, do not close). A laid-out
+      sheet's scale cannot be changed by anything, so the only way to
+      re-scale a drawing is to start another one.** kind: capability gap
+      (not a regression — no client ever could). MEASURED 2026-08-28 while
+      closing REACH-3-FLOW, against the real stack: `PATCH /views/{id}` with
+      a new `scale` returns 422 `sheet_view_scale_mismatch` on any
+      multi-view sheet (documents' H2 "one sheet, one source, one scale"
+      guard), and the refusal cannot be sequenced around — the guard
+      compares against `siblings[0]`, which still holds the OLD scale
+      whichever view you write first. There was no sheet-level re-scale
+      verb, and post-layout the web Scale control is a read-only `Readout`,
+      so the scale a sheet was laid out at was permanent. **BUILT: a
+      sheet-level re-scale on `PATCH /sheets/{sheet_id}` rewrites every
+      view's scale in ONE transaction.** The one-transaction shape is
+      FORCED, not chosen: the H2 guard's per-view comparison against
+      `siblings[0]` refuses a view-by-view re-scale in EVERY ordering (the
+      per-view guard itself is byte-for-byte unchanged), and a viewless
+      re-scale is refused by name — the negative control showed that without
+      that refusal it returns 200, a success-shaped no-op. Evidence:
+      documents 6/7 red under mutation, e2e cases 1 and 3 red with case 2
+      correctly staying green, `just gen-verify` clean, 840 unit tests,
+      16/16 adjacent specs. **Two things the builder escalated rather than
+      deciding unilaterally, both now filed separately (relayed by
+      orchestrator 2026-09-06):** (1) the verb ships UNREACHABLE BY MOUSE —
+      see **SHEET-RESCALE-2** below, filed P1 on CLAUDE.md's own standing
+      "unreachable capability is the defect class" directive, not treated as
+      a normal polish follow-up. (2) the ORIGINAL acceptance clause below
+      ("an orientation flip can then offer the fit its own cell quotes") is
+      a PRODUCT decision, not an engineering one — implementing it would
+      reverse REACH-3-FLOW's deliberate promise-side fix and rewrite its
+      dedicated spec; moved to Next (P2) as **SHEET-RESCALE-ORIENTATION-1**,
+      a question for vision-steward/founder input, not a buildable clause
+      of this ticket. ACCEPTANCE (narrowed to the engineering half that
+      shipped): re-picking Scale on a laid-out four-view sheet re-draws
+      every view at the new scale with the title block agreeing; the H2
+      guard still refuses a genuinely divergent PER-VIEW write. The
+      orientation-flip clause is NOT part of this ticket's acceptance
+      anymore — see SHEET-RESCALE-ORIENTATION-1.
+      [src: REACH-3-FLOW measurement, filed by frontend-builder 2026-08-28;
+      build + escalations relayed by orchestrator 2026-09-06]
       TERRITORY: `services/documents/src/documents/drawings.py`,
-      `services/gateway/**`, then `apps/web/src/routes/DrawingPage.tsx`.
-      agentType: backend-builder (then frontend-builder).
+      `services/gateway/**` (built); `apps/web/src/routes/DrawingPage.tsx`
+      (not yet — see SHEET-RESCALE-2). agentType: backend-builder (done),
+      frontend-builder (SHEET-RESCALE-2).
+
+- [ ] (P1, XS) **SHEET-RESCALE-2 — the re-scale verb SHEET-RESCALE-1 built
+      ships unreachable by mouse: the Scale control is still a read-only
+      `Readout`.** kind: defect (flow — an existing, working capability with
+      no way to reach it, CLAUDE.md's own named defect class: "the founder's
+      own FB-1..FB-19 were almost all 'the capability was there and
+      unreachable'"). Escalated by the SHEET-RESCALE-1 builder rather than
+      built inside that batch — `apps/web/src/components/
+      DrawingCommandBand.tsx`'s Scale control was outside that ticket's
+      territory (backend-builder then frontend-builder, sequenced), and
+      `handleSelectScale` is ALREADY WIRED to the band's existing
+      `onSelectScale` prop — this is measured as a one-line `Readout` →
+      `SelectField` swap, not new plumbing. Weighted P1 rather than a normal
+      P2/P3 follow-up specifically because CLAUDE.md's flow mandate ranks
+      "built and unreachable" above "not built yet": until this lands,
+      SHEET-RESCALE-1's re-scale exists only for API callers, which is the
+      exact shape of gap the founder has flagged repeatedly as worse than a
+      missing feature. **QA has been asked to report reachability as a
+      finding, not a footnote — fold their verdict in when it arrives before
+      dispatching, in case they found the wiring is not as clean as
+      measured.** ACCEPTANCE: on a laid-out sheet, the Scale control in the
+      command band is a live, clickable `SelectField`; picking a new scale
+      re-draws every view via the verb SHEET-RESCALE-1 built; a Playwright
+      case drives it by mouse (click Scale → pick a value → assert the
+      redraw), not just by calling the API directly.
+      [src: SHEET-RESCALE-1 build, backend-builder, relayed by orchestrator
+      2026-09-06, filed by backlog-groomer]
+      TERRITORY: `apps/web/src/components/DrawingCommandBand.tsx`, its test
+      file. agentType: frontend-builder.
 
 - [ ] (P2, XS) **TITLEBLOCK-STAMP-1 — the projection-convention symbol
       `5438b73` shipped appears on screen and vanishes from every print.**
@@ -960,6 +1011,39 @@ below.**
       TERRITORY: `scripts/check-ui-parity.py`. agentType: platform-builder.
 
 ## Next (P2)
+
+- [ ] (P2, XS) **SHEET-RESCALE-ORIENTATION-1 — should a sheet re-scale
+      restore REACH-3-FLOW's promised orientation-flip fit? A PRODUCT
+      decision, NOT a builder ticket — do not promote to Ready until
+      decided; needs vision-steward or founder input.** kind: question.
+      Split out of SHEET-RESCALE-1's original acceptance clause ("an
+      orientation flip can then offer the fit its own cell quotes") when
+      the builder correctly refused to decide it mid-batch, relayed by
+      orchestrator 2026-09-06. THE TENSION: SHEET-RESCALE-1 shipped the
+      machinery a fix would need (a sheet-level, one-transaction re-scale),
+      but REACH-3-FLOW (2026-08-28) deliberately chose NOT to auto-re-fit on
+      an orientation flip — it moved that promise to the set-up screen
+      instead of shipping a broken one, and has its OWN dedicated spec
+      pinning that choice (`apps/web/e2e/sheet-convention.spec.ts:383`).
+      Implementing the flip-then-refit behaviour now would reverse that
+      earlier, deliberate decision and rewrite its spec — a product call
+      about what "flip orientation" should mean post-layout, not a bug fix.
+      OPTIONS: (a) leave REACH-3-FLOW's choice as-is — a flip stays a
+      set-up-time decision, re-scale is a separate, explicit action; (b)
+      wire the flip to auto-invoke the new re-scale verb, restoring the
+      original acceptance clause and updating `sheet-convention.spec.ts`
+      on purpose; (c) surface the re-scale suggestion at flip time (a
+      prompt/affordance) without auto-applying it — a middle ground neither
+      builder proposed. ACCEPTANCE: a decision recorded in `docs/VISION.md`
+      or `docs/ROADMAP.md` with its reasoning (matching RECT-2's precedent
+      above); if (b) is chosen, a normal buildable ticket is filed from it
+      with `sheet-convention.spec.ts:383` named as the spec that must change
+      on purpose, not regress by accident.
+      [src: SHEET-RESCALE-1 build, backend-builder, relayed by orchestrator
+      2026-09-06, filed by backlog-groomer]
+      TERRITORY: none yet (decision first) — `apps/web/e2e/
+      sheet-convention.spec.ts` is the spec any resulting ticket must touch
+      on purpose. agentType: vision-steward (decision), then TBD.
 
 **SOLVE-CRASH-1 is CLOSED (2026-08-29, kernel-architect, arbitrated P2->P1) —
 the untyped 500 is gone. The twelve crashes were TWO defects wanting opposite
@@ -5251,6 +5335,16 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-09-06 — **SHEET-RESCALE-1 backend built at `d19d257`, two escalations
+  filed (backlog-groomer, relaying orchestrator).** Sheet-level re-scale
+  ships; the one-transaction shape is forced by the H2 guard, not chosen
+  (evidence: documents 6/7 red under mutation, 840 unit tests, 16/16
+  adjacent specs). Filed SHEET-RESCALE-2 (P1, XS — the verb is unreachable
+  by mouse, a one-line `Readout`→`SelectField` swap weighted P1 per
+  CLAUDE.md's unreachable-capability directive) and
+  SHEET-RESCALE-ORIENTATION-1 (P2, a product question in Next (P2), not
+  Ready — whether re-scale should restore REACH-3-FLOW's orientation-flip
+  fit promise).
 - 2026-09-06 — **DRAWSHEET-AUTOPLACE-1 code-reviewed: ship-with-fixes,
   ticket STAYS OPEN (backlog-groomer, relaying orchestrator/reviewer).**
   The two placement hunks land; the bracket-sheet fixture still overruns
