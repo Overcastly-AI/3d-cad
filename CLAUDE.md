@@ -1204,6 +1204,25 @@ recipe here in the same commit as the fix.**
   `pnpm --filter @loft/web {typecheck,test}` + `just lint` + geometry `pytest`.
   (Only `just dev` / `docker compose` proper — which build the container images —
   still can't run; use the native boot above instead of the compose stack.)
+- **A HEALTH POLL PASSES AGAINST A SIBLING'S STACK, SO A PORT COLLISION MAKES
+  YOU MEASURE SOMEBODY ELSE'S BUILD.** Found 2026-09-06 by the SHEET-RESCALE-1
+  agent. Its uvicorns failed to bind (a sibling already held 8030/8031/8032),
+  died, and its health poll went green anyway — against the sibling's processes
+  running the sibling's code. Its first spec run produced three plausible,
+  entirely meaningless failures. This is the worst class of fault in this file
+  because it corrupts EVIDENCE rather than the run: exit code 0, HTTP 200, and
+  numbers about a tree you are not editing. **Verify the stack is yours BY
+  VALUE, never by liveness:** `curl -s localhost:<port>/openapi.json` and grep
+  for a field only your commit adds, and `readlink /proc/<pid>/cwd` on the
+  actual listener to confirm it points into YOUR worktree. Same shape as the
+  worktree-push trap and the zero-byte 200 — a reassuring signal over the wrong
+  bytes.
+- **A FastAPI ROUTE DOCSTRING IS PART OF THE OPENAPI SURFACE, so a "docs-only"
+  edit to a route handler still needs `just gen`.** Measured 2026-09-06: fixing
+  one wrong error code in a gateway route docstring turned `gen-verify` red
+  after every other gate was green. The gate worked exactly as designed; the
+  surprise is that the mental category "just a comment" does not exist for a
+  route handler.
 - **DO NOT BOOT THE NATIVE STACK WITH `Bash(run_in_background)` — it dies, and it
   dies wearing the readonly-SQLite mask.** Found 2026-08-28 by the ORTHO-1 agent.
   `uv run uvicorn` produces a second bind attempt that exits 3; the harness reads
@@ -1364,7 +1383,7 @@ recipe here in the same commit as the fix.**
   also kill a stale Vite — but SCOPE THE KILL TO PORT 5173.** Resolve the pid
   from the listener, never from a process-name grep:
   ```bash
-  pid=$(lsof -ti :5173 2>/dev/null | head -1)
+  pid=$(lsof -ti tcp:5173 -sTCP:LISTEN 2>/dev/null | head -1)
   [ -n "$pid" ] && kill "$pid"      # ONLY the process actually holding :5173
   ```
   **USE `lsof -ti`, NOT `ss`. `ss -lptn` RESOLVES NOTHING IN THIS CONTAINER** — it
@@ -1380,6 +1399,23 @@ recipe here in the same commit as the fix.**
   writing it down.** Both of my versions were plausible and neither was tested;
   one over-killed and one under-killed, and the silent one is worse, because
   friendly fire at least announces itself.
+  **AND `lsof -ti :<port>` IS NOT LISTENER-SCOPED — IT ALSO RETURNS EVERY
+  PROCESS HOLDING A *CLIENT* SOCKET ON THAT PORT, SO TEARING DOWN ONE SERVICE
+  KILLS THE SERVICES THAT TALK TO IT.** Measured 2026-09-06 against a real
+  listener plus a real connected client on :8899 — `lsof -ti :8899` returned
+  BOTH pids, `lsof -ti tcp:8899 -sTCP:LISTEN` returned only the listener. Found
+  the hard way by the SHEET-RESCALE-1 agent: killing "the process on 8041"
+  (documents) also killed its GATEWAY, because the gateway holds a client socket
+  to documents. The symptom is every spec dying at `seedSession` with a 500 —
+  i.e. it wears the readonly-SQLite mask, which is the fifth distinct fault to
+  do so, and it nearly got diagnosed as the stale-handle one. **Always
+  `lsof -ti tcp:<port> -sTCP:LISTEN`.** The `:5173` form above was safe only by
+  accident, because nothing dials INTO Vite; the moment the same recipe is
+  pointed at a backend port it is friendly fire on your own stack. This is the
+  THIRD wrong version of this teardown recipe (a process-name grep that
+  over-killed, an `ss` form that silently no-opped, and now this) — the rule
+  that keeps being skipped is the one that settles it: verify a teardown against
+  a real listener before writing it down.
   **THE EARLIER VERSION OF THIS RECIPE SAID `ps -eo pid,args | grep -E
   'vite/bin/vite'`, WHICH IS NOT PORT-SCOPED AND KILLS EVERY AGENT'S VITE.**
   Measured 2026-08-27 by the QA-R4 agent: every e2e leg it ran over ~10 minutes
