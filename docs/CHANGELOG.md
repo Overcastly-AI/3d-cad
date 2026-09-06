@@ -685,3 +685,12 @@ STEP hardening + WB-64/TB-1 dogfooding)
   on a face offers Sketch inline; overlay panels adopted the header's row
   rhythm; a missing PostgreSQL now fails loudly instead of skipping 37%
   silently.
+- **2026-08-29 — GHOST-1 closed + evidence pass, LAYOUT-1 closed by
+  measurement (frontend-builder):** a body auto-ghosts while a sketch is
+  open as a derived default (CAMRESTORE-1 filed); the three-times-reported
+  inspector overlap does not reproduce on HEAD — a clip-aware regression
+  gate ships instead of a fix.
+- **2026-08-29 — Groom pass 19 (backlog-groomer):** CI-4's original question
+  answered (not systemic — shard 3/4 was structurally overloaded); K2,
+  PBT-1, SOLVE-CRASH-1, CI-BAL all shipped; CI-BAL headroom corrected
+  2.1x->1.55x against real CI; filed ARC-DEGENERATE-1, SHARD-MANIFEST-CI-1.

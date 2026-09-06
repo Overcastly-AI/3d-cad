@@ -54,11 +54,25 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
   now-closed Ready-queue items (A11Y-TOOLBTN-1, MEASURE-PROXY-1, EXPORT-3,
   REACH-2-IMPORT-1, REACH-3-FLOW, REACH-2-FLOW, HEM-1C, HEM-1D, PGTEST-GATE,
   K2, PBT-1, SOLVE-CRASH-1, CI-BAL) into the Done archive.
-  **✅ rows, still unqualified by an independent code-reviewer pass. ➖
-  rows:** Interop, Drawings. **❌ rows:** Assemblies, Sheet metal,
-  Performance, Collaboration & versioning, Extensibility/scripting+MCP,
-  Selection & direct manipulation — all owed a vision-steward re-check, now
-  SEVEN passes overdue.
+  **Groom pass 20 (2026-09-06) correction — the note above had drifted from
+  the actual VISION.md table** (re-read directly this pass, not inherited):
+  **✅** Sketching & constraints, Price/freedom. **➖** Part modeling, Interop,
+  Drawings & documentation, Workspace & document management, Performance on
+  real parts. **❌** Assemblies & mates, Sheet metal, Collaboration &
+  versioning, Extensibility (scripting API), Agent access (MCP). There is no
+  "Selection & direct manipulation" row in VISION.md — that phrase was stale
+  in this note, not a row anyone scored. **Both open ❌ rows' own named
+  residual tickets are already CLOSED**: Assemblies' MATE-1 (`a2a6f9f`) and
+  Sheet metal's DXF-4/DXF-5/EDGEFLANGE-1 (`b226ee4`/`cc35629`/`3fba5fd`) all
+  ship, per the Done archive — so both ❌ scores are likely stale and due to
+  flip up, which only makes the vision-steward re-check MORE overdue (now
+  EIGHT passes), not less: nobody has re-run the audit that would confirm it
+  and correct VISION.md/COMPETITIVE.md to match. **Drawings gap this pass**
+  (new, not from the audit — first-hand dogfooding, see DRAWSHEET-AUTOPLACE-1/
+  TITLEBLOCK-FIT-1 below): a lone auto-placed standard view can run off the
+  sheet with no diagnostic, and title-block free text truncates at a fixed
+  character count instead of the cell's actual width — both filed below,
+  the first P1.
 
 - **Prior passes (8-18):** reconciled in `docs/CHANGELOG.md` / Done archive.
   Still true and still open: `docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` are
@@ -67,49 +81,38 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 19 (2026-08-29) — no new P0.** SOLVE-CRASH-1, K2,
-PBT-1, CI-BAL, MEASURE-PROXY-1, PICKMARK-OCCLUDE-1, EXPORT-3, REACH-3-FLOW,
-REACH-2-FLOW, A11Y-TOOLBTN-1, HEM-1C, HEM-1D, SEL-8 and PGTEST-GATE all
-shipped this batch or the last (see Done archive). Nothing is in flight.
-Ranked, disjoint, parallel-dispatchable:
+**Dispatch order, groom pass 20 (2026-09-06).** Pass 19's whole list
+(GATE-FLOOR, MATEUI-1, LAYOUT-1, GHOST-1, STEPNAME-1/1B, ARC-DEGENERATE-1,
+MATE-OBS-2, K2, PBT-1, SOLVE-CRASH-1, CI-BAL) shipped — see Done archive.
+Nothing is in flight; tree clean at `717fcdb`. **This pass's find: two
+drawings-composition defects, reproduced first-hand while dogfooding
+`geometry.drawings` on a real modelled part** (see their full tickets below).
+Ranked, disjoint, parallel-dispatchable — **top 3 are this batch:**
 
-1. ~~**GATE-FLOOR**~~ **DONE 2026-08-29** — both named gates floored, and the
-   sweep of the other three found two more holes (`check-build-context`'s
-   MAIN path, `check-tailwind-scale`'s accidental `max()` floor). Residue
-   filed as GATE-FLOOR-2 (P3).
-2. ~~**MATEUI-1**~~ — **CLOSED 2026-08-29.** Rendering only: the diagnosis is
-   already typed on the wire, so nothing in `services/geometry` changed. Mates
-   now carry an `M1`/`M2` handle the message names and the panel shows; the
-   "remove this one" action shipped in the same commit. See the entry below.
-3. ~~**LAYOUT-1**~~ — **CLOSED BY MEASUREMENT 2026-08-29, no fix needed.**
-   Does not reproduce on HEAD (band and strip abut at 0.0 px; the audit
-   measured 73 px). T-18 + the density pass had already fixed it. A
-   clip-aware regression gate ships in its place.
-4. ~~**GHOST-1**~~ — **CLOSED 2026-08-29.** A body with no stop of its own
-   now ghosts while a sketch is open, as a derived default; a stop the
-   modeler set is never overridden or silently restored. Filed
-   CAMRESTORE-1 (P2) from the measurement.
-5. **STEPNAME-1 is PART-SHIPPED, and the headline half is NOT ours**
-   (kernel-architect, 2026-08-29) — the geometry writer already carries the
-   instance name; the UUID is the fallback for a request that omits it, and
-   the caller that omits it is `apps/web`. Two REAL geometry defects found and
-   fixed alongside (non-ASCII names corrupted; the file named build123d as its
-   author). See the entry below; STEPNAME-1B is the remaining web half.
-6. **ARC-DEGENERATE-1 is SHIPPED** (kernel-architect, 2026-08-29) — 27 of
-   2000 payloads were shipping an arc collapsed onto its own centre, at a
-   residual of zero; now `sketch_conflicting` with the constraint named. See
-   the entry below and ROADMAP for the census and the two follow-ups filed.
-7. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
+1. **DRAWSHEET-AUTOPLACE-1** (P1, S, kernel-architect) —
+   `services/geometry/src/geometry/drawings/**`. A lone auto-placed standard
+   view can be anchored off the sheet with no diagnostic; reproduced and
+   root-caused this pass, not just observed.
+2. **SHEET-RESCALE-1** (P2, S, backend-builder then frontend-builder) —
+   `services/documents/**`, `services/gateway/**`,
+   `apps/web/src/routes/DrawingPage.tsx`. A laid-out sheet's scale cannot be
+   changed by anything.
+3. **SNAP-4** (P2, S, frontend-builder) — `apps/web/src/sketch/**`. An
+   explicit Fix on a point the draw already grounded misreports
+   OVER-CONSTRAINED.
+
+Also ranked and ready, not in this batch (territory conflicts with #1 or
+size/blast-radius reasons noted):
+
+4. **TITLEBLOCK-FIT-1** (P2, S, kernel-architect) — same file as
+   DRAWSHEET-AUTOPLACE-1 (`compose.py`); queue for the batch after it lands,
+   not parallel with it.
+5. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
    unrelated edit hits a silent, unexplained disabled Save.
-8. **SNAP-4** (P2, S, frontend-builder) — an explicit Fix on a point the
-   draw already grounded misreports OVER-CONSTRAINED.
-9. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
+6. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
    select-without-editing gesture, and the command band is out of room at
-   1280.
-10. ~~**MATE-OBS-2**~~ — **CLOSED 2026-08-29.** `mateErrors` moved onto
-    `AssemblySolve` (empty whenever stale) and the panel takes `solve`, not the
-    raw evaluation, so there is nothing ungated left to read; the matrix gained
-    it as an eighth case with a non-vacuity settled branch. See the entry below.
+   1280. Large blast radius (75 refs across 28 e2e spec files) — best run
+   alone, not paired with other `apps/web` work.
 
 **Also ready, not yet dispatched:** QA-R3 (P2, touch — harness gap filed as
 PLAYWRIGHT-TOUCH-1), NAME-2b (P2), TITLEBLOCK-STAMP-1 (P2, XS),
@@ -242,6 +245,86 @@ See Done archive.**
       [src: ARC-DEGENERATE-1, kernel-architect, 2026-08-29]
       TERRITORY: `services/geometry/src/geometry/kernel/extrude.py`,
       `revolve.py`, plus wherever the shared constant lands. agentType:
+      kernel-architect.
+
+- [ ] (P1, S) **DRAWSHEET-AUTOPLACE-1 — a lone auto-placed standard view can
+      be anchored off the sheet, with no diagnostic anywhere.** kind: defect
+      (drawings composition). Found and REPRODUCED this pass while dogfooding
+      `geometry.drawings` on a real modelled part (door-canopy bracket sheet,
+      `docs/canopy/canopy_sheet.py` at `0d684b3`, fixed in the same session by
+      switching to a hand-authored anchor at `717fcdb`) — then root-caused
+      directly against `_compose_sheet`, not just observed: a single `right`
+      view, `auto_place: true`, A2 landscape (594×420 mm) at 1:4 composes with
+      its SVG bbox spanning y = 109.73–425.29 mm, **5.29 mm past the sheet's
+      own 420 mm bottom edge**, while the sheet still composes cleanly and
+      exports valid SVG/PDF/DXF. ROOT CAUSE, read in
+      `bounds_aware_layout` (`compose.py`): it always computes a reference
+      anchor for all FOUR standard-view slots (front/top/right/iso) and
+      centres the sheet on the bounding box of all four relative anchor
+      points — even when only one of the four is actually present in
+      `layout.views`. The three absent slots still contribute non-zero
+      points (see `rel["iso"]`/`rel["top"]`, which are positioned off
+      `VIEW_GUTTER_MM` and off whichever view IS present), which biases the
+      centring by a constant `VIEW_GUTTER_MM / 2` (measured: 12 mm) toward
+      +x/−y regardless of content — confirmed exactly: the measured anchor
+      (y-up 198 mm) equals `dims.y/2 − VIEW_GUTTER_MM/2` (210 − 12) to the
+      mm. That 12 mm bias is harmless alone; it stacks with a tall/wide lone
+      view at a tight scale to push the view's own edge past the sheet
+      border. FIX direction: centre only on the anchor points of views
+      actually being auto-placed THIS call, not on all four nominal slots.
+      ACCEPTANCE: a lone non-front standard view (or any subset short of the
+      full quartet) auto-placed on any sheet size/scale composes with its
+      full projected bbox inside the sheet margins — a regression test
+      reproducing the measured A2/1:4/`right`-only case above reddens
+      against HEAD and passes after the fix; the standard front/top/right/iso
+      quartet's placement (`bounds_aware_layout`'s main case) stays
+      byte-identical (regression guard); `measure_layout_issues` (or a
+      sibling check) gains the view-vs-sheet-border floor the existing
+      "a sheet too small for its part is still silent" P3 item (above, Next
+      P2 section) already names as missing — this reproduction is direct
+      proof the gap is reachable via a normally-sized view, not only an
+      oversized part.
+      [src: founder dogfooding session 2026-09-06, reproduced and root-caused
+      by backlog-groomer against `_compose_sheet` directly, groom pass 20]
+      TERRITORY: `services/geometry/src/geometry/drawings/compose.py`
+      (`bounds_aware_layout`, `resolve_view_anchors`), its test file.
+      agentType: kernel-architect.
+
+- [ ] (P2, S) **TITLEBLOCK-FIT-1 — title-block free text truncates at a
+      fixed character count, not the cell's actual width.** kind: defect
+      (drawings composition — title block). Shares `compose.py` with
+      DRAWSHEET-AUTOPLACE-1 above; queue for the batch AFTER it, not parallel
+      with it. MEASURED against `_compose_sheet` at HEAD (same dogfooding
+      session, `docs/canopy/CANOPY-DESIGN.md`'s two sheets): the title
+      `"DOOR CANOPY - BRACKET ELEVATION"` (31 chars) stamps truncated with an
+      ellipsis, and a title-block note field truncated similarly — two
+      sheets in the same set that both start `"DOOR CANOPY - ..."` lost the
+      one suffix that told them apart. ROOT CAUSE, read directly:
+      `_fit(text, limit)` truncates every title-block field to a FIXED
+      CHARACTER COUNT (`22` for `title`, `_TB_FIELD_CHARS = 26` for
+      author/date/notes) regardless of the cell's actual mm width, the font
+      size stamping it, or the glyph widths of the characters in the string
+      ("I"/"." are far narrower than "W"/"M") — a guess at "roughly how many
+      characters fit," not a fit to the cell. FIX: derive the budget from the
+      cell's actual width (`_title_block`'s own `split_x - x` for the title
+      cell) and the font size already used to stamp it, rather than a
+      hand-picked constant reused unconditionally; if a true glyph-width fit
+      is judged out of scope for this ticket, at minimum widen the fixed
+      budgets to the cell's ACTUAL current dimensions at today's font size
+      (measured, not guessed) and pin that measurement with a regression
+      test, so a future title-block resize cannot silently drift out of fit
+      again. ACCEPTANCE: a ~30-char title representative of a real part name
+      stamps in full (or elides only the portion that genuinely overflows
+      the cell at the current font, not a fixed 22nd character); a title
+      still genuinely too long for the cell at any reasonable font size still
+      elides with "…" (regression — `_fit`'s honest-fit posture is
+      preserved, never overflowing into the adjacent cell); a test fixture
+      reproduces both the too-short-budget case (today's failure) and the
+      genuinely-too-long case (must still elide).
+      [src: founder dogfooding session 2026-09-06, read against `_fit`/
+      `_TB_FIELD_CHARS`/`_title_block` by backlog-groomer, groom pass 20]
+      TERRITORY: `services/geometry/src/geometry/drawings/compose.py`
+      (`_fit`, `_tb_field`, `_title_block`), its test file. agentType:
       kernel-architect.
 
 **DOCTICK-GATE (`bd09f5b`, docstring fix `53e62b0`) and SPEC-9 (`e8702d5`)
@@ -4954,17 +5037,17 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
-- 2026-08-29 — **GHOST-1 evidence pass (frontend-builder):** added the
-  multi-body case the scope decision was made for (a NEIGHBOUR occludes the
-  sketch, not the host) with a pinned orbited camera; founder frames
-  `ghost1-neighbour-{before,after}.png`. No product code changed.
-- 2026-08-29 — **GHOST-1 closed (frontend-builder):** a body auto-ghosts while
-  a sketch is open, as a DERIVED default — a stop the modeler set is never
-  overridden on entry nor silently restored on exit. Filed CAMRESTORE-1 (P2).
-- 2026-08-29 — **LAYOUT-1 closed by measurement (frontend-builder):** the
-  three-times-corroborated inspector overlap does not reproduce on HEAD (band
-  and strip abut at 0.0 px vs a reported 73 px); a clip-aware regression gate
-  ships in place of a fix. No product code changed.
+- 2026-09-06 — **Groom pass 20 (backlog-groomer):** reconciled ROADMAP/
+  BACKLOG against `git log` (already accurate at `717fcdb`, no app-code
+  drift — the two new commits are `docs/canopy/**` dogfooding, not
+  ROADMAP-tracked). Corrected the Scorecard-gaps note against VISION.md's
+  actual table (it had drifted — a phantom "Selection" row, Performance
+  mis-stated). Filed DRAWSHEET-AUTOPLACE-1 (P1) and TITLEBLOCK-FIT-1 (P2)
+  from first-hand `geometry.drawings` dogfooding this session — both
+  reproduced and root-caused against `_compose_sheet` directly, not just
+  reported. Batch: DRAWSHEET-AUTOPLACE-1, SHEET-RESCALE-1, SNAP-4
+  (disjoint territory, all pre-existing acceptance criteria or newly
+  written this pass).
 - 2026-08-29 — **Groom pass 19 (backlog-groomer):** CI-4's original question
   ANSWERED (not systemically unstable); K2, PBT-1, SOLVE-CRASH-1, CI-BAL all
   shipped and ticked. Corrected CI-BAL's headroom claim (2.1x local-box ->
