@@ -11,6 +11,7 @@ import {
   selectionVerbHints,
   formatDimensionMm,
   formatSolveCell,
+  groundingAnchor,
   reconcileConstraints,
   resolveSketchKey,
   sameConstraint,
@@ -385,6 +386,152 @@ describe("applyConstraintAction", () => {
       outcome: "added",
       constraints: [{ kind: "fixed", point: { entity: "e6", point: "fit2" } }],
     });
+  });
+
+  /**
+   * SNAP-4 — the two features that produced it are each correct on their own.
+   * `groundedSketch` is what the product builds when a line is drawn STARTING
+   * ON THE ORIGIN: the snap authors the coincident (SNAP-3) and the frame
+   * arrives with its pin (`groundDatums`). Pressing X on that endpoint used to
+   * pin it a second time and report OVER-CONSTRAINED — true, and about a
+   * constraint the user never authored.
+   */
+  const groundedSketch: SketchConstraint[] = [
+    {
+      kind: "coincident",
+      a: { entity: "e1", point: "start" },
+      b: { entity: "origin", point: "position" },
+    },
+    { kind: "fixed", point: { entity: "origin", point: "position" } },
+  ];
+
+  it("fixed refuses a point the draw already grounded, and names the anchor", () => {
+    const result = applyConstraintAction(
+      "fixed",
+      [pickPoint("e1", "start")],
+      entities,
+      groundedSketch,
+    );
+    expect(result).toEqual({
+      outcome: "hint",
+      hint: "Already grounded on the Origin — the join there holds this point.",
+      already: true,
+    });
+    // `already` is the SNAP-5 seam: the keystroke still counts as the user
+    // asking, so the sketch binds and the save loop starts.
+    expect(result.outcome === "hint" ? result.already : undefined).toBe(true);
+  });
+
+  it("…transitively — a corner snapped onto a grounded corner is grounded too", () => {
+    const chained: SketchConstraint[] = [
+      ...groundedSketch,
+      {
+        kind: "coincident",
+        a: { entity: "e2", point: "start" },
+        b: { entity: "e1", point: "start" },
+      },
+    ];
+    expect(
+      applyConstraintAction(
+        "fixed",
+        [pickPoint("e2", "start")],
+        entities,
+        chained,
+      ),
+    ).toMatchObject({ outcome: "hint", already: true });
+  });
+
+  it("…and names an ordinary anchor without pretending it is the frame", () => {
+    const pinnedNeighbour: SketchConstraint[] = [
+      { kind: "fixed", point: { entity: "e2", point: "end" } },
+      {
+        kind: "coincident",
+        a: { entity: "e1", point: "start" },
+        b: { entity: "e2", point: "end" },
+      },
+    ];
+    expect(
+      applyConstraintAction(
+        "fixed",
+        [pickPoint("e1", "start")],
+        entities,
+        pinnedNeighbour,
+      ),
+    ).toEqual({
+      outcome: "hint",
+      hint: "Already grounded — this point is joined to a fixed one.",
+      already: true,
+    });
+  });
+
+  it("fixed still works on every point the sketch does NOT already hold", () => {
+    // The control against buying the fix by disabling the verb. On the very
+    // sketch that refuses the grounded endpoint, the free end still fixes…
+    expect(
+      applyConstraintAction(
+        "fixed",
+        [pickPoint("e1", "end")],
+        entities,
+        groundedSketch,
+      ),
+    ).toEqual({
+      outcome: "added",
+      constraints: [{ kind: "fixed", point: { entity: "e1", point: "end" } }],
+    });
+    // …and so does a point joined to something that is itself free to move: a
+    // coincident is only a pin when what it reaches is pinned.
+    expect(
+      applyConstraintAction("fixed", [pickPoint("e1", "start")], entities, [
+        {
+          kind: "coincident",
+          a: { entity: "e1", point: "start" },
+          b: { entity: "e2", point: "end" },
+        },
+      ]),
+    ).toMatchObject({ outcome: "added" });
+  });
+
+  it("a mixed selection fixes the free points and refuses nothing", () => {
+    expect(
+      applyConstraintAction(
+        "fixed",
+        [pickPoint("e1", "start"), pickPoint("e2", "end")],
+        entities,
+        groundedSketch,
+      ),
+    ).toEqual({
+      outcome: "added",
+      constraints: [{ kind: "fixed", point: { entity: "e2", point: "end" } }],
+    });
+  });
+
+  it("an exact duplicate still reads as the duplicate it is", () => {
+    expect(
+      applyConstraintAction("fixed", [pickPoint("e1", "start")], entities, [
+        { kind: "fixed", point: { entity: "e1", point: "start" } },
+      ]),
+    ).toEqual({ outcome: "hint", hint: "Already fixed.", already: true });
+  });
+
+  it("the catalogue and the rail agree that Fix is unavailable there", () => {
+    // One predicate, so the flyout row goes dead for the same reason the key
+    // refuses — no second rule to drift.
+    expect(
+      verbIsAvailable(
+        "fixed",
+        [pickPoint("e1", "start")],
+        entities,
+        groundedSketch,
+      ),
+    ).toBe(false);
+    expect(
+      verbIsAvailable(
+        "fixed",
+        [pickPoint("e1", "end")],
+        entities,
+        groundedSketch,
+      ),
+    ).toBe(true);
   });
 
   it("refuses a duplicate coincident regardless of point order", () => {
@@ -1517,5 +1664,74 @@ describe("the late vocabulary — angle / collinear / symmetric_lines / midpoint
       "angle",
       "diameter",
     ]);
+  });
+});
+
+describe("groundingAnchor — what already holds a point still (SNAP-4)", () => {
+  const origin = { entity: "origin", point: "position" };
+
+  it("follows a chain of coincidents to the pin at its end", () => {
+    const constraints: SketchConstraint[] = [
+      { kind: "fixed", point: origin },
+      { kind: "coincident", a: { entity: "e1", point: "start" }, b: origin },
+      {
+        kind: "coincident",
+        a: { entity: "e2", point: "end" },
+        b: { entity: "e1", point: "start" },
+      },
+    ];
+    expect(
+      groundingAnchor({ entity: "e2", point: "end" }, constraints),
+    ).toEqual(origin);
+    // Direction-blind: a coincident is symmetric, so the walk must cross it
+    // either way round. A separate case because a one-directional walk passes
+    // the assertion above and fails this one.
+    expect(
+      groundingAnchor({ entity: "e1", point: "start" }, [
+        { kind: "fixed", point: origin },
+        { kind: "coincident", a: origin, b: { entity: "e1", point: "start" } },
+      ]),
+    ).toEqual(origin);
+  });
+
+  it("is null when the chain reaches nothing pinned", () => {
+    // The same sketch WITHOUT the frame's pin: a coincident to a point that
+    // can move is not a pin, and refusing Fix here would be the dead end the
+    // refusal exists to avoid.
+    expect(
+      groundingAnchor({ entity: "e1", point: "start" }, [
+        { kind: "coincident", a: { entity: "e1", point: "start" }, b: origin },
+      ]),
+    ).toBeNull();
+    expect(groundingAnchor({ entity: "e1", point: "start" }, [])).toBeNull();
+  });
+
+  it("distinguishes the two named points of one entity", () => {
+    expect(
+      groundingAnchor({ entity: "e1", point: "end" }, [
+        { kind: "fixed", point: origin },
+        { kind: "coincident", a: { entity: "e1", point: "start" }, b: origin },
+      ]),
+    ).toBeNull();
+  });
+
+  it("terminates on a cycle of coincidents", () => {
+    // Two points joined to each other both ways round: a walk that does not
+    // mark what it has seen revisits them forever. Nothing is pinned, so the
+    // honest answer is null — and the test hanging is the failure.
+    expect(
+      groundingAnchor({ entity: "e1", point: "start" }, [
+        {
+          kind: "coincident",
+          a: { entity: "e1", point: "start" },
+          b: { entity: "e2", point: "end" },
+        },
+        {
+          kind: "coincident",
+          a: { entity: "e2", point: "end" },
+          b: { entity: "e1", point: "start" },
+        },
+      ]),
+    ).toBeNull();
   });
 });

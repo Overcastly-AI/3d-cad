@@ -2,6 +2,26 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
+**Sketch snap, 2026-09-06 (frontend-builder, built `40a14bd`, integrated on
+this branch):** pressing Fix on a point the draw had already grounded via an
+inferred coincident put the sketch into SOLVE OVER-CONSTRAINED from one line and
+one keystroke. It is now REFUSED with `Already grounded on the Origin — the join
+there holds this point.` The refusal is truthful at the solver, not merely at
+the type: `fix_point` registers two tags at the pre-solve position while
+`coincident` is a full point identity, so a point transitively joined to a
+pinned one has zero remaining freedom. Refusing rather than REPLACING the
+inferred join was the deliberate choice — replacing silently deletes the
+relation SNAP-3 exists to record, in response to a muscle-memory keystroke, with
+no undo for an inferred constraint. The keystroke still binds the sketch (it
+sets `userConstrained`, which starts the live-save loop), so it is not a dead
+end. QA verified independently on the real stack, desktop AND touch: 7 of 11
+cases redden under a byte-verified mutation, neighbours 20/20 green.
+**Residual, and it is the one that matters:** the exit the refusal points at
+does not work. QA measured the coincident glyph as unselectable — `aria-pressed`
+stays false and Delete removes nothing, with `elementFromPoint` resolving to the
+glyph's own button, so it is neither occlusion nor a zero-area target
+(QA-SNAP4-4, pre-existing, made load-bearing by this change).
+
 **Sheet re-scale, 2026-09-06 (backend-builder, built `d19d257`, integrated on
 this branch):** `SheetUpdate.scale` re-scales a laid-out sheet, rewriting every
 view in ONE documents transaction. The shape is forced, not chosen — the
