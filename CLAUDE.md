@@ -318,6 +318,29 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   on a single run returns every step of every job with timestamps and cost ~8 k
   tokens to learn that two shards were still running. Read the PAIR, not the
   zero.
+  **AND `total_jobs` IS A FLOOR, NOT A COMPLETION TEST — IT COUNTS JOBS CREATED,
+  NOT JOBS FINISHED, SO THE "READ THE PAIR" RULE ABOVE IS NECESSARY AND NOT
+  SUFFICIENT.** Measured 2026-09-06, and I told the founder two commits were
+  green off the back of it. `ci` on `717fcdb` reported `{"failed_jobs":0,
+  "total_jobs":7}` — the documented complete count — while `list_workflow_runs`
+  showed that same run `in_progress`. Both facts were true: all seven jobs
+  existed, several were still running, and nothing had failed YET. The pair test
+  only rules out a run so young its jobs do not exist; it cannot tell a run
+  three-quarters done from one that passed, which is the case you are actually
+  in most of the time. The answer happened to be green, which is the worst
+  outcome — a wrong method that returns the right answer gets kept.
+  **The cheap fix is a filter the two notes above predate: pass
+  `status: "completed"` to `list_workflow_runs` and the run objects DO carry
+  `conclusion`.** Measured the same day, and it corrects BOTH corrections above:
+  `perPage` is honoured now (`perPage: 2` returned exactly 2 runs, no spill, no
+  430 KB), and `conclusion` is present (`"success"`) on every row the filter
+  returns. So the verdict path is one small call — filter to `completed`, read
+  `conclusion` — and `get_job_logs` becomes what it is good at: naming WHICH
+  jobs failed once you know a run is red. A second, free completion check falls
+  out of the same call: `total_count` under the `completed` filter equals
+  `total_count` unfiltered exactly when every run on the branch has finished.
+  Do not re-derive a verdict from `failed_jobs` alone on a run you have not
+  established is finished.
   **AND WHEN A JOB IS RED, `tail_lines` MAY NEVER REACH THE FAILURE — budget for
   a fixed tail, not an escalating one.** Cost most of an integration pass on
   2026-08-28: I pulled 60, then 190, then 255 lines of a red `playwright (shard
