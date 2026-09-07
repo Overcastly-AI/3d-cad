@@ -1181,7 +1181,13 @@ recipe here in the same commit as the fix.**
   - **geometry → in-process LRU mesh store** when `S3_URL` is unset. Keep
     `--workers 1` (the LRU is per-process; multi-worker would split it). No MinIO.
   - **gateway → fail-open rate limiter** when `REDIS_URL` is unset (no-op
-    dependency). WS fan-out + mate authoring are plain REST/in-proc — no Redis. 
+    dependency). Mate authoring is plain REST/in-proc — no Redis. (There is no
+    WS fan-out: **no WebSocket route has ever existed in any service.** That
+    aspiration propagated as fact into this file, ARCHITECTURE.md and the README
+    until a release audit caught it being advertised as shipped; see the note in
+    `services/gateway/src/gateway/__init__.py`. It was still being repeated in
+    briefs on 2026-09-07 — from THIS line — as a candidate cause for a teardown
+    hang, and the agent had to disprove it before it could work.)
   Boot (ports gateway :8000, documents :8001, geometry :8002 — the smoke/e2e
   defaults), after the create_all above:
   ```bash
@@ -1204,6 +1210,26 @@ recipe here in the same commit as the fix.**
   `pnpm --filter @loft/web {typecheck,test}` + `just lint` + geometry `pytest`.
   (Only `just dev` / `docker compose` proper — which build the container images —
   still can't run; use the native boot above instead of the compose stack.)
+- **EDITING A SHELL SCRIPT WHILE A RUN OF IT IS IN FLIGHT CORRUPTS THAT RUN.**
+  Measured 2026-09-07 by the E2E-TEARDOWN agent, at the cost of a 16-minute
+  shard. Bash reads a script by FILE OFFSET and seeks back between commands, so
+  an edit that shifts line positions makes the already-running instance resume
+  at the wrong offset and execute garbage. It does not re-read from the top and
+  it does not notice. Freeze a script while any invocation of it is live —
+  including `scripts/e2e.sh` while a local `just e2e` is running, which is
+  exactly when you are most tempted to fix it.
+- **`kill -0` SUCCEEDS ON A ZOMBIE, so any "is it gone yet?" poll built on it
+  never terminates.** Same pass. A process that has been SIGKILLed but not yet
+  reaped by its parent still answers `kill -0` for as long as it stays in state
+  `Z`, so a teardown that waits for `kill -0` to fail hangs precisely in the
+  case it was written for. Read `/proc/<pid>/stat` and treat `Z` as gone. The
+  agent's own self-test walked into this while testing the fix for it.
+- **GNU `timeout` PUTS ITS CHILD IN A NEW PROCESS GROUP**, so
+  `kill -- -<pgid of the launcher>` misses the entire subtree. Derive the pgid
+  from the TARGET pid, never from whatever launched it. Measured in the same
+  pass — which also settled a change that turned out to be unnecessary: **bash
+  DOES run its EXIT trap on an untrapped SIGTERM**, so a separate TERM trap buys
+  nothing.
 - **A HEALTH POLL PASSES AGAINST A SIBLING'S STACK, SO A PORT COLLISION MAKES
   YOU MEASURE SOMEBODY ELSE'S BUILD.** Found 2026-09-06 by the SHEET-RESCALE-1
   agent. Its uvicorns failed to bind (a sibling already held 8030/8031/8032),
