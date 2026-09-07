@@ -134,6 +134,15 @@ lint:
     # basename-suffix pairs in the suite today, so an unanchored pattern would
     # run four files twice and leave four shards short.
     python3 scripts/e2e-shard-plan.py --self-test
+    # ~4s. The shard that started this: playwright passed, the script then hung
+    # 18m35s in its exit trap and the step died on the 40-minute timeout, while
+    # the verdict block printed GREEN — so the one channel a reader is told to
+    # trust said the shard was fine. Teardown now signals the process GROUP with
+    # a bounded SIGTERM->SIGKILL escalation and probes the ports by value, and
+    # check 1 is the negative control: it runs the OLD `kill $pid; wait $pid`
+    # against a process that ignores SIGTERM and demands a timeout, so asserting
+    # only the new code's exit status would have passed against the shipped bug.
+    bash scripts/e2e.sh --teardown-self-test
 
 # Unit tests: pytest across the uv workspace + vitest via pnpm (recursive)
 test:

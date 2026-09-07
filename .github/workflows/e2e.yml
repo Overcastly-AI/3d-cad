@@ -272,6 +272,9 @@ jobs:
       # docs/screenshots writes behind it, so the render still happens and the
       # committed founder PNGs are left alone. The tree check below proves it.
       - name: Playwright shard ${{ matrix.shard }}/4
+        # `id`, so the verdict step below can read this step's own outcome and
+        # refuse to re-print a GREEN block over a step that did not succeed.
+        id: shard
         # 40 < the job's 45 ON PURPOSE — see the headroom note at the top: a
         # step timeout is a `failure` that keeps the artifacts, a job timeout is
         # a `cancelled` that destroys them and looks like an eviction.
@@ -393,23 +396,97 @@ jobs:
       # with the verdict, but the three upload steps above append ~120 lines
       # after it, so "last in the script" is not "last in the job log".
       #
-      # Budget when tailing: this block is <= 20 lines and the runner's own
-      # post-job cleanup (cache save/prune) still prints after it, so
-      # tail_lines: 60 is the safe ask; 40 will usually do.
+      # Budget when tailing: this block is <= 23 lines (the verdict, plus the
+      # two reconciliation lines below) and the runner's own post-job cleanup
+      # (cache save/prune) still prints after it, so tail_lines: 60 is the safe
+      # ask; 40 will usually do.
+      #
+      # AND IT RECONCILES THE FILE AGAINST THE STEP'S OWN OUTCOME.
+      #
+      # Run 34041681272 shard 2/4 is why. `scripts/e2e.sh` wrote a GREEN
+      # verdict, the step then hung in teardown for 18m35s and was killed by
+      # `timeout-minutes`, and this step faithfully re-printed GREEN as the
+      # last thing in a FAILED job. Anyone following CLAUDE.md's own
+      # `get_job_logs` + `tail_lines` recipe read `GREEN` and concluded the
+      # shard was fine.
+      #
+      # The script now stops the stack BEFORE writing the verdict, so it can
+      # say `the shard did not finish cleanly` itself. But that only covers
+      # failures the script SURVIVES: a SIGKILL from the step timeout, an OOM
+      # kill, a runner losing the job — none of those leave it a chance to
+      # revise anything, and the stale file is still on disk. `steps.shard
+      # .outcome` is the one fact about this step that does not come from
+      # inside it, which is exactly what a cross-check needs.
+      #
+      # Both directions are checked, because a guard written against one
+      # failure encodes that failure's direction (CLAUDE.md, the
+      # stage-doc-hunks lesson): a GREEN file under a failed step is the
+      # observed defect, and a RED file under a step that reported success
+      # would mean the script's own non-zero exit was lost.
       - name: Verdict (kept last so a tail of the job log finds it)
         if: always()
+        env:
+          SHARD_OUTCOME: ${{ steps.shard.outcome }}
         run: |
           verdict="${{ runner.temp }}/e2e-logs-shard-${{ matrix.shard }}/verdict.txt"
-          if [[ -s "$verdict" ]]; then
-            cat "$verdict"
+          if [[ ! -s "$verdict" ]]; then
+            # No verdict file means scripts/e2e.sh never reached its own last
+            # line — the shard died in setup (uv sync, pnpm install, browser
+            # install, the Vite preflight) or was killed by the step timeout.
+            # Saying which is worth more than an empty tail.
+            echo "::error::no verdict file at $verdict — scripts/e2e.sh never reached its summary, so this shard died BEFORE or DURING setup (uv sync / pnpm install / browser install / Vite preflight), or hit the 40-minute step timeout (outcome: ${SHARD_OUTCOME}). Its reason is in the 'Playwright shard' step above, not here."
+            ls -la "${{ runner.temp }}/e2e-logs-shard-${{ matrix.shard }}" || true
             exit 0
           fi
-          # No verdict file means scripts/e2e.sh never reached its own last
-          # line — the shard died in setup (uv sync, pnpm install, browser
-          # install, the Vite preflight) or was killed by the step timeout.
-          # Saying which is worth more than an empty tail.
-          echo "::error::no verdict file at $verdict — scripts/e2e.sh never reached its summary, so this shard died BEFORE or DURING setup (uv sync / pnpm install / browser install / Vite preflight), or hit the 40-minute step timeout. Its reason is in the 'Playwright shard' step above, not here."
-          ls -la "${{ runner.temp }}/e2e-logs-shard-${{ matrix.shard }}" || true
+          cat "$verdict"
+          # The block's headline word, read off the line that CARRIES it —
+          # never by grepping the whole file, because a failing test's title
+          # can contain the word GREEN and would then decide this.
+          classify() {
+            if grep -qE "^e2e verdict: .* — GREEN " "$1"; then
+              echo GREEN
+            elif grep -qE "^e2e verdict: .* — RED " "$1"; then
+              echo RED
+            elif grep -q "NO USABLE JSON REPORT" "$1"; then
+              # A legible verdict that is neither: the script says so itself
+              # and exits 3 when it cannot corroborate. Not a shape change.
+              echo UNSUMMARISED
+            else
+              echo UNKNOWN
+            fi
+          }
+          # The classifier's own probes. Same discipline as the retries and
+          # fail-on-flaky guards below: a cross-check that silently stops
+          # matching is worth less than none, because it reads as agreement.
+          probe="$(mktemp -d)"
+          rule="$(printf '=%.0s' $(seq 1 48))"
+          printf '== e2e verdict %s\ne2e verdict: [shard 1/4] 0 failed, 4 passed, 0 skipped, 0 flaky of 4 — GREEN (playwright exit 0)\n' "$rule" >"$probe/green.txt"
+          printf '== e2e verdict %s\ne2e verdict: [shard 1/4] 0 failed, 4 passed, 0 skipped, 0 flaky of 4 — RED (playwright exit 0, but the shard did not finish cleanly)\n' "$rule" >"$probe/red.txt"
+          # The trap this classifier is shaped to avoid: a GREEN in a TITLE.
+          cp "$probe/red.txt" "$probe/title.txt"
+          printf '  FAIL  e2e/x.spec.ts:9:3 > the GREEN badge renders\n' >>"$probe/title.txt"
+          for want in GREEN:green RED:red RED:title; do
+            got="$(classify "$probe/${want#*:}.txt")"
+            if [[ "$got" != "${want%%:*}" ]]; then
+              echo "::error::the verdict cross-check misreads its own probe ${want#*:}.txt as ${got} — it can no longer tell a green shard from a red one"
+              exit 1
+            fi
+          done
+          rm -rf "$probe"
+          claim="$(classify "$verdict")"
+          echo "e2e verdict: block says ${claim}; the shard step itself concluded ${SHARD_OUTCOME}."
+          if [[ "$claim" == "UNKNOWN" ]]; then
+            echo "::error::no GREEN/RED headline in $verdict and no stated reason — scripts/e2e-verdict.py changed shape and this cross-check has stopped checking anything."
+            exit 1
+          fi
+          if [[ "$SHARD_OUTCOME" != "success" && "$claim" == "GREEN" ]]; then
+            echo "::error::the block above says GREEN and the shard step concluded '${SHARD_OUTCOME}'. That block describes PLAYWRIGHT and is written before the step can fail for any other reason (a step timeout, an OOM kill, a failure in a later step). THIS SHARD FAILED — read the 'Playwright shard' step, starting at its END."
+            exit 1
+          fi
+          if [[ "$SHARD_OUTCOME" == "success" && "$claim" == "RED" ]]; then
+            echo "::error::the block above says RED but the shard step reported success — scripts/e2e.sh exited 0 over its own red verdict, which is a defect in the script, not in the tests."
+            exit 1
+          fi
 
   # The control that keeps the sharding honest, and the single job to read.
   #
@@ -484,6 +561,15 @@ jobs:
       # such basename-suffix pairs in the suite today). ~50 ms, stdlib only.
       - name: The shard planner must be able to refuse
         run: python3 scripts/e2e-shard-plan.py --self-test
+      # And the same for the TEARDOWN, which is the one part of scripts/e2e.sh
+      # whose failure no shard can observe: it runs after the last useful line
+      # has been printed, so a broken one costs a 40-minute step timeout and an
+      # empty log (run 34041681272). This spawns a process that ignores SIGTERM,
+      # proves the OLD `kill; wait` teardown HANGS on it, and then proves the
+      # shipped one bounds it, reaps its children and says so. ~4 s, no network,
+      # no browser.
+      - name: The teardown must be able to fail
+        run: scripts/e2e.sh --teardown-self-test
       # --timeline: prints each shard's tests in execution order with their
       # offset into the shard, the failing test's ordinal, the slowest 10 and
       # the per-shard wall. Costs no new capture — it reads the reports already

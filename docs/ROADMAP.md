@@ -2,6 +2,27 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
+**e2e teardown + verdict, 2026-09-07 (platform-builder, built `fca365d`,
+integrated on this branch):** shard 2/4 of run 34041681272 passed every test
+(`0 failed, 166 passed of 167`), printed its verdict, then hung 18m35s in its
+exit trap and was killed by the 40-minute step timeout — while the verdict block
+said **GREEN**, because it reports playwright's exit and cannot see anything
+after playwright. The blind verdict was the worse half: the recipe in CLAUDE.md
+tells a reader to trust that block. Both my hypotheses were disproved by
+measurement — `uv` forwards SIGTERM in 1 s, the sampler dies in 2 ms, an idle
+keep-alive does not block shutdown, and there is no WebSocket fan-out anywhere
+in the product (a documentation error that had propagated into CLAUDE.md and the
+README). The hang did not reproduce locally on the identical shard, and the spec
+my commit added is not even in shard 2 — it shifted the balanced partition,
+nothing more. So the teardown fix is **deterministic by construction, not
+repaired at a proven cause**: services start under `setsid`, teardown signals the
+process group with a bounded SIGTERM->SIGKILL escalation, never `wait`s on a live
+process, and then probes the ports BY VALUE because a signal delivered is not a
+port released. The verdict now stops the stack BEFORE printing (that ordering is
+the fix) and the workflow cross-checks the block against `steps.shard.outcome` —
+the one fact about the step that does not come from inside it, and the only thing
+that survives a SIGKILL.
+
 **Sketch snap, 2026-09-06 (frontend-builder, built `40a14bd`, integrated on
 this branch):** pressing Fix on a point the draw had already grounded via an
 inferred coincident put the sketch into SOLVE OVER-CONSTRAINED from one line and

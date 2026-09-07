@@ -25,15 +25,25 @@ no failures in it are all LOUD (`::error::`, exit 3) and name the report path.
 Same discipline the other five gates in `just lint` grew: `all([])` is True, and
 a check that cannot fail is not a check.
 
+AND PLAYWRIGHT'S STATUS IS NOT THE SHARD'S. Run 34041681272 shard 2/4
+(2026-09-06) printed `GREEN (playwright exit 0)` as the last thing in a job that
+FAILED: the tests passed, then teardown hung for 18m35s and the step timed out.
+`--teardown` is how the caller tells this script what happened after playwright
+stopped talking; with it set, the block says RED and names the reason. The
+workflow's final step cross-checks the file against the step's own outcome,
+which is the only thing that can survive the script being killed outright.
+
 Exit codes:
   0  a verdict was printed and it is CONSISTENT with --status
   3  INCONSISTENT or unexplainable: non-zero status with nothing to show for it,
-     or a zero status over a report that lists failures (a lying pass)
+     a zero status over a report that lists failures (a lying pass), or a clean
+     test run inside a shard that did not finish cleanly (--teardown)
   2  usage error
 
 Usage:
   e2e-verdict.py --status N [--report PATH] [--fallback-log PATH]
                  [--label TEXT] [--out PATH] [--max-failures N]
+                 [--teardown TEXT]
   e2e-verdict.py --self-test
 """
 
@@ -86,6 +96,8 @@ TITLE_CAP = 120
 # Declared-fail lines are context, not evidence; they must never crowd the
 # failure list out of a 40-line tail.
 XFAIL_CAP = 3
+# A teardown complaint is one line of the tail budget, never a process dump.
+TEARDOWN_CAP = 240
 RULE = "=" * 63
 
 
@@ -360,10 +372,26 @@ def build_block(
     fallback_log: Path | None,
     label: str,
     max_failures: int,
+    teardown: str = "",
 ) -> tuple[list[str], int]:
     """The verdict block, and the exit code. Guaranteed non-empty."""
     out: list[str] = []
     tag = f"[{label}] " if label else ""
+    # PLAYWRIGHT'S EXIT STATUS IS ABOUT THE TESTS. THE SHARD IS A BIGGER THING.
+    #
+    # Run 34041681272 shard 2/4 (2026-09-06): playwright exited 0, this block
+    # printed `0 failed, 166 passed … — GREEN (playwright exit 0)`, and the job
+    # then hung for 18m35s in teardown and was killed by the step timeout. The
+    # verdict was the LAST thing in the job log, CLAUDE.md's recipe tells a
+    # reader to trust it, and it said GREEN about a red shard.
+    #
+    # It was not wrong about what it measured — it was measuring the wrong
+    # thing, which is this repo's most expensive recurring defect shape. So the
+    # caller now hands in what happened AFTER playwright, and a verdict that
+    # cannot corroborate a clean shard does not print GREEN.
+    teardown = " ".join(teardown.split())
+    if len(teardown) > TEARDOWN_CAP:
+        teardown = teardown[: TEARDOWN_CAP - 1] + "…"
     parsed = parse_report(report) if report is not None else Parsed()
     if report is None:
         parsed.problem = "no JSON report was requested (E2E_JSON_REPORT unset)"
@@ -385,11 +413,11 @@ def build_block(
         elif fallback_log is not None:
             out.append(f"e2e verdict: nothing recoverable from {fallback_log} either.")
     else:
-        verdict = "GREEN" if status == 0 and parsed.failed == 0 else "RED"
-        out.append(
-            f"e2e verdict: {tag}{parsed.counts_line()} — {verdict} "
-            f"(playwright exit {status})"
-        )
+        clean = status == 0 and parsed.failed == 0 and not teardown
+        verdict = "GREEN" if clean else "RED"
+        why = f"(playwright exit {status}"
+        why += ", but the shard did not finish cleanly)" if teardown else ")"
+        out.append(f"e2e verdict: {tag}{parsed.counts_line()} — {verdict} {why}")
 
     # Cross-check the suite walk against the report's own `stats` summary. They
     # are two derivations of one run; if they disagree, say so rather than
@@ -432,7 +460,23 @@ def build_block(
     if len(parsed.notes) > XFAIL_CAP:
         out.append(f"  xfail … and {len(parsed.notes) - XFAIL_CAP} more declared-fail")
 
+    # ── The shard, not just the tests. ───────────────────────────────────────
+    # Deliberately NOT folded into the chain below: those branches are about a
+    # summary that disagrees with playwright, and this one is about a shard that
+    # died after playwright had nothing left to say. A green test run is not the
+    # claim being retracted here — "this shard is fine" is.
     exit_code = 0
+    if teardown:
+        exit_code = 3
+        out.append(f"e2e verdict: !! the shard did not finish cleanly: {teardown}")
+        out.append(
+            "e2e verdict: !! the counts above are about the TESTS and they are "
+            "unaffected; this line is about the SHARD, and the shard FAILED."
+        )
+        out.append(
+            "::error::e2e verdict: playwright passed but the shard did not "
+            f"finish cleanly — {teardown}"
+        )
     # ── The guard. Three ways the block can lie, and all are loud. ────────────
     if not findings and (status != 0 or stats_failed > 0):
         exit_code = 3
@@ -497,6 +541,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--label", default="", help="e.g. 'shard 3/4'")
     parser.add_argument("--out", type=Path, help="also write the block here")
     parser.add_argument("--max-failures", type=int, default=25)
+    parser.add_argument(
+        "--teardown",
+        default="",
+        help=(
+            "what went wrong AFTER playwright exited (survivors, ports still "
+            "answering, a teardown that had to be escalated). Empty means the "
+            "shard finished cleanly; anything else makes the verdict RED."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.self_test:
@@ -510,6 +563,7 @@ def main(argv: list[str] | None = None) -> int:
         fallback_log=args.fallback_log,
         label=args.label,
         max_failures=args.max_failures,
+        teardown=args.teardown,
     )
     text = "\n".join(block)
     print(text, flush=True)
@@ -837,6 +891,121 @@ def self_test() -> int:
         check("green: says GREEN", "— GREEN (playwright exit 0)" in text, text)
         check("green: no failure lines", " FAIL " not in text, text)
         check("green: is quiet (<= 3 lines)", len(block) <= 3, str(len(block)))
+
+        # ── PASSED BUT HUNG: run 34041681272 shard 2/4, reconstructed ────────
+        # 167 tests, 166 passes and one declared-fail, playwright exit 0 — and
+        # then 18m35s of teardown that never ended, killed by the step timeout.
+        # The shipped verdict said GREEN, which is what anybody tailing the job
+        # log read. THE INPUTS BELOW ARE THE SAME ONES; only --teardown is new,
+        # and that is the point: nothing about the TESTS distinguishes this run
+        # from a good one, so no amount of report-reading could have caught it.
+        hung = _write(
+            root / "hung.json",
+            [
+                *(
+                    _spec(f"ordinary pass {n}", 100 + n, "expected", "passed")
+                    for n in range(166)
+                ),
+                _spec(
+                    "declared fail",
+                    900,
+                    "expected",
+                    "failed",
+                    expected_status="failed",
+                    annotations=["fail"],
+                ),
+            ],
+            stats={"expected": 167, "unexpected": 0, "skipped": 0, "flaky": 0},
+        )
+        survivors = (
+            "teardown escalated to SIGKILL for geometry, documents, gateway; "
+            ":8000 still answered /readyz after teardown"
+        )
+        block, code = build_block(0, hung, None, "shard 2/4", 25, survivors)
+        text = "\n".join(block)
+        check("passed-but-hung: exit 3", code == 3, f"got {code}")
+        check(
+            "passed-but-hung: the headline says RED, not GREEN",
+            "— RED (playwright exit 0, but the shard did not finish cleanly)" in text
+            and "GREEN" not in text,
+            text,
+        )
+        check(
+            "passed-but-hung: names what survived",
+            "escalated to SIGKILL" in text and ":8000 still answered" in text,
+            text,
+        )
+        check(
+            "passed-but-hung: carries an ::error:: annotation",
+            "::error::" in text,
+            text,
+        )
+        check(
+            "passed-but-hung: still reports the honest test counts",
+            "0 failed, 166 passed, 0 skipped, 0 flaky of 167 (1 declared-fail)" in text,
+            text,
+        )
+        check(
+            "passed-but-hung: fits in a 40-line tail",
+            len(block) <= 40,
+            str(len(block)),
+        )
+        # THE NEGATIVE CONTROL, and it is an INPUT mutation rather than a
+        # re-assertion: the identical report with the teardown complaint removed
+        # is the run this shard would have been if it had exited, and it must go
+        # back to GREEN/0. Without it, "RED" above could be produced by a script
+        # hard-wired to distrust a 167-test report — and, more importantly, it
+        # is what fails on the PREVIOUS version of build_block, which ignored
+        # the argument entirely and returned GREEN/0 for BOTH legs.
+        block, code = build_block(0, hung, None, "shard 2/4", 25, "")
+        text = "\n".join(block)
+        check(
+            "negative control: same report, clean teardown, is GREEN again",
+            code == 0 and "— GREEN (playwright exit 0)" in text,
+            text,
+        )
+        # Whitespace-only is CLEAN, not a complaint: the caller builds this
+        # string by joining a list of problems, and an empty join must not red a
+        # green shard. (A `[[ -n "$x" ]]` on the bash side would agree; a naive
+        # `if teardown:` on a "\n" would not.)
+        block, code = build_block(0, hung, None, "shard 2/4", 25, "  \n ")
+        check(
+            "negative control: a blank teardown string is not a complaint",
+            code == 0 and "GREEN" in "\n".join(block),
+            "\n".join(block),
+        )
+        # A teardown complaint must not crowd out a REAL failure list, and must
+        # not be mistaken for one: the shard is red twice over and both reasons
+        # are named.
+        block, code = build_block(
+            1,
+            _write(root / "red-and-hung.json", [_spec("fails", 20, "unexpected")]),
+            None,
+            "shard 2/4",
+            25,
+            "3 orphan uvicorn(s) survived SIGKILL",
+        )
+        text = "\n".join(block)
+        check(
+            "red AND hung: names the test failure and the teardown",
+            code == 3
+            and f"e2e/synthetic.spec.ts:20 {SEP} a group {SEP} fails" in text
+            and "orphan uvicorn(s) survived" in text,
+            text,
+        )
+        # An over-long complaint is truncated rather than allowed to eat the
+        # tail budget the whole script exists to protect.
+        block, _ = build_block(0, green, None, "", 25, "x" * 5000)
+        text = "\n".join(block)
+        widest = max(len(line) for line in block)
+        check(
+            "an enormous teardown complaint is capped, not printed whole",
+            "x" * (TEARDOWN_CAP + 1) not in text
+            and "…" in text
+            # cap + the longest fixed prefix any of the three lines carries
+            and widest <= TEARDOWN_CAP + 80,
+            f"widest line {widest}",
+        )
 
         # THE NEGATIVE CONTROL: the same red report with its failures removed is
         # the empty-summary case, and the guard must fire on it. Mutating the
