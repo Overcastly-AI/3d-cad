@@ -317,7 +317,7 @@ every type.
 apps/
   web/            # React SPA (viewport + UI)
 services/
-  gateway/        # FastAPI: auth (JWT), REST aggregation, WebSocket fan-out
+  gateway/        # FastAPI: auth (JWT), REST aggregation, geometry/document proxy
   geometry/       # OCCT workers: feature evaluation, tessellation, export.
                   # Stateless, CPU-bound, scaled horizontally, fed by a job queue.
   documents/      # Parts/assemblies as parametric feature trees; versioning. Postgres.
@@ -355,7 +355,13 @@ envelope, references, rollback, evaluation contract) is specified in
 - **Redis 7 + arq** — job queue for geometry evaluation (async, simple,
   Python-native). Geometry results (meshes, exports) go to **S3-compatible
   object storage** (MinIO in dev).
-- **WebSocket via gateway** — document-change events to clients.
+- **WebSocket via gateway** — document-change events to clients. **NOT BUILT.**
+  No WebSocket route has ever existed in any service (verified 2026-09-07 by
+  enumerating routes on all three live apps: 0 of 48). This line described an
+  intention and was read as architecture — it reached the README as a shipped
+  feature, and on 2026-09-07 it reached an agent brief as a candidate root
+  cause, costing the agent a disproof before it could start. Track it in
+  docs/ROADMAP.md; keep this file's tense honest.
 
 ## 5. Frontend — React + Vite SPA, react-three-fiber viewport
 
