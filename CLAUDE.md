@@ -1241,6 +1241,24 @@ recipe here in the same commit as the fix.**
   pass — which also settled a change that turned out to be unnecessary: **bash
   DOES run its EXIT trap on an untrapped SIGTERM**, so a separate TERM trap buys
   nothing.
+- **A BY-VALUE ATTRIBUTION HAS A SHELF LIFE — RE-VERIFY AT THE MOMENT YOU ACT,
+  NOT WHEN THE REPORT WAS WRITTEN.** Measured 2026-09-08, and it nearly cost a
+  live agent its stack. A builder correctly attributed a survivor BY VALUE (pids
+  2079/2091, `uv run uvicorn geometry.main:app --port 8072`, `/proc/<pid>/cwd`
+  resolving into a sibling's worktree, ppid 1 so genuinely orphaned), correctly
+  declined to kill something that was not its own, and reported the pids for
+  reaping. By the time I acted, **those pids were gone** — the orphan had exited
+  — and :8072 had been taken over by a DIFFERENT process whose cwd resolved to a
+  code-reviewer that was running at that moment. Reaping "the process on 8072"
+  on the strength of that report would have been friendly fire on a live agent,
+  with the report's own by-value evidence as the justification. The existing rule
+  says attribution by liveness is worthless and attribution by value is sound;
+  the missing half is that value is a measurement of a MOMENT. Ports are
+  recycled fast under parallel agents, and a pid is reused eventually. So: a
+  received pid/port is a POINTER to re-measure, never a warrant to act. Re-read
+  `/proc/<pid>/cwd`, `ppid` and the cmdline immediately before signalling, and
+  if any of them has changed, the thing you were told about is not the thing in
+  front of you.
 - **A HEALTH POLL PASSES AGAINST A SIBLING'S STACK, SO A PORT COLLISION MAKES
   YOU MEASURE SOMEBODY ELSE'S BUILD.** Found 2026-09-06 by the SHEET-RESCALE-1
   agent. Its uvicorns failed to bind (a sibling already held 8030/8031/8032),
