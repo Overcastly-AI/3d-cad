@@ -81,13 +81,17 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
 ## Ready (top of queue)
 
-**CI incident, fixed same day (`9db03fa`): a shard PASSED and the job still
-went RED for 18m35s before timing out — CI-VERDICT-HANG-1, CLOSED, full
-account below with four follow-up tickets.** CI-VERDICT-STEPGAP-1 (P1),
-CI-TEARDOWN-PROBE-BLIND-1 (P2) and CI-VERDICT-FALLBACK-UNREACHABLE-1 (P2)
-are **already with the platform-builder** — filed for tracking only, do not
-double-dispatch; check their status before assigning. CI-LOGDIR-RELATIVE-1
-(P3) is unclaimed and small.
+**CI incident: a shard PASSED and the job still went RED for 18m35s before
+timing out.** CI-VERDICT-HANG-1's own fix (`9db03fa`) is built and
+integrated but **NOT YET CI-VERIFIED — do not treat it as closed**; the
+branch's last COMPLETED `e2e` run is still the RED one on `0437498` as of
+2026-09-08. Its four follow-ups are further along: CI-VERDICT-STEPGAP-1
+(P1), CI-TEARDOWN-PROBE-BLIND-1 (P2), CI-VERDICT-FALLBACK-UNREACHABLE-1 (P2)
+and a fifth found while fixing them, CI-VERDICT-MISATTRIBUTION-1 (P3), are
+all **CLOSED** — each reproduced before its fix and shipping its own
+negative control, integrated as `c05206b`. CI-LOGDIR-RELATIVE-1 (P3) is
+**still open**, not addressed in that pass. A second code-review pass on
+`c05206b` is running with the same reviewer that prescribed the fixes.
 
 **Dispatch order, groom pass 20 (2026-09-06), updated same day on
 DRAWSHEET-AUTOPLACE-1's integration + geometry-qa pass, SHEET-RESCALE-1's
@@ -1177,11 +1181,22 @@ unfloored case.**
       TERRITORY: `scripts/check-workflow-concurrency.py`,
       `scripts/check-mutation-markers.py`. agentType: platform-builder.
 
-- [x] (P1, S) **CI-VERDICT-HANG-1 — CLOSED 2026-09-06 (`9db03fa`, built
-      `fca365d`, platform-builder). A shard PASSED (0 failed, 166/167,
-      verdict block printed GREEN) and the job still went RED — the step
+- [ ] (P1, S) **CI-VERDICT-HANG-1 — FIX BUILT AND INTEGRATED (`9db03fa`,
+      built `fca365d`; four follow-up fixes integrated as `c05206b`, built
+      `9073b74`; platform-builder). CI VERIFICATION PENDING — DO NOT MARK
+      CLOSED until the orchestrator confirms a completed green run; as of
+      2026-09-06 the branch's last COMPLETED `e2e` run is still the RED one
+      on `0437498`, and the runs for `9db03fa`/`c05206b` have not finished.**
+      **CORRECTION 2026-09-08: this entry was marked `[x]` CLOSED in an
+      earlier pass on the strength of "fixed at `9db03fa`" alone — before the
+      orchestrator's own explicit instruction ("do not record the incident
+      as verified-closed on my say-so") landed. Re-opened here to match that
+      instruction; this is exactly the class of premature-green this repo's
+      own CLAUDE.md warns about, caught one groom pass late rather than
+      never.** A shard PASSED (0 failed, 166/167, verdict block printed
+      GREEN) and the job still went RED — the step
       hung 18m35s in its own exit trap after Playwright finished and was
-      killed by the 40-minute CI timeout.** kind: defect (CI infra — the
+      killed by the 40-minute CI timeout. kind: defect (CI infra — the
       exact "GREEN on a red job" failure mode CLAUDE.md's own CI-reading
       recipe exists to catch, this time inside the mechanism the recipe
       tells a reader to trust). Incident: `e2e` run 34041681272, shard 2/4,
@@ -1208,17 +1223,22 @@ unfloored case.**
       codebase to hang on — see the CLAUDE.md/RESEARCH.md correction below;
       the sampler process dies in 2 ms). The new teardown is correct
       regardless of which of those (or something else) actually hung, which
-      is why it closes the ticket, but "we do not know what specifically
-      hung" is the honest state. (b) The commit that triggered the hang was a
+      is why the FIX is believed sound, but "we do not know what specifically
+      hung" is the honest state, and CI has not yet confirmed it either way.
+      (b) The commit that triggered the hang was a
       TRIGGER, not a cause, more precisely than first guessed: the spec it
       added landed in **shard 1**, not shard 2 where the hang occurred — it
       only shifted the balanced shard partition, and shard 2 was carrying a
       pre-existing hang risk that a different set of specs happened to
-      expose. **Four follow-ups filed from code review, below — the first
-      three are already with the platform-builder; filed anyway so they are
-      tracked if that pass stalls, not to duplicate the dispatch:**
-      CI-VERDICT-STEPGAP-1 (P1), CI-TEARDOWN-PROBE-BLIND-1 (P2),
-      CI-VERDICT-FALLBACK-UNREACHABLE-1 (P2), CI-LOGDIR-RELATIVE-1 (P3).
+      expose. **Four follow-ups filed from code review — three now CLOSED
+      (see their own entries below: CI-VERDICT-STEPGAP-1, P1;
+      CI-TEARDOWN-PROBE-BLIND-1, P2; CI-VERDICT-FALLBACK-UNREACHABLE-1, P2 —
+      each reproduced before its fix and each shipping its own negative
+      control, integrated as `c05206b`/`9073b74`), one STILL OPEN
+      (CI-LOGDIR-RELATIVE-1, P3, not addressed this round).** **A FIFTH
+      defect was found by the new probe harness while fixing the other
+      four, filed and already closed: CI-VERDICT-MISATTRIBUTION-1**, below —
+      a guard that failed in the right direction for the wrong reason.
       **Also recorded here, no ticket needed — already fixed:** the
       "WebSocket fan-out" claim this incident's own root-cause hunt initially
       chased was FALSE, and had already been corrected in the gateway module,
@@ -1229,87 +1249,85 @@ unfloored case.**
       before starting. Fixed in `905b08f` and `b558415`; `docs/RESEARCH.md`
       now marks it NOT BUILT rather than deleting the row outright, since it
       is a genuine roadmap intention and the defect was the TENSE, not the
-      ambition.
+      ambition. **Also recorded, no ticket needed:** `9db03fa`'s own commit
+      message carries a superseded "~20 s ceiling" figure (it was ~28 s while
+      a curl loop was still in the teardown path, and is back to ~20 s now
+      the loop is gone). The correction lives next to the constant in code,
+      not in an annotating commit, since `9db03fa` is already pushed.
       [src: incident report + code review, platform-builder, relayed by
       orchestrator 2026-09-06, filed by backlog-groomer]
       TERRITORY (closed): `.github/workflows/e2e.yml`, `scripts/e2e.sh`,
       `CLAUDE.md`, `docs/RESEARCH.md`.
 
-- [ ] (P1, S) **CI-VERDICT-STEPGAP-1 — the e2e verdict cross-check reads
-      `steps.shard.outcome`, but three `if: always()` steps sit between the
-      shard step and the verdict step, and one of them can fail on its own
-      merits without moving that outcome.** kind: defect (CI infra), found
-      by code review of CI-VERDICT-HANG-1, relayed by orchestrator
-      2026-09-06 — **already with the platform-builder; file so it exists if
-      that pass stalls, do not double-dispatch.** MEASURED: "The run must not
-      have dirtied the tree" is one of the `if: always()` steps between the
-      shard step and the verdict step; when IT fails, `steps.shard.outcome`
-      is still `success` (the shard step itself passed), so the verdict
-      block's cross-check — which only compares against that one step — sees
-      no disagreement and prints GREEN, while the job as a whole is red. The
-      step's own error text already promises to catch "a failure in a later
-      step" — the prose is ahead of the condition it actually checks. FIX:
-      cross-check against `job.status` (the job's own terminal outcome, which
-      reflects EVERY step) instead of, or in addition to, the single named
-      step's outcome. ACCEPTANCE: inject a failure into the tree-dirty check
-      (or any step between shard and verdict) and confirm the verdict block
-      now reports the disagreement instead of GREEN; the existing
-      shard-outcome cross-check's own positive cases stay green (regression).
+- [x] (P1, S) **CI-VERDICT-STEPGAP-1 — CLOSED 2026-09-08, integrated as
+      `c05206b` (built `9073b74`, platform-builder). Reproduced exactly as
+      filed before fixing.** kind: defect (CI infra). REPRODUCTION: extracted
+      the verdict step body and ran it against a real green `verdict.txt`
+      with `SHARD_OUTCOME=success` + `JOB_STATUS=failure` -> exit **0**, last
+      line `GREEN` — confirming the gap without waiting for a live CI
+      failure to land in exactly the wrong spot. FIX: now reads `job.status`
+      as well, factored into a `reconcile` function with NINE in-workflow
+      probes that name WHICH thing failed — "the shard timed out" and "a
+      step after the tests failed" send a reader to different places, not
+      just a generic red. NEGATIVE CONTROL: reverting the one line that
+      consults `job.status` makes the step refuse on EVERY run, green
+      included — proof the check is load-bearing, not decorative. **CAVEAT
+      worth carrying**: `job.status` is NOT moved by a `continue-on-error`
+      step. There are none in this job today, and adding one is a deliberate
+      statement that its failure doesn't matter — that reasoning is in the
+      code comment, but it is exactly the kind of thing added later by
+      someone who has not read it. Revisit this ticket's reasoning if a
+      `continue-on-error` step is ever added to the e2e job.
       [src: code review, CI-VERDICT-HANG-1, relayed by orchestrator
-      2026-09-06, filed by backlog-groomer]
-      TERRITORY: `.github/workflows/e2e.yml`. agentType: platform-builder.
+      2026-09-06; fix + reproduction + negative control relayed by
+      orchestrator 2026-09-08, filed by backlog-groomer]
+      TERRITORY (closed): `.github/workflows/e2e.yml`.
 
-- [ ] (P2, S) **CI-TEARDOWN-PROBE-BLIND-1 — `stop_stack`'s port probe cannot
-      see a listener that accepts a connection and then never answers.**
-      kind: defect (CI infra), found by code review of CI-VERDICT-HANG-1,
-      relayed by orchestrator 2026-09-06 — **already with the
-      platform-builder; file so it exists if that pass stalls.** MEASURED:
-      `probe()` returns `000` after 2012 ms — BYTE-IDENTICAL to the response
-      from a genuinely released port — while `lsof -ti tcp:<port>
-      -sTCP:LISTEN` still names the live pid at that same moment. The gap is
-      narrow (the teardown's pid survey covers TRACKED processes, so this
-      probe is a secondary check), but it is exactly the untracked/
-      re-parented-process case the probe exists to catch, and it currently
-      reports "gone" for a process that is not. FIX: distinguish "connection
-      refused / nothing listening" from "connected but got no response
-      within the timeout" in `probe()`'s return value, and treat the latter
-      as "still there" for teardown purposes, not as released. ACCEPTANCE: a
-      listener that accepts and never answers is reported as still-present by
-      the probe, not as released; a genuinely closed port is still reported
-      as released (regression); the 2012 ms case from the measurement is the
-      regression fixture.
+- [x] (P2, S) **CI-TEARDOWN-PROBE-BLIND-1 — CLOSED 2026-09-08, integrated as
+      `c05206b` (built `9073b74`, platform-builder). Reproduced against a
+      real accept-and-never-answer socket before fixing.** kind: defect (CI
+      infra). REPRODUCTION: `curl` returned `000` after 2010 ms against the
+      hung listener vs `000` INSTANTLY on a genuinely free port — identical
+      status code, `lsof` naming the live pid throughout the whole window.
+      FIX: `probe()` replaced with `listener_on_port`, which reads
+      `/proc/net/tcp{,6}` directly for socket state `0A` (LISTEN) instead of
+      inferring liveness from a `curl` round-trip. `lsof` was deliberately
+      NOT made the primary check — citing this repo's own `ss` lesson in
+      CLAUDE.md, a probe that silently resolves nothing reads exactly like a
+      clean teardown — and is used only to NAME the pid once a failure is
+      already established by the `/proc` read. Teardown self-test now 14/14,
+      including a new agreement check between the `/proc` reading and
+      `lsof`, which cross-checks the re-implementation against a real tool
+      rather than trusting it blind.
       [src: code review, CI-VERDICT-HANG-1, relayed by orchestrator
-      2026-09-06, filed by backlog-groomer]
-      TERRITORY: `scripts/e2e.sh` (`stop_stack`/`probe`). agentType:
-      platform-builder.
+      2026-09-06; fix + reproduction relayed by orchestrator 2026-09-08,
+      filed by backlog-groomer]
+      TERRITORY (closed): `scripts/e2e.sh` (`stop_stack`, now
+      `listener_on_port`).
 
-- [ ] (P2, S) **CI-VERDICT-FALLBACK-UNREACHABLE-1 — `e2e-verdict.py` exits 0
-      on a shard it could not summarise at all, and that is the ONLY
-      reachable path from the real caller.** kind: defect (pre-existing, not
-      introduced by CI-VERDICT-HANG-1), found by code review, relayed by
-      orchestrator 2026-09-06 — **already with the platform-builder; file so
-      it exists if that pass stalls.** MEASURED: `print_verdict` ALWAYS
-      passes `--fallback-log`, so the `exit 3` "absent report" branch the
-      script's own `--self-test` exercises is UNREACHABLE in production — the
-      real caller never takes that path. A REAL run produced "NO USABLE JSON
-      REPORT ... nothing recoverable" and still exited **0**. The `e2e
-      complete` job's own coverage audit is the only backstop currently
-      catching this class, which is thinner than a verdict script that
-      actually fails when it cannot verdict. FIX: when no usable JSON report
-      exists AND no fallback log clarifies why, exit non-zero rather than 0 —
-      "I could not tell you the answer" must never read as "the answer was
-      yes." ACCEPTANCE: the exact measured case (no usable JSON report, only
-      a fallback log) now exits non-zero; the self-test's existing exit-3
-      case is either made reachable from the real call site or replaced with
-      one that is (a self-test exercising a path production cannot reach is
-      the same vacuity class already tracked elsewhere on this board).
+- [x] (P2, S) **CI-VERDICT-FALLBACK-UNREACHABLE-1 — CLOSED 2026-09-08,
+      integrated as `c05206b` (built `9073b74`, platform-builder).
+      Reproduced on the caller's real path before fixing.** kind: defect
+      (pre-existing, not introduced by CI-VERDICT-HANG-1). REPRODUCTION: six
+      status/report combinations tabulated against the real caller, not just
+      the self-test's synthetic ones — confirming `exit 3`'s "absent report"
+      branch was genuinely unreachable in production, not merely untested.
+      FIX: now exits 3 whenever the report is missing, malformed, OR empty,
+      on the stated reasoning that a shard whose evidence is missing has NOT
+      been verified, and that is not the same thing as a pass. The
+      documented `--reporter` escape hatch (for a caller that deliberately
+      wants to inspect a broken report) stays quiet — this fix narrows the
+      false-pass path without removing the intentional override.
       [src: code review, CI-VERDICT-HANG-1, relayed by orchestrator
-      2026-09-06, filed by backlog-groomer]
-      TERRITORY: `scripts/e2e-verdict.py`. agentType: platform-builder.
+      2026-09-06; fix + reproduction relayed by orchestrator 2026-09-08,
+      filed by backlog-groomer]
+      TERRITORY (closed): `scripts/e2e-verdict.py`.
 
-- [ ] (P3, XS) **CI-LOGDIR-RELATIVE-1 — a relative `E2E_LOG_DIR` silently
-      loses the JSON report on a LOCAL run, because Playwright's cwd is
-      `apps/web`.** kind: defect (local-only — CI is unaffected because it
+- [ ] (P3, XS) **CI-LOGDIR-RELATIVE-1 — STILL OPEN, not addressed in the
+      2026-09-08 fix pass (`c05206b`) that closed its three siblings; confirm
+      it is still current before dispatching.** a relative `E2E_LOG_DIR`
+      silently loses the JSON report on a LOCAL run, because Playwright's cwd is
+      `apps/web`. kind: defect (local-only — CI is unaffected because it
       passes an absolute path). Found by code review of CI-VERDICT-HANG-1
       while investigating CI-VERDICT-FALLBACK-UNREACHABLE-1 above (this is
       literally how the reviewer found that one), relayed by orchestrator
@@ -1326,6 +1344,33 @@ unfloored case.**
       2026-09-06, filed by backlog-groomer]
       TERRITORY: `scripts/e2e.sh` (wherever `E2E_LOG_DIR` is consumed).
       agentType: platform-builder.
+
+- [x] (P3, XS) **CI-VERDICT-MISATTRIBUTION-1 — CLOSED 2026-09-08, integrated
+      as `c05206b` (built `9073b74`, platform-builder). A guard that fails in
+      the right DIRECTION can still teach a reader something false, if it
+      blames the wrong SUBJECT.** kind: defect (CI infra — a new instance of
+      an existing family this board already tracks: an assertion that is
+      technically correct about its own mechanism but wrong about what it
+      claims to be reporting on). Found by the NEW probe harness built for
+      CI-VERDICT-STEPGAP-1/CI-TEARDOWN-PROBE-BLIND-1 above, not by reading —
+      the explicit argument for having built that harness at all. MEASURED:
+      an empty status printed `THIS SHARD FAILED — concluded ''` — it exits
+      **1**, so on the surface it "looked correct" (a red exit for a red
+      situation), but it is a confident claim about the WRONG subject: the
+      truth in that case is not that the shard failed, it is that the
+      cross-check ITSELF stopped resolving (e.g. a workflow `id:` renamed out
+      from under it), so there is no valid conclusion about the shard at all.
+      FIX: the empty-status case now says so explicitly and adds "This says
+      NOTHING about the shard itself" rather than reporting a shard failure
+      it has no evidence for. ACCEPTANCE (already met, recorded for the
+      historical reasoning): an empty/unresolvable status is reported as "the
+      verdict mechanism itself failed to resolve", never as "the shard
+      failed" — those are different failures with different responses, and
+      conflating them sends whoever reads the log to debug the wrong thing.
+      [src: platform-builder's own probe-harness finding while closing
+      CI-VERDICT-STEPGAP-1, relayed by orchestrator 2026-09-08, filed by
+      backlog-groomer]
+      TERRITORY (closed): `.github/workflows/e2e.yml` (verdict step).
 
 - [ ] (P3, XS) **GATE-FLOOR-2 — the two vacuity gaps GATE-FLOOR found that
       gate nothing today, so neither is urgent, but both become live the
@@ -5949,7 +5994,22 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
-- 2026-09-06 — **CI-VERDICT-HANG-1 closed (`9db03fa`, platform-builder): a
+- 2026-09-08 — **CORRECTION: CI-VERDICT-HANG-1 was marked closed one pass
+  too early — re-opened, three of its four follow-ups now genuinely closed
+  (backlog-groomer, relaying orchestrator).** The 2026-09-06 entry below
+  called the incident "closed" on `9db03fa` alone; the orchestrator's own
+  instruction that day was not to record it verified-closed on say-so, and
+  CI still had not completed a run on either `9db03fa` or the follow-up fix
+  `c05206b` as of this pass. Re-opened CI-VERDICT-HANG-1 pending a completed
+  green run. Closed CI-VERDICT-STEPGAP-1, CI-TEARDOWN-PROBE-BLIND-1 and
+  CI-VERDICT-FALLBACK-UNREACHABLE-1 (each reproduced before its fix, each
+  shipping a negative control, integrated as `c05206b`/`9073b74`); filed and
+  closed a fifth, CI-VERDICT-MISATTRIBUTION-1 (P3 — an empty verdict status
+  exited 1 for the right reason stated wrong, blaming the shard instead of
+  the cross-check itself). CI-LOGDIR-RELATIVE-1 stays open, not addressed
+  this round.
+- 2026-09-06 — **CI-VERDICT-HANG-1, fix built (`9db03fa`, platform-builder,
+  NOT YET CI-VERIFIED — see the 2026-09-08 correction above): a
   shard passed and the job still hung red for 18m35s past Playwright's own
   exit (backlog-groomer, relaying orchestrator).** The verdict block reads
   Playwright's exit code, so it could not see teardown hanging after it —
