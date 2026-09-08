@@ -30,7 +30,13 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 from py_kit.schemas.assemblies import (
     AssemblySolveDiagnosis,
@@ -1851,6 +1857,25 @@ class ComposedLayoutIssue(BaseModel):
         description="Where the serializers stamp this line of the sheet banner (SVG "
         "space, baseline-left) — placement stays the composer's job (design §4.2)"
     )
+
+    @model_validator(mode="after")
+    def _views_match_the_code(self) -> "ComposedLayoutIssue":
+        """A PAIR issue names two views; an ``off_sheet`` issue names exactly one.
+
+        The field bound alone cannot say this: relaxing ``views`` to 1..2 for
+        ``off_sheet`` also let a ``views_overlap`` through with a single view, i.e.
+        the relaxation gave up a constraint that had been true since the field
+        existed. ``code`` and ``views`` are correlated, so the correlation is where
+        the check belongs — and it is cheap, because these are server-generated and
+        a violation is a composer bug rather than user input.
+        """
+        expected = 1 if self.code == "off_sheet" else 2
+        if len(self.views) != expected:
+            raise ValueError(
+                f"{self.code} names {expected} view(s), got {len(self.views)}: "
+                f"{self.views}"
+            )
+        return self
 
 
 # --- the thread schedule: a tapped hole reaching the PRINT (BACKLOG #50) ---------

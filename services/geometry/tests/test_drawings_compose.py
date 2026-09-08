@@ -19,6 +19,7 @@ Three gates prove the server placement composer:
 
 from __future__ import annotations
 
+import importlib.util
 import itertools
 import math
 import subprocess
@@ -60,12 +61,13 @@ from geometry.drawings.compose import (
 from geometry.main import app
 from py_kit.schemas.drawings import (
     AngularDimensionParams,
-    ComposedCircleEdge,
     ComposedDimension,
     ComposedDimensionError,
     ComposedEdge,
+    ComposedLayoutIssue,
     ComposedLineEdge,
     ComposedMeasuredDimension,
+    ComposedPoint,
     ComposeDrawingRequest,
     ComposedSheet,
     DiameterDimensionParams,
@@ -90,10 +92,20 @@ from py_kit.schemas.drawings import (
 )
 from py_kit.schemas.features import EdgeSignature
 from py_kit.schemas.geometry import Vec3
+from pydantic import ValidationError
 
 client = TestClient(app)
 
 _GOLDEN_DIR = Path(__file__).resolve().parent / "compose_goldens"
+
+#: The composed-edge walk, shared with `test_drawings_canopy_sheets.py` (the suite's
+#: `--import-mode=importlib` idiom for sibling helpers).
+_INK_PATH = Path(__file__).resolve().parent / "_composed_ink.py"
+_INK_SPEC = importlib.util.spec_from_file_location("_composed_ink", _INK_PATH)
+assert _INK_SPEC is not None and _INK_SPEC.loader is not None
+_INK = importlib.util.module_from_spec(_INK_SPEC)
+_INK_SPEC.loader.exec_module(_INK)
+_ink_edge_xy = _INK.composed_edge_xy
 
 #: Analytic parity tolerance (mm) — the parity fixtures are exact rational points,
 #: so residuals are floating-point only. The arc-radius check mirrors the TS
@@ -1673,16 +1685,11 @@ def _composed_edge_xy(edge: ComposedEdge) -> tuple[list[float], list[float]]:
     THE single walk behind :func:`_content_rect` and :func:`_sheet_ink_rects`: a
     line-only reader under-measures any view whose outermost feature is a circle or
     a sampled arc, which is the same blindness (an assertion that cannot observe the
-    failure mode) as the defect ARC-BOUNDS-INFLATE-1 was.
+    failure mode) as the defect ARC-BOUNDS-INFLATE-1 was. Defined once in
+    ``_composed_ink.py`` now that the canopy gate reads it too — a second copy of
+    this walk is a second chance to forget an edge kind.
     """
-    if isinstance(edge, ComposedLineEdge):
-        return [edge.x1, edge.x2], [edge.y1, edge.y2]
-    if isinstance(edge, ComposedCircleEdge):
-        return (
-            [edge.cx - edge.r, edge.cx + edge.r],
-            [edge.cy - edge.r, edge.cy + edge.r],
-        )
-    return [p.x_mm for p in edge.points], [p.y_mm for p in edge.points]
+    return _ink_edge_xy(edge)
 
 
 def _content_rect(sheet: ComposedSheet, projection: ViewProjection) -> SvgRect:
@@ -2421,6 +2428,58 @@ def test_the_off_sheet_issue_reports_the_measured_millimetres() -> None:
     )
     assert overflow[0].sheet_mm > 0.0
     assert f"{overflow[0].sheet_mm:.2f} MM PAST THE PAPER EDGE" in issue.message
+    # The NUMBERS too, not only the sentence: the issue's millimetres ARE the
+    # record's, so a change to where the border is moves both together or neither.
+    # Asserting the message alone left the numeric fields free to drift from the
+    # words printed beside them (code review on 11edf49).
+    assert issue.overlap_x_mm == pytest.approx(overflow[0].margin_x_mm, abs=_TOL)
+    assert issue.overlap_y_mm == pytest.approx(overflow[0].margin_y_mm, abs=_TOL)
+    # ...and the worst border is the worse of the two axes, by construction.
+    assert overflow[0].margin_mm == pytest.approx(
+        max(overflow[0].margin_x_mm, overflow[0].margin_y_mm), abs=_TOL
+    )
+
+
+def test_a_layout_issue_must_name_the_right_number_of_views() -> None:
+    """`views` is 1..2, but WHICH is not free: the code decides it.
+
+    Relaxing the bound for `off_sheet` also let a one-view `views_overlap` validate,
+    so the correlation the bound used to enforce is asserted on the model itself.
+    """
+    at = ComposedPoint(x_mm=0.0, y_mm=0.0)
+    with pytest.raises(ValidationError):
+        ComposedLayoutIssue(
+            code="views_overlap",
+            severity="error",
+            views=["front"],
+            overlap_x_mm=1.0,
+            overlap_y_mm=1.0,
+            clearance_mm=0.0,
+            message="ONE VIEW CANNOT OVERLAP ITSELF",
+            at=at,
+        )
+    with pytest.raises(ValidationError):
+        ComposedLayoutIssue(
+            code="off_sheet",
+            severity="error",
+            views=["front", "top"],
+            overlap_x_mm=1.0,
+            overlap_y_mm=1.0,
+            clearance_mm=0.0,
+            message="AN OFF-SHEET VIEW HAS NO PARTNER TO BLAME",
+            at=at,
+        )
+    # ...and the two shapes the composer really emits both validate.
+    assert ComposedLayoutIssue(
+        code="off_sheet",
+        severity="error",
+        views=["front"],
+        overlap_x_mm=1.0,
+        overlap_y_mm=-1.0,
+        clearance_mm=0.0,
+        message="FRONT VIEW RUNS 1.00 MM PAST THE RIGHT BORDER",
+        at=at,
+    ).views == ["front"]
 
 
 def test_the_off_sheet_issue_is_stamped_on_the_print() -> None:
@@ -2439,9 +2498,9 @@ def test_off_sheet_lines_stack_below_the_pair_lines_in_the_banner() -> None:
     """A sheet with BOTH kinds of problem stamps them on DISTINCT baselines.
 
     The banner is one column of text; two issues sharing an `at` would print on top
-    of each other, which is how a diagnostic becomes unreadable. Pair issues keep
-    their existing slots (so an already-bannering sheet is unchanged) and the
-    off-sheet lines follow.
+    of each other, which is how a diagnostic becomes unreadable. Both of these are
+    errors, so the stable order keeps the overlap first and the off-sheet line
+    follows it.
     """
     rects: list[tuple[ViewProjection, SvgRect]] = [
         ("front", SvgRect(-20.0, 50.0, 120.0, 150.0)),
@@ -2454,6 +2513,82 @@ def test_off_sheet_lines_stack_below_the_pair_lines_in_the_banner() -> None:
     ys = [i.at.y_mm for i in issues]
     assert len(set(ys)) == len(ys), ys
     assert ys == sorted(ys)
+
+
+def _crowded_and_overflowing_rects() -> list[tuple[ViewProjection, SvgRect]]:
+    """A quartet packed to 3 mm gaps on A3, with the right view 20 mm off the paper.
+
+    Both conditions at once, which is the realistic pairing rather than a contrived
+    one: a sheet gets crowded BECAUSE the part outgrew it, and the same growth is
+    what pushes a view over the border. A tight 2x2 makes ALL SIX pairs clear by
+    3 mm — under `MIN_VIEW_CLEARANCE_MM`, and note the diagonal pairs count too,
+    because the measured clearance is the LARGER axis separation — so the crowding
+    produces six WARNINGS, two more than the banner can print. Only `right` crosses
+    a border (x 430 against A3's 410), so the sheet carries exactly one error.
+    """
+    return [
+        ("front", SvgRect(37.0, 20.0, 227.0, 120.0)),
+        ("top", SvgRect(37.0, 123.0, 227.0, 223.0)),
+        ("right", SvgRect(230.0, 20.0, 430.0, 120.0)),
+        ("iso", SvgRect(230.0, 123.0, 400.0, 223.0)),
+    ]
+
+
+def test_an_off_sheet_error_is_stamped_before_crowding_warnings() -> None:
+    """THE truncation defect: a WARNING must not push the ERROR off the print.
+
+    `banner_lines` stamps only the first `_BANNER_MAX_LINES` issues and replaces the
+    rest with a "+N MORE" count, so list position decides what a shop reads. With
+    the pairwise measurements emitted first, a standard quartet's six crowding
+    warnings filled the banner and the off-sheet error — the one that says geometry
+    is missing from the paper — was reduced to a number in the tail:
+
+        issues:  6x views_crowded (warning), then 1x off_sheet (error)
+        stamped: 4 warnings, then "+3 MORE LAYOUT ISSUE(S)"
+        off_sheet sentence on the print?  False
+
+    Errors are now ordered first, so the sentence naming the view and the
+    millimetres is stamped and the warnings are what overflow into the tail.
+    """
+    dims = Vec2(420.0, 297.0)
+    issues = measure_sheet_issues(
+        _crowded_and_overflowing_rects(), dims, SHEET_MARGIN_MM
+    )
+
+    off_sheet = [i for i in issues if i.code == "off_sheet"]
+    assert len(off_sheet) == 1, [i.code for i in issues]
+    warnings = [i for i in issues if i.severity == "warning"]
+    assert len(warnings) == 6, [(i.code, i.views) for i in issues]
+
+    # The error is FIRST in the list, hence first in the banner...
+    assert issues[0].code == "off_sheet"
+    # Stamped through a REAL composed sheet (the measured issues swapped onto it),
+    # so this exercises the serializers' own banner path rather than a stub.
+    lines = banner_lines(
+        _off_sheet_sheet().model_copy(update={"layout_issues": issues})
+    )
+    # The precondition, OBSERVED rather than assumed: this sheet really does carry
+    # more issues than the banner prints, so ordering is what decides who is read.
+    # (Asserting it against the private line cap would have proved less and coupled
+    # the test to a constant instead of to the behaviour.)
+    assert len(lines) < len(issues), (len(lines), len(issues))
+    # ...and the sentence itself reaches the print, not merely a "+N MORE" count.
+    assert any(off_sheet[0].message in line.text for line in lines), [
+        line.text for line in lines
+    ]
+    assert lines[0].error
+    # The slots still stack: `at` is numbered AFTER ordering, never before.
+    ys = [i.at.y_mm for i in issues]
+    assert ys == sorted(ys) and len(set(ys)) == len(ys), ys
+
+
+def test_the_banner_orders_every_error_before_every_warning() -> None:
+    """The general property behind the case above, over the whole emitted list."""
+    issues = measure_sheet_issues(
+        _crowded_and_overflowing_rects(), Vec2(420.0, 297.0), SHEET_MARGIN_MM
+    )
+    severities = [i.severity for i in issues]
+    assert severities == sorted(severities, key=lambda s: s != "error"), severities
 
 
 def test_a_caption_crossing_the_border_is_bannered() -> None:

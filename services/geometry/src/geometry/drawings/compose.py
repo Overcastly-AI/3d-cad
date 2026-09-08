@@ -857,8 +857,41 @@ def _banner_at(margin_mm: float, index: int) -> ComposedPoint:
     )
 
 
+def _stamped_in_severity_order(
+    issues: Sequence[ComposedLayoutIssue], margin_mm: float
+) -> list[ComposedLayoutIssue]:
+    """ERRORS first, warnings after, stable within each — with ``at`` re-stamped.
+
+    The banner is TRUNCATED (:data:`_BANNER_MAX_LINES`), so list position decides
+    what reaches the print, and the truncation is silent about what it dropped
+    beyond a "+N MORE" count. An error that a warning pushed past the cut is a
+    diagnostic that did not happen: the sheet says "crowded" four times and never
+    says the geometry is off the paper.
+
+    Ordering here rather than in :func:`banner_lines` is deliberate — placement stays
+    the composer's job (design §4.2), so ONE decision fixes every renderer at once
+    (SVG/PDF/DXF via :func:`banner_lines`, and the web's check strip + on-sheet
+    banner, which read the same list in the same order). Sorting at stamp time
+    instead would have needed the same sort added to each renderer AND would have
+    left ``at`` describing the pre-sort slots, printing lines on top of each other.
+    """
+    ordered = [i for i in issues if i.severity == "error"]
+    ordered += [i for i in issues if i.severity != "error"]
+    return [
+        issue.model_copy(update={"at": _banner_at(margin_mm, index)})
+        for index, issue in enumerate(ordered)
+    ]
+
+
 def _off_sheet_message(overflow: SheetOverflow) -> str:
-    """The plain-language sheet caption for one view that leaves the border."""
+    """The plain-language sheet caption for one view that leaves the border.
+
+    The remedy names all three levers because composition cannot tell which applies:
+    at this point the measurement is a rectangle, and whether the view was
+    hand-placed (reposition it) or auto-placed and simply too big for the paper
+    (rescale, or use a larger sheet) is not in it. "REPOSITION" alone was advice a
+    reader of an auto-placed sheet could not act on.
+    """
     name = VIEW_LABEL[overflow.view].upper()
     past_paper = (
         f" AND {overflow.sheet_mm:.2f} MM PAST THE PAPER EDGE"
@@ -868,7 +901,7 @@ def _off_sheet_message(overflow: SheetOverflow) -> str:
     return (
         f"{name} VIEW RUNS {overflow.margin_mm:.2f} MM PAST THE "
         f"{overflow.side.upper()} BORDER{past_paper} "
-        "- REPOSITION OR USE A LARGER SHEET BEFORE RELEASE"
+        "- REPOSITION, RESCALE OR USE A LARGER SHEET BEFORE RELEASE"
     )
 
 
@@ -935,12 +968,24 @@ class SheetOverflow(NamedTuple):
     ``sheet_mm`` how far it crosses the PAPER edge — geometry past that one is not
     on the drawing at all. ``side`` names the worst border, so a caller has
     something to say in words rather than four numbers.
+
+    ``margin_x_mm`` / ``margin_y_mm`` are the same drafting-border overrun resolved
+    PER AXIS (the worse of left/right, the worse of top/bottom), negative where that
+    axis clears the border. They are carried here rather than recomputed by callers
+    because the arithmetic already happens inside :func:`measure_sheet_overflow`:
+    ``margin_mm`` is exactly ``max(margin_x_mm, margin_y_mm)``, and a second
+    derivation of the same quantity is free to drift from this one — the defect
+    class ARC-BOUNDS-INFLATE-1 was. :func:`measure_sheet_issues` reads these
+    straight onto the issue, so the DTO is a REPORT of this measurement and not a
+    parallel opinion about where the border is.
     """
 
     view: ViewProjection
     side: str
     margin_mm: float
     sheet_mm: float
+    margin_x_mm: float
+    margin_y_mm: float
 
 
 def measure_sheet_overflow(
@@ -994,6 +1039,10 @@ def measure_sheet_overflow(
                 side=side,
                 margin_mm=over_margin,
                 sheet_mm=over_sheet,
+                # The SAME four numbers, resolved per axis — computed here, once,
+                # so nothing downstream has to restate where the border is.
+                margin_x_mm=max(by_side["left"][0], by_side["right"][0]),
+                margin_y_mm=max(by_side["top"][0], by_side["bottom"][0]),
             )
         )
     return issues
@@ -1010,9 +1059,20 @@ def measure_sheet_issues(
     built, tested and left DISCONNECTED, so a view that ran off the paper still
     exported with an empty ``layout_issues`` and no banner — the composer's own
     "no diagnostic anywhere" defect, one measurement short of being reported. Pair
-    issues first (unchanged, so a sheet that already banners keeps its lines in the
-    same order), then one ``off_sheet`` issue per overflowing view, all sharing
-    :func:`_banner_at` so the stamped lines stack rather than collide.
+    issues, then one ``off_sheet`` issue per overflowing view, and the whole list is
+    then ordered ERRORS FIRST by :func:`_stamped_in_severity_order`.
+
+    **That ordering is load-bearing, not tidiness.** :func:`banner_lines` stamps only
+    the first :data:`_BANNER_MAX_LINES` issues and replaces the rest with a "+N MORE"
+    tail, so position in THIS list decides what a shop actually reads. Emitting the
+    pairwise measurements first put the highest-consequence class last: a standard
+    quartet yields six pair issues, so a sheet that is both crowded and overflowing
+    stamped four crowding WARNINGS and dropped the off-sheet ERROR into the tail
+    count — measured, four views at 3 mm gaps on A3 with one hanging 20 mm past the
+    right border printed no off-sheet sentence at all. Crowded and oversized are
+    correlated conditions, so that is the case the check exists for. Errors are
+    stamped before warnings, stable within each class, and ``at`` is assigned AFTER
+    ordering so the printed slots follow the printed order.
 
     An off-sheet issue is always an ERROR: past the drafting border the ink runs
     into the frame and title block, and past the paper edge it is not on the drawing
@@ -1030,23 +1090,23 @@ def measure_sheet_issues(
     # the other's numbers. Pairing by position cannot drift.
     for view, rect in rects:
         for overflow in measure_sheet_overflow([(view, rect)], dims, margin_mm):
-            # Signed border overrun per axis, worst side of each: positive = the ink
-            # is outside that border by this much, negative = that much clearance.
-            over_x = max(margin_mm - rect.min_x, rect.max_x - (dims.x - margin_mm))
-            over_y = max(margin_mm - rect.min_y, rect.max_y - (dims.y - margin_mm))
             issues.append(
                 ComposedLayoutIssue(
                     code="off_sheet",
                     severity="error",
                     views=[view],
-                    overlap_x_mm=over_x,
-                    overlap_y_mm=over_y,
+                    # READ from the measurement, never re-derived: `SheetOverflow`
+                    # already resolved the border overrun per axis, and a second
+                    # copy of that arithmetic here could disagree with the sentence
+                    # beside it.
+                    overlap_x_mm=overflow.margin_x_mm,
+                    overlap_y_mm=overflow.margin_y_mm,
                     clearance_mm=0.0,
                     message=_off_sheet_message(overflow),
-                    at=_banner_at(margin_mm, len(issues)),
+                    at=_banner_at(margin_mm, 0),
                 )
             )
-    return issues
+    return _stamped_in_severity_order(issues, margin_mm)
 
 
 def sample_arc(
@@ -2847,7 +2907,14 @@ def banner_lines(composed: ComposedSheet) -> list[BannerLine]:
     first :data:`_BANNER_MAX_LINES` issues at their composed anchors, plus a "+N MORE"
     tail line when there are more, so an unreadable sheet announces itself on the print
     in every format and a pathological sheet still cannot paper itself over. Empty for a
-    clean sheet — which is why a clean sheet's bytes are unchanged."""
+    clean sheet — which is why a clean sheet's bytes are unchanged.
+
+    This slices in LIST ORDER and trusts ``issue.at``, because the list is already in
+    stamped order: :func:`measure_sheet_issues` puts errors ahead of warnings and
+    numbers the slots accordingly (see :func:`_stamped_in_severity_order`). Sorting
+    again here would print lines at slots that no longer match their position — and
+    every other renderer of ``layout_issues`` (the web check strip and its on-sheet
+    banner) reads the same order for free by not re-deciding it."""
     issues = composed.layout_issues
     lines = [
         BannerLine(
