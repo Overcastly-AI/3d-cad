@@ -81,17 +81,18 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
 ## Ready (top of queue)
 
-**CI incident: a shard PASSED and the job still went RED for 18m35s before
-timing out.** CI-VERDICT-HANG-1's own fix (`9db03fa`) is built and
-integrated but **NOT YET CI-VERIFIED — do not treat it as closed**; the
-branch's last COMPLETED `e2e` run is still the RED one on `0437498` as of
-2026-09-08. Its four follow-ups are further along: CI-VERDICT-STEPGAP-1
-(P1), CI-TEARDOWN-PROBE-BLIND-1 (P2), CI-VERDICT-FALLBACK-UNREACHABLE-1 (P2)
-and a fifth found while fixing them, CI-VERDICT-MISATTRIBUTION-1 (P3), are
-all **CLOSED** — each reproduced before its fix and shipping its own
-negative control, integrated as `c05206b`. CI-LOGDIR-RELATIVE-1 (P3) is
-**still open**, not addressed in that pass. A second code-review pass on
-`c05206b` is running with the same reviewer that prescribed the fixes.
+**CI incident, now CI-VERIFIED CLOSED: a shard PASSED and the job still went
+RED for 18m35s before timing out.** CI-VERDICT-HANG-1's fix (`9db03fa`) is
+CLOSED on real evidence — `e2e` run 34170428660 on the SAME workflow and
+shards that hung, `conclusion: success`, 33 min against the 40-min ceiling
+that killed the original. Its four follow-ups: CI-VERDICT-STEPGAP-1 (P1),
+CI-TEARDOWN-PROBE-BLIND-1 (P2), CI-VERDICT-FALLBACK-UNREACHABLE-1 (P2) and
+CI-VERDICT-MISATTRIBUTION-1 (P3, found while fixing them) are CLOSED on
+reproduction + negative control (integrated as `c05206b`) but their OWN
+`e2e` run has not yet completed — do not call `c05206b` CI-verified until
+that lands. CI-LOGDIR-RELATIVE-1 (P3) is **still open**, not addressed in
+that pass. A second code-review pass on `c05206b` is running with the same
+reviewer that prescribed the fixes.
 
 **Dispatch order, groom pass 20 (2026-09-06), updated same day on
 DRAWSHEET-AUTOPLACE-1's integration + geometry-qa pass, SHEET-RESCALE-1's
@@ -1181,19 +1182,35 @@ unfloored case.**
       TERRITORY: `scripts/check-workflow-concurrency.py`,
       `scripts/check-mutation-markers.py`. agentType: platform-builder.
 
-- [ ] (P1, S) **CI-VERDICT-HANG-1 — FIX BUILT AND INTEGRATED (`9db03fa`,
-      built `fca365d`; four follow-up fixes integrated as `c05206b`, built
-      `9073b74`; platform-builder). CI VERIFICATION PENDING — DO NOT MARK
-      CLOSED until the orchestrator confirms a completed green run; as of
-      2026-09-06 the branch's last COMPLETED `e2e` run is still the RED one
-      on `0437498`, and the runs for `9db03fa`/`c05206b` have not finished.**
-      **CORRECTION 2026-09-08: this entry was marked `[x]` CLOSED in an
-      earlier pass on the strength of "fixed at `9db03fa`" alone — before the
-      orchestrator's own explicit instruction ("do not record the incident
-      as verified-closed on my say-so") landed. Re-opened here to match that
-      instruction; this is exactly the class of premature-green this repo's
-      own CLAUDE.md warns about, caught one groom pass late rather than
-      never.** A shard PASSED (0 failed, 166/167, verdict block printed
+- [x] (P1, S) **CI-VERDICT-HANG-1 — CLOSED 2026-09-08, CI-VERIFIED (not just
+      built): `e2e` run 34170428660 on `9db03fa`, `conclusion: success`, 33
+      min wall clock (23:33:19 -> 00:06:02), on the SAME workflow and the
+      SAME four shards that produced the 18m35s hang and 40-minute timeout
+      on `0437498`.** Platform-builder; four follow-up fixes integrated as
+      `c05206b`, built `9073b74` — see their own entries below,
+      CI-VERDICT-STEPGAP-1/CI-TEARDOWN-PROBE-BLIND-1/
+      CI-VERDICT-MISATTRIBUTION-1 CLOSED, CI-LOGDIR-RELATIVE-1 still open;
+      `c05206b`'s own `e2e` run has not yet completed, so ONLY this entry is
+      CI-verified so far. **TWO THINGS THAT MAKE THIS A REAL VERIFICATION,
+      not just a green tick — recorded per the orchestrator's own
+      instruction**: the run exercised the CHANGED TEARDOWN MACHINERY ITSELF
+      (`9db03fa` touches `scripts/e2e.sh`, `scripts/e2e-verdict.py` and
+      `.github/workflows/e2e.yml`), so this is the fix testing itself
+      end-to-end on the runner — the exact environment the original hang
+      would not reproduce OUTSIDE of; and it completed in 33 minutes against
+      the SAME 40-minute step ceiling the hung shard blew through, so if the
+      fix had merely moved the hang later rather than removing it, this is
+      where it would still have shown. **CORRECTION HISTORY on this entry,
+      kept for the record rather than erased: it was marked `[x]` CLOSED on
+      2026-09-06 on "fixed at `9db03fa`" alone, RE-OPENED on 2026-09-08 per
+      the orchestrator's explicit "do not record verified-closed on my
+      say-so" instruction (CI had not completed a run on either fix commit
+      at that point — the branch's last completed `e2e` was still the RED
+      run on `0437498`), and is now CLOSED AGAIN on the CI evidence above.
+      Three states of the same box in three days is not churn to be
+      embarrassed by — it is what "verify before trusting" actually looks
+      like when a fix is deterministic-by-construction rather than
+      root-caused.** A shard PASSED (0 failed, 166/167, verdict block printed
       GREEN) and the job still went RED — the step
       hung 18m35s in its own exit trap after Playwright finished and was
       killed by the 40-minute CI timeout. kind: defect (CI infra — the
@@ -1224,8 +1241,15 @@ unfloored case.**
       the sampler process dies in 2 ms). The new teardown is correct
       regardless of which of those (or something else) actually hung, which
       is why the FIX is believed sound, but "we do not know what specifically
-      hung" is the honest state, and CI has not yet confirmed it either way.
-      (b) The commit that triggered the hang was a
+      hung" is the honest state and **the CI-verified run above does NOT
+      change that** — one green run does not identify what hung, and the
+      original never reproduced locally either way. What the green run DOES
+      establish: the bounded teardown does not itself break the suite, and
+      the path is clean on the runner within the same 40-minute ceiling the
+      hang blew through. If this recurs, the new verdict cross-check
+      (CI-VERDICT-STEPGAP-1) is what will say so out loud instead of
+      printing GREEN — that is the actual safety net, not this one passing
+      run. (b) The commit that triggered the hang was a
       TRIGGER, not a cause, more precisely than first guessed: the spec it
       added landed in **shard 1**, not shard 2 where the hang occurred — it
       only shifted the balanced shard partition, and shard 2 was carrying a
@@ -5994,6 +6018,18 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-09-08 — **CI-VERDICT-HANG-1 CLOSED on CI evidence (backlog-groomer,
+  relaying orchestrator): `e2e` run 34170428660 on `9db03fa`, `success`, 33
+  min on the SAME workflow/shards that produced the 18m35s hang.** This is
+  the third state of this box in three days (closed on say-so, re-opened
+  pending verification, closed again on real evidence) — recorded as the
+  correct shape of "verify before trusting" for a fix that is
+  deterministic-by-construction, not embarrassment to smooth over. The
+  deterministic-by-construction caveat stays on the entry: one green run
+  does not identify what hung: it establishes the bounded teardown doesn't
+  itself break the suite, within the same ceiling the hang blew through.
+  `c05206b` (the four follow-up fixes) is still awaiting its own completed
+  run.
 - 2026-09-08 — **CORRECTION: CI-VERDICT-HANG-1 was marked closed one pass
   too early — re-opened, three of its four follow-ups now genuinely closed
   (backlog-groomer, relaying orchestrator).** The 2026-09-06 entry below
