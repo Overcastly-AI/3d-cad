@@ -66,6 +66,27 @@ stays false and Delete removes nothing, with `elementFromPoint` resolving to the
 glyph's own button, so it is neither occlusion nor a zero-area target
 (QA-SNAP4-4, pre-existing, made load-bearing by this change).
 
+**Sheet re-scale reaches the user, 2026-09-08 (frontend-builder, built
+`a3316f8` + `004fbb9`, integrated on this branch):** SHEET-RESCALE-1 shipped the
+verb correct on the server and DEAD from the UI — `onSelectScale`'s only call
+site was the `hasLayout ? Readout : SelectField` FALSE branch, while
+`reheadSheet({scale})`'s only caller ran its post-layout path only when
+`hasLayout` was true. Mutually exclusive, proven statically by QA rather than by
+failing to find a button. Scale is now a picker on both sides; Part and Size stay
+engraved, because changing those is a re-layout and that asymmetry is the
+information. **Two things a one-line swap would have got wrong, both measured:**
+a controlled `<select>` whose value matches no option does not show that value —
+React's `updateOptions` falls back to the first non-disabled option, so an
+off-ladder scale (an API client can store any ratio, and `1:4` is expressible by
+no control) would have read as `1:1` from the very cell that replaced an honest
+readout; and `reheadSheet` early-returns while a write is pending, silently
+discarding a second pick. Independent QA measured the gesture exact — ratio
+0.400000 on all four views to six places — and confirmed the off-ladder guard by
+writing `1:4`, `3:7` and `2:4` straight to the API. Review then found the new
+gesture answered a SUCCESSFUL pick by greying out, showing the old value, and
+dropping keyboard focus to `<body>`; both halves fixed in `004fbb9` with
+`aria-disabled`/`aria-busy` rather than the native attribute.
+
 **Sheet re-scale, 2026-09-06 (backend-builder, built `d19d257`, integrated on
 this branch):** `SheetUpdate.scale` re-scales a laid-out sheet, rewriting every
 view in ONE documents transaction. The shape is forced, not chosen — the

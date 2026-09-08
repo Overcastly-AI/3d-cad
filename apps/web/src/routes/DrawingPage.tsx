@@ -1944,6 +1944,7 @@ export function DrawingPage() {
             sourceKind={effectiveSourceKind}
             scaleValue={effectiveScaleValue}
             onSelectScale={handleSelectScale}
+            rescaling={reheading}
             sizeValue={effectiveSize}
             onSelectSize={setSizeValue}
             paperOrientation={paperOrientation}

@@ -2,10 +2,14 @@
  * The drawing command band — the full-width surface under the brand bar, the
  * sibling of the assembly command band. It carries the ONE signature action of
  * this workspace: drop the standard four views (front / top / right + iso) onto
- * the sheet. The SOURCE — a part or an assembly — and the scale are chosen here
- * before layout; after layout they become live readouts and the action
- * re-projects that source against its current tip (functional, never
- * decorative — design mandate 3a). Chrome recedes; the sheet is the hero.
+ * the sheet. The SOURCE — a part or an assembly — and the SIZE are chosen here
+ * before layout and become engraved readouts after it (changing either is a
+ * re-layout, not an edit in place). SCALE is the exception, and the asymmetry
+ * is the information: a laid-out sheet's scale IS changeable — SHEET-RESCALE-1
+ * rewrites all four views in one transaction — so it stays an operable cell on
+ * both sides of the layout, and the action re-projects that source against its
+ * current tip (functional, never decorative — design mandate 3a). Chrome
+ * recedes; the sheet is the hero.
  */
 import {
   FlatPatternIcon,
@@ -51,8 +55,26 @@ export interface DrawingCommandBandProps {
    * reason, on an assembly sheet rather than failing at the server.
    */
   sourceKind: RefDocumentKind;
+  /**
+   * The scale the sheet is drawn at: the intent the first layout will fit under
+   * before layout, the scale its stored views actually carry after. Always the
+   * value of a live picker — see {@link DrawingCommandBandProps.rescaling}.
+   */
   scaleValue: string;
+  /**
+   * Pick a scale. Pre-layout that records intent; post-layout it re-scales the
+   * laid-out sheet in place (SHEET-RESCALE-1's verb). The cell does NOT hold
+   * the picked value optimistically — `scaleValue` keeps deriving from what the
+   * sheet is actually drawn at, so a failed write leaves the honest reading.
+   */
   onSelectScale: (value: string) => void;
+  /**
+   * True while a re-scale write is in flight. The picker goes honestly inert
+   * for that window: the writer refuses a second change while one is pending,
+   * and a control that accepts a gesture it will discard is a dead end
+   * (CLAUDE.md flow rule 4), so it says so instead of swallowing it.
+   */
+  rescaling?: boolean;
   /** The chosen sheet size before layout; the persisted sheet's size after. */
   sizeValue: SheetSize;
   onSelectSize: (value: SheetSize) => void;
@@ -102,6 +124,7 @@ export function DrawingCommandBand({
   sourceKind,
   scaleValue,
   onSelectScale,
+  rescaling = false,
   sizeValue,
   onSelectSize,
   paperOrientation,
@@ -129,10 +152,20 @@ export function DrawingCommandBand({
     label: source.name,
     group: SOURCE_GROUP_LABEL[source.kind],
   }));
-  const scaleOptions = SCALE_OPTIONS.map((s) => ({
-    value: s.value,
-    label: s.label,
-  }));
+  // The standard ladder, plus — only when needed — the scale the sheet is
+  // ACTUALLY at. A native select whose value matches no option silently
+  // displays its FIRST one, so a sheet stored at some off-ladder scale (an API
+  // client can write any ratio) would be misreported as 1:1 by the very cell
+  // that replaced the readout. The guard entry is shown and not choosable, so
+  // the cell can still state a scale it cannot offer to re-pick.
+  const offLadder =
+    scaleValue !== "" && !SCALE_OPTIONS.some((s) => s.value === scaleValue);
+  const scaleOptions = [
+    ...(offLadder
+      ? [{ value: scaleValue, label: scaleValue, disabled: true }]
+      : []),
+    ...SCALE_OPTIONS.map((s) => ({ value: s.value, label: s.label })),
+  ];
   const sizeOptions = sheetSizeOptions(paperOrientation).map((s) => ({
     value: s.value,
     label: s.label,
@@ -201,23 +234,44 @@ export function DrawingCommandBand({
             }
           />
         )}
-        {hasLayout ? (
-          <Readout
-            label="Scale"
-            value={scaleValue}
-            testId="drawing-scale-readout"
-          />
-        ) : (
+        {/* Live on BOTH sides of the layout (SHEET-RESCALE-2). Source and Size
+            above become readouts because changing them means laying out again;
+            re-scaling does not, so freezing this cell hid a verb the server
+            already had — the founder's own named defect class, a capability
+            that exists and cannot be reached. One hook, `drawing-scale-select`,
+            for one control that now simply never goes away.
+
+            The CAPTION follows the row it is in. Before layout the cell sits
+            between two other pickers and wears the field label they wear;
+            after, it sits between two engraved readouts, in a frame where every
+            other caption — Part, Size, Sheet, Export, and the sheet's own title
+            block — is engraved micro-caps. A single sentence-case "Scale" there
+            was the only label in the frame breaking that grammar, i.e. the
+            change announcing itself. It should not: the point of this fix is
+            that the value simply becomes operable. */}
+        <div className="flex flex-col justify-center">
+          {hasLayout ? (
+            // The <select> carries the same name for assistive tech (the
+            // primitive's own `sr-only` label), so this engraving is decoration
+            // of the accessible name, not a second copy of it.
+            <span
+              aria-hidden="true"
+              className="font-display text-2xs uppercase tracking-[0.16em] text-gauge"
+            >
+              Scale
+            </span>
+          ) : null}
           <SelectField
             label="Scale"
+            hideLabel={hasLayout}
             options={scaleOptions}
             value={scaleValue}
-            disabled={busy}
+            disabled={busy || rescaling}
             data-testid="drawing-scale-select"
             className="w-[6rem]"
             onChange={(event) => onSelectScale(event.currentTarget.value)}
           />
-        )}
+        </div>
       </div>
       <ToolGroup eyebrow="Sheet">
         {hasLayout ? (

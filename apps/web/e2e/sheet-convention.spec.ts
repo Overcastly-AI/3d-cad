@@ -358,7 +358,7 @@ test.describe("drawings — the sheet declares its projection convention", () =>
     await expect(page.getByTestId("sheet-tabs").getByRole("tab")).toHaveCount(
       1,
     );
-    await expect(page.getByTestId("drawing-scale-readout")).toHaveText("1:2");
+    await expect(page.getByTestId("drawing-scale-select")).toHaveValue("1:2");
 
     // The header cell agrees, and says what the other paper would cost.
     const orientation = page.getByTestId("sheet-orientation");
@@ -397,10 +397,10 @@ test.describe("drawings — the sheet declares its projection convention", () =>
     await page.setViewportSize({ width: 1280, height: 800 });
 
     const sheet = page.getByTestId("drawing-sheet");
-    const scale = page.getByTestId("drawing-scale-readout");
+    const scale = page.getByTestId("drawing-scale-select");
     const cell = page.getByTestId("sheet-orientation");
     await expect(sheet).toHaveAttribute("viewBox", "0 0 210 297");
-    await expect(scale).toHaveText("1:2");
+    await expect(scale).toHaveValue("1:2");
 
     // THE CASE, stated as the cell states it: it names the paper it will make
     // and the scale it will keep. Nothing here is a claim about a re-fit.
@@ -424,7 +424,7 @@ test.describe("drawings — the sheet declares its projection convention", () =>
     // Delivered: the paper changed, and the scale the cell said it would keep
     // is the scale the title block states.
     await expect(sheet).toHaveAttribute("viewBox", "0 0 297 210");
-    await expect(scale).toHaveText("1:2");
+    await expect(scale).toHaveValue("1:2");
     await expect(sheet).toHaveAccessibleName(/at 1:2/);
     // Every view is still ON the new paper — a flip that only changed the
     // viewBox would leave a hand-placed view off the narrower edge.
@@ -450,7 +450,7 @@ test.describe("drawings — the sheet declares its projection convention", () =>
       "0 0 210 297",
       { timeout: 30_000 },
     );
-    await expect(page.getByTestId("drawing-scale-readout")).toHaveText("1:2");
+    await expect(page.getByTestId("drawing-scale-select")).toHaveValue("1:2");
   });
 
   test("a HAND-PLACED view survives the flip onto narrower paper", async ({

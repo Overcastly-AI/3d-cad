@@ -1,9 +1,17 @@
+// The pick band's width, from the design token rather than a literal — the
+// bound below is derived from it. Imported from the tokens MODULE, not the
+// package root: `@loft/design`'s index pulls in the Tailwind preset, which
+// Node's own resolver (Playwright transforms specs itself, without Vite)
+// cannot load.
+import { drawing } from "../../../packages/design/src/tokens";
+
 import { expect, test, type Page } from "./fixtures";
 
 import { seedSession } from "./support";
 
 /**
- * SHEET-RESCALE-1 — a laid-out sheet can be re-scaled.
+ * SHEET-RESCALE-1 + SHEET-RESCALE-2 — a laid-out sheet can be re-scaled, and a
+ * person can do it.
  *
  * Before this verb the scale a sheet was drafted at was PERMANENT, and not for
  * want of a control: documents' H2 invariant ("one sheet, one source, one
@@ -26,6 +34,13 @@ import { seedSession } from "./support";
  * a capability that quietly widened a guard is a regression wearing a feature's
  * clothes, so the spec that adds the verb is the right place to prove the guard
  * still bites.
+ *
+ * SHEET-RESCALE-2: the first case is DRIVEN BY THE PICKER. It used to be called
+ * "re-picking the scale re-draws every view" and re-picked nothing — it issued
+ * `page.request.patch` — which is precisely how the missing gesture stayed
+ * invisible: the verb had no mouse path for a week and the spec named after
+ * that path was green throughout. A case that claims a gesture makes it; the
+ * two that remain API-driven below are refusals, and say so in their titles.
  */
 
 /** A 60 x 40 x 30 mm block via the real gateway. The scale the four standard
@@ -211,17 +226,69 @@ function draftedScale(scales: string[]): {
   return { label, denominator };
 }
 
-/** The longest drawn EDGE in each standard view, in page pixels.
+/** The longest drawn EDGE in each standard view, in SHEET MILLIMETRES.
  *
- * Deliberately not the `drawing-view` group's own box: that includes the view
- * LABEL and the placement frame, which are chrome and do not scale with the
- * model — measured, the group shrinks by only 0.69 across a 2x re-scale, which
- * would make the assertion a weak "it got somewhat smaller". An edge is pure
- * projected geometry, so its length is `model_mm * numerator / denominator` and
- * halving the scale halves it exactly. The composer produces these, so the
- * numbers are the server's, not the browser's arithmetic.
+ * Three measurements were available here and only one of them can carry an
+ * exact claim.
+ *
+ * - The `drawing-view` GROUP's box is wrong: it includes the view LABEL and the
+ *   placement frame, which are chrome and do not scale with the model —
+ *   measured, the group shrinks by 0.69 across a 2x re-scale, which turns an
+ *   exact assertion into a vague "it got somewhat smaller".
+ * - An edge's screen `boundingBox()` is nearly right and quietly is not: the
+ *   pick band is `drawing.pickHitMm` (2.6 mm) wide in SHEET space, so it does
+ *   NOT scale with the model and `hypot(w, h)` therefore carries a constant
+ *   term. Across 1:2 -> 1:5 on the 60 mm edge that reads ~0.408 where 0.400 is
+ *   the truth — small enough to wave through as tolerance, and it is not
+ *   tolerance. It is still a fine COARSE check, and the case below uses it as
+ *   one, beside the exact reading.
+ * - The band `<rect>`'s own `width` IS the projected segment length in sheet
+ *   millimetres, with no chrome in it. That is what this returns, and it is why
+ *   the ratios below are asserted to five places instead of inside a band.
+ *
+ * The composer produces these lengths, so the numbers are the server's, not the
+ * browser's arithmetic.
  */
 async function longestEdges(page: Page): Promise<Record<string, number>> {
+  for (const projection of ["front", "top", "right", "iso"]) {
+    await expect(
+      page
+        .locator(`[data-testid="drawing-pick-edge"][data-view="${projection}"]`)
+        .first(),
+    ).toBeAttached({ timeout: 30_000 });
+  }
+  const sizes = await page.evaluate(() => {
+    const out: Record<string, number> = {};
+    const groups = document.querySelectorAll<SVGGElement>(
+      '[data-testid="drawing-pick-edge"]',
+    );
+    for (const group of groups) {
+      const view = group.getAttribute("data-view") ?? "?";
+      let longest = out[view] ?? 0;
+      for (const band of group.querySelectorAll<SVGRectElement>("rect")) {
+        longest = Math.max(longest, band.width.baseVal.value);
+      }
+      for (const disc of group.querySelectorAll<SVGCircleElement>("circle")) {
+        longest = Math.max(longest, 2 * Math.PI * disc.r.baseVal.value);
+      }
+      out[view] = longest;
+    }
+    return out;
+  });
+  for (const projection of ["front", "top", "right", "iso"]) {
+    if (!sizes[projection]) {
+      throw new Error(`no measurable edge in the ${projection} view`);
+    }
+  }
+  return sizes;
+}
+
+/** The same views measured the way the SCREEN shows them — a second, coarser
+ * derivation (page pixels, chrome and all) so the exact reading above is not the
+ * only witness that the drawing actually redrew. */
+async function longestEdgesOnScreen(
+  page: Page,
+): Promise<Record<string, number>> {
   const sizes: Record<string, number> = {};
   for (const projection of ["front", "top", "right", "iso"]) {
     const edges = page.locator(
@@ -241,6 +308,37 @@ async function longestEdges(page: Page): Promise<Record<string, number>> {
     sizes[projection] = longest;
   }
   return sizes;
+}
+
+/** The scale ladder the picker actually offers, largest ratio first. A GESTURE
+ * can only choose from this list, so a target computed by doubling a
+ * denominator — which is what an API-driven case is free to do — may name a
+ * scale no control can express. That difference is the whole reason case 1
+ * below could claim to re-pick while issuing a PATCH for 1:4. */
+const LADDER = ["5:1", "2:1", "1:1", "1:2", "1:5", "1:10"] as const;
+
+/** The next scale DOWN the ladder from the one the sheet was drafted at — a
+ * reduction, so the re-scaled sheet cannot overflow its paper and turn this
+ * case into a test of the layout-issue banner instead. */
+function nextSmallerScale(drafted: string): string {
+  const index = LADDER.indexOf(drafted as (typeof LADDER)[number]);
+  if (index < 0) {
+    throw new Error(`the fit chose ${drafted}, which the picker cannot offer`);
+  }
+  const target = LADDER[index + 1];
+  if (target === undefined) {
+    throw new Error(`${drafted} is the bottom of the ladder; nothing to pick`);
+  }
+  return target;
+}
+
+/** The ratio a scale label names, e.g. "1:5" -> 0.2. */
+function ratioOf(label: string): number {
+  const [numerator, denominator] = label.split(":").map(Number);
+  if (!numerator || !denominator) {
+    throw new Error(`unreadable scale ${label}`);
+  }
+  return numerator / denominator;
 }
 
 test.describe("drawings — re-scaling a laid-out sheet", () => {
@@ -265,56 +363,76 @@ test.describe("drawings — re-scaling a laid-out sheet", () => {
       1,
     );
     const drafted = draftedScale(tree.scales);
-    const targetDen = drafted.denominator * 2;
-    const target = `1:${targetDen}`;
-    await expect(page.getByTestId("drawing-scale-readout")).toHaveText(
-      drafted.label,
-    );
+    const target = nextSmallerScale(drafted.label);
+    const expected = ratioOf(target) / ratioOf(drafted.label);
+
+    // The CONTROL, not a readout of it. Until SHEET-RESCALE-2 this cell was a
+    // `Readout` post-layout, so `onSelectScale` had one call site in a branch
+    // that never rendered and the verb below had no gesture at all — the whole
+    // point of this case, and the reason it drives the picker instead of
+    // issuing the PATCH itself (which is what it used to do while its title
+    // claimed otherwise).
+    const picker = page.getByTestId("drawing-scale-select");
+    await expect(picker).toBeVisible();
+    await expect(picker).toBeEnabled();
+    await expect(picker).toHaveValue(drafted.label);
     await expect(page.getByTestId("title-block-scale")).toHaveText(
       drafted.label,
     );
+    // `toBeVisible` is a box property and passes on a control clipped out of
+    // the frame, so the question is asked the user's way: does a click at the
+    // centre of this cell land on this cell?
+    const reachable = await picker.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        r.left + r.width / 2,
+        r.top + r.height / 2,
+      );
+      return hit === el || el.contains(hit);
+    });
+    expect(reachable, "the Scale picker must be clickable").toBe(true);
+
     const before = await longestEdges(page);
+    const beforeOnScreen = await longestEdgesOnScreen(page);
+    const sheetBefore = await page.getByTestId("drawing-sheet").boundingBox();
 
-    // THE VERB. One write against the SHEET, not four against its views.
-    const rescale = await page.request.patch(
-      `/api/v1/drawings/${drawingId}/sheets/${tree.sheetId}`,
-      {
-        data: {
-          expected_version: tree.docVersion,
-          scale: { numerator: 1, denominator: targetDen },
-        },
-        headers: { Authorization: `Bearer ${account.token}` },
-      },
-    );
-    expect(rescale.status(), await rescale.text()).toBe(200);
+    // THE GESTURE. A real pick on the real control — no request from the spec.
+    await picker.selectOption(target);
 
-    // Every stored view moved together — the state H2 requires, reached in one
-    // hop from a state no per-view sequence could have left.
-    const after = await readTree(page, account.token, drawingId);
-    expect(new Set(after.scales)).toEqual(new Set([target]));
-    expect(after.viewIds.sort()).toEqual(tree.viewIds.sort());
-
-    // ...and the drafter sees it: the sheet re-composes at the new scale.
-    await page.reload();
-    await expect(page.getByTestId("drawing-sheet")).toBeVisible({
+    // The title block is composed SERVER-side from `views[0].scale`, so waiting
+    // on it is waiting for the round trip: the sheet on screen is the one the
+    // server re-composed, not an optimistic local redraw.
+    await expect(page.getByTestId("title-block-scale")).toHaveText(target, {
       timeout: 30_000,
     });
-    await expect(page.getByTestId("drawing-scale-readout")).toHaveText(target);
-    // The title block is composed SERVER-side from `views[0].scale`, so this is
-    // the assertion that the print and the screen now say the same thing —
-    // the failure mode this ticket exists to close is a sheet re-scaled on
-    // screen and stamped at its old scale.
-    await expect(page.getByTestId("title-block-scale")).toHaveText(target);
+    await expect(picker).toHaveValue(target);
     await expect(page.getByTestId("drawing-sheet")).toHaveAccessibleName(
       new RegExp(`at ${target}`),
     );
 
-    // The GEOMETRY, not just the label: each view is drawn half size. The
-    // bounds are tight on purpose: these are projected EDGES, so a 2x re-scale
-    // must halve them exactly (measured 0.50 across all four). A band wide
-    // enough to admit "somewhat smaller" would also admit a partial re-scale,
-    // which is the failure this whole verb exists to make impossible.
+    // Every stored view moved together — the state H2 requires, reached in one
+    // hop from a state no per-view sequence could have left. One write against
+    // the SHEET, not four against its views: `doc_version` advances by exactly
+    // one.
+    const after = await readTree(page, account.token, drawingId);
+    expect(new Set(after.scales)).toEqual(new Set([target]));
+    expect(after.viewIds.sort()).toEqual(tree.viewIds.sort());
+    expect(after.docVersion).toBe(tree.docVersion + 1);
+
+    // The GEOMETRY, not just the label. These are projected EDGE lengths in
+    // sheet millimetres, so the re-scale must move them by EXACTLY the ratio of
+    // the two scales; a band wide enough to admit "somewhat smaller" would also
+    // admit a partial re-scale, which is the failure this verb exists to make
+    // impossible. The sheet's own box is checked first, because a mm reading is
+    // only comparable across the two measurements while the paper on screen is
+    // the same size.
+    const sheetAfter = await page.getByTestId("drawing-sheet").boundingBox();
+    expect(sheetBefore, "the sheet must be measurable").not.toBeNull();
+    expect(sheetAfter?.width ?? 0).toBeCloseTo(sheetBefore?.width ?? -1, 1);
+    expect(sheetAfter?.height ?? 0).toBeCloseTo(sheetBefore?.height ?? -1, 1);
+
     const shrunk = await longestEdges(page);
+    const shrunkOnScreen = await longestEdgesOnScreen(page);
     for (const projection of ["front", "top", "right", "iso"]) {
       const now = shrunk[projection];
       const was = before[projection];
@@ -322,13 +440,69 @@ test.describe("drawings — re-scaling a laid-out sheet", () => {
         throw new Error(`the ${projection} view was not measured`);
       }
       expect(
-        now,
-        `${projection} must be drawn smaller at ${target}`,
-      ).toBeLessThan(was);
-      const ratio = now / was;
-      expect(ratio, `${projection} ratio ${ratio}`).toBeGreaterThan(0.46);
-      expect(ratio, `${projection} ratio ${ratio}`).toBeLessThan(0.56);
+        now / was,
+        `${projection} must be drawn at ${target} (${now} mm from ${was} mm)`,
+      ).toBeCloseTo(expected, 5);
+
+      // ...and the second derivation agrees, inside a bound DERIVED rather than
+      // guessed. A band of length L and thickness t rotated by theta has a
+      // bounding box of `L·c + t·s` by `L·s + t·c`, so the diagonal measured
+      // above is `sqrt(L² + t² + 4Ltcs)` — between `hypot(L, t)` and `L + t`
+      // for every edge and every angle. That holds per edge, so it holds for
+      // the longest one whichever edge that turns out to be, in mm or in px.
+      //
+      // A flat ±0.05 was the first attempt and it was WRONG, not merely loose:
+      // the iso view's longest edge is short enough that the constant band
+      // dominates, and it measured 0.4526 against an expected 0.4000 — a real
+      // number the assertion had no business rejecting. The bound below admits
+      // it and still refuses a view that failed to redraw (ratio 1.0) or one
+      // drawn at the wrong scale.
+      const nowPx = shrunkOnScreen[projection];
+      const wasPx = beforeOnScreen[projection];
+      if (nowPx === undefined || wasPx === undefined) {
+        throw new Error(`the ${projection} view was not measured on screen`);
+      }
+      const t = drawing.pickHitMm;
+      expect(nowPx, `${projection} must shrink on screen`).toBeLessThan(wasPx);
+      expect(
+        nowPx / wasPx,
+        `${projection} on-screen ratio (${nowPx} px from ${wasPx} px)`,
+      ).toBeGreaterThanOrEqual(Math.hypot(now, t) / (was + t) - 1e-9);
+      expect(
+        nowPx / wasPx,
+        `${projection} on-screen ratio (${nowPx} px from ${wasPx} px)`,
+      ).toBeLessThanOrEqual((now + t) / Math.hypot(was, t) + 1e-9);
     }
+  });
+
+  test("the picked scale survives a reload — the write, not a local redraw", async ({
+    page,
+  }) => {
+    // The case above proves the gesture reaches the server. This one proves
+    // what it left behind: nothing below reads a value the client held in
+    // memory.
+    const account = await seedSession(page);
+    const part = await createBlockViaApi(page, account.token, "Reload block");
+    const drawingId = await seedLaidOutDrawing(
+      page,
+      part.id,
+      "Reload block drawing",
+    );
+    const tree = await readTree(page, account.token, drawingId);
+    const drafted = draftedScale(tree.scales);
+    const target = nextSmallerScale(drafted.label);
+
+    await page.getByTestId("drawing-scale-select").selectOption(target);
+    await expect(page.getByTestId("title-block-scale")).toHaveText(target, {
+      timeout: 30_000,
+    });
+
+    await page.reload();
+    await expect(page.getByTestId("drawing-sheet")).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("drawing-scale-select")).toHaveValue(target);
+    await expect(page.getByTestId("title-block-scale")).toHaveText(target);
   });
 
   test("the per-view scale guard still refuses a divergent write", async ({

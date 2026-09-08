@@ -1,0 +1,116 @@
+/**
+ * The drawing command band's SCALE cell (SHEET-RESCALE-2).
+ *
+ * SHEET-RESCALE-1 gave the server a re-scale verb that rewrites all four views
+ * in one transaction, and the band kept the post-layout Scale cell as a
+ * read-only `Readout` — so `onSelectScale` had exactly one call site, in the
+ * `hasLayout ? Readout : SelectField` FALSE branch, while the handler behind it
+ * only did anything when `hasLayout` was TRUE. Mutually exclusive: dead code
+ * from the UI's side, not merely a hard-to-reach control.
+ *
+ * These cases are written against the branch that used to be unreachable, so
+ * they fail on the pre-swap component: the post-layout assertions below cannot
+ * pass while the cell is a readout.
+ */
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+
+import { DrawingCommandBand } from "./DrawingCommandBand";
+import { SCALE_OPTIONS } from "../drawing/layout";
+
+function renderBand(
+  props: Partial<Parameters<typeof DrawingCommandBand>[0]> = {},
+) {
+  return render(
+    <DrawingCommandBand
+      sources={[{ id: "part-1", name: "Bracket", kind: "part" }]}
+      selectedSourceId="part-1"
+      onSelectSource={vi.fn()}
+      sourceKind="part"
+      scaleValue="1:2"
+      onSelectScale={vi.fn()}
+      sizeValue="A4"
+      onSelectSize={vi.fn()}
+      paperOrientation="landscape"
+      paperScale="1:2"
+      hasLayout={false}
+      draftedSourceName="Bracket"
+      onLayout={vi.fn()}
+      onFlatPattern={vi.fn()}
+      onToggleSection={vi.fn()}
+      sectionOpen={false}
+      onReproject={vi.fn()}
+      onExportSvg={vi.fn()}
+      onExportPdf={vi.fn()}
+      onExportDxf={vi.fn()}
+      exporting={false}
+      busy={false}
+      {...props}
+    />,
+  );
+}
+
+describe("DrawingCommandBand — the Scale cell", () => {
+  it("stays a live picker after the views are laid out", () => {
+    renderBand({ hasLayout: true });
+    const picker = screen.getByTestId("drawing-scale-select");
+    // The control, not merely some element with the hook: a readout would be a
+    // <span>, and `toBeEnabled` is meaningless on one.
+    expect(picker.tagName).toBe("SELECT");
+    expect(picker).toBeEnabled();
+    // Still named, so it is operable by anyone not looking at it.
+    expect(picker).toHaveAccessibleName("Scale");
+  });
+
+  it("reads back the scale the sheet is drawn at, not the first option", () => {
+    renderBand({ hasLayout: true, scaleValue: "1:5" });
+    expect(screen.getByTestId("drawing-scale-select")).toHaveValue("1:5");
+  });
+
+  it("calls onSelectScale with the picked value on a laid-out sheet", () => {
+    const onSelectScale = vi.fn();
+    renderBand({ hasLayout: true, scaleValue: "1:2", onSelectScale });
+    fireEvent.change(screen.getByTestId("drawing-scale-select"), {
+      target: { value: "1:5" },
+    });
+    expect(onSelectScale).toHaveBeenCalledWith("1:5");
+  });
+
+  it("shows a scale that is off the standard ladder instead of misreporting 1:1", () => {
+    // A native select whose value matches no option displays its FIRST one, so
+    // without a guard entry a sheet stored at 1:3 (an API client can write any
+    // ratio) would read as whatever heads the list. The old readout could not
+    // lie about this; the picker that replaced it must not either.
+    renderBand({ hasLayout: true, scaleValue: "1:3" });
+    const picker = screen.getByTestId("drawing-scale-select");
+    expect(picker).toHaveValue("1:3");
+    const guard = screen.getByRole("option", { name: "1:3" });
+    // Shown, not choosable — it is a reading, not a scale we offer.
+    expect(guard).toBeDisabled();
+    // ...and the ladder is still all there to re-pick from.
+    for (const option of SCALE_OPTIONS) {
+      expect(screen.getByRole("option", { name: option.label })).toBeVisible();
+    }
+  });
+
+  it("goes inert while a re-scale write is in flight", () => {
+    renderBand({ hasLayout: true, rescaling: true });
+    // The writer refuses a second change while one is pending, so accepting the
+    // gesture would be accepting something it will discard.
+    expect(screen.getByTestId("drawing-scale-select")).toBeDisabled();
+  });
+
+  it("keeps Source and Size engraved after layout — those ARE re-layouts", () => {
+    renderBand({ hasLayout: true });
+    expect(screen.getByTestId("drawing-part-readout")).toBeVisible();
+    expect(screen.getByTestId("drawing-size-readout")).toBeVisible();
+    expect(screen.queryByTestId("drawing-part-select")).toBeNull();
+    expect(screen.queryByTestId("drawing-size-select")).toBeNull();
+  });
+
+  it("is still the same one control before the layout", () => {
+    renderBand({ hasLayout: false });
+    expect(screen.getByTestId("drawing-scale-select")).toBeEnabled();
+    expect(screen.queryByTestId("drawing-scale-readout")).toBeNull();
+  });
+});

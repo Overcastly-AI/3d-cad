@@ -17,8 +17,12 @@ import { seedSession } from "./support";
  * rather than a tolerance question.
  *
  * The suite also states, as an assertion rather than a comment, what a user can
- * actually reach: the post-layout Scale control is a read-only `Readout`, so
- * the verb this commit adds has no mouse path. See QA-REVIEW SHEET-RESCALE-1.
+ * actually reach. When it was written that assertion recorded a GAP — the
+ * post-layout Scale control was a read-only `Readout`, so this verb had no
+ * mouse path at all (QA-REVIEW SHEET-RESCALE-1). SHEET-RESCALE-2 closed it, and
+ * the case is inverted rather than deleted: it is the standing guard that the
+ * control does not quietly revert to a readout, and its exact-halving oracle
+ * below now runs on a sheet re-scaled BY THE PICKER.
  */
 
 const BLOCK = { x: 60, y: 40, z: 30 };
@@ -239,8 +243,38 @@ async function waitForEdges(page: Page): Promise<void> {
   ).toBeAttached({ timeout: 60_000 });
 }
 
+/**
+ * A control a person could actually operate — asserted the user's way.
+ *
+ * `toBeVisible()` is a BOX property and returns true for an `sr-only` element
+ * clipped out of the frame, and a zero-area SVG hit region passes several of
+ * the obvious checks too (both measured in this repo). So the question is asked
+ * directly: is there real area, and does a click at the centre of that area
+ * resolve TO this element?
+ */
+async function expectOperable(
+  control: ReturnType<Page["getByTestId"]>,
+  what: string,
+): Promise<void> {
+  await expect(control, `${what} must be visible`).toBeVisible();
+  await expect(control, `${what} must be enabled`).toBeEnabled();
+  const box = await control.boundingBox();
+  expect(box, `${what} must have a hit box`).not.toBeNull();
+  expect(box?.width ?? 0, `${what} width`).toBeGreaterThan(20);
+  expect(box?.height ?? 0, `${what} height`).toBeGreaterThan(10);
+  const reachable = await control.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      r.left + r.width / 2,
+      r.top + r.height / 2,
+    );
+    return hit === el || el.contains(hit);
+  });
+  expect(reachable, `${what} must be clickable at its centre`).toBe(true);
+}
+
 test.describe("QA — SHEET-RESCALE-1 verification", () => {
-  test("a laid-out sheet re-scales: every projected edge halves exactly, and the sheet says so after a reload", async ({
+  test("the sheet VERB re-scales via the API: every projected edge halves exactly, and the sheet says so after a reload", async ({
     page,
   }) => {
     const account = await seedSession(page);
@@ -261,7 +295,7 @@ test.describe("QA — SHEET-RESCALE-1 verification", () => {
     const draftedDen = Number(drafted.split(":")[1]);
     expect(Number.isFinite(draftedDen) && draftedDen >= 1).toBe(true);
 
-    await expect(page.getByTestId("drawing-scale-readout")).toHaveText(drafted);
+    await expect(page.getByTestId("drawing-scale-select")).toHaveValue(drafted);
     await expect(page.getByTestId("title-block-scale")).toHaveText(drafted);
 
     const geometryBefore = await edgeMetrics(page);
@@ -272,8 +306,11 @@ test.describe("QA — SHEET-RESCALE-1 verification", () => {
       "top",
     ]);
 
-    // THE VERB — one write against the SHEET. (There is no mouse path to it;
-    // that is asserted separately below.)
+    // THE VERB — one write against the SHEET, called directly. This case is
+    // deliberately API-driven and says so in its title: it is the independent
+    // check on the SERVER half (exact halving, round trip through a reload),
+    // written to a different derivation than the builder's spec. The GESTURE is
+    // asserted separately below, and in `drawing-rescale.spec.ts`.
     const target = `1:${draftedDen * 2}`;
     const rescale = await page.request.patch(
       `/api/v1/drawings/${drawingId}/sheets/${before.sheetId}`,
@@ -295,7 +332,7 @@ test.describe("QA — SHEET-RESCALE-1 verification", () => {
     });
     await waitForEdges(page);
     await expect(page.getByTestId("title-block-scale")).toHaveText(target);
-    await expect(page.getByTestId("drawing-scale-readout")).toHaveText(target);
+    await expect(page.getByTestId("drawing-scale-select")).toHaveValue(target);
 
     // The persisted state agrees with what the UI is showing.
     const after = await readTree(page, account.token, drawingId);
@@ -419,13 +456,21 @@ test.describe("QA — SHEET-RESCALE-1 verification", () => {
 
   /**
    * REACHABILITY. CLAUDE.md's standing design mandate treats a capability the
-   * user cannot reach as a defect, so this is asserted, not noted: after a
-   * layout the Scale cell is a read-only `Readout` and the `<select>` that
-   * would call `handleSelectScale` is not in the DOM at all. The pre-layout
-   * picker IS present, which is what makes the post-layout absence a gap
-   * rather than a design choice about scale being immutable.
+   * user cannot reach as a defect, so this is asserted, not noted.
+   *
+   * As first written this case RECORDED THE DEFECT: after a layout the Scale
+   * cell was a read-only `Readout` and the `<select>` that would call
+   * `handleSelectScale` was not in the DOM at all — `onSelectScale` had exactly
+   * one call site, in the `hasLayout ? Readout : SelectField` FALSE branch,
+   * while the handler behind it only acted when `hasLayout` was TRUE. Mutually
+   * exclusive, so the server verb had no mouse, keyboard or touch path.
+   *
+   * SHEET-RESCALE-2 made the cell a live picker on both sides of the layout.
+   * The case is INVERTED rather than removed, because the way this regresses is
+   * for the post-layout branch to go quiet again — and a control that has gone
+   * back to being a readout still LOOKS right in a screenshot.
    */
-  test("the re-scale verb has NO mouse path: post-layout Scale is a read-only readout", async ({
+  test("the re-scale verb has a mouse path: post-layout Scale is a live picker", async ({
     page,
   }) => {
     const account = await seedSession(page);
@@ -442,24 +487,7 @@ test.describe("QA — SHEET-RESCALE-1 verification", () => {
 
     // BEFORE the layout the picker is real, enabled, and hittable.
     const picker = page.getByTestId("drawing-scale-select");
-    await expect(picker).toBeVisible();
-    await expect(picker).toBeEnabled();
-    const box = await picker.boundingBox();
-    expect(box, "the pre-layout picker must have a hit box").not.toBeNull();
-    expect(box?.width ?? 0).toBeGreaterThan(20);
-    expect(box?.height ?? 0).toBeGreaterThan(10);
-    // `toBeVisible` is a box property and would pass on an sr-only control, so
-    // the real question is asked directly: does a click at the centre land on
-    // this element?
-    const reachable = await picker.evaluate((el) => {
-      const r = el.getBoundingClientRect();
-      const hit = document.elementFromPoint(
-        r.left + r.width / 2,
-        r.top + r.height / 2,
-      );
-      return hit === el || el.contains(hit);
-    });
-    expect(reachable, "the pre-layout picker must be clickable").toBe(true);
+    await expectOperable(picker, "the pre-layout picker");
 
     await page.getByTestId("drawing-part-select").selectOption(partId);
     await page.getByTestId("drawing-autolayout").click();
@@ -467,37 +495,41 @@ test.describe("QA — SHEET-RESCALE-1 verification", () => {
       timeout: 60_000,
     });
 
-    // AFTER the layout the picker is GONE and only a readout remains. This is
-    // the finding: `handleSelectScale`'s post-layout branch, and the whole
-    // server verb behind it, are unreachable by mouse, keyboard or touch.
-    await expect(page.getByTestId("drawing-scale-readout")).toBeVisible();
-    await expect(page.getByTestId("drawing-scale-select")).toHaveCount(0);
-
-    // Nor is there any other control anywhere on the page that would write a
-    // scale: no combobox, no editable field, nothing focusable in the readout.
-    const readoutInteractives = await page
-      .getByTestId("drawing-scale-readout")
-      .evaluate(
-        (el) =>
-          el.querySelectorAll(
-            'select, input, button, [role="button"], [role="combobox"], [contenteditable="true"], [tabindex]:not([tabindex="-1"])',
-          ).length,
-      );
+    // AFTER the layout it is STILL there, still hittable, and — the assertion
+    // the old readout could never satisfy — still in the tab order.
+    await expect(page.getByTestId("drawing-scale-readout")).toHaveCount(0);
+    await expectOperable(picker, "the post-layout picker");
+    const options = await picker
+      .locator("option:not([disabled])")
+      .allTextContents();
     expect(
-      readoutInteractives,
-      "the post-layout Scale readout offers nothing to operate",
-    ).toBe(0);
+      options.length,
+      "the picker must offer more than the scale it is already at",
+    ).toBeGreaterThan(1);
 
-    // Keyboard is not a way round it either: tab from the neighbouring control
-    // and the readout is never focused, because it is not in the tab order.
-    const focusedReadout = await page
-      .getByTestId("drawing-scale-readout")
-      .evaluate((el) => el.contains(document.activeElement));
-    expect(focusedReadout).toBe(false);
+    // Keyboard reaches it: focus lands on the control itself, not on a wrapper
+    // that merely contains it.
+    await picker.focus();
+    const focused = await picker.evaluate(
+      (el) => el === document.activeElement,
+    );
+    expect(focused, "the picker must be focusable").toBe(true);
+
+    // And the gesture DOES something — proven on the drawing, not on a status
+    // code. A pick that re-rendered nothing would leave the title block (which
+    // the server composes from `views[0].scale`) exactly as it was.
+    const drafted = await picker.inputValue();
+    const target = options.find((option) => option !== drafted);
+    if (target === undefined) throw new Error("no other scale to pick");
+    await expect(page.getByTestId("title-block-scale")).toHaveText(drafted);
+    await picker.selectOption(target);
+    await expect(page.getByTestId("title-block-scale")).toHaveText(target, {
+      timeout: 60_000,
+    });
 
     if (process.env.QA_SHOTS) {
       await page.screenshot({
-        path: `${process.env.QA_SHOTS}/scale-readout-${test.info().project.name}.png`,
+        path: `${process.env.QA_SHOTS}/scale-picker-${test.info().project.name}.png`,
       });
     }
   });

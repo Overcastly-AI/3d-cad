@@ -154,10 +154,10 @@ test.describe("Drawings — an assembly sheet fits its paper", () => {
     await layOut(page);
 
     // The sheet reduced the picked 1:1 to the scale the extents earn. Read from
-    // the band's post-layout readout (derived from the PERSISTED view scale, so
-    // this is what was written, not what the picker was left showing) and from
-    // the title block the exporter stamps.
-    await expect(page.getByTestId("drawing-scale-readout")).toHaveText(
+    // the band's Scale cell, whose value derives from the PERSISTED view scale
+    // (so this is what was written, not what the picker was left showing), and
+    // from the title block the exporter stamps.
+    await expect(page.getByTestId("drawing-scale-select")).toHaveValue(
       SEEDED_SCALE,
     );
     await expect(page.getByTestId("title-block-scale")).toHaveText(
@@ -209,7 +209,7 @@ test.describe("Drawings — an assembly sheet fits its paper", () => {
     await expect(page.locator('[data-testid="drawing-view"]')).toHaveCount(4, {
       timeout: 60_000,
     });
-    await expect(page.getByTestId("drawing-scale-readout")).toHaveText(
+    await expect(page.getByTestId("drawing-scale-select")).toHaveValue(
       SEEDED_SCALE,
     );
   });
@@ -245,7 +245,7 @@ test.describe("Drawings — an assembly sheet fits its paper", () => {
     await page.getByTestId("drawing-scale-select").selectOption("2:1");
     await layOut(page);
 
-    await expect(page.getByTestId("drawing-scale-readout")).toHaveText(
+    await expect(page.getByTestId("drawing-scale-select")).toHaveValue(
       SOLVED_SCALE,
     );
     await expect(page.getByTestId("title-block-scale")).toHaveText(

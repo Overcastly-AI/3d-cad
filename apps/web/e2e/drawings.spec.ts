@@ -247,7 +247,7 @@ test("choose A3 for a big part so auto-layout earns a larger scale", async ({
   // larger scale than the 1:5 this same part would get on A4 (unit-tested). The
   // A3 sheet is 420 mm wide vs A4's 297; the composed <svg> viewBox proves it.
   await expect(page.getByTestId("drawing-size-readout")).toHaveText("A3");
-  await expect(page.getByTestId("drawing-scale-readout")).toHaveText("1:2");
+  await expect(page.getByTestId("drawing-scale-select")).toHaveValue("1:2");
   await expect(sheet).toHaveAttribute("viewBox", "0 0 420 297");
 
   // All four standard views still land, each with projected edges.
