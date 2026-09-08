@@ -339,19 +339,107 @@ def parse_scale_label(label: str) -> ViewScale:
     return ViewScale(numerator=int(numerator), denominator=int(denominator))
 
 
+def _norm(a: float) -> float:
+    return ((a % _TAU) + _TAU) % _TAU
+
+
+def _arc_sweep(center: Vec2, start: Vec2, mid: Vec2, end: Vec2) -> tuple[float, float]:
+    """``(start angle, SIGNED total sweep)`` of the arc start -> mid -> end (radians).
+
+    THE one definition of "which way round, and how far" for a projected arc. Both
+    the sampler that DRAWS the arc (:func:`sample_arc`) and the extent that BOUNDS it
+    (:func:`arc_extent_points`) read it here, so the box can never describe a
+    different arc from the ink — the exact disagreement ARC-BOUNDS-INFLATE-1 was.
+
+    The direction is recovered from the midpoint (a point known to be ON the edge):
+    the arc runs counter-clockwise iff the midpoint is reached before the end going
+    that way. A degenerate span (start == end within 1e-9 rad) is a FULL turn, which
+    is what the sampler already assumed and what a closed projected curve means.
+    """
+    a_s = math.atan2(start.y - center.y, start.x - center.x)
+    a_m = math.atan2(mid.y - center.y, mid.x - center.x)
+    a_e = math.atan2(end.y - center.y, end.x - center.x)
+    span_ccw = _norm(a_e - a_s)
+    ccw = _norm(a_m - a_s) <= span_ccw
+    total = span_ccw if ccw else _TAU - span_ccw
+    if total < 1e-9:
+        total = _TAU  # degenerate: treat as a full turn
+    return a_s, total if ccw else -total
+
+
+def arc_extent_points(
+    center: Vec2, radius: float, start: Vec2, mid: Vec2, end: Vec2
+) -> list[Vec2]:
+    """The points that bound an ARC's TRUE SWEPT extent (ARC-BOUNDS-INFLATE-1).
+
+    An arc is NOT its centre +/- radius: that is the full circle it is cut from, and
+    on a real part the difference is the whole defect. Measured on the canopy
+    bracket's two knee-brace arcs (centre x = -43.947, r = 164.492, 1:5): the
+    full-circle box spanned x -208.440 .. 194.310 where the drawn ink spans
+    -0.254 .. 194.310 — 2.07x the true width, with the centre displaced 104.1 mm.
+    :func:`view_transform` centres a view's bounds on its anchor, so the anchor
+    landed correctly and the INK did not.
+
+    The extent of a circular arc is reached at its two ENDPOINTS plus whichever of
+    the four axis extremes (angles 0, pi/2, pi, 3pi/2 — the only stationary points
+    of x and y on a circle) the sweep actually passes through. Both are derived from
+    :func:`_arc_sweep` and the radius, i.e. from the SAME parametrisation
+    :func:`sample_arc` walks, so this box contains every drawn point exactly: the
+    sampled polyline's vertices lie on the arc and its chords lie inside it. A full
+    turn includes all four extremes and reduces to the circle box.
+
+    Note the arc's CENTRE is deliberately absent — it is not on the curve and no ink
+    is ever drawn there (a 180-degree arc would be inflated by its whole radius).
+    """
+    a_s, sweep = _arc_sweep(center, start, mid, end)
+    direction = 1.0 if sweep >= 0.0 else -1.0
+    total = abs(sweep)
+    pts = [
+        Vec2(
+            center.x + radius * math.cos(a_s + direction * t),
+            center.y + radius * math.sin(a_s + direction * t),
+        )
+        for t in (0.0, total)
+    ]
+    for quarter in range(4):
+        theta = quarter * math.pi / 2
+        # Where along the sweep this axis extreme falls; past `total` it is on the
+        # part of the circle the arc does NOT cover, so it bounds nothing.
+        if _norm(direction * (theta - a_s)) <= total:
+            pts.append(
+                Vec2(
+                    center.x + radius * math.cos(theta),
+                    center.y + radius * math.sin(theta),
+                )
+            )
+    return pts
+
+
 def _edge_points(edge: ProjectedViewEdge) -> list[Vec2]:
-    """Every defining point of an edge, for the view's bounding box (layout.ts)."""
-    pts: list[Vec2] = [_p2(edge.start), _p2(edge.end), _p2(edge.midpoint)]
-    if edge.center is not None:
-        pts.append(_p2(edge.center))
-    for p in edge.points:
-        pts.append(_p2(p))
-    # A circle's extent is its centre +/- radius (start/end coincide on the seam).
+    """Every defining point of an edge, for the view's bounding box (layout.ts).
+
+    Per PRIMITIVE, because the analytic kinds bound differently and conflating them
+    was ARC-BOUNDS-INFLATE-1: a full CIRCLE genuinely is its centre +/- radius, an
+    ARC is only its own swept extent (:func:`arc_extent_points`), and everything
+    else is bounded by the points it carries. The centre only ever enters the box
+    for a circle, where it is inside that box anyway.
+    """
     if edge.center is not None and edge.radius is not None:
         c = _p2(edge.center)
         r = edge.radius
-        pts.append(Vec2(c.x - r, c.y - r))
-        pts.append(Vec2(c.x + r, c.y + r))
+        if edge.primitive == "circle":
+            # A circle's extent is its centre +/- radius (start/end coincide on the
+            # seam, so the endpoints alone would bound only one point of it).
+            return [Vec2(c.x - r, c.y - r), Vec2(c.x + r, c.y + r)]
+        if edge.primitive == "arc":
+            # `edge.points` is empty for an arc at this stage (arcs are sampled only
+            # at serialization), so nothing downstream corrects a wrong box here.
+            return arc_extent_points(
+                c, r, _p2(edge.start), _p2(edge.midpoint), _p2(edge.end)
+            )
+    pts: list[Vec2] = [_p2(edge.start), _p2(edge.end), _p2(edge.midpoint)]
+    for p in edge.points:
+        pts.append(_p2(p))
     return pts
 
 
@@ -756,6 +844,34 @@ def _issue_message(
     )
 
 
+def _banner_at(margin_mm: float, index: int) -> ComposedPoint:
+    """Where the serializers stamp banner line ``index`` (SVG space, baseline-left).
+
+    ONE definition for every issue kind, so a sheet carrying both a pair issue and an
+    off-sheet issue stamps them down the banner without two of them landing on the
+    same baseline.
+    """
+    return ComposedPoint(
+        x_mm=margin_mm + _BANNER_DX,
+        y_mm=margin_mm + _BANNER_DY + index * _BANNER_LINE_MM,
+    )
+
+
+def _off_sheet_message(overflow: SheetOverflow) -> str:
+    """The plain-language sheet caption for one view that leaves the border."""
+    name = VIEW_LABEL[overflow.view].upper()
+    past_paper = (
+        f" AND {overflow.sheet_mm:.2f} MM PAST THE PAPER EDGE"
+        if overflow.sheet_mm > 0.0
+        else ""
+    )
+    return (
+        f"{name} VIEW RUNS {overflow.margin_mm:.2f} MM PAST THE "
+        f"{overflow.side.upper()} BORDER{past_paper} "
+        "- REPOSITION OR USE A LARGER SHEET BEFORE RELEASE"
+    )
+
+
 def measure_layout_issues(
     rects: Sequence[tuple[ViewProjection, SvgRect]], margin_mm: float
 ) -> list[ComposedLayoutIssue]:
@@ -803,10 +919,7 @@ def measure_layout_issues(
                     message=_issue_message(
                         name_a, name_b, overlap_x, overlap_y, clearance, overlapping
                     ),
-                    at=ComposedPoint(
-                        x_mm=margin_mm + _BANNER_DX,
-                        y_mm=margin_mm + _BANNER_DY + len(issues) * _BANNER_LINE_MM,
-                    ),
+                    at=_banner_at(margin_mm, len(issues)),
                 )
             )
     return issues
@@ -856,13 +969,11 @@ def measure_sheet_overflow(
     no tolerance is involved, because this is a LAYOUT question in sheet millimetres,
     not a geometric comparison (a view exactly on the border counts as inside it).
 
-    NB the composed-sheet DTO cannot yet carry this: ``ComposedLayoutIssue.code`` is
-    a two-member Literal and its ``views`` field is pinned to exactly two
-    projections, both of which are contract-frozen in ``packages/contracts``. Wiring
-    an ``off_sheet`` issue into ``ComposedSheet.layout_issues`` (and thus onto the
-    stamped sheet banner) is a py-kit + regenerate change; this function is the
-    measurement it will report, and the gate over it lives in the test suite until
-    then.
+    :func:`measure_sheet_issues` turns each record into the ``off_sheet``
+    :class:`~py_kit.schemas.drawings.ComposedLayoutIssue` the sheet carries and the
+    serializers stamp (LAYOUTISSUE-OFFSHEET-1); this stays the pure MEASUREMENT, in
+    millimetres and without a DTO, because the goldens and the border gate assert on
+    it directly.
     """
     issues: list[SheetOverflow] = []
     for view, rect in rects:
@@ -888,24 +999,67 @@ def measure_sheet_overflow(
     return issues
 
 
-def _norm(a: float) -> float:
-    return ((a % _TAU) + _TAU) % _TAU
+def measure_sheet_issues(
+    rects: Sequence[tuple[ViewProjection, SvgRect]],
+    dims: Vec2,
+    margin_mm: float,
+) -> list[ComposedLayoutIssue]:
+    """EVERY measured problem with the placed sheet, as the DTO the sheet carries.
+
+    The wiring LAYOUTISSUE-OFFSHEET-1 asked for: :func:`measure_sheet_overflow` was
+    built, tested and left DISCONNECTED, so a view that ran off the paper still
+    exported with an empty ``layout_issues`` and no banner — the composer's own
+    "no diagnostic anywhere" defect, one measurement short of being reported. Pair
+    issues first (unchanged, so a sheet that already banners keeps its lines in the
+    same order), then one ``off_sheet`` issue per overflowing view, all sharing
+    :func:`_banner_at` so the stamped lines stack rather than collide.
+
+    An off-sheet issue is always an ERROR: past the drafting border the ink runs
+    into the frame and title block, and past the paper edge it is not on the drawing
+    at all. Its x/y numbers keep the pairwise POSITIVE-IS-BAD convention — how far
+    the ink crosses the border on each axis, negative where it clears — so one
+    consumer reads both kinds; ``clearance_mm`` is 0.0, as it is for an overlap.
+    ``at`` is a banner slot, not a location on the offending view: the banner is one
+    stamped column, and a reader needs the sentence, not an arrow.
+
+    Empty for a clean sheet, so a clean sheet still composes byte-identically.
+    """
+    issues = measure_layout_issues(rects, margin_mm)
+    # Per RECT, not per view: two placed views could in principle carry the same
+    # projection, and a view->rect lookup would then report one view's overrun with
+    # the other's numbers. Pairing by position cannot drift.
+    for view, rect in rects:
+        for overflow in measure_sheet_overflow([(view, rect)], dims, margin_mm):
+            # Signed border overrun per axis, worst side of each: positive = the ink
+            # is outside that border by this much, negative = that much clearance.
+            over_x = max(margin_mm - rect.min_x, rect.max_x - (dims.x - margin_mm))
+            over_y = max(margin_mm - rect.min_y, rect.max_y - (dims.y - margin_mm))
+            issues.append(
+                ComposedLayoutIssue(
+                    code="off_sheet",
+                    severity="error",
+                    views=[view],
+                    overlap_x_mm=over_x,
+                    overlap_y_mm=over_y,
+                    clearance_mm=0.0,
+                    message=_off_sheet_message(overflow),
+                    at=_banner_at(margin_mm, len(issues)),
+                )
+            )
+    return issues
 
 
 def sample_arc(
     center: Vec2, radius: float, start: Vec2, mid: Vec2, end: Vec2
 ) -> list[Vec2]:
-    """Sample a projected arc into a polyline through its midpoint (layout.ts)."""
-    a_s = math.atan2(start.y - center.y, start.x - center.x)
-    a_m = math.atan2(mid.y - center.y, mid.x - center.x)
-    a_e = math.atan2(end.y - center.y, end.x - center.x)
-    span_ccw = _norm(a_e - a_s)
-    mid_ccw = _norm(a_m - a_s)
-    ccw = mid_ccw <= span_ccw
-    total = span_ccw if ccw else _TAU - span_ccw
-    if total < 1e-9:
-        total = _TAU  # degenerate: treat as a full turn
-    direction = 1.0 if ccw else -1.0
+    """Sample a projected arc into a polyline through its midpoint (layout.ts).
+
+    Shares :func:`_arc_sweep` with :func:`arc_extent_points`, so the arc that is
+    DRAWN and the arc that is BOUNDED are parametrised identically by construction.
+    """
+    a_s, sweep = _arc_sweep(center, start, mid, end)
+    direction = 1.0 if sweep >= 0.0 else -1.0
+    total = abs(sweep)
     segments = min(96, max(8, math.ceil(total / (math.pi / 16))))
     pts: list[Vec2] = []
     for i in range(segments + 1):
@@ -2127,7 +2281,10 @@ def place_sheet(
     # Verify the PLACED sheet (audit N2). Composition derives clear anchors, but it does
     # not choose every placement (a hand-positioned view, a part too big for its sheet),
     # so the result is measured: every placed view with drawn geometry, in composed
-    # order, giving deterministic pairs and a deterministic banner.
+    # order, giving deterministic pairs and a deterministic banner. Measured against
+    # each OTHER (do the views collide?) and against the SHEET ITSELF (does any view
+    # leave the drafting border?) — the second question has no pair to ask it of, so
+    # a lone view running off the paper used to be unobservable here.
     ink_rects: list[tuple[ViewProjection, SvgRect]] = []
     for view in composed_views:
         result = result_by_proj.get(view.projection)
@@ -2161,7 +2318,9 @@ def place_sheet(
         title_block=_title_block(layout, dims, scale_label),
         bend_table=bend_table_block,
         notes=_place_notes(annotations),
-        layout_issues=measure_layout_issues(ink_rects, SHEET_MARGIN_MM),
+        layout_issues=measure_sheet_issues(
+            ink_rects, Vec2(sheet_w, sheet_h), SHEET_MARGIN_MM
+        ),
         thread_schedule=_thread_schedule_block(threads, dims),
     )
 

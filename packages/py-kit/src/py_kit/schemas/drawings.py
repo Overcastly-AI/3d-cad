@@ -1780,15 +1780,23 @@ class ComposedNote(BaseModel):
 #: (:data:`~geometry.drawings.compose.MIN_VIEW_CLEARANCE_MM`) — legible today,
 #: one design change away from colliding (the 0.70 mm near-tangency the audit
 #: measured before the widening).
-LayoutIssueCode = Literal["views_overlap", "views_crowded"]
+#: ``off_sheet``: ONE view's ink crosses the drafting border — the pairwise checks
+#: cannot see this by construction (a single view forms no pair, and views that are
+#: mutually clear can still hang over the edge together), which is how a drawing
+#: that ran off the paper exported with an EMPTY ``layout_issues``
+#: (LAYOUTISSUE-OFFSHEET-1). Measured by
+#: :func:`~geometry.drawings.compose.measure_sheet_overflow`.
+LayoutIssueCode = Literal["views_overlap", "views_crowded", "off_sheet"]
 
 #: Severity of a :class:`ComposedLayoutIssue`. ``error``: the sheet is not
-#: shop-readable (overlapping views); ``warning``: readable but fragile.
+#: shop-readable (overlapping views, or ink outside the drafting border);
+#: ``warning``: readable but fragile.
 LayoutIssueSeverity = Literal["error", "warning"]
 
 
 class ComposedLayoutIssue(BaseModel):
-    """Two placed views that collide, or nearly do (audit N2).
+    """A measured problem with the PLACED sheet: views that collide, nearly do, or
+    ink that leaves the drafting border (audit N2 + LAYOUTISSUE-OFFSHEET-1).
 
     Auto-layout used to pack the standard quartet to near-tangency and then export
     the collision that the next design change produced — an overlapping print,
@@ -1796,30 +1804,44 @@ class ComposedLayoutIssue(BaseModel):
     views and reports what it found here, in millimetres, and the serializers stamp
     the issues as a banner on the sheet so a colliding print is never silent.
 
-    ``views`` names the two projections; ``overlap_x_mm``/``overlap_y_mm`` are the
-    signed gaps between their ink boxes on each axis — POSITIVE where the boxes
-    overlap on that axis, NEGATIVE (a clearance) where they do not. Boxes overlap
-    only when BOTH are positive; ``clearance_mm`` is then 0.0 and otherwise the true
-    (smallest-axis) white gap between them.
+    For a PAIR issue (``views_overlap`` / ``views_crowded``) ``views`` names the two
+    projections; ``overlap_x_mm``/``overlap_y_mm`` are the signed gaps between their
+    ink boxes on each axis — POSITIVE where the boxes overlap on that axis, NEGATIVE
+    (a clearance) where they do not. Boxes overlap only when BOTH are positive;
+    ``clearance_mm`` is then 0.0 and otherwise the true (smallest-axis) white gap
+    between them.
+
+    For an ``off_sheet`` issue ``views`` names the ONE offending view (which is why
+    the field admits a single entry — an off-sheet view has no partner to blame),
+    and the SAME positive-is-bad convention carries the border overruns: the x/y
+    fields are how far that view's ink crosses the border on each axis (negative =
+    that much clearance from it), and ``clearance_mm`` is 0.0 because a crossed
+    border has none. The millimetres past the PAPER edge, where they differ from the
+    millimetres past the drafting border, are spelled out in ``message``.
     """
 
-    code: LayoutIssueCode = Field(description="views_overlap | views_crowded")
+    code: LayoutIssueCode = Field(
+        description="views_overlap | views_crowded | off_sheet"
+    )
     severity: LayoutIssueSeverity = Field(description="error | warning")
     views: list[ViewProjection] = Field(
-        min_length=2,
+        min_length=1,
         max_length=2,
-        description="The two colliding/crowded projections, in canonical order",
+        description="The colliding/crowded PAIR in canonical order, or the ONE view "
+        "whose ink leaves the drafting border (off_sheet)",
     )
     overlap_x_mm: float = Field(
-        description="Signed X-axis overlap (mm): positive = the boxes overlap in X, "
-        "negative = that much X clearance"
+        description="Signed X-axis overlap (mm): positive = the boxes overlap in X "
+        "(off_sheet: the ink crosses a left/right border by this much), negative = "
+        "that much X clearance"
     )
     overlap_y_mm: float = Field(
-        description="Signed Y-axis overlap (mm): positive = overlap, negative = "
-        "clearance"
+        description="Signed Y-axis overlap (mm): positive = overlap (off_sheet: the "
+        "ink crosses a top/bottom border by this much), negative = clearance"
     )
     clearance_mm: float = Field(
-        description="White gap between the two boxes (mm); 0.0 when they overlap"
+        description="White gap between the two boxes (mm); 0.0 when they overlap, "
+        "and 0.0 for off_sheet"
     )
     message: str = Field(
         description="Plain-language sheet caption ('TOP / ISOMETRIC VIEWS OVERLAP BY "
@@ -1937,10 +1959,12 @@ class ComposedSheet(BaseModel):
     )
     layout_issues: list[ComposedLayoutIssue] = Field(
         default_factory=list["ComposedLayoutIssue"],
-        description="Measured view-collision diagnostics (audit N2): overlapping or "
-        "sub-clearance view pairs, each with millimetre numbers and a plain-language "
-        "message. EMPTY for a clean sheet — additive, so a clean sheet composes "
-        "byte-identically. Non-empty ⇒ the serializers stamp a banner on the print.",
+        description="Measured layout diagnostics (audit N2 + LAYOUTISSUE-OFFSHEET-1): "
+        "overlapping or sub-clearance view PAIRS, then any single view whose ink "
+        "leaves the drafting border (off_sheet), each with millimetre numbers and a "
+        "plain-language message. EMPTY for a clean sheet — additive, so a clean sheet "
+        "composes byte-identically. Non-empty ⇒ the serializers stamp a banner on "
+        "the print.",
     )
     thread_schedule: ComposedThreadSchedule | None = Field(
         default=None,
