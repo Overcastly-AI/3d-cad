@@ -824,13 +824,33 @@ export function ConstraintGlyphs({ basis }: { basis: PlaneBasis }) {
               data-expression={glyph.expression ?? undefined}
               data-flagged={flagged.has(glyph.index) || undefined}
               aria-label={glyphAria(glyph)}
-              onClick={() =>
-                glyph.editable
-                  ? editDimension(glyph.index)
-                  : selectConstraint(
-                      selectedConstraint === glyph.index ? null : glyph.index,
-                    )
-              }
+              onClick={(event) => {
+                // STOP THE CLICK HERE, or this handler's own effect is undone
+                // one line later by the pick plane (QA-SNAP4-4). drei mounts
+                // `Html` INTO the div r3f listens on (`events.connected`), and
+                // React attaches its listeners to each PORTAL CONTAINER — which
+                // is a DESCENDANT of that div. So the native click reaches
+                // React first and r3f second: this handler runs, sets
+                // `selectedConstraint`, and then `PointerCatcher`'s r3f
+                // `onClick` raycasts the same coordinates, hits the invisible
+                // pick plane, and `selectAt` clears it again. Measured: the
+                // glyph resolves to itself under `elementFromPoint`, the click
+                // lands, and `aria-pressed` never leaves `"false"` — so the
+                // exit SNAP-4's refusal names ("delete the join, then pin the
+                // point") had no working gesture behind it.
+                //
+                // `SplineHandles` above does the same for the same reason; a
+                // control drawn in `Html` is not on the plane, and a click on
+                // it is not a pick of whatever lies beneath it.
+                event.stopPropagation();
+                if (glyph.editable) {
+                  editDimension(glyph.index);
+                  return;
+                }
+                selectConstraint(
+                  selectedConstraint === glyph.index ? null : glyph.index,
+                );
+              }}
             >
               {glyph.label}
             </SketchGlyph>

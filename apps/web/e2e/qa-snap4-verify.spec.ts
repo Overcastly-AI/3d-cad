@@ -589,19 +589,25 @@ test.describe("QA SNAP-4 — the edges of the refusal", () => {
   test("the exit the hint points at: delete the join, and X is accepted", async ({
     page,
   }) => {
-    // QA-SNAP4-4 — ANNOTATED AS A KNOWN GAP, and the gap is PRE-EXISTING: this
-    // commit touches `apps/web/src/sketch/constraints.ts` only, and the path
-    // below lives in `ConstraintGlyphs.tsx` / `store.ts`. SNAP-4 is what makes
-    // it matter: the refusal names the join as the reason and the C glyph as
-    // the thing holding the point, so "delete it and fix the point anywhere"
-    // is the exit the wording implies — and no click can take it. Measured on
-    // `coincident` AND `fixed` glyphs, at the origin and clear of it, with a
-    // real mouse click and with a synthetic `el.click()`: `aria-pressed` never
-    // goes true and Delete removes nothing. Only DIMENSION glyphs are
-    // removable, through their own editor's Remove button.
-    // If this case ever PASSES, the gap has closed and this annotation is the
-    // lie — delete it.
-    test.fail();
+    // QA-SNAP4-4 — CLOSED, and this case is the acceptance signal for it. It
+    // carried a `test.fail()` from the QA pass that found the gap: the refusal
+    // named the join as the reason and the C glyph as the thing holding the
+    // point, so "delete it and fix the point anywhere" was the exit the wording
+    // implied — and no click could take it. `aria-pressed` never went true, on
+    // `coincident` AND `fixed`, at the origin and clear of it, with a real
+    // mouse click and with a synthetic `el.click()`.
+    //
+    // The cause was not the glyph: drei mounts `Html` INTO the div r3f listens
+    // on, and React attaches its listeners to each PORTAL container — a
+    // DESCENDANT of that div — so the glyph's `onClick` ran FIRST and
+    // `PointerCatcher`'s r3f `onClick` then raycast the same coordinates, hit
+    // the pick plane, and `selectAt` cleared `selectedConstraint` on the very
+    // same click. Fixed by stopping the click at the glyph, exactly as
+    // `SplineHandles` in the same file already does.
+    //
+    // The annotation is deleted rather than kept, per the note it carried: a
+    // `test.fail()` that passes is a lie about the product. `constraint-glyph-
+    // selection.spec.ts` holds the narrow regression for the mechanism.
     const { token } = await seedSession(page);
     const part = await createPartViaApi(page, token, "QA snap4 exit");
     await page.goto(`/parts/${part.id}`);

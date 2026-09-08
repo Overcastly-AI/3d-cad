@@ -46,6 +46,29 @@ the fix) and the workflow cross-checks the block against `steps.shard.outcome` �
 the one fact about the step that does not come from inside it, and the only thing
 that survives a SIGKILL.
 
+**The exit SNAP-4 points at now works, 2026-09-08 (frontend-builder, built
+`13dcf64`, integrated on this branch):** SNAP-4's refusal tells the user the
+join holds the point, and its whole justification is that the join can be
+deleted. It could not be: no constraint glyph was selectable, so the refusal
+pointed at a dead end. **The mechanism is the interesting part, because a code
+review and a QA pass reached opposite conclusions about this code and neither
+was careless.** drei appends `Html` into `events.connected` — the very node r3f
+adds its DOM listeners to — while React 19 attaches to the portal CONTAINER, two
+levels below it. So one native click reaches React first and r3f second: the
+glyph sets `selectedConstraint`, then the pick plane raycasts the same
+coordinates and `selectAt` clears it, and React batches set-then-clear into a
+render with no attribute change. Reading the routing tells you the handler is
+wired; it cannot tell you the handler runs and is then undone. Verified four
+ways at review — drei, r3f and React sources, the measured DOM ancestor chain,
+and a live listener plus MutationObserver showing the unfixed build reaching the
+r3f div with NO aria mutation at all. Fix is one `stopPropagation()`; only
+`click` is stopped, so `pointerdown`/`pointerup` still reach the plane and
+press-drag-draw, camera gestures and hover are untouched. **One behaviour change
+the commit message does not name:** `SplineHandles`, the cited precedent,
+renders only in select mode, whereas constraint glyphs render for every tool —
+so for a click-placing tool a click landing inside a glyph used to fall through
+to `placeAt` and now selects the constraint instead.
+
 **Sketch snap, 2026-09-06 (frontend-builder, built `40a14bd`, integrated on
 this branch):** pressing Fix on a point the draw had already grounded via an
 inferred coincident put the sketch into SOLVE OVER-CONSTRAINED from one line and
