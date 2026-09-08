@@ -20,6 +20,7 @@ Three gates prove the server placement composer:
 from __future__ import annotations
 
 import itertools
+import math
 import subprocess
 import sys
 import uuid
@@ -43,12 +44,15 @@ from geometry.drawings.compose import (
     SvgRect,
     Vec2,
     ViewBounds,
+    banner_lines,
     bounds_aware_layout,
     build_dimension_annotation,
     format_dimension_label,
+    measure_sheet_issues,
     measure_sheet_overflow,
     resolve_view_anchors,
     sheet_dimensions,
+    view_bounds,
     view_content_svg_rect,
     view_ink_rect,
     view_to_svg_edges,
@@ -59,6 +63,7 @@ from py_kit.schemas.drawings import (
     ComposedCircleEdge,
     ComposedDimension,
     ComposedDimensionError,
+    ComposedEdge,
     ComposedLineEdge,
     ComposedMeasuredDimension,
     ComposeDrawingRequest,
@@ -1625,22 +1630,31 @@ def _lone_view_sheet(
     size: SheetSize = "A2",
     half_w: float = _LONE_HALF_W,
     half_h: float = _LONE_HALF_H,
+    edges: list[ProjectedViewEdge] | None = None,
+    title: str = "DOOR CANOPY - BRACKET ELEVATION",
 ) -> ComposedSheet:
-    """Compose a sheet carrying exactly ONE auto-placed standard view."""
+    """Compose a sheet carrying exactly ONE auto-placed standard view.
+
+    ``edges`` defaults to the rectangle the placement gates use; pass a curved
+    profile (:func:`_knee_brace_edges`) to exercise the ARC path — a rectangle-only
+    fixture is exactly why ARC-BOUNDS-INFLATE-1 shipped unnoticed.
+    """
     scale = ViewScale(numerator=1, denominator=4)
     evaluation = EvaluateDrawingViewsResult(
         part_id=uuid.UUID(int=7),
         tree_version=1,
         views=[
             DrawingViewResult(
-                view=projection, scale=scale, edges=_rect_edges(half_w, half_h)
+                view=projection,
+                scale=scale,
+                edges=_rect_edges(half_w, half_h) if edges is None else edges,
             )
         ],
     )
     layout = SheetLayout(
         size=size,
         orientation="landscape",
-        title="DOOR CANOPY - BRACKET ELEVATION",
+        title=title,
         views=[
             SheetViewPlacement(
                 projection=projection,
@@ -1651,6 +1665,24 @@ def _lone_view_sheet(
         ],
     )
     return place_sheet(evaluation, [], layout)
+
+
+def _composed_edge_xy(edge: ComposedEdge) -> tuple[list[float], list[float]]:
+    """One composed edge's drawn x/y coordinates, for ALL THREE emitted edge kinds.
+
+    THE single walk behind :func:`_content_rect` and :func:`_sheet_ink_rects`: a
+    line-only reader under-measures any view whose outermost feature is a circle or
+    a sampled arc, which is the same blindness (an assertion that cannot observe the
+    failure mode) as the defect ARC-BOUNDS-INFLATE-1 was.
+    """
+    if isinstance(edge, ComposedLineEdge):
+        return [edge.x1, edge.x2], [edge.y1, edge.y2]
+    if isinstance(edge, ComposedCircleEdge):
+        return (
+            [edge.cx - edge.r, edge.cx + edge.r],
+            [edge.cy - edge.r, edge.cy + edge.r],
+        )
+    return [p.x_mm for p in edge.points], [p.y_mm for p in edge.points]
 
 
 def _content_rect(sheet: ComposedSheet, projection: ViewProjection) -> SvgRect:
@@ -1664,9 +1696,9 @@ def _content_rect(sheet: ComposedSheet, projection: ViewProjection) -> SvgRect:
     xs: list[float] = []
     ys: list[float] = []
     for edge in view.edges:
-        assert isinstance(edge, ComposedLineEdge)
-        xs += [edge.x1, edge.x2]
-        ys += [edge.y1, edge.y2]
+        edge_xs, edge_ys = _composed_edge_xy(edge)
+        xs += edge_xs
+        ys += edge_ys
     return SvgRect(min(xs), min(ys), max(xs), max(ys))
 
 
@@ -1926,15 +1958,9 @@ def _sheet_ink_rects(sheet: ComposedSheet) -> list[tuple[ViewProjection, SvgRect
         xs: list[float] = []
         ys: list[float] = []
         for edge in view.edges:
-            if isinstance(edge, ComposedLineEdge):
-                xs += [edge.x1, edge.x2]
-                ys += [edge.y1, edge.y2]
-            elif isinstance(edge, ComposedCircleEdge):
-                xs += [edge.cx - edge.r, edge.cx + edge.r]
-                ys += [edge.cy - edge.r, edge.cy + edge.r]
-            else:
-                xs += [point.x_mm for point in edge.points]
-                ys += [point.y_mm for point in edge.points]
+            edge_xs, edge_ys = _composed_edge_xy(edge)
+            xs += edge_xs
+            ys += edge_ys
         if xs:
             rects.append(
                 (
@@ -1953,7 +1979,12 @@ def test_composed_sheets_place_every_view_inside_the_border() -> None:
 
     Measured over INK and over ALL THREE composed edge kinds (see
     :func:`_sheet_ink_rects`); the tightest of the five goldens clears the border by
-    26.449 mm, so the stronger box costs nothing and closes two blind spots."""
+    26.449 mm, so the stronger box costs nothing and closes two blind spots.
+
+    The arc-bearing case is here because the five committed goldens are all
+    straight-line quartets: the gate walked circle and polyline edges but had
+    nothing curved to walk, so ARC-BOUNDS-INFLATE-1 passed it. `_knee_brace_edges`
+    puts a swept arc and a full circle through the same assertion."""
     golden_request = _golden_request()
     golden_sheet = place_sheet(
         evaluate_drawing_views(golden_request),
@@ -1966,6 +1997,10 @@ def test_composed_sheets_place_every_view_inside_the_border() -> None:
         ("title-block golden", _compose_tb_sheet()),
         ("first-angle golden", _compose_fa_sheet()),
         ("authored-placement golden", _compose_placement()),
+        (
+            "arc-bearing knee brace",
+            _lone_view_sheet(edges=_knee_brace_edges(), title="KNEE BRACE"),
+        ),
     ):
         rects = _sheet_ink_rects(sheet)
         assert rects, f"{name} composed no measurable view"
@@ -1997,10 +2032,15 @@ def test_a_centred_views_caption_stays_inside_the_drafting_border() -> None:
     The fixture is the ticket's own A2 lone-`right` case (340 x 386 mm of content in
     a 574 x 400 mm border), which after the fix places its CONTENT dead centre —
     17.0000 .. 403.0000 mm in y, 7.00 mm clear of the 410 mm border — and its INK at
-    17.0000 .. 412.7000 mm, i.e. 2.70 mm past it. `layout_issues` is empty and the
-    SVG/PDF/DXF all export, so nothing in the product says so."""
+    17.0000 .. 412.7000 mm, i.e. 2.70 mm past it.
+
+    LAYOUTISSUE-OFFSHEET-1 changed HALF of this: the sheet is no longer SILENT about
+    it — `layout_issues` now carries an `off_sheet` error and every export stamps the
+    banner, which `..._a_caption_crossing_the_border_is_bannered` asserts as a
+    PASSING gate (a claim living inside an xfail can never be seen to break). The
+    geometry is unchanged, so this stays xfail on the assertion below; what remains
+    open is the placement, not the diagnosis."""
     sheet = _lone_view_sheet()
-    assert sheet.layout_issues == []
     content = _content_rect(sheet, "right")
     assert content.max_y == pytest.approx(403.0, abs=_TOL)
     assert (sheet.height_mm - sheet.margin_mm) - content.max_y == pytest.approx(
@@ -2014,3 +2054,435 @@ def test_a_centred_views_caption_stays_inside_the_drafting_border() -> None:
         )
         == []
     )
+
+
+# --- ARC-BOUNDS-INFLATE-1: an ARC is not the CIRCLE it was cut from --------------
+# `_edge_points` appended `edge.center` unconditionally and then applied the
+# full-circle `c +/- r` box to ANY edge carrying a centre and a radius. For an arc
+# both halves are wrong, and nothing downstream corrected them: `edge.points` is
+# empty for an arc at that stage (arcs are sampled only at serialization), so the
+# inflated box WAS the view's bounds. Measured on the canopy bracket's two
+# knee-brace arcs (`docs/canopy/canopy_model.py`, 1:5, centre x = -43.947,
+# r = 164.492):
+#
+#   view_bounds : x -208.440 .. 194.310   centre (-7.065, 497.911)
+#   drawn tight : x   -0.254 .. 194.310   centre (97.028, 461.505)
+#
+# i.e. 2.07x the true width, centre displaced (-104.1, +36.4) mm. `view_transform`
+# centres `bounds.center` on the anchor, so the ANCHOR landed correctly and the INK
+# did not — a real part drawn off-centre, with `layout_issues` empty.
+#
+# Every fixture in this file above was straight lines, which is precisely why this
+# survived: a rectangle cannot fail for this reason. The gates below carry a swept
+# arc AND a full circle, and the oracle for the arc's extent is an INDEPENDENT dense
+# sampling derived from the fixture's own angles, not a re-derivation of the code
+# under test.
+_ARC_R = 100.0
+_ARC_CENTER = (30.0, -20.0)
+
+
+def _arc_edge(
+    center: tuple[float, float],
+    radius: float,
+    start_deg: float,
+    end_deg: float,
+) -> ProjectedViewEdge:
+    """A projected ARC swept from ``start_deg`` to ``end_deg`` about ``center``.
+
+    The sweep runs the short way round in the sign of ``end_deg - start_deg`` (so a
+    negative delta is a CLOCKWISE arc), and the midpoint is the true angular middle
+    of that sweep — which is how the composer recovers the direction, exactly as a
+    projected arc from HLR carries it.
+    """
+    cx, cy = center
+
+    def at(deg: float) -> ProjectedPoint:
+        rad = math.radians(deg)
+        return _pt(cx + radius * math.cos(rad), cy + radius * math.sin(rad))
+
+    return ProjectedViewEdge(
+        primitive="arc",
+        visible=True,
+        start=at(start_deg),
+        end=at(end_deg),
+        midpoint=at((start_deg + end_deg) / 2),
+        center=_pt(cx, cy),
+        radius=radius,
+    )
+
+
+def _circle_edge(center: tuple[float, float], radius: float) -> ProjectedViewEdge:
+    """A projected full CIRCLE — start/end coincide on the seam, as HLR emits."""
+    cx, cy = center
+    return ProjectedViewEdge(
+        primitive="circle",
+        visible=True,
+        start=_pt(cx + radius, cy),
+        end=_pt(cx + radius, cy),
+        midpoint=_pt(cx - radius, cy),
+        center=_pt(cx, cy),
+        radius=radius,
+    )
+
+
+def _dense_arc_bounds(
+    center: tuple[float, float],
+    radius: float,
+    start_deg: float,
+    end_deg: float,
+    samples: int = 20001,
+) -> tuple[float, float, float, float]:
+    """(min_x, min_y, max_x, max_y) of an arc, by dense sampling of its OWN angles.
+
+    The independent oracle: computed from the parameters the fixture was BUILT from,
+    with no call into `compose`, so it cannot agree with the code under test by
+    sharing its arithmetic. 20 001 samples over at most a full turn puts the sampled
+    extremum within r*(1 - cos(pi/20000)) < 1.3e-6 mm of the analytic one, which is
+    why the comparison below is made at 1e-5 mm — a documented sampling residual,
+    not an ad-hoc epsilon.
+    """
+    cx, cy = center
+    xs: list[float] = []
+    ys: list[float] = []
+    for index in range(samples):
+        deg = start_deg + (end_deg - start_deg) * index / (samples - 1)
+        rad = math.radians(deg)
+        xs.append(cx + radius * math.cos(rad))
+        ys.append(cy + radius * math.sin(rad))
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+#: Sampling residual of :func:`_dense_arc_bounds` (mm) — see its docstring.
+_ARC_SAMPLE_TOL = 1e-5
+
+#: Sweeps chosen to reach every branch: inside one quadrant (no axis extreme at
+#: all), crossing each of the four axis extremes, spanning more than half a turn,
+#: clockwise, and a hair short of closing. A fixture that only ever swept a quarter
+#: could not tell "the extremes inside the sweep" from "all four extremes".
+_ARC_SWEEPS = [
+    (30.0, 60.0),
+    (0.0, 90.0),
+    (-45.0, 45.0),
+    (45.0, 135.0),
+    (135.0, 225.0),
+    (225.0, 315.0),
+    (10.0, 350.0),
+    (350.0, 10.0),
+    (60.0, 30.0),
+    (200.0, 20.0),
+    (0.0, 359.9),
+    (0.0, 0.5),
+]
+
+
+@pytest.mark.parametrize(("start_deg", "end_deg"), _ARC_SWEEPS)
+def test_view_bounds_of_an_arc_is_its_true_swept_extent(
+    start_deg: float, end_deg: float
+) -> None:
+    """THE regression. An arc's bounds are its own swept extent, to the millimetre.
+
+    Against the pre-fix composer every one of these fails: the box was the full
+    circle (`c +/- r`) regardless of sweep, so a 30-degree arc reported the extent
+    of a whole 100 mm circle.
+    """
+    edge = _arc_edge(_ARC_CENTER, _ARC_R, start_deg, end_deg)
+    bounds = view_bounds([edge])
+    assert bounds is not None
+    min_x, min_y, max_x, max_y = _dense_arc_bounds(
+        _ARC_CENTER, _ARC_R, start_deg, end_deg
+    )
+    where = f"{start_deg} -> {end_deg}"
+    assert bounds.min.x == pytest.approx(min_x, abs=_ARC_SAMPLE_TOL), where
+    assert bounds.min.y == pytest.approx(min_y, abs=_ARC_SAMPLE_TOL), where
+    assert bounds.max.x == pytest.approx(max_x, abs=_ARC_SAMPLE_TOL), where
+    assert bounds.max.y == pytest.approx(max_y, abs=_ARC_SAMPLE_TOL), where
+
+
+def test_an_arcs_centre_never_enters_its_bounding_box() -> None:
+    """The sharpest statement of the root cause: a bare arc centre is not ink.
+
+    A 30-to-60-degree arc of a 100 mm circle is a 50 mm sliver in the far quadrant;
+    its centre is 100 mm away from every point of it and no ink is ever drawn there.
+    Pre-fix the box reached the centre on both axes (and `c +/- r` beyond it).
+    """
+    bounds = view_bounds([_arc_edge((0.0, 0.0), 100.0, 30.0, 60.0)])
+    assert bounds is not None
+    assert bounds.min.x == pytest.approx(50.0, abs=1e-9)
+    assert bounds.min.y == pytest.approx(50.0, abs=1e-9)
+    assert bounds.max.x == pytest.approx(86.60254037844388, abs=1e-9)
+    assert bounds.max.y == pytest.approx(86.60254037844388, abs=1e-9)
+
+
+def test_an_arc_that_sweeps_an_axis_extreme_reaches_it() -> None:
+    """The other half of the correctness claim: the box must not be too SMALL.
+
+    An arc from -45 to +45 degrees passes through angle 0, so its extent DOES reach
+    `c.x + r` even though neither endpoint does — bounding it by its endpoints alone
+    (the obvious over-correction) would clip 29.3 mm of real ink off a 100 mm arc.
+    """
+    bounds = view_bounds([_arc_edge((0.0, 0.0), 100.0, -45.0, 45.0)])
+    assert bounds is not None
+    half_root_two = 100.0 * math.sqrt(2) / 2
+    assert bounds.max.x == pytest.approx(100.0, abs=1e-9)
+    assert bounds.min.x == pytest.approx(half_root_two, abs=1e-9)
+    assert bounds.min.y == pytest.approx(-half_root_two, abs=1e-9)
+    assert bounds.max.y == pytest.approx(half_root_two, abs=1e-9)
+
+
+def test_a_full_circle_is_still_bounded_by_centre_plus_radius() -> None:
+    """The branch the fix RESTRICTED, kept honest: a circle genuinely is `c +/- r`.
+
+    Its start and end coincide on the seam, so an endpoint-derived box would be a
+    single point — this is the case the original comment described and the only case
+    it was ever true for.
+    """
+    bounds = view_bounds([_circle_edge((30.0, -20.0), 12.5)])
+    assert bounds is not None
+    assert (bounds.min.x, bounds.min.y) == pytest.approx((17.5, -32.5), abs=_TOL)
+    assert (bounds.max.x, bounds.max.y) == pytest.approx((42.5, -7.5), abs=_TOL)
+
+
+def test_a_degenerate_arc_is_bounded_as_a_full_turn() -> None:
+    """A closed arc (start == end) sweeps the whole circle, and the BOX says so.
+
+    `sample_arc` has always drawn this as a full turn; the extent is derived from
+    the same `_arc_sweep`, so the box cannot describe a different arc from the ink.
+    """
+    closed = ProjectedViewEdge(
+        primitive="arc",
+        visible=True,
+        start=_pt(100.0, 0.0),
+        end=_pt(100.0, 0.0),
+        midpoint=_pt(-100.0, 0.0),
+        center=_pt(0.0, 0.0),
+        radius=100.0,
+    )
+    bounds = view_bounds([closed])
+    assert bounds is not None
+    assert (bounds.min.x, bounds.min.y) == pytest.approx((-100.0, -100.0), abs=_TOL)
+    assert (bounds.max.x, bounds.max.y) == pytest.approx((100.0, 100.0), abs=_TOL)
+
+
+@pytest.mark.parametrize(("start_deg", "end_deg"), _ARC_SWEEPS)
+def test_the_bounds_of_an_arc_contain_every_point_it_draws(
+    start_deg: float, end_deg: float
+) -> None:
+    """The property that actually matters on a sheet: the box CONTAINS the ink.
+
+    Measured against the composed sheet's own emitted polyline — what
+    `view_to_svg_edges` really wrote, not a re-derivation — so a box that is too
+    small in any direction fails here even if the extent maths looks right. Both
+    directions are asserted: containment (never smaller than the ink) and tightness
+    (never larger than the sampling residual), because an over-large box is exactly
+    the defect and an over-small one would clip real geometry.
+    """
+    edge = _arc_edge(_ARC_CENTER, _ARC_R, start_deg, end_deg)
+    bounds = view_bounds([edge])
+    assert bounds is not None
+    anchor = Vec2(200.0, 150.0)
+    sheet_height = 300.0
+    composed = view_to_svg_edges([edge], anchor, sheet_height)
+    xs: list[float] = []
+    ys: list[float] = []
+    for composed_edge in composed:
+        edge_xs, edge_ys = _composed_edge_xy(composed_edge)
+        xs += edge_xs
+        ys += edge_ys
+    # The sheet places `bounds.center` on the anchor and flips y; the box in SVG
+    # space is therefore the anchor +/- half the bounds' own extent.
+    half_w = (bounds.max.x - bounds.min.x) / 2
+    half_h = (bounds.max.y - bounds.min.y) / 2
+    where = f"{start_deg} -> {end_deg}"
+    assert min(xs) >= anchor.x - half_w - _ARC_SAMPLE_TOL, where
+    assert max(xs) <= anchor.x + half_w + _ARC_SAMPLE_TOL, where
+    assert min(ys) >= (sheet_height - anchor.y) - half_h - _ARC_SAMPLE_TOL, where
+    assert max(ys) <= (sheet_height - anchor.y) + half_h + _ARC_SAMPLE_TOL, where
+    # ...and tight: the drawn polyline reaches every side of the box (within the
+    # sampler's own chord residual), so the box is the ink's extent, not a superset.
+    sagitta = _ARC_R * (1 - math.cos(math.pi / 32))
+    assert min(xs) <= anchor.x - half_w + sagitta, where
+    assert max(xs) >= anchor.x + half_w - sagitta, where
+
+
+#: The knee brace's arc radius (sheet mm). Sized so the profile FITS an A2 border
+#: (370 x 370 mm of ink plus its 9.7 mm caption band inside 574 x 400 mm, clearing
+#: by 5.15 mm at the tightest) while the PRE-FIX full-circle box — 740 x 740 mm —
+#: does not, so the standing border gate fails on the defect instead of merely
+#: tolerating it. A small curved fixture would have been placed wrongly and still
+#: landed on the paper, which is the shape of the blind spot this closes.
+_BRACE_R = 370.0
+
+
+def _knee_brace_edges(radius: float = _BRACE_R) -> list[ProjectedViewEdge]:
+    """A curved bracket profile: two straight flanges, a swept ARC, a bolt CIRCLE.
+
+    Modelled on the canopy bracket's knee brace, the part this defect was found on —
+    a large-radius arc whose centre lies far OUTSIDE the drawn profile, which is the
+    geometry that makes the full-circle box catastrophic rather than merely loose.
+    Extent: 0 .. ``radius`` on both axes (the arc's own quarter sweep), and
+    deliberately NOT symmetric about the projected origin, so a fixture that
+    happened to be centred cannot hide a centring error either.
+    """
+    return [
+        ProjectedViewEdge(
+            primitive="line",
+            visible=True,
+            start=_pt(0.0, 0.0),
+            end=_pt(radius, 0.0),
+            midpoint=_pt(radius / 2, 0.0),
+        ),
+        ProjectedViewEdge(
+            primitive="line",
+            visible=True,
+            start=_pt(0.0, 0.0),
+            end=_pt(0.0, radius),
+            midpoint=_pt(0.0, radius / 2),
+        ),
+        _arc_edge((0.0, 0.0), radius, 0.0, 90.0),
+        _circle_edge((radius * 0.16, radius * 0.16), radius * 0.05),
+    ]
+
+
+def test_an_arc_bearing_view_centres_its_ink_on_the_sheet() -> None:
+    """The product symptom, end to end: a curved part lands in the MIDDLE of the
+    sheet.
+
+    `bounds_aware_layout` centres a view's BOUNDS on the sheet, so an inflated box
+    displaces the ink by exactly half the inflation. This fixture's box was
+    740 x 740 mm (the full circle) where the ink is 370 x 370, so pre-fix the drawn
+    profile sat 185 mm right of and 185 mm above centre — measured on the real
+    bracket as (-104.1, +36.4) mm at 1:5.
+    """
+    sheet = _lone_view_sheet(edges=_knee_brace_edges(), title="KNEE BRACE")
+    rect = _content_rect(sheet, "right")
+
+    assert (rect.max_x - rect.min_x) == pytest.approx(_BRACE_R, abs=_TOL)
+    assert (rect.min_x + rect.max_x) / 2 == pytest.approx(sheet.width_mm / 2, abs=_TOL)
+    assert (rect.min_y + rect.max_y) / 2 == pytest.approx(sheet.height_mm / 2, abs=_TOL)
+
+
+# --- LAYOUTISSUE-OFFSHEET-1: the off-sheet measurement reaches the contract ------
+# `measure_sheet_overflow` was built and tested by DRAWSHEET-AUTOPLACE-1 and left
+# DISCONNECTED from `ComposedSheet.layout_issues`, because `ComposedLayoutIssue.code`
+# was a two-member Literal and `views` was pinned to exactly two projections. So a
+# view that ran off the paper still composed "cleanly": valid SVG/PDF/DXF, empty
+# `layout_issues`, no banner. The DTO now carries `off_sheet` with a one-view
+# `views`, and `place_sheet` emits it through `measure_sheet_issues`.
+
+
+def _off_sheet_sheet() -> ComposedSheet:
+    """A sheet whose single view genuinely runs off the paper.
+
+    Half-extents larger than the A2 drafting border, so the overflow is a property
+    of the FIXTURE rather than of a placement bug that a later fix would remove —
+    the same reasoning as `..._sees_the_pre_fix_placement`: a gate whose subject can
+    be fixed away stops being able to fail for its own reason.
+    """
+    return _lone_view_sheet(half_w=300.0, half_h=215.0, title="OVERSIZE")
+
+
+def test_a_view_that_runs_off_the_sheet_is_reported_in_layout_issues() -> None:
+    """THE wiring gate: the composed sheet NAMES the offending view.
+
+    Pre-wiring this sheet composed with `layout_issues == []` — the measurement
+    existed and reached nothing.
+    """
+    sheet = _off_sheet_sheet()
+    off_sheet = [i for i in sheet.layout_issues if i.code == "off_sheet"]
+
+    assert len(off_sheet) == 1, sheet.layout_issues
+    issue = off_sheet[0]
+    assert issue.views == ["right"]
+    assert issue.severity == "error"
+    assert issue.clearance_mm == 0.0
+    # Positive-is-bad, the same convention the pairwise overlaps use: 300 mm of
+    # half-extent inside a 594 mm sheet with a 10 mm border crosses left and right
+    # by 300 - (594/2 - 10) = 13.00 mm, and the ink (which carries the caption band
+    # below the geometry) crosses the bottom border by more than the top.
+    assert issue.overlap_x_mm == pytest.approx(13.0, abs=_TOL)
+    assert issue.overlap_y_mm > 0.0
+    assert "RIGHT VIEW RUNS" in issue.message
+    assert "PAST THE" in issue.message
+
+
+def test_the_off_sheet_issue_reports_the_measured_millimetres() -> None:
+    """The numbers in the banner are the ones `measure_sheet_overflow` measured — the
+    issue is a REPORT of the measurement, never a second, drifting derivation."""
+    sheet = _off_sheet_sheet()
+    overflow = measure_sheet_overflow(
+        _sheet_ink_rects(sheet),
+        Vec2(sheet.width_mm, sheet.height_mm),
+        sheet.margin_mm,
+    )
+    assert len(overflow) == 1
+    issue = next(i for i in sheet.layout_issues if i.code == "off_sheet")
+    assert f"{overflow[0].margin_mm:.2f} MM PAST THE {overflow[0].side.upper()}" in (
+        issue.message
+    )
+    assert overflow[0].sheet_mm > 0.0
+    assert f"{overflow[0].sheet_mm:.2f} MM PAST THE PAPER EDGE" in issue.message
+
+
+def test_the_off_sheet_issue_is_stamped_on_the_print() -> None:
+    """It reaches the SHEET, not just the API: the banner line is in the exported
+    SVG and the PDF, so a shop that only ever sees the print is told too."""
+    sheet = _off_sheet_sheet()
+    issue = next(i for i in sheet.layout_issues if i.code == "off_sheet")
+    lines = banner_lines(sheet)
+
+    assert any(line.text.endswith(issue.message) and line.error for line in lines)
+    assert issue.message in serialize_svg(sheet)
+    assert issue.message.encode() in serialize_pdf(sheet)
+
+
+def test_off_sheet_lines_stack_below_the_pair_lines_in_the_banner() -> None:
+    """A sheet with BOTH kinds of problem stamps them on DISTINCT baselines.
+
+    The banner is one column of text; two issues sharing an `at` would print on top
+    of each other, which is how a diagnostic becomes unreadable. Pair issues keep
+    their existing slots (so an already-bannering sheet is unchanged) and the
+    off-sheet lines follow.
+    """
+    rects: list[tuple[ViewProjection, SvgRect]] = [
+        ("front", SvgRect(-20.0, 50.0, 120.0, 150.0)),
+        ("top", SvgRect(100.0, 60.0, 240.0, 160.0)),
+    ]
+    issues = measure_sheet_issues(rects, Vec2(297.0, 210.0), SHEET_MARGIN_MM)
+
+    codes = [i.code for i in issues]
+    assert codes == ["views_overlap", "off_sheet"], codes
+    ys = [i.at.y_mm for i in issues]
+    assert len(set(ys)) == len(ys), ys
+    assert ys == sorted(ys)
+
+
+def test_a_caption_crossing_the_border_is_bannered() -> None:
+    """The subtler off-sheet path, and the reason the banner is worth having: a view
+    whose GEOMETRY fits the border but whose INK does not.
+
+    This is DRAWSHEET-AUTOPLACE-1's documented residual (`..._a_centred_views_
+    caption_stays_inside_the_drafting_border`, still xfail): the layout centres
+    content, the stamped caption hangs 9.7 mm below it, and 2.70 mm of that caption
+    prints past the bottom border. The placement is still wrong; what this asserts
+    is that the product SAYS SO instead of exporting it silently.
+    """
+    sheet = _lone_view_sheet()
+    content = _content_rect(sheet, "right")
+    assert content.max_y <= sheet.height_mm - sheet.margin_mm  # the geometry FITS
+
+    issue = next(i for i in sheet.layout_issues if i.code == "off_sheet")
+    assert issue.views == ["right"]
+    assert issue.severity == "error"
+    assert issue.overlap_y_mm == pytest.approx(2.70, abs=_TOL)
+    assert "BOTTOM BORDER" in issue.message
+    # Still on the PAPER (7.30 mm inside it), so the message must not claim otherwise.
+    assert "PAPER EDGE" not in issue.message
+    assert issue.message in serialize_svg(sheet)
+
+
+def test_a_clean_sheet_still_reports_no_layout_issues() -> None:
+    """Non-vacuity: the wiring does not cry wolf. A view inside the border yields an
+    EMPTY `layout_issues`, which is what keeps every clean golden byte-identical."""
+    sheet = _lone_view_sheet(half_w=100.0, half_h=100.0, title="CLEAN")
+    assert sheet.layout_issues == []
+    assert banner_lines(sheet) == []

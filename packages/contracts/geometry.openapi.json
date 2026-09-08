@@ -1124,22 +1124,23 @@
         "type": "object"
       },
       "ComposedLayoutIssue": {
-        "description": "Two placed views that collide, or nearly do (audit N2).\n\nAuto-layout used to pack the standard quartet to near-tangency and then export\nthe collision that the next design change produced \u2014 an overlapping print,\nsilently, in SVG/PDF/DXF alike. Composition now MEASURES every pair of placed\nviews and reports what it found here, in millimetres, and the serializers stamp\nthe issues as a banner on the sheet so a colliding print is never silent.\n\n``views`` names the two projections; ``overlap_x_mm``/``overlap_y_mm`` are the\nsigned gaps between their ink boxes on each axis \u2014 POSITIVE where the boxes\noverlap on that axis, NEGATIVE (a clearance) where they do not. Boxes overlap\nonly when BOTH are positive; ``clearance_mm`` is then 0.0 and otherwise the true\n(smallest-axis) white gap between them.",
+        "description": "A measured problem with the PLACED sheet: views that collide, nearly do, or\nink that leaves the drafting border (audit N2 + LAYOUTISSUE-OFFSHEET-1).\n\nAuto-layout used to pack the standard quartet to near-tangency and then export\nthe collision that the next design change produced \u2014 an overlapping print,\nsilently, in SVG/PDF/DXF alike. Composition now MEASURES every pair of placed\nviews and reports what it found here, in millimetres, and the serializers stamp\nthe issues as a banner on the sheet so a colliding print is never silent.\n\nFor a PAIR issue (``views_overlap`` / ``views_crowded``) ``views`` names the two\nprojections; ``overlap_x_mm``/``overlap_y_mm`` are the signed gaps between their\nink boxes on each axis \u2014 POSITIVE where the boxes overlap on that axis, NEGATIVE\n(a clearance) where they do not. Boxes overlap only when BOTH are positive;\n``clearance_mm`` is then 0.0 and otherwise the true (smallest-axis) white gap\nbetween them.\n\nFor an ``off_sheet`` issue ``views`` names the ONE offending view (which is why\nthe field admits a single entry \u2014 an off-sheet view has no partner to blame),\nand the SAME positive-is-bad convention carries the border overruns: the x/y\nfields are how far that view's ink crosses the border on each axis (negative =\nthat much clearance from it), and ``clearance_mm`` is 0.0 because a crossed\nborder has none. The millimetres past the PAPER edge, where they differ from the\nmillimetres past the drafting border, are spelled out in ``message``.",
         "properties": {
           "at": {
             "$ref": "#/components/schemas/ComposedPoint",
             "description": "Where the serializers stamp this line of the sheet banner (SVG space, baseline-left) \u2014 placement stays the composer's job (design \u00a74.2)"
           },
           "clearance_mm": {
-            "description": "White gap between the two boxes (mm); 0.0 when they overlap",
+            "description": "White gap between the two boxes (mm); 0.0 when they overlap, and 0.0 for off_sheet",
             "title": "Clearance Mm",
             "type": "number"
           },
           "code": {
-            "description": "views_overlap | views_crowded",
+            "description": "views_overlap | views_crowded | off_sheet",
             "enum": [
               "views_overlap",
-              "views_crowded"
+              "views_crowded",
+              "off_sheet"
             ],
             "title": "Code",
             "type": "string"
@@ -1150,12 +1151,12 @@
             "type": "string"
           },
           "overlap_x_mm": {
-            "description": "Signed X-axis overlap (mm): positive = the boxes overlap in X, negative = that much X clearance",
+            "description": "Signed X-axis overlap (mm): positive = the boxes overlap in X (off_sheet: the ink crosses a left/right border by this much), negative = that much X clearance",
             "title": "Overlap X Mm",
             "type": "number"
           },
           "overlap_y_mm": {
-            "description": "Signed Y-axis overlap (mm): positive = overlap, negative = clearance",
+            "description": "Signed Y-axis overlap (mm): positive = overlap (off_sheet: the ink crosses a top/bottom border by this much), negative = clearance",
             "title": "Overlap Y Mm",
             "type": "number"
           },
@@ -1169,7 +1170,7 @@
             "type": "string"
           },
           "views": {
-            "description": "The two colliding/crowded projections, in canonical order",
+            "description": "The colliding/crowded PAIR in canonical order, or the ONE view whose ink leaves the drafting border (off_sheet)",
             "items": {
               "enum": [
                 "front",
@@ -1182,7 +1183,7 @@
               "type": "string"
             },
             "maxItems": 2,
-            "minItems": 2,
+            "minItems": 1,
             "title": "Views",
             "type": "array"
           }
@@ -1428,7 +1429,7 @@
             "type": "number"
           },
           "layout_issues": {
-            "description": "Measured view-collision diagnostics (audit N2): overlapping or sub-clearance view pairs, each with millimetre numbers and a plain-language message. EMPTY for a clean sheet \u2014 additive, so a clean sheet composes byte-identically. Non-empty \u21d2 the serializers stamp a banner on the print.",
+            "description": "Measured layout diagnostics (audit N2 + LAYOUTISSUE-OFFSHEET-1): overlapping or sub-clearance view PAIRS, then any single view whose ink leaves the drafting border (off_sheet), each with millimetre numbers and a plain-language message. EMPTY for a clean sheet \u2014 additive, so a clean sheet composes byte-identically. Non-empty \u21d2 the serializers stamp a banner on the print.",
             "items": {
               "$ref": "#/components/schemas/ComposedLayoutIssue"
             },
