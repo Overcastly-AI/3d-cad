@@ -6870,3 +6870,302 @@ skipped, 5 deselected** in 1139.50 s. Drawings surface
 `ruff check` + `ruff format --check` + `pyright` clean on the changed test file.
 No application code was touched by this pass — `git diff -- services/geometry/src
 packages/` is empty.
+
+## 2026-09-08 — ARC-BOUNDS-INFLATE-1 + LAYOUTISSUE-OFFSHEET-1 verification of `11edf49`: the arc extent is exact, and the fix pushes our own showcase sheet off the paper (geometry-qa)
+
+Verifying `11edf49` (parent `fbb83d8`) on `worktree-agent-a22fb5ec1f208962d`.
+**Verdict: PASS on all five gates — the geometry is right, and tighter than the
+builder claimed — with one P1 finding, one P2 coverage finding, and one
+correction to a claim that reached the founder.**
+
+The correction first, because it is on the board: the previous reviewer's overrun
+measurement and the builder's `[]` measurement are **both correct and mutually
+consistent**; they are measurements of different configurations, and `717fcdb`
+changed two variables at once, which is why the pair read as a contradiction. The
+builder's claim as *relayed* — that `measure_sheet_overflow` returns `[]` on the
+committed `s2-bracket` fixture before and after — is nonetheless **false on both
+sides**; it is true only of the auto-placed variant. Details in §4.
+
+### 1. Golden byte-identity — 15/15 reproduce, and the number is uninformative
+
+Not taken from `git status` and not from the test harness. A standalone script
+loads each golden's own `request.json`, drives `evaluate_drawing_views` →
+`place_sheet` → the three serializers, and compares bytes, so it cannot inherit a
+harness bug that would hide a moved golden.
+
+| golden | svg | pdf | dxf |
+| --- | --- | --- | --- |
+| `compose_goldens` | `ebd4ba577ac3555d` 33881 B | `7952e56450bbfec6` 28526 B | `670ab0427fd6e5b0` 70251 B |
+| `compose_first_angle_goldens` | `299154b2dad89e35` 33724 B | `553a211cb924c35c` 28751 B | `ba0fa28d0483f845` 70335 B |
+| `compose_note_goldens` | `3e472957c66a2c76` 34292 B | `a2946f223d5db17c` 28808 B | `9d131508a8af03ff` 70719 B |
+| `compose_placement_goldens` | `1c82b391655e5613` 33882 B | `3543fe4d83fbc8fe` 28525 B | `9aeca3c9f4aef39b` 70203 B |
+| `compose_title_block_goldens` | `056c7334123984fc` 34954 B | `6b67158b4c169204` 29333 B | `c654e57c7acbf554` 71241 B |
+
+**15 artifacts, 0 differ**, every hash equal to the committed blob, and
+`layout_issues == []` on all five — the builder's count is confirmed.
+
+**But "0 differ" here is not evidence the change is safe, and must not be read as
+such.** Every one of those five sheets projects to `{line: 34, polyline: 26,
+circle: 2}` — **not one `arc` primitive among them**. The goldens cannot move for
+this change because they never reach the branch it rewrote. Quantified in
+Finding B.
+
+The circle path DID change (it now returns only the `c ± r` box, discarding
+`start`/`end`/`midpoint`/`points`), and those 2 circle edges per golden are what
+makes the byte-identity a real, if narrow, result.
+
+### 2. Is the new arc extent RIGHT? — analytically exact, to ~1e-12 mm
+
+The oracle is built the opposite way round from the implementation: an arc is
+authored as (centre, radius, start angle `a0`, SIGNED sweep `S`), its true extent
+taken by dense-sampling **2 000 001 points** of that parametrisation, and the
+implementation handed only the `(centre, radius, start, mid, end)` triple
+production gives it. Nothing in the oracle re-derives the quadrant logic; it knows
+only "walk the arc and look at every point".
+
+- **27 named analytic cases** (sweeps crossing 0°, reflex 200/270/350/359.9° both
+  directions, exactly-90° and exactly-180° both directions, arcs touching exactly
+  one axis extreme, arcs touching none, offset centres, r = 5000 mm, the real
+  canopy knee-brace parameters, tiny sweeps down to 1e-4°): **worst residual
+  8.567e-12 mm**, and that residual is the ORACLE's own sampling miss (`r·Δθ²/8`),
+  not implementation error. Every case also contains every vertex `sample_arc`
+  draws.
+- **Randomised fuzz, 8000 arcs** (r 0.001..1000 mm, both directions, sweeps
+  1e-5..2π, two seeds), scored against a rigorous two-sided bracket — the sampled
+  box under-states the truth by at most `r(1 − cos(Δθ/2))`, so a correct box is no
+  smaller than the sampled box and no larger than it plus that miss:
+
+  | direction | worst over 8000 |
+  | --- | ---: |
+  | CLIP (arc outside the box — would crop ink) | **1.762e-12 mm** (≈8 ulp at r ≈ 1000) |
+  | INFLATION (box beyond arc + sampler miss) | **0.000e+00 mm** |
+
+  *Methodology note worth keeping: my first version of this fuzz had the clip and
+  inflation expressions transposed and reported a `1.098e-05 mm` "clip". Both
+  numbers were benign under either reading, but I only established that by
+  reproducing the named worst case in isolation, where the escape measured exactly
+  0.000 and all four axis extremes were correctly admitted. A mislabelled oracle
+  is worthless even when its numbers are small — reproduce the worst case before
+  quoting it.*
+- **Drawn-ink containment, 20 000 arcs:** vertices of `sample_arc` outside the
+  box: **0**; worst overshoot **0.000e+00 mm**.
+- **Canonical endpoint swap.** `project.py` orders an arc's endpoints
+  lexicographically (`_canonical_segment`), so the pair can arrive reversed
+  relative to the parametric direction. 20 000 arcs, worst
+  `|box(start,end) − box(end,start)|` = **8.242e-13 mm**.
+- **The exactly-180° ambiguity, tested where it actually bites.** At exactly π,
+  `_norm(a_e − a_s) == π` for BOTH directions, so the sign is decided entirely by
+  the midpoint — and the two answers are DIFFERENT semicircles, so a wrong call
+  gives a box correct in width and wrong by a full radius in height, *while still
+  containing both endpoints*. An endpoints-only check is blind to it. All eight
+  orientations (`a0` ∈ {0, 90, 180, −90} × both directions) return the correct
+  half-disc box exactly, agreeing with the drawn polyline to ≤2.45e-15 mm; at
+  `±π ± 1 ulp` the branch is stable in all four combinations.
+- **Full turn** (`start == end`, mid opposite), 4 seam angles: reduces to `c ± r`
+  with error **0.000e+00**.
+- **Endpoint/radius inconsistency.** With the delivered endpoints jittered 1e-9 mm
+  off the nominal radius, worst escape of a delivered endpoint from the box is
+  **1.175e-09 mm** — the box tracks the jitter, it does not amplify it.
+
+**A caution about intuition, since it caught me:** an arc from 45° sweeping +270°
+does NOT reach the +x extreme, so its box is `(−10, −10, 7.071, 10)`, not the full
+circle. I wrote the full box as my expected value and the implementation was
+right. That is exactly the class of error being fixed here, one quadrant further
+in — which is the argument for keeping the dense oracle rather than hand-written
+expectations.
+
+**The narrowing is safe, and this was measured rather than reasoned.** The fix
+makes `_edge_points` RETURN EARLY for `circle` and `arc`, discarding
+`edge.start`/`edge.end`/`edge.midpoint`/`edge.points`. If any discarded point lay
+outside the analytic box the new bounds would CROP real ink — the opposite defect,
+and invisible to a golden corpus with no arcs. Measured over every analytic edge
+the repo can produce (all five goldens + both canopy sheets: **10 circle, 4 arc**):
+analytic edges carrying a non-empty `points` list: **0**; worst escape of a
+discarded point from the new box: **1.066e-14 mm**; offenders above 1e-9 mm: **0**.
+Structurally confirmed too — `project.py` emits `circle`/`arc` only for a genuine
+`GeomAbs_Circle` in the view plane (an obliquely-viewed circle fails the
+`axis_dot` test and falls through to `polyline`), never sets `points` on either,
+and is the ONLY site in `services/` or `packages/` that constructs an arc/circle
+`ProjectedViewEdge`.
+
+**Documented residual, not filed as a defect.** `_arc_sweep` treats a total sweep
+below 1e-9 rad as a FULL TURN. Measured at r = 164.492 mm, the branch flips
+between a sweep of 1.75e-09 rad (tight box, width 0.000 mm) and 9.98e-10 rad
+(full-turn box, width **328.984 mm**) — the fixed defect in miniature. Two reasons
+it is a residual and not a finding: (a) `sample_arc` shares the same rule and
+DRAWS the full circle, so the box still contains the ink in every row measured —
+it is an ink defect, not a bounds defect, and it predates this commit; (b) 1e-9
+rad at r = 164 mm is an arc **1.6e-7 mm** long, ~600× below the 1e-7 m kernel
+linear tolerance, so no edge that survives the kernel can reach it.
+
+### 3. Determinism — one digest across six fresh interpreters
+
+**6 fresh interpreters**, `PYTHONHASHSEED` 7919..47514, each composing all five
+goldens **plus both `docs/canopy` sheets** (21 artifacts) and hashing, alongside
+the bytes, the placement metadata — per-view anchors at full `repr` precision,
+edge and dimension counts, and every issue's code/severity/numbers/message — plus
+a 500-case arc sweep matrix exercising `_arc_sweep` / `arc_extent_points` /
+`sample_arc` directly. **One digest, `e34e346095a75f4f`, byte-identical across all
+six runs.** The canopy sheets are in the corpus deliberately: they are the only
+arc-bearing compositions in the repo, so a goldens-only determinism check would
+not have put the new sweep parametrisation inside the envelope at all.
+
+### 4. The 1:4 vs 1:5 question — both measurements are right, and they scale exactly
+
+Reproduced at the parent `fbb83d8` (pre-fix), `docs/canopy` bracket, A2 landscape
+594 × 420 mm, border 10..410, lone `right` view. "Drawn" is read off the
+`ComposedSheet`'s own edges — independent of `view_bounds`, the box under repair.
+
+| configuration | drawn ink (SVG mm) | ink incl. 9.7 mm caption | past border | past paper | `measure_sheet_overflow` |
+| --- | --- | ---: | ---: | ---: | --- |
+| **1:4, `auto_place`** (the reviewer's) | x 305.51..548.72, y 97.73..**413.29** | **422.99** | **+3.29** bottom | **+2.99** | 1 record (bottom, margin 15.32 / sheet 5.32) |
+| **1:5, `auto_place`** (the builder's) | x **303.81..498.37**, y 120.18..372.63 | 382.33 | −37.37 | −37.67 | **0 records** |
+| **1:5, `place=(150,300)`** (the COMMITTED fixture) | x 156.81..351.37, y 30.18..282.63 | 292.33 | −127.37 | −137.37 | **1 record** (left, margin 61.38 / sheet 51.38) |
+
+- The reviewer's numbers reproduce **exactly**: `413.29` is the drawn geometry's
+  max y, and `422.99` = 413.29 + `_VIEW_CAPTION_BAND_MM` (9.70). Both are real —
+  the geometry crosses the drafting border by 3.29 mm, and the ink including the
+  stamped view caption crosses the **paper edge** by 2.99 mm — with
+  `layout_issues == []`, because the emission was not wired at that commit.
+  **The board's claim is TRUE.**
+- The builder's `[]` reproduces too, at 1:5 with auto-place. **That claim is TRUE
+  for that configuration.**
+- **They are the same defect at two scales, and they agree to four decimal
+  places.** Width 194.56 / 243.21 = **0.79997**; height 252.45 / 315.56 =
+  **0.80001**; and the arc-inflation displacement of the ink centre from the sheet
+  centre 104.09 / 130.12 = **0.79998** — all exactly 4/5, as 1:5 against 1:4
+  requires. At 1:5 the view is **31.56 mm shorter per side**, which absorbs the
+  3.29 mm overrun with room to spare. **Consistent; neither measurement is
+  wrong.** They looked contradictory because `717fcdb` changed the scale
+  (1:4 → 1:5) AND the placement (auto → hand) in a single commit, so "the bracket
+  sheet" names two different things either side of it.
+- **However, the builder's claim as relayed is wrong about the committed
+  fixture.** `docs/canopy/canopy_sheet.py`'s `s2-bracket` carries
+  `place=(150,300)`; on that fixture `measure_sheet_overflow` returns **one record
+  pre-fix** (a FALSE positive — the inflated box pokes 51.38 mm off the paper
+  while the real ink sits at x 156.81, comfortably inside) and **one record
+  post-fix** (a TRUE positive, Finding A). It is never `[]`. The `[]` belongs to
+  the auto-placed variant, which is what the commit message's own oracle uses
+  ("with the `place` override removed") — the claim is right about the measurement
+  it took and wrong about the fixture it names.
+
+### Finding A (NEW, P1) — the fix pushes the project's own showcase drawing off the paper
+
+At HEAD, the **committed** `s2-bracket` fixture composes with drawn ink at
+y **−6.22**..246.22: **16.22 mm past the top drafting border and 6.22 mm off the
+top of the paper.** The newly wired emission correctly announces it:
+
+```
+RIGHT VIEW RUNS 16.22 MM PAST THE TOP BORDER AND 6.22 MM PAST THE PAPER EDGE
+ - REPOSITION OR USE A LARGER SHEET BEFORE RELEASE
+```
+
+Pre-fix the same fixture drew at y 30.18..282.63 — inside. **The arc fix is not
+the defect; `717fcdb` is.** That commit ("place the bracket view explicitly —
+auto-place ran it off the sheet") chose the hand anchor (150, 300) against the
+INFLATED bounds. `view_transform` centres `bounds.center` on the anchor, so once
+the bounds became honest the ink re-centred on the anchor, and the arithmetic
+closes exactly:
+
+- x shift pre → post = **−104.09 mm**, which *is* the 1:5 arc displacement
+  (+104.09 mm) measured in §4 — the hand anchor had absorbed precisely the bug;
+- post-fix ink centre = **(150.00, 120.00)** = the authored anchor, to 0.01 mm.
+  Correct behaviour;
+- the view is 252.45 mm tall, so half-height **126.22 mm** exceeds the anchor's
+  120.00 mm of headroom — **short by exactly 6.22 mm**, the measured overrun.
+
+A workaround calibrated against a defect becomes wrong the moment the defect is
+fixed, and nothing in this commit's gates could see it, because `docs/canopy` has
+no test. **All 6 of 6 committed `docs/canopy/sheets/*` artifacts no longer
+reproduce** (`s1` svg 91456→91551 B, pdf 60423→59953 B, dxf 127338→126479 B;
+`s2` svg 11052→11316 B, pdf 7867→8140 B, dxf 25682→25920 B).
+
+The fix is to delete the `place` override, not to re-tune it: measured at HEAD,
+`s2-bracket` at 1:5 with `auto_place` centres **exactly** — x 199.72..394.28, ink
+centre offset **+0.00 mm** from the sheet centre, y 83.78..336.22, `layout_issues
+== []`. The A1 general arrangement is likewise clean at HEAD (its `right` view
+moves 128.08 mm back into its slot, x 551.06..672.66 → 422.98..544.59) and needs
+only regeneration.
+
+**Severity P1, not P0:** it is a documentation deliverable, not UI-reachable
+geometry, and the new banner makes it self-announcing on regeneration. But it is a
+shipped artifact that is now wrong, and it is the sheet the canopy design doc
+points at. Recommended alongside it: a gate that composes both `docs/canopy`
+sheets and asserts `layout_issues == []` — the check that would have caught this,
+and which exists nowhere today.
+
+### Finding B (NEW, P2) — no committed golden bounds a single arc
+
+`_edge_points` was instrumented for the whole drawings surface
+(`-k "drawing or compose or sheet_metal or section"`). Across the run it was asked
+to bound:
+
+```
+global:                          {line: 36993, polyline: 21856, circle: 1855, arc: 255}
+the 35 byte-level golden tests:  {line:  8560, polyline:  6318, circle:  502}
+```
+
+**Zero arcs in the byte-level goldens.** The 255 arc edges are all bounded by
+assertion-level tests (the builder's new `_ARC_SWEEPS` cases, and
+`test_drawings_dxf_model_scale.py`, which asserts scale properties rather than
+committed bytes). No serialized artifact in the repo pins what an arc-bearing
+sheet looks like. That is why "15 artifacts, 0 differ" was always going to be the
+answer here, and it is why the only place this commit's behaviour change shows up
+in committed bytes is `docs/canopy/sheets/*`, which has no gate.
+
+This is a second, sharper instance of the already-filed
+DRAWLAYOUT-GOLDEN-COVERAGE-1 (every compose golden is the same A4 quartet).
+Recommend promoting an arc-bearing sheet to a committed compose golden — the
+canopy knee brace is the natural candidate: real part, two arcs, already in the
+tree, and it is the fixture that found both of the last two layout defects.
+
+### 5. Performance — no regression
+
+Interleaved **H P H P H P**, not H×3 then P×3, per the ordering trap recorded in
+the 2026-09-06 entry. `evaluate_drawing_views` is untouched by this commit and is
+excluded; what is timed is `place_sheet` (which owns `_edge_points` /
+`view_bounds` / `measure_sheet_issues`), best of 3 rounds × 40 iterations, in a
+quiet window.
+
+| fixture | arcs | HEAD (ms) | base (ms) | delta |
+| --- | ---: | ---: | ---: | ---: |
+| `compose_goldens` | 0 | 11.403 | 11.178 | +2.01% |
+| `compose_first_angle_goldens` | 0 | 11.364 | 11.717 | −3.02% |
+| `compose_note_goldens` | 0 | 11.693 | 11.731 | −0.32% |
+| `compose_placement_goldens` | 0 | 11.770 | 11.837 | −0.56% |
+| `compose_title_block_goldens` | 0 | 12.002 | 11.865 | +1.15% |
+| `canopy:s1-general-arrangement` | 2 | 23.976 | 23.745 | +0.97% |
+| `canopy:s2-bracket` | 2 | 1.442 | 1.405 | +2.64% |
+
+Worst **+2.64%** — 37 µs on a 1.4 ms operation, with the per-round ranges
+overlapping (HEAD 1.442/1.558/1.636, base 1.405/1.413/1.493). Total across the
+seven fixtures **+0.21%** (83.651 vs 83.479 ms). Inside the 10% rule with two
+orders of magnitude to spare, and every end-to-end reading (56–213 ms) is far
+under `CEILING_HEAVY_MS` (2000 ms).
+
+### Negative controls — both halves fail for their own reason, and by more than claimed
+
+Reintroduced at RUNTIME as pytest plugins (no source edit), the arc control
+restoring `fbb83d8`'s `_edge_points` verbatim:
+
+| control | measured | builder claimed |
+| --- | --- | --- |
+| pre-fix `_edge_points` reinstated | **26 failed**, 95 passed, 1 xfailed | 25 |
+| `off_sheet` emission disconnected | **5 failed**, 116 passed, 1 xfailed | 3 |
+
+The load-bearing one is confirmed:
+`test_composed_sheets_place_every_view_inside_the_border` — the standing border
+gate — is among the 26. Before the arc-bearing fixture joined it, that gate's
+whole population was straight-line quartets and it could not have failed for this
+reason.
+
+### Gates run
+
+- Golden regeneration: 15/15 byte-identical (§1), by an independent script.
+- `services/geometry/tests` in full at HEAD: **3115 passed, 1 skipped, 5
+  deselected, 1 xfailed** in 1283.40 s.
+- `-k "drawing or compose or benchmark"`: **471 passed, 1 xfailed** in 239.86 s.
+- `test_drawings_compose.py` alone: **121 passed, 1 xfailed** in 60.82 s.
+- `scripts/gen-check.sh`: contracts + ts-client match generated output.
+- Determinism: 6 fresh interpreters, one digest (§3).
+- No application code touched by this pass; the only file changed is this one.
