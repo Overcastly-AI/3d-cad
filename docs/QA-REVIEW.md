@@ -12,6 +12,130 @@ blocked or lies · **P2** a real flow is worse than it should be · **P3** polis
 
 ---
 
+## 2026-09-08 — SHEET-RESCALE-2 (`a3316f8`) independently verified: PASS. The gesture exists, is exact, and the off-ladder guard holds
+
+**Verdict: PASS.** 7/7 new cases green on desktop AND touch, plus 35/35 of the
+neighbouring drawing/sheet suites and the 7 component unit cases. The ticket's
+acceptance criterion — "on a laid-out sheet, the Scale control is a live,
+clickable `SelectField`; picking a new scale re-draws every view; a Playwright
+case drives it by mouse" — is met, and SHEET-RESCALE-1B (the reachability
+finding filed against `d19d257` above) is closed by measurement. Two findings
+below, both P3, neither a regression from this commit.
+
+Verified against a native stack booted from this commit on isolated ports
+(gateway 8090 / documents 8091 / geometry 8092), Vite 5290, proven mine BY
+VALUE before anything was measured: all three listeners' `/proc/<pid>/cwd`
+resolve into this worktree, and the gateway's served `/openapi.json` carries
+`SheetUpdate.scale`. Specs written independently of the builder's
+(`apps/web/e2e/qa-sheet-rescale2-verify.spec.ts`) — the measurement is
+re-derived rather than imported, so a shared helper measuring the wrong thing
+cannot make both suites agree.
+
+### 1. The gesture works, and every view redraws by exactly the ratio asked for
+
+Real `selectOption` on the real `<select>`, 1:2 -> 1:5. Projected edge lengths
+in SHEET MILLIMETRES, read from the pick band `<rect>`'s own `width` (no view
+label, no placement frame, no constant 2.6 mm band term):
+
+| view | before | after | ratio | expected |
+|---|---|---|---|---|
+| front | 30.00000 mm | 12.00000 mm | **0.400000** | 0.400000 |
+| top | 30.00000 mm | 12.00000 mm | **0.400000** | 0.400000 |
+| right | 20.00000 mm | 8.00000 mm | **0.400000** | 0.400000 |
+| iso | 24.49490 mm | 9.79796 mm | **0.400000** | 0.400000 |
+
+Exact to six places on all four. The title block (composed server-side from
+`views[0].scale`) and all four stored view rows agree.
+
+**HITTABILITY was proven with the user's own mechanism, not a proxy.** The
+picker measures **78 x 24 px** and `document.elementFromPoint` at its centre
+resolves to the `<select>` ITSELF — no chrome over it. 24 px is exactly this
+product's dense touch floor. No `force: true` anywhere in this pass.
+
+### 2. The off-ladder case — the builder's stated risk — HOLDS
+
+This is what I most wanted an independent read on, because a native select
+whose value matches no option silently displays its FIRST one, and the cell
+being replaced (a `Readout`) could not lie. Three off-ladder shapes written
+straight at the API, page reloaded each time:
+
+| stored | cell says | select value | option disabled | ladder still offered |
+|---|---|---|---|---|
+| `1:4` | **"1:4"** | `1:4` | yes (index 0) | all 6 rungs |
+| `3:7` | **"3:7"** | `3:7` | yes (index 0) | all 6 rungs |
+| `2:4` | **"2:4"** | `2:4` | yes (index 0) | all 6 rungs |
+
+The cell states the TRUE stored scale in every case and the title block agrees
+with it. `2:4` is the interesting one — its RATIO is on the ladder but its
+LABEL is not, and the cell still reports what is stored rather than the rung it
+happens to equal. The guard entry is shown-and-not-choosable, so a user cannot
+re-pick it (which would silently write 1:1, since `scaleFromValue` falls back
+to 1:1 for any unknown value). Recovery by gesture works: picking a real rung
+re-scales and the guard entry disappears. **No defect here.**
+
+### 3. Pending-write window: nothing discarded, never stranded
+
+Two picks as fast as the harness can make them produced **2 sheet PATCHes** —
+both gestures reached the server — and the sheet ends at the LAST one picked
+(1:10), which is what the user asked for. The control was inert for **499-637
+ms** (sampled frame-by-frame in-page) and enabled afterwards; no error banner.
+
+Failure path, forced with a routed 500: the cell falls back to the scale the
+sheet is ACTUALLY drawn at (not the one asked for), re-enables, surfaces the
+failure in a `role="alert"`, the stored scale is unchanged, and the control
+works again once the fault clears.
+
+### 4. Round-trip and keyboard
+
+Re-scale -> reload: the cell, the title block, all four stored view rows and
+every measured edge length agree to 5 dp with the live pre-reload drawing.
+
+Keyboard: reached at **tab stop 4**, accessible name **"Scale"** (the `sr-only`
+label survives `hideLabel`; the engraved caption is correctly `aria-hidden`),
+visible focus ring measured `solid 2px rgb(227,166,75)` on the cell, and
+ArrowDown re-scales the sheet 1:2 -> 1:5 with exactly one PATCH.
+
+**A near-miss that was mine, recorded because it is the trap this file keeps
+paying for.** My first keyboard assertion read `inputValue()` one tick after
+the keystroke, got the OLD value, and I nearly filed "the Scale cell is not
+keyboard-operable" — the cell is a controlled React value that deliberately
+does NOT hold the pick optimistically, so an immediate re-read shows the old
+scale whether the gesture landed or was ignored. A vanilla `<select>` injected
+into the same page moved `a -> b` on the same keystroke, which is what made it
+look like a real defect. The discriminator is the REQUEST, not the readout.
+Both the negative control and the outcome-based read are now permanent in the
+spec, so the next person does not re-derive this.
+
+### 5. Touch and design coherence
+
+Every case re-run in a `hasTouch` context at **1280 x 800**: 7/7 green. The
+cell measures 78.0 x 24.0 px there and a real `touchscreen.tap` at its centre
+focuses the select. The claim that the post-layout caption reads like its
+neighbours is literally true — measured against the Size readout's caption:
+both `10px` / `1.6px` letter-spacing / `uppercase` / `rgb(157,170,186)` /
+`"Fragment Mono"`.
+
+### Findings (both P3, both PRE-EXISTING, neither a regression from `a3316f8`)
+
+- **QA-RESCALE2-A (P3) — a failed re-scale is announced as "LAYOUT FAILED".**
+  `DrawingPage.tsx`'s `drawing-action-error` banner hardcodes the heading
+  `Layout failed` for every `actionError`, so a failed re-scale (and a failed
+  convention or orientation flip) is reported as a layout failure. The BODY is
+  correct ("The sheet could not be updated."). Pre-dates this commit —
+  `reheadSheet` already had two other callers — but SHEET-RESCALE-2 adds the
+  third and most-used path into it, so the mislabel is now far more reachable.
+  The heading should follow the action.
+- **QA-RESCALE2-B (P3) — the cell shows the OLD scale for ~160 ms after a
+  pick.** Measured: the picked value is displayed as stale from the gesture
+  until **158-163 ms**, then jumps to the new scale. This is the builder's
+  deliberate non-optimistic design and it is the honest choice on a failed
+  write; at LAN latency it is imperceptible. Recorded because the window scales
+  with round-trip time, and on a real network a user will see the picker snap
+  back to their old scale before it takes — which reads as "my pick was
+  rejected". Worth revisiting only if remote latency measurements justify it.
+
+---
+
 ## 2026-09-06 — SHEET-RESCALE-1 (`d19d257`) independently verified: the verb is correct and exact; nobody can reach it
 
 **Verdict: the SERVER half PASSES on every criterion I could measure, with
@@ -103,7 +227,16 @@ nothing here is verified by status code.
 
 ### 6. Reachability — the finding
 
-- [ ] (P2, S) **SHEET-RESCALE-1B — the sheet re-scale verb has no gesture: a
+- [x] (P2, S) **SHEET-RESCALE-1B — CLOSED 2026-09-08 by SHEET-RESCALE-2
+      (`a3316f8` + `004fbb9`, integrated on this branch). The measurements
+      below described `d19d257` and are NO LONGER TRUE of HEAD: post-layout
+      `drawing-scale-select` is present, hittable (78x24 px, `elementFromPoint`
+      at its centre resolving to itself), in the tab order, and operable by
+      mouse, keyboard and touch. Independent QA measured the gesture exact —
+      ratio 0.400000 on all four views to six places — and confirmed the
+      off-ladder guard by writing `1:4`, `3:7` and `2:4` straight to the API.
+      Kept rather than deleted because the original measurement is the record
+      of what was wrong. — the sheet re-scale verb has no gesture: a
       user still cannot change a laid-out sheet's scale, only an API client
       can.** kind: flow gap (the server half of SHEET-RESCALE-1 is correct and
       shipped; this is its other half, which the commit message itself flags as
