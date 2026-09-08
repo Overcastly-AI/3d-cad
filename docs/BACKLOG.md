@@ -81,43 +81,51 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
 ## Ready (top of queue)
 
-**CI incident, now CI-VERIFIED CLOSED: a shard PASSED and the job still went
-RED for 18m35s before timing out.** CI-VERDICT-HANG-1's fix (`9db03fa`) is
-CLOSED on real evidence — `e2e` run 34170428660 on the SAME workflow and
-shards that hung, `conclusion: success`, 33 min against the 40-min ceiling
-that killed the original. Its four follow-ups: CI-VERDICT-STEPGAP-1 (P1),
-CI-TEARDOWN-PROBE-BLIND-1 (P2), CI-VERDICT-FALLBACK-UNREACHABLE-1 (P2) and
-CI-VERDICT-MISATTRIBUTION-1 (P3, found while fixing them) are CLOSED on
-reproduction + negative control (integrated as `c05206b`) but their OWN
-`e2e` run has not yet completed — do not call `c05206b` CI-verified until
-that lands. CI-LOGDIR-RELATIVE-1 (P3) is **still open**, not addressed in
-that pass. A second code-review pass on `c05206b` is running with the same
-reviewer that prescribed the fixes.
+**CI incident, fully CI-VERIFIED CLOSED: a shard PASSED and the job still
+went RED for 18m35s before timing out.** CI-VERDICT-HANG-1's fix (`9db03fa`)
+is CLOSED on `e2e` run 34170428660, `conclusion: success`, 33 min, on the
+SAME workflow and shards that hung. Its four follow-ups — CI-VERDICT-STEPGAP-1
+(P1), CI-TEARDOWN-PROBE-BLIND-1 (P2), CI-VERDICT-FALLBACK-UNREACHABLE-1 (P2),
+CI-VERDICT-MISATTRIBUTION-1 (P3) — are now ALSO CI-verified, on their own
+integration commit `c05206b`: `e2e` run 34173229315, `conclusion: success`,
+32 min. All five entries in this cluster are closed on both reproduction AND
+a completed green run. CI-LOGDIR-RELATIVE-1 (P3) is **still open**, not
+addressed in that pass. A second code-review pass on `c05206b` is running
+with the same reviewer that prescribed the fixes.
 
-**Dispatch order, groom pass 20 (2026-09-06), updated same day on
-DRAWSHEET-AUTOPLACE-1's integration + geometry-qa pass, SHEET-RESCALE-1's
-build + QA pass, and SNAP-4's code review.** Pass 19's whole list
+**Dispatch order, groom pass 20 (2026-09-06), updated 2026-09-08 as builds
+landed for all three of the prior "top 3."** Pass 19's whole list
 (GATE-FLOOR, MATEUI-1, LAYOUT-1, GHOST-1, STEPNAME-1/1B, ARC-DEGENERATE-1,
 MATE-OBS-2, K2, PBT-1, SOLVE-CRASH-1, CI-BAL) shipped — see Done archive.
 **DRAWSHEET-AUTOPLACE-1 is INTEGRATED (`eb113cb` + geometry-qa's test fix
 `c6ae762`) but STAYS OPEN** — geometry-qa found the headline defect shape
 survives through two OTHER paths, filed as DRAWLAYOUT-OFFSHEET-FALLBACK-1
-(P1, new) and a coverage gap as DRAWLAYOUT-GOLDEN-COVERAGE-1 (P2, new);
+(P1) and a coverage gap as DRAWLAYOUT-GOLDEN-COVERAGE-1 (P2);
 DRAWLAYOUT-INK-CENTER-1 is now CONFIRMED (not unverified) and dispatchable.
-SHEET-RESCALE-1 (`d19d257`) is built-not-closed, and QA's own static proof
-sharpens SHEET-RESCALE-2 further (it's dead code from the UI, not merely
-hard to reach) while confirming the server side is exactly right;
+**SHEET-RESCALE-2 is BUILT at `a3316f8` (review + QA running, not
+integrated)** — the naive one-line swap the ticket described would have been
+wrong twice (an off-ladder scale value would have displayed as its native
+`<select>`'s first option; a second pick during a pending write was silently
+dropped), both now guarded; not a fresh dispatch target. SHEET-RESCALE-1
+(`d19d257`) itself stays built-not-closed pending SHEET-RESCALE-2 landing;
 SHEET-RESCALE-ORIENTATION-1 stays a product question in Next (P2), not
-Ready. SNAP-4 (`40a14bd`) is built-not-closed; QA PASSED it independently
-but found FOUR defects, one (QA-SNAP4-4) elevated to P1 because it
-contradicts the code review's own escape-hatch claim — the constraint glyph
-that review said was clickable is not, so SNAP-4's refusal message points
-at a dead end. Ranked, disjoint, parallel-dispatchable — **top 3 for the
-NEXT batch:**
+Ready. **QA-SNAP4-4 is BUILT at `13dcf64` (review running, not
+integrated)** — root cause confirmed (drei's `Html` mounts inside r3f's own
+event-listener div, so a native click hits React before r3f and the pick
+plane's `selectAt` undoes the glyph's own `onClick` in the same event; fix is
+one `stopPropagation()`); corrected territory to `ConstraintGlyphs.tsx`, not
+`SketchScene.tsx`; not a fresh dispatch target. **A new pre-existing defect
+surfaced while building that fix, filed below: QA-SKETCHFRAME-ORIGIN-PICK-1**
+(P2 — a face-seated sketch's origin resolves to the wrong pick subject,
+confirmed to predate the change by running the spec both ways in one
+session). Ranked, disjoint, parallel-dispatchable — **top 3 for the NEXT
+batch** (both prior P1s are now spoken for; promoted two P2s into their
+slots):
 
 1. **ARC-BOUNDS-INFLATE-1 + LAYOUTISSUE-OFFSHEET-1's `compose.py` half**
    (P1, S, kernel-architect, ONE dispatch not two) —
-   `services/geometry/src/geometry/drawings/compose.py`. Fix the arc-vs-circle
+   `services/geometry/src/geometry/drawings/compose.py`. Still the only
+   unbuilt item of the original three. Fix the arc-vs-circle
    bbox defect and emit `off_sheet` from `measure_sheet_overflow` in the same
    session, since both touch `_edge_points`/`view_bounds`/`place_sheet` and
    the reviewer explicitly asked for them together. LAYOUTISSUE-OFFSHEET-1's
@@ -127,38 +135,31 @@ NEXT batch:**
    `packages/contracts`, `packages/ts-client`) and rendering half
    (`apps/web`) are separate territory once the emission shape from this
    dispatch is agreed — see its own ticket.
-2. **SHEET-RESCALE-2** (P1, XS, frontend-builder) —
-   `apps/web/src/components/DrawingCommandBand.tsx`. SHEET-RESCALE-1's
-   re-scale verb is proven DEAD CODE from the UI by QA's static analysis
-   (one call site, in the branch that's never rendered post-layout) — not
-   merely inconvenient to reach. Reconciles QA-REVIEW.md's
-   SHEET-RESCALE-1B; one ticket, not two. Disjoint from #1 and #3.
-3. **QA-SNAP4-4** (P1, S, frontend-builder) — `apps/web/src/viewport/
-   SketchScene.tsx` (constraint glyph `onClick`), `apps/web/src/sketch/
-   store.ts`. A constraint glyph cannot be selected at all (click lands,
-   `aria-pressed` never flips) — the ONLY escape hatch from SNAP-4's
-   redundancy refusal is dead. Flow-mandate dead-end, same class as FB-13.
-   Disjoint from #1 and #2.
+2. **QA-SNAP4-2** (P2, M, frontend-builder) — `apps/web/src/viewport/
+   SketchScene.tsx` (line-tool pointer handling), `apps/web/e2e/**`. A tap
+   does not draw a line at all — bigger than SNAP-4, touch sketch authoring
+   is broken at the first gesture. Disjoint from #1 and #3 (QA-SNAP4-4's
+   fix now lives in `ConstraintGlyphs.tsx`, not this file — no conflict).
+   Coordinate with PLAYWRIGHT-TOUCH-1 on the harness half.
+3. **SNAP4-SPEC-1** (P2, XS, frontend-builder) — `apps/web/e2e/
+   constraints.spec.ts`. Completes SNAP-4's own unmet acceptance clause: the
+   spec still routes around the fix it's meant to prove. Small, precise,
+   measured edit already in the ticket. Disjoint from #1 and #2.
 
 Also ranked and ready, not in this batch (territory conflicts, sequencing
 dependencies, or size/blast-radius reasons noted):
 
-4. **QA-SNAP4-2** (P2, M, frontend-builder) — `apps/web/src/viewport/
-   SketchScene.tsx` (line-tool pointer handling), `apps/web/e2e/**`. A tap
-   does not draw a line at all — bigger than SNAP-4, touch sketch authoring
-   is broken at the first gesture. Same file as #3 above; sequence after it,
-   not parallel. Coordinate with PLAYWRIGHT-TOUCH-1 on the harness half.
-5. **SNAP4-SPEC-1** (P2, XS, frontend-builder) — `apps/web/e2e/
-   constraints.spec.ts`. Completes SNAP-4's own unmet acceptance clause: the
-   spec still routes around the fix it's meant to prove. Small, precise,
-   measured edit already in the ticket. Disjoint from everything above.
-6. **DRAWLAYOUT-INK-CENTER-1** (P3, S, kernel-architect) — same file as #1;
+4. **QA-SKETCHFRAME-ORIGIN-PICK-1** (P2, S, frontend-builder) — a
+   face-seated sketch's origin picks the entity instead of the point;
+   confirmed pre-existing, unrelated to QA-SNAP4-4. Same general pick-subject
+   family as QA-SNAP4-4 but a different defect and a different file.
+5. **DRAWLAYOUT-INK-CENTER-1** (P3, S, kernel-architect) — same file as #1;
    NOW CONFIRMED by geometry-qa to 0.01 mm (no longer blocked on
    verification) — a 9.7 mm-wide band of part sizes where a caption prints
    past the border, bounded and never clipping geometry. Sequence after #1
    (goldens should reflect the arc fix before this one re-baselines them
    again).
-7. **DRAWLAYOUT-OFFSHEET-FALLBACK-1** (P1, S, kernel-architect +
+6. **DRAWLAYOUT-OFFSHEET-FALLBACK-1** (P1, S, kernel-architect +
    frontend-builder) — `apps/web/src/drawing/layout.ts` (`fitScale`),
    `services/geometry/src/geometry/drawings/compose.py`
    (`_free_slot_anchor`). Two more live off-sheet-with-no-diagnostic paths
@@ -166,37 +167,37 @@ dependencies, or size/blast-radius reasons noted):
    fallback slot — the second WIDENED by this pass's own centring fix).
    Depends on LAYOUTISSUE-OFFSHEET-1 landing first (needs `off_sheet` in the
    contract to report through) — sequence after #1.
-8. **DRAWLAYOUT-GOLDEN-COVERAGE-1** (P2, S, kernel-architect) — same
-   goldens directory as #6; add 1-/2-/3-view sheet goldens so a
+7. **DRAWLAYOUT-GOLDEN-COVERAGE-1** (P2, S, kernel-architect) — same
+   goldens directory as #5; add 1-/2-/3-view sheet goldens so a
    subset-only defect (this whole cluster's shape) can never again be
    structurally invisible to the golden suite. Sequence after #1 so the new
    goldens capture corrected, not buggy, geometry.
-9. **SNAP4-MIXED-SELECTION-1** (P2, S, frontend-builder) — same files as
+8. **SNAP4-MIXED-SELECTION-1** (P2, S, frontend-builder) — same files as
    SNAP-4 itself (`constraints.ts`, `store.ts`); a mixed grounded+free
    selection drops the grounded point silently on Fix (now also confirmed
    end-to-end as QA-SNAP4-3, folded in rather than carried separately).
    Sequence with SNAP4-BINDING-CONSISTENCY-1 below (same files), not
    parallel.
-10. **SNAP4-CYCLE-TEST-1** (P3, XS, frontend-builder) — `constraints.test.ts`;
-    a cycle-safety test that cannot observe cycle safety (never enters its own
-    BFS). Different file from the two above, could run parallel with either.
-11. **QA-SNAP4-1** (P3, S, frontend-builder) — constraint catalogue /
+9. **SNAP4-CYCLE-TEST-1** (P3, XS, frontend-builder) — `constraints.test.ts`;
+   a cycle-safety test that cannot observe cycle safety (never enters its own
+   BFS). Different file from the two above, could run parallel with either.
+10. **QA-SNAP4-1** (P3, S, frontend-builder) — constraint catalogue /
     `Flyout` caption derivation; the Fixed row's unavailable-caption lies
     about why (says "needs a point" when the user has one, the real reason
-    is SNAP-4's own redundancy refusal). Same general area as #9/#10, small.
-12. **SNAP4-BINDING-CONSISTENCY-1** (P3, XS, frontend-builder) — same files as
+    is SNAP-4's own redundancy refusal). Same general area as #8/#9, small.
+11. **SNAP4-BINDING-CONSISTENCY-1** (P3, XS, frontend-builder) — same files as
     SNAP4-MIXED-SELECTION-1; two small bundled inconsistencies (X-on-Origin
     vs X-on-a-point-grounded-to-Origin bind differently; the hint names the
     anchor but not the escape hatch).
-13. **TITLEBLOCK-FIT-1** (P2, S, kernel-architect) — same file as #1 above
+12. **TITLEBLOCK-FIT-1** (P2, S, kernel-architect) — same file as #1 above
     (`compose.py`); queue after it lands, not parallel with it.
-14. **DRAWLAYOUT-PINNED-BLIND-1** (P3, S, kernel-architect) — same file
+13. **DRAWLAYOUT-PINNED-BLIND-1** (P3, S, kernel-architect) — same file
     again; a pinned view is invisible to the auto-layout's centring (not
     silent today — `views_overlap` catches it — but the coherent fix is
     upstream, in `_free_slot_anchor`'s style of occupied-space accounting).
-15. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
+14. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
     unrelated edit hits a silent, unexplained disabled Save.
-16. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
+15. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
     select-without-editing gesture, and the command band is out of room at
     1280. Large blast radius (75 refs across 28 e2e spec files) — best run
     alone, not paired with other `apps/web` work.
@@ -826,9 +827,13 @@ for full evidence/gates.** Their two live follow-ups stay in Ready:
 - [ ] (P1, S) **QA-SNAP4-4 — the escape hatch the code review verified by
       reading the routing DOES NOT WORK in the browser: a constraint glyph
       cannot be selected at all, so a user who genuinely needs a real
-      coordinate pin on an already-grounded point has NO path.** kind:
+      coordinate pin on an already-grounded point has NO path. BUILT at
+      `13dcf64` (frontend-builder; review running, NOT YET INTEGRATED — keep
+      unchecked).** kind:
       defect (contradicts SNAP-4's own code review; QA's in-browser
-      measurement wins). Found by qa-tester verifying SNAP-4 (`40a14bd`),
+      measurement wins — **and the root cause explains exactly why both were
+      right about what they each looked at, relayed by orchestrator
+      2026-09-08, see ROOT CAUSE below**). Found by qa-tester verifying SNAP-4 (`40a14bd`),
       relayed by orchestrator 2026-09-06. **Elevated from the reviewer's
       suggested P2 to P1**: this is exactly the standing flow-mandate defect
       class ("no dead ends, no ambiguous exits" — CLAUDE.md's FB-13
@@ -845,11 +850,29 @@ for full evidence/gates.** Their two live follow-ups stay in Ready:
       Only DIMENSION glyphs are removable today, via their editor's Remove
       button — constraint glyphs (`coincident`/`fixed`) have no equivalent,
       which is why `constraints.spec.ts`'s conflict-recovery case never
-      caught it (it only ever removes a dimension). LIKELY MECHANISM (from
-      QA, not yet confirmed by a builder): `selectAt` clears
-      `selectedConstraint`, and the constraint glyph's `onClick` does not
-      `stopPropagation` — unlike `SplineHandles` in the same file, which
-      does and works. Carried as a `test.fail()` case pending the fix.
+      caught it (it only ever removes a dimension). **ROOT CAUSE, CONFIRMED
+      by the builder (relayed by orchestrator 2026-09-08) — worth recording
+      VERBATIM, because it explains a code review and a QA pass reaching
+      opposite conclusions about the SAME code, with neither being careless:
+      drei mounts `Html` into `events.connected`, the very div r3f attaches
+      its own listeners to, while React attaches to each PORTAL CONTAINER — a
+      DESCENDANT of that div.** So a native click reaches React FIRST and r3f
+      SECOND: the glyph's `onClick` sets `selectedConstraint`, then the pick
+      plane raycasts the SAME coordinates and `selectAt` clears it. Same
+      event, last writer wins, and the last writer is the plane — "reading
+      the routing tells you the glyph's handler is wired; it cannot tell you
+      the handler runs and is then undone" (the builder's own words, and the
+      exact gap between the code review's conclusion and QA's measurement).
+      This also explains the half QA could not: a synthetic `el.click()`
+      failed identically, because it bubbles too, same as a real click. FIX:
+      one `stopPropagation()` on the constraint glyph's `onClick`, matching
+      `SplineHandles` in the same file, which already does this and works.
+      **TWO TERRITORY CORRECTIONS to this ticket's original filing, both
+      confirmed by the build**: the defect lives in `ConstraintGlyphs.tsx`
+      (~line 827), NOT `SketchScene.tsx` as originally guessed; and
+      `store.ts` needed NO change — `selectConstraint`/`removeConstraint`
+      were already correct, the bug was purely event-ordering upstream of
+      them. Carried as a `test.fail()` case pending integration.
       ACCEPTANCE: clicking a `coincident` or `fixed` glyph sets
       `aria-pressed="true"` and Delete removes that specific constraint; the
       `test.fail()` case QA added is promoted to a real assertion and goes
@@ -857,11 +880,11 @@ for full evidence/gates.** Their two live follow-ups stay in Ready:
       working exit once this lands (or reworded if the fix takes a
       different shape than "select the glyph, Delete").
       [src: qa-tester, SNAP-4 verification, relayed by orchestrator
-      2026-09-06, filed by backlog-groomer]
-      TERRITORY: `apps/web/src/viewport/SketchScene.tsx` (or wherever the
-      constraint glyph `onClick`/`selectAt` live — grep for `SplineHandles`'
-      `stopPropagation` as the working precedent), `apps/web/src/sketch/
-      store.ts`. agentType: frontend-builder.
+      2026-09-06; root cause + build (`13dcf64`) relayed by orchestrator
+      2026-09-08, filed by backlog-groomer]
+      TERRITORY: `apps/web/src/viewport/ConstraintGlyphs.tsx` (~line 827,
+      `onClick` — add `stopPropagation()`, matching `SplineHandles`'
+      precedent in the same file). agentType: frontend-builder.
 
 - [ ] (P2, M) **QA-SNAP4-2 — a tap does not draw a line at all; the touch
       story is broken at the FIRST sketch gesture, not the fifth verb.**
@@ -921,6 +944,41 @@ for full evidence/gates.** Their two live follow-ups stay in Ready:
       TERRITORY: `apps/web/src/sketch/` constraint catalogue / `Flyout`
       caption derivation (grep for `requires`/`needs a point`). agentType:
       frontend-builder.
+
+- [ ] (P2, S) **QA-SKETCHFRAME-ORIGIN-PICK-1 — a FACE-SEATED sketch's origin
+      is not selectable as a point; a corner click resolves to the entity
+      instead.** kind: defect (pre-existing — found while building
+      QA-SNAP4-4, confirmed unrelated to it). Found by the frontend-builder
+      fixing QA-SNAP4-4, relayed by orchestrator 2026-09-08, and correctly
+      NOT fixed by that agent since it is a different subject. MEASURED:
+      `apps/web/e2e/qa-sketch-frame.spec.ts:1024` ("a FACE-SEATED sketch's
+      origin is selectable") expects `"1 pt"` and gets
+      `"1 ent · 8 applied"` — a click at the origin's corner picks the
+      containing entity, not the point. Confirmed to PREDATE QA-SNAP4-4's
+      change, not caused by it: the builder ran the spec BOTH WAYS in one
+      session (with its `ConstraintGlyphs.tsx` fix, and with that file
+      swapped back to HEAD bytes and Vite bounced to serve the reverted
+      transform — see CLAUDE.md's own note on stale Vite transforms, applied
+      correctly here) and got the IDENTICAL assertion and IDENTICAL received
+      string both times. **Same general family as QA-SNAP4-4 — a pick
+      resolving to the wrong subject — but a DIFFERENT defect**: this is
+      face-seated origin picking on a corner click, not constraint-glyph
+      event ordering, and the two should not be fixed together or conflated
+      in review. FIX direction: not yet diagnosed — needs a builder to trace
+      the pick-priority ordering for a sketch origin seated on a face corner
+      (likely a hit-test precedence issue between the origin point and
+      whatever entity shares its screen position, in the same family as the
+      pick-priority work referenced elsewhere on this board). ACCEPTANCE: a
+      corner click on a face-seated sketch's origin selects the ORIGIN POINT
+      (`"1 pt"`), not the entity; the existing spec assertion at
+      `qa-sketch-frame.spec.ts:1024` passes without being weakened.
+      [src: frontend-builder building QA-SNAP4-4, relayed by orchestrator
+      2026-09-08, filed by backlog-groomer]
+      TERRITORY: not yet localised beyond the failing spec — likely sketch
+      pick-priority/hit-testing (grep near wherever origin-vs-entity pick
+      precedence is resolved for a face-seated sketch plane).
+      `apps/web/e2e/qa-sketch-frame.spec.ts` (the regression case).
+      agentType: frontend-builder.
 
 - [ ] (P2, XS) **SNAP4-SPEC-1 — `constraints.spec.ts` is green-by-avoidance:
       it still routes SNAP-4's own regression case around the fix instead of
@@ -1189,9 +1247,12 @@ unfloored case.**
       on `0437498`.** Platform-builder; four follow-up fixes integrated as
       `c05206b`, built `9073b74` — see their own entries below,
       CI-VERDICT-STEPGAP-1/CI-TEARDOWN-PROBE-BLIND-1/
-      CI-VERDICT-MISATTRIBUTION-1 CLOSED, CI-LOGDIR-RELATIVE-1 still open;
-      `c05206b`'s own `e2e` run has not yet completed, so ONLY this entry is
-      CI-verified so far. **TWO THINGS THAT MAKE THIS A REAL VERIFICATION,
+      CI-VERDICT-FALLBACK-UNREACHABLE-1/CI-VERDICT-MISATTRIBUTION-1 all
+      CLOSED, CI-LOGDIR-RELATIVE-1 still open. **UPDATE 2026-09-08:
+      `c05206b`'s own `e2e` run has now ALSO completed green** (run
+      34173229315, `conclusion: success`, 32 min) — both this fix and its
+      four follow-ups are CI-verified, not just built. **TWO THINGS THAT MAKE
+      THIS A REAL VERIFICATION,
       not just a green tick — recorded per the orchestrator's own
       instruction**: the run exercised the CHANGED TEARDOWN MACHINERY ITSELF
       (`9db03fa` touches `scripts/e2e.sh`, `scripts/e2e-verdict.py` and
@@ -1284,7 +1345,9 @@ unfloored case.**
       `CLAUDE.md`, `docs/RESEARCH.md`.
 
 - [x] (P1, S) **CI-VERDICT-STEPGAP-1 — CLOSED 2026-09-08, integrated as
-      `c05206b` (built `9073b74`, platform-builder). Reproduced exactly as
+      `c05206b` (built `9073b74`, platform-builder), CI-VERIFIED 2026-09-08 —
+      `e2e` run 34173229315, `conclusion: success`, 32 min, on the workflow
+      this fix modifies. Reproduced exactly as
       filed before fixing.** kind: defect (CI infra). REPRODUCTION: extracted
       the verdict step body and ran it against a real green `verdict.txt`
       with `SHARD_OUTCOME=success` + `JOB_STATUS=failure` -> exit **0**, last
@@ -1308,7 +1371,8 @@ unfloored case.**
       TERRITORY (closed): `.github/workflows/e2e.yml`.
 
 - [x] (P2, S) **CI-TEARDOWN-PROBE-BLIND-1 — CLOSED 2026-09-08, integrated as
-      `c05206b` (built `9073b74`, platform-builder). Reproduced against a
+      `c05206b` (built `9073b74`, platform-builder), CI-VERIFIED 2026-09-08 —
+      `e2e` run 34173229315, `conclusion: success`, 32 min. Reproduced against a
       real accept-and-never-answer socket before fixing.** kind: defect (CI
       infra). REPRODUCTION: `curl` returned `000` after 2010 ms against the
       hung listener vs `000` INSTANTLY on a genuinely free port — identical
@@ -1330,7 +1394,8 @@ unfloored case.**
       `listener_on_port`).
 
 - [x] (P2, S) **CI-VERDICT-FALLBACK-UNREACHABLE-1 — CLOSED 2026-09-08,
-      integrated as `c05206b` (built `9073b74`, platform-builder).
+      integrated as `c05206b` (built `9073b74`, platform-builder), CI-VERIFIED
+      2026-09-08 — `e2e` run 34173229315, `conclusion: success`, 32 min.
       Reproduced on the caller's real path before fixing.** kind: defect
       (pre-existing, not introduced by CI-VERDICT-HANG-1). REPRODUCTION: six
       status/report combinations tabulated against the real caller, not just
@@ -1370,9 +1435,10 @@ unfloored case.**
       agentType: platform-builder.
 
 - [x] (P3, XS) **CI-VERDICT-MISATTRIBUTION-1 — CLOSED 2026-09-08, integrated
-      as `c05206b` (built `9073b74`, platform-builder). A guard that fails in
-      the right DIRECTION can still teach a reader something false, if it
-      blames the wrong SUBJECT.** kind: defect (CI infra — a new instance of
+      as `c05206b` (built `9073b74`, platform-builder), CI-VERIFIED 2026-09-08
+      — `e2e` run 34173229315, `conclusion: success`, 32 min. A guard that
+      fails in the right DIRECTION can still teach a reader something false,
+      if it blames the wrong SUBJECT.** kind: defect (CI infra — a new instance of
       an existing family this board already tracks: an assertion that is
       technically correct about its own mechanism but wrong about what it
       claims to be reporting on). Found by the NEW probe harness built for
@@ -1556,11 +1622,28 @@ Done archive. Residual: **SHEET-RESCALE-1** below.**
       (not yet — see SHEET-RESCALE-2). agentType: backend-builder (done),
       frontend-builder (SHEET-RESCALE-2).
 
-- [ ] (P1, XS) **SHEET-RESCALE-2 — the re-scale verb SHEET-RESCALE-1 built
-      ships unreachable by mouse: the Scale control is still a read-only
-      `Readout`. CONFIRMED as dead code, not just unreachable, by QA's static
-      proof — reconciles QA-REVIEW.md's SHEET-RESCALE-1B, same finding, one
-      ticket.** kind: defect (flow — an existing, working capability with
+- [ ] (P1, XS) **SHEET-RESCALE-2 — BUILT at `a3316f8` (frontend-builder;
+      review + QA running, NOT YET INTEGRATED — keep unchecked). The re-scale
+      verb SHEET-RESCALE-1 built ships unreachable by mouse: the Scale
+      control is still a read-only `Readout`. CONFIRMED as dead code, not
+      just unreachable, by QA's static proof — reconciles QA-REVIEW.md's
+      SHEET-RESCALE-1B, same finding, one ticket.** **The one-line `Readout`→
+      `SelectField` swap this ticket's own text described (and the brief
+      asked for) would have been WRONG TWICE over — recorded because it
+      changes what "done" means here, relayed by orchestrator 2026-09-08:**
+      (1) a native `<select>` whose value matches NO option silently displays
+      its FIRST option, and an API client can store any ratio the server
+      accepts and no control can express (`1:4` was the exact case that hid
+      this gap) — so a naive swap would have had the very control that
+      replaced an honest read-only `Readout` LIE about an off-ladder sheet's
+      scale, reporting `1:1` for something else entirely. Off-ladder values
+      are now a shown-but-NOT-choosable guard entry in the picker rather than
+      silently coerced; QA is independently checking that guard. (2)
+      `reheadSheet` early-returns while a write is already pending, so a
+      second pick landing in that window was silently discarded with no
+      error and no visible retry. The picker is now INERT (disabled/ignores
+      input) for the duration of a pending write, rather than accepting and
+      dropping a second pick. kind: defect (flow — an existing, working capability with
       no way to reach it, CLAUDE.md's own named defect class: "the founder's
       own FB-1..FB-19 were almost all 'the capability was there and
       unreachable'"). Escalated by the SHEET-RESCALE-1 builder rather than
@@ -1594,10 +1677,15 @@ Done archive. Residual: **SHEET-RESCALE-1** below.**
       Playwright case drives it by mouse (click Scale → pick a value →
       assert the redraw), not just by calling the API directly; the static
       proof above (call-site count, branch reachability) is re-run and
-      confirmed to flip.
+      confirmed to flip; a sheet at an off-ladder scale (e.g. `1:4` set only
+      via the API) shows its TRUE value rather than defaulting to the first
+      option, and that value is not independently selectable from the picker
+      (guard, not silent coercion); a second pick issued while a `reheadSheet`
+      write is still pending is REJECTED or queued, never silently dropped.
       [src: SHEET-RESCALE-1 build, backend-builder; QA static proof
       (docs/QA-REVIEW.md SHEET-RESCALE-1B), relayed by orchestrator
-      2026-09-06, filed by backlog-groomer]
+      2026-09-06; built `a3316f8`, two findings above relayed by orchestrator
+      2026-09-08, filed by backlog-groomer]
       TERRITORY: `apps/web/src/components/DrawingCommandBand.tsx`, its test
       file. agentType: frontend-builder.
 
@@ -6018,6 +6106,24 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-09-08 — **c05206b CI-verified (run 34173229315, success, 32 min);
+  SHEET-RESCALE-2 and QA-SNAP4-4 both built and in review; one new defect
+  filed (backlog-groomer, relaying orchestrator).** CI-VERDICT-STEPGAP-1/
+  CI-TEARDOWN-PROBE-BLIND-1/CI-VERDICT-FALLBACK-UNREACHABLE-1/
+  CI-VERDICT-MISATTRIBUTION-1 are now fully CI-verified, not just
+  reproduction-closed. SHEET-RESCALE-2 (`a3316f8`) avoided two defects a
+  naive fix would have introduced: a native `<select>` silently showing its
+  first option for an off-ladder scale, and a second pick silently dropped
+  during a pending write — both now guarded. QA-SNAP4-4 (`13dcf64`) has a
+  confirmed root cause (drei's `Html` mounts inside r3f's own event
+  listener, so a click reaches React before r3f and the pick plane's
+  `selectAt` undoes the glyph's `onClick` in the same event) and a corrected
+  territory (`ConstraintGlyphs.tsx`, not `SketchScene.tsx`). Filed
+  QA-SKETCHFRAME-ORIGIN-PICK-1 (P2) — a face-seated origin picks the wrong
+  subject, confirmed pre-existing and unrelated to QA-SNAP4-4 by running the
+  spec both ways in one session. Refreshed the Ready dispatch order: both
+  prior P1s are now built/in-review, so QA-SNAP4-2 and SNAP4-SPEC-1 take
+  the next batch's remaining two slots.
 - 2026-09-08 — **CI-VERDICT-HANG-1 CLOSED on CI evidence (backlog-groomer,
   relaying orchestrator): `e2e` run 34170428660 on `9db03fa`, `success`, 33
   min on the SAME workflow/shards that produced the 18m35s hang.** This is
