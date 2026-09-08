@@ -11,6 +11,8 @@
  * current tip (functional, never decorative — design mandate 3a). Chrome
  * recedes; the sheet is the hero.
  */
+import { useState } from "react";
+
 import {
   FlatPatternIcon,
   RectIcon,
@@ -63,16 +65,16 @@ export interface DrawingCommandBandProps {
   scaleValue: string;
   /**
    * Pick a scale. Pre-layout that records intent; post-layout it re-scales the
-   * laid-out sheet in place (SHEET-RESCALE-1's verb). The cell does NOT hold
-   * the picked value optimistically — `scaleValue` keeps deriving from what the
-   * sheet is actually drawn at, so a failed write leaves the honest reading.
+   * laid-out sheet in place (SHEET-RESCALE-1's verb). `scaleValue` keeps
+   * deriving from what the sheet is actually DRAWN at, so a failed write leaves
+   * the honest reading — the cell only holds the picked value for as long as
+   * the write is in flight.
    */
   onSelectScale: (value: string) => void;
   /**
-   * True while a re-scale write is in flight. The picker goes honestly inert
-   * for that window: the writer refuses a second change while one is pending,
-   * and a control that accepts a gesture it will discard is a dead end
-   * (CLAUDE.md flow rule 4), so it says so instead of swallowing it.
+   * True while a re-scale write is in flight. For that window the cell holds
+   * the value the user PICKED and marks itself busy — see the Scale cell below
+   * for why showing the server's old value there was a defect.
    */
   rescaling?: boolean;
   /** The chosen sheet size before layout; the persisted sheet's size after. */
@@ -153,11 +155,14 @@ export function DrawingCommandBand({
     group: SOURCE_GROUP_LABEL[source.kind],
   }));
   // The standard ladder, plus — only when needed — the scale the sheet is
-  // ACTUALLY at. A native select whose value matches no option silently
-  // displays its FIRST one, so a sheet stored at some off-ladder scale (an API
-  // client can write any ratio) would be misreported as 1:1 by the very cell
-  // that replaced the readout. The guard entry is shown and not choosable, so
-  // the cell can still state a scale it cannot offer to re-pick.
+  // ACTUALLY at. REACT's controlled select is what makes this necessary: when
+  // no option matches `value`, `updateOptions` walks the list and selects the
+  // first NON-DISABLED one. (A bare native select does something else and
+  // equally wrong — it deselects everything: `selectedIndex: -1`, nothing
+  // displayed.) So a sheet stored at some off-ladder scale, which an API client
+  // can write, would be misreported as 1:1 by the very cell that replaced the
+  // readout. The guard entry is shown and not choosable, so the cell can still
+  // state a scale it cannot offer to re-pick.
   const offLadder =
     scaleValue !== "" && !SCALE_OPTIONS.some((s) => s.value === scaleValue);
   const scaleOptions = [
@@ -166,6 +171,12 @@ export function DrawingCommandBand({
       : []),
     ...SCALE_OPTIONS.map((s) => ({ value: s.value, label: s.label })),
   ];
+  // What the user just picked, held ONLY while the write for it is in flight.
+  const [pickedScale, setPickedScale] = useState<string | null>(null);
+  const shownScale =
+    rescaling && pickedScale !== null ? pickedScale : scaleValue;
+  // Busy for any reason: a re-scale in flight, or the sheet re-projecting.
+  const inert = busy || rescaling;
   const sizeOptions = sheetSizeOptions(paperOrientation).map((s) => ({
     value: s.value,
     label: s.label,
@@ -250,26 +261,48 @@ export function DrawingCommandBand({
             change announcing itself. It should not: the point of this fix is
             that the value simply becomes operable. */}
         <div className="flex flex-col justify-center">
-          {hasLayout ? (
-            // The <select> carries the same name for assistive tech (the
-            // primitive's own `sr-only` label), so this engraving is decoration
-            // of the accessible name, not a second copy of it.
-            <span
-              aria-hidden="true"
-              className="font-display text-2xs uppercase tracking-[0.16em] text-gauge"
-            >
-              Scale
-            </span>
-          ) : null}
+          {hasLayout ? <CellCaption>Scale</CellCaption> : null}
           <SelectField
             label="Scale"
             hideLabel={hasLayout}
             options={scaleOptions}
-            value={scaleValue}
-            disabled={busy || rescaling}
+            // The value the user PICKED for as long as the write is in flight,
+            // the sheet's own scale otherwise. Both halves matter. `scaleValue`
+            // derives from the server, and React re-runs `updateOptions` on
+            // EVERY commit, so simply not holding the pick meant a successful
+            // gesture answered by snapping back to the old scale and grabbing
+            // the cell out — a success that reads exactly like a rejection, on
+            // the one gesture this whole ticket exists to add (flow rule 4).
+            // And holding it no longer than the flight is what keeps the
+            // failure case honest: a refused write reverts to what the sheet is
+            // actually drawn at, next to the error the page raises.
+            value={shownScale}
+            // `aria-disabled`, NEVER the native attribute — the band's own
+            // grammar (see `ToolButton`), and here it is load-bearing rather
+            // than stylistic: a natively-disabled control is dropped from the
+            // TAB ORDER, so disabling it at the instant of the pick threw a
+            // keyboard user to <body> mid-task, with no way back but
+            // re-navigating the band. Measured. Playwright's `toBeEnabled()`
+            // honours `aria-disabled`, so the gate assertions still hold.
+            aria-disabled={inert || undefined}
+            aria-busy={rescaling || undefined}
             data-testid="drawing-scale-select"
-            className="w-[6rem]"
-            onChange={(event) => onSelectScale(event.currentTarget.value)}
+            className={inert ? "w-[6rem] opacity-40" : "w-[6rem]"}
+            style={inert ? { cursor: "not-allowed" } : undefined}
+            onChange={(event) => {
+              if (inert) {
+                // Inert means inert: the writer refuses a second change while
+                // one is pending, so accepting this would be accepting a
+                // gesture we know will be discarded. Nothing here changes
+                // state, so React will not re-render and will not reset the
+                // value the browser has already moved — put it back by hand,
+                // or the cell would silently show a scale the sheet is not at.
+                event.currentTarget.value = shownScale;
+                return;
+              }
+              setPickedScale(event.currentTarget.value);
+              onSelectScale(event.currentTarget.value);
+            }}
           />
         </div>
       </div>
@@ -406,6 +439,28 @@ export function DrawingCommandBand({
   );
 }
 
+/**
+ * The band's engraved cell caption — micro-caps, the same voice as the tool
+ * group eyebrows and the sheet's own title block.
+ *
+ * One copy, because there are two real uses: the readouts below, and the Scale
+ * picker, which wears this instead of its primitive's field label once it sits
+ * among them. `aria-hidden` because both users already carry the same word as
+ * an accessible name (a readout via its value cell, the picker via the
+ * primitive's own `sr-only` label) — this is the engraving of that name, not a
+ * second copy of it.
+ */
+function CellCaption({ children }: { children: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="font-display text-2xs uppercase tracking-[0.16em] text-gauge"
+    >
+      {children}
+    </span>
+  );
+}
+
 /** A quiet label-over-value readout — the post-layout state of a picker. */
 function Readout({
   label,
@@ -418,9 +473,7 @@ function Readout({
 }) {
   return (
     <div className="flex flex-col justify-center">
-      <span className="font-display text-2xs uppercase tracking-[0.16em] text-gauge">
-        {label}
-      </span>
+      <CellCaption>{label}</CellCaption>
       <span data-testid={testId} className="font-data text-sm text-mist">
         {value}
       </span>

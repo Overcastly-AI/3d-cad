@@ -1,3 +1,5 @@
+import { target as targetToken } from "@loft/design/tokens";
+
 import { expect, test, type Page } from "./fixtures";
 
 import { seedSession } from "./support";
@@ -260,8 +262,17 @@ async function expectOperable(
   await expect(control, `${what} must be enabled`).toBeEnabled();
   const box = await control.boundingBox();
   expect(box, `${what} must have a hit box`).not.toBeNull();
-  expect(box?.width ?? 0, `${what} width`).toBeGreaterThan(20);
-  expect(box?.height ?? 0, `${what} height`).toBeGreaterThan(10);
+  // The PRODUCT's own dense floor (24 px), not a number picked to pass. The
+  // first version of this helper asked for `height > 10`, which is under the
+  // floor and therefore could not fail for the regression it looks like it
+  // guards — this very control measured 19 px before `min-h-target-dense` was
+  // put on it, and would have sailed through.
+  expect(box?.width ?? 0, `${what} width`).toBeGreaterThanOrEqual(
+    targetToken.dense,
+  );
+  expect(box?.height ?? 0, `${what} height`).toBeGreaterThanOrEqual(
+    targetToken.dense,
+  );
   const reachable = await control.evaluate((el) => {
     const r = el.getBoundingClientRect();
     const hit = document.elementFromPoint(

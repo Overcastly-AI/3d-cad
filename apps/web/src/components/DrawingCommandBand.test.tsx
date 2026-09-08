@@ -18,10 +18,8 @@ import { describe, expect, it, vi } from "vitest";
 import { DrawingCommandBand } from "./DrawingCommandBand";
 import { SCALE_OPTIONS } from "../drawing/layout";
 
-function renderBand(
-  props: Partial<Parameters<typeof DrawingCommandBand>[0]> = {},
-) {
-  return render(
+function band(props: Partial<Parameters<typeof DrawingCommandBand>[0]> = {}) {
+  return (
     <DrawingCommandBand
       sources={[{ id: "part-1", name: "Bracket", kind: "part" }]}
       selectedSourceId="part-1"
@@ -46,8 +44,14 @@ function renderBand(
       exporting={false}
       busy={false}
       {...props}
-    />,
+    />
   );
+}
+
+function renderBand(
+  props: Partial<Parameters<typeof DrawingCommandBand>[0]> = {},
+) {
+  return render(band(props));
 }
 
 describe("DrawingCommandBand — the Scale cell", () => {
@@ -93,11 +97,71 @@ describe("DrawingCommandBand — the Scale cell", () => {
     }
   });
 
-  it("goes inert while a re-scale write is in flight", () => {
-    renderBand({ hasLayout: true, rescaling: true });
-    // The writer refuses a second change while one is pending, so accepting the
-    // gesture would be accepting something it will discard.
-    expect(screen.getByTestId("drawing-scale-select")).toBeDisabled();
+  it("holds the PICKED value while the write is in flight, not the old one", () => {
+    // The regression this replaced: `scaleValue` derives from the server and
+    // React re-runs `updateOptions` on every commit, so a successful pick was
+    // answered by snapping back to the scale the user had just moved away from.
+    // A success that reads as a rejection, on the one gesture this ticket adds.
+    const { rerender } = renderBand({ hasLayout: true, scaleValue: "1:2" });
+    const picker = screen.getByTestId("drawing-scale-select");
+    fireEvent.change(picker, { target: { value: "1:5" } });
+    // The page now re-renders with the write in flight and the server value
+    // STILL the old one — the exact prop sequence `DrawingPage` produces.
+    rerender(band({ hasLayout: true, scaleValue: "1:2", rescaling: true }));
+    expect(picker).toHaveValue("1:5");
+    // ...and it settles on the server's own reading, with nothing to see.
+    rerender(band({ hasLayout: true, scaleValue: "1:5", rescaling: false }));
+    expect(picker).toHaveValue("1:5");
+  });
+
+  it("reverts to what the sheet is drawn at when the write fails", () => {
+    // The other half, and the reason the pick is held only for the flight: a
+    // refused write must leave the honest reading, beside the page's error.
+    const { rerender } = renderBand({ hasLayout: true, scaleValue: "1:2" });
+    const picker = screen.getByTestId("drawing-scale-select");
+    fireEvent.change(picker, { target: { value: "1:5" } });
+    rerender(band({ hasLayout: true, scaleValue: "1:2", rescaling: true }));
+    expect(picker).toHaveValue("1:5");
+    // The write failed: the page clears `rescaling` without the scale moving.
+    rerender(band({ hasLayout: true, scaleValue: "1:2", rescaling: false }));
+    expect(picker).toHaveValue("1:2");
+  });
+
+  it("marks itself busy in flight WITHOUT leaving the tab order", () => {
+    const { rerender } = renderBand({ hasLayout: true, scaleValue: "1:2" });
+    const picker = screen.getByTestId("drawing-scale-select");
+    picker.focus();
+    expect(document.activeElement).toBe(picker);
+
+    rerender(band({ hasLayout: true, scaleValue: "1:2", rescaling: true }));
+    // Inert, and said the way the band says it (`ToolButton`'s grammar).
+    expect(picker).toHaveAttribute("aria-disabled", "true");
+    expect(picker).toHaveAttribute("aria-busy", "true");
+    // NOT the native attribute: that drops the control from the tab order, so
+    // disabling at the instant of the pick threw a keyboard user to <body>
+    // mid-task. jest-dom's `toBeDisabled` reads only the native attribute,
+    // which is exactly why it is the right assertion here.
+    expect(picker).not.toBeDisabled();
+    expect(document.activeElement).toBe(picker);
+  });
+
+  it("discards a second pick while one is already in flight", () => {
+    const onSelectScale = vi.fn();
+    const { rerender } = renderBand({
+      hasLayout: true,
+      scaleValue: "1:2",
+      onSelectScale,
+    });
+    const picker = screen.getByTestId("drawing-scale-select");
+    fireEvent.change(picker, { target: { value: "1:5" } });
+    expect(onSelectScale).toHaveBeenCalledTimes(1);
+
+    rerender(band({ hasLayout: true, scaleValue: "1:2", rescaling: true }));
+    fireEvent.change(picker, { target: { value: "1:10" } });
+    // The writer would refuse it, so the cell does not pretend otherwise —
+    // and it does not silently show a scale the sheet is not being drawn at.
+    expect(onSelectScale).toHaveBeenCalledTimes(1);
+    expect(picker).toHaveValue("1:5");
   });
 
   it("keeps Source and Size engraved after layout — those ARE re-layouts", () => {

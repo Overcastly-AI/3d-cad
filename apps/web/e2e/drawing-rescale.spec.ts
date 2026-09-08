@@ -1,9 +1,6 @@
 // The pick band's width, from the design token rather than a literal — the
-// bound below is derived from it. Imported from the tokens MODULE, not the
-// package root: `@loft/design`'s index pulls in the Tailwind preset, which
-// Node's own resolver (Playwright transforms specs itself, without Vite)
-// cannot load.
-import { drawing } from "../../../packages/design/src/tokens";
+// bound below is derived from it.
+import { drawing } from "@loft/design/tokens";
 
 import { expect, test, type Page } from "./fixtures";
 
@@ -226,6 +223,9 @@ function draftedScale(scales: string[]): {
   return { label, denominator };
 }
 
+const STRAIGHT_EDGE =
+  '[data-testid="drawing-pick-edge"][data-primitive="line"]';
+
 /** The longest drawn EDGE in each standard view, in SHEET MILLIMETRES.
  *
  * Three measurements were available here and only one of them can carry an
@@ -246,38 +246,38 @@ function draftedScale(scales: string[]): {
  *   millimetres, with no chrome in it. That is what this returns, and it is why
  *   the ratios below are asserted to five places instead of inside a band.
  *
+ * STRAIGHT edges only, in both readers, because the screen-side bound below is
+ * derived for a rotated BAND and a circle is not one: a disc's box diagonal is
+ * `2r*sqrt(2)`, which for r = 5 mm exceeds the `L + t` ceiling that derivation
+ * relies on. Scoping both to `data-primitive="line"` keeps the two readings
+ * about the same class of thing instead of leaving a branch that is unreachable
+ * on this fixture and wrong on the first one with a hole in it. (The QA spec's
+ * `edgeMetrics` does measure circles — it carries no screen-side bound.)
+ *
  * The composer produces these lengths, so the numbers are the server's, not the
  * browser's arithmetic.
  */
 async function longestEdges(page: Page): Promise<Record<string, number>> {
   for (const projection of ["front", "top", "right", "iso"]) {
     await expect(
-      page
-        .locator(`[data-testid="drawing-pick-edge"][data-view="${projection}"]`)
-        .first(),
+      page.locator(`${STRAIGHT_EDGE}[data-view="${projection}"]`).first(),
     ).toBeAttached({ timeout: 30_000 });
   }
-  const sizes = await page.evaluate(() => {
+  const sizes = await page.evaluate((selector) => {
     const out: Record<string, number> = {};
-    const groups = document.querySelectorAll<SVGGElement>(
-      '[data-testid="drawing-pick-edge"]',
-    );
-    for (const group of groups) {
+    for (const group of document.querySelectorAll<SVGGElement>(selector)) {
       const view = group.getAttribute("data-view") ?? "?";
       let longest = out[view] ?? 0;
       for (const band of group.querySelectorAll<SVGRectElement>("rect")) {
         longest = Math.max(longest, band.width.baseVal.value);
       }
-      for (const disc of group.querySelectorAll<SVGCircleElement>("circle")) {
-        longest = Math.max(longest, 2 * Math.PI * disc.r.baseVal.value);
-      }
       out[view] = longest;
     }
     return out;
-  });
+  }, STRAIGHT_EDGE);
   for (const projection of ["front", "top", "right", "iso"]) {
     if (!sizes[projection]) {
-      throw new Error(`no measurable edge in the ${projection} view`);
+      throw new Error(`no measurable straight edge in the ${projection} view`);
     }
   }
   return sizes;
@@ -291,9 +291,7 @@ async function longestEdgesOnScreen(
 ): Promise<Record<string, number>> {
   const sizes: Record<string, number> = {};
   for (const projection of ["front", "top", "right", "iso"]) {
-    const edges = page.locator(
-      `[data-testid="drawing-pick-edge"][data-view="${projection}"]`,
-    );
+    const edges = page.locator(`${STRAIGHT_EDGE}[data-view="${projection}"]`);
     await expect(edges.first()).toBeAttached({ timeout: 30_000 });
     const count = await edges.count();
     let longest = 0;
@@ -310,35 +308,66 @@ async function longestEdgesOnScreen(
   return sizes;
 }
 
-/** The scale ladder the picker actually offers, largest ratio first. A GESTURE
- * can only choose from this list, so a target computed by doubling a
- * denominator — which is what an API-driven case is free to do — may name a
- * scale no control can express. That difference is the whole reason case 1
- * below could claim to re-pick while issuing a PATCH for 1:4. */
-const LADDER = ["5:1", "2:1", "1:1", "1:2", "1:5", "1:10"] as const;
+/**
+ * The scales the picker actually offers, largest ratio first — read from THE
+ * CONTROL, so this cannot drift from the product's own ladder.
+ *
+ * A gesture can only choose from this list, which an API-driven case is free to
+ * ignore: doubling a denominator names 1:4, a scale the server accepts happily
+ * and no control can express. That gap is the whole reason case 1 below could
+ * claim to re-pick while issuing a PATCH.
+ *
+ * Importing `SCALE_OPTIONS` is the obvious DRY move and does not work:
+ * `apps/web/src/drawing/layout.ts` imports the ROOT of `@loft/design`, whose
+ * index pulls in the Tailwind preset, and Node — which transforms specs itself,
+ * without Vite — cannot resolve that file's extensionless `tailwindcss/plugin`
+ * (measured: "No tests found", before any test runs). Reading the DOM is not a
+ * workaround for that, though: it is the better oracle either way, because the
+ * question this spec asks is what the USER can pick, and the answer is in the
+ * control rather than in a constant that feeds it.
+ */
+async function offeredScales(
+  page: Page,
+): Promise<{ value: string; ratio: number }[]> {
+  const values = await page
+    .getByTestId("drawing-scale-select")
+    .locator("option:not([disabled])")
+    .evaluateAll((options) =>
+      options.map((option) => (option as HTMLOptionElement).value),
+    );
+  if (values.length < 2) {
+    throw new Error(`the picker offers nothing to change to: ${values}`);
+  }
+  return values
+    .map((value) => {
+      const [numerator, denominator] = value.split(":").map(Number);
+      if (!numerator || !denominator) {
+        throw new Error(`unreadable scale ${value}`);
+      }
+      return { value, ratio: numerator / denominator };
+    })
+    .sort((a, b) => b.ratio - a.ratio);
+}
 
 /** The next scale DOWN the ladder from the one the sheet was drafted at — a
  * reduction, so the re-scaled sheet cannot overflow its paper and turn this
- * case into a test of the layout-issue banner instead. */
-function nextSmallerScale(drafted: string): string {
-  const index = LADDER.indexOf(drafted as (typeof LADDER)[number]);
+ * case into a test of the layout-issue banner instead. Carries the exact factor
+ * every projected edge must then move by. */
+async function nextSmallerScale(
+  page: Page,
+  drafted: string,
+): Promise<{ value: string; ratioFrom: number }> {
+  const ladder = await offeredScales(page);
+  const index = ladder.findIndex((option) => option.value === drafted);
   if (index < 0) {
     throw new Error(`the fit chose ${drafted}, which the picker cannot offer`);
   }
-  const target = LADDER[index + 1];
-  if (target === undefined) {
+  const from = ladder[index];
+  const target = ladder[index + 1];
+  if (from === undefined || target === undefined) {
     throw new Error(`${drafted} is the bottom of the ladder; nothing to pick`);
   }
-  return target;
-}
-
-/** The ratio a scale label names, e.g. "1:5" -> 0.2. */
-function ratioOf(label: string): number {
-  const [numerator, denominator] = label.split(":").map(Number);
-  if (!numerator || !denominator) {
-    throw new Error(`unreadable scale ${label}`);
-  }
-  return numerator / denominator;
+  return { value: target.value, ratioFrom: target.ratio / from.ratio };
 }
 
 test.describe("drawings — re-scaling a laid-out sheet", () => {
@@ -363,8 +392,9 @@ test.describe("drawings — re-scaling a laid-out sheet", () => {
       1,
     );
     const drafted = draftedScale(tree.scales);
-    const target = nextSmallerScale(drafted.label);
-    const expected = ratioOf(target) / ratioOf(drafted.label);
+    const picked = await nextSmallerScale(page, drafted.label);
+    const target = picked.value;
+    const expected = picked.ratioFrom;
 
     // The CONTROL, not a readout of it. Until SHEET-RESCALE-2 this cell was a
     // `Readout` post-layout, so `onSelectScale` had one call site in a branch
@@ -490,7 +520,7 @@ test.describe("drawings — re-scaling a laid-out sheet", () => {
     );
     const tree = await readTree(page, account.token, drawingId);
     const drafted = draftedScale(tree.scales);
-    const target = nextSmallerScale(drafted.label);
+    const target = (await nextSmallerScale(page, drafted.label)).value;
 
     await page.getByTestId("drawing-scale-select").selectOption(target);
     await expect(page.getByTestId("title-block-scale")).toHaveText(target, {
@@ -503,6 +533,84 @@ test.describe("drawings — re-scaling a laid-out sheet", () => {
     });
     await expect(page.getByTestId("drawing-scale-select")).toHaveValue(target);
     await expect(page.getByTestId("title-block-scale")).toHaveText(target);
+  });
+
+  test("a KEYBOARD user can re-scale, and still has the cell afterwards", async ({
+    page,
+  }) => {
+    // Two things this case exists for, and neither can be read off the cell's
+    // displayed value.
+    //
+    // (1) THE DISCRIMINATOR IS THE REQUEST, NOT THE READOUT. The picker is a
+    // controlled select whose value derives from the server, so reading it one
+    // tick after a keystroke returns the OLD scale whether the gesture landed
+    // or was ignored — identical output for "it worked" and "it did nothing".
+    // A vanilla <select> on the same page moves on the same keystroke, so the
+    // obvious negative control points the WRONG WAY and invites filing a defect
+    // that is not there (independent QA nearly did). The PATCH is the fact.
+    //
+    // (2) FOCUS SURVIVES THE WRITE. The first version of this fix disabled the
+    // cell natively while the write was in flight, which drops it from the tab
+    // order: focus went to <body> at the instant of the pick and one Tab landed
+    // somewhere else entirely, so a keyboard user was thrown out of the band
+    // mid-task. That is not latency-dependent and does not shrink on a fast
+    // connection, which is why it is asserted here rather than eyeballed.
+    const account = await seedSession(page);
+    const part = await createBlockViaApi(page, account.token, "Keyboard block");
+    // The id is not needed: this case asserts on the REQUEST the browser makes
+    // and on the composed sheet, never on a tree read of its own.
+    await seedLaidOutDrawing(page, part.id, "Keyboard block drawing");
+
+    const picker = page.getByTestId("drawing-scale-select");
+    await picker.focus();
+    await expect(picker).toBeFocused();
+
+    // Where ArrowDown actually goes, read from the DOM rather than assumed:
+    // the next option in document order, which is the ladder's own order.
+    const step = await picker.evaluate((el) => {
+      const select = el as HTMLSelectElement;
+      const next = select.options[select.selectedIndex + 1];
+      return next === undefined
+        ? null
+        : { from: select.value, to: next.value, disabled: next.disabled };
+    });
+    if (step === null || step.disabled) {
+      throw new Error(
+        "the fixture left the picker with no next option to arrow onto",
+      );
+    }
+    const [numerator, denominator] = step.to.split(":").map(Number);
+
+    const patch = page.waitForRequest(
+      (request) =>
+        request.method() === "PATCH" &&
+        /\/sheets\/[0-9a-f-]+$/.test(request.url()),
+    );
+    await page.keyboard.press("ArrowDown");
+
+    // THE FACT: the gesture reached the server, carrying the scale the keyboard
+    // moved onto.
+    const request = await patch;
+    expect(JSON.parse(request.postData() ?? "{}")).toMatchObject({
+      scale: { numerator, denominator },
+    });
+
+    // ...and the drawing follows, server-composed.
+    await expect(page.getByTestId("title-block-scale")).toHaveText(step.to, {
+      timeout: 30_000,
+    });
+    await expect(picker).toHaveValue(step.to);
+
+    // THE REGRESSION: the cell is still where the user left it, after the whole
+    // round trip — including the busy window, which marks itself with
+    // `aria-disabled` precisely so the control never leaves the tab order.
+    await expect(picker).toBeFocused();
+    const stillThere = await picker.evaluate(
+      (el) => el === document.activeElement,
+    );
+    expect(stillThere, "the picker must keep focus across the write").toBe(
+      true,
+    );
   });
 
   test("the per-view scale guard still refuses a divergent write", async ({
