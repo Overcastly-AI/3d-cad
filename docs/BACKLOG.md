@@ -93,16 +93,26 @@ a completed green run. CI-LOGDIR-RELATIVE-1 (P3) is **still open**, not
 addressed in that pass. A second code-review pass on `c05206b` is running
 with the same reviewer that prescribed the fixes.
 
-**Dispatch order, groom pass 20 (2026-09-06), updated 2026-09-08 as builds
-landed for all three of the prior "top 3."** Pass 19's whole list
-(GATE-FLOOR, MATEUI-1, LAYOUT-1, GHOST-1, STEPNAME-1/1B, ARC-DEGENERATE-1,
-MATE-OBS-2, K2, PBT-1, SOLVE-CRASH-1, CI-BAL) shipped — see Done archive.
-**DRAWSHEET-AUTOPLACE-1 is INTEGRATED (`eb113cb` + geometry-qa's test fix
-`c6ae762`) but STAYS OPEN** — geometry-qa found the headline defect shape
-survives through two OTHER paths, filed as DRAWLAYOUT-OFFSHEET-FALLBACK-1
-(P1) and a coverage gap as DRAWLAYOUT-GOLDEN-COVERAGE-1 (P2);
-DRAWLAYOUT-INK-CENTER-1 is now CONFIRMED (not unverified) and dispatchable.
-**SHEET-RESCALE-2 is BUILT at `a3316f8` (review + QA running, not
+**Dispatch order, groom pass 20 (2026-09-06), updated 2026-09-08 — ALL FOUR
+of the previous "top 3 plus item 1" are now built, not awaiting dispatch.**
+Pass 19's whole list (GATE-FLOOR, MATEUI-1, LAYOUT-1, GHOST-1, STEPNAME-1/1B,
+ARC-DEGENERATE-1, MATE-OBS-2, K2, PBT-1, SOLVE-CRASH-1, CI-BAL) shipped — see
+Done archive. **DRAWSHEET-AUTOPLACE-1 is INTEGRATED (`eb113cb` +
+geometry-qa's test fix `c6ae762`) but STAYS OPEN** — geometry-qa found the
+headline defect shape survives through two OTHER paths, filed as
+DRAWLAYOUT-OFFSHEET-FALLBACK-1 (P1) and a coverage gap as
+DRAWLAYOUT-GOLDEN-COVERAGE-1 (P2). **ARC-BOUNDS-INFLATE-1 +
+LAYOUTISSUE-OFFSHEET-1's `compose.py` half are BUILT together at `11edf49`
+(review + geometry-qa both running, not integrated)** — evidence: `just
+lint` 0, 3750 passed/1 skipped/1 xfailed, `gen-verify` clean from the index,
+goldens proved unchanged by regenerating (15 artifacts, 0 differ); negative
+controls reintroducing the arc defect fail 25 cases, disconnecting the
+emission fails 3. **One claim on LAYOUTISSUE-OFFSHEET-1's entry is currently
+under correction — do not trust the specific "422.99 mm post-fix" number
+until geometry-qa settles why it doesn't reproduce on the current A2 1:5
+fixture; see the entry.** DRAWLAYOUT-INK-CENTER-1 remains CONFIRMED by
+geometry-qa but now sequences after `11edf49` integrates, not after a still-
+open item. **SHEET-RESCALE-2 is BUILT at `a3316f8` (review + QA running, not
 integrated)** — the naive one-line swap the ticket described would have been
 wrong twice (an off-ladder scale value would have displayed as its native
 `<select>`'s first option; a second pick during a pending write was silently
@@ -118,33 +128,27 @@ one `stopPropagation()`); corrected territory to `ConstraintGlyphs.tsx`, not
 surfaced while building that fix, filed below: QA-SKETCHFRAME-ORIGIN-PICK-1**
 (P2 — a face-seated sketch's origin resolves to the wrong pick subject,
 confirmed to predate the change by running the spec both ways in one
-session). Ranked, disjoint, parallel-dispatchable — **top 3 for the NEXT
-batch** (both prior P1s are now spoken for; promoted two P2s into their
-slots):
+session). **Every item that was in the previous top-3, plus the one item
+that replaced it, is now built and awaiting review/QA/integration — none
+are fresh dispatch targets.** Ranked, disjoint, parallel-dispatchable —
+**top 3 for the NEXT batch:**
 
-1. **ARC-BOUNDS-INFLATE-1 + LAYOUTISSUE-OFFSHEET-1's `compose.py` half**
-   (P1, S, kernel-architect, ONE dispatch not two) —
-   `services/geometry/src/geometry/drawings/compose.py`. Still the only
-   unbuilt item of the original three. Fix the arc-vs-circle
-   bbox defect and emit `off_sheet` from `measure_sheet_overflow` in the same
-   session, since both touch `_edge_points`/`view_bounds`/`place_sheet` and
-   the reviewer explicitly asked for them together. LAYOUTISSUE-OFFSHEET-1's
-   value just grew — geometry-qa found it's the single choke point for THREE
-   silent off-sheet paths, not one, see DRAWLAYOUT-OFFSHEET-FALLBACK-1.
-   LAYOUTISSUE-OFFSHEET-1's contract half (`packages/py-kit`,
-   `packages/contracts`, `packages/ts-client`) and rendering half
-   (`apps/web`) are separate territory once the emission shape from this
-   dispatch is agreed — see its own ticket.
-2. **QA-SNAP4-2** (P2, M, frontend-builder) — `apps/web/src/viewport/
+1. **QA-SNAP4-2** (P2, M, frontend-builder) — `apps/web/src/viewport/
    SketchScene.tsx` (line-tool pointer handling), `apps/web/e2e/**`. A tap
    does not draw a line at all — bigger than SNAP-4, touch sketch authoring
-   is broken at the first gesture. Disjoint from #1 and #3 (QA-SNAP4-4's
+   is broken at the first gesture. Disjoint from #2 and #3 (QA-SNAP4-4's
    fix now lives in `ConstraintGlyphs.tsx`, not this file — no conflict).
    Coordinate with PLAYWRIGHT-TOUCH-1 on the harness half.
-3. **SNAP4-SPEC-1** (P2, XS, frontend-builder) — `apps/web/e2e/
+2. **SNAP4-SPEC-1** (P2, XS, frontend-builder) — `apps/web/e2e/
    constraints.spec.ts`. Completes SNAP-4's own unmet acceptance clause: the
    spec still routes around the fix it's meant to prove. Small, precise,
-   measured edit already in the ticket. Disjoint from #1 and #2.
+   measured edit already in the ticket. Disjoint from #1 and #3.
+3. **SNAP4-MIXED-SELECTION-1** (P2, S, frontend-builder) —
+   `apps/web/src/sketch/constraints.ts`, `apps/web/src/sketch/store.ts`. A
+   mixed grounded+free selection drops the grounded point silently on Fix
+   (also confirmed end-to-end as QA-SNAP4-3). Disjoint from #1 and #2 — the
+   only file overlap risk is with SNAP4-BINDING-CONSISTENCY-1, which is NOT
+   in this batch.
 
 Also ranked and ready, not in this batch (territory conflicts, sequencing
 dependencies, or size/blast-radius reasons noted):
@@ -152,13 +156,15 @@ dependencies, or size/blast-radius reasons noted):
 4. **QA-SKETCHFRAME-ORIGIN-PICK-1** (P2, S, frontend-builder) — a
    face-seated sketch's origin picks the entity instead of the point;
    confirmed pre-existing, unrelated to QA-SNAP4-4. Same general pick-subject
-   family as QA-SNAP4-4 but a different defect and a different file.
-5. **DRAWLAYOUT-INK-CENTER-1** (P3, S, kernel-architect) — same file as #1;
+   family as QA-SNAP4-4 but a different defect; territory not yet localised
+   (possibly `SketchScene.tsx` — do not pair with #1 above until confirmed).
+5. **DRAWLAYOUT-INK-CENTER-1** (P3, S, kernel-architect) — same file as
+   ARC-BOUNDS-INFLATE-1/LAYOUTISSUE-OFFSHEET-1's `compose.py` half above;
    NOW CONFIRMED by geometry-qa to 0.01 mm (no longer blocked on
    verification) — a 9.7 mm-wide band of part sizes where a caption prints
-   past the border, bounded and never clipping geometry. Sequence after #1
-   (goldens should reflect the arc fix before this one re-baselines them
-   again).
+   past the border, bounded and never clipping geometry. Sequence after
+   `11edf49` integrates (goldens should reflect the arc fix before this one
+   re-baselines them again).
 6. **DRAWLAYOUT-OFFSHEET-FALLBACK-1** (P1, S, kernel-architect +
    frontend-builder) — `apps/web/src/drawing/layout.ts` (`fitScale`),
    `services/geometry/src/geometry/drawings/compose.py`
@@ -166,38 +172,34 @@ dependencies, or size/blast-radius reasons noted):
    (an oversize part's fallback scale, an additive view's crowded-sheet
    fallback slot — the second WIDENED by this pass's own centring fix).
    Depends on LAYOUTISSUE-OFFSHEET-1 landing first (needs `off_sheet` in the
-   contract to report through) — sequence after #1.
+   contract to report through) — sequence after `11edf49` integrates.
 7. **DRAWLAYOUT-GOLDEN-COVERAGE-1** (P2, S, kernel-architect) — same
    goldens directory as #5; add 1-/2-/3-view sheet goldens so a
    subset-only defect (this whole cluster's shape) can never again be
-   structurally invisible to the golden suite. Sequence after #1 so the new
-   goldens capture corrected, not buggy, geometry.
-8. **SNAP4-MIXED-SELECTION-1** (P2, S, frontend-builder) — same files as
-   SNAP-4 itself (`constraints.ts`, `store.ts`); a mixed grounded+free
-   selection drops the grounded point silently on Fix (now also confirmed
-   end-to-end as QA-SNAP4-3, folded in rather than carried separately).
-   Sequence with SNAP4-BINDING-CONSISTENCY-1 below (same files), not
-   parallel.
-9. **SNAP4-CYCLE-TEST-1** (P3, XS, frontend-builder) — `constraints.test.ts`;
+   structurally invisible to the golden suite. Sequence after `11edf49`
+   integrates so the new goldens capture corrected, not buggy, geometry.
+8. **SNAP4-CYCLE-TEST-1** (P3, XS, frontend-builder) — `constraints.test.ts`;
    a cycle-safety test that cannot observe cycle safety (never enters its own
-   BFS). Different file from the two above, could run parallel with either.
-10. **QA-SNAP4-1** (P3, S, frontend-builder) — constraint catalogue /
-    `Flyout` caption derivation; the Fixed row's unavailable-caption lies
-    about why (says "needs a point" when the user has one, the real reason
-    is SNAP-4's own redundancy refusal). Same general area as #8/#9, small.
-11. **SNAP4-BINDING-CONSISTENCY-1** (P3, XS, frontend-builder) — same files as
-    SNAP4-MIXED-SELECTION-1; two small bundled inconsistencies (X-on-Origin
-    vs X-on-a-point-grounded-to-Origin bind differently; the hint names the
-    anchor but not the escape hatch).
-12. **TITLEBLOCK-FIT-1** (P2, S, kernel-architect) — same file as #1 above
-    (`compose.py`); queue after it lands, not parallel with it.
-13. **DRAWLAYOUT-PINNED-BLIND-1** (P3, S, kernel-architect) — same file
+   BFS). Disjoint from the top-3's SNAP4-MIXED-SELECTION-1 — different file.
+9. **QA-SNAP4-1** (P3, S, frontend-builder) — constraint catalogue /
+   `Flyout` caption derivation; the Fixed row's unavailable-caption lies
+   about why (says "needs a point" when the user has one, the real reason
+   is SNAP-4's own redundancy refusal). Same general area as #3/#8, small.
+10. **SNAP4-BINDING-CONSISTENCY-1** (P3, XS, frontend-builder) — same files
+    as the top-3's SNAP4-MIXED-SELECTION-1 (`constraints.ts`, `store.ts`);
+    two small bundled inconsistencies (X-on-Origin vs
+    X-on-a-point-grounded-to-Origin bind differently; the hint names the
+    anchor but not the escape hatch). Sequence after it, not parallel.
+11. **TITLEBLOCK-FIT-1** (P2, S, kernel-architect) — same `compose.py` file
+    as ARC-BOUNDS-INFLATE-1/LAYOUTISSUE-OFFSHEET-1's build above; queue
+    after `11edf49` integrates, not parallel with it.
+12. **DRAWLAYOUT-PINNED-BLIND-1** (P3, S, kernel-architect) — same file
     again; a pinned view is invisible to the auto-layout's centring (not
     silent today — `views_overlap` catches it — but the coherent fix is
     upstream, in `_free_slot_anchor`'s style of occupied-space accounting).
-14. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
+13. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
     unrelated edit hits a silent, unexplained disabled Save.
-15. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
+14. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
     select-without-editing gesture, and the command band is out of room at
     1280. Large blast radius (75 refs across 28 e2e spec files) — best run
     alone, not paired with other `apps/web` work.
@@ -435,10 +437,31 @@ See Done archive.**
       (`bounds_aware_layout`, `resolve_view_anchors`), its test file.
       agentType: kernel-architect.
 
-- [ ] (P1, S) **ARC-BOUNDS-INFLATE-1 — an arc gets the full-CIRCLE `centre ±
+- [ ] (P1, S) **ARC-BOUNDS-INFLATE-1 — BUILT at `11edf49` (kernel-architect,
+      on `fbb83d8`; code review + geometry-qa both running, NOT YET
+      INTEGRATED — keep unchecked). An arc gets the full-CIRCLE `centre ±
       radius` box, inflating a view's bbox ~2x and displacing its centre.**
       kind: defect (drawings composition — pre-existing, not introduced by
-      `27c8d3f`). Found by code-reviewer during DRAWSHEET-AUTOPLACE-1's
+      `27c8d3f`). **BUILD EVIDENCE (relayed by orchestrator 2026-09-08):**
+      `just lint` exit 0; **3750 passed, 1 skipped, 1 xfailed** across
+      geometry+gateway+py-kit; `just gen-verify` clean from the INDEX; the
+      five compose goldens proved unchanged by REGENERATING them (15
+      artifacts, 0 differ) rather than trusting `git status`. NEGATIVE
+      CONTROLS: reintroducing the arc defect fails **25** cases including the
+      standing border gate (the one this ticket's own note below says was
+      fixed to catch exactly this); disconnecting the new emission
+      (LAYOUTISSUE-OFFSHEET-1's half, built alongside per the pairing note
+      below) fails **3**. Geometry now centres exactly on `(297.0, 210.0)`
+      and the s1 quartet's `right` view moved 128 mm back into its slot — the
+      arc defect was real and this build fixes it. **One judgement call from
+      the build, recorded here PENDING REVIEW CONFIRMATION**: an existing
+      `xfail` asserted `layout_issues == []`, which the new emission makes
+      false. Rather than leave that claim inside an `xfail` — where an
+      assertion can never be seen to break — the builder moved it into its
+      own PASSING gate and left the `xfail` failing on the unchanged
+      geometric residual (see LAYOUTISSUE-OFFSHEET-1 below for what that
+      residual currently is, which is itself under active correction).
+      Found by code-reviewer during DRAWSHEET-AUTOPLACE-1's
       review, relayed by orchestrator 2026-09-06. ROOT CAUSE, read directly:
       `_edge_points` (`compose.py:342-355`) appends `edge.center`
       unconditionally and applies the full-circle `c ± r` box to ANY edge
@@ -506,7 +529,10 @@ See Done archive.**
       (`resolve_view_anchors`, `bounds_aware_layout`), its test file.
       agentType: kernel-architect.
 
-- [ ] (P1, S) **LAYOUTISSUE-OFFSHEET-1 — the off-sheet measurement
+- [ ] (P1, S) **LAYOUTISSUE-OFFSHEET-1 — BUILT at `11edf49` (kernel-architect,
+      paired with ARC-BOUNDS-INFLATE-1 above, on `fbb83d8`; code review +
+      geometry-qa both running, NOT YET INTEGRATED — keep unchecked). The
+      off-sheet measurement
       DRAWSHEET-AUTOPLACE-1 built is not wired to the diagnostic contract, so
       a view that runs off the paper still exports with NO banner and an
       empty `layout_issues`.** kind: capability gap (contract change), filed
@@ -524,10 +550,31 @@ See Done archive.**
       by code review 2026-09-06 (relayed by orchestrator): without this,
       DRAWSHEET-AUTOPLACE-1's own title ("no diagnostic anywhere") is still
       literally true for any off-sheet case its centring fix does not
-      happen to catch — and review found a REAL one, not a hypothetical:
-      ARC-BOUNDS-INFLATE-1 (above) leaves the bracket sheet's own ink
-      running past the border post-fix with `layout_issues == []`. The
-      reviewer's argument, which the orchestrator accepted: the banner on a
+      happen to catch. **CORRECTION 2026-09-08, relayed by orchestrator —
+      DO NOT TRUST THE SPECIFIC CLAIM BELOW UNTIL GEOMETRY-QA CONFIRMS A
+      REPLACEMENT NUMBER: the claim that ARC-BOUNDS-INFLATE-1's arc defect
+      "leaves the bracket sheet's own ink running past the border post-fix
+      with `layout_issues == []`" does NOT reproduce as stated.** Measured on
+      the actual fixture at A2 1:5, `measure_sheet_overflow` returns `[]`
+      BEFORE the arc fix as well as after — the arc defect displaced the ink
+      104 mm off-centre and crowded the right margin, but A2 at that scale
+      absorbs the displacement without an off-paper overrun. UNCONFIRMED
+      hypothesis for why the original claim and this measurement disagree
+      (orchestrator's own reasoning, explicitly not to be taken as
+      established until geometry-qa settles it): the original reviewer
+      measured the sheet at A2 1:4 (ink to 422.99 mm on a 420 mm sheet,
+      the number that originally justified this ticket), and the sheet was
+      subsequently changed to A2 1:5 — a larger drawing could scale the SAME
+      proportional displacement into either a genuine overrun or a
+      margin-only crowding depending on scale, so both measurements may be
+      correct AT THEIR OWN SCALE. **What is NOT in doubt either way, and
+      does not depend on resolving this**: the arc defect was real and IS
+      fixed (geometry now centres exactly on the sheet centre); this
+      ticket's own justification does not rest on that one fixture any
+      longer regardless of the outcome — it rests on the OTHER two silent
+      paths, DRAWLAYOUT-OFFSHEET-FALLBACK-1's oversize-part `fitScale`
+      fallback and its `_free_slot_anchor` fallback, both independently
+      confirmed live by geometry-qa (below). The reviewer's argument, which the orchestrator accepted: the banner on a
       now-partially-clean sheet is not deferred polish, because the
       condition it would report is still live in a real artifact — the
       banner without the arc fix reports a defect that could have been
@@ -6106,6 +6153,22 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-09-08 — **ARC-BOUNDS-INFLATE-1 + LAYOUTISSUE-OFFSHEET-1 both BUILT
+  together at `11edf49`; one claim on the entry corrected as unreproduced
+  (backlog-groomer, relaying orchestrator).** Pulled both out of the Ready
+  dispatch slots — built, not awaiting dispatch; evidence: `just lint` 0,
+  3750 passed/1 skipped/1 xfailed, `gen-verify` clean, goldens unchanged by
+  regeneration (15/15), negative controls fail 25 and 3 cases respectively.
+  Corrected LAYOUTISSUE-OFFSHEET-1's "leaves the bracket sheet's ink past
+  the border post-fix" claim, which does not reproduce on the current A2 1:5
+  fixture (`measure_sheet_overflow` returns `[]` before AND after the arc
+  fix there) — flagged for geometry-qa to settle rather than asserted on the
+  orchestrator's own hypothesis (A2 1:4 vs 1:5 scale difference). The arc fix
+  itself and the ticket's justification via the other two off-sheet paths
+  are unaffected. Recorded a build-time judgement call pending review: an
+  `xfail` asserting `layout_issues == []` was moved to a passing gate rather
+  than left silently obsolete inside the `xfail`. Promoted SNAP4-MIXED-
+  SELECTION-1 into the third Ready batch slot in place of the now-built pair.
 - 2026-09-08 — **c05206b CI-verified (run 34173229315, success, 32 min);
   SHEET-RESCALE-2 and QA-SNAP4-4 both built and in review; one new defect
   filed (backlog-groomer, relaying orchestrator).** CI-VERDICT-STEPGAP-1/
