@@ -245,7 +245,7 @@ All parameters live at the top of `canopy_model.py`.
 | `canopy_sheet.py` | Construction sheets composed by `geometry.drawings` |
 | `build/canopy.step` | The evaluated assembly, millimetres, opens in any CAD |
 | `sheets/s1-general-arrangement.*` | A1 third-angle sheet: front, right, top, isometric — SVG, PDF, DXF |
-| `sheets/s2-bracket.*` | A2 bracket elevation at 1:4 — SVG, PDF, DXF |
+| `sheets/s2-bracket.*` | A2 bracket elevation at 1:5 — SVG, PDF, DXF |
 
 ---
 

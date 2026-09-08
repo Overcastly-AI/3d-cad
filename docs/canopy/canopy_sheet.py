@@ -37,7 +37,6 @@ SHEETS: dict[str, dict[str, object]] = {
         "views": ["right"],
         "size": "A2",
         "scale": (1, 5),
-        "place": (150.0, 300.0),
         "notes": "Wall post, arm and curved knee brace. Two required, handed pair.",
     },
 }

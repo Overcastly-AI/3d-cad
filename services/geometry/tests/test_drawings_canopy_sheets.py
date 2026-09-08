@@ -149,26 +149,7 @@ def test_auto_layout_centres_the_bracket_on_the_paper() -> None:
     "name",
     [
         "s1-general-arrangement",
-        pytest.param(
-            "s2-bracket",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "CANOPY-PLACE-STALE (orchestrator-owned): `s2-bracket`'s hand "
-                    "anchor place=(150,300), added in 717fcdb, was tuned against the "
-                    "INFLATED arc bounds ARC-BOUNDS-INFLATE-1 has now corrected. The "
-                    "composer is right and the anchor is stale: the view draws "
-                    "y -6.22 .. 246.22, i.e. 16.22 mm past the TOP drafting border "
-                    "and 6.22 mm past the PAPER edge, which the new off_sheet "
-                    "emission correctly banners. The arithmetic closes exactly - "
-                    "post-fix the ink centre equals the anchor, so half-height "
-                    "126.22 against 120.00 of headroom. FIX: remove the `place` "
-                    "override from docs/canopy/canopy_sheet.py and regenerate "
-                    "docs/canopy/sheets/*; then DELETE THIS MARKER, which will "
-                    "already have gone red as an XPASS to tell you so."
-                ),
-            ),
-        ),
+        "s2-bracket",
     ],
 )
 def test_every_canopy_sheet_composes_as_committed_with_no_layout_issues(

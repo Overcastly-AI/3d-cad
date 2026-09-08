@@ -131,6 +131,35 @@ site is the `hasLayout ? Readout : SelectField` FALSE branch while
 `hasLayout` is true. The verb is reachable by API and dead from the UI
 (SHEET-RESCALE-2).
 
+**Arc bounds + the off-sheet banner, 2026-09-08 (kernel-architect, built
+`11edf49` + `565943c`, integrated on this branch):** `_edge_points` gave an ARC
+the full-circle `centre +/- radius` box, roughly doubling a view's bounds and
+displacing its centre; `view_transform` centres the BOX on the anchor, so the
+anchor landed correctly and the ink did not. Found by dogfooding the drawing
+engine on a real part with curved knee braces. Verified by an oracle authored
+the opposite way round (centre, r, signed sweep -> 2,000,001 dense samples) and
+handed only the production triple: worst error **8.567e-12 mm** over 27 named
+cases, which was the ORACLE's sampling miss; 8000-arc fuzz showed inflation
+beyond sampler miss of exactly **0.000e+00**. `measure_sheet_overflow` is now
+wired to `layout_issues` as `off_sheet`, and errors are ordered before warnings
+AT EMISSION — six crowding warnings on a quartet had been pushing the off-sheet
+error past the 4-line banner cap, so the sentence naming the view and the
+millimetres never reached the shop, in exactly the crowded-and-oversized case
+the ticket targets.
+
+**Two things this taught that outlast the fix.** First, **a workaround tuned to
+a bug outlives the bug and becomes the defect**: `docs/canopy`'s `s2-bracket`
+carried a hand anchor added in `717fcdb` against the INFLATED bounds, so
+correcting them put that sheet 6.22 mm off the paper — caught only because
+geometry-qa went looking. The override is removed here and all six artifacts
+regenerate; auto-placement now centres to +0.00 mm. Second, **the byte-identity
+drawing goldens contain ZERO arcs** (census: `{line: 8560, polyline: 6318,
+circle: 502}` against 255 arcs in the codebase), so "15 goldens unchanged" was
+true and uninformative for this change — a new `test_drawings_canopy_sheets.py`
+gates both real sheets, and its arc claim lives in a centring assertion that
+fails at 401.093 vs 297.0 mm on the reintroduced defect, NOT in the
+`layout_issues == []` check, which measurably cannot see the arc defect at all.
+
 **Drawings placement, 2026-09-06 (kernel-architect, built `27c8d3f`, integrated on this branch):** a
 lone auto-placed standard view was centred on all four quartet anchor slots
 even when three were absent, displacing 8 of the 15 non-empty subsets by
