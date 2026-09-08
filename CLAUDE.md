@@ -1218,6 +1218,17 @@ recipe here in the same commit as the fix.**
   it does not notice. Freeze a script while any invocation of it is live —
   including `scripts/e2e.sh` while a local `just e2e` is running, which is
   exactly when you are most tempted to fix it.
+- **`curl` REPORTS A HUNG LISTENER AND A FREE PORT IDENTICALLY (`000`), so a
+  "does it answer?" probe is not an "is it gone?" check.** Measured 2026-09-08
+  against a real accept-and-never-answer socket: `curl` returned `000` after
+  2010 ms (exit 28) and `000` instantly on a free port (exit 7) — the status
+  code cannot tell them apart, only the exit code can. A teardown that verifies
+  by asking the port a question therefore reports CLEAN over a listener that is
+  still holding the step's stdout. Read `/proc/net/tcp{,6}` for state `0A`
+  instead: no forks, nothing that can be absent on a runner. Keep `lsof` for
+  NAMING the pid on the failure path, not as the primary check — the `ss` lesson
+  above is that a probe which silently resolves nothing reads exactly like a
+  clean teardown.
 - **`kill -0` SUCCEEDS ON A ZOMBIE, so any "is it gone yet?" poll built on it
   never terminates.** Same pass. A process that has been SIGKILLed but not yet
   reaped by its parent still answers `kill -0` for as long as it stays in state

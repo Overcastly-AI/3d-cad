@@ -414,9 +414,25 @@ jobs:
       # say `the shard did not finish cleanly` itself. But that only covers
       # failures the script SURVIVES: a SIGKILL from the step timeout, an OOM
       # kill, a runner losing the job — none of those leave it a chance to
-      # revise anything, and the stale file is still on disk. `steps.shard
-      # .outcome` is the one fact about this step that does not come from
-      # inside it, which is exactly what a cross-check needs.
+      # revise anything, and the stale file is still on disk. The step/job
+      # status is the one fact about this job that does not come from inside
+      # the script, which is exactly what a cross-check needs.
+      #
+      # IT READS BOTH, AND `job.status` IS THE LOAD-BEARING ONE. The first
+      # version read only `steps.shard.outcome`, and code review found that the
+      # defect survived one step to the left: three `if: always()` steps sit
+      # between the shard and this one, and `The run must not have dirtied the
+      # tree` can fail ON ITS OWN MERITS (it exists because the screenshot gate
+      # regressed once already). Then the shard step's outcome is still
+      # `success`, the block prints GREEN, and the last line of a red job is
+      # GREEN — the exact reading failure this whole change exists to end.
+      # Reproduced at the shell level before fixing: outcome=success +
+      # status=failure over a green verdict file exited 0.
+      # `steps.shard.outcome` is kept because it says WHICH failed, and that is
+      # two different investigations. Caveat worth knowing: a step marked
+      # `continue-on-error` does not move `job.status`; there are none in this
+      # job, and adding one is a deliberate statement that its failure does not
+      # matter.
       #
       # Both directions are checked, because a guard written against one
       # failure encodes that failure's direction (CLAUDE.md, the
@@ -427,6 +443,7 @@ jobs:
         if: always()
         env:
           SHARD_OUTCOME: ${{ steps.shard.outcome }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           verdict="${{ runner.temp }}/e2e-logs-shard-${{ matrix.shard }}/verdict.txt"
           if [[ ! -s "$verdict" ]]; then
@@ -474,19 +491,92 @@ jobs:
           done
           rm -rf "$probe"
           claim="$(classify "$verdict")"
-          echo "e2e verdict: block says ${claim}; the shard step itself concluded ${SHARD_OUTCOME}."
-          if [[ "$claim" == "UNKNOWN" ]]; then
-            echo "::error::no GREEN/RED headline in $verdict and no stated reason — scripts/e2e-verdict.py changed shape and this cross-check has stopped checking anything."
-            exit 1
-          fi
-          if [[ "$SHARD_OUTCOME" != "success" && "$claim" == "GREEN" ]]; then
-            echo "::error::the block above says GREEN and the shard step concluded '${SHARD_OUTCOME}'. That block describes PLAYWRIGHT and is written before the step can fail for any other reason (a step timeout, an OOM kill, a failure in a later step). THIS SHARD FAILED — read the 'Playwright shard' step, starting at its END."
-            exit 1
-          fi
-          if [[ "$SHARD_OUTCOME" == "success" && "$claim" == "RED" ]]; then
-            echo "::error::the block above says RED but the shard step reported success — scripts/e2e.sh exited 0 over its own red verdict, which is a defect in the script, not in the tests."
-            exit 1
-          fi
+          # RECONCILE — factored out so it can be probed, because the pairing is
+          # where the defect lived both times. Echoes one word naming the
+          # disagreement, or `ok`.
+          reconcile() { # reconcile CLAIM SHARD_OUTCOME JOB_STATUS
+            local claim="$1" shard="$2" job="$3" healthy=yes
+            # An EMPTY status is a BROKEN CROSS-CHECK, not a failed shard, and
+            # it must not borrow the failed shard's words. The first version
+            # said "THIS SHARD FAILED — concluded ''" when steps.shard.outcome
+            # resolved to nothing (an `id:` renamed out from under it): a
+            # confident claim about the wrong subject. A guard that cries wolf
+            # gets muted, and then it protects nothing.
+            if [[ -z "$shard" || -z "$job" ]]; then
+              echo unreadable
+              return
+            fi
+            if [[ "$claim" == "UNKNOWN" ]]; then
+              echo shape
+              return
+            fi
+            [[ "$shard" == "success" && "$job" == "success" ]] || healthy=no
+            if [[ "$healthy" == "no" && "$claim" == "GREEN" ]]; then
+              # WHICH one failed is two different investigations, so say it.
+              if [[ "$shard" != "success" ]]; then
+                echo green-over-failed-shard
+              else
+                echo green-over-failed-later-step
+              fi
+              return
+            fi
+            if [[ "$healthy" == "yes" && "$claim" == "RED" ]]; then
+              echo red-over-healthy-job
+              return
+            fi
+            echo ok
+          }
+          # Its probes, in the same shape as the classifier's above. Row 3 is
+          # the one code review had to find by reading: the shard step SUCCEEDS
+          # and a later `if: always()` step (the dirty-tree check) fails, so an
+          # outcome-only cross-check reports GREEN as the last line of a red
+          # job. Row 6 is its mirror. Rows 7-8 keep the two "this check is
+          # broken" states distinguishable from a verdict about the shard.
+          probes=(
+            "GREEN success success ok"
+            "GREEN failure failure green-over-failed-shard"
+            "GREEN success failure green-over-failed-later-step"
+            "GREEN cancelled cancelled green-over-failed-shard"
+            "RED failure failure ok"
+            "RED success success red-over-healthy-job"
+            "UNSUMMARISED success success ok"
+            "UNKNOWN success success shape"
+            "GREEN _ _ unreadable"
+          )
+          for row in "${probes[@]}"; do
+            read -r pclaim pshard pjob want <<<"$row"
+            [[ "$pshard" == "_" ]] && pshard=""
+            [[ "$pjob" == "_" ]] && pjob=""
+            got="$(reconcile "$pclaim" "$pshard" "$pjob")"
+            if [[ "$got" != "$want" ]]; then
+              echo "::error::the verdict cross-check misreads its own probe (${pclaim}/${pshard:-<empty>}/${pjob:-<empty>}) as '${got}', expected '${want}' — it is no longer reconciling anything"
+              exit 1
+            fi
+          done
+          echo "e2e verdict: block says ${claim}; the shard step concluded ${SHARD_OUTCOME:-<unreadable>}, the job so far ${JOB_STATUS:-<unreadable>}."
+          case "$(reconcile "$claim" "$SHARD_OUTCOME" "$JOB_STATUS")" in
+            ok) ;;
+            unreadable)
+              echo "::error::the verdict cross-check cannot read the step/job status (shard='${SHARD_OUTCOME}', job='${JOB_STATUS}') — the \`id: shard\` or the \`job\` context no longer resolves, so it is not checking anything. This says NOTHING about the shard itself."
+              exit 1
+              ;;
+            shape)
+              echo "::error::no GREEN/RED headline in $verdict and no stated reason — scripts/e2e-verdict.py changed shape and this cross-check has stopped checking anything."
+              exit 1
+              ;;
+            green-over-failed-shard)
+              echo "::error::the block above says GREEN and the shard step itself concluded '${SHARD_OUTCOME}'. That block describes PLAYWRIGHT and is written before the step can fail for any other reason (a step timeout, an OOM kill). THIS SHARD FAILED — read the 'Playwright shard' step, starting at its END."
+              exit 1
+              ;;
+            green-over-failed-later-step)
+              echo "::error::the block above says GREEN, the 'Playwright shard' step DID succeed, and the job is '${JOB_STATUS}' — so a step AFTER the tests failed (the dirty-tree check, or an upload). THIS SHARD FAILED, and the tests are not where to look: read the steps between 'Playwright shard' and this one."
+              exit 1
+              ;;
+            red-over-healthy-job)
+              echo "::error::the block above says RED but every step so far reported success — scripts/e2e.sh exited 0 over its own red verdict, which is a defect in the script, not in the tests."
+              exit 1
+              ;;
+          esac
 
   # The control that keeps the sharding honest, and the single job to read.
   #

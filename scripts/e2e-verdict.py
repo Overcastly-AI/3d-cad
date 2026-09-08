@@ -477,6 +477,37 @@ def build_block(
             "::error::e2e verdict: playwright passed but the shard did not "
             f"finish cleanly — {teardown}"
         )
+    # ── A summariser that cannot summarise must not be silent. ───────────────
+    # Found by code review in a real run: `NO USABLE JSON REPORT … nothing
+    # recoverable from … either` exited **0**. So a shard whose evidence went
+    # missing passed, with the block itself saying it had none.
+    #
+    # The `exit 3` below only fires on a NON-ZERO status, and this script's own
+    # caller makes that the unreachable half: `print_verdict` always passes
+    # `--fallback-log` (the `tee` creates the file unconditionally) and always
+    # passes `--report`, so in production the branch the self-test exercised
+    # could not be reached, and the reachable one exited 0. Measured across
+    # missing/malformed/zero-byte reports at status 0: 0, 0, 0.
+    #
+    # `report is not None` is the whole condition that matters: it separates a
+    # report we ASKED FOR and cannot read (evidence lost — not a pass) from a
+    # caller who deliberately supplied their own `--reporter` and never wanted
+    # one (the escape hatch, which must stay quiet). Recovered findings from the
+    # list log still count as having said something.
+    if report is not None and parsed.problem and not findings and status == 0:
+        exit_code = 3
+        out.append(
+            "e2e verdict: !! playwright exited 0, and this summary could not "
+            "read the report it was given or recover anything from the log."
+        )
+        out.append(
+            "e2e verdict: !! a shard with no evidence has not been verified; "
+            "that is not the same thing as a pass."
+        )
+        out.append(
+            "::error::e2e verdict: no usable JSON report and nothing "
+            "recoverable — this shard is UNVERIFIED, not green"
+        )
     # ── The guard. Three ways the block can lie, and all are loud. ────────────
     if not findings and (status != 0 or stats_failed > 0):
         exit_code = 3
@@ -1053,6 +1084,57 @@ def self_test() -> int:
         check("malformed + fallback: strips ANSI", "\x1b[" not in text, repr(text))
         block, code = build_block(1, malformed, None, "", 25)
         check("malformed, no fallback: exit 3", code == 3, f"got {code}")
+
+        # ── THE REACHABLE UNSUMMARISABLE CASE ────────────────────────────────
+        # The check above passes `fallback_log=None`, which scripts/e2e.sh NEVER
+        # does — the `tee` always creates that file — so it exercised a branch
+        # production cannot reach, while the branch production DOES reach
+        # (status 0, a report we asked for and cannot read, a log with no
+        # failures in it) returned 0. Found by code review in a real run.
+        quiet_log = root / "quiet.log"
+        quiet_log.write_text(
+            "Running 4 tests using 1 worker\n  ok 1 e2e/x.spec.ts:3:1\n"
+        )
+        zero_byte = root / "zero.json"
+        zero_byte.write_text("")
+        for shape, path in (
+            ("missing", root / "never-written.json"),
+            ("malformed", malformed),
+            ("zero-byte", zero_byte),
+        ):
+            block, code = build_block(0, path, quiet_log, "shard 2/4", 25)
+            text = "\n".join(block)
+            check(
+                f"unsummarisable ({shape}) at status 0: exit 3, not silence",
+                code == 3 and "UNVERIFIED, not green" in text,
+                f"got {code}: {text}",
+            )
+        # NEGATIVE CONTROL 1 — input mutation: give it a report it CAN read and
+        # the same call goes green. Without this, "exit 3" above could come from
+        # a script hard-wired to distrust anything.
+        block, code = build_block(0, green, quiet_log, "shard 2/4", 25)
+        check(
+            "negative control: a readable report over the same log is GREEN/0",
+            code == 0 and "GREEN" in "\n".join(block),
+            "\n".join(block),
+        )
+        # NEGATIVE CONTROL 2 — the legitimate case this must NOT break. A caller
+        # who passes their own `--reporter` gets report=None, and never asked
+        # for a JSON report at all; failing them would be crying wolf at the
+        # documented escape hatch.
+        block, code = build_block(0, None, quiet_log, "shard 2/4", 25)
+        check(
+            "negative control: the --reporter escape hatch stays quiet at 0",
+            code == 0 and "UNVERIFIED" not in "\n".join(block),
+            "\n".join(block),
+        )
+        # And recovering failures from the log IS saying something: preserved.
+        block, code = build_block(0, malformed, listlog, "shard 2/4", 25)
+        check(
+            "recovered failures still count as a summary (no UNVERIFIED)",
+            "UNVERIFIED" not in "\n".join(block),
+            "\n".join(block),
+        )
 
         empty = root / "empty.json"
         empty.write_text("")

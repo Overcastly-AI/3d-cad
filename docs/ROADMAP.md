@@ -2,6 +2,29 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
+**e2e verdict cross-check, 2026-09-08 (platform-builder, built `9073b74`,
+integrated on this branch):** the fix below was reviewed and the same defect was
+found surviving ONE STEP to the left — the cross-check consulted
+`steps.shard.outcome`, but three `if: always()` steps sit upstream of it, one of
+them the tree-dirty gate that exists because the screenshot gate regressed once.
+Reproduced before fixing: `SHARD_OUTCOME=success` + `JOB_STATUS=failure` exited
+0 with `GREEN` as its last line. Now reads `job.status` too and says WHICH
+failed, because "the shard timed out" and "a step after the tests failed" send a
+reader to different places. Three more from the same review: the port probe
+could not distinguish a listener that accepts and never answers from a released
+port (`000` from both, 2010 ms vs instant — now reads `/proc/net/tcp` for state
+`0A`, with `lsof` kept only to name the pid, deliberately not primary because a
+probe that silently resolves nothing reads exactly like a clean teardown);
+`e2e-verdict.py` exited 0 on a shard whose evidence was missing, on the ONLY
+path its caller can take, so its `exit 3` branch was unreachable in production;
+and the 20 s ceiling is true again now the curl loop is gone. A fifth defect
+fell out of the new harness rather than out of reading: an empty status printed
+`THIS SHARD FAILED — concluded ''`, which exits 1 and therefore looked correct,
+while actually being a confident claim about the wrong subject — the
+cross-check had stopped resolving its own probe. Every fix carries a negative
+control; reverting the single `job.status` line makes the step refuse on every
+run, green ones included.
+
 **e2e teardown + verdict, 2026-09-07 (platform-builder, built `fca365d`,
 integrated on this branch):** shard 2/4 of run 34041681272 passed every test
 (`0 failed, 166 passed of 167`), printed its verdict, then hung 18m35s in its

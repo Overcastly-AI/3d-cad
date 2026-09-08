@@ -129,6 +129,12 @@ TEARDOWN_DONE=0
 # SIGTERM budget, then SIGKILL budget. Both are ceilings, not sleeps: the normal
 # case is ~1 s. 15 s is generous for a uvicorn that has decided to drain
 # connections and still leaves the 40-minute step budget untouched.
+#
+# 20 s is the WHOLE teardown ceiling, and that is a claim worth keeping true:
+# the port verification below reads /proc and adds no measurable time. It used
+# to curl four URLs at --max-time 2, so the honest worst case was ~28 s while
+# the commit message said 20 — immaterial against a 40-minute step, but a number
+# that is not the number in the code is how a budget stops being checkable.
 TEARDOWN_TERM_GRACE="${LOFT_E2E_TEARDOWN_GRACE:-15}"
 TEARDOWN_KILL_GRACE=5
 MY_PGID=""
@@ -187,6 +193,50 @@ proc_alive() {
   local rest
   rest="$(proc_stat_tail "$1")" || return 1
   [[ "${rest%% *}" != "Z" ]]
+}
+
+# listener_on_port PORT — true when anything in this network namespace is
+# LISTENING on PORT. Reads /proc/net/tcp{,6} directly: no forks, no `lsof`, and
+# nothing to be missing on a runner.
+#
+# WHY NOT THE HTTP PROBE THIS REPLACES. `stop_stack` used to verify a released
+# port by asking `probe()` for /readyz and accepting "000". Measured against a
+# socket that ACCEPTS and never answers: curl printed `000` after 2012 ms with
+# exit 28, and on a genuinely free port it printed `000` with exit 7 — the same
+# string, and `probe()` swallows the exit code with `|| true`. So the check
+# could not tell "the port was released" from "something is still holding it",
+# which is precisely the untracked or re-parented listener it was added for.
+#
+# `lsof -ti tcp:<port> -sTCP:LISTEN` is the established by-value check in this
+# container and it agrees with this function (asserted in --teardown-self-test,
+# against a real listener). It is used only on the failure path, to name the
+# pid, and only when present — a teardown must not depend on a binary that may
+# not be installed. CLAUDE.md's `ss` lesson is the reason: a probe that silently
+# resolves nothing reads exactly like a clean teardown.
+listener_on_port() {
+  local port="$1" hex file local_addr state
+  printf -v hex '%04X' "$port"
+  for file in /proc/net/tcp /proc/net/tcp6; do
+    [[ -r "$file" ]] || continue
+    # Columns: sl local_address rem_address st ... ; 0A is TCP_LISTEN. The
+    # header row is skipped for free — its `st` column reads "st", not "0A".
+    while read -r _ local_addr _ state _; do
+      [[ "$state" == "0A" ]] || continue
+      if [[ "${local_addr##*:}" == "$hex" ]]; then
+        return 0
+      fi
+    done <"$file"
+  done
+  return 1
+}
+
+# Who is holding it, best effort — for the message only, never for the verdict.
+listener_pids() {
+  local pids=""
+  if command -v lsof >/dev/null 2>&1; then
+    pids="$(lsof -ti "tcp:$1" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ')"
+  fi
+  printf '%s' "${pids% }"
 }
 
 # Every descendant of PID, from ONE pass over /proc and with no forks in the
@@ -337,7 +387,7 @@ stop_one() {
 
 # The whole stack, idempotent (the EXIT trap calls it again).
 stop_stack() {
-  local i code
+  local i who
   if ((TEARDOWN_DONE)); then return 0; fi
   TEARDOWN_DONE=1
   STOP_PIDS=()
@@ -353,27 +403,27 @@ stop_stack() {
   stop_pids
   # VERIFY BY VALUE. A signal delivered is not a port released, and the whole
   # reason this run was unreadable is that a teardown reported success over
-  # processes that were still running.
+  # processes that were still running. The question is whether anything is still
+  # LISTENING — not whether it answers, which a hung listener does not either.
   for i in "${!STARTED_PORTS[@]}"; do
-    code="$(probe "http://${HOST}:${STARTED_PORTS[$i]}/readyz")"
-    [[ "$code" == "000" ]] && continue
-    echo "e2e: :${STARTED_PORTS[$i]} still answers ${code} after teardown." >&2
+    listener_on_port "${STARTED_PORTS[$i]}" || continue
+    who="$(listener_pids "${STARTED_PORTS[$i]}")"
+    echo "e2e: :${STARTED_PORTS[$i]} is STILL LISTENING after teardown" \
+      "${who:+(pid ${who})}." >&2
     TEARDOWN_PROBLEMS+=(
-      ":${STARTED_PORTS[$i]} still answers ${code} after teardown"
+      ":${STARTED_PORTS[$i]} still listening after teardown${who:+ (pid ${who})}"
     )
   done
   # Playwright owns the Vite it started, and in CI we proved :5173 was free
   # before handing it over — so anything listening now is a leak, and a leaked
   # Vite holds this step's stdout exactly the way the orphan uvicorns did.
-  if [[ -n "${CI:-}" && "$RUN_WEB" == 1 ]]; then
-    code="$(probe "http://${HOST}:${VITE_PORT}/")"
-    if [[ "$code" != "000" ]]; then
-      echo "e2e: :${VITE_PORT} still answers ${code} — playwright left its" \
-        "webServer running." >&2
-      TEARDOWN_PROBLEMS+=(
-        "playwright left a server listening on :${VITE_PORT} (${code})"
-      )
-    fi
+  if [[ -n "${CI:-}" && "$RUN_WEB" == 1 ]] && listener_on_port "$VITE_PORT"; then
+    who="$(listener_pids "$VITE_PORT")"
+    echo "e2e: :${VITE_PORT} is still listening ${who:+(pid ${who}) }—" \
+      "playwright left its webServer running." >&2
+    TEARDOWN_PROBLEMS+=(
+      "playwright left a server listening on :${VITE_PORT}${who:+ (pid ${who})}"
+    )
   fi
   ((${#TEARDOWN_PROBLEMS[@]} == 0)) && echo "e2e: stack stopped cleanly."
   return 0
@@ -506,6 +556,7 @@ teardown_self_test() {
     done
     return 0
   }
+  not_listening() { ! listener_on_port "$1"; }
 
   tmp="$(mktemp -d -t loft-e2e-selftest.XXXXXX)"
   echo "e2e teardown self-test:"
@@ -577,6 +628,55 @@ OLD
   check "it does NOT blame the service that stopped politely" \
     "$(ok_if test "${summary#*does not needed SIGKILL}" == "$summary")" \
     "summary was: ${summary:-(empty)}"
+
+  # ── 3. THE PORT CHECK, AGAINST A REAL LISTENER ───────────────────────────
+  # A teardown recipe is a claim about this container (CLAUDE.md), so the port
+  # verification is asserted against a socket rather than reasoned about. The
+  # fixture is the case that defeated the HTTP probe this replaced: a listener
+  # that ACCEPTS and never answers, which curl reports as `000` — identical to a
+  # released port. Port 0 lets the kernel pick, so this cannot collide with a
+  # sibling agent's stack.
+  local hangport=""
+  python3 -c 'import socket,time
+s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(4)
+print(s.getsockname()[1], flush=True)
+time.sleep(120)' >"$tmp/hangport" 2>/dev/null &
+  local hangpid=$!
+  for _ in $(seq 1 50); do
+    hangport="$(cat "$tmp/hangport" 2>/dev/null || true)"
+    [[ -n "$hangport" ]] && break
+    sleep 0.1
+  done
+  check "fixture: a listener that accepts and never answers is up" \
+    "$(ok_if test -n "$hangport")" "no port was reported"
+  if [[ -n "$hangport" ]]; then
+    # THE DEFECT THIS REPLACED, reproduced: the old check called this clean.
+    check "the OLD probe cannot see it (curl says 000, as for a free port)" \
+      "$(ok_if test "$(probe "http://${HOST}:${hangport}/readyz")" == "000")" \
+      "probe returned something other than 000"
+    check "listener_on_port DOES see it" \
+      "$(ok_if listener_on_port "$hangport")" "port ${hangport} not found in /proc/net/tcp*"
+    # Cross-check the /proc reading against a real tool rather than trusting it
+    # — the same discipline check-build-context.py owes the docker SDK. Skipped,
+    # loudly, where lsof is absent.
+    if command -v lsof >/dev/null 2>&1; then
+      check "…and lsof -sTCP:LISTEN agrees" \
+        "$(ok_if test -n "$(lsof -ti "tcp:${hangport}" -sTCP:LISTEN 2>/dev/null)")" \
+        "lsof disagrees with /proc/net/tcp"
+    else
+      echo "  skip lsof cross-check (lsof not installed here)"
+    fi
+    signal_tree KILL "$hangpid"
+    for _ in $(seq 1 30); do
+      listener_on_port "$hangport" || break
+      sleep 0.1
+    done
+    # NEGATIVE CONTROL: a function hard-wired to "yes" would pass every check
+    # above. It must go quiet once the socket is gone.
+    check "negative control: once it is killed, listener_on_port says NO" \
+      "$(ok_if not_listening "$hangport")" "port ${hangport} still reported"
+  fi
+  wait "$hangpid" 2>/dev/null || true
 
   # ── 3. NEGATIVE CONTROL FOR THE REPORT ───────────────────────────────────
   # Without a stubborn process there must be NOTHING to report. Otherwise
