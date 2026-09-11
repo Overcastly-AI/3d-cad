@@ -1,0 +1,220 @@
+# Frontend redesign roadmap
+
+**The source of truth for `loft-frontend-redesign-loop`.** Its Cost phase reads
+this file and selects the next wave from it; its Evidence phase writes the
+outcome back. A wave that does not update this file makes the next planner
+re-derive everything, which is how the direction layer went dead here before.
+
+**Founder directive, 2026-09-11 (verbatim):** *"The front end must be improved
+for user experience. The flow of creating a part should be seamless. Also I want
+to give full freedom of improving the UI design and flow. Changes are encouraged
+to feel more like Fusion 360 or Plasticity."*
+
+---
+
+## Provenance, and the one methodological flaw you must know about
+
+Two audits, run in parallel, **deliberately not coordinating** — the same
+independence rule `product-auditor` and `engineering-auditor` follow. Where they
+converge, that convergence is evidence; where they disagree, this file resolves
+it in the open rather than splitting the difference.
+
+| Audit | Lens | Doc | Evidence |
+|---|---|---|---|
+| Flow | what the journey costs the hand | `AUDIT-FLOW-2026-09.md` | `docs/screenshots/audit-flow-2026-09/` (11) |
+| Craft | whether it feels like a modeling tool | `AUDIT-CRAFT-2026-09.md` | `docs/design/screenshots/craft-2026-09/` (16) |
+
+**THE FLAW: THEY MEASURED DIFFERENT TREES.** Craft audited `f00fbe9`, the tip of
+`claude/branch-review-development-hkbbnb`. Flow audited this branch, which is
+main-based and **11 commits behind** — and four of those eleven touch the sketch
+and viewport surfaces inside its lens. That is a real defect in how the pass was
+dispatched (mine), and the honest response is not to average the two but to
+re-check each flow finding against the eleven commits before it earns a row here.
+
+Re-checked so far, on `f00fbe9` itself:
+
+| Finding | Status on the dev tip | How it was checked |
+|---|---|---|
+| **F-1** first keystroke lost | **mechanism intact** | `window.addEventListener("keydown", …)` is still inside a `useEffect`; the two commits touching `SketchScene.tsx` add only pointer listeners for SEL-2, nothing in the arming or draw-dimension path. **NOT re-measured there** — reproducing the race on `f00fbe9` is the first task of its builder, not a claim this file makes. |
+| **F-2** exits destroy an unsaved sketch | **CONFIRMED** | No navigation guard of any kind exists: `beforeunload`, `onbeforeunload`, `useBlocker`, `unstable_useBlocker`, `usePrompt`, `useNavigationBlocker` → **0 files**, against a positive control of `useNavigate` → 5 files. |
+| **F-4** the five most-used verbs have no key | **CONFIRMED** | `PART_CREATE_SHORTCUTS` on the dev tip binds P/S/L/H/D/O/I — Pattern, Sweep, Loft, Shell, Draft, Hole, Mirror. Sketch, Extrude, Revolve, Fillet and Chamfer are absent. |
+| F-3, F-5, F-6, F-7..F-11 | **unverified on the dev tip** | Each builder's first step is to reproduce on current code. A finding that has silently been fixed is a wave item that must be dropped, not built. |
+
+---
+
+## The measurement this loop steers by
+
+`python3 scripts/check-flow-cost.py` reads `apps/web/e2e/` as a transcript of
+real gestures. **The canonical register → part → sketch → extrude → edit →
+export journey costs 30 gestures**, and it reads 30 on *both* trees, so the
+number is not an artefact of the stale base.
+
+Read that script's docstring before quoting it. It models an EXPERT who already
+knows every verb; it is blind to hesitation and ambiguity (F-2 costs zero
+gestures and is a P0); and it is gamed by editing the spec instead of the app.
+**A drop is a question, never an achievement.**
+
+The audits' own instrument is complementary and better at what this one cannot
+see — clicks / keystrokes / mode switches / **hunts**, hand-counted:
+
+| Part | clicks | keys | mode switches | hunts |
+|---|---:|---:|---:|---:|
+| Plate + 2 holes + fillet | 15 | 19 | 9 | **5** |
+| …with the holes where they were clicked | 21 | 28 | 9 | **7** |
+| Revolve + profile edit + rebuild | 11 | 19 | 9 | **3** |
+
+**8 of those 15 hunts are ONE transition** — a solved sketch proposes nothing.
+
+---
+
+## Where the two audits independently converged
+
+Convergence between auditors who never spoke is the strongest signal in this
+document, and all three of these outrank anything either found alone.
+
+1. **The app does not act on what you have just done.** Craft found that
+   clicking geometry selects nothing that survives the pointer moving (P0-2);
+   Flow found that a solved sketch proposes nothing and that this single gap is
+   8 of 15 hunts (F-3). These are two ends of one root cause: **there is no
+   held state for a next step to be next from**, so every command must be modal
+   and the mandate's first flow test is unsatisfiable. Neither auditor saw the
+   other's half. This is the spine of the roadmap.
+2. **The same five things are already good and must not be rebuilt.** Both
+   name the extrude drag handle, the rebuild-failure surface (named cause, last
+   good body still on screen, `role="alert"`), and dimension-typed-at-creation
+   as at or near the bar. Craft adds the modal tool bands and the token system;
+   Flow adds the revolve editor (*"one keystroke to a correct feature — better
+   than Fusion here"*) and feature-delete-with-dependents.
+3. **The chrome is the distinctive part; the viewport is the generic part.**
+   Craft measured it (7 hex literals repo-wide, 4 in comments, zero duplicated
+   between DOM and WebGL; 80/80 interactive elements named; mandate 3a(c)
+   passes outright). Flow corroborated from the other side — its P0s and P1s are
+   all in behaviour, none in the chrome's appearance. **Spending this redesign
+   on restyling panels would move the needle backwards.**
+
+## Where they disagreed, and how it is resolved
+
+| Question | Craft | Flow | Resolution |
+|---|---|---|---|
+| What goes first? | viewport realism — "the scene looks like CAD", cheapest visible delta | the two P0s — the app loses work | **Flow wins outright.** A tool that silently discards a typed dimension and destroys an unsaved sketch has no business getting prettier first. Craft's wave is cheap, parallel and viewport-only, so it runs *alongside* W0 rather than after it — it contends for nothing W0 touches. |
+| Proposals or handles next? | handles — 86 % of parameters are form-only | proposals — 8 of 15 hunts are one transition | **Proposals first (W2), handles second (W3).** Both are right; the tiebreak is measured cost per unit of work. The proposal chip reuses `sketch-proposal-layer`, which already exists, and removes the single largest measured cost in the audit. The handle work needs a new `<ParametricGauge>` primitive first, and a primitive is a foundation item that takes a whole wave to itself. |
+| Is the editor panel a defect? | yes — 17 identical stacked forms, 550 px from the geometry (P1-3) | not raised; the editors were judged workable | **Craft wins, but late (W5).** Flow did not contradict it, it simply measured cost and the panel is cheap *once you know where it is*. That is the expert-model blind spot in the gesture metric, stated in its own docstring. Note `4009042` (one of the eleven) already made all seventeen say why they are grey, so the surface is actively improving — re-audit before rebuilding it. |
+
+---
+
+## The waves
+
+Every item names ONE subtree. Items marked **⚑ foundation** claim
+`packages/design/**`, `apps/web/src/store/**` or `apps/web/src/lib/**`; the loop
+builds at most one of those per wave, first and alone, and the rest of the wave
+starts from its commit.
+
+### W0 — stop losing the user's work *(blocks everything; not a design wave)*
+
+Neither item is a matter of taste, and both fail the mandate's *"never a silent
+wrong model"* rule outright.
+
+| id | title | subtree | proven by |
+|---|---|---|---|
+| **FLOW-A1** | The first keystroke after a draw always lands — focus the width cell in the same commit that places the shape, or buffer and replay. The cells must not advertise readiness they do not have. | `apps/web/src/viewport/**` | Place a rectangle and press a digit with **zero** intervening round trips; `draw-dimension-width` reads that digit. The builder must first reproduce the 0 ms failure on the dev tip and quote it. |
+| **FLOW-A2** | An unsaved sketch survives Back, the breadcrumb and reload — a guard, plus a per-part draft | `apps/web/src/routes/**` | e2e: draw 4 entities, navigate away by each of the three exits, return, and the entities are still there (or an explicit prompt was shown and honoured). |
+
+### W1 — the scene looks like CAD *(viewport only, runs alongside W0)*
+
+Touches no data model, no API and no editor, so it contends with nothing above.
+
+| id | title | subtree | proven by |
+|---|---|---|---|
+| **CRAFT-1** | B-rep edge overlay derived from the face partition (`faceStarts`) — a fillet is tangent, so `EdgesGeometry` draws nothing | `apps/web/src/viewport/**` | Pixel: edge ink on the filleted plate is **0** today; assert > 2 000 px and that it does not collapse when a fillet is added. |
+| **CRAFT-2** | The grid survives an axis-aligned orthographic camera | `apps/web/src/viewport/**` | Pixel: grid ink at front-ortho ≥ 50 % of front-perspective. Today 2 396 vs 7 514, and all 2 396 are the body's own antialiasing. |
+| **CRAFT-4** | Cursor states over the viewport | `apps/web/src/viewport/**` | e2e: `getComputedStyle(canvas).cursor` changes off `auto` over a face, and reads `grab`/`grabbing` on a manipulator. |
+| **CRAFT-3** | Origin triad visible by default, dimmed | `apps/web/src/viewport/**` | e2e: `origin-axis-{x,y,z}` ink present at rest. |
+| **CRAFT-5** | Contact shadow + light AO | `apps/web/src/viewport/**` | Pixel: mean luminance in a 40 px band under the body is ≥ 15 % below the background gradient at that height. |
+| **CRAFT-6** | View navigation persists in sketch and plane-pick modes | `apps/web/src/components/**` | e2e: `view-cube` and `view-bar` have non-zero boxes in all three modes at 1280×800. Check first — `f00fbe9` may already have closed this. |
+
+### W2 — the next step proposes itself *(the biggest measured win)*
+
+| id | title | subtree | proven by |
+|---|---|---|---|
+| **FLOW-B1** | The solve itself writes an "Extrude Sketch1 · ⏎" chip onto the profile, reusing `sketch-proposal-layer` | `apps/web/src/viewport/**` | e2e: solve a sketch, assert the chip exists with the profile pre-selected, press Enter, assert the extrude editor opens with that profile. Gesture cost of the plate journey drops by the hunt. |
+| **FLOW-B2** | `E`/`R`/`F`/`C`/`K` bound for Extrude, Revolve, Fillet, Chamfer, Sketch | `apps/web/src/shortcuts/**` | Unit: `PART_CREATE_SHORTCUTS` contains all five. e2e: each fires its editor under its stated condition. |
+| **FLOW-B3** | One accented next-verb after a feature builds | `apps/web/src/components/**` | e2e: after an extrude completes, exactly one accented affordance is present and it is the likely next verb. |
+
+### W3 — the numbers have handles ⚑
+
+CRAFT-8 is this wave's foundation item and therefore lands first and alone: the
+four gauges after it are all the same primitive applied to different verbs, so
+building any of them before it exists means building it four times and reviewing
+four dialects of one control. That is the whole argument for the loop's System
+phase, arriving in its most literal form.
+
+| id | title | subtree | proven by |
+|---|---|---|---|
+| **CRAFT-8** ⚑ | Extract `<ParametricGauge>` (anchor, axis, value, setter, unit, snap ladder) from `ExtrudeDragHandle` | `packages/design/**` | Pure refactor: extrude re-expressed through it, existing e2e green, screenshot match — a refactor must not move a pixel. |
+| **CRAFT-7** | Fix the extrude grip: hit region = the drawn arrow; the on-geometry tag becomes an input | `apps/web/src/viewport/**` | e2e: `elementFromPoint` down the gauge axis resolves to `extrude-depth-handle` at ≥ 8 of 12 offsets (today 3 of 15); a real `page.mouse.click` on the arrowhead changes the distance. |
+| **CRAFT-9** | Linear gauges: fillet radius, chamfer distance, shell thickness, hole depth + Ø, datum offset | `apps/web/src/viewport/**` | e2e per verb: drag N px, the editor field changes AND the ghost redraws; arrow keys step the same value. |
+| **CRAFT-10** | Angular gauges: revolve angle, draft angle, bend angle | `apps/web/src/viewport/**` | e2e on `revolve-angle` / `draft-angle`. |
+| **CRAFT-11** | Pattern gauge: drag to set spacing, drag past a pitch to add count | `apps/web/src/viewport/**` | e2e: drag changes `pattern-spacing`; past the pitch increments `pattern-count`. |
+
+### W4 — select, then act ⚑ *(the structural one; the convergence item)*
+
+| id | title | subtree | proven by |
+|---|---|---|---|
+| **CRAFT-12** ⚑ | Persistent geometry selection — `ModelMesh` gains `onClick` → a selection store; Shift adds, Esc clears | `apps/web/src/store/**` | e2e + pixel: click a face, move the pointer 300 px away, the tint persists. `14-click-selects-nothing.png` is the before frame. |
+| **CRAFT-13** | Selection readout, with hover and selected actually distinguishable | `apps/web/src/components/**` | Pixel: selected chroma exceeds hovered by ≥ 30 %. Today 53.6 vs 53.4. |
+| **CRAFT-14** | Pre-selection seeds commands — pick edges, press F, the fillet opens with them | `apps/web/src/features/**` | e2e: select two edges, open Fillet, `fillet-edges` = 2 and Create is reachable with zero further picks. |
+| **FLOW-C1** | A face click seeds the hole point (`setHolePointPicked` already takes a point) | `apps/web/src/routes/**` | e2e: click a face once; the hole lands where clicked, not at the face centre. Today two clicks at the same pixel give `(50, 25, 20)` then `(35.6, 28)`. |
+| **FLOW-C2** ⚑ | `lastFeatureDefaults` — consecutive identical features carry their settings | `apps/web/src/store/**` | e2e: hole 1 at Ø8 through-all; hole 2 opens at Ø8, not the Ø6 default. **Conflicts with CRAFT-12 for `store/**` — schedule in separate waves.** |
+
+### W5 — the editor is a tag on the work, and the chrome repairs
+
+`CRAFT-15`, `CRAFT-16` (tag-on-geometry editors), `CRAFT-17` ⚑ (tracking scale
++ gate), `CRAFT-18` (labels ≥ 1600 px), `CRAFT-19` (`timeline-stop` /
+`rollback-slot` box collision), `CRAFT-20` (STATUS above the fold),
+`CRAFT-21` (Home restores projection; ViewCube re-fits), `CRAFT-22` (one export
+address), `FLOW-C3` ⚑ (Tab order), `FLOW-D*` (fillet opens on "pick edges";
+dimension glyphs look editable; the nav cue retires itself).
+
+---
+
+## What the roadmap assumes exists, checked on `f00fbe9`
+
+Three items say "reuse what is already there", which is only a cheap plan if it
+is true. Verified rather than assumed:
+
+| Claim | Found at |
+|---|---|
+| `sketch-proposal-layer` to hang FLOW-B1's chip on | `apps/web/src/viewport/SketchProposal.tsx:261` — **note it is in `viewport/`, not `sketch/`**, which is why FLOW-B1's territory is `viewport/**` |
+| `ExtrudeDragHandle` for CRAFT-8 to generalise | `apps/web/src/viewport/ExtrudeDragHandle.tsx` |
+| `setHolePointPicked` already taking a point, for FLOW-C1 | `apps/web/src/routes/PartPage.tsx:661,4022` |
+
+## Scheduling constraints the planner must respect
+
+- **One foundation per wave.** `packages/design/**`, `store/**` and `lib/**` are
+  claimable but never in parallel. CRAFT-8, CRAFT-12, CRAFT-17 and FLOW-C2 are
+  each a wave's solo item.
+- **CRAFT-12 and FLOW-C2 both want `store/**`.** Separate waves. CRAFT-12 first:
+  FLOW-C2 is a convenience, CRAFT-12 unlocks W4 entirely.
+- **`test/`, `router.tsx`, `main.tsx`, `index.css` are unclaimable.** Work
+  needing them belongs inside the item that needs it.
+- **Every builder reproduces its finding on the current tree first.** Half of
+  these were measured 11 commits back. A finding already fixed is an item to
+  drop, and dropping it is a good outcome, not a wasted wave.
+
+## Explicitly NOT proposed
+
+Both audits independently said so, and a roadmap that rebuilds working things is
+worse than no roadmap:
+
+- The **extrude drag handle** (fix its hit region, keep its design), the
+  **revolve editor**, the **rebuild-failure surface**, **feature delete +
+  dependents**, **dimension-typed-at-creation** as a concept, the **modal tool
+  bands**, and the **token/palette system**.
+- A new palette, a new type system, or a "modernisation" of the chrome.
+
+---
+
+## Changelog
+
+- **2026-09-11** — created. Reconciles the flow and craft audits of the same
+  day. No wave has run yet; every row is a proposal, not a commitment.
