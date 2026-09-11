@@ -115,6 +115,25 @@ lint:
     # above: it builds the failing case and demands a failure.
     python3 scripts/check-doc-tick.py --self-test
     python3 scripts/check-doc-tick.py --warn-only
+    # ~100ms. A workflow script is the one kind of code here that nobody runs
+    # before it runs for real, and "for real" costs several agent-hours plus a
+    # wave of builder time — the most expensive unverified code we write. This
+    # stubs agent() and exercises the redesign loop's WIRING: phase order,
+    # one-builder-per-subtree, the design-system item serialising ahead of the
+    # rest, and what the wave CLAIMS it did. It found two defects on its first
+    # run, both invisible in production because the run still looks successful:
+    # an item deferred for colliding on packages/design was reported as shipped,
+    # and counted in the "built N/M" denominator. It proves nothing about the
+    # prompts, which is where the judgement lives.
+    node scripts/dryrun-redesign-workflow.mjs
+    # ~150ms. check-flow-cost.py reads the e2e suite as a transcript of real
+    # gestures and is what the redesign loop steers by, so a silent zero in it
+    # would aim a whole wave at the wrong surface. Its self-test found three
+    # such zeros before it shipped (a destructuring brace, a TypeScript object
+    # literal parameter type, and test.describe double-counting) and carries
+    # negative controls so the drag-collapse and typed-param rules fail loudly
+    # if they ever stop doing anything.
+    python3 scripts/check-flow-cost.py --self-test
     # ~30ms. The verdict block scripts/e2e.sh ends with is the ONLY readable
     # channel into a red CI shard — `get_job_logs` returns a tail and artifact
     # download is policy-denied here — so a summariser that emits nothing on an
