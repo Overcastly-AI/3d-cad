@@ -306,6 +306,28 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   not a run that PASSED, and any reasoning that treats the spill as a board is
   reading a field that is not there. Use the spill for `head_sha` → `id` only,
   then take the verdict from `get_job_logs` as above.
+  **CORRECTION 2026-09-11: THE `total_jobs` DISCRIMINATOR WORKS FOR `e2e` AND
+  DOES NOT WORK FOR `ci` — THE TWO WORKFLOWS DIFFER IN A WAY THE RULE BELOW DOES
+  NOT ACCOUNT FOR.** I read `{"failed_jobs":0,"total_jobs":7}` on a `ci` run and
+  called the commit green, correctly by the rule as written. It was not green; it
+  was **queued**, and `list_workflow_jobs` a few minutes later showed six jobs
+  finished and `python` still inside Pytest. The mechanism: `ci`'s seven jobs are
+  all independent, so GitHub creates all seven the instant the run is queued and
+  `total_jobs` reads 7 from the very first second. `e2e`'s fifth job (`e2e
+  complete`) *depends on* the four shards, so it does not exist until they
+  finish — which is the only reason 4-vs-5 discriminates there. **A count that
+  is complete at t=0 cannot tell you the run is complete.** So for `ci`,
+  `failed_jobs: 0` means "nothing has failed yet" and nothing more, at every
+  moment of the run.
+  **The cheap completion check that DOES work, and it is nearly free: ask
+  `list_workflow_runs` with `status: "completed"` and the branch filter.** An
+  unfinished run yields `{"total_count":0,"workflow_runs":[]}` — a few tokens —
+  and the moment it finishes the run appears, at which point `get_job_logs` with
+  `failed_only` gives the verdict as usual. Two calls, both cheap, and neither
+  can report a queued run as a pass. Do NOT reach for `list_workflow_jobs` to
+  settle this: it returns every step of every job with timestamps and cost ~8 k
+  tokens to learn one job was still running, which is most of an integration
+  pass spent on a question the empty listing answers for free.
   **AND `failed_jobs: 0` ON AN UNFINISHED RUN IS NOT A PASS — READ `total_jobs`
   IN THE SAME REPLY.** It means "nothing has failed YET", which is true of every
   run that has barely started, and it reads exactly like green. Caught twice on
