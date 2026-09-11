@@ -78,6 +78,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -339,6 +340,40 @@ def _callback_body(src: str, after: int) -> str:
     return _block_at(src, stop)
 
 
+def _untracked_specs(e2e: Path) -> list[str]:
+    """Spec files in `e2e` that git does not track.
+
+    This script walks the FILESYSTEM, so another agent's in-flight scratch specs
+    are counted as journeys and the totals move for a reason that has nothing to
+    do with the product. Measured 2026-09-11: a live audit agent's five
+    `zzflow-*.spec.ts` probes raised the journey count from 650 to 655 in the
+    middle of a comparison between two trees, which is precisely the shape of
+    error that makes a number untrustworthy — it changed because a colleague was
+    working, not because anything shipped.
+
+    The same class as `prettier --check .` walking the filesystem and going red
+    on somebody's stray scratch file: a gate is only as honest as its INPUT, and
+    "it passed" means nothing until you know what it measured. Warn rather than
+    exclude — a scratch spec may be exactly what someone wants to measure — but
+    never let the totals shift silently.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "--", str(e2e)],
+            capture_output=True,
+            text=True,
+            cwd=REPO,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):  # pragma: no cover - git absent
+        return []
+    if out.returncode != 0:
+        return []
+    return sorted(
+        Path(line).name for line in out.stdout.split() if line.endswith(".spec.ts")
+    )
+
+
 def analyse(e2e: Path = E2E) -> list[Journey]:
     shared = _helper_table(e2e)
     journeys: list[Journey] = []
@@ -503,6 +538,16 @@ def main() -> int:
     if args.json:
         print(json.dumps({"journeys": journeys}, indent=2))
         return 0
+
+    stray = _untracked_specs(E2E)
+    if stray:
+        print(
+            f"::warning:: {len(stray)} UNTRACKED spec file(s) in apps/web/e2e are "
+            "being counted as journeys:\n  " + "\n  ".join(stray) + "\n"
+            "They are somebody's in-flight work, not the committed product. Totals "
+            "below include them — do not compare this run against another tree "
+            "until they are gone.\n"
+        )
 
     full = [j for j in journeys if not j["skipped"]]
     skipped_part = [j for j in journeys if "createPartViaApi" in j["skipped"]]
