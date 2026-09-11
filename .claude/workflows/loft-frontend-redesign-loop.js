@@ -102,17 +102,36 @@ const SUBTREES = [
   'apps/web/src/units/**',
 ]
 
-// Deliberately NOT in SUBTREES, and handled by its own phase instead: the design
-// system. See note 2 in the header — in a redesign it is contended by every item
-// at once, so it cannot be allocated like a peer subtree.
-const SYSTEM_SUBTREE = 'packages/design/**'
+// FOUNDATIONS — claimable, but only ever by ONE item, which then runs first and
+// alone while everyone else starts from its commit.
+//
+// The first version of this file listed only `packages/design/**` here and left
+// `store/` and `lib/` out of the loop entirely, on the reasoning that a
+// cross-cutting change "is an escalation to the orchestrator, not a wave item".
+// That reasoning is sound and the conclusion was wrong, which the craft audit
+// exposed within the hour: its single most important item — persistent geometry
+// selection, the one the mandate's whole "next step visible from the current
+// state" rule depends on — lives in `apps/web/src/store/**`. So the loop's most
+// valuable possible work was UNSCHEDULABLE, silently, with no error anywhere.
+// That is precisely the failure the SUBTREES list above carries a warning about,
+// committed by the person who wrote the warning.
+//
+// The fix is the mechanism that already existed for `packages/design`: a
+// foundation item is not un-buildable, it is un-PARALLELISABLE. Give it the wave
+// to itself, land it first, hand its SHA to the rest. A second foundation item
+// in the same wave is deferred rather than raced.
+const FOUNDATION_SUBTREES = [
+  'packages/design/**',
+  'apps/web/src/store/**',
+  'apps/web/src/lib/**',
+]
+const SYSTEM_SUBTREE = FOUNDATION_SUBTREES[0]
 
-// Also deliberately not subtrees: `lib/`, `store/`, `test/`, and the loose files
-// at the root of `apps/web/src` (`router.tsx`, `main.tsx`, `index.css`). A change
-// in any of those is cross-cutting by construction — every subtree imports them —
-// so allocating one to a single builder would be a fiction the other builders in
-// the wave silently violate. Work that genuinely needs them is an escalation to
-// the orchestrator, which serialises it, not a wave item.
+// Still NOT claimable at all: `test/` and the loose files at the root of
+// `apps/web/src` (`router.tsx`, `main.tsx`, `index.css`). Unlike store and lib,
+// these have no plausible single owner for a wave — a router change serves
+// whatever surfaces the wave happens to touch, so it belongs inside those items
+// rather than being one.
 
 const batchSize = (args && args.batchSize) || 3
 const branch = (args && args.branch) || 'claude/frontend-workflow-redesign-8ae3su'
@@ -145,7 +164,7 @@ const PLAN = {
         properties: {
           id: { type: 'string' },
           title: { type: 'string' },
-          subtree: { type: 'string', enum: [...SUBTREES, SYSTEM_SUBTREE] },
+          subtree: { type: 'string', enum: [...SUBTREES, ...FOUNDATION_SUBTREES] },
           costNow: {
             type: 'string',
             description:
@@ -168,11 +187,11 @@ const PLAN = {
           needsPrimitive: {
             type: 'boolean',
             description:
-              'true if this requires a new or changed primitive in packages/design. Be honest: a "just this once" local style is the DRY violation review rejects.',
+              'true if this requires a new or changed primitive in packages/design, or a change to the shared store or lib. Be honest: a "just this once" local style is the DRY violation review rejects, and a quietly-widened store is the overwrite class.',
           },
           primitive: {
             type: 'string',
-            description: 'which primitive, if needsPrimitive',
+            description: 'which primitive / store slice, if needsPrimitive',
           },
         },
       },
@@ -289,7 +308,11 @@ TERRITORY IS A HARD CONSTRAINT. Assign each item exactly one \`subtree\`, and NO
 TWO ITEMS MAY SHARE ONE:
 ${available.map((t) => `  - ${t}`).join('\n')}
 ${occupied.length ? `\nOCCUPIED by builders live right now, unavailable this wave:\n${occupied.map((t) => `  - ${t}`).join('\n')}` : ''}
-At most ONE item may claim \`${SYSTEM_SUBTREE}\`; it will be built first and alone.
+At most ONE item in the wave may claim a FOUNDATION — \`${FOUNDATION_SUBTREES.join('`, `')}\` —
+and it will be built FIRST and ALONE, with the others starting from its commit.
+A foundation item is not too big for the loop, it is merely un-parallelisable;
+if the most valuable thing you can see lives in one, pick it and let it have the
+wave. A SECOND foundation item in the same wave is deferred, not raced.
 Return AT MOST ${Math.min(batchSize, available.length)} items. If a high-value
 item cannot get a clean subtree, put it in \`deferred\` with its reason — it
 leads the next wave rather than racing this one.
@@ -408,7 +431,9 @@ siblings, and the orchestrator needs to know to look for that.\n`
 // builders in `packages/design` at once is the overwrite class, and the cheap
 // escape from it (each patching its own instance) is the DRY violation review
 // rejects. Serialising one item is much cheaper than either.
-const needsSystem = batch.filter((i) => i.subtree === SYSTEM_SUBTREE || i.needsPrimitive)
+const needsSystem = batch.filter(
+  (i) => FOUNDATION_SUBTREES.includes(i.subtree) || i.needsPrimitive,
+)
 const systemItem = needsSystem[0] || null
 
 // MORE THAN ONE item wanting the design system is the collision this phase
@@ -429,30 +454,37 @@ let systemSha = null
 
 if (systemItem) {
   phase('System')
-  log(`design-system change lands first and alone: ${systemItem.id} (${systemItem.primitive || 'primitive unnamed'})`)
+  // The foundation the item claims, if it named one; otherwise the design system,
+  // which is what `needsPrimitive` without a foundation subtree means.
+  const foundation = FOUNDATION_SUBTREES.includes(systemItem.subtree)
+    ? systemItem.subtree
+    : SYSTEM_SUBTREE
+  log(`foundation change lands first and alone: ${systemItem.id} in ${foundation} (${systemItem.primitive || 'unnamed'})`)
   const built = await agent(
-    `Land the DESIGN-SYSTEM half of this redesign wave, alone, before the others start.
+    `Land the FOUNDATION half of this redesign wave, alone, before the others start.
 
 Item: **${systemItem.title}** (${systemItem.id})
-Primitive: ${systemItem.primitive || '(the plan did not name one — name it in your report)'}
+Foundation: \`${foundation}\` — ${systemItem.primitive || '(the plan did not name the primitive or store slice — name it in your report)'}
 Cost now: ${systemItem.costNow}
 Cost after: ${systemItem.costAfter}
 Acceptance: ${systemItem.acceptance}
 ${DIRECTION_BLOCK}
-YOUR TERRITORY IS \`${SYSTEM_SUBTREE}\`${
-    systemItem.subtree !== SYSTEM_SUBTREE ? ` AND \`${systemItem.subtree}\`` : ''
-  } — the design system, because this
-item changes a primitive, plus the surface that consumes it. Nothing else.
+YOUR TERRITORY IS \`${foundation}\` plus the surfaces that consume what you
+change, and nothing else. You have the wave to yourself precisely BECAUSE this
+work cannot be fenced into one subtree — that is what makes it a foundation, not
+what makes it too big.
 
 You are going FIRST and ALONE on purpose. ${rest.length} builder(s) start from
 your commit the moment you push, so two things matter more than usual:
   - **Push the moment you are green.** Siblings are blocked on your SHA. A
     perfect commit you are still polishing is worse for this wave than a good
     one they can build on.
-  - **Prefer an ADDITIVE primitive.** Every call site you change is a file a
-    sibling may also hold, and a breaking change is a cost you are choosing on
-    their behalf. List every file you touched outside your territory in your
-    report so the orchestrator can warn whoever owns it.
+  - **Prefer an ADDITIVE change.** Every call site you touch is a file a sibling
+    may also hold, and a breaking change is a cost you are choosing on their
+    behalf. A new primitive beside the old one, or a new store slice rather than
+    a changed signature, costs you a follow-up and costs them nothing. List every
+    file you touched outside your own subtree so the orchestrator can warn
+    whoever owns it.
   - **Restart Vite before you believe any mutation test.** Editing a
     \`packages/design\` primitive under a running Vite can serve a STALE
     transform, so the mutation passes when it must have failed — that is a wrong

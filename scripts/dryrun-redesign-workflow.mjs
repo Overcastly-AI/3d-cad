@@ -192,6 +192,37 @@ const item = (id, subtree, extra = {}) => ({
   );
 }
 
+// 5b. A FOUNDATION OUTSIDE packages/design is schedulable, and runs solo.
+//     The craft audit's highest-value item — persistent geometry selection, the
+//     one the mandate's "next step visible from the current state" rule depends
+//     on — lives in `apps/web/src/store/**`. The first version of the loop
+//     excluded store/ and lib/ from its subtree list entirely, so that item was
+//     UNSCHEDULABLE with no error anywhere: the exact failure the loop's own
+//     SUBTREES comment warns about. This case is the gate on that fix.
+{
+  const { labels, res } = await run({
+    skipCost: true,
+    items: [
+      item("CRAFT-12", "apps/web/src/store/**"),
+      item("CRAFT-4", "apps/web/src/viewport/**"),
+    ],
+  });
+  check(
+    "a store/** item is scheduled at all",
+    labels.includes("system:CRAFT-12"),
+  );
+  check(
+    "a store/** item runs BEFORE the others",
+    labels.indexOf("system:CRAFT-12") <
+      labels.findIndex((l) => l.startsWith("build:")),
+  );
+  check("its siblings still run", labels.includes("build:CRAFT-4"));
+  check(
+    "it is reported as attempted",
+    res.items.some((i) => i.id === "CRAFT-12"),
+  );
+}
+
 // 6. NEGATIVE CONTROL. The checks above must be capable of failing: a wave with
 //    a design-system item MUST NOT look identical to one without. If these two
 //    agree, every assertion in case 1 is passing vacuously.
