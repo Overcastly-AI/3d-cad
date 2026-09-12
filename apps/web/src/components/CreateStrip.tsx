@@ -475,7 +475,52 @@ export function CreateStrip({
     return {
       icon: (
         <>
-          <VerbGlyph verb={verb} />
+          {/* THE ESCALATION (direction §8, taken after the 6px dot was built
+              and measured). The dot alone paints 16 brass pixels at 1280x800 —
+              against the active scribe's 88 — and while it is the ONLY brass in
+              the 1245px band, it reads as confirmation once you are looking at
+              the band rather than as something that calls you to it. The glyph
+              adds little further INK (27 strict px against the dot's 16; a
+              scribed glyph is a 1.6px stroke, not a filled shape). What it adds
+              is EXTENT: brass across the whole 32px cell instead of a 6px point,
+              which is what peripheral vision actually resolves.
+
+              A WRAPPER SPAN, not a `className` on the button. The colour has to
+              beat `ToolButton`'s own `text-mist`, and passing `text-brass`
+              through `className` would leave that to the order two utilities
+              happen to occupy in the generated stylesheet — a rule that is true
+              today and silently reversible by an unrelated edit to the palette.
+              The glyph's stroke is `currentColor`, so a span INSIDE the button
+              wins by inheritance instead: the nearest ancestor with a `color`
+              is this one, whatever the button says. No specificity contest, and
+              nothing in `packages/design` has to change.
+
+              The wrapper COSTS NO LAYOUT, which is the constraint that made
+              the 6px dot safe at the 1280x800 floor and which the escalation
+              must not quietly spend. An added inline span is exactly how the
+              key-card rows came to be 29px tall to carry 17px of text one
+              commit ago — the glyph would sit on a line box and inherit the
+              font's descent as slack. It does not happen here because
+              `ToolButton`'s icon slot is a flex container, so this span is a
+              flex ITEM and is blockified: no line box, no strut.
+
+              That is a dependency on a component in `packages/design`, so it is
+              asserted rather than assumed — `toolbar-overflow.spec.ts` measures
+              every group against the frame at 1280/1440/1600 and is what would
+              catch it if that slot ever stopped being flex. A `contents` class
+              was tried here first to remove the dependency outright; measured,
+              it changed button, icon and band geometry by exactly zero, so it
+              was dropped rather than left in reading as load-bearing.
+
+              It is still NOT the active state, and the difference is load-
+              bearing rather than incidental: `active` is brass glyph PLUS the
+              bottom scribe PLUS `aria-pressed`. A proposal is brass glyph and
+              dot, with no scribe and no pressed state — so "this tool is on"
+              and "do this next" stay tellable apart, which is asserted both
+              ways in `next-step-accent.spec.ts`. */}
+          <span className={on ? "text-brass" : undefined}>
+            <VerbGlyph verb={verb} />
+          </span>
           {on ? <NextStepDot /> : null}
         </>
       ),
