@@ -20,7 +20,14 @@
  *
  * So the keys are BUFFERED the moment they arrive, against the store's draft
  * (which `placeAt` sets synchronously, inside the pointer handler), and
- * replayed into the cells in the layout effect of the commit that creates them.
+ * replayed into the cells the instant those cells attach — in their REF
+ * CALLBACK, not in a layout effect. That distinction is measured, not
+ * stylistic: the cells live inside drei's `<Html>`, which portals them in a
+ * commit of its own, so the arming commit's layout effect runs while the inputs
+ * still do not exist (traced: `armed: true`, buffer `["100", ""]`, ref map
+ * `[]`), and a ref registration schedules no render, so that effect never runs
+ * again. See `SketchScene.registerCell` for the full trace.
+ *
  * This module is that buffer: pure, so the state machine is unit-testable
  * without a browser, and so the listener in `SketchScene` stays a thin adapter.
  *
