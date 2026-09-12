@@ -130,7 +130,26 @@ Touches no data model, no API and no editor, so it contends with nothing above.
 | **CRAFT-4** | Cursor states over the viewport | `apps/web/src/viewport/**` | e2e: `getComputedStyle(canvas).cursor` changes off `auto` over a face, and reads `grab`/`grabbing` on a manipulator. |
 | **CRAFT-3** | Origin triad visible by default, dimmed | `apps/web/src/viewport/**` | e2e: `origin-axis-{x,y,z}` ink present at rest. |
 | **CRAFT-5** | Contact shadow + light AO | `apps/web/src/viewport/**` | Pixel: mean luminance in a 40 px band under the body is ≥ 15 % below the background gradient at that height. |
-| **CRAFT-6** | View navigation persists in sketch and plane-pick modes | `apps/web/src/components/**` | e2e: `view-cube` and `view-bar` have non-zero boxes in all three modes at 1280×800. Check first — `f00fbe9` may already have closed this. |
+| **CRAFT-6** | The CUBE persists in sketch and plane-pick modes; the projection control stays hidden | `apps/web/src/components/**` | e2e: `view-cube` has a non-zero box in all three modes at 1280×800, and `view-projection` remains absent while authoring. **Split deliberately — see the note below.** |
+
+**CRAFT-6 is not what the audit thought, and the difference matters.** Checked
+on the merged tree: `Viewport.tsx:1357-1358` unmounts BOTH the cube and the view
+rail with `viewNav`, which `PartPage.tsx` sets to `mode === "off"` — so they go
+during sketch and plane-pick, exactly as reported. But this is not an oversight;
+the code argues for it, in a comment written by whoever built the sketch rig:
+*"the view rail and the cube unmount with `viewNav`, so the projection control
+is not on screen during authoring"*, because the sketch rig holds perspective by
+parking the camera at a computed distance, which a parallel camera does not
+answer to.
+
+Half of that reasoning is right and half is not. Hiding the PROJECTION control
+during authoring is correct — it would offer a mode the sketch rig cannot honour.
+Hiding the CUBE is not: orientation matters MORE while you are drawing on a
+plane in space, not less, and the cube is an orientation readout before it is a
+control. So the item is split rather than overruled, and a builder who reads the
+comment will not have to choose between the roadmap and the code. If honouring a
+cube facet click during sketch mode turns out to fight the rig, the cube may be
+display-only there — say so and ship that.
 
 ### W2 — the next step proposes itself *(the biggest measured win)*
 
