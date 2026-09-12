@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { SessionStorageLike } from "../auth/session";
 import type { SketchEntity } from "../sketch/tools";
 import {
+  clearAllSketchDrafts,
   clearSketchDraft,
   DRAFT_MAX_AGE_MS,
   draftAge,
@@ -12,7 +13,13 @@ import {
   type SketchDraftInput,
 } from "./sketchDraft";
 
-/** An in-memory stand-in for localStorage, plus a throwing variant. */
+/**
+ * An in-memory stand-in for localStorage, plus a throwing variant.
+ *
+ * It ENUMERATES, like the real thing: the sign-out purge finds keys it does not
+ * know the names of (one per part id), so a fake without `key()`/`length` would
+ * let a purge that walked nothing pass for a purge that worked.
+ */
 function fakeStorage(): SessionStorageLike & { map: Map<string, string> } {
   const map = new Map<string, string>();
   return {
@@ -20,6 +27,10 @@ function fakeStorage(): SessionStorageLike & { map: Map<string, string> } {
     getItem: (key) => map.get(key) ?? null,
     setItem: (key, value) => void map.set(key, value),
     removeItem: (key) => void map.delete(key),
+    get length() {
+      return map.size;
+    },
+    key: (index) => [...map.keys()][index] ?? null,
   };
 }
 
@@ -150,5 +161,47 @@ describe("sketchDraft", () => {
     expect(ago(5 * 60 * 60_000)).toBe("5 hours ago");
     expect(ago(24 * 60 * 60_000)).toBe("yesterday");
     expect(ago(3 * 24 * 60 * 60_000)).toBe("3 days ago");
+  });
+});
+
+/**
+ * W0 review finding 4 — a draft outlived the session that made it.
+ *
+ * `signOut` removed the token and nothing else, so a user's in-progress
+ * geometry stayed on the disk of a shared browser for seven days, under a key
+ * that names the PART and not the person.
+ */
+describe("clearAllSketchDrafts", () => {
+  it("removes every part's draft and leaves everything else alone", () => {
+    const storage = fakeStorage();
+    writeSketchDraft("part-a", input(), storage, 1_000);
+    writeSketchDraft("part-b", input(), storage, 1_000);
+    storage.setItem("loft.session.v1", "{}");
+    storage.setItem("loft.preferences.v1", "{}");
+
+    // By COUNT, not by "it did not throw": a purge that found nothing to do
+    // reports 0 here and cannot pass for one that worked.
+    expect(clearAllSketchDrafts(storage)).toBe(2);
+    expect(readSketchDraft("part-a", storage, 2_000)).toBeNull();
+    expect(readSketchDraft("part-b", storage, 2_000)).toBeNull();
+    expect(storage.map.has("loft.session.v1")).toBe(true);
+    expect(storage.map.has("loft.preferences.v1")).toBe(true);
+  });
+
+  it("reports -1 for a storage it cannot walk, never 0", () => {
+    // "I could not look" and "there was nothing there" are different answers,
+    // and a purge that returns the second for the first is a gate that cannot
+    // fail. `SessionStorageLike` makes enumeration optional, so this is a real
+    // shape a caller can pass.
+    const blind: SessionStorageLike = {
+      getItem: () => null,
+      setItem: () => undefined,
+      removeItem: () => undefined,
+    };
+    expect(clearAllSketchDrafts(blind)).toBe(-1);
+  });
+
+  it("survives a storage that throws", () => {
+    expect(() => clearAllSketchDrafts(throwingStorage)).not.toThrow();
   });
 });

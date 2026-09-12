@@ -221,6 +221,112 @@ test.describe("FLOW-A2 — leaving a sketch with unsaved work", () => {
     await expect(page.getByTestId("sketch-strip")).toHaveCount(0);
   });
 
+  test("Enter takes the focused rung, not the armed dimension behind it", async ({
+    page,
+  }) => {
+    // W0 REVIEW FINDING 1 (blocking). `SketchScene`'s draw-dimension listener
+    // is attached for the whole sketch session (FLOW-A1) and its only target
+    // guard is `isTypingTarget` — INPUT | TEXTAREA | SELECT | contentEditable —
+    // so it ran while the DIALOG'S OWN BUTTON held focus, and its
+    // `preventDefault()` on Enter cancelled that button's activation. The user
+    // pressed Enter on "Save sketch, then leave" and silently dimensioned a
+    // rectangle instead.
+    //
+    // THIS CASE PRESSES ENTER. Clicking the rung — which is what every other
+    // case here does — cannot fail on this defect at all.
+    await seedPart(page, "Keyed");
+    await openPartFromRegister(page, "Keyed");
+    await drawFourEntities(page);
+
+    // THE FIXTURE HAS TO BE ABLE TO REACH THE DEFECT. `drawFourEntities` ends
+    // with a placed rectangle, which leaves the strip ARMED and listening —
+    // asserted, not assumed, because a case that armed nothing would pass
+    // against the broken build too.
+    const strip = page.getByTestId("draw-dimensions");
+    await expect(strip).toHaveAttribute("data-state", "armed");
+
+    await page.getByTestId("breadcrumb-register").click();
+    const prompt = page.getByTestId("leave-sketch-prompt");
+    await expect(prompt).toBeVisible();
+    // Still armed BEHIND the dialog — the state the committed FLOW-A2
+    // screenshot was taken in.
+    await expect(strip).toHaveAttribute("data-state", "armed");
+    await expect(page.getByTestId("leave-sketch-save")).toBeFocused();
+
+    // Ctrl+Z leaked the same way, to `SketchStrip`'s sketch-local undo: it
+    // would have undone in the sketch behind the modal. The manifest is
+    // derived from the live buffer, so an undo that landed reddens here.
+    await page.keyboard.press("Control+z");
+    await expect(page.getByTestId("leave-sketch-entities")).toHaveText("4");
+
+    await page.keyboard.press("Enter");
+
+    // The rung fired: we left, AND the work went into the part. "The prompt
+    // closed" would also be true of a dialog that simply gave up.
+    await expect(page.getByTestId("part-row").first()).toBeVisible({
+      timeout: 30_000,
+    });
+    await openPartFromRegister(page, "Keyed");
+    await expect(page.getByTestId("feature-row")).toHaveCount(1, {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("sketch-draft-restored")).toHaveCount(0);
+  });
+
+  test("a save in flight cannot blur the dialog", async ({ page }) => {
+    // W0 REVIEW FINDING 2. The save rung is the focused one when a save starts,
+    // and it carried a native `disabled` — disabling a focused element blurs it
+    // to `document.body`, which took the keyboard user out of a dialog that was
+    // still the only thing on screen. The wait is not short: a create blocks on
+    // a whole round trip.
+    //
+    // THE MEASUREMENT HAS TO BE HERE, in a real browser: jsdom does not move
+    // focus when an element is disabled (measured — `activeElement after
+    // disable: BUTTON`), so no unit test can fail on this.
+    await seedPart(page, "Holdfast");
+    await openPartFromRegister(page, "Holdfast");
+    await drawFourEntities(page);
+
+    // Hold the write open so "saving" is a state we can look at rather than a
+    // flicker we have to race.
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route("**/api/v1/parts/*/features**", async (route) => {
+      if (route.request().method() === "GET") return route.continue();
+      await held;
+      return route.continue();
+    });
+
+    await page.getByTestId("breadcrumb-register").click();
+    await expect(page.getByTestId("leave-sketch-prompt")).toBeVisible();
+    await page.getByTestId("leave-sketch-save").click();
+    await expect(page.getByTestId("leave-sketch-save")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+
+    // Where the focus actually is, asked of the browser.
+    const focus = await page.evaluate(() => {
+      const panel = document.querySelector(
+        '[data-testid="leave-sketch-prompt"]',
+      );
+      const active = document.activeElement;
+      return {
+        tag: active?.tagName ?? null,
+        insideDialog:
+          panel !== null && active !== null && panel.contains(active),
+      };
+    });
+    expect(focus).toEqual({ tag: "BUTTON", insideDialog: true });
+
+    release();
+    await expect(page.getByTestId("part-row").first()).toBeVisible({
+      timeout: 30_000,
+    });
+  });
+
   test("an exit with nothing unsaved is not held up", async ({ page }) => {
     // The guard must cost nothing on the ordinary path, or it becomes the
     // thing people click through without reading.

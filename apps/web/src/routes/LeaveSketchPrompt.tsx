@@ -1,6 +1,8 @@
 import { cx, Kbd } from "@loft/design";
 import { useCallback, useEffect, useRef } from "react";
-import type { KeyboardEvent, ReactNode, Ref } from "react";
+import type { ReactNode, Ref } from "react";
+
+import { useModalLayer } from "../lib/modalGate";
 
 /**
  * THE EXIT TICKET — what the three ordinary exits say now (FLOW-A2).
@@ -92,20 +94,40 @@ export function LeaveSketchPrompt({
    * A modal that blocks a navigation has to hold focus, or Tab walks into the
    * page behind it and the user is operating a workspace they have just been
    * told they are leaving. Three buttons, so the trap is the two boundaries.
+   *
+   * THE KEYS ARRIVE FROM THE MODAL GATE, NOT FROM REACT'S onKeyDown, and that
+   * is the fix for W0 review finding 1 rather than a refactor. A React handler
+   * on the panel sees a key only after it has already passed every window
+   * listener in the workspace — `SketchScene`'s draw-dimension Enter and
+   * `SketchStrip`'s Ctrl+Z among them — so with the dimension strip armed
+   * behind the dialog, Enter on the focused save rung applied the dimension and
+   * `preventDefault()`ed the button's own activation. `lib/modalGate.ts` stops
+   * every keystroke at the window capture phase and hands it here, so this
+   * handler is the only code in the app that can act on a key while the prompt
+   * is open.
+   *
+   * `insidePanel` is false when focus has escaped the dialog. That is not
+   * hypothetical (finding 2), so a stray key is spent putting focus back rather
+   * than reaching a workspace the user is halfway out of.
    */
   const onKeyDown = useCallback(
-    (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onStay();
-        return;
-      }
-      if (event.key !== "Tab") return;
+    (event: KeyboardEvent, insidePanel: boolean) => {
       const focusable = Array.from(
         panelRef.current?.querySelectorAll<HTMLButtonElement>(
           "button:not([disabled])",
         ) ?? [],
       );
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onStay();
+        return;
+      }
+      if (!insidePanel) {
+        event.preventDefault();
+        focusable[0]?.focus();
+        return;
+      }
+      if (event.key !== "Tab") return;
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -120,6 +142,8 @@ export function LeaveSketchPrompt({
     },
     [onStay],
   );
+
+  useModalLayer("the exit ticket", panelRef, onKeyDown);
 
   return (
     <div
@@ -136,7 +160,6 @@ export function LeaveSketchPrompt({
         tabIndex={-1}
         data-testid="leave-sketch-prompt"
         onClick={(event) => event.stopPropagation()}
-        onKeyDown={onKeyDown}
         className="w-full max-w-xl border border-etch bg-anvil text-mist shadow-float outline-none"
       >
         {/* The stamped header band — the title block's own grammar, and the
@@ -286,8 +309,18 @@ function Rung({
       ref={ref}
       type="button"
       data-testid={testId}
-      disabled={disabled}
-      onClick={onClick}
+      // `aria-disabled`, NOT `disabled` — W0 review finding 2. Disabling the
+      // element that HAS focus blurs it to `document.body`, and the save rung is
+      // the focused one the instant a save starts, so the dialog lost focus at
+      // exactly the moment it had nothing else to offer. The wait is not short:
+      // a save that is still creating the feature blocks on a whole round trip.
+      // An `aria-disabled` control keeps its place in the focus order and stays
+      // announced — the refusal is in the handler, not in the DOM.
+      aria-disabled={disabled || undefined}
+      onClick={() => {
+        if (disabled) return;
+        onClick();
+      }}
       className={cx(
         // A GRID, not a flex row: the consequences line up in one column, so
         // the three exits read as a table of outcomes rather than three
@@ -298,7 +331,7 @@ function Rung({
         "outline-none motion-safe:transition-colors motion-safe:duration-fast",
         "last:border-b-0 hover:bg-carbide focus-visible:bg-carbide",
         "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
-        "disabled:opacity-50",
+        "aria-disabled:opacity-50",
       )}
     >
       <span

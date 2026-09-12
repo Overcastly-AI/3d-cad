@@ -12,6 +12,28 @@ import { describe, expect, it, vi } from "vitest";
 
 import { LeaveSketchPrompt } from "./LeaveSketchPrompt";
 
+/**
+ * The workspace's own shortcuts, in the two positions this app registers them:
+ * `SketchScene`'s draw-dimension Enter is a bubble-phase window listener,
+ * `FeatureTreePanel`'s drag-escape is a capture-phase one. Both are attached
+ * here AFTER the gate module is loaded — the position every real listener is
+ * in, since they all register inside effects.
+ */
+function workspaceShortcuts() {
+  const capture = vi.fn();
+  const bubble = vi.fn();
+  window.addEventListener("keydown", capture, true);
+  window.addEventListener("keydown", bubble);
+  return {
+    capture,
+    bubble,
+    release: () => {
+      window.removeEventListener("keydown", capture, true);
+      window.removeEventListener("keydown", bubble);
+    },
+  };
+}
+
 function setup(
   overrides: Partial<Parameters<typeof LeaveSketchPrompt>[0]> = {},
 ) {
@@ -34,6 +56,31 @@ function setup(
     />,
   );
   return handlers;
+}
+
+/** The same prompt, with the props it is re-rendered with (saving turns true). */
+function setupRerenderable() {
+  const handlers = {
+    onSaveAndLeave: vi.fn(),
+    onLeave: vi.fn(),
+    onStay: vi.fn(),
+  };
+  const props = {
+    partName: "Bracket",
+    destination: "Parts",
+    entityCount: 4,
+    constraintCount: 9,
+    draftHeld: true,
+    saving: false,
+    error: null,
+    ...handlers,
+  };
+  const view = render(<LeaveSketchPrompt {...props} />);
+  return {
+    handlers,
+    rerender: (next: Partial<typeof props>) =>
+      view.rerender(<LeaveSketchPrompt {...props} {...next} />),
+  };
 }
 
 describe("the exit ticket", () => {
@@ -130,10 +177,77 @@ describe("the exit ticket", () => {
   });
 
   it("blocks the save rung while the save is in flight", () => {
-    setup({ saving: true });
-    expect(screen.getByTestId("leave-sketch-save")).toBeDisabled();
-    expect(screen.getByTestId("leave-sketch-save")).toHaveTextContent("Saving");
+    const handlers = setup({ saving: true });
+    const save = screen.getByTestId("leave-sketch-save");
+    // `aria-disabled`, not `disabled` — see below for what the native attribute
+    // did to focus. The refusal is still real: the rung does not fire.
+    expect(save).toHaveAttribute("aria-disabled", "true");
+    expect(save).toHaveTextContent("Saving");
+    fireEvent.click(save);
+    expect(handlers.onSaveAndLeave).not.toHaveBeenCalled();
     // …but Stay is never disabled: the user must always be able to go back.
     expect(screen.getByTestId("leave-sketch-stay")).toBeEnabled();
+  });
+
+  it("never puts the native disabled attribute on a focused rung (W0 finding 2)", () => {
+    // A native `disabled` on the element that HAS focus blurs it to
+    // `document.body`, and the save rung is the focused one the instant a save
+    // begins — so the keyboard user was left with a dialog they could neither
+    // dismiss nor act on for as long as the create round trip took. Measured by
+    // the reviewer in real Chromium: `activeElement after disable: BODY`,
+    // keydowns the panel handler saw: [].
+    //
+    // THIS CASE ASSERTS THE MECHANISM, NOT THE FOCUS, and that is deliberate:
+    // JSDOM DOES NOT MOVE FOCUS WHEN AN ELEMENT IS DISABLED (measured —
+    // `activeElement after disable: BUTTON`), so an `expect(activeElement).not
+    // .toBe(document.body)` here would pass against the defect and be worth
+    // nothing. The focus itself is measured in the real browser, in
+    // `sketch-exit-guard.spec.ts` ("a save in flight cannot blur the dialog").
+    const { rerender, handlers } = setupRerenderable();
+    expect(screen.getByTestId("leave-sketch-save")).toHaveFocus();
+    rerender({ saving: true });
+    const panel = screen.getByTestId("leave-sketch-prompt");
+    expect(panel.querySelectorAll("button[disabled]")).toHaveLength(0);
+    // Still refused, and still reachable: the refusal is in the handler.
+    fireEvent.click(screen.getByTestId("leave-sketch-save"));
+    expect(handlers.onSaveAndLeave).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByTestId("leave-sketch-save"), {
+      key: "Escape",
+    });
+    expect(handlers.onStay).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes the keyboard away from the workspace (W0 finding 1)", () => {
+    // THE BLOCKING DEFECT: with the draw-dimension strip armed behind the
+    // dialog, Enter on this very button ran `SketchScene`'s window listener,
+    // which applied the dimension and `preventDefault()`ed the activation — so
+    // the button never fired. `Ctrl+Z` leaked the same way to `SketchStrip` and
+    // undid in the sketch behind the modal.
+    const handlers = setup();
+    const shortcuts = workspaceShortcuts();
+    const save = screen.getByTestId("leave-sketch-save");
+    const enter = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    save.dispatchEvent(enter);
+    fireEvent.keyDown(save, { key: "z", ctrlKey: true });
+    shortcuts.release();
+    expect(shortcuts.capture).not.toHaveBeenCalled();
+    expect(shortcuts.bubble).not.toHaveBeenCalled();
+    // …and the dialog did not cancel the button's own activation either: the
+    // gate stops propagation, never the default action.
+    expect(enter.defaultPrevented).toBe(false);
+    expect(handlers.onStay).not.toHaveBeenCalled();
+  });
+
+  it("pulls focus back when a key arrives from outside the dialog", () => {
+    const handlers = setup();
+    const stray = document.body.appendChild(document.createElement("input"));
+    fireEvent.keyDown(stray, { key: "a" });
+    expect(screen.getByTestId("leave-sketch-save")).toHaveFocus();
+    expect(handlers.onLeave).not.toHaveBeenCalled();
+    stray.remove();
   });
 });

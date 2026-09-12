@@ -6,6 +6,7 @@ import {
   type SessionStorageLike,
   type SessionUser,
 } from "./session";
+import { SKETCH_DRAFT_KEY_PREFIX } from "../routes/sketchDraft";
 
 const USER: SessionUser = {
   id: "6f2f0e6a-9c1e-4be5-9d3e-6a1c76a3c001",
@@ -19,8 +20,19 @@ function fakeStorage(initial: Record<string, string> = {}) {
     getItem: (key) => map.get(key) ?? null,
     setItem: (key, value) => void map.set(key, value),
     removeItem: (key) => void map.delete(key),
+    // Enumerable, like the real `Storage`: the sign-out purge below has to find
+    // keys whose names it does not know.
+    get length() {
+      return map.size;
+    },
+    key: (index) => [...map.keys()][index] ?? null,
   };
   return { storage, map };
+}
+
+/** A draft key for *partId*, spelled as `sketchDraft.ts` spells it. */
+function draftKeyFor(partId: string): string {
+  return `${SKETCH_DRAFT_KEY_PREFIX}${partId}`;
 }
 
 describe("createSessionStore", () => {
@@ -84,6 +96,36 @@ describe("createSessionStore", () => {
     expect(store.getState().user).toBeNull();
     expect(store.getState().expired).toBe(true);
     expect(map.has(SESSION_STORAGE_KEY)).toBe(false);
+  });
+
+  it("signOut takes the session's unsaved sketches with it (W0 finding 4)", () => {
+    // Before: `signOut` removed the token alone, so on a shared browser the
+    // next person to open that part id had the previous user's geometry
+    // restored into their session — and could save it into the part under their
+    // own name. The drafts are keyed on the PART, never on the person, so
+    // deleting them is what ends the exposure.
+    const { storage, map } = fakeStorage();
+    const store = createSessionStore(storage);
+    store.getState().signIn("tok-7", USER);
+    map.set(draftKeyFor("part-a"), '{"version":1}');
+    map.set(draftKeyFor("part-b"), '{"version":1}');
+    map.set("loft.preferences.v1", '{"unit":"mm"}');
+
+    store.getState().signOut();
+
+    expect(map.has(draftKeyFor("part-a"))).toBe(false);
+    expect(map.has(draftKeyFor("part-b"))).toBe(false);
+    // Scoped: a purge that emptied storage would pass the two lines above.
+    expect(map.get("loft.preferences.v1")).toBe('{"unit":"mm"}');
+  });
+
+  it("an expired token takes them too — the other way a browser changes hands", () => {
+    const { storage, map } = fakeStorage();
+    const store = createSessionStore(storage);
+    store.getState().signIn("tok-8", USER);
+    map.set(draftKeyFor("part-c"), '{"version":1}');
+    store.getState().expire();
+    expect(map.has(draftKeyFor("part-c"))).toBe(false);
   });
 
   it("a later signIn clears the expired notice", () => {

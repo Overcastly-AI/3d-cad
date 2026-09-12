@@ -64,7 +64,15 @@ import type { SketchEntity } from "../sketch/tools";
  */
 const DRAFT_VERSION = 1;
 
-const KEY_PREFIX = "loft.sketch-draft.v1.";
+/**
+ * Every draft key starts here, which is what makes the sign-out purge possible
+ * without an index of part ids: one prefix scan over the storage.
+ * `auth/session.ts` imports it through {@link clearAllSketchDrafts} rather than
+ * writing the string down a second time.
+ */
+export const SKETCH_DRAFT_KEY_PREFIX = "loft.sketch-draft.v1.";
+
+const KEY_PREFIX = SKETCH_DRAFT_KEY_PREFIX;
 
 /** How long a draft is worth restoring. Older ones are dropped on read. */
 export const DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -165,6 +173,37 @@ export function clearSketchDraft(
   } catch {
     /* nothing to do and nothing worth failing a render over */
   }
+}
+
+/**
+ * Drop EVERY part's draft — the identity that wrote them has gone (W0 review
+ * finding 4; see `auth/session.ts` for why the bytes are deleted rather than
+ * re-keyed per user).
+ *
+ * Returns how many keys it removed, and that return is the point: the call
+ * site's test asserts a NUMBER, so a purge that walked a storage it could not
+ * enumerate — and therefore found nothing to do — cannot pass for a purge that
+ * worked. A storage with no `key()` is exactly that case, and it is reported as
+ * -1 rather than 0 so "could not look" never reads as "nothing there".
+ */
+export function clearAllSketchDrafts(
+  storage: SessionStorageLike = defaultStorage(),
+): number {
+  const { key, length } = storage;
+  if (typeof key !== "function" || typeof length !== "number") return -1;
+  const doomed: string[] = [];
+  try {
+    for (let index = 0; index < length; index += 1) {
+      const name = key.call(storage, index);
+      if (name !== null && name.startsWith(KEY_PREFIX)) doomed.push(name);
+    }
+    for (const name of doomed) storage.removeItem(name);
+  } catch {
+    // Same posture as every other write here: a storage that throws must not
+    // take down the sign-out that called this.
+    return doomed.length;
+  }
+  return doomed.length;
 }
 
 /** How long ago the draft was written, in the workshop's plain words. */

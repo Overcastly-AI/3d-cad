@@ -13,6 +13,8 @@
 import type { components } from "@loft/ts-client/gateway";
 import { create } from "zustand";
 
+import { clearAllSketchDrafts } from "../routes/sketchDraft";
+
 export type SessionUser = components["schemas"]["UserResponse"];
 
 export const SESSION_STORAGE_KEY = "loft.session.v1";
@@ -22,6 +24,14 @@ export interface SessionStorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
+  /**
+   * Enumeration, optional because most consumers here address keys by name.
+   * A real `Storage` supplies both; the purge below needs them to find keys it
+   * does not know the names of (one sketch draft per part id), and says so
+   * rather than pretending a storage it cannot walk held nothing.
+   */
+  readonly length?: number;
+  key?(index: number): string | null;
 }
 
 interface PersistedSession {
@@ -85,6 +95,32 @@ function clearPersisted(storage: SessionStorageLike) {
   }
 }
 
+/**
+ * THE END OF A SESSION ENDS THE SESSION'S WORK ON DISK (W0 review finding 4).
+ *
+ * Sign-out used to remove the token and nothing else, leaving every unsaved
+ * sketch draft readable for seven days — and `draftKey` is keyed on the PART,
+ * not on the person, so on a shared browser the next user to open that part id
+ * had the previous user's geometry restored into their session and could save
+ * it into the part under their own name.
+ *
+ * Deleting the bytes is the fix rather than keying the drafts per user: a
+ * user-scoped key hides the geometry from the next person but leaves it on
+ * their disk for a week, which is the other half of the same finding. It also
+ * needs an owner id at every read and write, i.e. a change in `PartPage`.
+ *
+ * Applied to `expire()` as well, deliberately, and the trade is worth naming:
+ * an involuntary token expiry drops the draft of the user it belonged to. That
+ * costs an edge case a recovery it might have wanted; keeping it would leave
+ * the shared-browser hole open through the one path that does not go through
+ * sign-out (A's token expires, B signs in). The live save loop is the recovery
+ * for work that matters, and it runs the whole time the token is valid.
+ */
+function clearSessionScopedWork(storage: SessionStorageLike) {
+  clearPersisted(storage);
+  clearAllSketchDrafts(storage);
+}
+
 /** Build a session store over *storage* (tests inject a fake). */
 export function createSessionStore(storage: SessionStorageLike) {
   const initial = loadPersisted(storage);
@@ -97,11 +133,11 @@ export function createSessionStore(storage: SessionStorageLike) {
       set({ token, user, expired: false });
     },
     signOut: () => {
-      clearPersisted(storage);
+      clearSessionScopedWork(storage);
       set({ token: null, user: null, expired: false });
     },
     expire: () => {
-      clearPersisted(storage);
+      clearSessionScopedWork(storage);
       set({ token: null, user: null, expired: true });
     },
   }));
