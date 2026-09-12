@@ -9,6 +9,7 @@ export const meta = {
     { title: 'Direction', detail: 'ONE agent fixes the interaction and visual decisions for the whole wave' },
     { title: 'System', detail: 'the design-system change lands FIRST and alone, if the wave needs one' },
     { title: 'Build', detail: 'one builder per disjoint apps/web subtree, against the fixed direction' },
+    { title: 'Review', detail: 'code-reviewer reads the diff — correctness, hooks, DRY' },
     { title: 'Design', detail: 'frontend-qa against the direction and the mandate' },
     { title: 'QA', detail: 'qa-tester drives the real browser; hooks and muscle memory survive' },
     { title: 'Evidence', detail: 're-measure the cost and hand the founder the before/after' },
@@ -572,9 +573,56 @@ screenshots at 1280x800.`,
         isolation: 'worktree',
       },
     ),
+  // BOTH reviews, in parallel, on the same build. The design review and the CODE
+  // review ask different questions and neither substitutes for the other — a
+  // surface can flow beautifully over a race condition, and correct code can be
+  // a dialect of its own.
+  //
+  // The code review was MISSING from this loop as first written, and from its
+  // sibling `loft-frontend-loop` too: both went builder -> frontend-qa -> QA, so
+  // nobody read the diff for correctness. That is the exact omission the ORG loop
+  // already paid for and fixed on 2026-08-14, when an engineering audit measured
+  // three of the last five commits landing with no review and no QA — and Wave 0
+  // reintroduced it, shipping ~1900 lines of product code past a design review
+  // and a functional QA with no code review at all. `frontend-qa` is read-only on
+  // app code and judges the SURFACE; it is not a reviewer of diffs and was never
+  // meant to be.
   (build, it) =>
-    agent(
-      `Design review of ${it.id} (${it.title}), just landed in \`${it.subtree}\`.
+    parallel([
+      () =>
+        agent(
+          `Code review of ${it.id} (${it.title}), just landed in \`${it.subtree}\`.
+
+Builder's report:
+${String(build || '(no report — the agent may have died; check git log for its commits)').slice(0, 4000)}
+
+Read the DIFF, not the report. The report is the builder's account of what it
+meant to do; your job is what it actually did.
+
+This is REDESIGN work, so weight the review accordingly:
+  - **A redesign rewrites the DOM, and the test hooks go with it.** Diff the
+    \`data-testid\`s, roles and accessible names on every touched surface against
+    their previous state and say whether the set is intact. A dropped
+    \`part-health\` once turned the whole suite red.
+  - **Fix the primitive, never the instance.** A local style or a copied
+    component where \`packages/design\` already has one is a DRY defect here, and
+    it is the cheap escape a builder reaches for when the design system is held
+    by somebody else.
+  - **The mutation evidence.** The builder claims a gate that can fail. Re-run it
+    yourself: revert the fix, watch the assertion redden, restore. Five gates
+    that could not fail have shipped in this repo, and the fifth was found only
+    because someone ran the mutation and it PASSED — so ask "could this fixture
+    have reddened at all", not "did they say they ran it".
+  - Typing discipline, service boundaries, and any \`any\` without justification.
+
+You are read-only on app code. Return blocking issues plainly and separately
+from nits, and say explicitly if you found nothing — a review that reports
+nothing because it looked at nothing is the failure mode here.`,
+          { label: `review:${it.id}`, phase: 'Review', agentType: 'code-reviewer' },
+        ),
+      () =>
+        agent(
+          `Design review of ${it.id} (${it.title}), just landed in \`${it.subtree}\`.
 
 Builder's report:
 ${String(build || '(no report — the agent may have died; check git log for its commits)').slice(0, 4000)}
@@ -600,8 +648,9 @@ Then the mandate:
 You are read-only on app code. File what you find to \`docs/UI-REVIEW.md\` and
 return the blocking issues plainly. A finding that it works but does not FLOW is
 exactly what you are here for.`,
-      { label: `design:${it.id}`, phase: 'Design', agentType: 'frontend-qa' },
-    ),
+          { label: `design:${it.id}`, phase: 'Design', agentType: 'frontend-qa' },
+        ),
+    ]),
 )
 
 // --- QA ---------------------------------------------------------------------

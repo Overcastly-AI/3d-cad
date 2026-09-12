@@ -223,6 +223,32 @@ const item = (id, subtree, extra = {}) => ({
   );
 }
 
+// 5c. EVERY built item gets BOTH a code review and a design review. The loop as
+//     first written had only the design review, so nobody read the diff — the
+//     omission the org loop already paid for once, reintroduced here and caught
+//     after Wave 0 had shipped ~1900 lines past it.
+{
+  const { calls, labels } = await run({
+    skipCost: true,
+    items: [
+      item("R2", "apps/web/src/viewport/**"),
+      item("R3", "apps/web/src/sketch/**"),
+    ],
+  });
+  for (const id of ["R2", "R3"]) {
+    check(`${id} gets a code review`, labels.includes(`review:${id}`));
+    check(`${id} gets a design review`, labels.includes(`design:${id}`));
+  }
+  check(
+    "the code review is done by code-reviewer, not frontend-qa",
+    calls.find((c) => c.label === "review:R2")?.agentType === "code-reviewer",
+  );
+  check(
+    "the reviews run AFTER the build they review",
+    labels.indexOf("build:R2") < labels.indexOf("review:R2"),
+  );
+}
+
 // 6. NEGATIVE CONTROL. The checks above must be capable of failing: a wave with
 //    a design-system item MUST NOT look identical to one without. If these two
 //    agree, every assertion in case 1 is passing vacuously.
