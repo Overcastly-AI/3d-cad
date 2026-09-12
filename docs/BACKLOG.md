@@ -21,6 +21,37 @@ is the landing record only, so the board is not silent about shipped work.
 - [x] (P0, L) **FLOW-A2** — Back, the breadcrumb and reload can no longer eat an
       unsaved sketch; guard + per-part draft `501331b`
       [docs/design/AUDIT-FLOW-2026-09.md]
+- [ ] (P1, S) **W0REV-3** — sketch drafts are never swept: `DRAFT_MAX_AGE_MS` is
+      checked only on read of that one key, so 50 parts leave 50 buffers on disk
+      indefinitely. A full quota then degrades `auth/session.ts` silently, which
+      reads as "logged out on reload" and will never be traced here. Needs the
+      storage seam widened to allow a key scan [W0 code review, 2026-09-12]
+- [ ] (P2, M) **W0REV-5** — the unsaved-sketch guard lives inline in
+      `PartPage.tsx` (~5,690 lines) rather than the `useUnsavedSketchGuard` hook
+      the audit specified, so the two order-dependent effects, `unsavedSketchRef`
+      and the `leaveSaving` machine have ZERO unit coverage — protected by a
+      comment that overclaims: reorder them and the first exit may go unguarded
+      QUIETLY, not loudly [W0 code review, 2026-09-12]
+- [ ] (P2, M) **W0REV-6** — third hand-rolled modal shell;
+      `LeaveSketchPrompt` duplicates `ShortcutSheet` nearly line for line
+      (backdrop, stopPropagation, tabIndex, focus save/restore, header band).
+      Per "extract on the second real use" this is the trigger, and the
+      extraction is where the modal key-gate and focus management belong ONCE
+      [W0 code review, 2026-09-12]
+- [ ] (P3, S) **W0REV-7** — "Dismiss" on the restored-draft note only hides the
+      banner; the draft stays and the sketcher stays open on a buffer the user
+      may not have wanted back. Ambiguous exit inside the feature whose whole
+      thesis is unambiguous exits [W0 code review, 2026-09-12]
+- [ ] (P2, S) **W0REV-9** — the buffered replay path has no test that can fail on
+      it: the e2e gates the OUTCOME, which is identical whether the buffered or
+      the mounted path ran, so on a fast enough machine the buffer code is never
+      exercised and the suite still passes [W0 code review, 2026-09-12]
+- [ ] (P3, S) **W0REV-10** — Tab as the very first key diverges between the two
+      paths: mounted focuses cell 0, buffered replays to cell 1. Same keystroke,
+      two answers, decided by a race [W0 code review, 2026-09-12]
+- [ ] (P3, S) **W0REV-11** — two tabs on one part cross-restore: tab 1 writes the
+      draft, tab 2 restores it and announces "Draft restored" for work that was
+      never lost; both then mirror and both can save it [W0 code review]
 - [ ] (P2, S) **DIMEDIT-KEYS-1** — the THIRD address of the dropped-keystroke
       family: `dimension-editor`'s cell is also inside a commit that trails the
       click opening it. Unmeasured — FLOW-A1 could not check it, `routes/` was
