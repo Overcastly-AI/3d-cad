@@ -475,6 +475,31 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   you which happened. (The python job is now 30 minutes. The suite is ~2958 tests
   dominated by OCCT geometry and grows with every verb and golden, so expect to
   revisit it; sharding is the next lever if 30 gets tight.)
+- **`geometry-minio-smoke` STARTED FAILING ON THE RUNNER 2026-09-12 FOR A REASON
+  THAT IS NOT IN THIS REPO — do not go looking for it in a diff.** The job dies
+  in its first pull: `minio Error pull access denied for minio/minio, repository
+  does not exist or may require 'docker login'`. That is the RUNNER being refused
+  by Docker Hub, not the `--wait`-on-a-one-shot defect this file documents above,
+  and the two read nothing alike — that one failed AFTER the bucket bootstrap
+  succeeded, this one never pulls an image at all.
+  The evidence that it is not ours, gathered because "not in my diff" is not the
+  same claim as "not ours": the `minio/minio` pin last changed on **2026-07-31**
+  (`2fba93e`) and has passed ever since; the eleven commits merged from the dev
+  branch touched no compose file and no workflow; the job was **green on this
+  same branch at `2e77533`** earlier the same day; and it then failed on
+  `702c07e`, a MERGE commit carrying no application change, which is the cleanest
+  possible negative control — a failure on a commit that changed nothing relevant
+  cannot have been caused by a commit.
+  Two plausible causes and I am not asserting either: Docker Hub's anonymous
+  pull limit (GitHub-hosted runners share IP pools and hit it in bursts), or a
+  change in how that image is distributed. **Do not "fix" it by deleting or
+  disabling the job** — it is the only cross-process mesh-store check we have,
+  and the same registry-denial class already makes image builds untestable
+  locally. The real fixes are authenticating the pull or mirroring the image,
+  both platform-builder decisions that need a secret, so flag it rather than
+  routing around it. Until then expect every commit on every branch to carry
+  this one red job, and say so explicitly when reporting a run rather than
+  letting "CI is red" imply the diff did it.
 - **A suspiciously FAST green deserves the same scrutiny as a red.** The
   usual cause is a job that skipped its work, and `conclusion: success` is
   emitted when every job is skipped. Discriminate by reading the log for
