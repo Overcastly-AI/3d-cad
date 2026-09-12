@@ -28,6 +28,7 @@ import {
   parseSignedLengthMm,
 } from "../units/length";
 import { edgeSubshapeRef } from "./edge";
+import { fieldBlocker } from "./submitBlocker";
 
 /** The v1 pinned default neutral-axis fraction (air-bent mild steel, §1). */
 export const SHEET_METAL_DEFAULT_K_FACTOR = 0.44;
@@ -147,12 +148,40 @@ export function buildBaseFlangeParams(
   };
 }
 
+/**
+ * WHY the base flange cannot be created yet, or null when it can (REASON-GATE-1
+ * — see `submitBlocker.ts` for the rule and the 48-character budget).
+ *
+ * The profile is asked for FIRST even though `buildBaseFlangeParams` checks it
+ * last: it is the reference the whole feature hangs on, and a card that says
+ * "check the gauge" while no profile is chosen is answering the second question.
+ */
+export function baseFlangeSubmitBlocker(
+  form: BaseFlangeForm,
+  unit: LengthUnit,
+): string | null {
+  if (form.profileFeatureId === "") return "Choose a closed sketch profile.";
+  return (
+    fieldBlocker(
+      form.thicknessInput,
+      parsePositiveLengthMm(form.thicknessInput, unit),
+      "gauge",
+    ) ??
+    fieldBlocker(
+      form.bendRadiusInput,
+      parsePositiveLengthMm(form.bendRadiusInput, unit),
+      "bend radius",
+    ) ??
+    fieldBlocker(form.kFactorInput, parseKFactor(form.kFactorInput), "K-factor")
+  );
+}
+
 /** True when the base-flange form can be submitted. */
 export function canSubmitBaseFlange(
   form: BaseFlangeForm,
   unit: LengthUnit,
 ): boolean {
-  return buildBaseFlangeParams(form, unit) !== null;
+  return baseFlangeSubmitBlocker(form, unit) === null;
 }
 
 // ---------------------------------------------------------------------------
@@ -429,6 +458,71 @@ export function edgeFlangeSpanPreview(
   return { start, end, spanMm: width };
 }
 
+/**
+ * WHY the edge flange cannot be created yet, or null when it can (REASON-GATE-1
+ * — see `submitBlocker.ts` for the rule and the 48-character budget).
+ *
+ * The width extent is the one gate here that is not a single field: a centered
+ * span WIDER than the edge parses fine in its own box and is refused by the
+ * arithmetic, so it gets a sentence naming the relationship rather than the box.
+ * Overrides follow `hemSubmitBlocker`'s wording — a blank override is a state
+ * with two exits, and naming both is what stops it reading as a dead end.
+ */
+export function edgeFlangeSubmitBlocker(
+  form: EdgeFlangeForm,
+  picked: readonly EdgeSignature[],
+  bodyFeatureId: string | null,
+  unit: LengthUnit,
+): string | null {
+  if (bodyFeatureId === null) return "Add a base flange to fold from.";
+  const signature = picked.length === 1 ? picked[0] : undefined;
+  if (signature === undefined) {
+    return picked.length === 0
+      ? "Pick one straight edge to fold."
+      : "Press Clear, then pick one edge.";
+  }
+  const length = fieldBlocker(
+    form.flangeLengthInput,
+    parsePositiveLengthMm(form.flangeLengthInput, unit),
+    "flange length",
+  );
+  if (length !== null) return length;
+  const angle = fieldBlocker(
+    form.bendAngleInput,
+    parseBendAngleDeg(form.bendAngleInput),
+    "bend angle",
+  );
+  if (angle !== null) return angle;
+
+  if (form.widthExtent !== "full") {
+    const width = fieldBlocker(
+      form.widthInput,
+      parsePositiveLengthMm(form.widthInput, unit),
+      "flange width",
+    );
+    if (width !== null) return width;
+    if (form.widthExtent === "offset") {
+      const offsetMm = parseSignedLengthMm(form.offsetInput, unit);
+      if (offsetMm === null || offsetMm < 0) {
+        return fieldBlocker(form.offsetInput, null, "offset from edge start");
+      }
+    }
+    // Reached only when every field parses — so the span itself is the problem.
+    if (resolveEdgeFlangeExtent(form, signature.length_mm, unit) === null) {
+      return "The span runs off the end of the edge.";
+    }
+  }
+
+  if (form.overrideBendRadius) {
+    const radius = parsePositiveLengthMm(form.bendRadiusInput, unit);
+    if (radius === null) return "Type a radius, or uncheck the override.";
+  }
+  if (form.overrideKFactor && parseKFactor(form.kFactorInput) === null) {
+    return "Type a K-factor, or uncheck the override.";
+  }
+  return null;
+}
+
 /** True when the edge-flange form can be submitted (valid fields + one edge). */
 export function canSubmitEdgeFlange(
   form: EdgeFlangeForm,
@@ -436,7 +530,7 @@ export function canSubmitEdgeFlange(
   bodyFeatureId: string | null,
   unit: LengthUnit,
 ): boolean {
-  return buildEdgeFlangeParams(form, picked, bodyFeatureId, unit) !== null;
+  return edgeFlangeSubmitBlocker(form, picked, bodyFeatureId, unit) === null;
 }
 
 // ---------------------------------------------------------------------------
@@ -675,14 +769,140 @@ export function buildHemParams(
   return params;
 }
 
-/** True when the hem form can be submitted (valid length + one edge). */
+/**
+ * WHY the hem cannot be saved yet — one sentence naming the field AND the way
+ * out — or null when it can. THE DISABLED SAVE IS THE SUBJECT HERE, not a
+ * by-product: HEM-1B measured a repair path where `hem-submit` carried
+ * `aria-disabled="true"` and an EMPTY `title`, with no error text and no red
+ * field, which is indistinguishable from a dead end (`docs/AUDIT-PRODUCT.md`
+ * S-26). An action that refuses without saying why is worse than an absent one,
+ * because the user cannot tell "not yet" from "not ever" (design mandate: no
+ * dead ends, no ambiguous exits).
+ *
+ * `canSubmitHem` is DEFINED as `hemSubmitBlocker(...) === null`, so the gate and
+ * its explanation cannot drift into disagreement — the failure mode where the
+ * cell is grey and the reason line says nothing is unreachable by construction.
+ * `sheetMetal.test.ts` cross-checks the pair against `buildHemParams`, which is
+ * an independently-written predicate: agreeing with itself would prove nothing.
+ *
+ * `defaults` only ENRICHES the sentence (it names the derived radius / the
+ * inherited K a user would fall back to); it never changes the verdict, which is
+ * why it is optional.
+ *
+ * WHY THESE ARE ~30 CHARACTERS. `PanelActionCell` renders the reason in the
+ * footer cell it explains, which is HALF a card wide (~19 characters a line at
+ * the data face) — a 74-character sentence measured five wrapped lines and ate
+ * the card. So each reason names the field and the way out and stops: the FIELD
+ * states the rule it broke (`kFactorError` etc. render inline, in red, on the
+ * input), and the Save cell states what to do to save. One job each.
+ */
+export function hemSubmitBlocker(
+  form: HemForm,
+  picked: readonly EdgeSignature[],
+  bodyFeatureId: string | null,
+  unit: LengthUnit,
+  defaults: SheetMetalDefaults | null = null,
+): string | null {
+  if (bodyFeatureId === null) return "Add a base flange to hem first.";
+  const signature = picked.length === 1 ? picked[0] : undefined;
+  if (signature === undefined) {
+    return picked.length === 0
+      ? "Pick one straight edge to hem."
+      : "Press Clear, then pick one edge.";
+  }
+  if (parsePositiveLengthMm(form.lengthInput, unit) === null) {
+    // Empty is a missing answer; anything else is a wrong one, and the field is
+    // already red with the rule — so the cell points at it rather than repeating.
+    return form.lengthInput.trim() === ""
+      ? "Enter the return length."
+      : "Check the return length.";
+  }
+  if (
+    form.overrideBendRadius &&
+    parsePositiveLengthMm(form.bendRadiusInput, unit) === null
+  ) {
+    const derived =
+      defaults === null
+        ? null
+        : formatLength(
+            derivedHemRadiusMm(form.hemType, defaults.thicknessMm),
+            unit,
+          );
+    return derived === null
+      ? "Type a radius, or uncheck the override."
+      : `Type a radius, or uncheck to fold at ${derived}.`;
+  }
+  if (form.overrideKFactor && parseKFactor(form.kFactorInput) === null) {
+    return defaults === null
+      ? "Type a K-factor, or uncheck the override."
+      : `Type a K-factor, or uncheck to inherit ${defaults.kFactor}.`;
+  }
+  return null;
+}
+
+/** True when the hem form can be submitted — the blocker, read as a verdict. */
 export function canSubmitHem(
   form: HemForm,
   picked: readonly EdgeSignature[],
   bodyFeatureId: string | null,
   unit: LengthUnit,
 ): boolean {
-  return buildHemParams(form, picked, bodyFeatureId, unit) !== null;
+  return hemSubmitBlocker(form, picked, bodyFeatureId, unit) === null;
+}
+
+/**
+ * The form after the bend-radius override is toggled. Turning it ON SEEDS the
+ * blank field with the radius the hem is folding at right now, so the toggle
+ * shows the value it is about to let you change instead of emptying the fold's
+ * defining dimension. A typed value is never overwritten — re-ticking restores
+ * what the user had.
+ *
+ * This is the HEM-1B hydration half, fixed at the source rather than at the
+ * symptom: "override checked, value empty" is a form that says a number is
+ * being overridden while naming none, and it is the state the audit found
+ * holding Save hostage. The seed is the SAME `derivedHemRadiusMm` the card's
+ * readouts use (HEM-1C's one rule), so it is always a radius the evaluator
+ * accepts for this type.
+ */
+export function withHemBendRadiusOverride(
+  form: HemForm,
+  on: boolean,
+  defaults: SheetMetalDefaults | null,
+  unit: LengthUnit,
+): HemForm {
+  if (!on) return { ...form, overrideBendRadius: false };
+  const blank = form.bendRadiusInput.trim() === "";
+  return {
+    ...form,
+    overrideBendRadius: true,
+    bendRadiusInput:
+      blank && defaults !== null
+        ? lengthInputValue(
+            derivedHemRadiusMm(form.hemType, defaults.thicknessMm),
+            unit,
+          )
+        : form.bendRadiusInput,
+  };
+}
+
+/**
+ * The form after the K-factor override is toggled — the same seeding rule, from
+ * the value the card says it inherits ("Inherits 0.44 from the base flange"), so
+ * the checkbox and the field can never contradict each other.
+ */
+export function withHemKFactorOverride(
+  form: HemForm,
+  on: boolean,
+  defaults: SheetMetalDefaults | null,
+): HemForm {
+  if (!on) return { ...form, overrideKFactor: false };
+  const blank = form.kFactorInput.trim() === "";
+  return {
+    ...form,
+    overrideKFactor: true,
+    kFactorInput:
+      blank && defaults !== null ? String(defaults.kFactor) : form.kFactorInput,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -810,12 +1030,54 @@ export function buildCornerReliefParams(
   return params;
 }
 
+/**
+ * WHY the corner relief cannot be created yet, or null when it can
+ * (REASON-GATE-1 — see `submitBlocker.ts` for the rule and the 48-character
+ * budget).
+ *
+ * The two bends are asked for before the ratio: a corner relief is defined by
+ * WHICH corner, and the ratio has a working default, so pointing at the number
+ * first would answer a question the user has not reached.
+ *
+ * A bend whose flange no longer resolves is NOT here — that is an edit-mode
+ * fact about the tree, held by `CornerReliefEditor` alongside its own guard
+ * option, and composed into the same reason line there.
+ */
+export function cornerReliefSubmitBlocker(
+  form: CornerReliefForm,
+  unit: LengthUnit,
+): string | null {
+  if (form.bendAId === "") return "Choose bend A.";
+  if (form.bendBId === "") return "Choose bend B.";
+  // NOT "Pick two different edge flanges" — that is the FIELD's own inline
+  // error, verbatim, and repeating it puts the same sentence on screen twice
+  // (it also made a `getByText` in `sheet-metal-hem-corner-relief.spec.ts`
+  // resolve to two nodes, which is the same duplication seen from the outside).
+  // The field states the rule; the cell states what to do about it.
+  if (form.bendAId === form.bendBId) {
+    return "Choose a different flange for bend B.";
+  }
+  const ratio = fieldBlocker(
+    form.reliefRatioInput,
+    parseReliefRatio(form.reliefRatioInput),
+    "relief ratio",
+  );
+  if (ratio !== null) return ratio;
+  if (
+    form.overrideSize &&
+    parsePositiveLengthMm(form.sizeInput, unit) === null
+  ) {
+    return "Type a notch size, or uncheck the override.";
+  }
+  return null;
+}
+
 /** True when the corner-relief form can be submitted (valid ratio + two distinct bends). */
 export function canSubmitCornerRelief(
   form: CornerReliefForm,
   unit: LengthUnit,
 ): boolean {
-  return buildCornerReliefParams(form, unit) !== null;
+  return cornerReliefSubmitBlocker(form, unit) === null;
 }
 
 /** True when the part has ≥2 edge flanges to relieve a corner between (the gate). */

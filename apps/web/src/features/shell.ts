@@ -21,6 +21,7 @@ import type {
 } from "../api/parts";
 import { lengthInputValue, parsePositiveLengthMm } from "../units/length";
 import { faceSubshapeRef } from "./face";
+import { fieldBlocker } from "./submitBlocker";
 
 /**
  * The editable shell form — the thickness kept as raw text (a unit input). The
@@ -115,5 +116,31 @@ export function canSubmitShell(
   bodyFeatureId: string | null,
   unit: LengthUnit,
 ): boolean {
-  return buildShellParams(form, pickedFaces, bodyFeatureId, unit) !== null;
+  return shellSubmitBlocker(form, pickedFaces, bodyFeatureId, unit) === null;
+}
+
+/**
+ * WHY the shell cannot be created yet, or null when it can (REASON-GATE-1 — see
+ * `submitBlocker.ts` for the rule and the 48-character budget).
+ *
+ * NOT a gate: an empty face set. A shell with no open faces is a valid sealed
+ * hollow, so the only face-side refusal is picks that cannot be anchored to a
+ * body — and that one is about the part, not about the picks.
+ */
+export function shellSubmitBlocker(
+  form: ShellForm,
+  pickedFaces: readonly PlanarFaceSignature[],
+  bodyFeatureId: string | null,
+  unit: LengthUnit,
+): string | null {
+  const thickness = fieldBlocker(
+    form.thicknessInput,
+    parseThicknessMm(form.thicknessInput, unit),
+    "thickness",
+  );
+  if (thickness !== null) return thickness;
+  if (facesSelector(bodyFeatureId, pickedFaces) === null) {
+    return "Add a body before picking faces.";
+  }
+  return null;
 }

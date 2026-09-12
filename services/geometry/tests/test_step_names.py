@@ -28,13 +28,17 @@ writer rather than by reading it:
    read ``'build123d'``, naming a library the recipient has no reason to have
    heard of.
 
-**And two findings recorded, not fixed** (:func:`test_two_different_parts_with_
-the_same_name_collide_on_product_id` and the module docstring of
-``geometry.kernel.export``): the duplicate-``PRODUCT.id`` case is a deliberate
-decision to keep the user's own name verbatim, and the single-body export path
-is build123d's writer, which we cannot reach from here (STEPNAME-2, still open —
-that path is measured DETERMINISTIC, so STEPDET-1's fix neither touched it nor
-was needed there).
+**One finding recorded, not fixed** (:func:`test_two_different_parts_with_
+the_same_name_collide_on_product_id`): the duplicate-``PRODUCT.id`` case is a
+deliberate decision to keep the user's own name verbatim.
+
+**The single-body path is no longer the exception it was recorded as here.** It
+went through build123d's writer, which carried BOTH of the defects above while
+the rarer assembly export was correct — the user-visible split the wrong way
+round. STEPNAME-2 moved it onto the same writer this file exercises, proved
+byte-equivalent so nothing structural moved; ``test_step_names_part`` is its
+mirror of this suite and the two share their part-21 reader through
+``conftest``.
 
 **A third finding was recorded here as a live limit and is now CLOSED**: a
 multi-body component made the assembly export non-deterministic in-process
@@ -55,62 +59,6 @@ from geometry.kernel.export import (
     export_step_assembly_bytes,
 )
 from geometry.kernel.types import BodyShape
-
-#: A part-21 string literal: any run of characters in which a literal quote
-#: appears DOUBLED (the standard's own escape, which OCCT emits). Written out
-#: rather than ``[^']*`` because the naive form stops at the first quote of an
-#: escaped pair and silently truncates every name containing an apostrophe —
-#: which reads exactly like "the name is missing from the file".
-_LITERAL = r"'((?:[^']|'')*)'"
-_PRODUCT_RE = re.compile(
-    (r"PRODUCT\s*\(\s*" + _LITERAL + r"\s*,\s*" + _LITERAL).encode()
-)
-_NAUO_RE = re.compile(
-    (
-        r"NEXT_ASSEMBLY_USAGE_OCCURRENCE\s*\(\s*" + _LITERAL + r"\s*,\s*" + _LITERAL
-    ).encode()
-)
-_FILE_NAME_RE = re.compile(rb"FILE_NAME\s*\((.*?)\)\s*;", re.S)
-
-#: OCCT stamps its own translator PRODUCTs into every file; they are not ours
-#: and asserting over them would make every name assertion vacuously pass.
-_OCCT_PRODUCT_PREFIX = "Open CASCADE STEP translator"
-
-
-def _unescape(literal: bytes) -> str:
-    """A part-21 string literal's bytes as the string the writer meant.
-
-    Part 21 gives a string two escapes, and BOTH have to be undone or a name
-    that contains either reads as absent from the file: a literal quote is
-    doubled (``''``), and a literal backslash is doubled (``\\\\``) because
-    backslash introduces the standard's control directives. Measured, in that
-    order — undoing the quote first cannot corrupt a backslash pair and vice
-    versa, since neither escape can produce the other's marker.
-
-    Then UTF-8, and **the UTF-8 decode is the assertion**, not a convenience:
-    before this fix the same bytes decoded to the mojibake rather than to the
-    submitted name, so an oracle that compared latin-1 text would have passed
-    against corrupted output.
-    """
-    return literal.replace(b"''", b"'").replace(b"\\\\", b"\\").decode("utf-8")
-
-
-def _product_names(data: bytes) -> list[str]:
-    """OUR ``PRODUCT`` names, in file order, with OCCT's own translator ones out."""
-    return [
-        name
-        for _, raw in _PRODUCT_RE.findall(data)
-        if not (name := _unescape(raw)).startswith(_OCCT_PRODUCT_PREFIX)
-    ]
-
-
-def _occurrence_names(data: bytes) -> list[str]:
-    """Every NON-EMPTY ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` name, in file order.
-
-    OCCT writes a second, unnamed NAUO level per component (the part body is a
-    compound, so it becomes a sub-assembly); those carry ``''`` and are dropped.
-    """
-    return [name for _, raw in _NAUO_RE.findall(data) if (name := _unescape(raw))]
 
 
 def _solid() -> BodyShape:
@@ -157,7 +105,10 @@ def _two_part_assembly(
     )
 
 
-def test_the_instance_name_reaches_the_occurrence_and_the_product() -> None:
+def test_the_instance_name_reaches_the_occurrence_and_the_product(
+    step_occurrence_names: Callable[[bytes], list[str]],
+    step_product_names: Callable[[bytes], list[str]],
+) -> None:
     """The baseline the audit's report is measured against, asserted on BYTES.
 
     The instance name names the NAUO (instance-level traceability) and its
@@ -167,14 +118,15 @@ def test_the_instance_name_reaches_the_occurrence_and_the_product() -> None:
     data = _two_part_assembly()
     assert data.startswith(STEP_MAGIC)
 
-    assert _occurrence_names(data) == ["Chassis bracket <1>", "Dowel Pin 8x24 <1>"]
+    assert step_occurrence_names(data) == ["Chassis bracket <1>", "Dowel Pin 8x24 <1>"]
     # The root assembly PRODUCT, then one per unique part, suffix stripped.
-    assert _product_names(data) == ["Chassis", "Chassis bracket", "Dowel Pin 8x24"]
+    assert step_product_names(data) == ["Chassis", "Chassis bracket", "Dowel Pin 8x24"]
 
 
-def test_a_nameless_instance_falls_back_to_its_id_and_that_is_what_the_audit_saw() -> (
-    None
-):
+def test_a_nameless_instance_falls_back_to_its_id_and_that_is_what_the_audit_saw(
+    step_occurrence_names: Callable[[bytes], list[str]],
+    step_product_names: Callable[[bytes], list[str]],
+) -> None:
     """The UUID in the audit is the documented FALLBACK, not a writer defect.
 
     Pinned so nobody re-diagnoses this writer for it. The caller that leaves the
@@ -185,8 +137,8 @@ def test_a_nameless_instance_falls_back_to_its_id_and_that_is_what_the_audit_saw
     instance_id = str(uuid.UUID(int=0xC7EBC346))
     data = _two_part_assembly(bracket_name=instance_id)
 
-    assert instance_id in _occurrence_names(data)
-    assert instance_id in _product_names(data)
+    assert instance_id in step_occurrence_names(data)
+    assert instance_id in step_product_names(data)
 
 
 @pytest.mark.parametrize("body", [_solid, _multi_body], ids=["solid", "multi-body"])
@@ -203,7 +155,10 @@ def test_a_nameless_instance_falls_back_to_its_id_and_that_is_what_the_audit_saw
     ],
 )
 def test_a_name_survives_the_file_byte_exactly(
-    name: str, body: Callable[[], BodyShape]
+    name: str,
+    body: Callable[[], BodyShape],
+    step_occurrence_names: Callable[[bytes], list[str]],
+    step_product_names: Callable[[bytes], list[str]],
 ) -> None:
     """The fidelity property, one case per way a name can be mangled.
 
@@ -221,11 +176,11 @@ def test_a_name_survives_the_file_byte_exactly(
     """
     data = export_step_assembly_bytes("Chassis", [_component(name, body())])
 
-    assert name in _occurrence_names(data), (
+    assert name in step_occurrence_names(data), (
         f"{name!r} is not recoverable from the NAUO names the file carries: "
-        f"{_occurrence_names(data)}"
+        f"{step_occurrence_names(data)}"
     )
-    assert _product_name_of(name) in _product_names(data)
+    assert _product_name_of(name) in step_product_names(data)
 
 
 def _product_name_of(instance_name: str) -> str:
@@ -238,16 +193,16 @@ def _product_name_of(instance_name: str) -> str:
     return re.sub(r"\s*<\d+>\s*$", "", instance_name).strip() or instance_name
 
 
-def test_the_file_says_loft_authored_it() -> None:
+def test_the_file_says_loft_authored_it(
+    step_file_name_record: Callable[[bytes], str],
+) -> None:
     """``FILE_NAME``'s originating system, read off the header bytes.
 
     It said ``build123d`` — a library the machinist opening the file has no
     reason to have heard of — so a file Loft authored named someone else. AP214
     defines the field as the producing system.
     """
-    header = _FILE_NAME_RE.search(_two_part_assembly())
-    assert header is not None, "no FILE_NAME record in the exported STEP"
-    text = header.group(1).decode("utf-8")
+    text = step_file_name_record(_two_part_assembly())
 
     assert f"'{STEP_ORIGINATING_SYSTEM}'" in text, text
     assert "'build123d'" not in text, text
@@ -270,7 +225,10 @@ def test_the_originating_system_is_ascii_and_carries_no_version() -> None:
     )
 
 
-def test_two_instances_of_one_part_share_a_single_named_product() -> None:
+def test_two_instances_of_one_part_share_a_single_named_product(
+    step_occurrence_names: Callable[[bytes], list[str]],
+    step_product_names: Callable[[bytes], list[str]],
+) -> None:
     """The duplicate-name case that ACTUALLY occurs, and it is already right.
 
     Twenty dowel pins are one part used twenty times: one ``PRODUCT`` named for
@@ -284,12 +242,15 @@ def test_two_instances_of_one_part_share_a_single_named_product() -> None:
         [_component("Bracket <1>", body), _component("Bracket <2>", body, 30.0)],
     )
 
-    assert _occurrence_names(data) == ["Bracket <1>", "Bracket <2>"]
+    assert step_occurrence_names(data) == ["Bracket <1>", "Bracket <2>"]
     # ONE part product (plus the assembly root) — not one per occurrence.
-    assert _product_names(data) == ["Chassis", "Bracket"]
+    assert step_product_names(data) == ["Chassis", "Bracket"]
 
 
-def test_two_different_parts_with_the_same_name_collide_on_product_id() -> None:
+def test_two_different_parts_with_the_same_name_collide_on_product_id(
+    step_occurrence_names: Callable[[bytes], list[str]],
+    step_product_pairs: Callable[[bytes], list[tuple[str, str]]],
+) -> None:
     """RECORDED, NOT FIXED — and the recording is the point.
 
     A user can name two DIFFERENT parts "Bracket". They then produce two distinct
@@ -310,17 +271,13 @@ def test_two_different_parts_with_the_same_name_collide_on_product_id() -> None:
         [_component("Bracket <1>", _solid()), _component("Bracket <2>", _pin(), 30.0)],
     )
 
-    ours = [
-        (_unescape(pid), _unescape(pname))
-        for pid, pname in _PRODUCT_RE.findall(data)
-        if not _unescape(pname).startswith(_OCCT_PRODUCT_PREFIX)
-    ]
+    ours = step_product_pairs(data)
     brackets = [pair for pair in ours if pair[1] == "Bracket"]
     assert len(brackets) == 2, f"expected two distinct part PRODUCTs, got {ours}"
     assert brackets[0] == brackets[1] == ("Bracket", "Bracket")
     # The occurrences still tell them apart, which is why this is a wart rather
     # than a loss: the instance-level identity survives the id collision.
-    assert _occurrence_names(data) == ["Bracket <1>", "Bracket <2>"]
+    assert step_occurrence_names(data) == ["Bracket <1>", "Bracket <2>"]
 
 
 def test_the_named_export_is_still_byte_deterministic() -> None:

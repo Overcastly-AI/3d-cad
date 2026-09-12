@@ -56,6 +56,7 @@ import {
   profileOptions,
   type ProfileOption,
 } from "./extrude";
+import { fieldBlocker } from "./submitBlocker";
 
 export { defaultProfileId, profileOptions };
 export type { ProfileOption };
@@ -253,13 +254,27 @@ export function canSubmitRevolve(
   form: RevolveForm,
   options: readonly AxisOption[],
 ): boolean {
+  return revolveSubmitBlocker(form, options) === null;
+}
+
+/**
+ * WHY the revolve cannot be created yet, or null when it can (REASON-GATE-1 —
+ * see `submitBlocker.ts` for the rule and the 48-character budget).
+ *
+ * A REFUSED axis (an origin axis the kernel would reject) is a different
+ * situation from an unchosen one and says so: the option itself carries the full
+ * reason in its label, so the cell says what to do about it instead of repeating
+ * a sentence that is already on screen two rows up.
+ */
+export function revolveSubmitBlocker(
+  form: RevolveForm,
+  options: readonly AxisOption[],
+): string | null {
+  if (form.profileFeatureId === "") return "Choose a sketch profile.";
   const axis = options.find((o) => o.id === form.axisId);
-  return (
-    form.profileFeatureId !== "" &&
-    axis !== undefined &&
-    axis.reason === null &&
-    parseAngleDeg(form.angleInput) !== null
-  );
+  if (axis === undefined) return "Choose the axis to revolve about.";
+  if (axis.reason !== null) return "Choose an axis in the sketch plane.";
+  return fieldBlocker(form.angleInput, parseAngleDeg(form.angleInput), "angle");
 }
 
 /** Round a millimetre length for a compact axis label. */

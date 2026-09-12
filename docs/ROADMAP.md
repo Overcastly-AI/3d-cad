@@ -15,6 +15,125 @@ headroom claim below is corrected against a real CI-runner measurement, not
 the local box it was first computed on. Pass 16/17/18 detail is in
 `docs/CHANGELOG.md`.
 
+**CAMRESTORE-1 CLOSED (frontend-builder, 2026-09-04) — leaving a sketch gives
+the VIEW back, not just the camera.** The sketcher parked the modeller normal-on
+to the plane and left them there, so entering a sketch to add one dimension cost
+a re-orientation on the way out. The pose the rig TAKES is now remembered and
+requested back through the same view-command seam the rail and the reference
+cube use — a new `restore` command kind carrying a `ViewPose` — so the PART rig
+performs it: one rig on the camera (two easing it deadlock, which is why this
+could not simply be done in place), the existing ease, `prefers-reduced-motion`
+honoured, and the clip planes re-solved for free.
+Measured on the camera itself rather than on a brightness census, because that
+census is precisely what this defect broke — the framing moves, so the number
+moves for reasons unrelated to the subject. Pre-fix the exit direction was
+**78.05 deg** off the pre-entry view and read (0,-1,0), straight down: the
+ticket's flat diamond. From a named FRONT it was **90.00 deg** off, and across
+the ticket's own draw-and-save flow **78.04 deg**. Post-fix all three are
+**<= 1 deg**, and on the path where nothing rebuilt the POSITION returns too
+(within 2% of the standoff). Only the direction is asserted across a save: the
+auto-fit is entitled to re-frame distance and target for new geometry, and
+taking that away would undo FB-1.
+Two judgements the ticket left open. A deliberate mid-sketch orbit (VP-1's
+middle button / Alt+left) is NOT overruled — the remembered pose is a DEFAULT
+and an explicit user action beats it, the same rule `905fcc4` used for the
+auto-ghost — while a gesture made DURING the entry ease does not count, because
+the ease overwrites it and the modeller sees no turn at all. And orthographic
+`zoom` is carried in the pose: a parallel camera frames by zoom, not distance,
+so restoring the attitude alone would return a modeller to the right view at the
+wrong size (asserted as painted body pixels, within 5%).
+Mutation-tested in BOTH directions, which is what separates the two halves: with
+no restore, 3 of the 4 e2e cases redden and the orbit case stays green; with an
+UNCONDITIONAL restore, only the orbit case reddens (27.25 deg of overruled turn).
+2 unit cases on the store (including that `restore` must not arm orthographic —
+`ProjectionRig` restores the modeller's own projection from that same field).
+Founder shots: `docs/screenshots/camrestore-sketch-exit-{before,after}-laptop.png`.
+Fallout, both stated rather than absorbed: `part-visibility`'s ghost pixel A/B
+was getting its camera settle by ACCIDENT (a stranded camera made the second
+sketch entry a no-op) and now waits on the camera explicitly; and the sweep
+turned up THREE cases RED at the tip for reasons of their own, each reproduced
+with this change reverted. `founder-picking`'s face-seat pick is repaired here
+because the fix was one line of spec — it aimed at the FIRST raster-order lit
+pixel, which is a silhouette-edge point by construction and misses the raycast.
+A sheet-metal strict-mode collision with `4009042`'s new disabled-reason spans
+was fixed upstream by `b9a77c5` while this was in flight (re-verified green).
+The third, a sketch pick that stopped landing after the SEL-2 commits, is filed
+as TIPRED-1 for the agent whose territory it is.
+
+**REACH-2-FLOW-B CLOSED (frontend-builder, 2026-09-04) — the viewport tint
+answers the COMMAND's question now, so the three surfaces that echo a scope
+stop disagreeing.** The deferred half of REACH-2-FLOW: keeping the selection
+alive through the editor restored the seed's face tint for free, but the tint
+read `selectedFeatureId`, so on a plate with two identical bores it went on
+saying `Hole1` after the user flipped the scope row to `This body`, and said
+nothing at all when the editor seeded itself from the TIP with nothing
+selected. The tree stamp and the timeline chip already read `scopedFeatureIds`
+and get both cases right; `viewport/scopeHighlight.ts` is now the one rule the
+viewport reads too, and `PartPage`'s `selectedFaceIndices` filters the overlay
+by that set instead of by one selected id.
+The load-bearing change is a THIRD STATE rather than a fallback on emptiness.
+`scopedFeatureIds` was `readonly string[]`, where `[]` meant both "the whole
+body" and "nobody is asking" — a conflation the tree and timeline can afford
+(neither has a fallback, so both readings render the same absence) and the
+viewport cannot, because it must fall back to the selection in one case and
+must not in the other. It is `readonly string[] | null` now: `null` is nobody
+asking, `[]` is asked-and-answered-the-whole-body.
+`This body` paints NOTHING, and that is a judgement, not a default: a highlight
+is a DIFFERENCER, legible only against the un-highlighted thing beside it, so a
+full-body brass would hide the machined read the user is about to pattern,
+collide with the distinct whole-body SELECT state that already means something
+else, and carry exactly as much information as painting none — while the words
+`This body` are already on the pressed segment with its note beneath.
+Evidence is the PAINTED FACE, not the store: the tint MULTIPLIES the studio
+matcap (matcaps carry no emissive channel), so no literal hex describes it and
+`countTokenPixels` cannot see it; what survives the multiply is the direction of
+the shift, so the census counts red-over-blue pixels. Same camera, same body,
+same editor, only the answer changed: scoped **384** warm px with
+`data-selected-faces` 1, `This body` **0** and 0, tip-seeded with nothing
+selected **473** and 1. Mutation-tested per half against the pre-fix
+selection-only reading, which gives 384/1 on `This body` (the tint that would
+not let go) and 0/0 tip-seeded (the tint that never arrived) — so neither half
+can pass for the other's reason. 6 unit cases on the rule, 1 e2e case at
+1280x800, and the existing selection/preselect/pattern-scope specs re-run
+green (18 cases). Founder shots:
+`docs/screenshots/reach2b-scope-{body,tip}-{before,after}-laptop.png`.
+
+**SEL-2 CLOSED (frontend-builder, 2026-09-04) — a sketch pick now names itself
+before the click, and the name is what the click actually takes.** Acceptance
+A3, `docs/design/pre-selection.md` §6, verbatim: *"Hovering a sketch line with
+no closer point present shows the extended `SnapMarker` naming the entity kind
+before the click; the click selects exactly the named candidate."* `pick.ts`
+resolved a winner on every hover and said nothing, so the founder's *"a sketch
+line that wouldn't even select"* was a mis-aim that stayed invisible until after
+the click. The drawing marker (UI-W5) is now the SELECTING marker too: one
+`CursorMark` renders both, four of the six pick glyphs ARE the snap glyphs
+(endpoint / centre / origin / X · Y axis), and exactly one is new —
+`SnapOnCurveIcon`, the drafting pick tick for "the curve itself, here". Words
+come from the subject: "Line" / "Circle" / "Arc" / "Spline" / "Endpoint" /
+"Fit point" / "Centre", and the frame keeps its own names rather than being
+called a Point and two Lines.
+The half with teeth is that `hoverPick` was `candidates[0]` while a plain click
+takes `applyPick`'s CYCLE step — so with one thing already held, the head of the
+list is not what the next click takes, and both the existing highlight and the
+new word would have promised a pick the click does not make. `replacementPick`
+now states that rule once and both sides read it; `toggleSelection` and the
+click-cycle are untouched (regression-proved by the 4-step walk in the e2e,
+where every step's word matches the selection the click produced).
+Evidence: 11 new unit cases (the cycle case asserts `replacementPick` against
+`applyPick` itself over 6 selections x 6 probes, with a non-vacuous floor of >4
+stacked-candidate probes) + 6 e2e cases at **1280x800**, all asserting the INK —
+`innerText` (so `text-transform` shows: the expectations read "LINE", not the
+DOM's "Line") plus a measured, in-frame box, never `toBeVisible()` and never
+`toContainText`. Two mutation legs, Vite restarted and served bytes checked
+between each: unwiring the mount reddens 5 of 6; keeping every `data-` attribute
+and hiding only the word reddens the same 5 on *"the marker's word has no box at
+all"* — which is the exact defect an attribute-shaped assertion would have
+missed. A held pointer suppresses the word (a camera drag aims no click), and
+the mark reappears on release with no further movement. Founder shots:
+`docs/screenshots/sel2-pick-marker-{before,after}-{line,endpoint,circle}-1280.png`.
+Not in scope and still open: the `+N` stacked-candidate badge is SEL-3, and
+`pick.ts` still has no keyboard path at all (SEL-6).
+
 **e2e shard reds across the last several pushes are now FULLY DIAGNOSED —
 four separate causes, not one shared substrate defect; CI-4's own umbrella
 question (systemic instability under runner load) is answered "not yet
@@ -37,6 +156,199 @@ flat-pattern specs; founder shots refreshed. Two follow-ups filed from the
 repair: HEM-1C (editor still claims base-flange inheritance for the radius
 and suggests the exact value the server refuses) and HEM-1D (UI cannot author
 an `open` hem at all) — **BOTH CLOSED**, see the entry below.
+
+**REASON-GATE-1 CLOSED (frontend-builder, 2026-09-04) — all seventeen editor
+commit actions now say why they are grey, from ONE computation, and none of them
+can scroll the sentence out of its own card.** HEM-1B's survey measured 15 of 16
+editors gating in silence while 41 of 43 gated `ToolButton`s carried a caption:
+an unfinished rollout, not an open design question, so the fix is the hem's shape
+applied fifteen times rather than fifteen designs.
+
+Each feature module gained an `xSubmitBlocker` returning the sentence or null,
+and each `canSubmitX` is now DEFINED as `blocker === null` — passing a reason
+alongside an independently-computed boolean would have created fifteen fresh
+chances for the two to disagree. `fieldBlocker` (`apps/web/src/features/
+submitBlocker.ts`) is the one earned abstraction: "blank is a missing answer,
+anything else is a wrong one", so `Enter the bend radius.` / `Check the bend
+radius.`, with the RULE left where it always was — red, inline, on the field.
+Copy names the fix in the interface's own words, and the noun IS the field's
+label: `Enter the gauge.`, `Choose Tool (subtracted).`, `Choose a sketch for
+section 03.`, `Click one or more faces to taper.`, `Draw an open sketch to sweep
+along.` Two cases get their own sentence rather than the generic pair — a ZERO
+draft angle (it parses; "check the angle" would start a hunt for a typo that is
+not there) and an edge-flange span wider than its edge (every field is fine, the
+relationship is not).
+
+**A SECOND UNFINISHED ROLLOUT WAS FOUND IN THE SAME FILES AND HAD TO BE CLOSED
+TO MAKE THE FIRST ONE REAL.** `EditorCard` has had a pinned `footer` slot since
+UI-REVIEW 2026-07-30 P1 whose stated purpose is that the commit action never
+scrolls away; `HoleEditor` used it, `HemEditor` adopted it under HEM-1B, and the
+other fifteen kept the action row as the last child of the SCROLLING body.
+Adding a reason line makes every one of those cards taller, so shipping the
+sentence without pinning the row would have shipped the defect in a longer form
+— the before shot is the proof: `docs/screenshots/reason-gate-draft-before-1280.
+png` shows the Draft card's CANCEL/CREATE row half-clipped at the fold with
+nothing said, and `-after-1280.png` shows it pinned and legible. The error stamp
+moved with it (it used to sit outside `Panel` and scroll away too).
+
+EVIDENCE, in three layers because each sees what the others cannot.
+(a) `submitBlocker.test.ts` — 84 cases, every blocker cross-checked against the
+predicate that shipped BEFORE the change, restated literally rather than called
+(`canSubmitX` now agrees with the blocker by construction, so asking it would
+prove nothing); non-vacuity floors of 15 distinct subjects, >=2 gated and >=1
+live state each, >=50 gated total. (b) `editorSubmitReason.test.tsx` — one case
+per editor for ALL SEVENTEEN with the count asserted, checking the gate as a
+user meets it (`aria-disabled` + an inert click), non-empty ink within the
+48-character budget, that the ink IS the button's `aria-describedby` target, and
+that the cell has no `[data-scroll-edges]` ancestor. (c) `reason-gate.spec.ts` —
+**10 editors measured in real pixels at 1280x800**, each reason's own centre
+hit-testing to its own Save cell under `elementFromPoint`; `toBeVisible()` and
+`toContainText` are both refused here, because one is true of a node clipped to
+1x1 and the other of a `display:none` one. Measured widths 109-134 px:
+`extrude "Enter the distance." (129px)`, `loft "Choose a sketch for section 03."
+(134px)`, `hole "Click a face in the viewport to place the hole." (134px)`.
+
+MUTATION EVIDENCE (each reverted independently; green after). Deleting
+`disabledReason` from ONE editor reddens exactly its own case and leaves the
+other sixteen green — `pattern-submit … the gated action rendered no reason at
+all` — which is what proves the coverage is seventeen assertions rather than one
+generalised. Un-pinning ONE editor's footer reddens only that case, at the
+`data-scroll-edges` assertion.
+
+ONE COPY DEFECT THE E2E SUITE CAUGHT AND THE UNIT TESTS COULD NOT. The corner
+relief's first draft said `Pick two different edge flanges.` — which is, verbatim,
+the opening of the FIELD's own inline error, so the same sentence appeared twice
+on one card and a `getByText` in `sheet-metal-hem-corner-relief.spec.ts` resolved
+to two nodes. The strict-mode violation is the duplication seen from the outside;
+the cell now says `Choose a different flange for bend B.` The rule it enforces is
+the one the module header states: the field states the rule, the cell states what
+to do about it, one job each.
+
+Gates: `just lint` exit 0; `pnpm -r typecheck` clean; 2271 web + 141 design unit
+tests; **109 e2e green on a real native stack** across fillet-chamfer / draft /
+shell / loft / sweep / mirror / pattern / revolve-ui / extrude-ui / datum-plane
+(47), sheet-metal x3 / hole / multibody x2 / full-flow / reason-gate (45, after
+the copy fix), panel-density / chrome-density / inspector-scroll / makeover /
+first-impression / nav-chrome / interaction-depth / token-scale /
+fillet-edge-pick / pattern-scope / datum-face-pick / pick-no-body (55 — the
+layout specs, run because the card DOM changed). Founder shots:
+`docs/screenshots/reason-gate-{fillet,draft}-{before,after}-1280.png` (the before
+half captured from a deliberately reverted build).
+
+**HEM-1B CLOSED (frontend-builder, 2026-09-04) — the disabled Save says why, and
+the state that silenced it cannot be clicked into. The reported ROOT CAUSE did
+not reproduce, and saying so is half the finding.** The audit (S-26) recorded
+`hem-submit` at `aria-disabled="true"` with an EMPTY `title` on the repair path,
+and attributed it to the edit form loading "Override K-factor" CHECKED with an
+empty value. Driving that exact sequence at HEAD — author a hem with no
+overrides, widen the blank 50 -> 60 mm through the API so the hemmed edge stops
+resolving (`subshape_unresolved`), re-open the feature — the form comes back
+`aria-checked="false"`, with no K field and Save ENABLED. The probe says why:
+the server stores `k_factor: null` for an inherited K, and `formFromHemParams`
+has always read null/absent as "not overridden". What DOES reproduce the audit's
+screenshot, in TWO clicks from that state, is ticking the override: the field
+opens blank, blank is "pending" to every field validator (so no red field, by
+design), and `canSubmitHem` returned false with nothing anywhere to read.
+
+Fixed at both ends rather than at the symptom. (a) `hemSubmitBlocker` in
+`apps/web/src/features/sheetMetal.ts` is now the SINGLE source of the gate and
+its sentence — `canSubmitHem` is *defined* as `blocker === null`, so a grey cell
+with an empty reason is unreachable by construction, and a unit case
+cross-checks the pair against `buildHemParams` (an independently written
+predicate) over 66 form/pick/anchor combinations, with a non-vacuity floor on
+how many of them must be gated. (b) Ticking an override SEEDS its field from the
+value it replaces — `derivedHemRadiusMm` for the radius (0.1 mm closed, 1 mm
+open on 2 mm sheet: always a value the evaluator accepts for that type), the
+inherited K the card already names for K-factor — so "checked with no value" is
+not a state clicking can produce, and a typed value is never overwritten.
+
+TWO THINGS THE WORK FOUND THAT THE TICKET DID NOT ASK FOR. First, the reason was
+initially 74 characters and `PanelActionCell` renders it in the footer cell it
+explains, which is HALF a card wide (~19 characters a line): it measured five
+wrapped lines and ate the card. Every reason is now ≤48 characters and names the
+field plus the way out ("Type a K-factor, or uncheck to inherit 0.44."), with
+the rule it broke left to the field's own inline error — one job each. Second,
+and worse: at the 1280x800 floor the sentence fell OUT of the card. The hem's
+action row rode inside `EditorCard`'s scrolling body, so the taller footer
+pushed it under the panel below — measured by the new e2e case, whose
+`elementFromPoint` at the reason's own centre returned **`feature-tree-section`**.
+The row now uses the pinned `footer` slot `HoleEditor` has had since UI-REVIEW
+2026-07-30 P1, and the case asserts legibility at 1280x800 (a box with area,
+whose centre hit-tests to `hem-submit`, whose text equals the button's
+accessible description) rather than at the 1600x1000 default, where it passed
+while the product was broken.
+
+MUTATION EVIDENCE, each reverted independently and green after. Removing the
+seeding reddens the unit case (`expected '' to be '0.44'`) and the DOM case, and
+the e2e case at `hem-k-factor` (`Expected "0.44", Received ""`). Removing
+`disabledReason` reddens three DOM cases (`expected '' to be 'Enter a
+K-factor…'`; `the gated Save said nothing: expected 0 to be greater than 20`)
+and the e2e case at the reason's own existence. Served bytes were checked with
+`curl` on each leg, since a stale Vite transform is how a mutation check passes
+when it must fail.
+
+SURVEY (the ticket's second half — measured, not fixed): **15 of the 16 editor
+commit actions state nothing when they gate.** `hole-submit` and now
+`hem-submit` are the only `PanelActionCell`s passing `disabledReason`; the other
+fifteen share the same `canSubmitX(...) && !saving` shape the hem had. The
+toolbar tier is the counter-example and the model: **41 of 43** gated
+`ToolButton`s carry a gate-aware `caption` ("Add a base flange first"), the
+exceptions being `add-instance` and `sketch-discard-confirm`. Filed as
+REASON-GATE-1 (P1, M) with the fix shape and an acceptance test per editor.
+
+Gates: `just lint` exit 0; `pnpm -r typecheck` clean; 2158 web + 141 design unit
+tests; 14/14 e2e across `sheet-metal-hem-corner-relief`, `sheet-metal-authoring`
+and `sheet-metal-flat-pattern` on a real native stack. Founder shots at
+1280x800: `docs/screenshots/hem-blocked-save-{before,after}-1280.png` — the
+before captured from a deliberately reverted build, since keeping the defect
+around to regenerate it is the one thing the fix forbids.
+
+**STEPNAME-2 CLOSED (kernel-architect, 2026-09-04) — the COMMON export was the
+broken one, and unifying the two writers turned out to cost nothing a consumer
+can see.** STEPNAME-1 fixed the assembly STEP's provenance and its non-ASCII
+names; the SINGLE-BODY export kept both defects, because it went through
+build123d's `export_step` instead of our writer. That is the export a user
+reaches by downloading ONE PART, so the user-visible split was the wrong way
+round — the rare path correct, the common one naming a library the recipient has
+never heard of and double-encoding the part name. Measured on the bytes for
+`Flänsch 40°`: `FILE_NAME(...,'build123d','Unknown')` and
+`PRODUCT('FlÃ\x83Â¤nsch 40Ã\x82Â°')`.
+**The decision, stated rather than defaulted into.** Two options: route this path
+through the owned writer, or upstream two parameters to build123d and pin the
+version. The first was taken; the risk that made it a decision was that owning
+the writer might drag XCAF assembly structure into a file with none, changing the
+emitted shape for every existing user. **It does not, and that is measured, not
+argued** — `_single_body_xde_document` rebuilds exactly the document build123d's
+`_create_xde` builds for a shape with no children (`makeAssembly=False`,
+auto-naming ON), and the payload is BYTE-IDENTICAL to build123d's for a named
+solid (15 348 B), an unnamed solid (15 335), and a multi-body `Compound` named
+(29 169) and unnamed (29 193). The complete before/after diff of the shipped fix
+is the originating-system field and, for a non-ASCII name, the `PRODUCT` id/name.
+Nothing else. **No golden's content hash moves** — the sheet-metal `content_hash`
+values are sha256 of `FlatPattern.to_json_bytes()`, and no golden or test pins a
+digest over single-body STEP bytes (checked, not assumed).
+**Mutation evidence, four mutants, all restored.** Reverting the encoding reddens
+**8** — all and only the non-ASCII names, across both `BodyShape` members, while
+the three ASCII-punctuation shapes stay green because part 21 always handled
+them. Reverting the whole path to build123d reddens **10** (those 8 plus both
+originating-system cases). Dropping the "unnamed keeps OCCT's default" skip
+reddens **1**. And the negative control for the structural claim — flipping that
+one flag to `makeAssembly=True` — reddens **12**, including the byte-determinism
+gate: turning a part into an assembly reintroduces STEPDET-1's process-global
+counter, so "no structure" is a determinism property and not a matter of taste.
+Note only the MULTI-BODY cases fail under it; the solid ones stay green, which is
+the same blind spot STEPDET-1 paid for and the reason both fixtures are carried
+through every case here.
+A welcome side effect: the export no longer MUTATES the caller's shape (the old
+path borrowed `shape.label` and restored it in a `finally`). A limit recorded
+rather than folded in: `FILE_NAME`'s NAME field goes through
+`TCollection_HAsciiString`, so a non-ASCII document name lands in the header as
+raw UTF-8 rather than `\X2\` escapes — it round-trips byte-exactly here and is
+IDENTICAL in both paths, so it is not a new split; filed as STEPHDR-1 (P3).
+Gates: full geometry suite **3099 passed / 1 skipped** (was 3070/1; +29 is
+exactly `test_step_names_part`'s case count, so the conftest refactor that gave
+both naming suites one part-21 reader lost nothing), `just lint` exit 0, pyright
+clean, no pydantic model touched so contracts are unchanged.
 
 **MATE-OBS-2 CLOSED (frontend-builder, 2026-08-29) — the eighth consumer, and
 the matrix that stops a ninth.** `AssemblyTreePanel` badged its mate rows from
@@ -563,6 +875,60 @@ and saying so is the point: it is less wrong than shipping a void (the user is
 told and the sketch stays editable), and choosing the branch is a solver change
 filed as ARC-BRANCH-1, not something to improvise inside a payload gate. The
 test bounds it BOTH ways, so closing the gap reddens the suite.
+**LIFTED 2026-09-04 by ARC-BRANCH-1 — the bound fired as designed, and the test
+is deleted in that commit.**
+
+**ARC-BRANCH-1 CLOSED (kernel-architect, 2026-09-04) — a collapse the
+constraints do not FORCE is a bad starting guess, not a verdict, so the solver
+re-asks from a different one exactly once.** ARC-DEGENERATE-1's recorded live
+limit, lifted. Trial 1906 puts one arc's centre on another's endpoint and makes
+the two tangent, which admits `r2 = 0` and `r2 = 2*r1`; the sketch shipped a
+void under `underconstrained` before ARC-DEGENERATE-1 and a wrong `conflicting`
+after it, and both were wrong because the sketch solves. It now ships
+**`r1 = 14.618, r2 = 29.236` at a worst residual of 3.6e-15 mm** — the author's
+own `e1`, untouched, and the branch the old limit named.
+**THE TICKET TURNED ON RECONCILING THIS WITH SETTLE-2 ("a settle must REFINE the
+plain solve, never jump branches"), AND THEY DO NOT ACTUALLY COLLIDE.** SETTLE-2
+governs the settle's relationship to the plain solve it is HANDED, and that is
+untouched: `_turns_geometry_inside_out` still runs, unchanged, over whatever
+baseline it gets. The restart runs one layer up and only where the plain solve
+produced NO SHIPPABLE ANSWER — geometry `read_back` substitutes and the payload
+gate refuses, established by SOLVE-CRASH-1/ARC-DEGENERATE-1 — so the choice is
+between an answer and no answer, never between two answers. That is the one case
+where re-asking cannot cost the author a solution they were already being shown.
+**THE START POSE IS THE AUTHOR'S OWN SKETCH WITH ONLY THE COLLAPSED ENTITY
+RELOCATED, AND THE OTHER POSE WAS BUILT FIRST AND IS MEASURABLY WORSE.**
+Restarting from the whole solved answer with the collapse undone finds the branch
+too — and inherits the first solve's unforced drag on `e1` (r 14.618 -> 8.242,
+chord reversed), after which the settle's CORRECT recovery of `e1` is thrown away
+by SETTLE-2's guard, because the baseline it judges against is itself reversed
+relative to the author. That pose ships `r1 = 10.029`. Stated generally, and this
+is the finding worth carrying: **SETTLE-2's guard rests on the premise that the
+plain solve is itself a walk from the author's own values, and a restart seeded
+from a solved answer is the one thing that can break it.** Seeded from the
+author's pose the premise holds and the guard measures what it was built to
+measure. Both poses are pinned by tests, so the choice cannot be undone silently.
+**THE MECHANISM IS NOT ARC-ONLY, AND THE GENERALITY FOUND A SECOND DEFECT.** It
+asks its question of any annihilated entity, because the collapse is one defect
+wearing two DTOs. Of the **38** solves in PBT-1's corpus that annihilate
+something, **36 are FORCED** (unchanged, still `conflicting` with the constraint
+named) and **2 are not** — trial 1906, and trial **1593**, a CIRCLE minimising to
+the same two constraints, which SOLVE-CRASH-1 had counted among the circles it
+called forced. An arc-only fix would still be refusing a sketch that solves.
+**MUTATION EVIDENCE, both restored.** (a) Disabling the restart reproduces the
+pre-fix census exactly (**solvable 1326, conflicting 314**) and reddens 3 of the
+5 new tests; the two that stay green are the ones that assert the underlying
+collapse still happens and that a forced case is still refused — i.e. the
+negative controls, by design. (b) Switching to the whole-solved-answer pose
+reddens 2, on `r2 != 29.236` and on `e1` coming back resized.
+**DETERMINISM (RESEARCH §9):** one restart, no loop, and a start pose that is a
+pure function of the sketch — no seed, no clock, no search. Two full sweeps in
+ONE process give an identical census AND all 2000 payloads bitwise identical.
+**Sweep census, before -> after:** solvable 1326 -> **1328**, conflicting
+314 -> **312**, underconstrained 1295 -> **1297**, overconstrained 257 -> 257,
+converged 31 -> 31, diverged 103 -> 103, raised 0 -> 0, violated 0 -> 0,
+reversed 0 -> 0, annihilated circles 0 -> 0, annihilated arcs 0 -> 0 — and no
+OTHER trial's payload changed by a single bit.
 
 **STEPNAME-1 GEOMETRY HALF SHIPPED (kernel-architect, 2026-08-29) — the
 headline symptom was not a geometry defect, and looking for it found two that
@@ -746,10 +1112,9 @@ unmarks in the same frame. (P1-4) The row's context menu gained
 kernel can honour it, so the seed gesture no longer costs opening and
 abandoning an editor nobody asked for.
 
-Two halves were deliberately NOT shipped, and both are filed rather than
-forgotten. **REACH-2-FLOW-B**: the viewport tint follows the SELECTION, so it
-still says `Hole1` after the user flips to `This body`; it should read the same
-`scopedFeatureIds` the tree does. **REACH-2-FLOW-C**: the ticket proposed
+Two halves were deliberately NOT shipped, and both were filed rather than
+forgotten. **REACH-2-FLOW-B is now CLOSED** — see its own entry above.
+**REACH-2-FLOW-C**: the ticket proposed
 Fusion's single-click-selects / double-click-edits for the whole tree. That is
 the right destination — every incumbent separates them and our row button is
 already named `Select <name>` — but it is **75 references across 28 e2e spec
@@ -1214,7 +1579,7 @@ sentence — marks drawn over material that hides the edge they name, measured a
 NAME-2b, TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1,
 MATE-OBS-2, SKETCH-COVERAGE-1,
 SOLVER-DOC-1, HEM-1B, HEM-1D — see BACKLOG for current tickets. HEM-1C is
-IN FLIGHT (frontend-builder).
+IN FLIGHT (frontend-builder). REASON-GATE-1 is **CLOSED** — see the entry above.
 
 **Still owed, carried forward again:** `docs/GEOMETRY-QA.md`/
 `docs/UI-REVIEW.md` refresh against the last seven batches; the

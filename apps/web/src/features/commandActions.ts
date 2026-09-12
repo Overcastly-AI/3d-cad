@@ -28,12 +28,9 @@ interface CommandActionState {
   setOkReady: (ready: boolean) => void;
   /**
    * The feature ids the OPEN command will act on, published by the editor that
-   * owns the choice, so the tree and the timeline can mark them (REACH-2-FLOW
-   * P1-2: the pattern editor named `HOLE1` and nothing in the frame echoed it,
-   * on a part with two visually identical holes).
-   *
-   * Empty for a whole-body command and for every editor with no subject to
-   * name, which is most of them — so the mark stays rare, and legible.
+   * owns the choice, so the tree, the timeline and the viewport can mark them
+   * (REACH-2-FLOW P1-2: the pattern editor named `HOLE1` and nothing in the
+   * frame echoed it, on a part with two visually identical holes).
    *
    * It is DERIVED from the editor's live form state rather than from the tree
    * selection, and that difference is the point: the scope row is a two-state
@@ -41,13 +38,25 @@ interface CommandActionState {
    * pointing at `Hole1` after they chose `This body` — chrome stating something
    * the command will not do. It also covers a case selection cannot: an editor
    * seeded from the TIP feature has a subject while nothing at all is selected.
+   *
+   * THREE STATES, NOT TWO (REACH-2-FLOW-B). `null` means no command is
+   * authoring a scope — most of the time, since most editors have no subject to
+   * name. `[]` means one IS, and its answer names no feature (`This body`).
+   * The tree and the timeline can conflate those two, because neither has a
+   * fallback and both render the absence identically; the viewport cannot, and
+   * conflating them is precisely how its tint went on saying `Hole1` after the
+   * user chose the whole body. See `viewport/scopeHighlight.ts`.
    */
-  scopedFeatureIds: readonly string[];
-  setScopedFeatures: (ids: readonly string[]) => void;
+  scopedFeatureIds: readonly string[] | null;
+  setScopedFeatures: (ids: readonly string[] | null) => void;
 }
 
 /** Same members, same order — so re-publishing an unchanged scope is a no-op. */
-function sameIds(a: readonly string[], b: readonly string[]): boolean {
+function sameIds(
+  a: readonly string[] | null,
+  b: readonly string[] | null,
+): boolean {
+  if (a === null || b === null) return a === b;
   return a.length === b.length && a.every((id, i) => id === b[i]);
 }
 
@@ -57,7 +66,7 @@ export const useCommandActionStore = create<CommandActionState>((set, get) => ({
   okReady: false,
   setOkReady: (ready) =>
     set((state) => (state.okReady === ready ? state : { okReady: ready })),
-  scopedFeatureIds: [],
+  scopedFeatureIds: null,
   setScopedFeatures: (ids) =>
     set((state) =>
       sameIds(state.scopedFeatureIds, ids) ? state : { scopedFeatureIds: ids },
@@ -99,9 +108,11 @@ export function useCommandBridge(submit: () => void, ready: boolean): void {
  *
  * Lives beside `useCommandBridge` because it is the same seam pointed the other
  * way: the bridge carries the band's OK INTO the editor, this carries the
- * editor's subject OUT to the tree and the timeline. Both clear on unmount, so
- * a closed command can never leave a stale mark on the tree — which would make
- * the mark worse than no mark at all.
+ * editor's subject OUT to the tree, the timeline and the viewport. Mounting
+ * declares "a command is asking"; unmounting retracts the whole question (back
+ * to `null`, not to `[]`), so a closed command can never leave a stale mark —
+ * which would make the mark worse than no mark at all — and can never suppress
+ * the tree selection's own tint on its way out.
  */
 export function usePublishedScope(featureIds: readonly string[]): void {
   const setScopedFeatures = useCommandActionStore((s) => s.setScopedFeatures);
@@ -112,5 +123,5 @@ export function usePublishedScope(featureIds: readonly string[]): void {
   useEffect(() => {
     setScopedFeatures(key === "" ? [] : key.split(" "));
   }, [key, setScopedFeatures]);
-  useEffect(() => () => setScopedFeatures([]), [setScopedFeatures]);
+  useEffect(() => () => setScopedFeatures(null), [setScopedFeatures]);
 }

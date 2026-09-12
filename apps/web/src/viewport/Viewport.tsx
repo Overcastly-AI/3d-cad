@@ -372,14 +372,24 @@ function CameraRig({
     // empty part opening for the first time) and for a degenerate pose (camera
     // sitting exactly on its target), which would otherwise normalise to a zero
     // vector. It is not the "first geometry" case: see `framedOnce`.
+    //
+    // AN EASE IN FLIGHT IS THE VIEWPOINT, not the pixel the camera happens to
+    // be passing through. A refit that lands mid-ease (leaving a sketch that
+    // built geometry does both within a few hundred ms — CAMRESTORE-1) would
+    // otherwise adopt an arbitrary intermediate attitude AND cancel the ease by
+    // posing instantly, so the modeler ends up somewhere neither rig meant. The
+    // goal is the intent; read it when there is one.
     let dir = ISO_DIR.clone();
     let up = new Vector3(0, 1, 0);
+    const inFlight = goal.current;
     if (!first) {
-      const currentTarget = controls?.target.clone() ?? center.clone();
-      const offset = camera.position.clone().sub(currentTarget);
+      const currentTarget =
+        inFlight?.target.clone() ?? controls?.target.clone() ?? center.clone();
+      const from = inFlight?.position ?? camera.position;
+      const offset = from.clone().sub(currentTarget);
       if (offset.lengthSq() > 1e-12) {
         dir = offset.normalize();
-        up = safeUp(dir, camera.up.clone());
+        up = safeUp(dir, (inFlight?.up ?? camera.up).clone());
       }
     }
 
@@ -420,7 +430,24 @@ function CameraRig({
     );
 
     let pose: CameraGoal;
-    if (command.kind === "direction") {
+    if (command.kind === "restore") {
+      // CAMRESTORE-1 — put the camera back where the SKETCHER took it from.
+      // The pose is world-space and complete, so nothing is re-solved here: a
+      // fit would frame the subject afresh and hand back a DIFFERENT view,
+      // which is the whole complaint ("a view they did not choose").
+      //
+      // `userMoved` is deliberately NOT cleared, unlike the fit/snap branches:
+      // this is not a new framing the modeler asked for, it is the framing they
+      // already had, so whatever they had done to earn it still stands.
+      const { position, up, target, zoom } = command.pose;
+      pose = {
+        position: new Vector3(...position),
+        up: new Vector3(...up),
+        target: new Vector3(...target),
+        view: "restore",
+        ...(zoom === undefined ? {} : { zoom }),
+      };
+    } else if (command.kind === "direction") {
       // Reference-cube pick: rotate about the CURRENT target, keep the zoom.
       const dir = new Vector3(...command.dir).normalize();
       pose = {

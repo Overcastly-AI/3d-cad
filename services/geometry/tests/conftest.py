@@ -7,6 +7,7 @@ cross-suite constants and assertion helpers live here as fixtures instead
 """
 
 import io
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -125,6 +126,131 @@ def assert_validation_envelope() -> Callable[[dict[str, Any]], None]:
         assert error["details"]  # pydantic locates the offending field(s)
 
     return check
+
+
+# --- part 21 read-back (STEPNAME-1 / STEPNAME-2) ---------------------------------
+
+#: A part-21 string literal: any run of characters in which a literal quote
+#: appears DOUBLED (the standard's own escape, which OCCT emits). Written out
+#: rather than ``[^']*`` because the naive form stops at the first quote of an
+#: escaped pair and silently truncates every name containing an apostrophe —
+#: which reads exactly like "the name is missing from the file".
+_STEP_LITERAL = r"'((?:[^']|'')*)'"
+_STEP_PRODUCT_RE = re.compile(
+    (r"PRODUCT\s*\(\s*" + _STEP_LITERAL + r"\s*,\s*" + _STEP_LITERAL).encode()
+)
+_STEP_NAUO_RE = re.compile(
+    (
+        r"NEXT_ASSEMBLY_USAGE_OCCURRENCE\s*\(\s*"
+        + _STEP_LITERAL
+        + r"\s*,\s*"
+        + _STEP_LITERAL
+    ).encode()
+)
+_STEP_FILE_NAME_RE = re.compile(rb"FILE_NAME\s*\((.*?)\)\s*;", re.S)
+_STEP_DATA_RE = re.compile(rb"\bDATA\s*;(.*)\bENDSEC\s*;", re.S)
+
+#: OCCT stamps its own translator PRODUCTs into every ASSEMBLY file; they are not
+#: ours and asserting over them would make every name assertion vacuously pass.
+_OCCT_PRODUCT_PREFIX = "Open CASCADE STEP translator"
+
+
+def _step_unescape(literal: bytes) -> str:
+    """A part-21 string literal's bytes as the string the writer meant.
+
+    Part 21 gives a string two escapes, and BOTH have to be undone or a name that
+    contains either reads as absent from the file: a literal quote is doubled
+    (``''``), and a literal backslash is doubled (``\\\\``) because backslash
+    introduces the standard's control directives. Measured, in that order —
+    undoing the quote first cannot corrupt a backslash pair and vice versa, since
+    neither escape can produce the other's marker.
+
+    Then UTF-8, and **the UTF-8 decode is the assertion**, not a convenience:
+    before the encoding fix the same bytes decoded to the mojibake rather than to
+    the submitted name, so an oracle that compared latin-1 text would have passed
+    against corrupted output.
+    """
+    return literal.replace(b"''", b"'").replace(b"\\\\", b"\\").decode("utf-8")
+
+
+def _step_product_pairs(data: bytes) -> list[tuple[str, str]]:
+    """OUR ``PRODUCT`` ``(id, name)`` pairs, in file order.
+
+    OCCT stamps its own translator PRODUCTs into an assembly file; they are not
+    ours, and including them would make every name assertion vacuously pass.
+    """
+    return [
+        (_step_unescape(pid), name)
+        for pid, raw in _STEP_PRODUCT_RE.findall(data)
+        if not (name := _step_unescape(raw)).startswith(_OCCT_PRODUCT_PREFIX)
+    ]
+
+
+@pytest.fixture(scope="session")
+def step_product_pairs() -> Callable[[bytes], list[tuple[str, str]]]:
+    """OUR ``PRODUCT`` ``(id, name)`` pairs — the duplicate-id evidence."""
+    return _step_product_pairs
+
+
+@pytest.fixture(scope="session")
+def step_product_names() -> Callable[[bytes], list[str]]:
+    """OUR ``PRODUCT`` names, in file order (see :func:`_step_product_pairs`)."""
+
+    def names(data: bytes) -> list[str]:
+        return [name for _, name in _step_product_pairs(data)]
+
+    return names
+
+
+@pytest.fixture(scope="session")
+def step_occurrence_names() -> Callable[[bytes], list[str]]:
+    """Every NON-EMPTY ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` name, in file order.
+
+    OCCT writes a second, unnamed NAUO level per component whose body is a
+    compound (it becomes a sub-assembly); those carry ``''`` and are dropped. A
+    SINGLE-BODY export has no occurrences at all, and the empty list is the
+    assertion that owning its writer added none.
+    """
+
+    def names(data: bytes) -> list[str]:
+        return [
+            name
+            for _, raw in _STEP_NAUO_RE.findall(data)
+            if (name := _step_unescape(raw))
+        ]
+
+    return names
+
+
+@pytest.fixture(scope="session")
+def step_file_name_record() -> Callable[[bytes], str]:
+    """The ``FILE_NAME`` header record's argument text (the provenance fields)."""
+
+    def record(data: bytes) -> str:
+        match = _STEP_FILE_NAME_RE.search(data)
+        assert match is not None, "no FILE_NAME record in the exported STEP"
+        return match.group(1).decode("utf-8")
+
+    return record
+
+
+@pytest.fixture(scope="session")
+def step_data_section() -> Callable[[bytes], bytes]:
+    """Everything between ``DATA;`` and ``ENDSEC;`` — the model, not the header.
+
+    The discriminator for "did the file's SHAPE change": entity ids, product
+    structure and geometry all live here, while provenance (timestamp,
+    originating system) lives in the header. Comparing data sections is how
+    ``test_step_names_part`` shows that owning the single-body writer added no
+    assembly level, no ``PRODUCT`` and no occurrence.
+    """
+
+    def section(data: bytes) -> bytes:
+        match = _STEP_DATA_RE.search(data)
+        assert match is not None, "no DATA section in the exported STEP"
+        return match.group(1)
+
+    return section
 
 
 # --- DXF read-back (AUDIT-PRODUCT F-3) -------------------------------------------

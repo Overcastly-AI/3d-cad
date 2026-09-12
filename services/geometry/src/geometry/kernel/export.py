@@ -1,18 +1,18 @@
 """CAD file export — STEP (exact B-rep) and three faceted meshes (STL, 3MF, GLB).
 
-Uses build123d's exporters (OCCT ``STEPControl_Writer`` / ``StlAPI_Writer`` /
-``RWGltf_CafWriter``, and lib3mf via ``build123d.mesher.Mesher``, underneath).
-Every output is **byte-deterministic** for identical requests (RESEARCH §9); the
-geometry export gate asserts it:
+STEP is written through OCCT's ``STEPCAFControl_Writer`` directly (one writer for
+parts and assemblies alike — :func:`_write_step_document`); the mesh formats use
+build123d's exporters (``StlAPI_Writer``, ``RWGltf_CafWriter``, and lib3mf via
+``build123d.mesher.Mesher``). Every output is **byte-deterministic** for
+identical requests (RESEARCH §9); the geometry export gate asserts it:
 
 * **STEP:** OCCT stamps the file's ``FILE_NAME`` record with the wall-clock
   creation time — the one nondeterministic byte range in a SINGLE-BODY output
   (the assembly writer adds two more; see the determinism note below). We pin
-  it to :data:`STEP_EXPORT_TIMESTAMP` via ``export_step(timestamp=...)``
-  (decision + evidence recorded in docs/GEOMETRY-QA.md, gap #4). Exporting
-  through ``BytesIO`` also keeps filesystem paths out of the file — the
-  ``FILE_NAME`` name field stays the fixed writer default, verified on
-  build123d 0.11.1.
+  it to :data:`STEP_EXPORT_TIMESTAMP` on the header we build
+  (decision + evidence recorded in docs/GEOMETRY-QA.md, gap #4). Writing to a
+  ``BytesIO`` also keeps filesystem paths out of the file, and the ``FILE_NAME``
+  name field carries the document name or, unnamed, OCCT's fixed default.
 * **STL:** binary format, fixed 80-byte OCCT header + mesher output, no
   timestamps. ``export_stl`` runs the SAME ``BRepMesh_IncrementalMesh`` call
   as the GLB tessellation path (``Shape.mesh``: relative linear deflection,
@@ -102,18 +102,32 @@ rather than assumed before this was called done:
   file a supplier quotes from is worse than reproducing an ambiguity the user
   authored in their own data — which no CAD system resolves for them either.
 
-*What this path does NOT fix.* The SINGLE-BODY export
-(:func:`export_step_bytes`) goes through build123d's ``export_step``, which
-hardcodes ``SetOriginatingSystem("build123d")`` with no parameter and builds its
-own label from ``shape.label`` through the same defaulted ``ExtendedString``
-overload — so a single-body STEP still names build123d and still mojibakes a
-non-ASCII part name. Both are measured, and neither is fixable from here without
-owning that writer end to end, which is a change to the most-used export path
-and its own decision (filed as STEPNAME-2). That path is NOT affected by
-STEPDET-1, which is measured rather than assumed: ``export_step_bytes`` does not
-build an XCAF assembly, so no extra level is interposed, no translator PRODUCT is
-emitted and two exports of the same multi-body part in one process are already
-byte-identical.
+*The SINGLE-BODY path now writes through the SAME writer* (STEPNAME-2), which is
+what closes the naming split. It used to go through build123d's ``export_step``,
+which hardcodes ``SetOriginatingSystem("build123d")`` with no parameter and
+builds its label through the same defaulted ``ExtendedString`` overload — so the
+export a user reaches by downloading ONE PART, the more common of the two, was
+the one carrying both defects while the rarer assembly export was correct.
+
+**Unifying cost nothing a consumer can see, and that is measured rather than
+argued.** The worry that made this a decision was that owning the writer would
+drag XCAF assembly structure into a file that has none. It does not:
+:func:`_single_body_xde_document` rebuilds the document
+``build123d.exporters3d._create_xde`` builds for a shape with no children —
+``AddShape(..., makeAssembly=False)``, auto-naming ON — and the result is
+BYTE-IDENTICAL to build123d's output for a named solid, an unnamed solid, and a
+multi-body ``Compound`` both ways. ``test_step_names_part`` pins that by
+comparing the part-21 DATA section — where entity ids, product structure and
+geometry live — against build123d's own output, leaving only the header (whose
+originating system we deliberately changed) out of the comparison. So no golden's
+digest moves for a structural reason; measured over all four cases plus an
+ASCII-named solid, the ONLY bytes that differ from yesterday are the
+``FILE_NAME`` originating system and, for a non-ASCII name, the ``PRODUCT`` id
+and name — which are the two defects. The single-body path remains free of both
+process-global writer
+counters — it interposes no extra level and emits no translator PRODUCT — so
+:func:`_canonicalise_writer_counters` stays an assembly-only concern and the part
+path's in-process determinism is asserted directly instead.
 
 *Why no MAPPED_ITEM.* AP214 has two encodings for "this geometry, placed there":
 ``MAPPED_ITEM``/``REPRESENTATION_MAP`` (a representation re-used inside another
@@ -165,8 +179,7 @@ from build123d import Compound, Location
 from build123d.build_common import UNITS_PER_METER
 from build123d.build_enums import PrecisionMode, Unit
 from build123d.exporters3d import (
-    export_step,  # pyright: ignore[reportUnknownVariableType]  (Shape[Unknown] param upstream)
-    export_stl,  # pyright: ignore[reportUnknownVariableType]
+    export_stl,  # pyright: ignore[reportUnknownVariableType]  (Shape[Unknown] param upstream)
 )
 from build123d.mesher import Mesher
 from lib3mf import Lib3MF
@@ -199,8 +212,10 @@ STEP_EXPORT_TIMESTAMP = datetime(2000, 1, 1, 0, 0, 0)
 #: Marker every STEP part 21 file starts with (sanity-checked after export).
 STEP_MAGIC = b"ISO-10303-21"
 
-#: What the assembly STEP's ``FILE_NAME`` originating-system field says
-#: (STEPNAME-1). It read ``'build123d'`` — the name of a library the recipient
+#: What EVERY STEP's ``FILE_NAME`` originating-system field says — the assembly
+#: export since STEPNAME-1, the single-body export since STEPNAME-2, which is the
+#: split that mattered because the part download is the common one.
+#: It read ``'build123d'`` — the name of a library the recipient
 #: has no reason to have heard of — so a file Loft AUTHORED did not say so
 #: anywhere, and the one person who most needs to know where a suspect part came
 #: from (the machinist holding it) had nothing to go on. AP214 defines this field
@@ -249,21 +264,32 @@ def export_step_bytes(shape: BodyShape, *, name: str | None = None) -> bytes:
     *name* becomes the file's ``PRODUCT`` name and its ``FILE_NAME`` name field:
     ``PRODUCT('Motor Mount Bracket')`` instead of the OCCT default
     ``PRODUCT('SOLID')`` (audit N4 — the exported file was the one place the
-    part's name never appeared). ``None`` leaves the default, so callers that
-    have no name to give are byte-identical to before. The label is restored
-    afterwards: build123d's ``label`` is a plain attribute on the caller's shape,
-    and an export must not rename the body it was handed.
+    part's name never appeared). ``None`` falls back to the shape's own
+    ``label``, and an unlabelled shape keeps OCCT's defaults, so callers that
+    have no name to give get the file they got before.
+
+    Driven through :func:`_write_step_document` rather than build123d's
+    ``export_step`` (STEPNAME-2), which is what fixes the two things a
+    single-body STEP got wrong: it hardcodes ``'build123d'`` as the originating
+    system with no parameter, and it builds the label through the defaulted
+    ``ExtendedString`` overload, so every non-ASCII part name landed
+    double-encoded (:func:`_xcaf_name`). Neither is reachable from a caller. The
+    file's SHAPE is unchanged — :func:`_single_body_xde_document` rebuilds the
+    same document build123d builds, byte-equivalence asserted — so no consumer
+    sees a level, a product or an occurrence that was not there before.
+
+    A welcome consequence: the caller's shape is no longer MUTATED. The old path
+    had to borrow ``shape.label`` (build123d reads the name off it) and restore
+    it in a ``finally``; the name now goes straight onto the XDE label instead.
     """
-    previous_label = shape.label
-    try:
-        if name is not None:
-            shape.label = name
-        buffer = io.BytesIO()
-        if not export_step(shape, buffer, timestamp=STEP_EXPORT_TIMESTAMP):
-            raise RuntimeError("STEP export failed")
-    finally:
-        shape.label = previous_label
-    data = buffer.getvalue()
+    # ``or None`` reproduces build123d's own ``if node.label:`` truthiness test,
+    # so an EMPTY name is "no name" rather than ``PRODUCT('')`` — the fallback to
+    # ``shape.label`` is what a caller that pre-labelled its body used to get
+    # (``export_step`` read the name off the shape), kept so this path is inert
+    # for every existing caller.
+    header_name = (name if name is not None else shape.label) or None
+    doc = _single_body_xde_document(shape, header_name)
+    data = _write_step_document(doc, header_name)
     if not data.startswith(STEP_MAGIC):
         raise RuntimeError("STEP export produced a non-part-21 payload")
     return data
@@ -463,7 +489,8 @@ def _name_new_meshes(mesher: Mesher, first: int, name: str | None) -> None:
     multi-body part (``Compound`` of solids, §MB-0) would take its children's
     labels and ignore the document name entirely — and setting labels on the
     caller's solids is a mutation an export must not make (the same reason
-    :func:`export_step_bytes` restores the label it borrows).
+    :func:`export_step_bytes` stopped borrowing ``shape.label`` when it took over
+    its own writer).
     """
     if name is None:
         return
@@ -748,6 +775,58 @@ def _xcaf_name(text: str) -> TCollection_ExtendedString:
     return TCollection_ExtendedString(text, True)
 
 
+def _xde_document(auto_naming: bool) -> tuple[TDocStd_Document, XCAFDoc_ShapeTool]:
+    """An empty XDE document in millimetres, plus its shape tool.
+
+    The boilerplate both writer paths need, named once (CLAUDE.md DRY rule) and
+    byte-faithful to ``build123d.exporters3d._create_xde``'s preamble — same
+    storage format, same application, same ``SetLengthUnit_s``.
+
+    *auto_naming* is the one thing the two paths disagree about, and it is a real
+    difference rather than an oversight. The SINGLE-BODY path leaves it ON, so an
+    unnamed export still writes ``PRODUCT('SOLID')`` exactly as it always has; the
+    ASSEMBLY path turns it OFF, because there our labels ARE the names and OCCT's
+    auto-naming would overwrite the shared part label we set deliberately.
+    """
+    doc = TDocStd_Document(TCollection_ExtendedString("XmlOcaf"))
+    application = XCAFApp_Application.GetApplication_s()
+    application.NewDocument(TCollection_ExtendedString("MDTV-XCAF"), doc)
+    application.InitDocument(doc)
+    XCAFDoc_DocumentTool.SetLengthUnit_s(doc, 1 / UNITS_PER_METER[Unit.MM])
+    shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
+    shape_tool.SetAutoNaming_s(auto_naming)
+    return doc, shape_tool
+
+
+def _single_body_xde_document(shape: BodyShape, name: str | None) -> TDocStd_Document:
+    """The XDE document a SINGLE-BODY export transfers — ONE shape, no assembly.
+
+    ``AddShape(..., makeAssembly=False)``: a part is one shape at the document
+    root, so nothing here interposes an assembly level, emits a
+    ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` or adds a ``PRODUCT`` the file did not
+    have. That is deliberate and it is the whole reason STEPNAME-2 could be fixed
+    without changing what a consumer's CAD reads: this rebuilds the document
+    build123d's ``_create_xde`` builds for a shape with no children, so the file's
+    SHAPE is unchanged and only the two fields that were wrong move. Asserted, not
+    asserted-by-hope — ``test_step_names_part`` pins byte-equivalence against a
+    build123d-configured write for a named solid, an unnamed solid, and both for a
+    multi-body ``Compound`` (which stays ONE product with two
+    ``MANIFOLD_SOLID_BREP``, because a build123d ``Compound`` carries no anytree
+    children for ``PreOrderIter`` to walk).
+
+    *name* is set through :func:`_xcaf_name`, which is the fix: build123d names
+    the label with the defaulted ``ExtendedString`` overload, so every non-ASCII
+    part name reached the file double-encoded (STEPNAME-2). ``None`` sets no name
+    at all, leaving OCCT's auto-naming to write ``PRODUCT('SOLID')`` as before.
+    """
+    doc, shape_tool = _xde_document(auto_naming=True)
+    label = shape_tool.AddShape(shape.wrapped, False)
+    if name is not None:
+        TDataStd_Name.Set_s(label, _xcaf_name(name))
+    shape_tool.UpdateAssemblies()
+    return doc
+
+
 def _assembly_xde_document(
     assembly_name: str, components: Sequence[AssemblyComponent]
 ) -> TDocStd_Document:
@@ -762,16 +841,10 @@ def _assembly_xde_document(
     order, so both the numbering and the chosen product name are fixed by the
     request.
     """
-    doc = TDocStd_Document(TCollection_ExtendedString("XmlOcaf"))
-    application = XCAFApp_Application.GetApplication_s()
-    application.NewDocument(TCollection_ExtendedString("MDTV-XCAF"), doc)
-    application.InitDocument(doc)
-    XCAFDoc_DocumentTool.SetLengthUnit_s(doc, 1 / UNITS_PER_METER[Unit.MM])
-    shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
-    # Our labels ARE the names; auto-naming would overwrite them (build123d's
-    # export_step keeps it on for the same reason it is off here — it names
-    # per-child, we name per-part).
-    shape_tool.SetAutoNaming_s(False)
+    # Our labels ARE the names; auto-naming would overwrite them (the single-body
+    # path keeps it on for the same reason it is off here — it names per-child,
+    # we name per-part).
+    doc, shape_tool = _xde_document(auto_naming=False)
 
     builder = BRep_Builder()
     compound = TopoDS_Compound()
@@ -804,14 +877,21 @@ def _assembly_xde_document(
     return doc
 
 
-def _write_step_document(doc: TDocStd_Document, header_name: str) -> bytes:
+def _write_step_document(doc: TDocStd_Document, header_name: str | None) -> bytes:
     """Transfer *doc* through ``STEPCAFControl_Writer`` to part-21 bytes.
 
-    The writer half of build123d's ``export_step`` (same session, same name /
-    colour / layer modes, same precision + p-curve statics, same pinned
-    ``FILE_NAME`` timestamp), driven directly so the assembly path can name the
-    SHARED part label itself (module docstring). Byte-equivalent to what
-    build123d writes for the same XDE document.
+    THE writer for every STEP this service emits, part and assembly alike (there
+    is no longer a second one — STEPNAME-2). Configured exactly as build123d's
+    ``export_step`` configures it — same session, same name / colour / layer
+    modes, same precision + p-curve statics, same pinned ``FILE_NAME`` timestamp
+    — so it is byte-equivalent to build123d for the same XDE document, which is
+    the property that let the part path move here without changing what a
+    consumer reads. Only the originating system differs, deliberately
+    (:data:`STEP_ORIGINATING_SYSTEM`).
+
+    *header_name* is ``FILE_NAME``'s first field. ``None`` leaves it unset, which
+    is how an unnamed export keeps OCCT's ``'Open CASCADE Shape Model'`` default
+    — build123d skips the call for a shape with no label and so do we.
     """
     # Disable writing OCCT info to console (build123d does the same).
     messenger = Message.DefaultMessenger_s()
@@ -828,7 +908,8 @@ def _write_step_document(doc: TDocStd_Document, header_name: str) -> bytes:
     if not header.IsDone():  # as in OCCT 7.9.x
         header = APIHeaderSection_MakeHeader(0)
         header.Apply(writer.Writer().Model())
-    header.SetName(TCollection_HAsciiString(header_name))
+    if header_name is not None:
+        header.SetName(TCollection_HAsciiString(header_name))
     header.SetTimeStamp(TCollection_HAsciiString(STEP_EXPORT_TIMESTAMP.isoformat()))
     # The file says who AUTHORED it, not which binding drove OCCT
     # (STEPNAME-1 — see :data:`STEP_ORIGINATING_SYSTEM`).

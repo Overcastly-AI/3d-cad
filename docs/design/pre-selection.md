@@ -149,6 +149,20 @@ intersection marks already in the set). Add it beside the existing icons in
 `icons.tsx`; no new color — same `text-brass-hover` ink the drawing marker
 uses.
 
+**AS BUILT (SEL-2, 2026-09-04).** Shipped as specified, with three additions
+the build found. (a) The frame keeps its OWN names — hovering the origin or an
+axis says "Origin" / "X axis" / "Y axis" with the glyphs `SNAP_MARKS` already
+carries, rather than calling them a Point and two Lines; the datums are pickable
+before they are materialised into the buffer, so this had to work on an EMPTY
+sketch, which is where a nameless pick hurts most. (b) `hoverPick` was reading
+`candidates[0]` while a plain click takes `applyPick`'s CYCLE step, so the mark
+would have named a pick the second click does not make — `replacementPick`
+(`sketch/pick.ts`) now states that rule once and hover and click both read it.
+The click-cycle itself is unchanged, as this section requires. (c) The mark is
+suppressed while a pointer button is held: a held pointer is the camera's
+gesture, and a word chasing the cursor through an orbit is motion that says
+nothing.
+
 **No 3D solid-hover glyph vocabulary.** In 3D, the *shape* of the highlight
 already says what kind of entity it is — a lit patch is a face, a lit
 polyline is an edge, a lit point is a vertex — so a glyph would be redundant

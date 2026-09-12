@@ -32,6 +32,7 @@ import { lengthInputValue } from "../units/length";
 import type { DatumPlaneName } from "../sketch/plane";
 import { parseOffsetMm } from "./datum";
 import { faceSubshapeRef } from "./face";
+import { fieldBlocker } from "./submitBlocker";
 
 /** The three origin datums the neutral plane can parallel, in a stable order. */
 export const DRAFT_NEUTRAL_BASES: readonly {
@@ -196,6 +197,34 @@ export function buildDraftParams(
   };
 }
 
+/**
+ * WHY the draft cannot be created yet, or null when it can (REASON-GATE-1 — see
+ * `submitBlocker.ts` for the rule and the 48-character budget).
+ *
+ * Zero gets its OWN sentence rather than the generic "Check the angle." A zero
+ * taper parses, reads as a perfectly ordinary number, and is refused because it
+ * is a no-op — the one case where "check the field" would send a user to look
+ * for a typo that is not there.
+ */
+export function draftSubmitBlocker(
+  form: DraftForm,
+  pickedFaces: readonly PlanarFaceSignature[],
+  bodyFeatureId: string | null,
+  unit: LengthUnit,
+): string | null {
+  if (bodyFeatureId === null) return "Add a body before picking faces.";
+  if (pickedFaces.length === 0) return "Click one or more faces to taper.";
+  const angle = parseAngleDeg(form.angleInput);
+  if (angle === 0) return "A zero angle tapers nothing — enter an angle.";
+  const angleBlocker = fieldBlocker(form.angleInput, angle, "angle");
+  if (angleBlocker !== null) return angleBlocker;
+  return fieldBlocker(
+    form.neutral.offsetInput,
+    parseOffsetMm(form.neutral.offsetInput, unit),
+    "neutral offset",
+  );
+}
+
 /** True when the draft form can be submitted (valid angle + faces + neutral). */
 export function canSubmitDraft(
   form: DraftForm,
@@ -203,5 +232,5 @@ export function canSubmitDraft(
   bodyFeatureId: string | null,
   unit: LengthUnit,
 ): boolean {
-  return buildDraftParams(form, pickedFaces, bodyFeatureId, unit) !== null;
+  return draftSubmitBlocker(form, pickedFaces, bodyFeatureId, unit) === null;
 }

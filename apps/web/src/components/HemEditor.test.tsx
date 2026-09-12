@@ -16,7 +16,13 @@
  * than imported — guidance checked against the code that produced it could not
  * fail.
  */
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EdgeSignature, SheetMetalHemParams } from "../api/parts";
@@ -185,6 +191,143 @@ describe("the hem type is authorable (HEM-1D)", () => {
     // teardrop/rolled wrap past 180°: naming them would be the HEM-1 defect in
     // the other direction (a label the fold cannot honour).
     expect(group.textContent).not.toMatch(/teardrop|rolled/i);
+  });
+});
+
+/**
+ * HEM-1B — a Save that refuses says why, and no click can leave an override
+ * "checked with no value". The audit's repair path found `hem-submit` with
+ * `aria-disabled="true"` and an EMPTY `title`: no text, no red field, nothing to
+ * read. The assertions below are on the SENTENCE a user gets (its text, and that
+ * it is the button's accessible description), never on the mere presence of an
+ * attribute.
+ */
+describe("a gated Save states its reason (HEM-1B)", () => {
+  /** The reason as the user reads it: the ink inside the Save cell. */
+  function saveReason(): string {
+    const node = screen
+      .getByTestId("hem-submit")
+      .querySelector("[data-disabled-reason]");
+    return node?.textContent ?? "";
+  }
+
+  /**
+   * Is Save gated? `PanelActionCell` uses `aria-disabled` and swallows the
+   * click rather than the native `disabled` attribute (a `disabled` button is a
+   * trap: it cannot be hovered or focused, so its reason has nowhere to live),
+   * and jest-dom's `toBeDisabled` does not read `aria-disabled`. So the gate is
+   * asserted the way the user meets it — the attribute AND the fact that
+   * clicking does nothing.
+   */
+  function expectGated(
+    gated: boolean,
+    onSubmit: { mock: { calls: unknown[] } },
+  ) {
+    const submit = screen.getByTestId("hem-submit");
+    expect(submit.getAttribute("aria-disabled")).toBe(gated ? "true" : null);
+    const before = onSubmit.mock.calls.length;
+    fireEvent.click(submit);
+    expect(
+      onSubmit.mock.calls.length,
+      gated ? "a gated Save still submitted" : "a live Save did nothing",
+    ).toBe(gated ? before : before + 1);
+  }
+
+  it("ticking an override seeds the value it replaces — Save stays live", () => {
+    const { onSubmit } = renderEditor();
+    fireEvent.click(screen.getByTestId("hem-override-k"));
+    // The state the audit found — checked, empty, Save dead, nothing said — is
+    // now unreachable: the box opens on the value the card says it inherits.
+    expect(screen.getByTestId("hem-k-factor")).toHaveValue("0.44");
+    expect(saveReason()).toBe("");
+    fireEvent.click(screen.getByTestId("hem-override-radius"));
+    expect(screen.getByTestId("hem-bend-radius")).toHaveValue("0.1");
+    expectGated(false, onSubmit);
+    // …and the seeds are what gets saved, not silently dropped.
+    const sent = onSubmit.mock.calls[0]?.[0];
+    expect(sent?.k_factor).toBe(0.44);
+    expect(sent?.bend_radius_mm).toBe(0.1);
+  });
+
+  it("naming the field and the way out when a value IS missing", () => {
+    const { onSubmit } = renderEditor();
+    fireEvent.click(screen.getByTestId("hem-override-k"));
+    // A user CAN still empty the field by hand — and then the card says so.
+    fireEvent.change(screen.getByTestId("hem-k-factor"), {
+      target: { value: "" },
+    });
+    expectGated(true, onSubmit);
+    expect(saveReason()).toBe("Type a K-factor, or uncheck to inherit 0.44.");
+    // The same sentence reaches a screen reader — one string, three channels.
+    expect(screen.getByTestId("hem-submit")).toHaveAccessibleDescription(
+      saveReason(),
+    );
+    // …and the way out it names actually works.
+    fireEvent.click(screen.getByTestId("hem-override-k"));
+    expect(saveReason()).toBe("");
+    expectGated(false, onSubmit);
+  });
+
+  it("names the missing pick, which no field could show", () => {
+    useEdgePickStore.setState({ picked: [], overlayError: null });
+    const { onSubmit } = renderEditor();
+    expectGated(true, onSubmit);
+    expect(saveReason()).toBe("Pick one straight edge to hem.");
+  });
+
+  it("never leaves a gated Save silent, whatever is wrong", () => {
+    // The general rule, as a property: across every way this form can be
+    // invalid, a disabled Save carries readable text. A future gate added
+    // without a sentence fails here rather than in a user's repair session.
+    const cases: { name: string; act: () => void }[] = [
+      {
+        name: "empty length",
+        act: () =>
+          fireEvent.change(screen.getByTestId("hem-length"), {
+            target: { value: "" },
+          }),
+      },
+      {
+        name: "negative length",
+        act: () =>
+          fireEvent.change(screen.getByTestId("hem-length"), {
+            target: { value: "-4" },
+          }),
+      },
+      {
+        name: "blank radius override",
+        act: () => {
+          fireEvent.click(screen.getByTestId("hem-override-radius"));
+          fireEvent.change(screen.getByTestId("hem-bend-radius"), {
+            target: { value: "" },
+          });
+        },
+      },
+      {
+        name: "out-of-range K",
+        act: () => {
+          fireEvent.click(screen.getByTestId("hem-override-k"));
+          fireEvent.change(screen.getByTestId("hem-k-factor"), {
+            target: { value: "7" },
+          });
+        },
+      },
+    ];
+    for (const { name, act } of cases) {
+      cleanup();
+      useEdgePickStore.setState({ picked: [SIG], overlayError: null });
+      const { onSubmit } = renderEditor();
+      act();
+      expectGated(true, onSubmit);
+      expect(
+        saveReason().length,
+        `${name}: the gated Save said nothing`,
+      ).toBeGreaterThan(20);
+      expect(
+        screen.getByTestId("hem-submit"),
+        name,
+      ).toHaveAccessibleDescription(saveReason());
+    }
   });
 });
 

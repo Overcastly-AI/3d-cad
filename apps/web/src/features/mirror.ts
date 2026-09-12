@@ -141,3 +141,21 @@ export function buildMirrorParams(
   if (scope === null) return null;
   return { plane: planeRefFromSpec(spec), scope: asMirrorScope(scope) };
 }
+
+/**
+ * WHY the mirror cannot be created yet, or null when it can (REASON-GATE-1 — see
+ * `submitBlocker.ts` for the rule and the 48-character budget).
+ *
+ * `spec` is the plane the editor has RESOLVED from its choice list — null when
+ * the list is empty, which is a fact about the part rather than about the form,
+ * so it is named as one ("add a plane"), not as a selection the user forgot.
+ */
+export function mirrorSubmitBlocker(
+  spec: SketchPlaneSpec | null,
+  form: Pick<MirrorForm, "scope" | "scopeFeatures">,
+): string | null {
+  if (spec === null) return "Add a datum plane to mirror about.";
+  return buildMirrorParams(spec, form) === null
+    ? "Pick at least one feature to mirror."
+    : null;
+}

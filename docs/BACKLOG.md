@@ -50,7 +50,11 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
   also CLOSED (2026-08-29): one shared canonicaliser for both writer
   counters, and the durable half is `assembly-two-multibody-brackets`, the
   fixture that makes the determinism gates able to fail at all (mutation: 4
-  red, 54 green).** Collapsed the
+  red, 54 green).** **STEPNAME-2 is CLOSED as well (2026-09-04): the COMMON
+  export — one part — was the defective one, and routing it through the owned
+  writer is byte-identical to build123d's output in all four shape/name cases,
+  so no golden's hash moves; STEPHDR-1 (P3) filed from the measurement.**
+  Collapsed the
   now-closed Ready-queue items (A11Y-TOOLBTN-1, MEASURE-PROXY-1, EXPORT-3,
   REACH-2-IMPORT-1, REACH-3-FLOW, REACH-2-FLOW, HEM-1C, HEM-1D, PGTEST-GATE,
   K2, PBT-1, SOLVE-CRASH-1, CI-BAL) into the Done archive.
@@ -94,13 +98,25 @@ Ranked, disjoint, parallel-dispatchable:
    instance name; the UUID is the fallback for a request that omits it, and
    the caller that omits it is `apps/web`. Two REAL geometry defects found and
    fixed alongside (non-ASCII names corrupted; the file named build123d as its
-   author). See the entry below; STEPNAME-1B is the remaining web half.
+   author). See the entry below; STEPNAME-1B was the remaining web half and is
+   closed. **STEPNAME-2 is closed too (2026-09-04)** — the single-body export
+   carried both of those defects on the MORE common path, and now writes through
+   the same owned writer, proved byte-identical to build123d's output so no
+   file's shape and no golden's hash moved.
 6. **ARC-DEGENERATE-1 is SHIPPED** (kernel-architect, 2026-08-29) — 27 of
    2000 payloads were shipping an arc collapsed onto its own centre, at a
    residual of zero; now `sketch_conflicting` with the constraint named. See
    the entry below and ROADMAP for the census and the two follow-ups filed.
-7. **HEM-1B** (P2, S, frontend-builder) — repairing a hem after an
-   unrelated edit hits a silent, unexplained disabled Save.
+7. ~~**HEM-1B**~~ — **CLOSED 2026-09-04.** The gated Save states its reason and
+   an override toggle seeds its own field, so the audit's checked-and-empty dead
+   end cannot be clicked into. The reported hydration bug did NOT reproduce at
+   HEAD (measured: `k_factor: null` already loads unchecked). Filed
+   **REASON-GATE-1 (P1)** from the survey it asked for: 15 of the 16 editor
+   commit actions have the same silence, while 41 of 43 toolbar tools do not.
+   ~~**REASON-GATE-1**~~ — **CLOSED 2026-09-04.** All seventeen say why, from one
+   computation (`canSubmitX` is DEFINED as `blocker === null`), and all seventeen
+   action rows moved into the pinned footer — a second unfinished rollout found
+   in the same files, and the one that made the sentence legible at 1280x800.
 8. **SNAP-4** (P2, S, frontend-builder) — an explicit Fix on a point the
    draw already grounded misreports OVER-CONSTRAINED.
 9. **REACH-2-FLOW-C** (P2, M, frontend-builder) — the feature tree has no
@@ -114,7 +130,7 @@ Ranked, disjoint, parallel-dispatchable:
 **Also ready, not yet dispatched:** QA-R3 (P2, touch — harness gap filed as
 PLAYWRIGHT-TOUCH-1), NAME-2b (P2), TITLEBLOCK-STAMP-1 (P2, XS),
 SKETCH-COVERAGE-1 (P2), STAGE-DOC-HUNKS-HEADING-1 (P2), SOLVE-CONFLICT-MOVED-1
-(P2, XS), SOLVE-OVERCONSTRAINED-AMBIGUOUS-1 (P2, S), REACH-2-FLOW-B (P2, S),
+(P2, XS), SOLVE-OVERCONSTRAINED-AMBIGUOUS-1 (P2, S),
 CHECKUIPARITY-FP-1 (P3), NUDGE-PLACEMENT-QUANTISE-1 (P3), SOLVER-DOC-1 (P3,
 XS), SHARD-MANIFEST-CI-1 (P3, new this pass) — see full tickets in place.
 
@@ -192,26 +208,37 @@ See Done archive.**
       [src: SOLVE-CRASH-1 agent report, kernel-architect, 2026-08-29, filed
       by backlog-groomer pass 19]
 
-- [ ] (P2, S) **ARC-BRANCH-1 — a solve picks the DEGENERATE branch of a
-      tangency that also has a real one, so a solvable sketch now reports
-      `conflicting`.** kind: defect (solver branch selection). Found and
-      recorded as a live limit by ARC-DEGENERATE-1 (2026-08-29), which
-      deliberately did NOT fix it: PBT-1 trial 1906 puts one arc's centre on
-      another arc's endpoint and makes the two tangent, which admits both
-      `r2 = 0` and `r2 = 2*r1`. From the author's own starting configuration
-      the solver lands on `r2 = 3.9e-14`; **4 of 8 starts with the arc pushed
-      7 mm away reach `r2 = 29.236` mm at a residual of exactly `0.0`.**
-      Before ARC-DEGENERATE-1 that sketch shipped a void under
-      `underconstrained`; after it, `conflicting`. Both are wrong — the
-      sketch is solvable — and the second is only the better of two wrong
-      answers. This is a change to how the solver CHOOSES a branch, which is
-      the same family as SETTLE-2's "a settle must refine the plain solve,
-      never jump branches", and it does not belong inside a payload gate.
-      ACCEPTANCE: the sketch pinned by
-      `test_the_branch_case_is_a_recorded_live_limit_not_a_forced_collapse`
-      solves to the non-degenerate branch deterministically (RESEARCH §9 —
-      same input, same branch, every time); that test is DELETED in the same
-      commit, as its own docstring requires; the PBT-1 census is re-reported.
+- [x] (P2, S) **ARC-BRANCH-1 — CLOSED (kernel-architect, 2026-09-04). A
+      collapse the constraints do not FORCE is a bad starting guess, not a
+      verdict, so the solver re-asks from a different one exactly once.**
+      Trial 1906 now ships `r1 = 14.618, r2 = 29.236` at a worst residual of
+      3.6e-15 mm — the author's own `e1` untouched, and the branch
+      ARC-DEGENERATE-1's live limit named; that test is DELETED here, as its
+      docstring required. **The SETTLE-2 tension is real and resolves cleanly:**
+      SETTLE-2 governs the settle's relationship to the plain solve it is
+      HANDED, and the guard still runs unchanged over whatever baseline it gets;
+      the restart runs one layer up and only where the plain solve produced NO
+      shippable answer (geometry `read_back` substitutes and the payload gate
+      refuses), so the choice is between an answer and no answer, never between
+      two answers. **The start pose is the author's own sketch with only the
+      collapsed entity relocated**, and the obvious alternative — restart from
+      the whole solved answer — was built first and is worse: it inherits the
+      first solve's unforced drag on `e1` and reverses the baseline SETTLE-2
+      judges against, so the settle's correct answer is discarded and it ships
+      `r1 = 10.029`. General finding: **SETTLE-2's guard rests on the premise
+      that the plain solve is a walk from the author's own values, and a restart
+      seeded from a solved answer is the one thing that breaks it.** Not
+      arc-only, and the generality found a second defect: of the **38** corpus
+      solves that annihilate an entity, **36 are forced** and 2 are not —
+      trial 1906 and trial **1593**, a CIRCLE in the same construction that
+      SOLVE-CRASH-1 had counted as forced. Census: solvable 1326 -> **1328**,
+      conflicting 314 -> **312**, underconstrained 1295 -> 1297; violated 0,
+      reversed 0, annihilated 0/0, raised 0, and no other trial's payload moved
+      by a bit. Determinism: two sweeps in one process, identical census and
+      2000 payloads bitwise identical. Mutants: disabling the restart reddens 3
+      of 5 new tests and restores the pre-fix census; the rejected pose reddens
+      2. Gates: `just lint` exit 0, `uv run pyright` clean, geometry suite
+      green.
       [src: ARC-DEGENERATE-1, kernel-architect, 2026-08-29]
       TERRITORY: `services/geometry/src/geometry/sketch/planegcs_solver.py`,
       `services/geometry/tests/test_sketch_degenerate_arc.py`. agentType:
@@ -674,27 +701,56 @@ existing payload gate rather than crashing. No new machinery, no contract
 change. Census: raised 12 -> 0, solvable 1327 -> 1328, conflicting 276 -> 287.
 See Done archive / ROADMAP for the full two-defects-one-crash argument.**
 
-- [ ] (P2, S) **CAMRESTORE-1 — leaving a sketch strands the camera in the
-      sketch's own view instead of returning you to the one you came from.**
-      kind: defect, flow. MEASURED 2026-08-29 while closing GHOST-1 (which is
-      how it was found; it is pre-existing and unrelated to that change): open
-      a part at the default iso framing, edit a sketch on XY, save. The camera
-      stays parked normal to the plane — the ViewCube reads TOP and the part
-      renders as a flat diamond. Numerically, whole-canvas BRIGHT goes 310289
-      -> 24675 across the round trip with `data-drawn-faces` 6 and
-      `data-ghost-faces` 0 at BOTH ends and unchanged after a further 2 s, so
-      nothing about what is DRAWN changed — only the framing. Fusion returns
-      you to the view you were in. Cost beyond the annoyance: it makes a
-      canvas census uncomparable across sketch entry/exit, so any spec
-      asserting on pixels around that boundary has to work around it (see the
-      note in `part-visibility.spec.ts`). FIX: remember the part camera on
-      sketch entry and ease back to it on exit, the way the fit/view-rail
-      commands already ease. ACCEPTANCE: the ViewCube orientation and the
-      camera pose after exiting a sketch match the pose before entering
-      (tolerance documented, not ad-hoc); an e2e case asserts it, and the
-      band census becomes comparable across the boundary.
-      TERRITORY: `apps/web/src/viewport` (SketchCameraRig / CameraRig /
-      viewCommands). agentType: frontend-builder.
+- [x] (P2, S) **CAMRESTORE-1 CLOSED (2026-09-04, frontend-builder) — leaving a
+      sketch gives the VIEW back, not just the camera.** The sketcher remembers
+      the pose it takes and requests it back through the same view-command seam
+      the rail and the reference cube use (a new `restore` kind carrying a
+      `ViewPose`), so the part rig performs it — one rig on the camera, an ease,
+      `prefers-reduced-motion` honoured. Measured with the direction read off
+      the live camera, not a brightness census (that census is exactly what this
+      defect broke): pre-fix the exit view was **78.05 deg** off the pre-entry
+      view (and read (0,-1,0) — straight down, the ticket's flat diamond),
+      **90.00 deg** from a named FRONT, and **78.04 deg** across the ticket's own
+      draw-and-save flow; post-fix all three are **<= 1 deg**. A deliberate
+      mid-sketch orbit is NOT overruled — the remembered pose is a default an
+      explicit action beats, the `905fcc4` rule — and mid-ease gestures do not
+      count, because the ease overwrites them. Orthographic zoom is carried, so
+      a parallel view returns at the same apparent size (5% band). 2 unit cases,
+      4 e2e cases, mutation-tested in both directions: no-restore reddens 3 of 4
+      and leaves the orbit case green; unconditional-restore reddens ONLY the
+      orbit case (27.25 deg of overruled turn). Screenshots:
+      `docs/screenshots/camrestore-sketch-exit-{before,after}-laptop.png`. Two
+      specs needed the wait they had been getting by accident stated out loud:
+      `part-visibility`'s ghost A/B (its second sketch entry now eases, where a
+      stranded camera used to make the park a no-op) and, separately,
+      `founder-picking`'s face-seat pick, which was RED at the tip for its own
+      reason — see the entry below.
+
+- [ ] (P1, XS) **TIPRED-1 — `qa-sketch-frame.spec.ts` "a FACE-SEATED sketch's
+      origin is selectable and grounds a profile to the face centroid" is RED at
+      the branch tip.** kind: defect (CI). Found while sweeping for CAMRESTORE-1
+      regressions and reproduced with `apps/web/src/viewport/**` reverted to the
+      tip, so it is not that change: after `parkThenClick` on a drawn corner the
+      selection readout never reaches "1 pt", i.e. the PICK does not land. 3 runs
+      of 3, and still red at `4d359dd`. The pick path was changed by the SEL-2
+      commits (`f4273d3`, `4009042`, `replacementPick`), which is the first place
+      to look. ACCEPTANCE: green, with the cause named rather than the assertion
+      loosened. agentType: frontend-builder.
+      NB the same sweep found `sheet-metal-hem-corner-relief.spec.ts` red on a
+      strict-mode collision with `4009042`'s new `data-disabled-reason` spans —
+      already fixed upstream by `b9a77c5` and re-verified green here, so it is
+      recorded rather than filed.
+
+- [ ] (P3, XS) **FLAKE-SEL4-DRILL-1 — `qa-sel4-verify.spec.ts` "a click on a
+      DIFFERENT face does not move the drill point" failed once inside a
+      24-case batch and passed 2 of 2 in isolation.** kind: flake. The fixture
+      is API-seeded and never enters the sketcher, so it is out of reach of both
+      2026-09-04 viewport changes; recorded so the next sighting has a prior
+      rather than starting a fresh hunt. It picks the FIRST raster-order lit
+      point that fails a hover probe, which is a silhouette-edge point by
+      construction — the same derivation that was making `founder-picking`'s
+      face-seat case red, so an interior-point filter is the likely fix.
+      agentType: qa-tester.
 
 - [ ] (P2, XS) **SOLVE-CONFLICT-MOVED-1 — a `conflicting` payload can ship
       geometry the solver MOVED, which the DTO promises it never does.** kind:
@@ -752,28 +808,80 @@ authors the shape (`buildHemParams` sends the user's choice, was hardcoded
 4.2 mm), not a 2xx. Fixes the `check-ui-parity.py` false-positive direction
 CHECKUIPARITY-FP-1 (below) also names. See Done archive.**
 
-- [ ] (P2, S) **HEM-1B — repairing a hem after an unrelated edit hits a
-      silent, unexplained disabled Save.** kind: defect (split from HEM-1,
-      groom pass 16 — the geometry half is elevated to P0; this half is a
-      papercut, not wrong geometry). MEASURED (`docs/AUDIT-PRODUCT.md` "Pass
-      2026-08-21 (second pass today)" S-26): after an unrelated edit
-      orphaned the hem, re-picking its face left `hem-submit`
-      `aria-disabled="true"` with an EMPTY `title` — no error text, no red
-      field, indistinguishable from a dead end. Root cause: the edit form
-      loads with "Override K-factor" CHECKED and its value EMPTY, an
-      override never authored at creation — a form-hydration bug.
-      Unchecking it enabled Save immediately. FIX: an unchecked override
-      must not load as checked-with-no-value; separately, a disabled
-      primary action must always state its reason (tooltip/inline text) —
-      apply this as the general rule the hem form violated. ACCEPTANCE:
-      re-opening an unmodified hem's editor loads Override K-factor
-      unchecked (matching creation) and Save is enabled; a genuinely
-      invalid form still disables Save WITH a stated reason (regression —
-      don't just remove the guard).
+- [x] (P2, S) **HEM-1B — CLOSED (frontend-builder, 2026-09-04). The gated Save
+      now says why, and "override checked with no value" is no longer a state a
+      click can reach.** The reported HYDRATION bug did not reproduce at HEAD
+      and the probe says why: the server stores `k_factor: null` for an
+      inherited K, and `formFromHemParams` already reads that as unchecked —
+      re-opening the orphaned hem gave `aria-checked="false"`, no K field, Save
+      ENABLED. What DOES reproduce, in two clicks, is the audit's screenshot:
+      ticking an override left the field blank, and blank is "pending" to every
+      field validator, so Save went `aria-disabled="true"` with `title: null`
+      and nothing on screen. Fixed at both ends — `hemSubmitBlocker` is now the
+      single source of the gate AND its sentence (`canSubmitHem` is defined as
+      "no blocker", cross-checked against `buildHemParams` over 66 form/pick/
+      anchor combinations), and ticking an override SEEDS the field from the
+      value it replaces. The action row also moved into `EditorCard`'s pinned
+      footer: at 1280x800 the reason's own centre hit-tested to
+      `feature-tree-section`, i.e. the explanation had fallen out of the card.
+      Survey filed as REASON-GATE-1 below (15 of 16 editor commit actions have
+      the same silence). Mutation evidence, gates and the before/after shots:
+      ROADMAP.
       [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21 (second pass today)"
       S-26, split from HEM-1 by backlog-groomer pass 16]
-      TERRITORY: hem edit form in `apps/web/src` (grep for the hem editor
-      component). agentType: frontend-builder.
+
+- [x] (P1, M) **REASON-GATE-1 — 15 of the 16 editor commit actions can go grey
+      with no reason on screen, which is HEM-1B repeated once per verb.** kind:
+      defect (generalised from HEM-1B's second half, measured 2026-09-04 while
+      closing it). `PanelActionCell` has carried a `disabledReason` prop since
+      UI-REVIEW 2026-07-30 — it takes the caption's line while gated and is
+      wired as the button's `aria-describedby` — and only `hole-submit` and
+      (now) `hem-submit` pass it. The other fifteen (`base-flange`, `chamfer`,
+      `combine`, `corner-relief`, `datum`, `draft`, `edge-flange`, `extrude`,
+      `fillet`, `loft`, `mirror`, `pattern`, `revolve`, `shell`, `sweep`) share
+      the exact `canSubmitX(form, …) && !saving` -> `disabled={!canSubmit}`
+      shape the hem had, so every "no pick / no body / empty override" state is
+      a silent dead end there too. The TOOLBAR tier is fine by contrast and is
+      the model to copy: 41 of 43 gated `ToolButton`s carry a gate-aware
+      `caption` ("Add a base flange first"), the two exceptions being
+      `add-instance` (no caption) and `sketch-discard-confirm` (a constant one).
+      FIX: give each editor a `*SubmitBlocker` in its feature module, define
+      `canSubmitX` as `blocker === null` so the two cannot drift, and pass it as
+      `disabledReason` — the shape `HemEditor` + `apps/web/src/features/
+      sheetMetal.ts` now demonstrate. Keep each string ≤48 chars: the footer
+      cell is half a card wide (~19 chars a line) and a 74-char sentence
+      measured five wrapped lines. ACCEPTANCE: a property test per editor —
+      across every way its form can be invalid, a gated submit carries readable
+      text AND that text is its accessible description; plus one e2e case
+      proving it at 1280x800 with `elementFromPoint`, because a footer that is
+      not pinned puts the sentence outside the card (measured on the hem).
+      TERRITORY: `apps/web/src/components/*Editor.tsx` +
+      `apps/web/src/features/*.ts`. agentType: frontend-builder.
+      **CLOSED 2026-09-04 (frontend-builder), and the acceptance grew one clause
+      the ticket did not ask for.** All fifteen have an `xSubmitBlocker` with
+      `canSubmitX` defined as `blocker === null`; `fieldBlocker` in the new
+      `apps/web/src/features/submitBlocker.ts` is the one shared piece (the
+      blank-vs-wrong pair, fifteen real uses) and `edgeSelectorBlocker` the
+      second (fillet + chamfer). Evidence in three layers: 84 unit cases
+      cross-checking every blocker against the PRE-change predicate restated
+      literally (asking `canSubmitX` would be the new code agreeing with
+      itself), with floors of 15 subjects / >=2 gated states each / >=50 gated
+      total; a per-editor DOM case for all SEVENTEEN with the count asserted;
+      and 10 editors measured in real pixels at 1280x800 with `elementFromPoint`
+      resolving to their own Save cell. THE CLAUSE THAT GREW: every one of the
+      fifteen action rows also had to move into `EditorCard`'s pinned `footer`.
+      That slot has existed since UI-REVIEW 2026-07-30 P1 and only hole + hem
+      used it, so a reason line — which makes each card taller — would have
+      shipped the defect in a longer form; `docs/screenshots/reason-gate-draft-
+      before-1280.png` shows the CREATE row half-clipped at the fold with
+      nothing said. Mutation evidence: deleting `disabledReason` from ONE editor
+      reddens exactly its own case and leaves sixteen green; un-pinning ONE
+      footer reddens only that case. The e2e suite caught a copy defect the unit
+      tests could not — the corner relief's first reason repeated its own
+      FIELD's inline error verbatim, so the same sentence rendered twice on one
+      card (a `getByText` resolved to two nodes); it now says "Choose a
+      different flange for bend B." 2271 web + 141 design unit tests, 109 e2e.
+      [src: HEM-1B survey, frontend-builder 2026-09-04]
 
 - [ ] (P2, M) **QA-R3 — on touch, four of REACH-1's five new verbs cannot be
       reached at all, because a tablet cannot select two entities.** The rail's
@@ -1047,28 +1155,27 @@ deliberately deferred, not forgotten — REACH-2-FLOW-B (viewport highlight
 should follow command scope, not just selection) and REACH-2-FLOW-C (tree
 select/edit split + band budget) below. See Done archive.**
 
-- [ ] (P2, S) **REACH-2-FLOW-B — a viewport face highlight that follows the
-      COMMAND's scope, not just the tree selection.** kind: enhancement.
-      DELIBERATELY DEFERRED from REACH-2-FLOW (b), not forgotten: SEL-8 was
-      live in `apps/web/src/viewport/**` while REACH-2-FLOW was built, so
-      that territory was foreign. WHAT ALREADY LANDS WITHOUT IT: keeping the
-      selection through the command (P1-3's fix) means `selectionActive`
-      stays true, and it deliberately does not gate on `editor === null`, so
-      the seed's faces DO stay tinted through the pattern/mirror editor —
-      measured in `reach2-flow-scoped-after.png`, no viewport file touched.
-      WHAT IS STILL MISSING, and it is the honest gap: that tint follows the
-      SELECTION, so on a plate with two identical bores it goes on saying
-      `Hole1` after the user flips the scope row to `This body`, and it says
-      nothing at all when the editor seeded from the TIP with no selection.
-      The tree and timeline already read `scopedFeatureIds` from
-      `useCommandActionStore` and get both cases right; the viewport should
-      read the same source. FIX: drive the face overlay from
-      `scopedFeatureIds` when it is non-empty, falling back to
-      `selectedFeatureId`. ACCEPTANCE: flipping the scope row to `This body`
-      clears the viewport tint in the same frame it clears the tree stamp; a
-      tip-seeded pattern tints its subject with nothing selected.
-      TERRITORY: `apps/web/src/viewport/**`, `apps/web/src/routes/
-      PartPage.tsx` (`selectedFaceIndices`). agentType: frontend-builder.
+- [x] (P2, S) **REACH-2-FLOW-B CLOSED (2026-09-04, frontend-builder) — the
+      viewport tint now answers the COMMAND's question, and the three surfaces
+      agree.** The tint read `selectedFeatureId`, so it went on saying `Hole1`
+      after the user flipped the scope row to `This body` and said nothing when
+      the editor seeded from the TIP with nothing selected. `viewport/
+      scopeHighlight.ts` is the one rule both cases read; `PartPage`'s
+      `selectedFaceIndices` filters the overlay by that set. THE FIX IS A THIRD
+      STATE, not a fallback on emptiness: `scopedFeatureIds` was
+      `readonly string[]` where `[]` meant BOTH "the whole body" and "nobody is
+      asking", which the tree and timeline can conflate (no fallback, same
+      absence) and the viewport cannot — it is now `readonly string[] | null`.
+      `This body` paints NOTHING, chosen: a highlight is a differencer, so a
+      full-body brass would hide the machined read, collide with the distinct
+      whole-body SELECT state, and carry as much information as none. Measured
+      in painted pixels (warmth census — the tint MULTIPLIES the matcap, so no
+      literal hex describes it), same camera either side of the flip: scoped
+      **384** warm px / `data-selected-faces` 1, `This body` **0** / 0, and
+      tip-seeded with nothing selected **473** / 1. Mutation-tested per half:
+      the pre-fix reading gives 384/1 on `This body` (the tint that would not
+      let go) and 0/0 tip-seeded (the tint that never arrived). Screenshots:
+      `docs/screenshots/reach2b-scope-{body,tip}-{before,after}-laptop.png`.
 
 - [ ] (P2, M) **REACH-2-FLOW-C — the feature tree has no gesture that
       selects WITHOUT entering a command, and the band is out of room at
@@ -1374,36 +1481,65 @@ bend radius. See Done archive for evidence/gates.**
       TERRITORY: `apps/web/src/assembly/evaluateRequest.ts` + its unit test.
       agentType: frontend-builder.
 
-- [ ] (P2, S) **STEPNAME-2 — a SINGLE-BODY STEP export still names build123d
-      as its author and still corrupts a non-ASCII part name.** kind: defect.
-      Measured by STEPNAME-1 (2026-08-29) on the emitted bytes: exporting a
-      part named "Flänsch 40°" produces `PRODUCT('FlÃ\x83Â¤nsch 40Ã\x82Â°')`
-      and `FILE_NAME(...,'build123d','Unknown')`. Same two defects the
-      assembly path just fixed, and NOT fixable the same way: the assembly
-      path drives `STEPCAFControl_Writer` itself, while
-      `export_step_bytes` goes through build123d's `export_step`, which
-      hardcodes `SetOriginatingSystem("build123d")` with no parameter and
-      builds its label from `shape.label` through the same defaulted
-      `ExtendedString` overload. Neither is reachable from a caller. Note the
-      part export is the MORE common one, so the user-visible split is the
-      wrong way round — it is P2 only because the fix is not small.
-      ACCEPTANCE: decide between (a) routing the single-body path through the
-      same owned writer as the assembly path (removes a duplicate writer;
-      needs `build123d.exporters3d._create_xde`, a private function, or our
-      own XDE build, and must be proved byte-equivalent for an ASCII name
-      before anything else changes), or (b) upstreaming a parameter to
-      build123d and pinning the version. Byte assertions mirroring
-      `test_step_names.py`, on both defects.
-      **STILL OPEN after STEPDET-1 (2026-08-29), and that was checked rather
-      than assumed:** STEPDET-1's fix did not bring this path under our own
-      writer, and it did not need to — `export_step_bytes` builds no XCAF
-      assembly, so OCCT interposes no extra level, emits no translator
-      PRODUCT, and two exports of the same multi-body part in one process are
-      already byte-identical (measured). The two NAMING defects above are
-      unchanged and this stays P2 on its own terms.
-      [src: STEPNAME-1, kernel-architect, 2026-08-29]
+- [x] (P2, S) **STEPNAME-2 — CLOSED (kernel-architect, 2026-09-04). Option (a):
+      the single-body export now writes through the SAME owned writer as the
+      assembly path, and unifying cost nothing a consumer can see.** The
+      defect, measured on the bytes for a part named "Flänsch 40°":
+      `PRODUCT('FlÃ\x83Â¤nsch 40Ã\x82Â°')` and
+      `FILE_NAME(...,'build123d','Unknown')` — the SAME two defects STEPNAME-1
+      fixed for the assembly, on the export a user reaches by downloading one
+      part, i.e. the common path was the broken one.
+      **THE DECISION, since this ticket was mostly a decision.** The worry that
+      made (a) a judgement call was that owning the writer would drag XCAF
+      assembly structure into a file with none, changing the emitted shape for
+      every user and moving every digest. **It does not** —
+      `_single_body_xde_document` rebuilds the document build123d's
+      `_create_xde` builds for a shape with no children (`makeAssembly=False`,
+      auto-naming ON) and the payload is BYTE-IDENTICAL to build123d's for a
+      named solid (15 348 B), an unnamed solid (15 335) and a multi-body
+      `Compound` named (29 169) / unnamed (29 193). The complete before/after
+      diff of the shipped fix is the originating-system field plus, for a
+      non-ASCII name, the `PRODUCT` id/name — nothing else. **No golden's
+      content hash moves**: the sheet-metal `content_hash` values are sha256 of
+      `FlatPattern.to_json_bytes()`, and nothing in the suite pins a digest over
+      single-body STEP bytes (checked, not assumed).
+      **Mutation evidence, four mutants, all restored:** encoding reverted ->
+      8 red (all and only the non-ASCII names x both `BodyShape` members; the
+      three ASCII-punctuation shapes stay green, as part 21 always handled
+      them); whole path back to `build123d.export_step` -> 10; the
+      "unnamed keeps OCCT's default" skip dropped -> 1; and the negative control
+      for the structural claim, `makeAssembly=True` -> 12, including the
+      byte-determinism gate, because turning a part into an assembly
+      reintroduces STEPDET-1's process-global counter. Only the MULTI-BODY cases
+      fail under that control — the same blind spot STEPDET-1 paid for.
+      Also: the export no longer mutates the caller's shape (it used to borrow
+      `shape.label`). Filed from the measurement: STEPHDR-1 (P3).
+      [src: STEPNAME-1, kernel-architect, 2026-08-29; closed 2026-09-04]
       TERRITORY: `services/geometry/src/geometry/kernel/export.py`
       (`export_step_bytes`). agentType: kernel-architect.
+
+- [ ] (P3, XS) **STEPHDR-1 — a non-ASCII document name reaches the part-21
+      HEADER as raw UTF-8 rather than the standard's `\X2\` escapes.** kind:
+      defect. `FILE_NAME`'s NAME field is set through
+      `TCollection_HAsciiString`, which is byte-transparent, so
+      `export_step_bytes(..., name="括号 A")` writes the raw UTF-8 bytes into a
+      header ISO-10303-21 defines over ISO-8859-1. Measured 2026-09-04
+      (STEPNAME-2): it round-trips byte-exactly under a UTF-8 decode, and every
+      reader we have tried is UTF-8-tolerant, but a strict reader would show
+      mojibake. **P3 for two reasons, both worth keeping in the record.** (a) It
+      is IDENTICAL in the part and assembly paths — `_write_step_document` is
+      the single call site — so this is not a re-creation of the part/assembly
+      split STEPNAME-2 closed, and fixing it fixes both at once. (b) The header
+      NAME is provenance metadata; the field a downstream tool actually keys on
+      is `PRODUCT`, which is correct in both paths as of STEPNAME-2. ACCEPTANCE:
+      encode the header name per part 21 (`\X2\<utf-16be hex>\X0\`) and assert
+      on the emitted bytes that a strict ISO-8859-1 read recovers the name, for
+      the same seven mangling shapes the two naming suites already share. Watch
+      the ASCII case stays byte-identical, or every existing digest moves for a
+      name that needed no escaping.
+      [src: STEPNAME-2, kernel-architect, 2026-09-04]
+      TERRITORY: `services/geometry/src/geometry/kernel/export.py`
+      (`_write_step_document`). agentType: kernel-architect.
 
 - [x] (P1, S) **STEPDET-1 — CLOSED (kernel-architect, 2026-08-29). The
       canonicalisation is one pattern and a shared helper; the fixture that
@@ -2266,15 +2402,6 @@ archive.**
       floor at 2.98:1 — 60 % measures 3.86:1); and the addressed face's traced
       boundary drew with no depth test, so a bore's far circle painted a bright
       ellipse across the outside of the plate.
-
-- [ ] (P1, S) **SEL-2 — a sketch pick never names what it's about to select**
-      (`apps/web`). `sketch/pick.ts` resolves a winning candidate silently;
-      extend the existing UI-W5 `SnapMarker` (glyph + word, already shipped
-      for drawing) to also render for `hoverPick` in select mode, with one new
-      "on-curve" glyph for the entity case (point cases reuse the endpoint/
-      centre glyphs already in `SNAP_MARKS`). No change to `toggleSelection`'s
-      click-cycle. Design + acceptance A3: `docs/design/pre-selection.md` §2,
-      §6. [src: founder]
 
 - [ ] (P1, M) **DRAG-1 — hovered-face normal arrow, doubling as the extrude/cut
       direction control** (`apps/web`, `packages/design`). A single brass
@@ -3710,6 +3837,22 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
 
 ## Done — archive
 
+### SEL-2 CLOSED — the select tool says what the click will take (2026-09-04, frontend-builder)
+
+- **SEL-2** (P1, founder-sourced) — A3 met literally: hovering a line with no
+  closer point shows the extended marker naming the entity kind, and the click
+  takes exactly the named candidate. One `CursorMark` now serves drawing and
+  selecting; four of six pick glyphs ARE the snap glyphs, one is new
+  (`SnapOnCurveIcon`). Found and fixed in passing: `hoverPick` read
+  `candidates[0]` while a plain click takes the CYCLE step, so the word — and
+  the pre-existing highlight — would have named a pick the second click does
+  not make; `replacementPick` states that rule once for both. `toggleSelection`
+  and the click-cycle are untouched. 11 unit + 6 e2e cases at 1280x800 asserting
+  the INK (`innerText` + a measured in-frame box); mutation legs redden 5 of 6
+  both when the mount is removed AND when only the visible word is hidden with
+  every `data-` attribute intact. Shots:
+  `docs/screenshots/sel2-pick-marker-{before,after}-*-1280.png`.
+
 ### Groom pass 19 closures (2026-08-29, backlog-groomer — CI-4's original question answered, K2 + PBT-1 land)
 
 All verified against `git show`/source, not assumed from commit subjects.
@@ -4953,6 +5096,12 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
       engineering-audit debt items closed. [src: engineering-auditor]
 
 ## Changelog
+
+- 2026-09-04 — **ARC-BRANCH-1 closed (kernel-architect):** an annihilated entity
+  is a bad starting guess, not a verdict — one restart from the author's pose
+  with the collapsed entity relocated. Census solvable 1326 -> 1328,
+  conflicting 314 -> 312; 36 of 38 collapses still forced. Found a second
+  branch case on a CIRCLE (trial 1593). ARC-DEGENERATE-1's live limit deleted.
 
 - 2026-08-29 — **GHOST-1 evidence pass (frontend-builder):** added the
   multi-body case the scope decision was made for (a NEIGHBOUR occludes the

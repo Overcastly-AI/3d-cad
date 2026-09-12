@@ -219,6 +219,12 @@ async function drag(
 
 /** Seed a 20 mm cube part, open it and wait for the solid to render. */
 async function openCubePart(page: Page): Promise<string> {
+  // The scene probe, so any case here can wait on the CAMERA rather than on a
+  // frame count. It is an `addInitScript` hook on three.js Scene construction —
+  // it draws nothing and changes nothing — so installing it for every case
+  // costs nothing and stops the next case that needs a camera reading from
+  // having to restructure its fixture.
+  await installSceneProbe(page);
   const { token } = await seedSession(page);
   const part = await createPartViaApi(page, token, "Bracket");
   await seedCube(page, token, part.id);
@@ -446,6 +452,18 @@ test.describe("UI-W2 part half — the browser controls what is drawn", () => {
     // only way to compare pixels at all inside the sketcher (see the note
     // above). The instrument is the specular peak, not the BRIGHT band: see
     // `peakLitPixels` for why the bands cannot see this frame.
+    //
+    // WAIT FOR THE CAMERA FIRST, and the wait is STATED rather than inherited
+    // (CAMRESTORE-1). This A/B needs one fixed camera across two samples, and
+    // it used to get that for free: leaving a sketch stranded the camera in the
+    // plane-normal park, so re-entering had nothing to move and `settled`'s
+    // four frames were plenty. Exiting now returns the view the modeller came
+    // from, so this second entry eases into the park like the first one does,
+    // and a four-frame settle samples mid-ease — measured, ghosted read 266
+    // against a 131 ceiling, which reads as a broken ghost and is a moving
+    // camera. Nothing about the ghost changed. An accidental settle is a latent
+    // flake whether or not anyone has tripped it.
+    await waitForCameraRest(page, { epsilonDeg: 0.3, timeoutMs: 40_000 });
     const ghosted = await settled(page, () => peakLitPixels(page));
     await clickForReal(page, "body-opacity-solid");
     await expect(viewport).toHaveAttribute("data-ghost-faces", "0");

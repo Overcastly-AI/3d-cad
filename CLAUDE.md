@@ -886,6 +886,23 @@ recipe here in the same commit as the fix.**
   which is the signature to detect on if a creation hook ever becomes available:
   a HEAD that is not an ancestor of the branch. Until then the brief line is
   still the whole control.
+  **MECHANISM FOUND 2026-08-29, and it makes the SHA in this entry a moving
+  target — do not memorise it.** A container restart landed mid-turn and the
+  session's own checkout came back at `03d2eca` with the local branch ref stale,
+  while the remote was 70 commits ahead. **The container's default clone is
+  seeded at the last merge into `main`, and worktrees inherit that starting
+  point** — which is why every one of the nine arrived at the same commit rather
+  than at a random old one. It was never bad luck or a harness bug; it is the
+  clone's origin showing through. Two consequences. (a) **The specific SHA will
+  change every time `main` advances** — this entry named `3b0b29e`, then
+  `03d2eca`, and `main` is now `d4552e3`, so a brief that greps for a literal
+  commit will stop working the next time we merge. State the rule as "reset to
+  `origin/<branch>` first", never as "watch for commit X". (b) The same restart
+  leaves the ORCHESTRATOR's checkout stale in exactly the same way, and its
+  local branch ref can point at a commit the remote passed long ago — so after
+  any restart, `git fetch && git reset --hard origin/<branch>` before reading or
+  reasoning about anything, and check `git ls-remote` rather than the local ref
+  when you need to know where the branch actually is.
   **AND THE "AUDIT IT AFTER A BATCH" ADVICE THIS ENTRY ORIGINALLY GAVE DOES NOT
   WORK — measured 2026-08-27, do not retry it.** A behind-count over every
   worktree returned 47 "STALE" rows and not one was the fault: a worktree seeded
@@ -980,6 +997,21 @@ recipe here in the same commit as the fix.**
   proves a USER can do something, assert with the user's own mechanism — a real
   `page.mouse.click` at the control's centre, or `elementFromPoint` resolving to
   the control — never a proxy that skips the step you are claiming works.
+  **AND A UNIT ASSERTION CANNOT SEE WHAT ELSE IS ON THE SURFACE — a string can
+  satisfy every property you check about it and still be wrong because something
+  ELSE already says it.** Measured 2026-08-29 on REASON-GATE-1. The corner
+  relief's new blocker read `"Pick two different edge flanges."`, which is
+  verbatim the opening of that card's own inline field error — so the card
+  rendered the same sentence twice and a `getByText` resolved to two nodes.
+  Every unit assertion passed: non-empty, ≤48 characters, names the fix. They
+  had to, because **a unit test holds the string in isolation and isolation is
+  exactly the property that was violated.** Only the real browser could see it.
+  The general form: when a check validates a part, ask what the part is
+  ADJACENT to in the assembled thing, and put at least one assertion where the
+  adjacency exists. This is the same shape as the golden-suite blind spot (a
+  fixture that never reaches the path) and the downstream negative control (a
+  probe injected past the guard) — a correct check pointed somewhere the defect
+  is not.
 - **`git stash` IS NOT ISOLATED BY A WORKTREE — THE STASH LIST IS SHARED, AND
   POPPING HANDS YOU WHOEVER STASHED LAST.** Found 2026-08-28 by the hover-to-
   sketch agent, which caused the incident and recovered it. Worktrees give every
