@@ -58,6 +58,60 @@ OWN branches. These briefs told them to push straight to the shared branch, so
 the amend window never existed. Fixed in the loop itself rather than by
 rewriting pushed history — see `.claude/workflows/loft-frontend-redesign-loop.js`.
 
+**W0REV CLOSED (frontend-builder, 2026-09-12) — the two W0 fixes were each
+correct and wrong together, and only a code review could see it.** An
+independent review of `2a90a92` + `501331b` returned request-changes on a
+defect neither builder could have found: FLOW-A1 broadened its window keydown
+listener to the whole sketch session, FLOW-A2 added a modal exit prompt, and the
+listener's only target guard is `isTypingTarget` — `INPUT | TEXTAREA | SELECT |
+contentEditable` — so **a `<button>` is not a typing target** and Enter on the
+prompt's focused rung ran `preventDefault(); apply()` on the draw dimension
+instead of firing the button. `Ctrl+Z` leaked the same way and undid *in the
+sketch behind the modal*.
+
+It was reachable by the fix's own happy path, and visible in the frame committed
+as proof the feature worked: `flow-a2-exit-prompt-desktop.png` shows the armed
+strip reading "Type a size · Tab switches · Enter applies" behind the open
+dialog. Both existing test layers were structurally blind — the unit test
+asserts the opposite contract but renders the prompt in ISOLATION (this repo's
+"a unit assertion cannot see what else is on the surface" trap, verbatim), and
+the e2e clicks the rungs rather than pressing Enter.
+
+Fixed in `da98622` with `lib/modalGate.ts`: ONE capture-phase `keydown`/`keypress`
+listener on `window`, installed at MODULE EVALUATION so it precedes every
+component effect — which is what puts it ahead of `FeatureTreePanel`'s existing
+`capture: true` listener, a place `stopPropagation()` in the panel could never
+have reached. It calls `stopImmediatePropagation()` and deliberately does NOT
+`preventDefault()`, so the focused rung's click still fires; `keyup` is
+deliberately unshielded, because eating a release would leave the sketcher
+believing Shift is held.
+
+Consultation is automatic rather than remembered — a listener cannot receive the
+event at all — so the thing that can still break is the SHIELD, and that is what
+the alarm watches: every `openModalLayer` dispatches a synthetic keydown with
+probes at window-capture, document-capture and window-bubble, and any probe that
+fires means the shield is no longer first. **The alarm has been heard**: a test
+uninstalls the shield and asserts the throw, on the reasoning that an unfired
+probe is a gate that would report health forever, including after someone
+deleted it.
+
+Also closed: focus escaping the dialog the instant a save started (`disabled` on
+the focused rung blurs it to `body`, taking Escape and the Tab trap with it —
+now `aria-disabled`, with the emitted utility verified by compiling the real
+preset rather than assumed, because a Tailwind class that does not exist is
+silent); and drafts surviving sign-out, purged by prefix on both `signOut` and
+`expire` rather than user-keyed, because that deletes the bytes instead of
+merely hiding them, with `clearAllSketchDrafts` returning `-1` for a
+non-enumerable store so "I could not look" never reads as "nothing was there".
+
+Worth recording for the loop rather than the product: **the builder threw away
+one of its own fixtures because it could not have reddened** — a unit assertion
+on `activeElement` after `disabled` passed under mutation, since jsdom does not
+move focus when an element is disabled. It now asserts the mechanism in jsdom
+and measures the focus in Chromium.
+
+Gates: `just lint` 0; 2330 unit tests; both e2e specs 6/6 on the real stack.
+
 **CAMRESTORE-1 CLOSED (frontend-builder, 2026-09-04) — leaving a sketch gives
 the VIEW back, not just the camera.** The sketcher parked the modeller normal-on
 to the plane and left them there, so entering a sketch to add one dimension cost
