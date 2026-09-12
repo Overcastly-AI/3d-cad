@@ -134,6 +134,7 @@ import { AdaptiveGrid } from "./AdaptiveGrid";
 import { bluingRadiusMm, bluingWash } from "./bluingWash";
 import { ConstraintGlyphs } from "./ConstraintGlyphs";
 import { sketchIsDrawn, usePartViewStore } from "./partView";
+import { SolveProposalAnchor } from "./SolveProposalAnchor";
 
 /**
  * DEPTH POLICY OF THE SKETCHER (founder defect, 2026-08-01: *"I had an
@@ -2360,6 +2361,11 @@ export function SketchScene({ solved, facePicking = false }: SketchSceneProps) {
         </group>
       ) : null}
       <SketchCameraRig />
+      {/* No geometry of its own: it projects the solved profile the HUD's
+          proposal note is asking about, because the camera lives in here and
+          the note is DOM out there (FLOW-B1). `solved`, not `drawn` — the
+          offer is about a sketch that exists, not about ink that is shown. */}
+      <SolveProposalAnchor layers={solved} />
     </group>
   );
 }

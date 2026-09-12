@@ -334,7 +334,7 @@ import {
 } from "../components/HistoryErrorAlert";
 import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { FacePickOverlay } from "../viewport/FacePickOverlay";
-import { SketchProposal } from "../viewport/SketchProposal";
+import { ProposalNote } from "../viewport/ProposalNote";
 import { pickRefusal } from "../viewport/pickTargets";
 import { highlightedFeatureIds } from "../viewport/scopeHighlight";
 import { useSketchStore } from "../sketch/store";
@@ -2364,26 +2364,49 @@ export function PartPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mode, editor, hasBody]);
 
-  const openCreateExtrude = useCallback(() => {
-    const features = tree.data?.features ?? [];
-    const profiles = profileOptions(features);
-    const profileId = defaultProfileId(features);
-    if (profileId === "") return;
-    useMeasureStore.getState().deactivate();
-    setEditorError(null);
-    setSelectedFeatureId(null);
-    setEditor({
-      kind: "extrude",
-      mode: "create",
-      // The seat of the seeded profile decides the direction default: a sketch
-      // on a model face cuts INTO the material, a datum plane has no material
-      // side to infer one from (FB-4).
-      initial: defaultExtrudeForm(
-        profileId,
-        optionProvenance(profiles, profileId),
-      ),
-    });
-  }, [tree.data]);
+  /**
+   * Open the Extrude editor, seeded on `seedProfileId` when one is named and on
+   * the tree's default profile otherwise.
+   *
+   * ONE opener with an optional noun, rather than a second path for the
+   * viewport's proposal: everything downstream — the provenance that decides
+   * the direction default (FB-4), the form, the drag handle — must be identical
+   * however the command was started, and two constructions of the same editor
+   * would drift silently rather than fail (FLOW-B1).
+   *
+   * The `typeof` guard is load-bearing, not defensive noise: this same callback
+   * is handed to the band's Extrude button as an `onClick`, so React calls it
+   * with a `MouseEvent` as its first argument. Anything that is not a profile
+   * id means "no seed".
+   */
+  const openCreateExtrude = useCallback(
+    (seedProfileId?: string) => {
+      const features = tree.data?.features ?? [];
+      const profiles = profileOptions(features);
+      const seeded =
+        typeof seedProfileId === "string" &&
+        profiles.some((option) => option.id === seedProfileId)
+          ? seedProfileId
+          : "";
+      const profileId = seeded !== "" ? seeded : defaultProfileId(features);
+      if (profileId === "") return;
+      useMeasureStore.getState().deactivate();
+      setEditorError(null);
+      setSelectedFeatureId(null);
+      setEditor({
+        kind: "extrude",
+        mode: "create",
+        // The seat of the seeded profile decides the direction default: a sketch
+        // on a model face cuts INTO the material, a datum plane has no material
+        // side to infer one from (FB-4).
+        initial: defaultExtrudeForm(
+          profileId,
+          optionProvenance(profiles, profileId),
+        ),
+      });
+    },
+    [tree.data],
+  );
 
   const openCreateRevolve = useCallback(() => {
     const featureList = tree.data?.features ?? [];
@@ -4102,6 +4125,24 @@ export function PartPage() {
     [handleNewSketch, authorFacePlane],
   );
 
+  /**
+   * Accept the viewport's EXTRUDE proposal (FLOW-B1) — the offer a sketch's own
+   * solve writes on its profile.
+   *
+   * Deliberately the same call the band's Extrude button makes, with the noun
+   * the chip named. The chip promises "the Extrude command on THIS sketch", so
+   * the editor opens with that profile already in `extrude-profile`, the
+   * distance focused and the drag handle live — the user re-picks nothing. It
+   * does NOT commit: one more Enter does, which is the same accept vocabulary
+   * one step further on.
+   */
+  const acceptExtrudeProposal = useCallback(
+    (profileFeatureId: string) => {
+      openCreateExtrude(profileFeatureId);
+    },
+    [openCreateExtrude],
+  );
+
   // Datum-editor face picking. Arming a slot highlights the body's planar faces
   // in the viewport (the shared FacePickOverlay); a click resolves to a
   // full-precision signature the editor folds into that slot. The anchor is the
@@ -5023,13 +5064,24 @@ export function PartPage() {
                   <SketchDro solving={syncPending || evaluation.isFetching} />
                   <SolveDiagnostic />
                   <MeasureReadout />
-                  {/* Rest on a face with nothing armed and the viewport offers
-                    the sketch that face affords (FLOW-1). It proposes; the
-                    click or Enter disposes. */}
-                  <SketchProposal
+                  {/* THE ONE PROPOSAL NOTE. Rest on a face with nothing armed
+                    and it offers the sketch that face affords (FLOW-1); solve a
+                    sketch and it offers the extrude that profile affords
+                    (FLOW-B1). It proposes; the click, the letter or Enter
+                    disposes — and at most one note is ever on screen, with the
+                    pointer-addressed one winning. */}
+                  <ProposalNote
                     enabled={proposalContext}
                     face={proposedFace}
                     onAccept={acceptSketchProposal}
+                    // NOT `proposalContext`: that one also demands a body, and
+                    // the first sketch on an empty part is exactly the moment
+                    // this offer exists for.
+                    extrudeEnabled={
+                      mode === "off" && editor === null && !measureActive
+                    }
+                    profiles={sketchProfiles}
+                    onAcceptExtrude={acceptExtrudeProposal}
                   />
                   {/* Inert DOM signal that the live extrude ghost is on screen
                     (the ghost itself is WebGL) — a raster-independent hook QA

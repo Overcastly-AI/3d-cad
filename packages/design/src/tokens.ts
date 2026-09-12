@@ -923,8 +923,17 @@ export const proposal = {
    * Chip width. FIXED rather than content-sized, because `placeProposal` has to
    * know it BEFORE layout to choose which side of the anchor the chip goes on —
    * a measured width would arrive a frame late, which is to say after the flash.
+   *
+   * 120, not 112, since W2: the chip now prints verbs other than `SKETCH`.
+   * MEASURED IN THE RUNNING APP at 112 with `EXTRUDE` in it — the longest verb
+   * the note carries — the row came to exactly 110 px of 110 px available, and
+   * a flex row with no slack does not overflow, it SHRINKS ITS ITEMS: the verb
+   * glyph rendered 11.5 px instead of the 13 it was asked for. Nothing about
+   * that looks broken in a screenshot, which is why it is a number here and an
+   * assertion in `solve-proposal.spec.ts` rather than a matter of taste. 120
+   * leaves 8 px of slack and every item renders at its own size.
    */
-  chipWidth: 112,
+  chipWidth: 120,
   /** Chip height — the dense target floor, met by SIZE (see `target`). */
   chipHeight: target.dense,
   /**
