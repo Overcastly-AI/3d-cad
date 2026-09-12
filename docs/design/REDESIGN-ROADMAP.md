@@ -35,9 +35,32 @@ Re-checked so far, on `f00fbe9` itself:
 
 | Finding | Status on the dev tip | How it was checked |
 |---|---|---|
-| **F-1** first keystroke lost | **mechanism intact** | `window.addEventListener("keydown", …)` is still inside a `useEffect`; the two commits touching `SketchScene.tsx` add only pointer listeners for SEL-2, nothing in the arming or draw-dimension path. **NOT re-measured there** — reproducing the race on `f00fbe9` is the first task of its builder, not a claim this file makes. |
+| **F-1** first keystroke lost | **REPRODUCED, and the audit's MECHANISM was wrong** — see below | Re-measured by its builder on the merged tree: 0/30/60/**120** ms all lose the keystrokes, a WIDER band than the audit's (it had 120 ms surviving), because the audit timed from the pointer RELEASE while `placeAt` fires on the PRESS. FIXED in `2a90a92`. |
 | **F-2** exits destroy an unsaved sketch | **CONFIRMED** | No navigation guard of any kind exists: `beforeunload`, `onbeforeunload`, `useBlocker`, `unstable_useBlocker`, `usePrompt`, `useNavigationBlocker` → **0 files**, against a positive control of `useNavigate` → 5 files. |
 | **F-4** the five most-used verbs have no key | **CONFIRMED** | `PART_CREATE_SHORTCUTS` on the dev tip binds P/S/L/H/D/O/I — Pattern, Sweep, Loft, Shell, Draft, Hole, Mirror. Sketch, Extrude, Revolve, Fillet and Chamfer are absent. |
+**WHAT F-1 SETTLED ABOUT THE AUDITS THEMSELVES, which is worth more than the fix.**
+The audit said the cells "render `data-state="armed"` and say *Type a size*
+**immediately**, but the window keydown listener attaches in a React effect that
+has not committed yet." The symptom was exactly right and the mechanism was not.
+An in-page probe at the moment the keys land:
+
+```
+pointerdown (shape placed, store draft set)      t+0.0 ms
+keydown "1"  — cell in DOM: NO, state: "live"    t+26.7 ms
+React commits the armed strip, listener attaches t+101.7 ms
+```
+
+The cells are **not in the DOM at all** — the strip is still showing its
+read-only `live` readout. That kills the audit's own first proposal (focus the
+width cell in the commit that places the shape: there is no such commit), and it
+would have cost a builder a wave to discover if the brief had handed the
+mechanism over as fact rather than as a claim to re-measure.
+
+So the calibration for the rest of this table: **these audits are reliable about
+WHAT IS BROKEN and are evidence, not fact, about WHY.** Every remaining row keeps
+its "reproduce first" instruction for that reason, and a builder who finds a
+different cause should say so loudly rather than fitting the fix to the ticket.
+
 | F-3, F-5, F-6, F-7..F-11 | **unverified on the dev tip** | Each builder's first step is to reproduce on current code. A finding that has silently been fixed is a wave item that must be dropped, not built. |
 
 ---
@@ -116,7 +139,7 @@ wrong model"* rule outright.
 
 | id | title | subtree | proven by |
 |---|---|---|---|
-| **FLOW-A1** | The first keystroke after a draw always lands — focus the width cell in the same commit that places the shape, or buffer and replay. The cells must not advertise readiness they do not have. | `apps/web/src/viewport/**` | Place a rectangle and press a digit with **zero** intervening round trips; `draw-dimension-width` reads that digit. The builder must first reproduce the 0 ms failure on the dev tip and quote it. |
+| **FLOW-A1** ✅ **LANDED `2a90a92`** | The first keystroke after a draw always lands. The window listener no longer depends on a RENDER — it reads the draft live from the store, which `placeAt` sets synchronously in the pointer handler — and keys arriving before the cells exist are buffered and replayed in the cells' REF CALLBACK (not a layout effect: drei's `<Html>` portals them in a commit of its own). | `apps/web/src/viewport/**` | `draw-dimension-arming.spec.ts`, 6 cases queued on ONE CDP socket with no await between press and keys. Mutation: all six red (`toHaveValue("100")` received `""` ×4, the strip never closed), restored 6 green. |
 | **FLOW-A2** | An unsaved sketch survives Back, the breadcrumb and reload — a guard, plus a per-part draft | `apps/web/src/routes/**` | e2e: draw 4 entities, navigate away by each of the three exits, return, and the entities are still there (or an explicit prompt was shown and honoured). |
 
 ### W1 — the scene looks like CAD *(viewport only, runs alongside W0)*
@@ -235,5 +258,12 @@ worse than no roadmap:
 
 ## Changelog
 
+- **2026-09-12** — W0 opened. FLOW-A1 landed (`2a90a92`); its finding that the
+  audit's mechanism was wrong is recorded above and re-calibrates how the rest
+  of the table should be read. FLOW-A2 in flight. CRAFT-6 split after reading
+  the code's own justification. A follow-up is owed: FLOW-A1's builder flagged a
+  THIRD address in the same dropped-keystroke family — `dimension-editor`'s cell
+  is also inside a commit that trails the click which opens it — unmeasured, and
+  in `routes/` territory so it could not check while a sibling held it.
 - **2026-09-11** — created. Reconciles the flow and craft audits of the same
   day. No wave has run yet; every row is a proposal, not a commitment.
