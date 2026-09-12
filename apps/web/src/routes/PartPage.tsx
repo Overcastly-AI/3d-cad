@@ -344,7 +344,14 @@ import {
   PART_CREATE_SHORTCUTS,
 } from "../shortcuts/registry";
 import { partRoute } from "../router";
-import { useNavigate } from "@tanstack/react-router";
+import { useBlocker, useNavigate } from "@tanstack/react-router";
+import { LeaveSketchPrompt } from "./LeaveSketchPrompt";
+import {
+  clearSketchDraft,
+  draftAge,
+  readSketchDraft,
+  writeSketchDraft,
+} from "./sketchDraft";
 import {
   createDrawing,
   createSheet,
@@ -525,6 +532,11 @@ export function PartPage() {
   // unsaved-exit confirm would vanish on an action the user never read as
   // constraining anything. See `SketchState.userConstrained`.
   const userConstrained = useSketchStore((state) => state.userConstrained);
+  // Counts, not the arrays: FLOW-A2's draft mirror and its exit prompt both
+  // need to re-run when the buffer CHANGES SIZE, and selecting the arrays
+  // themselves would re-render this page on every solved-position adoption.
+  const entityCount = useSketchStore((state) => state.entities.length);
+  const constraintCount = useSketchStore((state) => state.constraints.length);
   const begin = useSketchStore((state) => state.begin);
   const setTool = useSketchStore((state) => state.setTool);
   const toggleSnap = useSketchStore((state) => state.toggleSnap);
@@ -897,6 +909,223 @@ export function PartPage() {
     }
     persistBuffer(true);
   }, [persistBuffer]);
+
+  // ---------------------------------------------------------------------
+  // FLOW-A2 — THE THREE ORDINARY EXITS, AND THE DRAFT BEHIND THEM.
+  //
+  // AUDIT-FLOW-2026-09 A2: Back, the breadcrumb and a reload each destroyed a
+  // four-entity, nine-constraint sketch with no prompt and no recovery. There
+  // was no navigation guard of any kind in the app.
+  //
+  // Two halves, and they are not interchangeable. The GUARD (`useBlocker` —
+  // the router's own primitive, so in-app pushes and the popstate of the Back
+  // button go through one code path, and `enableBeforeUnload` covers the
+  // reload the router cannot see) stops the silent exit. The DRAFT
+  // (`sketchDraft.ts`) is what lets the guard say something other than a
+  // threat: a tab that dies unasked still gets its entities back, so the
+  // prompt explains the difference between work that is IN THE PART and work
+  // that is only in this browser.
+  //
+  // Why the unsaved test is `featureId === null || revision > lastSynced` and
+  // not "are there entities": a BOUND sketch debounce-saves every edit, so its
+  // work is already in the part between keystrokes and prompting on the way
+  // out would be a lie. An UNBOUND one has never been written anywhere.
+  // ---------------------------------------------------------------------
+  /**
+   * Read at EVENT time by the blocker, not at registration time — the router
+   * registers the blocker once and calls it later, so the flag has to be a ref.
+   * The one effect below owns both it and the stored bytes, so a guard that
+   * fires and a draft that exists can never disagree about whether there is
+   * unsaved work.
+   */
+  const unsavedSketchRef = useRef(false);
+  /**
+   * Is the browser actually holding the draft? `writeSketchDraft` reports it
+   * rather than swallowing it, because the middle rung of the exit prompt
+   * PROMISES the entities come back — and a promise storage quietly declined to
+   * keep (quota, private mode) would be a new ambiguous exit inside the fix for
+   * ambiguous exits. When this is false the prompt says so instead.
+   */
+  const [draftHeld, setDraftHeld] = useState(true);
+  const [restoredDraft, setRestoredDraft] = useState<{
+    entities: number;
+    savedAt: number;
+  } | null>(null);
+  const [leaveSaving, setLeaveSaving] = useState(false);
+
+  /**
+   * Which part this page last looked for a draft under. Not a boolean: it has
+   * to detect the route swapping parts beneath one mounted page, and it is what
+   * lets the mirror below know the restore has already had its look.
+   *
+   * NOTE it deliberately does NOT gate the restore itself. StrictMode mounts,
+   * tears down and re-mounts every effect in dev, and the workspace's own
+   * `exit()`-on-unmount cleanup fires in that teardown — so a restore that
+   * refused to run twice restored the buffer, watched it be wiped, and then
+   * declined to put it back. Measured: the "Draft restored" note appeared over
+   * an empty part, which is the worst of both answers.
+   */
+  const restoreCheckedFor = useRef<string | null>(null);
+
+  /**
+   * RESTORE ON RE-ENTRY, AND IT MUST RUN BEFORE THE MIRROR BELOW. A draft only
+   * exists while there is work outside the part, so finding one means the last
+   * session ended without saving — by Back, by the breadcrumb, or by the tab
+   * dying.
+   *
+   * The ordering is not a style choice and it is stated twice on purpose (here,
+   * and as the `restoreCheckedFor` gate the mirror reads). On mount the store
+   * is at `mode: "off"`, which the mirror correctly reads as "nothing to keep"
+   * — so a mirror that ran first would DELETE the very draft this effect is
+   * about to load, every single time. Measured: with the two effects the other
+   * way round, all three exits prompted correctly and not one of them ever
+   * restored anything.
+   *
+   * `setState` rather than an action because the store has no verb for this:
+   * `beginEdit` re-opens a sketch that is already a FEATURE (it demands an id),
+   * and the case that hurts is the buffer that never became one. Writing the
+   * fields directly is also the correct history behaviour — a restore is a
+   * session STARTING, not an edit, so it must not become an undo step.
+   *
+   * Every transient field (tool, selection, hint, solve readouts, the undo
+   * stacks) is already at its initial value here: reaching the write requires
+   * `mode === "off"`, which the store is only ever in via `INITIAL` or
+   * `freshSession`. So the payload is all that needs writing.
+   */
+  useEffect(() => {
+    // Swapping parts under one mounted page: whatever is in the store belongs
+    // to the part being left, and mirroring it under THIS part's key would file
+    // one part's geometry under another part's name.
+    const switching =
+      restoreCheckedFor.current !== null &&
+      restoreCheckedFor.current !== partId;
+    if (switching && useSketchStore.getState().mode !== "off") {
+      useSketchStore.getState().exit();
+    }
+    restoreCheckedFor.current = partId;
+    setRestoredDraft(null);
+    const draft = readSketchDraft(partId);
+    if (draft === null) return;
+    if (useSketchStore.getState().mode !== "off") return;
+    useSketchStore.setState({
+      mode: "draw",
+      plane: draft.plane,
+      entities: draft.entities,
+      constraints: draft.constraints,
+      featureId: draft.featureId,
+      nextIdIndex: draft.nextIdIndex,
+      revision: draft.revision,
+      userConstrained: draft.userConstrained,
+    });
+    setRestoredDraft({
+      entities: draft.entities.length,
+      savedAt: draft.savedAt,
+    });
+  }, [partId]);
+
+  /**
+   * THE MIRROR — the live buffer, kept on disk while it is not in the part.
+   * Runs AFTER the restore above; see there for why that is load-bearing.
+   */
+  useEffect(() => {
+    // Never clear a draft the restore has not had its chance to read. The hook
+    // order already guarantees this; the gate says so out loud, so a later
+    // reshuffle of these effects fails loudly rather than silently eating
+    // everybody's in-progress sketches.
+    if (restoreCheckedFor.current !== partId) return;
+    const state = useSketchStore.getState();
+    const plane = state.plane;
+    const unsaved =
+      state.mode === "draw" &&
+      plane !== null &&
+      state.entities.length > 0 &&
+      (state.featureId === null || state.revision > lastSynced.current);
+    unsavedSketchRef.current = unsaved;
+    if (!unsaved || plane === null) {
+      // Nothing to keep: either the buffer is in the part now (saved) or the
+      // user threw it away (the strip's discard). Both are deliberate ends to
+      // the session, so the draft goes with them.
+      //
+      // THE UNMOUNT DISCARD CANNOT REACH HERE, which is the whole reason this
+      // is an effect and not a store subscription: leaving the workspace fires
+      // `exit()` from a cleanup, and an effect of an unmounting component does
+      // not run again. A subscription would see that `exit()`, read it as a
+      // discard, and delete the draft at exactly the moment it is needed.
+      clearSketchDraft(partId);
+      setDraftHeld(true);
+      return;
+    }
+    const held = writeSketchDraft(partId, {
+      plane,
+      entities: [...state.entities],
+      constraints: [...state.constraints],
+      featureId: state.featureId,
+      nextIdIndex: state.nextIdIndex,
+      revision: state.revision,
+      userConstrained: state.userConstrained,
+    });
+    setDraftHeld(held);
+  }, [
+    partId,
+    mode,
+    revision,
+    featureId,
+    entityCount,
+    constraintCount,
+    // Not read directly — it is the render that a completed save produces, and
+    // therefore the only reactive signal that `lastSynced` has moved.
+    syncPending,
+  ]);
+
+  /** Stable by construction — the router registers the blocker exactly once. */
+  const shouldBlockLeave = useCallback(() => unsavedSketchRef.current, []);
+  const leaveGuard = useBlocker({
+    shouldBlockFn: shouldBlockLeave,
+    enableBeforeUnload: shouldBlockLeave,
+    withResolver: true,
+  });
+
+  /**
+   * Where the blocked navigation was heading, in the user's words. The Back
+   * button is the exit people press without knowing where it goes, so the
+   * prompt says — an unnamed destination is half of what makes an exit
+   * ambiguous.
+   */
+  const leaveDestination = useMemo(() => {
+    const path = leaveGuard.next?.pathname ?? "";
+    if (path === "/") return "Parts";
+    if (path.startsWith("/assemblies")) return "Assemblies";
+    if (path.startsWith("/drawings")) return "Drawings";
+    if (path.startsWith("/settings")) return "Settings";
+    if (path.startsWith("/parts/")) return "another part";
+    return "the page you asked for";
+  }, [leaveGuard.next]);
+
+  /**
+   * The top rung: put the work in the part, then go. The save is the existing
+   * exit-after-persist chain, so this cannot drift from what the strip's Save
+   * does; the completion is watched below rather than awaited, because
+   * `persistBuffer` owns its own serialized chain.
+   */
+  const saveAndLeave = useCallback(() => {
+    setSyncError(null);
+    setLeaveSaving(true);
+    persistBuffer(true);
+  }, [persistBuffer]);
+
+  useEffect(() => {
+    if (!leaveSaving) return;
+    if (syncError !== null) {
+      // No dead end: the prompt stays up wearing the reason, and the other two
+      // rungs still work — the draft has the entities either way.
+      setLeaveSaving(false);
+      return;
+    }
+    if (mode === "off" && leaveGuard.status === "blocked") {
+      setLeaveSaving(false);
+      leaveGuard.proceed();
+    }
+  }, [leaveSaving, mode, syncError, leaveGuard]);
 
   // The live loop: debounce-save every edit once constraints exist or the
   // sketch is bound. Plain entity drawing before the first save stays local
@@ -5331,6 +5560,46 @@ export function PartPage() {
                 onConfirm={() => deleteFeatureAction(deleteIntent.feature)}
               />
             ) : null}
+            {/* FLOW-A2 — the sketch came back. Silently re-opening the
+                sketcher on a buffer the user last saw before a reload would be
+                an app state that cannot be explained from the screen, so it
+                says what happened, how much came back, and from when. Quiet by
+                design: the exit ticket is where the boldness is spent.
+
+                SEAT: the bottom-centre HUD lane (`bottom-hud-lane`), the same
+                one `NavCue` and the measure readout use. It is FREE here —
+                `viewNav={mode === "off"}` keeps the view rail and the cue out
+                of sketch mode, and this note only ever appears in sketch mode.
+                Its first draft sat at `bottom-3 left-3` and covered the
+                sketcher's own DRO, which is chrome occluding chrome. */}
+            {restoredDraft !== null ? (
+              <div
+                role="status"
+                data-testid="sketch-draft-restored"
+                className="absolute bottom-hud-lane left-1/2 z-hud flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-3 border border-hairline bg-anvil/90 px-3 py-1.5 shadow-float backdrop-blur-sm"
+              >
+                <span className="shrink-0 font-display text-2xs uppercase tracking-[0.16em] text-brass">
+                  Draft restored
+                </span>
+                <span aria-hidden className="h-3 w-px shrink-0 bg-hairline" />
+                <span className="min-w-0 font-body text-2xs text-gauge">
+                  <span className="font-data text-mist">
+                    {restoredDraft.entities}
+                  </span>{" "}
+                  {restoredDraft.entities === 1 ? "entity" : "entities"} from{" "}
+                  {draftAge(restoredDraft.savedAt)}, kept in this browser — Save
+                  sketch puts them in the part.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setRestoredDraft(null)}
+                  data-testid="sketch-draft-restored-dismiss"
+                  className="shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-gauge outline-none hover:text-brass focus-visible:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ) : null}
             {/* Tree-action failure (rename/delete) — honest, dismissible chrome. */}
             {treeActionError !== null ? (
               <div
@@ -5395,6 +5664,25 @@ export function PartPage() {
           data-testid="tree-context-menu"
           sections={buildTreeSections(treeMenu.feature)}
           onClose={() => setTreeMenu(null)}
+        />
+      ) : null}
+      {/* FLOW-A2 — the exit ticket. Rendered only while the router is actually
+          holding a navigation, so it cannot appear for any other reason.
+          No belt-and-braces draft write here: the SAME effect that raised
+          `unsavedSketchRef` wrote the draft, so a blocked navigation already
+          implies the bytes on disk are current. */}
+      {leaveGuard.status === "blocked" ? (
+        <LeaveSketchPrompt
+          partName={part.data?.name ?? "this part"}
+          destination={leaveDestination}
+          entityCount={entityCount}
+          constraintCount={constraintCount}
+          draftHeld={draftHeld}
+          saving={leaveSaving}
+          error={syncError}
+          onSaveAndLeave={saveAndLeave}
+          onLeave={leaveGuard.proceed}
+          onStay={leaveGuard.reset}
         />
       ) : null}
     </DocumentUnitProvider>
