@@ -414,7 +414,22 @@ DECIDE, concretely enough that a builder cannot reasonably diverge:
   4. **What proposes the next step.** For each item, what makes the affordance
      appear at the moment it is useful. "The user opens a menu and finds it" is
      a FAILING answer.
-  5. **What must NOT change.** Name the muscle memory this wave is forbidden to
+  5. **THE FILE EVERY ITEM NEEDS AND NO ITEM OWNS.** Find it before the builders
+     do. A redesign wave lands on several surfaces that are wired together
+     somewhere — a page component, a router, a layout — and that seam belongs to
+     no subtree, so the territory rule tells EVERY builder to stop and report
+     rather than reach across. Three builders each correctly refusing to proceed
+     is a deadlocked wave, and the failure looks like three well-behaved agents.
+     So: name the file, allocate it BY EXACT LINE ANCHOR per item, and say which
+     item commits FIRST so the others build against a landed seam rather than a
+     promised one. If two items genuinely need the same hunk, they are one item
+     and you should say so.
+     Watch for the other half of that shape too — a CONTRACT SPLIT ACROSS TWO
+     BUILDERS where each half is inert alone and the pair is silently wrong if
+     either is missed. Write it into both briefs in the same words, and say what
+     the broken state looks like, because "looks almost right" is what makes it
+     survive review.
+  6. **What must NOT change.** Name the muscle memory this wave is forbidden to
      break: existing hotkeys, the meaning of Esc and Enter, the position of
      anything a user's hand already goes to without looking. A redesign that
      costs an existing user their reflexes has lost more than it won.
