@@ -58,6 +58,63 @@ OWN branches. These briefs told them to push straight to the shared branch, so
 the amend window never existed. Fixed in the loop itself rather than by
 rewriting pushed history — see `.claude/workflows/loft-frontend-redesign-loop.js`.
 
+**W2 CLOSED (frontend-redesign wave 2, 2026-09-12) — the tool proposes, and it
+proposes in one voice.** The largest measured item in the frontend audit: 8 of
+the 15 hunts recorded across three modelled parts were ONE transition, a solved
+sketch proposing nothing, so the hand left for a toolbar verb the app already
+knew it wanted.
+
+**FLOW-B2** (`d5e936a`) — `K E R F C` for Sketch, Extrude, Revolve, Fillet,
+Chamfer. The registry bound P/S/L/H/D/O/I — Pattern, Sweep, Loft, Shell, Draft,
+Hole, Mirror — and gave no key to the five a hand reaches for, an exact
+inversion. No existing letter moved; the apparent sketch-mode clashes are not
+clashes, because the create handler bails unless `mode === "off"`.
+
+**FLOW-B1** (`78aaa67`) — the solve itself writes `EXTRUDE ⟨E⟩` on the profile.
+It subscribes to the store's TRANSITIONS rather than to a render, and that is
+load-bearing: `persistBuffer` calls `bind(id)` then `exit()` as two `set`s in one
+promise callback, which React batches into a single render where the bound id is
+ALREADY GONE — so an effect on `mode` can see the exit and can never name the
+sketch that closed.
+
+**FLOW-B3** (`fb63809`, escalated in `6097448`) — one accented next-verb after a
+build, deliberately non-divinatory: six same-verb repeats plus first-body →
+Fillet, and everything else proposes nothing, gated by name.
+
+**THE PHASE THAT PAID FOR ITSELF IS DIRECTION.** Its first finding was that the
+idiom ALREADY EXISTS in three deliberately distinct vocabularies — brass + leader
++ Kbd is an offer you can take now; mist without a leader names what is under the
+pointer; a band cell with an eyebrow is a held state. So W2 extends the first and
+invents nothing. Three builders deciding independently would each have produced a
+fourth, which is the templated result this wave exists to prevent. The voice test:
+`SKETCH ⟨K⟩` on a face beside `EXTRUDE ⟨E⟩` on a profile — same object, same
+leader, same type, different verb.
+
+Direction also caught two things that would have cost a wave each: a contract
+split across two builders where each half is inert alone (the chip binds in the
+CAPTURE phase with `preventDefault()`, so the opener must begin
+`if (event.defaultPrevented) return;` — miss either and `E` opens Extrude WITHOUT
+the profile, which looks almost right), and `PartPage.tsx` (5,690 lines) being the
+integration point for all three items while belonging to no subtree, which would
+have had all three builders correctly stop and report.
+
+**Three mutation survivors, all reported rather than buried, and two fixed.**
+B3's `items-start` — a class its own comment called the density pass's biggest
+win — moved the height by ZERO; dropped, comment rewritten. B1's chip-width
+assertion imported the SAME token the component uses, so both sides moved
+together and 112 compared happily against 112: the `gen-check`-measuring-the-
+wrong-input trap in miniature. Re-derived as the question that actually matters —
+does the word fit — and measured: at 112 the row is 110 px of 110 available, and
+a flex row with no slack does not overflow, it SHRINKS, taking the verb glyph to
+11.5 px of the 13 it asked for. B1's third survivor (M5b, a `??` ordering) is
+structurally unobservable and was left, with the reason stated.
+
+Verified by the orchestrator on a quiet machine (load 0.26) independently of all
+three reports: **69 e2e cases green** across every W0 and W2 spec plus
+`hover-sketch`, `toolbar-overflow`, `nav-chrome`, `full-flow`, `sketcher` and
+`constraints` — the cross-item sweep, which is where W0's blocking defect lived
+and which I had skipped that wave.
+
 **W0REV CLOSED (frontend-builder, 2026-09-12) — the two W0 fixes were each
 correct and wrong together, and only a code review could see it.** An
 independent review of `2a90a92` + `501331b` returned request-changes on a
