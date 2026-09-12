@@ -75,6 +75,11 @@ import {
   SKETCH_CAMERA_DISTANCE_MM,
   SKETCH_CAMERA_FOV_DEG,
 } from "../sketch/origin";
+import {
+  bufferDrawKey,
+  bufferedText,
+  type DrawKeyBuffer,
+} from "./drawDimensionKeys";
 import { useViewCommandStore, type ViewPose } from "./viewCommands";
 import {
   DATUM_LABELS,
@@ -1156,6 +1161,8 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
   const unit = useDocumentLengthUnit();
   const invalidate = useThree((state) => state.invalidate);
   const inputs = useRef(new Map<DrawDimensionKey, HTMLInputElement>());
+  /** Keys typed before the cells existed, waiting for a commit to land in. */
+  const buffered = useRef<DrawKeyBuffer | null>(null);
 
   const state: TagState | null = useMemo(() => {
     if (draft !== null) {
@@ -1177,7 +1184,6 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
   }, [draft, tool, pending, cursor]);
 
   const armed = state?.armed === true;
-  const firstKey = state?.fields[0]?.key;
   // One identity per drawn shape: it re-keys the cells, so a new rectangle
   // never inherits the numbers typed into the last one.
   const draftKey = draft === null ? "live" : draft.ids.join(",");
@@ -1205,34 +1211,122 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
     invalidate();
   }, [commit, readValues, invalidate]);
 
-  // Type anywhere to start dimensioning: the first digit lands in the first
-  // cell. Enter with nothing typed accepts the shape as drawn and closes.
+  /**
+   * Type anywhere to start dimensioning: the first digit lands in the first
+   * cell. Enter with nothing typed accepts the shape as drawn and closes.
+   *
+   * FLOW-A1 — THIS LISTENER IS ATTACHED FOR THE WHOLE SKETCH SESSION, NOT ONLY
+   * WHILE `armed`, and that is the fix, not a tidy-up. It used to depend on
+   * `armed`, which is a RENDER: the store's draft is set synchronously inside
+   * the pointer handler, but React's commit lands ~75 ms later and the effect
+   * after it. A user who types in that window is typing at a listener that does
+   * not exist yet, so the characters go to the canvas and vanish — measured, a
+   * plate drawn at 80 x 40 and dimensioned "100 Tab 50 Enter" in the same
+   * instant stayed 80 x 40, with the strip reading `armed` and saying *"Type a
+   * size"* the entire time. Gating on `drawDimension` read LIVE from the store
+   * removes the race rather than shortening it: the truth the handler consults
+   * is set in the same turn as the click that placed the shape.
+   */
   useEffect(() => {
-    if (!armed || firstKey === undefined) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (isTypingTarget(event.target)) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      // The STORE, not the render: `placeAt` set this before the pointer
+      // handler returned, whether or not React has caught up.
+      const live = useSketchStore.getState().drawDimension;
+      if (live === null) {
+        buffered.current = null;
+        return;
+      }
+      const firstLiveKey = live.fields[0]?.key;
+      if (firstLiveKey === undefined) return;
+      const cell = inputs.current.get(firstLiveKey);
+      if (cell === undefined) {
+        // THE CELLS ARE NOT IN THE DOM YET. Hold the keys against this draft
+        // and replay them in the commit that creates the cells; `preventDefault`
+        // so a buffered Tab cannot walk browser focus somewhere else first.
+        const outcome = bufferDrawKey(buffered.current, event.key, {
+          draftId: live.ids.join(","),
+          fieldCount: live.fields.length,
+          shiftKey: event.shiftKey,
+        });
+        if (outcome.kind === "ignored") return;
+        event.preventDefault();
+        buffered.current = outcome.buffer;
+        return;
+      }
       if (event.key === "Enter") {
         event.preventDefault();
         apply();
         return;
       }
       if (!STARTS_A_VALUE.test(event.key) && event.key !== "Tab") return;
-      const input = inputs.current.get(firstKey);
-      if (input === undefined) return;
       // Focus DURING keydown and let the BROWSER deliver the character to the
       // newly-focused cell. Inserting it by hand (preventDefault + setState)
       // is what loses it — see the note on `readValues`.
       if (event.key === "Tab") event.preventDefault();
-      input.focus();
+      cell.focus();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [armed, firstKey, apply]);
+  }, [apply]);
 
   if (state === null) return null;
 
   const { from, to, fields } = state;
+
+  /**
+   * Register a cell's node and, if keys were typed before it existed, put them
+   * in (FLOW-A1).
+   *
+   * THE REPLAY LIVES IN THE REF CALLBACK, NOT IN AN EFFECT, and that is
+   * measured rather than stylistic. These cells are inside drei's `<Html>`,
+   * which portals its children into a DOM container it mounts in a commit of
+   * its OWN — so this component's `useLayoutEffect` runs while the inputs do
+   * not exist yet. Traced: at the layout effect of the arming commit,
+   * `armed: true`, the buffer held `["100", ""]` and the ref map was `[]`; a
+   * ref registration schedules no render, so the effect never ran again and the
+   * replay wrote into nothing. React calls a ref the instant the node is
+   * attached, which is the earliest moment there is anything to write to and
+   * the only one that cannot be early.
+   *
+   * Writing `node.value` directly is the same decision as everywhere else here:
+   * the DOM owns the text (see {@link readValues}), so this is the ordinary way
+   * to put a value in, not a reach around React.
+   */
+  const registerCell = (
+    key: DrawDimensionKey,
+    index: number,
+    node: HTMLInputElement | null,
+  ) => {
+    if (node === null) {
+      inputs.current.delete(key);
+      return;
+    }
+    inputs.current.set(key, node);
+    const pending = buffered.current;
+    if (pending === null) return;
+    if (pending.draftId !== draftKey) {
+      // Typing that belongs to a shape that is no longer on screen. Drop it —
+      // replaying it here would put the last rectangle's width on this one.
+      buffered.current = null;
+      return;
+    }
+    const text = bufferedText(pending, index);
+    if (text !== "") node.value = text;
+    if (index === pending.index) {
+      node.focus();
+      // Caret at the end: the user is mid-number, and a selected value would
+      // make their next digit REPLACE what they have already typed.
+      node.setSelectionRange(node.value.length, node.value.length);
+    }
+    // Hold the buffer until every cell has had its turn — the fields register
+    // one at a time, and consuming it on the first would lose the second.
+    if (inputs.current.size < fields.length) return;
+    buffered.current = null;
+    if (pending.apply) apply();
+    invalidate();
+  };
   const onKeyDown = (
     event: ReactKeyboardEvent<HTMLInputElement>,
     index: number,
@@ -1289,10 +1383,9 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
                   placeholder={sizeText(field.measuredMm, unit)}
                   aria-label={`${field.name} in ${lengthUnitLabel(unit)}`}
                   data-testid={`draw-dimension-${field.key}`}
-                  ref={(node: HTMLInputElement | null) => {
-                    if (node === null) inputs.current.delete(field.key);
-                    else inputs.current.set(field.key, node);
-                  }}
+                  ref={(node: HTMLInputElement | null) =>
+                    registerCell(field.key, index, node)
+                  }
                   onFocus={() => focusCell(field.key)}
                   onBlur={() => focusCell(null)}
                   onKeyDown={(event) => onKeyDown(event, index)}
