@@ -4461,9 +4461,14 @@ export function PartPage() {
     }
   }, [mode]);
 
-  // Create/Modify accelerators (mode off): P patterns the current body (needs a
-  // body); S sweeps a profile along a path (needs two solved sketches) — the
-  // same guard grammar as the Measure M accelerator.
+  // Create/Modify accelerators (mode off). Every verb the band names with a
+  // `new-<id>` button and a letter is here, each gated on the same condition
+  // that button uses — the same guard grammar as the Measure M accelerator.
+  //
+  // The letters are read from `PART_CREATE_SHORTCUTS`, never written here: this
+  // table maps a key to its OPENER, the registry decides what the key IS. A
+  // letter typed into this file would be a second source for the binding and
+  // would drift from the reference that teaches it.
   //
   // These are LOCKED behind an open editor exactly like the pointer band is: an
   // open command owns the picks, and firing another opener would `setEditor(...)`
@@ -4472,13 +4477,35 @@ export function PartPage() {
   useEffect(() => {
     if (mode !== "off" || editor !== null) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      // A proposal note on screen has FIRST claim on the letter it prints
+      // (FLOW-B2, W2 direction §3.5). The note binds the same letters on
+      // `window` in the CAPTURE phase and calls `preventDefault()`; this
+      // listener is a bubble-phase one on the same target, so capture has
+      // already run by the time we are here and `defaultPrevented` is the
+      // signal that the note consumed the key.
+      //
+      // Without this line pressing `E` while the extrude offer is showing runs
+      // BOTH handlers: the note's accept (extrude seeded with the offered
+      // profile) and then this opener's generic `openCreateExtrude`, which
+      // `setEditor(...)`s over the top with the DEFAULT profile. The editor is
+      // open either way and looks right — the profile is merely the wrong one,
+      // which is the silent-wrong-result class rather than a visible break.
+      if (event.defaultPrevented) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
       // The keys come from `shortcuts/registry` — the SAME table the key card
       // prints (UI-REVIEW F4), so a re-keyed verb cannot leave the reference
       // teaching a letter nothing listens for.
       const key = event.key.toLowerCase();
+      // Each row's `enabled` is the condition the band's own button uses for
+      // the same verb, so the keyboard and the pointer can never disagree about
+      // whether a verb is available.
       const openers: Record<string, { open: () => void; enabled: boolean }> = {
+        k: { open: startSketch, enabled: true },
+        e: { open: openCreateExtrude, enabled: hasSolvedSketch },
+        r: { open: openCreateRevolve, enabled: hasSolvedSketch },
+        f: { open: openCreateFillet, enabled: hasBody },
+        c: { open: openCreateChamfer, enabled: hasBody },
         p: { open: openCreatePattern, enabled: hasBody },
         s: { open: openCreateSweep, enabled: canSweep },
         l: { open: openCreateLoft, enabled: canLoft },
@@ -4501,8 +4528,14 @@ export function PartPage() {
     mode,
     editor,
     hasBody,
+    hasSolvedSketch,
     canSweep,
     canLoft,
+    startSketch,
+    openCreateExtrude,
+    openCreateRevolve,
+    openCreateFillet,
+    openCreateChamfer,
     openCreatePattern,
     openCreateSweep,
     openCreateLoft,
