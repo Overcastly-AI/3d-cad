@@ -15,6 +15,49 @@ headroom claim below is corrected against a real CI-runner measurement, not
 the local box it was first computed on. Pass 16/17/18 detail is in
 `docs/CHANGELOG.md`.
 
+**W0 CLOSED (frontend-redesign wave 0, 2026-09-12) — the sketcher stops eating
+the user's work, on two separate paths.** Both items are P0s from
+`docs/design/AUDIT-FLOW-2026-09.md`, and both are the shape this repo calls
+worst: the product says it is ready, takes the input, discards it, shows success.
+
+**FLOW-A1** (`2a90a92`) — a size typed in the first frames after drawing was
+thrown away, and the part then came out the wrong size with a green UI (the
+audit drew a plate and got 80x50x20 for 100x50x20). The audit's stated mechanism
+was WRONG and the builder re-measured it: the cells are not "armed but
+unlistened", they are **not in the DOM at all** (probe: pointerdown t+0.0 ms,
+keydown t+26.7 ms with the cell absent and the strip still showing its read-only
+`live` readout, React commits at t+101.7 ms). So no fix that runs in a React
+render or effect can be in the path — which rules out the audit's own first
+proposal. The window listener now reads the draft LIVE from the store, which
+`placeAt` sets synchronously in the pointer handler, and keys arriving early are
+buffered and replayed in the cells' REF CALLBACK — not a layout effect, because
+drei's `<Html>` portals them in a commit of its own. Failure band re-measured
+WIDER than reported: 0/30/60/**120** ms all lost the keystrokes.
+
+**FLOW-A2** (`501331b`) — Back, the in-app breadcrumb and reload each destroyed
+an unsaved sketch with no prompt and no recovery; no navigation guard of ANY
+kind existed (measured: `beforeunload`, `useBlocker` and four siblings, 0 files,
+against a `useNavigate` positive control at 5). All three now route through
+TanStack Router's own `useBlocker`, plus a per-part `localStorage` draft so the
+answer to "you have unsaved work" is not merely a scarier dialog. The exit
+surface is a LADDER, one rung per exit with its consequence beside the verb —
+an OK/Cancel over an ambiguous question would have been FB-13 rebuilt inside
+the fix for FB-13.
+
+Verified by the orchestrator independently of both reports: the two new gates
+10/10 green against the real native stack, plus a 37-case regression slice over
+`full-flow`, `sketcher`, `sketch-drag-draw`, `sketch-dimension-typing`,
+`constraints` and `sketch-datum-flow`, all green on a quiet machine (load 0.91).
+Mutation evidence on both, quoted in the commits.
+
+**Both commits are doc-tick VIOLATIONS and this entry is the late tick.** The
+cause is a gap between two rules that are each correct: the orchestrator
+protocol says builders commit code only and the tick is folded in at
+integration via `cherry-pick` + `--amend`, which presumes builders land on their
+OWN branches. These briefs told them to push straight to the shared branch, so
+the amend window never existed. Fixed in the loop itself rather than by
+rewriting pushed history — see `.claude/workflows/loft-frontend-redesign-loop.js`.
+
 **CAMRESTORE-1 CLOSED (frontend-builder, 2026-09-04) — leaving a sketch gives
 the VIEW back, not just the camera.** The sketcher parked the modeller normal-on
 to the plane and left them there, so entering a sketch to add one dimension cost

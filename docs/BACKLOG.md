@@ -9,6 +9,23 @@ queue)** only.
 Format: `- [ ] (P1, M) title — description [src]` · P0 critical / P1 now /
 P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
+## Frontend redesign — wave log (orchestrator, not the groomer's queue)
+
+The redesign loop (`.claude/workflows/loft-frontend-redesign-loop.js`) works
+from `docs/design/REDESIGN-ROADMAP.md`, not from the Ready queue. This section
+is the landing record only, so the board is not silent about shipped work.
+
+- [x] (P0, M) **FLOW-A1** — a size typed in the first frames after a draw is no
+      longer discarded; the part no longer comes out silently wrong `2a90a92`
+      [docs/design/AUDIT-FLOW-2026-09.md]
+- [x] (P0, L) **FLOW-A2** — Back, the breadcrumb and reload can no longer eat an
+      unsaved sketch; guard + per-part draft `501331b`
+      [docs/design/AUDIT-FLOW-2026-09.md]
+- [ ] (P2, S) **DIMEDIT-KEYS-1** — the THIRD address of the dropped-keystroke
+      family: `dimension-editor`'s cell is also inside a commit that trails the
+      click opening it. Unmeasured — FLOW-A1 could not check it, `routes/` was
+      held by a sibling [FLOW-A1 builder report, 2026-09-12]
+
 ## Scorecard gaps (docs/VISION.md daily-driver scorecard)
 
 See VISION.md's table for current row text — the vision-steward re-scores it
