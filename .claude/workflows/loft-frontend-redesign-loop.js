@@ -254,6 +254,16 @@ ENVIRONMENT, each line having cost a whole agent run:
 * You CANNOT read CI — api.github.com is denied to subagents. Push and stop; the
   orchestrator reads the run and relays failures back.
 * Do NOT touch docs/ROADMAP.md or docs/BACKLOG.md — the groomer owns the board.
+  **But you MUST end your commit message with the line \`Doc-tick: groomer\`.**
+  This is not ceremony: CI runs a DOCTICK gate that fails any commit landing
+  product code with neither a board tick nor that trailer, and it has no
+  \`continue-on-error\`. Wave 0 shipped two P0 fixes that were both red on it,
+  because the brief told builders to skip the board AND to push straight to the
+  shared branch — and the orchestrator protocol's answer (fold the tick in at
+  integration with \`cherry-pick\` + \`--amend\`) presumes builders land on their
+  OWN branches, so the amend window never existed. The trailer is the gate's own
+  sanctioned hatch, it needs no doc edit, and two parallel builders cannot
+  collide on it.
 `
 
 // --- Cost -------------------------------------------------------------------
