@@ -137,6 +137,7 @@ import { BodiesPanel } from "../components/BodiesPanel";
 import { ChamferEditor } from "../components/ChamferEditor";
 import { CombineEditor } from "../components/CombineEditor";
 import { CreateStrip } from "../components/CreateStrip";
+import { nextStepFor } from "../components/nextStep";
 import {
   ChromeRail,
   ChromeRailProvider,
@@ -4957,6 +4958,12 @@ export function PartPage() {
               exportPartial={partExport.gate.partial}
               exportPartialQualifier={partExport.gate.qualifier ?? undefined}
               exportState={partExport.gate.state}
+              // FLOW-B3: what to propose now that a feature has landed. Derived
+              // from the tree, not from an event — the tree already says which
+              // feature built last, and an event would need somewhere to live
+              // and something to clear it. The table (and the much longer list
+              // of verbs that propose NOTHING) is `components/nextStep.ts`.
+              nextStep={nextStepFor(tree.data?.features ?? [])}
             />
           ) : (
             <SketchStrip

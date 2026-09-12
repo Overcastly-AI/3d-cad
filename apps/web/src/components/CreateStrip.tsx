@@ -20,13 +20,18 @@ import {
   ToolGroup,
   VerbGlyph,
 } from "@loft/design";
-import { useRef } from "react";
+import type { VerbGlyphProps } from "@loft/design";
+import type { ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { ExportedFile, ExportFormat } from "../api/exportPart";
 import { useCommandActionStore } from "../features/commandActions";
 import { verbHint, verbLabel } from "../features/patternScope";
+import { partVerbKey } from "../shortcuts/registry";
 import { ExportToolGroup } from "./ExportToolGroup";
 import { HistoryGroup } from "./HistoryGroup";
+import type { NextStepProposal, NextStepTool } from "./nextStep";
+import { NextStepDot } from "./NextStepDot";
 
 /**
  * Which groups keep their words when the band runs out of room (higher holds
@@ -247,6 +252,66 @@ export interface CreateStripProps {
   exportPartialQualifier?: string;
   /** QA hook: the export gate state name the workspace derived. */
   exportState?: string;
+  /**
+   * FLOW-B3 — what the band proposes now that a feature has landed, or null.
+   *
+   * Derived by `nextStepFor(tree.features)` in the workspace and passed in, so
+   * the band draws a decision it does not make: the TABLE (which verb follows
+   * which, and the much longer list of verbs that propose nothing) is a pure
+   * module with its own unit tests, and this component only knows how a
+   * proposal looks. Two further conditions are applied HERE, because only the
+   * band knows them — the proposed tool must be usable, and the user must not
+   * have already answered.
+   */
+  nextStep?: NextStepProposal | null;
+}
+
+/**
+ * The proposal the band is actually drawing — {@link CreateStripProps.nextStep}
+ * minus the ones the user has already answered.
+ *
+ * WRITTEN ONCE PER BUILD, NEVER RE-ARMED FOR THE SAME FEATURE. The accent has
+ * no dismiss control by design: it occupies no space and blocks nothing, so an
+ * `×` would cost more room than the mark it removes. Two gestures retire it,
+ * and both are things the user was already doing:
+ *
+ *  - opening ANY command — the user has just said what they are doing next, so
+ *    a dot still insisting on something else is a nag;
+ *  - `Esc` — the product's one universal "not that" key, which otherwise would
+ *    be the only visible thing on screen it did not dismiss.
+ *
+ * The dismissal keys on the FEATURE ID rather than on the tool, so closing the
+ * editor re-opens nothing, and the next build arms a fresh dot with no reset.
+ */
+function useNextStepAccent(
+  proposal: NextStepProposal | null,
+  locked: boolean,
+): NextStepProposal | null {
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  // The live proposal, readable from a listener that must NOT re-subscribe on
+  // every tree change: a keydown handler that unregisters and re-registers as
+  // state moves is how a listener ends up absent at the moment it is needed.
+  const live = useRef<string | null>(null);
+  live.current = proposal?.featureId ?? null;
+
+  useEffect(() => {
+    // Only what was live at the instant the lock closed. Deliberately NOT keyed
+    // on the proposal too: a feature lands WHILE its command is still open, so
+    // a wider dependency would dismiss the new proposal with the old command.
+    if (locked && live.current !== null) setDismissed(live.current);
+  }, [locked]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (live.current !== null) setDismissed(live.current);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  if (proposal === null || proposal.featureId === dismissed) return null;
+  return proposal;
 }
 
 export function CreateStrip({
@@ -305,6 +370,7 @@ export function CreateStrip({
   exportPartial = false,
   exportPartialQualifier,
   exportState,
+  nextStep = null,
 }: CreateStripProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
   const importReady =
@@ -367,6 +433,69 @@ export function CreateStrip({
     if (gate !== undefined || scopeSubject === null) return gate;
     return `Repeats ${scopeSubject}, not the whole body`;
   };
+
+  /**
+   * FLOW-B3 — the accent, after the two conditions only the band can check.
+   *
+   * `canModify` is the honest one and it is not belt-and-braces: it is the
+   * workspace's "a built body exists". Every MODIFY row is already gated on it
+   * through its own `ready` flag, but `extrude`/`revolve` are gated on a SOLVED
+   * SKETCH, so an extrude that failed to build would otherwise leave the band
+   * cheerfully proposing another one on a part that has no body. A proposal
+   * after a build that produced nothing is the class of lie this whole idiom
+   * dies of, so it is checked once, here, for every row.
+   */
+  const accent = useNextStepAccent(canModify ? nextStep : null, locked);
+
+  /**
+   * Everything the ACCENTED tool wears, as one spread — the glyph (always), the
+   * 6px dot beside it, the proposal's caption, and the `data-next-step` hook the
+   * flow audit names. One call per candidate tool, because three props that must
+   * agree at six call sites will otherwise drift apart at exactly one of them.
+   *
+   * `ready` is required, not inferred: a proposal on a disabled tool would be a
+   * dead end, and the accent's whole claim is "you can do this now".
+   *
+   * The dot rides in the `icon` slot because it is absolutely positioned against
+   * `ToolButton`'s own `relative` box (see `NextStepDot`) — it must be INSIDE
+   * the button and it must cost no width, and the icon slot is the only place
+   * that is both.
+   */
+  const withNextStep = (
+    tool: NextStepTool,
+    verb: VerbGlyphProps["verb"],
+    ready: boolean,
+    caption: string | undefined,
+  ): {
+    icon: ReactNode;
+    caption: string | undefined;
+    "data-next-step": "true" | undefined;
+  } => {
+    const on = accent?.tool === tool && ready && !locked;
+    return {
+      icon: (
+        <>
+          <VerbGlyph verb={verb} />
+          {on ? <NextStepDot /> : null}
+        </>
+      ),
+      // The gate/lock reason still wins where there is one — but `on` requires
+      // `ready && !locked`, so the two can never both want the line.
+      caption: on && accent !== null ? accent.caption : caption,
+      "data-next-step": on ? "true" : undefined,
+    };
+  };
+
+  /**
+   * The letter a create/modify verb answers to, upper-cased for the tooltip's
+   * `Kbd`. Read from the shortcut registry rather than typed here: a band that
+   * prints a hardcoded key is correct the day it is written and silently lying
+   * afterwards, and `undefined` is a real answer for the verbs that have no
+   * letter (combine, most of sheet metal).
+   */
+  const verbKey = (
+    tool: Parameters<typeof partVerbKey>[0],
+  ): string | undefined => partVerbKey(tool)?.toUpperCase();
 
   return (
     <div
@@ -509,6 +638,7 @@ export function CreateStrip({
             icon={<VerbGlyph verb="sketch" />}
             showLabel
             label="Sketch"
+            shortcut={verbKey("sketch")}
             data-testid="new-sketch"
             aria-label="New sketch — pick a plane, then L / R / C / A"
             caption={captionFor(treeReady, "Loading the tree…")}
@@ -529,36 +659,40 @@ export function CreateStrip({
             onClick={onNewDatum}
           />
           <ToolButton
-            icon={<VerbGlyph verb="extrude" />}
+            {...withNextStep(
+              "new-extrude",
+              "extrude",
+              canExtrude && treeReady,
+              captionFor(canExtrude && treeReady, "Draw a sketch to extrude"),
+            )}
             showLabel
             label="Extrude"
+            shortcut={verbKey("extrude")}
             data-testid="new-extrude"
             aria-label={
               canExtrude
                 ? "Extrude — add or cut a sketch profile"
                 : "Extrude — draw a sketch first"
             }
-            caption={captionFor(
-              canExtrude && treeReady,
-              "Draw a sketch to extrude",
-            )}
             disabled={locked || !canExtrude || !treeReady}
             onClick={onNewExtrude}
           />
           <ToolButton
-            icon={<VerbGlyph verb="revolve" />}
+            {...withNextStep(
+              "new-revolve",
+              "revolve",
+              canRevolve && treeReady,
+              captionFor(canRevolve && treeReady, "Draw a sketch to revolve"),
+            )}
             showLabel
             label="Revolve"
+            shortcut={verbKey("revolve")}
             data-testid="new-revolve"
             aria-label={
               canRevolve
                 ? "Revolve — sweep a sketch profile about an axis"
                 : "Revolve — draw a sketch first"
             }
-            caption={captionFor(
-              canRevolve && treeReady,
-              "Draw a sketch to revolve",
-            )}
             disabled={locked || !canRevolve || !treeReady}
             onClick={onNewRevolve}
           />
@@ -655,30 +789,40 @@ export function CreateStrip({
 
         <ToolGroup eyebrow="Modify" labelPriority={LABEL_PRIORITY.modify}>
           <ToolButton
-            icon={<VerbGlyph verb="fillet" />}
+            {...withNextStep(
+              "new-fillet",
+              "fillet",
+              filletReady,
+              captionFor(filletReady, "Create a body first"),
+            )}
             showLabel
             label="Fillet"
+            shortcut={verbKey("fillet")}
             data-testid="new-fillet"
             aria-label={
               filletReady
                 ? "Fillet — round the selected edges"
                 : "Fillet — create a body first"
             }
-            caption={captionFor(filletReady, "Create a body first")}
             disabled={locked || !filletReady}
             onClick={onFillet}
           />
           <ToolButton
-            icon={<VerbGlyph verb="chamfer" />}
+            {...withNextStep(
+              "new-chamfer",
+              "chamfer",
+              chamferReady,
+              captionFor(chamferReady, "Create a body first"),
+            )}
             showLabel
             label="Chamfer"
+            shortcut={verbKey("chamfer")}
             data-testid="new-chamfer"
             aria-label={
               chamferReady
                 ? "Chamfer — bevel the selected edges"
                 : "Chamfer — create a body first"
             }
-            caption={captionFor(chamferReady, "Create a body first")}
             disabled={locked || !chamferReady}
             onClick={onChamfer}
           />
@@ -728,17 +872,21 @@ export function CreateStrip({
             onClick={onDraft}
           />
           <ToolButton
-            icon={<VerbGlyph verb="hole" />}
+            {...withNextStep(
+              "new-hole",
+              "hole",
+              holeReady,
+              captionFor(holeReady, "Create a body first"),
+            )}
             showLabel
             label="Hole"
-            shortcut="O"
+            shortcut={verbKey("hole")}
             data-testid="new-hole"
             aria-label={
               holeReady
                 ? "Hole — drill a cylinder into the body at a point on a face (O)"
                 : "Hole — create a body first"
             }
-            caption={captionFor(holeReady, "Create a body first")}
             disabled={locked || !holeReady}
             onClick={onHole}
           />
@@ -792,7 +940,12 @@ export function CreateStrip({
             onClick={onNewBaseFlange}
           />
           <ToolButton
-            icon={<VerbGlyph verb="sheet_metal_edge_flange" />}
+            {...withNextStep(
+              "new-edge-flange",
+              "sheet_metal_edge_flange",
+              edgeFlangeReady,
+              captionFor(edgeFlangeReady, "Add a base flange first"),
+            )}
             showLabel
             label="Edge flange"
             data-testid="new-edge-flange"
@@ -801,7 +954,6 @@ export function CreateStrip({
                 ? "Edge flange — fold a leg off a straight edge of the sheet"
                 : "Edge flange — add a base flange first"
             }
-            caption={captionFor(edgeFlangeReady, "Add a base flange first")}
             disabled={locked || !edgeFlangeReady}
             onClick={onNewEdgeFlange}
           />
