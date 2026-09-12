@@ -306,6 +306,38 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   not a run that PASSED, and any reasoning that treats the spill as a board is
   reading a field that is not there. Use the spill for `head_sha` → `id` only,
   then take the verdict from `get_job_logs` as above.
+  **RE-MEASURED 2026-09-11: `conclusion` IS BACK IN `list_workflow_runs`, so the
+  2026-08-28 correction above is now itself stale — and believing it costs a
+  whole extra call per run.** Read across 23 run objects spanning all three
+  workflows: every one carried `conclusion` (`success`) beside `status`. So the
+  documented dance — spill the listing, parse it for ids only, then `get_job_logs`
+  per run to learn the verdict — buys nothing that one call does not already
+  give you. **The cheapest COMPLETE verdict read is now
+  `list_workflow_runs` with `status: "completed"` plus the branch filter: one
+  call returns `head_sha` + `conclusion` for every finished run.** Keep
+  `get_job_logs` for the case it is still best at — a RED run, where
+  `failed_only: true` names the failing jobs. Do not delete the 08-28 correction:
+  the field has now disappeared and come back once, so the durable lesson is to
+  CHECK for it rather than to assume either way, and a `KeyError` is the tell in
+  both directions.
+  **And the cheap completion check has a cheaper form than the empty listing:
+  filter by `status: "in_progress"`.** Empty means nothing is still running, at a
+  cost of about ten tokens, and it does not grow as runs accumulate the way the
+  completed listing does (each completed row carries the entire commit message,
+  which in this repo is thousands of tokens — nine of them cost ~13 k).
+  **A FAST GREEN IS TOLD FROM AN ALL-SKIPPED GREEN BY STEP DURATION, and
+  `deploy-path` is routinely fast for real.** Its nine runs today finished in
+  under three minutes each, which looks exactly like the every-job-skipped shape
+  that also reports `success`. It was genuine: `list_workflow_jobs` showed
+  "Compose stack end-to-end (build, boot, migrate, round-trip)" consuming
+  **2 m 09 s** and the backup/restore drill **2 m 25 s**. A skipped job's steps
+  are absent or instant, so read the MAIN step's duration, not the run's.
+  **AND `e2e` LEGITIMATELY HAS NO RUN ON A DOCS-ONLY COMMIT** — it carries
+  `paths-ignore: docs/**, **/*.md`, so four of nine commits today have no e2e row
+  by design. That is NOT the unbuilt-commit hole described further down; it is a
+  deliberate skip. Tell them apart by the diff: if every changed path matches the
+  ignore list, the absence is correct. `deploy-path` has no such filter and runs
+  on everything, so it is the one whose missing row is always a real anomaly.
   **CORRECTION 2026-09-11: THE `total_jobs` DISCRIMINATOR WORKS FOR `e2e` AND
   DOES NOT WORK FOR `ci` — THE TWO WORKFLOWS DIFFER IN A WAY THE RULE BELOW DOES
   NOT ACCOUNT FOR.** I read `{"failed_jobs":0,"total_jobs":7}` on a `ci` run and
