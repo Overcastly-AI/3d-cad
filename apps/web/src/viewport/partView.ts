@@ -519,3 +519,48 @@ export function isolatedBodyLabel(
   const shown = bodies.filter((body) => !instanceView(view, body.key).hidden);
   return shown.length === 1 ? (shown[0]?.label ?? null) : null;
 }
+
+/** A body-view state expressed over FACE ordinals — the mesh's own currency. */
+export interface FaceStopSets {
+  /** Faces of bodies switched off entirely: nothing about them is drawn. */
+  readonly hidden: ReadonlySet<number>;
+  /** Faces of bodies at the ghost stop: drawn, but translucent and unlit. */
+  readonly ghosted: ReadonlySet<number>;
+}
+
+/**
+ * WHICH OF A SELECTED FEATURE'S FACES THE EMPHASIS MAY ACTUALLY LAND ON.
+ *
+ * The body-view precedence the mesh draws by is `hidden > ghosted >
+ * feature-selected > hovered`, and it is not a per-call-site convention: it is
+ * the reason the eye and the pixels cannot disagree. This is that precedence as
+ * ONE derivation, because the mesh has two places that must answer the same
+ * question — the face→material assignment and the brass boundary trace — and
+ * they answered it differently. The trace handed the raw feature face set to
+ * `faceBoundaryEdges`, so hiding the body that carried a selected feature
+ * withheld its TINT and kept its OUTLINE: 617 px of face-boundary ink floating
+ * where the body used to be (QA, 2026-09-13, P1).
+ *
+ * Ghosted faces are excluded for the same reason and not merely by symmetry: a
+ * ghosted face takes the ghost material, so a brass outline on it would say
+ * "this feature, committed" while the surface underneath says "receded". The
+ * face is not left un-outlined by this — `ghostEdges` draws its boundary in the
+ * ghost ink, which is the ink that matches what the surface is saying.
+ *
+ * Null means there is nothing to emphasise (no selection, or every one of its
+ * faces claimed by a stronger stop), which is what both call sites want to be
+ * told rather than an empty set they each have to interpret.
+ */
+export function litFeatureFaces(
+  faceSet: ReadonlySet<number> | null,
+  stops: FaceStopSets,
+): ReadonlySet<number> | null {
+  if (faceSet === null || faceSet.size === 0) return null;
+  if (stops.hidden.size === 0 && stops.ghosted.size === 0) return faceSet;
+  const lit = new Set<number>();
+  for (const ordinal of faceSet) {
+    if (stops.hidden.has(ordinal) || stops.ghosted.has(ordinal)) continue;
+    lit.add(ordinal);
+  }
+  return lit.size === 0 ? null : lit;
+}

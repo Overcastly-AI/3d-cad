@@ -25,7 +25,7 @@ import {
   setFaceMaterials,
 } from "./glbGeometry";
 import { FaceTrace } from "./faceTrace";
-import { bodyView, usePartViewStore } from "./partView";
+import { bodyView, litFeatureFaces, usePartViewStore } from "./partView";
 import { drawnSurfaceRaycast, hiddenTriangleTest } from "./pickRaycast";
 import { studioMatcap } from "./studioMatcap";
 
@@ -210,6 +210,30 @@ export function ModelMesh({
     }
     return drawn;
   }, [totalFaces, bodyFaceState]);
+
+  /**
+   * WHERE THE FEATURE EMPHASIS ACTUALLY LANDS — the selected feature's faces
+   * minus every face a stronger body-view stop has already claimed.
+   *
+   * Derived ONCE, in `partView.ts`, because two call sites here have to agree
+   * about it and did not: the material assignment below walked the precedence
+   * face by face, while `featureEdges` handed `faceSet` straight to
+   * `faceBoundaryEdges`. So hiding the body that carries a selected feature
+   * withheld its brass TINT and kept its brass OUTLINE — measured 617 px of
+   * face-boundary ink hanging in the void where the body used to be (QA,
+   * 2026-09-13, P1). It was latent until CRAFT-1 swapped this path from
+   * `subsetEdges` (a 25° crease detector, which finds almost nothing on a flat
+   * face: 31 px) to the real face partition, which gave the hole ink to show.
+   *
+   * That is the same rule the `edges` memo below carries a comment about — "a
+   * wireframe silhouette of a body you switched off is exactly the 'hidden
+   * means nothing drawn' rule being broken" — written down once and applied to
+   * one of the two places that needed it.
+   */
+  const featureLitFaces = useMemo<ReadonlySet<number> | null>(
+    () => (localized ? litFeatureFaces(faceSet, bodyFaceState) : null),
+    [localized, faceSet, bodyFaceState],
+  );
 
   // Selection wins over hover; hover only reads while the body is interactive.
   const highlight: BodyHighlight = localized
@@ -416,14 +440,14 @@ export function ModelMesh({
         ? 3
         : bodyFaceState.ghosted.has(ordinal)
           ? 2
-          : localized && faceSet !== null && faceSet.has(ordinal)
+          : featureLitFaces !== null && featureLitFaces.has(ordinal)
             ? 1
             : faceHover === ordinal
               ? 4
               : 0,
     );
     invalidate();
-  }, [geometry, localized, faceSet, bodyFaceState, faceHover, invalidate]);
+  }, [geometry, featureLitFaces, bodyFaceState, faceHover, invalidate]);
 
   // Report the highlight + face selection up so the viewport can stamp QA hooks.
   useEffect(() => {
@@ -715,12 +739,14 @@ export function ModelMesh({
 
   // Brass boundary edges of ONLY the selected feature's faces (FINDINGS #9) —
   // the localized emphasis that traces the feature over the preserved matcap.
+  // Over `featureLitFaces`, not over `faceSet`: the outline follows the tint,
+  // so a hidden or ghosted body takes its feature trace with it.
   const featureEdges = useMemo<BufferGeometry | null>(
     () =>
-      geometry !== null && localized && faceSet !== null
-        ? faceBoundaryEdges(geometry, faceSet)
+      geometry !== null && featureLitFaces !== null
+        ? faceBoundaryEdges(geometry, featureLitFaces)
         : null,
-    [geometry, localized, faceSet],
+    [geometry, featureLitFaces],
   );
   useEffect(() => () => featureEdges?.dispose(), [featureEdges]);
 
