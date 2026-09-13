@@ -20,7 +20,12 @@
  * Both give the same ordinals for the same body — that equality is asserted
  * against real kernel output in `glbGeometry.test.ts`.
  */
-import { BufferGeometry, EdgesGeometry, Mesh } from "three";
+import {
+  BufferGeometry,
+  EdgesGeometry,
+  Float32BufferAttribute,
+  Mesh,
+} from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
@@ -272,6 +277,227 @@ export function subsetEdges(
   const subset = subsetSurface(geometry, faceOrdinals);
   if (subset === null) return null;
   return new EdgesGeometry(subset, 25);
+}
+
+/**
+ * Vertex welding cached on the geometry — see {@link faceBoundaryEdges}.
+ *
+ * Keyed on the geometry's own `userData` because the merged buffer outlives
+ * every edge rebuild (a ghost or hide toggle re-derives the edges but never
+ * re-parses the GLB), and the weld is the expensive half.
+ */
+const WELD_KEY = "loftWeldedVertices";
+
+/**
+ * Grid the weld quantises to, in mm. The kernel's linear tolerance is 1e-7 m
+ * = 1e-4 mm, so two vertices this close are the same point by the only
+ * definition upstream has.
+ *
+ * The failure direction if two coincident vertices straddle a grid line anyway
+ * is benign and worth stating: they do not weld, so the shared edge is emitted
+ * once per face instead of once in total, and the SAME line is drawn twice.
+ * Nothing
+ * disappears — which is the property a rounding tolerance in a drawing path
+ * has to have.
+ */
+const WELD_TOLERANCE_MM = 1e-4;
+
+interface WeldTable {
+  /** Weld id of each source vertex. */
+  ids: Uint32Array;
+  /** A source vertex index per weld id — where to read its position. */
+  representative: Uint32Array;
+  /** Number of distinct welded positions. */
+  count: number;
+}
+
+function isWeldTable(value: unknown): value is WeldTable {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as WeldTable).ids instanceof Uint32Array &&
+    (value as WeldTable).representative instanceof Uint32Array
+  );
+}
+
+/**
+ * Map every vertex of the merged buffer to a welded POSITION id.
+ *
+ * OCCT emits one vertex set per B-rep face, so the two faces meeting at an
+ * edge carry their own copies of that edge's vertices — index equality cannot
+ * see that they are the same point, and the whole boundary derivation below
+ * depends on seeing it.
+ */
+function weldTable(geometry: BufferGeometry): WeldTable | null {
+  const cached: unknown = geometry.userData[WELD_KEY];
+  if (isWeldTable(cached)) return cached;
+  const position = geometry.getAttribute("position");
+  if (position === undefined) return null;
+  const ids = new Uint32Array(position.count);
+  const representative: number[] = [];
+  const lookup = new Map<string, number>();
+  const grid = 1 / WELD_TOLERANCE_MM;
+  for (let v = 0; v < position.count; v += 1) {
+    const key =
+      `${Math.round(position.getX(v) * grid)},` +
+      `${Math.round(position.getY(v) * grid)},` +
+      `${Math.round(position.getZ(v) * grid)}`;
+    let id = lookup.get(key);
+    if (id === undefined) {
+      id = representative.length;
+      lookup.set(key, id);
+      representative.push(v);
+    }
+    ids[v] = id;
+  }
+  const table: WeldTable = {
+    ids,
+    representative: Uint32Array.from(representative),
+    count: representative.length,
+  };
+  geometry.userData[WELD_KEY] = table;
+  return table;
+}
+
+/**
+ * THE B-REP EDGES OF A BODY, derived from its FACE PARTITION (CRAFT-1).
+ *
+ * ## The defect this replaces
+ *
+ * The body's line work used to be `new EdgesGeometry(geometry, 25)`, which is
+ * a **mesh crease detector**: it emits a line only where two neighbouring
+ * TRIANGLES meet at more than 25°. A fillet is tangent by construction, so the
+ * boundary between the top face and the fillet has a dihedral of ~0° and no
+ * line was drawn — the moment a part got an edge break, i.e. the moment it
+ * stopped being a test cube and started being a part, every feature boundary
+ * disappeared and the body rendered as clay (`docs/design/AUDIT-CRAFT-2026-09.md`
+ * P1-2, measured at **zero** edge ink on a filleted plate).
+ *
+ * Raising the crease threshold cannot fix it and would make it worse: a
+ * threshold low enough to catch a tangent seam carpets every curved face with
+ * the tessellation's own facet lines. The question "is this a B-rep edge" is
+ * not a question about angles.
+ *
+ * ## What it does instead
+ *
+ * A B-rep edge is where one FACE ends. The tessellation already carries the
+ * face partition (`faceStarts`, the module doc above), so the boundary is an
+ * index pass and needs nothing from the server:
+ *
+ *  1. weld vertices by POSITION, because OCCT duplicates them per face;
+ *  2. inside each face, count how many of that face's own triangles use each
+ *     welded edge — an edge used exactly ONCE is on the face's boundary;
+ *  3. union those boundaries across the requested faces, deduplicated, so the
+ *     edge shared by two faces is drawn once.
+ *
+ * Two properties fall out of doing it per face rather than per triangle, and
+ * both are the reason this is the right derivation rather than a cheaper one:
+ *
+ *  - **Tessellation edges can never be emitted.** An edge interior to a face is
+ *    used by two of that face's triangles, so step 2 excludes it structurally —
+ *    not by a tolerance that could be tuned wrong.
+ *  - **Seams cancel.** A closed face (a bore's cylinder) is cut along a seam
+ *    whose vertices are duplicated for UV; welding them makes the seam an
+ *    interior edge with two users, so it is not drawn. Which is what a CAD
+ *    renderer does — a hole has no line down its side.
+ *
+ * `faceOrdinals` restricts the derivation to a subset (the drawn faces when a
+ * body is partly hidden, or one feature's faces). The weld is always global, so
+ * a subset's boundary is computed in the same coordinate identity as the whole.
+ *
+ * Returns a plain `BufferGeometry` of line-segment pairs, or `null` when the
+ * geometry carries no usable partition or the subset selects nothing — callers
+ * then draw no edges rather than throwing mid-render. The caller owns disposal.
+ */
+export function faceBoundaryEdges(
+  geometry: BufferGeometry,
+  faceOrdinals?: ReadonlySet<number> | null,
+): BufferGeometry | null {
+  const index = geometry.getIndex();
+  const position = geometry.getAttribute("position");
+  const starts = faceStarts(geometry);
+  if (index === null || position === undefined || starts.length < 2) {
+    return null;
+  }
+  const weld = weldTable(geometry);
+  if (weld === null) return null;
+  const source = index.array;
+  const stride = weld.count;
+  const boundary = new Set<number>();
+  const used = new Map<number, number>();
+  for (let face = 0; face + 1 < starts.length; face += 1) {
+    if (
+      faceOrdinals !== undefined &&
+      faceOrdinals !== null &&
+      !faceOrdinals.has(face)
+    ) {
+      continue;
+    }
+    const begin = starts[face] as number;
+    const end = starts[face + 1] as number;
+    used.clear();
+    for (let i = begin; i + 2 < end; i += 3) {
+      const a = weld.ids[source[i] as number] as number;
+      const b = weld.ids[source[i + 1] as number] as number;
+      const c = weld.ids[source[i + 2] as number] as number;
+      countEdge(used, a, b, stride);
+      countEdge(used, b, c, stride);
+      countEdge(used, c, a, stride);
+    }
+    for (const [key, count] of used) {
+      if (count === 1) boundary.add(key);
+    }
+  }
+  if (boundary.size === 0) return null;
+  const points = new Float32Array(boundary.size * 6);
+  let offset = 0;
+  for (const key of boundary) {
+    const low = key % stride;
+    const high = (key - low) / stride;
+    writeVertex(position, weld.representative[low] as number, points, offset);
+    writeVertex(
+      position,
+      weld.representative[high] as number,
+      points,
+      offset + 3,
+    );
+    offset += 6;
+  }
+  const edges = new BufferGeometry();
+  edges.setAttribute("position", new Float32BufferAttribute(points, 3));
+  return edges;
+}
+
+/**
+ * Tally one triangle edge of a face. Undirected: the key is ordered, so the
+ * two triangles sharing an edge tally the same slot whatever their winding.
+ * A degenerate edge (both ends welded to one point) is not an edge and is
+ * dropped — it would otherwise read as a boundary of length zero.
+ */
+function countEdge(
+  used: Map<number, number>,
+  a: number,
+  b: number,
+  stride: number,
+): void {
+  if (a === b) return;
+  const key = a < b ? b * stride + a : a * stride + b;
+  used.set(key, (used.get(key) ?? 0) + 1);
+}
+
+function writeVertex(
+  position: {
+    getX: (i: number) => number;
+    getY: (i: number) => number;
+    getZ: (i: number) => number;
+  },
+  vertex: number,
+  out: Float32Array,
+  offset: number,
+): void {
+  out[offset] = position.getX(vertex);
+  out[offset + 1] = position.getY(vertex);
+  out[offset + 2] = position.getZ(vertex);
 }
 
 /**

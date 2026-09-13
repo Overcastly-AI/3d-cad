@@ -53,7 +53,7 @@
  * the bounds, so letting it back into them would be a feedback loop that zooms
  * out a little further every refit.
  */
-import { sketch } from "@loft/design/tokens";
+import { sketch, viewport } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
 import { useEffect, useMemo } from "react";
 import {
@@ -205,6 +205,107 @@ function OriginPlane({
   );
 }
 
+/**
+ * Length of a RESTING axis mark, as a fraction of the enabled datum's length.
+ * Short enough that the two states can never be mistaken for one another at a
+ * glance, long enough to read as an axis rather than a tick.
+ */
+const REST_FRACTION = 0.42;
+/**
+ * Strength of a resting mark: `preview.edgeOpacity`, this product's existing
+ * "a hair under solid so it reads as a preview" value for a LINE — referenced,
+ * not re-picked.
+ *
+ * The obvious first choice was `preview.surfaceOpacity` (0.42), the ghost
+ * translucency, and the frame said no. A mark at 0.42 composites to ~(46,56,68)
+ * over the bench, which is DARKER than a major grid line at (62,77,97) — and
+ * the triad lies on the grid's own section lines at world zero, so the quietest
+ * plausible value made the thing invisible exactly where it lives. Dimmed has
+ * to mean dimmer than the DATUM, not dimmer than the bench it is drawn on.
+ * The distance from the enabled state is carried by length, by the missing
+ * phantom half and by the missing engraved letter — three differences, none of
+ * them a subtlety.
+ */
+const REST_OPACITY = viewport.preview.edgeOpacity;
+
+/**
+ * THE RESTING ORIGIN MARK (CRAFT-3).
+ *
+ * The audit's P1-1, second half: *"the origin triad is off by default (the
+ * ORIGIN panel's six toggles all start hidden), so an axis-aligned view offers
+ * no up, no origin and no scale."* Four of the five things missing from
+ * `03-front-ortho-void.png` were the grid's job (CRAFT-2); this is the fifth.
+ *
+ * Two states, and the DIFFERENCE between them is the whole design, because the
+ * ORIGIN rows are an existing control and an off-state that looks like its
+ * on-state would break it:
+ *
+ *   at rest   the positive half only, 42 % as long, preview strength, no letter
+ *   enabled   full length, full strength, the phantom negative half, engraved
+ *
+ * So the resting state says WHERE zero is and WHICH WAY IS UP — the two facts
+ * an axis-aligned view cannot otherwise carry — and says nothing else. Asking
+ * for the axis still buys you the whole datum: three changes at once (length,
+ * strength, annotation), which is what makes the toggle feel like it did
+ * something.
+ *
+ * Drawn in the datum ink (`sketch.planeEdge`) rather than a quieter one on
+ * purpose: the triad lies ON the grid's own section lines at world zero, so a
+ * mark dimmer than the grid would be a mark you cannot see. Quiet here is
+ * spent on length and opacity, where the grid cannot swallow it.
+ */
+function OriginMark({
+  axis,
+  lengthMm,
+}: {
+  axis: OriginAxisName;
+  lengthMm: number;
+}) {
+  const dir = AXIS_DIRECTION[axis];
+  const positions = useMemo(
+    () =>
+      new Float32Array([
+        0,
+        0,
+        0,
+        dir[0] * lengthMm,
+        dir[1] * lengthMm,
+        dir[2] * lengthMm,
+      ]),
+    [dir, lengthMm],
+  );
+  const geometry = usePositions(positions);
+  return (
+    <lineSegments
+      // Named for the scene probe: a spec asks the GRAPH whether the triad is
+      // drawn at rest, which no pixel census can answer on a mark that sits on
+      // the grid's own section lines.
+      name={`origin-axis-${axis}`}
+      geometry={geometry}
+      frustumCulled={false}
+      raycast={() => null}
+      // DRAWN LAST, DELIBERATELY. A translucent object is sorted against the
+      // other translucent objects by distance, and this mark sits at the world
+      // origin — a near-tie with the camera-following ground grid. The tie
+      // broke both ways between otherwise identical frames, and the mark's
+      // composite (and so its measured colour) went with it: an ink census of
+      // the same scene read 248 px in one run and 0 in the next. `renderOrder`
+      // is consulted BEFORE distance, so pinning it puts the annotation over
+      // the bench every frame. It writes no depth — a 1 px annotation should
+      // not occlude anything — which is what makes drawing it last safe.
+      renderOrder={1}
+    >
+      <lineBasicMaterial
+        color={sketch.planeEdge}
+        transparent
+        opacity={REST_OPACITY}
+        depthWrite={false}
+        toneMapped={false}
+      />
+    </lineSegments>
+  );
+}
+
 /** One principal axis: solid on +, phantom on −, engraved at the + end. */
 function OriginAxis({
   axis,
@@ -241,7 +342,7 @@ function OriginAxis({
   const positiveGeometry = usePositions(positive);
   const negativeGeometry = usePositions(negative);
   return (
-    <group>
+    <group name={`origin-axis-${axis}`}>
       <lineSegments
         geometry={positiveGeometry}
         frustumCulled={false}
@@ -287,10 +388,16 @@ export interface OriginGeometryProps {
 }
 
 /**
- * The origin triad, drawn only for the entities the browser has enabled. Every
- * row defaults to HIDDEN (as Fusion's do), so a part that needs no datum work
- * costs nothing — and the whole group unmounts, disposing its buffers, when the
- * last row is switched off.
+ * The origin: the enabled datums, plus the RESTING MARK for every axis that is
+ * not enabled (CRAFT-3).
+ *
+ * The planes still default to HIDDEN, as Fusion's do — a sheet is a working
+ * surface and an unasked-for one is in the way. The three AXES no longer do:
+ * an axis-aligned view with no grid horizon, no shadow and no letters told the
+ * modeller nothing about where zero was or which way was up, and that is the
+ * one question a squared-on view is least able to answer for itself. Each axis
+ * draws exactly one of the two states, never both, so the toggle keeps a
+ * visible job.
  */
 export function OriginGeometry({ bounds }: OriginGeometryProps) {
   const view = usePartViewStore((state) => state.view);
@@ -305,17 +412,21 @@ export function OriginGeometry({ bounds }: OriginGeometryProps) {
   const axes = ORIGIN_AXES.filter((axis) =>
     entityIsDrawn(view, originAxisKey(axis)),
   );
-  if (planes.length === 0 && axes.length === 0) return null;
+  const resting = ORIGIN_AXES.filter((axis) => !axes.includes(axis));
+  const axisLengthMm = (extentMm / 2) * (1 + AXIS_OVERRUN);
   return (
     <group>
       {planes.map((plane) => (
         <OriginPlane key={plane} plane={plane} extentMm={extentMm} />
       ))}
       {axes.map((axis) => (
-        <OriginAxis
+        <OriginAxis key={axis} axis={axis} lengthMm={axisLengthMm} />
+      ))}
+      {resting.map((axis) => (
+        <OriginMark
           key={axis}
           axis={axis}
-          lengthMm={(extentMm / 2) * (1 + AXIS_OVERRUN)}
+          lengthMm={axisLengthMm * REST_FRACTION}
         />
       ))}
     </group>

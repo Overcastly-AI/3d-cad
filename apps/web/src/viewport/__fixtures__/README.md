@@ -16,6 +16,32 @@ Both files describe the SAME two-body part (a notched 30x20x10 block and a
   primitive per mesh (2 primitives, 4 308 B), each carrying its per-face
   triangle counts in `extras.LOFT_face_triangles`.
 
+## `filleted-plate.glb`
+
+A 20x16x8 plate with a 3 mm break on EVERY edge (26 faces, 48 B-rep edges),
+fused. It exists because the two fixtures above cannot fail for CRAFT-1's
+reason: every face of a notched block meets its neighbours at 90 degrees, so a
+mesh crease detector finds all of them and a body with no creases at all is the
+case that was broken. On these bytes `new EdgesGeometry(geometry, 25)` — what
+the viewport shipped — emits **zero** segments, which is
+`docs/design/screenshots/craft-2026-09/06-filleted-body-no-edges.png` expressed
+as a number.
+
+Tessellated COARSER than production (`linear_deflection=0.5`,
+`angular_deflection=0.35` against the kernel's 0.1) purely to keep the fixture
+at 36 kB. The property under test is topological — a tangent boundary is
+tangent at any deflection — but do not coarsen it further without re-checking
+that the crease assertion still reads zero: at `angular_deflection=1.2` the
+fillet facets enough to manufacture creases, and the fixture then passes the
+test for the wrong reason.
+
+```python
+from build123d import Box, Unit
+plate = Box(20, 16, 8)
+shape = plate.fillet(radius=3, edge_list=plate.edges()).solid()
+# ... same export_gltf + fuse_faces as below, with the deflections above.
+```
+
 `glbGeometry.test.ts` parses both and asserts they produce the SAME face
 ordinals, the same buffers and the same lumps — that equality is what keeps
 `on_face` datums, shell openings, hole placement and sketch-on-face pointing at

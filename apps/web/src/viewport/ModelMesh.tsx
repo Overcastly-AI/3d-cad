@@ -9,7 +9,6 @@ import {
 import {
   Box3,
   BufferGeometry,
-  EdgesGeometry,
   LineBasicMaterial,
   MeshMatcapMaterial,
   Vector3,
@@ -18,12 +17,12 @@ import { useThree, type ThreeEvent } from "@react-three/fiber";
 
 import { bodyFaceSets, faceLumps } from "./bodyPartition";
 import {
+  faceBoundaryEdges,
   faceCount,
   faceOrdinalOfTriangle,
   faceStarts,
   loadGlbGeometry,
   setFaceMaterials,
-  subsetEdges,
 } from "./glbGeometry";
 import { FaceTrace } from "./faceTrace";
 import { bodyView, usePartViewStore } from "./partView";
@@ -36,6 +35,32 @@ import { studioMatcap } from "./studioMatcap";
  * on the rest — FINDINGS #9).
  */
 export type BodyHighlight = "none" | "hover" | "selected" | "feature";
+
+/**
+ * Depth clearance for the B-rep edge overlay, applied to the SURFACE.
+ *
+ * A B-rep edge lies exactly ON the faces it separates, so its line and their
+ * triangles are numerically coincident in depth and the line loses roughly half
+ * its samples to the surface in front of it. Measured on a filleted plate
+ * before this: the darkest pixel of a line drawn over the top face reached
+ * (78, 90, 104) against a `modelEdge` token of (51, 59, 70) — 78 % of the ink,
+ * never 100 %, so the line work read as a smudge rather than a scribe.
+ *
+ * A TANGENT boundary makes it worse than the sharp case ever was, which is why
+ * this arrives with CRAFT-1: across a crease the two faces fall away from the
+ * edge, so the coincidence is momentary; along a fillet's tangent seam the
+ * surface hugs the line for its whole length.
+ *
+ * The surface is pushed back rather than the line pulled forward, because
+ * `polygonOffset` is a polygon-rasteriser feature — GL applies it to triangles,
+ * not to lines — so the only end of this that CAN be biased is the mesh.
+ * Depth TESTING stays on: anything genuinely in front still occludes the body.
+ */
+const EDGE_CLEARANCE = {
+  polygonOffset: true,
+  polygonOffsetFactor: 1,
+  polygonOffsetUnits: 1,
+} as const;
 
 export interface ModelMeshProps {
   glb: ArrayBuffer;
@@ -231,19 +256,29 @@ export function ModelMesh({
   // pair: the selected feature's faces multiply the matcap toward brass while
   // the base material keeps it (FINDINGS #9).
   const baseMaterial = useMemo(
-    () => new MeshMatcapMaterial({ matcap: studioMatcap() }),
+    () => new MeshMatcapMaterial({ matcap: studioMatcap(), ...EDGE_CLEARANCE }),
     [],
   );
   const featureMaterial = useMemo(
-    () => new MeshMatcapMaterial({ matcap: studioMatcap() }),
+    () => new MeshMatcapMaterial({ matcap: studioMatcap(), ...EDGE_CLEARANCE }),
     [],
   );
+  // `toneMapped: false` on every line ink here, as the sketch, datum and
+  // measure materials already do. The tone mapper is for SHADED surfaces; run
+  // over a flat line colour it silently re-grades the token — `modelEdge`
+  // #333B46 reached the canvas at ~(42,48,56) — so "one palette, two
+  // renderers" (tokens.ts) was true of the source and false of the pixels.
   const edgeMaterial = useMemo(
-    () => new LineBasicMaterial({ color: viewport.modelEdge }),
+    () =>
+      new LineBasicMaterial({ color: viewport.modelEdge, toneMapped: false }),
     [],
   );
   const featureEdgeMaterial = useMemo(
-    () => new LineBasicMaterial({ color: viewport.featureSelect.edge }),
+    () =>
+      new LineBasicMaterial({
+        color: viewport.featureSelect.edge,
+        toneMapped: false,
+      }),
     [],
   );
   /**
@@ -258,7 +293,7 @@ export function ModelMesh({
    * treatment; only the surface tint is this component's own.
    */
   const faceHoverMaterial = useMemo(
-    () => new MeshMatcapMaterial({ matcap: studioMatcap() }),
+    () => new MeshMatcapMaterial({ matcap: studioMatcap(), ...EDGE_CLEARANCE }),
     [],
   );
   // GHOST and HIDE (UI-W2, part half). The ghost strengths are the product's
@@ -277,6 +312,7 @@ export function ModelMesh({
         transparent: true,
         opacity: viewport.preview.surfaceOpacity,
         depthWrite: false,
+        ...EDGE_CLEARANCE,
       }),
     [],
   );
@@ -290,6 +326,7 @@ export function ModelMesh({
         color: viewport.modelEdge,
         transparent: true,
         opacity: viewport.preview.edgeOpacity,
+        toneMapped: false,
       }),
     [],
   );
@@ -518,22 +555,27 @@ export function ModelMesh({
     invalidate();
   }, [geometry, invalidate]);
 
-  // Dispose GPU resources when a geometry is replaced or unmounts. When a body
-  // is hidden the edge overlay has to follow it — a wireframe silhouette of a
-  // body you switched off is exactly the "hidden means nothing drawn" rule
-  // being broken — so the edges are rebuilt over the DRAWN face subset.
+  // THE BODY'S LINE WORK — every B-rep face boundary, tangent ones included
+  // (CRAFT-1). This was `new EdgesGeometry(geometry, 25)`, a mesh CREASE
+  // detector, and a fillet is tangent by construction: the day a part got an
+  // edge break every boundary vanished and the body rendered as clay. The
+  // derivation now runs off the FACE PARTITION — see `faceBoundaryEdges`.
+  //
+  // When a body is hidden the edge overlay has to follow it — a wireframe
+  // silhouette of a body you switched off is exactly the "hidden means nothing
+  // drawn" rule being broken — so the edges are rebuilt over the DRAWN faces.
   const edges = useMemo(() => {
     if (geometry === null) return null;
-    if (bodyFaceState.hidden.size === 0) return new EdgesGeometry(geometry, 25);
+    if (bodyFaceState.hidden.size === 0) return faceBoundaryEdges(geometry);
     const solid = new Set(
       [...drawnFaces].filter((face) => !bodyFaceState.ghosted.has(face)),
     );
-    return subsetEdges(geometry, solid);
+    return faceBoundaryEdges(geometry, solid);
   }, [geometry, bodyFaceState, drawnFaces]);
   const ghostEdges = useMemo(
     () =>
       geometry !== null && bodyFaceState.ghosted.size > 0
-        ? subsetEdges(geometry, bodyFaceState.ghosted)
+        ? faceBoundaryEdges(geometry, bodyFaceState.ghosted)
         : null,
     [geometry, bodyFaceState],
   );
@@ -673,10 +715,10 @@ export function ModelMesh({
 
   // Brass boundary edges of ONLY the selected feature's faces (FINDINGS #9) —
   // the localized emphasis that traces the feature over the preserved matcap.
-  const featureEdges = useMemo<EdgesGeometry | null>(
+  const featureEdges = useMemo<BufferGeometry | null>(
     () =>
       geometry !== null && localized && faceSet !== null
-        ? subsetEdges(geometry, faceSet)
+        ? faceBoundaryEdges(geometry, faceSet)
         : null,
     [geometry, localized, faceSet],
   );
@@ -684,8 +726,10 @@ export function ModelMesh({
 
   // SEL-1: the addressed face TRACED — its own boundary, the real topology,
   // not a bounding box. This is what makes a face read as a face rather than
-  // as a patch of tint, and it is the same `subsetEdges` machinery the
-  // feature-selected state already uses, one ordinal wide.
+  // as a patch of tint. `FaceTrace` keeps `subsetEdges` deliberately: ONE
+  // ordinal has no interior face boundaries to miss, and the trace needs the
+  // whole topological loop including the half facing away, which is exactly
+  // what `EdgesGeometry` over a one-face subset gives it.
   //
   // It obeys the SAME precedence the material assignment does (hidden >
   // ghosted > feature-selected > hovered): a face already lit as part of the

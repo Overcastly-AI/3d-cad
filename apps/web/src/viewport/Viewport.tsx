@@ -28,6 +28,7 @@ import { NavCue } from "../components/NavCue";
 import { ViewBar } from "../components/ViewBar";
 import { VisibilityStamp } from "../components/VisibilityStamp";
 import { AdaptiveGrid } from "./AdaptiveGrid";
+import { BenchBackdrop } from "./BenchBackdrop";
 import { publishViewQuaternion } from "./cameraOrientation";
 import { isDragGesture, type PointerPoint } from "./contextMenuGesture";
 import {
@@ -964,6 +965,12 @@ export function Viewport({
     };
   }, [bounds]);
 
+  /** QA hook: which drafting board is up (CRAFT-2), or `none`. */
+  const handleBackdrop = useCallback((state: string) => {
+    const node = containerRef.current;
+    if (node !== null) node.dataset["benchBackdrop"] = state;
+  }, []);
+
   /** QA hook: the body's hover/selection highlight, stamped on the container. */
   const handleHighlight = useCallback((highlight: BodyHighlight) => {
     const node = containerRef.current;
@@ -1260,6 +1267,13 @@ export function Viewport({
             cellColor={viewport.gridMinor}
             sectionColor={viewport.gridMajor}
           />
+        ) : null}
+        {/* The floor stands up into a drafting board when the camera squares
+            onto an axis under a parallel projection, where an edge-on ground
+            plane projects to a single line (CRAFT-2). Same grid, same pitch,
+            same inks — and the floor stays drawn across it. */}
+        {groundGrid ? (
+          <BenchBackdrop bounds={bounds} onBackdropChange={handleBackdrop} />
         ) : null}
         {groundShadow && viewNav && shadow !== null ? (
           <mesh
