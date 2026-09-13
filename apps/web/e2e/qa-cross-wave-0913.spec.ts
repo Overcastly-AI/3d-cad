@@ -359,7 +359,6 @@ test.describe("one Escape backs out ONE step", () => {
 
 test.describe("the cube during a face pick (CRAFT-6)", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
-  test.fail();
 
   test("every offered face mark stays reachable", async ({ page }) => {
     const account = await seedSession(page);
@@ -394,6 +393,16 @@ test.describe("the cube during a face pick (CRAFT-6)", () => {
       { x: cube.x + cube.w / 2, y: cube.y + cube.h / 2 },
     );
 
+    // The yield is a STATE, printed whichever way it goes: a reachability
+    // number with no stamp beside it cannot tell "the cube stood aside" from
+    // "no mark happened to land on it".
+    report(
+      "cube pick-yield stamp",
+      String(
+        await page.getByTestId("view-cube").getAttribute("data-pick-yield"),
+      ),
+    );
+
     const unreachable: string[] = [];
     for (const mark of await marks.all()) {
       const id = (await mark.getAttribute("data-testid")) ?? "?";
@@ -416,6 +425,104 @@ test.describe("the cube during a face pick (CRAFT-6)", () => {
       "a face the user must pick is under the reference cube, which CRAFT-6 " +
         "mounted into this mode; before it, this corner was free",
     ).toEqual([]);
+
+    /*
+      AND THE PICK ACTUALLY COMPLETES. `elementFromPoint` resolving to the mark
+      says the pointer reaches it; only a real click says the flow does. A mark
+      under the cube is chosen deliberately — the whole point is the corner the
+      cube had taken — and the sketcher opening is the user's own outcome.
+    */
+    let underCube: { id: string; x: number; y: number } | null = null;
+    for (const mark of await marks.all()) {
+      const box = await mark.boundingBox();
+      if (box === null) continue;
+      const x = box.x + box.width / 2;
+      const y = box.y + box.height / 2;
+      if (
+        x >= cube.x &&
+        x <= cube.x + cube.w &&
+        y >= cube.y &&
+        y <= cube.y + cube.h
+      ) {
+        underCube = {
+          id: (await mark.getAttribute("data-testid")) ?? "?",
+          x,
+          y,
+        };
+        break;
+      }
+    }
+    report(
+      "a mark seated inside the cube's rect",
+      underCube === null
+        ? "none — the pan did not reach the corner"
+        : underCube.id,
+    );
+    expect(
+      underCube,
+      "the pan must actually put a pick mark on the cube's seat, or this " +
+        "case is measuring an empty corner",
+    ).not.toBeNull();
+    if (underCube !== null) {
+      await page.mouse.click(underCube.x, underCube.y);
+      await expect(
+        page.getByTestId("sketch-strip"),
+        "a real click on the mark the cube was sitting on must open the sketcher",
+      ).toBeVisible({ timeout: 30_000 });
+    }
+  });
+
+  /**
+   * THE OTHER HALF OF THE YIELD: it is temporary. A cube that stayed inert
+   * after the pick would be the same defect wearing the opposite sign — an
+   * instrument the user can see and cannot use — and a spec that only proved
+   * the corner was pickable would score full marks on it.
+   */
+  test("the cube is a control again once the pick is over", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Yield ends");
+    await seedCube(page, account.token, part.id);
+    await page.goto(`/parts/${part.id}`);
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 60_000,
+    });
+    const view = page.getByTestId("viewport");
+    const cubeEl = page.getByTestId("view-cube");
+
+    await expect(cubeEl).not.toHaveAttribute("data-pick-yield", /.*/);
+
+    await page.getByTestId("new-sketch").click();
+    await page.getByTestId("plane-pick-face").click();
+    await expect(
+      page.locator('[data-testid^="plane-pick-face-"]').first(),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(
+      cubeEl,
+      "the cube yields while the tool is asking for a pick",
+    ).toHaveAttribute("data-pick-yield", "1");
+
+    // Esc backs out of the pick — the cube must come back as a control.
+    await page.keyboard.press("Escape");
+    await expect(page.locator('[data-testid^="plane-pick-face-"]')).toHaveCount(
+      0,
+      { timeout: 15_000 },
+    );
+    await expect(
+      cubeEl,
+      "the yield outlived the pick that caused it",
+    ).not.toHaveAttribute("data-pick-yield", /.*/);
+
+    // …and it steers, which is the claim the stamp stands for.
+    const cube = await boxOf(page, "view-cube");
+    if (cube === null) throw new Error("no cube");
+    const before = await view.getAttribute("data-camera-pos");
+    await page.mouse.click(cube.x + cube.w / 2, cube.y + cube.h * 0.22);
+    await page.waitForTimeout(800);
+    const after = await view.getAttribute("data-camera-pos");
+    report("camera after the pick ended", `${before} -> ${after}`);
+    expect(after).not.toBe(before);
   });
 });
 
