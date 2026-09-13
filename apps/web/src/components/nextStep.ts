@@ -104,10 +104,12 @@ const isLive = (feature: FeatureResponse): boolean =>
 /**
  * What the band should propose given the current feature tree, or null.
  *
- * Derived from the tree rather than from an event, deliberately: an event needs
- * somewhere to live and something to clear it, and the tree already says which
- * feature landed last. The caller supplies the two things the tree cannot know
- * — whether the proposed tool is actually usable, and whether the user has
+ * WHICH verb, never WHETHER there is a moment to propose about: this reads the
+ * tree, and the tree cannot tell "an extrude just built" from "an extrude built
+ * last month" (W2 review, finding 6 — it used to be wired straight to the band
+ * and nagged on every page load). `useNextStep`'s build gate is what supplies
+ * the moment; the caller supplies the other two things the tree cannot know —
+ * whether the proposed tool is actually usable, and whether the user has
  * already answered the proposal (`useNextStepAccent`).
  *
  * `sketch` is never here. B1 owns the sketch -> extrude transition and writes a

@@ -270,7 +270,11 @@ export interface CreateStripProps {
  * The proposal the band is actually drawing — {@link CreateStripProps.nextStep}
  * minus the ones the user has already answered.
  *
- * WRITTEN ONCE PER BUILD, NEVER RE-ARMED FOR THE SAME FEATURE. The accent has
+ * WRITTEN ONCE PER BUILD, NEVER RE-ARMED FOR THE SAME FEATURE — and the BUILD
+ * half of that is `components/useNextStep.ts`, which is the workspace's gate
+ * rather than this one: a proposal reaches this hook only for a feature the
+ * workspace watched arrive, so a page load cannot re-arm what a session already
+ * retired (W2 review, finding 6). This hook owns the ANSWERED half. The accent has
  * no dismiss control by design: it occupies no space and blocks nothing, so an
  * `×` would cost more room than the mark it removes. Two gestures retire it,
  * and both are things the user was already doing:

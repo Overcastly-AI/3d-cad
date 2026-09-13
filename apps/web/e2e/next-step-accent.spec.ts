@@ -2,7 +2,7 @@ import { color } from "@loft/design/tokens";
 
 import { expect, test } from "./fixtures";
 import type { Page } from "./fixtures";
-import { createFeature, seedCube, SQUARE_20 } from "./partSeed";
+import { createFeature, SQUARE_20 } from "./partSeed";
 import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
 
 /**
@@ -102,17 +102,48 @@ async function brassPixels(
   );
 }
 
-/** A part with one extruded body, opened in the workspace. */
+/**
+ * A part whose one body is EXTRUDED HERE, in this browser, in this session.
+ *
+ * The body cannot be seeded through the API any more, and that is the point of
+ * W2 finding 6: the accent is armed by a BUILD the workspace watched arrive,
+ * not by the shape of the tree it finds on arrival. A seeded part opened cold
+ * proposes nothing — which is the fix — so every case that needs a dot has to
+ * earn one the way a user does. The SKETCH is still seeded: the profile is not
+ * what this spec is about.
+ */
 async function partWithBody(page: Page, name: string): Promise<string> {
   const { token } = await seedSession(page);
   const part = await createPartViaApi(page, token, name);
-  await seedCube(page, token, part.id);
+  await createFeature(page, token, part.id, {
+    name: "Sketch1",
+    feature: { type: "sketch", version: 1, params: SQUARE_20 },
+    expected_tree_version: 0,
+  });
   await page.goto(`/parts/${part.id}`);
   await expect(page.getByTestId("feature-tree")).toBeVisible();
+  await buildExtrude(page, "20");
   await expect(page.getByTestId("new-fillet")).toBeEnabled({
     timeout: 30_000,
   });
   return part.id;
+}
+
+/** Extrude the tree's default profile through the editor, and wait for a body. */
+async function buildExtrude(page: Page, distanceMm: string): Promise<void> {
+  await expect(page.getByTestId("new-extrude")).toBeEnabled({
+    timeout: 30_000,
+  });
+  await page.getByTestId("new-extrude").click();
+  await expect(page.getByTestId("extrude-editor")).toBeVisible();
+  await page.getByTestId("extrude-distance").fill(distanceMm);
+  await page.getByTestId("extrude-distance").press("Enter");
+  await expect(page.getByTestId("extrude-editor")).toHaveCount(0, {
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId("body-inspector")).toBeVisible({
+    timeout: 30_000,
+  });
 }
 
 test.describe("the band proposes one next verb", () => {
@@ -274,24 +305,21 @@ test.describe("the band proposes one next verb", () => {
     // The half that rots. A datum is body-affecting in no sense and follows
     // nothing in particular, so the honest answer is silence — the band must
     // not reach for the nearest plausible verb.
-    const { token } = await seedSession(page);
-    const part = await createPartViaApi(page, token, "No proposal");
-    const version = await seedCube(page, token, part.id);
-    await createFeature(page, token, part.id, {
-      name: "Datum1",
-      feature: {
-        type: "datum",
-        version: 1,
-        params: { kind: "offset", base: "XY", offset_mm: 5 },
-      },
-      expected_tree_version: version,
-    });
+    //
+    // A body is built FIRST, and its dot asserted, so this case cannot pass by
+    // the build gate's silence instead of the table's. Both features land the
+    // same way, in the browser, one after the other: the only difference the
+    // assertions can be reading is WHICH VERB landed last.
+    await partWithBody(page, "No proposal");
+    await expect(accented(page)).toHaveCount(1);
 
-    await page.goto(`/parts/${part.id}`);
-    await expect(page.getByTestId("feature-tree")).toBeVisible();
-    await expect(page.getByTestId("new-fillet")).toBeEnabled({
-      timeout: 30_000,
-    });
+    await page.getByTestId("tool-datum").click();
+    await expect(page.getByTestId("datum-editor")).toBeVisible();
+    await page.getByTestId("datum-offset").fill("5");
+    await page.getByTestId("datum-submit").click();
+    await expect(
+      page.getByTestId("feature-row").filter({ hasText: "Plane1" }),
+    ).toBeVisible({ timeout: 30_000 });
 
     // The body is still there and MODIFY is still unlocked — this is silence,
     // not an absent band.
@@ -305,39 +333,16 @@ test.describe("the band proposes one next verb", () => {
     // The repeat row, end to end: boss-then-cut is the common pair, so once a
     // body exists an extrude proposes another extrude rather than the
     // first-body Fillet.
-    const { token } = await seedSession(page);
-    const part = await createPartViaApi(page, token, "Repeat row");
-    let version = await seedCube(page, token, part.id);
-    const sketch = await createFeature(page, token, part.id, {
-      name: "Sketch2",
-      // The same 20mm square, extruded as a CUT this time: the second body-
-      // affecting extrude is all this case needs, and reusing the shared
-      // fixture keeps it from drifting from every other seeded part.
-      feature: { type: "sketch", version: 1, params: SQUARE_20 },
-      expected_tree_version: version,
-    });
-    version = sketch.tree_version;
-    await createFeature(page, token, part.id, {
-      name: "Extrude2",
-      feature: {
-        type: "extrude",
-        version: 1,
-        params: {
-          profile: { kind: "feature", feature_id: sketch.feature.id },
-          distance_mm: 30,
-          operation: "cut",
-          direction: "normal",
-        },
-      },
-      expected_tree_version: version,
-    });
+    // Both extrudes are built here, one after the other: the first is what
+    // `partWithBody` does (and proposes Fillet, the first-body row), the second
+    // is this case's subject.
+    await partWithBody(page, "Repeat row");
+    await expect(page.getByTestId("new-fillet")).toHaveAttribute(
+      "data-next-step",
+      "true",
+    );
 
-    await page.goto(`/parts/${part.id}`);
-    await expect(page.getByTestId("feature-tree")).toBeVisible();
-    await expect(page.getByTestId("new-extrude")).toBeEnabled({
-      timeout: 30_000,
-    });
-
+    await buildExtrude(page, "30");
     await expect(accented(page)).toHaveCount(1);
     await expect(page.getByTestId("new-extrude")).toHaveAttribute(
       "data-next-step",
@@ -346,6 +351,33 @@ test.describe("the band proposes one next verb", () => {
     await expect(page.getByTestId("new-extrude")).toHaveAccessibleDescription(
       "Another extrude on this body",
     );
+  });
+
+  test("a part you merely OPEN proposes nothing, however new its last feature", async ({
+    page,
+  }) => {
+    // W2 review, finding 6. The proposal was `nextStepFor(tree.features)` and
+    // nothing else, so it was a property of the tree's SHAPE — open a part
+    // whose last live feature is an extrude, from last week, and the band wore
+    // the dot and said "Round the new body's edges" about work long finished.
+    // Dismissal keys on the feature id in component state, so it came back on
+    // every navigation, forever. A proposal that never retires is furniture.
+    const part = await partWithBody(page, "Reopened");
+    // The SAME part, the SAME tree, one reload apart: the only thing that
+    // changes across this line is whether the session watched the build.
+    await expect(accented(page)).toHaveCount(1);
+
+    await page.reload();
+    await expect(page.getByTestId("feature-tree")).toBeVisible();
+    await expect(page.getByTestId("new-fillet")).toBeEnabled({
+      timeout: 30_000,
+    });
+    await expect(accented(page)).toHaveCount(0);
+
+    // …and the band is otherwise entirely alive, so this is silence rather
+    // than an unrendered band — the same discriminator the datum case uses.
+    await expect(page.getByTestId("new-hole")).toBeEnabled();
+    expect(part).not.toBe("");
   });
 
   test("founder frame — the band after a body builds", async ({ page }) => {

@@ -138,7 +138,7 @@ import { BodiesPanel } from "../components/BodiesPanel";
 import { ChamferEditor } from "../components/ChamferEditor";
 import { CombineEditor } from "../components/CombineEditor";
 import { CreateStrip } from "../components/CreateStrip";
-import { nextStepFor } from "../components/nextStep";
+import { useNextStepAfterBuild } from "../components/useNextStep";
 import {
   ChromeRail,
   ChromeRailProvider,
@@ -1530,6 +1530,16 @@ export function PartPage() {
   // ---------------------------------------------------------------------
   const features = tree.data?.features ?? [];
   const sketchProfiles = useMemo(() => profileOptions(features), [features]);
+  /**
+   * FLOW-B3 — what the band proposes now that a feature has landed, or null.
+   *
+   * Gated on a BUILD, not on the shape of the tree (W2 review, finding 6):
+   * `useNextStepAfterBuild` arms only for a feature this workspace watched
+   * arrive, so opening a part whose last feature is an old extrude proposes
+   * nothing. The table it wraps — which verb follows which, and the much longer
+   * list of verbs that propose NOTHING — is `components/nextStep.ts`.
+   */
+  const nextStep = useNextStepAfterBuild(tree.data?.features);
   // The part's body set, replayed from the tree (multi-body §MB-1) — drives the
   // Bodies panel and the Combine tool's target/tool pickers. One body is the
   // common case; a `merge: false` add (or an import) starts a second.
@@ -5010,12 +5020,7 @@ export function PartPage() {
               exportPartial={partExport.gate.partial}
               exportPartialQualifier={partExport.gate.qualifier ?? undefined}
               exportState={partExport.gate.state}
-              // FLOW-B3: what to propose now that a feature has landed. Derived
-              // from the tree, not from an event — the tree already says which
-              // feature built last, and an event would need somewhere to live
-              // and something to clear it. The table (and the much longer list
-              // of verbs that propose NOTHING) is `components/nextStep.ts`.
-              nextStep={nextStepFor(tree.data?.features ?? [])}
+              nextStep={nextStep}
             />
           ) : (
             <SketchStrip
