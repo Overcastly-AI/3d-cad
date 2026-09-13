@@ -2,21 +2,35 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-09-13 (backlog-groomer pass 20) — the
+**Current focus, corrected 2026-09-13 (backlog-groomer pass 21) — the
 frontend-redesign programme (`docs/design/REDESIGN-ROADMAP.md`) is the active
-work.** W0 (stop losing the user's work) and W2 (the next step proposes
-itself) are both CLOSED; the W0 code review's blocking finding and two more
-are fixed (`da98622`); W1 (the scene reads as CAD) landed CRAFT-1/2/3/6, with
-CRAFT-4/5 still open in that doc's own queue. Six new items filed to BACKLOG
-from this session's findings, one of them (MINIO-LICENSE-REVIEW-1) a
-licensing decision rather than a build task — see BACKLOG Ready queue. The
-prior CI-4/K2/PBT-1 focus (pass 19, 2026-08-29, below) is CLOSED and
-superseded; full detail moved to `docs/CHANGELOG.md`. Also fixed this pass:
-MinIO Inc. withdrew its binary images from Docker Hub entirely (not a rate
-limit — the repo itself now reads source-only), which had been failing three
-CI jobs on every commit; repointed to quay.io (`bd58416`) at the last tags the
-project's own Helm chart still ships. `scripts/check-ui-parity.py`'s 84/85
-operations / 97/109 literals reading is unchanged.
+work; Waves 0-2 are CLOSED, each after its own code-review pass, and a
+cross-wave QA pass has now assembled all three and found what no per-item
+review can: one real regression (a hidden body kept 667px of its GL face
+outline, e2e-red at the branch tip since `57d3bf8`) plus three collisions in
+one corner and on one key, all four now fixed (`0c3e363`, `76a214c`,
+`d0a3190`, `dbb09fb` — see "CROSS-WAVE QA + W2 CODE REVIEW CLOSED" below). W1's
+CRAFT-4/5 (cursor states, contact shadow) remain open in that doc's own
+queue. **Next up is Wave 3 — direct manipulation:** `CRAFT-8` lands first and
+alone (extracts `<ParametricGauge>` out of `ExtrudeDragHandle` as a pure
+refactor — existing e2e green, no pixel may move), then `CRAFT-7/9/10/11`
+re-express extrude/fillet/chamfer/shell/hole/revolve/draft/pattern through it
+— the gap CLAUDE.md calls "the single biggest 'does not feel like a modeling
+tool' gap we have, bigger than any missing feature." **`FLOW-JOURNEY-GAP-1`
+is still the honest headline number: the canonical part-creation journey
+measures 30 gestures, UNCHANGED by Wave 2** — `full-flow.spec.ts` still walks
+to the toolbar rather than using the accelerators/chip/accent W2 shipped, so
+read that as "shortcuts exist," not "creating a part got cheaper." The
+founder has asked this branch be merged to `main` ("it's looking better but
+we still have a long way to go"); the merge is blocked only on CI finishing.
+Also fixed this pass, unrelated to the redesign: MinIO Inc. withdrew its
+binary images from Docker Hub entirely (not a rate limit — the repo itself
+now reads source-only), which had been failing three CI jobs on every commit;
+repointed to quay.io (`bd58416`) at the last tags the project's own Helm
+chart still ships. The prior CI-4/K2/PBT-1 focus (pass 19, 2026-08-29, below)
+remains CLOSED and superseded; full detail moved to `docs/CHANGELOG.md`.
+`scripts/check-ui-parity.py`'s 84/85 operations / 97/109 literals reading is
+unchanged.
 
 **W0 CLOSED (frontend-redesign wave 0, 2026-09-12) — the sketcher stops eating
 the user's work, on two separate paths.** Both items are P0s from
@@ -171,6 +185,75 @@ move focus when an element is disabled. It now asserts the mechanism in jsdom
 and measures the focus in Chromium.
 
 Gates: `just lint` 0; 2330 unit tests; both e2e specs 6/6 on the real stack.
+
+**CROSS-WAVE QA + W2 CODE REVIEW CLOSED (2026-09-13) — the programme's own
+review found what per-item review structurally cannot: four defects only
+visible with all three waves assembled, plus one regression the CRAFT-1/2/3
+merge itself introduced.**
+
+**W2 code review** (`6602ccd`, `356ac66`, `46c8e6f`, `f317ac5`, `6de8fdf`,
+`b7b7f12`, `bbb5ed3`) found the SAME "each half correct, wrong together"
+shape W0REV's review found, on a different surface: `ShortcutSheet`'s key
+card had no `useModalLayer` registration, so `? then E` opened Extrude
+BEHIND the open card, and a focused button's own Enter/Space was stolen by
+an `isTypingTarget` guard that does not cover buttons. `6602ccd` gives
+`lib/modalGate.ts` a third registrant and an `activationKeyOwner` seam for
+focused controls, plus an alarm that fires the instant a key reaches the
+workspace while an `aria-modal="true"` element is on screen (22 pre-seam
+`window` listeners named, not yet migrated — BACKLOG `MODALGATE-MIGRATION-1`
+stays open). Five smaller findings, all fixed: a solve chip's one-shot could
+be spent on an offer never actually DRAWN (`356ac66`); the chip's seed could
+open the wrong sketch if a tree refetch/undo raced the click (`46c8e6f`); a
+coverage floor was silently vacuous — deleting the row it claimed to protect
+still passed `ShortcutSheet.test.tsx` 7/7, the real guard is
+`shortcuts/registry.test.ts` (`f317ac5`); `REPEAT_ROWS` was keyed by bare
+`string` instead of the generated feature-type union (`6de8fdf`); the
+next-verb accent read `tree.data` only, so an extrude built last week still
+wore "round it now" (`b7b7f12`).
+
+**Cross-wave QA** (`debfea2`, full evidence in `docs/QA-REVIEW.md`
+2026-09-13) assembled W0+W1+W2 and found one real regression plus three
+genuine collisions, all deterministic over 3 runs against the real stack:
+
+- **P1, a real regression, not a census artifact:** CRAFT-1's edge-overlay
+  swap (crease detector -> real face partition) gave a latent hole in
+  `ModelMesh`'s two edge-material paths enough ink to draw — hiding a body
+  left 667px of its brass face-boundary outline floating in the void where
+  the body used to be. Bisected to `57d3bf8` across four commits in the same
+  container; the branch tip was e2e-RED since. DOM assertions all passed —
+  only the GL ink was wrong, the half a DOM assertion cannot see. Fixed by
+  deriving both edge-material paths from one `litFeatureFaces` precedence
+  (`0c3e363`).
+- **P2:** the solve-proposal chip is the LATER `z-hud` sibling of the
+  reference cube, so it rendered OVER it — 29% of the cube's seat taken,
+  including its exact centre, and a real click there opened Extrude instead
+  of reorienting. `placeProposal` now tries four quadrants against
+  `measureChrome`'s live `data-viewport-chrome` rects, and a click landing on
+  chrome no longer burns the one-shot offer (`76a214c`).
+- **P2:** CRAFT-6 kept the cube mounted through plane-pick and sketch, but
+  its `z-hud` layer sits ABOVE every pick mark by construction — 5 of 6
+  `plane-pick-face-N` marks and the surface pick itself went dead under it
+  with a body panned into that corner. The cube now yields its pointer while
+  a pick is ARMED and takes it back the instant the pick ends;
+  orbit/pan/zoom untouched (`d0a3190`). It deliberately does NOT extend to
+  ordinary drawing — sketch datum handles are drei `Html`, not
+  `armedPicks`-counted `PickMark` — which is a real trade, not an oversight;
+  filed as a product decision, BACKLOG `CUBE-SKETCH-OCCLUDE-1`.
+- **P3:** one Escape backed out TWO steps in every state with two things to
+  back out of — three uncoordinated `window` listeners with no declared
+  order, decided by mount time. `lib/modalGate.ts` now declares one cascade
+  (`drag > offer > mark`) and the cascade runs exactly one rung (`dbb09fb`).
+
+Checked and CLEAN, which is a result and not an absence: no pixel-threshold
+contamination across 110 tests over 19 census specs; no origin-triad pick
+interference (124 tests); the chip is a real WCAG-sized touch target. Two
+e2e assertions were ALSO found unable to fail and fixed in the same pass —
+the same "assertion cannot observe the failure mode" family CLAUDE.md
+already tracks at length: a deselect-on-empty-click park stated in scene MM
+at a screen point the cube's corner had since grown into (`8646bd9`), and a
+CRAFT-3 census that read zero for a fully-drawn 1px line antialiased across
+two columns, a coin-flip this container loses 4 of 6 times on a fresh load
+(`d712f20`).
 
 **W1 PARTIALLY LANDED (frontend-redesign wave 1, 2026-09-13) — CRAFT-1/2/3/6
 shipped; CRAFT-4/5 (cursor states, contact shadow) remain open in

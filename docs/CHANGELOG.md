@@ -5,6 +5,25 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-09-13 (groom pass 20 — pruned from BACKLOG.md pass 21)
+
+- **Groom pass 20 — the frontend-redesign programme (W0/W0REV/W2/W1-partial)
+  was shipping unticked on BACKLOG** (the orchestrator had been ticking
+  ROADMAP directly); reconciled the wave log (FLOW-B1/B2/B3, CRAFT-1/2/3/6,
+  W0REV fix `da98622`). Confirmed the seven W0REV findings
+  (W0REV-3/5/6/7/9/10/11) still open and accurate, not re-filed. Filed six
+  items: MINIO-LICENSE-REVIEW-1 (P1, licensing-custodian/founder decision —
+  MinIO is AGPL-3.0 with no `docs/LICENSING.md` entry, and `bd58416`'s
+  quay.io repoint may force building our own image someday), FLOW-JOURNEY-
+  GAP-1 (the canonical journey doesn't exercise W2's own shortcuts, so the
+  30-gesture headline is unmeasured on the path anyone takes),
+  GRIDMINOR-TONEMAP-1 (a craft fix that trades one gate's pass for
+  another's fail), AXISLABEL-ORTHO-1 (axis labels absent from the DOM in
+  front-ortho with datums on), VIEWFRONT-ORTHO-DECISION-1 (a named view
+  silently switches projection — product decision), MODALGATE-MIGRATION-1
+  (one gate, one registrant). Also ticked the MinIO Docker-Hub-withdrawal CI
+  fix (`bd58416`) into ROADMAP only. No scorecard row flipped this pass.
+
 ## 2026-08-29/09-04 (groom pass 19 + interim batch — pruned from BACKLOG.md pass 20)
 
 - **2026-09-04 — ARC-BRANCH-1 closed (kernel-architect):** an annihilated
