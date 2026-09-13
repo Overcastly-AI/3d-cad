@@ -92,11 +92,18 @@ for (const size of [
     // first and then MUTATION-TESTED by deleting a row from the registry: it
     // passed, because no hand-picked floor can notice 62 becoming 61, and a
     // floor that cannot fail for its own reason is this repo's most-repeated
-    // defect. The real gate already exists one layer down and is strictly
-    // stronger: `ShortcutSheet.test.tsx` renders the sheet and asserts every
-    // group and every row that `shortcutGroups()` declares, derived from the
-    // registry rather than from a number somebody typed. This spec is about
-    // FIT, and it says so by not pretending to cover completeness too.
+    // defect. This spec is about FIT, and it says so by not pretending to cover
+    // completeness too.
+    //
+    // THE GATE THAT ACTUALLY BITES IS `src/shortcuts/registry.test.ts` (W2
+    // review, finding 4 — this comment used to name `ShortcutSheet.test.tsx`
+    // and call it "strictly stronger", which is false and would have talked the
+    // next reader out of a floor that was load-bearing). Measured: delete a row
+    // from `PART_CREATE_SHORTCUTS` and `ShortcutSheet.test.tsx` reports 7/7
+    // PASSED, because the sheet and `shortcutGroups()` are both derived from
+    // the registry and move together — it is a gate agreeing with itself. The
+    // same deletion reddens SEVEN cases in `registry.test.ts`, whose KEYED and
+    // FLOW-B2 lists are hand-enumerated and therefore an independent reading.
 
     // The MODELLING block specifically: the reason the card exists this wave.
     const modelling = page.locator("[data-group='Modelling']");

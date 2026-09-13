@@ -165,6 +165,25 @@ describe("the modelling letters", () => {
     "mirror",
   ];
 
+  it("KEYED is the whole table, so a thirteenth verb cannot arrive unwatched", () => {
+    // KEYED stays HAND-TYPED on purpose — it is the independent oracle for the
+    // sheet's print order further down, and a list derived from the table could
+    // only ever agree with the table (which is precisely the weak gate the W2
+    // review found one file over). What hand-typing leaves thin is the other
+    // direction: every assertion in this block WALKS KEYED, so a thirteenth
+    // keyed verb added to the table and not here is met only by the three count
+    // assertions, which say `expected 13 to be 12` — that something moved, never
+    // WHICH verb, and nothing at all about a swap. Measured by adding a real
+    // row: this case names `thicken`; without it the same mutation reddens 3
+    // cases and no message contains the word. A set comparison in BOTH
+    // directions closes that and keeps the independence — a guard written
+    // against one failure tends to encode that failure's direction, and this
+    // repo has paid for that twice.
+    expect([...PART_CREATE_SHORTCUTS].map((entry) => entry.id).sort()).toEqual(
+      [...KEYED].sort(),
+    );
+  });
+
   it("binds all five of the most-used verbs, to the letters W2 chose", () => {
     expect(PART_CREATE_SHORTCUTS).toHaveLength(KEYED.length);
     for (const [id, key] of FLOW_B2) {
