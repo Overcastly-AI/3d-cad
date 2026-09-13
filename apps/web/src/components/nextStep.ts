@@ -11,7 +11,7 @@
  * This module feeds NONE of those three. It feeds the fourth *density* of the
  * first one, not a fourth vocabulary: a 32px band cell has no room for a leader
  * and a stamped chip, so the band's contribution is the leader's own ANCHOR DOT
- * and nothing else — one mark, two densities (`viewport/SketchProposal.tsx`
+ * and nothing else — one mark, two densities (`viewport/ProposalNote.tsx`
  * draws the same dot at r=2 with a carbide halo). It deliberately carries no
  * word, no key chip and no colour of its own; the tool it lands on already has
  * a glyph, a name and a tooltip, and the dot only says "this one next".

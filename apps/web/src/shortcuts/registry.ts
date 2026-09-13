@@ -94,14 +94,20 @@ export const KEY_SNAP = "g";
 /** Arm the measure tool — `PartPage`. */
 export const KEY_MEASURE = "m";
 /**
- * Accept the sketch proposal the viewport is offering — `SketchProposal`.
+ * Accept whatever the viewport's leader note is offering — `ProposalNote`.
  *
- * `Enter` rather than a letter, for two reasons. Every bare letter in this
- * workspace is already a create verb (the table below), and more importantly
- * the binding is not "start a sketch": it ACCEPTS a specific proposal that is
- * on screen at that moment, naming a specific face. Accept is what Enter means
- * everywhere else in the product, and a proposal that could be committed by
- * some other key would be teaching a second accept vocabulary for one surface.
+ * TWO MOMENTS, ONE NOTE, and therefore one key (FLOW-B1): rest on a face and
+ * the note offers the SKETCH that face affords; solve a sketch and it offers
+ * the EXTRUDE that profile affords. Both are taken by `Enter`, and both are
+ * also taken by the offered VERB'S OWN LETTER, which the chip prints.
+ *
+ * `Enter` rather than a letter alone, for two reasons. Every bare letter in
+ * this workspace is already a create verb (the table below), and more
+ * importantly the binding is not "start a sketch": it ACCEPTS a specific
+ * proposal that is on screen at that moment, naming a specific noun. Accept is
+ * what Enter means everywhere else in the product, and a proposal that could be
+ * committed by some other key would be teaching a second accept vocabulary for
+ * one surface.
  *
  * It is live ONLY while the note is showing, which is why the chip prints the
  * glyph itself: the fastest way to teach a keyboard path is to put it on the
@@ -358,9 +364,14 @@ export function shortcutGroups(): ShortcutGroup[] {
         })),
         { keys: KEY_MEASURE.toUpperCase(), action: "Measure" },
         {
+          // The sheet is the app's only keyboard reference, so this row has to
+          // describe what the key now DOES: since FLOW-B1 the note is written
+          // by two moments (a face under the pointer, and a sketch that just
+          // solved), and its verb's own letter takes it as well as Enter. The
+          // old wording named only the face half and only Enter.
           keys: KEY_ACCEPT_PROPOSAL,
-          action: "Sketch on the face under the pointer",
-          when: "while the proposal is showing",
+          action: "Take the offer the viewport is showing",
+          when: "a leader note — its printed letter does the same",
         },
         {
           keys: KEY_ISOLATE.toUpperCase(),

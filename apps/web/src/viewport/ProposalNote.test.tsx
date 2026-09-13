@@ -147,3 +147,33 @@ describe("the solve offer's one-shot", () => {
     expect(layer()).toHaveAttribute("data-proposal-pending", "s2");
   });
 });
+
+/**
+ * THE SINGLE-WRITER INVARIANT, which was real and unasserted (W2 review, last
+ * item). `putNote` is the only thing allowed to write the note, because a write
+ * also updates the ref every DOM listener reads and withdraws the ambient
+ * offer; a bare `setNote` would do neither, silently, with the chip still
+ * looking correct on screen. The state setter is now named
+ * `setNoteThroughPutNote`, so writing past it reads as wrong at the call site,
+ * and a DEV layout-effect compares the ref against the state.
+ *
+ * WHAT THIS CASE IS AND IS NOT, said out loud rather than implied: it is the
+ * check's NEGATIVE CONTROL — the ambient path writes no note, and the alarm
+ * stays quiet, so the check does not cry wolf. It does NOT prove the alarm can
+ * fire. Measured: reverting `putNote(null)` to a bare setter in the dwell's
+ * withdraw branch leaves this file green, because every bare-write site is on
+ * the POINTER path, and reaching that in jsdom needs a full `OverlayFace`
+ * fixture, fake timers for the dwell, and a synthetic pointermove — a fixture
+ * heavier than the thing it guards. The alarm's real theatre is the browser,
+ * where any future bare write reddens the console on the next commit.
+ */
+describe("the note's single writer", () => {
+  it("does not cry wolf while the ambient note is the one on screen", () => {
+    const complaint = vi.spyOn(console, "error").mockImplementation(() => {});
+    renderNote(true);
+    solve("s1");
+    publishAnchor();
+    expect(screen.getByTestId("extrude-proposal")).toBeInTheDocument();
+    expect(complaint).not.toHaveBeenCalled();
+  });
+});

@@ -3,7 +3,7 @@
  * top-right corner.
  *
  * IT IS THE LEADER NOTE'S ANCHOR DOT, at the band's density. The viewport's
- * proposal (`viewport/SketchProposal.tsx`) draws an r=2 brass dot with a
+ * proposal (`viewport/ProposalNote.tsx`) draws an r=2 brass dot with a
  * carbide halo on the exact point its note is about; a 32px band cell has no
  * room for the leader and the stamped chip that follow it, so the band keeps
  * the anchor and drops the rest. One mark, two densities — NOT a second visual

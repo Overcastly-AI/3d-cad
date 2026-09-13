@@ -76,7 +76,14 @@ import {
   proposal as proposalTokens,
   VerbGlyph,
 } from "@loft/design";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import type { OverlayFace, PlanarFaceSignature } from "../api/parts";
 import { faceLabel } from "../features/face";
@@ -162,11 +169,29 @@ export function ProposalNote({
   const chipRef = useRef<HTMLButtonElement>(null);
   /** Last pointer position in CLIENT coords — a ref, so moves never re-render. */
   const pointer = useRef<{ x: number; y: number } | null>(null);
-  const [note, setNote] = useState<FaceNote | null>(null);
+  // PRIVATE TO `putNote`. Every write to the note has to go through that one
+  // function, because a write also updates `noteRef` (the listeners' view of
+  // the note) and withdraws the ambient offer — a bare `setNote` would do
+  // neither, silently, and the note would still look right on screen.
+  const [note, setNoteThroughPutNote] = useState<FaceNote | null>(null);
   // The written note is read inside DOM listeners, which close over the render
   // that installed them; the ref is what keeps those listeners looking at the
   // CURRENT note instead of a stale one.
   const noteRef = useRef<FaceNote | null>(null);
+  // …and the invariant said out loud, checked where it can actually fail. A
+  // layout effect runs synchronously after commit, before any pointer event
+  // can write the ref again, so a disagreement here means the state was
+  // written past `putNote` and not that the two are momentarily out of step.
+  useLayoutEffect(() => {
+    if (import.meta.env.DEV && noteRef.current !== note) {
+      console.error(
+        "ProposalNote: `note` was written without `putNote` — the ref the DOM " +
+          "listeners read has diverged from the state the chip draws, so the " +
+          "leash, the dwell and the ambient offer's withdrawal are all acting " +
+          "on a note that is not the one on screen.",
+      );
+    }
+  });
 
   // --- the ambient (solve-triggered) offer ---------------------------------
   //
@@ -200,7 +225,7 @@ export function ProposalNote({
   const putNote = useCallback(
     (next: FaceNote | null) => {
       noteRef.current = next;
-      setNote(next);
+      setNoteThroughPutNote(next);
       // THE PRIORITY RULE, in the one place both notes are known: a
       // pointer-addressed note displaces the ambient one permanently.
       if (next !== null) withdrawOffer();

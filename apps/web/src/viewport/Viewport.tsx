@@ -610,9 +610,13 @@ function CameraRig({
  * While the SKETCHER owns the camera the rig holds perspective: the sketch rig
  * frames a plane by parking the camera at a computed DISTANCE
  * (`SketchScene.sketchCameraDistanceMm`), which a parallel camera does not
- * answer to. Nothing is hidden by this — the view rail and the cube unmount
- * with `viewNav`, so the projection control is not on screen during authoring —
- * and the modeller's choice is restored the moment the camera comes back.
+ * answer to. Only the view RAIL unmounts with `viewNav`, which is what keeps
+ * the projection control off screen during authoring; the reference CUBE
+ * persists (CRAFT-6 — `components/AuthoringViewCube`), because orientation
+ * matters more on a plane in space, not less, and a cube facet pick only
+ * orients. The modeller's choice is restored the moment the camera comes back,
+ * and `AuthoringViewCube` freezes it meanwhile so a facet pick cannot bank an
+ * orthographic it would cash on the way out.
  */
 function ProjectionRig({
   owns,
