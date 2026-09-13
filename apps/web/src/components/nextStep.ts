@@ -61,9 +61,25 @@ export interface NextStepProposal {
  *
  * `label` is the band's own word for the tool, lower-cased into the caption, so
  * the proposal speaks the name the button wears rather than a feature type.
+ *
+ * KEYED BY THE GENERATED UNION, not by `string` (W2 review, finding 5). The
+ * keys are feature TYPES, and `FeatureResponse["feature"]["type"]` is a real
+ * union that arrives from `packages/contracts` — so with `string` a mistyped
+ * key was a row that could never match, and the unit test, using the same
+ * literal, could never see it. That is the `extra="ignore"` trap in TypeScript
+ * clothing: everything downstream agrees with the wrong input. All six keys
+ * check out against `documents.openapi.json`; the union makes the seventh a
+ * compile error instead of a silently dead row. `Partial`, because most of the
+ * union deliberately proposes nothing, and `noUncheckedIndexedAccess` keeps the
+ * `row === undefined` branch below honest either way.
  */
 const REPEAT_ROWS: Readonly<
-  Record<string, { readonly tool: NextStepTool; readonly label: string }>
+  Partial<
+    Record<
+      FeatureResponse["feature"]["type"],
+      { readonly tool: NextStepTool; readonly label: string }
+    >
+  >
 > = {
   // boss-then-cut is the common pair
   extrude: { tool: "new-extrude", label: "Extrude" },
