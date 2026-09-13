@@ -174,8 +174,6 @@ async function chipOverTheCube(page: Page): Promise<Box> {
 }
 
 test.describe("the proposal chip and the reference cube share one corner", () => {
-  test.fail();
-
   test("the chip must not take the cube's clickable face", async ({ page }) => {
     const cube = await chipOverTheCube(page);
     const chip = await boxOf(page, "extrude-proposal");
@@ -235,6 +233,55 @@ test.describe("the proposal chip and the reference cube share one corner", () =>
       landsOn,
       "a pointer aimed at the reference cube's centre lands somewhere else",
     ).toBe("view-cube");
+  });
+
+  /**
+   * THE SECOND HALF OF THE SAME DEFECT, and the one a placement fix alone
+   * leaves standing: the offer is ONE-SHOT and `seen` is recorded at write
+   * time, so a viewport pointerdown that lands on the cube used to spend a
+   * sketch's extrude offer for the whole session — re-opening that sketch and
+   * re-solving it then offered nothing.
+   *
+   * Reaching for the reference cube to look at the profile you just solved is
+   * PREPARATION for taking the offer, not an abandonment of it, and this note's
+   * anchor re-projects per frame so it stays truthful across the view change.
+   * The rule is therefore about the TARGET, not about the camera: a gesture on
+   * something carrying `data-viewport-chrome` is a click on a control that
+   * floats over the scene, not a gesture on the scene. Orbiting, wheel-zooming
+   * and clicking geometry all still withdraw it.
+   */
+  test("a click on the cube steers the camera and keeps the offer", async ({
+    page,
+  }) => {
+    const cube = await chipOverTheCube(page);
+    const view = page.getByTestId("viewport");
+    const before = await view.getAttribute("data-camera-pos");
+
+    // A facet, not the seat's dead centre: the point of the case is that the
+    // camera really moved, so the click has to be one the cube acts on.
+    const fx = cube.x + cube.w / 2;
+    const fy = cube.y + cube.h * 0.22;
+    expect(
+      await resolvesAt(page, fx, fy),
+      "the facet this case clicks must belong to the cube",
+    ).toBe("view-cube");
+    await page.mouse.click(fx, fy);
+    await page.waitForTimeout(800);
+
+    const after = await view.getAttribute("data-camera-pos");
+    report("camera before -> after", `${before} -> ${after}`);
+    report(
+      "chip after a cube click",
+      String(await page.getByTestId("extrude-proposal").count()),
+    );
+    expect(
+      after,
+      "the click must actually steer the camera, or this case proves nothing",
+    ).not.toBe(before);
+    await expect(
+      page.getByTestId("extrude-proposal"),
+      "a click aimed at the camera widget spent the sketch's one-shot offer",
+    ).toHaveCount(1);
   });
 });
 
