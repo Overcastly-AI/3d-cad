@@ -16,10 +16,14 @@ import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  activationKeyOwner,
   installModalGate,
   isModalOpen,
+  liveGlobalKeyListeners,
   openModalLayer,
+  resetModalGateAlarmForTest,
   uninstallModalGateForTest,
+  useGlobalKeys,
   useModalLayer,
 } from "./modalGate";
 
@@ -75,7 +79,9 @@ function open(panel: HTMLElement | null, onKeyDown = vi.fn()) {
 afterEach(() => {
   for (const close of opened.splice(0)) close();
   installModalGate();
+  resetModalGateAlarmForTest();
   document.body.innerHTML = "";
+  vi.restoreAllMocks();
 });
 
 describe("the modal gate", () => {
@@ -198,5 +204,211 @@ describe("the modal gate", () => {
     // One keystroke reached the workspace: the one after unmount.
     expect(spies.windowCapture).toHaveBeenCalledTimes(1);
     expect(seen).toHaveLength(1);
+  });
+});
+
+/**
+ * THE W2 BLOCKING FINDING, in the shape a user meets it.
+ *
+ * The proposal note bound `window` in the capture phase with `preventDefault()`
+ * and guarded only on `isTypingTarget`, so `Enter` on a focused BUTTON — the
+ * key card's Close, the view rail's Fit, any band tool — accepted the offer and
+ * cancelled the button's own activation.
+ *
+ * Every case below puts focus on a real `<button>` and dispatches a real key
+ * event AT IT. A probe that dispatches on `document.body` passes against the
+ * defect and proves nothing: `body` is not a control, so the claim never
+ * applies and the old code looks correct.
+ */
+describe("the focused control's claim", () => {
+  /** A window listener registered the way a feature would now register one. */
+  function mountGlobal(
+    handler: (event: KeyboardEvent) => void,
+    options?: { capture?: boolean; whileTyping?: boolean },
+  ) {
+    function Listener() {
+      useGlobalKeys("a workspace shortcut", handler, options);
+      return null;
+    }
+    return render(<Listener />);
+  }
+
+  function focusedButton(): HTMLButtonElement {
+    const button = document.body.appendChild(document.createElement("button"));
+    button.textContent = "Fit";
+    button.focus();
+    return button;
+  }
+
+  function press(target: HTMLElement, key: string): KeyboardEvent {
+    const event = new KeyboardEvent("keydown", {
+      key,
+      bubbles: true,
+      cancelable: true,
+    });
+    target.dispatchEvent(event);
+    return event;
+  }
+
+  it("keeps Enter for the button the user is standing on", () => {
+    const accept = vi.fn();
+    mountGlobal(
+      (event) => {
+        event.preventDefault();
+        accept();
+      },
+      { capture: true },
+    );
+    const button = focusedButton();
+    const clicked = vi.fn();
+    button.addEventListener("click", clicked);
+
+    const event = press(button, "Enter");
+
+    expect(
+      accept,
+      "the global shortcut took Enter from a focused button",
+    ).not.toHaveBeenCalled();
+    // …and nothing cancelled the button's activation, which is the half the
+    // user actually sees: jsdom does not synthesise the click, so the assertion
+    // is on the cancellation rather than on the click itself.
+    expect(event.defaultPrevented).toBe(false);
+    expect(clicked).not.toHaveBeenCalled();
+  });
+
+  it("keeps Space too, and Enter on a link", () => {
+    const fired = vi.fn();
+    mountGlobal(fired);
+    const button = focusedButton();
+    press(button, " ");
+    const link = document.body.appendChild(document.createElement("a"));
+    link.href = "#somewhere";
+    link.focus();
+    press(link, "Enter");
+    expect(fired).not.toHaveBeenCalled();
+    // A link does NOT activate on Space, so the workspace may have that one.
+    press(link, " ");
+    expect(fired).toHaveBeenCalledTimes(1);
+  });
+
+  it("claims a role=button that is not a <button> at all", () => {
+    // `components/DrawingSheet.tsx` draws several as SVG `<g>`s. From the
+    // keyboard they are buttons, so they answer for Enter the same way.
+    const fired = vi.fn();
+    mountGlobal(fired);
+    const control = document.body.appendChild(document.createElement("div"));
+    control.setAttribute("role", "button");
+    control.tabIndex = 0;
+    control.focus();
+    press(control, "Enter");
+    expect(fired).not.toHaveBeenCalled();
+  });
+
+  it("does NOT claim a letter, so tool shortcuts still work from a button", () => {
+    // The negative control, and the reason the cases above can fail: if the
+    // seam swallowed everything while a button had focus, "the handler did not
+    // run" would be true of a seam that had simply stopped working. It is also
+    // the behaviour we want — `E` opens Extrude wherever focus happens to be.
+    const fired = vi.fn();
+    mountGlobal(fired);
+    press(focusedButton(), "e");
+    expect(fired).toHaveBeenCalledTimes(1);
+  });
+
+  it("stands down when its surface is not on screen", () => {
+    const fired = vi.fn();
+    function Listener({ armed }: { armed: boolean }) {
+      useGlobalKeys("an ambient note", armed ? fired : null);
+      return null;
+    }
+    const view = render(<Listener armed={false} />);
+    press(document.body, "e");
+    expect(fired).not.toHaveBeenCalled();
+    expect(liveGlobalKeyListeners()).not.toContain("an ambient note");
+
+    view.rerender(<Listener armed />);
+    expect(liveGlobalKeyListeners()).toContain("an ambient note");
+    press(document.body, "e");
+    expect(fired).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    press(document.body, "e");
+    expect(fired).toHaveBeenCalledTimes(1);
+    expect(liveGlobalKeyListeners()).not.toContain("an ambient note");
+  });
+
+  it("bails on a typing target and on an already-handled key", () => {
+    const fired = vi.fn();
+    mountGlobal(fired);
+    const field = document.body.appendChild(document.createElement("input"));
+    field.focus();
+    press(field, "e");
+    expect(fired).not.toHaveBeenCalled();
+
+    const handled = new KeyboardEvent("keydown", {
+      key: "e",
+      bubbles: true,
+      cancelable: true,
+    });
+    handled.preventDefault();
+    document.body.dispatchEvent(handled);
+    expect(fired).not.toHaveBeenCalled();
+  });
+
+  it("answers with the control itself, so a caller can say which one", () => {
+    const button = focusedButton();
+    const event = new KeyboardEvent("keydown", { key: "Enter" });
+    Object.defineProperty(event, "target", { value: button });
+    expect(activationKeyOwner(event)).toBe(button);
+  });
+});
+
+describe("the unheld-modal alarm", () => {
+  function keyDownOnTheWorkspace(): void {
+    document.body.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "e", bubbles: true }),
+    );
+  }
+
+  function openDialog(testid: string): HTMLElement {
+    const dialog = document.body.appendChild(document.createElement("div"));
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("data-testid", testid);
+    return dialog;
+  }
+
+  it("names a dialog that claims aria-modal and holds no layer", () => {
+    const complaint = vi.spyOn(console, "error").mockImplementation(() => {});
+    openDialog("shortcut-sheet");
+
+    keyDownOnTheWorkspace();
+
+    expect(complaint).toHaveBeenCalledTimes(1);
+    expect(complaint.mock.calls[0]?.[0]).toContain("shortcut-sheet");
+    expect(document.documentElement.getAttribute("data-modal-gate-leak")).toBe(
+      "shortcut-sheet",
+    );
+    // Once per offender: a per-keystroke flood is a thing people mute.
+    keyDownOnTheWorkspace();
+    expect(complaint).toHaveBeenCalledTimes(1);
+  });
+
+  it("is silent once that dialog holds the keyboard", () => {
+    const complaint = vi.spyOn(console, "error").mockImplementation(() => {});
+    const dialog = openDialog("shortcut-sheet");
+    open(dialog);
+    keyDownOnTheWorkspace();
+    expect(complaint).not.toHaveBeenCalled();
+    expect(document.documentElement.hasAttribute("data-modal-gate-leak")).toBe(
+      false,
+    );
+  });
+
+  it("is silent when nothing claims to be modal", () => {
+    const complaint = vi.spyOn(console, "error").mockImplementation(() => {});
+    document.body.appendChild(document.createElement("div"));
+    keyDownOnTheWorkspace();
+    expect(complaint).not.toHaveBeenCalled();
   });
 });

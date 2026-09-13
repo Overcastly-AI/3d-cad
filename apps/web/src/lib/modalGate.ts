@@ -1,8 +1,53 @@
 /**
- * THE MODAL GATE — while a modal is open, it owns the keyboard. One thing,
- * consulted by nobody, forgettable by nobody.
+ * WHO OWNS THIS KEYSTROKE — the one module that answers it, for every surface.
  *
- * ## The defect this exists to delete
+ * It holds three answers, in descending strength, and nothing else in the app
+ * may hold a fourth:
+ *
+ *   1. **A MODAL LAYER** ({@link useModalLayer}) — while one is open it owns
+ *      every key, enforced by a window-capture shield that stops the event dead
+ *      before any other listener exists. Consultation is automatic, so there is
+ *      nothing for a future listener to forget.
+ *   2. **THE FOCUSED CONTROL** ({@link activationKeyOwner}) — `Enter`/`Space`
+ *      on a focused button, link or `[role=button]` belong to that control, not
+ *      to a global shortcut. This one CANNOT be enforced by the shield (see the
+ *      "why the second answer is a seam, not a shield" section below), so it is
+ *      enforced at the registration seam instead.
+ *   3. **THE WORKSPACE** — everything else, through {@link useGlobalKeys},
+ *      which is how a window-level shortcut gets 1 and 2 for free.
+ *
+ * W2 review, blocking finding: `viewport/ProposalNote.tsx` bound `keydown` on
+ * `window` with `{ capture: true }` and `preventDefault()`, guarded only by
+ * `isTypingTarget`. Pressing `?` for the key card and then `E` — the row the
+ * card itself teaches — opened the Extrude editor BEHIND the open sheet; and
+ * `Enter` on a focused button (the sheet's own Close, the view rail's Fit, any
+ * band tool) accepted the proposal and cancelled the button's activation, so
+ * the control the user was standing on did nothing. Both are this file's
+ * subject, and both had already been fixed here once for the exit prompt: the
+ * gate worked, but `useModalLayer` had exactly ONE caller in app code, so the
+ * general fix had generalised to one surface.
+ *
+ * ## Why the second answer is a seam, not a shield
+ *
+ * The obvious move is to extend the shield: claim `Enter`/`Space` for the
+ * focused control and `stopImmediatePropagation()`. Measured, that trades a
+ * keyboard theft for a keyboard BREAK. Stopping propagation at window capture
+ * also stops React's root delegation, so it silences the control's OWN handlers
+ * and those of every ancestor — and two real ones would go with it:
+ * `packages/design`'s `Flyout` trigger implements `Enter`/`Space` in its React
+ * `onKeyDown`, and every feature editor puts Enter-applies on the FORM, which a
+ * focused button inside it (`Cut`, `Cancel`) legitimately fires through. Those
+ * ancestors are in the control's own context and are exactly the code that
+ * SHOULD run. A window-level listener that has never heard of the control is
+ * not, and that is the distinction the shield cannot draw but a registration
+ * seam can.
+ *
+ * So: forgetting is made loud rather than impossible here. `useGlobalKeys` is
+ * the easy path (it is shorter than the raw listener it replaces), and
+ * `modalGate.audit.test.ts` walks `apps/web/src` for raw `addEventListener
+ * ("keydown")` calls and fails naming any file that is not on its list.
+ *
+ * ## The modal gate proper — the defect it exists to delete
  *
  * W0 review, finding 1 (blocking): with the exit prompt open and the draw-
  * dimension strip armed behind it, Enter on the focused "Save sketch, then
@@ -79,6 +124,8 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import type { RefObject } from "react";
 
+import { isTypingTarget } from "./isTypingTarget";
+
 /** A key no user has and no handler acts on — the probe's own signature. */
 const PROBE_KEY = "ModalGateProbe";
 
@@ -111,7 +158,10 @@ function topLayer(): ModalLayer | undefined {
 }
 
 function shield(event: Event): void {
-  if (layers.length === 0) return;
+  if (layers.length === 0) {
+    if (event.type === "keydown") warnAboutUnheldModals();
+    return;
+  }
   // THE GATE. Everything else in the app is downstream of this line.
   event.stopImmediatePropagation();
   if (probing) return;
@@ -190,6 +240,63 @@ function verifyGateOwnsTheKeyboard(layer: ModalLayer): void {
 }
 
 /**
+ * THE ALARM FOR THE FAILURE THE PROBE ABOVE CANNOT SEE: a surface that says it
+ * is modal and never took the keyboard.
+ *
+ * `verifyGateOwnsTheKeyboard` watches the shield. It has nothing to say about a
+ * dialog that simply never registered — which is the W2 blocking finding, and
+ * which had been true of `ShortcutSheet` since the day it shipped: `role=
+ * "dialog" aria-modal="true"` on screen, every workspace shortcut still live
+ * behind it. Nothing in the DOM, the tests or the types objected.
+ *
+ * `aria-modal="true"` is the element's own promise that everything outside it
+ * is inert. So the moment a keystroke is about to reach the workspace while
+ * such an element is in the document, that promise is being broken, and this
+ * says so by name. It runs only when NO layer is open (i.e. only when the
+ * promise can be broken), and reports each offender once — a per-keystroke
+ * console flood is a thing people mute.
+ *
+ * It does not throw: this runs inside a live event dispatch, where a throw is
+ * swallowed by the browser's dispatch loop and reports nothing useful. It
+ * `console.error`s and stamps `<html data-modal-gate-leak>` so a Playwright
+ * spec, a screenshot and a developer's console all show the same fact.
+ */
+const reported = new Set<string>();
+
+function warnAboutUnheldModals(): void {
+  if (typeof document === "undefined") return;
+  const claimant = document.querySelector('[aria-modal="true"]');
+  if (claimant === null) {
+    // The stamp tracks the CURRENT state, so a fixed (or merely closed) dialog
+    // clears it — a stale marker is a false alarm a spec would have to learn to
+    // ignore, which is how an alarm stops being one.
+    document.documentElement.removeAttribute("data-modal-gate-leak");
+    return;
+  }
+  const name =
+    claimant.getAttribute("data-testid") ??
+    claimant.getAttribute("aria-label") ??
+    claimant.tagName.toLowerCase();
+  document.documentElement.setAttribute("data-modal-gate-leak", name);
+  if (reported.has(name)) return;
+  reported.add(name);
+  console.error(
+    `modal gate: "${name}" is on screen with aria-modal="true" but holds no ` +
+      `keyboard layer, so every workspace shortcut is still live behind it ` +
+      `(W2 review, blocking finding). Call useModalLayer() in that component, ` +
+      `or drop the aria-modal claim if it is not modal.`,
+  );
+}
+
+/** The gate's own test seam: forget what has already been reported. */
+export function resetModalGateAlarmForTest(): void {
+  reported.clear();
+  if (typeof document !== "undefined") {
+    document.documentElement.removeAttribute("data-modal-gate-leak");
+  }
+}
+
+/**
  * Open a layer. Returns the close — call it exactly once; a second call is a
  * no-op rather than a pop of somebody else's layer.
  */
@@ -245,4 +352,138 @@ export function useModalLayer(
       }),
     [name, panelRef],
   );
+}
+
+// --- THE FOCUSED CONTROL, AND THE SEAM EVERY GLOBAL SHORTCUT REGISTERS THROUGH
+
+/**
+ * Controls the keyboard activates with `Enter` OR `Space`.
+ *
+ * Both the native elements and the ARIA ones, because the question this answers
+ * is "would the user expect this keystroke to press the thing they are standing
+ * on", and a `[role=button]` promises exactly that to a screen-reader user —
+ * `components/DrawingSheet.tsx` draws several as SVG `<g>`s with their own key
+ * handlers. Splitting native from ARIA here would answer differently for two
+ * controls that look identical from the keyboard.
+ */
+const ACTIVATES_ON_ENTER_OR_SPACE = [
+  "button",
+  "summary",
+  'input[type="button"]',
+  'input[type="submit"]',
+  'input[type="reset"]',
+  'input[type="checkbox"]',
+  'input[type="radio"]',
+  '[role="button"]',
+  '[role="menuitem"]',
+  '[role="menuitemcheckbox"]',
+  '[role="menuitemradio"]',
+  '[role="tab"]',
+  '[role="switch"]',
+  '[role="checkbox"]',
+  '[role="radio"]',
+  '[role="option"]',
+].join(",");
+
+/** …and the ones only `Enter` presses. A link does nothing on `Space`. */
+const ACTIVATES_ON_ENTER = ["a[href]", '[role="link"]'].join(",");
+
+/** `Space` as the three spellings a browser or a test may send it in. */
+const SPACE = new Set([" ", "Spacebar", "Space"]);
+
+/**
+ * The control this keystroke belongs to, or null when it belongs to nobody in
+ * particular and a global shortcut may have it.
+ *
+ * ONLY the activation keys are claimed. A letter is not: pressing `E` with the
+ * Fit button focused should still open Extrude, the way every keyboard-driven
+ * tool behaves — `Enter` and `Space` are the two the focused control is
+ * already promising to answer, and taking those is what makes a button look
+ * broken.
+ *
+ * `closest` rather than an equality test, so a control whose inner span somehow
+ * holds focus still answers for it; and `Element`, not `HTMLElement`, because
+ * an SVG `<g role="button">` is a control too.
+ */
+export function activationKeyOwner(event: KeyboardEvent): Element | null {
+  const target = event.target;
+  if (!(target instanceof Element)) return null;
+  if (event.key === "Enter" || SPACE.has(event.key)) {
+    const control = target.closest(ACTIVATES_ON_ENTER_OR_SPACE);
+    if (control !== null) return control;
+  }
+  if (event.key !== "Enter") return null;
+  return target.closest(ACTIVATES_ON_ENTER);
+}
+
+/** Live global listeners, by name — diagnostics, and what the audit test reads. */
+const globalListeners = new Map<string, number>();
+
+/** Who is listening on the window right now. */
+export function liveGlobalKeyListeners(): readonly string[] {
+  return [...globalListeners.keys()].sort();
+}
+
+export interface GlobalKeysOptions {
+  /**
+   * Capture phase. Needed only where a listener must run BEFORE a bubble-phase
+   * one that claims the same key — the proposal note does, because
+   * `PartPage`'s create-shortcut opener reads `event.defaultPrevented`.
+   */
+  capture?: boolean;
+  /**
+   * Act even while a text control has focus. Off by default; `Escape` clearing
+   * the register's own filter field is the case that needs it.
+   */
+  whileTyping?: boolean;
+}
+
+/**
+ * REGISTER A WINDOW-LEVEL SHORTCUT — the only way this app should.
+ *
+ * Pass `null` as the handler to stand down: a listener that is registered while
+ * its surface is not on screen is a listener that acts when its surface is not
+ * on screen.
+ *
+ * What it refuses before your handler runs, so that no caller has to remember:
+ *
+ *  · a key another handler has already cancelled (`defaultPrevented`);
+ *  · a key being typed into a text control, unless `whileTyping`;
+ *  · `Enter`/`Space` aimed at a focused button, link or `[role=button]`
+ *    ({@link activationKeyOwner}) — the W2 blocking finding.
+ *
+ * A modal layer needs no mention here: the shield at the top of this file has
+ * already stopped the event, so this never runs behind one.
+ */
+export function useGlobalKeys(
+  name: string,
+  onKeyDown: ((event: KeyboardEvent) => void) | null,
+  options: GlobalKeysOptions = {},
+): void {
+  const { capture = false, whileTyping = false } = options;
+  // The handler is held in a ref so a re-render never re-registers the
+  // listener: a listener that unregisters and re-registers as state moves is
+  // how one ends up absent at the moment it is needed.
+  const latest = useRef(onKeyDown);
+  useLayoutEffect(() => {
+    latest.current = onKeyDown;
+  });
+  const armed = onKeyDown !== null;
+  useEffect(() => {
+    if (!armed) return;
+    globalListeners.set(name, (globalListeners.get(name) ?? 0) + 1);
+    const handle = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (!whileTyping && isTypingTarget(event.target)) return;
+      if (activationKeyOwner(event) !== null) return;
+      latest.current?.(event);
+    };
+    window.addEventListener("keydown", handle, { capture });
+    return () => {
+      window.removeEventListener("keydown", handle, { capture });
+      const live = (globalListeners.get(name) ?? 1) - 1;
+      if (live <= 0) globalListeners.delete(name);
+      else globalListeners.set(name, live);
+    };
+  }, [armed, capture, name, whileTyping]);
 }

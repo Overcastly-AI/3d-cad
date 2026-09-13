@@ -416,6 +416,81 @@ test.describe("a solved sketch proposes its extrude", () => {
 });
 
 /**
+ * THE NOTE DOES NOT OWN THE KEYBOARD — W2 review, blocking finding.
+ *
+ * The note binds `Enter` and the verb's letter on `window` in the capture phase
+ * with `preventDefault()`, guarded only by `isTypingTarget`. A `<button>` is
+ * not a typing target, so both of the paths below fired the offer instead of
+ * the control the user was actually standing on. Both are reached without
+ * doing anything unusual: the first is the key card's own instruction.
+ *
+ * Every case here uses a REAL key event at a REAL focused control. A probe
+ * dispatched at `document.body` passes against the defect and proves nothing,
+ * because `body` is not a control and the claim never applies to it.
+ */
+test.describe("the offer yields the keyboard", () => {
+  test("? then E reads the key card — it does not open Extrude behind it", async ({
+    page,
+  }) => {
+    await seedTwoSketches(page);
+    await reopenAndFinish(page, 0);
+    const chip = page.getByTestId("extrude-proposal");
+    await expect(chip).toBeVisible({ timeout: 30_000 });
+
+    // The path the card itself teaches: open the reference, read the row that
+    // says `E — Extrude`, press E.
+    await page.keyboard.press("?");
+    await expect(page.getByTestId("shortcut-sheet")).toBeVisible();
+    await page.keyboard.press(EXTRUDE_KEY);
+
+    await expect(page.getByTestId("extrude-editor")).toHaveCount(0);
+    await expect(page.getByTestId("shortcut-sheet")).toBeVisible();
+    // The gate's own alarm, read from the DOM: a surface with
+    // `aria-modal="true"` that lets a keystroke through to the workspace stamps
+    // the document, so this asserts the MECHANISM and not only its effect.
+    expect(
+      await page.evaluate(() =>
+        document.documentElement.getAttribute("data-modal-gate-leak"),
+      ),
+    ).toBeNull();
+
+    // Enter on the card's own Close button closes the card. Before the fix it
+    // accepted the offer instead, and the button did nothing.
+    await page.getByTestId("shortcut-sheet-close").focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("shortcut-sheet")).toHaveCount(0);
+    await expect(page.getByTestId("extrude-editor")).toHaveCount(0);
+
+    // NON-VACUOUS, and the whole reason the assertions above mean anything:
+    // with the card gone, the same key takes the same offer, still naming the
+    // sketch that solved. The offer survived the card — closing a reference is
+    // not answering a proposal.
+    await expect(chip).toBeVisible();
+    await page.keyboard.press(EXTRUDE_KEY);
+    await expect(page.getByTestId("extrude-editor")).toBeVisible();
+    await expect(page.getByTestId("extrude-profile")).toHaveValue(/.+/);
+  });
+
+  test("Enter on a focused tool presses that tool", async ({ page }) => {
+    await seedTwoSketches(page);
+    await reopenAndFinish(page, 0);
+    await expect(page.getByTestId("extrude-proposal")).toBeVisible({
+      timeout: 30_000,
+    });
+
+    // Tab lands a keyboard user on band tools; this puts focus on one directly
+    // and presses it the way a keyboard user does.
+    await page.getByTestId("new-sketch").focus();
+    await page.keyboard.press("Enter");
+
+    // BOTH halves, because the defect broke both: the tool ran…
+    await expect(page.getByTestId("plane-XY")).toBeVisible();
+    // …and the offer did not answer for it.
+    await expect(page.getByTestId("extrude-editor")).toHaveCount(0);
+  });
+});
+
+/**
  * The small-laptop floor. The note is placed by `placeProposal` from the token,
  * so this is where the flip/clamp arithmetic meets a real frame — and it is the
  * width the founder shots are taken at.

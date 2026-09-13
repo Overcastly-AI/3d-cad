@@ -2,7 +2,7 @@ import { formatChord, Kbd } from "@loft/design";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { BUILD_SHA, buildLabel } from "../lib/build";
-import { isTypingTarget } from "../lib/isTypingTarget";
+import { useGlobalKeys, useModalLayer } from "../lib/modalGate";
 import {
   KEY_SHORTCUT_SHEET,
   type ShortcutGroup,
@@ -30,25 +30,37 @@ import {
  * to the sheet on open and returns to whatever had it on close. The backdrop is
  * a plain scrim, not a blur — a blur over a 3-D viewport costs a full-screen
  * filter every frame for decoration.
+ *
+ * AND IT HOLDS THE KEYBOARD (W2 review, blocking finding). It always SAID it
+ * did — `aria-modal="true"` promises a screen-reader user that everything
+ * outside is inert — while every workspace shortcut stayed live behind it. The
+ * path is the card's own: read the row that says `E — Extrude`, press `E`, and
+ * the Extrude editor opened BEHIND the sheet; `Enter` on this sheet's own Close
+ * button did the same, because a `<button>` is not a typing target and the
+ * ambient proposal note's window listener guarded on nothing else. So the sheet
+ * registers a layer in `lib/modalGate.ts` and its keys arrive from there rather
+ * than from a React `onKeyDown` — which could only ever see a key that had
+ * already passed every window listener in the app.
  */
 
 /** Global `?` handler + the sheet. Mounted once, inside the authed layout. */
 export function ShortcutSheetHost() {
   const [open, setOpen] = useState(false);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
+  // The typing-target bail comes from the seam, not from a copy of it here.
+  // While the sheet is OPEN this listener is shielded by the gate and never
+  // runs — closing on a second `?` is the layer's job, below.
+  useGlobalKeys(
+    "the key card",
+    useCallback((event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (isTypingTarget(event.target)) return;
       // `?` arrives WITH shift held on every layout that has it, so the shift
       // is part of the glyph rather than a modifier to test for.
       if (event.key !== KEY_SHORTCUT_SHEET) return;
       event.preventDefault();
       setOpen((current) => !current);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+    }, []),
+  );
 
   if (!open) return null;
   return <ShortcutSheet onClose={() => setOpen(false)} />;
@@ -67,15 +79,34 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
     };
   }, []);
 
+  /**
+   * THE KEYS, FROM THE GATE. While this layer is open nothing else in the app
+   * can act on a keystroke, so this handler is the whole keyboard:
+   *
+   *  · `Esc` closes, as it always did;
+   *  · `?` closes too — it is the key that opened the card, and the host's
+   *    toggle is shielded while the card is up, so without this row the card's
+   *    own key would stop working the moment it was showing;
+   *  · a key arriving from OUTSIDE the panel spends itself putting focus back,
+   *    rather than leaking into a workspace the user cannot see. Tab is exempt,
+   *    because Tab is how a reader walks the card.
+   */
   const onKeyDown = useCallback(
-    (event: React.KeyboardEvent) => {
-      if (event.key === "Escape") {
+    (event: KeyboardEvent, insidePanel: boolean) => {
+      if (event.key === "Escape" || event.key === KEY_SHORTCUT_SHEET) {
         event.preventDefault();
         onClose();
+        return;
+      }
+      if (!insidePanel && event.key !== "Tab") {
+        event.preventDefault();
+        panelRef.current?.focus();
       }
     },
     [onClose],
   );
+
+  useModalLayer("the key card", panelRef, onKeyDown);
 
   const groups = shortcutGroups();
 
@@ -95,7 +126,6 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
         tabIndex={-1}
         data-testid="shortcut-sheet"
         onClick={(event) => event.stopPropagation()}
-        onKeyDown={onKeyDown}
         className="my-auto w-full max-w-6xl border border-hairline bg-anvil text-mist outline-none"
       >
         {/* The stamped header band — the title block's own grammar. */}

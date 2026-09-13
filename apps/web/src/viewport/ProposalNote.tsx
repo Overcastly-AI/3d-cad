@@ -80,7 +80,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { OverlayFace, PlanarFaceSignature } from "../api/parts";
 import { faceLabel } from "../features/face";
-import { isTypingTarget } from "../lib/isTypingTarget";
+import { useGlobalKeys } from "../lib/modalGate";
 import { KEY_ACCEPT_PROPOSAL, partVerbKey } from "../shortcuts/registry";
 import { useSketchStore } from "../sketch/store";
 import { useProposalAnchorStore } from "./proposalAnchor";
@@ -507,17 +507,25 @@ export function ProposalNote({
    * exactly when the glyph on the chip is on screen: one fact, not a second
    * derivation that could disagree with the pixels.
    *
-   * While a modal layer is open, `lib/modalGate.ts`'s own window-capture
-   * listener calls `stopImmediatePropagation()` and this never runs. That is
-   * correct and deliberate — the exit prompt owns the keyboard — and it is not
-   * this binding failing.
+   * REGISTERED THROUGH `lib/modalGate.ts`, not with a raw listener, and that is
+   * the W2 blocking finding rather than tidiness. `isTypingTarget` — the only
+   * target guard this had — covers `INPUT | TEXTAREA | SELECT | contentEditable`
+   * and a `<button>` is none of those, so `Enter` on ANY focused button in the
+   * app accepted this offer and `preventDefault()`ed the button's own
+   * activation: the control the user was standing on did nothing, and an editor
+   * opened instead. The seam refuses an activation key that belongs to a focused
+   * control before this handler is reached, so the note can keep `Enter`
+   * (meaning accept, everywhere in this product) without taking it from a
+   * button that also means accept.
+   *
+   * While a modal layer is open — the exit ticket, the key card — the gate's
+   * window-capture shield calls `stopImmediatePropagation()` and this never
+   * runs. That is correct and deliberate, and it is not this binding failing.
    */
   const verbKey = written === null ? undefined : partVerbKey(written.verb);
-  useEffect(() => {
-    if (written === null) return;
-    const onKeyDown = (event: KeyboardEvent) => {
+  const onProposalKey = useCallback(
+    (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (isTypingTarget(event.target)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         withdraw();
@@ -532,11 +540,14 @@ export function ProposalNote({
       }
       event.preventDefault();
       accept();
-    };
-    window.addEventListener("keydown", onKeyDown, { capture: true });
-    return () =>
-      window.removeEventListener("keydown", onKeyDown, { capture: true });
-  }, [written, verbKey, accept, withdraw]);
+    },
+    [verbKey, accept, withdraw],
+  );
+  // Null while nothing is written: the keys are live exactly when the glyph is
+  // on screen, which is one fact rather than a second derivation of it.
+  useGlobalKeys("the proposal note", written === null ? null : onProposalKey, {
+    capture: true,
+  });
 
   const placement = written?.placement ?? null;
   const frame = written?.frame ?? null;
