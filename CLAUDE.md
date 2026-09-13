@@ -325,6 +325,14 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   cost of about ten tokens, and it does not grow as runs accumulate the way the
   completed listing does (each completed row carries the entire commit message,
   which in this repo is thousands of tokens — nine of them cost ~13 k).
+  **CAVEAT 2026-09-13: that "ten tokens" holds ONLY when the answer is "nothing
+  running".** An in_progress row carries the whole commit message exactly like a
+  completed one, so the call costs the same per-row price whenever runs ARE live
+  — measured ~5 k to learn "not done yet" with four runs in flight, and it is
+  most expensive precisely when you are most tempted to poll it. It is a cheap
+  ANSWER, not a cheap QUESTION. Ask it once per integration pass rather than on
+  every wake, and remember there is no way to be woken by a CI transition, so
+  the alternative to patience is spending context on impatience.
   **A FAST GREEN IS TOLD FROM AN ALL-SKIPPED GREEN BY STEP DURATION, and
   `deploy-path` is routinely fast for real.** Its nine runs today finished in
   under three minutes each, which looks exactly like the every-job-skipped shape
@@ -500,6 +508,44 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   routing around it. Until then expect every commit on every branch to carry
   this one red job, and say so explicitly when reporting a run rather than
   letting "CI is red" imply the diff did it.
+  **RESOLVED 2026-09-13 in `bd58416`, and BOTH causes guessed above were wrong —
+  the repositories were WITHDRAWN.** By then it had spread from one job to three
+  (`ci/geometry-minio-smoke`, `deploy-path/compose-stack-e2e`,
+  `deploy-path/backup-restore-drill`), all dying in the same pull, on every
+  commit including docs-only ones. MinIO Inc. stopped publishing community
+  images altogether: `GET hub.docker.com/v2/repositories/minio/{minio,mc}/`
+  both return `{"message":"object not found"}`, and the `minio/minio` GitHub
+  README now reads "THIS REPOSITORY IS NO LONGER MAINTAINED" / "distributed as
+  source code only". Fixed by repointing both pins to MinIO's own other
+  registry, `quay.io`, at the tags their own official Helm chart still ships.
+  **The general lesson is the diagnostic, not the incident. "The registry is
+  blocked here" made this look unmeasurable, and it was not.** The blob CDN is
+  policy-denied, but `registry-1.docker.io` answers (`/v2/` returns 401, which
+  is its auth challenge, not a denial), so an anonymous pull token from
+  `auth.docker.io/token?service=registry.docker.io&scope=repository:<repo>:pull`
+  plus a manifest GET measures any Docker Hub image from this container without
+  a daemon. That turned a shrug into an answer in two minutes:
+
+  | image | manifest API |
+  |---|---|
+  | `minio/minio` (pinned tag AND `latest`) | **401** |
+  | `library/postgres:16`, `library/redis:7` | 200 |
+
+  Read the STATUS, because the three causes are different words: **429**
+  (`toomanyrequests`) is the anonymous rate limit, **401** on one repo while
+  others return 200 is that repo being gone or gated, and a rate limit would
+  have hit postgres and redis too. Always probe a CONTROL image in the same
+  breath — a bare "minio 401" is consistent with the network being broken, and
+  `library/postgres: 200` beside it is what makes it evidence. The same reading
+  also refutes the runner-IP-pool theory for free: an identical result from a
+  completely different network cannot be about the runner's IP.
+  Green afterwards, and verified as REAL rather than skipped-green by step
+  duration: compose-stack-e2e's main step ran 1m58s and the backup/restore
+  drill 2m21s, matching their historical timings.
+  Do NOT delete this entry now that it is fixed: the durable half is that an
+  upstream can WITHDRAW an image, which no amount of pinning survives, and the
+  next occurrence will wear the same "pull access denied" costume as a login
+  problem.
 - **A suspiciously FAST green deserves the same scrutiny as a red.** The
   usual cause is a job that skipped its work, and `conclusion: success` is
   emitted when every job is skipped. Discriminate by reading the log for
