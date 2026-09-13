@@ -90,9 +90,35 @@ admire and do not use. Four concrete tests, each one a defect when it fails:
   next action is extrude — present, with the profile pre-selected, not hunted
   for in a toolbar. The tool proposes, the user disposes.
 - **Direct manipulation beats forms.** Fusion's extrude is a draggable arrow;
-  the numeric field is the precision fallback. Ours is a form with no handle at
-  all — the single biggest "does not feel like a modeling tool" gap we have,
-  bigger than any missing feature.
+  the numeric field is the precision fallback. This is the single biggest
+  "does not feel like a modeling tool" gap we have, bigger than any missing
+  feature.
+  **CORRECTED 2026-09-13 — "ours is a form with no handle at all" was TRUE when
+  written and has been FALSE since T-23, and three briefs quoted it as fact.**
+  Extrude HAS a drag handle. It is drawn, it works, and it is unreachable:
+  `document.elementFromPoint` down the gauge's own projected axis resolves to
+  the handle at **2 of 16 sample points** — a 24x24 grip at the arrow's apex and
+  nothing else — and a real `page.mouse.down/move/up` from the shaft midpoint
+  left `extrude-distance` unchanged at 40. The shaft, cone and snap ladder are
+  WebGL with no raycast target, so **the affordance and the hit target are
+  anticorrelated**: the one place you can grab is a 12 px collar on the POINT of
+  an arrow drawn at 0.92 opacity, ~90 px from where the arrow tells you to aim.
+  That is the zero-area family's fourth costume — **drawn in GL, targeted in the
+  DOM, and only one of the two is a control** — after the SVG stroke with no
+  height, the `sr-only` element clipped out of frame, and the Tailwind utility
+  that was never generated.
+  The correction makes the gap WORSE, not smaller, and it changes what the fix
+  is: the wave is not "build direct manipulation", it is "make the thing we
+  already drew grabbable, and then give the other six verbs one at all"
+  (fillet/chamfer/shell/revolve/pattern/hole return `handles: []` today).
+  **The general lesson, and the reason this correction is here rather than only
+  in the roadmap: a mandate sentence is a CLAIM ABOUT THE PRODUCT, and product
+  claims go stale silently.** This one survived a rewrite of the surface it
+  describes, and every brief that quoted it inherited the error at no cost to
+  itself. Before quoting a line of this file as evidence for what to build,
+  check it against the running app the way you would check a test — and when it
+  is wrong, correct it HERE, not just in the document you happened to be
+  writing.
 - **Capture intent where it forms, not afterwards.** Dimensions typed while
   drawing (FB-16), not recovered by re-selecting geometry later.
 - **No dead ends, no ambiguous exits.** A key that sometimes saves and sometimes
