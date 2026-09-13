@@ -2,18 +2,21 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-08-29 (backlog-groomer pass 19) — no new P0;
-CI-4's original question is ANSWERED (not systemically unstable; shard 3/4 was
-structurally overloaded) and the umbrella is DOWN TO ONE unreproduced item
-(QA-CI4-MATE-1); K2 and PBT-1 both CLOSED this batch, closing the route-auth
-gap four audit passes asked for and re-measuring the sketch-solver sweep at
-0 violations; SOLVE-CRASH-1 (untyped 500 on user-authorable input) also
-closed.** `scripts/check-ui-parity.py`'s 84/85 operations / 97/109 literals
-reading is unchanged; the gateway's authenticated-route floor is now measured
-at 89 (documents 64, geometry 28 identity-free) — see K2 below; the CI-BAL
-headroom claim below is corrected against a real CI-runner measurement, not
-the local box it was first computed on. Pass 16/17/18 detail is in
-`docs/CHANGELOG.md`.
+**Current focus, corrected 2026-09-13 (backlog-groomer pass 20) — the
+frontend-redesign programme (`docs/design/REDESIGN-ROADMAP.md`) is the active
+work.** W0 (stop losing the user's work) and W2 (the next step proposes
+itself) are both CLOSED; the W0 code review's blocking finding and two more
+are fixed (`da98622`); W1 (the scene reads as CAD) landed CRAFT-1/2/3/6, with
+CRAFT-4/5 still open in that doc's own queue. Six new items filed to BACKLOG
+from this session's findings, one of them (MINIO-LICENSE-REVIEW-1) a
+licensing decision rather than a build task — see BACKLOG Ready queue. The
+prior CI-4/K2/PBT-1 focus (pass 19, 2026-08-29, below) is CLOSED and
+superseded; full detail moved to `docs/CHANGELOG.md`. Also fixed this pass:
+MinIO Inc. withdrew its binary images from Docker Hub entirely (not a rate
+limit — the repo itself now reads source-only), which had been failing three
+CI jobs on every commit; repointed to quay.io (`bd58416`) at the last tags the
+project's own Helm chart still ships. `scripts/check-ui-parity.py`'s 84/85
+operations / 97/109 literals reading is unchanged.
 
 **W0 CLOSED (frontend-redesign wave 0, 2026-09-12) — the sketcher stops eating
 the user's work, on two separate paths.** Both items are P0s from
@@ -168,6 +171,78 @@ move focus when an element is disabled. It now asserts the mechanism in jsdom
 and measures the focus in Chromium.
 
 Gates: `just lint` 0; 2330 unit tests; both e2e specs 6/6 on the real stack.
+
+**W1 PARTIALLY LANDED (frontend-redesign wave 1, 2026-09-13) — CRAFT-1/2/3/6
+shipped; CRAFT-4/5 (cursor states, contact shadow) remain open in
+`docs/design/REDESIGN-ROADMAP.md`'s own queue, not built this pass.**
+
+**CRAFT-6** (`a340ff5`) — the reference cube used to unmount with the view
+rail during plane-pick and sketch, so the one instrument that answers "which
+way is up" disappeared exactly when the modeler is orienting a plane in
+space. Split rather than simply un-hidden: the RAIL stays hidden (the sketch
+rig pins perspective by parking the camera at a computed distance, which a
+parallel camera cannot honour, so offering the projection control there would
+offer a mode the rig cannot deliver), while the CUBE — an orientation
+readout first, a control second — now persists in both modes. Facet clicks
+measured to actually steer the camera rather than merely display: 41.85°
+(plane pick) / 45.00° (sketch) turns, 0.0000° residual 1.2 s later. The
+orthographic preference the sketch rig would otherwise leak into on exit is
+frozen for the duration of authoring rather than restored on unmount, so the
+wrong value never exists for `ProjectionRig` to read.
+
+**CRAFT-1/2/3** (`57d3bf8`) — three measured defects in whether the viewport
+reads as CAD, all on the audit's own 80x60x12mm/4mm-fillet fixture. CRAFT-1:
+a filleted body drew ZERO edges — `EdgesGeometry`'s 25° crease detector finds
+nothing on a tangent fillet, so the moment a part stops being a test cube
+every feature boundary vanishes; edges are now derived from the
+tessellation's own face partition (an edge used by exactly one triangle
+within a face is that face's boundary), plus a depth-clearance fix so the
+line no longer loses half its samples to the surface in front of it (interior
+line ink on the filleted plate: 45 -> 1942 coverage, 0 -> 521 px on the
+`modelEdge` token). CRAFT-2: a front/right/top orthographic view had a
+completely empty ground (2815 -> 0 coverage in a body-free band) — not a
+fade-tuning problem as the audit guessed, but geometric: a plane containing
+the view direction projects to a LINE under a parallel camera. Fixed with a
+drafting-board backdrop that stays edge-on across the view (0 -> 2431-2704,
+87% of the perspective control; the body's own footprint unchanged, proven by
+measuring it with the backdrop added). CRAFT-3: the origin triad is now drawn
+at rest, dimmed (42% length, no letter, no phantom negative half) unless its
+own ORIGIN row is enabled, so the off-state cannot be mistaken for the
+on-state and a squared-on view can always say where zero is.
+
+Gates: `apps/web/e2e/craft-scene.spec.ts` + `authoring-view-cube.spec.ts`,
+green at 1280 and 1600; every assertion mutation-tested (crease detector
+restored, depth clearance removed, backdrop unmounted, resting mark hidden —
+each reverts the measured pixel count). Also fixed in passing: a
+demand-rendered scene did not repaint when a `useFrame`-driven unmount
+committed, leaving a stale drafting board on screen; the resting mark's draw
+order against the grid was a coin flip.
+
+Filed from this wave, not built: GRIDMINOR-TONEMAP-1 (a grid-minor
+tone-mapping fix that reddens `part-visibility.spec.ts`'s ghost census —
+correctly reverted rather than shipped broken), AXISLABEL-ORTHO-1 (axis
+labels absent from the DOM in front-ortho with datums on), and
+VIEWFRONT-ORTHO-DECISION-1 (a named view silently switches projection — a
+product decision, relevant to CRAFT-21). See BACKLOG for all three.
+
+**MINIO REPOINTED TO quay.io (`bd58416`, platform-builder, 2026-09-13)** —
+CI was failing on every commit (`geometry-minio-smoke`, `compose-stack-e2e`,
+the backup/restore drill) with "pull access denied" on both `minio/minio` and
+`minio/mc`. Verified as a full withdrawal, not a rate limit: Docker Hub's own
+API returns `object not found` for both repositories while
+`library/postgres` and `bitnami/minio` resolve normally, and the upstream
+GitHub repo now reads "THIS REPOSITORY IS NO LONGER MAINTAINED... MinIO
+community edition is now distributed as source code only." Repointed both
+pins to quay.io at the exact tags MinIO's own Helm chart still ships
+(`RELEASE.2024-12-18T13-15-44Z` / `RELEASE.2024-11-21T17-21-54Z`, appVersion
+5.4.0) — older than the previous pins because those versions no longer exist
+anywhere reachable. No digest pin: quay.io itself is policy-denied from this
+container. **Flagged for the licensing custodian, not resolved here:** MinIO
+is AGPL-3.0 with no entry in `docs/LICENSING.md`; see BACKLOG
+MINIO-LICENSE-REVIEW-1 — building our OWN image from the now source-only
+upstream is the scenario RESEARCH.md §8's "`docker push` is what makes us a
+distributor" line was written for, and that may now be a live question
+rather than a hypothetical one.
 
 **CAMRESTORE-1 CLOSED (frontend-builder, 2026-09-04) — leaving a sketch gives
 the VIEW back, not just the camera.** The sketcher parked the modeller normal-on

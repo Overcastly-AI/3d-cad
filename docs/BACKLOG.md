@@ -21,6 +21,36 @@ is the landing record only, so the board is not silent about shipped work.
 - [x] (P0, L) **FLOW-A2** — Back, the breadcrumb and reload can no longer eat an
       unsaved sketch; guard + per-part draft `501331b`
       [docs/design/AUDIT-FLOW-2026-09.md]
+- [x] (P0, M) **W0REV modal-gate fix** — the blocking review finding (Enter on
+      the exit prompt applied the armed draw dimension instead of saving/
+      leaving; `Ctrl+Z` leaked into the sketch behind the modal too) plus two
+      more (a save in flight blurred the dialog and dropped its own focus
+      trap; sketch drafts outlived sign-out) — one capture-phase
+      `lib/modalGate.ts`, not a patch per listener `da98622` [W0 code review,
+      2026-09-12]
+- [x] (P1, M) **FLOW-B2** — `K E R F C` bound for Sketch/Extrude/Revolve/
+      Fillet/Chamfer, the five verbs a hand reaches for most, which had no
+      keys while seven rarer ones did `d5e936a`
+      [docs/design/REDESIGN-ROADMAP.md W2]
+- [x] (P1, M) **FLOW-B1** — a solved sketch writes `EXTRUDE ⟨E⟩` on its own
+      profile, closing the single largest measured flow gap (8 of the 15
+      hunts the audit recorded) `78aaa67`
+      [docs/design/REDESIGN-ROADMAP.md W2]
+- [x] (P1, S) **FLOW-B3** — exactly one command-band tool wears the next verb
+      after a build completes, gated by name rather than divination
+      `fb63809` + `6097448` [docs/design/REDESIGN-ROADMAP.md W2]
+- [x] (P1, M) **CRAFT-6** — the reference cube persists through plane-pick and
+      sketch instead of unmounting with the view rail; facet clicks measured
+      to steer the camera (41.85°/45.00° turns), the orthographic preference
+      frozen for the duration of authoring `a340ff5`
+      [docs/design/AUDIT-CRAFT-2026-09.md]
+- [x] (P1, L) **CRAFT-1/2/3** — a filleted body now draws its edges (was 0 —
+      the crease detector cannot see a tangent fillet; fixed off the
+      tessellation's own face partition), a front/right/top orthographic view
+      keeps its ground plane (was empty by construction, not a fade issue —
+      a plane containing the view direction projects to a line under a
+      parallel camera), and the origin triad is drawn at rest, dimmed
+      `57d3bf8` [docs/design/AUDIT-CRAFT-2026-09.md]
 - [ ] (P1, S) **W0REV-3** — sketch drafts are never swept: `DRAFT_MAX_AGE_MS` is
       checked only on read of that one key, so 50 parts leave 50 buffers on disk
       indefinitely. A full quota then degrades `auth/session.ts` silently, which
@@ -63,7 +93,28 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
-- **Groom pass 19 (2026-08-29, this pass) — CI-4's ORIGINAL question is
+- **Groom pass 20 (2026-09-13, backlog-groomer) — the frontend redesign
+  programme (W0/W0REV/W2/W1-partial) was shipping unticked on this board; it
+  is reconciled now.** The orchestrator had been ticking `docs/ROADMAP.md`
+  directly (prose entries already correct and left as-is) but BACKLOG carried
+  no FLOW-B1/B2/B3 or CRAFT entries at all — see the wave log above, now
+  ticked. Confirmed rather than re-filed: the seven W0REV findings
+  (W0REV-3/5/6/7/9/10/11) are still open and still accurate against current
+  code. Filed six new items from this session's findings:
+  FLOW-JOURNEY-GAP-1 (the canonical journey doesn't exercise W2's own
+  shortcuts, so the flow-cost win is unmeasured on the path anyone takes),
+  GRIDMINOR-TONEMAP-1 (a craft fix that trades one gate's pass for another's
+  fail), AXISLABEL-ORTHO-1, VIEWFRONT-ORTHO-DECISION-1 (relevant to CRAFT-21),
+  MINIO-LICENSE-REVIEW-1 (P1, needs a human/licensing-custodian decision, not
+  adjudicated here), MODALGATE-MIGRATION-1. Also ticked the MinIO
+  Docker-Hub-withdrawal CI fix (`bd58416`) into ROADMAP (no BACKLOG wave
+  entry — it is not a redesign item). **`docs/design/REDESIGN-ROADMAP.md`'s
+  own landing marks are stale** (only FLOW-A1 shows LANDED; its own
+  Changelog section is not mine to write, flagging for the orchestrator/
+  redesign loop). No scorecard row flips from this batch — these are flow/
+  craft items, not new-capability rows.
+
+- **Groom pass 19 (2026-08-29) — CI-4's ORIGINAL question is
   ANSWERED (not systemically unstable; shard 3/4 was structurally
   overloaded and duration-aware sharding fixes the imbalance); K2 and
   PBT-1 both CLOSED; no new P0.** CI-4: eleven full-shard + 17 targeted
@@ -119,10 +170,135 @@ duplication. **Pass 8-15 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 19 (2026-08-29) — no new P0.** SOLVE-CRASH-1, K2,
-PBT-1, CI-BAL, MEASURE-PROXY-1, PICKMARK-OCCLUDE-1, EXPORT-3, REACH-3-FLOW,
+**Dispatch order, groom pass 20 (2026-09-13) — six new items from the
+frontend-redesign session, restocking a queue that had run mostly closed.**
+Ranked, disjoint, parallel-dispatchable; MINIO-LICENSE-REVIEW-1 is a decision,
+not a build task, and goes to the licensing custodian/founder rather than a
+builder:
+
+1. [ ] (P1, S) **MINIO-LICENSE-REVIEW-1** — MinIO is AGPL-3.0 and has no entry
+   in `docs/LICENSING.md`; needs a human/licensing-custodian decision, not an
+   automated one. kind: question (licensing/compliance). `docs/RESEARCH.md`
+   §8: "Forbidden: GPL/AGPL dependencies. Reviewers enforce this."
+   `docs/LICENSING.md` carries 72 entries and none for MinIO. Orchestrator's
+   own reading, NOT adjudicated here: likely NOT a violation as shipped
+   today — MinIO runs as a separate process over the S3 HTTP API, we do not
+   link, modify or redistribute its bytes, so it reads as aggregation, and
+   AGPL §13's network clause binds whoever DEPLOYS it. But §8's own amendment
+   holds "`docker push` is what makes us a distributor," and `bd58416`
+   (2026-09-13) had to repoint our compose pins because MinIO Inc. withdrew
+   ALL binary images and moved to source-only distribution — so if upstream
+   never publishes binaries again, the replacement path may require building
+   the image ourselves, which is the scenario that amendment exists for.
+   ACCEPTANCE: a licensing-custodian pass (or founder decision) records a
+   verdict in `docs/LICENSING.md` — either "aggregation, no entry needed,
+   here is why" or "here is the entry, and here is what changes if we ever
+   build our own MinIO image." Do not resolve silently either way. [src:
+   orchestrator, `bd58416` follow-up, 2026-09-13] TERRITORY:
+   `docs/LICENSING.md`, `docs/RESEARCH.md` §8. agentType: oss-curator /
+   founder decision.
+
+2. [ ] (P2, M) **FLOW-JOURNEY-GAP-1** — the canonical part-creation journey
+   does not exercise the shortcuts W2 shipped, so `scripts/check-flow-cost.py`'s
+   headline (30 gestures) is unchanged and the wave's win is unmeasured on the
+   path anyone actually walks. kind: capability/measurement. FOUND: the
+   script's only "no API shortcuts" journey is `full-flow.spec.ts` (register
+   → part → sketch → extrude → edit → export), which still drives the
+   toolbar for every verb — K/E/R/F/C (FLOW-B2), the solved-sketch Extrude
+   chip (FLOW-B1) and the next-verb accent (FLOW-B3) are all reachable from
+   that same journey and none are used. WHY IT MATTERS: W2 made a shorter
+   path EXIST; nothing made it the path the measurement — or a new user —
+   takes, so the metric the loop steers by cannot see whether the wave paid
+   off. ACCEPTANCE: either (a) a second canonical-journey spec that uses the
+   accelerators + chip + accent end to end, with `check-flow-cost.py`
+   reporting BOTH numbers (toolbar-path vs. accelerated-path) so the delta is
+   visible and honest, or (b) the existing journey updated to take the
+   shortest correct path with a documented reason for any step that must stay
+   toolbar-driven. Regression: the toolbar-only number must not silently
+   disappear. [src: FLOW-B1/B2/B3 integration, orchestrator report,
+   2026-09-13] TERRITORY: `scripts/check-flow-cost.py`,
+   `apps/web/e2e/full-flow.spec.ts` (or a new sibling spec). agentType:
+   frontend-builder.
+
+3. [ ] (P2, M) **GRIDMINOR-TONEMAP-1** — grid minor lines are ~invisible, and
+   the direct fix reddens a neighbouring gate. kind: defect (visual craft,
+   cross-gate tension). FOUND (CRAFT-1/2/3 agent, correctly reverted rather
+   than shipped): `gridMinor` (#232E3C) reaches the canvas at ~(21,26,33),
+   within 3 luminance units of the background, because the tone mapper
+   re-grades it before the pixel lands. Un-tone-mapping the grid line fixes
+   the contrast but reddens `part-visibility.spec.ts`'s ghost census (203
+   against a 131 ceiling): the canvas is premultiplied-alpha and drei's grid
+   shader emits straight colour, so the readback amplifies grid pixels past
+   the specular threshold used to detect a ghosted body. NOT in CRAFT-2's
+   scope (that item was the ortho ground plane, already shipped).
+   ACCEPTANCE: grid minor lines measure a contrast delta against the
+   background consistent with the major lines' own ratio (state the number),
+   AND `part-visibility.spec.ts`'s ghost census stays under its existing
+   ceiling — fix the census's colour-space assumption (premultiplied vs.
+   straight) rather than trading one gate's pass for the other's fail. [src:
+   CRAFT-1/2/3 agent measurement, 2026-09-13,
+   docs/design/AUDIT-CRAFT-2026-09.md] TERRITORY: `apps/web/src/viewport/**`
+   (grid material/tone-mapping), `apps/web/e2e/part-visibility.spec.ts`.
+   agentType: frontend-builder.
+
+4. [ ] (P2, M) **MODALGATE-MIGRATION-1** — `modalGate`/`useModalLayer` is
+   built as "one gate, not a patch per listener" but has exactly ONE
+   registrant (`LeaveSketchPrompt.tsx`), so it protects one listener. kind:
+   defect (systemic, incomplete rollout — same shape as REASON-GATE-1's "15
+   of 16 editors" finding). `git grep useModalLayer` finds a single call
+   site; `ShortcutSheet.tsx` claims keyboard input with no registration at
+   all (a builder is fixing the immediate defect this exposed, in flight as
+   of 2026-09-13 — this ticket is the remaining migration, not a duplicate).
+   ACCEPTANCE: enumerate every keyboard-claiming overlay/dialog in
+   `apps/web` (W0REV-6 already named `LeaveSketchPrompt` and `ShortcutSheet`
+   as two of three hand-rolled shells), register each through
+   `useModalLayer`/`modalGate` instead of its own listener, and give each
+   the same alarm-probe coverage `da98622` gave the first registrant (a
+   synthetic keydown per open, asserting the shield is still first). A
+   regression test proves a stray key while ANY registered layer is open
+   cannot reach the sketch behind it — the exact defect W0REV's blocking
+   finding was. [src: brief item 7 / da98622 follow-up, 2026-09-13]
+   TERRITORY: `apps/web/src/lib/modalGate.ts`,
+   `apps/web/src/components/ShortcutSheet.tsx`,
+   `apps/web/src/routes/LeaveSketchPrompt.tsx`. agentType: frontend-builder.
+
+5. [ ] (P2, S) **AXISLABEL-ORTHO-1** — `origin-axis-label-{X,Y,Z}` are absent
+   from the DOM in front-orthographic when datums are enabled, though present
+   and visible in the default view. kind: defect. Found during CRAFT-1/2/3
+   verification; view-dependent, uses drei `Html`, not caused by that diff
+   and not yet root-caused. ACCEPTANCE: reproduce first on current HEAD; with
+   origin/datums enabled, switch to front-orthographic and assert the three
+   axis-label elements are present in the DOM at the same measured presence
+   as the default view. If a legitimate reason exists for a label to retire
+   in that view, state it and gate the absence deliberately instead of
+   leaving it unexplained. [src: CRAFT-1/2/3 agent measurement, 2026-09-13]
+   TERRITORY: `apps/web/src/viewport/OriginGeometry.tsx` (or wherever axis
+   labels are drawn). agentType: frontend-builder.
+
+6. [ ] (P2, S) **VIEWFRONT-ORTHO-DECISION-1** — `view-front` (and the other
+   named views) silently switch the camera to orthographic; decide this on
+   purpose rather than by inheritance. kind: question (product decision).
+   `viewCommands.ts`: the first named view the modeler asks for switches
+   projection — so pressing `1` was, until CRAFT-2 landed, the fastest route
+   into the empty-ground-plane bug (front/right/top ortho had no ground at
+   all). CRAFT-2 fixed the symptom; this ticket is whether a named-view key
+   SHOULD carry a projection change as a side effect, or whether view and
+   projection should be independent controls (as CRAFT-6 already argues for
+   the cube vs. the projection control during authoring, for a related
+   reason). ACCEPTANCE: a decision recorded in
+   `docs/design/REDESIGN-ROADMAP.md` or `docs/VISION.md` with its reasoning;
+   if named views keep the ortho side effect, `view-projection`'s own
+   affordance must not contradict it; if decoupled, `viewCommands.ts` changes
+   accordingly with a regression test. Relevant to CRAFT-21 (Home restores
+   projection; ViewCube re-fits) — coordinate so the two do not re-litigate
+   the same seam twice. [src: CRAFT-1/2/3 agent finding, 2026-09-13]
+   TERRITORY: `apps/web/src/viewport/viewCommands.ts`. agentType:
+   frontend-builder (decision may need founder/vision-steward input first).
+
+**Carried from groom pass 19 — no new P0 that pass; SOLVE-CRASH-1, K2, PBT-1,
+CI-BAL, MEASURE-PROXY-1, PICKMARK-OCCLUDE-1, EXPORT-3, REACH-3-FLOW,
 REACH-2-FLOW, A11Y-TOOLBTN-1, HEM-1C, HEM-1D, SEL-8 and PGTEST-GATE all
-shipped this batch or the last (see Done archive). Nothing is in flight.
+shipped that batch or the last (see Done archive). Nothing is in flight.**
 Ranked, disjoint, parallel-dispatchable:
 
 1. ~~**GATE-FLOOR**~~ **DONE 2026-08-29** — both named gates floored, and the
@@ -3885,6 +4061,33 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
 
 ## Done — archive
 
+### Groom pass 20 closures (2026-09-13, backlog-groomer — frontend-redesign W0/W0REV/W2/W1-partial reconciled onto the board)
+
+Full evidence for each lives in the wave log above and in `docs/ROADMAP.md`
+(the orchestrator's prose entries, already correct — this pass's job was
+ticking BACKLOG, which had none of these).
+
+- **W0REV modal-gate fix** (`da98622`, frontend-builder) — one capture-phase
+  `modalGate.ts` closes the blocking review finding (Enter on the exit prompt
+  applied the armed draw dimension) plus two more (save-in-flight focus
+  blur, drafts outliving sign-out).
+- **FLOW-B1/B2/B3** (`d5e936a`, `78aaa67`, `fb63809`+`6097448`,
+  frontend-builder) — accelerators for the five most-used verbs, a
+  solved-sketch Extrude proposal, one accented next-verb after a build.
+- **CRAFT-6** (`a340ff5`, frontend-builder) — the reference cube persists
+  through plane-pick and sketch.
+- **CRAFT-1/2/3** (`57d3bf8`, frontend-builder) — a filleted body draws its
+  edges, an orthographic view keeps its ground, the origin triad draws at
+  rest.
+- **MinIO repointed to quay.io** (`bd58416`, platform-builder) — Docker Hub
+  withdrew `minio/minio`/`minio/mc` entirely; three CI jobs were red on
+  every commit. Ticked in ROADMAP only (infra, not a redesign wave item).
+
+**Filed this pass:** MINIO-LICENSE-REVIEW-1 (P1, needs a licensing-custodian/
+founder decision), FLOW-JOURNEY-GAP-1, GRIDMINOR-TONEMAP-1,
+MODALGATE-MIGRATION-1, AXISLABEL-ORTHO-1, VIEWFRONT-ORTHO-DECISION-1 (all
+P2). Confirmed still open, not re-filed: W0REV-3/5/6/7/9/10/11.
+
 ### SEL-2 CLOSED — the select tool says what the click will take (2026-09-04, frontend-builder)
 
 - **SEL-2** (P1, founder-sourced) — A3 met literally: hovering a line with no
@@ -5145,30 +5348,13 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
-- 2026-09-04 — **ARC-BRANCH-1 closed (kernel-architect):** an annihilated entity
-  is a bad starting guess, not a verdict — one restart from the author's pose
-  with the collapsed entity relocated. Census solvable 1326 -> 1328,
-  conflicting 314 -> 312; 36 of 38 collapses still forced. Found a second
-  branch case on a CIRCLE (trial 1593). ARC-DEGENERATE-1's live limit deleted.
-
-- 2026-08-29 — **GHOST-1 evidence pass (frontend-builder):** added the
-  multi-body case the scope decision was made for (a NEIGHBOUR occludes the
-  sketch, not the host) with a pinned orbited camera; founder frames
-  `ghost1-neighbour-{before,after}.png`. No product code changed.
-- 2026-08-29 — **GHOST-1 closed (frontend-builder):** a body auto-ghosts while
-  a sketch is open, as a DERIVED default — a stop the modeler set is never
-  overridden on entry nor silently restored on exit. Filed CAMRESTORE-1 (P2).
-- 2026-08-29 — **LAYOUT-1 closed by measurement (frontend-builder):** the
-  three-times-corroborated inspector overlap does not reproduce on HEAD (band
-  and strip abut at 0.0 px vs a reported 73 px); a clip-aware regression gate
-  ships in place of a fix. No product code changed.
-- 2026-08-29 — **Groom pass 19 (backlog-groomer):** CI-4's original question
-  ANSWERED (not systemically unstable); K2, PBT-1, SOLVE-CRASH-1, CI-BAL all
-  shipped and ticked. Corrected CI-BAL's headroom claim (2.1x local-box ->
-  1.55x real-CI-runner) in ROADMAP + BACKLOG; filed ARC-DEGENERATE-1 (P2),
-  SHARD-MANIFEST-CI-1 (P3); collapsed ~13 closed items out of Ready/Next into
-  the Done archive. Full detail: `docs/CHANGELOG.md`.
-- 2026-08-17..29 — Groom passes 7-18, full reachability programme +
-  CI hardening: file-page/export tickets, SOLVE-1/PICK-2 cluster,
-  SETTLE-PERF-1 883x speedup, ORTHO-1/MATE-1 complete, HEM-1 (P0),
-  REACH-2/3-FLOW, PGTEST-GATE, CI-5/CI-5a. Full detail: `docs/CHANGELOG.md`.
+- 2026-09-13 — **Groom pass 20 (backlog-groomer):** reconciled the frontend-
+  redesign wave log (FLOW-B1/B2/B3, CRAFT-1/2/3/6, W0REV fix — none were on
+  BACKLOG before this pass, only ROADMAP); filed 6 new items
+  (MINIO-LICENSE-REVIEW-1, FLOW-JOURNEY-GAP-1, GRIDMINOR-TONEMAP-1,
+  MODALGATE-MIGRATION-1, AXISLABEL-ORTHO-1, VIEWFRONT-ORTHO-DECISION-1);
+  confirmed W0REV-3/5/6/7/9/10/11 still open, not re-filed. Full detail:
+  `docs/CHANGELOG.md`.
+- 2026-08-17..2026-09-04 — Groom passes 7-19 + interim: full reachability
+  programme, CI hardening, SOLVE/PBT/SEL-2/ARC-BRANCH-1 clusters. Full
+  detail: `docs/CHANGELOG.md`.
