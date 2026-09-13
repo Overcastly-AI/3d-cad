@@ -12,6 +12,256 @@ blocked or lies · **P2** a real flow is worse than it should be · **P3** polis
 
 ---
 
+## 2026-09-13 — the three frontend waves, ASSEMBLED: one red gate, two collisions in one corner, and one key that backs out twice
+
+**Verdict: FAIL. Four defects, all reproduced in a real browser against the
+real stack, all deterministic (3 of 3 runs identical). One of them is a RED e2e
+gate at the branch tip — `hole-hidden-body.spec.ts:272` — that has been failing
+since `57d3bf8` and is not cross-item at all; the other three are.**
+
+Waves 0, 1 and 2 each landed reviewed and each green on its own. The three
+things below cannot be seen from inside one item, which is the whole reason for
+this pass. Everything is filed with its reproduction; the failing cases are
+encoded as `test.fail()` in `apps/web/e2e/qa-cross-wave-0913.spec.ts` so the
+record lives in the gate and a case that starts PASSING is the signal the gap
+has closed. **Do not fix one of those by loosening it.**
+
+Measured at `bbb5ed3`. `08cc0ee` landed mid-pass and is docs-only
+(`docs/design/REDESIGN-ROADMAP.md`), so nothing here is stale.
+
+Method: native stack (uvicorn + SQLAlchemy `create_all` on per-agent SQLite),
+real `page.mouse.click` / `page.touchscreen.tap` at real coordinates,
+`document.elementFromPoint` at each control's own centre. **No
+`click({ force: true })` anywhere in this pass.** Touch is the repo's own idiom
+(`test.use({ hasTouch: true })`) — there is no Playwright `projects` block to
+run "both projects" against.
+
+### P1 — the branch tip is e2e-RED, and it is a real defect, not a census artifact
+
+`e2e/hole-hidden-body.spec.ts:272` (SEL-7, "a hidden body withholds the hole
+placement overlay") fails at `bbb5ed3`. Reproduced 4 times; never passed at the
+tip.
+
+```
+Error: no crosshair may be drawn over the void
+       (hidden: datum 31 px, point 667 px; floor 90 px; drawn 852 px)
+Expected: 90   Received: 698
+```
+
+Pinned by running that one spec at four commits, same container, same stack,
+minutes apart:
+
+| commit | floor | plate drawn | plate HIDDEN | verdict |
+|---|---|---|---|---|
+| `702c07e` pre-wave | 0 + 0 | 89 + 31 | **0 + 0** | pass |
+| `a340ff5` CRAFT-6 | 0 + 0 | 89 + 35 | **0 + 0** | pass |
+| `57d3bf8` CRAFT-1/2/3 | 74 + 0 | 168 + 708 | **31 + 617** | **fail** |
+| `bbb5ed3` tip | 90 + 0 | 158 + 694 | **31 + 667** | **fail** |
+
+(`datum` = `sketch.planeEdge` at tolerance 0, `point` = `viewport.selection`
+= brass, both full-canvas.)
+
+`57d3bf8` did not touch `hole-hidden-body.spec.ts` — it touched
+`ModelMesh.tsx`, `glbGeometry.ts`, `OriginGeometry.tsx`, `BenchBackdrop.tsx` —
+so the bisect is not the schedule-shuffle trap this repo has been bitten by;
+the diff reaches the failure directly.
+
+**What a user sees** (`docs/screenshots/qa-xwave-sel7-hidden-body-brass-ink.png`):
+hide the plate that carries the hole's placement face and the plate's brass
+face outline and all seven bore silhouettes are still drawn, floating in the
+void where the body used to be. The DOM half of SEL-7 is intact — assertions
+(a), (b) and (c) pass, the snap nodes are gone and the overlay says it is
+withholding — **only the GL ink survived**, which is the half that a DOM
+assertion cannot see.
+
+**Suspected mechanism, offered as a lead and not as a finding.** `ModelMesh`'s
+main `edges` memo explicitly rebuilds over the DRAWN face subset when a body is
+hidden (`ModelMesh.tsx:565-580`, with a comment saying exactly why). Its
+neighbour `featureEdges` (`ModelMesh.tsx:718-723`) does not subtract
+`bodyFaceState.hidden` at all — and `57d3bf8` is precisely the commit that
+swapped it from `subsetEdges` (a 25-degree crease detector, which found almost
+nothing on a flat face: 31 px) to `faceBoundaryEdges` (the real face partition:
+694 px). The hole was latent; CRAFT-1 gave it enough ink to see. I have not
+proved this attribution — I did not modify app code — but the magnitudes line
+up and the asymmetry between the two memos is in the file.
+
+**This is also the standing lesson in this repo wearing new clothes**: an
+assertion that cannot observe the failure mode. SEL-7's DOM checks were the
+ones a reviewer reads; the pixel check is the one that caught it.
+
+### P2 — the extrude proposal chip takes the reference cube's clicks
+
+The orchestrator's hypothesis, with one correction and one escalation.
+
+**The correction:** this is NOT a sketch-mode collision. Both proposal moments
+require `mode === "off"` (`PartPage.tsx` — `proposalContext` and
+`extrudeEnabled` both demand it), so no chip is ever drawn in sketch mode. The
+collision is in the PART workspace, where the cube has always lived. So
+CRAFT-6 did not cause this one; W2's chip walked into a corner that was
+already occupied.
+
+**The escalation:** the chip does not render UNDER the cube — it renders OVER
+it, because `ProposalNote` is the LATER sibling in the `z-hud` layer
+(`Viewport.tsx:1370-1388`). So the chip wins the hit test, and the question is
+not "can the user click the chip" but "can the user still click the cube".
+
+Reproduction (deterministic, 1600x1000, in the spec): open an empty part,
+right-drag pan the origin into the bottom-right corner — an ordinary gesture,
+not a contrivance — sketch a rectangle on XY and save.
+
+```
+[XWAVE] chip {"x":1455.8,"y":835.8,"w":120,"h":24}  cube {"x":1450,"y":802,"w":108,"h":108}
+[XWAVE] cube seat, 49 sampled points: view-cube=35 extrude-proposal=14
+[XWAVE] cube centre resolves to: extrude-proposal
+[XWAVE] a click on the cube's centre opened the extrude editor: true
+```
+
+**29 % of the reference cube's seat is taken, including its exact centre**, and
+a real `page.mouse.click` at the centre of the cube — the point a user aims at
+when they want to reorient — opens the EXTRUDE EDITOR. See
+`docs/screenshots/qa-xwave-chip-over-viewcube-1600.png`: the brass `EXTRUDE E`
+chip sits squarely over TOP/FRONT/RIGHT.
+
+And the two secondary questions, both answered:
+
+- **Does one click do two things?** Yes. Clicking a facet the chip has NOT
+  taken steers the camera (`data-camera-pos` 4.3,53.7,79.0 -> 16.9,21.7,76.6,
+  `data-view` = `direction`) **and** withdraws the offer, because
+  `ProposalNote`'s dismiss listener is a bubble-phase `pointerdown` on the
+  whole `[data-testid="viewport"]` container and the cube is inside it. The
+  offer is one-shot, and `seen` is recorded at WRITE time — so it is spent for
+  good: re-opening that sketch and re-saving it offers nothing (measured: chip
+  count 0, `data-proposal-pending` null). The same is true of every other HUD
+  control inside the viewport, not just the cube.
+- **Does a camera steer strand the leader?** No. `SolveProposalAnchor`
+  re-projects per frame and publishes `null` the moment the loop leaves the
+  frustum, so the note withdraws cleanly. Nothing to fix here.
+
+**The fix already exists in the codebase and the proposal does not use it.**
+`fitFraming.measureChrome` reads every `data-viewport-chrome` element live out
+of the DOM so a fit never tucks the model under the cube or a panel — the cube
+carries that attribute for exactly this reason. `loopAnchor` /
+`placeProposal` know only `proposal.margin` (12 px from the frame edge) and
+nothing about chrome. Note this generalises beyond the cube: the ViewBar is
+bottom-centre and the floating panels dock left and right, so any of them can
+be covered by a chip the same way. **Predicted, not measured** — I only
+reproduced the cube.
+
+### P2 — CRAFT-6 made the bottom-right corner dead to face picking
+
+The cube is now mounted through plane pick and face pick
+(`PartPage.tsx:5089`, `mode !== "off"`). Before CRAFT-6 it was not: at
+`bd58416` the hud slot holds no cube and `viewNav={mode === "off"}`, so during
+authoring that 108x108 square was free.
+
+At 1280x800 the cube seats at (1130,602)-(1238,710). Arm "sketch on a face" on
+a cube part, pan the body into that corner, and:
+
+```
+[XWAVE] face pick marks under the cube: 5 of 6 —
+        plane-pick-face-0 -> view-cube; plane-pick-face-2 -> view-cube;
+        plane-pick-face-3 -> view-cube; plane-pick-face-4 -> view-cube;
+        plane-pick-face-5 -> view-cube
+```
+
+A separate probe with a shallower pan put 3 of 6 under it. The SURFACE pick is
+gone too, not just the marks: four points inside the cube's rect over the body
+all returned `data-hovered-face = null`, and a 7x7 grid of the rect resolved
+`view-cube` at 49 of 49 points. `FacePickOverlay`'s marks are drei `Html` at
+`zIndexRange [30, 10]`, under the `z-hud` layer the cube sits in, so they lose
+by construction.
+
+Evidence: `docs/screenshots/qa-xwave-facepick-under-viewcube-1280.png` — the
+body you must pick is drawn behind the navigation cube.
+
+This does not make the flow impossible (pan away and pick), but an offered
+control that a pointer cannot reach is the defect class this repo has paid for
+three times. CRAFT-6's own doc comment argues carefully that the cube does not
+fight the sketch CAMERA RIG, which is true and is a different question from
+whether it fights the PICK.
+
+### P3 — one Escape backs out two steps, in every configuration
+
+The W2 review flagged this as a possibility; here is what actually happens.
+Three cancel listeners sit on `window` for the same key: the proposal note
+(capture, `preventDefault` only), the feature-tree row drag (capture,
+`preventDefault` + `stopPropagation`) and the band's next-step accent (bubble,
+and it does not check `defaultPrevented`).
+
+| state | one Escape does |
+|---|---|
+| key card + chip + band dot | closes the key card ONLY (chip 1, dot 1 survive) — **the modal gate works** |
+| chip + band dot | **chip 0 AND dot 0** — two |
+| chip + band dot + live row drag | **drag abandoned AND chip withdrawn**; dot survives — two |
+
+The third row is the mechanism in plain sight: the drag's `stopPropagation()`
+kills the BUBBLE listener (the band) but not a SIBLING capture listener on the
+same target (the note), which would need `stopImmediatePropagation`. So it is
+always exactly two, never one.
+
+Nothing is destroyed that cannot be redone, which is why this is P3 and not
+higher — but the chip's offer is one-shot, so an Escape aimed at the band's
+mark also spends that sketch's extrude offer for the session. W0's modal gate
+is doing its job; the non-modal layer below it has no triage at all.
+
+### What I checked and found CLEAN — this is a result, not an absence
+
+**Pixel-threshold contamination (the orchestrator's question 1): no.** Ran all
+19 specs that read canvas pixels — 110 tests, 109 passed, and the one failure
+is the real P1 above, not a census artifact. Nearly all of them census the FULL
+canvas, so W1's new ink is inside every box; it does not register because every
+luma gate in the suite is `> 110` (one is `> 150`) and every new ink is below
+it:
+
+| new ink | hex | luma |
+|---|---|---|
+| `viewport.gridMajor` (drafting-board grid) | `#3E4D61` | 75.3 |
+| `viewport.gridMinor` | `#232E3C` | 44.7 |
+| `viewport.modelEdge` (B-rep edges) | `#333B46` | 58.1 |
+| resting origin marks (`color.etch`) | `#5A6A7E` | **104.0** |
+
+`view-fit.spec.ts` is the one I most expected to be contaminated — it derives
+the body's raster bbox from luma — and it is honest: the grid is 35 luma short
+of its threshold, and it already masks the cube's corner explicitly.
+
+The one real contamination is the resting origin marks, which land on
+`sketch.planeEdge` EXACTLY (tolerance 0), and the only spec that counts that
+token full-canvas is `hole-hidden-body` — whose "floor" moved 0 -> 90 px. That
+is a baseline shift the spec absorbs (it compares hidden against floor); it is
+not what failed it. **`etch` at 104.0 is 6 luma below the suite's threshold,
+which is close enough that the next dimming/brightening of the resting marks
+could flip a dozen specs at once.** Worth a token comment, not a ticket.
+
+**The origin triad vs. picking (question 3): no interference.** Every mesh in
+`OriginGeometry.tsx` carries `raycast={() => null}` (5 of 5), so the resting
+marks are invisible to the picker. Confirmed by running the whole pick/sketch
+surface — `sketch-pick-marker`, `sketch-origin`, `sketch-origin-constraint`,
+`pick-mark-seat`, `pick-anchor`, `pick-affordance`, `origin-axis-frame`,
+`preselection`, `datum-plane`, `datum-face-pick`, `click-drift`, `sketch-snap*`,
+`repick-face`, `fillet-edge-pick`, `sketch-on-face`, `fb9-extrude-plane`,
+`hover-sketch`, `solve-proposal`, `next-step-accent`, `modelling-keys`,
+`shortcuts`, `shortcut-sheet-fit`, `sketch-exit-guard`, `authoring-view-cube`,
+`nav-chrome`: **124 passed, 0 failed.**
+
+**Touch: the chip is a real tap target.** At 1280x800 with `hasTouch`, the chip
+measures 120x24 (meets WCAG 2.2 SC 2.5.8 by size, exactly at the floor),
+`elementFromPoint` at its centre resolves to itself, and a real
+`page.touchscreen.tap` opens the extrude editor. The band's next-step dot is
+`pointer-events-none` and is a MARK on a tool, not a target of its own, so it
+inherits the 32 px band cell — correct. The cube's own seat is 108x108 with
+~60 px facets. No touch-sizing defect found; the chip-over-cube collision is
+the same on touch as on desktop, and worse, because a finger has no hover to
+discover the swap with.
+
+### What the failing cases look like in the gate
+
+`apps/web/e2e/qa-cross-wave-0913.spec.ts` — 5 cases, 4 `test.fail()` and one
+passing touch case. Every expected failure prints its own numbers under an
+`[XWAVE]` prefix, so a red log names the measurement rather than a bare
+timeout. 3 of 3 runs identical.
+
+---
+
 ## 2026-08-29 — QA-CI4-HEADROOM-1 closed: the next red was already red, and my first theory about why was wrong
 
 **Verdict: both named tests were failing BEFORE anyone read them in CI —
