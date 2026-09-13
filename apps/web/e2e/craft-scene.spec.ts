@@ -390,9 +390,18 @@ async function interiorLineInk(
   );
 }
 
-/** What {@link datumInk} classified in a box. */
+/** What {@link datumInk} measured in a box. */
 interface InkClasses {
-  /** Pixels nearer the datum ink than either grid ink. */
+  /**
+   * DATUM INK COVERAGE, in whole-pixel equivalents — the instrument.
+   *
+   * Each drawn pixel is scored for how much of the datum token is mixed into
+   * it (`alpha x t`, where `t` is its position on the gridMajor -> planeEdge
+   * axis), so a line that straddles two columns contributes the same total as
+   * one that lands on a single column. See {@link datumInk}.
+   */
+  ink: number;
+  /** Pixels nearer the datum ink than either grid ink — the old reading. */
   datum: number;
   /** Pixels nearer a grid ink — reported so the census can say what else is here. */
   grid: number;
@@ -401,28 +410,58 @@ interface InkClasses {
 }
 
 /**
- * Classify the scene ink in a box as DATUM or GRID, by nearest token.
+ * How far a pixel may sit OFF the gridMajor -> planeEdge axis and still be
+ * scored as datum ink, in RGB units.
+ *
+ * The two tokens are 49 units apart, so 30 admits every blend of the two over
+ * anything the resting workspace draws — the mark's own pixels measured 0.9
+ * off the axis in the aligned phase and 1.8 in the straddled one — while still
+ * rejecting an unrelated ink: brass (227,166,75), the nearest thing that could
+ * wander into a census box, sits 158 off it.
+ */
+const DATUM_AXIS_TOLERANCE = 30;
+
+/**
+ * Measure the DATUM INK in a box, as coverage, and classify the rest.
  *
  * WHY NOT AN EXACT-TOKEN COUNT, which is what every other census in this suite
  * uses: the resting origin mark is TRANSLUCENT, so it never lands on its own
  * token exactly — it lands on a blend of the token and whatever is behind it.
  * Measured at `preview.edgeOpacity` over the bench, its pixels read (86,102,121)
  * against a token of (90,106,126): inside a +/-8 tolerance by one unit per
- * channel. That is a knife edge, and it behaved like one — the identical scene
- * censused 248 px in one run and 0 in the next, because the blend drifted a
- * unit with the camera pose. An instrument that reports zero for a line you can
- * see is worse than no instrument.
+ * channel, which is a knife edge and behaved like one.
  *
- * A CLASSIFIER has no edge to fall off. The three inks a resting part workspace
- * draws are far apart — gridMinor (35,46,60), gridMajor (62,77,97), planeEdge
- * (90,106,126) — so "which of these three is this pixel nearest" is stable
- * against several units of drift in a way "is it within 8 of this one" is not.
- * The rejected classes are returned rather than discarded, so a box that fills
- * up with something unexpected says so.
+ * A NEAREST-TOKEN CLASSIFIER was the first answer and it has the same edge one
+ * step further out, because the drift is not a unit of colour — it is a
+ * SUB-PIXEL PHASE, and a phase shift does not move the blend, it SPLITS it.
+ * Measured on this box, same commit, same camera stamp (40.0,2.0,127.4), same
+ * body footprint, same 13 080 drawn pixels, on 4 of 6 first loads:
+ *
+ *     mark lands on one column    x82 (84,100,121) a255 x248        -> 248 "datum"
+ *     mark straddles two columns  x82 (74,91,112) a255 x248
+ *                                 x81 (69,85,104) a81  x237         ->   0 "datum"
+ *
+ * Half the ink went to the neighbouring column and BOTH halves then sat nearer
+ * gridMajor (62,77,97) than planeEdge (90,106,126) — 23.8 against 26.0 for the
+ * heavier of the two. So the classifier reported ZERO for a mark that is fully
+ * drawn and, at 0.97 of a line's worth of total coverage, fully visible. Every
+ * antialiased 1 px line in this suite is subject to that lottery; this one is
+ * simply the one a gate was resting on, and it is the same phase lottery
+ * {@link interiorLineInk} was built to sidestep three tests earlier.
+ *
+ * COVERAGE HAS NO EDGE TO FALL OFF, because antialiasing conserves it: a pixel
+ * is scored `alpha x t`, where `t` is how far its colour sits along the
+ * gridMajor -> planeEdge axis, so the two halves of a straddling line add back
+ * up. The same two frames above read 199 and 138 — a 1.44x spread rather than
+ * an infinite one — against 0 when the mark is made invisible.
+ *
+ * The nearest-token classes are still returned: `grid` and `other` say what
+ * ELSE is in the box, so a census that fills up with something unexpected says
+ * so, and `datum` is kept in the log for continuity with the published numbers.
  */
 async function datumInk(page: Page, box: CanvasBox): Promise<InkClasses> {
   return page.evaluate(
-    ({ box, inks, limit }) => {
+    ({ box, inks, limit, axisTolerance }) => {
       const canvas = document.querySelector<HTMLCanvasElement>(
         '[data-testid="viewport"] canvas',
       );
@@ -438,18 +477,47 @@ async function datumInk(page: Page, box: CanvasBox): Promise<InkClasses> {
         const value = Number.parseInt(hex.slice(1), 16);
         return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
       });
+      // The axis the resting mark's blend travels along: from the brightest
+      // thing the bench draws to the datum token. `t` is a position on it.
+      const base = rgb[1] as number[];
+      const tip = rgb[0] as number[];
+      const baseR = base[0] as number;
+      const baseG = base[1] as number;
+      const baseB = base[2] as number;
+      const axisR = (tip[0] as number) - baseR;
+      const axisG = (tip[1] as number) - baseG;
+      const axisB = (tip[2] as number) - baseB;
+      const axisLengthSq = axisR * axisR + axisG * axisG + axisB * axisB;
+      let ink = 0;
       let datum = 0;
       let grid = 0;
       let other = 0;
       for (let i = 0; i < data.length; i += 4) {
-        if ((data[i + 3] ?? 0) === 0) continue;
+        const alpha = data[i + 3] ?? 0;
+        if (alpha === 0) continue;
+        const r = data[i] ?? 0;
+        const g = data[i + 1] ?? 0;
+        const b = data[i + 2] ?? 0;
+        // COVERAGE: how much datum token is mixed into this pixel, scaled by
+        // how much of the pixel is covered at all.
+        const along =
+          ((r - baseR) * axisR + (g - baseG) * axisG + (b - baseB) * axisB) /
+          axisLengthSq;
+        const t = Math.min(1, Math.max(0, along));
+        const off = Math.hypot(
+          r - (baseR + axisR * t),
+          g - (baseG + axisG * t),
+          b - (baseB + axisB * t),
+        );
+        if (off <= axisTolerance) ink += (t * alpha) / 255;
+        // CLASSES: what else is in the box, by nearest token.
         let best = -1;
         let bestDistance = Number.POSITIVE_INFINITY;
-        rgb.forEach((ink, index) => {
+        rgb.forEach((token, index) => {
           const d = Math.hypot(
-            (data[i] ?? 0) - (ink[0] as number),
-            (data[i + 1] ?? 0) - (ink[1] as number),
-            (data[i + 2] ?? 0) - (ink[2] as number),
+            r - (token[0] as number),
+            g - (token[1] as number),
+            b - (token[2] as number),
           );
           if (d < bestDistance) {
             bestDistance = d;
@@ -460,10 +528,16 @@ async function datumInk(page: Page, box: CanvasBox): Promise<InkClasses> {
         else if (best === 0) datum += 1;
         else grid += 1;
       }
-      return { datum, grid, other };
+      return { ink, datum, grid, other };
     },
-    // ORDER IS THE CONTRACT: index 0 is the datum ink, the rest are grid.
-    { box, inks: DATUM_AND_GRID_INKS, limit: 40 },
+    // ORDER IS THE CONTRACT: index 0 is the datum ink, index 1 the major grid
+    // (the coverage axis runs between those two), index 2 the minor grid.
+    {
+      box,
+      inks: DATUM_AND_GRID_INKS,
+      limit: 40,
+      axisTolerance: DATUM_AXIS_TOLERANCE,
+    },
   );
 }
 
@@ -923,7 +997,19 @@ test.describe("CRAFT wave 1 — the scene reads as CAD", () => {
         "true",
       );
     }
-    await waitForFrames(page, 3);
+    // THE PROMOTION HAS TO HAVE LANDED, IN BOTH RENDERERS, BEFORE THE CENSUS.
+    // `waitForFrames(page, 3)` was doing neither job: measured here, it
+    // returned `{renders: 0, frames: 3, ms: 26.5}` — three animation frames in
+    // which the scene did not repaint once, because `waitForRenders` settles
+    // for rAF ticks when no render arrives. What had actually been
+    // synchronising this census was the ~100 ms of polling the three
+    // `aria-pressed` assertions above cost, which is an accidental settle:
+    // nothing states it, and a slower machine loses the race silently and
+    // censuses the frame BEFORE the promotion. So the DOM fact comes first —
+    // the engraved letter is the enabled state's own signature, and the rest
+    // state asserts it is absent — and then the frame is required to be still.
+    await expect(page.getByTestId(/^origin-axis-label-/)).toHaveCount(3);
+    await waitForFrameRest(page);
     await shot(page, "craft3-front-ortho-enabled");
     const enabledBelow = await datumInk(page, below);
     const datumZ = (await namedWorldBox(page, "origin-axis-Z")) as WorldBox;
@@ -932,22 +1018,29 @@ test.describe("CRAFT wave 1 — the scene reads as CAD", () => {
     for (const axis of ["X", "Y", "Z"] as const) {
       await page.getByTestId(`origin-axis-${axis}`).click();
     }
-    await waitForFrames(page, 3);
+    await expect(page.getByTestId(/^origin-axis-label-/)).toHaveCount(0);
+    await waitForFrameRest(page);
     const offBelow = await datumInk(page, below);
     const restoredZ = (await namedWorldBox(page, "origin-axis-Z")) as WorldBox;
 
     console.log(
-      `    [CRAFT-3] datum ink — at rest ${rest.datum} px above the body ` +
-        `(grid ${rest.grid}, unclassified ${rest.other}); below the body ` +
-        `${restBelow.datum} at rest -> ${enabledBelow.datum} enabled -> ` +
-        `${offBelow.datum} off again · Z span ` +
+      `    [CRAFT-3] datum ink — at rest ${rest.ink.toFixed(0)} coverage above ` +
+        `the body (nearest-token ${rest.datum}, grid ${rest.grid}, ` +
+        `unclassified ${rest.other}); below the body ` +
+        `${restBelow.ink.toFixed(0)} at rest -> ${enabledBelow.ink.toFixed(0)} ` +
+        `enabled -> ${offBelow.ink.toFixed(0)} off again · Z span ` +
         `${marks?.Z.min[1].toFixed(1)}..${marks?.Z.max[1].toFixed(1)} -> ` +
         `${datumZ.min[1].toFixed(1)}..${datumZ.max[1].toFixed(1)}`,
     );
 
     // PRESENT AT REST, in the frame that had nothing in it, measured where the
-    // body cannot contribute.
-    expect(rest.datum).toBeGreaterThan(40);
+    // body cannot contribute. Coverage, so the reading does not depend on
+    // which sub-pixel phase the camera happens to land in: measured 199 with
+    // the mark on a column and 138 with it split across two, against 0 for the
+    // mutant that leaves the mark in the graph and makes it invisible. The old
+    // nearest-token count read 248 / 0 / 0 across those same three frames — it
+    // could not tell a mark that is drawn from one that is not.
+    expect(rest.ink).toBeGreaterThan(40);
     // ENABLING IS A VISIBLE PROMOTION, and not by a subtlety: the datum gains
     // the PHANTOM negative half the mark does not have — measured below the
     // body, where a resting triad draws nothing at all — and it gains the
@@ -956,16 +1049,19 @@ test.describe("CRAFT wave 1 — the scene reads as CAD", () => {
     // Stated as two absolutes, not as a ratio: the resting reading is ZERO,
     // and `enabled > rest * 3` is vacuously true of zero — the assertion that
     // passes whatever the product does is the one this suite keeps catching.
-    // The phantom is DASHED, so 105 px of it is the whole negative half; the
-    // floor sits below that and infinitely above the control.
-    expect(restBelow.datum).toBeLessThan(20);
-    expect(enabledBelow.datum).toBeGreaterThan(60);
+    // The phantom is DASHED and its ends carry the phase, so its coverage
+    // reads 105 on one phase and 81 on the other; the control either side of
+    // it is 0 and 0. The floor is half the WORSE reading rather than just
+    // under the better one, which is what the count this replaced had been —
+    // 60 against a 105 that was never the number to plan for.
+    expect(restBelow.ink).toBeLessThan(20);
+    expect(enabledBelow.ink).toBeGreaterThan(40);
     expect(marks?.Z.min[1]).toBeCloseTo(0, 3); // the mark is a HALF axis
     expect(datumZ.min[1]).toBeLessThan(-length * 0.9); // the datum is a whole one
 
     // AND IT IS REVERSIBLE — back to the mark, not to nothing and not to the
     // datum.
-    expect(offBelow.datum).toBeLessThan(20);
+    expect(offBelow.ink).toBeLessThan(20);
     expect(restoredZ.min[1]).toBeCloseTo(0, 3);
   });
 });
