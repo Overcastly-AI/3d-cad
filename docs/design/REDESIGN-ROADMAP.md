@@ -140,7 +140,7 @@ wrong model"* rule outright.
 | id | title | subtree | proven by |
 |---|---|---|---|
 | **FLOW-A1** ✅ **LANDED `2a90a92`** | The first keystroke after a draw always lands. The window listener no longer depends on a RENDER — it reads the draft live from the store, which `placeAt` sets synchronously in the pointer handler — and keys arriving before the cells exist are buffered and replayed in the cells' REF CALLBACK (not a layout effect: drei's `<Html>` portals them in a commit of its own). | `apps/web/src/viewport/**` | `draw-dimension-arming.spec.ts`, 6 cases queued on ONE CDP socket with no await between press and keys. Mutation: all six red (`toHaveValue("100")` received `""` ×4, the strip never closed), restored 6 green. |
-| **FLOW-A2** | An unsaved sketch survives Back, the breadcrumb and reload — a guard, plus a per-part draft | `apps/web/src/routes/**` | e2e: draw 4 entities, navigate away by each of the three exits, return, and the entities are still there (or an explicit prompt was shown and honoured). |
+| **FLOW-A2** ✅ **LANDED `501331b`** | An unsaved sketch survives Back, the breadcrumb and reload — a guard, plus a per-part draft | `apps/web/src/routes/**` | e2e: draw 4 entities, navigate away by each of the three exits, return, and the entities are still there (or an explicit prompt was shown and honoured). |
 
 ### W1 — the scene looks like CAD *(viewport only, runs alongside W0)*
 
@@ -148,12 +148,12 @@ Touches no data model, no API and no editor, so it contends with nothing above.
 
 | id | title | subtree | proven by |
 |---|---|---|---|
-| **CRAFT-1** | B-rep edge overlay derived from the face partition (`faceStarts`) — a fillet is tangent, so `EdgesGeometry` draws nothing | `apps/web/src/viewport/**` | Pixel: edge ink on the filleted plate is **0** today; assert > 2 000 px and that it does not collapse when a fillet is added. |
-| **CRAFT-2** | The grid survives an axis-aligned orthographic camera | `apps/web/src/viewport/**` | Pixel: grid ink at front-ortho ≥ 50 % of front-perspective. Today 2 396 vs 7 514, and all 2 396 are the body's own antialiasing. |
+| **CRAFT-1** ✅ **LANDED `57d3bf8`** | B-rep edge overlay derived from the face partition (`faceStarts`) — a fillet is tangent, so `EdgesGeometry` draws nothing | `apps/web/src/viewport/**` | Pixel: edge ink on the filleted plate is **0** today; assert > 2 000 px and that it does not collapse when a fillet is added. |
+| **CRAFT-2** ✅ **LANDED `57d3bf8`** | The grid survives an axis-aligned orthographic camera | `apps/web/src/viewport/**` | Pixel: grid ink at front-ortho ≥ 50 % of front-perspective. Today 2 396 vs 7 514, and all 2 396 are the body's own antialiasing. |
 | **CRAFT-4** | Cursor states over the viewport | `apps/web/src/viewport/**` | e2e: `getComputedStyle(canvas).cursor` changes off `auto` over a face, and reads `grab`/`grabbing` on a manipulator. |
-| **CRAFT-3** | Origin triad visible by default, dimmed | `apps/web/src/viewport/**` | e2e: `origin-axis-{x,y,z}` ink present at rest. |
+| **CRAFT-3** ✅ **LANDED `57d3bf8`** | Origin triad visible by default, dimmed | `apps/web/src/viewport/**` | e2e: `origin-axis-{x,y,z}` ink present at rest. |
 | **CRAFT-5** | Contact shadow + light AO | `apps/web/src/viewport/**` | Pixel: mean luminance in a 40 px band under the body is ≥ 15 % below the background gradient at that height. |
-| **CRAFT-6** | The CUBE persists in sketch and plane-pick modes; the projection control stays hidden | `apps/web/src/components/**` | e2e: `view-cube` has a non-zero box in all three modes at 1280×800, and `view-projection` remains absent while authoring. **Split deliberately — see the note below.** |
+| **CRAFT-6** ✅ **LANDED `a340ff5`** | The CUBE persists in sketch and plane-pick modes; the projection control stays hidden | `apps/web/src/components/**` | e2e: `view-cube` has a non-zero box in all three modes at 1280×800, and `view-projection` remains absent while authoring. **Split deliberately — see the note below.** |
 
 **CRAFT-6 is not what the audit thought, and the difference matters.** Checked
 on the merged tree: `Viewport.tsx:1357-1358` unmounts BOTH the cube and the view
@@ -178,9 +178,49 @@ display-only there — say so and ship that.
 
 | id | title | subtree | proven by |
 |---|---|---|---|
-| **FLOW-B1** | The solve itself writes an "Extrude Sketch1 · ⏎" chip onto the profile, reusing `sketch-proposal-layer` | `apps/web/src/viewport/**` | e2e: solve a sketch, assert the chip exists with the profile pre-selected, press Enter, assert the extrude editor opens with that profile. Gesture cost of the plate journey drops by the hunt. |
-| **FLOW-B2** | `E`/`R`/`F`/`C`/`K` bound for Extrude, Revolve, Fillet, Chamfer, Sketch | `apps/web/src/shortcuts/**` | Unit: `PART_CREATE_SHORTCUTS` contains all five. e2e: each fires its editor under its stated condition. |
-| **FLOW-B3** | One accented next-verb after a feature builds | `apps/web/src/components/**` | e2e: after an extrude completes, exactly one accented affordance is present and it is the likely next verb. |
+| **FLOW-B1** ✅ **LANDED `78aaa67`** | The solve itself writes an "Extrude Sketch1 · ⏎" chip onto the profile, reusing `sketch-proposal-layer` | `apps/web/src/viewport/**` | e2e: solve a sketch, assert the chip exists with the profile pre-selected, press Enter, assert the extrude editor opens with that profile. Gesture cost of the plate journey drops by the hunt. |
+| **FLOW-B2** ✅ **LANDED `d5e936a`** | `E`/`R`/`F`/`C`/`K` bound for Extrude, Revolve, Fillet, Chamfer, Sketch | `apps/web/src/shortcuts/**` | Unit: `PART_CREATE_SHORTCUTS` contains all five. e2e: each fires its editor under its stated condition. |
+| **FLOW-B3** ✅ **LANDED `fb63809`+`6097448`** | One accented next-verb after a feature builds | `apps/web/src/components/**` | e2e: after an extrude completes, exactly one accented affordance is present and it is the likely next verb. |
+
+### Where the programme actually stands (2026-09-13)
+
+W0, W1 and W2 have landed. Three things are worth carrying forward, and two of
+them are corrections to this document's own optimism.
+
+**Every wave dispatched by hand needed a review pass, and each one found a
+BLOCKING defect of the SAME class: two changes that are each correct and wrong
+together.** W0's was a window listener whose only target guard was
+`isTypingTarget`, so `Enter` on the new exit prompt applied a sketch dimension
+instead of pressing the focused button — visible in the screenshot committed as
+proof the feature worked. W2's was the identical mechanism on a different
+surface, reached by pressing `?` to read the key card and then pressing the `E`
+the card was displaying. Neither builder could have found its own: one predated
+the other's surface, and the unit test asserting the opposite contract renders
+its component in isolation. `lib/modalGate.ts` was written after W0 as the
+general answer and then generalised to exactly one registrant, which is why W2
+walked straight past it; it now carries an audit test that fails by name when a
+new raw global key listener appears, and an alarm that fires when a key reaches
+the workspace while an `[aria-modal="true"]` element is on screen.
+
+**The flow-cost metric has NOT moved, and saying otherwise would be the easiest
+lie available.** `scripts/check-flow-cost.py` still measures the canonical
+journey — register → part → sketch → extrude → edit → export, the only one with
+no API shortcuts — at **30 gestures**, exactly what it cost before W2. That is
+not a measurement bug: `full-flow.spec.ts` was never touched, so the transcript
+still walks to the toolbar. W2 made a shorter path EXIST; nothing made it the
+path the journey takes. Until a journey exercises the chip and the accelerators,
+the honest claim is "we shipped shortcuts", not "creating a part got cheaper"
+(filed as `FLOW-JOURNEY-GAP-1`).
+
+**W1 measured two audit hypotheses and found the mechanisms were different and
+stronger than proposed.** The audit thought the missing ortho grid was a
+`fadeDistance` tuning problem; it is geometric — under a parallel projection a
+plane containing the view direction projects to a LINE, so no fade setting could
+ever have rescued it, which is also why iso-ortho always looked fine. And the
+missing edges on a filleted body were not a threshold to tune but a category
+error: `EdgesGeometry` is a mesh CREASE detector and a fillet is tangent by
+construction. Both are worth remembering when reading the remaining audit rows —
+this document's "likely cause" column is a hypothesis, not a finding.
 
 ### W3 — the numbers have handles ⚑
 
