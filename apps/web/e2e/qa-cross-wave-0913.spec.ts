@@ -285,6 +285,55 @@ test.describe("the proposal chip and the reference cube share one corner", () =>
   });
 });
 
+/**
+ * A part wearing BOTH non-modal offers at once: the band's next-step dot from a
+ * build, and the extrude chip from a sketch that has just solved. This is the
+ * state one Escape used to clear entirely.
+ */
+async function chipAndBandDot(page: Page): Promise<void> {
+  const account = await seedSession(page);
+  const part = await createPartViaApi(page, account.token, "Escape");
+  const first = await createFeature(page, account.token, part.id, {
+    name: "Sketch1",
+    feature: { type: "sketch", version: 1, params: SQUARE_20 },
+    expected_tree_version: 0,
+  });
+  await createFeature(page, account.token, part.id, {
+    name: "Sketch2",
+    feature: { type: "sketch", version: 1, params: SQUARE_20 },
+    expected_tree_version: first.tree_version,
+  });
+  await page.goto(`/parts/${part.id}`);
+  await expect(page.getByTestId("viewport")).toBeVisible();
+  await expect(page.getByTestId("feature-row")).toHaveCount(2);
+
+  // A BUILD, so the band wears its next-step dot…
+  await page.getByTestId("new-extrude").click();
+  await expect(page.getByTestId("extrude-editor")).toBeVisible({
+    timeout: 15_000,
+  });
+  await page.getByTestId("extrude-submit").click();
+  await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId("next-step-dot")).toHaveCount(1, {
+    timeout: 15_000,
+  });
+
+  // …and a solve on a sketch that has never offered, so a chip is up too.
+  await page.getByTestId("feature-row").nth(1).click({ button: "right" });
+  await page.getByTestId("tree-ctx-edit").click();
+  await expect(page.getByTestId("sketch-strip")).toBeVisible();
+  await page.getByTestId("sketch-save").click();
+  await expect(page.getByTestId("sketch-strip")).toHaveCount(0, {
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId("extrude-proposal")).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId("next-step-dot")).toHaveCount(1);
+}
+
 test.describe("one Escape backs out ONE step", () => {
   /**
    * Three cancel listeners now sit on `window` for the same key: the proposal
@@ -293,53 +342,28 @@ test.describe("one Escape backs out ONE step", () => {
    * (bubble). None of them claims the key exclusively — `stopPropagation` on
    * `window` does not stop a SIBLING listener on `window`, which needs
    * `stopImmediatePropagation` — so one Escape runs two of them.
+   *
+   * CLOSED by the cancel cascade in `lib/modalGate.ts`: the order is declared
+   * (`drag` > `offer` > `mark`, under the modal layer) and exactly one rung
+   * runs. `<body data-cancel-rungs>` publishes what is standing, so the count
+   * below can be read against what the cascade actually had to choose from.
    */
-  test.fail();
-
   test("a chip and a band dot are not both withdrawn by one key", async ({
     page,
   }) => {
-    const account = await seedSession(page);
-    const part = await createPartViaApi(page, account.token, "Escape");
-    const first = await createFeature(page, account.token, part.id, {
-      name: "Sketch1",
-      feature: { type: "sketch", version: 1, params: SQUARE_20 },
-      expected_tree_version: 0,
-    });
-    await createFeature(page, account.token, part.id, {
-      name: "Sketch2",
-      feature: { type: "sketch", version: 1, params: SQUARE_20 },
-      expected_tree_version: first.tree_version,
-    });
-    await page.goto(`/parts/${part.id}`);
-    await expect(page.getByTestId("viewport")).toBeVisible();
-    await expect(page.getByTestId("feature-row")).toHaveCount(2);
+    await chipAndBandDot(page);
 
-    // A BUILD, so the band wears its next-step dot…
-    await page.getByTestId("new-extrude").click();
-    await expect(page.getByTestId("extrude-editor")).toBeVisible({
-      timeout: 15_000,
-    });
-    await page.getByTestId("extrude-submit").click();
-    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
-      timeout: 60_000,
-    });
-    await expect(page.getByTestId("next-step-dot")).toHaveCount(1, {
-      timeout: 15_000,
-    });
-
-    // …and a solve on a sketch that has never offered, so a chip is up too.
-    await page.getByTestId("feature-row").nth(1).click({ button: "right" });
-    await page.getByTestId("tree-ctx-edit").click();
-    await expect(page.getByTestId("sketch-strip")).toBeVisible();
-    await page.getByTestId("sketch-save").click();
-    await expect(page.getByTestId("sketch-strip")).toHaveCount(0, {
-      timeout: 30_000,
-    });
-    await expect(page.getByTestId("extrude-proposal")).toBeVisible({
-      timeout: 30_000,
-    });
-    await expect(page.getByTestId("next-step-dot")).toHaveCount(1);
+    // What the cascade had to choose from, before it chose — so "the dot
+    // survived" is read against a cascade that was holding both, not against
+    // a frame where the chip was the only thing listening.
+    report(
+      "cancel rungs standing",
+      String(await page.locator("body").getAttribute("data-cancel-rungs")),
+    );
+    expect(
+      await page.locator("body").getAttribute("data-cancel-rungs"),
+      "both the offer and the mark must be standing, or this case is not the one",
+    ).toBe("offer mark");
 
     await page.keyboard.press("Escape");
     await page.waitForTimeout(400);
@@ -354,6 +378,73 @@ test.describe("one Escape backs out ONE step", () => {
       page.getByTestId("next-step-dot"),
       "one Escape withdrew the chip AND the band's proposal — two steps",
     ).toHaveCount(1);
+
+    // …and the SECOND Escape takes the next step, so nothing is stranded.
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByTestId("next-step-dot"),
+      "the band's mark must still be reachable by the next Escape",
+    ).toHaveCount(0);
+    report(
+      "cancel rungs after both keys",
+      String(await page.locator("body").getAttribute("data-cancel-rungs")),
+    );
+  });
+
+  /**
+   * QA's third row, which is the one that showed the mechanism: the drag's
+   * `stopPropagation()` killed the band's BUBBLE listener but not the note's
+   * SIBLING capture listener on the same target, so the drag was abandoned AND
+   * the chip withdrawn while the dot survived. Always exactly two, never one.
+   *
+   * A gesture in progress is the cascade's strongest rung, so it goes alone.
+   */
+  test("a live row drag is the ONE thing a key abandons", async ({ page }) => {
+    await chipAndBandDot(page);
+
+    // Take hold of a row — a real press and move, so the drag is genuinely in
+    // flight and not a state flag set by a test. The grip is the SELECTED
+    // row's ordinal promoted, and the setup's context-menu edit already left
+    // that row selected — so no extra click is needed, which matters: a click
+    // anywhere else withdraws the offers this case needs standing.
+    const grip = page.getByTestId("feature-grip-1");
+    const gripBox = await grip.boundingBox();
+    const lastRow = await page.getByTestId("feature-row").last().boundingBox();
+    if (gripBox === null || lastRow === null) throw new Error("no rows");
+    await page.mouse.move(
+      gripBox.x + gripBox.width / 2,
+      gripBox.y + gripBox.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      gripBox.x + gripBox.width / 2,
+      lastRow.y + lastRow.height / 2,
+      { steps: 6 },
+    );
+    await expect(page.getByTestId("reorder-seat")).toHaveCount(1);
+
+    const standing = await page
+      .locator("body")
+      .getAttribute("data-cancel-rungs");
+    report("cancel rungs with a drag in flight", String(standing));
+    expect(
+      standing,
+      "all three rungs must be standing, or this case is not the one QA hit",
+    ).toBe("drag offer mark");
+
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("reorder-seat")).toHaveCount(0);
+    await page.mouse.up();
+    report(
+      "after ONE Escape with a drag in flight",
+      `chip ${await page.getByTestId("extrude-proposal").count()}, ` +
+        `band dot ${await page.getByTestId("next-step-dot").count()}`,
+    );
+    await expect(
+      page.getByTestId("extrude-proposal"),
+      "abandoning the drag also withdrew the chip — two steps",
+    ).toHaveCount(1);
+    await expect(page.getByTestId("next-step-dot")).toHaveCount(1);
   });
 });
 

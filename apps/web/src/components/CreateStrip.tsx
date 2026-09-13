@@ -27,6 +27,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ExportedFile, ExportFormat } from "../api/exportPart";
 import { useCommandActionStore } from "../features/commandActions";
 import { verbHint, verbLabel } from "../features/patternScope";
+import { useCancelKey } from "../lib/modalGate";
 import { partVerbKey } from "../shortcuts/registry";
 import { ExportToolGroup } from "./ExportToolGroup";
 import { HistoryGroup } from "./HistoryGroup";
@@ -305,17 +306,38 @@ function useNextStepAccent(
     if (locked && live.current !== null) setDismissed(live.current);
   }, [locked]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (live.current !== null) setDismissed(live.current);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  /** What the band is actually SHOWING — null once the dot has been answered. */
+  const shown =
+    proposal === null || proposal.featureId === dismissed ? null : proposal;
 
-  if (proposal === null || proposal.featureId === dismissed) return null;
-  return proposal;
+  /**
+   * THE QUIETEST RUNG OF THE CANCEL CASCADE. This was a raw window listener
+   * that read neither `defaultPrevented` nor the typing target, so an Escape
+   * aimed at the proposal chip in front of it un-marked the band as well —
+   * two steps back from one key, and the chip's offer is one-shot, so the
+   * second step could not be taken back (cross-item QA, 2026-09-13).
+   *
+   * `"mark"` is last by design: a dot that only suggests is the least likely
+   * thing a user meant to dismiss while anything else is on screen.
+   *
+   * Gated on `shown`, NOT on `proposal`: a rung that stands with nothing to
+   * back out of still CLAIMS the key, and the cascade would then spend an
+   * Escape on a no-op while the workspace's own owners stood down on
+   * `defaultPrevented`. Measured after the first cut of this — the dot was
+   * gone and `data-cancel-rungs` still read `mark`. A listener must be armed
+   * exactly when its subject is on screen, which is one fact rather than a
+   * second derivation of it.
+   */
+  useCancelKey(
+    "mark",
+    shown === null
+      ? null
+      : () => {
+          if (live.current !== null) setDismissed(live.current);
+        },
+  );
+
+  return shown;
 }
 
 export function CreateStrip({

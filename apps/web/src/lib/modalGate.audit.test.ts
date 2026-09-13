@@ -41,13 +41,15 @@ const SRC = fileURLToPath(new URL("..", import.meta.url));
  */
 const DECLARED: Readonly<Record<string, number>> = {
   // The seam itself: the shield (keydown + keypress), its three self-probes,
-  // and the one listener `useGlobalKeys` registers on every caller's behalf.
-  "lib/modalGate.ts": 6,
+  // the one listener `useGlobalKeys` registers on every caller's behalf, and
+  // the cancel cascade's own window-capture listener.
+  "lib/modalGate.ts": 7,
   // Pre-seam listeners. Ordered by count so the heaviest surfaces are visible.
   "routes/PartPage.tsx": 7,
   "viewport/SketchScene.tsx": 2,
   "routes/AssemblyPage.tsx": 2,
-  "components/FeatureTreePanel.tsx": 2,
+  // Was 2: the row drag's Escape moved to the cancel cascade's "drag" rung.
+  "components/FeatureTreePanel.tsx": 1,
   "components/DocumentRegister.tsx": 2,
   "viewport/viewCommands.ts": 1,
   "viewport/partView.ts": 1,
@@ -55,7 +57,9 @@ const DECLARED: Readonly<Record<string, number>> = {
   "routes/AssembliesPage.tsx": 1,
   "components/TimelineStrip.tsx": 1,
   "components/SketchStrip.tsx": 1,
-  "components/CreateStrip.tsx": 1,
+  // `components/CreateStrip.tsx` was 1 and is now 0: the band's next-step dot
+  // moved to the cancel cascade's "mark" rung, which is where it stopped
+  // backing out a step somebody else had already taken.
 };
 
 const REGISTRATION =

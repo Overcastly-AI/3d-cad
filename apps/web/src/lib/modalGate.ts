@@ -487,3 +487,163 @@ export function useGlobalKeys(
     };
   }, [armed, capture, name, whileTyping]);
 }
+
+// --- THE CANCEL CASCADE: WHAT ONE ESCAPE BACKS OUT OF, AND IN WHAT ORDER -----
+
+/**
+ * THE ORDER, STRONGEST (most local) FIRST.
+ *
+ * The rule this file already enforces for modals — one keystroke, one owner —
+ * did not extend to the non-modal layer below them, and cross-item QA measured
+ * the consequence: **one Escape backed out TWO steps, in every configuration
+ * that had two things to back out of.** The chip and the band's dot went
+ * together; a live row drag and the chip went together. Nothing was destroyed,
+ * which is why it is a P3, but the chip's offer is one-shot, so an Escape aimed
+ * at the band's mark also spent that sketch's extrude offer for the session.
+ *
+ * The mechanism was not a bug in any one listener. Three of them sat on
+ * `window` for the same key with no relationship: a capture listener that
+ * `preventDefault`s, a capture listener that `stopPropagation`s (which does NOT
+ * stop a SIBLING listener on the same target — that needs
+ * `stopImmediatePropagation`), and a bubble listener that never read
+ * `defaultPrevented`. Registration order decided the outcome, and registration
+ * order is mount order, which is not a design.
+ *
+ * So the order is DECLARED here, once, and the cascade runs exactly one rung:
+ *
+ *   0. a MODAL LAYER — above this list entirely, shielded at the top of this
+ *      file, which is why the key card closes and nothing else moves.
+ *   1. `"drag"` — a gesture IN PROGRESS. The most transient state on screen,
+ *      and the one nothing else can plausibly have meant.
+ *   2. `"offer"` — something offered that you could have taken (the proposal
+ *      chip). Withdrawing it is a smaller step than un-marking the band.
+ *   3. `"mark"` — an ambient mark that only suggests (the band's next-step
+ *      dot). The quietest thing on screen goes last.
+ *
+ * Below the cascade sit the workspace's own Escape owners (an open editor, an
+ * armed pick, the sketch cascade), which stand down on `defaultPrevented` in
+ * the normal way. They are not a fourth rung because they cannot be live at the
+ * same time as any of these three: `useNextStepAccent` dismisses its dot the
+ * moment a command locks the band, and the proposal requires `mode === "off"`
+ * with nothing armed. The cascade acts ONLY when one of its rungs is live, so
+ * on every other Escape in the app this listener is a no-op.
+ */
+export const CANCEL_ORDER = ["drag", "offer", "mark"] as const;
+
+export type CancelRung = (typeof CANCEL_ORDER)[number];
+
+interface CancelEntry {
+  run: () => void;
+  /**
+   * Act even while a text control has focus. OFF by default — Escape in a
+   * filter field belongs to the field — and ON for a gesture in flight, which
+   * is the case that taught this: selecting a fillet row leaves focus in
+   * `fillet-radius`, so a drag started from that row could not be abandoned by
+   * a handler that bailed on any `<input>`. `FeatureTreePanel` had already
+   * written that reasoning down for its reorder chord; the cascade would have
+   * quietly thrown it away.
+   */
+  whileTyping: boolean;
+}
+
+const cancelRungs = new Map<CancelRung, CancelEntry[]>();
+
+/**
+ * The rungs with something to back out of, strongest first.
+ *
+ * Exported AND stamped on `<body data-cancel-rungs>` because "one Escape backs
+ * out one step" is otherwise only observable as an absence — a spec that counts
+ * a chip after a keystroke cannot tell "the cascade chose the chip" from "the
+ * chip happened to be the only listener that ran". The stamp is the second,
+ * independently derived reading this repo keeps paying for the lack of.
+ */
+export function liveCancelRungs(): readonly CancelRung[] {
+  return CANCEL_ORDER.filter(
+    (rung) => (cancelRungs.get(rung)?.length ?? 0) > 0,
+  );
+}
+
+function stampCancelRungs(): void {
+  if (typeof document === "undefined" || document.body === null) return;
+  const live = liveCancelRungs();
+  if (live.length === 0) delete document.body.dataset["cancelRungs"];
+  else document.body.dataset["cancelRungs"] = live.join(" ");
+}
+
+function runCancelCascade(event: KeyboardEvent): void {
+  if (event.key !== "Escape") return;
+  if (event.defaultPrevented) return;
+  const typing = isTypingTarget(event.target);
+  for (const rung of CANCEL_ORDER) {
+    const entries = cancelRungs.get(rung) ?? [];
+    // Newest first: two surfaces on one rung means the newer one is the one in
+    // front of the user. A rung whose only entries decline to act while typing
+    // is SKIPPED rather than swallowing the key — the field keeps its Escape.
+    for (let i = entries.length - 1; i >= 0; i -= 1) {
+      const entry = entries[i] as CancelEntry;
+      if (typing && !entry.whileTyping) continue;
+      // `stopImmediatePropagation`, not just `preventDefault` — the same
+      // instrument the modal shield uses, for the same reason. `preventDefault`
+      // alone only stops the listeners that READ `defaultPrevented`, and a
+      // dozen raw window listeners predate that seam (`modalGate.audit.test`
+      // records them). Measured while landing this: abandoning a row drag with
+      // `preventDefault` alone ALSO cancelled the feature editor behind it,
+      // because that listener never consulted the flag — the two-step defect
+      // this cascade exists to end, re-created in a new pairing. The rung that
+      // wins the key owns the key outright.
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      entry.run();
+      return;
+    }
+  }
+}
+
+/**
+ * Registered AFTER the shield, at module evaluation, so it is (a) behind the
+ * modal gate, which must always win, and (b) ahead of every listener any
+ * component registers in an effect — which is the whole point, since mount
+ * order is exactly what this replaces as the arbiter.
+ */
+if (typeof window !== "undefined") {
+  window.addEventListener("keydown", runCancelCascade, true);
+}
+
+/**
+ * Put this surface on a rung of the cancel cascade for as long as it has
+ * something to back out of. Pass `null` when it has not.
+ *
+ * The handler is held in a ref, so a re-render never re-registers and cannot
+ * reorder the rung under a surface that registered after it.
+ */
+export function useCancelKey(
+  rung: CancelRung,
+  onCancel: (() => void) | null,
+  options: { whileTyping?: boolean } = {},
+): void {
+  const { whileTyping = false } = options;
+  const latest = useRef(onCancel);
+  useLayoutEffect(() => {
+    latest.current = onCancel;
+  });
+  const armed = onCancel !== null;
+  useEffect(() => {
+    if (!armed) return;
+    const entry: CancelEntry = {
+      run: () => latest.current?.(),
+      whileTyping,
+    };
+    const entries = cancelRungs.get(rung) ?? [];
+    entries.push(entry);
+    cancelRungs.set(rung, entries);
+    stampCancelRungs();
+    return () => {
+      const live = cancelRungs.get(rung);
+      if (live === undefined) return;
+      const at = live.indexOf(entry);
+      if (at !== -1) live.splice(at, 1);
+      if (live.length === 0) cancelRungs.delete(rung);
+      stampCancelRungs();
+    };
+  }, [armed, rung, whileTyping]);
+}

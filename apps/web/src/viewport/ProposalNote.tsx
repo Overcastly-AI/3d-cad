@@ -87,7 +87,7 @@ import {
 
 import type { OverlayFace, PlanarFaceSignature } from "../api/parts";
 import { faceLabel } from "../features/face";
-import { useGlobalKeys } from "../lib/modalGate";
+import { useCancelKey, useGlobalKeys } from "../lib/modalGate";
 import { KEY_ACCEPT_PROPOSAL, partVerbKey } from "../shortcuts/registry";
 import { useSketchStore } from "../sketch/store";
 import { measureChrome } from "./fitFraming";
@@ -616,11 +616,6 @@ export function ProposalNote({
   const onProposalKey = useCallback(
     (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        withdraw();
-        return;
-      }
       const letter = verbKey;
       if (
         event.key !== KEY_ACCEPT_PROPOSAL &&
@@ -631,8 +626,18 @@ export function ProposalNote({
       event.preventDefault();
       accept();
     },
-    [verbKey, accept, withdraw],
+    [verbKey, accept],
   );
+  /**
+   * ESCAPE IS NOT REGISTERED HERE — it goes through the cancel cascade's
+   * `"offer"` rung (`lib/modalGate.ts`). This handler used to claim it with a
+   * bare `preventDefault()`, which made the outcome depend on which of three
+   * window listeners happened to have mounted first: cross-item QA measured one
+   * Escape withdrawing this chip AND the band's dot, and a row drag abandoning
+   * itself AND withdrawing this chip. The cascade states the order instead of
+   * inheriting it from mount order, and it runs exactly one rung.
+   */
+  useCancelKey("offer", written === null ? null : withdraw);
   // Null while nothing is written: the keys are live exactly when the glyph is
   // on screen, which is one fact rather than a second derivation of it.
   useGlobalKeys("the proposal note", written === null ? null : onProposalKey, {
