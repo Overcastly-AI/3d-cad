@@ -179,11 +179,22 @@ export function ProposalNote({
   const requestAnchor = useProposalAnchorStore((state) => state.requestAnchor);
   const anchor = useProposalAnchorStore((state) => state.anchor);
 
+  /**
+   * Drop the current offer. It does NOT spend the one-shot — the write-time
+   * effect below is the sole recorder, and this is the W2 review's second
+   * finding rather than a simplification.
+   *
+   * The chip only ever appears when an anchor exists, and `seen` was being
+   * written HERE as well, unconditionally. So an offer the user never saw was
+   * burned for the rest of the session: `withdrawOffer` runs whenever
+   * `extrudeEnabled` goes false — opening any command, arming measure, starting
+   * another sketch — and `loopAnchor` legitimately refuses at an ordinary
+   * zoomed-out pose (a profile shorter than the chip, a centroid inside the
+   * frame's keep-out). Re-solving that sketch then offered nothing, forever,
+   * with no way to ask for it back.
+   */
   const withdrawOffer = useCallback(() => {
-    setOffered((current) => {
-      if (current !== null) seen.current.add(current);
-      return null;
-    });
+    setOffered(null);
   }, []);
 
   const putNote = useCallback(
