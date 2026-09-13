@@ -14,6 +14,7 @@ import {
   parseDistanceMm,
   planeProvenance,
   profileOptions,
+  seededProfileId,
   withDirection,
   withOperation,
   withProfile,
@@ -344,6 +345,42 @@ describe("profileOptions / defaultProfileId", () => {
     expect(profileOptions(features).map((p) => p.id)).toEqual(["s1", "s2"]);
     expect(defaultProfileId(features)).toBe("s2");
     expect(defaultProfileId([])).toBe("");
+  });
+});
+
+/**
+ * W2 review, finding 3. The seed used to fall back to the tree's DEFAULT when
+ * the tree no longer offered it, so the proposal chip — whose accessible name
+ * had already told the user which sketch — could open the editor holding a
+ * different one. Silently, and looking entirely correct.
+ */
+describe("seededProfileId", () => {
+  const features = [
+    sketch("s1", "Sketch1"),
+    extrude("x1", "s1"),
+    sketch("s2", "Sketch2"),
+  ];
+  const profiles = profileOptions(features);
+
+  it("REFUSES a named seed the tree no longer offers", () => {
+    // The state a refetch, a rollback or an undo can leave between a chip's
+    // render and its click. `s3` is a real id to its caller and gone here.
+    expect(seededProfileId(profiles, features, "s3")).toBeNull();
+    // …and specifically NOT the default, which is what it used to answer and
+    // is the wrong noun rather than an absent one.
+    expect(defaultProfileId(features)).toBe("s2");
+  });
+
+  it("takes a seed the tree still offers, default or not", () => {
+    expect(seededProfileId(profiles, features, "s1")).toBe("s1");
+    expect(seededProfileId(profiles, features, "s2")).toBe("s2");
+  });
+
+  it("falls back only when nothing was named", () => {
+    // The band's own Extrude button, which passes a MouseEvent and therefore
+    // no seed at all. It can never be refused by this rule.
+    expect(seededProfileId(profiles, features, null)).toBe("s2");
+    expect(seededProfileId([], [], null)).toBeNull();
   });
 });
 

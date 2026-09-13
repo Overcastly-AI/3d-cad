@@ -176,6 +176,7 @@ import {
 import {
   defaultExtrudeForm,
   defaultProfileId,
+  seededProfileId,
   type ExtrudeForm,
   type ExtrudePreviewState,
   formFromParams,
@@ -2379,18 +2380,27 @@ export function PartPage() {
    * is handed to the band's Extrude button as an `onClick`, so React calls it
    * with a `MouseEvent` as its first argument. Anything that is not a profile
    * id means "no seed".
+   *
+   * A NAMED SEED THE TREE NO LONGER OFFERS IS A REFUSAL, NOT A FALLBACK (W2
+   * review, finding 3). This used to fall through to `defaultProfileId`, so a
+   * chip whose `aria-label` said "Extrude Sketch2" could open the editor
+   * holding whatever the tree's default happened to be — the silent wrong noun
+   * that the cross-agent `defaultPrevented` contract exists to prevent,
+   * arriving by a different route. Both sides read the same `profileOptions`
+   * today and so agree; a tree refetch landing between the chip's render and
+   * the click, a rollback or an undo is all it would take. A chip that does
+   * nothing is honest; a chip that opens a different sketch is not.
    */
   const openCreateExtrude = useCallback(
     (seedProfileId?: string) => {
       const features = tree.data?.features ?? [];
       const profiles = profileOptions(features);
-      const seeded =
-        typeof seedProfileId === "string" &&
-        profiles.some((option) => option.id === seedProfileId)
-          ? seedProfileId
-          : "";
-      const profileId = seeded !== "" ? seeded : defaultProfileId(features);
-      if (profileId === "") return;
+      const profileId = seededProfileId(
+        profiles,
+        features,
+        typeof seedProfileId === "string" ? seedProfileId : null,
+      );
+      if (profileId === null) return;
       useMeasureStore.getState().deactivate();
       setEditorError(null);
       setSelectedFeatureId(null);

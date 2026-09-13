@@ -336,6 +336,38 @@ export function optionProvenance(
   return profiles.find((p) => p.id === profileFeatureId)?.provenance ?? "base";
 }
 
+/**
+ * WHICH PROFILE A NEW EXTRUDE OPENS ON, given what the caller named.
+ *
+ * Three answers, and the middle one is the W2 review's third finding:
+ *
+ *  · nothing named — the tree's default (the band's Extrude button);
+ *  · a name the tree still offers — that one (the proposal chip, a scripted
+ *    call, anything that knows its noun);
+ *  · a name the tree does NOT offer — **null, meaning refuse**. It used to
+ *    fall back to the default, so a chip whose accessible name said "Extrude
+ *    Sketch2" could open the editor holding a different sketch. Silently. A
+ *    seed goes stale for ordinary reasons — a tree refetch landing between the
+ *    chip's render and the click, a rollback, an undo — and the caller that
+ *    passed it is the only one that knows what it meant, so the honest answer
+ *    is to do nothing rather than to guess a noun.
+ *
+ * A caller with no seed can never be refused, which is what keeps the band's
+ * own button unaffected.
+ */
+export function seededProfileId(
+  profiles: readonly ProfileOption[],
+  features: readonly FeatureResponse[],
+  seed: string | null,
+): string | null {
+  if (seed === null) {
+    const fallback = defaultProfileId(features);
+    return fallback === "" ? null : fallback;
+  }
+  if (!profiles.some((option) => option.id === seed)) return null;
+  return seed;
+}
+
 /** Default profile for a NEW extrude: the last sketch in the tree, or "". */
 export function defaultProfileId(features: readonly FeatureResponse[]): string {
   const sketches = profileOptions(features);
