@@ -44,6 +44,7 @@ import {
 import { buildEvaluateTree, buildMeasureRequest } from "../measure/geometry";
 import { useMeasureStore } from "../measure/store";
 import { MeasureReadout } from "../components/MeasureReadout";
+import { AuthoringViewCube } from "../components/AuthoringViewCube";
 import { MeasureOverlay } from "../viewport/MeasureOverlay";
 import {
   type BooleanParams,
@@ -5061,6 +5062,16 @@ export function PartPage() {
               bodySelectedFaces={selectedFaceIndices ?? preselectedFaceIndices}
               hud={
                 <>
+                  {/* CRAFT-6 — the reference cube PERSISTS through plane pick
+                    and sketch, where orientation matters most. `viewNav` above
+                    still unmounts the view RAIL (and with it `view-projection`,
+                    a mode the sketch rig cannot honour — see `ProjectionRig`);
+                    only the cube comes back, and it comes back HERE rather
+                    than as a second prop on `Viewport` because the hud slot
+                    already seats chrome in that frame. It is interactive:
+                    facet clicks steer without fighting the sketch rig, which
+                    is measured in `AuthoringViewCube`'s own comment. */}
+                  {mode !== "off" ? <AuthoringViewCube /> : null}
                   <SketchDro solving={syncPending || evaluation.isFetching} />
                   <SolveDiagnostic />
                   <MeasureReadout />
