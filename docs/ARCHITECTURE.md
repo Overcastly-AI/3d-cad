@@ -78,52 +78,59 @@ geometry workers.
 
 ## Frontend module layout (apps/web)
 
-The viewport is the hero. Panels and toolbars are composed from `packages/design`
-primitives (tokens, UI components, fonts) and remain dense and keyboard-first.
+The viewport is the hero. Panels and toolbars compose `packages/design`
+primitives (tokens, UI components, fonts) and stay dense and keyboard-first.
 
-**Gauge subsystem** — a unified parametric instrument for every verb's direct
-manipulation (extrude, revolve, sweep, loft, fillet, chamfer, shell, draft,
-pattern). The design splits the work across a load-bearing boundary:
+**Gauge subsystem** — the direct-manipulation instrument introduced in Wave 3.
+**It is mounted on ONE verb today: extrude.** The remaining verbs still author
+through their editor forms; fillet, chamfer, shell, datum, revolve, draft and
+pattern are in progress, and sweep and loft are deliberately out of scope (their
+parameter sets cannot be expressed by a single track). Three files, split across
+a boundary that is load-bearing:
 
 - **`packages/design/src/gauge.ts`** — pure tuple arithmetic. No `three`, no
-  react-three-fiber: stateless track factories (`linearTrack`, `steppedTrack`,
-  `angularTrack`), stop calculation (`ladderStops`), tag placement (`placeGaugeTag`),
-  and an optimistic ask-queue for drag reconciliation. Unit-testable in jsdom.
-- **`apps/web/src/viewport/gaugePose.ts`** — three.js pose computation for a
-  given track: arrowhead orientation, spine segment setup (one cylinder per
-  polyline segment to handle arc-drawn tracks), and `projectedSpineLength`.
-- **`apps/web/src/viewport/ParametricGauge.tsx`** — the r3f shell. One component,
-  every verb: injects a `GaugeTrack` (the track factory) and renders the grip,
-  tag, ladder, and arrowhead meshes. Owns the optimistic update loop and digit
-  handoff to the DOM tag.
+  react-three-fiber import: track factories (`linearTrack`, `steppedTrack`,
+  `angularTrack`), stop selection (`ladderStops`), quantization (`quantize`),
+  tag placement (`placeGaugeTag`), and the ask-queue that reconciles optimistic
+  drag updates against server echoes.
+- **`apps/web/src/viewport/gaugePose.ts`** — the three.js pose for a track:
+  arrowhead orientation, one cylinder per spine segment (so an arc track draws
+  its polyline rather than a chord), and `projectedSpineLength`.
+- **`apps/web/src/viewport/ParametricGauge.tsx`** — the r3f shell: grip, hit
+  sleeve, tag, ladder and arrowhead, plus pointer capture, digit capture and the
+  nested-Escape rung.
 
-Why this seam: stateless arithmetic here means every correctness concern (lost
-updates, pointer capture, key stepping, nested Escape, quantization) is shared
-by all three track types, and any mutation test of the correctness logic lives
-in jest, not only in the browser. The viewport reads the same design tokens
-(proposal/hover/selection colours) as the DOM.
+Why the seam is where it is: the arithmetic has no renderer dependency, so a
+unit test can hold it directly. That is not a stylistic preference — the
+chord-versus-polyline defect and the px/mm bias were both invisible to every
+gate in this repo while they lived inside a `useMemo` in the r3f component, and
+both became one-line assertions once the arithmetic moved out.
 
-**Feature editors** — `apps/web/src/components/{Extrude,Revolve,Sweep,Loft,
-Fillet,Chamfer,Shell,Draft,Pattern,Hole,LinearPattern,CircularPattern}Editor.tsx`
-(forms) plus verb-specific preview logic in `apps/web/src/viewport/` (each verb's
-draw/tessellation path, feature-specific UI like the chamfer type selector or
-pattern axis picker).
+**Feature editors** — `apps/web/src/components/*Editor.tsx`, seventeen of them:
+BaseFlange, Chamfer, Combine, CornerRelief, Datum, Draft, EdgeFlange, Extrude,
+Fillet, Hem, Hole, Loft, Mirror, Pattern, Revolve, Shell, Sweep. Pattern is one
+editor covering both linear and circular.
 
-**Viewport infrastructure** — r3f camera (ViewCube, home/iso/ortho snaps,
-orbit/pan/zoom), studio-shaded bodies (matcap), feature tree outline (per-body
-edges, selection highlight), grid with atmospheric perspective, reference
-planes/axes. All readout and chrome shares the design system's token palette.
+**Viewport infrastructure** — r3f throughout, including the sketch surface
+(`SketchScene.tsx` is `@react-three/fiber` + drei `Html`, **not** an SVG
+overlay; the SVG renderer in this app is the drawing sheet, which is a different
+surface). Camera with ViewCube and home/iso/ortho snaps, matcap-shaded bodies,
+B-rep feature edges, grid with atmospheric falloff, reference planes and axes.
+Chrome and viewport read the same token palette — one palette, two renderers.
 
-**State management** — zustand stores for viewport state (camera, selection,
-feature tree), feature editor state, and the proposal chip (the "next step"
-affordance under the cursor). No Redux or context-tree noise.
+**State** — zustand, but deliberately NOT one central store: state lives beside
+the feature that owns it (`viewport/armedPicks.ts`, `viewport/partView.ts`,
+`viewport/proposalAnchor.ts`, `viewport/viewCommands.ts`,
+`features/facePickStore.ts`, `features/preselect.ts`,
+`features/commandActions.ts`, `assembly/mateStore.ts`, `auth/session.ts`).
+`store/viewport.ts` is a small holder for box dimensions and is not a
+general-purpose viewport store despite its name.
 
-**Sketch on plane** — planar constraint solver (planegcs via Python, driven from
-browser via the geometry service's `/sketch` route). The sketch surface is
-rendered as an SVG overlay on the viewport with snap markers, dimension readouts,
-and constraint visualization. Solver is not reachable from the browser API and
-never will be (RESEARCH §9 — sketch solving is local, tight, and single-user;
-the Python entrypoint keeps it that way).
+**Sketch solving** happens in `services/geometry`, not in the browser:
+`geometry.sketch.planegcs_solver` wraps planegcs server-side, with an
+independent geometric residual check beside it. The browser reaches it through
+the gateway like any other geometry call. The `/sketch/*` routes on the geometry
+service (`trim`, `extend`, `offset`) are curve edits, distinct from solving.
 
 ## Feature types (services/geometry)
 
