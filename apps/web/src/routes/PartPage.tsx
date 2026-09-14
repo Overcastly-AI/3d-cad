@@ -379,6 +379,14 @@ import {
   type DatumGaugeSeed,
 } from "../viewport/faceAnchor";
 import { ShellGauge } from "../viewport/ShellGauge";
+import { PatternGaugeLayer } from "../viewport/PatternGaugeLayer";
+import {
+  patternAnchor,
+  sceneDirection,
+  type PatternAnchor,
+} from "../viewport/patternAnchor";
+import type { PatternPreviewState } from "../viewport/patternGhost";
+import { usePartViewStore } from "../viewport/partView";
 import { useGaugeOverride } from "../viewport/useGaugeOverride";
 import { useViewCommandStore } from "../viewport/viewCommands";
 import { Viewport } from "../viewport/Viewport";
@@ -1746,6 +1754,16 @@ export function PartPage() {
     null,
   );
   const [draftGauge, setDraftGauge] = useState<DraftGaugeState | null>(null);
+  // ANCHOR A, pattern (CRAFT-11). TWO of them, because a pattern mounts the
+  // gauge TWICE — a stepped count along the row and a linear spacing across the
+  // first gap — and two instruments driving one box could not hold one number
+  // steady while the other moves, which is the whole reason §5.3 split them.
+  const [patternCountOverride, patternCountGauge] = useGaugeOverride("n");
+  const [patternSpacingOverride, patternSpacingGauge] = useGaugeOverride("mm");
+  // The open pattern editor's live row, projected for the viewport (the pattern
+  // twin of `extrudePreview`). Cleared the moment the editor closes.
+  const [patternPreview, setPatternPreview] =
+    useState<PatternPreviewState | null>(null);
 
   // Earlier datum features offered to the datum editor as references (the
   // offset-from base + the midplane sides). Create authors at the tip, so every
@@ -3172,6 +3190,12 @@ export function PartPage() {
     draftAngleGauge.reset();
     setRevolveGauge(null);
     setDraftGauge(null);
+    // …and both of the pattern's, because it mounts the gauge TWICE. A count
+    // that survived the close would open the next row at whatever the last drag
+    // reached, on a value the user never touched this time round.
+    setPatternPreview(null);
+    patternCountGauge.reset();
+    patternSpacingGauge.reset();
   }, [
     extrudeDepthGauge,
     filletRadiusGauge,
@@ -3180,6 +3204,8 @@ export function PartPage() {
     datumOffsetGauge,
     revolveAngleGauge,
     draftAngleGauge,
+    patternCountGauge,
+    patternSpacingGauge,
   ]);
 
   // Global cancel for an open feature editor (FINDINGS #11). The command band
@@ -4774,6 +4800,29 @@ export function PartPage() {
   // The face the taper gauge stands on: the FIRST picked, because pick order is
   // preserved and a draft of six faces by one angle wants one instrument.
   const draftGaugeFace = shellPickedFaces[0];
+  /**
+   * The seed body the pattern gauges stand on, and where they stand (CRAFT-11).
+   *
+   * The drawn mesh is read HERE, at the integration point, and handed to
+   * `PatternGaugeLayer` as props — the gauge component reaches into no store,
+   * so W4's persistent selection re-sources these two expressions and leaves
+   * the instrument alone. `pickGeometry` is `null` for "no mesh", never for
+   * "not loaded yet" (`ModelMesh` publishes null before disposing), so a null
+   * here is a row with no ghosts rather than a row to wait for.
+   */
+  const patternBodyGeometry = usePartViewStore((state) => state.pickGeometry);
+  const patternGaugeAnchor = useMemo<PatternAnchor | null>(() => {
+    if (patternPreview === null) return null;
+    const box = patternBodyGeometry?.boundingBox ?? null;
+    if (box === null) return null;
+    return patternAnchor(
+      {
+        min: [box.min.x, box.min.y, box.min.z],
+        max: [box.max.x, box.max.y, box.max.z],
+      },
+      sceneDirection(patternPreview.direction),
+    );
+  }, [patternPreview, patternBodyGeometry]);
   // THE ONE SET OF FACTS about the body on screen. The feature tree's SOLVE
   // cell, the inspector's STATUS cell, the EXPORT gate, the SKIP rows and the
   // partial-body notice below all read this object — they used to compute three
@@ -5311,6 +5360,13 @@ export function PartPage() {
                         onCancel={closeEditor}
                         saving={editorSaving}
                         error={editorError}
+                        // ANCHOR C — contract β's echo, both halves. The
+                        // gauges ask, the form takes it, the form projects the
+                        // row back out through `onPreviewChange`, and the
+                        // gauges redraw from THAT. One value each, two ways in.
+                        onPreviewChange={setPatternPreview}
+                        countOverride={patternCountOverride}
+                        spacingOverride={patternSpacingOverride}
                       />
                     ) : editor.kind === "fillet" ? (
                       <FilletEditor
@@ -5646,6 +5702,23 @@ export function PartPage() {
               }
             >
               <SketchScene solved={solved} facePicking={facePicking} />
+              {/* ANCHOR D, pattern (CRAFT-11) — two mounts and a ghost. The
+                  anchor is computed HERE and handed down, so CRAFT-12's
+                  selection store re-wires this one expression rather than the
+                  gauge component. */}
+              {mode === "off" &&
+              editor?.kind === "pattern" &&
+              patternPreview !== null &&
+              patternGaugeAnchor !== null ? (
+                <PatternGaugeLayer
+                  anchor={patternGaugeAnchor}
+                  count={patternPreview.count}
+                  spacingMm={patternPreview.spacingMm}
+                  onCountChange={patternCountGauge.set}
+                  onSpacingChange={patternSpacingGauge.set}
+                  bodyGeometry={patternBodyGeometry}
+                />
+              ) : null}
               {showExtrudeGhost &&
               extrudeGhostLayer !== null &&
               extrudePreview ? (

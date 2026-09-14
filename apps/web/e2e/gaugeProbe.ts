@@ -191,11 +191,28 @@ export async function gripCentre(page: Page, gaugeId: string): Promise<Point> {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
-/** Walk the projected track and ask the browser what is under each pixel. */
+/**
+ * Walk the projected track and ask the browser what is under each pixel.
+ *
+ * `hits` counts points resolving to THIS gauge; `others` counts points
+ * resolving to a DIFFERENT one. The second number exists for CRAFT-11, which
+ * mounts two instruments on one feature: with two hit sleeves in the same
+ * neighbourhood the new way to fail is a sleeve that answers for its SIBLING,
+ * and a census that only asked "did this land on a gauge" would score that
+ * defect as a perfect run. Extended here rather than forked into a third copy,
+ * so every gauge spec gets the check — it is vacuous (`others === 0`) wherever
+ * only one instrument is on screen, and it costs nothing.
+ */
 export async function reach(
   page: Page,
   gaugeId: string,
-): Promise<{ hits: number; resolved: string[]; from: Point; to: Point }> {
+): Promise<{
+  hits: number;
+  others: number;
+  resolved: string[];
+  from: Point;
+  to: Point;
+}> {
   const { seat } = await projectedSpine(page, gaugeId);
   const apex = await gripCentre(page, gaugeId);
   const points: Point[] = [];
@@ -211,18 +228,24 @@ export async function reach(
       pts.map((p) => {
         const el = document.elementFromPoint(p.x, p.y);
         if (el === null) return "null";
-        return el.closest(`[data-gauge="${id}"]`) !== null
-          ? "gauge"
-          : (el.getAttribute("data-testid") ??
-              el.tagName.toLowerCase() +
-                (el.className && typeof el.className === "string"
-                  ? `.${el.className.split(/\s+/)[0]}`
-                  : ""));
+        const owner = el.closest("[data-gauge]");
+        if (owner !== null) {
+          const found = owner.getAttribute("data-gauge");
+          return found === id ? "gauge" : `gauge:${found}`;
+        }
+        return (
+          el.getAttribute("data-testid") ??
+          el.tagName.toLowerCase() +
+            (el.className && typeof el.className === "string"
+              ? `.${el.className.split(/\s+/)[0]}`
+              : "")
+        );
       }),
     { pts: points, id: gaugeId },
   );
   return {
     hits: resolved.filter((r) => r === "gauge").length,
+    others: resolved.filter((r) => r.startsWith("gauge:")).length,
     resolved,
     from: seat,
     to: apex,
@@ -272,17 +295,26 @@ export async function viewportStamp(
 
 /** Assert a reach census clears the floor, printing the census either way. */
 export function expectReach(
-  walked: { hits: number; resolved: string[] },
+  walked: { hits: number; others?: number; resolved: string[] },
   gaugeId: string,
 ): void {
   console.log(
-    `CRAFT-9b reach ${gaugeId}: ${walked.hits}/${REACH_SAMPLES} — ${walked.resolved.join(", ")}`,
+    `gauge reach ${gaugeId}: ${walked.hits}/${REACH_SAMPLES} self, ` +
+      `${walked.others ?? 0} sibling — ${walked.resolved.join(", ")}`,
   );
   expect(
     walked.hits,
     `the drawn track must BE the target: ${walked.hits}/${REACH_SAMPLES} ` +
       `sample points resolved to ${gaugeId} (${walked.resolved.join(", ")})`,
   ).toBeGreaterThanOrEqual(REACH_FLOOR);
+  // Vacuously true with one instrument on screen, and the whole question with
+  // two: a control that answers for its neighbour is unreachable while looking
+  // present, which is the defect class this repo keeps paying for.
+  expect(
+    walked.others ?? 0,
+    `${gaugeId}'s own track must never resolve to another gauge ` +
+      `(${walked.resolved.join(", ")})`,
+  ).toBe(0);
 }
 
 // --- THE ARC CASE (CRAFT-10) -------------------------------------------------
