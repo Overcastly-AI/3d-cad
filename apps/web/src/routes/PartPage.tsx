@@ -367,6 +367,13 @@ import { ExtrudePreview } from "../viewport/ExtrudePreview";
 import { ChamferGauge } from "../viewport/ChamferGauge";
 import { FilletGauge } from "../viewport/FilletGauge";
 import { useEdgeGaugeAnchors } from "../viewport/edgeAnchorSource";
+import { DatumGauge } from "../viewport/DatumGauge";
+import {
+  datumAnchor,
+  shellAnchor,
+  type DatumGaugeSeed,
+} from "../viewport/faceAnchor";
+import { ShellGauge } from "../viewport/ShellGauge";
 import { useGaugeOverride } from "../viewport/useGaugeOverride";
 import { useViewCommandStore } from "../viewport/viewCommands";
 import { Viewport } from "../viewport/Viewport";
@@ -1705,6 +1712,18 @@ export function PartPage() {
   const [chamferDistanceOverride, chamferDistanceGauge] =
     useGaugeOverride("mm");
   const edgeGaugeAnchors = useEdgeGaugeAnchors();
+
+  // The same two halves, once per verb that grew a gauge in CRAFT-9b. The
+  // `…Mm` / `…Seed` state beside each override is the editor's LIVE form
+  // projected up here (the ghost's direction), so the viewport can seat the
+  // instrument and draw its preview before Save; the override is the value
+  // coming back the other way. One value, two ways in.
+  const [shellThicknessOverride, shellThicknessGauge] = useGaugeOverride("mm");
+  const [shellThicknessMm, setShellThicknessMm] = useState<number | null>(null);
+  const [datumOffsetOverride, datumOffsetGauge] = useGaugeOverride("mm");
+  const [datumGaugeSeed, setDatumGaugeSeed] = useState<DatumGaugeSeed | null>(
+    null,
+  );
 
   // Earlier datum features offered to the datum editor as references (the
   // offset-from base + the midplane sides). Create authors at the tip, so every
@@ -3115,13 +3134,22 @@ export function PartPage() {
     // seeded from the last drag instead of its own default. One per gauge, and
     // the reason these are written out rather than looped is that forgetting
     // ONE of them is silent: the wrong default surfaces on the NEXT open of
-    // that command, on a value the user never touched this time round.
+    // that command, on a value the user never touched this time round. (The
+    // editors' own unmounts clear the live halves; the overrides outlive them.)
     extrudeDepthGauge.reset();
     filletRadiusGauge.reset();
     chamferDistanceGauge.reset();
     setFilletRadiusMm(null);
     setChamferDistanceMm(null);
-  }, [extrudeDepthGauge, filletRadiusGauge, chamferDistanceGauge]);
+    shellThicknessGauge.reset();
+    datumOffsetGauge.reset();
+  }, [
+    extrudeDepthGauge,
+    filletRadiusGauge,
+    chamferDistanceGauge,
+    shellThicknessGauge,
+    datumOffsetGauge,
+  ]);
 
   // Global cancel for an open feature editor (FINDINGS #11). The command band
   // advertises "CANCEL ESC", so Escape MUST disarm the editor from any focus —
@@ -3243,6 +3271,27 @@ export function PartPage() {
   // ---------------------------------------------------------------------
   const shellPickedFaces = useFacePickStore((s) => s.picked);
   const shellSessionOpen = useFacePickStore((s) => s.active);
+  const shellPickOverlay = useFacePickStore((s) => s.overlay);
+
+  /**
+   * Where each CRAFT-9b gauge stands. Resolved HERE and handed down as a value:
+   * the gauges never read a pick store, so W4's persistent selection store
+   * (CRAFT-12) re-wires these two lines rather than rewriting two components.
+   * The datum seat also needs the datum-resolution table, which this page
+   * already owns — one walk, not a second copy of it inside the viewport.
+   */
+  const shellGaugeAnchor = useMemo(
+    () => shellAnchor(shellPickOverlay, shellPickedFaces),
+    [shellPickOverlay, shellPickedFaces],
+  );
+  const datumGaugeAnchor = useMemo(
+    () =>
+      datumAnchor(
+        datumGaugeSeed,
+        (featureId) => datumBasisById.get(featureId) ?? null,
+      ),
+    [datumGaugeSeed, datumBasisById],
+  );
   useEffect(() => {
     if (!shellSessionOpen || bodyFeatureId === null) return;
     usePreselectStore.getState().rememberFaces(
@@ -5251,6 +5300,8 @@ export function PartPage() {
                         onCancel={closeEditor}
                         saving={editorSaving}
                         error={editorError}
+                        onThicknessChange={setShellThicknessMm}
+                        thicknessOverride={shellThicknessOverride}
                       />
                     ) : editor.kind === "draft" ? (
                       <DraftEditor
@@ -5356,6 +5407,8 @@ export function PartPage() {
                         }
                         onToggleFacePick={toggleDatumFacePick}
                         facePick={datumFacePicked}
+                        onPlaneChange={setDatumGaugeSeed}
+                        offsetOverride={datumOffsetOverride}
                         // …and the standing refusal is stated on the editor's
                         // own (ungated) pick-error line rather than nowhere.
                         facePickError={datumFacePickError ?? datumPickRefusal}
@@ -5600,6 +5653,29 @@ export function PartPage() {
                   testIdPrefix={
                     editor?.kind === "draft" ? "draft-face" : "shell-face"
                   }
+                />
+              ) : null}
+              {/* THE SHELL GAUGE stands on the face you last opened — so it
+                  appears with the pick rather than before it, and the editor's
+                  own field is still the exact path (CRAFT-9b). */}
+              {mode === "off" &&
+              editor?.kind === "shell" &&
+              shellGaugeAnchor !== null &&
+              shellThicknessMm !== null ? (
+                <ShellGauge
+                  anchor={shellGaugeAnchor}
+                  thicknessMm={shellThicknessMm}
+                  onChange={shellThicknessGauge.set}
+                />
+              ) : null}
+              {mode === "off" &&
+              editor?.kind === "datum" &&
+              datumGaugeAnchor !== null &&
+              datumGaugeSeed !== null ? (
+                <DatumGauge
+                  anchor={datumGaugeAnchor}
+                  offsetMm={datumGaugeSeed.offsetMm}
+                  onChange={datumOffsetGauge.set}
                 />
               ) : null}
               {mode === "plane" && facePicking ? (
