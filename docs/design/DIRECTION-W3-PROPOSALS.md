@@ -903,6 +903,29 @@ carries it needs a positive control that it is still load-bearing.
    `DimensionTagCell` already renders both. Add the leader (§2.1).
 5. **Digit capture, `Tab` ⇄ cell, nested `Escape`** — §4, contracts α and γ.
 6. **Remove the rest-state collar** (§2.1).
+7. **ADDED AFTER CRAFT-8's REVIEW — draw the spine as a polyline, not a chord.**
+   `ParametricGauge.tsx`'s `pose` builds ONE `CylinderGeometry` between
+   `drawing.spine[0]` and `drawing.spine[len-1]` and discards every intermediate
+   point — while `TrackDrawing.spine` is documented as *"two points for a
+   straight track, a polyline for an arc"* and `angularTrack.draw` duly emits
+   one. Measured: a 90 degree sweep at radius 20 yields a 25-point spine whose
+   chord departs from the true arc by **5.86 world units**, 29 % of the radius.
+   Render the spine as a chain of segment cylinders (or a `TubeGeometry`); a
+   2-point spine reduces to today's single cylinder, so extrude is unaffected.
+   This is in CRAFT-7 because CRAFT-7 owns `ParametricGauge.tsx` and CRAFT-10
+   does not — as landed, CRAFT-10 could not mount an angular gauge without
+   reopening a file outside its territory.
+8. **ADDED AFTER CRAFT-8's REVIEW — close the two §6.1 gaps.** `tagSide` is
+   absent from `ParametricGaugeProps`, and `companion` shipped narrowed to
+   `Pick<GaugeCell, "tagLabel" | "value">`, so the companion cell is formatted
+   with the PRIMARY track's formatter. Fine for hole (depth mm + diameter mm),
+   wrong for any mixed-unit pair — which is why §6.1 gave the companion its own
+   `track`. Add `tagSide`; either restore the full `companion` shape or state in
+   §6.1 that companion is display-only and same-unit. Also note the tag leader
+   is **not** a one-prop flip as CRAFT-8 reported: `placeGaugeTag` is exported
+   and unit-tested but has no shipped call site, and `ParametricGauge` never
+   imports it, so wiring it means measuring the tag box, resolving the frame and
+   threading `placement` through — inside `ParametricGauge.tsx`, which is yours.
 
 **Proven by — AMENDED:** the roadmap says *"`elementFromPoint` down the gauge
 axis resolves to `extrude-depth-handle` at ≥ 8 of 12 offsets (today 3 of 15)"*.
@@ -1067,3 +1090,88 @@ Playwright config, real Chromium. The two probe specs were temporary, formatted
 on creation and deleted in the same pass — they are measurement instruments, not
 gates. The measurements a builder should re-take before starting are the axis
 sweep (§1.2) and the per-verb handle sweep (§1.3); both are ten lines.
+
+---
+
+## 12. RECONCILIATION — written after CRAFT-8 landed and was reviewed
+
+Three things in this document were wrong, ambiguous, or have been overtaken by
+what shipped. They are corrected here rather than edited away, because the
+reasoning that produced them is still worth reading.
+
+### 12.1 The track factories: §6.3 and §8.1 win; §6.4's "additive" sentence is the odd one out
+
+§6.3's table says `gauge.ts` holds **the three track factories**. §8.1 says
+9/10/11 touch `packages/design`: **nothing**, and that the package is CRAFT-8's
+alone for the whole wave, with "stop and escalate" if they need a change.
+§6.4's closing reasoning — that a new `GaugeTrack` is *"additive by
+construction"* and therefore need not land now — cannot hold beside those two:
+a later item that needs a factory would have to either add one (forbidden by
+§8.1) or escalate (which is the deadlock §8 exists to prevent).
+
+**So the shipped reading is the correct one: all three factories landed in
+CRAFT-8.** `linearTrack` has a shipped call site; `steppedTrack` and
+`angularTrack` do not, and their unit tests are their only witness — which the
+test file says out loud in its own `describe` name.
+
+**But `angularTrack`'s signature is hereby PROVISIONAL.** It was designed
+against no caller, and CRAFT-8's review has already found one place where the
+shell cannot honour what it emits (the chord defect, now CRAFT-7 item 7). When
+CRAFT-10 mounts the first real angular gauge, **changing `angularTrack` does not
+count as reopening a closed package** and does not require an escalation — it is
+the first use finding out what the interface should have been. `steppedTrack`
+gets the same licence for CRAFT-11.
+
+This is the repo's own DRY rule showing its teeth: *extract on the second real
+use, not the first imagined one.* We extracted on the first imagined use because
+the territory rule made the alternative worse. That is a defensible trade and it
+is not free — this clause is the price.
+
+### 12.2 The screenshot noise floor is not a gate; do not reuse it as one
+
+CRAFT-8 proved "it must not move a pixel" against a floor built from **one**
+same-code pair. Its review re-measured with six captures and all fifteen
+pairwise comparisons, at CRAFT-8's own `d >= 24` metric:
+
+```
+NOISE FLOOR (d>=24), 15 pairs:  min=87   median=266   max=23077
+CRAFT-8's reading:              1280: 86 against a floor of 110
+                                1600: 28 against a floor of 287
+```
+
+Three consequences, and the first is the one that matters.
+
+- **The distribution is bimodal, and the high mode recurs at roughly 1 in 6.**
+  One of six identical-code captures differed across the full frame width. That
+  is the same shape CRAFT-8 saw once and dismissed after a repeat — a coherent
+  124 px column — and it is not antialiasing, it is structural. So this
+  procedure can report a regression that does not exist, which it nearly did.
+- **86 against 110 is not clearance.** 86 sits at the minimum of the same
+  distribution (min 87) whose median is 266. Two draws from the low mode of a
+  bimodal process, ordered, are not a floor and a signal. The honest sentence is
+  *"at 1280 the difference is indistinguishable from run-to-run noise"*. Only
+  the 1600 reading (28 against 287, a 10x margin) carries weight.
+- **The `d >= 24` residual is not on the grid.** In every low-mode pair it sits
+  in a ~193x133 box on the gauge and its ghost — i.e. the metric's noise lives
+  exactly where a real change would live.
+
+**For CRAFT-7 / 9 / 10 / 11, the "did not move a pixel" gate is the
+DETERMINISTIC DOM PROBE**, not a screenshot diff: the grip's bounding box, the
+`aria-value*` triple and `data-step`/`data-coarse-step` read at three fixed
+values. Its own repeatability is measurable (~0.09 px here) and it costs a
+fraction of a capture. If a pixel comparison is genuinely wanted, it needs at
+least five noise pairs and a max-or-high-quantile floor.
+
+Corollary worth carrying beyond this wave: **a single-sample "control" is not a
+control.** It cannot estimate dispersion, so it cannot tell you whether the
+number beside it means anything.
+
+### 12.3 The committed `w3-before-extrude-*.png` baselines cannot serve as a baseline
+
+They were captured PERSP with the grid off, by a probe spec that was deleted in
+the same pass. Nothing reproducible renders that state now, so a diff against
+them measures the procedure rather than the change. They remain useful as
+*illustrations* of the before state for the founder; they are not evidence.
+The other eight frames in that directory are unaffected — they are per-verb
+"this verb has no handle at all" evidence, which does not depend on camera
+state.
