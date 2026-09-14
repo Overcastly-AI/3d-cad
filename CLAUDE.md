@@ -1180,21 +1180,42 @@ recipe here in the same commit as the fix.**
   can be wrong in the way any measurement can; say how it was derived, so the
   agent can check it rather than inherit it. This one was caught only because
   the QA agent re-derived the census instead of trusting the brief.
-- **A TEST ID THAT EXISTS NOWHERE MAKES `toHaveCount(0)` VACUOUSLY TRUE, AND IT
-  READS AS A PASSING GUARD FOREVER.** Same session: `part-export-error` appears
-  in `full-flow.spec.ts` and `export-formats.spec.ts` and **in no source file at
-  all** — the app's export error surface is `part-export-notice`. Both
-  assertions have therefore never tested anything since the day they were
-  written, and neither could ever fail, which is why nobody noticed.
-  This is the same family as the `sr-only` control, the zero-area SVG stroke,
-  the ungenerated Tailwind utility and `force: true` — **an assertion that
-  cannot observe its failure mode** — but with a cheaper tell than any of them:
-  a negative assertion whose locator never resolves. Two rules. (a) **Every
-  `toHaveCount(0)` / `not.toBeVisible()` / `toHaveCount(0)`-shaped guard needs a
-  companion proving the locator CAN resolve** — assert the thing is present in
-  the state where it should be, in the same spec, or the absence check is free.
-  (b) An assertion you have never seen fail is not yet a gate; when you write
-  one, mutate the app until it reddens, once.
+- **AND I THEN COMMITTED A SECOND INSTANCE OF THAT SAME BLINDNESS IN THE SAME
+  COMMIT — `grep '<literal test id>'` CANNOT SUPPORT THE CONCLUSION "THIS ID
+  EXISTS NOWHERE", BECAUSE IDS ARE ASSEMBLED.** The bullet above originally
+  continued by reporting `part-export-error` as a phantom test id making two
+  `toHaveCount(0)` assertions vacuously true. **That was wrong.** The id is real
+  and is built by template at `apps/web/src/components/ExportRow.tsx:164` —
+  `` data-testid={`${testIdPrefix}-error`} `` — so no literal grep can ever see
+  it. I wrote the rule about argument-grep blindness and fell into the
+  identifier-grep version of it in the same breath, then stated the false
+  conclusion to the founder and wrote it here. Caught by the builder I had
+  briefed with it.
+  **The near-miss is the part worth keeping.** Acting on the wrong diagnosis
+  meant repointing both specs at `part-export-notice`, and that would have been
+  an ACTIVE REGRESSION: `-notice` is the partial-body advisory, which renders on
+  a healthy page, so `toHaveCount(0)` would have begun failing for being
+  correct. A confident wrong diagnosis of a "dead" assertion is more dangerous
+  than the dead assertion, because the fix is a code change and the symptom is a
+  green test.
+  Practical rules. (a) To decide whether a test id exists, grep the **suffix**
+  (`-error`), or the template variable, or search the rendered DOM — never the
+  full literal. Any id, class or route built by interpolation is invisible to
+  the obvious search, and interpolation is the normal way to write a reusable
+  component. (b) **"This locator never resolves" is a claim about the running
+  app, so prove it in the running app** — render the state and count the nodes —
+  rather than inferring it from source.
+  The underlying defect class is still real and still worth the guard: an
+  assertion whose locator can never resolve is the cheapest member of the
+  "cannot observe its failure mode" family (with the `sr-only` control, the
+  zero-area SVG stroke, the ungenerated Tailwind utility and `force: true`).
+  So: **a `toHaveCount(0)` / `not.toBeVisible()` guard needs a companion proving
+  the locator CAN resolve**, and an assertion you have never seen fail is not
+  yet a gate — mutate the app until it reddens, once. The genuine defect here
+  was narrower than I claimed and that guard would have found it:
+  `export-formats.spec.ts` drives the export BAND (`part-export-band-*`) while
+  watching the PANEL's alert, a node that spec never touches, so a band failure
+  would have rendered `part-export-band-error` and the assertion still read 0.
 - **`git stash` IS NOT ISOLATED BY A WORKTREE — THE STASH LIST IS SHARED, AND
   POPPING HANDS YOU WHOEVER STASHED LAST.** Found 2026-08-28 by the hover-to-
   sketch agent, which caused the incident and recovered it. Worktrees give every
