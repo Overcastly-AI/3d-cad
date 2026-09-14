@@ -1,6 +1,8 @@
 export * from "./tokens";
 export {
   areaUnitLabel,
+  formatAngle,
+  type FormatAngleOptions,
   formatLength,
   formatMass,
   fromGrams,
@@ -101,6 +103,44 @@ export {
   DimensionTagCell,
   type DimensionTagCellProps,
 } from "./primitives/DimensionTag";
+export { GaugeTag, type GaugeTagProps } from "./primitives/GaugeTag";
+export {
+  angularTrack,
+  type AngularTrackOptions,
+  ARROW_LENGTH_FRAC,
+  ARROW_RADIUS_FRAC,
+  arrowLength,
+  AXIS_SHALLOW,
+  axisValueAt,
+  clampTo,
+  crossArms,
+  type GaugeSeat,
+  type GaugeStops,
+  type GaugeTagPlacement,
+  type GaugeTagSide,
+  type GaugeTagSize,
+  type GaugeTrack,
+  LADDER_HALF_WIDTH_FRAC,
+  LADDER_MAX,
+  LADDER_MIN_HALF_WIDTH,
+  ladderStops,
+  linearTrack,
+  type LinearTrackOptions,
+  NO_STOPS,
+  nudgeIntent,
+  orthographicUnitsPerPixel,
+  perspectiveUnitsPerPixel,
+  placeGaugeTag,
+  quantize,
+  rungHalfWidth,
+  screenValue,
+  SHAFT_RADIUS_FRAC,
+  steppedTrack,
+  type SteppedTrackOptions,
+  steppedValue,
+  type TrackDrawing,
+  type Vec3,
+} from "./gauge";
 export { TextField, type TextFieldProps } from "./primitives/TextField";
 export { Checkbox, type CheckboxProps } from "./primitives/Checkbox";
 export { Disclosure, type DisclosureProps } from "./primitives/Disclosure";

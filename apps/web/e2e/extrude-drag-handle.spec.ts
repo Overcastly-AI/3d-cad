@@ -390,8 +390,12 @@ test.describe("extrude drag handle", () => {
     expect(hintBox.height).toBeLessThanOrEqual(1);
 
     // The spoken step IS the applied step.
-    const fine = Number(await grip.getAttribute("data-step-mm"));
-    const coarse = Number(await grip.getAttribute("data-coarse-step-mm"));
+    // `data-step` / `data-coarse-step`, not `-mm`: CRAFT-8 made this one
+    // instrument serve every verb, and an angular gauge stamping millimetres
+    // would be an attribute that lies. The track owns the unit; the element
+    // names the step.
+    const fine = Number(await grip.getAttribute("data-step"));
+    const coarse = Number(await grip.getAttribute("data-coarse-step"));
     expect(fine).toBe(0.5);
     expect(coarse).toBe(fine * 10);
     await grip.focus();

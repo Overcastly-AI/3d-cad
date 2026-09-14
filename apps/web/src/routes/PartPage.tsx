@@ -364,6 +364,7 @@ import {
 import { sheetDimensions, sheetHeaderForNewSheet } from "../drawing/layout";
 import { SketchScene, type SolvedSketchLayer } from "../viewport/SketchScene";
 import { ExtrudePreview } from "../viewport/ExtrudePreview";
+import { useGaugeOverride } from "../viewport/useGaugeOverride";
 import { useViewCommandStore } from "../viewport/viewCommands";
 import { Viewport } from "../viewport/Viewport";
 
@@ -1677,17 +1678,15 @@ export function PartPage() {
    * takes it, and the ghost redraws from that form — one value, two ways in
    * (drag and type), never two states to keep in step.
    *
-   * Boxed rather than a bare number so dragging back to a value you already
-   * had still reaches the editor: the identity changes even when the number
-   * does not.
+   * `useGaugeOverride` carries both halves of that contract in one call — the
+   * echoed state AND the reset — because the reset is the line everyone
+   * forgets, and forgetting it seeds the NEXT open of the command from the last
+   * drag. Every verb that grows a gauge adds one of these, one prop on its own
+   * editor, and one mount; see that hook's note for the two silent broken
+   * states this shape exists to prevent.
    */
-  const [extrudeDragDepth, setExtrudeDragDepth] = useState<{
-    mm: number;
-  } | null>(null);
-  const handleExtrudeDrag = useCallback(
-    (mm: number) => setExtrudeDragDepth({ mm }),
-    [],
-  );
+  const extrudeDepthGauge = useGaugeOverride("mm");
+  const handleExtrudeDrag = extrudeDepthGauge.set;
 
   // Earlier datum features offered to the datum editor as references (the
   // offset-from base + the midplane sides). Create authors at the tip, so every
@@ -3094,8 +3093,10 @@ export function PartPage() {
     setEditor(null);
     setEditorError(null);
     setExtrudePreview(null);
-    setExtrudeDragDepth(null);
-  }, []);
+    // ANCHOR B — the line everyone forgets. Without it the next Extrude opens
+    // seeded from the last drag instead of its own default.
+    extrudeDepthGauge.reset();
+  }, [extrudeDepthGauge]);
 
   // Global cancel for an open feature editor (FINDINGS #11). The command band
   // advertises "CANCEL ESC", so Escape MUST disarm the editor from any focus —
@@ -5149,7 +5150,7 @@ export function PartPage() {
                         saving={editorSaving}
                         error={editorError}
                         onPreviewChange={setExtrudePreview}
-                        depthOverride={extrudeDragDepth}
+                        depthOverride={extrudeDepthGauge.override}
                       />
                     ) : editor.kind === "revolve" ? (
                       <RevolveEditor
