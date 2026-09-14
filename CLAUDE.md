@@ -1158,6 +1158,43 @@ recipe here in the same commit as the fix.**
   fixture that never reaches the path) and the downstream negative control (a
   probe injected past the guard) — a correct check pointed somewhere the defect
   is not.
+- **A CENSUS THAT GREPS THE ARGUMENT MISSES EVERY CALL THAT PASSES OPTIONS — AND
+  THOSE ARE SYSTEMATICALLY THE INTERESTING ONES.** Measured 2026-09-14, by the
+  orchestrator, in a brief. A red shard named `full-flow.spec.ts` with
+  `toHaveCount — Expected: 0, Received: 1`; I grepped `toHaveCount(0)`, found
+  **two** candidate sites, and briefed QA that there were two. There are
+  **six** `toHaveCount(` sites in that file, and the one that actually failed
+  was none of the two: `toHaveCount(0, { timeout: 30_000 })`, where the option
+  object puts a comma exactly where the literal grep expects a paren.
+  The bias is not random and that is the whole point. **A call site passes
+  options precisely when it is doing something unusual** — a longer timeout
+  marks the assertions gating the SLOWEST flows, which are the ones that fail
+  in CI and the ones whose failures are hardest to reproduce. So the naive grep
+  is blind in the direction of the defects you are hunting. Same shape for any
+  argument-matching census: `toHaveText("x")` misses `toHaveText("x", {…})`,
+  `waitFor({state:"visible"})` misses a `timeout` sibling, `click()` misses
+  `click({ position })`.
+  Grep the CALL, not the argument — `toHaveCount(` — and then read the hits.
+  And when a brief hands a subagent an enumeration ("there are exactly two
+  candidates"), that enumeration is a MEASUREMENT the brief is asserting, so it
+  can be wrong in the way any measurement can; say how it was derived, so the
+  agent can check it rather than inherit it. This one was caught only because
+  the QA agent re-derived the census instead of trusting the brief.
+- **A TEST ID THAT EXISTS NOWHERE MAKES `toHaveCount(0)` VACUOUSLY TRUE, AND IT
+  READS AS A PASSING GUARD FOREVER.** Same session: `part-export-error` appears
+  in `full-flow.spec.ts` and `export-formats.spec.ts` and **in no source file at
+  all** — the app's export error surface is `part-export-notice`. Both
+  assertions have therefore never tested anything since the day they were
+  written, and neither could ever fail, which is why nobody noticed.
+  This is the same family as the `sr-only` control, the zero-area SVG stroke,
+  the ungenerated Tailwind utility and `force: true` — **an assertion that
+  cannot observe its failure mode** — but with a cheaper tell than any of them:
+  a negative assertion whose locator never resolves. Two rules. (a) **Every
+  `toHaveCount(0)` / `not.toBeVisible()` / `toHaveCount(0)`-shaped guard needs a
+  companion proving the locator CAN resolve** — assert the thing is present in
+  the state where it should be, in the same spec, or the absence check is free.
+  (b) An assertion you have never seen fail is not yet a gate; when you write
+  one, mutate the app until it reddens, once.
 - **`git stash` IS NOT ISOLATED BY A WORKTREE — THE STASH LIST IS SHARED, AND
   POPPING HANDS YOU WHOEVER STASHED LAST.** Found 2026-08-28 by the hover-to-
   sketch agent, which caused the incident and recovered it. Worktrees give every
