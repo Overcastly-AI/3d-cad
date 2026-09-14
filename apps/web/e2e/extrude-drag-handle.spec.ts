@@ -455,15 +455,23 @@ test.describe("extrude drag handle small laptop (1280x800)", () => {
     // The tolerance is COMPOSITOR FLOAT NOISE, not slack in the requirement.
     // The grip is `h-6 w-6`, which is 24 CSS px exactly, but drei `Html` places
     // it with a `translate3d` whose matrix the compositor keeps in float32 —
-    // measured here as `23.999969482421875`, which is 24 - 2^-15 to the bit. It
-    // surfaces only when the projected position lands on the wrong side of a
-    // float boundary, so it moves whenever anything changes where the arrow's
-    // point is: CRAFT-7's arrowhead clamp shortened the head on a 10 mm extrude
-    // and flipped it. Asserting `>= 24` on a transformed box is asserting on a
-    // float32 round, so it fails for a reason that is not about the target.
-    const FLOAT32_SLACK = 2 ** -14;
-    expect(box.width).toBeGreaterThanOrEqual(24 - FLOAT32_SLACK);
-    expect(box.height).toBeGreaterThanOrEqual(24 - FLOAT32_SLACK);
+    // measured here as `23.999969482421875` (24 - 2^-15) and, on a wider frame,
+    // as `24 + 2^-15`. Both signs, which is the signature of a rounded
+    // half-ULP; a real shrink has one sign. It surfaces only when the projected
+    // position lands on the wrong side of a float boundary, so it moves
+    // whenever anything changes where the arrow's point is: CRAFT-7's arrowhead
+    // clamp shortened the head on a 10 mm extrude and flipped it.
+    //
+    // The bound is a LAYOUT quantum, not a float32 ULP. A ULP is a function of
+    // the magnitude — 2^-14 holds only while the grip sits in x within [512, 1024),
+    // which it does here at 663 and 791 and would not on a wider frame, where
+    // the same non-defect would fail the assertion again. Blink quantises
+    // layout to LayoutUnit = 1/64 px, so nothing smaller than that can be a
+    // real change in the rendered box: a deficit 512x below the smallest
+    // representable one is noise by construction, at any frame width.
+    const LAYOUT_UNIT_PX = 1 / 64;
+    expect(box.width).toBeGreaterThanOrEqual(24 - LAYOUT_UNIT_PX);
+    expect(box.height).toBeGreaterThanOrEqual(24 - LAYOUT_UNIT_PX);
     // …and it is inside the frame, not pushed off the edge by the narrower view.
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.y).toBeGreaterThanOrEqual(0);
