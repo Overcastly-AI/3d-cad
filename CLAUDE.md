@@ -1204,6 +1204,25 @@ recipe here in the same commit as the fix.**
   self-consistently confirmed it.
 - OCP/OCCT wheels are large; in CI cache the uv environment keyed on the
   lockfile.
+- **VERIFY A BULK DELETION BY CONSERVATION OF RARE TOKENS, NOT BY READING THE
+  DIFF.** Measured 2026-09-14 pruning `docs/ROADMAP.md` from 3 915 lines to 445
+  (284K -> 44K) by collapsing closed items into `docs/CHANGELOG.md`. A diff that
+  size cannot be read for what LEFT — which is the only direction that matters
+  in a prune, and the direction a normal review is worst at, because a reviewer's
+  attention goes to the lines that arrived. The check that works: take every
+  backtick-quoted token and every word occurring <= 2 times in the ORIGINAL, and
+  assert each still appears somewhere in the union of the rewritten files. Rare
+  tokens are where the irreplaceable content is — an id, a SHA, a measured
+  number, the one sentence naming a decision — and common words are noise that
+  survives any edit, so filtering on rarity is what makes the check sensitive.
+  It earned its keep immediately: it caught "SSO/OIDC for teams" silently lost
+  from Phase 5 to a Read-tool TRUNCATION, i.e. a loss with no deliberate act
+  behind it, which no amount of careful editing would have prevented and no
+  reviewer would have missed the absence of.
+  Generalises past docs: any mechanical bulk rewrite (a codemod, a mass rename,
+  a generated-file regeneration) can be checked the same way — conserve the rare
+  strings, ignore the common ones. And prefer it to a line-count or byte-count
+  assertion, which passes happily while the wrong half survives.
 - **To test swapping an auditwheel-vendored library WITHOUT touching the shared
   `.venv`, check for `RUNPATH` (not `RPATH`) with `readelf -d`.** `LD_LIBRARY_PATH`
   takes precedence over `RUNPATH` but is beaten by `RPATH`, so when the consumer
