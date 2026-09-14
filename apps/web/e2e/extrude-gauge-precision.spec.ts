@@ -15,9 +15,16 @@
  * `Enter` means one thing everywhere, and `Escape` undoes the INNERMOST thing
  * and never more than one level of it.
  */
+// The SUBPATH, not the package root: `@loft/design`'s index re-exports the
+// Tailwind preset, whose `tailwindcss/plugin` specifier Node cannot resolve
+// without the `.js` — so importing the root here fails at collection with
+// "No tests found", which reads like a missing spec rather than a bad import.
+// Same reason the palette specs import `@loft/design/tokens`.
+import { LADDER_MIN_MAJOR_PX, LADDER_MIN_PITCH_PX } from "@loft/design/gauge";
+
 import { expect, test, type Page } from "./fixtures";
 import { installSceneProbe, waitForCameraRest } from "./invariants";
-import { createPartViaApi, seedSession } from "./support";
+import { createPartViaApi, seedSession, waitForFrames } from "./support";
 
 async function openExtrude(page: Page, iso = true): Promise<void> {
   await page.getByTestId("new-sketch").click();
@@ -357,5 +364,202 @@ test.describe("the gauge's number is the field", () => {
       Math.abs(free / snap - Math.round(free / snap)),
       `a free drag landed on ${free}, exactly on the ${snap} grid it is meant to escape`,
     ).toBeGreaterThan(1e-6);
+  });
+});
+
+/**
+ * THE DRAWN SPINE'S LENGTH ON SCREEN, CSS pixels — read off the MESH, not off
+ * the component's own arithmetic.
+ *
+ * This exists because CRAFT-7 shipped a biased px-per-value and then MEASURED
+ * ITSELF: the numbers in its commit came from the component's internal
+ * `pxPerValue`, which is the quantity that carried the bug, so they agreed with
+ * each other and with nothing on screen. The reading below cannot do that. It
+ * takes the spine cylinder's own `matrixWorld`, its own unit height (scaled in
+ * Y by the segment's length), and the camera that actually rendered the frame,
+ * and it returns pixels the user could measure with a ruler held to the glass.
+ *
+ * Summed over every segment, so it stays true for CRAFT-10's arc spine.
+ */
+async function drawnSpinePx(page: Page): Promise<number> {
+  return page.evaluate((): number => {
+    interface Mat {
+      elements: number[];
+    }
+    interface Obj3D {
+      name: string;
+      matrixWorld: Mat;
+      traverse: (fn: (child: Obj3D) => void) => void;
+      updateWorldMatrix?: (parents: boolean, children: boolean) => void;
+    }
+    interface Cam {
+      projectionMatrix: Mat;
+      matrixWorldInverse: Mat;
+    }
+    const w = window as unknown as Record<string, unknown>;
+    const scenes = (w["__loftScenes"] ?? {}) as Record<string, Obj3D>;
+    const cameras = (w["__loftCameras"] ?? {}) as Record<string, Cam>;
+    const order = (w["__loftSceneOrder"] ?? []) as string[];
+    const canvas = document.querySelector(
+      '[data-testid="viewport"] canvas',
+    ) as HTMLCanvasElement | null;
+    if (canvas === null) return -1;
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+
+    /** Column-major 4x4 times a point; homogeneous `w` comes back last. */
+    const apply = (
+      e: readonly number[],
+      p: readonly [number, number, number],
+    ): [number, number, number, number] => {
+      const [x, y, z] = p;
+      const at = (i: number): number => e[i] as number;
+      return [
+        at(0) * x + at(4) * y + at(8) * z + at(12),
+        at(1) * x + at(5) * y + at(9) * z + at(13),
+        at(2) * x + at(6) * y + at(10) * z + at(14),
+        at(3) * x + at(7) * y + at(11) * z + at(15),
+      ];
+    };
+
+    for (const uuid of order) {
+      const scene = scenes[uuid];
+      const camera = cameras[uuid];
+      if (scene === undefined || camera === undefined) continue;
+      const spines: Obj3D[] = [];
+      scene.traverse((child) => {
+        if (child.name === "gauge-extrude-depth-spine") spines.push(child);
+      });
+      if (spines.length === 0) continue;
+      let total = 0;
+      for (const spine of spines) {
+        spine.updateWorldMatrix?.(true, false);
+        const ends: [number, number][] = [];
+        for (const localY of [-0.5, 0.5]) {
+          const world = apply(spine.matrixWorld.elements, [0, localY, 0]);
+          const view = apply(camera.matrixWorldInverse.elements, [
+            world[0],
+            world[1],
+            world[2],
+          ]);
+          const clip = apply(camera.projectionMatrix.elements, [
+            view[0],
+            view[1],
+            view[2],
+          ]);
+          const iw = 1 / clip[3];
+          ends.push([
+            ((clip[0] * iw + 1) / 2) * width,
+            ((1 - clip[1] * iw) / 2) * height,
+          ]);
+        }
+        const [from, to] = ends as [[number, number], [number, number]];
+        total += Math.hypot(to[0] - from[0], to[1] - from[1]);
+      }
+      return total;
+    }
+    return -1;
+  });
+}
+
+test.describe("the ladder's floor is a fact about the screen", () => {
+  test("the DRAWN pitch clears 7 px at every zoom the wheel reaches", async ({
+    page,
+  }) => {
+    // THE PROOF THE COMMIT THAT SHIPPED THIS DID NOT HAVE. Every number here is
+    // derived from the spine MESH's projection (`drawnSpinePx`) and the DOM's
+    // `data-snap`, so nothing the component believes about its own scale can
+    // make this pass. Before the fix the same walk read 12.08 / 12.38 / 12.06
+    // px at 1600x1000 against a floor the ladder thought was 14 — the gauge was
+    // dividing a seat-to-head-BASE world length by a seat-to-TIP projection,
+    // inflating px/mm by 1.18 and quietly sliding the floor to 11.9, then to
+    // 9.7 on a short feature.
+    await installSceneProbe(page);
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Ruled floor");
+    await page.goto(`/parts/${part.id}`);
+    await openExtrude(page);
+    await page.getByTestId("extrude-distance").fill("40");
+    await expect(page.getByTestId("extrude-preview-active")).toHaveAttribute(
+      "data-distance-mm",
+      "40",
+    );
+    const depth = 40;
+
+    const grip = page.getByRole("slider", { name: "Extrude depth" });
+    await grip.hover();
+    await expect
+      .poll(async () => Number(await grip.getAttribute("data-snap")), {
+        message: "a hovered gauge must be ruled",
+      })
+      .toBeGreaterThan(0);
+
+    const readPitch = async (): Promise<{
+      snap: number;
+      spinePx: number;
+      pitchPx: number;
+    }> => {
+      const snap = Number(await grip.getAttribute("data-snap"));
+      const spinePx = await drawnSpinePx(page);
+      return { snap, spinePx, pitchPx: (snap * spinePx) / depth };
+    };
+
+    const seen: { snap: number; spinePx: number; pitchPx: number }[] = [];
+    seen.push(await readPitch());
+
+    // One notch at a time, re-reading whenever the ladder subdivides. The
+    // pointer is parked ONCE — each `mouse.move` is a CDP round trip, and it is
+    // already where it needs to be after the first.
+    const box = await grip.boundingBox();
+    if (box === null) throw new Error("no grip box");
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    let last = seen[0]?.snap ?? 0;
+    for (let i = 0; i < 24; i += 1) {
+      await page.mouse.wheel(0, -120);
+      await waitForFrames(page, 3);
+      const snap = Number(await grip.getAttribute("data-snap"));
+      if (snap === last || !(snap > 0)) continue;
+      last = snap;
+      seen.push(await readPitch());
+    }
+
+    // The ladder has to have MOVED, or this walk proved nothing about a floor
+    // it never approached — the vacuous-gate failure this repo keeps paying
+    // for. Zooming in subdivides, so a second, finer rung must have appeared.
+    expect(
+      seen.length,
+      `the ladder never subdivided: ${JSON.stringify(seen)}`,
+    ).toBeGreaterThanOrEqual(2);
+
+    // PRINTED BEFORE THE ASSERTIONS, deliberately. A failure here is a claim
+    // about a NUMBER, and the whole walk is the evidence for it; logging after
+    // the loop means the one run that needs the evidence never prints it.
+    console.log(
+      `drawn pitch walk: ${seen
+        .map(
+          (at) =>
+            `${at.snap}mm -> ${at.pitchPx.toFixed(2)}px (shaft ${at.spinePx.toFixed(1)}px)`,
+        )
+        .join(", ")}`,
+    );
+
+    for (const at of seen) {
+      expect(at.spinePx).toBeGreaterThan(0);
+      // 0.5 px of slack for the scale hysteresis: the component only rebuilds
+      // the stop set once the projected scale has moved 2 %, so a reading taken
+      // mid-hysteresis is that much behind the geometry it is measured against.
+      // It is not slack in the floor.
+      expect(
+        at.pitchPx,
+        `snap ${at.snap} mm drew a ${at.pitchPx.toFixed(2)} px pitch on a ${at.spinePx.toFixed(1)} px shaft`,
+      ).toBeGreaterThanOrEqual(LADDER_MIN_PITCH_PX - 0.5);
+      // …and the MAJORS, which are the marks a value is read off, clear 14 —
+      // the number the direction actually argued for, one level up the series.
+      const majorStep = Math.pow(10, Math.floor(Math.log10(at.snap)) + 1);
+      expect(
+        (majorStep * at.spinePx) / depth,
+        `major ${majorStep} mm on a ${at.spinePx.toFixed(1)} px shaft`,
+      ).toBeGreaterThanOrEqual(LADDER_MIN_MAJOR_PX - 0.5);
+    }
   });
 });

@@ -121,7 +121,7 @@ import {
 
 import { useCommandActionStore } from "../features/commandActions";
 import { useCancelKey, useGlobalKeys } from "../lib/modalGate";
-import { gaugePose, spineLength } from "./gaugePose";
+import { gaugePose, projectedSpineLength, spineLength } from "./gaugePose";
 import { Segments } from "./overlaySegments";
 import { useAskQueue } from "./useAskQueue";
 
@@ -953,16 +953,32 @@ export function ParametricGauge({
 
     const dx = ax - bx;
     const dy = ay - by;
+    // Seat to TIP: the span of the hit sleeve and the anchor the tag rides on.
+    // It is NOT the scale's denominator — see below.
     const length = Math.sqrt(dx * dx + dy * dy);
-    const world = spineLength(pose.segments);
 
-    // THE LADDER'S SCALE, re-read every frame the camera moves. Guarded by a
-    // RELATIVE threshold rather than by equality: a projection wanders in the
-    // last decimal from float noise alone, and a `setState` per frame would
-    // rebuild the stop set, the drawing and two vertex buffers every frame of
-    // an orbit.
-    if (length >= SLEEVE_MIN_LENGTH_PX && world > 0) {
-      const perPixel = world / length;
+    // THE LADDER'S SCALE, re-read every frame the camera moves.
+    //
+    // BOTH ENDS DESCRIBE ONE SEGMENT. `spineLength` runs seat -> head BASE, so
+    // the pixels it is divided by have to as well; dividing it by the seat ->
+    // TIP projection above inflated the reading by `(value + head) / value`
+    // — 1.180 at a 40 mm depth, 1.450 at 10 mm — and silently turned the
+    // ladder's 14 px floor into 11.9 px, then 9.7 px as the feature shortened.
+    // `projectedSpineLength` measures the same polyline, vertex for vertex.
+    //
+    // Guarded by a RELATIVE threshold rather than by equality: a projection
+    // wanders in the last decimal from float noise alone, and a `setState` per
+    // frame would rebuild the stop set, the drawing and two vertex buffers
+    // every frame of an orbit.
+    const trackPx = projectedSpineLength(
+      drawing.spine,
+      camera,
+      size.width,
+      size.height,
+    );
+    const world = spineLength(pose.segments);
+    if (trackPx >= SLEEVE_MIN_LENGTH_PX && world > 0) {
+      const perPixel = world / trackPx;
       if (Math.abs(perPixel - scale) > scale * SCALE_EPSILON)
         setScale(perPixel);
     }
@@ -978,8 +994,11 @@ export function ParametricGauge({
       } else {
         // The drawn shaft's own width, projected: `spineRadius` world units
         // scale by the same factor the shaft's length does, so this needs no
-        // second camera measurement and cannot disagree with the first.
-        const drawn = (2 * spineRadius * length) / Math.max(world, 1e-6);
+        // second camera measurement and cannot disagree with the first. Both
+        // terms are the SPINE's — pairing the shaft's world radius with a
+        // seat-to-tip pixel span is the same unit mismatch as above, and it
+        // made the band 18 % wider than the rod it is meant to trace.
+        const drawn = (2 * spineRadius * trackPx) / Math.max(world, 1e-6);
         const thickness = Math.max(SLEEVE_MIN_PX, drawn);
         el.style.display = "block";
         el.style.width = `${length}px`;
@@ -1049,7 +1068,7 @@ export function ParametricGauge({
 
   const dim = free ? LADDER_FREE_DIM : 1;
   const majorOpacity = viewport.manipulator.ladderMajorOpacity * dim;
-  const minorOpacity = viewport.manipulator.ladderOpacity * dim;
+  const minorOpacity = viewport.manipulator.ladderMinorOpacity * dim;
 
   return (
     <group name={`gauge-${gaugeId}`}>

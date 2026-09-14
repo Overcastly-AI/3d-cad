@@ -119,10 +119,34 @@ export interface GaugeStops {
   minor: readonly number[];
   /** Spacing of the finest graduation drawn, in track units. 0 when none. */
   pitch: number;
+  /**
+   * Spacing of the MAJOR graduations, in track units. 0 when none.
+   *
+   * Carried rather than re-derived because the two are not always a decade
+   * apart: when no round number falls inside the span the minors are PROMOTED,
+   * and the drawn majors are then a `pitch` apart. A consumer that recomputed
+   * `10^(floor(log10(pitch))+1)` would size those marks against a spacing they
+   * do not have.
+   *
+   * It exists because a rung's ARMS are bounded by the gap they sit in
+   * (`rungHalfWidth`), and until CRAFT-7's review both classes were bounded by
+   * the PITCH. That was invisible while the pitch floor was 14 px and every
+   * ladder was coarse; at a 2 mm pitch it put a 0.8 mm arm on a 0.97 mm rod and
+   * the ladder VANISHED INTO ITS OWN SHAFT — measured on the founder shot, 5
+   * legible crosses before, 0 after. Majors are `majorStep` apart, so bounding
+   * them by the pitch was always the wrong gap; it is the ruler's own rule,
+   * long marks for the numbers, short ones between.
+   */
+  majorStep: number;
 }
 
 /** No graduations — the rest state, and what a track with nothing to rule returns. */
-export const NO_STOPS: GaugeStops = { major: [], minor: [], pitch: 0 };
+export const NO_STOPS: GaugeStops = {
+  major: [],
+  minor: [],
+  pitch: 0,
+  majorStep: 0,
+};
 
 /**
  * What the instrument looks like, in world space, at one value.
@@ -568,15 +592,47 @@ export const LADDER_MAX = 12;
 export const MAX_RUNGS = 80;
 
 /**
- * The smallest on-screen spacing two graduations may have, CSS pixels.
+ * The smallest on-screen spacing a MAJOR graduation may have, CSS pixels.
  *
  * 14 is the repo's own dense-target half (`target.dense = 24`) and, measured in
  * the W3 captures, the smallest pitch at which two crosses read as two marks
- * rather than as crosshatch. Below it the ladder coarsens — which is what makes
- * the SNAP zoom-aware (§3.2), since the rungs and the stops are now one thing:
- * zoom in and the ladder subdivides and the drag gets finer with it.
+ * rather than as crosshatch. A major is the mark a VALUE IS READ OFF — it lands
+ * on a round number and it is what the eye anchors to — so this is the floor
+ * for "legible as a separate, identifiable mark".
  */
-export const LADDER_MIN_PITCH_PX = 14;
+export const LADDER_MIN_MAJOR_PX = 14;
+
+/**
+ * The smallest on-screen spacing the PITCH may have, CSS pixels.
+ *
+ * ## WHY THIS IS NOT 14 (CRAFT-7 review)
+ *
+ * 14 was the right number on the wrong member of the series. `majorStep` is the
+ * decade above the pitch, so majors sit 2x, 5x or 10x the pitch apart — and a
+ * value is read off a MAJOR, while the pitch is a COUNTING interval, a mark you
+ * pass rather than one you name. Those want different floors. In the worst case
+ * (pitch 5 -> major 10, the only ratio-2 member) a 7 px pitch floor yields
+ * exactly a 14 px major floor, so the direction's own number survives one level
+ * up and nothing a number is read off has moved closer together.
+ *
+ * Derived rather than borrowed, all measured on this app:
+ *
+ *  · a rung's ink footprint along the track is 1.0-1.3 px, and two 1 px lines
+ *    resolve down to about 3-4 px;
+ *  · `SketchScene` ships `cellSize = 1` mm, which at the default sketch camera
+ *    is 6.88 px, and the sketcher calls that a readable grid — a graduation
+ *    floor at twice the grid we draw under the cursor is not defensible;
+ *  · a 1 mm ruler graduation is 3.78 px at 96 dpi, and people read rulers.
+ *
+ * What this buys is the REACHABLE VALUE SET, which is what the old constant
+ * cost. It was never aimability: the pre-CRAFT-7 `SNAP_MM = 0.5` was 1.83 px of
+ * pointer travel per stop at the default camera, below aiming resolution — that
+ * was rounding, not a detent, and nobody could land on a chosen 0.5. Aimability
+ * went UP tenfold at 14 px. But a 5 mm ladder on a 40 mm depth cannot reach
+ * 12.5 by drag at all; at 7 px the same camera rules 2 mm and most of the set
+ * comes back.
+ */
+export const LADDER_MIN_PITCH_PX = 7;
 
 /**
  * Fewer rungs than this and there is no ladder at all.
@@ -597,6 +653,19 @@ export const LADDER_MIN_RUNGS = 3;
 function seriesStep(k: number): number {
   const decade = Math.pow(10, Math.floor(k / 3));
   return decade * ([1, 2, 5][((k % 3) + 3) % 3] as number);
+}
+
+/**
+ * The MAJOR step for a given pitch: the decade above it.
+ *
+ * So a major always lands on a round number and the minors between two majors
+ * number 2, 5 or 10 — the drafting grouping, and the answer to "which of these
+ * identical crosses matters". Because the pitch is a 1/2/5 member, its decade
+ * is always a whole multiple of it, so no ladder can draw a major and a minor a
+ * hair apart and a subdivision never moves a mark the user was already reading.
+ */
+function majorFor(pitch: number): number {
+  return Math.pow(10, Math.floor(Math.log10(pitch)) + 1);
 }
 
 /**
@@ -628,11 +697,18 @@ function seriesStep(k: number): number {
  * ## Why a SCREEN floor, and what it buys
  *
  * `pxPerValue` — screen pixels per one unit of VALUE — keeps every graduation
- * at least {@link LADDER_MIN_PITCH_PX} apart, and it is what makes the snap
- * zoom-aware: **zoom in and the ladder subdivides, 5 -> 2 -> 1 -> 0.5, and the
- * drag gets finer with it; zoom out and it coarsens.** That is Fusion's and
- * Plasticity's behaviour, and it is why their drags feel precise without a
- * settings panel — precision is a function of how closely you are looking.
+ * at least {@link LADDER_MIN_PITCH_PX} apart and every MAJOR at least
+ * {@link LADDER_MIN_MAJOR_PX} apart, and it is what makes the snap zoom-aware:
+ * **zoom in and the ladder subdivides, 5 -> 2 -> 1 -> 0.5, and the drag gets
+ * finer with it; zoom out and it coarsens.** That is Fusion's and Plasticity's
+ * behaviour, and it is why their drags feel precise without a settings panel —
+ * precision is a function of how closely you are looking.
+ *
+ * The caller owes an HONEST `pxPerValue`: the pixels and the units must
+ * describe ONE segment of the drawn track. A shell that divides a shaft's
+ * world length by a seat-to-ARROWHEAD-TIP projection inflates it, and the floor
+ * then clears at a pitch nobody chose — see `projectedSpineLength` in the web
+ * app, which is where that was measured and fixed.
  *
  * It defaults to `Infinity` — no floor — so a caller that cannot measure the
  * camera gets a purely value-driven ladder rather than none at all.
@@ -677,17 +753,25 @@ export function ladderStops(span: number, pxPerValue = Infinity): GaugeStops {
   let pitch = 0;
   for (let i = 0; i < 90; i += 1) {
     const step = seriesStep(from + i);
-    if (span / step <= cap && step * pxPerValue >= LADDER_MIN_PITCH_PX) {
+    // TWO FLOORS, because the series carries two kinds of mark. A candidate
+    // must be countable at the pitch AND readable at the decade above it, which
+    // is where the numbers land. The pitch floor binds in every case today —
+    // the tightest ratio in the 1/2/5 series is 2, and 7 x 2 is 14 — so the
+    // second test is the INVARIANT stated where `majorStep` is chosen, not a
+    // second lever: change how majors are derived and it starts holding the
+    // line on its own.
+    if (
+      span / step <= cap &&
+      step * pxPerValue >= LADDER_MIN_PITCH_PX &&
+      majorFor(step) * pxPerValue >= LADDER_MIN_MAJOR_PX
+    ) {
       pitch = step;
       break;
     }
   }
   if (pitch <= 0) return NO_STOPS;
 
-  // The decade ABOVE the pitch, so a major always lands on a round number and
-  // the minors between two majors number 2, 5 or 10 — the drafting grouping,
-  // and the answer to "which of these identical crosses matters".
-  const majorStep = Math.pow(10, Math.floor(Math.log10(pitch)) + 1);
+  const majorStep = majorFor(pitch);
   const major: number[] = [];
   const minor: number[] = [];
   // Excludes the seat (the plane draws itself) and the half-pitch under the
@@ -706,8 +790,9 @@ export function ladderStops(span: number, pxPerValue = Infinity): GaugeStops {
   // reaches 4 and no major is in range. There is then nothing to distinguish,
   // and a ladder drawn ENTIRELY in the minor weight is four faint stubs, i.e.
   // strictly worse than an unweighted one. Promote.
-  if (major.length === 0) return { major: minor, minor: [], pitch };
-  return { major, minor, pitch };
+  if (major.length === 0)
+    return { major: minor, minor: [], pitch, majorStep: pitch };
+  return { major, minor, pitch, majorStep };
 }
 
 // --- SEAT AND PROPORTION -----------------------------------------------------
@@ -854,8 +939,28 @@ function straightRungs(
   return out;
 }
 
-/** Minor graduations are drawn at this fraction of a major's length. */
-export const MINOR_RUNG_FRAC = 0.6;
+/**
+ * Minor graduations are drawn at this fraction of a major's length.
+ *
+ * ## 1, NOT 0.6, SINCE CRAFT-7's REVIEW — and the constant survives as the
+ * statement that the contrast is now STRUCTURAL rather than a multiplier.
+ *
+ * Each class is bounded by its own spacing (`GaugeStops.majorStep`), so a major
+ * is already 2x to 10x a minor's length before anything is scaled: at the
+ * default camera on a 40 mm depth that is an 8 mm cross against a 1.6 mm one.
+ * Multiplying the minor by 0.6 ON TOP of that was double-counting a difference
+ * the geometry already states — and it was the half of the CRAFT-7 regression
+ * that survived the `majorStep` fix. MEASURED on the founder capture: a 0.48 mm
+ * minor arm on a rod of 0.484 mm radius is a mark drawn INSIDE the thing it is
+ * meant to graduate, so the drawn scale read 10 mm while the drag snapped every
+ * 2 mm — "the rungs ARE the stops" (direction §3.1) broken by a factor of five,
+ * in the one element the roadmap calls the signature.
+ *
+ * The weights still differ, and by more than they did: length from the spacing,
+ * and ink from `manipulator.ladderMinorOpacity` (0.5) against
+ * `ladderMajorOpacity` (0.85).
+ */
+export const MINOR_RUNG_FRAC = 1;
 
 // --- THE TRACKS --------------------------------------------------------------
 
@@ -943,14 +1048,22 @@ export function linearTrack(
           length: headLength,
           radius: headLength * ARROW_RADIUS_FRAC,
         },
-        // `pitch` arrives in VALUE units and the width is a WORLD length, so
-        // the conversion belongs here — for a counting track one count is
+        // TWO THINGS HAPPEN HERE, both about units.
+        //
+        // (1) A spacing arrives in VALUE units and the width is a WORLD length,
+        // so the conversion belongs here — for a counting track one count is
         // `unitsPerValue` millimetres apart, and a width bounded by the raw
         // count would be the unit confusion this clamp exists to remove.
+        //
+        // (2) EACH CLASS IS BOUNDED BY ITS OWN SPACING. A major sits
+        // `majorStep` from its neighbour, so that is the gap its arms must not
+        // exceed; bounding it by the PITCH shrank it with every subdivision
+        // until the rod swallowed it. `majorStep` falls back to the pitch when
+        // the ladder was promoted, which is exactly when the two coincide.
         rungs: straightRungs(
           seated,
           stops.major,
-          stops.pitch * unitsPerValue,
+          (stops.majorStep > 0 ? stops.majorStep : stops.pitch) * unitsPerValue,
           unitsPerValue,
         ),
         minorRungs: straightRungs(
@@ -1034,7 +1147,7 @@ export function steppedTrack(
       const hi = Math.min(Math.floor(max), Math.ceil(value));
       const major: number[] = [];
       for (let n = lo; n <= hi; n += 1) major.push(n);
-      return { major, minor: [], pitch: 1 };
+      return { major, minor: [], pitch: 1, majorStep: 1 };
     },
     // No free drag: `free` is ignored, because there is nothing between counts.
     quantize: (value) => clampTo(Math.round(value), min, max),
@@ -1136,8 +1249,11 @@ export function angularTrack(
       // screen. A ladder whose rungs land on the same pixel is crosshatch.
       const arcPx = (deg: number): number =>
         unitsPerPixel > 0 ? ((deg / DEG) * radius) / unitsPerPixel : Infinity;
+      // Majors carry the numbers, so they take the MAJOR floor; the minors
+      // below take the pitch floor. Same split as `ladderStops`, and the same
+      // reason — a mark you count past needs less room than one you read.
       const majorStep =
-        [15, 30, 45, 90].find((d) => arcPx(d) >= LADDER_MIN_PITCH_PX) ?? 90;
+        [15, 30, 45, 90].find((d) => arcPx(d) >= LADDER_MIN_MAJOR_PX) ?? 90;
       // The MINOR pitch must clear the screen floor too, or the snap lands on a
       // rung nobody can see — the same defect in the smaller half.
       const minorStep =
@@ -1156,7 +1272,7 @@ export function angularTrack(
         if (!major.includes(rounded)) minor.push(rounded);
       }
       if (major.length + minor.length < LADDER_MIN_RUNGS) return NO_STOPS;
-      return { major, minor, pitch: minorStep };
+      return { major, minor, pitch: minorStep, majorStep };
     },
     draw: (value, stops) => {
       // Bounded by the ARC it terminates, not by the angle: the shaft's drawn
@@ -1176,12 +1292,17 @@ export function angularTrack(
       const tip = at(value);
       // The head points along the tangent at the sweep's end.
       const tangent = normalize(sub(at(value + 0.5), at(value - 0.5)));
-      const full = rungHalfWidth(seat.radius, (stops.pitch / DEG) * radius);
+      // One half-width per CLASS, for the reason `GaugeStops.majorStep`
+      // documents: arms are bounded by the gap they sit in, and a major's gap
+      // is `majorStep`, not `pitch`.
+      const armFor = (step: number): number =>
+        rungHalfWidth(seat.radius, (step / DEG) * radius);
       const cross = (
         degrees: readonly number[],
+        step: number,
         widthFrac: number,
       ): (readonly [Vec3, Vec3])[] => {
-        const half = full * widthFrac;
+        const half = armFor(step) * widthFrac;
         const out: (readonly [Vec3, Vec3])[] = [];
         for (const deg of degrees) {
           const radial = normalize(sub(at(deg), seat.base));
@@ -1206,8 +1327,12 @@ export function angularTrack(
           length: headLength,
           radius: headLength * ARROW_RADIUS_FRAC,
         },
-        rungs: cross(stops.major, 1),
-        minorRungs: cross(stops.minor, MINOR_RUNG_FRAC),
+        rungs: cross(
+          stops.major,
+          stops.majorStep > 0 ? stops.majorStep : stops.pitch,
+          1,
+        ),
+        minorRungs: cross(stops.minor, stops.pitch, MINOR_RUNG_FRAC),
       };
     },
     clamp,

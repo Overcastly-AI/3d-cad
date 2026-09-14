@@ -11,7 +11,9 @@ import { angularTrack, linearTrack, NO_STOPS } from "@loft/design";
 import type { GaugeSeat, Vec3 } from "@loft/design";
 import { describe, expect, it } from "vitest";
 
-import { gaugePose, spineLength } from "./gaugePose";
+import { OrthographicCamera } from "three";
+
+import { gaugePose, projectedSpineLength, spineLength } from "./gaugePose";
 
 const SEAT: GaugeSeat = {
   base: [0, 0, 0],
@@ -120,5 +122,122 @@ describe("gaugePose", () => {
     if (only === undefined) throw new Error("no segment");
     for (const n of only.quaternion.toArray())
       expect(Number.isNaN(n)).toBe(false);
+  });
+});
+
+describe("the ladder's scale — one segment at both ends", () => {
+  /** An orthographic camera looking down -Z, so the projection is exact. */
+  const facing = (): OrthographicCamera => {
+    const camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 1000);
+    camera.position.set(0, 0, 100);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld(true);
+    camera.updateProjectionMatrix();
+    return camera;
+  };
+
+  /**
+   * THE BIAS, named as a measurement. A camera looking along the track's own
+   * axis would project it to a point, so the gauge lies in the camera's screen
+   * plane: `x` maps to pixels linearly and a world millimetre is a known number
+   * of pixels. The whole test is then "does the shell divide two lengths that
+   * describe the same thing".
+   */
+  const sideways: GaugeSeat = { ...SEAT, dir: [1, 0, 0] };
+  const along = linearTrack(sideways, {
+    min: 0.1,
+    max: 10_000,
+    snap: 0.5,
+    keyStep: 0.5,
+    format: (v) => `${String(v)} mm`,
+  });
+
+  it("measures the SPINE, not the spine plus the arrowhead", () => {
+    const camera = facing();
+    // Frustum half-width 1 world unit over 800 px: 400 px per world unit.
+    camera.left = -1;
+    camera.right = 1;
+    camera.updateProjectionMatrix();
+    const drawing = along.draw(40, NO_STOPS);
+    const world = spineLength(gaugePose(drawing).segments);
+    const px = projectedSpineLength(drawing.spine, camera, 800, 800);
+    expect(world).toBeCloseTo(40, 9);
+    // 40 world units across a 2-unit frustum is 20 frustum widths; only the
+    // RATIO matters, and it is exactly the frame scale with nothing added.
+    expect(px / world).toBeCloseTo(400, 6);
+
+    // …and the old reading, kept as the negative control: the same projection
+    // taken to the arrowhead's TIP is longer by the head, which `spineLength`
+    // does not contain. That surplus IS the bias — 1.18 here, and larger the
+    // shorter the feature gets, so the ladder's "14 px" floor was really 11.9
+    // and slid with the value. A test that cannot show the wrong answer cannot
+    // certify the right one.
+    const biased = projectedSpineLength(
+      [drawing.spine[0] as Vec3, drawing.head.tip],
+      camera,
+      800,
+      800,
+    );
+    // The surplus is exactly the head, whatever the seat: `(value + head) /
+    // value`. On THIS fixture's 40 mm seat that is 1.25; in the running app,
+    // whose profile radius is smaller, the reviewer measured 1.180.
+    expect(biased / px).toBeCloseTo((40 + drawing.head.length) / 40, 9);
+    expect(biased / px).toBeCloseTo(1.25, 9);
+
+    // And it grows as the feature shortens, which is why the floor SLID rather
+    // than simply sitting low: the arrowhead clamp holds the head at 0.45 of a
+    // 10 mm shaft, so the same reading is inflated 1.45x there. A ladder whose
+    // docstring promises scale-invariance cannot have a floor that depends on
+    // the value.
+    const short = along.draw(10, NO_STOPS);
+    const shortPx = projectedSpineLength(short.spine, camera, 800, 800);
+    const shortBiased = projectedSpineLength(
+      [short.spine[0] as Vec3, short.head.tip],
+      camera,
+      800,
+      800,
+    );
+    expect(shortBiased / shortPx).toBeCloseTo(1.45, 9);
+    expect(shortBiased / shortPx).toBeGreaterThan(biased / px);
+  });
+
+  it("follows the ARC and not its chord, so CRAFT-10 inherits a true scale", () => {
+    // The same defect one level up: a straight screen distance between the ends
+    // of a 90 degree sweep is a chord, 0.900 of the arc it stands for. An
+    // angular gauge reads the identical `unitsPerPixel`, so the polyline sum is
+    // what keeps its ladder honest before the first one is built.
+    const camera = facing();
+    const drawing = swept.draw(90, NO_STOPS);
+    const px = projectedSpineLength(drawing.spine, camera, 800, 800);
+    const chord = projectedSpineLength(
+      [
+        drawing.spine[0] as Vec3,
+        drawing.spine[drawing.spine.length - 1] as Vec3,
+      ],
+      camera,
+      800,
+      800,
+    );
+    expect(chord / px).toBeCloseTo(0.9, 2);
+    // Pixels and world units stay in step: the ratio is the frame scale, the
+    // same number the straight track reports on the same camera.
+    const world = spineLength(gaugePose(drawing).segments);
+    expect(px / world).toBeCloseTo(400, 3);
+  });
+
+  it("is allocation-free and returns 0 for a degenerate spine", () => {
+    const camera = facing();
+    expect(projectedSpineLength([[0, 0, 0]], camera, 800, 800)).toBe(0);
+    expect(
+      projectedSpineLength(
+        [
+          [0, 0, 0],
+          [0, 0, 0],
+        ],
+        camera,
+        800,
+        800,
+      ),
+    ).toBe(0);
   });
 });

@@ -285,6 +285,12 @@ export const viewport = {
     /**
      * MINOR graduation opacity — present, never competing with the ink beneath.
      *
+     * Named `ladderOpacity` for one commit, while its meaning had already
+     * narrowed to the minor half: an unqualified name beside an explicit
+     * `ladderMajorOpacity` reads as "the ladder's opacity", which is what it
+     * used to be and is not what it sets. Renamed while there was still
+     * exactly one consumer.
+     *
      * This was the opacity of EVERY rung until CRAFT-7 split the ladder into
      * two weights. At half strength on a cross whose arms the proportion clamp
      * had just shortened to 0.8 of the pitch, the whole ladder read as stubble
@@ -292,7 +298,7 @@ export const viewport = {
      * the buffer and absent from the picture, which is the failure the rung
      * width was sized by screenshot to avoid in the first place.
      */
-    ladderOpacity: 0.5,
+    ladderMinorOpacity: 0.5,
     /**
      * MAJOR graduation opacity. These are the marks a number is read off, so
      * they carry nearly the arrow's own weight — the drafting convention, and
