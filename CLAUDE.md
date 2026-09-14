@@ -255,6 +255,36 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
 - **Every commit that lands a feature/fix MUST, in the same commit, update
   `docs/ROADMAP.md` and `docs/BACKLOG.md`.** A commit that ships work but
   leaves the roadmap stale is incomplete.
+  **AMENDED 2026-09-14 — this rule and the `Doc-tick: groomer` convention could
+  not both be true, and the convention had quietly won: 28 of the last 30
+  commits on the working branch touched NEITHER file, every one of them
+  carrying the trailer.** A non-negotiable contradicted by 93 % of its own
+  history is not a rule, it is noise — and noise in this file is worse than
+  silence, because every brief quotes it.
+  Both halves of the tension are real. The rule exists because stale docs are a
+  defect. The convention exists because `docs/ROADMAP.md` and `docs/BACKLOG.md`
+  are the two files EVERY agent is required to touch, which makes them the
+  highest-contention paths in the repo — they are the reason
+  `stage-doc-hunks.py` exists, the reason it has failed silently five times,
+  and the reason a commit can sweep a colleague's entry. Under parallel
+  builders the same-commit rule manufactures the exact collision the territory
+  rule is trying to prevent.
+  **So the rule now reads: every commit that lands a feature/fix MUST carry its
+  doc tick EITHER in the same commit OR as a `Doc-tick: groomer` trailer, and
+  the trailer is a DEBT the orchestrator owes before the batch closes.** It is
+  a deferral, not an exemption. Concretely:
+  · a builder in a worktree uses the trailer — it must not race for the board;
+  · a lone committer touching no shared doc may still tick in place;
+  · **the orchestrator dispatches the `backlog-groomer` before the batch ends**,
+    and a batch is not done while any trailer is unreconciled;
+  · `docs/ROADMAP.md`'s "Current focus" line must be true at every batch
+    boundary, which is the property the original rule was really protecting.
+  The failure mode to watch is the one that produced this amendment: the
+  trailer is cheap to write and the groom pass is easy to skip, so the debt
+  accrues invisibly and the board goes stale while every commit message claims
+  otherwise. A review caught it here by counting, which is the check — if you
+  want to know whether the convention is working, count the commits since the
+  last `docs(board)` commit, do not read the trailers.
 - `docs/ROADMAP.md` is the source of truth for "what phase are we in"; its
   status markers and "Current focus" line must always match `git log`.
 - Every groom pass reconciles ROADMAP + BACKLOG against git history.
