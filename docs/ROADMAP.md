@@ -2,27 +2,34 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-09-13 (backlog-groomer pass 21) — the
-frontend-redesign programme (`docs/design/REDESIGN-ROADMAP.md`) is the active
-work; Waves 0-2 are CLOSED, each after its own code-review pass, and a
-cross-wave QA pass has now assembled all three and found what no per-item
-review can: one real regression (a hidden body kept 667px of its GL face
-outline, e2e-red at the branch tip since `57d3bf8`) plus three collisions in
-one corner and on one key, all four now fixed (`0c3e363`, `76a214c`,
-`d0a3190`, `dbb09fb` — see "CROSS-WAVE QA + W2 CODE REVIEW CLOSED" below). W1's
-CRAFT-4/5 (cursor states, contact shadow) remain open in that doc's own
-queue. **Next up is Wave 3 — direct manipulation:** `CRAFT-8` lands first and
-alone (extracts `<ParametricGauge>` out of `ExtrudeDragHandle` as a pure
-refactor — existing e2e green, no pixel may move), then `CRAFT-7/9/10/11`
-re-express extrude/fillet/chamfer/shell/hole/revolve/draft/pattern through it
-— the gap CLAUDE.md calls "the single biggest 'does not feel like a modeling
-tool' gap we have, bigger than any missing feature." **`FLOW-JOURNEY-GAP-1`
-is still the honest headline number: the canonical part-creation journey
-measures 30 gestures, UNCHANGED by Wave 2** — `full-flow.spec.ts` still walks
-to the toolbar rather than using the accelerators/chip/accent W2 shipped, so
-read that as "shortcuts exist," not "creating a part got cheaper." The
-founder has asked this branch be merged to `main` ("it's looking better but
-we still have a long way to go"); the merge is blocked only on CI finishing.
+**Current focus, corrected 2026-09-14 (backlog-groomer pass 22) — Wave 3
+(direct manipulation) is mid-flight, and CRAFT-7 is NOT closed.** `CRAFT-8`
+landed first and alone (`4b0465d`, `<ParametricGauge>` extracted out of
+`ExtrudeDragHandle`, 601 -> 88 lines, a four-way split forced because
+`packages/design` has no r3f; three review findings fixed alongside —
+`b20e8ce`, `fd1156a`, `730b2ae`). `CRAFT-7` then re-expressed extrude through
+it (`6864f82` + `e25f125`): the drag handle's reach went 2 of 16 -> 16 of 16
+sample points along its own projected axis, closing the mandate's "drawn in
+GL, targeted in the DOM" gap. **But CRAFT-7 shipped with an OPEN BLOCKING
+REVIEW FINDING** — the px/mm scale divides a projected seat->arrow-TIP length
+by a world seat->arrow-BASE length, so the reported "14 px floor" is really
+~11.9 px at depth 40 and ~9.7 px at depth 10, and a `frontend-builder` is
+fixing it now. The snap-ladder floor is being re-derived alongside it
+(`majors >= 14px` AND `pitch >= 7px`, replacing a single 14px pitch floor
+borrowed from a touch-target dimension). **`CRAFT-9` (linear gauges x5
+verbs), `CRAFT-10` (angular x2) and `CRAFT-11` (pattern) are genuinely
+parallel per the W3 direction's §8.2 but are BLOCKED on CRAFT-7's finding —
+all three inherit the same frame loop; do not dispatch them until it closes.**
+See `docs/BACKLOG.md`'s wave log for the full CRAFT-7/8 entries, plus three
+findings filed from this wave (ESLINT-HOOKS-1, EXTRUDE-RAIL-ESCAPE-1,
+CRAFT-INTERMITTENT-1). **`FLOW-JOURNEY-GAP-1` is still the honest headline
+number, and unchanged BY DESIGN this wave: the canonical part-creation
+journey still measures 30 gestures** — the W3 direction states up front that
+the flow-cost metric will not move for this wave (a fillet journey is 3
+gestures today and 3 with a gauge); W3's evidence is reach counts and
+screenshots, not that number. The founder has asked this branch be merged to
+`main` ("it's looking better but we still have a long way to go"); the merge
+is blocked only on CI finishing.
 Also fixed this pass, unrelated to the redesign: MinIO Inc. withdrew its
 binary images from Docker Hub entirely (not a rate limit — the repo itself
 now reads source-only), which had been failing three CI jobs on every commit;

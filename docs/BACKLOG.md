@@ -164,12 +164,103 @@ is the landing record only, so the board is not silent about shipped work.
       `apps/web/src/viewport/ViewCube.tsx`. agentType: frontend-builder
       (decision may need founder/vision-steward input first, same as
       VIEWFRONT-ORTHO-DECISION-1).
+- [x] (P1, L) **CRAFT-8** — `<ParametricGauge>` extracted out of
+      `ExtrudeDragHandle` (601 -> 88 lines), a four-way split forced because
+      `packages/design` has no r3f; the shared foundation CRAFT-7/9/10/11
+      build on `4b0465d`. Review found three, all fixed: a gauge-override
+      handle that churned a global listener once per drag frame (`b20e8ce`),
+      the ask-queue's rules made deterministic — its old positive control had
+      fired 2 of 12 runs (`fd1156a`), and `extrudeTrack`'s seam given the unit
+      coverage the 36-case e2e suite could not provide (`730b2ae`)
+      [docs/design/REDESIGN-ROADMAP.md W3]
+- [x] (P0, L) **CRAFT-7 — the extrude gauge is grabbable, but NOT CLOSED.**
+      Reach 2 of 16 -> 16 of 16 sample points along its own projected axis; a
+      real mouse drag from the shaft midpoint now moves the value where it
+      previously left it at 40. Also: the zoom-aware snap (sampled once on
+      arm and frozen thereafter — 40 wheel notches moved the shaft 3.86 ->
+      28.48 px/mm with the snap never updating), the spine drawn as a
+      polyline rather than a chord, the readout became an input with digit
+      capture, nested Escape, a leader on the tag `6864f82` + `e25f125`.
+      **OPEN BLOCKING REVIEW FINDING, in flight (frontend-builder):** the
+      px/mm scale divides a projected seat->arrow-TIP length by a WORLD
+      seat->arrow-BASE length, so the commit's own "14 px floor" is really
+      ~11.9 px at depth 40 and ~9.7 px at depth 10 — every reported figure in
+      the commit was measured against this biased quantity. The snap-ladder
+      floor is being re-derived alongside it (`majors >= 14px` AND
+      `pitch >= 7px`, replacing the single 14px pitch floor borrowed from a
+      touch-target dimension) — **CRAFT-9/10/11 inherit both changes**, since
+      all three reuse this frame loop; do not dispatch them until this
+      finding closes. `6864f82` has NO CI run of its own (pushed in the same
+      event as `e25f125`, which fired one run keyed to the head commit) —
+      locally verified standalone (typecheck clean, 233 design + 2461 web
+      tests) and tree-verified by `e25f125`'s green run, NOT CI-verified;
+      keep the distinction for any future bisect.
+      [docs/design/REDESIGN-ROADMAP.md W3]
+- [x] (P2, S) **e2e verdict reporter** — a red shard named the failing test
+      and withheld the reason: `results[].error.message` was being dropped
+      from the summary block `6043601`.
+- [ ] (P3, S) **CRAFT-INTERMITTENT-1** — two live intermittents, neither
+      caused by Wave 3 and both proven so. (a) `rect-rigidity.spec.ts:281` —
+      red on 2 of 5 recent CI runs; 31 local executions across seven stress
+      axes gave zero failures, persisted constraint set byte-identical every
+      time. (b) `qa-cross-wave-0913.spec.ts:572` "the cube is a control again
+      once the pick is over" — 1 of 3 on `--repeat-each`, 8/8 isolated; a
+      cube-facet click not moving the camera. ACCEPTANCE: root-cause at
+      least one to a specific race rather than filing it as "CI is noisy";
+      until then, quarantine or retry-tag rather than let it erode trust in
+      the gate. `6043601`'s verdict-block fix means the next occurrence will
+      name its own cause — use that first. [src: CRAFT-7 wave report,
+      2026-09-14] TERRITORY: `apps/web/e2e/rect-rigidity.spec.ts`,
+      `apps/web/e2e/qa-cross-wave-0913.spec.ts`. agentType: qa-tester /
+      frontend-builder.
+- [ ] (P2, M) **ESLINT-HOOKS-1** — `react-hooks` is not in `eslint.config.js`
+      at all, repo-wide: no `exhaustive-deps`, no `rules-of-hooks`. That gap
+      is why CRAFT-8's handle-churn defect (`b20e8ce`, a global listener
+      re-armed once per drag frame) was invisible until a human review found
+      it. Turning the rule on is its own change with its own blast radius —
+      at least three deliberate latest-ref patterns in the viewport will need
+      documented exemptions rather than fixes. ACCEPTANCE: `react-hooks`
+      added to `eslint.config.js`; every violation either fixed or exempted
+      with a one-line reason at the call site; `just lint` stays green.
+      Worth doing now — Wave 3 is adding a lot of hook-heavy viewport code
+      and each new gauge (CRAFT-9/10/11) is a fresh chance to repeat CRAFT-8's
+      bug. [src: CRAFT-7 wave report, 2026-09-14] TERRITORY:
+      `apps/web/eslint.config.js` + violations repo-wide. agentType:
+      frontend-builder.
+- [ ] (P2, S) **EXTRUDE-RAIL-ESCAPE-1** — Escape while the extrude rail's
+      numeric field holds unsaved typed text closes the WHOLE command and
+      discards it; pre-existing, not CRAFT-7's. FB-13-shaped inconsistency
+      (CLAUDE.md: "a key that sometimes saves and sometimes discards"): the
+      gauge's own cell (CRAFT-7) now nests Escape and behaves BETTER than the
+      rail field showing the identical number, so the same value has two
+      different Escape behaviours depending which control holds it.
+      ACCEPTANCE: the rail field's Escape matches the gauge cell's — cancels
+      the unsaved edit and reverts the field, not the whole command — with a
+      regression test covering both controls. [src: CRAFT-7 wave report,
+      2026-09-14] TERRITORY: extrude rail field component (wherever
+      `ExtrudeDragHandle`'s sibling numeric-entry lives). agentType:
+      frontend-builder.
 
 ## Scorecard gaps (docs/VISION.md daily-driver scorecard)
 
 See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
+
+- **Groom pass 22 (2026-09-14, backlog-groomer) — board was stale: CRAFT-7
+  was still listed planned after it shipped.** Ticked CRAFT-8 (`4b0465d` +
+  three review fixes) and CRAFT-7 (`6864f82`+`e25f125`) into the wave log,
+  but **CRAFT-7 is not closed** — it carries an open blocking review finding
+  (px/mm scale biased by measuring a projected length against a world one;
+  the reported "14 px floor" is really ~11.9-9.7 px). CRAFT-9/10/11 are
+  blocked on it and on the snap-ladder floor re-derivation it is shipping
+  alongside. Filed three new items from this wave's findings
+  (ESLINT-HOOKS-1, EXTRUDE-RAIL-ESCAPE-1, CRAFT-INTERMITTENT-1) and ticked
+  the e2e verdict-reporter fix (`6043601`). FLOW-JOURNEY-GAP-1 unchanged at
+  30 gestures — confirmed BY DESIGN this wave, not a regression (the W3
+  direction states the flow-cost metric will not move; evidence is reach
+  counts, not gesture count). No scorecard row flips this pass (flow/craft
+  items). ROADMAP "Current focus" reconciled to match.
 
 - **Groom pass 21 (2026-09-13, backlog-groomer) — cross-wave QA (`debfea2`)
   assembled W0+W1+W2 and found one real regression (a hidden body kept its
