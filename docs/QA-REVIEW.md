@@ -12,6 +12,220 @@ blocked or lies · **P2** a real flow is worse than it should be · **P3** polis
 
 ---
 
+## 2026-09-14 — the Phase 1 exit gate's red shard: WHICH assertion, and why the verdict could not say
+
+**Verdict: the failing assertion is `apps/web/e2e/full-flow.spec.ts:212`
+(`sketch-strip` must reach `toHaveCount(0)` after Save) — established by
+reproducing the byte-identical error, and by eliminating the other two
+candidates on evidence rather than on likelihood. It is NOT the constraint
+refusal at :177 and NOT the export at :311. The gauge wave did not cause it;
+it changed the SHARD SCHEDULE. Four separate defects below, one of which is a
+gate that has never been able to fail.**
+
+Run 34887783075, commit `11a0906`, shard 3/4, verdict line:
+`FAIL full-flow.spec.ts:324 … [Expected: 0 | Received: 1]`. Line 324 is the
+`test()` declaration; the assertion is inside `runFullFlow`, a helper three
+tests share.
+
+Method: native stack on isolated ports (gateway 8150 / documents 8151 /
+geometry 8152 / Vite 5250), per-agent SQLite, isolated Playwright config at
+`apps/web/node_modules/.vp1a/qa-fullflow.config.mjs`. Measured at `894c6f3`
+unless stated. No `click({ force: true })` anywhere in this pass.
+
+### The brief said there were two candidates. There are three.
+
+`grep "toHaveCount(0)"` finds two (:177, :311) and MISSES
+`full-flow.spec.ts:212`, whose call is `toHaveCount(0, { timeout: 30_000 })` —
+the option object puts a comma where the grep expects a paren. The third
+candidate is the one that fired. **A census of assertion sites has to be taken
+with `grep "toHaveCount("`, never with the literal argument**, or the
+longest-waiting assertions — precisely the ones that gate slow flows — are
+systematically invisible to it.
+
+### P2 — `part-export-error` DOES NOT EXIST IN THE APPLICATION
+
+`apps/web/e2e/full-flow.spec.ts:311` and `export-formats.spec.ts:112` both
+assert `getByTestId("part-export-error")` has count 0. That test id appears
+**nowhere in `apps/web/src` or `packages/`** — the export strip's error surface
+is `part-export-notice` (the id every other spec uses:
+`export-partial-body.spec.ts`, `body-status.spec.ts`, `qa-wave-0730.spec.ts`).
+Full id census of the strip: `part-export-{band,band-controls,band-glb,
+band-step,band-stl,controls,idle,notice,status,step,stl}`.
+
+So the exit gate's "the STEP export did not error" check has been vacuously
+true since it was written, and it eliminates :311 as the CI failure **by
+construction**: a locator that can never resolve cannot report `Received: 1`.
+This is the zero-area family again — an assertion that cannot observe the
+failure it names. Fix belongs with the export owner: point both specs at
+`part-export-notice` and assert on its TEXT, then confirm the assertion can
+fail by forcing an export error.
+
+### The refusal at :177 is eliminated on the code path, not on a hunch
+
+`glyph-N` is rendered from `useSketchStore`'s `constraints` array
+(`ConstraintGlyphs.tsx:821`), so `glyph-9` requires a TENTH constraint. The
+only writer on that path is `applyConstraint` (`apps/web/src/sketch/store.ts`
+:1294), whose `"added"` and `"hint"` outcomes are mutually exclusive branches
+of one synchronous `set` — and the `"added"` branch sets `hint: null`. The
+assertion immediately above (`constraint-hint` contains /already horizontal/i)
+therefore cannot pass in the same state that makes `glyph-9` exist. The solve
+round-trip does not add constraints either: `adoptSolved` takes entities,
+diagnosis and dimension readouts only (`PartPage.tsx:1172-1201`).
+
+### P2 — a click on `sketch-save` during the debounced autosave is SILENTLY DISCARDED, and the sketch never closes
+
+This is the mechanism behind the red shard, reproduced in a real browser.
+
+`SketchStrip.tsx:1207` gates Save with `disabled={saving || …}` where
+`saving = syncPending`, and `syncPending` is true for the whole of the 400 ms
+debounced autosave's round trip. `ToolButton` (packages/design) implements
+`disabled` as **`aria-disabled` plus a handler that returns early**:
+
+```
+const handleClick = (event) => { if (isDisabled) { event.preventDefault(); return; } onClick?.(event); };
+```
+
+So a pointer event that arrives while that flag is up is dropped with no
+queue, no re-arm and no feedback. `finishSketch` never runs, the strip stays
+open, and 30 s later `full-flow.spec.ts:212` reports `Expected: 0 |
+Received: 1` — the CI failure, verbatim.
+
+Measured window, on the desktop case (t = 0 is the `25` dimension glyph
+resolving), three runs: the button is enabled, goes `aria-disabled="true"` at
+**208 / 236 / 244 ms**, and clears at **481 / 513 / 526 ms**. A ~280 ms hole
+that opens ~210 ms after the step before the click.
+
+Reproduction (deterministic when the dispatch lands in the hole):
+1. instrument `sketchDimensionedRectangle` to take `boundingBox()` BEFORE the
+   wait, `page.waitForTimeout(300)`, then `page.mouse.click` at the centre;
+2. probe at the instant of the click. Measured: `{"aria":"true",
+   "hit":"sketch-save","strip":1}` — the event reached the button itself, no
+   overlay involved — and the strip was still mounted 30 s later.
+3. The control: the same dispatch when the flag has already cleared
+   (`{"aria":"enabled"}`) saves and closes, `strip:0`.
+
+Why CI sees it only sometimes, and what is NOT the cause — both measured:
+* Playwright's own `locator.click()` **waits** for `aria-disabled` to clear (a
+  bare probe: `click()` on an `aria-disabled` button throws `TimeoutError`
+  after its full timeout and the handler never runs; `page.mouse.click` at the
+  same centre runs it). So the steady state is protected: at delay 0 the click
+  took **390–1039 ms** to dispatch (it was waiting) and passed 6/6.
+* **API latency is protective, not harmful.** With 700 ms injected on the
+  feature write the click waited ~2.9 s and passed 4/4. A longer busy window
+  makes Playwright wait longer; it does not make the click land inside one.
+* What is left is the gap between Playwright's enabled CHECK and its CDP
+  DISPATCH. On this container a bare `page.mouse.click` round trip measured
+  **101–189 ms**, against ~210 ms of headroom before the window opens — so any
+  contention that costs ~200 ms between the two puts the dispatch inside a
+  window the check said was clear. I did not land that sub-200 ms race
+  deterministically and I am not claiming I did; what settles it is one
+  measurement CI can take for free — see the spec-hardening note below.
+
+Severity P2 and not P3 because it is also a USER-facing dead end: a person who
+presses Save in that window loses the press and gets nothing back. The product
+fix is to not discard it (queue the intent and run it when the save settles);
+the test fix is to record the button's state at dispatch so the next
+occurrence is self-diagnosing rather than another QA pass.
+
+### P3 — the verdict block named the TEST, not the ASSERTION (fixed here)
+
+`scripts/e2e-verdict.py` rendered `spec.file:spec.line`, which for a helper
+shared by several tests is the difference between a diagnosis and a coin flip
+— and the job log is the only channel (artifact download is policy-denied).
+It now carries `error.location` as an `assert@<line>` suffix (or
+`assert@<file>:<line>` when the assertion is in another module), inside the
+existing 220-char reason cap and one line per failure. Against the real
+reproduced report it renders:
+
+```
+FAIL  full-flow.spec.ts:369 assert@257 › Phase 1 exit gate — full flow › register → …
+```
+
+and it paid for itself the same afternoon on a cross-file case:
+`pattern-gauges.spec.ts:120 assert@gaugeProbe.ts:309`. Self-test carries the
+real bytes of a two-tests-one-helper red report (spec lines 15/19, assertion
+lines 8/11) with an input-mutation negative control (strip `error.location`
+→ the suffix must vanish and the rest of the line must not change), plus a
+same-line case (no redundant suffix) and a cross-file case. Mutating
+`_assertion_site` to return `""` reddens exactly the three positive checks.
+
+### P1 — `pattern-count-gauge`'s track leaves the frame; the count drag is dead
+
+Independent third reading of the contradiction between CRAFT-11 (reported
+16/16 self) and the sleeve builder (reported 3/16). **2/2 identical at the tip
+`894c6f3`, `pattern-gauges.spec.ts` 2 failed / 6 passed:**
+
+```
+gauge reach pattern-count-gauge: 3/16 self, 0 sibling —
+  gauge, gauge, svg, view-fit, view-top, gauge, timeline-way, timeline-way,
+  timeline-way, timeline-way, null, null, null, null, null, null
+FAIL pattern-gauges.spec.ts:178 assert@204 › dragging COUNT past a rung adds a copy
+  [dragging the count gauge past a rung must add a copy | Expected: > 3 | Received: 3]
+```
+
+The two failures are ONE defect: only 3 of 16 points on the count gauge's own
+drawn track are grabbable, so the drag cannot move it, so no copy is added.
+
+**The fact that settles the contradiction, and neither prior report contains
+it: SIX of the sixteen samples resolve to `null` — they are outside every
+element, i.e. off the frame.** Occlusion alone cannot produce that, so the two
+measurements cannot be of the same camera state with different things on top;
+they are of different CAMERA/SEAT states. The middle of the census also moves
+between my two runs (`svg` vs `view-home`/`view-bar`) while the count stays 3,
+which says the seat is marginal rather than fixed. The occluders that are on
+screen are all chrome — `view-home`, `view-fit`, `view-top`, `view-bar`,
+`timeline-way` — so this is the chrome-occlusion class the deselect-click-into-
+the-ViewCube-seat defect already belongs to, plus an off-frame seat on top of
+it. Owner: the pattern-gauge builder; the seat needs to be bounded by the
+viewport's own rect the way CRAFT-9b's datum sheet already had to be.
+
+### CRAFT-11's "`pattern-scope.spec.ts:570` fails at the tip" is NOT reproduced
+
+`pattern-scope.spec.ts` ran **9/9 green twice** at `894c6f3` (the mirror case
+at :570 among them). Not dismissed as pre-existing — measured, and it passes.
+If it is real it is intermittent at a rate below 1-in-2 and needs its own
+census; it is not a standing red at the tip.
+
+### `fillet-chamfer-gauge` is green at the tip — the two reports are of different trees
+
+**9/9 green twice at `894c6f3`**, arrow-key cases included. The sleeve builder
+measured the BASE tree (`c0b5e5f`), and `894c6f3` rewrote
+`ParametricGauge.tsx` — the instrument all these gauges mount — so the honest
+reading is that the sleeve fixed them, not that two agents disagree. Worth a
+`c0b5e5f` control to confirm; it is the cheap experiment nobody has run.
+
+### One defect or four?
+
+**Four, and they are not one mechanism.** (a) full-flow:212 is a discarded
+click on an `aria-disabled` primitive in the SKETCH strip; (b) the pattern
+count gauge is an off-frame/occluded SEAT in the viewport; (c) the
+`craft9b-gauges` contract-β spring-back is an unstated settle after
+`mouse.up`; (d) `part-export-error` is a phantom id. They share only a
+FAMILY — every one is "the control is present and the interaction does not
+land" — which is worth naming precisely because it makes them look like one
+bug and they have four different owners and four different fixes.
+
+The gauge wave is not the cause of the full-flow red. `11a0906`'s app-side
+changes are all gated on `editor?.kind === "shell" | "datum"`, which
+`full-flow` never opens; what it DID do is add a 529-line spec file, and the
+shard partition is derived from the file list, so full-flow moved. At the tip
+it is not even in shard 3/4 any more. **Green at N, red at N+1 proves the
+failure became observable at N+1.**
+
+### Spec hardening this pass did NOT do, deliberately
+
+The obvious "fix" for full-flow:212 is to wait for the Save button to settle
+before clicking, or to retry the click. Both hide a real dead end, and the
+retry would make the gate unable to see the defect at all. What belongs in the
+spec instead is one cheap measurement that makes the next occurrence
+self-diagnosing: record `aria-disabled` on `sketch-save` at the moment of
+dispatch and put it in the failure message. That is a one-line fact CI can
+capture for free and it is exactly what this whole pass had to reconstruct.
+Filed rather than written here because it belongs in the same change as the
+product fix, so the two are reviewed together.
+
+---
+
 ## 2026-09-13 — the three frontend waves, ASSEMBLED: one red gate, two collisions in one corner, and one key that backs out twice
 
 **Verdict: FAIL. Four defects, all reproduced in a real browser against the
