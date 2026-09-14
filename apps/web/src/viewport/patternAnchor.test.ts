@@ -26,6 +26,7 @@ import {
   MIN_PATTERN_COUNT,
   patternAnchor,
   patternPerp,
+  RAIL_PITCH_FRAC,
   sceneDirection,
   spacingRailOffset,
   spacingSeat,
@@ -122,22 +123,86 @@ describe("the two rails", () => {
     expect(spacingRailOffset(plate) - plate.perpHalf).toBeGreaterThan(
       2 * plate.perpHalf,
     );
-    expect(countRailOffset(plate)).toBeGreaterThan(30);
   });
 
-  it("separates the two sleeves by at least the rail-pitch floor", () => {
+  it("separates the two sleeves in PROPORTION to the instrument", () => {
     // THE HAZARD THIS ITEM OWNS. Seated on one line the two gauges would
     // overlap for the whole first gap and each sleeve could answer for its
-    // sibling. Checked on a hairline body too, where the fractional term
-    // vanishes and only the floor is holding them apart.
+    // sibling.
+    //
+    // This used to read `>= 10`, the millimetre floor, and that floor is what
+    // put the count gauge off the frame (see `countRailOffset`). The separation
+    // is a SCREEN requirement — the sleeve is 12 px half-thick — and the camera
+    // frames `radius`, so a fraction of `radius` is the form of it that holds at
+    // every part size: measured 78 / 83 / 70 px on parts of 29 / 11 / 102 mm,
+    // where the floor gave 208 / 371 / 116 for the same requirement.
+    //
+    // The hairline body is still here, and it is now held by MIN_SEAT_RADIUS_MM
+    // rather than by a rail-pitch floor — one scale floor instead of three.
     for (const bounds of [
       BLOCK,
       { min: [0, 0, 0], max: [40, 0, 0] } as SceneBounds,
     ]) {
       const anchor = patternAnchor(bounds, X);
-      expect(
-        countRailOffset(anchor) - spacingRailOffset(anchor),
-      ).toBeGreaterThanOrEqual(10);
+      expect(anchor.radius).toBeGreaterThanOrEqual(2);
+      expect(countRailOffset(anchor) - spacingRailOffset(anchor)).toBeCloseTo(
+        RAIL_PITCH_FRAC * anchor.radius,
+        9,
+      );
+    }
+  });
+
+  it("SCALES WITH THE PART — the property the floors broke", () => {
+    // The regression test for the P1, stated as the invariant rather than as a
+    // number: two geometrically SIMILAR bodies must get geometrically similar
+    // instruments, so every seat length scales by exactly the body's scale
+    // factor. A `max(…, <constant> mm)` cannot do that, which is precisely why
+    // the seat stopped shrinking with the part and walked off the frame — and
+    // it is why this assertion FAILS on the pre-fix arithmetic at k = 4: the
+    // floors select the constant for the small body and the fraction for the
+    // large one, so `spacingRailOffset` came out 12 mm and 34.1 mm (it reports
+    // "expected 34.095… to be close to 48") and `countRailOffset` 22 mm and
+    // 48.5 mm — ratios of 2.84 and 2.20 where the bodies differ by 4.
+    //
+    // It matters because the camera fits the BODY: an instrument similar to the
+    // part occupies a fixed share of the frame at every part size, which is the
+    // only version of "it is on screen" that is not a coincidence about one
+    // test fixture.
+    const k = 4;
+    const small = patternAnchor(BLOCK, X);
+    const large = patternAnchor(
+      {
+        min: [BLOCK.min[0] * k, BLOCK.min[1] * k, BLOCK.min[2] * k],
+        max: [BLOCK.max[0] * k, BLOCK.max[1] * k, BLOCK.max[2] * k],
+      },
+      X,
+    );
+    expect(large.radius).toBeCloseTo(k * small.radius, 9);
+    expect(spacingRailOffset(large)).toBeCloseTo(
+      k * spacingRailOffset(small),
+      9,
+    );
+    expect(countRailOffset(large)).toBeCloseTo(k * countRailOffset(small), 9);
+  });
+
+  it("spends at most 0.7 of the instrument's scale getting clear of the body", () => {
+    // A BUDGET, not a restatement of the arithmetic: the frame is fitted to the
+    // body, so the rails stay inside it only while the whole stack stays inside
+    // a small multiple of the part's own scale. Measured on the spec's
+    // 29 x 10 x 23 mm part, 0.65 puts the far rail 274 px below the body centre
+    // with 56 px of canvas still under the arrow's grip; the pre-fix seat put it
+    // 438 px down, past the bottom edge. Raising either fraction back toward
+    // what the floors used to deliver (16 mm of clearance+pitch on this BLOCK,
+    // i.e. 2.2 x radius) fails here first, cheaply, instead of in a browser.
+    for (const bounds of [
+      BLOCK,
+      { min: [-47.5, -5, -32.5], max: [47.5, 5, 32.5] } as SceneBounds,
+      { min: [-14.5, 0, -11.5], max: [14.5, 10, 11.5] } as SceneBounds,
+    ]) {
+      const anchor = patternAnchor(bounds, X);
+      expect(countRailOffset(anchor) - anchor.perpHalf).toBeLessThanOrEqual(
+        0.7 * anchor.radius,
+      );
     }
   });
 

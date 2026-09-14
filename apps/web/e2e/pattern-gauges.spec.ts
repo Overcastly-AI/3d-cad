@@ -116,6 +116,35 @@ const ghostSegments = async (page: Page): Promise<number | null> =>
 const ghostSpanMm = async (page: Page): Promise<number | null> =>
   viewportStamp(page, "pattern-ghost-span-mm");
 
+/** Quiet window a reading must hold before it counts as settled, ms. */
+const QUIET_MS = 1_200;
+
+/**
+ * Read `probe` until it stops changing for {@link QUIET_MS}, and return it.
+ *
+ * The window is not a taste: the measured tail on the value chain behind these
+ * gauges is 0.4-0.8 s (see CONTRACT β below for the sampled timeline), so 1.2 s
+ * of stillness is the smallest window that is on the far side of it. State the
+ * margin rather than picking a round number, so that a future measurement can
+ * move it for a reason.
+ */
+async function quiesce(probe: () => Promise<number>): Promise<number> {
+  const deadline = Date.now() + 15_000;
+  let last = await probe();
+  let quietSince = Date.now();
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const now = await probe();
+    if (now !== last) {
+      last = now;
+      quietSince = Date.now();
+      continue;
+    }
+    if (Date.now() - quietSince >= QUIET_MS) return last;
+  }
+  throw new Error(`the reading never held still for ${QUIET_MS} ms`);
+}
+
 test.describe("the pattern gauges are two instruments, not one", () => {
   test("each sleeve resolves to ITSELF along its own drawn track", async ({
     page,
@@ -252,8 +281,38 @@ test.describe("the pattern gauges are two instruments, not one", () => {
     // to `before`, so the property to assert is "it settled somewhere that is
     // not where it started, and it stays there". Verified by deleting the echo
     // prop: the gauge then springs back to 10, its starting value.
-    await page.waitForTimeout(600);
-    const settled = await shown();
+    //
+    // SETTLING IS A CONDITION, NOT A DURATION. It was a fixed 600 ms wait, i.e.
+    // a bet that the echo chain is quicker than a number somebody guessed, and
+    // the bet is close enough to lose: the case failed inside a full-file run
+    // reporting 13 then 13.5 — one snap increment arriving during the second
+    // wait, which the case then read as the instrument refusing to hold still.
+    //
+    // MEASURED 2026-09-14, sampling both readouts every 100 ms after release,
+    // and measured on the COMMITTED tree too, because the seat change in this
+    // commit was the first suspect and it is innocent — the same shape appears
+    // without it:
+    //
+    //   T[2051] gauge=13   field=13.5   <- the rail is already right
+    //   T[2410] gauge=13.5 field=13.5   <- the instrument catches up
+    //
+    // So the tail is the PRODUCT's, not the test's: for 0.4-0.8 s after you let
+    // go (it varies run to run) the instrument and the panel beside it show
+    // different numbers. It belongs to the ask-queue -> preview -> prop round
+    // trip in `PartPage`, which is not this file's to change; it is written
+    // down here rather than absorbed silently, because a wait tuned around a
+    // defect is how the defect stops being visible.
+    //
+    // Nor is "wait until the two readouts AGREE" the condition — measured, they
+    // pass through the intermediate value TOGETHER, so that poll returns true at
+    // 13 and the case fails exactly as before. The honest condition is
+    // QUIESCENCE over a window longer than the measured tail.
+    //
+    // It costs the spring-back check nothing, which is worth stating because
+    // relaxing a wait usually does: a missing echo clears `live` and reverts to
+    // `value` ON pointerup, permanently, so a sprung-back gauge is quiescent AT
+    // `before` and the assertion below still fires on it.
+    const settled = await quiesce(shown);
     expect(
       settled,
       "a released drag must not spring back to its starting value — that is " +

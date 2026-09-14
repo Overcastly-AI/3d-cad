@@ -99,25 +99,26 @@ export const MAX_PATTERN_COUNT = 500;
  * the part READS, which is exactly what `radius` already means — it is the
  * number sizing the arrowhead and the rungs, so using it here makes one scale
  * where there were two.
+ *
+ * It had a `max(…, 6 mm)` floor under it until the seat was measured against
+ * the frame; {@link countRailOffset} carries that finding.
  */
-const RAIL_CLEARANCE_FRAC = 0.35;
-
-/** Clearance floor, mm, so a thin part still gets its dimension off the metal. */
-const RAIL_CLEARANCE_MIN_MM = 6;
-
-/** Rail separation, as a fraction of the instrument's own scale. */
-const RAIL_PITCH_FRAC = 0.5;
+export const RAIL_CLEARANCE_FRAC = 0.35;
 
 /**
- * Rail separation floor, mm.
+ * Rail separation, as a fraction of the instrument's own scale.
  *
- * This is the number that keeps the two hit sleeves apart, so it is a TARGET
- * SIZE question rather than a taste one: 10 mm projects to comfortably more
- * than the 12 px sleeve half-thickness at any camera that can frame a part
- * worth patterning, which is what makes "each sleeve resolves to itself" true
- * by construction rather than by luck.
+ * This is the number that keeps the two hit sleeves apart, and it used to be
+ * `max(0.5 · radius, 10 mm)`. **The floor was the defect** — see
+ * {@link countRailOffset} — and with it gone the fraction carries the whole
+ * guarantee, so it is now chosen against a projected pixel count rather than a
+ * world length: under the fit-to-body camera `0.3 · radius` measured **78, 83
+ * and 70 px** on parts of 29, 11 and 102 mm, against a 12 px sleeve
+ * half-thickness. The floor gave **208, 371 and 116 px** on the same three —
+ * the same requirement, met by 3x as much screen on the part that could least
+ * afford it. A fraction can be scale-invariant; a millimetre cannot.
  */
-const RAIL_PITCH_MIN_MM = 10;
+export const RAIL_PITCH_FRAC = 0.3;
 
 /** Seat scale floor, mm — a hairline part still gets a grabbable instrument. */
 const MIN_SEAT_RADIUS_MM = 2;
@@ -229,18 +230,62 @@ export function patternAnchor(bounds: SceneBounds, dir: Vec3): PatternAnchor {
 
 /** Distance from the body centre to the near (spacing) rail. */
 export function spacingRailOffset(anchor: PatternAnchor): number {
-  return (
-    anchor.perpHalf +
-    Math.max(RAIL_CLEARANCE_MIN_MM, RAIL_CLEARANCE_FRAC * anchor.radius)
-  );
+  return anchor.perpHalf + RAIL_CLEARANCE_FRAC * anchor.radius;
 }
 
-/** Distance from the body centre to the far (count) rail. */
+/**
+ * Distance from the body centre to the far (count) rail.
+ *
+ * ## THE SEAT USED TO LEAVE THE FRAME, AND THE FLOORS ARE WHY (P1, 2026-09-14)
+ *
+ * Measured on the flow `pattern-gauges.spec.ts` drives: `elementFromPoint` down
+ * the count gauge's own projected track resolved to the instrument at **3 of 16
+ * sample points**, and — the fact that names the cause — **six of the sixteen
+ * resolved to `null`**, off the frame entirely. Occlusion cannot produce a
+ * `null`. The rest landed on `view-home` / `view-fit` / `timeline-way`: the
+ * track was being laid across the nav chrome and then off the bottom edge.
+ *
+ * CRAFT-11 honestly measured 16/16 for the same gauge. Both readings are true,
+ * and the state that differs between them is **the size of the part in
+ * millimetres**:
+ *
+ * | body (scene mm) | camera zoom | count reach | spacing reach |
+ * |---|---|---|---|
+ * | 102 x 10 x 73 | 6.9 | 16/16 | 16/16 |
+ * | 29 x 10 x 23 (the spec's) | 22.5 | **3/16** | 16/16 |
+ * | 11 x 10 x 11 | 40.1 | **0/16** | **2/16** |
+ *
+ * The camera fits the BODY, so every world millimetre buys more pixels the
+ * smaller the part is. The rails were hung at `perpHalf + max(6, 0.35·r) +
+ * max(10, 0.5·r)`, and BOTH `max`es select their constant whenever
+ * `radius < 17 mm` — any part whose section across the row is under about
+ * 34 mm, which is most of them. So the offset stopped shrinking with the part
+ * while the frame went on shrinking with it.
+ *
+ * In pixels, on the spec's part: the far rail sat **438 px below the body's
+ * centre on a canvas whose centre-to-bottom is 449 px**, and the track then
+ * descends a further 166 px as it runs. The rail was 11 px above the bottom
+ * edge before the arrow had drawn anything.
+ *
+ * **The floors were screen-space requirements written in world units.** Their
+ * own docstrings said so — "10 mm projects to comfortably more than the 12 px
+ * sleeve half-thickness at any camera that can frame a part worth patterning" —
+ * and that sentence is only true of parts big enough to make the fraction win
+ * anyway. A fraction of `radius` IS the scale-invariant form of the same
+ * requirement, because the camera frames `radius`: measured across a 9x range
+ * of part size the rail separation now holds at **78 / 83 / 70 px**, where the
+ * floors produced **208 / 371 / 116**. So the floors are gone and the
+ * fractions, retuned, carry it.
+ *
+ * What this does NOT fix, said plainly: a part SMALLER than the row it
+ * generates. At 11 x 11 x 10 mm with a 10 mm pitch the ghost copies themselves
+ * run off the right edge — the whole preview is outside a frame fitted to one
+ * body, and the gauge merely inherits it. That is a camera question (nothing
+ * re-fits when a preview appears), not a seat question, and it is not fixable
+ * from this file.
+ */
 export function countRailOffset(anchor: PatternAnchor): number {
-  return (
-    spacingRailOffset(anchor) +
-    Math.max(RAIL_PITCH_MIN_MM, RAIL_PITCH_FRAC * anchor.radius)
-  );
+  return spacingRailOffset(anchor) + RAIL_PITCH_FRAC * anchor.radius;
 }
 
 /**
