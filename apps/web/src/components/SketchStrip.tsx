@@ -1187,6 +1187,43 @@ export function SketchStrip({
                 would restore exactly the caption-vs-binding disagreement F1
                 exists to prevent. */}
             <ToolGroup eyebrow="Finish" aria-label="Finish sketch">
+              {/* SAVE IS NOT GATED ON `saving`, AND THAT IS THE WHOLE FIX.
+                  It used to read `disabled={saving || …}`, which opened a
+                  ~280ms hole in the middle of the one control that ends the
+                  sketch: QA measured the button going `aria-disabled="true"`
+                  at 208/236/244ms after an edit settles and clearing at
+                  481/513/526ms (three runs), and a real `page.mouse.click` at
+                  the button's own centre inside that window resolved to
+                  `sketch-save` — no overlay, the event reached the button —
+                  and did NOTHING. The strip was still mounted 30s later.
+                  `ToolButton` implements `disabled` as `aria-disabled` plus a
+                  handler that returns early, so there was no queue, no re-arm
+                  and no feedback: the click was dropped on the floor.
+
+                  THE QUEUE ALREADY EXISTED ONE LAYER DOWN; the disable is what
+                  made it unreachable. `persistBuffer` has carried
+                  `pendingExitRef` since the duplicate-"Sketch1" fix — a finish
+                  requested while a create is in flight is REMEMBERED and lands
+                  the moment the feature binds. For a bound sketch the writes
+                  are a serialized chain, so a finish during an in-flight PATCH
+                  simply enqueues behind it with the FRESHER payload and exits
+                  on completion. Both paths were already correct; the only
+                  thing standing between the user and them was this flag. So
+                  this is the affordance/hit-target family again (CLAUDE.md):
+                  the capability was there and unreachable.
+
+                  `saving` still does the two jobs it can honestly do — it says
+                  "Saving…" and sets `aria-busy` — because a save in flight is
+                  worth REPORTING and is not worth REFUSING for. A debounce is
+                  an implementation detail the user cannot see, cannot predict
+                  and must not have to model; gating a control on one makes a
+                  Save that works most of the time and silently does nothing the
+                  rest, which is the "no dead ends, no ambiguous exits" defect
+                  the design mandate names by name.
+
+                  What remains disabled is a REAL refusal with a REAL reason:
+                  an empty sketch has nothing to put in the part, and the
+                  caption says so where the user is looking. */}
               <ToolButton
                 icon={<CheckIcon />}
                 label={
@@ -1195,7 +1232,9 @@ export function SketchStrip({
                 caption={
                   bound
                     ? "edits save live"
-                    : `${entityCount} ${entityCount === 1 ? "entity" : "entities"}`
+                    : entityCount === 0
+                      ? "nothing drawn yet"
+                      : `${entityCount} ${entityCount === 1 ? "entity" : "entities"}`
                 }
                 data-testid="sketch-save"
                 aria-label={
@@ -1204,17 +1243,33 @@ export function SketchStrip({
                     : "Save sketch"
                 }
                 aria-busy={saving}
-                disabled={saving || (!bound && entityCount === 0)}
+                disabled={!bound && entityCount === 0}
                 onClick={onSave}
               />
               {discardArmed ? (
                 <>
+                  {/* The ONE control on this strip that keeps its `saving`
+                      gate, because here the refusal is real rather than
+                      incidental: a discard cannot call back a create that is
+                      already on the wire, so exiting mid-save would clear the
+                      buffer and let the feature land anyway — the user would
+                      watch the thing they just discarded appear in the tree.
+                      The gate stays; what changes is that it now SAYS SO.
+                      `ToolButton` keeps an `aria-disabled` control hoverable
+                      and focusable precisely so its caption can carry the
+                      reason, and that caption is the button's accessible
+                      description, so the refusal reaches a screen reader too.
+                      A silent refusal is the one option that is definitely
+                      wrong. */}
                   <ToolButton
                     icon={<CloseIcon />}
                     label={`Discard ${entityCount}`}
-                    caption="cannot be undone"
+                    caption={
+                      saving ? "wait — a save is landing" : "cannot be undone"
+                    }
                     data-testid="sketch-discard-confirm"
                     aria-label={`Discard ${entityCount} unsaved ${entityCount === 1 ? "entity" : "entities"} — this cannot be undone`}
+                    aria-busy={saving}
                     disabled={saving}
                     onClick={() => {
                       setConfirmingDiscard(false);
@@ -1242,6 +1297,14 @@ export function SketchStrip({
                         ? `discards ${entityCount}`
                         : "nothing to discard"
                   }
+                  // Not gated on `saving` either, for the same reason as Save
+                  // and one of its own: Exit is NOT the destructive step. On a
+                  // bound sketch it leaves edits that are already saving; on an
+                  // unbound one with work in it, it only ARMS the confirm above
+                  // — which is where the real refusal lives and says why. The
+                  // old `disabled={saving}` bought no safety (the user simply
+                  // clicked again 300ms later and got the identical outcome)
+                  // and cost the same silent dead end Save had.
                   data-testid="sketch-exit"
                   aria-label={
                     bound
@@ -1250,7 +1313,6 @@ export function SketchStrip({
                         ? `Exit sketch and discard ${entityCount} unsaved ${entityCount === 1 ? "entity" : "entities"} — asks first`
                         : "Exit sketch (nothing drawn yet)"
                   }
-                  disabled={saving}
                   onClick={() => {
                     // Unpersisted entities have no undo path — the history stack
                     // has nothing to restore — so this is the one exit that must

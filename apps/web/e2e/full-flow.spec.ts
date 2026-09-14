@@ -308,6 +308,17 @@ async function runFullFlow(
   expect(stepContent).toContain("PRODUCT('Baseplate'");
   expect(stepContent).toContain("END-ISO-10303-21");
   await expect(page.getByTestId("part-export-status")).toHaveText("Ready");
+  // This one is CORRECT and was reported as a phantom hook, so the reasoning is
+  // recorded rather than the conclusion: `part-export-error` is never written
+  // as a literal anywhere in the app, because `ExportRow` assembles it from its
+  // `testIdPrefix` (`data-testid={`${testIdPrefix}-error`}`). A grep therefore
+  // finds it only in specs and it LOOKS unresolvable — which would make this
+  // `toHaveCount(0)` vacuous. It is not: the export above is driven through
+  // `part-export-step`, i.e. the PANEL mount, whose prefix is `part-export`, so
+  // this watches that mount's own alert. (The band mount is `part-export-band`;
+  // `export-formats.spec.ts` was watching the wrong one of the two.) Do not
+  // "fix" this to `part-export-notice` — that is the partial-body advisory, a
+  // different surface that renders on a perfectly healthy page.
   await expect(page.getByTestId("part-export-error")).toHaveCount(0);
 
   // 8) Export STL — the faceted binary mesh, keyboard-only (focus + Enter).

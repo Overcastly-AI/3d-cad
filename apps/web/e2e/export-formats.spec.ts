@@ -107,8 +107,26 @@ test.describe("3MF and GLB export", () => {
     assertRealThreeMf(await download(page, "part-export-band-3mf"), "part 3mf");
     assertRealGlb(await download(page, "part-export-band-glb"), "part glb");
 
-    // Nothing failed on the way: a silent failure would leave the strip's
-    // status cell saying so.
+    // Nothing failed on the way. This watched `part-export-error` — the PANEL
+    // strip's alert — in a test that only ever drives the BAND, so it could not
+    // observe a band failure at all. `ExportRow` builds its hooks from a
+    // `testIdPrefix`, and the two mounts use DIFFERENT prefixes
+    // (`part-export` for the panel, `part-export-band` for the band), so the
+    // assertion was watching a node the test never touched: the band could fail
+    // its 3MF write, render `part-export-band-error`, and this still read 0.
+    //
+    // Worth recording HOW that survived review: a grep for `part-export-error`
+    // finds it in this file and in no source file, which reads as a phantom id
+    // and invites "repoint it at part-export-notice". Both readings are wrong.
+    // The id is real and is assembled by template at `ExportRow.tsx`
+    // (`data-testid={`${testIdPrefix}-error`}`), which no literal search can
+    // see; and `-notice` is a different surface entirely — it states what the
+    // file WOULD be (a partial body) and legitimately renders on a healthy
+    // page, so asserting count 0 on it would be a new bug, not a fix.
+    //
+    // Both mounts are on this page, so both are asserted: the band is the one
+    // under test, the panel is free.
+    await expect(page.getByTestId("part-export-band-error")).toHaveCount(0);
     await expect(page.getByTestId("part-export-error")).toHaveCount(0);
   });
 
