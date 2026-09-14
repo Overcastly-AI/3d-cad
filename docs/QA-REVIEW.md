@@ -167,8 +167,8 @@ The two failures are ONE defect: only 3 of 16 points on the count gauge's own
 drawn track are grabbable, so the drag cannot move it, so no copy is added.
 
 **The fact that settles the contradiction, and neither prior report contains
-it: SIX of the sixteen samples resolve to `null` — they are outside every
-element, i.e. off the frame.** Occlusion alone cannot produce that, so the two
+it: FIVE TO SIX of the sixteen samples resolve to `null` — they are outside
+every element, i.e. off the frame.** Occlusion alone cannot produce that, so the two
 measurements cannot be of the same camera state with different things on top;
 they are of different CAMERA/SEAT states. The middle of the census also moves
 between my two runs (`svg` vs `view-home`/`view-bar`) while the count stays 3,
@@ -186,13 +186,42 @@ at :570 among them). Not dismissed as pre-existing — measured, and it passes.
 If it is real it is intermittent at a rate below 1-in-2 and needs its own
 census; it is not a standing red at the tip.
 
-### `fillet-chamfer-gauge` is green at the tip — the two reports are of different trees
+### `fillet-chamfer-gauge` is green at the tip AND at the base — and the control refutes my own first explanation
 
-**9/9 green twice at `894c6f3`**, arrow-key cases included. The sleeve builder
-measured the BASE tree (`c0b5e5f`), and `894c6f3` rewrote
-`ParametricGauge.tsx` — the instrument all these gauges mount — so the honest
-reading is that the sleeve fixed them, not that two agents disagree. Worth a
-`c0b5e5f` control to confirm; it is the cheap experiment nobody has run.
+**9/9 green twice at `894c6f3`** (arrow-key cases included), and then **9/9
+green twice at `c0b5e5f`**, on a clean `git checkout` of that commit with Vite
+restarted against it. My first reading was "the sleeve rewrote
+`ParametricGauge.tsx`, so it must have fixed them"; the control says no — they
+were never failing at the base either, in this environment, at the very commit
+the other report names. Four for four green across both trees.
+
+The remaining explanation that fits, and it is a trap CLAUDE.md already
+documents by name: **the base readings were taken with the sleeve REVERTED IN
+THE WORKING TREE under a running Vite.** Vite serves a stale transform of a
+linked `packages/**`/workspace module through exactly that manoeuvre
+(A11Y-TOOLBTN-1, 2026-08-28), and the failure mode is not a lost run but a
+WRONG CONCLUSION — the served bundle is neither tree. A revert-in-place is not
+a control; a checkout is. If a base reading is wanted, take it the way these
+were: `git checkout <sha>`, bounce Vite, verify the served bytes, then run.
+
+### The pattern-gauge reach failure is real at BOTH commits, and the "3 vs 2" was variance
+
+Same clean-checkout method, `pattern-gauges.spec.ts` at `c0b5e5f`: **1 failed,
+then 2 failed** — the count MOVES between runs, which is the flake tell, so the
+sleeve builder's "3 failed reverted vs 2 failed with it" is inside the
+run-to-run spread and is not evidence about the sleeve either way. What does
+NOT move is the reach census, at 4 of 4 runs across both commits:
+
+| commit | run | `pattern-count-gauge` reach | `null` samples |
+|---|---|---|---|
+| `c0b5e5f` | 1 | 3/16 | 6 |
+| `c0b5e5f` | 2 | 4/16 | 5 |
+| `894c6f3` | 1 | 3/16 | 6 |
+| `894c6f3` | 2 | 3/16 | 5 |
+
+So `:120` is a standing product defect at both commits and `:178` is its
+consequence, marginal enough to pass once in four. Neither is the sleeve's
+doing and neither is fixed by it.
 
 ### One defect or four?
 
