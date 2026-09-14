@@ -918,7 +918,15 @@ export function ParametricGauge({
 
   // --- THE HIT SLEEVE, AND THE TAG'S SIDE, WRITTEN FROM THE FRAME LOOP -------
 
-  const sleeveRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * ONE HIT BAND PER DRAWN SPINE SEGMENT. `[0]` is the band at the arrow's
+   * point, and for a straight track it is the only one — see the frame loop.
+   */
+  const bandRefs = useRef<(HTMLDivElement | null)[]>([]);
+  /** Scratch for the band projection: the frame loop allocates nothing. */
+  const bandPoint = useRef(new Vector3());
+  /** The projected sleeve vertices, `x, y` interleaved — scratch, reused. */
+  const bandXY = useRef<number[]>([]);
   const projected = useRef({ a: new Vector3(), b: new Vector3() });
   const lastAnchor = useRef({ x: Number.NaN, y: Number.NaN });
   const [side, setSide] = useState<GaugeTagSide>(tagSide);
@@ -983,27 +991,76 @@ export function ParametricGauge({
         setScale(perPixel);
     }
 
-    const el = sleeveRef.current;
-    if (el !== null) {
-      if (length < SLEEVE_MIN_LENGTH_PX) {
-        // The track points at the eye: there is no direction to lay a band
-        // along, so there is no band. The grip is still a 24 px target and the
-        // screen-travel fallback still drives the value — which is exactly the
-        // case that fallback exists for.
-        el.style.display = "none";
-      } else {
-        // The drawn shaft's own width, projected: `spineRadius` world units
-        // scale by the same factor the shaft's length does, so this needs no
-        // second camera measurement and cannot disagree with the first. Both
-        // terms are the SPINE's — pairing the shaft's world radius with a
-        // seat-to-tip pixel span is the same unit mismatch as above, and it
-        // made the band 18 % wider than the rod it is meant to trace.
-        const drawn = (2 * spineRadius * trackPx) / Math.max(world, 1e-6);
-        const thickness = Math.max(SLEEVE_MIN_PX, drawn);
-        el.style.display = "block";
-        el.style.width = `${length}px`;
-        el.style.height = `${thickness}px`;
-        el.style.transform = `translateY(-50%) rotate(${Math.atan2(dy, dx)}rad)`;
+    // THE SLEEVE FOLLOWS THE DRAWN POLYLINE, VERTEX FOR VERTEX.
+    //
+    // One band per projected spine segment, walked back from the arrow's point
+    // to the seat. For a STRAIGHT track that is the single band this always
+    // laid — a two-point spine is one segment, anchored at the apex, spanning
+    // `length`, at `atan2(dy, dx)` — so extrude, fillet, shell and datum are
+    // untouched. For an ARC it is the whole difference between a target on the
+    // instrument and one across the space the sweep encloses: at radius 20 a
+    // 90-degree chord departs from its own arc by 5.86 world units, 29 % of the
+    // radius, and the chord band reached the drawn track at 1 of 16 sample
+    // points — WORSE than the 2 of 16 CRAFT-7 was raised to fix. The drawing
+    // became a polyline in CRAFT-7; the sleeve did not follow it until now.
+    //
+    // The walk starts at `head.tip` and then skips the LAST spine vertex,
+    // because that vertex IS `head.base` — both track builders seat the cone on
+    // the end of the spine — so the first band covers the arrowhead plus the
+    // final segment in one straight run, which is how the head is drawn anyway.
+    const bands = bandRefs.current;
+    const vertices = drawing.spine.length;
+    if (length < SLEEVE_MIN_LENGTH_PX || vertices < 2) {
+      // The track points at the eye: there is no direction to lay a band
+      // along, so there is no band. The grip is still a 24 px target and the
+      // screen-travel fallback still drives the value — which is exactly the
+      // case that fallback exists for.
+      for (const band of bands) if (band !== null) band.style.display = "none";
+    } else {
+      // The drawn shaft's own width, projected: `spineRadius` world units
+      // scale by the same factor the shaft's length does, so this needs no
+      // second camera measurement and cannot disagree with the first. Both
+      // terms are the SPINE's — pairing the shaft's world radius with a
+      // seat-to-tip pixel span is the same unit mismatch as above, and it
+      // made the band 18 % wider than the rod it is meant to trace.
+      const drawn = (2 * spineRadius * trackPx) / Math.max(world, 1e-6);
+      const thickness = Math.max(SLEEVE_MIN_PX, drawn);
+      const xy = bandXY.current;
+      for (let i = 0; i < vertices; i += 1) {
+        const v = (
+          i === 0 ? drawing.head.tip : drawing.spine[vertices - 1 - i]
+        ) as Vec3;
+        const q = bandPoint.current.set(v[0], v[1], v[2]).project(camera);
+        xy[2 * i] = ((q.x + 1) / 2) * size.width;
+        xy[2 * i + 1] = ((1 - q.y) / 2) * size.height;
+      }
+      for (let i = 0; i + 1 < vertices; i += 1) {
+        const band = bands[i];
+        if (band === null || band === undefined) continue;
+        const px = xy[2 * i] as number;
+        const py = xy[2 * i + 1] as number;
+        const sx = (xy[2 * i + 2] as number) - px;
+        const sy = (xy[2 * i + 3] as number) - py;
+        const span = Math.sqrt(sx * sx + sy * sy);
+        if (span < 1) {
+          // A segment the camera has collapsed to a point. Its neighbours still
+          // carry the track, so this is a sub-pixel gap, not a hole.
+          band.style.display = "none";
+          continue;
+        }
+        band.style.display = "block";
+        band.style.width = `${span}px`;
+        band.style.height = `${thickness}px`;
+        band.style.transform =
+          `translate(${px - bx}px, ${py - by}px) translateY(-50%) ` +
+          `rotate(${Math.atan2(sy, sx)}rad)`;
+      }
+      // The spine re-tessellates as the sweep changes, so a shorter drawing can
+      // leave bands from a longer one mounted. An element still holding last
+      // frame's box would be a hit target where nothing is drawn.
+      for (let i = vertices - 1; i < bands.length; i += 1) {
+        const band = bands[i];
+        if (band !== null && band !== undefined) band.style.display = "none";
       }
     }
 
@@ -1110,39 +1167,64 @@ export function ParametricGauge({
         renderOrder={13}
       />
       {/* THE HIT SLEEVE. Anchored at the apex — the same point as the grip —
-          and laid back down the projected track, so the band the pointer can
-          take is exactly the arrow the eye can see. It carries no name, no role
-          and no tab stop: it is a second route to the grip, not a second
-          control, and announcing it twice to a screen reader would be a lie
-          about how many things are here. */}
+          and laid back down the projected track ONE SEGMENT AT A TIME, so the
+          band the pointer can take is exactly the arrow the eye can see, arc
+          and all. It carries no name, no role and no tab stop: it is a second
+          route to the grip, not a second control, and announcing it twice to a
+          screen reader would be a lie about how many things are here — which is
+          as true of twenty-four bands as it was of one. */}
       <Html
         position={apex}
         zIndexRange={SLEEVE_Z_RANGE}
         style={{ pointerEvents: "none" }}
       >
-        <div
-          ref={sleeveRef}
-          aria-hidden
-          tabIndex={-1}
-          data-gauge={gaugeId}
-          data-testid={`${gaugeId}-sleeve`}
-          className={`pointer-events-auto absolute left-0 top-0 touch-none select-none ${
-            grabbed ? "cursor-grabbing" : "cursor-grab"
-          }`}
-          /* Inline, not a Tailwind utility: this theme's scales are CLOSED and
-             an unknown class emits no rule at all — a defect this repo has
-             already measured as a control with zero width. The frame loop
-             writes `transform` on this same node, so the origin belongs beside
-             it either way. `display: none` until the first frame has measured
-             the projection, so a zero-length band is never briefly hittable. */
-          style={{ transformOrigin: "0 50%", display: "none" }}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-          onPointerEnter={armLadder}
-          onPointerLeave={disarmLadder}
-        />
+        {/* HOVER IS THE WRAPPER'S, not each band's. React dispatches
+            enter/leave along the ancestor path, so crossing a seam between two
+            bands fires nothing here while arriving from outside and leaving the
+            sleeve entirely each fire exactly once. Per-band handlers would
+            disarm and re-arm the ladder at every seam, which on a 24-segment
+            arc is a ladder that strobes as the pointer slides along it. The
+            wrapper is not itself a target: `pointer-events` is inherited, the
+            `Html` above turns it off, and only the bands turn it back on. */}
+        <div onPointerEnter={armLadder} onPointerLeave={disarmLadder}>
+          {Array.from({ length: Math.max(1, drawing.spine.length - 1) }).map(
+            (_, i) => (
+              <div
+                // The bands are positional by construction — band `i` is the
+                // i-th segment back from the point — and the list only changes
+                // length when the tessellation does.
+                key={i}
+                ref={(node) => {
+                  bandRefs.current[i] = node;
+                }}
+                aria-hidden
+                tabIndex={-1}
+                data-gauge={gaugeId}
+                /* `[0]` keeps the un-suffixed id: on a straight track it is the
+                   ONLY band, and it is the one every existing gauge spec counts
+                   and the one the grip's own segment always is. */
+                data-testid={
+                  i === 0 ? `${gaugeId}-sleeve` : `${gaugeId}-sleeve-${i}`
+                }
+                className={`pointer-events-auto absolute left-0 top-0 touch-none select-none ${
+                  grabbed ? "cursor-grabbing" : "cursor-grab"
+                }`}
+                /* Inline, not a Tailwind utility: this theme's scales are
+                   CLOSED and an unknown class emits no rule at all — a defect
+                   this repo has already measured as a control with zero width.
+                   The frame loop writes `transform` on this same node, so the
+                   origin belongs beside it either way. `display: none` until
+                   the first frame has measured the projection, so a zero-length
+                   band is never briefly hittable. */
+                style={{ transformOrigin: "0 50%", display: "none" }}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+              />
+            ),
+          )}
+        </div>
       </Html>
       <Html position={apex} center zIndexRange={GRIP_Z_RANGE}>
         <AxisGrip

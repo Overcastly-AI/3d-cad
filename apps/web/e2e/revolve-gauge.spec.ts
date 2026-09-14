@@ -488,50 +488,28 @@ test.describe("CRAFT-10 — the revolve sweep gauge", () => {
   });
 
   /**
-   * KNOWN GAP, MEASURED, AND THE FIX IS NOT IN THIS ITEM'S TERRITORY.
+   * THE SLEEVE FOLLOWS THE ARC, NOT ITS CHORD — and this case used to be a
+   * `test.fail()` saying it did not.
    *
-   * `<ParametricGauge>`'s hit sleeve is ONE straight DOM band laid from the
-   * arrowhead's apex back to `spine[0]` — i.e. along the CHORD. That is exact
-   * for a straight track, whose spine is two points and whose chord is itself,
-   * and it is wrong for an arc by the same quantity the shell's own chord
-   * defect was wrong by: at radius 20 a 90-degree chord departs from its arc by
-   * 5.86 world units, 29 % of the radius.
+   * CRAFT-10 measured the gap and wrote the fix without committing it, the file
+   * being another item's territory at the time: `<ParametricGauge>` laid ONE
+   * straight DOM band from the arrowhead's apex back to `spine[0]`, which is
+   * exact for a straight track — a two-point spine's chord is itself — and
+   * wrong for an arc by the quantity the shell's own chord defect was wrong by,
+   * 5.86 world units at radius 20 over a 90-degree sweep, 29 % of the radius.
+   * A census along the DRAWN track found the shipped band under 1 of 16 sample
+   * points: worse than the 2 of 16 CRAFT-7 was raised to fix, because a chord
+   * across a wide sweep leaves the arc almost everywhere.
    *
-   * MEASURED HERE, on the running app, at a 120-degree sweep in iso:
-   *
-   *     chord sleeve (shipped)     reach  1/16
-   *     polyline sleeve (proposed) reach 16/16
-   *
-   * 1 of 16 is WORSE than the 2 of 16 that CRAFT-7 was raised to fix on the
-   * extrude gauge, because a chord across a wide sweep leaves the arc almost
-   * everywhere. The grip still works — the drag case above is green and drives
-   * the value, the field and the preview — so the instrument is usable; what is
-   * missing is the band along the drawn arc that makes it grabbable where it
-   * invites you to grab it.
-   *
-   * The fix is ~30 lines in `ParametricGauge.tsx`: lay one band per projected
-   * spine segment instead of one across the ends. It was written, applied, and
-   * measured for this report, and it left the extrude gauge untouched —
-   * `extrude-grip-reach` still 16/16 and all 12 extrude cases green — because a
-   * two-point spine yields exactly one band, which is what it lays today. That
-   * file is CRAFT-7/8's for the whole wave, so the patch is escalated rather
-   * than committed here.
-   *
-   * `test.fail()` rather than a lowered floor: a lowered floor would bless the
-   * defect and go quiet. THIS ANNOTATION RETIRES ITSELF — when the sleeve
-   * follows the polyline, this case passes, Playwright reports it as an
-   * unexpected pass, and whoever lands the fix deletes these lines.
+   * The annotation retired itself exactly as it promised: the sleeve is now one
+   * band per projected spine segment, this case passes, and the modifier — which
+   * Playwright would now report as an unexpected pass, i.e. a red shard — is
+   * gone with the defect. The floor stands where it always did; it was never
+   * lowered to bless the gap.
    */
   test("the drawn arc can be grabbed along its length, not only at its point", async ({
     page,
   }) => {
-    // Annotated IN THE BODY, not on the describe: the modifier is scoped to this
-    // one case, and a describe-level `test.fail` would quietly mark every case
-    // after it as expected-to-fail.
-    test.fail(
-      true,
-      "the hit sleeve follows the chord, not the arc — ParametricGauge, escalated",
-    );
     const account = await seedSession(page);
     const part = await createPartViaApi(page, account.token, "Washer");
     await installSceneProbe(page);
