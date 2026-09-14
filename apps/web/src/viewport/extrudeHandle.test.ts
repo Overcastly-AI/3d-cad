@@ -465,7 +465,11 @@ describe("extrudeTrack — the options actually handed to the gauge", () => {
     // lives in rather than on an arbitrary derived frame. On XY that is scene
     // +X and scene -Z; a cross with any Y component is being drawn on the
     // wrong frame.
-    const stops = track.stops(40, 1);
+    // A REAL camera scale. `1` means one world unit per pixel, at which a 40 mm
+    // shaft is 40 px long and CRAFT-7's screen floor correctly refuses to rule
+    // it — so the old literal would now measure an empty ladder and pass every
+    // assertion vacuously.
+    const stops = track.stops(40, 0.1);
     const { rungs } = track.draw(40, stops);
     expect(rungs.length).toBeGreaterThan(0);
     for (const [from, to] of rungs) {
@@ -474,9 +478,19 @@ describe("extrudeTrack — the options actually handed to the gauge", () => {
   });
 
   it("sizes its arrowhead from the PROFILE, so it holds still while you drag", () => {
-    const short = track.draw(5, NO_STOPS);
+    // TWO HALVES SINCE CRAFT-7, and the second bounds the first. The head is
+    // still sized from the SEAT, so it does not grow under the cursor through
+    // the range a modeller actually drags — but it may never exceed 45 % of the
+    // shaft it terminates, because a 66 mm profile extruded 5 mm used to draw a
+    // 16.5 mm cone on a 5 mm stub and stopped reading as an arrow at all.
     const long = track.draw(400, NO_STOPS);
-    expect(long.head.length).toBeCloseTo(short.head.length, 9);
-    expect(short.head.length).toBeCloseTo(arrowLength(AXIS.radius), 9);
+    const mid = track.draw(40, NO_STOPS);
+    expect(long.head.length).toBeCloseTo(mid.head.length, 9);
+    expect(long.head.length).toBeCloseTo(arrowLength(AXIS.radius), 9);
+
+    // Below the threshold the SHAFT wins, which is the clamp doing its job.
+    const short = track.draw(5, NO_STOPS);
+    expect(short.head.length).toBeLessThan(long.head.length);
+    expect(short.head.length / 5).toBeLessThanOrEqual(0.45 + 1e-9);
   });
 });

@@ -24,7 +24,9 @@ import {
   holdAsks,
   ladderStops,
   LADDER_MAX,
+  LADDER_MIN_PITCH_PX,
   linearTrack,
+  MAX_RUNGS,
   NO_STOPS,
   nudgeIntent,
   orthographicUnitsPerPixel,
@@ -40,6 +42,7 @@ import {
   steppedValue,
   type AskQueue,
   type GaugeSeat,
+  type GaugeStops,
   type Vec3,
 } from "./gauge";
 
@@ -211,15 +214,27 @@ describe("nudgeIntent — which keys are the gauge's, and how coarse", () => {
 });
 
 describe("ladderStops — the signature graduation", () => {
-  it("never draws more than the ceiling, at any scale", () => {
+  /** Every graduation drawn, whatever its weight. */
+  const rungs = (stops: GaugeStops): number =>
+    stops.major.length + stops.minor.length;
+
+  it("never draws more MAJOR marks than the ceiling, at any scale", () => {
     for (const span of [0.4, 3, 10, 47, 128, 999, 4321]) {
       expect(ladderStops(span).major.length).toBeLessThanOrEqual(LADDER_MAX);
     }
   });
 
+  it("stays bounded even when the camera invites an endless rule", () => {
+    // The screen floor stops a ladder becoming crosshatch; this stops a very
+    // close camera on a very long feature turning the shaft into a hairbrush.
+    for (const span of [0.4, 3, 10, 47, 128, 999, 4321]) {
+      expect(rungs(ladderStops(span, 1e6))).toBeLessThanOrEqual(MAX_RUNGS);
+    }
+  });
+
   it("keeps a readable ladder at every scale — five or more, five decades", () => {
     for (const span of [3, 30, 300, 3000, 30_000]) {
-      expect(ladderStops(span).major.length).toBeGreaterThanOrEqual(5);
+      expect(rungs(ladderStops(span))).toBeGreaterThanOrEqual(5);
     }
   });
 
@@ -232,14 +247,111 @@ describe("ladderStops — the signature graduation", () => {
   });
 
   it("draws neither the seat nor a rung under the grip", () => {
-    const { major, pitch } = ladderStops(40);
-    expect(major).not.toContain(0);
-    expect(Math.max(...major)).toBeLessThan(40 - pitch * 0.5);
+    const { major, minor, pitch } = ladderStops(40);
+    expect([...major, ...minor]).not.toContain(0);
+    expect(Math.max(...major, ...minor)).toBeLessThan(40 - pitch * 0.5);
   });
 
   it("has nothing to draw for a zero or negative span", () => {
     expect(ladderStops(0)).toEqual(NO_STOPS);
     expect(ladderStops(-5)).toEqual(NO_STOPS);
+  });
+
+  // --- CRAFT-7: the rungs are the stops -------------------------------------
+
+  it("puts every major on a round number and every minor between them", () => {
+    // 40 mm takes a 5 mm pitch with no camera information, so the decade marks
+    // are major and the halves between them are minor — which is how a rule is
+    // engraved, and the answer to "which of these crosses matters".
+    const { major, minor, pitch } = ladderStops(40);
+    expect(pitch).toBeCloseTo(5, 9);
+    expect(major).toEqual([10, 20, 30]);
+    expect(minor).toEqual([5, 15, 25, 35]);
+    // Lean in and the SAME 40 mm subdivides to 1 mm — and the majors do not
+    // move. That is the property that matters under the pointer: the marks you
+    // were reading stay where they were and finer ones appear between them.
+    const close = ladderStops(40, 20);
+    expect(close.pitch).toBeCloseTo(1, 9);
+    expect(close.major).toEqual(major);
+    expect(close.minor).toContain(1);
+    expect(close.minor).toContain(5);
+  });
+
+  it("every major is a decade multiple, five decades of span", () => {
+    for (const span of [0.9, 9, 90, 900, 9000]) {
+      for (const px of [Infinity, 40, 8, 2]) {
+        const { major, minor, pitch } = ladderStops(span, px);
+        if (major.length === 0) continue;
+        // Every minor nests inside the major grid: the major step is a whole
+        // multiple of the drawn pitch, so no two marks ever land a hair apart.
+        const majorStep =
+          major.length > 1
+            ? (major[1] as number) - (major[0] as number)
+            : (major[0] as number);
+        const ratio = majorStep / pitch;
+        expect(Math.abs(ratio - Math.round(ratio))).toBeLessThan(1e-6);
+        expect(Math.round(ratio)).toBeLessThanOrEqual(10);
+        for (const at of minor) {
+          const n = at / majorStep;
+          expect(Math.abs(n - Math.round(n))).toBeGreaterThan(1e-9);
+        }
+      }
+    }
+  });
+
+  it("COARSENS until a graduation is 14 px apart — the snap follows the zoom", () => {
+    // Same 40 mm value, three cameras. This is the whole of "snap at what
+    // zoom": the ladder the user can see and the grid the drag obeys are one
+    // thing, so a distant camera cannot offer a precision the screen cannot
+    // show. A constant snap (what shipped before) would read 0.5 in all three.
+    expect(ladderStops(40, 20).pitch).toBeCloseTo(1, 9); // 1 mm = 20 px
+    expect(ladderStops(40, 4).pitch).toBeCloseTo(5, 9); // 1 mm would be 4 px
+    // …and far enough away there is no legible ladder at all: the whole 40 mm
+    // shaft is 16 px long, so the instrument is an arrow and says so.
+    expect(ladderStops(40, 0.4)).toEqual(NO_STOPS);
+  });
+
+  it("keeps coarsening past one decade, however far away the camera is", () => {
+    // The old fixed [1,2,5,10] walk could not reach here: the COUNT ceiling is
+    // satisfied within one decade by construction, the SCREEN floor is not.
+    // 4000 starts its search at a 100 decade; the screen floor pushes it past
+    // 500 into the next one entirely.
+    const { pitch, major } = ladderStops(4000, 0.02);
+    expect(pitch).toBeCloseTo(1000, 9);
+    expect(pitch * 0.02).toBeGreaterThanOrEqual(LADDER_MIN_PITCH_PX);
+    expect(major).toEqual([1000, 2000, 3000]);
+  });
+
+  it("subdivides three series members as the camera closes in", () => {
+    // §3.2 promises "5 -> 2 -> 1 -> 0.5" on one span; the achievable sequence
+    // on a 40 mm depth is 5 -> 1 -> 0.5, and the missing rung is not an
+    // omission. A minor must DIVIDE its major or the two would land a hair
+    // apart, and 2 does not divide 5 — while a 2 mm MAJOR on 40 mm would be
+    // twenty majors, past the ceiling. The nesting rule and the count ceiling
+    // between them delete that member of the series; a ladder that rearranged
+    // its majors as you leaned in would be worse than a missing subdivision.
+    expect(ladderStops(40, 4).pitch).toBeCloseTo(5, 9);
+    expect(ladderStops(40, 16).pitch).toBeCloseTo(1, 9);
+    expect(ladderStops(40, 40).pitch).toBeCloseTo(0.5, 9);
+    // A 20 mm span DOES take a 2 mm major, and subdivides through it.
+    expect(ladderStops(20, 8).pitch).toBeCloseTo(2, 9);
+    expect(ladderStops(20, 20).pitch).toBeCloseTo(1, 9);
+  });
+
+  it("draws an all-minor ladder at full weight rather than in faint stubs", () => {
+    // A 5 mm span ruled at 1 mm reaches 4, and no decade mark is in range, so
+    // the major/minor rule would render four faint stubs and nothing to
+    // measure against. There is nothing to distinguish, so nothing is demoted.
+    const { major, minor } = ladderStops(5, 20);
+    expect(minor).toEqual([]);
+    expect(major).toEqual([1, 2, 3, 4]);
+  });
+
+  it("refuses to draw a ladder of fewer than three marks", () => {
+    // Two marks are not a scale. The arrow alone is the honest form here, and
+    // the drag falls back to the track's own snap rather than to a stop the
+    // user cannot see.
+    expect(ladderStops(40, 0.06)).toEqual(NO_STOPS);
   });
 });
 
@@ -257,6 +369,72 @@ describe("proportion — sized from the seat, never from the value", () => {
   it("gives a hairline profile a rung you can still see", () => {
     expect(rungHalfWidth(0)).toBe(2);
     expect(rungHalfWidth(100)).toBeCloseTo(18, 9);
+  });
+
+  // --- CRAFT-7 §2.2: the two clamps, across five decades of each input -------
+
+  it("the head is never more than 45% of the shaft it terminates", () => {
+    // MEASURED before the clamp: a 66 mm-radius profile extruded 5 mm drew a
+    // 16.5 mm head on a 5 mm shaft — 330%, a cone on a stub. A CONSTANT would
+    // assert itself here; the grid is what makes this a measurement, because
+    // the defect lived at one corner of it (big seat, short shaft) and nowhere
+    // else.
+    const worst: { ratio: number; radius: number; shaft: number }[] = [];
+    for (const radius of [0.5, 5, 50, 500, 5000]) {
+      for (const shaft of [0.1, 1, 10, 100, 1000]) {
+        const head = arrowLength(radius, shaft);
+        worst.push({ ratio: head / shaft, radius, shaft });
+      }
+    }
+    for (const w of worst) {
+      expect(
+        w.ratio,
+        `radius ${w.radius}, shaft ${w.shaft} gave ${w.ratio}`,
+      ).toBeLessThanOrEqual(0.45 + 1e-9);
+    }
+    // …and it is still SIZED FROM THE SEAT wherever the shaft leaves room, so
+    // the clamp did not quietly replace the rule it bounds.
+    expect(arrowLength(40, 1000)).toBeCloseTo(10, 9);
+    expect(arrowLength(20, 1000)).toBeCloseTo(5, 9);
+  });
+
+  it("a graduation is never wider than 0.8 of its own pitch", () => {
+    // The §1.5 table was a column of ratios up to 1.8 — crosses wider than the
+    // gap between them, which reads as a woven band rather than as a scale.
+    for (const radius of [0.5, 5, 50, 500, 5000]) {
+      for (const pitch of [0.05, 0.5, 5, 50, 500]) {
+        const width = 2 * rungHalfWidth(radius, pitch);
+        expect(
+          width / pitch,
+          `radius ${radius}, pitch ${pitch} gave ${width / pitch}`,
+        ).toBeLessThanOrEqual(0.8 + 1e-9);
+      }
+    }
+    // …and the seat still drives it where the pitch leaves room.
+    expect(rungHalfWidth(100, 1000)).toBeCloseTo(18, 9);
+    expect(rungHalfWidth(0, 1000)).toBe(2);
+  });
+
+  it("the drawn instrument obeys both clamps at once, five decades of depth", () => {
+    // Through the SHIPPED seam rather than the helpers: a clamp that is correct
+    // in `arrowLength` and unwired in `draw` is the gap this asserts across.
+    for (const depth of [0.5, 5, 50, 500, 5000]) {
+      const track = mm();
+      const stops = track.stops(depth, 0.05);
+      const drawn = track.draw(depth, stops);
+      expect(
+        drawn.head.length / depth,
+        `depth ${depth}: head ${drawn.head.length}`,
+      ).toBeLessThanOrEqual(0.45 + 1e-9);
+      if (stops.pitch > 0) {
+        const [a, b] = drawn.rungs[0] as readonly [Vec3, Vec3];
+        const width = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+        expect(
+          width / stops.pitch,
+          `depth ${depth}: width ${width} pitch ${stops.pitch}`,
+        ).toBeLessThanOrEqual(0.8 + 1e-9);
+      }
+    }
   });
 
   it("derives two arms perpendicular to the track, at any orientation", () => {

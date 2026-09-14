@@ -34,13 +34,22 @@ export function DimensionTag({
   unit,
   className,
   children,
+  ref,
   ...rest
 }: HTMLAttributes<HTMLDivElement> & {
   /** Unit written once, at the end of the strip — e.g. "mm". */
   unit?: string;
+  /**
+   * The strip's own box. Exposed because a caller that PLACES the strip has to
+   * measure it first — `placeGaugeTag` cannot choose which side of the grip the
+   * tag goes on without knowing how wide it is, and a guessed width gets the
+   * answer wrong for exactly the long numbers where the flip matters.
+   */
+  ref?: Ref<HTMLDivElement>;
 }) {
   return (
     <div
+      ref={ref}
       className={cx(
         "flex items-stretch divide-x divide-hairline border border-hairline bg-anvil",
         className,

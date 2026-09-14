@@ -149,13 +149,24 @@ export interface TrackDrawing {
   /** The arrowhead terminating the spine: its base ring, its point, its size. */
   head: { base: Vec3; tip: Vec3; length: number; radius: number };
   /**
-   * Graduation strokes, as pairs of world points. A graduation is a CROSS (two
-   * strokes) rather than a single rung: a rung lies along one in-plane axis, so
-   * from a three-quarter view it projects as a skewed dash that reads as debris
-   * rather than a scale. Two arms always project to something centred on the
-   * spine, from any camera.
+   * MAJOR graduation strokes, as pairs of world points. A graduation is a CROSS
+   * (two strokes) rather than a single rung: a rung lies along one in-plane
+   * axis, so from a three-quarter view it projects as a skewed dash that reads
+   * as debris rather than a scale. Two arms always project to something centred
+   * on the spine, from any camera.
    */
   rungs: readonly (readonly [Vec3, Vec3])[];
+  /**
+   * MINOR graduation strokes, drawn shorter and fainter than {@link rungs}.
+   *
+   * A separate field rather than a flag on each stroke because the shell draws
+   * them as two line layers with two opacities — one `Segments` per weight is
+   * one draw call per weight, and a per-stroke weight would need a vertex
+   * attribute and a custom material to express. It is the drafting convention:
+   * without it a ladder is nine identical crosses and none of them says which
+   * one is the round number.
+   */
+  minorRungs: readonly (readonly [Vec3, Vec3])[];
 }
 
 /**
@@ -180,8 +191,15 @@ export interface GaugeTrack {
   stops(value: number, unitsPerPixel: number): GaugeStops;
   /** Clamp into the range the owning form can actually submit. */
   clamp(value: number): number;
-  /** Quantise a DRAGGED value: snapped unless `free` (Ctrl/Cmd), then clamped. */
-  quantize(value: number, free: boolean): number;
+  /**
+   * Quantise a DRAGGED value: snapped unless `free` (Ctrl/Cmd), then clamped.
+   *
+   * `stops` is the ladder currently on screen, because **the drawn rungs ARE
+   * the stops** (§3.1). Passing it is what unifies the scale you can see with
+   * the one the drag obeys; omit it and the track falls back to its own
+   * configured snap, which is the honest answer when no ladder is drawn.
+   */
+  quantize(value: number, free: boolean, stops?: GaugeStops): number;
   /** Spoken and displayed form — `unitSuffix: false` for the bare tag cell. */
   format(value: number, opts?: { unitSuffix?: boolean }): string;
   /** One fine key press, in track units. */
@@ -528,8 +546,58 @@ export function nudgeIntent(
 
 // --- THE LADDER --------------------------------------------------------------
 
-/** Most graduations a ladder is allowed to show. */
+/**
+ * Most graduations a ladder is allowed to show before CRAFT-7's screen floor
+ * existed — kept as the no-camera default and as the shape of the old ladder.
+ *
+ * It cannot be the cap any more. A total cap and a zoom-aware ladder are
+ * incompatible: a 40 mm span can never carry twelve-or-fewer 1 mm rungs, so the
+ * pitch would be pinned at `span / 12` at every magnification and "zoom in and
+ * it subdivides" — the whole of §3.2 — could not happen. The screen floor does
+ * the legibility work now, and {@link MAX_RUNGS} is the draw's own sanity bound.
+ */
 export const LADDER_MAX = 12;
+
+/**
+ * The hard ceiling on drawn graduations, whatever the camera says.
+ *
+ * The screen floor already stops a ladder becoming crosshatch; this stops a
+ * very close camera on a very long feature turning the shaft into a hairbrush,
+ * and it bounds the vertex buffer. A rule with eighty marks on it is a rule.
+ */
+export const MAX_RUNGS = 80;
+
+/**
+ * The smallest on-screen spacing two graduations may have, CSS pixels.
+ *
+ * 14 is the repo's own dense-target half (`target.dense = 24`) and, measured in
+ * the W3 captures, the smallest pitch at which two crosses read as two marks
+ * rather than as crosshatch. Below it the ladder coarsens — which is what makes
+ * the SNAP zoom-aware (§3.2), since the rungs and the stops are now one thing:
+ * zoom in and the ladder subdivides and the drag gets finer with it.
+ */
+export const LADDER_MIN_PITCH_PX = 14;
+
+/**
+ * Fewer rungs than this and there is no ladder at all.
+ *
+ * Two marks are not a scale — they are two marks, and drawing them costs the
+ * instrument its meaning while adding ink. The gauge falls back to a plain
+ * arrow, which is an honest statement that there is nothing to rule against at
+ * this zoom.
+ */
+export const LADDER_MIN_RUNGS = 3;
+
+/**
+ * The `k`-th member of the 1/2/5 decade series; `k = 0` is 1, and `k` may be
+ * negative. One function rather than a literal array because the ladder now
+ * walks the series in BOTH directions and past any fixed decade — up for the
+ * major step at a distant camera, down for the minor one at a close one.
+ */
+function seriesStep(k: number): number {
+  const decade = Math.pow(10, Math.floor(k / 3));
+  return decade * ([1, 2, 5][((k % 3) + 3) % 3] as number);
+}
 
 /**
  * THE SIGNATURE ELEMENT: the ladder's graduations, in track units from the seat.
@@ -546,22 +614,100 @@ export const LADDER_MAX = 12;
  * rule puts the floor at six in practice. Excludes the seat (the plane draws
  * itself) and any tick within half a step of the tip (it would collide with the
  * grip).
+ *
+ * ## THE RUNGS ARE THE STOPS (CRAFT-7, direction §3.1)
+ *
+ * They were two different ladders until this item. The rungs came from the
+ * decade series below; the drag snapped to a CONSTANT (`SNAP_MM = {mm: 0.5}`),
+ * so at the default 10 mm extrude the user saw rungs 1 mm apart while the drag
+ * stopped every 0.5 mm. **The scale you could see had nothing to do with what
+ * the drag did** — the decorative-chrome defect (mandate 3c) in the one element
+ * the roadmap calls the signature. `pitch` is now what a dragged value snaps
+ * to, so the instrument tells you what the snap will do BEFORE you drag.
+ *
+ * ## Why a SCREEN floor, and what it buys
+ *
+ * `pxPerValue` — screen pixels per one unit of VALUE — keeps every graduation
+ * at least {@link LADDER_MIN_PITCH_PX} apart, and it is what makes the snap
+ * zoom-aware: **zoom in and the ladder subdivides, 5 -> 2 -> 1 -> 0.5, and the
+ * drag gets finer with it; zoom out and it coarsens.** That is Fusion's and
+ * Plasticity's behaviour, and it is why their drags feel precise without a
+ * settings panel — precision is a function of how closely you are looking.
+ *
+ * It defaults to `Infinity` — no floor — so a caller that cannot measure the
+ * camera gets a purely value-driven ladder rather than none at all.
+ *
+ * ## Major and minor, and where the count ceiling now bites
+ *
+ * {@link LADDER_MAX} is no longer the cap when a camera is known — it could not
+ * be. A total cap and a zoom-aware ladder are incompatible: a 40 mm span can
+ * never carry twelve-or-fewer 1 mm rungs however close the camera is, so the
+ * pitch would be frozen at `span / 12` at every magnification and the screen
+ * floor could only ever coarsen it. {@link MAX_RUNGS} bounds the draw instead,
+ * so a 40 mm depth is ruled every 5 mm at arm's length and every 1 mm when you
+ * lean in — the same instrument at two magnifications, which is what a rule is.
+ *
+ * MAJORS FALL OUT OF THE PITCH rather than being chosen separately: a rung on
+ * the decade ABOVE the pitch is major, the rest are minor. Because the pitch is
+ * a 1/2/5 member, its decade is always a whole multiple of it, so the majors
+ * land on round numbers and the minors nest inside them — no ladder can ever
+ * draw a major and a minor a hair apart, and a subdivision never moves a mark
+ * the user was already reading.
  */
-export function ladderStops(span: number): GaugeStops {
+export function ladderStops(span: number, pxPerValue = Infinity): GaugeStops {
   if (!(span > 0)) return NO_STOPS;
-  const decade = Math.pow(10, Math.floor(Math.log10(span / LADDER_MAX)));
-  let step = decade;
-  // The last factor always satisfies the ceiling (10*decade >= span/12 by
-  // construction), so this loop is total — no fallback branch is reachable.
-  for (const factor of [1, 2, 5, 10]) {
-    step = decade * factor;
-    if (span / step <= LADDER_MAX) break;
+
+  // THE PITCH — the finest drawn graduation, and therefore the snap.
+  //
+  // ONE walk, not two. The finest member of the 1/2/5 series that the screen
+  // can carry and the draw can afford; the majors then fall out of it, because
+  // a decade multiple of a 1/2/5 step is always a member of the same lattice.
+  // Choosing the major first and subdividing it afterwards — which this did for
+  // one draft — cannot reach the finer half of the series at all: a 40 mm span
+  // takes a 5 mm major, 2 does not divide 5, and the ladder is then pinned at
+  // 5 mm however close the camera gets.
+  //
+  // A caller with NO camera information keeps the OLD, conservative count
+  // ceiling: `Infinity` means "no floor", and running the fine end of the
+  // series with no floor would draw eighty graduations on faith — a ladder it
+  // has no evidence anyone can see, which is the decorative-chrome defect this
+  // item exists to remove.
+  const cap = Number.isFinite(pxPerValue) ? MAX_RUNGS : LADDER_MAX;
+  const from = 3 * Math.floor(Math.log10(span / cap));
+  let pitch = 0;
+  for (let i = 0; i < 90; i += 1) {
+    const step = seriesStep(from + i);
+    if (span / step <= cap && step * pxPerValue >= LADDER_MIN_PITCH_PX) {
+      pitch = step;
+      break;
+    }
   }
+  if (pitch <= 0) return NO_STOPS;
+
+  // The decade ABOVE the pitch, so a major always lands on a round number and
+  // the minors between two majors number 2, 5 or 10 — the drafting grouping,
+  // and the answer to "which of these identical crosses matters".
+  const majorStep = Math.pow(10, Math.floor(Math.log10(pitch)) + 1);
   const major: number[] = [];
-  for (let at = step; at < span - step * 0.5; at += step) {
-    major.push(Math.round(at * 1e6) / 1e6);
+  const minor: number[] = [];
+  // Excludes the seat (the plane draws itself) and the half-pitch under the
+  // arrowhead's base. Every rung inside the band is a stop and every stop is
+  // drawn, which is the property that makes the ladder honest.
+  for (let at = pitch; at < span - pitch * 0.5; at += pitch) {
+    const rounded = Math.round(at * 1e6) / 1e6;
+    const count = rounded / majorStep;
+    const onMajor = Math.abs(count - Math.round(count)) < 1e-9;
+    (onMajor ? major : minor).push(rounded);
   }
-  return { major, minor: [], pitch: step };
+  // Two marks are not a scale. Refuse rather than draw a ladder that cannot be
+  // read — the arrow alone is the honest form at this zoom.
+  if (major.length + minor.length < LADDER_MIN_RUNGS) return NO_STOPS;
+  // A span too short to contain a round number — a 5 mm extrude ruled at 1 mm
+  // reaches 4 and no major is in range. There is then nothing to distinguish,
+  // and a ladder drawn ENTIRELY in the minor weight is four faint stubs, i.e.
+  // strictly worse than an unweighted one. Promote.
+  if (major.length === 0) return { major: minor, minor: [], pitch };
+  return { major, minor, pitch };
 }
 
 // --- SEAT AND PROPORTION -----------------------------------------------------
@@ -609,18 +755,65 @@ export const LADDER_HALF_WIDTH_FRAC = 0.18;
 export const LADDER_MIN_HALF_WIDTH = 2;
 
 /**
+ * Rung half-width as a fraction of the ladder's own pitch — the ceiling that
+ * keeps width/pitch at 0.8 or below, so two graduations always read as two.
+ */
+export const LADDER_PITCH_HALF_WIDTH_FRAC = 0.4;
+
+/**
+ * The head may never be more than this fraction of the shaft it terminates.
+ *
+ * MEASURED before the clamp existed: a 66 mm-radius profile extruded 5 mm drew
+ * a 16.5 mm head on a 5 mm shaft — a cone on a stub, and the arrow no longer
+ * read as an arrow at all. The two lengths came from two unrelated quantities
+ * (the seat's radius and the value), which is the whole defect; bounding one by
+ * the other is the fix.
+ */
+export const ARROW_SHAFT_FRAC = 0.45;
+
+/**
  * The arrow is sized from the SEAT, never from the value, so it holds still
  * while you drag — a manipulator that grows under the cursor reads as the model
  * moving. Clamped so a tiny profile still gets a grabbable arrow and a huge one
  * does not get a traffic cone.
+ *
+ * `shaft` BOUNDS it (CRAFT-7, direction §2.2). The size still comes from the
+ * seat — the arrow does not grow as you drag — but it may not exceed
+ * {@link ARROW_SHAFT_FRAC} of the drawn shaft, so the instrument always reads
+ * as *a rod with a point on it* rather than *a cone on a stub*. Omitted, there
+ * is no bound, which is the old behaviour and is what the delegating callers in
+ * `extrudeHandle.ts` still describe.
  */
-export function arrowLength(radius: number): number {
-  return Math.min(18, Math.max(2, radius * ARROW_LENGTH_FRAC));
+export function arrowLength(radius: number, shaft = Infinity): number {
+  const fromSeat = Math.min(18, Math.max(2, radius * ARROW_LENGTH_FRAC));
+  // The shaft bound WINS over the 2 mm floor, deliberately: the floor exists so
+  // a hairline PROFILE still gets a grabbable arrow, and a 0.1 mm extrude is
+  // not that case — there the arrow would be four hundred per cent of the thing
+  // it terminates. The DOM grip is 24 px at every size, so nothing becomes
+  // ungrabbable when the drawn head gets small.
+  return Math.min(fromSeat, Math.max(0, shaft) * ARROW_SHAFT_FRAC);
 }
 
-/** Half-width of one graduation arm, from the seat's own scale. */
-export function rungHalfWidth(radius: number): number {
-  return Math.max(LADDER_MIN_HALF_WIDTH, radius * LADDER_HALF_WIDTH_FRAC);
+/**
+ * Half-width of one graduation arm, from the seat's own scale — bounded by the
+ * ladder's own PITCH (CRAFT-7, direction §2.2).
+ *
+ * The same two-scales defect as the arrowhead, in the other direction. The
+ * width came from the seat's radius and the spacing from the value, so a wide
+ * profile ruled at a fine pitch drew crosses wider than the gap between them:
+ * measured 9 mm arms at a 5 mm pitch, a ratio of 1.8, which reads as a woven
+ * band rather than as graduations. Bounding the width by 0.4 x pitch puts
+ * width/pitch at 0.8 or below at every depth on every profile.
+ *
+ * The {@link LADDER_MIN_HALF_WIDTH} floor applies to the SEAT term only, for
+ * the same reason as above: it is there so a hairline profile still gets a
+ * visible rung, not so a fine pitch gets an illegible one.
+ */
+export function rungHalfWidth(radius: number, pitch = Infinity): number {
+  return Math.min(
+    Math.max(LADDER_MIN_HALF_WIDTH, radius * LADDER_HALF_WIDTH_FRAC),
+    Math.max(0, pitch) * LADDER_PITCH_HALF_WIDTH_FRAC,
+  );
 }
 
 /** Two unit directions across `dir`, for a track with no natural in-plane basis. */
@@ -634,24 +827,35 @@ export function crossArms(dir: Vec3): readonly [Vec3, Vec3] {
   return [u, normalize(cross(dir, u))];
 }
 
-/** The graduation strokes for a straight track ruled at `stops`. */
+/**
+ * The graduation strokes for a straight track ruled at `at`.
+ *
+ * `widthFrac` is what separates a minor from a major: 0.6, the drafting
+ * convention, applied to the length rather than only to the opacity so the
+ * distinction survives on a bright face where every hairline reads the same.
+ */
 function straightRungs(
   seat: GaugeSeat,
-  stops: GaugeStops,
+  at: readonly number[],
+  pitch: number,
   unitsPerValue: number,
+  widthFrac = 1,
 ): readonly (readonly [Vec3, Vec3])[] {
-  const half = rungHalfWidth(seat.radius);
+  const half = rungHalfWidth(seat.radius, pitch) * widthFrac;
   const [armU, armV] = seat.arms;
   const u = scale(normalize(armU), half);
   const v = scale(normalize(armV), half);
   const out: (readonly [Vec3, Vec3])[] = [];
-  for (const at of stops.major) {
-    const centre = addScaled(seat.base, seat.dir, at * unitsPerValue);
+  for (const value of at) {
+    const centre = addScaled(seat.base, seat.dir, value * unitsPerValue);
     out.push([sub(centre, u), add(centre, u)]);
     out.push([sub(centre, v), add(centre, v)]);
   }
   return out;
 }
+
+/** Minor graduations are drawn at this fraction of a major's length. */
+export const MINOR_RUNG_FRAC = 0.6;
 
 // --- THE TRACKS --------------------------------------------------------------
 
@@ -719,9 +923,16 @@ export function linearTrack(
     // readout at the tip means you are never guessing what you got.
     screenValueAt: (grabValue, _dxPx, dyPx, unitsPerPixel) =>
       screenValue(grabValue, dyPx, unitsPerPixel / unitsPerValue),
-    stops: (value) => ladderStops(value),
+    // `unitsPerPixel` is WORLD units per pixel; the ladder is chosen in VALUE
+    // units, so the conversion carries `unitsPerValue` — the two differ for a
+    // counting track and agree for a length.
+    stops: (value, unitsPerPixel) =>
+      ladderStops(
+        value,
+        unitsPerPixel > 0 ? unitsPerValue / unitsPerPixel : Infinity,
+      ),
     draw: (value, stops) => {
-      const headLength = arrowLength(seated.radius);
+      const headLength = arrowLength(seated.radius, value * unitsPerValue);
       const tip = addScaled(seated.base, dir, value * unitsPerValue);
       return {
         spine: [seated.base, tip],
@@ -732,11 +943,40 @@ export function linearTrack(
           length: headLength,
           radius: headLength * ARROW_RADIUS_FRAC,
         },
-        rungs: straightRungs(seated, stops, unitsPerValue),
+        // `pitch` arrives in VALUE units and the width is a WORLD length, so
+        // the conversion belongs here — for a counting track one count is
+        // `unitsPerValue` millimetres apart, and a width bounded by the raw
+        // count would be the unit confusion this clamp exists to remove.
+        rungs: straightRungs(
+          seated,
+          stops.major,
+          stops.pitch * unitsPerValue,
+          unitsPerValue,
+        ),
+        minorRungs: straightRungs(
+          seated,
+          stops.minor,
+          stops.pitch * unitsPerValue,
+          unitsPerValue,
+          MINOR_RUNG_FRAC,
+        ),
       };
     },
     clamp,
-    quantize: (value, free) => quantize(value, snap, free, min, max, precision),
+    // THE DRAWN RUNGS ARE THE STOPS. `stops.pitch` when there is a ladder, the
+    // configured `snap` when there is not — which is the rest state (no ladder
+    // is built until the grip is addressed) and the degenerate zoom where fewer
+    // than three rungs fit. A drag always arms the ladder first, so the value a
+    // pointer produces is always a rung the user can see.
+    quantize: (value, free, stops) =>
+      quantize(
+        value,
+        stops !== undefined && stops.pitch > 0 ? stops.pitch : snap,
+        free,
+        min,
+        max,
+        precision,
+      ),
     format,
     step: () => keyStep,
     coarseStep: () => keyStep * coarseFactor,
@@ -896,8 +1136,16 @@ export function angularTrack(
       // screen. A ladder whose rungs land on the same pixel is crosshatch.
       const arcPx = (deg: number): number =>
         unitsPerPixel > 0 ? ((deg / DEG) * radius) / unitsPerPixel : Infinity;
-      const majorStep = [15, 30, 45, 90].find((d) => arcPx(d) >= 14) ?? 90;
-      const minorStep = majorStep === 15 ? 5 : majorStep / 3;
+      const majorStep =
+        [15, 30, 45, 90].find((d) => arcPx(d) >= LADDER_MIN_PITCH_PX) ?? 90;
+      // The MINOR pitch must clear the screen floor too, or the snap lands on a
+      // rung nobody can see — the same defect in the smaller half.
+      const minorStep =
+        arcPx(majorStep === 15 ? 5 : majorStep / 3) >= LADDER_MIN_PITCH_PX
+          ? majorStep === 15
+            ? 5
+            : majorStep / 3
+          : majorStep;
       const major: number[] = [];
       const minor: number[] = [];
       for (let d = majorStep; d < value - majorStep * 0.5; d += majorStep) {
@@ -907,10 +1155,18 @@ export function angularTrack(
         const rounded = Math.round(d * 1e6) / 1e6;
         if (!major.includes(rounded)) minor.push(rounded);
       }
+      if (major.length + minor.length < LADDER_MIN_RUNGS) return NO_STOPS;
       return { major, minor, pitch: minorStep };
     },
     draw: (value, stops) => {
-      const headLength = arrowLength(seat.radius);
+      // Bounded by the ARC it terminates, not by the angle: the shaft's drawn
+      // length is `radius * angle`, and that is the quantity the head must stay
+      // a fraction of. An arrowhead sized against a NUMBER OF DEGREES would be
+      // a third unrelated scale, which is the defect §2.2 exists to end.
+      const headLength = arrowLength(
+        seat.radius,
+        (Math.abs(value) / DEG) * radius,
+      );
       const steps = Math.max(
         2,
         Math.ceil((Math.abs(value) / 360) * segmentsPerTurn),
@@ -920,20 +1176,27 @@ export function angularTrack(
       const tip = at(value);
       // The head points along the tangent at the sweep's end.
       const tangent = normalize(sub(at(value + 0.5), at(value - 0.5)));
-      const half = rungHalfWidth(seat.radius);
-      const rungs: (readonly [Vec3, Vec3])[] = [];
-      for (const deg of [...stops.major, ...stops.minor]) {
-        const out = normalize(sub(at(deg), seat.base));
-        const centre = at(deg);
-        rungs.push([
-          addScaled(centre, out, -half),
-          addScaled(centre, out, half),
-        ]);
-        rungs.push([
-          addScaled(centre, axis, -half),
-          addScaled(centre, axis, half),
-        ]);
-      }
+      const full = rungHalfWidth(seat.radius, (stops.pitch / DEG) * radius);
+      const cross = (
+        degrees: readonly number[],
+        widthFrac: number,
+      ): (readonly [Vec3, Vec3])[] => {
+        const half = full * widthFrac;
+        const out: (readonly [Vec3, Vec3])[] = [];
+        for (const deg of degrees) {
+          const radial = normalize(sub(at(deg), seat.base));
+          const centre = at(deg);
+          out.push([
+            addScaled(centre, radial, -half),
+            addScaled(centre, radial, half),
+          ]);
+          out.push([
+            addScaled(centre, axis, -half),
+            addScaled(centre, axis, half),
+          ]);
+        }
+        return out;
+      };
       return {
         spine,
         spineRadius: headLength * ARROW_RADIUS_FRAC * SHAFT_RADIUS_FRAC,
@@ -943,11 +1206,22 @@ export function angularTrack(
           length: headLength,
           radius: headLength * ARROW_RADIUS_FRAC,
         },
-        rungs,
+        rungs: cross(stops.major, 1),
+        minorRungs: cross(stops.minor, MINOR_RUNG_FRAC),
       };
     },
     clamp,
-    quantize: (value, free) => quantize(value, snap, free, min, max, 1e4),
+    // The angular ladder is already screen-floored in `stops`, so its pitch is
+    // a drawn rung exactly as the linear one is.
+    quantize: (value, free, stops) =>
+      quantize(
+        value,
+        stops !== undefined && stops.pitch > 0 ? stops.pitch : snap,
+        free,
+        min,
+        max,
+        1e4,
+      ),
     format,
     step: () => keyStep,
     coarseStep: () => keyStep * coarseFactor,

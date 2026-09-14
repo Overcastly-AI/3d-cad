@@ -1,4 +1,4 @@
-import type { HTMLAttributes } from "react";
+import type { HTMLAttributes, Ref } from "react";
 
 import { cx } from "../cx";
 import { color } from "../tokens";
@@ -90,6 +90,8 @@ export interface GaugeTagProps extends Omit<
    * from the wrong origin points confidently at nothing.
    */
   placement?: GaugeTagPlacement;
+  /** The STRIP's box — what `placeGaugeTag`'s caller measures to place it. */
+  ref?: Ref<HTMLDivElement>;
 }
 
 export function GaugeTag({
@@ -97,11 +99,13 @@ export function GaugeTag({
   cells,
   placement,
   className,
+  ref,
   ...rest
 }: GaugeTagProps) {
   const [primary, companion] = cells;
   const strip = (
     <DimensionTag
+      {...(ref !== undefined ? { ref } : {})}
       // Spread conditionally rather than `unit={unit}`: under
       // `exactOptionalPropertyTypes` an explicit `undefined` is not the same as
       // an absent property, and an angular gauge legitimately has no suffix

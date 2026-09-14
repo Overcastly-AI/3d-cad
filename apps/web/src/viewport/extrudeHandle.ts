@@ -413,7 +413,12 @@ export function nudgeDepth(
  * collide with the grip).
  */
 export function ladderTicks(depthMm: number): number[] {
-  return [...ladderStops(depthMm).major];
+  // EVERY graduation, whatever its weight. `ladderStops` split major from minor
+  // in CRAFT-7 so the ladder could be drawn to the drafting convention, and a
+  // delegate that reported only the majors would be quietly describing a
+  // shorter ladder than the one on screen.
+  const { major, minor } = ladderStops(depthMm);
+  return [...major, ...minor].sort((a, b) => a - b);
 }
 
 /** Most graduations a ladder is allowed to show. */
