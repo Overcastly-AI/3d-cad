@@ -20,6 +20,37 @@
  * must be a scene-frame one (`sceneOriginBasis` / `resolveSpecBasis` /
  * `faceBasis`); a kernel-frame basis puts the handle 90 degrees off the body it
  * is supposed to pull, which is FB-9 wearing a different hat.
+ *
+ * ## WHAT IS SHIPPED HERE AND WHAT IS ONLY TEST SURFACE — read before editing
+ *
+ * The gauge was extracted in CRAFT-8 and the arithmetic MOVED to
+ * `@loft/design`'s `gauge.ts`. The app now reaches it by ONE path:
+ *
+ *     handleAxis -> extrudeTrack -> linearTrack -> track.*
+ *
+ * and `ExtrudeDragHandle.tsx` — the only importer of this module outside its
+ * own test — takes exactly four names: {@link handleAxis},
+ * {@link extrudeTrack}, {@link MIN_DEPTH_MM}, {@link MAX_DEPTH_MM}.
+ *
+ * **Everything else exported here has no caller but the test file.**
+ * {@link tipPoint}, {@link depthAlongAxis}, {@link screenDragDepth},
+ * {@link quantizeDepth}, {@link clampDepth}, {@link nudgeDepth},
+ * {@link ladderTicks}, {@link arrowLength}, {@link sameDepth},
+ * {@link keyStepMm}, {@link perspectiveMmPerPixel} and
+ * {@link orthographicMmPerPixel} are thin delegations kept so the suite written
+ * before the move could stay untouched and witness that the move was faithful.
+ * That was their whole job and they have done it.
+ *
+ * Two consequences, because the first cost us a false claim already. (a) THOSE
+ * CASES DO NOT COVER THE SHIPPED SEAM: seven mutations to `extrudeTrack`'s
+ * options object all survived the 36 cases that were credited as this
+ * refactor's evidence, because none of them runs the constructor. The
+ * `extrudeTrack` block at the end of the test file is what covers the wiring;
+ * keep it in step with the options object, one case per option. (b) If a change
+ * in `gauge.ts` moves SHIPPED behaviour, these wrappers will happily keep
+ * describing the old one — a green suite about a function nobody calls. When
+ * that happens, delete the wrapper and its cases rather than "fixing" them, and
+ * make sure the behaviour it described is asserted through `extrudeTrack`.
  */
 import { Vector3 } from "three";
 

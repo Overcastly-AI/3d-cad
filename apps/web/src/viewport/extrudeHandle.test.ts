@@ -11,6 +11,7 @@
  * that only checks "the number moved" passes just as happily on a handle that
  * moves the number by the wrong amount.
  */
+import { NO_STOPS } from "@loft/design";
 import { describe, expect, it } from "vitest";
 import { Vector3 } from "three";
 
@@ -18,8 +19,12 @@ import { sceneOriginBasis } from "../sketch/plane";
 import {
   arrowLength,
   clampDepth,
+  COARSE_STEP_FACTOR,
   depthAlongAxis,
+  DEPTH_EPSILON_MM,
+  extrudeTrack,
   handleAxis,
+  keyStepMm,
   LADDER_MAX,
   ladderTicks,
   MAX_DEPTH_MM,
@@ -356,5 +361,122 @@ describe("arrowLength — sized from the profile, never from the depth", () => {
   it("stays grabbable on a tiny profile and sane on a huge one", () => {
     expect(arrowLength(0)).toBeGreaterThanOrEqual(2);
     expect(arrowLength(5000)).toBeLessThanOrEqual(18);
+  });
+});
+
+/**
+ * `extrudeTrack` — THE SHIPPED SEAM, and until now the one thing in this file
+ * with no case behind it.
+ *
+ * Everything above tests a function the app no longer calls. The live path is
+ * `handleAxis -> extrudeTrack -> linearTrack -> track.*`, so the arithmetic is
+ * `@loft/design`'s and what is left HERE is a wiring decision per option —
+ * which snap, which key step, which floor, which formatter, which way the arrow
+ * points. That is exactly the class of mistake an arithmetic suite cannot see:
+ * seven mutations to this options object (snap x3, min 0.1 -> 25, keyStep -> 7,
+ * coarseFactor 10 -> 1, epsilon 1e-4 -> 5, a nonsense formatter, and `dir`
+ * swapped for `base`) ALL SURVIVED the 36 cases above, because none of them
+ * runs the constructor.
+ *
+ * So these cases assert the WIRING, one option at a time, and deliberately do
+ * not re-test the arithmetic underneath it.
+ */
+describe("extrudeTrack — the options actually handed to the gauge", () => {
+  const BASIS = sceneOriginBasis("XY");
+  const AXIS = handleAxis(BASIS, "normal", RECT);
+  const track = extrudeTrack(AXIS, BASIS, "mm");
+
+  it("pulls along the axis DIRECTION, seated on its base", () => {
+    // `dir` and `base` are both `Vector3`s on the same object and swapping them
+    // type-checks. The tell is that 10 mm along a +Y axis from (30, 0, -20) is
+    // (30, 10, -20), where a `base`-as-direction track wanders off in X and Z.
+    const at10 = track.pointAt(10);
+    expect(at10[0]).toBeCloseTo(30, 6);
+    expect(at10[1]).toBeCloseTo(10, 6);
+    expect(at10[2]).toBeCloseTo(-20, 6);
+    // …and the seat itself is the profile centre, not the origin.
+    const at0 = track.pointAt(0);
+    expect(at0[0]).toBeCloseTo(30, 6);
+    expect(at0[2]).toBeCloseTo(-20, 6);
+  });
+
+  it("takes its key step from the document unit", () => {
+    expect(track.step(NO_STOPS)).toBeCloseTo(keyStepMm("mm"), 12);
+    expect(track.step(NO_STOPS)).toBeCloseTo(SNAP_MM.mm, 12);
+    expect(extrudeTrack(AXIS, BASIS, "in").step(NO_STOPS)).toBeCloseTo(
+      SNAP_MM.in,
+      12,
+    );
+  });
+
+  it("takes a coarse press as ten fine ones", () => {
+    expect(track.coarseStep(NO_STOPS)).toBeCloseTo(
+      SNAP_MM.mm * COARSE_STEP_FACTOR,
+      12,
+    );
+    expect(track.coarseStep(NO_STOPS) / track.step(NO_STOPS)).toBeCloseTo(
+      10,
+      12,
+    );
+  });
+
+  it("snaps a drag by the unit's own increment, and lets Ctrl through", () => {
+    // 12.4713 is what a free drag really lands on; the snapped answer is the
+    // one a modeller wanted. An inch document snaps to 1/32 in instead.
+    expect(track.quantize(12.4713, false)).toBeCloseTo(12.5, 9);
+    expect(track.quantize(12.4713, true)).toBeCloseTo(12.4713, 9);
+    expect(
+      extrudeTrack(AXIS, BASIS, "in").quantize(12.4713, false),
+    ).toBeCloseTo(
+      16 * SNAP_MM.in, // 12.7 mm — half an inch, on the 1/32 grid
+      9,
+    );
+  });
+
+  it("cannot be dragged into a state the form would refuse to save", () => {
+    // Dragging back past the plane parks at the floor rather than going
+    // invalid — the flow rule's "no dead ends". Reversing is the Direction
+    // control's job.
+    expect(track.clamp(-1)).toBe(MIN_DEPTH_MM);
+    expect(track.clamp(0)).toBe(MIN_DEPTH_MM);
+    expect(track.clamp(1e6)).toBe(MAX_DEPTH_MM);
+    expect(track.clamp(40)).toBe(40);
+  });
+
+  it("speaks in the document's unit, and can drop the suffix for the tag cell", () => {
+    expect(track.format(10)).toBe("10 mm");
+    expect(track.format(10, { unitSuffix: false })).toBe("10");
+    expect(extrudeTrack(AXIS, BASIS, "in").format(25.4)).toBe("1 in");
+  });
+
+  it("recognises its own value coming back through a display string", () => {
+    // The round trip is lossy on inch documents (`lengthInputValue` guarantees
+    // only ~1e-5 mm), so this is a tolerance, not equality — and it is the
+    // kernel's own 1e-4 mm rather than something loose enough to swallow a
+    // real edit.
+    expect(track.same(12.5, 12.5 + 1e-5)).toBe(true);
+    expect(track.same(12.5, 12.5 + DEPTH_EPSILON_MM / 2)).toBe(true);
+    expect(track.same(12.5, 12.5 + 0.01)).toBe(false);
+    expect(track.same(12.5, 13)).toBe(false);
+  });
+
+  it("rules its graduation crosses in the SKETCH PLANE's own axes", () => {
+    // `arms: [basis.u, basis.v]`, so a cross is drawn in the plane the profile
+    // lives in rather than on an arbitrary derived frame. On XY that is scene
+    // +X and scene -Z; a cross with any Y component is being drawn on the
+    // wrong frame.
+    const stops = track.stops(40, 1);
+    const { rungs } = track.draw(40, stops);
+    expect(rungs.length).toBeGreaterThan(0);
+    for (const [from, to] of rungs) {
+      expect(to[1] - from[1]).toBeCloseTo(0, 6);
+    }
+  });
+
+  it("sizes its arrowhead from the PROFILE, so it holds still while you drag", () => {
+    const short = track.draw(5, NO_STOPS);
+    const long = track.draw(400, NO_STOPS);
+    expect(long.head.length).toBeCloseTo(short.head.length, 9);
+    expect(short.head.length).toBeCloseTo(arrowLength(AXIS.radius), 9);
   });
 });
