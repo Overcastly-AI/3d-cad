@@ -364,6 +364,9 @@ import {
 import { sheetDimensions, sheetHeaderForNewSheet } from "../drawing/layout";
 import { SketchScene, type SolvedSketchLayer } from "../viewport/SketchScene";
 import { ExtrudePreview } from "../viewport/ExtrudePreview";
+import { ChamferGauge } from "../viewport/ChamferGauge";
+import { FilletGauge } from "../viewport/FilletGauge";
+import { useEdgeGaugeAnchors } from "../viewport/edgeAnchorSource";
 import { useGaugeOverride } from "../viewport/useGaugeOverride";
 import { useViewCommandStore } from "../viewport/viewCommands";
 import { Viewport } from "../viewport/Viewport";
@@ -1687,6 +1690,21 @@ export function PartPage() {
    */
   const [extrudeDepthOverride, extrudeDepthGauge] = useGaugeOverride("mm");
   const handleExtrudeDrag = extrudeDepthGauge.set;
+
+  // The fillet/chamfer gauges (CRAFT-9a), carrying the same contract: the live
+  // value the editor holds (so the viewport can draw the round or the bevel at
+  // it) and the override channel a drag writes back through. The ANCHORS are
+  // seated here and passed DOWN as a prop rather than read inside the gauges —
+  // CRAFT-12 moves where a selection lives, and a component that reached into
+  // this pick session would be rewritten then instead of re-wired (§11).
+  const [filletRadiusMm, setFilletRadiusMm] = useState<number | null>(null);
+  const [chamferDistanceMm, setChamferDistanceMm] = useState<number | null>(
+    null,
+  );
+  const [filletRadiusOverride, filletRadiusGauge] = useGaugeOverride("mm");
+  const [chamferDistanceOverride, chamferDistanceGauge] =
+    useGaugeOverride("mm");
+  const edgeGaugeAnchors = useEdgeGaugeAnchors();
 
   // Earlier datum features offered to the datum editor as references (the
   // offset-from base + the midplane sides). Create authors at the tip, so every
@@ -3094,9 +3112,16 @@ export function PartPage() {
     setEditorError(null);
     setExtrudePreview(null);
     // ANCHOR B — the line everyone forgets. Without it the next Extrude opens
-    // seeded from the last drag instead of its own default.
+    // seeded from the last drag instead of its own default. One per gauge, and
+    // the reason these are written out rather than looped is that forgetting
+    // ONE of them is silent: the wrong default surfaces on the NEXT open of
+    // that command, on a value the user never touched this time round.
     extrudeDepthGauge.reset();
-  }, [extrudeDepthGauge]);
+    filletRadiusGauge.reset();
+    chamferDistanceGauge.reset();
+    setFilletRadiusMm(null);
+    setChamferDistanceMm(null);
+  }, [extrudeDepthGauge, filletRadiusGauge, chamferDistanceGauge]);
 
   // Global cancel for an open feature editor (FINDINGS #11). The command band
   // advertises "CANCEL ESC", so Escape MUST disarm the editor from any focus —
@@ -5202,6 +5227,8 @@ export function PartPage() {
                         onCancel={closeEditor}
                         saving={editorSaving}
                         error={editorError}
+                        radiusOverride={filletRadiusOverride}
+                        onPreviewChange={setFilletRadiusMm}
                       />
                     ) : editor.kind === "chamfer" ? (
                       <ChamferEditor
@@ -5212,6 +5239,8 @@ export function PartPage() {
                         onCancel={closeEditor}
                         saving={editorSaving}
                         error={editorError}
+                        distanceOverride={chamferDistanceOverride}
+                        onPreviewChange={setChamferDistanceMm}
                       />
                     ) : editor.kind === "shell" ? (
                       <ShellEditor
@@ -5530,6 +5559,31 @@ export function PartPage() {
               ) : null}
               <MeasureOverlay />
               {mode === "off" && edgePicking ? <EdgePickOverlay /> : null}
+              {/* The fillet/chamfer gauges stand on the picked edges and draw
+                  the RESULT at the live value — route (b) of direction §8.4,
+                  line-work rather than a ghost: the rolling ball's tangency
+                  and the bevel band, both computed from the number the arrow
+                  reports, so the drag moves the model and not only the field. */}
+              {mode === "off" &&
+              editor?.kind === "fillet" &&
+              filletRadiusMm !== null ? (
+                <FilletGauge
+                  anchors={edgeGaugeAnchors}
+                  radiusMm={filletRadiusMm}
+                  unit={lengthUnit}
+                  onRadiusChange={filletRadiusGauge.set}
+                />
+              ) : null}
+              {mode === "off" &&
+              editor?.kind === "chamfer" &&
+              chamferDistanceMm !== null ? (
+                <ChamferGauge
+                  anchors={edgeGaugeAnchors}
+                  distanceMm={chamferDistanceMm}
+                  unit={lengthUnit}
+                  onDistanceChange={chamferDistanceGauge.set}
+                />
+              ) : null}
               {mode === "off" && reliefBendHighlights.length > 0 ? (
                 <BendHighlightOverlay bends={reliefBendHighlights} />
               ) : null}

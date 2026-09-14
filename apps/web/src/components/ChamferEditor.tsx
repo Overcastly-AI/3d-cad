@@ -17,6 +17,7 @@ import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 import type { ChamferParams } from "../api/parts";
 import { useCommandBridge } from "../features/commandActions";
 import { useEdgePickStore } from "../features/edgePickStore";
+import { lengthInputValue } from "../units/length";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import {
   buildChamferParams,
@@ -24,6 +25,7 @@ import {
   type ChamferForm,
   distanceError,
   EDGE_SELECTORS,
+  parseSizeMm,
   type SelectionMode,
 } from "../features/modify";
 import { EditorCard } from "./EditorCard";
@@ -41,6 +43,21 @@ export interface ChamferEditorProps {
   saving: boolean;
   /** Server-side failure envelope message, or null. */
   error: string | null;
+  /**
+   * The distance the viewport gauge is asserting, canonical mm (CRAFT-9a).
+   *
+   * CONTRACT beta — see `FilletEditor`'s twin of this prop for the broken state
+   * it prevents: without the echo the arrow springs back to its starting length
+   * on pointer-up while this field shows the number you dragged to, and the
+   * drag is correct for its entire duration, so nothing before the release can
+   * see it.
+   */
+  distanceOverride?: { mm: number } | null;
+  /**
+   * The live distance this form is carrying, canonical mm, or null when the
+   * field does not parse. Feeds the viewport's bevel-band preview.
+   */
+  onPreviewChange?: (mm: number | null) => void;
 }
 
 export function ChamferEditor({
@@ -51,10 +68,30 @@ export function ChamferEditor({
   onCancel,
   saving,
   error,
+  distanceOverride = null,
+  onPreviewChange,
 }: ChamferEditorProps) {
   const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<ChamferForm>(initial);
   useEffect(() => setForm(initial), [initial]);
+
+  // The viewport gauge writes the field, in the DOCUMENT unit through the same
+  // formatter the seed uses — a dragged bevel and a typed one are
+  // indistinguishable afterwards, on an inch part as much as a metric one.
+  useEffect(() => {
+    if (distanceOverride === null) return;
+    setForm((f) => ({
+      ...f,
+      distanceInput: lengthInputValue(distanceOverride.mm, unit),
+    }));
+  }, [distanceOverride, unit]);
+
+  // Feed the live preview; the cleanup clears it, so closing the editor
+  // (unmount) never leaves a band drawn on a body nothing is about to bevel.
+  useEffect(() => {
+    onPreviewChange?.(parseSizeMm(form.distanceInput, unit));
+    return () => onPreviewChange?.(null);
+  }, [form.distanceInput, unit, onPreviewChange]);
 
   const picked = useEdgePickStore((s) => s.picked);
   const overlayError = useEdgePickStore((s) => s.overlayError);
