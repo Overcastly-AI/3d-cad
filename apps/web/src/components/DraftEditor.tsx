@@ -17,6 +17,7 @@ import {
   Panel,
   PanelActionCell,
   SegmentedControl,
+  type LengthUnit,
   type SegmentOption,
 } from "@loft/design";
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
@@ -25,16 +26,55 @@ import type { DraftParams } from "../api/parts";
 import {
   angleError,
   buildDraftParams,
+  buildNeutralPlane,
   draftSubmitBlocker,
   DRAFT_NEUTRAL_BASES,
   type DraftForm,
   neutralOffsetError,
+  parseAngleDeg,
 } from "../features/draft";
 import { useCommandBridge } from "../features/commandActions";
 import { useFacePickStore } from "../features/facePickStore";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { DatumPlaneName } from "../sketch/plane";
 import { EditorCard } from "./EditorCard";
+
+/**
+ * The open form projected for the VIEWPORT — what the taper gauge needs to place
+ * itself (CRAFT-10).
+ *
+ * The neutral plane arrives ALREADY BUILT, through `buildNeutralPlane`, which is
+ * the same function submit uses. So the plane the arc pivots about and the plane
+ * Save persists are one derivation, and a unit-converted offset cannot mean one
+ * thing on screen and another on the wire.
+ */
+export interface DraftGaugeState {
+  /** Signed taper, degrees in (-90, 90). */
+  angleDeg: number;
+  base: DatumPlaneName;
+  /** Offset along the base normal, canonical mm. */
+  offsetMm: number;
+  flip: boolean;
+}
+
+/** The form as a gauge projection, or null while it is incomplete. */
+export function draftGaugeState(
+  form: DraftForm,
+  unit: LengthUnit,
+): DraftGaugeState | null {
+  const angleDeg = parseAngleDeg(form.angleInput);
+  const plane = buildNeutralPlane(form.neutral, unit);
+  // Zero parses as in-range but is the one value Save refuses, and a gauge on a
+  // zero taper has no arc to draw — the two reasons coincide, which is what
+  // makes this the honest gate rather than a convenience.
+  if (angleDeg === null || angleDeg === 0 || plane === null) return null;
+  return {
+    angleDeg,
+    base: plane.base,
+    offsetMm: plane.offset_mm,
+    flip: plane.flip,
+  };
+}
 
 export interface DraftEditorProps {
   mode: "create" | "edit";
@@ -49,6 +89,17 @@ export interface DraftEditorProps {
   saving: boolean;
   /** Server-side failure envelope message, or null. */
   error: string | null;
+  /**
+   * Project the live form to the viewport gauge; called with null on unmount so
+   * closing the editor never leaves a taper arc standing on the body.
+   */
+  onGaugeChange?: (state: DraftGaugeState | null) => void;
+  /**
+   * An angle set by DIRECT MANIPULATION — the viewport's taper gauge (CRAFT-10).
+   * CONTRACT beta; `RevolveEditorProps.angleOverride` carries the full note on
+   * what breaks, silently, when this is not fed back into the form.
+   */
+  angleOverride?: { deg: number } | null;
 }
 
 const BASE_OPTIONS: ReadonlyArray<SegmentOption<DatumPlaneName>> =
@@ -74,6 +125,20 @@ const PULL_OPTIONS: ReadonlyArray<SegmentOption<"keep" | "flip">> = [
   },
 ];
 
+/**
+ * A gauge-supplied angle, as the field would have been typed.
+ *
+ * The gauge quantises to its own drawn ladder, so this is normally an integer;
+ * `Ctrl` frees the snap and can deliver a fraction, which is trimmed to the four
+ * places `formatAngle` shows rather than written out to float precision. A field
+ * that reads `2.9999999999999996` after a drag is a field that says the drag was
+ * imprecise when it was not.
+ */
+function draftAngleInput(deg: number): string {
+  const rounded = Math.round(deg * 1e4) / 1e4;
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+}
+
 /** The live picked-face line — a draft must pick at least one face. */
 function faceCountText(count: number): string {
   if (count === 0) return "No faces picked yet";
@@ -89,10 +154,24 @@ export function DraftEditor({
   onCancel,
   saving,
   error,
+  onGaugeChange,
+  angleOverride = null,
 }: DraftEditorProps) {
   const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<DraftForm>(initial);
   useEffect(() => setForm(initial), [initial]);
+
+  // The viewport gauge writes THIS field — one angle, two controls.
+  useEffect(() => {
+    if (angleOverride === null) return;
+    setForm((f) => ({ ...f, angleInput: draftAngleInput(angleOverride.deg) }));
+  }, [angleOverride]);
+
+  // Feed the viewport gauge; the cleanup clears it on unmount.
+  useEffect(() => {
+    onGaugeChange?.(draftGaugeState(form, unit));
+    return () => onGaugeChange?.(null);
+  }, [form, unit, onGaugeChange]);
 
   const picked = useFacePickStore((s) => s.picked);
   const overlayError = useFacePickStore((s) => s.overlayError);

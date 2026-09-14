@@ -146,7 +146,7 @@ import {
 } from "../components/ChromeRail";
 import { FloatingPanel } from "../components/FloatingPanel";
 import { DatumEditor } from "../components/DatumEditor";
-import { DraftEditor } from "../components/DraftEditor";
+import { DraftEditor, type DraftGaugeState } from "../components/DraftEditor";
 import { ExtrudeEditor } from "../components/ExtrudeEditor";
 import { HoleEditor } from "../components/HoleEditor";
 import { BaseFlangeEditor } from "../components/BaseFlangeEditor";
@@ -163,7 +163,10 @@ import { LoftEditor } from "../components/LoftEditor";
 import { MirrorEditor } from "../components/MirrorEditor";
 import { PartExportControls } from "../components/PartExportControls";
 import { PatternEditor } from "../components/PatternEditor";
-import { RevolveEditor } from "../components/RevolveEditor";
+import {
+  RevolveEditor,
+  type RevolveGaugeState,
+} from "../components/RevolveEditor";
 import { ShellEditor } from "../components/ShellEditor";
 import { SweepEditor } from "../components/SweepEditor";
 import {
@@ -363,9 +366,11 @@ import {
 } from "../api/drawings";
 import { sheetDimensions, sheetHeaderForNewSheet } from "../drawing/layout";
 import { SketchScene, type SolvedSketchLayer } from "../viewport/SketchScene";
+import { DraftGauge } from "../viewport/DraftGauge";
 import { ExtrudePreview } from "../viewport/ExtrudePreview";
 import { ChamferGauge } from "../viewport/ChamferGauge";
 import { FilletGauge } from "../viewport/FilletGauge";
+import { RevolveGauge } from "../viewport/RevolveGauge";
 import { useEdgeGaugeAnchors } from "../viewport/edgeAnchorSource";
 import { DatumGauge } from "../viewport/DatumGauge";
 import {
@@ -1724,6 +1729,23 @@ export function PartPage() {
   const [datumGaugeSeed, setDatumGaugeSeed] = useState<DatumGaugeSeed | null>(
     null,
   );
+
+  // ANCHOR A (CRAFT-10) — the two ANGULAR gauges. Same contract as the depth
+  // gauge above and the same three insertions: this hook, one prop on the
+  // editor, one mount in the viewport. `"deg"` rather than `"mm"` is the whole
+  // point of the box being named for its quantity — an editor that read a bare
+  // `value` off an untyped box could be handed millimetres for degrees and
+  // nothing but a founder would catch it.
+  const [revolveAngleOverride, revolveAngleGauge] = useGaugeOverride("deg");
+  const handleRevolveDrag = revolveAngleGauge.set;
+  const [draftAngleOverride, draftAngleGauge] = useGaugeOverride("deg");
+  const handleDraftDrag = draftAngleGauge.set;
+  // The open form, projected by the editor for the viewport to place its arc on
+  // (the revolve/draft twin of `extrudePreview`). Cleared when the editor closes.
+  const [revolveGauge, setRevolveGauge] = useState<RevolveGaugeState | null>(
+    null,
+  );
+  const [draftGauge, setDraftGauge] = useState<DraftGaugeState | null>(null);
 
   // Earlier datum features offered to the datum editor as references (the
   // offset-from base + the midplane sides). Create authors at the tip, so every
@@ -3143,12 +3165,21 @@ export function PartPage() {
     setChamferDistanceMm(null);
     shellThicknessGauge.reset();
     datumOffsetGauge.reset();
+    // Same line, per angular gauge (CRAFT-10). The projections are cleared too:
+    // the editors null them on unmount, but a close that does not unmount them
+    // (a retarget) would otherwise leave an arc on the previous feature.
+    revolveAngleGauge.reset();
+    draftAngleGauge.reset();
+    setRevolveGauge(null);
+    setDraftGauge(null);
   }, [
     extrudeDepthGauge,
     filletRadiusGauge,
     chamferDistanceGauge,
     shellThicknessGauge,
     datumOffsetGauge,
+    revolveAngleGauge,
+    draftAngleGauge,
   ]);
 
   // Global cancel for an open feature editor (FINDINGS #11). The command band
@@ -4731,6 +4762,18 @@ export function PartPage() {
     editor?.kind === "extrude" &&
     extrudePreview !== null &&
     extrudeGhostLayer !== null;
+  // The solved sketch the open revolve turns — resolved from the full `solved`
+  // set, like the extrude ghost's layer and for the same reason: the gauge must
+  // stand on the profile whether or not a body already exists (CRAFT-10).
+  const revolveGaugeLayer = useMemo<SolvedSketchLayer | null>(() => {
+    if (revolveGauge === null) return null;
+    return (
+      solved.find((l) => l.featureId === revolveGauge.profileFeatureId) ?? null
+    );
+  }, [revolveGauge, solved]);
+  // The face the taper gauge stands on: the FIRST picked, because pick order is
+  // preserved and a draft of six faces by one angle wants one instrument.
+  const draftGaugeFace = shellPickedFaces[0];
   // THE ONE SET OF FACTS about the body on screen. The feature tree's SOLVE
   // cell, the inspector's STATUS cell, the EXPORT gate, the SKIP rows and the
   // partial-body notice below all read this object — they used to compute three
@@ -5236,6 +5279,8 @@ export function PartPage() {
                         onCancel={closeEditor}
                         saving={editorSaving}
                         error={editorError}
+                        onGaugeChange={setRevolveGauge}
+                        angleOverride={revolveAngleOverride}
                       />
                     ) : editor.kind === "sweep" ? (
                       <SweepEditor
@@ -5312,6 +5357,8 @@ export function PartPage() {
                         onCancel={closeEditor}
                         saving={editorSaving}
                         error={editorError}
+                        onGaugeChange={setDraftGauge}
+                        angleOverride={draftAngleOverride}
                       />
                     ) : editor.kind === "hole" ? (
                       <HoleEditor
@@ -5608,6 +5655,47 @@ export function PartPage() {
                   direction={extrudePreview.direction}
                   operation={extrudePreview.operation}
                   onDepthChange={handleExtrudeDrag}
+                />
+              ) : null}
+              {/* ANCHOR D (CRAFT-10) — THE ANGULAR GAUGES.
+                  The revolve arc stands on its own axis, which this item draws
+                  for the first time: before it, the axis was a dropdown and the
+                  scene showed nothing, so an arc would have been an arc around
+                  nothing. The layer is resolved from the full `solved` set (not
+                  from whatever the browser is showing) for the same reason the
+                  extrude ghost is: the gauge must appear whether or not a body
+                  already exists. */}
+              {mode === "off" &&
+              editor?.kind === "revolve" &&
+              revolveGauge !== null &&
+              revolveGaugeLayer !== null ? (
+                <RevolveGauge
+                  basis={revolveGaugeLayer.basis}
+                  entities={revolveGaugeLayer.entities}
+                  axis={revolveGauge.axis}
+                  angleDeg={revolveGauge.angleDeg}
+                  onAngleChange={handleRevolveDrag}
+                />
+              ) : null}
+              {/* The taper gauge stands on the FIRST picked face — pick order is
+                  preserved by the store, so "the one you picked first" is a
+                  stable answer, and a draft that tapers six faces by one angle
+                  needs one instrument, not six. The face is passed DOWN as a
+                  prop; `DraftGauge` reads no store, so W4's selection store is a
+                  change to this line rather than to that component. */}
+              {mode === "off" &&
+              editor?.kind === "draft" &&
+              draftGauge !== null &&
+              draftGaugeFace !== undefined ? (
+                <DraftGauge
+                  face={draftGaugeFace}
+                  neutral={{
+                    base: draftGauge.base,
+                    offsetMm: draftGauge.offsetMm,
+                    flip: draftGauge.flip,
+                  }}
+                  angleDeg={draftGauge.angleDeg}
+                  onAngleChange={handleDraftDrag}
                 />
               ) : null}
               <MeasureOverlay />

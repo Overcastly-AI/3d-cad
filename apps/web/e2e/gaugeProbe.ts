@@ -284,3 +284,215 @@ export function expectReach(
       `sample points resolved to ${gaugeId} (${walked.resolved.join(", ")})`,
   ).toBeGreaterThanOrEqual(REACH_FLOOR);
 }
+
+// --- THE ARC CASE (CRAFT-10) -------------------------------------------------
+
+/**
+ * THE DRAWN TRACK AS A PROJECTED POLYLINE — every spine segment, in order.
+ *
+ * {@link projectedSpine} above answers with TWO points and is right for a
+ * straight track, whose spine is two points and whose chord is itself. An
+ * ANGULAR track's spine is a polyline (25 points for a 90-degree sweep), and
+ * two things then go wrong at once, both silently:
+ *
+ *  · `projectedSpine` keeps the LAST mesh its traverse happens to see, so it
+ *    reports one tessellation segment of the arc as though it were the whole
+ *    instrument; and
+ *  · {@link reach} interpolates a STRAIGHT LINE between the ends it is given,
+ *    which for an arc is the CHORD — at radius 20 a 90-degree chord departs
+ *    from its arc by 5.86 world units, 29 % of the radius. A census walking it
+ *    measures whatever happens to lie across the space the sweep encloses, and
+ *    reports a number about somewhere the instrument is not.
+ *
+ * So this walks EVERY segment mesh and resamples the projected polyline at
+ * equal ARC LENGTH, which spreads the census over what the eye actually sees
+ * rather than bunching it where the tessellation is dense. **It is exact for a
+ * straight track too** — a two-point spine is one segment, and equal arc length
+ * along one segment is equal spacing — so it is a strict generalisation and a
+ * later pass could fold {@link reach} onto it.
+ *
+ * EXTENDED here rather than forked: two copies of these helpers already exist
+ * on this branch (`gaugeReach.ts` and this file) and a third would make it a
+ * pattern.
+ */
+export async function projectedTrack(
+  page: Page,
+  gaugeId: string,
+  samples = REACH_SAMPLES,
+): Promise<Point[]> {
+  const world = await page.evaluate((wanted: string) => {
+    interface Mat {
+      elements: number[];
+    }
+    interface Obj3D {
+      name: string;
+      matrixWorld: Mat;
+      traverse: (fn: (child: Obj3D) => void) => void;
+      updateWorldMatrix?: (parents: boolean, children: boolean) => void;
+    }
+    const w = window as unknown as Record<string, unknown>;
+    const scenes = (w["__loftScenes"] ?? {}) as Record<string, Obj3D>;
+    const order = (w["__loftSceneOrder"] ?? []) as string[];
+    const apply = (
+      m: number[],
+      x: number,
+      y: number,
+      z: number,
+    ): [number, number, number] => [
+      (m[0] as number) * x +
+        (m[4] as number) * y +
+        (m[8] as number) * z +
+        (m[12] as number),
+      (m[1] as number) * x +
+        (m[5] as number) * y +
+        (m[9] as number) * z +
+        (m[13] as number),
+      (m[2] as number) * x +
+        (m[6] as number) * y +
+        (m[10] as number) * z +
+        (m[14] as number),
+    ];
+    for (const uuid of order) {
+      const scene = scenes[uuid];
+      if (scene === undefined) continue;
+      const found: Obj3D[] = [];
+      scene.traverse((node) => {
+        if (node.name === wanted) found.push(node);
+      });
+      if (found.length === 0) continue;
+      // Each segment is a unit-height cylinder scaled to its own length, so its
+      // local (0, ∓0.5, 0) are its two ends; walking them in scene order
+      // reproduces the drawn polyline exactly.
+      const pts: [number, number, number][] = [];
+      for (const node of found) {
+        node.updateWorldMatrix?.(true, false);
+        pts.push(apply(node.matrixWorld.elements, 0, -0.5, 0));
+        pts.push(apply(node.matrixWorld.elements, 0, 0.5, 0));
+      }
+      return pts;
+    }
+    return [];
+  }, `gauge-${gaugeId}-spine`);
+  if (world.length === 0) throw new Error(`no spine meshes for ${gaugeId}`);
+
+  const projected = await page.evaluate((pts: [number, number, number][]) => {
+    interface Mat {
+      elements: number[];
+    }
+    interface Cam {
+      matrixWorldInverse: Mat;
+      projectionMatrix: Mat;
+    }
+    const w = window as unknown as Record<string, unknown>;
+    const cameras = (w["__loftCameras"] ?? {}) as Record<string, Cam>;
+    const order = (w["__loftSceneOrder"] ?? []) as string[];
+    const canvas = document.querySelector<HTMLCanvasElement>(
+      '[data-testid="viewport"] canvas',
+    );
+    if (canvas === null) return [];
+    const rect = canvas.getBoundingClientRect();
+    const apply = (
+      m: number[],
+      x: number,
+      y: number,
+      z: number,
+      h: number,
+    ): [number, number, number, number] => [
+      (m[0] as number) * x +
+        (m[4] as number) * y +
+        (m[8] as number) * z +
+        (m[12] as number) * h,
+      (m[1] as number) * x +
+        (m[5] as number) * y +
+        (m[9] as number) * z +
+        (m[13] as number) * h,
+      (m[2] as number) * x +
+        (m[6] as number) * y +
+        (m[10] as number) * z +
+        (m[14] as number) * h,
+      (m[3] as number) * x +
+        (m[7] as number) * y +
+        (m[11] as number) * z +
+        (m[15] as number) * h,
+    ];
+    for (const uuid of order) {
+      const camera = cameras[uuid];
+      if (camera === undefined) continue;
+      return pts.map((p) => {
+        const view = apply(
+          camera.matrixWorldInverse.elements,
+          p[0],
+          p[1],
+          p[2],
+          1,
+        );
+        const clip = apply(
+          camera.projectionMatrix.elements,
+          view[0],
+          view[1],
+          view[2],
+          view[3],
+        );
+        return {
+          x: rect.left + ((clip[0] / clip[3] + 1) / 2) * rect.width,
+          y: rect.top + ((1 - clip[1] / clip[3]) / 2) * rect.height,
+        };
+      });
+    }
+    return [];
+  }, world);
+  if (projected.length < 2) throw new Error(`no camera to project ${gaugeId}`);
+
+  const cumulative = [0];
+  for (let i = 1; i < projected.length; i += 1) {
+    const a = projected[i - 1] as Point;
+    const b = projected[i] as Point;
+    cumulative.push(
+      (cumulative[i - 1] as number) + Math.hypot(b.x - a.x, b.y - a.y),
+    );
+  }
+  const total = cumulative[cumulative.length - 1] as number;
+  const out: Point[] = [];
+  for (let s = 0; s < samples; s += 1) {
+    const want = (total * s) / (samples - 1);
+    let i = 1;
+    while (i < cumulative.length - 1 && (cumulative[i] as number) < want)
+      i += 1;
+    const c0 = cumulative[i - 1] as number;
+    const c1 = cumulative[i] as number;
+    const t = c1 > c0 ? (want - c0) / (c1 - c0) : 0;
+    const a = projected[i - 1] as Point;
+    const b = projected[i] as Point;
+    out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+  }
+  return out;
+}
+
+/**
+ * {@link reach}, but walking the DRAWN polyline rather than the chord between
+ * its ends — the census an arc gauge needs. Returns the sample points too, so a
+ * caller can press one of them and prove the band is a CONTROL and not merely
+ * an element that happens to be under the pointer.
+ */
+export async function reachAlongTrack(
+  page: Page,
+  gaugeId: string,
+): Promise<{ hits: number; resolved: string[]; points: Point[] }> {
+  const points = await projectedTrack(page, gaugeId);
+  const resolved = await page.evaluate(
+    ({ pts, id }: { pts: Point[]; id: string }) =>
+      pts.map((p) => {
+        const el = document.elementFromPoint(p.x, p.y);
+        if (el === null) return "null";
+        return el.closest(`[data-gauge="${id}"]`) !== null
+          ? "gauge"
+          : (el.getAttribute("data-testid") ?? el.tagName.toLowerCase());
+      }),
+    { pts: points, id: gaugeId },
+  );
+  return {
+    hits: resolved.filter((r) => r === "gauge").length,
+    resolved,
+    points,
+  };
+}

@@ -36,13 +36,45 @@ import {
   axisRef,
   revolveSubmitBlocker,
   defaultAxisId,
+  formatAngleInput,
   parseAngleDeg,
   type ProfileOption,
+  type RevolveAxisRef,
   type RevolveDirection,
   type RevolveForm,
   type RevolveOperation,
 } from "../features/revolve";
 import { EditorCard } from "./EditorCard";
+
+/**
+ * The open form projected for the VIEWPORT — what the sweep gauge needs in order
+ * to place itself, and nothing else (CRAFT-10).
+ *
+ * It carries the RESOLVED `axis` rather than the form's `axisId`, because the id
+ * is an OPTION KEY scoped to one profile's option list and the viewport has no
+ * business re-deriving a wire value from it. `axisRef` is the one place that
+ * translation happens, exactly as it is on submit — so the axis the arc is drawn
+ * about and the axis Save persists cannot come apart.
+ */
+export interface RevolveGaugeState {
+  profileFeatureId: string;
+  /** The axis of revolution, as it will be persisted. */
+  axis: RevolveAxisRef;
+  /** The sweep, degrees in (0, 360]. */
+  angleDeg: number;
+}
+
+/** The form as a gauge projection, or null while it is incomplete. */
+export function revolveGaugeState(
+  form: RevolveForm,
+  axes: readonly AxisOption[],
+): RevolveGaugeState | null {
+  const angleDeg = parseAngleDeg(form.angleInput);
+  const axis = axisRef(axes, form.axisId);
+  if (angleDeg === null || axis === null || form.profileFeatureId === "")
+    return null;
+  return { profileFeatureId: form.profileFeatureId, axis, angleDeg };
+}
 
 export interface RevolveEditorProps {
   mode: "create" | "edit";
@@ -59,6 +91,27 @@ export interface RevolveEditorProps {
   saving: boolean;
   /** Server-side failure envelope message, or null. */
   error: string | null;
+  /**
+   * Project the live form to the viewport gauge. Called on every form change
+   * and once with null on unmount, so closing the editor never leaves an arc
+   * standing on a feature nobody is editing.
+   */
+  onGaugeChange?: (state: RevolveGaugeState | null) => void;
+  /**
+   * An angle set by DIRECT MANIPULATION — the viewport's sweep gauge (CRAFT-10).
+   *
+   * CONTRACT beta, and both halves of it look finished alone: the gauge renders
+   * its own last ask until the pointer is released and then falls back to the
+   * `value` prop it was given. If this override does not come back round into
+   * the form, the arc springs back to where the drag STARTED the instant you let
+   * go, while the field below shows the number you dragged to. The drag is
+   * smooth and correct for its whole duration, so the defect fires after every
+   * screenshot anyone would take.
+   *
+   * Boxed (`{ deg }`) so dragging out and back to a number the field already
+   * holds still arrives — a bare number would compare equal and be swallowed.
+   */
+  angleOverride?: { deg: number } | null;
 }
 
 const OPERATIONS: ReadonlyArray<SegmentOption<RevolveOperation>> = [
@@ -104,12 +157,23 @@ export function RevolveEditor({
   onCancel,
   saving,
   error,
+  onGaugeChange,
+  angleOverride = null,
 }: RevolveEditorProps) {
   const [form, setForm] = useState<RevolveForm>(initial);
   // Re-seed when the editor is retargeted at a different feature.
   useEffect(() => setForm(initial), [initial]);
 
   const axes = axesByProfile[form.profileFeatureId] ?? [];
+
+  // The viewport gauge writes THIS field. It is not a second copy of the angle;
+  // it is the same one, reached by a different control — and it is written
+  // through the same formatter the seed uses, so a dragged value and a typed one
+  // are indistinguishable afterwards.
+  useEffect(() => {
+    if (angleOverride === null) return;
+    setForm((f) => ({ ...f, angleInput: formatAngleInput(angleOverride.deg) }));
+  }, [angleOverride]);
 
   const submit = useCallback(() => {
     const angle = parseAngleDeg(form.angleInput);
@@ -149,6 +213,20 @@ export function RevolveEditor({
     },
     [axesByProfile],
   );
+
+  // Feed the viewport gauge: every form change re-projects it, and the cleanup
+  // clears it so closing the editor (unmount) never leaves an arc behind.
+  //
+  // `axes` is DELIBERATELY not in the dependency list. It is
+  // `axesByProfile[form.profileFeatureId]`, a fresh array identity on every
+  // render, so depending on it would re-run this effect — and therefore fire its
+  // cleanup, nulling the gauge — on every frame of a drag. `axesByProfile` and
+  // the profile id are the only inputs that can change what it resolves to.
+  useEffect(() => {
+    const options = axesByProfile[form.profileFeatureId] ?? [];
+    onGaugeChange?.(revolveGaugeState(form, options));
+    return () => onGaugeChange?.(null);
+  }, [form, axesByProfile, onGaugeChange]);
 
   const angleMsg = angleError(form.angleInput);
   const axisMsg = axisReason(axes, form.axisId);
