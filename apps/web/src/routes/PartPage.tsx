@@ -1685,7 +1685,7 @@ export function PartPage() {
    * editor, and one mount; see that hook's note for the two silent broken
    * states this shape exists to prevent.
    */
-  const extrudeDepthGauge = useGaugeOverride("mm");
+  const [extrudeDepthOverride, extrudeDepthGauge] = useGaugeOverride("mm");
   const handleExtrudeDrag = extrudeDepthGauge.set;
 
   // Earlier datum features offered to the datum editor as references (the
@@ -5150,7 +5150,7 @@ export function PartPage() {
                         saving={editorSaving}
                         error={editorError}
                         onPreviewChange={setExtrudePreview}
-                        depthOverride={extrudeDepthGauge.override}
+                        depthOverride={extrudeDepthOverride}
                       />
                     ) : editor.kind === "revolve" ? (
                       <RevolveEditor
