@@ -76,6 +76,55 @@ geometry workers.
 - **Design tokens:** `packages/design` constants drive both Tailwind preset
   (DOM) and r3f scene (WebGL); no hex values duplicated.
 
+## Frontend module layout (apps/web)
+
+The viewport is the hero. Panels and toolbars are composed from `packages/design`
+primitives (tokens, UI components, fonts) and remain dense and keyboard-first.
+
+**Gauge subsystem** — a unified parametric instrument for every verb's direct
+manipulation (extrude, revolve, sweep, loft, fillet, chamfer, shell, draft,
+pattern). The design splits the work across a load-bearing boundary:
+
+- **`packages/design/src/gauge.ts`** — pure tuple arithmetic. No `three`, no
+  react-three-fiber: stateless track factories (`linearTrack`, `steppedTrack`,
+  `angularTrack`), stop calculation (`ladderStops`), tag placement (`placeGaugeTag`),
+  and an optimistic ask-queue for drag reconciliation. Unit-testable in jsdom.
+- **`apps/web/src/viewport/gaugePose.ts`** — three.js pose computation for a
+  given track: arrowhead orientation, spine segment setup (one cylinder per
+  polyline segment to handle arc-drawn tracks), and `projectedSpineLength`.
+- **`apps/web/src/viewport/ParametricGauge.tsx`** — the r3f shell. One component,
+  every verb: injects a `GaugeTrack` (the track factory) and renders the grip,
+  tag, ladder, and arrowhead meshes. Owns the optimistic update loop and digit
+  handoff to the DOM tag.
+
+Why this seam: stateless arithmetic here means every correctness concern (lost
+updates, pointer capture, key stepping, nested Escape, quantization) is shared
+by all three track types, and any mutation test of the correctness logic lives
+in jest, not only in the browser. The viewport reads the same design tokens
+(proposal/hover/selection colours) as the DOM.
+
+**Feature editors** — `apps/web/src/components/{Extrude,Revolve,Sweep,Loft,
+Fillet,Chamfer,Shell,Draft,Pattern,Hole,LinearPattern,CircularPattern}Editor.tsx`
+(forms) plus verb-specific preview logic in `apps/web/src/viewport/` (each verb's
+draw/tessellation path, feature-specific UI like the chamfer type selector or
+pattern axis picker).
+
+**Viewport infrastructure** — r3f camera (ViewCube, home/iso/ortho snaps,
+orbit/pan/zoom), studio-shaded bodies (matcap), feature tree outline (per-body
+edges, selection highlight), grid with atmospheric perspective, reference
+planes/axes. All readout and chrome shares the design system's token palette.
+
+**State management** — zustand stores for viewport state (camera, selection,
+feature tree), feature editor state, and the proposal chip (the "next step"
+affordance under the cursor). No Redux or context-tree noise.
+
+**Sketch on plane** — planar constraint solver (planegcs via Python, driven from
+browser via the geometry service's `/sketch` route). The sketch surface is
+rendered as an SVG overlay on the viewport with snap markers, dimension readouts,
+and constraint visualization. Solver is not reachable from the browser API and
+never will be (RESEARCH §9 — sketch solving is local, tight, and single-user;
+the Python entrypoint keeps it that way).
+
 ## Feature types (services/geometry)
 
 Currently shipped: `Sketch`, `Extrude`, `Revolve`, `Sweep`, `Loft`, `Fillet`,
