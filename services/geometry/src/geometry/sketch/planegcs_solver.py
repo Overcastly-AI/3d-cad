@@ -95,6 +95,26 @@ radius is a DERIVED distance between two solved points rather than a solver
 parameter, so it needs a floor at the solver's own convergence scale
 (:data:`DEGENERATE_ARC_RADIUS_MM`) — measured, after the fix moved a case across
 the narrower one.
+
+**A collapse the constraints do NOT force is a bad START, not a verdict**
+(ARC-BRANCH-1). Two arcs made tangent, with one's centre coincident with the
+other's endpoint, admit ``r2 = 0`` and ``r2 = 2 * r1``; both satisfy every
+constraint exactly, and DogLeg from the author's own configuration walks to the
+first. ARC-DEGENERATE-1 made that legible and recorded, deliberately, that
+``conflicting`` was still the wrong answer for such a sketch. So when a solve
+annihilates an entity — geometry :meth:`read_back` substitutes and
+:func:`_violated_constraints` refuses, i.e. never an answer the author is being
+offered — :func:`plain_solve` asks ONCE more from the author's own pose with only
+the collapsed entity relocated to where the solve put it, and prefers that answer
+only if it is shippable where the first was not. That is a choice between an
+answer and NO answer, which is why it does not breach SETTLE-2: the settle still
+refines whatever :func:`plain_solve` returns, and the guard still runs over it
+unchanged. Restarting from the whole solved answer instead was built first and
+measured worse — it inherits the first solve's unforced drag on OTHER entities
+and reverses the baseline SETTLE-2 judges against, so the settle's correct answer
+gets thrown away (:func:`_restarted_without_the_collapse`). Over PBT-1's corpus
+the restart is taken on 2 of the 38 collapses and refused on 36; solvable
+1326 -> 1328, conflicting 314 -> 312, violated still 0.
 """
 
 import math
@@ -280,10 +300,8 @@ class PlanegcsSketchSolver:
         # SketchExpressionError (a SketchDefinitionError → sketch_invalid).
         # Driven dimensions are absent from this map and never fed to the solver.
         driving_values = evaluate_driving_dimensions(sketch.constraints)
-        system = _GcsBuild(sketch, driving_values)
-        raw_status = system.gcs.solve()  # default DogLeg — deterministic
+        system, solved = plain_solve(sketch, driving_values)
         diagnosis = system.gcs.diagnose()
-        solved = raw_status in (GcsSolveStatus.Success, GcsSolveStatus.Converged)
 
         status = _map_status(
             solved=solved,
@@ -659,10 +677,23 @@ def _shippable_radius(solved: float, submitted: float) -> float:
     for why deferring to the DTO's own ``> 0`` would split one degeneracy in
     half along a float-noise seam.
     """
-    radius = abs(solved)
-    # NaN fails this comparison, which is the safe direction: a radius that is
-    # not a number is not a circle either, and it takes the degenerate path.
-    return radius if radius >= DEGENERATE_RADIUS_MM else submitted
+    return submitted if _radius_is_annihilated(solved) else abs(solved)
+
+
+def _radius_is_annihilated(solved: float) -> bool:
+    """Has the solve driven this planegcs radius parameter to nothing?
+
+    The magnitude test :func:`_shippable_radius` documents, named so the RESTART
+    (:func:`_restarted_without_the_collapse`) asks it with the same threshold and
+    the same NaN handling rather than re-deriving them. Two call sites that
+    disagree about where the floor is would restart on a circle the payload
+    ships, or ship one the payload was about to substitute.
+
+    ``not (x >= t)`` rather than ``x < t`` so that NaN answers TRUE: a radius
+    that is not a number is not a circle either, and the degenerate path is the
+    safe direction (:func:`_shippable_radius`).
+    """
+    return not abs(solved) >= DEGENERATE_RADIUS_MM
 
 
 def _shippable_arc_points(
@@ -710,13 +741,15 @@ def _shippable_arc_points(
     tangency admits ``r2 = 0`` AND ``r2 = 2 * r1``, the solver takes the first
     from the author's own start, and 4 of 8 perturbed starts reach
     ``r2 = 29.236`` mm at a residual of exactly ``0.0``. That is a
-    BRANCH-SELECTION defect, not this one, and it is worth being blunt that this
-    change does not fix it: today the sketch ships an arc that is not there,
-    after this it says ``conflicting``, and BOTH are wrong, because the sketch is
-    solvable. Reclassifying is still the better of the two — the user is told, the
-    constraint is named, and the sketch stays editable rather than carrying a void
-    downstream — and picking the branch is filed separately (ARC-BRANCH-1) rather
-    than improvised inside a payload gate.
+    BRANCH-SELECTION defect, not this one, and ARC-DEGENERATE-1 was blunt that it
+    did not fix it: before, the sketch shipped an arc that was not there; after,
+    it said ``conflicting``; and BOTH were wrong, because the sketch is solvable.
+    **ARC-BRANCH-1 closed it** — :func:`_restarted_without_the_collapse` runs
+    BEFORE this function is reached on such a sketch, so the substitution below is
+    now what happens to the 36 collapses that really are forced. Note the split is
+    no longer 26/1: asking the restart's question of every annihilated entity in
+    the corpus, rather than of arcs only, put it at **36 forced, 2 branch** —
+    the second being a circle in the same construction (trial 1593).
 
     So this returns the author's own arc, TRANSLATED to the solved centre — the
     same move as :func:`_shippable_radius` returning the author's radius beside
@@ -740,12 +773,7 @@ def _shippable_arc_points(
     — see there for the measurement that separated them, and for why it had to be
     taken after this function existed rather than before.
     """
-    radius_start = math.hypot(start[0] - center[0], start[1] - center[1])
-    radius_end = math.hypot(end[0] - center[0], end[1] - center[1])
-    # NaN fails this comparison, which is the safe direction, as in
-    # :func:`_shippable_radius`: an endpoint that is not a number is not on a
-    # circle either, and it takes the degenerate path.
-    if max(radius_start, radius_end) >= DEGENERATE_ARC_RADIUS_MM:
+    if not _arc_is_annihilated(center, start, end):
         return (
             Point2D(x=start[0], y=start[1]),
             Point2D(x=end[0], y=end[1]),
@@ -760,6 +788,163 @@ def _shippable_arc_points(
             y=center[1] + (submitted.end.y - submitted.center.y),
         ),
     )
+
+
+def _arc_is_annihilated(
+    center: tuple[float, float],
+    start: tuple[float, float],
+    end: tuple[float, float],
+) -> bool:
+    """Has the solve driven BOTH of this arc's endpoints onto its own centre?
+
+    :func:`_radius_is_annihilated`'s job for an arc, and named for the same
+    reason: :func:`_shippable_arc_points` and the restart
+    (:func:`_restarted_without_the_collapse`) must ask exactly one question, at
+    exactly one threshold. See :func:`_shippable_arc_points` for why the test is
+    on ``max`` rather than ``min`` of the two endpoint distances, and
+    :data:`DEGENERATE_ARC_RADIUS_MM` for why an arc's floor is not the circle's.
+
+    ``not (x >= t)``, so NaN answers TRUE — the safe direction, as for a circle.
+    """
+    return (
+        not max(
+            math.hypot(start[0] - center[0], start[1] - center[1]),
+            math.hypot(end[0] - center[0], end[1] - center[1]),
+        )
+        >= DEGENERATE_ARC_RADIUS_MM
+    )
+
+
+def plain_solve(
+    sketch: SketchDefinition, driving_values: dict[int, float]
+) -> "tuple[_GcsBuild, bool]":
+    """The solve a settle refines: one DogLeg pass, plus ONE restart if it collapsed.
+
+    Public within the package because it is the DEFINITION of "the plain solve",
+    and SETTLE-2's property is stated against that definition
+    (:func:`_turns_geometry_inside_out`). The sweep's oracle
+    (``test_sketch_solver_sweep``) has to compare a settle against the same
+    baseline production settled from, or it is testing a proposition nothing
+    claims; sharing this function is what keeps the two from drifting apart. The
+    independent derivation in that oracle is the dot product, not the baseline.
+
+    Returns the system and whether it converged — the caller reads
+    ``diagnose()`` off it, which must happen with no other solve on THIS system
+    in between.
+    """
+    system = _GcsBuild(sketch, driving_values)
+    status = system.gcs.solve()  # default DogLeg — deterministic
+    if status not in (GcsSolveStatus.Success, GcsSolveStatus.Converged):
+        return system, False
+    if system.annihilated_entity_ids():
+        # ARC-BRANCH-1: geometry no payload can carry is not an answer the author
+        # is being offered, so ask ONCE more from a start the collapse is not at.
+        restarted = _restarted_without_the_collapse(system, driving_values)
+        if restarted is not None:
+            return restarted, True
+    return system, True
+
+
+def _restarted_without_the_collapse(
+    system: "_GcsBuild", driving_values: dict[int, float]
+) -> "_GcsBuild | None":
+    """Re-solve the author's sketch from a start pose the collapse is not at.
+
+    ARC-BRANCH-1. A tangency between two arcs whose centre-to-centre distance is
+    pinned to ``r1`` admits ``r2 = 0`` and ``r2 = 2 * r1``; both satisfy every
+    constraint exactly, and PBT-1's trial 1906 is a sketch where DogLeg walks from
+    the author's own configuration to the degenerate one. ARC-DEGENERATE-1 made
+    that answer legible — ``_shippable_arc_points`` substitutes the author's arc,
+    which then fails the very tangency that annihilated it, and the payload gate
+    reports ``conflicting`` — and recorded, deliberately, that ``conflicting`` is
+    still WRONG for this sketch, because ``r2 = 29.236`` mm exists at a residual
+    of exactly ``0.0``. This is the thing that finds it.
+
+    **How this coexists with SETTLE-2's "a settle must REFINE the plain solve,
+    never jump branches", which it appears to contradict.** It does not, and the
+    distinction is the whole design:
+
+    * SETTLE-2 governs the relationship between a SETTLE and the plain solve it
+      is handed. :func:`_turns_geometry_inside_out` still runs, unchanged, over
+      whichever plain solve this returns — a settle refines its baseline exactly
+      as before, and :func:`plain_solve` is now the single definition of that
+      baseline for production and for the sweep's oracle alike.
+    * This runs one layer up, and only where the plain solve produced NO SHIPPABLE
+      ANSWER AT ALL. An annihilated entity is not a branch of the solution the
+      service may choose between; ARC-DEGENERATE-1 and SOLVE-CRASH-1 already
+      established that such geometry never reaches a payload — ``read_back``
+      substitutes it, and :func:`_violated_constraints` then reclassifies the
+      result as ``conflicting``. So the choice here is between an answer and no
+      answer, not between two answers. That is the one case where re-asking
+      cannot cost the author a solution they were already being shown.
+
+    **The start pose is the AUTHOR'S OWN SKETCH with the collapsed entity moved
+    to where the solve put it** — the smallest edit to the author's configuration
+    that takes the collapse out of it. Every other entity keeps the coordinates
+    the author drew; the annihilated one keeps the author's radius, both endpoint
+    angles and its CCW sense (``read_back`` has already built exactly that, which
+    is why there is no new geometry here) and only its CENTRE moves, to the place
+    the constraints put it. There is no perturbation direction and no magnitude
+    constant to justify, and nothing is drawn from a seed, a clock or a search:
+    the pose is a function of the sketch. ARC-DEGENERATE-1's own probe pushed the
+    arc 7 mm in eight directions and reached the real branch from 4 of them; this
+    reaches it from the one start that needs no argument about which 7 mm to pick.
+
+    **Restarting from the whole solved answer instead was built first and is
+    measurably worse, which is why the pose is stated this precisely.** On trial
+    1906 the first solve does not only annihilate ``e2``; it also drags ``e1``
+    from the author's r = 14.618 to r = 8.242 and reverses its chord relative to
+    the input. Seeded with all of that, the second solve escapes the collapse
+    (r2 = 20.058 = 2 x r1) but keeps the drag, and then the SETTLE — which does
+    recover the author's ``e1`` exactly — is thrown away by
+    :func:`_turns_geometry_inside_out`, because the baseline it is measured
+    against is itself reversed relative to the author. The guard's premise is
+    that *"the plain solve is itself a walk from those same values"*, and a
+    restart seeded from a solved answer is the one thing that can break it. Seeded
+    from the author's own pose the premise holds, the guard measures what it was
+    designed to measure, and the settle lands on **r1 = 14.618, r2 = 29.236** —
+    the author's own arc, and the branch the ticket is named for.
+
+    **Exactly one restart, and it is accepted only if it clears the bar the first
+    solve could not.** Not a loop: 36 of the 38 collapses in PBT-1's corpus are
+    FORCED — there is no non-degenerate solution to find — so a second, third
+    or nth attempt on those is pure cost, and the measured outcome is that they
+    return to the same collapse and this returns ``None``, leaving their
+    ``conflicting`` exactly as ARC-DEGENERATE-1 shipped it. Acceptance asks the
+    payload's own questions — did it converge, is anything still annihilated, does
+    :func:`_violated_constraints` object — rather than a new standard invented
+    here, so a restart can only be preferred when it is shippable and the first
+    answer was not.
+
+    ``SketchDefinitionError`` is caught because :meth:`_GcsBuild._add_entity`
+    refuses an arc whose START is on its centre while :func:`_arc_is_annihilated`
+    asks about BOTH endpoints: an arc with one endpoint collapsed and the other
+    10 mm away is a different defect (``entity_residual`` names it), it is not
+    substituted, and building from it would raise. A restart that cannot be built
+    is simply not taken — a solve OUTCOME belongs in ``status``, and the
+    ``SketchSolver`` contract reserves exceptions for malformed INPUT, which the
+    author's sketch is not.
+    """
+    sketch = system.sketch
+    collapsed = set(system.annihilated_entity_ids())
+    relocated = {entity.id: entity for entity in system.read_back()}
+    start = [
+        relocated[entity.id] if entity.id in collapsed else entity
+        for entity in sketch.entities  # input order — deterministic
+    ]
+    try:
+        retry = _GcsBuild(sketch, driving_values, start=start)
+    except SketchDefinitionError:
+        return None
+    if retry.gcs.solve() not in (GcsSolveStatus.Success, GcsSolveStatus.Converged):
+        return None
+    if retry.annihilated_entity_ids():
+        return None
+    if _violated_constraints(
+        sketch, retry.read_back(), driving_values, retry.angle_frames
+    ):
+        return None
+    return retry
 
 
 def _turns_geometry_inside_out(
@@ -794,8 +979,16 @@ class _GcsBuild:
     """
 
     def __init__(
-        self, sketch: SketchDefinition, driving_values: dict[int, float]
+        self,
+        sketch: SketchDefinition,
+        driving_values: dict[int, float],
+        start: list[SketchEntity] | None = None,
     ) -> None:
+        #: The AUTHOR's sketch, always — every other consumer of it
+        #: (:attr:`angle_frames`, :meth:`_input_points`, the settle's pin targets,
+        #: :meth:`read_back`'s substitution source) is asking what the author
+        #: drew, and must keep asking that even when ``start`` seeds the solver
+        #: from somewhere else.
         self.sketch = sketch
         #: constraint index -> evaluated value, for DRIVING dimensions only. A
         #: dimension constraint whose index is absent is DRIVEN — excluded from
@@ -820,7 +1013,15 @@ class _GcsBuild:
         )
         #: planegcs constraint tag → index into ``sketch.constraints``.
         self.tag_to_index: dict[int, int] = {}
-        for entity in sketch.entities:  # input order — deterministic
+        # ``start`` is the STARTING GUESS and nothing else (ARC-BRANCH-1): the
+        # same entities by id, kind and order, at different coordinates. DogLeg
+        # walks from wherever the parameters begin, so this is the only seam a
+        # restart needs — and routing it through here rather than through a
+        # substitute ``SketchDefinition`` is what keeps ``self.sketch`` the
+        # author's, so the settle still pins the author's values and the angle
+        # frames still record the angle the author DREW rather than one a solve
+        # produced (:mod:`geometry.sketch.angles`).
+        for entity in sketch.entities if start is None else start:  # input order
             self._add_entity(entity)
         for index, constraint in enumerate(sketch.constraints):
             self._add_constraint(index, constraint)
@@ -1876,6 +2077,39 @@ class _GcsBuild:
         return settled
 
     # -- results -------------------------------------------------------------
+
+    def annihilated_entity_ids(self) -> list[str]:
+        """Ids this solve has driven to nothing, in input order (ARC-BRANCH-1).
+
+        The question :meth:`read_back` answers implicitly and silently — it
+        substitutes the author's radius or the author's arc and moves on — asked
+        out loud, so :func:`_restarted_without_the_collapse` can act on it before
+        the substitution has hidden it. Both predicates are the shared ones, so
+        this cannot drift from what ``read_back`` will actually do.
+
+        Circles are included as well as arcs even though the ticket is an arc
+        ticket: the collapse is one defect wearing two DTOs (SOLVE-CRASH-1 ->
+        ARC-DEGENERATE-1), the restart is indifferent to which, and a carve-out
+        here would be an arbitrary narrowing of a general mechanism. **That
+        generality was expected to cost one wasted solve and buy nothing, and it
+        found a defect instead**: of the 38 solves in PBT-1's corpus that
+        annihilate an entity, exactly 2 have a real non-degenerate branch, and
+        one of them is a CIRCLE (trial 1593), minimising to the same two
+        constraints as the arc case this ticket is named for. SOLVE-CRASH-1 had
+        counted it among the circles it called forced. An arc-only version of
+        this would still be refusing a sketch that solves.
+        """
+        annihilated: list[str] = []
+        for entity in self.sketch.entities:  # input order — deterministic
+            if isinstance(entity, SketchCircle):
+                circle = self.gcs.get_circle(self._circles[entity.id])
+                if _radius_is_annihilated(circle.radius):
+                    annihilated.append(entity.id)
+            elif isinstance(entity, SketchArc):
+                arc = self.gcs.get_arc(self._arcs[entity.id])
+                if _arc_is_annihilated(arc.center, arc.start_point, arc.end_point):
+                    annihilated.append(entity.id)
+        return annihilated
 
     def read_back(self) -> list[SketchEntity]:
         """Solved entities, same ids/kinds/order/construction-flag as input.

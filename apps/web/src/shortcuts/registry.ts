@@ -94,14 +94,20 @@ export const KEY_SNAP = "g";
 /** Arm the measure tool — `PartPage`. */
 export const KEY_MEASURE = "m";
 /**
- * Accept the sketch proposal the viewport is offering — `SketchProposal`.
+ * Accept whatever the viewport's leader note is offering — `ProposalNote`.
  *
- * `Enter` rather than a letter, for two reasons. Every bare letter in this
- * workspace is already a create verb (the table below), and more importantly
- * the binding is not "start a sketch": it ACCEPTS a specific proposal that is
- * on screen at that moment, naming a specific face. Accept is what Enter means
- * everywhere else in the product, and a proposal that could be committed by
- * some other key would be teaching a second accept vocabulary for one surface.
+ * TWO MOMENTS, ONE NOTE, and therefore one key (FLOW-B1): rest on a face and
+ * the note offers the SKETCH that face affords; solve a sketch and it offers
+ * the EXTRUDE that profile affords. Both are taken by `Enter`, and both are
+ * also taken by the offered VERB'S OWN LETTER, which the chip prints.
+ *
+ * `Enter` rather than a letter alone, for two reasons. Every bare letter in
+ * this workspace is already a create verb (the table below), and more
+ * importantly the binding is not "start a sketch": it ACCEPTS a specific
+ * proposal that is on screen at that moment, naming a specific noun. Accept is
+ * what Enter means everywhere else in the product, and a proposal that could be
+ * committed by some other key would be teaching a second accept vocabulary for
+ * one surface.
  *
  * It is live ONLY while the note is showing, which is why the chip prints the
  * glyph itself: the fastest way to teach a keyboard path is to put it on the
@@ -110,19 +116,135 @@ export const KEY_MEASURE = "m";
 export const KEY_ACCEPT_PROPOSAL = "Enter";
 
 /**
+ * Every verb the command band names with a `new-<id>` test id — the id half of
+ * that vocabulary, so a verb is one word in the handler, the chip, the tooltip
+ * and the sheet rather than four spellings of itself.
+ *
+ * It deliberately includes the verbs that have NO letter (combine and the sheet
+ * metal group). That is what makes `partVerbKey`'s `undefined` a real answer
+ * instead of a branch nothing can reach: §3.1 of the W2 direction rules that a
+ * new verb "ships without a letter and gets filed" rather than displacing one a
+ * hand already knows, and a type that could only describe keyed verbs would make
+ * that rule unrepresentable.
+ */
+export type PartVerbId =
+  // keyed, in the band's own left-to-right order
+  | "sketch"
+  | "extrude"
+  | "revolve"
+  | "sweep"
+  | "loft"
+  | "fillet"
+  | "chamfer"
+  | "pattern"
+  | "shell"
+  | "draft"
+  | "hole"
+  | "mirror"
+  // keyless today — present so the absence is sayable
+  | "combine"
+  | "base-flange"
+  | "edge-flange"
+  | "hem"
+  | "corner-relief"
+  | "flat-pattern";
+
+/**
  * The part workspace's create/modify accelerators, each with the condition the
  * handler ALSO enforces. Written as a table so the sheet cannot list a verb the
  * keyboard does not fire, and so a new verb is one entry rather than two edits.
+ *
+ * ROW ORDER IS THE BAND'S ORDER (Create left-to-right, then Modify), because the
+ * sheet prints the rows in this order and a reference that lists verbs in a
+ * different sequence from the toolbar makes the reader translate between two
+ * layouts of one vocabulary. Nothing here is alphabetical; the order is a fact
+ * about where the tool sits.
+ *
+ * FLOW-B2: the five most-used verbs — sketch, extrude, revolve, fillet, chamfer
+ * — had no letter at all while pattern, sweep, loft, shell, draft, hole and
+ * mirror did, which is an exact inversion of what a hand reaches for. The five
+ * new letters are `K E R F C`; every pre-existing letter keeps its verb (a moved
+ * shortcut is worse than a missing one), which is why Sketch is `K` and not the
+ * `S` that Sweep has held since it shipped.
+ *
+ * `E R F C K` collide with the sketch tool/constraint letters and that is NOT an
+ * ambiguity: the create handler bails unless `mode === "off"` and the sketch
+ * vocabulary is only consulted inside a sketch, so mode resolves it before the
+ * key is ever read. The two vocabularies are printed as separate groups below
+ * for the same reason.
  */
-export const PART_CREATE_SHORTCUTS: readonly (Shortcut & { key: string })[] = [
-  { key: "p", keys: "P", action: "Pattern", when: "needs a body" },
-  { key: "s", keys: "S", action: "Sweep", when: "needs a profile and a path" },
-  { key: "l", keys: "L", action: "Loft", when: "needs two profiles" },
-  { key: "h", keys: "H", action: "Shell", when: "needs a body" },
-  { key: "d", keys: "D", action: "Draft", when: "needs a body" },
-  { key: "o", keys: "O", action: "Hole", when: "needs a body" },
-  { key: "i", keys: "I", action: "Mirror", when: "needs a body" },
+export const PART_CREATE_SHORTCUTS: readonly (Shortcut & {
+  key: string;
+  id: PartVerbId;
+})[] = [
+  { id: "sketch", key: "k", keys: "K", action: "Sketch" },
+  {
+    id: "extrude",
+    key: "e",
+    keys: "E",
+    action: "Extrude",
+    when: "needs a solved sketch",
+  },
+  {
+    id: "revolve",
+    key: "r",
+    keys: "R",
+    action: "Revolve",
+    when: "needs a solved sketch",
+  },
+  {
+    id: "sweep",
+    key: "s",
+    keys: "S",
+    action: "Sweep",
+    when: "needs a profile and a path",
+  },
+  {
+    id: "loft",
+    key: "l",
+    keys: "L",
+    action: "Loft",
+    when: "needs two profiles",
+  },
+  { id: "fillet", key: "f", keys: "F", action: "Fillet", when: "needs a body" },
+  {
+    id: "chamfer",
+    key: "c",
+    keys: "C",
+    action: "Chamfer",
+    when: "needs a body",
+  },
+  {
+    id: "pattern",
+    key: "p",
+    keys: "P",
+    action: "Pattern",
+    when: "needs a body",
+  },
+  { id: "shell", key: "h", keys: "H", action: "Shell", when: "needs a body" },
+  { id: "draft", key: "d", keys: "D", action: "Draft", when: "needs a body" },
+  { id: "hole", key: "o", keys: "O", action: "Hole", when: "needs a body" },
+  { id: "mirror", key: "i", keys: "I", action: "Mirror", when: "needs a body" },
 ];
+
+/**
+ * The letter a part-workspace verb answers to, or `undefined` where it has none.
+ *
+ * THE point of this accessor is that no other module may hardcode a letter. The
+ * viewport's proposal chip prints `partVerbKey("extrude")` on its `Kbd`, the
+ * band's `ToolButton`s pass it as their `shortcut`, and the sheet derives its
+ * rows from the same table — so a re-keyed verb re-keys every surface that
+ * teaches it, and a letter can never be taught that nothing listens for. A chip
+ * printing a hardcoded key is the "gate that cannot fail" defect wearing a
+ * `Kbd`: correct the day it is written and silently lying afterwards.
+ *
+ * Lower case, as the handlers compare it (`event.key.toLowerCase()`). Callers
+ * that DISPLAY it upper-case it themselves, which keeps the one string the
+ * handler matches from also being a presentation decision.
+ */
+export function partVerbKey(id: PartVerbId): string | undefined {
+  return PART_CREATE_SHORTCUTS.find((entry) => entry.id === id)?.key;
+}
 
 /**
  * Body isolation — the one binding whose handler this slice may not edit
@@ -242,9 +364,14 @@ export function shortcutGroups(): ShortcutGroup[] {
         })),
         { keys: KEY_MEASURE.toUpperCase(), action: "Measure" },
         {
+          // The sheet is the app's only keyboard reference, so this row has to
+          // describe what the key now DOES: since FLOW-B1 the note is written
+          // by two moments (a face under the pointer, and a sketch that just
+          // solved), and its verb's own letter takes it as well as Enter. The
+          // old wording named only the face half and only Enter.
           keys: KEY_ACCEPT_PROPOSAL,
-          action: "Sketch on the face under the pointer",
-          when: "while the proposal is showing",
+          action: "Take the offer the viewport is showing",
+          when: "a leader note — its printed letter does the same",
         },
         {
           keys: KEY_ISOLATE.toUpperCase(),

@@ -5,6 +5,56 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-09-13 (groom pass 20 — pruned from BACKLOG.md pass 21)
+
+- **Groom pass 20 — the frontend-redesign programme (W0/W0REV/W2/W1-partial)
+  was shipping unticked on BACKLOG** (the orchestrator had been ticking
+  ROADMAP directly); reconciled the wave log (FLOW-B1/B2/B3, CRAFT-1/2/3/6,
+  W0REV fix `da98622`). Confirmed the seven W0REV findings
+  (W0REV-3/5/6/7/9/10/11) still open and accurate, not re-filed. Filed six
+  items: MINIO-LICENSE-REVIEW-1 (P1, licensing-custodian/founder decision —
+  MinIO is AGPL-3.0 with no `docs/LICENSING.md` entry, and `bd58416`'s
+  quay.io repoint may force building our own image someday), FLOW-JOURNEY-
+  GAP-1 (the canonical journey doesn't exercise W2's own shortcuts, so the
+  30-gesture headline is unmeasured on the path anyone takes),
+  GRIDMINOR-TONEMAP-1 (a craft fix that trades one gate's pass for
+  another's fail), AXISLABEL-ORTHO-1 (axis labels absent from the DOM in
+  front-ortho with datums on), VIEWFRONT-ORTHO-DECISION-1 (a named view
+  silently switches projection — product decision), MODALGATE-MIGRATION-1
+  (one gate, one registrant). Also ticked the MinIO Docker-Hub-withdrawal CI
+  fix (`bd58416`) into ROADMAP only. No scorecard row flipped this pass.
+
+## 2026-08-29/09-04 (groom pass 19 + interim batch — pruned from BACKLOG.md pass 20)
+
+- **2026-09-04 — ARC-BRANCH-1 closed (kernel-architect):** an annihilated
+  entity is a bad starting guess, not a verdict — one restart from the
+  author's pose with the collapsed entity relocated. Census solvable
+  1326 -> 1328, conflicting 314 -> 312; 36 of 38 collapses still forced.
+  Found a second branch case on a CIRCLE (trial 1593). ARC-DEGENERATE-1's
+  live limit deleted.
+- **2026-08-29 — GHOST-1 evidence pass (frontend-builder):** added the
+  multi-body case the scope decision was made for (a NEIGHBOUR occludes the
+  sketch, not the host) with a pinned orbited camera; founder frames
+  `ghost1-neighbour-{before,after}.png`. No product code changed.
+- **2026-08-29 — GHOST-1 closed (frontend-builder):** a body auto-ghosts
+  while a sketch is open, as a DERIVED default — a stop the modeler set is
+  never overridden on entry nor silently restored on exit. Filed
+  CAMRESTORE-1 (P2).
+- **2026-08-29 — LAYOUT-1 closed by measurement (frontend-builder):** the
+  three-times-corroborated inspector overlap does not reproduce on HEAD
+  (band and strip abut at 0.0 px vs a reported 73 px); a clip-aware
+  regression gate ships in place of a fix. No product code changed.
+- **2026-08-29 — Groom pass 19 (backlog-groomer):** CI-4's original question
+  ANSWERED (not systemically unstable); K2, PBT-1, SOLVE-CRASH-1, CI-BAL all
+  shipped and ticked. Corrected CI-BAL's headroom claim (2.1x local-box ->
+  1.55x real-CI-runner) in ROADMAP + BACKLOG; filed ARC-DEGENERATE-1 (P2),
+  SHARD-MANIFEST-CI-1 (P3); collapsed ~13 closed items out of Ready/Next into
+  the Done archive.
+- **2026-08-17..29 — Groom passes 7-18:** full reachability programme + CI
+  hardening: file-page/export tickets, SOLVE-1/PICK-2 cluster,
+  SETTLE-PERF-1 883x speedup, ORTHO-1/MATE-1 complete, HEM-1 (P0),
+  REACH-2/3-FLOW, PGTEST-GATE, CI-5/CI-5a.
+
 ## 2026-08-28/29 (groom pass 18 + interim batch — pruned from BACKLOG.md pass 19)
 
 - **2026-08-29 — PBT-1 shipped (kernel-architect):** the SETTLE-2/3 sweep is

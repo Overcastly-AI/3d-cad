@@ -44,6 +44,7 @@ import {
 import { buildEvaluateTree, buildMeasureRequest } from "../measure/geometry";
 import { useMeasureStore } from "../measure/store";
 import { MeasureReadout } from "../components/MeasureReadout";
+import { AuthoringViewCube } from "../components/AuthoringViewCube";
 import { MeasureOverlay } from "../viewport/MeasureOverlay";
 import {
   type BooleanParams,
@@ -137,6 +138,7 @@ import { BodiesPanel } from "../components/BodiesPanel";
 import { ChamferEditor } from "../components/ChamferEditor";
 import { CombineEditor } from "../components/CombineEditor";
 import { CreateStrip } from "../components/CreateStrip";
+import { useNextStepAfterBuild } from "../components/useNextStep";
 import {
   ChromeRail,
   ChromeRailProvider,
@@ -174,6 +176,7 @@ import {
 import {
   defaultExtrudeForm,
   defaultProfileId,
+  seededProfileId,
   type ExtrudeForm,
   type ExtrudePreviewState,
   formFromParams,
@@ -333,8 +336,9 @@ import {
 } from "../components/HistoryErrorAlert";
 import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { FacePickOverlay } from "../viewport/FacePickOverlay";
-import { SketchProposal } from "../viewport/SketchProposal";
+import { ProposalNote } from "../viewport/ProposalNote";
 import { pickRefusal } from "../viewport/pickTargets";
+import { highlightedFeatureIds } from "../viewport/scopeHighlight";
 import { useSketchStore } from "../sketch/store";
 import { TOOL_SHORTCUTS } from "../sketch/tools";
 import {
@@ -343,7 +347,14 @@ import {
   PART_CREATE_SHORTCUTS,
 } from "../shortcuts/registry";
 import { partRoute } from "../router";
-import { useNavigate } from "@tanstack/react-router";
+import { useBlocker, useNavigate } from "@tanstack/react-router";
+import { LeaveSketchPrompt } from "./LeaveSketchPrompt";
+import {
+  clearSketchDraft,
+  draftAge,
+  readSketchDraft,
+  writeSketchDraft,
+} from "./sketchDraft";
 import {
   createDrawing,
   createSheet,
@@ -524,6 +535,11 @@ export function PartPage() {
   // unsaved-exit confirm would vanish on an action the user never read as
   // constraining anything. See `SketchState.userConstrained`.
   const userConstrained = useSketchStore((state) => state.userConstrained);
+  // Counts, not the arrays: FLOW-A2's draft mirror and its exit prompt both
+  // need to re-run when the buffer CHANGES SIZE, and selecting the arrays
+  // themselves would re-render this page on every solved-position adoption.
+  const entityCount = useSketchStore((state) => state.entities.length);
+  const constraintCount = useSketchStore((state) => state.constraints.length);
   const begin = useSketchStore((state) => state.begin);
   const setTool = useSketchStore((state) => state.setTool);
   const toggleSnap = useSketchStore((state) => state.toggleSnap);
@@ -896,6 +912,223 @@ export function PartPage() {
     }
     persistBuffer(true);
   }, [persistBuffer]);
+
+  // ---------------------------------------------------------------------
+  // FLOW-A2 — THE THREE ORDINARY EXITS, AND THE DRAFT BEHIND THEM.
+  //
+  // AUDIT-FLOW-2026-09 A2: Back, the breadcrumb and a reload each destroyed a
+  // four-entity, nine-constraint sketch with no prompt and no recovery. There
+  // was no navigation guard of any kind in the app.
+  //
+  // Two halves, and they are not interchangeable. The GUARD (`useBlocker` —
+  // the router's own primitive, so in-app pushes and the popstate of the Back
+  // button go through one code path, and `enableBeforeUnload` covers the
+  // reload the router cannot see) stops the silent exit. The DRAFT
+  // (`sketchDraft.ts`) is what lets the guard say something other than a
+  // threat: a tab that dies unasked still gets its entities back, so the
+  // prompt explains the difference between work that is IN THE PART and work
+  // that is only in this browser.
+  //
+  // Why the unsaved test is `featureId === null || revision > lastSynced` and
+  // not "are there entities": a BOUND sketch debounce-saves every edit, so its
+  // work is already in the part between keystrokes and prompting on the way
+  // out would be a lie. An UNBOUND one has never been written anywhere.
+  // ---------------------------------------------------------------------
+  /**
+   * Read at EVENT time by the blocker, not at registration time — the router
+   * registers the blocker once and calls it later, so the flag has to be a ref.
+   * The one effect below owns both it and the stored bytes, so a guard that
+   * fires and a draft that exists can never disagree about whether there is
+   * unsaved work.
+   */
+  const unsavedSketchRef = useRef(false);
+  /**
+   * Is the browser actually holding the draft? `writeSketchDraft` reports it
+   * rather than swallowing it, because the middle rung of the exit prompt
+   * PROMISES the entities come back — and a promise storage quietly declined to
+   * keep (quota, private mode) would be a new ambiguous exit inside the fix for
+   * ambiguous exits. When this is false the prompt says so instead.
+   */
+  const [draftHeld, setDraftHeld] = useState(true);
+  const [restoredDraft, setRestoredDraft] = useState<{
+    entities: number;
+    savedAt: number;
+  } | null>(null);
+  const [leaveSaving, setLeaveSaving] = useState(false);
+
+  /**
+   * Which part this page last looked for a draft under. Not a boolean: it has
+   * to detect the route swapping parts beneath one mounted page, and it is what
+   * lets the mirror below know the restore has already had its look.
+   *
+   * NOTE it deliberately does NOT gate the restore itself. StrictMode mounts,
+   * tears down and re-mounts every effect in dev, and the workspace's own
+   * `exit()`-on-unmount cleanup fires in that teardown — so a restore that
+   * refused to run twice restored the buffer, watched it be wiped, and then
+   * declined to put it back. Measured: the "Draft restored" note appeared over
+   * an empty part, which is the worst of both answers.
+   */
+  const restoreCheckedFor = useRef<string | null>(null);
+
+  /**
+   * RESTORE ON RE-ENTRY, AND IT MUST RUN BEFORE THE MIRROR BELOW. A draft only
+   * exists while there is work outside the part, so finding one means the last
+   * session ended without saving — by Back, by the breadcrumb, or by the tab
+   * dying.
+   *
+   * The ordering is not a style choice and it is stated twice on purpose (here,
+   * and as the `restoreCheckedFor` gate the mirror reads). On mount the store
+   * is at `mode: "off"`, which the mirror correctly reads as "nothing to keep"
+   * — so a mirror that ran first would DELETE the very draft this effect is
+   * about to load, every single time. Measured: with the two effects the other
+   * way round, all three exits prompted correctly and not one of them ever
+   * restored anything.
+   *
+   * `setState` rather than an action because the store has no verb for this:
+   * `beginEdit` re-opens a sketch that is already a FEATURE (it demands an id),
+   * and the case that hurts is the buffer that never became one. Writing the
+   * fields directly is also the correct history behaviour — a restore is a
+   * session STARTING, not an edit, so it must not become an undo step.
+   *
+   * Every transient field (tool, selection, hint, solve readouts, the undo
+   * stacks) is already at its initial value here: reaching the write requires
+   * `mode === "off"`, which the store is only ever in via `INITIAL` or
+   * `freshSession`. So the payload is all that needs writing.
+   */
+  useEffect(() => {
+    // Swapping parts under one mounted page: whatever is in the store belongs
+    // to the part being left, and mirroring it under THIS part's key would file
+    // one part's geometry under another part's name.
+    const switching =
+      restoreCheckedFor.current !== null &&
+      restoreCheckedFor.current !== partId;
+    if (switching && useSketchStore.getState().mode !== "off") {
+      useSketchStore.getState().exit();
+    }
+    restoreCheckedFor.current = partId;
+    setRestoredDraft(null);
+    const draft = readSketchDraft(partId);
+    if (draft === null) return;
+    if (useSketchStore.getState().mode !== "off") return;
+    useSketchStore.setState({
+      mode: "draw",
+      plane: draft.plane,
+      entities: draft.entities,
+      constraints: draft.constraints,
+      featureId: draft.featureId,
+      nextIdIndex: draft.nextIdIndex,
+      revision: draft.revision,
+      userConstrained: draft.userConstrained,
+    });
+    setRestoredDraft({
+      entities: draft.entities.length,
+      savedAt: draft.savedAt,
+    });
+  }, [partId]);
+
+  /**
+   * THE MIRROR — the live buffer, kept on disk while it is not in the part.
+   * Runs AFTER the restore above; see there for why that is load-bearing.
+   */
+  useEffect(() => {
+    // Never clear a draft the restore has not had its chance to read. The hook
+    // order already guarantees this; the gate says so out loud, so a later
+    // reshuffle of these effects fails loudly rather than silently eating
+    // everybody's in-progress sketches.
+    if (restoreCheckedFor.current !== partId) return;
+    const state = useSketchStore.getState();
+    const plane = state.plane;
+    const unsaved =
+      state.mode === "draw" &&
+      plane !== null &&
+      state.entities.length > 0 &&
+      (state.featureId === null || state.revision > lastSynced.current);
+    unsavedSketchRef.current = unsaved;
+    if (!unsaved || plane === null) {
+      // Nothing to keep: either the buffer is in the part now (saved) or the
+      // user threw it away (the strip's discard). Both are deliberate ends to
+      // the session, so the draft goes with them.
+      //
+      // THE UNMOUNT DISCARD CANNOT REACH HERE, which is the whole reason this
+      // is an effect and not a store subscription: leaving the workspace fires
+      // `exit()` from a cleanup, and an effect of an unmounting component does
+      // not run again. A subscription would see that `exit()`, read it as a
+      // discard, and delete the draft at exactly the moment it is needed.
+      clearSketchDraft(partId);
+      setDraftHeld(true);
+      return;
+    }
+    const held = writeSketchDraft(partId, {
+      plane,
+      entities: [...state.entities],
+      constraints: [...state.constraints],
+      featureId: state.featureId,
+      nextIdIndex: state.nextIdIndex,
+      revision: state.revision,
+      userConstrained: state.userConstrained,
+    });
+    setDraftHeld(held);
+  }, [
+    partId,
+    mode,
+    revision,
+    featureId,
+    entityCount,
+    constraintCount,
+    // Not read directly — it is the render that a completed save produces, and
+    // therefore the only reactive signal that `lastSynced` has moved.
+    syncPending,
+  ]);
+
+  /** Stable by construction — the router registers the blocker exactly once. */
+  const shouldBlockLeave = useCallback(() => unsavedSketchRef.current, []);
+  const leaveGuard = useBlocker({
+    shouldBlockFn: shouldBlockLeave,
+    enableBeforeUnload: shouldBlockLeave,
+    withResolver: true,
+  });
+
+  /**
+   * Where the blocked navigation was heading, in the user's words. The Back
+   * button is the exit people press without knowing where it goes, so the
+   * prompt says — an unnamed destination is half of what makes an exit
+   * ambiguous.
+   */
+  const leaveDestination = useMemo(() => {
+    const path = leaveGuard.next?.pathname ?? "";
+    if (path === "/") return "Parts";
+    if (path.startsWith("/assemblies")) return "Assemblies";
+    if (path.startsWith("/drawings")) return "Drawings";
+    if (path.startsWith("/settings")) return "Settings";
+    if (path.startsWith("/parts/")) return "another part";
+    return "the page you asked for";
+  }, [leaveGuard.next]);
+
+  /**
+   * The top rung: put the work in the part, then go. The save is the existing
+   * exit-after-persist chain, so this cannot drift from what the strip's Save
+   * does; the completion is watched below rather than awaited, because
+   * `persistBuffer` owns its own serialized chain.
+   */
+  const saveAndLeave = useCallback(() => {
+    setSyncError(null);
+    setLeaveSaving(true);
+    persistBuffer(true);
+  }, [persistBuffer]);
+
+  useEffect(() => {
+    if (!leaveSaving) return;
+    if (syncError !== null) {
+      // No dead end: the prompt stays up wearing the reason, and the other two
+      // rungs still work — the draft has the entities either way.
+      setLeaveSaving(false);
+      return;
+    }
+    if (mode === "off" && leaveGuard.status === "blocked") {
+      setLeaveSaving(false);
+      leaveGuard.proceed();
+    }
+  }, [leaveSaving, mode, syncError, leaveGuard]);
 
   // The live loop: debounce-save every edit once constraints exist or the
   // sketch is bound. Plain entity drawing before the first save stays local
@@ -1297,6 +1530,16 @@ export function PartPage() {
   // ---------------------------------------------------------------------
   const features = tree.data?.features ?? [];
   const sketchProfiles = useMemo(() => profileOptions(features), [features]);
+  /**
+   * FLOW-B3 — what the band proposes now that a feature has landed, or null.
+   *
+   * Gated on a BUILD, not on the shape of the tree (W2 review, finding 6):
+   * `useNextStepAfterBuild` arms only for a feature this workspace watched
+   * arrive, so opening a part whose last feature is an old extrude proposes
+   * nothing. The table it wraps — which verb follows which, and the much longer
+   * list of verbs that propose NOTHING — is `components/nextStep.ts`.
+   */
+  const nextStep = useNextStepAfterBuild(tree.data?.features);
   // The part's body set, replayed from the tree (multi-body §MB-1) — drives the
   // Bodies panel and the Combine tool's target/tool pickers. One body is the
   // common case; a `merge: false` add (or an import) starts a second.
@@ -1408,7 +1651,8 @@ export function PartPage() {
   // second channel for two reasons: the scope row is flippable, so a selection-
   // driven mark would keep pointing at `Hole1` after the user chose `This
   // body`; and an editor seeded from the TIP feature has a subject while
-  // nothing at all is selected. Empty whenever no command names a subject.
+  // nothing at all is selected. `null` whenever no command is asking; `[]` when
+  // one is and its answer is the whole body (REACH-2-FLOW-B).
   const scopedFeatureIds = useCommandActionStore((s) => s.scopedFeatureIds);
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
@@ -1736,9 +1980,18 @@ export function PartPage() {
   // rendered body). Mirrors `bodySelected` exactly (selecting a feature opens
   // its editor, so it must NOT gate on `editor === null`) — it localizes the
   // same warm the body already shows, refining whole-body → this feature's faces.
+  //
+  // REACH-2-FLOW-B: WHAT gets tinted is the OPEN COMMAND's scope whenever one is
+  // asking, and the tree selection otherwise — the same source the tree stamp
+  // and the timeline chip read, so the three surfaces answer one question. See
+  // `viewport/scopeHighlight.ts` for why `This body` paints nothing.
   // ---------------------------------------------------------------------
+  const highlightFeatureIds = useMemo(
+    () => highlightedFeatureIds(scopedFeatureIds, selectedFeatureId),
+    [scopedFeatureIds, selectedFeatureId],
+  );
   const selectionActive =
-    mode === "off" && selectedFeatureId !== null && !measureActive;
+    mode === "off" && highlightFeatureIds.length > 0 && !measureActive;
   const selectionOverlayQuery = useQuery({
     queryKey: ["overlay", partId, treeVersion, meshGlbId],
     queryFn: () =>
@@ -1748,14 +2001,21 @@ export function PartPage() {
     retry: false,
   });
   const selectedFaceIndices = useMemo<number[] | null>(() => {
-    if (!selectionActive || selectedFeatureId === null) return null;
+    if (!selectionActive) return null;
     const faces = selectionOverlayQuery.data?.faces;
     if (faces === undefined) return null;
+    // `feature_id` is null/absent on any face the server did not attribute (an
+    // older payload, or a body past the provenance bound) — an unattributed
+    // face matches nothing, exactly as the single-id equality it replaces did.
+    const owners = new Set<string>(highlightFeatureIds);
     const owned = faces
-      .filter((face) => face.feature_id === selectedFeatureId)
+      .filter((face) => {
+        const owner = face.feature_id;
+        return owner !== null && owner !== undefined && owners.has(owner);
+      })
       .map((face) => face.index);
     return owned.length > 0 ? owned : null;
-  }, [selectionActive, selectedFeatureId, selectionOverlayQuery.data]);
+  }, [selectionActive, highlightFeatureIds, selectionOverlayQuery.data]);
 
   // ---------------------------------------------------------------------
   // Pre-selection highlight (UI-W3). A selection you cannot see is a trap: the
@@ -2116,26 +2376,58 @@ export function PartPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mode, editor, hasBody]);
 
-  const openCreateExtrude = useCallback(() => {
-    const features = tree.data?.features ?? [];
-    const profiles = profileOptions(features);
-    const profileId = defaultProfileId(features);
-    if (profileId === "") return;
-    useMeasureStore.getState().deactivate();
-    setEditorError(null);
-    setSelectedFeatureId(null);
-    setEditor({
-      kind: "extrude",
-      mode: "create",
-      // The seat of the seeded profile decides the direction default: a sketch
-      // on a model face cuts INTO the material, a datum plane has no material
-      // side to infer one from (FB-4).
-      initial: defaultExtrudeForm(
-        profileId,
-        optionProvenance(profiles, profileId),
-      ),
-    });
-  }, [tree.data]);
+  /**
+   * Open the Extrude editor, seeded on `seedProfileId` when one is named and on
+   * the tree's default profile otherwise.
+   *
+   * ONE opener with an optional noun, rather than a second path for the
+   * viewport's proposal: everything downstream — the provenance that decides
+   * the direction default (FB-4), the form, the drag handle — must be identical
+   * however the command was started, and two constructions of the same editor
+   * would drift silently rather than fail (FLOW-B1).
+   *
+   * The `typeof` guard is load-bearing, not defensive noise: this same callback
+   * is handed to the band's Extrude button as an `onClick`, so React calls it
+   * with a `MouseEvent` as its first argument. Anything that is not a profile
+   * id means "no seed".
+   *
+   * A NAMED SEED THE TREE NO LONGER OFFERS IS A REFUSAL, NOT A FALLBACK (W2
+   * review, finding 3). This used to fall through to `defaultProfileId`, so a
+   * chip whose `aria-label` said "Extrude Sketch2" could open the editor
+   * holding whatever the tree's default happened to be — the silent wrong noun
+   * that the cross-agent `defaultPrevented` contract exists to prevent,
+   * arriving by a different route. Both sides read the same `profileOptions`
+   * today and so agree; a tree refetch landing between the chip's render and
+   * the click, a rollback or an undo is all it would take. A chip that does
+   * nothing is honest; a chip that opens a different sketch is not.
+   */
+  const openCreateExtrude = useCallback(
+    (seedProfileId?: string) => {
+      const features = tree.data?.features ?? [];
+      const profiles = profileOptions(features);
+      const profileId = seededProfileId(
+        profiles,
+        features,
+        typeof seedProfileId === "string" ? seedProfileId : null,
+      );
+      if (profileId === null) return;
+      useMeasureStore.getState().deactivate();
+      setEditorError(null);
+      setSelectedFeatureId(null);
+      setEditor({
+        kind: "extrude",
+        mode: "create",
+        // The seat of the seeded profile decides the direction default: a sketch
+        // on a model face cuts INTO the material, a datum plane has no material
+        // side to infer one from (FB-4).
+        initial: defaultExtrudeForm(
+          profileId,
+          optionProvenance(profiles, profileId),
+        ),
+      });
+    },
+    [tree.data],
+  );
 
   const openCreateRevolve = useCallback(() => {
     const featureList = tree.data?.features ?? [];
@@ -3854,6 +4146,24 @@ export function PartPage() {
     [handleNewSketch, authorFacePlane],
   );
 
+  /**
+   * Accept the viewport's EXTRUDE proposal (FLOW-B1) — the offer a sketch's own
+   * solve writes on its profile.
+   *
+   * Deliberately the same call the band's Extrude button makes, with the noun
+   * the chip named. The chip promises "the Extrude command on THIS sketch", so
+   * the editor opens with that profile already in `extrude-profile`, the
+   * distance focused and the drag handle live — the user re-picks nothing. It
+   * does NOT commit: one more Enter does, which is the same accept vocabulary
+   * one step further on.
+   */
+  const acceptExtrudeProposal = useCallback(
+    (profileFeatureId: string) => {
+      openCreateExtrude(profileFeatureId);
+    },
+    [openCreateExtrude],
+  );
+
   // Datum-editor face picking. Arming a slot highlights the body's planar faces
   // in the viewport (the shared FacePickOverlay); a click resolves to a
   // full-precision signature the editor folds into that slot. The anchor is the
@@ -4214,9 +4524,14 @@ export function PartPage() {
     }
   }, [mode]);
 
-  // Create/Modify accelerators (mode off): P patterns the current body (needs a
-  // body); S sweeps a profile along a path (needs two solved sketches) — the
-  // same guard grammar as the Measure M accelerator.
+  // Create/Modify accelerators (mode off). Every verb the band names with a
+  // `new-<id>` button and a letter is here, each gated on the same condition
+  // that button uses — the same guard grammar as the Measure M accelerator.
+  //
+  // The letters are read from `PART_CREATE_SHORTCUTS`, never written here: this
+  // table maps a key to its OPENER, the registry decides what the key IS. A
+  // letter typed into this file would be a second source for the binding and
+  // would drift from the reference that teaches it.
   //
   // These are LOCKED behind an open editor exactly like the pointer band is: an
   // open command owns the picks, and firing another opener would `setEditor(...)`
@@ -4225,13 +4540,35 @@ export function PartPage() {
   useEffect(() => {
     if (mode !== "off" || editor !== null) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      // A proposal note on screen has FIRST claim on the letter it prints
+      // (FLOW-B2, W2 direction §3.5). The note binds the same letters on
+      // `window` in the CAPTURE phase and calls `preventDefault()`; this
+      // listener is a bubble-phase one on the same target, so capture has
+      // already run by the time we are here and `defaultPrevented` is the
+      // signal that the note consumed the key.
+      //
+      // Without this line pressing `E` while the extrude offer is showing runs
+      // BOTH handlers: the note's accept (extrude seeded with the offered
+      // profile) and then this opener's generic `openCreateExtrude`, which
+      // `setEditor(...)`s over the top with the DEFAULT profile. The editor is
+      // open either way and looks right — the profile is merely the wrong one,
+      // which is the silent-wrong-result class rather than a visible break.
+      if (event.defaultPrevented) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
       // The keys come from `shortcuts/registry` — the SAME table the key card
       // prints (UI-REVIEW F4), so a re-keyed verb cannot leave the reference
       // teaching a letter nothing listens for.
       const key = event.key.toLowerCase();
+      // Each row's `enabled` is the condition the band's own button uses for
+      // the same verb, so the keyboard and the pointer can never disagree about
+      // whether a verb is available.
       const openers: Record<string, { open: () => void; enabled: boolean }> = {
+        k: { open: startSketch, enabled: true },
+        e: { open: openCreateExtrude, enabled: hasSolvedSketch },
+        r: { open: openCreateRevolve, enabled: hasSolvedSketch },
+        f: { open: openCreateFillet, enabled: hasBody },
+        c: { open: openCreateChamfer, enabled: hasBody },
         p: { open: openCreatePattern, enabled: hasBody },
         s: { open: openCreateSweep, enabled: canSweep },
         l: { open: openCreateLoft, enabled: canLoft },
@@ -4254,8 +4591,14 @@ export function PartPage() {
     mode,
     editor,
     hasBody,
+    hasSolvedSketch,
     canSweep,
     canLoft,
+    startSketch,
+    openCreateExtrude,
+    openCreateRevolve,
+    openCreateFillet,
+    openCreateChamfer,
     openCreatePattern,
     openCreateSweep,
     openCreateLoft,
@@ -4677,6 +5020,7 @@ export function PartPage() {
               exportPartial={partExport.gate.partial}
               exportPartialQualifier={partExport.gate.qualifier ?? undefined}
               exportState={partExport.gate.state}
+              nextStep={nextStep}
             />
           ) : (
             <SketchStrip
@@ -4727,21 +5071,43 @@ export function PartPage() {
               bodySelected={
                 mode === "off" &&
                 !measureActive &&
-                (selectedFeatureId !== null || preselectedFaceIndices !== null)
+                (highlightFeatureIds.length > 0 ||
+                  preselectedFaceIndices !== null)
               }
               bodySelectedFaces={selectedFaceIndices ?? preselectedFaceIndices}
               hud={
                 <>
+                  {/* CRAFT-6 — the reference cube PERSISTS through plane pick
+                    and sketch, where orientation matters most. `viewNav` above
+                    still unmounts the view RAIL (and with it `view-projection`,
+                    a mode the sketch rig cannot honour — see `ProjectionRig`);
+                    only the cube comes back, and it comes back HERE rather
+                    than as a second prop on `Viewport` because the hud slot
+                    already seats chrome in that frame. It is interactive:
+                    facet clicks steer without fighting the sketch rig, which
+                    is measured in `AuthoringViewCube`'s own comment. */}
+                  {mode !== "off" ? <AuthoringViewCube /> : null}
                   <SketchDro solving={syncPending || evaluation.isFetching} />
                   <SolveDiagnostic />
                   <MeasureReadout />
-                  {/* Rest on a face with nothing armed and the viewport offers
-                    the sketch that face affords (FLOW-1). It proposes; the
-                    click or Enter disposes. */}
-                  <SketchProposal
+                  {/* THE ONE PROPOSAL NOTE. Rest on a face with nothing armed
+                    and it offers the sketch that face affords (FLOW-1); solve a
+                    sketch and it offers the extrude that profile affords
+                    (FLOW-B1). It proposes; the click, the letter or Enter
+                    disposes — and at most one note is ever on screen, with the
+                    pointer-addressed one winning. */}
+                  <ProposalNote
                     enabled={proposalContext}
                     face={proposedFace}
                     onAccept={acceptSketchProposal}
+                    // NOT `proposalContext`: that one also demands a body, and
+                    // the first sketch on an empty part is exactly the moment
+                    // this offer exists for.
+                    extrudeEnabled={
+                      mode === "off" && editor === null && !measureActive
+                    }
+                    profiles={sketchProfiles}
+                    onAcceptExtrude={acceptExtrudeProposal}
                   />
                   {/* Inert DOM signal that the live extrude ghost is on screen
                     (the ghost itself is WebGL) — a raster-independent hook QA
@@ -5236,7 +5602,7 @@ export function PartPage() {
                     evaluation={evaluation.data}
                     build={build}
                     selectedFeatureId={selectedFeatureId}
-                    scopedFeatureIds={scopedFeatureIds}
+                    scopedFeatureIds={scopedFeatureIds ?? undefined}
                     onSelectFeature={selectFeature}
                     onKeepAsOneBody={keepAsOneBody}
                     recoveringDisjoint={disjointRecovering}
@@ -5312,6 +5678,46 @@ export function PartPage() {
                 onConfirm={() => deleteFeatureAction(deleteIntent.feature)}
               />
             ) : null}
+            {/* FLOW-A2 — the sketch came back. Silently re-opening the
+                sketcher on a buffer the user last saw before a reload would be
+                an app state that cannot be explained from the screen, so it
+                says what happened, how much came back, and from when. Quiet by
+                design: the exit ticket is where the boldness is spent.
+
+                SEAT: the bottom-centre HUD lane (`bottom-hud-lane`), the same
+                one `NavCue` and the measure readout use. It is FREE here —
+                `viewNav={mode === "off"}` keeps the view rail and the cue out
+                of sketch mode, and this note only ever appears in sketch mode.
+                Its first draft sat at `bottom-3 left-3` and covered the
+                sketcher's own DRO, which is chrome occluding chrome. */}
+            {restoredDraft !== null ? (
+              <div
+                role="status"
+                data-testid="sketch-draft-restored"
+                className="absolute bottom-hud-lane left-1/2 z-hud flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-3 border border-hairline bg-anvil/90 px-3 py-1.5 shadow-float backdrop-blur-sm"
+              >
+                <span className="shrink-0 font-display text-2xs uppercase tracking-[0.16em] text-brass">
+                  Draft restored
+                </span>
+                <span aria-hidden className="h-3 w-px shrink-0 bg-hairline" />
+                <span className="min-w-0 font-body text-2xs text-gauge">
+                  <span className="font-data text-mist">
+                    {restoredDraft.entities}
+                  </span>{" "}
+                  {restoredDraft.entities === 1 ? "entity" : "entities"} from{" "}
+                  {draftAge(restoredDraft.savedAt)}, kept in this browser — Save
+                  sketch puts them in the part.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setRestoredDraft(null)}
+                  data-testid="sketch-draft-restored-dismiss"
+                  className="shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-gauge outline-none hover:text-brass focus-visible:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ) : null}
             {/* Tree-action failure (rename/delete) — honest, dismissible chrome. */}
             {treeActionError !== null ? (
               <div
@@ -5346,7 +5752,7 @@ export function PartPage() {
           tree={tree.data}
           evaluation={evaluation.data}
           selectedFeatureId={selectedFeatureId}
-          scopedFeatureIds={scopedFeatureIds}
+          scopedFeatureIds={scopedFeatureIds ?? undefined}
           onSelectFeature={selectFeature}
           onMoveRollback={moveRollback}
           // The stop also holds while a history step is restoring (the mutual
@@ -5376,6 +5782,25 @@ export function PartPage() {
           data-testid="tree-context-menu"
           sections={buildTreeSections(treeMenu.feature)}
           onClose={() => setTreeMenu(null)}
+        />
+      ) : null}
+      {/* FLOW-A2 — the exit ticket. Rendered only while the router is actually
+          holding a navigation, so it cannot appear for any other reason.
+          No belt-and-braces draft write here: the SAME effect that raised
+          `unsavedSketchRef` wrote the draft, so a blocked navigation already
+          implies the bytes on disk are current. */}
+      {leaveGuard.status === "blocked" ? (
+        <LeaveSketchPrompt
+          partName={part.data?.name ?? "this part"}
+          destination={leaveDestination}
+          entityCount={entityCount}
+          constraintCount={constraintCount}
+          draftHeld={draftHeld}
+          saving={leaveSaving}
+          error={syncError}
+          onSaveAndLeave={saveAndLeave}
+          onLeave={leaveGuard.proceed}
+          onStay={leaveGuard.reset}
         />
       ) : null}
     </DocumentUnitProvider>

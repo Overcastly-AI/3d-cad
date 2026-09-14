@@ -14,6 +14,7 @@ import {
   SnapEndpointIcon,
   SnapIntersectionIcon,
   SnapMidpointIcon,
+  SnapOnCurveIcon,
   SnapOriginIcon,
   SnapXAxisIcon,
   SnapYAxisIcon,
@@ -38,6 +39,7 @@ import {
   BufferGeometry,
   Float32BufferAttribute,
   Matrix4,
+  OrthographicCamera,
   Quaternion,
   Vector3,
   type Camera,
@@ -74,6 +76,12 @@ import {
   SKETCH_CAMERA_FOV_DEG,
 } from "../sketch/origin";
 import {
+  bufferDrawKey,
+  bufferedText,
+  type DrawKeyBuffer,
+} from "./drawDimensionKeys";
+import { useViewCommandStore, type ViewPose } from "./viewCommands";
+import {
   DATUM_LABELS,
   DATUM_PICKS,
   DATUM_X_AXIS_ID,
@@ -89,10 +97,12 @@ import {
 } from "../sketch/datum";
 import {
   pickCandidates,
+  replacementPick,
   samePick,
   PICK_TOLERANCE_PX,
   type SketchPick,
 } from "../sketch/pick";
+import { pickMark, type PickMarkKind } from "../sketch/pickMark";
 import {
   DATUM_PLANES,
   sceneOriginBasis,
@@ -124,6 +134,7 @@ import { AdaptiveGrid } from "./AdaptiveGrid";
 import { bluingRadiusMm, bluingWash } from "./bluingWash";
 import { ConstraintGlyphs } from "./ConstraintGlyphs";
 import { sketchIsDrawn, usePartViewStore } from "./partView";
+import { SolveProposalAnchor } from "./SolveProposalAnchor";
 
 /**
  * DEPTH POLICY OF THE SKETCHER (founder defect, 2026-08-01: *"I had an
@@ -618,9 +629,17 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
           // highlights the hovered target only (points are irrelevant to them);
           // select keeps its finer point-first grain. In the mirror axis phase
           // the hovered line drives the live reflection ghost (DrawLayer).
+          //
+          // For SELECT that is `replacementPick`, not `all[0]`: with one thing
+          // already held, a repeat click WALKS the stack (`applyPick`'s
+          // click-through), so the head of the list is not what the next click
+          // takes. Naming it would make the mark (SEL-2) and the highlight
+          // promise a pick the click does not make — the defect the comment
+          // above claims this path avoids, half-implemented. The click rule
+          // itself is untouched; both sides now read it from one function.
           const candidate =
             (aimTool === "select"
-              ? all[0]
+              ? replacementPick(state.selection, all)
               : all.find((pick) => pick.kind === "entity")) ?? null;
           const previous = useSketchStore.getState().hoverPick;
           if (
@@ -856,12 +875,19 @@ const SNAP_MARKS: Record<SnapKind, (props: IconProps) => ReactElement> = {
 };
 
 /**
- * THE honesty cue (UI-W5): a mark at the candidate NAMING which snap this
- * click will take, before it is taken. A snap that silently grabs the wrong
- * thing is worse than no snap — the sketch ends up subtly wrong and nothing on
- * screen ever said so — so the mark carries both a distinct form and the WORD.
- * Competitors show the symbol alone; the word is the deliberate extra, because
- * a symbol only informs someone who already learned it.
+ * THE honesty cue (UI-W5, extended to selection by SEL-2): a mark at the
+ * candidate NAMING what this click will take, before it is taken. A click that
+ * silently grabs the wrong thing is worse than one that grabs nothing — the
+ * sketch ends up subtly wrong and nothing on screen ever said so — so the mark
+ * carries both a distinct form and the WORD. Competitors show the symbol alone;
+ * the word is the deliberate extra, because a symbol only informs someone who
+ * already learned it.
+ *
+ * ONE mark, two callers: {@link SnapMarker} while PLACING a point and
+ * {@link PickMarker} while SELECTING one. They differ only in what they resolve
+ * and what they call it — the glyph size, the chip, the z-range, the ink and the
+ * pointer-inertness are stated here once, so the two can never drift into two
+ * dialects of the same cue.
  *
  * Measured contrast on the carbide viewport ground (#0F141A): the mark in
  * `brass-hover` reads 11.80:1, and 5.49:1 in the worst case of sitting on a
@@ -873,40 +899,36 @@ const SNAP_MARKS: Record<SnapKind, (props: IconProps) => ReactElement> = {
  * Pointer-inert: the mark floats over the pointer catcher and must never eat
  * the click it is describing.
  */
-function SnapMarker({ basis }: { basis: PlaneBasis }) {
-  const candidate = useSketchStore((state) => state.snapCandidate);
-  const plane = useSketchStore((state) => state.plane);
-  if (candidate === null) return null;
-  const Mark = SNAP_MARKS[candidate.kind];
-  // The candidate's OWN word wins where it carries one: the origin's honest
-  // name depends on what this plane's zero is (`sketch/origin.ts`).
-  const label = candidate.label ?? SNAP_LABELS[candidate.kind];
-  // …and where that zero can MOVE — a seated face's area centroid — the caveat
-  // rides the accessible name, so the one surface that states it is the one the
-  // user is reading at the moment they take it.
-  const note = candidate.kind === "origin" ? originIdentity(plane).note : null;
+function CursorMark({
+  basis,
+  at,
+  mark: Mark,
+  label,
+  ariaLabel,
+  testId,
+  attributes,
+}: {
+  basis: PlaneBasis;
+  at: Point2D;
+  mark: (props: IconProps) => ReactElement;
+  label: string;
+  ariaLabel: string;
+  testId: string;
+  attributes?: Record<string, string | undefined>;
+}) {
   return (
     <Html
-      position={planeToWorld(basis, candidate.at)}
+      position={planeToWorld(basis, at)}
       center
       zIndexRange={SNAP_Z_RANGE}
       style={{ pointerEvents: "none" }}
     >
       <div
         className="relative"
-        data-testid="snap-marker"
-        data-snap-kind={candidate.kind}
-        data-snap-entities={
-          candidate.entities.length > 0
-            ? candidate.entities.join(" ")
-            : undefined
-        }
+        data-testid={testId}
+        {...attributes}
         role="img"
-        aria-label={
-          note === null
-            ? `Snapping to ${label.toLowerCase()}`
-            : `Snapping to ${label.toLowerCase()} — ${note}`
-        }
+        aria-label={ariaLabel}
       >
         <Mark size={SNAP_MARK_PX} className="block text-brass-hover" />
         {/* The word is a callout, offset clear of the mark's own strokes —
@@ -920,6 +942,153 @@ function SnapMarker({ basis }: { basis: PlaneBasis }) {
         </span>
       </div>
     </Html>
+  );
+}
+
+/** The mark while PLACING a point: which snap the click will take (UI-W5). */
+function SnapMarker({ basis }: { basis: PlaneBasis }) {
+  const candidate = useSketchStore((state) => state.snapCandidate);
+  const plane = useSketchStore((state) => state.plane);
+  if (candidate === null) return null;
+  // The candidate's OWN word wins where it carries one: the origin's honest
+  // name depends on what this plane's zero is (`sketch/origin.ts`).
+  const label = candidate.label ?? SNAP_LABELS[candidate.kind];
+  // …and where that zero can MOVE — a seated face's area centroid — the caveat
+  // rides the accessible name, so the one surface that states it is the one the
+  // user is reading at the moment they take it.
+  const note = candidate.kind === "origin" ? originIdentity(plane).note : null;
+  return (
+    <CursorMark
+      basis={basis}
+      at={candidate.at}
+      mark={SNAP_MARKS[candidate.kind]}
+      label={label}
+      testId="snap-marker"
+      attributes={{
+        "data-snap-kind": candidate.kind,
+        "data-snap-entities":
+          candidate.entities.length > 0
+            ? candidate.entities.join(" ")
+            : undefined,
+      }}
+      ariaLabel={
+        note === null
+          ? `Snapping to ${label.toLowerCase()}`
+          : `Snapping to ${label.toLowerCase()} — ${note}`
+      }
+    />
+  );
+}
+
+/**
+ * One mark per PICK kind. Four of the six are the drawing marks, referenced
+ * rather than re-listed: selection and placement address the same objects, so a
+ * user who learned the square while drawing must not meet a second dialect while
+ * selecting (`sketch/pickMark.ts`). Only the on-curve tick is new, because
+ * placement has no equivalent for "the curve itself, here".
+ */
+const PICK_MARKS: Record<PickMarkKind, (props: IconProps) => ReactElement> = {
+  endpoint: SNAP_MARKS.endpoint,
+  center: SNAP_MARKS.center,
+  origin: SNAP_MARKS.origin,
+  "x-axis": SNAP_MARKS["x-axis"],
+  "y-axis": SNAP_MARKS["y-axis"],
+  "on-curve": SnapOnCurveIcon,
+};
+
+/**
+ * Is a pointer button down right now? A held pointer means the gesture belongs
+ * to the CAMERA (Alt-orbit, middle-pan) or to nothing at all — the select tool
+ * commits on the release, and only if the pointer barely travelled (`isClick`).
+ * Either way no click is being aimed, so the word would be a label chasing the
+ * cursor across the frame: motion that says nothing, which is the definition of
+ * decoration this project treats as a defect (mandate 3c).
+ *
+ * Window-level, capturing, and `pointercancel`-aware, because the release that
+ * ends an orbit is frequently delivered somewhere other than the sheet.
+ */
+function usePointerHeld(): boolean {
+  const [held, setHeld] = useState(false);
+  useEffect(() => {
+    const down = () => setHeld(true);
+    const up = () => setHeld(false);
+    window.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
+    return () => {
+      window.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
+    };
+  }, []);
+  return held;
+}
+
+/**
+ * THE SAME HONESTY CUE, FOR SELECTING (SEL-2, acceptance A3). The founder's
+ * report was a sketch line that *"wouldn't even select"*; picking resolved a
+ * winner every time and never said which, so a mis-aim was invisible until after
+ * the click — the exact failure `SnapMarker` was built to end for placement.
+ *
+ * The pick it names is `hoverPick`, which the pointer handler resolves through
+ * the SAME call the click makes (`pickWithDatums` → `replacementPick`), so the
+ * word, the lit ink and the click cannot disagree — including in the
+ * click-through cycle, where the head of the candidate list is NOT what the next
+ * click takes.
+ *
+ * A tie between two candidates is not silence and not a coin flip: the ranking
+ * (`pickCandidates` — points before curves, nearest first, drawing order last)
+ * settles it, and this mark states the answer. What it does not yet state is
+ * that others were under the cursor at all; that count badge is SEL-3, and it
+ * hangs off this mark.
+ */
+function PickMarker({ basis }: { basis: PlaneBasis }) {
+  const hoverPick = useSketchStore((state) => state.hoverPick);
+  const entities = useSketchStore((state) => state.entities);
+  const cursor = useSketchStore((state) => state.cursor);
+  const tool = useSketchStore((state) => state.tool);
+  const plane = useSketchStore((state) => state.plane);
+  const frameHalfMm = useSketchStore((state) => state.datumFrameHalfMm);
+  const held = usePointerHeld();
+  const invalidate = useThree((state) => state.invalidate);
+  const mark = useMemo(
+    () =>
+      hoverPick === null || cursor === null
+        ? null
+        : pickMark(hoverPick, entities, cursor, datumFrame(frameHalfMm)),
+    [hoverPick, entities, cursor, frameHalfMm],
+  );
+  // Mounting an `Html` on a demand-rendered scene needs a frame to place it, and
+  // the release that un-suppresses this mark is not itself a pointer MOVE — so
+  // without this the mark would reappear at a stale spot until the user twitched.
+  useEffect(() => invalidate(), [held, invalidate]);
+  if (mark === null || held) return null;
+  // The frame's zero can MOVE on a face-seated sketch, and that caveat belongs
+  // wherever its name appears — the same sentence the snap mark carries.
+  const note = mark.kind === "origin" ? originIdentity(plane).note : null;
+  const named = `${mark.label.toLowerCase()}${note === null ? "" : ` — ${note}`}`;
+  return (
+    <CursorMark
+      basis={basis}
+      at={mark.at}
+      mark={PICK_MARKS[mark.kind]}
+      label={mark.label}
+      testId="pick-marker"
+      attributes={{
+        "data-pick-kind": mark.kind,
+        "data-pick-entity":
+          hoverPick === null
+            ? undefined
+            : hoverPick.kind === "entity"
+              ? hoverPick.id
+              : hoverPick.entity,
+      }}
+      ariaLabel={
+        tool === "select"
+          ? `Click to select ${named}`
+          : `Click to ${tool} ${named}`
+      }
+    />
   );
 }
 
@@ -993,6 +1162,8 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
   const unit = useDocumentLengthUnit();
   const invalidate = useThree((state) => state.invalidate);
   const inputs = useRef(new Map<DrawDimensionKey, HTMLInputElement>());
+  /** Keys typed before the cells existed, waiting for a commit to land in. */
+  const buffered = useRef<DrawKeyBuffer | null>(null);
 
   const state: TagState | null = useMemo(() => {
     if (draft !== null) {
@@ -1014,7 +1185,6 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
   }, [draft, tool, pending, cursor]);
 
   const armed = state?.armed === true;
-  const firstKey = state?.fields[0]?.key;
   // One identity per drawn shape: it re-keys the cells, so a new rectangle
   // never inherits the numbers typed into the last one.
   const draftKey = draft === null ? "live" : draft.ids.join(",");
@@ -1042,34 +1212,122 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
     invalidate();
   }, [commit, readValues, invalidate]);
 
-  // Type anywhere to start dimensioning: the first digit lands in the first
-  // cell. Enter with nothing typed accepts the shape as drawn and closes.
+  /**
+   * Type anywhere to start dimensioning: the first digit lands in the first
+   * cell. Enter with nothing typed accepts the shape as drawn and closes.
+   *
+   * FLOW-A1 — THIS LISTENER IS ATTACHED FOR THE WHOLE SKETCH SESSION, NOT ONLY
+   * WHILE `armed`, and that is the fix, not a tidy-up. It used to depend on
+   * `armed`, which is a RENDER: the store's draft is set synchronously inside
+   * the pointer handler, but React's commit lands ~75 ms later and the effect
+   * after it. A user who types in that window is typing at a listener that does
+   * not exist yet, so the characters go to the canvas and vanish — measured, a
+   * plate drawn at 80 x 40 and dimensioned "100 Tab 50 Enter" in the same
+   * instant stayed 80 x 40, with the strip reading `armed` and saying *"Type a
+   * size"* the entire time. Gating on `drawDimension` read LIVE from the store
+   * removes the race rather than shortening it: the truth the handler consults
+   * is set in the same turn as the click that placed the shape.
+   */
   useEffect(() => {
-    if (!armed || firstKey === undefined) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (isTypingTarget(event.target)) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      // The STORE, not the render: `placeAt` set this before the pointer
+      // handler returned, whether or not React has caught up.
+      const live = useSketchStore.getState().drawDimension;
+      if (live === null) {
+        buffered.current = null;
+        return;
+      }
+      const firstLiveKey = live.fields[0]?.key;
+      if (firstLiveKey === undefined) return;
+      const cell = inputs.current.get(firstLiveKey);
+      if (cell === undefined) {
+        // THE CELLS ARE NOT IN THE DOM YET. Hold the keys against this draft
+        // and replay them in the commit that creates the cells; `preventDefault`
+        // so a buffered Tab cannot walk browser focus somewhere else first.
+        const outcome = bufferDrawKey(buffered.current, event.key, {
+          draftId: live.ids.join(","),
+          fieldCount: live.fields.length,
+          shiftKey: event.shiftKey,
+        });
+        if (outcome.kind === "ignored") return;
+        event.preventDefault();
+        buffered.current = outcome.buffer;
+        return;
+      }
       if (event.key === "Enter") {
         event.preventDefault();
         apply();
         return;
       }
       if (!STARTS_A_VALUE.test(event.key) && event.key !== "Tab") return;
-      const input = inputs.current.get(firstKey);
-      if (input === undefined) return;
       // Focus DURING keydown and let the BROWSER deliver the character to the
       // newly-focused cell. Inserting it by hand (preventDefault + setState)
       // is what loses it — see the note on `readValues`.
       if (event.key === "Tab") event.preventDefault();
-      input.focus();
+      cell.focus();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [armed, firstKey, apply]);
+  }, [apply]);
 
   if (state === null) return null;
 
   const { from, to, fields } = state;
+
+  /**
+   * Register a cell's node and, if keys were typed before it existed, put them
+   * in (FLOW-A1).
+   *
+   * THE REPLAY LIVES IN THE REF CALLBACK, NOT IN AN EFFECT, and that is
+   * measured rather than stylistic. These cells are inside drei's `<Html>`,
+   * which portals its children into a DOM container it mounts in a commit of
+   * its OWN — so this component's `useLayoutEffect` runs while the inputs do
+   * not exist yet. Traced: at the layout effect of the arming commit,
+   * `armed: true`, the buffer held `["100", ""]` and the ref map was `[]`; a
+   * ref registration schedules no render, so the effect never ran again and the
+   * replay wrote into nothing. React calls a ref the instant the node is
+   * attached, which is the earliest moment there is anything to write to and
+   * the only one that cannot be early.
+   *
+   * Writing `node.value` directly is the same decision as everywhere else here:
+   * the DOM owns the text (see {@link readValues}), so this is the ordinary way
+   * to put a value in, not a reach around React.
+   */
+  const registerCell = (
+    key: DrawDimensionKey,
+    index: number,
+    node: HTMLInputElement | null,
+  ) => {
+    if (node === null) {
+      inputs.current.delete(key);
+      return;
+    }
+    inputs.current.set(key, node);
+    const pending = buffered.current;
+    if (pending === null) return;
+    if (pending.draftId !== draftKey) {
+      // Typing that belongs to a shape that is no longer on screen. Drop it —
+      // replaying it here would put the last rectangle's width on this one.
+      buffered.current = null;
+      return;
+    }
+    const text = bufferedText(pending, index);
+    if (text !== "") node.value = text;
+    if (index === pending.index) {
+      node.focus();
+      // Caret at the end: the user is mid-number, and a selected value would
+      // make their next digit REPLACE what they have already typed.
+      node.setSelectionRange(node.value.length, node.value.length);
+    }
+    // Hold the buffer until every cell has had its turn — the fields register
+    // one at a time, and consuming it on the first would lose the second.
+    if (inputs.current.size < fields.length) return;
+    buffered.current = null;
+    if (pending.apply) apply();
+    invalidate();
+  };
   const onKeyDown = (
     event: ReactKeyboardEvent<HTMLInputElement>,
     index: number,
@@ -1126,10 +1384,9 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
                   placeholder={sizeText(field.measuredMm, unit)}
                   aria-label={`${field.name} in ${lengthUnitLabel(unit)}`}
                   data-testid={`draw-dimension-${field.key}`}
-                  ref={(node: HTMLInputElement | null) => {
-                    if (node === null) inputs.current.delete(field.key);
-                    else inputs.current.set(field.key, node);
-                  }}
+                  ref={(node: HTMLInputElement | null) =>
+                    registerCell(field.key, index, node)
+                  }
                   onFocus={() => focusCell(field.key)}
                   onBlur={() => focusCell(null)}
                   onKeyDown={(event) => onKeyDown(event, index)}
@@ -1713,6 +1970,10 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
       <InkSegments positions={witness} color={sketch.glyphDimension} onTop />
       <Crosshair basis={basis} />
       <SnapMarker basis={basis} />
+      {/* Placement and selection never run at once — `hoverPick` is only set by
+          the tools that do NOT place points — so the two marks can never stack
+          on the same pixels. */}
+      <PickMarker basis={basis} />
       <DrawDimensionTag basis={basis} />
       <ConstraintGlyphs basis={basis} />
     </group>
@@ -1861,6 +2122,29 @@ function sketchFrameHalfHeightMm(
 /**
  * Camera rig: eases to the plane-pick iso or the normal-on authoring pose
  * (instant under prefers-reduced-motion), releases the camera otherwise.
+ *
+ * GIVING THE CAMERA BACK MEANS GIVING THE VIEW BACK (CAMRESTORE-1). This rig
+ * used to hand back only the world up and leave the camera parked normal-on to
+ * the plane, so a modeller who entered a sketch to add one dimension came out
+ * looking at a flat diamond from TOP and had to re-orient by hand — measured
+ * across a round trip as canvas brightness 310289 -> 24675 with `data-drawn-
+ * faces` 6 at BOTH ends, i.e. nothing about what is DRAWN changed and only the
+ * framing moved. Fusion returns you to the view you were in. So the pose is
+ * remembered when this rig TAKES the camera and requested back when it releases
+ * it, through the same view-command seam the rail and the reference cube use —
+ * which means it eases, honours `prefers-reduced-motion`, and cannot fight the
+ * part rig, because that rig owns the camera again by the time it executes.
+ *
+ * EXCEPT WHEN THE MODELLER CHOSE OTHERWISE. Orbit is available mid-sketch on
+ * the middle button and on Alt+left (VP-1/VP-1a), and someone who turns the
+ * view while drawing has stated a preference that a remembered pose must not
+ * overrule — the same rule the auto-ghost follows, where the derived state is a
+ * DEFAULT an explicit user action beats. `tookTheCamera` is that action.
+ *
+ * It only counts a gesture made after the park has LANDED. During the entry
+ * ease this rig is writing the camera every frame, so a drag in that window is
+ * overwritten and the modeller sees no turn at all; treating it as a choice
+ * would suppress the restore on the strength of a gesture that had no effect.
  */
 function SketchCameraRig() {
   const mode = useSketchStore((state) => state.mode);
@@ -1871,11 +2155,25 @@ function SketchCameraRig() {
     (state) => state.controls,
   ) as OrbitControlsImpl | null;
   const invalidate = useThree((state) => state.invalidate);
+  const requestPose = useViewCommandStore((state) => state.requestPose);
   const goal = useRef<{
     position: Vector3;
     up: Vector3;
     target: Vector3;
   } | null>(null);
+  /** The part view this rig took the camera from; null when it holds none. */
+  const parked = useRef<ViewPose | null>(null);
+  /** Has the modeller moved the camera by hand since the park landed? */
+  const tookTheCamera = useRef(false);
+
+  useEffect(() => {
+    const onStart = () => {
+      // Mid-ease gestures do not count — see the doc comment.
+      if (goal.current === null) tookTheCamera.current = true;
+    };
+    controls?.addEventListener("start", onStart);
+    return () => controls?.removeEventListener("start", onStart);
+  }, [controls]);
 
   useEffect(() => {
     let pose: CameraPose | null = null;
@@ -1894,12 +2192,42 @@ function SketchCameraRig() {
         target: [0, 0, 0],
       };
     } else {
-      // Sketch over: give the camera back, restore the world up.
+      // Sketch over: give the camera back — the VIEW as well as the world up.
+      const remembered = parked.current;
+      const chose = tookTheCamera.current;
+      parked.current = null;
+      tookTheCamera.current = false;
       goal.current = null;
       camera.up.set(0, 1, 0);
       controls?.update();
       invalidate();
+      // The request goes through the store rather than moving the camera here,
+      // so the PART rig performs it: it owns the camera from this render on, it
+      // eases and re-clips exactly as it does for the view rail, and it is the
+      // only rig that may write the camera once the sketch is over (two rigs
+      // easing one camera deadlock — see `Viewport.CameraRig`'s release note).
+      if (remembered !== null && !chose) requestPose(remembered);
       return;
+    }
+    // Remember what we are taking, on the way in. Only on the FIRST sketch mode
+    // of a session in the sketcher: `plane` -> `draw` is one visit, and
+    // re-reading the camera there would remember the plane-pick iso this rig
+    // had just imposed rather than the view the modeller came from.
+    if (parked.current === null) {
+      const target = controls?.target ?? new Vector3();
+      parked.current = {
+        position: camera.position.toArray(),
+        up: camera.up.toArray(),
+        target: target.toArray(),
+        // A parallel camera frames by zoom, and `ProjectionRig` holds
+        // perspective for the duration of a sketch — so without this an
+        // orthographic modeller comes back to the right attitude at the wrong
+        // apparent size.
+        ...(camera instanceof OrthographicCamera
+          ? { zoom: camera.zoom }
+          : undefined),
+      };
+      tookTheCamera.current = false;
     }
     const next = {
       position: new Vector3(...pose.position),
@@ -1920,7 +2248,7 @@ function SketchCameraRig() {
       goal.current = next;
     }
     invalidate();
-  }, [mode, plane, reducedMotion, camera, controls, invalidate]);
+  }, [mode, plane, reducedMotion, camera, controls, invalidate, requestPose]);
 
   useFrame((_, delta) => {
     const g = goal.current;
@@ -2033,6 +2361,11 @@ export function SketchScene({ solved, facePicking = false }: SketchSceneProps) {
         </group>
       ) : null}
       <SketchCameraRig />
+      {/* No geometry of its own: it projects the solved profile the HUD's
+          proposal note is asking about, because the camera lives in here and
+          the note is DOM out there (FLOW-B1). `solved`, not `drawn` — the
+          offer is about a sketch that exists, not about ink that is shown. */}
+      <SolveProposalAnchor layers={solved} />
     </group>
   );
 }

@@ -40,11 +40,27 @@ we use the plugin (network policy permitting) or vendor them later.
 
 ## Workflows (`workflows/`)
 
+Executable workflows are the `.js` files; the `.md` files are the recipes they
+implement. The table was missing `loft-dev-loop` and `loft-frontend-loop`
+entirely until 2026-09-11 — a workflow absent from here is one nobody reaches
+for, which is the same failure mode as a subtree missing from a loop's own list.
+
 | Workflow | Purpose |
 |----------|---------|
+| `loft-dev-loop.js` | **The org loop.** Discover → audit → groom → build a batch in parallel worktrees → review → verify → integrate. One batch per invocation; chains on completion. No cron, no watchdog |
+| `loft-frontend-loop.js` | **Reachability.** "The backend has this and the UI does not" — parity from the committed contract → flow → build in disjoint `apps/web` subtrees → design review → QA |
+| `loft-frontend-redesign-loop.js` | **Cost and feel.** "The capability is there and reaching it costs too much." Gesture cost → one fixed design direction → design-system change first and alone → build → design review → QA → re-measure |
+| `autonomous-dev-loop` | The recipe `loft-dev-loop.js` implements |
 | `build-vertical-slice` | One HANDED-IN ticket: build (in a worktree) → review → QA. Pick and Plan were removed 2026-08-14 |
 | `nightly-build-loop` | Work down the Ready queue unattended; retry-once-then-park |
-| `autonomous-dev-loop` | The org loop: audit → groom → build a batch in parallel worktrees → integrate; chains on completion. No cron, no watchdog |
+
+**Which frontend loop?** They answer different questions and the wrong one is a
+wasted wave. `loft-frontend-loop` asks *can the user reach this at all* and is
+right when a shipped capability has no UI path. `loft-frontend-redesign-loop`
+asks *what does this cost the user's hand* and is right when the path exists and
+is too long, or the surface does not feel like a modeling tool. `check-ui-parity.py`
+is blind to the second by construction — it says so itself — because a
+capability that takes eleven gestures is still AUTHORABLE.
 
 The loop's survival rules (never barrier builds on planning,
 retry-then-skip, write-early, always arm the next iteration) are documented

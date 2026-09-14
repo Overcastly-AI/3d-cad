@@ -108,11 +108,27 @@ export function toolOptionsFor(
 
 /** True when the form can be submitted: a target, a tool, and they differ. */
 export function canSubmitCombine(form: CombineForm): boolean {
-  return (
-    form.targetFeatureId !== "" &&
-    form.toolFeatureId !== "" &&
-    form.targetFeatureId !== form.toolFeatureId
-  );
+  return combineSubmitBlocker(form) === null;
+}
+
+/**
+ * WHY the combine cannot be run yet, or null when it can (REASON-GATE-1 — see
+ * `submitBlocker.ts` for the rule and the 48-character budget).
+ *
+ * The two body slots are named with the OPERATION'S OWN labels ("Target (kept)"
+ * vs "Body A (kept)") rather than a generic "target"/"tool", so the sentence
+ * names the select the user is looking at. Derived from `operationCopy`, never
+ * restated, so a relabelled operation cannot leave the reason pointing at a
+ * field name that is no longer on screen.
+ */
+export function combineSubmitBlocker(form: CombineForm): string | null {
+  const copy = operationCopy(form.operation);
+  if (form.targetFeatureId === "") return `Choose ${copy.targetLabel}.`;
+  if (form.toolFeatureId === "") return `Choose ${copy.toolLabel}.`;
+  if (form.targetFeatureId === form.toolFeatureId) {
+    return "Pick two different bodies.";
+  }
+  return null;
 }
 
 /** Build the persisted boolean params from valid form state, or null.

@@ -46,6 +46,7 @@ import {
   REPICK_FACE_ACTION,
 } from "../features/featureErrors";
 import { featureTypeLabel } from "../features/featureLabels";
+import { useCancelKey } from "../lib/modalGate";
 import {
   conflictMessage,
   firstOrderConflict,
@@ -387,18 +388,28 @@ export function FeatureTreePanel({
   // ESCAPE ABANDONS THE DRAG — and because the list never moved, abandoning it
   // IS restoring the original order. A drag that committed on release with no
   // way out is the "ambiguous exit" the flow rule calls a defect.
-  useEffect(() => {
-    if (drag === null) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      setDrag(null);
-      setRefused(null);
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [drag]);
+  //
+  // On the cancel cascade's STRONGEST rung: a gesture in progress is the most
+  // transient thing on screen and nothing else can plausibly be what the key
+  // meant. This was a raw capture listener with `stopPropagation()`, which does
+  // not stop a SIBLING listener on `window` — so it abandoned the drag AND
+  // withdrew the proposal chip, two steps from one key (cross-item QA,
+  // 2026-09-13). The cascade runs one rung and stops.
+  useCancelKey(
+    "drag",
+    drag === null
+      ? null
+      : () => {
+          setDrag(null);
+          setRefused(null);
+        },
+    // `whileTyping`, for the reason the reorder chord above already states:
+    // selecting a fillet row leaves focus in `fillet-radius`, so a handler
+    // that bailed on any `<input>` would be unreachable in precisely the state
+    // that arms it. Measured when the cascade first took this over — the seat
+    // stayed painted and the drag could not be put down.
+    { whileTyping: true },
+  );
 
   /**
    * Which row's band the pointer is over — the seat it would take. Nearest

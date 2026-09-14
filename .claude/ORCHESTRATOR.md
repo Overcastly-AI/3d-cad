@@ -190,6 +190,34 @@ agent's output mtime is under 30 minutes.
 
 ## 4. Rules that survive contact
 
+- **IF YOU DISPATCH BY HAND, YOU OWN THE LOOP'S PHASES BY HAND. Measured twice
+  in one session, both times by me.** The loops in `.claude/workflows/` encode
+  Review and QA as phases. Dispatching builders directly with the `Agent` tool
+  is often the right call — it is cheaper, it survives a dead planner, and it
+  lets you shape a brief around what the last wave just taught you — but it
+  silently drops every phase the script would have run, and the drop is
+  invisible because the builders all come back green.
+  Wave 0: two builders dispatched by hand, integrated from their reports. No
+  code review, no cross-item QA. A retrospective review then found a BLOCKING
+  defect — the two fixes were each correct and wrong together, Enter on the new
+  modal applied the sketch dimension instead of pressing the focused button —
+  and it was visible in the very screenshot committed as proof the feature
+  worked. Neither builder could have caught it: one predated the other's
+  surface, and the unit test that asserts the opposite contract renders its
+  component in ISOLATION.
+  Wave 2: I had just ADDED the code-review phase to the loop, in a commit whose
+  message explains why it matters — and then hand-dispatched three builders and
+  skipped it again. Four commits, ~2900 lines, reviewed by nobody until
+  afterwards.
+  So the rule is not "use the workflow". It is: **when you hand-dispatch, run
+  the phases yourself, in order, and say which you ran.** Build -> code-review
+  -> cross-item QA -> integrate. The cross-item pass is the one that keeps
+  getting skipped and it is the one that catches what per-item review cannot by
+  construction: two affordances that are each correct and interfere.
+  The tell that you are about to do it again: you have just finished writing a
+  brief, the builders are live, and integrating feels like the next step. It is
+  not. Reviewing is.
+
 - **Never push a red build.** Verify before pushing, not after.
 - **Push each commit separately** — GitHub fires one run per push *event*, so
   commits batched into one push get no individual CI run.

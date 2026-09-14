@@ -90,9 +90,35 @@ admire and do not use. Four concrete tests, each one a defect when it fails:
   next action is extrude — present, with the profile pre-selected, not hunted
   for in a toolbar. The tool proposes, the user disposes.
 - **Direct manipulation beats forms.** Fusion's extrude is a draggable arrow;
-  the numeric field is the precision fallback. Ours is a form with no handle at
-  all — the single biggest "does not feel like a modeling tool" gap we have,
-  bigger than any missing feature.
+  the numeric field is the precision fallback. This is the single biggest
+  "does not feel like a modeling tool" gap we have, bigger than any missing
+  feature.
+  **CORRECTED 2026-09-13 — "ours is a form with no handle at all" was TRUE when
+  written and has been FALSE since T-23, and three briefs quoted it as fact.**
+  Extrude HAS a drag handle. It is drawn, it works, and it is unreachable:
+  `document.elementFromPoint` down the gauge's own projected axis resolves to
+  the handle at **2 of 16 sample points** — a 24x24 grip at the arrow's apex and
+  nothing else — and a real `page.mouse.down/move/up` from the shaft midpoint
+  left `extrude-distance` unchanged at 40. The shaft, cone and snap ladder are
+  WebGL with no raycast target, so **the affordance and the hit target are
+  anticorrelated**: the one place you can grab is a 12 px collar on the POINT of
+  an arrow drawn at 0.92 opacity, ~90 px from where the arrow tells you to aim.
+  That is the zero-area family's fourth costume — **drawn in GL, targeted in the
+  DOM, and only one of the two is a control** — after the SVG stroke with no
+  height, the `sr-only` element clipped out of frame, and the Tailwind utility
+  that was never generated.
+  The correction makes the gap WORSE, not smaller, and it changes what the fix
+  is: the wave is not "build direct manipulation", it is "make the thing we
+  already drew grabbable, and then give the other six verbs one at all"
+  (fillet/chamfer/shell/revolve/pattern/hole return `handles: []` today).
+  **The general lesson, and the reason this correction is here rather than only
+  in the roadmap: a mandate sentence is a CLAIM ABOUT THE PRODUCT, and product
+  claims go stale silently.** This one survived a rewrite of the surface it
+  describes, and every brief that quoted it inherited the error at no cost to
+  itself. Before quoting a line of this file as evidence for what to build,
+  check it against the running app the way you would check a test — and when it
+  is wrong, correct it HERE, not just in the document you happened to be
+  writing.
 - **Capture intent where it forms, not afterwards.** Dimensions typed while
   drawing (FB-16), not recovered by re-selecting geometry later.
 - **No dead ends, no ambiguous exits.** A key that sometimes saves and sometimes
@@ -306,6 +332,68 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   not a run that PASSED, and any reasoning that treats the spill as a board is
   reading a field that is not there. Use the spill for `head_sha` → `id` only,
   then take the verdict from `get_job_logs` as above.
+  **RE-MEASURED 2026-09-11: `conclusion` IS BACK IN `list_workflow_runs`, so the
+  2026-08-28 correction above is now itself stale — and believing it costs a
+  whole extra call per run.** Read across 23 run objects spanning all three
+  workflows: every one carried `conclusion` (`success`) beside `status`. So the
+  documented dance — spill the listing, parse it for ids only, then `get_job_logs`
+  per run to learn the verdict — buys nothing that one call does not already
+  give you. **The cheapest COMPLETE verdict read is now
+  `list_workflow_runs` with `status: "completed"` plus the branch filter: one
+  call returns `head_sha` + `conclusion` for every finished run.** Keep
+  `get_job_logs` for the case it is still best at — a RED run, where
+  `failed_only: true` names the failing jobs. Do not delete the 08-28 correction:
+  the field has now disappeared and come back once, so the durable lesson is to
+  CHECK for it rather than to assume either way, and a `KeyError` is the tell in
+  both directions.
+  **And the cheap completion check has a cheaper form than the empty listing:
+  filter by `status: "in_progress"`.** Empty means nothing is still running, at a
+  cost of about ten tokens, and it does not grow as runs accumulate the way the
+  completed listing does (each completed row carries the entire commit message,
+  which in this repo is thousands of tokens — nine of them cost ~13 k).
+  **CAVEAT 2026-09-13: that "ten tokens" holds ONLY when the answer is "nothing
+  running".** An in_progress row carries the whole commit message exactly like a
+  completed one, so the call costs the same per-row price whenever runs ARE live
+  — measured ~5 k to learn "not done yet" with four runs in flight, and it is
+  most expensive precisely when you are most tempted to poll it. It is a cheap
+  ANSWER, not a cheap QUESTION. Ask it once per integration pass rather than on
+  every wake, and remember there is no way to be woken by a CI transition, so
+  the alternative to patience is spending context on impatience.
+  **A FAST GREEN IS TOLD FROM AN ALL-SKIPPED GREEN BY STEP DURATION, and
+  `deploy-path` is routinely fast for real.** Its nine runs today finished in
+  under three minutes each, which looks exactly like the every-job-skipped shape
+  that also reports `success`. It was genuine: `list_workflow_jobs` showed
+  "Compose stack end-to-end (build, boot, migrate, round-trip)" consuming
+  **2 m 09 s** and the backup/restore drill **2 m 25 s**. A skipped job's steps
+  are absent or instant, so read the MAIN step's duration, not the run's.
+  **AND `e2e` LEGITIMATELY HAS NO RUN ON A DOCS-ONLY COMMIT** — it carries
+  `paths-ignore: docs/**, **/*.md`, so four of nine commits today have no e2e row
+  by design. That is NOT the unbuilt-commit hole described further down; it is a
+  deliberate skip. Tell them apart by the diff: if every changed path matches the
+  ignore list, the absence is correct. `deploy-path` has no such filter and runs
+  on everything, so it is the one whose missing row is always a real anomaly.
+  **CORRECTION 2026-09-11: THE `total_jobs` DISCRIMINATOR WORKS FOR `e2e` AND
+  DOES NOT WORK FOR `ci` — THE TWO WORKFLOWS DIFFER IN A WAY THE RULE BELOW DOES
+  NOT ACCOUNT FOR.** I read `{"failed_jobs":0,"total_jobs":7}` on a `ci` run and
+  called the commit green, correctly by the rule as written. It was not green; it
+  was **queued**, and `list_workflow_jobs` a few minutes later showed six jobs
+  finished and `python` still inside Pytest. The mechanism: `ci`'s seven jobs are
+  all independent, so GitHub creates all seven the instant the run is queued and
+  `total_jobs` reads 7 from the very first second. `e2e`'s fifth job (`e2e
+  complete`) *depends on* the four shards, so it does not exist until they
+  finish — which is the only reason 4-vs-5 discriminates there. **A count that
+  is complete at t=0 cannot tell you the run is complete.** So for `ci`,
+  `failed_jobs: 0` means "nothing has failed yet" and nothing more, at every
+  moment of the run.
+  **The cheap completion check that DOES work, and it is nearly free: ask
+  `list_workflow_runs` with `status: "completed"` and the branch filter.** An
+  unfinished run yields `{"total_count":0,"workflow_runs":[]}` — a few tokens —
+  and the moment it finishes the run appears, at which point `get_job_logs` with
+  `failed_only` gives the verdict as usual. Two calls, both cheap, and neither
+  can report a queued run as a pass. Do NOT reach for `list_workflow_jobs` to
+  settle this: it returns every step of every job with timestamps and cost ~8 k
+  tokens to learn one job was still running, which is most of an integration
+  pass spent on a question the empty listing answers for free.
   **AND `failed_jobs: 0` ON AN UNFINISHED RUN IS NOT A PASS — READ `total_jobs`
   IN THE SAME REPLY.** It means "nothing has failed YET", which is true of every
   run that has barely started, and it reads exactly like green. Caught twice on
@@ -421,6 +509,69 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   you which happened. (The python job is now 30 minutes. The suite is ~2958 tests
   dominated by OCCT geometry and grows with every verb and golden, so expect to
   revisit it; sharding is the next lever if 30 gets tight.)
+- **`geometry-minio-smoke` STARTED FAILING ON THE RUNNER 2026-09-12 FOR A REASON
+  THAT IS NOT IN THIS REPO — do not go looking for it in a diff.** The job dies
+  in its first pull: `minio Error pull access denied for minio/minio, repository
+  does not exist or may require 'docker login'`. That is the RUNNER being refused
+  by Docker Hub, not the `--wait`-on-a-one-shot defect this file documents above,
+  and the two read nothing alike — that one failed AFTER the bucket bootstrap
+  succeeded, this one never pulls an image at all.
+  The evidence that it is not ours, gathered because "not in my diff" is not the
+  same claim as "not ours": the `minio/minio` pin last changed on **2026-07-31**
+  (`2fba93e`) and has passed ever since; the eleven commits merged from the dev
+  branch touched no compose file and no workflow; the job was **green on this
+  same branch at `2e77533`** earlier the same day; and it then failed on
+  `702c07e`, a MERGE commit carrying no application change, which is the cleanest
+  possible negative control — a failure on a commit that changed nothing relevant
+  cannot have been caused by a commit.
+  Two plausible causes and I am not asserting either: Docker Hub's anonymous
+  pull limit (GitHub-hosted runners share IP pools and hit it in bursts), or a
+  change in how that image is distributed. **Do not "fix" it by deleting or
+  disabling the job** — it is the only cross-process mesh-store check we have,
+  and the same registry-denial class already makes image builds untestable
+  locally. The real fixes are authenticating the pull or mirroring the image,
+  both platform-builder decisions that need a secret, so flag it rather than
+  routing around it. Until then expect every commit on every branch to carry
+  this one red job, and say so explicitly when reporting a run rather than
+  letting "CI is red" imply the diff did it.
+  **RESOLVED 2026-09-13 in `bd58416`, and BOTH causes guessed above were wrong —
+  the repositories were WITHDRAWN.** By then it had spread from one job to three
+  (`ci/geometry-minio-smoke`, `deploy-path/compose-stack-e2e`,
+  `deploy-path/backup-restore-drill`), all dying in the same pull, on every
+  commit including docs-only ones. MinIO Inc. stopped publishing community
+  images altogether: `GET hub.docker.com/v2/repositories/minio/{minio,mc}/`
+  both return `{"message":"object not found"}`, and the `minio/minio` GitHub
+  README now reads "THIS REPOSITORY IS NO LONGER MAINTAINED" / "distributed as
+  source code only". Fixed by repointing both pins to MinIO's own other
+  registry, `quay.io`, at the tags their own official Helm chart still ships.
+  **The general lesson is the diagnostic, not the incident. "The registry is
+  blocked here" made this look unmeasurable, and it was not.** The blob CDN is
+  policy-denied, but `registry-1.docker.io` answers (`/v2/` returns 401, which
+  is its auth challenge, not a denial), so an anonymous pull token from
+  `auth.docker.io/token?service=registry.docker.io&scope=repository:<repo>:pull`
+  plus a manifest GET measures any Docker Hub image from this container without
+  a daemon. That turned a shrug into an answer in two minutes:
+
+  | image | manifest API |
+  |---|---|
+  | `minio/minio` (pinned tag AND `latest`) | **401** |
+  | `library/postgres:16`, `library/redis:7` | 200 |
+
+  Read the STATUS, because the three causes are different words: **429**
+  (`toomanyrequests`) is the anonymous rate limit, **401** on one repo while
+  others return 200 is that repo being gone or gated, and a rate limit would
+  have hit postgres and redis too. Always probe a CONTROL image in the same
+  breath — a bare "minio 401" is consistent with the network being broken, and
+  `library/postgres: 200` beside it is what makes it evidence. The same reading
+  also refutes the runner-IP-pool theory for free: an identical result from a
+  completely different network cannot be about the runner's IP.
+  Green afterwards, and verified as REAL rather than skipped-green by step
+  duration: compose-stack-e2e's main step ran 1m58s and the backup/restore
+  drill 2m21s, matching their historical timings.
+  Do NOT delete this entry now that it is fixed: the durable half is that an
+  upstream can WITHDRAW an image, which no amount of pinning survives, and the
+  next occurrence will wear the same "pull access denied" costume as a login
+  problem.
 - **A suspiciously FAST green deserves the same scrutiny as a red.** The
   usual cause is a job that skipped its work, and `conclusion: success` is
   emitted when every job is skipped. Discriminate by reading the log for
@@ -832,6 +983,23 @@ recipe here in the same commit as the fix.**
   which is the signature to detect on if a creation hook ever becomes available:
   a HEAD that is not an ancestor of the branch. Until then the brief line is
   still the whole control.
+  **MECHANISM FOUND 2026-08-29, and it makes the SHA in this entry a moving
+  target — do not memorise it.** A container restart landed mid-turn and the
+  session's own checkout came back at `03d2eca` with the local branch ref stale,
+  while the remote was 70 commits ahead. **The container's default clone is
+  seeded at the last merge into `main`, and worktrees inherit that starting
+  point** — which is why every one of the nine arrived at the same commit rather
+  than at a random old one. It was never bad luck or a harness bug; it is the
+  clone's origin showing through. Two consequences. (a) **The specific SHA will
+  change every time `main` advances** — this entry named `3b0b29e`, then
+  `03d2eca`, and `main` is now `d4552e3`, so a brief that greps for a literal
+  commit will stop working the next time we merge. State the rule as "reset to
+  `origin/<branch>` first", never as "watch for commit X". (b) The same restart
+  leaves the ORCHESTRATOR's checkout stale in exactly the same way, and its
+  local branch ref can point at a commit the remote passed long ago — so after
+  any restart, `git fetch && git reset --hard origin/<branch>` before reading or
+  reasoning about anything, and check `git ls-remote` rather than the local ref
+  when you need to know where the branch actually is.
   **AND THE "AUDIT IT AFTER A BATCH" ADVICE THIS ENTRY ORIGINALLY GAVE DOES NOT
   WORK — measured 2026-08-27, do not retry it.** A behind-count over every
   worktree returned 47 "STALE" rows and not one was the fault: a worktree seeded
@@ -926,6 +1094,21 @@ recipe here in the same commit as the fix.**
   proves a USER can do something, assert with the user's own mechanism — a real
   `page.mouse.click` at the control's centre, or `elementFromPoint` resolving to
   the control — never a proxy that skips the step you are claiming works.
+  **AND A UNIT ASSERTION CANNOT SEE WHAT ELSE IS ON THE SURFACE — a string can
+  satisfy every property you check about it and still be wrong because something
+  ELSE already says it.** Measured 2026-08-29 on REASON-GATE-1. The corner
+  relief's new blocker read `"Pick two different edge flanges."`, which is
+  verbatim the opening of that card's own inline field error — so the card
+  rendered the same sentence twice and a `getByText` resolved to two nodes.
+  Every unit assertion passed: non-empty, ≤48 characters, names the fix. They
+  had to, because **a unit test holds the string in isolation and isolation is
+  exactly the property that was violated.** Only the real browser could see it.
+  The general form: when a check validates a part, ask what the part is
+  ADJACENT to in the assembled thing, and put at least one assertion where the
+  adjacency exists. This is the same shape as the golden-suite blind spot (a
+  fixture that never reaches the path) and the downstream negative control (a
+  probe injected past the guard) — a correct check pointed somewhere the defect
+  is not.
 - **`git stash` IS NOT ISOLATED BY A WORKTREE — THE STASH LIST IS SHARED, AND
   POPPING HANDS YOU WHOEVER STASHED LAST.** Found 2026-08-28 by the hover-to-
   sketch agent, which caused the incident and recovered it. Worktrees give every

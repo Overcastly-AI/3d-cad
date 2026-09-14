@@ -717,6 +717,29 @@ export const SnapIntersectionIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * On-curve — the drafting PICK tick: a curve with a short stroke crossing it at
+ * the point being taken. It names the case the four object snaps cannot, "the
+ * curve itself, here", which is what a SELECT click resolves to when no defining
+ * point is nearer (`sketch/pick.ts`, SEL-2).
+ *
+ * The curve's apex and the tick's midpoint both sit at the icon's centre (12,12)
+ * because the mark is drawn CENTRED on the candidate — a form whose meaningful
+ * spot were anywhere else would name a point it is not standing on, the same
+ * correction `SnapOriginIcon` carries.
+ *
+ * The tick is drawn upright rather than truly normal to the hovered curve: the
+ * sketch camera can be orbited (VP-1a), so a glyph claiming an on-screen
+ * direction would be lying at every angle but one. It says "on a curve", and the
+ * lit curve underneath says which.
+ */
+export const SnapOnCurveIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 18 C8 10, 16 10, 20 18" />
+    <path d="M12 7 V17" />
+  </Icon>
+);
+
 // The sketch PLANE's own frame — its origin and its two axes — snapped like any
 // other point. These three are not object snaps: they address the sheet, not
 // anything drawn on it, so they are drawn from a different vocabulary on

@@ -41,11 +41,13 @@ import {
   HEM_CLOSED_MAX_RADIUS_RATIO,
   HEM_CLOSED_RADIUS_RATIO,
   HEM_OPEN_RADIUS_RATIO,
+  type HemForm,
   hemGapInGauges,
   hemGapMm,
   hemLengthError,
   hemRadiusBoundaryMm,
   hemRadiusConflict,
+  hemSubmitBlocker,
   isSheetMetalPart,
   kFactorError,
   parseBendAngleDeg,
@@ -59,6 +61,8 @@ import {
   sheetMetalDefaults,
   thicknessError,
   unresolvedBendRef,
+  withHemBendRadiusOverride,
+  withHemKFactorOverride,
 } from "./sheetMetal";
 
 const SIG: EdgeSignature = {
@@ -675,6 +679,183 @@ describe("hem form", () => {
     ).toBe(null);
     expect(hemLengthError("-3", "mm")).not.toBe(null);
     expect(hemLengthError("", "mm")).toBe(null);
+  });
+
+  // -------------------------------------------------------------------------
+  // HEM-1B — a disabled Save always states its reason, and "override checked
+  // with no value" is not a state a click can produce.
+  // -------------------------------------------------------------------------
+  describe("why Save is gated (HEM-1B)", () => {
+    const DEFAULTS = { thicknessMm: 2, bendRadiusMm: 3, kFactor: 0.44 };
+
+    it("agrees with buildHemParams on EVERY case — gate and reason are one", () => {
+      // The invariant the fix rests on: the cell is grey if and only if there is
+      // a sentence to read. `buildHemParams` is written independently of the
+      // blocker, so this is a second derivation and not a claim checking itself.
+      const forms: HemForm[] = [
+        defaultHemForm(),
+        { ...defaultHemForm(), lengthInput: "" },
+        { ...defaultHemForm(), lengthInput: "-3" },
+        { ...defaultHemForm(), lengthInput: "abc" },
+        { ...defaultHemForm(), hemType: "open" },
+        { ...defaultHemForm(), overrideBendRadius: true, bendRadiusInput: "" },
+        { ...defaultHemForm(), overrideBendRadius: true, bendRadiusInput: "0" },
+        {
+          ...defaultHemForm(),
+          overrideBendRadius: true,
+          bendRadiusInput: "0.2",
+        },
+        { ...defaultHemForm(), overrideKFactor: true, kFactorInput: "" },
+        { ...defaultHemForm(), overrideKFactor: true, kFactorInput: "7" },
+        { ...defaultHemForm(), overrideKFactor: true, kFactorInput: "0.4" },
+      ];
+      const picks: EdgeSignature[][] = [[], [SIG], [SIG, SIG]];
+      const anchors = ["bf", null];
+      let gated = 0;
+      for (const form of forms) {
+        for (const picked of picks) {
+          for (const anchor of anchors) {
+            const blocker = hemSubmitBlocker(
+              form,
+              picked,
+              anchor,
+              "mm",
+              DEFAULTS,
+            );
+            const buildable =
+              buildHemParams(form, picked, anchor, "mm") !== null;
+            expect(
+              blocker === null,
+              `blocker=${JSON.stringify(blocker)} for ${JSON.stringify({ form, picked: picked.length, anchor })}`,
+            ).toBe(buildable);
+            expect(canSubmitHem(form, picked, anchor, "mm")).toBe(buildable);
+            if (!buildable) gated += 1;
+          }
+        }
+      }
+      // Non-vacuity: the matrix must actually contain gated cases, or the
+      // assertion above holds for the wrong reason.
+      expect(gated).toBeGreaterThan(30);
+    });
+
+    it("names the field AND the way out, never a bare refusal", () => {
+      const base = defaultHemForm();
+      // No sheet body to hem — the state the repair path lands in.
+      expect(hemSubmitBlocker(base, [SIG], null, "mm", DEFAULTS)).toBe(
+        "Add a base flange to hem first.",
+      );
+      // Nothing picked, and too much picked: different instructions.
+      expect(hemSubmitBlocker(base, [], "bf", "mm", DEFAULTS)).toBe(
+        "Pick one straight edge to hem.",
+      );
+      expect(hemSubmitBlocker(base, [SIG, SIG], "bf", "mm", DEFAULTS)).toBe(
+        "Press Clear, then pick one edge.",
+      );
+      // The field the audit found empty: the sentence names it, the value it
+      // would fall back to, and both exits (type one, or drop the override).
+      const blankK = { ...base, overrideKFactor: true, kFactorInput: "" };
+      expect(hemSubmitBlocker(blankK, [SIG], "bf", "mm", DEFAULTS)).toBe(
+        "Type a K-factor, or uncheck to inherit 0.44.",
+      );
+      const blankR = { ...base, overrideBendRadius: true, bendRadiusInput: "" };
+      expect(hemSubmitBlocker(blankR, [SIG], "bf", "mm", DEFAULTS)).toBe(
+        "Type a radius, or uncheck to fold at 0.1 mm.",
+      );
+      // …and an open hem falls back to ITS radius, not the closed one.
+      expect(
+        hemSubmitBlocker(
+          { ...blankR, hemType: "open" },
+          [SIG],
+          "bf",
+          "mm",
+          DEFAULTS,
+        ),
+      ).toBe("Type a radius, or uncheck to fold at 1 mm.");
+      // The length field, empty and wrong, in the document's unit.
+      expect(
+        hemSubmitBlocker({ ...base, lengthInput: "" }, [SIG], "bf", "mm"),
+      ).toBe("Enter the return length.");
+      expect(
+        hemSubmitBlocker({ ...base, lengthInput: "-3" }, [SIG], "bf", "in"),
+      ).toBe("Check the return length.");
+      // With no sheet body there is no number to name, and the sentence says
+      // only what it knows — never "…to inherit undefined".
+      expect(hemSubmitBlocker(blankK, [SIG], "bf", "mm", null)).toBe(
+        "Type a K-factor, or uncheck the override.",
+      );
+      // Every reason fits the half-width footer cell it is rendered in.
+      for (const form of [base, blankK, blankR, { ...base, lengthInput: "" }]) {
+        for (const picked of [[], [SIG], [SIG, SIG]] as EdgeSignature[][]) {
+          const said = hemSubmitBlocker(form, picked, "bf", "mm", DEFAULTS);
+          if (said !== null) expect(said.length).toBeLessThanOrEqual(48);
+        }
+      }
+    });
+
+    it("seeds an override with the value it replaces, so checked-empty is unreachable", () => {
+      const base = defaultHemForm();
+      // K: the inherited value the card names one line above the checkbox.
+      const k = withHemKFactorOverride(base, true, DEFAULTS);
+      expect(k.overrideKFactor).toBe(true);
+      expect(k.kFactorInput).toBe("0.44");
+      expect(hemSubmitBlocker(k, [SIG], "bf", "mm", DEFAULTS)).toBe(null);
+      // Radius: the type + gauge rule, so the seed is a value the evaluator
+      // accepts for THIS type (0.1 closed, 1 open on 2 mm sheet).
+      const r = withHemBendRadiusOverride(base, true, DEFAULTS, "mm");
+      expect(r.bendRadiusInput).toBe("0.1");
+      expect(
+        withHemBendRadiusOverride(
+          { ...base, hemType: "open" },
+          true,
+          DEFAULTS,
+          "mm",
+        ).bendRadiusInput,
+      ).toBe("1");
+      expect(hemRadiusConflict("closed", 0.1, 2, "mm")).toBe(null);
+      // A typed value is never overwritten — untick, re-tick, it is still there.
+      const typed = { ...base, overrideKFactor: true, kFactorInput: "0.33" };
+      const off = withHemKFactorOverride(typed, false, DEFAULTS);
+      expect(off.overrideKFactor).toBe(false);
+      expect(withHemKFactorOverride(off, true, DEFAULTS).kFactorInput).toBe(
+        "0.33",
+      );
+      // No sheet body: nothing honest to seed, so the field stays empty and the
+      // blocker does the explaining rather than the form inventing a number.
+      expect(withHemKFactorOverride(base, true, null).kFactorInput).toBe("");
+      expect(
+        withHemBendRadiusOverride(base, true, null, "mm").bendRadiusInput,
+      ).toBe("");
+      // In inches the seed is expressed in the document's unit, not raw mm.
+      expect(
+        withHemBendRadiusOverride(base, true, DEFAULTS, "in").bendRadiusInput,
+      ).toBe("0.003937");
+    });
+
+    it("hydrates an unmodified hem with its overrides OFF and Save enabled", () => {
+      // The acceptance clause of HEM-1B, pinned: a hem authored without
+      // overrides must re-open exactly as it was created. `k_factor: null` is
+      // what the server stores for an inherited K (measured on the real stack),
+      // so the null and the absent case are both here.
+      const stored: SheetMetalHemParams = {
+        edge: {
+          kind: "subshape",
+          feature_id: "bf",
+          subshape_type: "edge",
+          selector: { selector_version: 1, signature: SIG },
+        },
+        length_mm: 8,
+        hem_type: "closed",
+        bend_radius_mm: null,
+        k_factor: null,
+      };
+      for (const params of [stored, { ...stored, k_factor: undefined }]) {
+        const form = formFromHemParams(params, "mm");
+        expect(form.overrideKFactor).toBe(false);
+        expect(form.kFactorInput).toBe("");
+        expect(form.overrideBendRadius).toBe(false);
+        expect(hemSubmitBlocker(form, [SIG], "bf", "mm", DEFAULTS)).toBe(null);
+      }
+    });
   });
 
   it("round-trips an override hem (edit seed)", () => {

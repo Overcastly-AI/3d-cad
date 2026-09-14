@@ -142,8 +142,16 @@ async function offeredFaces(page: Page): Promise<OfferedFace[]> {
  * A silhouette count — the trick `occludedPlate.ts` uses — cannot answer it
  * here: hiding a body re-runs the fit, and this fixture's two bodies are both
  * squarish, so each fills the reframed viewport to about the same area.
+ *
+ * It also brings back the INK FLOOR FOR THE HIDDEN STATE, measured on the pass
+ * that hides the plate — because this loop already puts the scene in exactly
+ * the state the claim is about (plate hidden, no placement face picked, so the
+ * overlay has nothing to draw by construction) and a second hide/show cycle
+ * would not be free: HIDING re-fits the camera and SHOWING does not, so an
+ * extra cycle ends with the frame around the block and the plate off-screen —
+ * measured, and it made the placement face unclickable for 300 s.
  */
-async function discoverPlateRow(page: Page): Promise<number> {
+async function discoverPlateRow(page: Page): Promise<PlateProbe> {
   const drawn = await offeredFaces(page);
   const plateFaces = drawn.filter((f) => f.plate).length;
   const blockFaces = drawn.length - plateFaces;
@@ -157,6 +165,7 @@ async function discoverPlateRow(page: Page): Promise<number> {
   ).toBeGreaterThan(0);
 
   let plateRow: number | null = null;
+  let hiddenFloor: Ink | null = null;
   const seen: string[] = [];
   for (const row of [0, 1]) {
     await setBodyMode(page, row, "hidden");
@@ -165,7 +174,10 @@ async function discoverPlateRow(page: Page): Promise<number> {
     const plateLeft = left.filter((f) => f.plate).length;
     const blockLeft = left.length - plateLeft;
     seen.push(`row ${row} hidden → ${plateLeft} plate + ${blockLeft} block`);
-    if (plateLeft === 0 && blockLeft > 0) plateRow = row;
+    if (plateLeft === 0 && blockLeft > 0) {
+      plateRow = row;
+      hiddenFloor = await crosshairInk(page);
+    }
     await setBodyMode(page, row, "solid");
     await waitForFrames(page, 6);
   }
@@ -177,7 +189,10 @@ async function discoverPlateRow(page: Page): Promise<number> {
     plateRow,
     `exactly one row must take the plate's faces out of the offer: ${seen.join("; ")}`,
   ).not.toBeNull();
-  return plateRow as number;
+  if (plateRow === null || hiddenFloor === null) {
+    throw new Error("the plate's row was never identified");
+  }
+  return { row: plateRow, hiddenFloor };
 }
 
 /** The plate's TOP face — the one carrying the bolt circle (largest z). */
@@ -217,11 +232,31 @@ async function snapIds(page: Page): Promise<string[]> {
  * a hundred pixels of line, and the count then moved with the camera framing
  * rather than with the overlay. Line materials render un-tonemapped, so the
  * crosshair lands on the canvas at its literal hex and an exact match keeps
- * only the thing being measured (measured: floor 0, drawn 89 + 35, hidden 0).
+ * only the thing being measured.
+ *
+ * `datum` is no longer a pure crosshair count: CRAFT-3's resting origin marks
+ * are drawn in the same token, so the scene carries a baseline of it that moves
+ * with the FRAMING. That is why every assertion below compares against a floor
+ * measured in the same body-visibility state, never against a literal zero
+ * (measured on this fixture: 74 px both bodies framed, 33 px plate hidden,
+ * 168 + 708 px with the crosshair up).
  */
-async function crosshairInk(
-  page: Page,
-): Promise<{ datum: number; point: number; total: number }> {
+interface Ink {
+  /** `sketch.planeEdge` — the datum frame, and CRAFT-3's resting origin marks. */
+  datum: number;
+  /** `viewport.selection` — the live drill point. */
+  point: number;
+  /** datum + point, so one number carries the whole census. */
+  total: number;
+}
+
+/** The plate's row in the Bodies panel, plus the ink floor of its hidden state. */
+interface PlateProbe {
+  row: number;
+  hiddenFloor: Ink;
+}
+
+async function crosshairInk(page: Page): Promise<Ink> {
   const datum = await countTokenPixels(page, sketch.planeEdge, 0);
   const point = await countTokenPixels(page, viewportTokens.selection, 0);
   return { datum, point, total: datum + point };
@@ -298,8 +333,31 @@ test.describe("SEL-7 — a hidden body withholds the hole placement overlay", ()
     await page.getByTestId("new-hole").click();
     await expect(page.getByTestId("hole-editor")).toBeVisible();
 
-    const plateRow = await discoverPlateRow(page);
+    /*
+      THE ROW, AND THE INK FLOOR FOR THE STATE THE CLAIM IS ACTUALLY ABOUT —
+      the plate HIDDEN with no placement face picked, so the overlay has
+      nothing to draw by construction and everything counted is scene ink.
+
+      The floor above cannot serve, and the reason arrived with CRAFT-3: hiding
+      a body RE-FITS the camera, and the resting origin marks are drawn in
+      `sketch.planeEdge` — the datum ink this census counts — so the two
+      framings legitimately disagree about how much of that ink is on the
+      canvas. Measured on this fixture: 74 px with both bodies framed, 33 px
+      with the plate hidden. That was harmless while the marks did not exist
+      (both numbers were 0, and the comparison was accidentally sound); the day
+      they did, it made the assertion below unsatisfiable for a reason that has
+      nothing to do with the overlay.
+
+      Comparing like with like is STRICTLY STRONGER, not a loosening: `=== 74`
+      would have admitted 41 px of spurious crosshair, `=== 33` admits none.
+    */
+    const { row: plateRow, hiddenFloor } = await discoverPlateRow(page);
     const blockRow = 1 - plateRow;
+    report(
+      "crosshair ink, plate hidden, no placement face picked (the hidden floor)",
+      `datum ${hiddenFloor.datum} px + live point ${hiddenFloor.point} px`,
+    );
+
     const top = plateTopFace(await offeredFaces(page));
     report("placement face", `${top.testId} — ${top.label}`);
     await page.getByTestId(top.testId).click();
@@ -400,8 +458,9 @@ test.describe("SEL-7 — a hidden body withholds the hole placement overlay", ()
     expect(
       inkHidden.total,
       `no crosshair may be drawn over the void ` +
-        `(hidden: datum ${inkHidden.datum} px, point ${inkHidden.point} px; floor ${inkFloor.total} px; drawn ${inkDrawn.total} px)`,
-    ).toBe(inkFloor.total);
+        `(hidden: datum ${inkHidden.datum} px, point ${inkHidden.point} px; ` +
+        `hidden floor ${hiddenFloor.total} px; drawn ${inkDrawn.total} px)`,
+    ).toBe(hiddenFloor.total);
 
     // (e) …and a click where a bore-centre diamond floated drills nothing.
     //     This is the reported defect in one action: under the old overlay the

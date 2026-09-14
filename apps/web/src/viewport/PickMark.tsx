@@ -24,6 +24,13 @@
  * pointer surface becomes the real hit-test, which is the only honest thing
  * for "you aimed 12 px diagonally off the mark".
  *
+ * ## It is also the census of "a pick is armed"
+ *
+ * Being the one host every pick affordance passes through makes this the only
+ * honest place to COUNT them, so `armedPicks.ts` registers here. That is what
+ * lets ambient chrome (the reference cube) yield its pointer for the duration
+ * of a pick without anybody plumbing a boolean per mode.
+ *
  * ## Why a component and not thirteen `style` props
  *
  * `ExtrudeDragHandle` already carries this fix, with a comment describing the
@@ -43,6 +50,8 @@
 import { Html } from "@react-three/drei";
 import type { ReactNode } from "react";
 
+import { useRegisterArmedPick } from "./armedPicks";
+
 /** Stable identity, so drei is not handed a new style object every render. */
 const INERT_WRAPPER = { pointerEvents: "none" } as const;
 
@@ -51,7 +60,9 @@ export interface PickMarkProps {
   position: [number, number, number];
   /**
    * drei's depth→z-index band for this class of mark. Overlays use it to keep
-   * a vertex above an edge mark and both below the HUD.
+   * a vertex above an edge mark and both below the HUD — the HUD's own chrome
+   * stops COMPETING for the pointer while a pick is armed (`armedPicks.ts`)
+   * rather than being out-stacked, so this band stays a statement about marks.
    */
   zIndexRange: [number, number];
   /** The mark itself — a `PickNode`, which opts back into pointer events. */
@@ -59,6 +70,11 @@ export interface PickMarkProps {
 }
 
 export function PickMark({ position, zIndexRange, children }: PickMarkProps) {
+  // Every armed pick counts itself here, which is what lets the reference cube
+  // give up its pointer while the tool is asking for a pick — see
+  // `armedPicks.ts`. It lives in the primitive because a hand-maintained list
+  // of pick modes is exactly the thing that goes stale.
+  useRegisterArmedPick();
   return (
     <Html
       position={position}

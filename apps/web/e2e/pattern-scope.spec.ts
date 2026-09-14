@@ -130,15 +130,21 @@ interface Drilled {
 }
 
 /**
- * Drill ONE Ø8 through-hole off-centre, through the UI: open Hole, click the
- * top face, dial the DRO to a point on the bolt circle, submit.
+ * Drill ONE through-hole off-centre, through the UI: open Hole, click the top
+ * face, dial the DRO to a point on the bolt circle, submit. Ø8 by default — the
+ * diameter every volume assertion here is written against ({@link
+ * boreVolumeMm3}); the founder screenshots pass a bigger one, which they can
+ * because they assert nothing about volume.
  *
  * Nothing here is hard-coded to a plate size — the sketch is drawn with the
  * mouse, so the plate's size is whatever those two clicks made. Every number is
  * read back off the running app and the ring is sized from it, which is what
  * makes the closed-form volume assertion below exact rather than approximate.
  */
-async function drillOffCentreHole(page: Page): Promise<Drilled> {
+async function drillOffCentreHole(
+  page: Page,
+  diameterMm = 8,
+): Promise<Drilled> {
   const [ex, ey, ez] = await extents(page);
   // The premise the ring depends on: six Ø8 bores on a radius of min/4 are
   // pairwise disjoint (their centres are `radius` apart at 60°) and clear of
@@ -175,7 +181,7 @@ async function drillOffCentreHole(page: Page): Promise<Drilled> {
 
   await page.getByTestId("hole-position-x").fill(String(centre.x + radius));
   await page.getByTestId("hole-position-y").fill(String(centre.y));
-  await page.getByTestId("hole-diameter").fill("8");
+  await page.getByTestId("hole-diameter").fill(String(diameterMm));
   await expect(page.getByTestId("hole-submit")).toBeEnabled();
   await page.getByTestId("hole-submit").click();
 
@@ -864,6 +870,250 @@ test.describe("REACH-2-FLOW — the proposal survives the 1280 floor and Cancel"
     );
     await expect(page.getByTestId("tree-ctx-edit")).toBeVisible();
     await expect(page.getByTestId("tree-ctx-pattern")).toHaveCount(0);
+  });
+});
+
+/**
+ * The FEATURE TINT actually painted on the body, in canvas pixels.
+ *
+ * `data-selected-faces` is the raster-independent companion and it is asserted
+ * beside every reading here — but it is a count the app publishes about itself,
+ * and this repo has measured three separate defects where the app's own account
+ * of a control was true while the pixels were not. So the load-bearing witness
+ * is the ink.
+ *
+ * WHY WARMTH RATHER THAN A LITERAL TOKEN MATCH. `countTokenPixels` works where
+ * a token lands on the canvas at its own hex — line materials do. This tint does
+ * not: `featureSelect.faceTint` MULTIPLIES the studio matcap (matcaps carry no
+ * emissive channel, which is what keeps the machined read), so the painted
+ * colour is the token times whatever the matcap was, and no single hex describes
+ * it. What survives the multiply is the DIRECTION of the shift: every tinted
+ * pixel is pushed toward brass, i.e. red-over-blue. Measured on the fixture
+ * below: 384 warm px with the hole scoped, **0** with the scope on `This body` —
+ * so the threshold has the whole range to itself and is not a knife-edge.
+ *
+ * Alpha-gated because the canvas is transparent (the atmosphere is painted by
+ * the DOM wrapper beneath it), so an untouched pixel reads as 0,0,0,0 and would
+ * otherwise be counted by any bare channel comparison.
+ */
+async function tintedPixels(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>(
+      '[data-testid="viewport"] canvas',
+    );
+    if (!canvas) return -1;
+    const probe = document.createElement("canvas");
+    probe.width = canvas.width;
+    probe.height = canvas.height;
+    const ctx = probe.getContext("2d");
+    if (!ctx) return -1;
+    ctx.drawImage(canvas, 0, 0);
+    const { data } = ctx.getImageData(0, 0, probe.width, probe.height);
+    let count = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i] ?? 0;
+      const b = data[i + 2] ?? 0;
+      const alpha = data[i + 3] ?? 0;
+      if (alpha > 200 && r > 70 && r - b >= 25) count += 1;
+    }
+    return count;
+  });
+}
+
+/**
+ * REACH-2-FLOW-B — the viewport tint answers the COMMAND's question.
+ *
+ * Deferred from REACH-2-FLOW because `apps/web/src/viewport/**` was another
+ * agent's territory at the time. What that left: keeping the selection alive
+ * through the editor (P1-3) restored the seed's face tint for free, but the tint
+ * read `selectedFeatureId`, so it went on saying `Hole1` after the user chose
+ * `This body`, and said nothing at all when the editor seeded from the TIP with
+ * nothing selected. The tree stamp and the timeline chip read `scopedFeatureIds`
+ * and get both cases right; the viewport now reads the same source.
+ */
+test.describe("REACH-2-FLOW-B — the tint follows the command, not the selection", () => {
+  test("flipping to This body clears the tint; a tip-seeded command paints one", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Scope tint");
+    await page.goto(`/parts/${part.id}`);
+
+    await buildPlate(page);
+    await drillOffCentreHole(page);
+    // The drill leaves its own editor open; the body is at rest after Escape.
+    await page.keyboard.press("Escape");
+
+    const viewport = page.getByTestId("viewport");
+    const treeRow = page.getByTestId("feature-row").nth(2);
+
+    // ---- THE SUBJECT IS NAMED, AND PAINTED --------------------------------
+    await page.getByTestId("feature-select-2").click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("hole-editor")).toHaveCount(0);
+    await page.getByTestId("new-pattern").click();
+    await expect(page.getByTestId("pattern-editor")).toBeVisible();
+    await expect(page.getByTestId("pattern-scope-features")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(viewport).toHaveAttribute("data-body-highlight", "feature", {
+      timeout: 15_000,
+    });
+
+    const total = Number(await viewport.getAttribute("data-total-faces"));
+    const litScoped = Number(
+      await viewport.getAttribute("data-selected-faces"),
+    );
+    expect(total).toBeGreaterThan(6); // a box (6) reshaped by a through-bore
+    expect(litScoped).toBeGreaterThan(0);
+    // A PROPER subset — the matcap survives on every face the pattern will not
+    // touch, so the tint reads as "this feature", not as a clay swap.
+    expect(litScoped).toBeLessThan(total);
+    const inkScoped = await tintedPixels(page);
+    expect(inkScoped, "the scoped feature must be painted").toBeGreaterThan(50);
+
+    // ---- FLIP TO `This body`: THE INK GOES WITH IT ------------------------
+    // Same camera, same body, same editor — only the answer changed. So the
+    // difference below is the tint and nothing else.
+    await page.getByTestId("pattern-scope-body").click();
+    await expect(page.getByTestId("pattern-scope-body")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    // …in the same frame the tree stamp clears, which is the acceptance
+    // criterion: three surfaces, one question, one answer.
+    await expect(treeRow).not.toHaveAttribute("data-scoped", "true");
+    await expect(viewport).toHaveAttribute("data-body-highlight", "none");
+    await expect(viewport).toHaveAttribute("data-selected-faces", "0");
+    expect(
+      await tintedPixels(page),
+      "no face may stay lit once the command acts on the whole body",
+    ).toBe(0);
+
+    // Nothing is painted, deliberately: a whole-body scope has nothing to
+    // stand out AGAINST, so a full-body brass would hide the machined read and
+    // carry exactly as much information as this does. The reading is stated in
+    // words on the row that asked, where it is legible.
+    await expect(page.getByTestId("pattern-scope-note")).toContainText(
+      "whatever the tree hands it",
+    );
+
+    // ---- AND BACK ---------------------------------------------------------
+    await page.getByTestId("pattern-scope-features").click();
+    await expect(treeRow).toHaveAttribute("data-scoped", "true");
+    await expect(viewport).toHaveAttribute("data-body-highlight", "feature");
+    await expect(viewport).toHaveAttribute(
+      "data-selected-faces",
+      String(litScoped),
+    );
+    expect(await tintedPixels(page)).toBeGreaterThan(50);
+
+    // ---- THE CASE SELECTION CANNOT EXPRESS --------------------------------
+    // A reload clears the tree selection AND the pre-selection store, so the
+    // frame starts with no highlight from any other source — asserted, so the
+    // tint below cannot be inherited from one of them.
+    await page.keyboard.press("Escape");
+    await page.reload();
+    await expect(page.getByTestId("feature-row")).toHaveCount(3, {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await expect(viewport).toHaveAttribute("data-body-highlight", "none", {
+      timeout: 15_000,
+    });
+    expect(await tintedPixels(page)).toBe(0);
+
+    // The editor seeds itself from the TIP cut with nothing selected — and the
+    // viewport now says so. Before this fix the frame stayed grey while the
+    // panel named `Hole1`.
+    await page.getByTestId("new-pattern").click();
+    await expect(page.getByTestId("pattern-scope-features")).toHaveText(
+      "Hole1",
+    );
+    await expect(page.getByTestId("feature-select-2")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    await expect(viewport).toHaveAttribute("data-body-highlight", "feature", {
+      timeout: 15_000,
+    });
+    const litTip = Number(await viewport.getAttribute("data-selected-faces"));
+    expect(litTip).toBeGreaterThan(0);
+    expect(litTip).toBeLessThan(total);
+    expect(
+      await tintedPixels(page),
+      "a tip-seeded command must paint its subject with nothing selected",
+    ).toBeGreaterThan(50);
+  });
+});
+
+/**
+ * Founder before/after for REACH-2-FLOW-B (gated behind UPDATE_SCREENSHOTS —
+ * see e2e/fixtures.ts). This test regenerates the AFTER pair.
+ *
+ * The BEFORE pair cannot be regenerated by any committed spec, because it is
+ * the behaviour this change deleted: it was captured once by reverting
+ * `highlightedFeatureIds` to the selection-only reading, running this same
+ * test, and renaming the two files `-after-` -> `-before-`. That is the honest
+ * shape of a before/after for a fix — the before is an artefact, not a mode.
+ *
+ * A Ø24 bore rather than the Ø8 the assertions use: the assertions only need
+ * the tint to EXIST (they count it), a founder needs to SEE it, and at Ø8 the
+ * lit face is a 3 px sliver of cylinder wall.
+ */
+test.describe("REACH-2-FLOW-B founder screenshots", () => {
+  test("the scope's tint at the 1280x800 floor", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Scope tint shot");
+    await page.goto(`/parts/${part.id}`);
+
+    await buildPlate(page);
+    await drillOffCentreHole(page, 24);
+    await page.keyboard.press("Escape");
+
+    // 1) The command acts on the WHOLE BODY. Before: the bore stayed brass, so
+    //    the frame named a subject the pattern would not touch.
+    await page.getByTestId("feature-select-2").click();
+    await page.keyboard.press("Escape");
+    await page.getByTestId("new-pattern").click();
+    await expect(page.getByTestId("pattern-editor")).toBeVisible();
+    await page.getByTestId("pattern-scope-body").click();
+    await expect(page.getByTestId("pattern-scope-body")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByTestId("body-status")).toHaveText("Up to date", {
+      timeout: 30_000,
+    });
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/reach2b-scope-body-after-laptop.png`,
+    });
+
+    // 2) A TIP-SEEDED command with nothing selected. Before: the panel named
+    //    Hole1 and the frame said nothing at all.
+    await page.keyboard.press("Escape");
+    await page.reload();
+    await expect(page.getByTestId("feature-row")).toHaveCount(3, {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await page.getByTestId("new-pattern").click();
+    await expect(page.getByTestId("pattern-scope-features")).toHaveText(
+      "Hole1",
+    );
+    await expect(page.getByTestId("body-status")).toHaveText("Up to date", {
+      timeout: 30_000,
+    });
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/reach2b-scope-tip-after-laptop.png`,
+    });
   });
 });
 

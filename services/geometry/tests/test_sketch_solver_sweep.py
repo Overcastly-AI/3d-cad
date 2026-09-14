@@ -10,12 +10,13 @@ not be swept the same way, and the alarming number that sweep produced — **7 o
 success** (RESEARCH §2) — was unverifiable and unmonitored. There was no way to
 show it is now 0, and no way to notice it regress.
 
-**Re-measured on this corpus: 0 of 1326** (1327 at the commit that added this
+**Re-measured on this corpus: 0 of 1328** (1327 at the commit that added this
 module; 1328 after SOLVE-CRASH-1 turned three formerly-crashing sketches into
 real solves; 1326 after ARC-DEGENERATE-1 reclassified two annihilated-arc
-payloads out of ``underconstrained``). The 95% upper bound on the violation rate
-is therefore 3/1326 = 0.23% (rule of three), against the 4.5% the original sweep
-measured. That number is now a gate.
+payloads out of ``underconstrained``; 1328 again after ARC-BRANCH-1 found the
+non-degenerate branch two of those collapses were hiding). The 95% upper bound on
+the violation rate is therefore 3/1328 = 0.23% (rule of three), against the 4.5%
+the original sweep measured. That number is now a gate.
 
 The sweep did not come back empty, though — it found three OTHER things, all
 reported rather than folded into a green test: an unhandled
@@ -52,6 +53,22 @@ oracle cannot see a degeneracy its own constraint is happy with**, so "no
 violated constraint" and "no absent geometry" are two properties and each needs
 its own assertion. Census after: ``conflicting`` 287 -> 314, ``overconstrained``
 282 -> 257, ``underconstrained`` 1297 -> 1295, solvable 1328 -> 1326.
+
+**And 2 of those collapses were a BAD BRANCH rather than a verdict**
+(ARC-BRANCH-1). ARC-DEGENERATE-1 recorded one of them as a live limit — trial
+1906 is solvable at ``r2 = 2 * r1`` and was being told ``conflicting`` — and
+closing it turned the question "is this collapse forced?" into something the
+solver asks of every annihilated entity, not something a ticket asks of arcs.
+Answered over this corpus: **38 solves annihilate an entity, 36 are forced, 2 are
+not**, and the second of the two is a CIRCLE (trial 1593) whose minimal form is
+the same two constraints as 1906 — a case SOLVE-CRASH-1 had counted as forced.
+Census after: ``conflicting`` 314 -> 312, ``underconstrained`` 1295 -> 1297,
+solvable 1326 -> 1328; violated still 0, reversed still 0, annihilated still 0/0,
+and no OTHER trial's payload changed by a single bit. Note this module's
+:func:`_plain_solve` now calls production's
+:func:`~geometry.sketch.planegcs_solver.plain_solve` rather than re-implementing
+one DogLeg pass: the restart moves what "the plain solve" MEANS, and the SETTLE-2
+oracle has to compare against the baseline production actually settled from.
 
 Seeded fixed corpus, NOT hypothesis
 -----------------------------------
@@ -183,11 +200,10 @@ from geometry.sketch.planegcs_solver import (
     DEGENERATE_ARC_RADIUS_MM,
     DEGENERATE_RADIUS_MM,
     SATISFIED_TOL_MM,
-    _GcsBuild,  # pyright: ignore[reportPrivateUsage]
     _submitted_points,  # pyright: ignore[reportPrivateUsage]
+    plain_solve,
 )
 from geometry.sketch.residual import worst_residual
-from planegcs import SolveStatus as GcsSolveStatus
 
 SOLVER: SketchSolver = PlanegcsSketchSolver()
 
@@ -198,12 +214,12 @@ SOLVER: SketchSolver = PlanegcsSketchSolver()
 SWEEP_SEED = 20260822
 
 #: Trials per run. 2000 rather than the original 400 because the question this
-#: module answers is now "is the violation rate zero", and a zero over 1326
+#: module answers is now "is the violation rate zero", and a zero over 1328
 #: solvable sketches bounds the rate at 0.23% where 155 bounded it only at 1.9%.
 #: Measured cost is ~6 ms/trial, so the whole module is ~12 s.
 SWEEP_TRIALS = 2000
 
-#: Vacuity floor. The measured solvable count is 1326 of 2000; this is ~60% of
+#: Vacuity floor. The measured solvable count is 1328 of 2000; this is ~60% of
 #: it, low enough that ordinary solver churn does not trip it and high enough
 #: that the sweep cannot quietly stop exercising anything. A run below this is
 #: not a weaker sweep, it is a sweep whose generator has broken.
@@ -547,11 +563,23 @@ def _plain_solve(sketch: SketchDefinition) -> list[SketchEntity] | None:
 
     ``None`` when the plain solve does not converge, in which case there is no
     baseline to compare against and the SETTLE-2 property does not apply.
+
+    **Calls production's own** :func:`~geometry.sketch.planegcs_solver.plain_solve`
+    **rather than re-implementing a single DogLeg pass, and that is a correction
+    ARC-BRANCH-1 had to make rather than a convenience.** The unsettled solution
+    stopped being "one solve from the author's coordinates" when a solve that
+    ANNIHILATES an entity gained a restart: for such a sketch the settle is handed
+    the restart's answer, so an oracle built on the first pass would be asking
+    whether the settle refines a baseline nothing ever settled from — and on
+    trial 1906 it says yes, wrongly, because that first pass reverses ``e1``
+    relative to the author while the settle correctly restores it. The
+    independently-derived half of this property is :func:`_reversed_entities`,
+    the dot product; the BASELINE is a definition, and a test that invents its
+    own definition of the thing under test measures nothing.
     """
-    build = _GcsBuild(sketch, evaluate_driving_dimensions(sketch.constraints))
-    if build.gcs.solve() not in (GcsSolveStatus.Success, GcsSolveStatus.Converged):
-        return None
-    return build.read_back()
+    driving_values = evaluate_driving_dimensions(sketch.constraints)
+    system, solved = plain_solve(sketch, driving_values)
+    return system.read_back() if solved else None
 
 
 # ---------------------------------------------------------------------------

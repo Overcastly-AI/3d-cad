@@ -70,6 +70,126 @@ const INK_SELECTED = "#E3A64B"; // packages/design tokens.ts -> color.brass
 const EMPTY_STEEL: Point = { x: 46, y: -22 };
 
 /**
+ * THE PARK, AS A SEARCH RATHER THAN A CONSTANT.
+ *
+ * EMPTY_STEEL is stated in PLANE MM because what makes it a park is that the
+ * SKETCH has nothing there — off both axes, clear of the origin frame. That is
+ * the right coordinate system for the question and the wrong one for the
+ * answer: where those millimetres land on SCREEN is a function of the camera,
+ * so a zoom can slide the park under the chrome floating over the viewport, or
+ * off the frame altogether — and neither is a click on the scene.
+ *
+ * Both happened here, and both were invisible:
+ *
+ *  - CHROME. CRAFT-6 (`a340ff5`) mounted the reference cube through sketch,
+ *    putting a 108 px seat in the bottom-right corner. At the zoomed-IN leg the
+ *    park maps to (1519, 903) on a 1600x1000 frame — inside that seat, on the
+ *    block's TOP facet. The click steered the view (correctly: it is a control)
+ *    and the selection it was meant to clear stayed held, so the gesture case
+ *    read as "clicking empty space no longer deselects". Measured green at
+ *    `bd58416` and red at `a340ff5` with this file byte-identical at both; at
+ *    the failure the DRO reads "—" because the pointer is off the canvas.
+ *  - OFF THE FRAME. The face-seated case frames a small face, so 46 mm is
+ *    1177 px and the park has been landing at (1977, 1089) — outside a
+ *    1600x1000 window. That click reached nothing at all, and the
+ *    "nothing selected" that followed it was the state the sketch was already
+ *    in: a park that asserted nothing, passing for as long as nobody looked.
+ *
+ * So the park is SEARCHED for and then CHECKED, at the four quadrant mirrors of
+ * EMPTY_STEEL (the same statement about the sketch, in another quadrant) and at
+ * decreasing plane radii for cameras where full radius is off-frame. Order
+ * keeps the original point first, so every call that was already clear of
+ * chrome parks exactly where it used to.
+ */
+const EMPTY_STEEL_SCALES: readonly number[] = [1, 0.5, 0.25];
+
+/**
+ * How far a park must sit from BOTH axes, in screen px, to count as empty.
+ *
+ * The ladder above shrinks the plane offsets, and the one thing a sketch always
+ * has ink on is its own frame — origin ring and two axes through it. 48 px is
+ * six times the 8 px point-pick tolerance the ring is grabbed with, on both
+ * axes, so a candidate that survives it is clear of the frame in every
+ * direction. A camera flat enough that even the full radius fails this is a
+ * camera where nothing is distinct, and refusing is the honest answer.
+ */
+const PARK_AXIS_CLEARANCE_PX = 48;
+
+/** Every park candidate, in preference order: full radius first, then closer. */
+function parkCandidates(at: Mapper): Point[] {
+  const origin = at({ x: 0, y: 0 });
+  const points: Point[] = [];
+  for (const scale of EMPTY_STEEL_SCALES) {
+    for (const sx of [1, -1]) {
+      for (const sy of [1, -1]) {
+        const screen = at({
+          x: EMPTY_STEEL.x * scale * sx,
+          y: EMPTY_STEEL.y * scale * sy,
+        });
+        if (
+          Math.abs(screen.x - origin.x) >= PARK_AXIS_CLEARANCE_PX &&
+          Math.abs(screen.y - origin.y) >= PARK_AXIS_CLEARANCE_PX
+        ) {
+          points.push(screen);
+        }
+      }
+    }
+  }
+  return points;
+}
+
+/**
+ * Park on empty steel and wait for the readout to say so.
+ *
+ * WHAT IS UNDER THE POINTER is read with the user's own mechanism rather than
+ * assumed from the plane mapping: a candidate counts as the scene only if it
+ * resolves to a canvas inside the viewport with no `data-viewport-chrome`
+ * ancestor. That tells the reference cube's canvas from the scene's without
+ * naming the cube, so the next widget somebody docks in a corner is avoided by
+ * the same rule — the same `data-viewport-chrome` declaration the fit and the
+ * proposal chip already read.
+ *
+ * It REFUSES when every candidate is covered, naming what each one hit, rather
+ * than clicking the first and hoping: a park that silently reaches nothing is
+ * what turned this assertion into a test of nothing in the first place.
+ */
+async function parkOnEmptySteel(page: Page, at: Mapper): Promise<void> {
+  const candidates = parkCandidates(at);
+  const resolved = await page.evaluate(
+    (points: [number, number][]) =>
+      points.map(([x, y]) => {
+        const el = document.elementFromPoint(x, y);
+        if (el === null) return "outside the frame";
+        const chrome = el.closest("[data-viewport-chrome]");
+        if (chrome !== null) {
+          return `chrome ${chrome.getAttribute("data-viewport-chrome")}`;
+        }
+        if (el.tagName !== "CANVAS") return el.tagName.toLowerCase();
+        return el.closest('[data-testid="viewport"]') === null
+          ? "a canvas outside the viewport"
+          : "scene";
+      }),
+    candidates.map((point): [number, number] => [point.x, point.y]),
+  );
+  const index = resolved.indexOf("scene");
+  if (index < 0) {
+    throw new Error(
+      `no park point reaches the scene: ${candidates
+        .map(
+          (point, i) =>
+            `(${point.x.toFixed(0)}, ${point.y.toFixed(0)}) -> ${resolved[i]}`,
+        )
+        .join("; ")}`,
+    );
+  }
+  const park = candidates[index] as Point;
+  await page.mouse.click(park.x, park.y);
+  await expect(page.getByTestId("selection-readout")).toContainText(
+    "nothing selected",
+  );
+}
+
+/**
  * Plane-mm -> screen-px mapper, read off the DRO with the grid OFF so the two
  * calibration samples are raw. Re-run after every camera change: the whole
  * point of the zoom leg is that this mapping is not constant.
@@ -214,11 +334,7 @@ async function parkThenClick(
   screen: Point,
   modifier?: "Shift",
 ): Promise<void> {
-  const empty = at(EMPTY_STEEL);
-  await page.mouse.click(empty.x, empty.y);
-  await expect(page.getByTestId("selection-readout")).toContainText(
-    "nothing selected",
-  );
+  await parkOnEmptySteel(page, at);
   if (modifier) await page.keyboard.down(modifier);
   await page.mouse.click(screen.x, screen.y);
   if (modifier) await page.keyboard.up(modifier);
@@ -541,10 +657,7 @@ test.describe("QA SKETCH-2 — grounding to the sketch frame", () => {
       // a pointer click having already proved the thing under test. The handle
       // TOGGLES, so park on empty first — otherwise the leg that follows a
       // successful click deselects and reads as this defect.
-      await page.mouse.click(at(EMPTY_STEEL).x, at(EMPTY_STEEL).y);
-      await expect(page.getByTestId("selection-readout")).toContainText(
-        "nothing selected",
-      );
+      await parkOnEmptySteel(page, at);
       await page.getByTestId("sketch-origin").focus();
       await page.keyboard.press("Enter");
       await expect(
@@ -678,7 +791,7 @@ test.describe("QA SKETCH-2 — grounding to the sketch frame", () => {
       { x: 700, y: 620 },
       { x: 1000, y: 420 },
     );
-    await page.mouse.click(at2(EMPTY_STEEL).x, at2(EMPTY_STEEL).y);
+    await parkOnEmptySteel(page, at2);
     const width = page
       .locator('[data-testid^="glyph-"][data-kind="distance"]')
       .filter({ hasText: /^24$/ });
@@ -1003,10 +1116,7 @@ test.describe("QA SKETCH-2 — grounding to the sketch frame", () => {
     // Arm Distance with NOTHING selected (the `dimensionPick` rung), then
     // click the origin: the frame must neither open an editor nor swallow the
     // arming.
-    await page.mouse.click(at(EMPTY_STEEL).x, at(EMPTY_STEEL).y);
-    await expect(page.getByTestId("selection-readout")).toContainText(
-      "nothing selected",
-    );
+    await parkOnEmptySteel(page, at);
     await page.keyboard.press("d");
     const origin = at({ x: 0, y: 0 });
     await page.mouse.click(origin.x + 11, origin.y);

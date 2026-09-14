@@ -66,8 +66,23 @@ services:
       timeout: 3s
       retries: 12
 
+  # MinIO Inc. withdrew minio/minio and minio/mc from Docker Hub entirely
+  # (verified 2026-09-13: both `GET hub.docker.com/v2/repositories/minio/<repo>/`
+  # return {"message":"object not found"} — not rate-limited, not gated,
+  # REMOVED). The minio/minio GitHub repo itself now reads "THIS REPOSITORY IS
+  # NO LONGER MAINTAINED" / "distributed as source code only" as of the same
+  # date. quay.io is MinIO's own alternative registry — their own official
+  # Helm chart (github.com/minio/minio, helm/minio/values.yaml, fetched live)
+  # still pins `quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z` and
+  # `quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z` as its defaults — the
+  # newest tags we have verified evidence still exist anywhere, since no
+  # binary release has been cut since the source-only pivot. quay.io itself
+  # is policy-denied from this dev container (agent-proxy 403), so these
+  # exact tags could not be pulled here; the CI runner is not behind that
+  # proxy. If CI still 401s on quay.io, the next step is a registry secret,
+  # not a different tag — see the platform-builder brief this shipped with.
   minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: *minio-user
@@ -86,7 +101,7 @@ services:
   # One-shot bucket bootstrap: geometry results (meshes/exports) land in
   # s3://${S3_BUCKET} (RESEARCH.md §4). Exits 0 after `mc mb --ignore-existing`.
   minio-init:
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    image: quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z
     depends_on:
       minio:
         condition: service_healthy

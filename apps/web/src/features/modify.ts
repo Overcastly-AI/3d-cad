@@ -23,6 +23,7 @@ import type {
 } from "../api/parts";
 import { lengthInputValue, parsePositiveLengthMm } from "../units/length";
 import { pickedEdgesSelector } from "./edge";
+import { fieldBlocker } from "./submitBlocker";
 
 /** How the fillet/chamfer chooses its edges: a predicate, or clicked edges. */
 export type SelectionMode = "rule" | "pick";
@@ -168,6 +169,49 @@ export function buildFilletParams(
   return { radius_mm: radius, edges };
 }
 
+/**
+ * WHY a picked-edge selection is not resolvable yet, or null when it is — the
+ * half fillet and chamfer share, so the two cards say the same thing about the
+ * same situation (REASON-GATE-1). `verb` is the operation in the user's words
+ * ("round", "bevel"), which is the only part that legitimately differs.
+ *
+ * In "By rule" mode the predicate always resolves, so this is silent there.
+ */
+function edgeSelectorBlocker(
+  form: { mode: SelectionMode; edges: EdgeSelectorId },
+  picked: readonly EdgeSignature[],
+  bodyFeatureId: string | null,
+  verb: string,
+): string | null {
+  if (
+    buildEdgeSelector(form.mode, form.edges, picked, bodyFeatureId) !== null
+  ) {
+    return null;
+  }
+  return bodyFeatureId === null
+    ? "Add a body before picking edges."
+    : `Click one or more edges to ${verb}.`;
+}
+
+/**
+ * WHY the fillet cannot be created yet, or null when it can (REASON-GATE-1 —
+ * see `submitBlocker.ts` for the rule and the 48-character budget).
+ */
+export function filletSubmitBlocker(
+  form: FilletForm,
+  picked: readonly EdgeSignature[],
+  bodyFeatureId: string | null,
+  unit: LengthUnit,
+): string | null {
+  return (
+    fieldBlocker(
+      form.radiusInput,
+      parseSizeMm(form.radiusInput, unit),
+      "radius",
+    ) ?? edgeSelectorBlocker(form, picked, bodyFeatureId, "round")
+  );
+}
+
 /** True when the fillet form can be submitted (valid radius + edge selector). */
 export function canSubmitFillet(
   form: FilletForm,
@@ -175,7 +219,7 @@ export function canSubmitFillet(
   bodyFeatureId: string | null,
   unit: LengthUnit,
 ): boolean {
-  return buildFilletParams(form, picked, bodyFeatureId, unit) !== null;
+  return filletSubmitBlocker(form, picked, bodyFeatureId, unit) === null;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,6 +283,25 @@ export function buildChamferParams(
   return { distance_mm: distance, edges };
 }
 
+/**
+ * WHY the chamfer cannot be created yet, or null when it can (REASON-GATE-1 —
+ * see `submitBlocker.ts` for the rule and the 48-character budget).
+ */
+export function chamferSubmitBlocker(
+  form: ChamferForm,
+  picked: readonly EdgeSignature[],
+  bodyFeatureId: string | null,
+  unit: LengthUnit,
+): string | null {
+  return (
+    fieldBlocker(
+      form.distanceInput,
+      parseSizeMm(form.distanceInput, unit),
+      "distance",
+    ) ?? edgeSelectorBlocker(form, picked, bodyFeatureId, "bevel")
+  );
+}
+
 /** True when the chamfer form can be submitted (valid distance + selector). */
 export function canSubmitChamfer(
   form: ChamferForm,
@@ -246,5 +309,5 @@ export function canSubmitChamfer(
   bodyFeatureId: string | null,
   unit: LengthUnit,
 ): boolean {
-  return buildChamferParams(form, picked, bodyFeatureId, unit) !== null;
+  return chamferSubmitBlocker(form, picked, bodyFeatureId, unit) === null;
 }

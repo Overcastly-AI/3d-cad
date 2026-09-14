@@ -183,6 +183,18 @@ jobs:
         run: pnpm -r --if-present run typecheck
       - name: Unit tests
         run: pnpm -r --if-present run test
+      # A workflow script is the one kind of code here that nobody runs before it
+      # runs for real, and "for real" costs several agent-hours plus a wave of
+      # builder time. This stubs agent() and exercises the redesign loop's
+      # wiring — phase order, one builder per subtree, the design-system item
+      # serialising ahead of the rest, and what the wave CLAIMS it shipped. It
+      # earned itself on its first run: an item deferred for colliding on
+      # packages/design was still reported as shipped and counted in the
+      # "built N/M" denominator, so the orchestrator would have hunted for a
+      # commit that does not exist. It lives in this job because it is the only
+      # one with node already set up, and it needs no dependencies at all.
+      - name: Redesign workflow wiring (+ prove the harness can fail)
+        run: node scripts/dryrun-redesign-workflow.mjs
 
   contracts:
     runs-on: ubuntu-latest
@@ -266,6 +278,18 @@ jobs:
         run: |
           python3 scripts/check-tailwind-scale.py --self-test
           python3 scripts/check-tailwind-scale.py
+      # `check-flow-cost.py` reads apps/web/e2e as a transcript of real gestures
+      # and is what the frontend REDESIGN loop steers by, so a silent zero in it
+      # aims a whole wave at the wrong surface. Its self-test found three such
+      # zeros before it shipped — a `({ page })` destructuring brace read as the
+      # test body, a TypeScript object-literal parameter type read as a function
+      # body (which made the canonical create-a-part journey report ZERO), and
+      # `test.describe` counted beside the tests it contains. The drag-collapse
+      # and typed-param cases carry negative controls, so a rule that stops
+      # doing anything fails loudly rather than passing vacuously. Same
+      # reasoning as its neighbours for living here: stdlib only, ~150ms.
+      - name: Journey gesture cost (+ prove the gate can fail)
+        run: python3 scripts/check-flow-cost.py --self-test
 
   doc-tick:
     # DOCTICK-GATE — CLAUDE.md calls it NON-NEGOTIABLE that "every commit that

@@ -4,6 +4,8 @@
 // spec file at collection with "No tests found".
 import { proposal } from "@loft/design/tokens";
 
+import { partVerbKey } from "../src/shortcuts/registry";
+
 import { expect, test, type Page } from "./fixtures";
 import {
   createPartViaApi,
@@ -253,7 +255,16 @@ test.describe("hover a face to sketch on it", () => {
     // ever learn it. If the glyph and the binding drift apart, the affordance
     // is teaching a key that does nothing — so assert the glyph, not just the
     // behaviour.
-    await expect(chip).toContainText("↵");
+    //
+    // READ FROM THE REGISTRY, not written here: the letter is the one thing
+    // that must be identical in the handler, the chip, the tooltip and the key
+    // card, and a literal in this file would be a fifth copy that goes stale
+    // silently the day the verb is re-keyed (W2 direction §3.4). `Enter` still
+    // accepts — it is simply not what the chip teaches, because it stops
+    // working the moment the note is gone.
+    await expect(chip).toContainText(
+      (partVerbKey("sketch") as string).toUpperCase(),
+    );
 
     const datumWrite = page
       .waitForResponse(

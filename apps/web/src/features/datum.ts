@@ -29,6 +29,7 @@ import type {
   PlanarFaceSignature,
 } from "../api/parts";
 import { faceSubshapeRef, onFaceDatumParams } from "./face";
+import { fieldBlocker } from "./submitBlocker";
 import { lengthInputValue, parseSignedLengthMm } from "../units/length";
 import type { DatumPlaneName } from "../sketch/plane";
 
@@ -447,7 +448,41 @@ export function buildDatumParams(
   }
 }
 
+/**
+ * WHY the datum plane cannot be created yet, or null when it can (REASON-GATE-1
+ * — see `submitBlocker.ts` for the rule and the 48-character budget).
+ *
+ * Every branch names the field of THAT KIND's form, because the four kinds share
+ * a card and swap their fields: a reason that said "choose a reference" would be
+ * ambiguous in exactly the form (midplane) where two of them are on screen.
+ */
+export function datumSubmitBlocker(
+  form: DatumForm,
+  unit: LengthUnit,
+): string | null {
+  const offset = (input: string) =>
+    fieldBlocker(input, parseOffsetMm(input, unit), "offset");
+  switch (form.kind) {
+    case "offset":
+      return offset(form.offsetInput);
+    case "offset_from":
+      if (form.baseFeatureId === "") return "Choose the base plane.";
+      return offset(form.offsetInput);
+    case "midplane":
+      if (buildMidplaneSide(form.a) === null) {
+        return "Choose the first reference.";
+      }
+      if (buildMidplaneSide(form.b) === null) {
+        return "Choose the second reference.";
+      }
+      return null;
+    case "on_face":
+      if (form.face === null) return "Pick a planar face in the view.";
+      return offset(form.offsetInput);
+  }
+}
+
 /** True when the form can be submitted (all required fields present + valid). */
 export function canSubmitDatum(form: DatumForm, unit: LengthUnit): boolean {
-  return buildDatumParams(form, unit) !== null;
+  return datumSubmitBlocker(form, unit) === null;
 }

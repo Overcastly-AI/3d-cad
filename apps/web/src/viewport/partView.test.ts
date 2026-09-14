@@ -7,6 +7,7 @@ import {
   entityIsDrawn,
   hiddenBodyCount,
   isolatedBodyLabel,
+  litFeatureFaces,
   ORIGIN_AXES,
   ORIGIN_PLANES,
   originAxisKey,
@@ -299,5 +300,72 @@ describe("bodies auto-ghost while a sketch is open", () => {
     usePartViewStore.getState().setSketchOpen(true);
     usePartViewStore.getState().setSubject("part-b");
     expect(usePartViewStore.getState().sketchOpen).toBe(false);
+  });
+});
+
+/**
+ * THE PRECEDENCE, AS A FUNCTION (QA 2026-09-13, P1).
+ *
+ * The defect these cover is not "a wrong set" — it is TWO call sites answering
+ * the same question differently, one of them by never asking. So the cases
+ * below are written as the mesh's two consumers would read them: what the tint
+ * lands on, and what the outline traces, are the same answer.
+ */
+describe("litFeatureFaces", () => {
+  const none = { hidden: new Set<number>(), ghosted: new Set<number>() };
+
+  it("passes the feature's own faces through when nothing is stopped", () => {
+    const faces = new Set([1, 2, 3]);
+    // Identity, not a copy: the resting case must cost no allocation, because
+    // it runs on every hover frame of every selected feature.
+    expect(litFeatureFaces(faces, none)).toBe(faces);
+  });
+
+  it("has nothing to light without a selection", () => {
+    expect(litFeatureFaces(null, none)).toBeNull();
+    expect(litFeatureFaces(new Set(), none)).toBeNull();
+  });
+
+  it("drops a HIDDEN body's faces — the emphasis cannot outlive the body", () => {
+    const lit = litFeatureFaces(new Set([1, 2, 3]), {
+      hidden: new Set([2, 3]),
+      ghosted: new Set<number>(),
+    });
+    expect([...(lit ?? [])]).toEqual([1]);
+  });
+
+  it("returns null when the whole feature is hidden, not an empty set", () => {
+    // Null is what both call sites branch on: the material assignment falls
+    // through to the base slot and `featureEdges` builds no geometry at all.
+    // An empty set would make `faceBoundaryEdges` the one deciding, which is
+    // exactly the split responsibility that produced the defect.
+    expect(
+      litFeatureFaces(new Set([1, 2]), {
+        hidden: new Set([1, 2]),
+        ghosted: new Set<number>(),
+      }),
+    ).toBeNull();
+  });
+
+  it("drops a GHOSTED body's faces, so the outline agrees with the tint", () => {
+    // A ghosted face takes the ghost material; a brass outline on it would say
+    // "committed" over a surface saying "receded". Its boundary is still drawn
+    // — by `ghostEdges`, in the ghost ink.
+    const lit = litFeatureFaces(new Set([4, 5]), {
+      hidden: new Set<number>(),
+      ghosted: new Set([5]),
+    });
+    expect([...(lit ?? [])]).toEqual([4]);
+  });
+
+  it("keeps a face no stop claims, on a part where other bodies are off", () => {
+    // The CONTROL: a stop on a body that does not own these faces must not
+    // dim a feature the modeller can see perfectly well.
+    const faces = new Set([7, 8]);
+    const lit = litFeatureFaces(faces, {
+      hidden: new Set([90, 91]),
+      ghosted: new Set([92]),
+    });
+    expect([...(lit ?? [])]).toEqual([7, 8]);
   });
 });

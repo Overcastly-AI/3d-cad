@@ -33,6 +33,7 @@ import {
 } from "./patternScope";
 // The angle field shares revolve's (0, 360] parse/validation exactly (DRY).
 import { angleError, parseAngleDeg } from "./revolve";
+import { fieldBlocker } from "./submitBlocker";
 
 export { angleError, parseAngleDeg };
 
@@ -270,7 +271,59 @@ export function buildPatternParams(
   };
 }
 
+/**
+ * WHY the pattern cannot be created yet, or null when it can (REASON-GATE-1 —
+ * see `submitBlocker.ts` for the rule and the 48-character budget).
+ *
+ * Only the ACTIVE mode's fields are consulted, exactly as `buildPatternParams`
+ * does — a circular pattern must not be blocked by a linear spacing the user
+ * cannot see.
+ */
+export function patternSubmitBlocker(
+  form: PatternForm,
+  unit: LengthUnit,
+): string | null {
+  const count = fieldBlocker(
+    form.countInput,
+    parseCount(form.countInput),
+    "count",
+  );
+  if (count !== null) return count;
+  if (buildScope(form.scope, form.scopeFeatures) === null) {
+    return "Pick at least one feature to pattern.";
+  }
+  if (form.kind === "linear") {
+    return fieldBlocker(
+      form.spacingInput,
+      parseSpacingMm(form.spacingInput, unit),
+      "spacing",
+    );
+  }
+  const angle = fieldBlocker(
+    form.angleInput,
+    parseAngleDeg(form.angleInput),
+    "angle",
+  );
+  if (angle !== null) return angle;
+  // The axis point is three fields, so the sentence names the AXIS it is one of
+  // — "Check the X." beside a Y and a Z would be the shortest useless reason in
+  // the product.
+  for (const [axis, input] of [
+    ["X", form.axisPointXInput],
+    ["Y", form.axisPointYInput],
+    ["Z", form.axisPointZInput],
+  ] as const) {
+    const coord = fieldBlocker(
+      input,
+      parseCoordMm(input, unit),
+      `axis point ${axis}`,
+    );
+    if (coord !== null) return coord;
+  }
+  return null;
+}
+
 /** True when the form can be submitted (all active-mode fields valid). */
 export function canSubmitPattern(form: PatternForm, unit: LengthUnit): boolean {
-  return buildPatternParams(form, unit) !== null;
+  return patternSubmitBlocker(form, unit) === null;
 }

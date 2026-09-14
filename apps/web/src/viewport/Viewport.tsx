@@ -28,6 +28,7 @@ import { NavCue } from "../components/NavCue";
 import { ViewBar } from "../components/ViewBar";
 import { VisibilityStamp } from "../components/VisibilityStamp";
 import { AdaptiveGrid } from "./AdaptiveGrid";
+import { BenchBackdrop } from "./BenchBackdrop";
 import { publishViewQuaternion } from "./cameraOrientation";
 import { isDragGesture, type PointerPoint } from "./contextMenuGesture";
 import {
@@ -372,14 +373,24 @@ function CameraRig({
     // empty part opening for the first time) and for a degenerate pose (camera
     // sitting exactly on its target), which would otherwise normalise to a zero
     // vector. It is not the "first geometry" case: see `framedOnce`.
+    //
+    // AN EASE IN FLIGHT IS THE VIEWPOINT, not the pixel the camera happens to
+    // be passing through. A refit that lands mid-ease (leaving a sketch that
+    // built geometry does both within a few hundred ms — CAMRESTORE-1) would
+    // otherwise adopt an arbitrary intermediate attitude AND cancel the ease by
+    // posing instantly, so the modeler ends up somewhere neither rig meant. The
+    // goal is the intent; read it when there is one.
     let dir = ISO_DIR.clone();
     let up = new Vector3(0, 1, 0);
+    const inFlight = goal.current;
     if (!first) {
-      const currentTarget = controls?.target.clone() ?? center.clone();
-      const offset = camera.position.clone().sub(currentTarget);
+      const currentTarget =
+        inFlight?.target.clone() ?? controls?.target.clone() ?? center.clone();
+      const from = inFlight?.position ?? camera.position;
+      const offset = from.clone().sub(currentTarget);
       if (offset.lengthSq() > 1e-12) {
         dir = offset.normalize();
-        up = safeUp(dir, camera.up.clone());
+        up = safeUp(dir, (inFlight?.up ?? camera.up).clone());
       }
     }
 
@@ -420,7 +431,24 @@ function CameraRig({
     );
 
     let pose: CameraGoal;
-    if (command.kind === "direction") {
+    if (command.kind === "restore") {
+      // CAMRESTORE-1 — put the camera back where the SKETCHER took it from.
+      // The pose is world-space and complete, so nothing is re-solved here: a
+      // fit would frame the subject afresh and hand back a DIFFERENT view,
+      // which is the whole complaint ("a view they did not choose").
+      //
+      // `userMoved` is deliberately NOT cleared, unlike the fit/snap branches:
+      // this is not a new framing the modeler asked for, it is the framing they
+      // already had, so whatever they had done to earn it still stands.
+      const { position, up, target, zoom } = command.pose;
+      pose = {
+        position: new Vector3(...position),
+        up: new Vector3(...up),
+        target: new Vector3(...target),
+        view: "restore",
+        ...(zoom === undefined ? {} : { zoom }),
+      };
+    } else if (command.kind === "direction") {
       // Reference-cube pick: rotate about the CURRENT target, keep the zoom.
       const dir = new Vector3(...command.dir).normalize();
       pose = {
@@ -582,9 +610,13 @@ function CameraRig({
  * While the SKETCHER owns the camera the rig holds perspective: the sketch rig
  * frames a plane by parking the camera at a computed DISTANCE
  * (`SketchScene.sketchCameraDistanceMm`), which a parallel camera does not
- * answer to. Nothing is hidden by this — the view rail and the cube unmount
- * with `viewNav`, so the projection control is not on screen during authoring —
- * and the modeller's choice is restored the moment the camera comes back.
+ * answer to. Only the view RAIL unmounts with `viewNav`, which is what keeps
+ * the projection control off screen during authoring; the reference CUBE
+ * persists (CRAFT-6 — `components/AuthoringViewCube`), because orientation
+ * matters more on a plane in space, not less, and a cube facet pick only
+ * orients. The modeller's choice is restored the moment the camera comes back,
+ * and `AuthoringViewCube` freezes it meanwhile so a facet pick cannot bank an
+ * orthographic it would cash on the way out.
  */
 function ProjectionRig({
   owns,
@@ -937,6 +969,12 @@ export function Viewport({
     };
   }, [bounds]);
 
+  /** QA hook: which drafting board is up (CRAFT-2), or `none`. */
+  const handleBackdrop = useCallback((state: string) => {
+    const node = containerRef.current;
+    if (node !== null) node.dataset["benchBackdrop"] = state;
+  }, []);
+
   /** QA hook: the body's hover/selection highlight, stamped on the container. */
   const handleHighlight = useCallback((highlight: BodyHighlight) => {
     const node = containerRef.current;
@@ -1233,6 +1271,13 @@ export function Viewport({
             cellColor={viewport.gridMinor}
             sectionColor={viewport.gridMajor}
           />
+        ) : null}
+        {/* The floor stands up into a drafting board when the camera squares
+            onto an axis under a parallel projection, where an edge-on ground
+            plane projects to a single line (CRAFT-2). Same grid, same pitch,
+            same inks — and the floor stays drawn across it. */}
+        {groundGrid ? (
+          <BenchBackdrop bounds={bounds} onBackdropChange={handleBackdrop} />
         ) : null}
         {groundShadow && viewNav && shadow !== null ? (
           <mesh

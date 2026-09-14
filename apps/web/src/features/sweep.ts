@@ -55,11 +55,24 @@ export function formFromSweepParams(params: SweepParams): SweepForm {
  * here so the user can't author a self-referential sweep at all.
  */
 export function canSubmitSweep(form: SweepForm): boolean {
-  return (
-    form.profileFeatureId !== "" &&
-    form.pathFeatureId !== "" &&
-    form.profileFeatureId !== form.pathFeatureId
-  );
+  return sweepSubmitBlocker(form) === null;
+}
+
+/**
+ * WHY the sweep cannot be created yet, or null when it can (REASON-GATE-1 — see
+ * `submitBlocker.ts` for the rule and the 48-character budget).
+ *
+ * The "no open sketch exists at all" case is NOT here: it is a fact about the
+ * part, not about this form, and `SweepEditor` states it as such before asking
+ * for a path the tree cannot supply.
+ */
+export function sweepSubmitBlocker(form: SweepForm): string | null {
+  if (form.profileFeatureId === "") return "Choose the profile sketch.";
+  if (form.pathFeatureId === "") return "Choose the path sketch.";
+  if (form.profileFeatureId === form.pathFeatureId) {
+    return "Profile and path must be different sketches.";
+  }
+  return null;
 }
 
 /**

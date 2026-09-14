@@ -54,6 +54,7 @@ import {
 import { useCallback, useEffect, useRef } from "react";
 import type { Group } from "three";
 
+import { usePickArmed } from "./armedPicks";
 import {
   readViewQuaternion,
   subscribeViewQuaternion,
@@ -100,10 +101,14 @@ function CubeBlock({
   );
 }
 
+/** Stable identity — a new object per render would re-style the canvas. */
+const YIELDED = { pointerEvents: "none" } as const;
+
 export function ViewCube() {
   const requestDirection = useViewCommandStore(
     (state) => state.requestDirection,
   );
+  const pickArmed = usePickArmed();
   const onPick = useCallback(
     (event: ThreeEvent<MouseEvent>): null => {
       event.stopPropagation();
@@ -137,9 +142,51 @@ export function ViewCube() {
       // Read by `fitFraming.measureChrome`: a fit must not tuck the model under
       // the cube, exactly as it must not tuck it under a panel.
       data-viewport-chrome="view-cube"
+      // WHILE A PICK IS ARMED THE BLOCK IS A READOUT, NOT A CONTROL.
+      //
+      // Its seat is 108 px square in the HUD layer, above every pick mark by
+      // construction (marks top out at z-index 30; `z-hud` is 40). With a body
+      // panned into this corner at 1280x800, cross-item QA measured 5 of 6
+      // `plane-pick-face-N` marks resolving to `view-cube`, 49 of 49 grid
+      // points the same, and the surface pick under it gone as well — the
+      // corner of the model went dead exactly while the tool was asking the
+      // modeller to pick a face there.
+      //
+      // Giving up the POINTER and keeping the PIXELS is the trade that costs
+      // least: CRAFT-6's own argument for mounting the cube through authoring
+      // is that it is "an orientation READOUT before it is a control", and a
+      // readout is unharmed by this. Re-stacking instead would hand the same
+      // defect to the ViewBar and the proposal chip. Orbit, pan and zoom are
+      // canvas gestures and were never blocked; drawing does not yield the cube
+      // at all, because the sketcher's snap marks are not pick marks.
+      //
+      // The stamp is the QA hook: a spec can prove the yield is a STATE rather
+      // than reading it off a lucky hit test.
+      data-pick-yield={pickArmed ? "1" : undefined}
+      // INLINE, and it has to be. The HUD layer this sits in is
+      // `pointer-events-none … [&>*]:pointer-events-auto` — a `.hud > *` rule
+      // at specificity (0,2,0), which beats a `.pointer-events-none` utility
+      // (0,1,0) on the child itself. Measured: with the class applied and
+      // `data-pick-yield="1"` in the DOM, `getComputedStyle` still read
+      // `pointer-events: auto` and 5 of 6 marks still resolved to the cube.
+      // A class that loses to the layer it lives in is a yield that never
+      // happens, and it is success-shaped from every angle except the pixel.
+      style={pickArmed ? YIELDED : undefined}
       className="absolute bottom-view-cube right-view-cube h-view-cube w-view-cube"
     >
       <Canvas
+        // THE YIELD HAS TO LAND HERE, not only on the host above. r3f's
+        // `<Canvas>` writes `pointerEvents: 'auto'` INLINE on its own root div
+        // (`react-three-fiber.esm.js`: `const pointerEvents = eventSource ?
+        // 'none' : 'auto'`), and an inline declaration beats an inherited one —
+        // so a `pointer-events-none` class on the wrapper is silently
+        // overridden and the seat keeps eating clicks. Measured: 5 of 6 pick
+        // marks still resolved to `view-cube` with only the wrapper yielding.
+        // This is the same family as the documented trap that
+        // `pointer-events: none` on the `<canvas>` element does nothing because
+        // r3f listens on the container. The `style` prop is spread LAST into
+        // that object, which is why it is the one thing that wins.
+        style={pickArmed ? YIELDED : undefined}
         orthographic
         // zoom 1 with an r3f-sized frustum makes ONE scene unit ONE CSS pixel,
         // which is why `viewCube.size` can be derived from `viewCube.face`.

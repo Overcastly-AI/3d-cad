@@ -7,6 +7,102 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-09-04 — STEPNAME-2: the COMMON export was the broken one, and unifying the two writers cost nothing a consumer can see (kernel-architect)
+
+Recorded here because the decision this turned on was a claim about the emitted
+FILE — "does owning the writer change what a consumer's CAD reads" — and that is
+a measurement, not an argument.
+
+### The defect, and why it outranked its P2
+
+STEPNAME-1 fixed the assembly path's two naming defects. The **single-body**
+path was untouched and had both, because it went through build123d's
+`export_step` rather than our writer. And a user exporting ONE PART hits that
+path; the rarer assembly export was the correct one. Measured on the emitted
+bytes for a part named `Flänsch 40°`:
+
+| field | before | after |
+|---|---|---|
+| `FILE_NAME` originating system | `'build123d'` | `'Loft'` |
+| `PRODUCT` id / name | `'FlÃ\x83Â¤nsch 40Ã\x82Â°'` | `'Flänsch 40°'` (UTF-8, decodes byte-exactly) |
+
+The mojibake is the `TCollection_ExtendedString(str)` `isMultiByte=False`
+overload again — UTF-8 bytes read one at a time as characters, then re-encoded.
+Note the name was **present in the file all along**, which is why every
+assertion here decodes the part-21 literal and compares for EQUALITY; a
+containment check passes on corruption.
+
+### The decision: fix in place, do NOT adopt XCAF assembly structure
+
+Two options were on the table. (a) Route the part path through the writer the
+assembly path already owns. (b) Upstream two parameters to build123d and pin the
+version. (a) was taken — it removes a duplicate writer and fixes both defects at
+once — and the risk that made it a decision was that it might drag assembly
+structure into a file that has none, changing the emitted shape for every
+existing user and moving every stored digest.
+
+**It does not, and that is measured.** `_single_body_xde_document` rebuilds
+exactly the document `build123d.exporters3d._create_xde` builds for a shape with
+no children (`AddShape(..., makeAssembly=False)`, auto-naming ON). Byte-equality
+of the whole payload against a build123d-configured write, before the provenance
+change was applied:
+
+| case | bytes | byte-equal to build123d |
+|---|---|---|
+| solid, named | 15 348 | **yes** |
+| solid, unnamed | 15 335 | **yes** |
+| multi-body `Compound`, named | 29 169 | **yes** |
+| multi-body `Compound`, unnamed | 29 193 | **yes** |
+
+And the complete before/after diff of the shipped fix, over all four cases plus
+an ASCII-named solid, is the `FILE_NAME` originating-system field and (for a
+non-ASCII name) the `PRODUCT` id/name — **nothing else**; entity counts,
+geometry and product structure are unchanged. A multi-body part remains ONE
+`PRODUCT` over two `MANIFOLD_SOLID_BREP`, with zero
+`NEXT_ASSEMBLY_USAGE_OCCURRENCE`, because a build123d `Compound` carries no
+anytree children for the exporter's pre-order walk to find.
+
+**No golden's content hash moves.** The sheet-metal `content_hash` values are
+sha256 of `FlatPattern.to_json_bytes()`, not of STEP bytes; no golden or test in
+the suite pins a digest over a single-body STEP payload. The one test that pins
+the unnamed export byte-for-byte
+(`test_tree_step_export_without_a_name_is_byte_identical_to_before`) compares the
+endpoint against `export_step_bytes` directly, so both sides move together and it
+still measures what it was written to measure.
+
+### Mutation evidence (each fix reverted independently, all restored)
+
+| mutant | reddens |
+|---|---|
+| M1 — `_xcaf_name` → build123d's defaulted `ExtendedString` overload | **8** cases: the 4 non-ASCII names x both `BodyShape` members. The 3 ASCII-punctuation shapes (apostrophe, double quote, backslash) stay green, because part 21 handles those and always did. |
+| M2 — whole path back to `build123d.export_step` | **10**: those 8 plus both originating-system cases |
+| M3 — drop the "unnamed leaves OCCT's default" skip | **1**: `FILE_NAME('')` instead of `'Open CASCADE Shape Model'` |
+| M4 (negative control) — `makeAssembly=True` | **12**, including the data-section gate, the no-assembly-structure gate, and — decisively — `test_the_named_export_is_byte_deterministic_in_process`. Turning a part into an assembly reintroduces STEPDET-1's process-global counter, which is why "no structure" is a determinism property and not a matter of taste. Note the SOLID cases stay green under M4 and only the MULTI-BODY ones fail — the same blind spot STEPDET-1 paid for, and the reason both fixtures are carried everywhere here. |
+
+### A limit recorded, not fixed
+
+`FILE_NAME`'s *name* field goes through `TCollection_HAsciiString`, which is
+byte-transparent, so a non-ASCII document name lands in the part-21 HEADER as raw
+UTF-8 rather than the standard's `\X2\` escapes. It decodes correctly in any
+UTF-8-tolerant reader and byte-exactly round-trips here, but a strict ISO-8859-1
+reader would show mojibake. This is **identical in both export paths** — it is
+not a re-creation of the part/assembly split this item closed — and it is
+provenance metadata, not a name any downstream tool keys on. Filed as
+STEPHDR-1 (P3) rather than folded in, so the change stays one decision.
+
+### Gates
+
+Full geometry suite **3099 passed / 1 skipped** (was 3070/1; +29 is exactly
+`test_step_names_part`'s case count, so the conftest refactor that gave both
+naming suites ONE part-21 reader — `_step_unescape` / `step_product_names` /
+`step_occurrence_names` / `step_file_name_record` / `step_data_section` — lost no
+case from the assembly suite). `just lint` exit 0, `uv run pyright` clean, no
+pydantic model touched. Environment: build123d 0.11.1 / OCCT 7.9, Python 3.12.
+NB the suite's own summary line was missing from the first run's log — CLI `-q`
+plus `addopts` `-q` makes `-qq`, which deletes it; the counts above are recovered
+by tallying the progress characters, which is what the CLAUDE.md recipe warns to
+expect.
+
 ## 2026-08-29 — STEPDET-1: the assembly STEP export was not deterministic, and both determinism gates were structurally unable to say so (kernel-architect)
 
 A determinism decision and its evidence, recorded here beside the pinned STEP

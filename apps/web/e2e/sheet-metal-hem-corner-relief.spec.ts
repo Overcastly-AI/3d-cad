@@ -80,13 +80,17 @@ function rectangleSketch(width: number, height: number): unknown {
   };
 }
 
-/** Seed a part whose only feature is a rectangular profile sketch. */
-async function seedSketchPart(
+/**
+ * Seed a part whose only feature is a rectangular profile sketch, keeping the
+ * session token — the HEM-1B case needs it to make an UNRELATED edit through
+ * the API (the sketcher is exercised elsewhere; here it is only the cause).
+ */
+async function seedSketchPartWithToken(
   page: Page,
   name: string,
   width: number,
   height: number,
-): Promise<string> {
+): Promise<{ partId: string; token: string }> {
   const account = await seedSession(page);
   const part = await createPartViaApi(page, account.token, name);
   const res = await page.request.post(`/api/v1/parts/${part.id}/features`, {
@@ -98,7 +102,17 @@ async function seedSketchPart(
       `e2e seed sketch failed: ${res.status()} ${await res.text()}`,
     );
   }
-  return part.id;
+  return { partId: part.id, token: account.token };
+}
+
+/** Seed a part whose only feature is a rectangular profile sketch. */
+async function seedSketchPart(
+  page: Page,
+  name: string,
+  width: number,
+  height: number,
+): Promise<string> {
+  return (await seedSketchPartWithToken(page, name, width, height)).partId;
 }
 
 /** The face count parsed from the topology readout. */
@@ -421,6 +435,157 @@ test("a closed hem REFUSES an open-hem radius, names the fix, and the editor rec
   await expect
     .poll(async () => (await extentsMm(page))[2], { timeout: 30_000 })
     .toBeCloseTo(HEMMED_HEIGHT_MM, 3);
+});
+
+test("repairing an orphaned hem never meets a silent disabled Save (HEM-1B)", async ({
+  page,
+}) => {
+  // The audit's sequence, driven end to end (`docs/AUDIT-PRODUCT.md` S-26): an
+  // UNRELATED edit widens the blank, the hem's stored edge no longer resolves,
+  // and the user goes to repair it. What they met was `hem-submit` with
+  // `aria-disabled="true"` and an EMPTY `title` — no message, no red field —
+  // which is indistinguishable from a dead end. Two things are asserted here:
+  // the form re-opens as it was AUTHORED (overrides off, Save live), and every
+  // state that DOES gate Save puts a sentence on screen where the user is
+  // looking. The second is asserted as READABLE INK — a box with area, hit-
+  // testing to the Save cell — never as an attribute's presence, because an
+  // attribute is exactly what the audit found carrying nothing.
+  const { partId, token } = await seedSketchPartWithToken(
+    page,
+    "Hem repair (clicked)",
+    50,
+    30,
+  );
+  const headers = { Authorization: `Bearer ${token}` };
+  await page.goto(`/parts/${partId}`);
+  await authorBaseFlange(page);
+
+  // A hem with NO overrides — exactly what the audit authored.
+  await page.getByTestId("new-hem").click();
+  await expect(page.getByTestId("hem-editor")).toBeVisible();
+  await pickTopEdge(page, "x", 1);
+  await page.getByTestId("hem-length").fill("8");
+  await page.getByTestId("hem-submit").click();
+  await expect(page.getByTestId("hem-editor")).toBeHidden({ timeout: 30_000 });
+  await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+    timeout: 30_000,
+  });
+
+  // THE UNRELATED EDIT: the blank grows 50 → 60 mm. The hemmed edge moves, so
+  // the hem's stored signature stops resolving and the feature fails.
+  const listed = await page.request.get(`/api/v1/parts/${partId}/features`, {
+    headers,
+  });
+  const tree = await listed.json();
+  const sketchRow = tree.features[0];
+  const widened = await page.request.patch(
+    `/api/v1/parts/${partId}/features/${sketchRow.id}`,
+    {
+      data: {
+        feature: (rectangleSketch(60, 30) as { feature: unknown }).feature,
+        expected_tree_version: tree.tree_version,
+      },
+      headers,
+    },
+  );
+  expect(widened.ok(), await widened.text()).toBe(true);
+  await page.reload();
+  await expect(page.getByTestId("eval-status")).toHaveText("Failed", {
+    timeout: 60_000,
+  });
+  // The code as the DOM holds it — the panel's `uppercase` is CSS.
+  await expect(page.getByTestId("feature-error-2")).toContainText(
+    "subshape_unresolved",
+  );
+
+  // 1) THE FORM RE-OPENS AS IT WAS AUTHORED. The audit found "Override
+  //    K-factor" CHECKED with an empty value — an override never authored —
+  //    which is what silently invalidated the form.
+  await page.getByTestId("feature-select-2").click();
+  await expect(page.getByTestId("hem-editor")).toBeVisible();
+  await expect(page.getByTestId("hem-override-k")).toHaveAttribute(
+    "aria-checked",
+    "false",
+  );
+  await expect(page.getByTestId("hem-k-factor")).toHaveCount(0);
+  await expect(page.getByTestId("hem-override-radius")).toHaveAttribute(
+    "aria-checked",
+    "false",
+  );
+  const submit = page.getByTestId("hem-submit");
+  await expect(submit).toBeEnabled();
+
+  // 2) TICKING AN OVERRIDE SEEDS IT. "Checked with no value" is not a state a
+  //    click can produce any more: the field opens on the inherited K the card
+  //    names one line above it, and Save stays live.
+  await page.getByTestId("hem-override-k").click();
+  await expect(page.getByTestId("hem-k-factor")).toHaveValue(String(K_FACTOR));
+  await expect(submit).toBeEnabled();
+
+  // 3) A GATED SAVE SAYS WHY, IN INK — AT THE 1280x800 FLOOR. The width is set
+  //    BEFORE the measurement on purpose: a sentence that only fits on a big
+  //    monitor is not an explanation, and the card's action row is exactly what
+  //    a short frame clips first.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.getByTestId("hem-k-factor").fill("");
+  await expect(submit).toBeDisabled();
+  const reason = submit.locator("[data-disabled-reason]");
+  await expect(
+    reason,
+    "a gated Save with nothing to read IS the HEM-1B defect",
+  ).toHaveCount(1);
+  const said = (await reason.innerText()).trim();
+  expect(said).toContain("K-factor");
+  expect(said).toContain("uncheck");
+  // Ink, not markup: a box with real area, whose centre hit-tests INSIDE the
+  // Save cell. `toBeVisible()` would pass on a 1x1 node clipped out of frame,
+  // and `textContent` would pass on a `display:none` one.
+  const box = await reason.boundingBox();
+  expect(box, "the reason has no box at all").not.toBe(null);
+  expect(box!.width).toBeGreaterThan(60);
+  expect(box!.height).toBeGreaterThan(8);
+  const hit = await page.evaluate(
+    ([x, y]) =>
+      document
+        .elementFromPoint(x as number, y as number)
+        ?.closest("[data-testid]")
+        ?.getAttribute("data-testid") ?? null,
+    [box!.x + box!.width / 2, box!.y + box!.height / 2],
+  );
+  expect(hit, "the reason is covered by something else").toBe("hem-submit");
+  // …and a screen reader is told the same sentence, not a different one.
+  const describedBy = await submit.getAttribute("aria-describedby");
+  expect(describedBy).not.toBe(null);
+  expect((await page.locator(`#${describedBy}`).innerText()).trim()).toBe(said);
+  await expect(page.getByTestId("hem-editor")).toBeVisible();
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/hem-blocked-save-after-1280.png`,
+  });
+
+  // 4) THE WAY OUT THE SENTENCE NAMES WORKS, and the repair completes: drop the
+  //    override, re-pick the edge that is there now, save, and the part builds.
+  //    A real mouse click on the Save cell's centre, not a synthetic dispatch —
+  //    the claim is that a USER can finish this.
+  await page.getByTestId("hem-override-k").click();
+  await expect(submit).toBeEnabled();
+  await pickTopEdge(page, "x", 1);
+  await expect(page.getByTestId("hem-pick-count")).toHaveText("1 edge picked");
+  const saveBox = await submit.boundingBox();
+  expect(saveBox).not.toBe(null);
+  await page.mouse.click(
+    saveBox!.x + saveBox!.width / 2,
+    saveBox!.y + saveBox!.height / 2,
+  );
+  await expect(page.getByTestId("hem-editor")).toBeHidden({ timeout: 30_000 });
+  await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId("feature-error-2")).toHaveCount(0);
+  // The repaired hem is still a CLOSED hem on the widened blank: 60 mm of plate
+  // plus the fold's outer bulge, and the same 4.2 mm stand.
+  const [dx, , dz] = await extentsMm(page);
+  expect(dz).toBeCloseTo(HEMMED_HEIGHT_MM, 3);
+  expect(dx).toBeCloseTo(60 + HEM_CLOSED_RADIUS_MM + GAUGE_MM, 3);
 });
 
 test("the radius the hem editor suggests is one the evaluator accepts", async ({
