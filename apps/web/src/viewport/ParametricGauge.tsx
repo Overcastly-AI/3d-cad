@@ -1,20 +1,23 @@
 /**
- * THE PARAMETRIC GAUGE — one instrument, every verb (CRAFT-8).
+ * THE PARAMETRIC GAUGE — one instrument, every verb (CRAFT-8, made grabbable by
+ * CRAFT-7).
  *
  * ## What it is
  *
  * While a feature editor is open, a brass gauge stands on the geometry the
  * feature is about: a shaft from the seat to the value, an arrowhead on the
  * end, a grip on the arrowhead's point, and the live number hanging beside it
- * in the drafting tag the sketcher already uses. Take the grip and the preview
- * follows the pointer; the rail's field is the exact path, and the two are ONE
- * value — the drag writes the field and the field moves the arrow, because they
- * are the same state read twice.
+ * in the drafting tag the sketcher already uses, tied to the grip by a leader.
+ * Take the grip — anywhere along the arrow — and the preview follows the
+ * pointer; type over the number in the tag and the arrow follows the digits.
+ * They are ONE value, read twice.
  *
  * THE SIGNATURE, and the one place boldness is spent: taking the grip extends a
- * GRADUATED LADDER along the track. A plain arrow says "you may pull this"; a
- * ruled one says what you are pulling against, which is what makes this read as
- * a machinist's depth gauge rather than a gizmo from any 3D app.
+ * GRADUATED LADDER along the track, and **the rungs it draws are exactly the
+ * values the drag snaps to**. A plain arrow says "you may pull this"; a ruled
+ * one says what you are pulling against and what the pointer will do when you
+ * pull it, which is what makes this read as a machinist's depth gauge rather
+ * than a gizmo from any 3D app.
  *
  * ## Why this file exists rather than one component per verb
  *
@@ -22,66 +25,88 @@
  * product and was about to be copied six times. What is shared across every
  * verb is STATE AND CORRECTNESS — the optimistic ask-queue and its
  * reconciliation, the grab-mode choice, pointer capture, key stepping, the
- * grip, the tag. What differs is STATELESS ARITHMETIC — the drawn geometry, the
- * pointer projection, the stop set, the formatter, the clamp — and that lives
- * in a {@link GaugeTrack} from `@loft/design`, INJECTED here. The component
- * never branches on what kind of track it has.
+ * grip, the tag, the digit handoff, the nested Escape. What differs is
+ * STATELESS ARITHMETIC — the drawn geometry, the pointer projection, the stop
+ * set, the formatter, the clamp — and that lives in a {@link GaugeTrack} from
+ * `@loft/design`, INJECTED here. The component never branches on what kind of
+ * track it has.
  *
- * That split is the whole argument: the hard part is identical across the verbs
- * and the easy part is not. Three copies of a lost-update fix whose symptom is
- * *an occasional wrong number* is the worst thing this wave could ship.
- *
- * ## Why the grip is DOM and the instrument is WebGL
+ * ## Why the target is DOM and the instrument is WebGL — and why that was a bug
  *
  * The drawn parts must composite with the scene (they are `depthTest: false`,
  * an x-ray, for the same reason the ghost is: the interesting sweeps happen
- * INSIDE material). The grip must be focusable, nameable, and drivable by a
+ * INSIDE material). The target must be focusable, nameable, and drivable by a
  * test — none of which a `<mesh>` can be. So the instrument draws in GL and the
- * target is a drei `Html` slider directly over its point, the same split the
- * measurement pick nodes make.
+ * controls are drei `Html`.
  *
- * **KNOWN AND DELIBERATELY LEFT TO CRAFT-7:** that split is currently also the
- * gauge's biggest defect. `document.elementFromPoint` down the projected track
- * resolves to the grip at **2 of 16** sample points — the 24 x 24 box at the
- * arrow's apex and nothing else — so the drawn shaft, cone and ladder are
- * inert, and the affordance and the hit target are anticorrelated. The fix is a
- * DOM hit sleeve along the projected track; it moves pixels and hit regions,
- * which is why it is not in the extraction that must move neither.
+ * **That split was also the gauge's biggest defect, and fixing it is CRAFT-7.**
+ * MEASURED on the running app: `document.elementFromPoint` down the gauge's own
+ * projected track resolved to the grip at **2 of 16** sample points — the
+ * 24 x 24 box at the arrow's apex and nothing else — and a real
+ * `page.mouse.down/move/up` from the shaft's midpoint left the distance field
+ * at 40. The affordance and the hit target were ANTICORRELATED: the one place
+ * you could grab was a 12 px collar on the POINT of an arrow, about 90 px from
+ * where the arrow tells you to aim.
+ *
+ * The fix is the HIT SLEEVE: a DOM band laid along the PROJECTED track,
+ * sharing the grip's pointer handlers. It is deliberately not a raycast mesh —
+ * a mesh is invisible to `elementFromPoint`, to Playwright's actionability
+ * check, to a touch-target audit and to assistive tech, which is how a
+ * manipulator rots silently. This repo has already solved this exact problem
+ * once, on the drawing sheet, where a stroked SVG `<line>` measured
+ * `118.1 x 0.0 px` because `getBoundingClientRect` ignores stroke and the fix
+ * was a rotated filled `<rect>` of the same band. Same shape, same answer.
  *
  * ## Keyboard
  *
  * The grip is a real slider: arrows step one increment, Shift and the Page keys
  * take ten, each landing on ITS OWN grid rather than adding to whatever
  * fraction a drag left behind, and the value it announces is the same one the
- * field shows. Both steps are named on the element, so a screen-reader user
- * does not have to discover them by trying. Nothing here is reachable only by
- * pointer.
+ * field shows. `Tab` goes to the tag's cell and `Shift+Tab` comes back, so the
+ * precision path is one key from the grip rather than 800 px away in the rail.
+ * Typing a digit anywhere opens that cell with the character already in it —
+ * the same promise the sketcher makes while drawing. `Enter` commits, from
+ * anywhere, through the one existing submit. `Escape` undoes the innermost
+ * thing you are doing and never more than one level of it. Nothing here is
+ * reachable only by pointer.
  *
  * Every colour is a `@loft/design` token; GPU resources are disposed on change
- * and unmount; the render loop allocates nothing (the geometry rebuilds only
- * when the instrument's own proportions change, and those are derived from the
- * seat, not from the value).
+ * and unmount; the render loop allocates nothing (the sleeve and the tag's side
+ * are written straight to their DOM nodes from `useFrame`, and the geometry
+ * rebuilds only when the instrument's own proportions change).
+ *
+ * ## Motion
+ *
+ * None, deliberately — no fade-in, no pulse, no spring, and `AxisGrip`'s colour
+ * transition already carries `motion-reduce:transition-none`. So
+ * `prefers-reduced-motion` needs no new code here; that is a decision, not an
+ * omission.
  */
 import {
   AxisGrip,
   GaugeTag,
+  type DimensionTagCellProps,
   NO_STOPS,
   orthographicUnitsPerPixel,
   perspectiveUnitsPerPixel,
+  placeGaugeTag,
   type GaugeStops,
+  type GaugeTagSide,
   type GaugeTrack,
   type Vec3,
 } from "@loft/design";
 import { viewport } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
-import { useThree } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -89,13 +114,14 @@ import {
   ConeGeometry,
   CylinderGeometry,
   MeshBasicMaterial,
-  Quaternion,
   Raycaster,
   Vector2,
   Vector3,
 } from "three";
 
 import { useCommandActionStore } from "../features/commandActions";
+import { useCancelKey, useGlobalKeys } from "../lib/modalGate";
+import { gaugePose, spineLength } from "./gaugePose";
 import { Segments } from "./overlaySegments";
 import { useAskQueue } from "./useAskQueue";
 
@@ -124,10 +150,10 @@ export interface ParametricGaugeProps {
   min: number;
   max: number;
   /**
-   * Test/query hook shared by the grip and (from CRAFT-7) the hit sleeve:
-   * `data-gauge="<id>"` on both, and `<id>-handle` / `-readout` / `-steps`
-   * test-ids. ONE id per instrument, so a probe can ask "did this click land
-   * anywhere on the gauge" without knowing which part it hit.
+   * Test/query hook shared by the grip AND the hit sleeve: `data-gauge="<id>"`
+   * on both, and `<id>-handle` / `-sleeve` / `-readout` / `-steps` test-ids. ONE
+   * id per instrument, so a probe can ask "did this click land anywhere on the
+   * gauge" without knowing which part it hit.
    */
   gaugeId: string;
   /**
@@ -135,12 +161,21 @@ export interface ParametricGaugeProps {
    * tags twenty millimetres apart carrying different numbers is the "two
    * dialects drawn on screen" failure literally.
    *
-   * The companion has its OWN track and its own grip is the owner's business;
-   * what this carries is the second number on the strip.
+   * It carries its OWN track (§6.1), so a mixed-unit pair — a depth in
+   * millimetres beside an angle in degrees — is formatted by the thing that
+   * knows its unit. CRAFT-8 shipped this narrowed to `tagLabel | value`, which
+   * formatted the companion with the PRIMARY track's formatter: right for hole
+   * and wrong for anything else, and wrong SILENTLY.
    */
-  companion?: Pick<GaugeCell, "tagLabel" | "value">;
+  companion?: GaugeCell;
   /** Unit written once at the end of the tag strip. Omit for an angle. */
   tagUnit?: string;
+  /**
+   * Which quadrant of the grip the tag prefers. It FLIPS rather than clamps at
+   * the frame edge, so a gauge dragged into a corner keeps its leader pointing
+   * at the grip instead of folding the strip over it.
+   */
+  tagSide?: GaugeTagSide;
   /**
    * Suppress the tag when another gauge on screen already carries the number —
    * pattern mounts two instruments and only one may speak for the pair.
@@ -152,21 +187,80 @@ export interface ParametricGaugeProps {
    * the behaviour it describes.
    */
   stepHint?: string;
-  /** Extra class on the tag strip — the caller's own placement, pre-leader. */
+  /** Extra class on the tag strip. */
   tagClassName?: string;
 }
 
-/** Stacking band for the gauge's DOM parts — above the pick overlays, under the HUD. */
+/** Stacking band for the grip — above the sleeve, above the pick overlays. */
 const GRIP_Z_RANGE: [number, number] = [39, 30];
 
-/** +Y — the axis `ConeGeometry` and `CylinderGeometry` build along. */
-const BUILD_AXIS = new Vector3(0, 1, 0);
+/**
+ * The sleeve sits BELOW the grip, so the 24 px round target still wins at the
+ * apex and hover/focus semantics stay on the one element that has them.
+ */
+const SLEEVE_Z_RANGE: [number, number] = [29, 22];
 
 /** The workspace camera's field of view — the fallback if one is ever ortho. */
 const DEFAULT_FOV_DEG = 40;
 
+/**
+ * The hit band's minimum thickness, CSS pixels.
+ *
+ * The drawn shaft is a 3 mm rod that projects to about 5 px at the default
+ * camera, and 5 px is not a target. 12 is the floor; the band takes the drawn
+ * width whenever that is wider, so the target never claims more of the screen
+ * than the instrument occupies. It is deliberately NOT the 24 px dense-target
+ * floor: the sleeve is a SECOND route to a control that already meets it (the
+ * grip is 24 x 24 at every size), and a 24 px band down the axis would swallow
+ * more of the scene than the arrow covers.
+ */
+const SLEEVE_MIN_PX = 12;
+
+/** Below this projected length the track has no readable direction to lay a band along. */
+const SLEEVE_MIN_LENGTH_PX = 8;
+
+/** How far the grip must travel on screen before the tag re-tests its side. */
+const TAG_FLIP_HYSTERESIS_PX = 4;
+
+/**
+ * Relative change in the projected scale worth rebuilding the ladder for.
+ *
+ * Two per cent: fine enough that a zoom crosses a graduation threshold within a
+ * frame or two of reaching it, coarse enough that float noise in a projection
+ * never re-renders anything. An equality test here would rebuild the stop set,
+ * the drawing and two vertex buffers on every frame of an orbit.
+ */
+const SCALE_EPSILON = 0.02;
+
 function toVector3(v: Vec3): Vector3 {
   return new Vector3(v[0], v[1], v[2]);
+}
+
+/** The character that opens the tag's cell: a digit or a decimal point. */
+const VALUE_CHARACTER = /^[0-9.]$/;
+
+/**
+ * How far the ladder dims while the snap is suppressed (Ctrl/Cmd).
+ *
+ * A modifier with no visible consequence is a modifier nobody trusts: the user
+ * has to be able to see that the stops are off, or they will keep testing it.
+ */
+const LADDER_FREE_DIM = 0.4;
+
+interface TypingState {
+  /** 0 = the primary cell, 1 = the companion. */
+  cell: 0 | 1;
+  text: string;
+}
+
+/** What every grab carries, whichever mode it is in. */
+interface Grab {
+  /** The value the grab started from — what a mid-drag Escape reverts to. */
+  value: number;
+  /** The captured pointer, so a key event can release what it abandons. */
+  pointerId: number;
+  /** The element holding the capture: the grip or the sleeve, whichever was hit. */
+  on: HTMLElement;
 }
 
 export function ParametricGauge({
@@ -180,6 +274,7 @@ export function ParametricGauge({
   gaugeId,
   companion,
   tagUnit,
+  tagSide = "up-right",
   tag = "leader",
   stepHint,
   tagClassName,
@@ -187,6 +282,7 @@ export function ParametricGauge({
   const invalidate = useThree((state) => state.invalidate);
   const camera = useThree((state) => state.camera);
   const canvas = useThree((state) => state.gl.domElement);
+  const size = useThree((state) => state.size);
 
   /**
    * The grab, held for the length of the drag. Two modes, chosen ONCE at
@@ -206,14 +302,13 @@ export function ParametricGauge({
    * the cursor on mousedown — the difference between a handle and a teleport.
    */
   const grabRef = useRef<
-    | { mode: "track"; at: number; value: number }
-    | {
+    | ({ mode: "track"; at: number } & Grab)
+    | ({
         mode: "screen";
         x: number;
         y: number;
-        value: number;
         unitsPerPixel: number;
-      }
+      } & Grab)
     | null
   >(null);
 
@@ -233,12 +328,7 @@ export function ParametricGauge({
    *
    * THE RULES ARE NOT HERE ANY MORE, AND THAT IS THE POINT. They are five pure
    * transitions in `@loft/design`'s `gauge.ts`, checked by name on every unit
-   * run, with the React wiring in {@link useAskQueue} checked in jsdom. They
-   * used to be four mutations of three refs in this file, standing on one
-   * Playwright case that catches a queue-clearing mutant **2 runs in 12** —
-   * green was the mutant's modal outcome, so the browser case is real evidence
-   * and was never sufficient evidence. It stays; it is now the second opinion
-   * rather than the only one.
+   * run, with the React wiring in {@link useAskQueue} checked in jsdom.
    *
    * `shown` is the newest outstanding ask when there is one, so the arrow, the
    * tag and `aria-valuenow` show what the user last asked for rather than a
@@ -261,6 +351,19 @@ export function ParametricGauge({
    * gauge is an arrow and nothing more, which is the whole restraint argument.
    */
   const [ladderOn, setLadderOn] = useState(false);
+
+  /**
+   * Is the snap suppressed right now (Ctrl/Cmd)? Held in state ONLY so the
+   * ladder can dim: a modifier with no visible consequence is a modifier nobody
+   * trusts, and the snap itself reads the live event rather than this.
+   *
+   * Sampled from pointer events rather than from a `keydown`/`keyup` pair on
+   * the window, deliberately: `useGlobalKeys` covers keydown only, a raw
+   * listener is what `modalGate`'s audit exists to stop, and the dim is wanted
+   * at the moment the pointer MOVES under the modifier — which is the first
+   * thing that happens after you press it mid-drag.
+   */
+  const [free, setFree] = useState(false);
 
   /**
    * World units per screen pixel at the grip, for the shallow-track fallback
@@ -301,17 +404,36 @@ export function ParametricGauge({
   );
 
   /**
-   * The scale, SAMPLED rather than derived on every render. It is read at the
-   * two moments it can change meaningfully — when the ladder is addressed, and
-   * at pointer-down — because `measureScale` calls `getBoundingClientRect`, and
-   * a forced layout on every `pointermove` is the kind of cost that does not
-   * show up until somebody drags on a big assembly. The camera is held for the
-   * length of a drag, so the sample cannot go stale inside one.
+   * WORLD UNITS PER PIXEL ALONG THE TRACK — what decides which graduations are
+   * far enough apart to draw, and therefore what the drag snaps to.
+   *
+   * Measured from the SHAFT'S OWN PROJECTION in the frame loop below, not from
+   * `measureScale`. Two reasons, and the first is a defect this replaces.
+   *
+   * (a) It used to be sampled once, when the ladder was ARMED, and never again.
+   * So "zoom in and the ladder subdivides" — the whole of the zoom-aware snap —
+   * was unreachable in the running app: MEASURED over 40 wheel notches, the
+   * shaft went from 3.86 to 28.48 px/mm and `data-snap` never moved off 5 mm.
+   * A feature that cannot be reached is the decorative-chrome defect mandate 3c
+   * names, and it was invisible because the ladder still LOOKED right.
+   *
+   * (b) `measureScale` reports the rate PERPENDICULAR to the view, which is the
+   * right rate for a screen-travel drag and the wrong one for a ladder: the
+   * question a graduation asks is whether its neighbours are 14 px away ALONG
+   * THE TRACK, and a track at three-quarters to the eye is foreshortened. The
+   * projection already answers that exactly, for free, with no
+   * `getBoundingClientRect` in the frame loop.
    */
   const [scale, setScale] = useState(1);
   const armLadder = useCallback(() => {
     setLadderOn(true);
-    setScale(measureScale(readBase()));
+    setScale((prev) => {
+      const sampled = measureScale(readBase());
+      // Only if the frame loop has not measured yet — its along-track reading
+      // is better, and clobbering it on every hover would make the ladder flick
+      // between two pitches as the pointer arrives.
+      return prev === 1 ? sampled : prev;
+    });
   }, [measureScale, readBase]);
   const disarmLadder = useCallback(() => setLadderOn(grabbed), [grabbed]);
 
@@ -319,6 +441,14 @@ export function ParametricGauge({
     () => (ladderOn ? track.stops(shown, scale) : NO_STOPS),
     [ladderOn, track, shown, scale],
   );
+  /**
+   * The ladder the DRAG obeys, read from a ref so a `pointermove` always sees
+   * the stops currently on screen without the handler being rebuilt per frame.
+   * The rungs ARE the stops (§3.1): a drag that snapped to something other than
+   * what is drawn is the decorative-chrome defect in the signature element.
+   */
+  const stopsRef = useRef(stops);
+  stopsRef.current = stops;
 
   const drawing = useMemo(
     () => track.draw(shown, stops),
@@ -327,11 +457,13 @@ export function ParametricGauge({
 
   /** The arrowhead's point — where the grip and the tag ride. */
   const apex = useMemo(() => toVector3(drawing.head.tip), [drawing]);
+  /** The seat — where the shaft starts, and the far end of the hit sleeve. */
+  const seat = useMemo(() => toVector3(drawing.spine[0] as Vec3), [drawing]);
 
-  const ladderPositions = useMemo(() => {
-    const out = new Float32Array(drawing.rungs.length * 6);
-    for (let i = 0; i < drawing.rungs.length; i += 1) {
-      const [from, to] = drawing.rungs[i] as readonly [Vec3, Vec3];
+  const rungPositions = (rungs: readonly (readonly [Vec3, Vec3])[]) => {
+    const out = new Float32Array(rungs.length * 6);
+    for (let i = 0; i < rungs.length; i += 1) {
+      const [from, to] = rungs[i] as readonly [Vec3, Vec3];
       out[i * 6] = from[0];
       out[i * 6 + 1] = from[1];
       out[i * 6 + 2] = from[2];
@@ -340,14 +472,18 @@ export function ParametricGauge({
       out[i * 6 + 5] = to[2];
     }
     return out;
-  }, [drawing]);
+  };
+  const majorPositions = useMemo(() => rungPositions(drawing.rungs), [drawing]);
+  const minorPositions = useMemo(
+    () => rungPositions(drawing.minorRungs),
+    [drawing],
+  );
 
   // The arrowhead: a cone whose BASE sits on the end of the spine and whose
   // point is the grip. Memoised on its own DIMENSIONS rather than on the
-  // drawing, because the drawing changes on every pointermove and the cone does
-  // not — its size comes from the seat, never from the value, so it holds still
-  // while you drag (a manipulator that grows under the cursor reads as the
-  // model moving) and the drag stays allocation-free.
+  // drawing, because the drawing changes on every pointermove and the cone
+  // usually does not — it is sized from the seat, and bounded by the shaft only
+  // so it can never outgrow the rod it terminates (§2.2).
   const headLength = drawing.head.length;
   const headRadius = drawing.head.radius;
   const spineRadius = drawing.spineRadius;
@@ -368,10 +504,12 @@ export function ParametricGauge({
   }, []);
   useEffect(() => {
     headMaterial.color.set(
-      grabbed ? viewport.manipulator.active : viewport.manipulator.axis,
+      grabbed || ladderOn
+        ? viewport.manipulator.active
+        : viewport.manipulator.axis,
     );
     invalidate();
-  }, [grabbed, headMaterial, invalidate]);
+  }, [grabbed, ladderOn, headMaterial, invalidate]);
   useEffect(() => () => headGeometry.dispose(), [headGeometry]);
   useEffect(() => () => headMaterial.dispose(), [headMaterial]);
 
@@ -392,35 +530,16 @@ export function ParametricGauge({
   );
   useEffect(() => () => spineGeometry.dispose(), [spineGeometry]);
 
-  const pose = useMemo(() => {
-    const from = toVector3(drawing.spine[0] as Vec3);
-    const to = toVector3(drawing.spine[drawing.spine.length - 1] as Vec3);
-    const headBase = toVector3(drawing.head.base);
-    const headDir = apex.clone().sub(headBase).normalize();
-    const quaternion = new Quaternion().setFromUnitVectors(BUILD_AXIS, headDir);
-    // ConeGeometry is centred on its own axis, so the base lands on the end of
-    // the spine when the centre sits half a length along.
-    const headCentre = headBase
-      .clone()
-      .addScaledVector(headDir, headLength / 2);
-    const spineLength = to.distanceTo(from);
-    const spineDir =
-      spineLength > 0
-        ? to.clone().sub(from).divideScalar(spineLength)
-        : headDir;
-    return {
-      quaternion,
-      headCentre,
-      spineCentre: from.clone().addScaledVector(spineDir, spineLength / 2),
-      spineQuaternion: new Quaternion().setFromUnitVectors(
-        BUILD_AXIS,
-        spineDir,
-      ),
-      spineLength,
-    };
-  }, [drawing, apex, headLength]);
+  /**
+   * Where every mesh goes. {@link gaugePose} rather than a `useMemo` here,
+   * because the defect it fixes — the shell drawing a CHORD across a polyline
+   * spine, 29 % of the radius out at 90 degrees — was invisible to every gate
+   * we own while it lived inside this component. It is arithmetic; it belongs
+   * where arithmetic can be measured.
+   */
+  const pose = useMemo(() => gaugePose(drawing), [drawing]);
 
-  useEffect(() => invalidate(), [shown, ladderOn, invalidate]);
+  useEffect(() => invalidate(), [shown, ladderOn, free, invalidate]);
 
   /** Pointer ray, in world space, from a DOM pointer event over the canvas. */
   const rayRef = useRef(new Raycaster());
@@ -455,23 +574,30 @@ export function ParametricGauge({
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return;
+      const target = event.currentTarget;
       // `base`, not the prop: a grab taken straight after a key press must
       // anchor on the value that press ASKED for, or the arrow jumps back a
       // step the instant the pointer moves.
       const from = readBase();
       const at = trackValueAt(event.clientX, event.clientY);
+      // The CAPTURING element and the pointer id travel with the grab, so a
+      // mid-drag Escape — which arrives as a key event with no pointer on it —
+      // can still release the capture it is abandoning. Without that the
+      // pointer stays captured by a node the cancel is about to unmount.
+      const held = { value: from, pointerId: event.pointerId, on: target };
       if (at !== null) {
-        grabRef.current = { mode: "track", at, value: from };
+        grabRef.current = { mode: "track", at, ...held };
       } else {
         grabRef.current = {
           mode: "screen",
           x: event.clientX,
           y: event.clientY,
-          value: from,
           unitsPerPixel: measureScale(from),
+          ...held,
         };
       }
       setGrabbed(true);
+      setFree(event.ctrlKey || event.metaKey);
       armLadder();
       queue.hold();
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -500,30 +626,36 @@ export function ParametricGauge({
           grab.unitsPerPixel,
         );
       }
-      const free = event.ctrlKey || event.metaKey;
-      ask(track.quantize(raw, free));
+      const suppressed = event.ctrlKey || event.metaKey;
+      setFree(suppressed);
+      ask(track.quantize(raw, suppressed, stopsRef.current));
     },
     [ask, track, trackValueAt],
   );
 
-  const endDrag = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (grabRef.current === null) return;
-      grabRef.current = null;
-      setGrabbed(false);
-      // The pointer is done authoring, so the prop is the truth from here — but
-      // `base` keeps the value the drag ended on, so an arrow pressed straight
-      // afterwards steps off WHAT YOU DRAGGED TO, not off a prop that has not
-      // caught up yet. That is the case a free (Ctrl) drag makes load-bearing:
-      // it ends on something like 12.4713, and the first press has to be able to
-      // put it back on a grid.
-      queue.release();
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-    },
-    [queue],
-  );
+  /** Let go: the prop is the truth again, `base` keeps where the drag ended. */
+  const finishDrag = useCallback(() => {
+    const grab = grabRef.current;
+    if (grab === null) return null;
+    grabRef.current = null;
+    if (grab.on.hasPointerCapture(grab.pointerId)) {
+      grab.on.releasePointerCapture(grab.pointerId);
+    }
+    setGrabbed(false);
+    setFree(false);
+    // The pointer is done authoring, so the prop is the truth from here — but
+    // `base` keeps the value the drag ended on, so an arrow pressed straight
+    // afterwards steps off WHAT YOU DRAGGED TO, not off a prop that has not
+    // caught up yet. That is the case a free (Ctrl) drag makes load-bearing:
+    // it ends on something like 12.4713, and the first press has to be able to
+    // put it back on a grid.
+    queue.release();
+    return grab.value;
+  }, [queue]);
+
+  const endDrag = useCallback(() => {
+    finishDrag();
+  }, [finishDrag]);
 
   const requestSubmit = useCommandActionStore((s) => s.requestSubmit);
 
@@ -532,18 +664,198 @@ export function ParametricGauge({
   const coarseStep = track.coarseStep(stops);
   const stepHintId = useId();
 
+  // --- THE PRECISION FALLBACK: the readout IS the input ----------------------
+
+  const [typing, setTyping] = useState<TypingState | null>(null);
+  /**
+   * The same thing, readable SYNCHRONOUSLY.
+   *
+   * Two digits pressed in quick succession arrive as two separate events before
+   * React has committed the first one's state, so a window listener gated on
+   * `typing` fires TWICE and the second `openCell` replaces the first
+   * character: MEASURED as `18` typed and `8` in the cell — the newest half of
+   * the input winning and the oldest silently discarded. Exactly the lost
+   * update the ask-queue exists for, one layer up, and it fails the same way:
+   * intermittently, and only when somebody types at a normal speed.
+   */
+  const typingRef = useRef<TypingState | null>(null);
+  const gripRef = useRef<HTMLDivElement | null>(null);
+  const cellRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const cells = useMemo<GaugeCell[]>(
+    () =>
+      companion === undefined
+        ? [{ tagLabel, value: shown, onChange: ask, track, min, max }]
+        : [
+            { tagLabel, value: shown, onChange: ask, track, min, max },
+            companion,
+          ],
+    [companion, tagLabel, shown, ask, track, min, max],
+  );
+
+  /**
+   * Open a cell with `seed` in it, or with the cell's own value when the caller
+   * has nothing to seed (the `Tab` route). The NUMBER DOES NOT MOVE ON SCREEN:
+   * `DimensionTagCell` renders readout and input at the same place in the same
+   * face, so this reads as "the readout became typeable" rather than as a field
+   * appearing, and that is the whole point of reusing the cell.
+   */
+  const openCell = useCallback(
+    (cell: 0 | 1, seed: string | null) => {
+      const target = cells[cell];
+      if (target === undefined) return;
+      focusPending.current = true;
+      const next: TypingState = {
+        cell,
+        text: seed ?? target.track.format(target.value, { unitSuffix: false }),
+      };
+      typingRef.current = next;
+      setTyping(next);
+    },
+    [cells],
+  );
+
+  const closeCell = useCallback((focusGrip: boolean) => {
+    typingRef.current = null;
+    setTyping(null);
+    if (focusGrip) gripRef.current?.focus();
+  }, []);
+
+  /**
+   * FOCUS THE CELL FROM ITS OWN REF CALLBACK, NOT FROM AN EFFECT HERE.
+   *
+   * MEASURED, and it is a trap worth knowing for anything imperative inside a
+   * drei `Html`: **`Html` renders its children into a SEPARATE React root**
+   * (`ReactDOM.createRoot(el)` in `@react-three/drei/web/Html.js`), so that
+   * root's commit is not ordered against this component's effects. A
+   * `useEffect` here that reads `cellRefs.current[cell]` therefore runs BEFORE
+   * the input exists and reads `undefined` — which it did: the cell opened with
+   * the right value, in the right place, and never took the caret, so the
+   * second digit went to whatever had focus before. Nothing throws and the DOM
+   * looks perfect.
+   *
+   * The ref callback runs in the CHILD root's own commit, which is by
+   * definition the moment the node exists. The pending flag makes it fire once
+   * per OPEN rather than on every re-render — a bare `node?.focus()` in a ref
+   * would reset the caret to the end on every keystroke, which is the same
+   * class of defect one layer down.
+   */
+  const focusPending = useRef(false);
+
+  /**
+   * CONTRACT α — the digit handoff is a WINDOW listener, and it goes through
+   * `modalGate`, never through a raw `window.addEventListener`.
+   *
+   * The sketcher already promises "type a digit anywhere and it goes in the
+   * first cell" from the instant a shape is placed (`drawDimensionKeys`), and
+   * FLOW-A1 paid for making that true down to the 27 ms mark. The gauge
+   * discarded digits until this item. Everything that is NOT a value character
+   * falls through untouched — the gauge must not swallow the keyboard, or the
+   * command band's advertised keys quietly stop working, which is the mistake
+   * FLOW-A1 explicitly rejected.
+   */
+  useGlobalKeys(
+    `gauge-digits:${gaugeId}`,
+    tag === "none"
+      ? null
+      : (event: KeyboardEvent) => {
+          if (event.altKey || event.ctrlKey || event.metaKey) return;
+          if (!VALUE_CHARACTER.test(event.key)) return;
+          event.preventDefault();
+          // STOP IT HERE. `0`-`4` are the VIEW SHORTCUTS (front/top/right/iso
+          // and fit) and `5` toggles the projection, registered by
+          // `useViewHotkeys` as a raw window listener that predates the seam —
+          // so it does not read `defaultPrevented` and would steer the camera
+          // as well as take the digit. MEASURED before this line: a `2` pressed
+          // on the focused grip arrived at window capture unprevented and left
+          // window bubble prevented, and the view jumped to TOP.
+          //
+          // The live gauge wins, which is the cancel cascade's rule applied to
+          // a different key: the innermost surface owns it. A number typed
+          // while a dimension is on screen is that dimension — and the view
+          // vocabulary is still one click away in the rail and on the cube,
+          // whereas the depth would have nowhere else to be typed.
+          event.stopPropagation();
+          // APPEND rather than re-open when the cell is already up. Reaching
+          // here with a cell open means the CARET HAS NOT ARRIVED YET: drei
+          // `Html` commits its children in a separate React root, so between
+          // the digit that opens the cell and the focus landing there is a
+          // window of a frame or two in which the input exists and does not
+          // have the keyboard. `useGlobalKeys` bails on a typing target, so
+          // once focus IS in the cell this listener never runs and the input
+          // handles its own characters.
+          //
+          // Both failure modes were MEASURED by typing `18` at normal speed:
+          // gating on the STATE gave `8` (the second press re-opened the cell
+          // and threw the first character away), and returning early gave `1`
+          // (the second press went to the grip, which has no use for it, and
+          // vanished). The sketcher's promise is "type a digit and it goes in
+          // the cell"; half of a two-digit number is not that promise.
+          const open = typingRef.current;
+          if (open === null) openCell(0, event.key);
+          else onCellInput(open.text + event.key, open.cell);
+        },
+    // CAPTURE, for the same reason `ProposalNote` uses it: this has to run
+    // before a bubble listener that claims the same key. Plain
+    // `stopPropagation`, never `stopImmediatePropagation` — the gate's own
+    // shield and its leak alarm are registered on this target in this phase and
+    // are diagnostics we want to keep hearing from.
+    { capture: true },
+  );
+
+  /**
+   * CONTRACT γ — `Escape` undoes the INNERMOST thing you are doing, and it is
+   * taken here before the global editor cancel sees it.
+   *
+   * Registered on the cascade's `drag` rung rather than as another raw window
+   * listener: `lib/modalGate.ts` already declares the order (drag > offer >
+   * mark), runs exactly one rung per press, and its audit test fails by name if
+   * a new global listener appears. A gesture in progress is the most transient
+   * thing on screen and the one nothing else can plausibly have meant — and an
+   * open tag cell is a gesture in progress in the same sense.
+   *
+   * The broken state if this is missing, which is what shipped before: the
+   * editor unmounts while the pointer is still captured by a node that no
+   * longer exists, the drag has no terminator, and the next `pointerup` goes
+   * nowhere. It does not throw and it does not show in a screenshot.
+   *
+   * `whileTyping` because the cell case is BY DEFINITION typing, and because a
+   * drag can be started from a row that left focus in a text field.
+   */
+  const revertInnermost = useCallback(() => {
+    if (grabRef.current !== null) {
+      const from = finishDrag();
+      // Back to the value the grab STARTED from — Escape only ever discards,
+      // and it discards exactly one level: the command stays open, and a second
+      // press cancels it.
+      if (from !== null) ask(track.clamp(from));
+      return;
+    }
+    if (typing !== null) closeCell(true);
+  }, [ask, closeCell, finishDrag, track, typing]);
+
+  useCancelKey("drag", grabbed || typing !== null ? revertInnermost : null, {
+    whileTyping: true,
+  });
+
   const onKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
       // The band promises "OK · ENTER" while a command is open, and after a
       // drag the focus is HERE — so Enter has to commit from here too, or the
       // one control that finally lets you set a value by hand is the one place
-      // the advertised key does nothing (the flow rule's "no dead ends", and
-      // the same defect FINDINGS #11 fixed for Escape). It goes through the
-      // in-command action bus rather than a second submit: one commit path, the
-      // editor's own, driven from a third place.
+      // the advertised key does nothing (the flow rule's "no dead ends"). It
+      // goes through the in-command action bus rather than a second submit: one
+      // commit path, the editor's own, driven from a third place.
       if (event.key === "Enter") {
         event.preventDefault();
         requestSubmit();
+        return;
+      }
+      // Tab is the KEYBOARD ROUTE TO PRECISION and it is one key. It used to go
+      // to `view-home` — 800 px away in the view rail, mid-command, which is
+      // the dead end FB-13 describes wearing a different hat.
+      if (event.key === "Tab" && !event.shiftKey) {
+        event.preventDefault();
+        openCell(0, null);
         return;
       }
       const next = track.nudge(readBase(), event.key, event.shiftKey);
@@ -552,39 +864,270 @@ export function ParametricGauge({
       event.stopPropagation();
       ask(next);
     },
-    [ask, readBase, requestSubmit, track],
+    [ask, openCell, readBase, requestSubmit, track],
   );
+
+  const onCellKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLInputElement>, cell: 0 | 1) => {
+      // ONE MEANING, ALWAYS: Enter accepts what is in front of you and commits,
+      // through the same single path the grip uses.
+      if (event.key === "Enter") {
+        event.preventDefault();
+        typingRef.current = null;
+        setTyping(null);
+        requestSubmit();
+        return;
+      }
+      if (event.key === "Tab") {
+        const back = event.shiftKey;
+        const next = back ? cell - 1 : cell + 1;
+        if (next < 0) {
+          event.preventDefault();
+          closeCell(true);
+          return;
+        }
+        if (next < cells.length) {
+          event.preventDefault();
+          openCell(next as 0 | 1, null);
+          return;
+        }
+        // Past the last cell: let the browser have it, so the gauge is not a
+        // focus trap.
+        closeCell(false);
+      }
+    },
+    [cells.length, closeCell, openCell, requestSubmit],
+  );
+
+  const onCellInput = useCallback(
+    (text: string, cell: 0 | 1) => {
+      const next: TypingState = { cell, text };
+      typingRef.current = next;
+      setTyping(next);
+      const target = cells[cell];
+      if (target === undefined) return;
+      const parsed = Number.parseFloat(text);
+      if (!Number.isFinite(parsed)) return;
+      // A TYPED VALUE IS NEVER SNAPPED — that is the whole reason the fallback
+      // exists. Clamped, because a value the owning form would refuse is the
+      // dead end the flow rule's fourth test forbids.
+      target.onChange(target.track.clamp(parsed));
+    },
+    [cells],
+  );
+
+  // --- THE HIT SLEEVE, AND THE TAG'S SIDE, WRITTEN FROM THE FRAME LOOP -------
+
+  const sleeveRef = useRef<HTMLDivElement | null>(null);
+  const projected = useRef({ a: new Vector3(), b: new Vector3() });
+  const lastAnchor = useRef({ x: Number.NaN, y: Number.NaN });
+  const [side, setSide] = useState<GaugeTagSide>(tagSide);
+  useEffect(() => setSide(tagSide), [tagSide]);
+
+  /** The tag strip's measured box — `placeGaugeTag` needs it to flip. */
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const [tagBox, setTagBox] = useState({ width: 96, height: 28 });
+  useLayoutEffect(() => {
+    const el = stripRef.current;
+    if (el === null) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return;
+    setTagBox((prev) =>
+      Math.abs(prev.width - rect.width) < 0.5 &&
+      Math.abs(prev.height - rect.height) < 0.5
+        ? prev
+        : { width: rect.width, height: rect.height },
+    );
+  });
+
+  const placement = useMemo(() => placeGaugeTag(side, tagBox), [side, tagBox]);
+
+  useFrame(() => {
+    const { a, b } = projected.current;
+    a.copy(seat).project(camera);
+    b.copy(apex).project(camera);
+    const ax = ((a.x + 1) / 2) * size.width;
+    const ay = ((1 - a.y) / 2) * size.height;
+    const bx = ((b.x + 1) / 2) * size.width;
+    const by = ((1 - b.y) / 2) * size.height;
+
+    const dx = ax - bx;
+    const dy = ay - by;
+    const length = Math.sqrt(dx * dx + dy * dy);
+    const world = spineLength(pose.segments);
+
+    // THE LADDER'S SCALE, re-read every frame the camera moves. Guarded by a
+    // RELATIVE threshold rather than by equality: a projection wanders in the
+    // last decimal from float noise alone, and a `setState` per frame would
+    // rebuild the stop set, the drawing and two vertex buffers every frame of
+    // an orbit.
+    if (length >= SLEEVE_MIN_LENGTH_PX && world > 0) {
+      const perPixel = world / length;
+      if (Math.abs(perPixel - scale) > scale * SCALE_EPSILON)
+        setScale(perPixel);
+    }
+
+    const el = sleeveRef.current;
+    if (el !== null) {
+      if (length < SLEEVE_MIN_LENGTH_PX) {
+        // The track points at the eye: there is no direction to lay a band
+        // along, so there is no band. The grip is still a 24 px target and the
+        // screen-travel fallback still drives the value — which is exactly the
+        // case that fallback exists for.
+        el.style.display = "none";
+      } else {
+        // The drawn shaft's own width, projected: `spineRadius` world units
+        // scale by the same factor the shaft's length does, so this needs no
+        // second camera measurement and cannot disagree with the first.
+        const drawn = (2 * spineRadius * length) / Math.max(world, 1e-6);
+        const thickness = Math.max(SLEEVE_MIN_PX, drawn);
+        el.style.display = "block";
+        el.style.width = `${length}px`;
+        el.style.height = `${thickness}px`;
+        el.style.transform = `translateY(-50%) rotate(${Math.atan2(dy, dx)}rad)`;
+      }
+    }
+
+    // The tag's SIDE, re-tested only when the grip has actually moved. The flip
+    // rule itself lives in `placeGaugeTag`, so it is stated once for the gauge
+    // and the proposal note both; what is here is only the decision of WHEN to
+    // ask, which keeps the frame loop from allocating on a static camera.
+    const moved =
+      Math.abs(bx - lastAnchor.current.x) > TAG_FLIP_HYSTERESIS_PX ||
+      Math.abs(by - lastAnchor.current.y) > TAG_FLIP_HYSTERESIS_PX;
+    if (!moved) return;
+    lastAnchor.current.x = bx;
+    lastAnchor.current.y = by;
+    const wanted = placeGaugeTag(tagSide, tagBox, {
+      anchor: { x: bx, y: by },
+      frame: { width: size.width, height: size.height },
+    }).side;
+    if (wanted !== side) setSide(wanted);
+  });
+
+  /**
+   * One cell's props — READOUT or INPUT, decided by whether the caret is in it,
+   * and `DimensionTagCell` renders the number in the same place either way. The
+   * number not moving between the two states is what makes this read as "the
+   * readout became typeable" rather than as a field appearing over the model.
+   */
+  const cellProps = (i: 0 | 1): DimensionTagCellProps => {
+    const cell = cells[i] as GaugeCell;
+    if (typing === null || typing.cell !== i) {
+      return {
+        label: cell.tagLabel,
+        readout: cell.track.format(cell.value, { unitSuffix: false }),
+      };
+    }
+    return {
+      label: cell.tagLabel,
+      value: typing.text,
+      "aria-label": `${label} value`,
+      ref: (node: HTMLInputElement | null) => {
+        cellRefs.current[i] = node;
+        if (node === null || !focusPending.current) return;
+        focusPending.current = false;
+        node.focus();
+        // Caret AFTER what was typed, so the character that opened the cell is
+        // the first one in it rather than the one you overtype.
+        const end = node.value.length;
+        node.setSelectionRange(end, end);
+      },
+      onChange: (event: ChangeEvent<HTMLInputElement>) => {
+        onCellInput(event.target.value, i);
+      },
+      onKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => {
+        onCellKeyDown(event, i);
+      },
+      onBlur: () => closeCell(false),
+    };
+  };
 
   const hint =
     stepHint ??
     `Arrow keys step ${track.format(fineStep)}; Shift or Page keys step ${track.format(coarseStep)}. Enter saves.`;
 
+  const dim = free ? LADDER_FREE_DIM : 1;
+  const majorOpacity = viewport.manipulator.ladderMajorOpacity * dim;
+  const minorOpacity = viewport.manipulator.ladderOpacity * dim;
+
   return (
     <group name={`gauge-${gaugeId}`}>
-      <mesh
-        geometry={spineGeometry}
-        material={headMaterial}
-        position={pose.spineCentre}
-        quaternion={pose.spineQuaternion}
-        scale={[1, Math.max(pose.spineLength, 1e-3), 1]}
-        renderOrder={13}
+      {pose.segments.map((segment, i) => (
+        <mesh
+          key={i}
+          name={`gauge-${gaugeId}-spine`}
+          geometry={spineGeometry}
+          material={headMaterial}
+          position={segment.centre}
+          quaternion={segment.quaternion}
+          scale={[1, Math.max(segment.length, 1e-3), 1]}
+          renderOrder={13}
+        />
+      ))}
+      {/* Two weights, two draws. A per-stroke weight would need a vertex
+          attribute and a custom material; two `Segments` is one draw call each
+          and says the drafting convention out loud. */}
+      <Segments
+        positions={majorPositions}
+        color={viewport.manipulator.axis}
+        opacity={majorOpacity}
+        depthTest={false}
+        renderOrder={12}
       />
       <Segments
-        positions={ladderPositions}
+        positions={minorPositions}
         color={viewport.manipulator.axis}
-        opacity={viewport.manipulator.ladderOpacity}
+        opacity={minorOpacity}
         depthTest={false}
         renderOrder={12}
       />
       <mesh
+        name={`gauge-${gaugeId}-head`}
         geometry={headGeometry}
         material={headMaterial}
         position={pose.headCentre}
         quaternion={pose.quaternion}
         renderOrder={13}
       />
+      {/* THE HIT SLEEVE. Anchored at the apex — the same point as the grip —
+          and laid back down the projected track, so the band the pointer can
+          take is exactly the arrow the eye can see. It carries no name, no role
+          and no tab stop: it is a second route to the grip, not a second
+          control, and announcing it twice to a screen reader would be a lie
+          about how many things are here. */}
+      <Html
+        position={apex}
+        zIndexRange={SLEEVE_Z_RANGE}
+        style={{ pointerEvents: "none" }}
+      >
+        <div
+          ref={sleeveRef}
+          aria-hidden
+          tabIndex={-1}
+          data-gauge={gaugeId}
+          data-testid={`${gaugeId}-sleeve`}
+          className={`pointer-events-auto absolute left-0 top-0 touch-none select-none ${
+            grabbed ? "cursor-grabbing" : "cursor-grab"
+          }`}
+          /* Inline, not a Tailwind utility: this theme's scales are CLOSED and
+             an unknown class emits no rule at all — a defect this repo has
+             already measured as a control with zero width. The frame loop
+             writes `transform` on this same node, so the origin belongs beside
+             it either way. `display: none` until the first frame has measured
+             the projection, so a zero-length band is never briefly hittable. */
+          style={{ transformOrigin: "0 50%", display: "none" }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onPointerEnter={armLadder}
+          onPointerLeave={disarmLadder}
+        />
+      </Html>
       <Html position={apex} center zIndexRange={GRIP_Z_RANGE}>
         <AxisGrip
+          ref={gripRef}
           aria-label={label}
           aria-describedby={stepHintId}
           data-testid={`${gaugeId}-handle`}
@@ -592,11 +1135,20 @@ export function ParametricGauge({
           data-value={shown}
           data-step={fineStep}
           data-coarse-step={coarseStep}
+          /* WHAT A DRAG WILL SNAP TO, in track units — the drawn ladder's own
+             pitch, or 0 when no ladder is legible at this camera and the track
+             falls back to its configured snap. On the element because "the
+             rungs ARE the stops" is otherwise a claim nothing can check: a
+             ladder drawn at one grid while the pointer obeys another is exactly
+             the defect CRAFT-7 exists to remove, and it is invisible in a
+             screenshot. */
+          data-snap={stops.pitch}
           value={shown}
           min={min}
           max={max}
           valueText={track.format(shown)}
           grabbed={grabbed}
+          addressed={ladderOn}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
@@ -628,41 +1180,28 @@ export function ParametricGauge({
            every `Html` its own positioned div, and this one is anchored at the
            same point as the grip. Without it the tag's box sits over the grip's
            24 px target and swallows the press — the drag then does nothing at
-           all, which is exactly how the first browser run failed. */
+           all, which is exactly how the first browser run failed. The STRIP
+           re-enables pointer events for itself, because it is now a control. */
         <Html
           position={apex}
           zIndexRange={GRIP_Z_RANGE}
           style={{ pointerEvents: "none" }}
         >
-          {/* The number, where the eye already is. The rail's field is 800 px
-              away (T-4); a drag that makes you look over there to read what you
-              just did is not direct manipulation. Read-only while the pointer
-              owns this value, which is the distinction `DimensionTagCell`
-              already carries. */}
+          {/* The number, where the eye already is, and TIED to the grip. The
+              rail's field is 800 px away (T-4); a drag that makes you look over
+              there to read what you just did is not direct manipulation, and a
+              number floating unattached beside the arrow is a HUD chip that
+              happens to be near some geometry. The leader makes the claim. */}
           <GaugeTag
+            ref={stripRef}
             data-testid={`${gaugeId}-readout`}
             {...(tagUnit !== undefined ? { unit: tagUnit } : {})}
-            className={tagClassName ?? ""}
+            className={`pointer-events-auto ${tagClassName ?? ""}`}
+            placement={placement}
             cells={
-              companion === undefined
-                ? [
-                    {
-                      label: tagLabel,
-                      readout: track.format(shown, { unitSuffix: false }),
-                    },
-                  ]
-                : [
-                    {
-                      label: tagLabel,
-                      readout: track.format(shown, { unitSuffix: false }),
-                    },
-                    {
-                      label: companion.tagLabel,
-                      readout: track.format(companion.value, {
-                        unitSuffix: false,
-                      }),
-                    },
-                  ]
+              cells[1] === undefined
+                ? [cellProps(0)]
+                : [cellProps(0), cellProps(1)]
             }
           />
         </Html>

@@ -81,13 +81,12 @@ export function ExtrudeDragHandle({
       min={MIN_DEPTH_MM}
       max={MAX_DEPTH_MM}
       tagUnit={unit}
-      // The leader is CRAFT-7's, together with the proportion clamps and the
-      // hit sleeve: CRAFT-8 must not move a pixel, and the pixel-match against
-      // `w3-before-extrude-{1280,1600}.png` is the only cheap evidence the
-      // extraction was faithful. `GaugeTag` already renders the leader; this
-      // call site simply has not switched it on yet, which is a one-prop change
-      // rather than a component change.
-      tagClassName="pointer-events-none -translate-y-8 translate-x-4"
+      // No placement class: CRAFT-7 gave the tag a LEADER, so the strip is
+      // placed by `placeGaugeTag` — offset diagonally from the grip, tied to it
+      // by a two-tone stub, flipping rather than clamping at the frame edge.
+      // The bare `-translate-y-8 translate-x-4` that used to be here left the
+      // number floating unattached, which is a HUD chip that happens to be near
+      // some geometry rather than a number ABOUT it.
     />
   );
 }

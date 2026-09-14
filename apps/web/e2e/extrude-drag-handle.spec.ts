@@ -451,8 +451,19 @@ test.describe("extrude drag handle small laptop (1280x800)", () => {
     const box = await grip.boundingBox();
     if (box === null) throw new Error("the depth handle has no box");
     // WCAG 2.2 SC 2.5.8: the target is 24 px and does not shrink with the frame.
-    expect(box.width).toBeGreaterThanOrEqual(24);
-    expect(box.height).toBeGreaterThanOrEqual(24);
+    //
+    // The tolerance is COMPOSITOR FLOAT NOISE, not slack in the requirement.
+    // The grip is `h-6 w-6`, which is 24 CSS px exactly, but drei `Html` places
+    // it with a `translate3d` whose matrix the compositor keeps in float32 —
+    // measured here as `23.999969482421875`, which is 24 - 2^-15 to the bit. It
+    // surfaces only when the projected position lands on the wrong side of a
+    // float boundary, so it moves whenever anything changes where the arrow's
+    // point is: CRAFT-7's arrowhead clamp shortened the head on a 10 mm extrude
+    // and flipped it. Asserting `>= 24` on a transformed box is asserting on a
+    // float32 round, so it fails for a reason that is not about the target.
+    const FLOAT32_SLACK = 2 ** -14;
+    expect(box.width).toBeGreaterThanOrEqual(24 - FLOAT32_SLACK);
+    expect(box.height).toBeGreaterThanOrEqual(24 - FLOAT32_SLACK);
     // …and it is inside the frame, not pushed off the edge by the narrower view.
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.y).toBeGreaterThanOrEqual(0);
