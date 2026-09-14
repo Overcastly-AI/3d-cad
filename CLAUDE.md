@@ -162,6 +162,25 @@ Standing rules:
    Every UI change → pass the before/after shots to the founder in chat;
    generating a PNG the founder never sees does not count (founder directive
    2026-07-23).
+   **AND THE CAPTURE IS A GATE, NOT ONLY A COURTESY — it has now caught a
+   defect every test passed.** Measured 2026-09-14 on CRAFT-7's follow-up: the
+   snap-ladder floor change was correct in arithmetic, unit-tested, e2e-green,
+   and it **ERASED THE LADDER** — 5 legible graduation crosses before, **0**
+   after. Both rung classes were bounded by the PITCH, which was harmless while
+   every ladder was 5 mm and fatal at 2 mm, because a 0.8 mm arm drawn across a
+   0.97 mm rod is a mark inside the thing it graduates. Nothing in the suite
+   could see it: the marks were present in the scene graph, correctly sized by
+   their own rule, and invisible. The builder found it only because the mandate
+   made it capture the before/after pair it would otherwise have had no reason
+   to look at.
+   The general point, and the reason this rule earns its place twice over: a
+   screenshot is the only check we own that asks **"is the thing legible?"**
+   rather than "is the thing present and correctly computed". Every other gate
+   in this repo — DOM probes, pixel censuses, unit assertions — tests a property
+   somebody thought to name. So when a change alters DRAWN GEOMETRY, capture the
+   pair *before* believing the suite, and look at it; the shot you take for the
+   founder is the same shot that tells you whether you shipped a ruler or a
+   blank rod.
 5. **Never break the product for looks.** Preserve test hooks (`data-testid`,
    roles, accessible names). Quality floor: WCAG-AA contrast, visible focus,
    `prefers-reduced-motion`, self-hosted fonts, responsive to 1280×800.
