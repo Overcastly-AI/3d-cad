@@ -105,11 +105,13 @@ export {
 } from "./primitives/DimensionTag";
 export { GaugeTag, type GaugeTagProps } from "./primitives/GaugeTag";
 export {
+  acknowledgeAsk,
   angularTrack,
   type AngularTrackOptions,
   ARROW_LENGTH_FRAC,
   ARROW_RADIUS_FRAC,
   arrowLength,
+  type AskQueue,
   AXIS_SHALLOW,
   axisValueAt,
   clampTo,
@@ -120,6 +122,7 @@ export {
   type GaugeTagSide,
   type GaugeTagSize,
   type GaugeTrack,
+  holdAsks,
   LADDER_HALF_WIDTH_FRAC,
   LADDER_MAX,
   LADDER_MIN_HALF_WIDTH,
@@ -132,8 +135,11 @@ export {
   perspectiveUnitsPerPixel,
   placeGaugeTag,
   quantize,
+  recordAsk,
+  releaseAsks,
   rungHalfWidth,
   screenValue,
+  seedAsks,
   SHAFT_RADIUS_FRAC,
   steppedTrack,
   type SteppedTrackOptions,

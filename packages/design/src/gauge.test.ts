@@ -14,12 +14,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  acknowledgeAsk,
   angularTrack,
   arrowLength,
   AXIS_SHALLOW,
   axisValueAt,
   clampTo,
   crossArms,
+  holdAsks,
   ladderStops,
   LADDER_MAX,
   linearTrack,
@@ -29,10 +31,14 @@ import {
   perspectiveUnitsPerPixel,
   placeGaugeTag,
   quantize,
+  recordAsk,
+  releaseAsks,
   rungHalfWidth,
   screenValue,
+  seedAsks,
   steppedTrack,
   steppedValue,
+  type AskQueue,
   type GaugeSeat,
   type Vec3,
 } from "./gauge";
@@ -503,5 +509,159 @@ describe("placeGaugeTag — the tag hangs off the grip, and flips at the frame",
     // A gauge that cannot know where it is on screen still gets a well-formed
     // leader rather than no tag at all.
     expect(placeGaugeTag("down-left", size).side).toBe("down-left");
+  });
+});
+
+/**
+ * THE ASK QUEUE — the rules, asserted by name, every run.
+ *
+ * The browser case these stand beside (`extrude-drag-handle.spec.ts`, "every
+ * press counts, however fast they come") is a real positive control and a WEAK
+ * one: re-run twelve times against a mutant that clears the queue on every prop
+ * change, it caught the mutant **2 of 12**, because the lost update it detects
+ * needs two inputs to collide inside one round trip and usually they do not.
+ * Green was the mutant's MODAL outcome, so "it went red once" did not mean the
+ * guard was load-bearing.
+ *
+ * Here the collision is CONSTRUCTED rather than raced for, so every rule fails
+ * deterministically when broken. Each case below is one rule; between them they
+ * kill the mutations the browser case was supposed to.
+ */
+describe("the ask queue", () => {
+  /** The extrude track's own tolerance — a display-string round trip is lossy. */
+  const near = (a: number, b: number) => Math.abs(a - b) <= 1e-4;
+
+  /** Convenience: ask for each value in turn, off the pointer. */
+  const askAll = (queue: AskQueue, ...values: number[]): AskQueue =>
+    values.reduce((q, v) => recordAsk(q, v, false), queue);
+
+  it("seeds on the owner's value with nothing outstanding", () => {
+    expect(seedAsks(10)).toEqual({ asks: [], base: 10, live: null });
+  });
+
+  it("rule 1: remembers an ask BEFORE it is sent, so the next step reasons from it", () => {
+    // The whole point: two presses land before either acknowledgement, and the
+    // second must step off the FIRST ASK, not off the stale prop.
+    const first = recordAsk(seedAsks(10), 10.5, false);
+    expect(first.base).toBe(10.5);
+    const second = recordAsk(first, first.base + 0.5, false);
+    expect(second.base).toBe(11);
+    expect(second.asks).toEqual([10.5, 11]);
+    expect(second.live).toBe(11);
+  });
+
+  it("rule 2: an ack retires that ask AND EVERY OLDER ONE, and leaves base alone", () => {
+    // Three presses outstanding; the owner echoes the SECOND. The first is
+    // stale by definition, and the third has not been answered yet.
+    const queue = askAll(seedAsks(10), 10.5, 11, 11.5);
+    const acked = acknowledgeAsk(queue, 11, near);
+    expect(acked.asks).toEqual([11.5]);
+    expect(acked.base).toBe(11.5);
+    expect(acked.live).toBe(11.5);
+  });
+
+  it("rule 2: the ack for press ONE does not throw away press TWO", () => {
+    // The exact regression the queue was built for — the one-pending-value
+    // version dropped the second press here and produced 15.5 for 16.
+    const queue = askAll(seedAsks(10), 10.5, 11);
+    const acked = acknowledgeAsk(queue, 10.5, near);
+    expect(acked.asks).toEqual([11]);
+    expect(acked.live).toBe(11);
+    expect(acked.base).toBe(11);
+  });
+
+  it("rule 2: recognition is by TOLERANCE, not equality — an inch round trip is lossy", () => {
+    // A value that came back through a display string. Exact equality would
+    // read this as a stranger's edit, on inch documents only.
+    const queue = recordAsk(seedAsks(10), 12.699999, false);
+    const acked = acknowledgeAsk(queue, 12.69995, near);
+    expect(acked.asks).toEqual([]);
+    expect(acked.base).toBe(12.699999); // OUR ask survived, not the echo
+  });
+
+  it("rule 3: a value we never asked for is a stranger's edit and wins outright", () => {
+    // Somebody typed 40 into the rail field while two presses were in flight.
+    const queue = askAll(seedAsks(10), 10.5, 11);
+    const stranger = acknowledgeAsk(queue, 40, near);
+    expect(stranger.asks).toEqual([]);
+    expect(stranger.base).toBe(40);
+    expect(stranger.live).toBeNull();
+  });
+
+  it("rule 3 does NOT fire for a value that is merely out of order", () => {
+    // The oldest ask arriving last still matches something outstanding, so the
+    // queue is trimmed rather than abandoned. Telling this from a real stranger
+    // is the entire job of the search.
+    const queue = askAll(seedAsks(10), 10.5, 11);
+    expect(acknowledgeAsk(queue, 10.5, near).base).toBe(11);
+  });
+
+  it("rule 1 mid-drag: the arrow follows the pointer but the queue does not grow", () => {
+    // Ten `pointermove` frames. `base`/`live` track the cursor; nothing queues,
+    // because rule 5 is about to empty it anyway and the render loop stays
+    // allocation-free.
+    let queue = holdAsks(seedAsks(10));
+    for (let frame = 1; frame <= 10; frame += 1) {
+      queue = recordAsk(queue, 10 + frame, true);
+    }
+    expect(queue.asks).toEqual([]);
+    expect(queue.base).toBe(20);
+    expect(queue.live).toBe(20);
+  });
+
+  it("rule 4: taking the grip shows BASE, not the prop", () => {
+    // A grab straight after a key press. Showing the prop here is the "arrow
+    // jumps back a step the instant the pointer moves" defect.
+    const pressed = recordAsk(seedAsks(10), 10.5, false);
+    expect(holdAsks(pressed).live).toBe(10.5);
+    expect(holdAsks(pressed).asks).toEqual([10.5]); // and the ask still stands
+  });
+
+  it("rule 5: letting go empties the queue and defers to the prop", () => {
+    const queue = askAll(seedAsks(10), 10.5, 11);
+    const released = releaseAsks(queue);
+    expect(released.asks).toEqual([]);
+    expect(released.live).toBeNull();
+  });
+
+  it("rule 5: ...but KEEPS base on what the drag ended at", () => {
+    // A free (Ctrl) drag ends on 12.4713 and the prop has not caught up. The
+    // first arrow press afterwards must be able to put it back on a grid, which
+    // it can only do from the value you actually dragged to.
+    const dragged = recordAsk(holdAsks(seedAsks(10)), 12.4713, true);
+    expect(releaseAsks(dragged).base).toBe(12.4713);
+  });
+
+  it("the transitions are pure — no input queue is mutated", () => {
+    // The shell holds this in a ref and reads it between renders; an in-place
+    // mutation would be invisible to React and visible to nothing else.
+    const queue = askAll(seedAsks(10), 10.5, 11);
+    const before = JSON.stringify(queue);
+    acknowledgeAsk(queue, 10.5, near);
+    recordAsk(queue, 12, false);
+    holdAsks(queue);
+    releaseAsks(queue);
+    expect(JSON.stringify(queue)).toBe(before);
+  });
+
+  it("a whole fast sequence: Up, Up, Shift+Up with the acks trailing", () => {
+    // The measured failure, replayed end to end. Presses at 10.5, 11 and 16
+    // land before any acknowledgement; then the owner echoes them in order. The
+    // answer must be 16 — the one-pending version gave 15.5.
+    let queue = seedAsks(10);
+    queue = recordAsk(queue, queue.base + 0.5, false);
+    queue = recordAsk(queue, queue.base + 0.5, false);
+    queue = recordAsk(queue, queue.base + 5, false);
+    expect(queue.asks).toEqual([10.5, 11, 16]);
+
+    queue = acknowledgeAsk(queue, 10.5, near);
+    expect(queue.live).toBe(16);
+    queue = acknowledgeAsk(queue, 11, near);
+    expect(queue.live).toBe(16);
+    queue = acknowledgeAsk(queue, 16, near);
+
+    expect(queue.asks).toEqual([]);
+    expect(queue.live).toBeNull(); // nothing outstanding: the prop speaks now
+    expect(queue.base).toBe(16);
   });
 });

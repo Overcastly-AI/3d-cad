@@ -97,6 +97,7 @@ import {
 
 import { useCommandActionStore } from "../features/commandActions";
 import { Segments } from "./overlaySegments";
+import { useAskQueue } from "./useAskQueue";
 
 /** One value cell on the gauge's tag. */
 export interface GaugeCell {
@@ -188,65 +189,72 @@ export function ParametricGauge({
   const canvas = useThree((state) => state.gl.domElement);
 
   /**
-   * THE OPTIMISTIC VALUE — what this gauge has ASKED for but not yet seen come
-   * back.
+   * The grab, held for the length of the drag. Two modes, chosen ONCE at
+   * pointer-down (the camera cannot move mid-drag, so the choice cannot go
+   * stale):
    *
-   * LIFTED VERBATIM FROM `ExtrudeDragHandle.tsx`, comment and all, because the
-   * comment IS the specification and the code is correct. It was written after
-   * a load-dependent lost update, so its correctness is invisible to a normal
-   * run: a refactor that carries it needs a positive control that it is still
-   * load-bearing, which is what `extrude-drag-handle.spec.ts`'s "every press
-   * counts, however fast they come" is for.
+   *  · `track` — the pointer is projected onto the track. The real gesture: the
+   *    arrowhead stays under the cursor because it IS the cursor's position on
+   *    that line.
+   *  · `screen` — the track points at the eye, so it has no readable direction
+   *    on screen; travel drives the value at the grip's own scale. Reached by
+   *    the most ordinary path in the product (save a sketch, press Extrude: the
+   *    camera is normal to the plane), which is why the fallback is not
+   *    optional.
    *
-   * The value round-trips (gauge -> editor form -> ghost -> back here), which
-   * is the right architecture — one value, one owner — and it is several
-   * renders long. Two consequences, and the second is not cosmetic:
-   *
-   *  · the arrow would trail the cursor by a frame; and
-   *  · a SECOND input arriving inside that window would compute from the stale
-   *    prop and overwrite the first. Two quick taps of Up gave 10.5 rather than
-   *    11, intermittently, which is how it was found: the e2e passed alone and
-   *    failed under load, the signature of a lost update rather than a flake.
-   *
-   * THE FIRST VERSION OF THAT FIX HELD ONE PENDING VALUE AND DROPPED IT ON ANY
-   * CHANGE OF THE PROP, WHICH LOSES THE UPDATE IT WAS BUILT TO SAVE. The
-   * acknowledgement that arrives is the one for the FIRST press, and dropping
-   * the pending value on it throws away the second. Measured over 20 fast
-   * `Up, Up, Shift+Up` sequences on the real stack, 13 came back wrong, the
-   * browser saying so itself:
-   *
-   *     key=ArrowUp  pending=null  value=10    from=10    next=10.5
-   *     key=ArrowUp  pending=10.5  value=10    from=10.5  next=11
-   *     effect value=10.5 pending=11      <- ack for press 1 clears press 2
-   *     key=ArrowUp  pending=null  value=10.5  from=10.5  next=15.5
-   *
-   * — 15.5 where 16 was asked for, and the same log shows the second variant,
-   * where the ack lands cleanly but the KEY HANDLER still reads the previous
-   * prop (the grip is portalled out through drei `Html`, so the prop the
-   * handler closes over can trail the effect by a commit). Both are the same
-   * mistake: reasoning from a value that is neither the last one requested nor
-   * the last one confirmed.
-   *
-   * So the gauge keeps the QUEUE of values it has asked for, oldest first, and
-   * a `base` the next step reasons from:
-   *
-   *  · an arriving value that MATCHES an outstanding ask (to within the track's
-   *    own tolerance — the field is a display string, see `GaugeTrack.same`)
-   *    retires that ask and every older one, and leaves `base` alone, because a
-   *    later ask has already superseded it;
-   *  · an arriving value that matches NOTHING we asked for is somebody else's
-   *    edit — a typed distance, a re-seeded editor — and wins outright: the
-   *    queue is abandoned and it becomes the new `base`.
-   *
-   * `live` renders the newest outstanding ask, so the arrow, the tag and
-   * `aria-valuenow` show what the user last asked for rather than a value two
-   * commits stale.
+   * Both are RELATIVE to where the grab started, so the arrow never jumps to
+   * the cursor on mousedown — the difference between a handle and a teleport.
    */
-  const [live, setLive] = useState<number | null>(null);
-  const asksRef = useRef<readonly number[]>([]);
-  const baseRef = useRef(value);
+  const grabRef = useRef<
+    | { mode: "track"; at: number; value: number }
+    | {
+        mode: "screen";
+        x: number;
+        y: number;
+        value: number;
+        unitsPerPixel: number;
+      }
+    | null
+  >(null);
+
+  /**
+   * THE OPTIMISTIC VALUE — what this gauge has ASKED for but not yet seen come
+   * back, and the reason a fast pair of key presses does not lose one.
+   *
+   * The gauge never owns its value: it asks, the owner's form takes the number,
+   * the ghost redraws and the new prop arrives several renders later. A SECOND
+   * input landing inside that window would compute from the stale prop and
+   * overwrite the first — two quick taps of Up giving 10.5 rather than 11,
+   * intermittently, which is how it was found (the e2e passed alone and failed
+   * under load: a lost update, not a flake). The first fix held ONE pending
+   * value and dropped it on any change of the prop, which throws press two away
+   * on the acknowledgement of press one; 13 of 20 fast `Up, Up, Shift+Up`
+   * sequences came back wrong, 15.5 where 16 was asked for.
+   *
+   * THE RULES ARE NOT HERE ANY MORE, AND THAT IS THE POINT. They are five pure
+   * transitions in `@loft/design`'s `gauge.ts`, checked by name on every unit
+   * run, with the React wiring in {@link useAskQueue} checked in jsdom. They
+   * used to be four mutations of three refs in this file, standing on one
+   * Playwright case that catches a queue-clearing mutant **2 runs in 12** —
+   * green was the mutant's modal outcome, so the browser case is real evidence
+   * and was never sufficient evidence. It stays; it is now the second opinion
+   * rather than the only one.
+   *
+   * `shown` is the newest outstanding ask when there is one, so the arrow, the
+   * tag and `aria-valuenow` show what the user last asked for rather than a
+   * value two commits stale.
+   */
+  const authoring = useCallback(() => grabRef.current !== null, []);
+  const [shown, queue] = useAskQueue({
+    value,
+    // Bound rather than passed by reference: the hook parks it in a ref, and a
+    // track that ever reads `this` should not care which.
+    same: (a, b) => track.same(a, b),
+    onChange,
+    authoring,
+  });
+  const { readBase } = queue;
   const [grabbed, setGrabbed] = useState(false);
-  const shown = live ?? value;
 
   /**
    * The ladder. Built only while the grip is held or focused — at rest the
@@ -303,8 +311,8 @@ export function ParametricGauge({
   const [scale, setScale] = useState(1);
   const armLadder = useCallback(() => {
     setLadderOn(true);
-    setScale(measureScale(baseRef.current));
-  }, [measureScale]);
+    setScale(measureScale(readBase()));
+  }, [measureScale, readBase]);
   const disarmLadder = useCallback(() => setLadderOn(grabbed), [grabbed]);
 
   const stops: GaugeStops = useMemo(
@@ -442,82 +450,7 @@ export function ParametricGauge({
     [rayFor, track],
   );
 
-  /**
-   * The grab, held for the length of the drag. Two modes, chosen ONCE at
-   * pointer-down (the camera cannot move mid-drag, so the choice cannot go
-   * stale):
-   *
-   *  · `track` — the pointer is projected onto the track. The real gesture: the
-   *    arrowhead stays under the cursor because it IS the cursor's position on
-   *    that line.
-   *  · `screen` — the track points at the eye, so it has no readable direction
-   *    on screen; travel drives the value at the grip's own scale. Reached by
-   *    the most ordinary path in the product (save a sketch, press Extrude: the
-   *    camera is normal to the plane), which is why the fallback is not
-   *    optional.
-   *
-   * Both are RELATIVE to where the grab started, so the arrow never jumps to
-   * the cursor on mousedown — the difference between a handle and a teleport.
-   */
-  const grabRef = useRef<
-    | { mode: "track"; at: number; value: number }
-    | {
-        mode: "screen";
-        x: number;
-        y: number;
-        value: number;
-        unitsPerPixel: number;
-      }
-    | null
-  >(null);
-
-  /**
-   * Ask the owner for a value — the ONE place a new value leaves this gauge,
-   * whether it came from the pointer or from a key.
-   *
-   * The ask is recorded before it is sent, so the next input reasons from it
-   * even if no render has happened in between; that is the whole point of the
-   * queue described above.
-   */
-  const ask = useCallback(
-    (next: number) => {
-      baseRef.current = next;
-      // Mid-drag there is nothing to reconcile — the effect below stands aside
-      // for the pointer and `endDrag` empties the queue — so a drag does not
-      // grow one entry per `pointermove`, and the render loop stays as
-      // allocation-free as it was.
-      if (grabRef.current === null)
-        asksRef.current = [...asksRef.current, next];
-      setLive(next);
-      onChange(next);
-    },
-    [onChange],
-  );
-
-  // The owner has spoken. Retire the ask it acknowledges (and every older one);
-  // if it acknowledges none of ours, it is somebody else's edit and it wins.
-  // Skipped mid-drag, where the pointer is still the author and the props are
-  // chasing it.
-  useEffect(() => {
-    if (grabRef.current !== null) return;
-    const at = asksRef.current.findIndex((asked) => track.same(asked, value));
-    if (at >= 0) {
-      asksRef.current = asksRef.current.slice(at + 1);
-    } else {
-      asksRef.current = [];
-      baseRef.current = value;
-    }
-    setLive(asksRef.current.at(-1) ?? null);
-    // `track` IS USED ABOVE AND IS DELIBERATELY NOT A DEPENDENCY, which is the
-    // one thing in this file a reviewer should stop on. A track closes over its
-    // seat, so an owner that builds it inline hands us a new identity on every
-    // render; listing it would re-run this reconciliation between a key press
-    // and its acknowledgement, find no match for an ask the owner has not
-    // echoed yet, read that as a stranger's edit, and clear the queue — which
-    // is the lost update this whole mechanism exists to prevent, restored by a
-    // dependency array. What this effect reacts to is THE OWNER SPEAKING, and
-    // that is exactly one thing.
-  }, [value]);
+  const ask = queue.ask;
 
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -525,7 +458,7 @@ export function ParametricGauge({
       // `base`, not the prop: a grab taken straight after a key press must
       // anchor on the value that press ASKED for, or the arrow jumps back a
       // step the instant the pointer moves.
-      const from = baseRef.current;
+      const from = readBase();
       const at = trackValueAt(event.clientX, event.clientY);
       if (at !== null) {
         grabRef.current = { mode: "track", at, value: from };
@@ -540,12 +473,12 @@ export function ParametricGauge({
       }
       setGrabbed(true);
       armLadder();
-      setLive(from);
+      queue.hold();
       event.currentTarget.setPointerCapture(event.pointerId);
       event.stopPropagation();
       event.preventDefault();
     },
-    [trackValueAt, measureScale, armLadder],
+    [trackValueAt, measureScale, armLadder, readBase, queue],
   );
 
   const onPointerMove = useCallback(
@@ -573,22 +506,24 @@ export function ParametricGauge({
     [ask, track, trackValueAt],
   );
 
-  const endDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (grabRef.current === null) return;
-    grabRef.current = null;
-    setGrabbed(false);
-    // The pointer is done authoring, so the prop is the truth from here — but
-    // `base` keeps the value the drag ended on, so an arrow pressed straight
-    // afterwards steps off WHAT YOU DRAGGED TO, not off a prop that has not
-    // caught up yet. That is the case a free (Ctrl) drag makes load-bearing:
-    // it ends on something like 12.4713, and the first press has to be able to
-    // put it back on a grid.
-    asksRef.current = [];
-    setLive(null);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }, []);
+  const endDrag = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (grabRef.current === null) return;
+      grabRef.current = null;
+      setGrabbed(false);
+      // The pointer is done authoring, so the prop is the truth from here — but
+      // `base` keeps the value the drag ended on, so an arrow pressed straight
+      // afterwards steps off WHAT YOU DRAGGED TO, not off a prop that has not
+      // caught up yet. That is the case a free (Ctrl) drag makes load-bearing:
+      // it ends on something like 12.4713, and the first press has to be able to
+      // put it back on a grid.
+      queue.release();
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    [queue],
+  );
 
   const requestSubmit = useCommandActionStore((s) => s.requestSubmit);
 
@@ -611,13 +546,13 @@ export function ParametricGauge({
         requestSubmit();
         return;
       }
-      const next = track.nudge(baseRef.current, event.key, event.shiftKey);
+      const next = track.nudge(readBase(), event.key, event.shiftKey);
       if (next === null) return;
       event.preventDefault();
       event.stopPropagation();
       ask(next);
     },
-    [ask, requestSubmit, track],
+    [ask, readBase, requestSubmit, track],
   );
 
   const hint =

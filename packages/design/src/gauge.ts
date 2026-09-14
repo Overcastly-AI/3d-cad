@@ -203,6 +203,126 @@ export interface GaugeTrack {
   same(a: number, b: number): boolean;
 }
 
+// --- THE ASK QUEUE -----------------------------------------------------------
+
+/**
+ * THE OPTIMISTIC ASK QUEUE — what a gauge has asked its owner for and not yet
+ * seen come back.
+ *
+ * ## Why it exists
+ *
+ * A gauge never owns its value: it asks, the owner's form takes the number, and
+ * the new prop arrives several renders later. So a SECOND input landing inside
+ * that window would compute from the stale prop and overwrite the first — two
+ * quick taps of Up giving 10.5 rather than 11, intermittently. The first fix
+ * held ONE pending value and dropped it whenever the prop changed, which throws
+ * away press two on the acknowledgement of press one: **13 of 20 fast
+ * `Up, Up, Shift+Up` sequences came back wrong.**
+ *
+ * The queue is the fix, and its correctness is invisible to a normal run —
+ * every rule below matters only when two inputs overlap one round trip, which
+ * is precisely the case nobody exercises by hand.
+ *
+ * ## Why it is HERE, as plain functions over plain data
+ *
+ * It used to live inside `<ParametricGauge>` as three `useRef`s mutated in four
+ * places, and the only thing standing behind it was one Playwright case that
+ * hammers the keyboard. That case is a real positive control and it is a WEAK
+ * one — re-running it twelve times against a mutant that clears the queue on
+ * every prop change caught the mutant **2 times in 12**, because the lost
+ * update it detects requires two inputs to collide inside one round trip and
+ * usually they do not collide. A guard that fires one run in six is green as
+ * its modal outcome, so "it went red once" and "it is load-bearing" are not the
+ * same sentence.
+ *
+ * As five pure transitions the same rules are checkable EVERY run, in
+ * microseconds, with the collision constructed rather than raced for. The
+ * browser case stays — it is the only thing that proves the rules are wired to
+ * a real keyboard — but it is no longer the only thing.
+ *
+ * ## The rules, which are the whole specification
+ *
+ *  1. {@link recordAsk} — an ask is remembered BEFORE it is sent, so the next
+ *     input reasons from it even if no render has happened in between. Not
+ *     while the pointer is authoring: a drag would otherwise grow one entry per
+ *     `pointermove`.
+ *  2. {@link acknowledgeAsk}, match — an arriving value equal (to the track's
+ *     own tolerance) to an outstanding ask retires that ask AND EVERY OLDER
+ *     ONE, and leaves `base` alone, because a later ask has already superseded
+ *     it.
+ *  3. {@link acknowledgeAsk}, no match — an arriving value we never asked for
+ *     is somebody else's edit (a typed distance, a re-seeded editor) and wins
+ *     outright: the queue is abandoned and it becomes the new `base`.
+ *  4. {@link holdAsks} — taking the grip shows `base`, not the prop, so a grab
+ *     straight after a key press does not jump back a step.
+ *  5. {@link releaseAsks} — letting go abandons the queue (the prop is the
+ *     truth again) but KEEPS `base` on the value the drag ended at, so the
+ *     first arrow press afterwards steps off what you dragged to.
+ */
+export interface AskQueue {
+  /** Outstanding asks, oldest first. */
+  readonly asks: readonly number[];
+  /** What the next input reasons from — the last ASK, not the last prop. */
+  readonly base: number;
+  /** The newest outstanding ask, drawn and announced in place of the prop. */
+  readonly live: number | null;
+}
+
+/** A queue with nothing outstanding, seated on the owner's current value. */
+export function seedAsks(value: number): AskQueue {
+  return { asks: [], base: value, live: null };
+}
+
+/**
+ * Rule 1 — ask the owner for `next`.
+ *
+ * @param authoring True while the pointer holds the grip. The ask still becomes
+ *   `base` and `live` (the arrow must follow the cursor), it is simply not
+ *   QUEUED: {@link acknowledgeAsk} stands aside mid-drag and
+ *   {@link releaseAsks} empties the queue, so an entry per frame would be
+ *   allocation for nothing.
+ */
+export function recordAsk(
+  queue: AskQueue,
+  next: number,
+  authoring: boolean,
+): AskQueue {
+  return {
+    asks: authoring ? queue.asks : [...queue.asks, next],
+    base: next,
+    live: next,
+  };
+}
+
+/**
+ * Rules 2 and 3 — the owner has spoken.
+ *
+ * @param same The track's own tolerance. It cannot be an exact comparison: the
+ *   value passes through a form field as a DISPLAY STRING, so on an inch
+ *   document the round trip is lossy and equality would read every
+ *   acknowledgement as a stranger's edit.
+ */
+export function acknowledgeAsk(
+  queue: AskQueue,
+  value: number,
+  same: (a: number, b: number) => boolean,
+): AskQueue {
+  const at = queue.asks.findIndex((asked) => same(asked, value));
+  if (at < 0) return { asks: [], base: value, live: null };
+  const asks = queue.asks.slice(at + 1);
+  return { asks, base: queue.base, live: asks.at(-1) ?? null };
+}
+
+/** Rule 4 — the grip has been taken: show what the next step reasons from. */
+export function holdAsks(queue: AskQueue): AskQueue {
+  return { asks: queue.asks, base: queue.base, live: queue.base };
+}
+
+/** Rule 5 — the pointer is done authoring; the prop is the truth from here. */
+export function releaseAsks(queue: AskQueue): AskQueue {
+  return { asks: [], base: queue.base, live: null };
+}
+
 // --- PROJECTION --------------------------------------------------------------
 
 /**
