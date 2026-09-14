@@ -4625,3 +4625,12 @@ STEP hardening + WB-64/TB-1 dogfooding)
   on a face offers Sketch inline; overlay panels adopted the header's row
   rhythm; a missing PostgreSQL now fails loudly instead of skipping 37%
   silently.
+- **2026-08-17..2026-09-04 — Groom passes 7-19 + interim:** full
+  reachability programme, CI hardening, SOLVE/PBT/SEL-2/ARC-BRANCH-1
+  clusters.
+- **2026-09-13 — Groom pass 20 (backlog-groomer):** reconciled the
+  frontend-redesign wave log (FLOW-B1/B2/B3, CRAFT-1/2/3/6, W0REV fix — none
+  were on BACKLOG before this pass, only ROADMAP); filed 6 new items
+  (MINIO-LICENSE-REVIEW-1, FLOW-JOURNEY-GAP-1, GRIDMINOR-TONEMAP-1,
+  MODALGATE-MIGRATION-1, AXISLABEL-ORTHO-1, VIEWFRONT-ORTHO-DECISION-1);
+  confirmed W0REV-3/5/6/7/9/10/11 still open, not re-filed.

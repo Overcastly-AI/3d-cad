@@ -173,44 +173,61 @@ is the landing record only, so the board is not silent about shipped work.
       fired 2 of 12 runs (`fd1156a`), and `extrudeTrack`'s seam given the unit
       coverage the 36-case e2e suite could not provide (`730b2ae`)
       [docs/design/REDESIGN-ROADMAP.md W3]
-- [x] (P0, L) **CRAFT-7 — the extrude gauge is grabbable, but NOT CLOSED.**
-      Reach 2 of 16 -> 16 of 16 sample points along its own projected axis; a
-      real mouse drag from the shaft midpoint now moves the value where it
-      previously left it at 40. Also: the zoom-aware snap (sampled once on
-      arm and frozen thereafter — 40 wheel notches moved the shaft 3.86 ->
-      28.48 px/mm with the snap never updating), the spine drawn as a
-      polyline rather than a chord, the readout became an input with digit
-      capture, nested Escape, a leader on the tag `6864f82` + `e25f125`.
-      **OPEN BLOCKING REVIEW FINDING, in flight (frontend-builder):** the
-      px/mm scale divides a projected seat->arrow-TIP length by a WORLD
-      seat->arrow-BASE length, so the commit's own "14 px floor" is really
-      ~11.9 px at depth 40 and ~9.7 px at depth 10 — every reported figure in
-      the commit was measured against this biased quantity. The snap-ladder
-      floor is being re-derived alongside it (`majors >= 14px` AND
-      `pitch >= 7px`, replacing the single 14px pitch floor borrowed from a
-      touch-target dimension) — **CRAFT-9/10/11 inherit both changes**, since
-      all three reuse this frame loop; do not dispatch them until this
-      finding closes. `6864f82` has NO CI run of its own (pushed in the same
-      event as `e25f125`, which fired one run keyed to the head commit) —
-      locally verified standalone (typecheck clean, 233 design + 2461 web
-      tests) and tree-verified by `e25f125`'s green run, NOT CI-verified;
-      keep the distinction for any future bisect.
-      [docs/design/REDESIGN-ROADMAP.md W3]
+- [x] (P0, L) **CRAFT-7 — CLOSED.** The extrude gauge is grabbable: reach 2 of
+      16 -> 16 of 16 sample points along its own projected axis; a real mouse
+      drag from the shaft midpoint now moves the value where it previously
+      left it at 40. Also: the zoom-aware snap (sampled once on arm and frozen
+      thereafter — 40 wheel notches moved the shaft 3.86 -> 28.48 px/mm with
+      the snap never updating), the spine drawn as a polyline rather than a
+      chord, the readout became an input with digit capture, nested Escape, a
+      leader on the tag `6864f82` + `e25f125`. **Its blocking review finding is
+      now FIXED (`c9e037c`):** the px/mm scale divided a projected
+      seat->arrow-TIP length by a WORLD seat->arrow-BASE length, so the
+      original commit's own "14 px floor" was really ~11.9 px at depth 40 and
+      ~9.7 px at depth 10 — every figure the commit reported was measured
+      against the biased quantity. Fixed via `projectedSpineLength` in
+      `gaugePose.ts`; the split snap-ladder floor (`majors >= 14px`,
+      `pitch >= 7px`) that was gating on it needed no further change. Measured
+      drawn pitch off the spine mesh's own `matrixWorld`, before/after, at two
+      widths — 1600x1000: 2mm 12.07 -> 7.23px; 1280x800: 2mm 11.35 -> 7.15px
+      (the 12.07 independently reproduces the reviewer's 12.08). `angularTrack`
+      inherited and shares the same fix (relevant to CRAFT-10). `e56c9bc`
+      separately re-derived the grip's e2e size tolerance as Blink's 1/64 px
+      LayoutUnit quantum — the float32-ULP reading it replaced was only
+      correct for x in [512,1024) and silently doubled past 1024.
+      **CRAFT-9a/9b/10/11 are now unblocked and IN FLIGHT — see entries below.**
+      Bisect note, kept for the record: `6864f82` (part of this item) has NO
+      CI run of its own — pushed in the same event as `e25f125`, which fired
+      one run keyed to the head commit — locally verified standalone
+      (typecheck clean, 233 design + 2461 web tests) and tree-verified by
+      `e25f125`'s green run, NOT CI-verified; keep that distinction if this
+      commit is ever a bisect endpoint.
+      [docs/design/REDESIGN-ROADMAP.md W3, §8 DIRECTION-W3-PROPOSALS.md]
 - [x] (P2, S) **e2e verdict reporter** — a red shard named the failing test
       and withheld the reason: `results[].error.message` was being dropped
       from the summary block `6043601`.
 - [ ] (P3, S) **CRAFT-INTERMITTENT-1** — two live intermittents, neither
-      caused by Wave 3 and both proven so. (a) `rect-rigidity.spec.ts:281` —
-      red on 2 of 5 recent CI runs; 31 local executions across seven stress
-      axes gave zero failures, persisted constraint set byte-identical every
-      time. (b) `qa-cross-wave-0913.spec.ts:572` "the cube is a control again
-      once the pick is over" — 1 of 3 on `--repeat-each`, 8/8 isolated; a
-      cube-facet click not moving the camera. ACCEPTANCE: root-cause at
+      caused by Wave 3 and both proven so, RECONFIRMED this pass. (a)
+      `rect-rigidity.spec.ts:281` — red on 2 of 5 recent CI runs; 31 local
+      executions across seven stress axes gave zero failures, persisted
+      constraint set byte-identical every time. (b) `qa-cross-wave-0913.
+      spec.ts:572` "the cube is a control again once the pick is over" (also
+      seen at `:253`) — 1 of 3 on `--repeat-each`, 8/8 isolated; a cube-facet
+      click not moving the camera; **the failure POINT moves between runs,
+      which is this repo's own documented flake signature** (CLAUDE.md: "a
+      real code regression fails identically every time; a contention flake
+      wanders"). **DELIBERATELY NOT touched this pass, argument stated:**
+      shipping a synchronization fix now would destroy the only evidence a
+      future red run could hand a root-causer, on a suite that has so far
+      produced zero reproductions across the local stress runs above —
+      "fixing" an unreproduced race is guessing, and the guess consumes the
+      evidence trail whether or not it is right. ACCEPTANCE: root-cause at
       least one to a specific race rather than filing it as "CI is noisy";
       until then, quarantine or retry-tag rather than let it erode trust in
       the gate. `6043601`'s verdict-block fix means the next occurrence will
       name its own cause — use that first. [src: CRAFT-7 wave report,
-      2026-09-14] TERRITORY: `apps/web/e2e/rect-rigidity.spec.ts`,
+      2026-09-14; reconfirmed, groom pass 23] TERRITORY:
+      `apps/web/e2e/rect-rigidity.spec.ts`,
       `apps/web/e2e/qa-cross-wave-0913.spec.ts`. agentType: qa-tester /
       frontend-builder.
 - [ ] (P2, M) **ESLINT-HOOKS-1** — `react-hooks` is not in `eslint.config.js`
@@ -240,12 +257,144 @@ is the landing record only, so the board is not silent about shipped work.
       2026-09-14] TERRITORY: extrude rail field component (wherever
       `ExtrudeDragHandle`'s sibling numeric-entry lives). agentType:
       frontend-builder.
+- [ ] (P1, M) **CRAFT-9a — IN FLIGHT (dispatched, groom pass 23).** Fillet
+      radius + chamfer distance gauges. `linear` track, anchor on the picked
+      edge's midpoint, normal to the edge, in the face-pair's bisector plane.
+      ACCEPTANCE per verb: drag N px moves the editor field AND the preview
+      redraws; arrow keys step it; `elementFromPoint` reaches the track at
+      >= 12 of 16 offsets; contract β — release the pointer and the instrument
+      stays where dragged (catches a missing echo). **§8.4 gate: must ship a
+      live preview with the gauge** — recommended: the rolling-ball tangent
+      circle at the current radius (fillet) / the bevel band (chamfer) — or
+      defer the whole item to W5; "the field updates and the model does not"
+      is not a shippable outcome. [src: DIRECTION-W3-PROPOSALS.md §8.3/§9]
+      TERRITORY: `apps/web/src/viewport/**` (gauges),
+      `apps/web/src/components/{Fillet,Chamfer}Editor.tsx`. agentType:
+      frontend-builder.
+- [ ] (P1, M) **CRAFT-9b — IN FLIGHT (dispatched, groom pass 23).** Shell
+      thickness + datum offset gauges. `linear` track, anchor on the picked
+      face's centroid along its normal. Same §8.4 preview gate as CRAFT-9a —
+      recommended: the inner offset outline (shell). Same proven-by criteria.
+      [src: DIRECTION-W3-PROPOSALS.md §8.3/§9] TERRITORY:
+      `apps/web/src/viewport/**` (gauges),
+      `apps/web/src/components/{Shell,Datum}Editor.tsx`. agentType:
+      frontend-builder.
+- [ ] (P1, M) **CRAFT-10 — IN FLIGHT (dispatched, groom pass 23).** Angular
+      gauges: revolve angle, draft angle, bend angle. `angular` track, 15°/5°
+      ladder (NOT derived from the linear one — 10/20/50° is the named failure
+      mode), `formatAngle`. **Owns a prerequisite the item itself names:
+      MEASURED — the revolve axis is not drawn in the viewport at all**
+      (chosen from a dropdown reading "Y axis · through the origin", scene
+      shows nothing). Draw the axis first, as a brass centreline in idiom D's
+      vocabulary, before hanging the arc gauge on it — not scope creep, the
+      arc's anchor. Same §8.4 live-preview gate (swept arc + end plane).
+      [src: DIRECTION-W3-PROPOSALS.md §9 CRAFT-10] TERRITORY:
+      `apps/web/src/viewport/**` (gauges),
+      `apps/web/src/components/{Revolve,Draft}Editor.tsx`. agentType:
+      frontend-builder.
+- [ ] (P1, M) **CRAFT-11 — IN FLIGHT (dispatched, groom pass 23).** Pattern
+      count + spacing gauges — two mounts on one feature: a `stepped` count
+      gauge along the pattern direction, a `linear` spacing gauge across the
+      first gap. Same §8.4 live-preview gate: ghost copies at the instance
+      positions. [src: DIRECTION-W3-PROPOSALS.md §9 CRAFT-11] TERRITORY:
+      `apps/web/src/viewport/**` (gauges),
+      `apps/web/src/components/PatternEditor.tsx`. agentType:
+      frontend-builder.
+- [ ] (P2, S) **GAUGE-PROPORTION-1 — the rod-vs-graduation proportion
+      problem generalizes past the 2 mm case CRAFT-7 fixed.** kind: defect
+      (visual craft, tolerance). MEASURED: at pitch <= 0.5 mm, or on a very
+      large seat (a 500 mm profile draws a 2.42 mm rod against a 1 mm
+      `majorStep`), the rod is fatter than the graduation spacing and no arm
+      rule fixes it — the mark is inside the thing it graduates, the same
+      shape CLAUDE.md's screenshot-gate incident documents (a ladder can be
+      correctly sized by its own rule and still invisible). CRAFT-7's
+      per-class spacing bound (`majors >= 14px`, `pitch >= 7px`) closed the
+      one case it was measured against (2 mm ladder, 0.97 mm rod) and does not
+      generalize to either extreme above. ACCEPTANCE: a rule relating rod
+      diameter to graduation pitch (not just screen-space spacing) that holds
+      at both measured extremes, with a before/after screenshot pair per
+      CLAUDE.md's design mandate rule 4 (a screenshot is the check that catches
+      "present, correctly sized, invisible"). Relevant to CRAFT-9a/9b/10/11 —
+      any of the four dispatched gauges can hit either extreme on a real part.
+      [src: CRAFT-7 wave follow-up, groom pass 23, 2026-09-14] TERRITORY:
+      `packages/design/src/gauge.ts`, `apps/web/src/viewport/
+      ParametricGauge.tsx`. agentType: frontend-builder.
+- [ ] (P2, S) **FORMATANGLE-MIGRATE-1 — migrate the three hand-written angle
+      formatters onto `formatAngle`.** kind: DRY (CLAUDE.md non-negotiable).
+      CRAFT-8 added `formatAngle` to `packages/design/src/units.ts` beside
+      `formatLength`, deliberately WITHOUT migrating the existing call sites
+      — converging `apps/web/src/measure/geometry.ts`,
+      `apps/web/src/features/revolve.ts` and `apps/web/src/features/hole.ts`
+      crosses three territories, so CRAFT-8 filed it rather than doing it.
+      ACCEPTANCE: all three call sites format through `formatAngle` with the
+      same `unitSuffix` option `formatLength` already has; no behavior change
+      (same rendered text for the same value) — a pure DRY convergence, proven
+      by a snapshot/unit test per site showing identical output before/after.
+      [src: DIRECTION-W3-PROPOSALS.md §11.5, CRAFT-8 follow-up] TERRITORY:
+      `apps/web/src/measure/geometry.ts`, `apps/web/src/features/revolve.ts`,
+      `apps/web/src/features/hole.ts`. agentType: frontend-builder.
+- [ ] (P2, S) **IMPERIAL-LADDER-1 — should the imperial snap ladder be a
+      binary series?** kind: question (needs a measurement, not yet a
+      decision). The ladder-as-snap-stops decision made the METRIC ladder a
+      decade series (5 -> 2 -> 1 -> 0.5), but `SNAP_MM.in = 25.4/32` is a
+      named, human step (a 32nd of an inch) and a decade ladder over it would
+      replace that with a value nobody says out loud. The W3 direction's
+      stated instinct is a **binary** series (1/32, 1/16, 1/8, 1/4, 1/2, 1 in)
+      under the same screen floor — explicitly NOT decided, because no inch
+      document was measured this pass. ACCEPTANCE: measure the ladder against
+      a real inch-dimensioned part (drawn distances that land on 32nds), state
+      which series a working engineer's eye actually wants, and implement
+      that choice with the reasoning recorded in `docs/design/
+      REDESIGN-ROADMAP.md` or this ticket — do not ship a silent default.
+      [src: DIRECTION-W3-PROPOSALS.md §11.7] TERRITORY: `packages/design/src/
+      gauge.ts` (ladder selection), `apps/web/src/routes/units.ts`.
+      agentType: frontend-builder.
+- [ ] (P1, S) **GAUGE-TOUCH-1 — a touch pass on the shipped gauge, W3-exit QA
+      gate.** kind: QA (not yet examined, flagged rather than guessed). The
+      24 px grip meets WCAG 2.2 SC 2.5.8 and CRAFT-7's hit sleeve is
+      >= 12 px, but both probes behind those numbers were mouse-driven, at
+      1280x800 and 1600x1000 only — nobody has put a finger on this
+      instrument. ACCEPTANCE: a real touch-emulated pass (Playwright touch
+      input or an actual touch-capable device) on the extrude gauge and at
+      least one of CRAFT-9a/9b/10/11 once shipped, asserting the drag actually
+      moves the value under touch pointer events, not just that the box is
+      large enough. This must close before Wave 3 is declared done — a gate,
+      not a nice-to-have. [src: DIRECTION-W3-PROPOSALS.md §11.4] TERRITORY:
+      `apps/web/e2e/**` (gauge specs), touch harness (see PLAYWRIGHT-TOUCH-1
+      for the existing harness-gap item this may share infrastructure with).
+      agentType: qa-tester.
 
 ## Scorecard gaps (docs/VISION.md daily-driver scorecard)
 
 See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
+
+- **Groom pass 23 (2026-09-14, backlog-groomer) — CRAFT-7's blocking finding
+  is FIXED (`c9e037c`+`e56c9bc`); ticked CLOSED.** CRAFT-9a/9b/10/11 unblocked
+  and dispatched in parallel worktrees this pass (in flight — wave log above);
+  CRAFT-9c deliberately held back per §8.3, filed Ready. Filed
+  GAUGE-PROPORTION-1 (the rod-vs-ladder proportion defect generalizes past the
+  2 mm case CRAFT-7 fixed — pitch <= 0.5 mm and a 500 mm profile's 2.42 mm rod
+  both still overrun), FORMATANGLE-MIGRATE-1 (DRY, §11.5), IMPERIAL-LADDER-1
+  (question, needs a real inch-part measurement before deciding, §11.7) and
+  GAUGE-TOUCH-1 (W3-exit QA gate — no touch probe exists yet, §11.4), all from
+  DIRECTION-W3-PROPOSALS.md §11's own explicit "did not decide, filing for the
+  board" list. CRAFT-INTERMITTENT-1 reconfirmed, argument for leaving it alone
+  now stated explicitly (a synchronization fix now would destroy the only
+  evidence a future red run could give a root-causer). FLOW-JOURNEY-GAP-1
+  addendum: the 30-gesture number is a STATED PREDICTION to stay flat for the
+  whole wave, not a per-pass regression — the metric is structurally blind to
+  what W3 buys (legibility, not fewer gestures). Doc-tick debt measured: **4**
+  commits since the last `docs(board)` commit (`e491540`), none touching
+  ROADMAP/BACKLOG — small, convention holding (see ROADMAP "Current focus" for
+  the full count). **Board queue length: 181 open items (`grep`-counted), up
+  from ~148 last pass** — Wave 3 is filing items faster than it closes them
+  this batch (5 dispatched builders' worth of new findings against 1 closure);
+  this is a QUEUE-LENGTH signal, not a hygiene one, consistent with the prior
+  pass's note — do not shrink it by editing, dispatch it down instead. No
+  scorecard row flips this pass (flow/craft items, not new-capability rows).
+  ROADMAP "Current focus" reconciled to match.
 
 - **Groom pass 22 (2026-09-14, backlog-groomer) — board was stale: CRAFT-7
   was still listed planned after it shipped.** Ticked CRAFT-8 (`4b0465d` +
@@ -297,12 +446,12 @@ duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 21 (2026-09-13) — the cross-wave QA pass's one
-open item (CUBE-SKETCH-OCCLUDE-1) joins pass 20's six.** Ranked, disjoint,
-parallel-dispatchable; MINIO-LICENSE-REVIEW-1 and CUBE-SKETCH-OCCLUDE-1 are
-both decisions before they are build tasks — the first to the licensing
-custodian/founder, the second may need founder/vision-steward input on the
-options before a builder picks one:
+**Dispatch order, groom pass 23 (2026-09-14) — CRAFT-9c joins the queue now
+that CRAFT-7 closed and CRAFT-9a/9b/10/11 are in flight (wave log above).**
+Ranked, disjoint, parallel-dispatchable; MINIO-LICENSE-REVIEW-1 and
+CUBE-SKETCH-OCCLUDE-1 are both decisions before they are build tasks — the
+first to the licensing custodian/founder, the second may need founder/
+vision-steward input on the options before a builder picks one:
 
 1. [ ] (P1, S) **MINIO-LICENSE-REVIEW-1** — MinIO is AGPL-3.0 and has no entry
    in `docs/LICENSING.md`; needs a human/licensing-custodian decision, not an
@@ -347,6 +496,16 @@ options before a builder picks one:
    2026-09-13] TERRITORY: `scripts/check-flow-cost.py`,
    `apps/web/e2e/full-flow.spec.ts` (or a new sibling spec). agentType:
    frontend-builder.
+   **ADDENDUM, groom pass 23 (stated prediction, not a new regression):** the
+   30-gesture number will not move for the WHOLE of Wave 3, on any pass, and
+   that is not grounds to distrust the metric — `--journey fillet` reads 3
+   gestures today and a gauge version also reads 3. The metric models an
+   expert who already knows every verb; it is structurally blind to what W3
+   buys, which is legibility for an engineer who does not know what 5 mm of
+   fillet looks like on THIS part until they drag it and see (same gesture
+   count, forty seconds versus two). W3's real evidence is screenshots,
+   per-verb reach counts and the contract-β release test, not this number.
+   [src: DIRECTION-W3-PROPOSALS.md §12 / groom pass 23 dispatch brief]
 
 3. [ ] (P2, M) **GRIDMINOR-TONEMAP-1** — grid minor lines are ~invisible, and
    the direct fix reddens a neighbouring gate. kind: defect (visual craft,
@@ -430,6 +589,22 @@ options before a builder picks one:
    (this pass's cross-wave QA finding). A product decision on whether the
    reference cube's pick-armed pointer-yield (`d0a3190`) should extend to
    ordinary sketch drawing, not just armed picks.
+
+8. [ ] (P1, M) **CRAFT-9c** — hole depth + Ø gauges, the only `companion`
+   two-cell gauge in the wave. **Deliberately NOT dispatched alongside
+   CRAFT-9a/9b/10/11** — DIRECTION-W3-PROPOSALS.md §8.3 sequences it last,
+   once the tag/`companion` shape has settled from the other four in-flight
+   items (CRAFT-7's own follow-up found `companion` had shipped narrowed to
+   `Pick<GaugeCell, "tagLabel"|"value">`, losing the per-cell `track` §6.1
+   specified for a mixed-unit pair — fine for hole today since depth and Ø
+   are both mm, but the shape this item inherits should be checked once
+   CRAFT-9a/9b/10 have exercised it). `linear` track, anchor on the hole
+   axis. ACCEPTANCE: same as CRAFT-9a/9b (drag/arrow-key/reach/contract-β)
+   plus a companion-cell check — dragging depth does not move the Ø cell's
+   own displayed track and vice versa. §8.4 preview gate: the bore circle
+   and the depth plane, or defer to W5. [src: DIRECTION-W3-PROPOSALS.md
+   §8.3/§9] TERRITORY: `apps/web/src/viewport/**` (gauges),
+   `apps/web/src/components/HoleEditor.tsx`. agentType: frontend-builder.
 
 **Carried from groom pass 19 — no new P0 that pass; SOLVE-CRASH-1, K2, PBT-1,
 CI-BAL, MEASURE-PROXY-1, PICKMARK-OCCLUDE-1, EXPORT-3, REACH-3-FLOW,
@@ -4493,13 +4668,12 @@ Full evidence: `docs/CHANGELOG.md`.
 
 ## Changelog
 
-- 2026-09-13 — **Groom pass 20 (backlog-groomer):** reconciled the frontend-
-  redesign wave log (FLOW-B1/B2/B3, CRAFT-1/2/3/6, W0REV fix — none were on
-  BACKLOG before this pass, only ROADMAP); filed 6 new items
-  (MINIO-LICENSE-REVIEW-1, FLOW-JOURNEY-GAP-1, GRIDMINOR-TONEMAP-1,
-  MODALGATE-MIGRATION-1, AXISLABEL-ORTHO-1, VIEWFRONT-ORTHO-DECISION-1);
-  confirmed W0REV-3/5/6/7/9/10/11 still open, not re-filed. Full detail:
-  `docs/CHANGELOG.md`.
-- 2026-08-17..2026-09-04 — Groom passes 7-19 + interim: full reachability
-  programme, CI hardening, SOLVE/PBT/SEL-2/ARC-BRANCH-1 clusters. Full
+- 2026-09-14 — **Groom pass 23 (backlog-groomer):** CRAFT-7 CLOSED
+  (`c9e037c`+`e56c9bc`); CRAFT-9a/9b/10/11 unblocked and dispatched (in
+  flight), CRAFT-9c filed Ready. Filed GAUGE-PROPORTION-1,
+  FORMATANGLE-MIGRATE-1, IMPERIAL-LADDER-1, GAUGE-TOUCH-1 (all
+  DIRECTION-W3-PROPOSALS.md §11); FLOW-JOURNEY-GAP-1 addendum recorded as a
+  stated prediction. See "Scorecard gaps" above for full detail.
+- Passes 7-20: full reachability programme, CI hardening, SOLVE/PBT/SEL-2/
+  ARC-BRANCH-1 clusters, frontend-redesign wave-log reconciliation. Full
   detail: `docs/CHANGELOG.md`.

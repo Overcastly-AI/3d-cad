@@ -2,34 +2,66 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-09-14 (backlog-groomer pass 22) — Wave 3
-(direct manipulation) is mid-flight, and CRAFT-7 is NOT closed.** `CRAFT-8`
-landed first and alone (`4b0465d`, `<ParametricGauge>` extracted out of
-`ExtrudeDragHandle`, 601 -> 88 lines, a four-way split forced because
-`packages/design` has no r3f; three review findings fixed alongside —
-`b20e8ce`, `fd1156a`, `730b2ae`). `CRAFT-7` then re-expressed extrude through
-it (`6864f82` + `e25f125`): the drag handle's reach went 2 of 16 -> 16 of 16
-sample points along its own projected axis, closing the mandate's "drawn in
-GL, targeted in the DOM" gap. **But CRAFT-7 shipped with an OPEN BLOCKING
-REVIEW FINDING** — the px/mm scale divides a projected seat->arrow-TIP length
-by a world seat->arrow-BASE length, so the reported "14 px floor" is really
-~11.9 px at depth 40 and ~9.7 px at depth 10, and a `frontend-builder` is
-fixing it now. The snap-ladder floor is being re-derived alongside it
-(`majors >= 14px` AND `pitch >= 7px`, replacing a single 14px pitch floor
-borrowed from a touch-target dimension). **`CRAFT-9` (linear gauges x5
-verbs), `CRAFT-10` (angular x2) and `CRAFT-11` (pattern) are genuinely
-parallel per the W3 direction's §8.2 but are BLOCKED on CRAFT-7's finding —
-all three inherit the same frame loop; do not dispatch them until it closes.**
-See `docs/BACKLOG.md`'s wave log for the full CRAFT-7/8 entries, plus three
-findings filed from this wave (ESLINT-HOOKS-1, EXTRUDE-RAIL-ESCAPE-1,
-CRAFT-INTERMITTENT-1). **`FLOW-JOURNEY-GAP-1` is still the honest headline
-number, and unchanged BY DESIGN this wave: the canonical part-creation
-journey still measures 30 gestures** — the W3 direction states up front that
-the flow-cost metric will not move for this wave (a fillet journey is 3
-gestures today and 3 with a gauge); W3's evidence is reach counts and
-screenshots, not that number. The founder has asked this branch be merged to
-`main` ("it's looking better but we still have a long way to go"); the merge
-is blocked only on CI finishing.
+**Current focus, corrected 2026-09-14 (backlog-groomer pass 23) — Wave 3
+(direct manipulation) is mid-flight; CRAFT-7 is now CLOSED.** `CRAFT-8`
+landed first and alone (`4b0465d`, `<ParametricGauge>` extracted, three review
+fixes); `CRAFT-7` (`6864f82`+`e25f125`) made the extrude gauge grabbable
+(2/16 -> 16/16 sample points). Its OPEN BLOCKING REVIEW FINDING is now FIXED:
+the px/mm scale divided a projected seat->arrow-TIP length by a world
+seat->arrow-BASE length, inflating the reported 14 px floor to a real
+~11.9 px at depth 40; `c9e037c` re-derives it as `projectedSpineLength`, and
+the split snap-ladder floor (`majors >= 14px`, `pitch >= 7px`) it was
+gating survives unchanged. `e56c9bc` re-derived the grip's own e2e size
+tolerance as Blink's 1/64 px LayoutUnit quantum rather than a float32 ULP
+that silently doubled past x=1024 — the earlier constant was right by
+accident at one frame width and wrong at the other.
+**`CRAFT-9a` (fillet/chamfer), `CRAFT-9b` (shell/datum), `CRAFT-10` (angular:
+revolve+draft, and it owns drawing the revolve axis — MEASURED: it is not
+drawn in the viewport at all today) and `CRAFT-11` (pattern count+spacing)
+are now IN FLIGHT**, dispatched in parallel per the W3 direction's §8.2/§8.3
+(CRAFT-9 split into three — five verbs was not one wave item); each ships a
+live preview with its gauge or is deferred to W5 (§8.4), not a field that
+moves with no model to match. **`CRAFT-9c`** (hole depth+Ø, the only
+two-cell `companion` gauge) **is deliberately not dispatched** — §8.3
+sequences it last, once the tag has settled — filed Ready.
+Two items opened from this pass's own evidence: the gauge's rod-vs-graduation
+proportion problem still has no general fix (pitch <= 0.5 mm, or a 500 mm
+profile's 2.42 mm rod against a 1 mm `majorStep`, both put the mark inside
+the rod CRAFT-7's per-class spacing bound does not reach — filed
+GAUGE-PROPORTION-1); and two live e2e intermittents
+(`rect-rigidity.spec.ts:281`, `qa-cross-wave-0913.spec.ts:572`/`:253`,
+failure point moving between runs — the flake signature) are reconfirmed NOT
+caused by this wave, with the argument for leaving them alone stated
+explicitly: shipping a synchronization fix now would destroy the only
+evidence the next red run could give us to root-cause against
+(CRAFT-INTERMITTENT-1, updated).
+Three more rows the W3 direction pass explicitly declined to decide and
+filed for the board (its own §11), not yet on it before this pass: migrate
+the three hand-written angle formatters onto `formatAngle` now that CRAFT-8
+shipped it (FORMATANGLE-MIGRATE-1, DRY); whether the imperial snap ladder
+should be a binary series (1/32…1 in) rather than a decade one — flagged as
+needing a real inch-part measurement first, not decided from the armchair
+(IMPERIAL-LADDER-1, question); and a touch pass on the shipped gauge, since
+both WCAG probes to date were mouse-driven (GAUGE-TOUCH-1, W3-exit QA gate).
+**Stated prediction, not a regression: `FLOW-JOURNEY-GAP-1`'s 30-gesture
+number will not move for this whole wave, on any pass, and that is not a
+reason to distrust the metric.** It models an expert who already knows every
+verb; W3 buys legibility for an engineer who does not yet know what 5 mm of
+fillet looks like on THIS part until they drag it and see — same 3 gestures
+either way, forty seconds versus two. The metric is structurally blind to
+that value; W3's real evidence is screenshots, per-verb reach counts and the
+contract-β release test, not the gesture count.
+The founder has asked this branch be merged to `main` ("it's looking better
+but we still have a long way to go"); the merge is blocked only on CI
+finishing.
+Doc-tick debt measured this pass (CLAUDE.md's amended rule: count commits
+since the last `docs(board)` commit, don't read trailers): **4** commits
+since `e491540` (`9ef627e`, `c9e037c`, `e56c9bc`, `32cc3b4`) — 2 substantive,
+2 CLAUDE.md corrections, none touching ROADMAP/BACKLOG. The five other
+commits named in this pass's dispatch brief (`e25f125`, `c092b89`,
+`3be3735`, `bae9c66`, `bd58416`) were already ancestors of `e491540`, i.e.
+reconciled by groom pass 22 — the debt is small and the trailer convention
+is holding.
 Also fixed this pass, unrelated to the redesign: MinIO Inc. withdrew its
 binary images from Docker Hub entirely (not a rate limit — the repo itself
 now reads source-only), which had been failing three CI jobs on every commit;
@@ -39,14 +71,19 @@ remains CLOSED and superseded; full detail moved to `docs/CHANGELOG.md`.
 `scripts/check-ui-parity.py`'s 84/85 operations / 97/109 literals reading is
 unchanged.
 
-## Recent closures (2026-08-28 to 2026-09-13)
+## Recent closures (2026-08-28 to 2026-09-14)
 
 One line per item; full narrative (measurements, mutation evidence, decision
 records) moved verbatim to `docs/CHANGELOG.md` under "ROADMAP historic
 closures pruned 2026-09-14 (groom pass 22)". Items also tracked in
 `docs/BACKLOG.md`'s Done archive are not re-described here.
 
-**Frontend-redesign waves (2026-09-12/13):**
+**Frontend-redesign waves (2026-09-12/14):**
+- **CRAFT-7 CLOSED** (`c9e037c`+`e56c9bc`, frontend-builder) — the px/mm scale
+  now measures the spine's own projection (`projectedSpineLength`) instead of
+  dividing a projected TIP length by a world BASE length; the grip's e2e size
+  tolerance is now Blink's 1/64 px LayoutUnit quantum, which does not double
+  past x=1024 the way the float32-ULP reading it replaced silently did.
 - **W0 CLOSED** — FLOW-A1 (`2a90a92`, a typed size lost to a not-yet-mounted DOM cell, fixed via a window listener reading the store draft live) + FLOW-A2 (`501331b`, Back/breadcrumb/reload destroyed an unsaved sketch with no guard; now routed through `useBlocker` + a per-part draft). See BACKLOG for full evidence.
 - **W0REV CLOSED** (`da98622`) — the two W0 fixes were each correct and wrong together: Enter on the exit prompt leaked to the armed draw dimension behind it, because `isTypingTarget` doesn't cover buttons. One capture-phase `lib/modalGate.ts` shield fixes this plus 2 more findings; an alarm fires if anything ever gets ahead of the shield again.
 - **W2 CLOSED** — FLOW-B2 (`d5e936a`, `K E R F C` bound to the 5 core verbs), FLOW-B1 (`78aaa67`, a solved sketch writes `EXTRUDE ⟨E⟩` on its own profile), FLOW-B3 (`fb63809`+`6097448`, one accented next-verb, gated by name not divination). See BACKLOG for full evidence.
