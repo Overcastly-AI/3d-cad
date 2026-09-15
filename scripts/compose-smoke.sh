@@ -76,7 +76,13 @@ done
 # their own exit code is the gate.
 SERVICES=(db redis minio gateway documents geometry web)
 
-step() { printf '\n== %s ==\n' "$*"; }
+# THE STEP CURRENTLY RUNNING, so the verdict can name it without the reader
+# having to locate the failure inside ~150 lines of service logs.
+CURRENT_STEP="startup (credential posture checks)"
+step() {
+  CURRENT_STEP="$*"
+  printf '\n== %s ==\n' "$*"
+}
 
 dump_logs() {
   echo
@@ -88,17 +94,35 @@ dump_logs() {
   docker compose logs --no-color --tail 200 >&2 || true
 }
 
+# The verdict block — see scripts/compose-verdict.sh for why it exists and why
+# it must be built before teardown. Sourced rather than copied: the drill needs
+# the identical block, and a copy-paste pair is how the two would drift.
+VERDICT_LABEL="compose-smoke"
+VERDICT_FILE="${COMPOSE_SMOKE_VERDICT:-}"
+# shellcheck source=scripts/compose-verdict.sh
+. "$(dirname "$0")/compose-verdict.sh"
+
 teardown() {
   local status=$?
   # `if`, not `((…)) && …`: under `set -e` a false arithmetic test as a
   # standalone list would abort the trap and skip the teardown below.
   if ((status != 0)); then dump_logs; fi
+
+  # BEFORE the teardown: `docker compose down` removes the containers this
+  # reads, so a verdict built afterwards could only ever say "nothing here".
+  local verdict
+  verdict="$(mktemp)"
+  build_verdict "$status" "$verdict" || true
+
   if [[ "$KEEP_STACK" == "1" ]]; then
     echo "compose-smoke: KEEP_STACK=1 — leaving the stack up (docker compose down -v to clean)."
   else
     step "teardown"
     docker compose down -v --remove-orphans || true
   fi
+
+  # LAST, after the teardown chatter, so a small fixed `tail` always reaches it.
+  emit_verdict "$verdict"
   exit "$status"
 }
 trap teardown EXIT

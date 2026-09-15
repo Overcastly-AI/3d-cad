@@ -109,6 +109,11 @@ jobs:
   compose-stack-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      # ONE literal, read by the script that WRITES the verdict and by the step
+      # that re-prints it last. Two copies of this path is exactly how the
+      # verdict step would start silently printing nothing.
+      COMPOSE_SMOKE_VERDICT: ${{ runner.temp }}/compose-smoke-verdict.txt
     steps:
       - uses: actions/checkout@v4
       # ONE script, so a human can run the identical proof on any Docker host:
@@ -174,6 +179,32 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v --remove-orphans
+      # THE VERDICT, LAST. The script cannot be the last thing the JOB says —
+      # the steps above run after it exits — and the job log is the only
+      # channel out of CI (artifact download is policy-denied, CONNECT 403).
+      # Without this, reading a failure here costs escalating `tail_lines`
+      # pulls against ~150 lines of service logs plus teardown chatter; with
+      # it, one small fixed tail gets the whole answer. Same treatment e2e.yml
+      # got in 2874f0a.
+      #
+      # It refuses rather than staying silent when the file is missing: an
+      # absent verdict means the script died before its EXIT trap (OOM, job
+      # timeout, a `docker` that would not start), which is a real and
+      # otherwise invisible outcome — and a verdict step that prints nothing
+      # when something went wrong is worse than no verdict step at all.
+      - name: Verdict
+        if: always()
+        run: |
+          if [ -f "$COMPOSE_SMOKE_VERDICT" ]; then
+            cat "$COMPOSE_SMOKE_VERDICT"
+          else
+            echo "== compose-smoke verdict =="
+            echo "NO VERDICT WAS WRITTEN — compose-smoke.sh did not reach its EXIT"
+            echo "trap. The stack state was never summarised, so read the step log"
+            echo "above rather than trusting this block. Usual causes: the runner"
+            echo "killed the job (timeout/OOM), or the docker daemon never came up."
+            echo "== end compose-smoke verdict =="
+          fi
 
   # A backup nobody has restored is not a backup. This job is the only thing
   # entitled to call ours one: it seeds REAL data through the API (a user, a
@@ -195,6 +226,8 @@ jobs:
   backup-restore-drill:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      DRILL_VERDICT: ${{ runner.temp }}/drill-verdict.txt
     steps:
       - uses: actions/checkout@v4
       - name: Backup → destroy the volumes → restore → re-evaluate the part
@@ -202,3 +235,15 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v --remove-orphans
+      # Same reasoning as the compose job's verdict step above.
+      - name: Verdict
+        if: always()
+        run: |
+          if [ -f "$DRILL_VERDICT" ]; then
+            cat "$DRILL_VERDICT"
+          else
+            echo "== backup-restore-drill verdict =="
+            echo "NO VERDICT WAS WRITTEN — backup-restore-drill.sh did not reach its"
+            echo "EXIT trap. Read the step log above rather than trusting this block."
+            echo "== end backup-restore-drill verdict =="
+          fi
