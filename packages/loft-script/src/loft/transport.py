@@ -8,11 +8,25 @@ implementation of the product.
 Two guarantees live here, and both are enforced rather than documented:
 
 1. **Only declared operations, only declared payloads.** Every call names an
-   :class:`~loft._operation.Operation` out of the generated table, and the body
-   model's class name is checked against the ``request_model`` the committed
-   contract declares for that route. A payload the gateway does not declare
-   cannot be sent, so the library structurally cannot reach something the
-   browser cannot.
+   :class:`~loft._operation.Operation` out of the generated table, and the
+   request is checked against the committed contract on all THREE axes the
+   contract declares: the body model's class name against ``request_model``,
+   the path parameters against ``path_params`` (strict both ways, in
+   :meth:`Operation.url`), and the query against ``required_query``. A payload
+   the gateway does not declare cannot be sent, so the library structurally
+   cannot reach something the browser cannot.
+
+   The query axis was missing until 2026-09-15, and the gap was not theoretical:
+   ``required_query`` was generated for all 86 operations and read by NOTHING,
+   so ``Part.delete_feature`` omitted the ``expected_tree_version`` the route
+   requires and **422'd on every call, for every input**. A guarantee that
+   covers bodies and paths reads as a total one — that is what made a whole
+   public method unusable without any gate objecting — so the axis that is
+   enforced and the axis that is merely emitted must not drift apart again.
+   NOTE the asymmetry with the other two: only REQUIRED query parameters are
+   checked, and extras are allowed, because optional query is how a route
+   legitimately varies (``format`` on export). Missing-required is the failure
+   that produces a 422; unexpected-extra is one FastAPI ignores.
 2. **Every non-2xx becomes a typed error with the server's own code.** No
    response body reaches a caller unexamined, and no status is swallowed.
 """
@@ -121,6 +135,7 @@ class Transport:
     ) -> httpx.Response:
         """Issue one request, or raise a typed error. Never returns a non-2xx."""
         _check_request_model(operation, body)
+        _check_required_query(operation, query)
         url = self.base_url + operation.url(**(path_params or {}))
         try:
             response = self._client.request(
@@ -211,6 +226,35 @@ def _check_request_model(operation: Operation, body: BaseModel | None) -> None:
             "operation_id": operation.operation_id,
             "declared": declared,
             "supplied": supplied,
+        },
+    )
+
+
+def _check_required_query(operation: Operation, query: dict[str, Any] | None) -> None:
+    """Refuse a request missing a query parameter the contract marks required.
+
+    Required-only, and extras are deliberately allowed: an optional query
+    parameter is how a route varies legitimately, and the failure this closes is
+    the one that produces a 422 before the handler ever runs.
+
+    ``None`` counts as ABSENT, not as supplied. A version guard serialised as
+    ``?expected_tree_version=None`` is a 422 with a more confusing message than
+    omitting it, so the two cases get the same refusal.
+    """
+    supplied = {name for name, value in (query or {}).items() if value is not None}
+    missing = sorted(set(operation.required_query) - supplied)
+    if not missing:
+        return
+    from loft.errors import ContractMismatch
+
+    raise ContractMismatch(
+        f"{operation.method} {operation.path} requires query parameter(s) "
+        f"{missing}; got {sorted(supplied)}",
+        details={
+            "operation_id": operation.operation_id,
+            "required": list(operation.required_query),
+            "supplied": sorted(supplied),
+            "missing": missing,
         },
     )
 

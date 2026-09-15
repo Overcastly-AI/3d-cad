@@ -313,12 +313,27 @@ class Part:
         )
 
     def delete_feature(self, feature_id: uuid.UUID) -> None:
-        """Delete a feature. Refused (409) when later features depend on it."""
-        self.session.transport.call_none(
-            ops.DELETE_PARTS_PART_ID_FEATURES_FEATURE_ID,
-            path_params={"part_id": self.id, "feature_id": feature_id},
+        """Delete a feature. Refused (409) when later features depend on it.
+
+        The version guard travels in the QUERY here, not in a body — DELETE has
+        none — which is the whole reason this method shipped broken: it was the
+        one write whose concurrency token does not ride a pydantic model, so the
+        contract check that guards every other write had nothing to look at and
+        every call 422'd. :meth:`Transport._send` now enforces
+        ``required_query`` the same way it enforces the body model, so the
+        omission is a refusal here rather than a server rejection.
+        """
+        self._write(
+            lambda version: self.session.transport.call(
+                ops.DELETE_PARTS_PART_ID_FEATURES_FEATURE_ID,
+                FeatureTreeResponse,
+                path_params={"part_id": self.id, "feature_id": feature_id},
+                query={"expected_tree_version": version},
+            ),
+            # The route returns the SURVIVING tree, so the new version is in the
+            # response — no refetch, and the same shape the browser gets back.
+            after=lambda tree: tree.tree_version,
         )
-        self.refresh()
 
     # -- modelling verbs ---------------------------------------------------
 

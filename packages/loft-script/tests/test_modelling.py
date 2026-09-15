@@ -16,15 +16,17 @@ result — a volume, a face count, a byte, an error code.
 from __future__ import annotations
 
 import itertools
+import math
 import uuid
 from typing import Any
 
 import loft
 import pytest
 from loft._operation import Operation
+from loft.sketch import SOLVED_STATUSES
 from loft.transport import Transport
 from loft_wire.features import ExtrudeFeature, SketchFeature
-from loft_wire.sketch import SketchLine
+from loft_wire.sketch import SketchArc, SketchCircle, SketchLine
 from pydantic import BaseModel
 
 from .conftest import Stack
@@ -469,3 +471,192 @@ def test_the_scripted_tree_is_the_shape_the_browser_persists(stack: Stack) -> No
     assert features[1].feature.params.distance_mm == DEPTH_MM
     assert tree.rollback_feature_id is None
     assert not any(record.rolled_back for record in features)
+
+
+# --- the public methods that had no test at all -----------------------------
+#
+# ``delete_feature`` 422'd on EVERY call, for every input, from the day it
+# shipped: it omitted the ``expected_tree_version`` the route declares as a
+# REQUIRED query parameter, and a DELETE has no body, so the contract check that
+# guards every other write had nothing to look at. Nothing caught it because the
+# method had no test — and the call-parity floor could not help, since a method
+# nobody calls contributes no calls to count.
+#
+# It was one of seven public methods in that position. The others are covered
+# here in the same pass, on the principle that the class of defect is "a public
+# method nobody exercises", not "this one method".
+
+
+def test_delete_feature_removes_it_and_the_body_follows(stack: Stack) -> None:
+    """P0 REGRESSION. Asserts on the RESULT — the tree and the geometry — never
+    on a status: a 2xx proves a request parsed, which is exactly what this bug
+    did not do (it 422'd), and the inverse mistake would hide the next one."""
+    with _session(stack) as session:
+        part = _bracket(session, name="Deletable")
+        assert part.mass_properties().volume == pytest.approx(
+            EXPECTED_VOLUME_MM3, abs=VOLUME_TOLERANCE_MM3
+        )
+
+        extrude = next(f for f in part.features() if f.feature.type == "extrude")
+        part.delete_feature(extrude.id)
+
+        remaining = part.features()
+        assert [f.feature.type for f in remaining] == ["sketch"]
+        # The body is GONE, not merely unlisted: a sketch-only part has nothing
+        # to measure, which is the same refusal the workspace shows.
+        with pytest.raises(loft.NoBody):
+            part.mass_properties()
+
+
+def test_delete_feature_leaves_the_version_usable_for_the_next_write(
+    stack: Stack,
+) -> None:
+    """The half a "does it 2xx?" test would miss.
+
+    ``delete_feature`` carries the concurrency token in the QUERY, and the route
+    returns the surviving tree, so the handle must come back holding the NEW
+    version. If it kept the pre-delete one, the next write would 409 — a bug
+    that only appears on the *second* call and would survive any single-call
+    test.
+    """
+    with _session(stack) as session:
+        part = _bracket(session, name="Sequential")
+        extrude = next(f for f in part.features() if f.feature.type == "extrude")
+        part.delete_feature(extrude.id)
+
+        part.rename("Renamed after delete")
+        assert part.name == "Renamed after delete"
+
+
+def test_delete_feature_is_refused_when_a_later_feature_depends_on_it(
+    stack: Stack,
+) -> None:
+    """The extrude consumes the sketch, so deleting the sketch must be refused —
+    the library stops where the UI stops."""
+    with _session(stack) as session:
+        part = _bracket(session, name="Dependent")
+        sketch = next(f for f in part.features() if f.feature.type == "sketch")
+        # `Conflict`, not `LoftError`. Measured: the first draft of this test
+        # caught the base class, and it therefore PASSED against the broken
+        # method, whose 422 `InvalidRequest` is also a `LoftError` — a refusal
+        # test that cannot tell "the server refused for the right reason" from
+        # "my request was malformed" is the one shape this whole commit is
+        # about.
+        with pytest.raises(loft.Conflict) as raised:
+            part.delete_feature(sketch.id)
+        assert raised.value.code is not None
+        # ...and nothing was removed.
+        assert len(part.features()) == 2
+
+
+def test_update_feature_replaces_the_envelope_wholesale(stack: Stack) -> None:
+    """Named for the property that matters: params are REPLACED, not merged, so
+    a caller who omits a field gets the model's default rather than the old
+    value. Asserted on the geometry, which is the only place the difference
+    shows."""
+    with _session(stack) as session:
+        part = _bracket(session, name="Updatable")
+        record = next(f for f in part.features() if f.feature.type == "extrude")
+        params = record.feature.params
+
+        part.update_feature(
+            record.id,
+            feature=record.feature.model_copy(
+                update={"params": params.model_copy(update={"distance_mm": 30.0})}
+            ),
+            name="Taller",
+        )
+
+        assert part.mass_properties().volume == pytest.approx(
+            WIDTH_MM * HEIGHT_MM * 30.0, abs=VOLUME_TOLERANCE_MM3
+        )
+        assert [f.name for f in part.features() if f.feature.type == "extrude"] == [
+            "Taller"
+        ]
+
+
+def test_set_units_changes_display_only_and_not_the_geometry(stack: Stack) -> None:
+    """The claim in its docstring, measured. Storage is canonical mm, so the
+    volume must be BYTE-identical across the change — a units bug that scaled
+    the model would be invisible to a test that only read the unit back."""
+    with _session(stack) as session:
+        part = _bracket(session, name="Unitful")
+        before = part.mass_properties().volume
+
+        record = part.set_units("in")
+
+        assert record.length_unit == "in"
+        assert part.mass_properties().volume == before
+
+
+def test_deleting_a_part_removes_it_from_the_register(stack: Stack) -> None:
+    with _session(stack) as session:
+        part = session.new_part("Doomed")
+        part_id = part.id
+        assert part_id in {p.id for p in session.parts()}
+
+        part.delete()
+
+        assert part_id not in {p.id for p in session.parts()}
+        # `refresh()`, not `.name`: both fetch, but a bare property access is a
+        # statement ruff reads as dead code (B018), and a reader would have to
+        # know `.name` is a round trip to see why it is here.
+        with pytest.raises(loft.NotFound):
+            session.part(part_id).refresh()
+
+
+def test_an_arc_dimensioned_by_radius_solves_to_that_radius(stack: Stack) -> None:
+    """Covers ``Sketch.arc``, ``Sketch.radius`` and ``Sketch.constrain`` in one
+    part — ``radius`` is sugar over ``constrain``, and an arc is the entity a
+    radius dimension exists for.
+
+    Asserts on the SOLVED geometry rather than on what was sent: a constraint
+    the solver ignored and a constraint it satisfied are indistinguishable in
+    the request.
+    """
+    with _session(stack) as session:
+        part = session.new_part("Arcs")
+        sketch = part.sketch(on="XY")
+        arc = sketch.arc(center=(0.0, 0.0), start=(10.0, 0.0), end=(0.0, 10.0))
+        index = sketch.radius(arc, 12.0)
+        assert index == len(sketch.constraints) - 1
+
+        solved = sketch.save().solved
+        assert solved is not None
+        # `underconstrained` here, and that is correct: the arc's centre is not
+        # anchored, so the system has free DOF. It is in SOLVED_STATUSES — the
+        # same set the workspace uses to enable extrude — and the dimension is
+        # satisfied regardless, which is what the measurement below pins.
+        assert solved.status in SOLVED_STATUSES
+
+        entity = next(e for e in solved.entities if e.id == arc)
+        assert isinstance(entity, SketchArc)
+        # An arc carries no radius field — it is IMPLIED by |start - center|,
+        # which is exactly why this reads the solved points rather than echoing
+        # back the number that was sent.
+        measured = math.hypot(
+            entity.start.x - entity.center.x, entity.start.y - entity.center.y
+        )
+        assert measured == pytest.approx(12.0, abs=1e-6)
+
+
+def test_a_circle_dimensioned_by_diameter_solves_to_half_that_radius(
+    stack: Stack,
+) -> None:
+    """``Sketch.diameter`` — the one whose whole reason for existing is that a
+    hole is specified by diameter everywhere except in the kernel. The bug it
+    guards against is a factor of two, so the assertion is the radius.
+    """
+    with _session(stack) as session:
+        part = session.new_part("Holes")
+        sketch = part.sketch(on="XY")
+        circle = sketch.circle(center=(0.0, 0.0), radius=3.0, dimension=False)
+        sketch.diameter(circle, 20.0)
+
+        solved = sketch.save().solved
+        assert solved is not None
+        assert solved.status in SOLVED_STATUSES
+
+        entity = next(e for e in solved.entities if e.id == circle)
+        assert isinstance(entity, SketchCircle)
+        assert entity.radius == pytest.approx(10.0, abs=1e-6)

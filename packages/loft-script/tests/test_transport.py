@@ -7,6 +7,7 @@ built, which is the only thing that can settle questions about encoding.
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Any
 
 import httpx2 as httpx
@@ -267,3 +268,71 @@ def test_an_operation_record_is_immutable() -> None:
     with pytest.raises(AttributeError):
         ops.GET_PARTS.path = "/elsewhere"  # type: ignore[misc]
     assert isinstance(ops.GET_PARTS, Operation)
+
+
+# --- the query axis: the guarantee that was emitted and never read ----------
+#
+# ``Operation.required_query`` was generated for all 86 operations and checked
+# by nothing, so ``Part.delete_feature`` shipped omitting the
+# ``expected_tree_version`` its route declares as required and 422'd on every
+# call, for every input. These are the negative controls for the check that
+# closes it — an assertion nobody has seen fire is not yet a gate.
+
+
+def test_a_missing_required_query_parameter_is_refused_before_the_network() -> None:
+    seen, transport = _transport(200, {})
+    with pytest.raises(ContractMismatch) as caught:
+        transport.call_none(
+            ops.DELETE_PARTS_PART_ID_FEATURES_FEATURE_ID,
+            path_params={"part_id": uuid.uuid4(), "feature_id": uuid.uuid4()},
+        )
+    assert caught.value.code == "contract_mismatch"
+    assert caught.value.details["missing"] == ["expected_tree_version"]
+    assert seen == [], (
+        "nothing may reach the network once the check refuses — the point is to "
+        "fail here rather than collect a 422 from the far side"
+    )
+
+
+def test_a_required_query_parameter_present_but_none_counts_as_absent() -> None:
+    """``?expected_tree_version=None`` is a 422 with a more confusing message
+    than omitting it, so the two cases must get the same refusal. Written
+    because the natural implementation (``set(query) >= required``) would have
+    let this through: the key IS there."""
+    seen, transport = _transport(200, {})
+    with pytest.raises(ContractMismatch) as caught:
+        transport.call_none(
+            ops.DELETE_PARTS_PART_ID_FEATURES_FEATURE_ID,
+            path_params={"part_id": uuid.uuid4(), "feature_id": uuid.uuid4()},
+            query={"expected_tree_version": None},
+        )
+    assert caught.value.details["missing"] == ["expected_tree_version"]
+    assert seen == []
+
+
+def test_supplying_the_required_query_parameter_reaches_the_network() -> None:
+    """The POSITIVE control. Without it the two refusals above are equally
+    consistent with a check that rejects everything."""
+    seen, transport = _transport(200, {"features": [], "tree_version": 4})
+    transport.call_none(
+        ops.DELETE_PARTS_PART_ID_FEATURES_FEATURE_ID,
+        path_params={"part_id": uuid.uuid4(), "feature_id": uuid.uuid4()},
+        query={"expected_tree_version": 3},
+    )
+    assert len(seen) == 1
+    assert seen[0].url.params["expected_tree_version"] == "3"
+
+
+def test_an_optional_query_parameter_is_not_required_and_extras_are_allowed() -> None:
+    """The asymmetry with the body and path checks, pinned deliberately.
+
+    ``Operation.url`` is strict in BOTH directions and a body must match
+    exactly, but query is checked one way only: optional query is how a route
+    legitimately varies, so an extra key is not an error. A check that rejected
+    extras would break ``Part.export``'s ``format`` the moment a route gained an
+    optional filter, which is the kind of false positive that gets a gate muted.
+    """
+    seen, transport = _transport(200, {})
+    assert ops.GET_PARTS.required_query == ()
+    transport.call_none(ops.GET_PARTS, query={"folder_id": "abc"})
+    assert len(seen) == 1

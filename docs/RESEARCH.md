@@ -417,7 +417,7 @@ code path as the UI", and the existing service boundaries (§3) already express
 it; this entry records that the scripting surface is bound by them rather than
 being an exception to them.
 
-**How it is enforced, rather than asserted.** Three mechanisms, because a
+**How it is enforced, rather than asserted.** Four mechanisms, because a
 boundary that only lives in a review comment is one distracted review from
 gone:
 
@@ -427,13 +427,35 @@ gone:
    `just gen-check`). Only the gateway contract is read — adding `documents` or
    `geometry` to that generator is the one-line change that would break this
    decision, and it is therefore the line to guard in review.
-2. The transport REFUSES a request body whose model is not the one the contract
-   declares for that route (`ContractMismatch`), so the library cannot grow a
-   private payload shape the browser never sends.
+2. The transport REFUSES a request the contract does not declare, on all three
+   axes the contract carries: the body model (`request_model`), the path
+   parameters (`path_params`, strict both ways in `Operation.url`) and the
+   required query parameters (`required_query`). All three raise
+   `ContractMismatch` before anything reaches the network, so the library
+   cannot grow a private request shape the browser never sends.
+
+   **The query axis was added 2026-09-15 and its absence had already cost a
+   whole public method.** `required_query` was generated for all 86 operations
+   and read by NOTHING, so `Part.delete_feature` omitted the
+   `expected_tree_version` its route declares as required and returned 422 on
+   every call, for every input, from the day it shipped. Note the general shape,
+   because it is the reusable part: a guarantee that covers two of three axes
+   reads as a total one, and the untrue third is invisible precisely because the
+   sentence describing it sounds complete. Generated data that nothing reads is
+   the same defect wearing a different hat — a field emitted for a check that
+   was never written.
 3. `packages/loft-script/tests/test_modelling.py` drives a real three-service
    stack, records every call the modelling flow makes, and asserts that parity
    over the calls that actually happened — with a count floor, so an empty
    recording cannot make it vacuously true.
+4. `tests/test_contract_parity.py` walks the library's own source with `ast` and
+   checks every `transport.call*` site against its generated row — response
+   model, body model, required query and path parameters — with a floor of 16
+   sites. STATIC, and that is the point: the runtime checks in (2) only fire on
+   a call that actually happens, which is exactly why an untested method could
+   ship 422-ing. This walk sees a call site whether or not any test exercises
+   it, and it is what `Transport.call`'s docstring had been claiming existed
+   since the library landed.
 
 **Types are IMPORTED, not generated — the asymmetry with `packages/ts-client`
 is deliberate.** `loft_wire.*` holds the pydantic models the services
