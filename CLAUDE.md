@@ -1158,6 +1158,40 @@ recipe here in the same commit as the fix.**
   fixture that never reaches the path) and the downstream negative control (a
   probe injected past the guard) — a correct check pointed somewhere the defect
   is not.
+- **A COUNT FLOOR IS A COLLAPSE DETECTOR. IT CANNOT CATCH A SHRINK, AND A
+  REFACTOR PRODUCES SHRINKS.** Measured 2026-09-15, and it corrects the advice
+  the orchestrator gave. Splitting 15 modules out of `packages/py-kit` into a
+  new distribution took `check-air-gap.py`'s python census from **147 walked to
+  132** — still above its floor of 100, so **the gate passed while the entire
+  new package was scanned by nothing.** I told the fixing agent to "add the root
+  and re-derive the floor"; it pointed out that re-deriving the floor does not
+  fix the defect class, and proved it on a fixture with one root emptied: with a
+  per-root census the gate reports `vacuous=True, empty_roots=[...]`; **with the
+  floor alone it reports `walked 3 >= floor, ok` and the defect is invisible.**
+  No floor low enough to survive normal churn can detect a corpus that merely
+  got smaller. **Census each declared ROOT and refuse when any one contributes
+  zero**; keep the global floor for what it is actually good at — total
+  collapse — and write that division of labour down beside it.
+  Same pass, same file, the reason it happened: the roots were **an inline tuple
+  written out twice**, in two different checks. That is precisely how a new
+  package gets added to neither. One named constant.
+- **A GATE THAT WALKS WHAT IS PRESENT CANNOT SEE WHAT IS ABSENT — derive the
+  EXPECTED set independently, or it only ever grades work somebody remembered to
+  do.** Same day: `packages/loft-wire` became a dependency of `loft-py-kit`, and
+  `deploy/docker/service.Dockerfile` never copied it, so all three service
+  images failed at layer 2. `check-build-context.py` could not have caught it,
+  and the reason is structural rather than an oversight: that check grades **the
+  COPY lines that exist** — does each source resolve, does it survive
+  `.dockerignore`. **This was a COPY line nobody wrote.**
+  The fix is a second, independently-derived question rather than a better walk:
+  for each service, compute which uv workspace members are in its dependency
+  closure (from `[tool.uv.workspace] members` plus each member's `[project]
+  dependencies`) and assert every one is copied. Note the first probe anyone
+  reaches for says nothing: layer 1 (`--no-install-workspace`) resolves
+  **happily** with the member absent and exits 0; only layer 2 fails.
+  Generalises to every allow-list, manifest and registration table in this repo:
+  if the check reads the same list the code reads, it can only tell you the list
+  is self-consistent. Ask what SHOULD be in it, from somewhere else.
 - **A BEFORE/AFTER SUBTRACTION ATTRIBUTES TO YOUR CHANGE EVERYTHING THAT DRIFTED
   ON SOMEBODY ELSE'S CLOCK — and it does so in the direction that blames the
   code.** Measured 2026-09-15. `fillet-chamfer-gauge.spec.ts` asserted "the gauge
