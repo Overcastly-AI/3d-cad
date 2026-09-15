@@ -20,6 +20,28 @@ input into ROADMAP phases and BACKLOG entries the build loop can execute.
    scorecard in VISION.md against `git log` and the QA docs — flip rows only
    on shipped, QA-verified evidence, and say why in the Notes column.
    **Honesty over optimism:** an aspirational ✅ poisons prioritization.
+
+   **FIRST STEP OF EVERY CYCLE, before you read a single row:
+   `python3 scripts/check-scorecard-freshness.py`.** It prints a STALE /
+   FRESH / PENDING / ERROR line per row by comparing each row's cited
+   `Re-derived <date> @ <sha>` against `git log -1` over that row's
+   territory, using the Dimension→territory table in VISION.md's "Freshness
+   discipline" section. Start from that computed list instead of guessing
+   which rows might need a look.
+   Why it exists, in one sentence you should not have to relearn: **a pass
+   that flips a row DOWN creates debt nothing tracks.** Assemblies & mates
+   read ❌ for 19 days on MATE-1, which closed five days after the flip, and
+   the stale ❌ reached a founder-facing claim; Sheet metal was an
+   independently-found second instance on the same date. Both shared one
+   shape — a verdict that NAMES its own falsification condition and then
+   never re-runs it.
+   Two rules on reading it: a **STALE** row means re-derive, not re-score —
+   the check cannot tell you whether the verdict changed, only that its
+   evidence is older than its territory. An **ERROR** row is a defect in the
+   table you own: a cell with neither marker, a cited sha that does not
+   resolve, or a territory glob matching no tracked file (which would have
+   left that row watched by nothing, forever fresh). Fix those in the same
+   pass, and add a territory entry whenever a row's surface first ships.
 3. **Competitive feature discovery — keep the pipeline full.** The scorecard
    says *where* we're behind; this duty finds the *specific features* that
    close it, so future phases never run dry. Each cycle — and whenever the

@@ -23,6 +23,21 @@ an author of new content.
 3. ROADMAP/BACKLOG ticks are the builders'/groomer's job — if you find them
    stale, fix the tick AND note the violation in your commit message so the
    orchestrator sees the process leak.
+3a. **Run `python3 scripts/check-scorecard-freshness.py` and paste its table
+   into your report.** ~1.5 s, read-only, no arguments. It answers "has
+   anything landed in a `docs/VISION.md` scorecard row's territory since the
+   commit that row cites?" — the question nobody asked for 19 days while the
+   Assemblies row sat at ❌ on a blocker that had already closed, and which
+   was then used as evidence in a founder-facing claim. Sheet metal turned
+   out to be a second, independent instance.
+   **Reporting it is the whole job here: you do NOT re-score, and you do not
+   edit `docs/VISION.md`** — that is the vision-steward's, and a STALE row is
+   a prompt to re-derive, never proof the verdict changed. A `STALE` line
+   goes in your commit message and your report so the orchestrator can
+   dispatch the steward; an `ERROR` line is a defect in the table itself
+   (a row with no `Re-derived <date> @ <sha>` marker, a sha that does not
+   resolve, or a territory glob matching no file) and should be named the
+   same way.
 4. **Run the lint gate before committing** — `just lint` must be green on
    your touched files (root markdown like CHANGELOG.md IS prettier-checked;
    a doc-sync commit once failed the gate this way). `prettier --write` your
