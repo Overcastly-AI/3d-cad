@@ -214,6 +214,20 @@ test:
 bench:
     uv run pytest services/geometry/tests/test_benchmarks.py -m benchmark -s -p no:cacheprovider
 
+# The REAL-PART GAUNTLET (docs/GEOMETRY-QA.md) — the bar this project is graded
+# against, as opposed to the bar it sets itself. Two legs that fail differently:
+# a genuinely foreign STEP part (import / tessellation / round-trip / mass
+# properties at 160–10 665 faces) and a deep parametric tree (rebuild depth,
+# incremental edit) that an imported B-rep with no history cannot test at all.
+#
+# NOT a CI gate and must not become one. It is ~25 min, it needs egress to fetch
+# its fixtures, and a timing gate on a shared runner is a false-red machine
+# (docs/PERF.md's standing rule). `--json` makes it adoptable by a nightly job.
+# The fixtures are FETCHED, never committed: every one of them is third-party
+# CAD this MIT repo may not redistribute — see goldens-gauntlet/fixtures.json.
+gauntlet:
+    uv run python scripts/gauntlet.py
+
 # Regenerate OpenAPI contracts (pydantic → packages/contracts) + typed TS
 # client (packages/ts-client) + the Python client's gateway operation table
 # (packages/loft-script/src/loft/_operations.py). All three are committed; CI

@@ -7,6 +7,305 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-09-15 — THE GAUNTLET: what this project looks like when it is graded on a real part instead of on its own fixtures (geometry-qa)
+
+**The brief was "we grade ourselves entirely on toys — fix that with
+measurement, not opinion."** Here is the measurement. `just gauntlet`
+(`scripts/gauntlet.py`) now runs two legs that fail differently, and the numbers
+below are its output, not a narrative about it.
+
+**First, a correction to the premise, because a brief is a claim too.** "Every
+performance claim rests on fixtures a first-year would draw in five minutes" is
+true of the GOLDEN suite and was already false of the PERF suite:
+`test_scaling_benchmarks.py` has driven a generated 200-feature tray and a
+2 006-face heat sink since 2026-07-31, and `docs/PERF.md` found the N^1.85
+rebuild curve and the provenance cliff there. What did NOT exist — at all — was
+a part **made by somebody else, in somebody else's CAD system**. That is the
+axis this run adds, and it is where every new defect below came from. A
+generated tree cannot produce foreign trimmed NURBS, a 211-solid assembly, or a
+solid whose boundary is three shells; an imported B-rep has no history and
+cannot test rebuild depth. Both legs are required and neither substitutes.
+
+### Provenance and licence — and why nothing is committed
+
+`services/geometry/goldens-gauntlet/fixtures.json` pins five real STEP files by
+URL + sha256. **This repository redistributes none of them**; the gauntlet
+fetches into a gitignored cache, measures, and reports. That is a licence
+decision with evidence behind it, not a convenience: the provenance below was
+read out of each file's own ISO-10303-21 HEADER rather than assumed from the
+hosting repo.
+
+| fixture | what it is | header says | licence |
+|---|---|---|---|
+| `as1-oc-214` | AS1 aerospace conformance assembly, 18 solids | Open CASCADE 6.1 via Datakit Converter, 2008 | not declared |
+| `ventilator` | moulded ventilator housing | — | not declared |
+| `gearbox-11752` | machined casting, **1 solid / 3 shells** (internal voids) | — | not declared |
+| `kuka-kr600` | KUKA KR600 R2830 robot arm, 61 solids | **Siemens NX 7.5**, author + organization EMPTY | manufacturer CAD download |
+| `rc-buggy-suspension` | XRAY XB8 front suspension, 211 solids | Autodesk Inventor 2018, **author "Nagy Imre"**, path names GrabCAD | third-party upload |
+
+The host repo (`tpaviot/pythonocc-demos`) ships **no LICENSE file**, so its
+contents are all-rights-reserved by default; the two largest fixtures are
+independently a vendor download and a named individual's GrabCAD upload. None
+may be redistributed by an MIT project. **Measuring a file is not
+redistributing it; committing one is** — hence fetch-and-verify.
+
+Egress, with a control in the same breath: `raw.githubusercontent.com` → **200**
+(control: that repo's README, 900 B), `codeload.github.com` source tarball →
+**403**, matching `CLAUDE.md`'s "release assets are denied, `git clone` and raw
+are not". `git clone --filter=blob:none` was used for discovery only.
+
+### Load conditions — three sibling builders were live
+
+Everything ran on **4 cores / 15.7 GiB**, and the gauntlet prints load average
+at start and end of every run precisely so no number here can be quoted without
+it. Leg I: load **4.50 → 3.69**. Leg II: load **3.43** at exit, having started
+near 5. Browser leg: **3.11 → 5.19**. Treat every wall-clock figure as ±15 %.
+The correctness findings (round-trip, determinism, mass properties) are
+load-immune — they compare numbers and hashes, not clocks.
+
+**The load-sensitive headlines were re-taken in a quieter window and they did
+not move the way contention would predict.** N=250 re-run at load 1.17 → 4.50:
+
+| N=250 | contended (load ~3.4–5) | re-run (load 1.17 → 4.50) |
+|---|---:|---:|
+| cold rebuild | 51 741 ms | 47 453 ms |
+| repeat | 235 ms | 231 ms |
+| append | 2 444 ms | 2 418 ms |
+| **edit #249** | **45 955 ms** | **48 523 ms** |
+| **edit #3** | **48 449 ms** | **51 312 ms** |
+
+The two edit figures came out **higher** on the quieter run, not lower, so
+contention was not inflating them. **And the load-invariant form of Finding 3 is
+a RATIO, not a wall clock**: `edit / cold` is 0.89 and 0.94 contended, 1.02 and
+1.08 on the re-run — every measurement in a pair is taken in the same process
+within the same minute, so the ratio survives whatever the machine was doing.
+"An edit costs a full rebuild" is the claim, and it does not depend on the clock.
+
+The browser leg was also run twice (load 3.11 → 5.19, then 4.74 → 6.27). Timings
+moved; **the structural counts did not** — the pick-node census came back
+bit-identical both times (`total 452, visible 452, zeroArea 0, hittable 13,
+firstHittable 237`), which is what makes it evidence rather than an artefact.
+
+**One run of mine WAS killed by friendly fire and is not reported here.** A
+sibling's unscoped `pkill -f "pytest services/geometry"` at ~04:21–04:22 UTC
+took out a geometry pytest of mine, which exited **144 (SIGTERM)** — the
+documented signature of a process that was murdered rather than one that
+crashed. It was a pass/fail gate, not a benchmark, so no number above is
+affected; it was simply re-run (298 passed). Recorded because the sibling's own
+evidence — a `pgrep` returning a single pid — was read as "it only hit my own
+process", and that inference does not hold: `uv run pytest services/geometry/...`
+matches that pattern too, and a pgrep taken at a different instant than the
+pkill cannot prove what the pkill matched. Kill the pid you own.
+
+### Leg I — real imported parts
+
+| part | MB | faces | edges | solids | shells | import ms | tess ms | tris | GLB KiB | gz KiB | STEP ms | STEP KiB | re-import ms | RT vol rel | RT topo | GProp rel | peak RSS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| as1-oc-214 | 0.43 | 160 | 354 | 18 | 18 | 1594 | 420 | 21908 | 711 | 127 | 128 | 1036 | 1666 | 0.00e+00 | exact | 2.89e-06 | 534 |
+| ventilator | 2.23 | 305 | 790 | 1 | 1 | 2840 | 1997 | 204778 | 4002 | 3009 | 350 | 4030 | 2932 | 1.04e-06 | exact | 2.73e-05 | 590 |
+| gearbox-11752 | 1.55 | 1018 | 2161 | 1 | 3 | 2880 | 6738 | 399478 | 10168 | 3469 | 660 | 4645 | 3269 | 4.39e-08 | exact | 2.32e-05 | 1084 |
+| kuka-kr600 | 12.38 | 4123 | 10121 | 61 | 66 | 12267 | 22117 | 1221257 | 28575 | 13098 | 3173 | 26910 | 14681 | 1.01e-03 | exact | 1.49e-03 | 1084 |
+| rc-buggy-suspension | 14.97 | 10665 | 26306 | 211 | 293 | 23481 | 38401 | 6867576 | 142548 | 90424 | 11796 | 93074 | 47752 | 3.82e-04 | **DIFFERS** | 1.02e-03 | 1887 |
+
+Every one of these passes the SHIPPED bounded import path (20 s CPU / 60 s wall)
+— including the 15 MB buggy at 23.7 s wall. The buggy sits at **89 % of the
+16 MiB `MAX_INLINE_STEP_CHARS` cap**, so a part 12 % larger is a 422 at the
+boundary, not a slow import. (Aside: `py_kit/schemas/step_import.py`'s docstring
+says that cap is "32 MiB". `features.py` says `16 * 1024 * 1024`. The docstring
+is stale.)
+
+### Leg II — deep parametric part (housing tray, 100–250 features)
+
+| features | cold rebuild ms | spread | repeat ms | append ms | edit late ms | edit early ms | faces | tris | tess ms | peak RSS | ok |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 100 | 7 255 | ±1% | 66 | 686 (revolve) | 7 706 (#98) | 7 915 (#3) | 219 | 15 816 | 375 | 568 | yes |
+| 200 | 31 946 | ±3% | 168 | 2 062 (extrude) | 34 786 (#198) | 32 435 (#3) | 442 | 31 656 | 1 134 | 756 | yes |
+| 250 | 51 741 | ±6% | 235 | 2 444 (pattern) | 45 955 (#249) | 48 449 (#3) | 548 | 39 240 | 1 354 | 786 | yes |
+
+Every feature evaluates `ok` at every point. The sweep stops at 250 because the
+gauntlet **refuses** to go further: `housing_tree`'s motif sites wrap at 257
+features and would start re-cutting their own pockets, which would read as a
+flattening curve when it is really a degenerate fixture. A gate that examines
+nothing passes happily, so it asserts the limit instead.
+
+Rebuild scaling re-measured at **~N^2.15** (100→200: 4.40x; 200→250: 1.62x),
+consistent with PERF.md's N^1.85 given ±15 % load noise and a longer arm.
+
+### Browser leg — the SAME part (gearbox-11752, 1 018 faces)
+
+Native stack on the gauntlet's own ports, real Chromium at 1280x800.
+
+| what | measured |
+|---|---|
+| POST import feature (1.58 MB body) | 1 627 ms |
+| open part → properties shown | **12.6–14.1 s** |
+| properties → first ink on canvas | 18 ms |
+| GET mesh over HTTP | **10.41 MB** |
+| `new-sketch` → "Pick a plane" | 610 ms |
+| arm face pick → prompt visible | **40 781 / 29 953 ms** |
+| pickable face overlay nodes | **452** (settled 17.5 / 15.2 s) |
+| click a face → prompt cleared | **31 579 / 24 568 ms** |
+| volume readout | `4,608,825.49 mm³` — matches the kernel exactly |
+
+Two runs, both figures given. **Selecting one face on a real part costs 55–73
+seconds** (arm + click), against 0.6 s to reach "Pick a plane" in the first
+place.
+
+Pick-node census: `{total: 452, visible: 452, zeroArea: 0, hittable: 13}`. The
+low hittable count is **not** the zero-area defect family — every node has real
+area and passes `checkVisibility()`; most are simply occluded by nearer geometry,
+which is what a solid body does. The number worth keeping is **452 DOM overlay
+nodes for one part**, 17.5 s to settle them.
+
+**Frame rate is reported but NOT claimed.** This container has no GPU; Chromium
+runs software GL, so the measured orbit (median **3 588 ms/frame**, 0.3 fps,
+n=120) measures SwiftShader, not the hardware path. `docs/PERF.md` declined to
+publish frame time for exactly this reason and that precedent stands — quote
+this as "the orbit did not complete in under 7 minutes under software GL", never
+as "Loft runs at 0.3 fps". The hardware-relevant quantities are the ones above:
+399 478 triangles and one glTF primitive per B-rep face.
+
+### FINDING 1 (P1) — the volume the product reports for a real part is wrong in the third significant figure
+
+`measure_shape` calls the TWO-argument `BRepGProp::VolumeProperties_s`, which
+integrates at a **fixed Gauss order** chosen from each surface's degree. Against
+the adaptive integrator (`eps=1e-9`, `onlyClosed=False`):
+
+| part | reported volume (mm³) | converged (mm³) | relative |
+|---|---:|---:|---:|
+| `box 10x20x30` (**a golden**) | 6 000.000000 | 6 000.000000 | **1.5e-16** |
+| `cylinder r10 h25` (**a golden**) | 7 853.981634 | 7 853.981634 | **2.3e-16** |
+| sphere r10 | 4 188.790205 | 4 188.790205 | 4.3e-16 |
+| torus R30 r8 | 37 899.280900 | 37 899.280900 | 5.8e-16 |
+| as1-oc-214 | 764 520.2 | 764 518.0 | 2.89e-06 |
+| gearbox-11752 | 4 608 825.5 | 4 608 718.4 | 2.32e-05 |
+| rc-buggy | 291 326.6 | 291 028.9 | 1.02e-03 |
+| **kuka-kr600** | **1 067 269 278.7** | **1 065 685 171.2** | **1.49e-03** |
+
+That is **1.58 litres of error on a 1.07 m³ robot**, in a number the inspector
+shows a user and that a `mass_g` is computed from.
+
+**This is the bar problem in one table.** Every analytic primitive agrees to
+machine epsilon, because for a plane or a quadric the fixed order IS exact —
+so **no golden in this repo can fail for this reason, by construction.** The
+golden discipline is not at fault; the fixture CLASS is. Ruled out as a
+confound: `onlyClosed=True` (which would drop open shells) accounts for 5.8e-6
+on the KUKA against a 1.5e-3 signal, and the converged value is stable across
+six orders of tolerance (1e-5 … 1e-11) while the shipped value is the outlier.
+The shipped call is deterministic — it is biased, not noisy.
+
+### FINDING 2 (P1) — `mesh_glb_id` is NOT deterministic for an imported part; it depends on whether the STEP cache was warm
+
+`rebuild_cache.py` documents at length that re-materialising an OCCT shape
+perturbs its tessellation, and transfers OWNERSHIP rather than storing a copy
+specifically to avoid making `mesh_glb_id` depend on cache state.
+`step_cache.py` stores **BREP bytes** and re-materialises them on a hit — the
+thing the other cache was designed not to do. Cold parse + two cache hits:
+
+| fixture | faces | distinct GLB hashes | verdict |
+|---|---:|---:|---|
+| `import-step-box-10x20x30` (**the golden**) | 6 | 1 | deterministic |
+| as1-oc-214 | 160 | 1 | deterministic |
+| ventilator | 305 | 1 | deterministic |
+| **gearbox-11752** | 1 018 | **2** | **NON-DETERMINISTIC** |
+| **kuka-kr600** | 4 123 | **2** | **NON-DETERMINISTIC** |
+
+Volume is bit-identical and GLB length is identical; **43 bytes of 10 412 360
+differ** (0.0004 %, offsets 5.9M–7.6M, i.e. ULP noise inside the vertex buffer).
+The cold parse yields one hash and every cache hit yields another, stably — a
+two-valued function of cache state, not random flake. Independently confirmed
+over HTTP: two evaluations of the same tree returned `sha256:83cf23…` then
+`sha256:f5bf9d…`.
+
+Consequence: a content-addressed id used for mesh dedup changes across a worker
+restart or a cold worker, so the browser re-downloads a 10 MB mesh for no reason,
+and any cross-restart determinism assertion is unsound for imported parts.
+
+**The determinism gate's MECHANISM is right and its FIXTURES are blind.** Both
+import goldens are boxes. I tried to build a committable repro from twelve
+existing goldens — spline extrude, two lofts, sweep, revolved pulley, fillet,
+shell, counterbore, draft, mirrored loft cut, bolt-circle pattern — exported each
+to STEP and re-imported through the cache: **all twelve are deterministic, 0
+differing bytes.** So this cannot be closed with a home-grown fixture; it needs
+foreign B-rep, which is exactly why no gate here has ever seen it.
+
+### FINDING 3 (P1) — an incremental edit costs a full rebuild wherever it is in the tree
+
+At 250 features: **repeat 235 ms, append 2 444 ms, edit feature #249 45 955 ms,
+edit feature #3 48 449 ms, cold rebuild 51 741 ms** — and on the quieter re-run
+46/49/2.4 s become 48.5 s, 51.3 s and 47.5 s, i.e. the same answer. The prefix
+cache serves REPEAT and APPEND; an edit anywhere is a full rebuild. Editing the
+SECOND-TO-LAST feature of a 250-feature part costs ~48 seconds, and the
+load-invariant statement is `edit / cold = 0.89 … 1.08` across both runs.
+
+This is not a surprise to the code — `rebuild_cache.py` says plainly it "does
+NOT serve an edit in the middle of a long tree" — but it now has a number on a
+realistic part, and the number is 46 s for a one-parameter change.
+
+One measurement trap worth recording: at N=25 the append ALSO cost a full
+rebuild, which looks like a cache defect and is not. The 26th feature is a
+`features`-scoped mirror, and the capture scope is hashed into every prefix key
+by design, so that append is a correct total miss. The gauntlet now labels each
+append with its feature type and a `scope-bust` flag so the number is legible.
+The public payload reading used for that flag was cross-checked against
+`evaluate`'s private `_tool_scope_ids` over **254 consecutive boundaries, 0
+disagreements**.
+
+### FINDING 4 (P2) — STEP round-trip loses topology on a real assembly, and the mesh payload is unshippable
+
+`rc-buggy-suspension` round-trips **26 306 → 26 328 edges** (+22) with faces,
+solids and shells all identical. The golden suite asserts topology counts exactly
+and enforces `ROUNDTRIP_TOL = 1e-7`; the KUKA's converged round-trip volume delta
+is **5.3e-6, stable across tolerances — 53x that tolerance.** No golden has
+10 000 edges or 211 solids, so neither is reachable by the existing corpus.
+
+Payload: the buggy tessellates to **6 867 576 triangles / 142 MB of GLB**, and
+gzip only gets it to 90 MB. PERF.md measured 5.2x–11.8x compression on toy parts;
+on real meshes it is **1.58x**, because the win there was glTF JSON overhead and
+real parts are dominated by incompressible vertex data. A 142 MB mesh is not
+deliverable to a browser on any connection a user has.
+
+### Ranked — what must be fixed before "would a working engineer model a real part in this today?" can be yes
+
+Ranked by what a user FEELS, not by what is easy.
+
+1. **Interaction cost on a real part (F3 + browser leg).** 55–73 s to select a
+   face, 46–51 s per parameter edit, 12.6–14.7 s to open. Nothing else on this
+   list matters if the tool cannot be touched. The rebuild cache needs a ladder
+   of intermediate checkpoints, not just a frontier.
+2. **Wrong mass properties (F1).** A CAD tool that reports the wrong volume is
+   not slow, it is incorrect, and it is incorrect silently. The fix is to pass
+   an explicit tolerance to `VolumeProperties_s` — small, and it changes
+   published numbers, so it needs a deliberate re-baseline.
+3. **Mesh payload (F4).** 142 MB uncompressed / 90 MB gzipped for one part.
+   Needs draco or quantisation; per-face primitives make it worse.
+4. **Determinism of `mesh_glb_id` (F2).** Cheap to fix at the cache boundary
+   (cache the parsed shape, or hash the source rather than the mesh); currently
+   silently defeats mesh dedup.
+5. **Round-trip topology drift (F4).** +22 edges is small but it is exactly the
+   class of thing the golden suite exists to forbid at 1e-7.
+6. **Golden coverage for the classes above.** F1 and F2 are invisible to every
+   fixture we own and are NOT closeable with a home-grown one (twelve tried).
+   This needs a licence-clean foreign NURBS part, which is a real acquisition
+   problem — recorded here rather than quietly dropped.
+
+### What I could not measure, and what I got wrong on the way
+
+- **Hardware frame rate.** No GPU in this container; see the browser leg.
+- **The first face-pick probe was vacuous and I nearly reported it as a defect.**
+  It waited on `selection-readout`, which lives in `SketchStrip.tsx` and is the
+  SKETCH selection readout — not rendered in part mode. The "64 s, no readout"
+  it produced was my own timeout, not a product failure. The real pick flow
+  needs `new-sketch` → `plane-pick-face` to arm it. Recorded because the wrong
+  version had exactly the shape of a finding.
+- **The N=25 append "cache miss"** (see F3) — correct behaviour that reads as a
+  defect until you check which feature is being appended.
+- **The 300-feature point the brief asked for** does not exist: the fixture
+  wraps at 257. Raising it means widening the motif grid, which would change the
+  part PERF.md's published sweep is measured against, so it is a deliberate
+  decision for whoever owns that comparison rather than something to do in
+  passing.
+
 ## 2026-09-04 — STEPNAME-2: the COMMON export was the broken one, and unifying the two writers cost nothing a consumer can see (kernel-architect)
 
 Recorded here because the decision this turned on was a claim about the emitted

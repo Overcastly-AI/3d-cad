@@ -36,3 +36,10 @@ test-results/
 # untracked in the parent tree — the orchestrator uses a dirty tree as the
 # tell that an agent died, and this would make it permanently true.
 .claude/worktrees/
+
+# Gauntlet fixture cache (scripts/gauntlet.py). Third-party STEP files fetched
+# by URL + sha256 and NEVER redistributed — every fixture is all-rights-reserved
+# or a named third party's upload (services/geometry/goldens-gauntlet/
+# fixtures.json). This must stay ignored: committing one is the licence problem
+# the fetch-and-verify design exists to avoid.
+.gauntlet-cache/
