@@ -2,9 +2,14 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-09-15 (backlog-groomer pass 24) — Wave 3
-(direct manipulation) is CLOSED. Phase 5 (agent-native & extensibility) is
-now open: the public Python scripting API is in flight.**
+**Current focus, corrected 2026-09-15 (backlog-groomer pass 25) — the public
+Python scripting API SHIPPED and is proven two-path-identical against the
+UI; the MCP server is the remaining Phase 5 surface. In parallel, the
+geometry-qa gauntlet graded this project on foreign real-world parts for
+the first time and found a P1 wrong-volume defect, now FIXED, plus four
+performance findings that are the next priority (below "Performance
+findings" note). Wave 3 (direct manipulation) remains closed; CRAFT-13
+(gauge/panel desync + arc-drag pointer-capture P0) is now also closed.**
 
 **Wave 3 close-out.** All seven verbs that had a form now have a gauge, nine
 mounts total, every one shipping a live preview (§8.4 route (b) —
@@ -63,20 +68,38 @@ corrections, none touching ROADMAP/BACKLOG. Reconciled in full this pass;
 `scripts/check-ui-parity.py`'s 84/85 operations / 97/109 literals reading is
 unchanged.
 
-**Phase 5 opens now — public Python scripting API in flight.** Chosen over
-the other four ❌ scorecard rows (Assemblies & mates, Sheet metal,
-Collaboration & versioning, Agent access): the scripting API and the MCP
-server are ONE architecture that flips TWO ❌ scorecard rows at once
-(Extensibility and Agent access — VISION.md's daily-driver table), and
-programmability is the one thing an MIT-licensed, self-hostable CAD can
-offer that a proprietary cloud tool structurally cannot — this is the
-differentiator, not a feature-parity bet. The constraint the item is built
-under, worth defending later because it IS the design: **same code path as
-the UI** — the library is another gateway client, importing no kernel and
-touching no database, with types generated from `packages/contracts`
-exactly as `packages/ts-client` is. Proof of that constraint is a two-path
-geometry comparison against `full-flow.spec.ts`'s part, not unit coverage
-alone.
+**Phase 5's flagship SHIPPED (`153cfa6`+`ca2f9d9`+`14f6e14`+`43c03a1`) — public
+Python scripting API, `import loft`.** Same code path as the UI, enforced in
+three places (generated operation table, a transport that refuses an
+undeclared payload shape, a call-parity test), not merely asserted. Proof:
+"Baseplate" (40x25 rect, extrude 10mm, retyped 20mm) built once through
+`full-flow.spec.ts` in a real browser and once through the script, both read
+back through the public gateway — **12 of 12 facts identical**, STEP and STL
+content hashes byte-equal; a 41mm-rect negative control diverges both
+hashes. `packages/loft-wire` then split the wire DTOs out of `py-kit` so a
+script's venv installs 15 distributions instead of 33 (no FastAPI/SQLAlchemy/
+Redis pulled into a modelling script). Remaining Phase 5 surface: the MCP
+server (sits on this API) and the plugin mechanism, both ⬜ below. A P0
+found in review (`Part.delete_feature()` 422ing on every call) is fixed
+(`43c03a1`); see BACKLOG CONTRACT-PARITY-TEST-1 for the gate this exposed as
+missing (0 mismatches today, but nothing stops the next one).
+
+**Performance findings (geometry-qa gauntlet, `0e3cc35`+`f7cd483`,
+2026-09-15) — the first grading against a real foreign part, not our own
+fixtures.** Found and FIXED a P1 wrong-volume defect (`measure_shape`'s fixed
+Gauss order was 1.49e-3 biased on a real KUKA import — 1.58 L of error on a
+1.07 m³ robot; no golden could ever fail for this because the bias is exact
+on planes/quadrics; now adaptive at a swept `VOLUME_EPS=1e-10`) and a P1
+`mesh_glb_id` non-determinism for imported parts (cache hit vs. cold parse
+produced different mesh hashes; both paths now deserialize the same cached
+bytes). Both closed with new gates. **Left open and ranked by user feel, not
+ease** — see BACKLOG for full items: (1) 55-73s to select one face / 46-51s
+per parametric edit on a real part — the rebuild cache serves repeat/append
+but not an edit anywhere in the tree; (2) a 142MB GLB mesh for one part,
+gzip only 1.58x; (3) STEP round-trip gains 22 edges on a 211-solid assembly,
+outside golden-suite scale; (4) the mesh-determinism regression fixture
+needs a foreign NURBS part >1000 faces we do not have and cannot build from
+our own kernel — an acquisition problem, not an engineering one.
 
 ## Recent closures (2026-08-28 to 2026-09-15)
 
@@ -84,6 +107,41 @@ One line per item; full narrative (measurements, mutation evidence, decision
 records) moved verbatim to `docs/CHANGELOG.md` under "ROADMAP historic
 closures pruned 2026-09-14 (groom pass 22)". Items also tracked in
 `docs/BACKLOG.md`'s Done archive are not re-described here.
+
+**Phase 5 + gauntlet batch (2026-09-15, 25 commits, groom pass 25):**
+- **SCRIPT-1 CLOSED** (`153cfa6`+`ca2f9d9`+`14f6e14`+`43c03a1`) — public
+  Python scripting API, two-path-proven identical to the UI. See "Current
+  focus" above.
+- **F1 (wrong volume) + F2 (mesh_glb_id non-determinism) CLOSED**
+  (`f7cd483`) — adaptive integration at swept `VOLUME_EPS=1e-10`; both
+  cache paths now deserialize identical bytes. New golden
+  `loft-spline-sections-nurbs-h30`. Surface area has the same integration
+  defect and is deliberately NOT fixed (adaptive doesn't converge on the
+  KUKA at 2x cost) — tracked, not silently dropped.
+- **CRAFT-13 CLOSED** (`b4e7821`) — root-caused: the per-segment hit sleeve
+  (`894c6f3`) made band count a function of drag value, so a shrinking arc
+  sweep unmounted its own pointer-capture host mid-drag (P0). Fixed by
+  moving capture to the sleeve wrapper + a `buttons===0` release guard. The
+  same investigation found `craft9b-gauges` contract-β was an unstated
+  settle (an unrelated `pointerleave` handler was flushing React by
+  accident), not a flake — now named and fixed.
+- **Air-gap claim FIXED** (`725bc4b`) — every service served a Swagger/
+  ReDoc explorer pulling `cdn.jsdelivr.net`/Google Fonts on :8000, the one
+  port a self-hoster publishes, contradicting the air-gapped self-host
+  claim. `docs_url=None`/`redoc_url=None` + `scripts/check-air-gap.py` (6
+  surfaces, wired into `just lint` + CI).
+  **Self-host path now reaches the app** (`977f492`+`093dfc1`) — a `web`
+  service (nginx + SPA) existed nowhere before; two guard-manufactured
+  failures fixed en route (`nginx -t` as root created a root-owned pidfile
+  that then blocked the non-root runtime; a workflow's job-level
+  `${{ runner.temp }}` isn't a valid context, which rejected the workflow
+  at zero jobs / zero seconds — both now gated,
+  `scripts/check-workflow-contexts.py`).
+- **Scorecard freshness gate shipped** (`b1bb1b6`,
+  `scripts/check-scorecard-freshness.py`) — the mechanical check VISION.md
+  proposed after the 19-day-stale Assemblies row; advisory only.
+- **DIRECTION-ASSEMBLIES.md filed** (`21a039f`, vision-steward) — scopes
+  PERF-ASM-1/PICK-ASM-1/BOM-ASM-1/FLOW-ASM-1, now on BACKLOG.
 
 **Wave 3 CLOSED (2026-09-15):**
 - **CRAFT-8 CLOSED** (`4b0465d`, frontend-builder) — `<ParametricGauge>`
@@ -500,10 +558,14 @@ and MCP server are one architecture flipping two ❌ scorecard rows at once
 (Extensibility, Agent access), and programmability is the differentiator an
 MIT self-hostable CAD can offer that a proprietary cloud tool cannot.
 
-- 🚧 Public Python scripting API (same code path as the UI — another
-      gateway client, no kernel import, no direct database access; types
-      generated from `packages/contracts`). IN FLIGHT.
+- ✅ Public Python scripting API (`import loft`; same code path as the UI —
+      another gateway client, no kernel import, no direct database access;
+      types generated from `packages/contracts`). SHIPPED 2026-09-15
+      (`153cfa6`+`ca2f9d9`+`14f6e14`+`43c03a1`), two-path-verified identical
+      to a browser-driven build. `packages/loft-wire` split gives a script's
+      venv 15 dependencies instead of 33.
 - ⬜ MCP server: create/edit sketches and features, query mass properties,
-      export — the agent-native surface (`docs/VISION.md` advantage #4)
+      export — the agent-native surface (`docs/VISION.md` advantage #4).
+      Builds directly on the scripting API above.
 - ⬜ Plugin/extension mechanism
 - ⬜ SSO/OIDC for teams

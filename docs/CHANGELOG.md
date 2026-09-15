@@ -4328,6 +4328,29 @@ export (rides the same deferred item as Drawings' PDF/DXF).
 - ⬜ SSO/OIDC for teams
 
 
+## 2026-09-13 (groom pass 21 — pruned from BACKLOG.md pass 25)
+
+Full text of the "Groom pass 21" Scorecard-gaps entry, one-lined in
+`docs/BACKLOG.md` this pass:
+
+Groom pass 21 (2026-09-13, backlog-groomer) — cross-wave QA (`debfea2`)
+assembled W0+W1+W2 and found one real regression (a hidden body kept its
+GL feature outline, e2e-red since `57d3bf8`) plus three collisions in one
+corner and on one key; a W2 code review found the same "each half correct,
+wrong together" shape W0REV found. All seven fixes ticked into the wave log
+(`0c3e363`, `76a214c`, `d0a3190`, `dbb09fb`, `6602ccd` +5 more); full
+evidence in `docs/QA-REVIEW.md` and ROADMAP. Filed **CUBE-SKETCH-OCCLUDE-1**
+(P2, product decision — the cube's pick-armed yield does not extend to
+ordinary sketch drawing, a deliberate CRAFT-6 trade, not an oversight).
+MODALGATE-MIGRATION-1 progressed (2 of 24 registrants, 22 named by its own
+new audit test) but stays open. FLOW-JOURNEY-GAP-1 reconfirmed unchanged:
+the canonical journey still measures 30 gestures. Next up: Wave 3
+(CRAFT-8 foundation, then CRAFT-7/9/10/11). No scorecard row flips this
+pass (flow/craft items, not new-capability rows); the vision-steward
+re-check on Assemblies/Sheet metal/Performance/Collaboration/
+Extensibility/Selection was EIGHT passes overdue at the time (since
+partially addressed — see the 2026-09-15 scorecard freshness pass above).
+
 ## 2026-09-13 (groom pass 20 — pruned from BACKLOG.md pass 21)
 
 - **Groom pass 20 — the frontend-redesign programme (W0/W0REV/W2/W1-partial)

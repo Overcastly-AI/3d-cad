@@ -311,20 +311,28 @@ is the landing record only, so the board is not silent about shipped work.
       to overrun). [src: Wave 3 close-out finding 1, 2026-09-14] TERRITORY:
       `apps/web/src/viewport/**` (camera/fit logic). agentType:
       frontend-builder.
-- [ ] (P1, M) **CRAFT-13 — the gauge trails the panel by 0.4-0.8s after
-      release, and a live intermittent may be the same mechanism.** kind:
-      defect (investigation first). MEASURED: `gauge=13 field=13.5`,
-      agreeing only 360 ms later — two dialects on screen at once, which the
-      direction pass explicitly forbade. **Check this against
-      CRAFT-9b's `craft9b-gauges` contract-β intermittent (rod springs back
-      a step on release, 2/1/0 across runs) before treating them as two
-      separate bugs** — same release-time desync shape, unconfirmed whether
-      same root cause. ACCEPTANCE: root-cause the lag (and the contract-β
-      flake, if the same mechanism) to a specific echo/sync path; if they
-      are the same bug, one fix; if not, split CRAFT-13 into two tickets
-      with the finding stated. [src: Wave 3 close-out finding 2+3,
-      2026-09-14] TERRITORY: `apps/web/src/viewport/ParametricGauge.tsx`,
-      the editor panels' field sync. agentType: frontend-builder.
+- [x] (P1, M) **CRAFT-13 — CLOSED (`b4e7821`).** Root cause was NOT the panel
+      field sync — it was a P0: `894c6f3`'s per-segment hit sleeve made band
+      count a function of the value being dragged (a 120° sweep carries 32
+      bands, 90° carries 24, keyed by index), so a shrinking arc sweep
+      UNMOUNTED the band holding pointer capture mid-drag; Chromium emits no
+      `lostpointercapture` for a removed capture host, so the drag froze
+      permanently (measured live: value stuck at 90 after a grab near the
+      seat, `data-grabbed` still "true" after mouse-up, bare-mouse movement
+      then carrying the value 90→165 with no button held). Fixed by moving
+      every pointer handler to the sleeve WRAPPER (lifetime = the gauge's,
+      not the tessellation's) plus `if (event.buttons===0) endDrag()` at the
+      top of `onPointerMove`, each verified by an independent negative
+      control. The `craft9b-gauges` contract-β "intermittent" (rod springs
+      back a step on release) is the SAME shape, confirmed rather than
+      assumed: an unrelated `pointerleave` handler was incidentally flushing
+      a stale `live` value via React commit, and the fix that correctly
+      stops firing it exposed the settle that had always been required —
+      both β cases now name it explicitly. Scope measured, not assumed: only
+      revolve/draft (angular tracks) are affected; the other seven mounts
+      build on `linearTrack`'s fixed two-point spine, one band always,
+      re-run green. [src: Wave 3 close-out finding 2+3, 2026-09-14; closed
+      groom pass 25]
 - [ ] (P2, M) **CRAFT-14 — every `disabled={someTransientFlag}` is a latent
       dead end.** kind: defect (systemic, audit first). `ToolButton` gives a
       consumer no way to distinguish "busy" from "gated" — both collapse to
@@ -359,15 +367,31 @@ is the landing record only, so the board is not silent about shipped work.
       gauge anchor). agentType: frontend-builder (decision may need
       founder/vision-steward input first).
 - [ ] (P2, S) **CRAFT-17 — two competing e2e helper extractions must
-      converge.** kind: DRY (CLAUDE.md non-negotiable). `gaugeReach.ts`
-      (CRAFT-9a) and `gaugeProbe.ts` (CRAFT-9b, since extended by CRAFT-10
-      and CRAFT-11) both export `projectedSpine`/`gripCentre`/`reach`.
-      `gaugeProbe.ts` is the survivor — it is already the one CRAFT-10/11
-      built on. ACCEPTANCE: `gaugeReach.ts`'s callers move onto
-      `gaugeProbe.ts`, `gaugeReach.ts` deleted, no behavior change (same
-      reach numbers before/after on the specs that used it). [src: Wave 3
-      close-out finding 7, 2026-09-14] TERRITORY: `apps/web/e2e/**` (gauge
-      spec helpers). agentType: frontend-builder / qa-tester.
+      converge, and their `reach()` now mean DIFFERENT things — sharper than
+      tidiness.** kind: DRY (CLAUDE.md non-negotiable) + latent test defect.
+      `gaugeReach.ts` (CRAFT-9a) and `gaugeProbe.ts` (CRAFT-9b, since
+      extended by CRAFT-10/11) both export `Point`/`projectedSpine`/
+      `gripCentre`/`reach` and the same sample count + reach floor
+      (`SAMPLES`/`REACH_SAMPLES`=16, `REACH_FLOOR`=12). **Confirmed by code
+      review (`451245c`): `894c6f3` gave the two `reach()` implementations
+      different SEMANTICS** — `gaugeProbe.reachAlongTrack` samples along the
+      drawn polyline (where the bands actually are); `gaugeReach.reach`
+      samples the chord. Harmless today only by accident of who imports
+      which (`gaugeReach`→`extrude-grip-reach.spec.ts`/
+      `fillet-chamfer-gauge.spec.ts`, both straight tracks where chord and
+      polyline coincide; `gaugeProbe`→`craft9b-gauges`/`pattern-gauges`/
+      `revolve-gauge`). The first arc-gauge spec that imports the wrong
+      module gets a false red reading "the sleeve is broken" instead of "I
+      imported the other helper". `gaugeProbe.ts` is the survivor — it is
+      already the one CRAFT-10/11 built on. ACCEPTANCE: `gaugeReach.ts`'s
+      callers move onto `gaugeProbe.ts`, `gaugeReach.ts` deleted, no
+      behavior change (same reach numbers before/after on the specs that
+      used it); if BOTH measurements (chord and polyline) are genuinely
+      wanted, name them for what they are rather than overloading one
+      `reach()`. [src: Wave 3 close-out finding 7, 2026-09-14; sharpened by
+      code review P2-7, `docs/CODE-REVIEW.md`, `451245c`] TERRITORY:
+      `apps/web/e2e/**` (gauge spec helpers). agentType: frontend-builder /
+      qa-tester.
 - [ ] (P2, S) **GAUGE-PROPORTION-1 — the rod-vs-graduation proportion
       problem generalizes past the 2 mm case CRAFT-7 fixed.** kind: defect
       (visual craft, tolerance). MEASURED: at pitch <= 0.5 mm, or on a very
@@ -445,6 +469,60 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
+- **Groom pass 25 (2026-09-15, backlog-groomer) — Phase 5's flagship SHIPPED;
+  the gauntlet found and fixed a wrong-volume P0-adjacent defect; CRAFT-13
+  closed.** 25 commits landed since pass 24's `87f4de4`, ALL carrying
+  `Doc-tick: groomer` — the largest debt batch yet (prior largest was 12),
+  reconciled in full this pass. Highlights: **SCRIPT-1 CLOSED** — the public
+  Python scripting API (`import loft`) shipped, proven two-path-identical to
+  a browser-driven build (12/12 facts, byte-equal STEP/STL hashes), then
+  split into `packages/loft-wire` (a script's venv: 33 deps → 15). **F1/F2
+  CLOSED** (geometry-qa's gauntlet, `0e3cc35`+`f7cd483`) — real-part volume
+  was wrong by 1.49e-3 (1.58 L on a 1.07 m³ robot; no golden could ever fail
+  for this — the bias is exact on planes/quadrics) and `mesh_glb_id` was
+  non-deterministic across cache state; both fixed with a new golden and a
+  structural gate. **CRAFT-13 CLOSED** (`b4e7821`) — root cause was a P0
+  (an arc gauge's pointer-capture host could unmount mid-drag) plus an
+  unstated settle masquerading as an intermittent; both fixed with a
+  negative-control-verified two-part change. **Air-gap claim FIXED**
+  (`725bc4b`) and **self-host path now reaches the app**
+  (`977f492`+`093dfc1`, a `web` service existed nowhere before), each
+  shipped alongside a CI guard that had manufactured its own failure
+  (root-owned nginx pidfile; a job-level `${{ runner.temp }}` rejecting the
+  whole workflow at zero jobs) — both now closed with dedicated gates.
+  **Scorecard freshness gate shipped** (`b1bb1b6`) — the mechanical check
+  VISION.md itself proposed after the 19-day-stale Assemblies incident;
+  advisory only, and a code review found it has no PENDING deadline (filed
+  SCOREFRESH-PENDING-1). **DIRECTION-ASSEMBLIES.md filed** (`21a039f`,
+  vision-steward) — four items (PERF-ASM-1/PICK-ASM-1/BOM-ASM-1/FLOW-ASM-1)
+  now on the board, BOM-ASM-1 replacing the old flat "RECURSIVE BOM" entry.
+  A same-day code review (`451245c`, `docs/CODE-REVIEW.md`) found two P0s
+  (both fixed same batch: the `delete_feature` 422 and the CRAFT-13 arc-drag
+  P0) plus five P1s/P2s now filed: CONTRACT-PARITY-TEST-1, VEC3-DEDUP-1
+  (four divergent Vec3 helper copies, already diverged in behaviour —
+  a real NaN-propagation risk), SCOREFRESH-PENDING-1 (above), plus two P2
+  process notes folded into existing items (CRAFT-17, gen-check's verdict
+  line). **Scorecard gaps flagged for the vision-steward (not mine to score):**
+  Extensibility (was ❌, PENDING on SCRIPT-1) now has a two-path-proof
+  landed — re-score due; Free & unlimited / Your data-your-files (both
+  PENDING on the air-gap/self-host audit) now have `725bc4b`+`977f492`'s
+  evidence to score against; Performance (PENDING on the gauntlet) now has
+  the gauntlet's numbers, and they are bad — score in whichever direction
+  the evidence points, do not assume the direction. Full ranking of what the
+  gauntlet found: ROADMAP "Current focus" — interaction cost (55-73s/face
+  pick, 46-51s/edit) ranks first, ahead of the mesh payload and the
+  round-trip drift. **Board queue length: 183 → 201 open
+  items** (`grep -c '\[ \]'`-counted) — this pass closed 3 headline items
+  (SCRIPT-1, F1+F2, CRAFT-13) and filed 16 (four PERF-REAL/gauntlet items,
+  four code-review P1/P2 items, four Assemblies-wave items from
+  DIRECTION-ASSEMBLIES.md, and four smaller process items — GEN-CHECK-
+  VERDICT-1, DOCS-EXPLORER-1, CSP-1, AREA-INTEGRATION-1) net of one removed
+  duplicate (the old flat-BOM entry BOM-ASM-1 replaces) — a filing-heavy
+  pass, consistent with "a batch this large surfaces more findings than it
+  closes." ROADMAP
+  "Current focus" reconciled to match; Phase 5 marks the scripting API ✅,
+  MCP server remains the open surface.
+
 - **Groom pass 24 (2026-09-15, backlog-groomer) — Wave 3 CLOSED.** CRAFT-9a
   (`1f32a67`), CRAFT-9b (`11a0906`), CRAFT-10 (`7ecc480`+`894c6f3`) and
   CRAFT-11 (`c0b5e5f`+`0c707b9`) all ticked CLOSED, plus a cross-cutting
@@ -514,23 +592,9 @@ duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
   counts, not gesture count). No scorecard row flips this pass (flow/craft
   items). ROADMAP "Current focus" reconciled to match.
 
-- **Groom pass 21 (2026-09-13, backlog-groomer) — cross-wave QA (`debfea2`)
-  assembled W0+W1+W2 and found one real regression (a hidden body kept its
-  GL feature outline, e2e-red since `57d3bf8`) plus three collisions in one
-  corner and on one key; a W2 code review found the same "each half correct,
-  wrong together" shape W0REV found. All seven fixes ticked into the wave log
-  above (`0c3e363`, `76a214c`, `d0a3190`, `dbb09fb`, `6602ccd` +5 more); full
-  evidence in `docs/QA-REVIEW.md` and ROADMAP.** Filed
-  **CUBE-SKETCH-OCCLUDE-1** (P2, product decision — the cube's pick-armed
-  yield does not extend to ordinary sketch drawing, a deliberate CRAFT-6
-  trade, not an oversight). MODALGATE-MIGRATION-1 progressed (2 of 24
-  registrants, 22 named by its own new audit test) but stays open.
-  FLOW-JOURNEY-GAP-1 reconfirmed unchanged: the canonical journey still
-  measures 30 gestures. Next up: Wave 3 (CRAFT-8 foundation, then
-  CRAFT-7/9/10/11) — see ROADMAP "Current focus". No scorecard row flips
-  this pass (flow/craft items, not new-capability rows); the vision-steward
-  re-check on Assemblies/Sheet metal/Performance/Collaboration/
-  Extensibility/Selection is now EIGHT passes overdue.
+- **Groom pass 21 (2026-09-13):** cross-wave QA (`debfea2`) found one
+  regression + three collisions, all seven fixes ticked; filed
+  CUBE-SKETCH-OCCLUDE-1. Full detail: `docs/CHANGELOG.md`.
 
 - **Groom pass 20 (2026-09-13):** reconciled the wave log onto BACKLOG; filed
   six items (MINIO-LICENSE-REVIEW-1 + five more). Full detail:
@@ -547,17 +611,100 @@ duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 24 (2026-09-15) — Wave 3 is CLOSED; CRAFT-9c
-now leads it (tag/`companion` shape settled across four verbs). Phase 5's
-scripting API (SCRIPT-1) is already in flight in its own worktree — tracked
-here, not queued for dispatch.** Ranked, disjoint, parallel-dispatchable;
-MINIO-LICENSE-REVIEW-1 and CUBE-SKETCH-OCCLUDE-1 are both decisions before
-they are build tasks — the first to the licensing custodian/founder, the
-second may need founder/vision-steward input on the options before a
-builder picks one. CRAFT-12/13 (new this pass, items 10-11) are P1 and
-should dispatch alongside CRAFT-9c, not after it:
+**Dispatch order, groom pass 25 (2026-09-15) — SCRIPT-1 and CRAFT-13 CLOSED
+this pass (see wave log / Scorecard gaps above); the gauntlet's ranked
+findings (PERF-REAL-1/2, ROADMAP "Current focus" items 1-2) and the code
+review's P1s (CONTRACT-PARITY-TEST-1, VEC3-DEDUP-1) lead the queue —
+correctness/interaction-cost risk outranks the remaining W3 craft polish.**
+Ranked, disjoint, parallel-dispatchable; MINIO-LICENSE-REVIEW-1 and
+CUBE-SKETCH-OCCLUDE-1 are both decisions before they are build tasks — the
+first to the licensing custodian/founder, the second may need founder/
+vision-steward input on the options before a builder picks one:
 
-1. [ ] (P1, S) **MINIO-LICENSE-REVIEW-1** — MinIO is AGPL-3.0 and has no entry
+1. [ ] (P1, M) **PERF-REAL-1 — 55-73s to select one face, 12.6-14.7s to open a
+   real imported part.** kind: defect (interaction cost, frontend/viewport).
+   MEASURED by `just gauntlet` on `gearbox-11752` (1018 faces): arm face-pick
+   → prompt visible 40.8s/30.0s (two runs); click → prompt cleared 31.6s/24.6s
+   — 55-73s total against 0.6s to reach "Pick a plane" in the first place.
+   Pick-node census: 452 DOM overlay nodes for one part, 17.5s to settle them
+   (bit-identical structural counts across two runs at different load, which
+   is what makes this a real cost rather than an artefact). Ranked #1 by
+   "what a user feels" in `docs/GEOMETRY-QA.md`'s gauntlet entry — nothing
+   else on that list matters if the tool cannot be touched. ACCEPTANCE: a
+   real part (or the gauntlet's own fixture) measures materially fewer than
+   452 pick-overlay DOM nodes and/or a settle time an order of magnitude
+   lower, OR a different pick mechanism (canvas raycast instead of per-face
+   DOM overlay) is proposed and measured against the same fixture. State the
+   before/after numbers; do not declare victory on a toy part. [src:
+   geometry-qa gauntlet, `docs/GEOMETRY-QA.md` 2026-09-15] TERRITORY:
+   `apps/web/src/viewport/**` (face-pick overlay). agentType:
+   frontend-builder.
+
+2. [ ] (P1, M) **PERF-REAL-2 — an incremental edit anywhere in a long feature
+   tree costs a full rebuild.** kind: defect (perf, kernel). MEASURED at 250
+   features: repeat 235ms, append 2444ms, edit feature #249 (near the end)
+   45955ms, edit feature #3 (near the start) 48449ms, cold rebuild 51741ms —
+   an edit costs 89-108% of a full cold rebuild WHEREVER it sits in the tree,
+   confirmed load-invariant by re-measuring at a different load average (the
+   edit/cold RATIO moved from 0.89/0.94 to 1.02/1.08, i.e. it did not improve
+   under less contention). `rebuild_cache.py` already documents that it does
+   not serve a mid-tree edit; this gives the gap a number on a realistic
+   part: ~46-51s for a one-parameter change. Ranked #1 (tied with
+   PERF-REAL-1) in `docs/GEOMETRY-QA.md`'s gauntlet ranking. ACCEPTANCE: a
+   checkpoint ladder (intermediate cached states at more than just the
+   cache's current frontier) measurably reduces edit cost for an edit near
+   either end of a 250-feature tree, with the new number and the old number
+   both stated. Do not regress `repeat`/`append`'s existing near-zero cost.
+   [src: geometry-qa gauntlet, `docs/GEOMETRY-QA.md` 2026-09-15] TERRITORY:
+   `services/geometry/src/geometry/kernel/rebuild_cache.py`. agentType:
+   kernel-architect.
+
+3. [ ] (P1, S) **VEC3-DEDUP-1** — four independent copies of the same Vec3
+   helpers (`sub`/`dot`/`cross`/`scale`/`addScaled`/`norm`/`unit`) across
+   `axisAnchor.ts`, `edgeAnchor.ts`, `faceAnchor.ts` and
+   `packages/design/src/gauge.ts`, and they have ALREADY diverged in
+   behaviour. kind: DRY (CLAUDE.md non-negotiable) + latent defect.
+   MEASURED: `edgeAnchor.unit` guards on `length > 1e-9` and returns `null`
+   on a degenerate direction; `axisAnchor.unit` guards on `norm > 0`, so on a
+   ~1e-300-magnitude direction (two nearly-coincident points defining a
+   revolve axis, a zero-length sketch segment) it returns a vector with
+   1e300-magnitude components instead of refusing — this propagates
+   Infinity/NaN into a gauge pose or a drawn spine. Four agents building four
+   anchor modules in parallel could not see each other. ACCEPTANCE: one
+   module (either `apps/web/src/viewport/vec3.ts` or exported from
+   `@loft/design` beside `gauge.ts`, which already owns the `Vec3` type) with
+   ONE documented degeneracy floor; all four call sites migrate; no behavior
+   change on any non-degenerate input (same output before/after); a
+   regression test proves the degenerate case now behaves identically
+   (refuses) from every call site that used to disagree. [src: code review
+   P1-4, `docs/CODE-REVIEW.md`, `451245c`] TERRITORY:
+   `apps/web/src/viewport/{axisAnchor,edgeAnchor,faceAnchor}.ts`,
+   `packages/design/src/gauge.ts`. agentType: frontend-builder.
+
+4. [ ] (P1, S) **CONTRACT-PARITY-TEST-1** — the call-parity test
+   `packages/loft-script/src/loft/transport.py` documents as closing the
+   loop does not exist. kind: defect (missing gate, not a live bug — SCRIPT-1
+   follow-up). `transport.py:148-156` states the model passed to `call()` is
+   never looked up from `operation.response_model` "on purpose ... the
+   contract-parity test closes the loop by asserting the two agree for every
+   call site" — but `test_contract_parity.py`'s five tests only assert that
+   `response_model` NAMES resolve to contract components, never that any
+   `transport.call(op, Model)` site passes the Model the contract declares
+   for that op. AST-walking the 16 call sites by hand today finds 0
+   mismatches, so this is not yet a live defect — but Pydantic's
+   `extra="ignore"` default means a structurally-compatible WRONG model
+   validates silently (CLAUDE.md's own documented trap), and the docstring
+   claims a guarantee nothing enforces. ACCEPTANCE: ~25 lines of `ast` in
+   `test_contract_parity.py`, with a count floor (`len(sites) >= 16`) so it
+   cannot pass by walking nothing; mutation-verified to redden when a call
+   site's model is swapped for a wrong-but-compatible one. Also confirm with
+   the author whether `part.py:317`'s `call_none` on a DELETE that declares a
+   `response_model` (discarding the fresh tree, then issuing a second
+   `refresh()`) is deliberate. [src: code review P1-3, `docs/CODE-REVIEW.md`,
+   `451245c`] TERRITORY: `packages/loft-script/tests/test_contract_parity.py`.
+   agentType: backend-builder.
+
+5. [ ] (P1, S) **MINIO-LICENSE-REVIEW-1** — MinIO is AGPL-3.0 and has no entry
    in `docs/LICENSING.md`; needs a human/licensing-custodian decision, not an
    automated one. kind: question (licensing/compliance). `docs/RESEARCH.md`
    §8: "Forbidden: GPL/AGPL dependencies. Reviewers enforce this."
@@ -579,7 +726,7 @@ should dispatch alongside CRAFT-9c, not after it:
    `docs/LICENSING.md`, `docs/RESEARCH.md` §8. agentType: oss-curator /
    founder decision.
 
-2. [ ] (P2, M) **FLOW-JOURNEY-GAP-1** — the canonical part-creation journey
+6. [ ] (P2, M) **FLOW-JOURNEY-GAP-1** — the canonical part-creation journey
    does not exercise the shortcuts W2 shipped, so `scripts/check-flow-cost.py`'s
    headline (30 gestures) is unchanged and the wave's win is unmeasured on the
    path anyone actually walks. kind: capability/measurement. FOUND: the
@@ -611,7 +758,7 @@ should dispatch alongside CRAFT-9c, not after it:
    per-verb reach counts and the contract-β release test, not this number.
    [src: DIRECTION-W3-PROPOSALS.md §12 / groom pass 23 dispatch brief]
 
-3. [ ] (P2, M) **GRIDMINOR-TONEMAP-1** — grid minor lines are ~invisible, and
+7. [ ] (P2, M) **GRIDMINOR-TONEMAP-1** — grid minor lines are ~invisible, and
    the direct fix reddens a neighbouring gate. kind: defect (visual craft,
    cross-gate tension). FOUND (CRAFT-1/2/3 agent, correctly reverted rather
    than shipped): `gridMinor` (#232E3C) reaches the canvas at ~(21,26,33),
@@ -632,7 +779,7 @@ should dispatch alongside CRAFT-9c, not after it:
    (grid material/tone-mapping), `apps/web/e2e/part-visibility.spec.ts`.
    agentType: frontend-builder.
 
-4. [ ] (P2, M) **MODALGATE-MIGRATION-1** — `modalGate`/`useModalLayer` is
+8. [ ] (P2, M) **MODALGATE-MIGRATION-1** — `modalGate`/`useModalLayer` is
    built as "one gate, not a patch per listener" but still has only TWO
    registrants against 22 named holdouts. kind: defect (systemic, incomplete
    rollout — same shape as REASON-GATE-1's "15 of 16 editors" finding).
@@ -656,7 +803,7 @@ should dispatch alongside CRAFT-9c, not after it:
    `apps/web/src/lib/modalGate.ts`, plus the 22 files named by
    `modalGate.audit.test.ts`. agentType: frontend-builder.
 
-5. [ ] (P2, S) **AXISLABEL-ORTHO-1** — `origin-axis-label-{X,Y,Z}` are absent
+9. [ ] (P2, S) **AXISLABEL-ORTHO-1** — `origin-axis-label-{X,Y,Z}` are absent
    from the DOM in front-orthographic when datums are enabled, though present
    and visible in the default view. kind: defect. Found during CRAFT-1/2/3
    verification; view-dependent, uses drei `Html`, not caused by that diff
@@ -669,7 +816,7 @@ should dispatch alongside CRAFT-9c, not after it:
    TERRITORY: `apps/web/src/viewport/OriginGeometry.tsx` (or wherever axis
    labels are drawn). agentType: frontend-builder.
 
-6. [ ] (P2, S) **VIEWFRONT-ORTHO-DECISION-1** — `view-front` (and the other
+10. [ ] (P2, S) **VIEWFRONT-ORTHO-DECISION-1** — `view-front` (and the other
    named views) silently switch the camera to orthographic; decide this on
    purpose rather than by inheritance. kind: question (product decision).
    `viewCommands.ts`: the first named view the modeler asks for switches
@@ -689,12 +836,12 @@ should dispatch alongside CRAFT-9c, not after it:
    TERRITORY: `apps/web/src/viewport/viewCommands.ts`. agentType:
    frontend-builder (decision may need founder/vision-steward input first).
 
-7. [ ] (P2, M) **CUBE-SKETCH-OCCLUDE-1** — full ticket in the wave log above
+11. [ ] (P2, M) **CUBE-SKETCH-OCCLUDE-1** — full ticket in the wave log above
    (this pass's cross-wave QA finding). A product decision on whether the
    reference cube's pick-armed pointer-yield (`d0a3190`) should extend to
    ordinary sketch drawing, not just armed picks.
 
-8. [ ] (P1, M) **CRAFT-9c — now leads the Ready queue.** Hole depth + Ø
+12. [ ] (P1, M) **CRAFT-9c — now leads the Ready queue.** Hole depth + Ø
    gauges, the only `companion` two-cell gauge in the wave. **Deliberately
    NOT dispatched alongside CRAFT-9a/9b/10/11** — DIRECTION-W3-PROPOSALS.md
    §8.3 sequences it last, once the tag/`companion` shape has settled from
@@ -711,31 +858,25 @@ should dispatch alongside CRAFT-9c, not after it:
    §8.3/§9] TERRITORY: `apps/web/src/viewport/**` (gauges),
    `apps/web/src/components/HoleEditor.tsx`. agentType: frontend-builder.
 
-9. [ ] (P1, L) **SCRIPT-1 — IN FLIGHT (builder dispatched in a worktree, groom pass 24).**
-   Public Python scripting API, Phase 5's flagship item, opened this pass —
-   see ROADMAP "Current focus" for the full rationale (one architecture with
-   the future MCP server, flipping the Extensibility + Agent access ❌
-   scorecard rows). Built constraint: **same code path as the UI** — another
-   gateway client, importing no kernel and touching no database, typed from
-   `packages/contracts` exactly as `packages/ts-client` is. ACCEPTANCE: proof
-   of the constraint is a two-path geometry comparison against
-   `full-flow.spec.ts`'s part (script-driven vs. UI-driven produce the same
-   geometry/mass properties), not unit coverage alone. [src: founder/
-   orchestrator direction, 2026-09-15] TERRITORY: coordinate with the
-   in-flight builder before touching its files. agentType: backend-builder.
-
-10. [ ] (P1, S) **CRAFT-12** — the camera never re-fits when a preview
+13. [ ] (P1, S) **CRAFT-12** — the camera never re-fits when a preview
     appears; on an 11 mm part the pattern ghosts run off the frame entirely.
     Threatens every one of the nine W3 mounts whose preview can extend past
     the body. Full ticket in the wave log above. TERRITORY:
     `apps/web/src/viewport/**`. agentType: frontend-builder.
 
-11. [ ] (P1, M) **CRAFT-13** — the gauge trails the panel by 0.4-0.8s after
-    release (two dialects on screen, forbidden by the direction pass);
-    investigate together with the `craft9b-gauges` contract-β intermittent
-    before assuming they are two bugs. Full ticket in the wave log above.
-    TERRITORY: `apps/web/src/viewport/ParametricGauge.tsx`, editor panel
-    field sync. agentType: frontend-builder.
+~~**SCRIPT-1**~~ — **CLOSED (`153cfa6`+`ca2f9d9`+`14f6e14`+`43c03a1`, groom
+pass 25).** Public Python scripting API shipped; see wave log / ROADMAP
+"Current focus" for the full proof (two-path-identical against a
+browser-driven build, 12/12 facts, byte-equal STEP/STL hashes) and Done
+archive for the record.
+
+~~**CRAFT-13**~~ — **CLOSED (`b4e7821`, groom pass 25).** Root-caused: the
+per-segment hit sleeve made band count a function of drag value, so a
+shrinking arc sweep unmounted its own pointer-capture host mid-drag (a P0
+found in the same investigation, also fixed); the `craft9b-gauges`
+contract-β "intermittent" was the same release-desync shape, confirmed as
+an unstated settle rather than a flake. See wave log for full detail and
+Done archive for the record.
 
 **Also ready, not yet dispatched (P2, full tickets in the wave log above):**
 CRAFT-14 (`ToolButton` disabled-vs-busy audit), CRAFT-15 (3/12 pre-existing
@@ -1373,6 +1514,216 @@ normally at 1.8e-13 mm worst residual; the other 9 are genuinely annihilated
 existing payload gate rather than crashing. No new machinery, no contract
 change. Census: raised 12 -> 0, solvable 1327 -> 1328, conflicting 276 -> 287.
 See Done archive / `docs/CHANGELOG.md` for the full two-defects-one-crash argument.**
+
+**Filed groom pass 25 (2026-09-15) — gauntlet + code-review + DIRECTION-ASSEMBLIES.md findings, ranked by scorecard/correctness impact:**
+
+- [ ] (P2, M) **PERF-REAL-3 — a real part's mesh payload is 142MB, gzip only
+      reaches 1.58x.** kind: defect (perf, delivery). MEASURED on
+      `rc-buggy-suspension` (211 solids, 6 867 576 triangles): 142MB GLB,
+      90MB gzipped. `docs/PERF.md`'s 5.2x-11.8x compression figures were
+      measured on toy parts, where the win was JSON overhead; a real mesh is
+      dominated by incompressible vertex data, and 142MB is not deliverable
+      to a browser on any connection a user has. Ranked #3 in
+      `docs/GEOMETRY-QA.md`'s gauntlet ranking. ACCEPTANCE: mesh
+      quantization (e.g. Draco or a fixed-point vertex encoding) measurably
+      shrinks the same fixture's payload, stated as a before/after number;
+      per-face-primitive glTF export (one primitive per B-rep face) is a
+      named contributor worth checking as a separate lever. [src: geometry-qa
+      gauntlet, `docs/GEOMETRY-QA.md` 2026-09-15] TERRITORY:
+      `services/geometry/src/geometry/kernel/tessellate.py` (or wherever GLB
+      is assembled). agentType: kernel-architect.
+
+- [ ] (P2, S) **NURBS-FIXTURE-1 — acquire a licence-clean foreign NURBS part
+      (>1000 faces) to regression-test mesh determinism; this is an
+      acquisition problem, not an engineering one.** kind: question
+      (blocked on acquisition). The `mesh_glb_id` non-determinism F2 fixed
+      this pass reproduced ONLY on foreign imports at 1018+/4123 faces
+      (gearbox-11752, kuka-kr600); twelve of our OWN goldens exported to
+      STEP and re-imported are all byte-idempotent (0 differing bytes), so
+      the fix has no regression fixture that can catch a re-introduction of
+      the bug. `just gauntlet`'s five fixtures are fetched by URL+sha256 and
+      explicitly NOT redistributable (no LICENSE in the hosting repo).
+      ACCEPTANCE: find or commission a NURBS-heavy STEP part >=1000 faces
+      under a licence this MIT project CAN commit (public-domain, CC0, or
+      author permission), add it as a committed golden, and confirm it
+      reproduces the pre-fix non-determinism when the fix is reverted. [src:
+      geometry-qa gauntlet, `docs/GEOMETRY-QA.md` 2026-09-15, F2 follow-up]
+      TERRITORY: `services/geometry/goldens/**`. agentType: geometry-qa /
+      founder (licensing/acquisition decision).
+
+- [ ] (P2, S) **STEP-ROUNDTRIP-COVERAGE-1 — the golden suite has no fixture
+      at assembly scale, and a real one shows drift the corpus cannot see.**
+      kind: defect (golden coverage gap). MEASURED: `rc-buggy-suspension`
+      (211 solids, 26 306 edges) round-trips through STEP export/re-import
+      gaining 22 edges, with faces/solids/shells all identical; the KUKA's
+      converged round-trip volume delta is 5.3e-6, stable across
+      tolerances — 53x the golden suite's `ROUNDTRIP_TOL=1e-7`. No existing
+      golden has 10 000+ edges or 200+ solids, so this scale is structurally
+      unreachable by the corpus today. ACCEPTANCE: root-cause the +22 edges
+      (a specific OCCT re-tessellation/seam-splitting behaviour, named) and
+      either fix it or add a golden at comparable scale with a documented,
+      deliberately looser tolerance for large assemblies — do not silently
+      loosen the existing 1e-7 bound for small parts. [src: geometry-qa
+      gauntlet, `docs/GEOMETRY-QA.md` 2026-09-15, Finding 4] TERRITORY:
+      `services/geometry/src/geometry/kernel/export.py`,
+      `services/geometry/tests/goldens/**`. agentType: kernel-architect.
+
+- [ ] (P2, S) **GAUGE-QUIESCE-1 — `pattern-gauges.spec.ts`'s 1200ms quiesce
+      window is under-margined on both trees.** kind: defect (test
+      hardening, not a product defect). MEASURED by the CRAFT-13 fix
+      (`b4e7821`): the post-release settle tail the window races is
+      1.09-1.12s on the base tree and 0.78-0.80s with the fix applied — the
+      fix makes it SHORTER, not the window safer, and both readings sit
+      close enough to 1200ms that CI contention can plausibly cross it (two
+      cases, `:251` contract-β and `:333` arrow keys, already fail in batch
+      and pass in isolation on both trees). ACCEPTANCE: raise the window
+      with margin against the measured 1.12s tail (state the new value and
+      why), or replace the fixed timeout with a condition-based wait on the
+      actual settle signal if one exists. [src: CRAFT-13 fix, `b4e7821`,
+      2026-09-15] TERRITORY: `apps/web/e2e/pattern-gauges.spec.ts`.
+      agentType: qa-tester.
+
+- [ ] (P2, S) **SCOREFRESH-PENDING-1 — `PENDING` on the scorecard freshness
+      gate is an unbounded self-granted exemption.** kind: defect (gate
+      completeness, self-referential). `scripts/check-scorecard-freshness.py`
+      exempts any row whose cell contains the word `PENDING` from its git
+      staleness check, with no age bound, expiry, or cap on how many rows
+      may be PENDING at once — and the self-test asserts this is intentional
+      ("marking most rows PENDING does NOT trip the vacuity floor"). Live
+      example the day it shipped: 5 of 13 rows read PENDING, including the
+      two rows that day's two biggest commits were evidence for. A row
+      marked `PENDING — awaiting the gauntlet` in September could still say
+      PENDING in March with September's prose beside it, and the gate would
+      report green every day. ACCEPTANCE: record the sha or date a row was
+      marked PENDING and report STALE once the row's territory has moved
+      more than N commits (or M days) since, without breaking the existing
+      non-vacuity self-test. [src: code review P1-5, `docs/CODE-REVIEW.md`,
+      `451245c`] TERRITORY: `scripts/check-scorecard-freshness.py`.
+      agentType: platform-builder.
+
+- [ ] (P2, S) **REQUIRED-QUERY-1 — `Operation.required_query` is generated
+      for all 86 scripting-API operations and enforced by nothing.** kind:
+      defect (structural, gate gap — SCRIPT-1 follow-up, related to the
+      `delete_feature` P0 this pass fixed one instance of). Ten operations
+      declare a required query param (`expected_version`,
+      `expected_tree_version`, `kind`, `format`); until `_send` enforces it,
+      the scripting API's "no undeclared call" guarantee covers bodies and
+      paths only, and every future verb added to the library can reproduce
+      the same 422-on-every-call defect for free. Related and unenforced in
+      the same place: an UNDECLARED query key is silently ignored by
+      FastAPI's `extra="ignore"` default. ACCEPTANCE: `_send` validates that
+      every operation's declared `required_query` keys are present before
+      issuing the request, with a clear client-side error naming the
+      missing key(s) rather than a 422 from the server; a regression test
+      per operation carrying a required query key. [src: code review P2-6,
+      `docs/CODE-REVIEW.md`, `451245c`] TERRITORY:
+      `packages/loft-script/src/loft/_operation.py`,
+      `scripts/gen-py-operations.py`. agentType: backend-builder.
+
+- [ ] (P2, M) **CSP-1 — the self-hosted web container deliberately ships no
+      Content-Security-Policy, and nothing in CI can verify one.**
+      kind: capability (security hardening, deferred by design not
+      oversight). `deploy/docker/web/nginx.conf` already carries the
+      cheap non-breaking headers and an explicit comment on why CSP is
+      NOT among them: a CSP is the one header that could white-screen the
+      whole app (r3f/WebGL, inline styles from Tailwind's JIT, blob: URLs
+      for exports), and nothing in CI renders a real browser against the
+      BUILT artifact — e2e only ever exercises the Vite dev server. Closing
+      this gap also closes a wider one: no Playwright leg exists against
+      `deploy/docker/web.Dockerfile`'s output at all. ACCEPTANCE: a
+      Playwright (or equivalent) leg boots the PRODUCTION nginx-served
+      bundle and drives a real modeling flow against it (sketch → extrude →
+      export, minimum), proving the app works under the built artifact;
+      only then add a CSP header tuned against what that leg actually
+      requires, with the leg as the regression gate for any future
+      tightening. [src: `977f492`, `deploy/docker/web/nginx.conf` comment,
+      2026-09-15] TERRITORY: `deploy/docker/web/nginx.conf`,
+      `.github/workflows/deploy-path.yml` or a new CI leg. agentType:
+      platform-builder.
+
+- [ ] (P2, L — spike first, S) **PERF-ASM-1 — measure assembly performance at
+      realistic instance counts before proposing a fix.** kind: capability
+      (measurement first). `docs/design/DIRECTION-ASSEMBLIES.md` §7: no
+      assembly in this repo has ever been solved/rendered past 2 instances;
+      build a fixture (1 unique bracket + 1 unique plate + N identical
+      fastener instances, N=10/30/100) and measure, separately: evaluate+
+      resolve+solve+tessellate wall clock; time-to-first-frame; orbit/zoom
+      frame rate with the assembly loaded; time to author+solve one more
+      mate once the scene is populated. Record as a golden + CI budget (same
+      shape as existing part-evaluation perf gates, RESEARCH §9). ONLY IF a
+      number is bad, propose the smallest fix ranked by likelihood: (1)
+      viewport draw-call/material count if render/orbit is the bottleneck
+      (`apps/web/src/viewport/**`-only); (2) moving assembly evaluation onto
+      the arq queue if solve wall-clock blocks the request thread (a
+      RESEARCH §4/§10 update in the same commit as the code). Do NOT build
+      either fix speculatively ahead of the number. ACCEPTANCE: a checked-in
+      perf golden/budget where none existed; a stated, measured verdict on
+      whether N=30/N=100 meet a defined "interactive" bar; any shipped fix
+      justified by the specific number it responds to, named in the commit.
+      [src: vision-steward, `docs/design/DIRECTION-ASSEMBLIES.md` §7,
+      2026-09-15] TERRITORY: `services/documents/src/documents/assemblies.py`,
+      `apps/web/src/viewport/AssemblyScene.tsx`. agentType: kernel-architect
+      / frontend-builder (split once the number names the bottleneck).
+
+- [ ] (P2, M) **PICK-ASM-1 — prove MATE-1's occlusion fix at real clutter,
+      not the golden's clean two-plate case.** kind: verification-first
+      (the fix may already be sufficient). Build a 3-4 instance scene where
+      at least two DIFFERENT faces on DIFFERENT instances project to
+      overlapping screen regions from a default camera angle — the
+      realistic case, not the original defect's clean arrangement — and
+      confirm the existing `mateDepthStack` cycling reaches every
+      plausible face. If it does not, the fix is scoped to
+      `apps/web/src/viewport/mateDepthStack.ts` and its consumers, following
+      MATE-1's own pattern. ACCEPTANCE:
+      `apps/web/e2e/mate-buried-face-cluttered.spec.ts` proves every
+      occluded face in a 3+-instance scene is reachable via the existing (or
+      extended) depth-cycling mechanism using a real `page.mouse.click` at
+      the resolved screen point — not `force: true` (CLAUDE.md's own
+      standing rule). [src: vision-steward, `docs/design/
+      DIRECTION-ASSEMBLIES.md` §7, 2026-09-15] TERRITORY:
+      `apps/web/src/viewport/mateDepthStack.ts`,
+      `apps/web/e2e/mate-buried-face-cluttered.spec.ts`. agentType:
+      frontend-builder.
+
+- [ ] (P2, M) **BOM-ASM-1 — recursive/indented BOM, one level of nesting.**
+      **REPLACES the prior "Assemblies — RECURSIVE / indented BOM" entry**
+      (same scope, pulled forward per `docs/design/DIRECTION-ASSEMBLIES.md`
+      §7, which closes a real gap in the ➖ Assemblies scorecard row rather
+      than deferring behind Phase 5). Walk the (already-acyclic)
+      sub-assembly instance graph; roll a part appearing N× inside a
+      sub-assembly instanced M× up to N·M; carry a `level`/`parent_key` so
+      the client can render an indented tree. The flat aggregation,
+      `BomLine` DTO, and acyclicity guarantee already exist — this is an
+      additive walk over them, not a new mechanism. ACCEPTANCE: an assembly
+      containing a nested sub-assembly reports the CORRECT rolled-up
+      quantity for a part instanced inside it (today's flat read undercounts
+      this — verify the undercount reproduces before fixing it, then verify
+      it's gone); the flat BOM (no nesting) stays byte-identical; contracts
+      regenerated (`just gen-verify` — additive field crosses
+      documents→gateway→web). [src: vision-steward, `docs/design/
+      DIRECTION-ASSEMBLIES.md` §7, 2026-09-15] TERRITORY:
+      `services/documents/src/documents/assemblies.py`,
+      `packages/contracts`. agentType: backend-builder.
+
+- [ ] (P2, M) **FLOW-ASM-1 — an inferred first mate, not a mate-connector
+      redesign.** kind: capability (flow, scope-bounded deliberately). Does
+      NOT add a new persisted reference type: when a newly-inserted (or
+      newly-selected) instance has exactly one planar face or circular edge
+      geometrically compatible (coincident- or concentric-candidate, within
+      tolerance) with exactly one face/edge on an already-placed nearby
+      instance, surface a one-click "Mate these" suggestion using the
+      EXISTING `coincident`/`concentric` mate-create endpoint — no schema
+      change, purely a suggestion computed and discarded client-side (or a
+      thin geometry-side candidate-pairs query, an implementation choice for
+      the builder). If more than one candidate is plausible, show the
+      ambiguity as a short pick list — never guess. ACCEPTANCE: inserting a
+      second instance next to a first, where exactly one obvious face/edge
+      pair matches, offers a one-click mate producing the SAME resolved mate
+      a manual pick+pick+submit would; an ambiguous scene (two equally
+      plausible pairs) surfaces the choice; e2e proves the click-through
+      path end-to-end including the existing snap-solve animation. [src:
+      vision-steward, `docs/design/DIRECTION-ASSEMBLIES.md` §7, 2026-09-15]
+      TERRITORY: `apps/web/src/assembly/**`. agentType: frontend-builder.
 
 - [x] (P2, S) **CAMRESTORE-1 CLOSED (2026-09-04, frontend-builder) — leaving a
       sketch gives the VIEW back, not just the camera.** The sketcher remembers
@@ -3581,15 +3932,6 @@ frame refactor are v2/§11. Spike de-collected.
       is unbuildable today; OCCT helix wire spike, then size the feature slice
       (pitch, turns, profile, handedness, taper). Sequence after the sheet-metal
       + assembly-interop commitments ahead of it. [src: WB-64 retro; competitive]
-- [ ] (P2, M) Assemblies — RECURSIVE / indented BOM (documents) — the
-      follow-up to the flat v1 BOM read-model. Expand rigid sub-assembly
-      instances into their own lines, rolling quantities through the nesting
-      (a part appearing N× in a sub-assembly instanced M× rolls up to N·M),
-      with an indent/level or parent-ref shape so the client can render an
-      indented tree. The flat aggregation + `BomLine` DTO + acyclicity
-      guarantee already exist; this walks the (acyclic) sub-assembly graph
-      and merges lines. [src: design/assemblies.md; ROADMAP Assemblies
-      residual]
 - [ ] (P2, M) Units — sketch-dimension + roll-up unit display (follow-up to
       U2). Sketch driving/driven dimensions (`ConstraintGlyphs`/
       `DimensionForm`) still enter/read canonical mm because their values are
@@ -3724,6 +4066,56 @@ frame refactor are v2/§11. Spike de-collected.
       reach it says why in its own comment. [src: qa-tester, 2026-08-29]
 
 ## Later (P3)
+
+**Filed groom pass 25 (2026-09-15):**
+
+- [ ] (P3, S) **AREA-INTEGRATION-1 — surface area has the same fixed-order
+      integration bias volume had (F1), and it is deliberately NOT fixed.**
+      kind: known limitation (tracked, not silently dropped). MEASURED:
+      the adaptive area integrator does NOT converge on the KUKA import —
+      it moves from 1.74e-05 to 2.91e-05 between eps 1e-8 and 1e-10, i.e.
+      the change is the SIZE of the signal, not noise around a stable
+      answer — at ~11s extra cost. Trading a known small bias for an
+      unconverged number at double the price is not an improvement, so F1's
+      fix (`f7cd483`) deliberately left `measure_shape`'s area path on the
+      fixed-order integrator and pinned the decision visibly via the new
+      `loft-spline-sections-nurbs-h30` golden. ACCEPTANCE (when someone
+      picks this up): either a smarter integration scheme that DOES converge
+      on real NURBS surfaces at acceptable cost, or a documented decision to
+      leave area on the fixed order permanently with the bias bounded and
+      stated. Do not "fix" this by copying volume's `eps=1e-10` verbatim —
+      it was measured NOT to help here. [src: geometry-qa gauntlet + F1 fix,
+      `docs/GEOMETRY-QA.md`/`f7cd483`, 2026-09-15] TERRITORY:
+      `services/geometry/src/geometry/kernel/measure.py`. agentType:
+      kernel-architect.
+
+- [ ] (P3, XS) **GEN-CHECK-VERDICT-1 — `gen-check`'s green message doesn't
+      mention its third leg.** kind: defect (gate legibility). `153cfa6`
+      added a third diff (`packages/loft-script/src/loft/_operations.py`)
+      to `scripts/gen-check.sh`, but the success line still reads
+      `gen-check: contracts + ts-client match generated output.` — a reader
+      cannot tell from the message whether the Python operation table was
+      checked at all. ACCEPTANCE: the verdict line names all three legs.
+      [src: code review P2-8, `docs/CODE-REVIEW.md`, `451245c`] TERRITORY:
+      `scripts/gen-check.sh`. agentType: platform-builder.
+
+- [ ] (P3, M) **DOCS-EXPLORER-1 — decide whether to restore an interactive
+      API explorer, and how.** kind: question (product/DX decision).
+      `725bc4b` set `docs_url=None`/`redoc_url=None` to fix the air-gap
+      claim (Swagger/ReDoc pulled `cdn.jsdelivr.net`/Google Fonts on the
+      published port); a contributor hitting `/docs` now gets a bare 404
+      with no explanation and QUICKSTART does not mention the explorer at
+      all. Three options, in cost order: (a) one QUICKSTART line pointing at
+      `/openapi.json` and explaining the explorer is off deliberately
+      (cheapest); (b) serve `/docs`/`/redoc` only when `LOFT_ENV=dev` (the
+      posture switch already exists, and the air-gap claim is about a
+      PUBLISHED gateway, not a developer's laptop); (c) vendor the ~3MB of
+      swagger-ui assets so the explorer works fully air-gapped even in
+      production (most expensive, most complete). ACCEPTANCE: a decision
+      recorded here or in `docs/OPERATIONS.md`, with whichever option
+      implemented. [src: code review clean-bill note, `docs/CODE-REVIEW.md`,
+      `451245c`; `725bc4b`] TERRITORY: `docs/QUICKSTART.md`, `packages/py-kit`
+      (if (b) or (c)). agentType: platform-builder / founder decision.
 
 - [ ] (P3, S) **SHARD-MANIFEST-CI-1 — the e2e duration manifest
       (`scripts/e2e-durations.json`) was measured on this local container,
@@ -4513,6 +4905,31 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
 One line per item once its phase has closed (id, one clause, commit/evidence);
 full narrative lives in the commit message and, where noted, `docs/CHANGELOG.md`.
 
+### Groom pass 25 (2026-09-15, backlog-groomer — Phase 5 flagship + gauntlet F1/F2 + CRAFT-13)
+
+- **SCRIPT-1** (`153cfa6`+`ca2f9d9`+`14f6e14`+`43c03a1`) — public Python
+  scripting API, two-path-proven identical to a browser-driven build (12/12
+  facts, byte-equal STEP/STL); `packages/loft-wire` split (33→15 deps).
+- **F1 (wrong volume) + F2 (mesh_glb_id non-determinism)** (`f7cd483`) —
+  adaptive integration at swept `VOLUME_EPS=1e-10`; cache paths unified.
+- **CRAFT-13** (`b4e7821`) — root cause was a pointer-capture P0 (arc gauge's
+  hit sleeve unmounting its capture host mid-drag), plus an unstated settle
+  masquerading as the `craft9b-gauges` contract-β intermittent.
+- **Air-gap claim** (`725bc4b`) — Swagger/ReDoc explorer pulled 3rd-party
+  CDN/fonts on the self-hosted port; `docs_url=None`+`check-air-gap.py`.
+- **Self-host web service** (`977f492`+`093dfc1`) — a `web` (nginx+SPA)
+  service existed nowhere before; two guard-manufactured CI failures fixed
+  en route (root-owned nginx pidfile, invalid job-level `runner` context).
+- **Scorecard freshness gate** (`b1bb1b6`) — mechanical staleness check for
+  `docs/VISION.md`'s scorecard, advisory only.
+
+Filed: PERF-REAL-1, PERF-REAL-2, VEC3-DEDUP-1, CONTRACT-PARITY-TEST-1,
+SCOREFRESH-PENDING-1, REQUIRED-QUERY-1, GAUGE-QUIESCE-1, NURBS-FIXTURE-1,
+STEP-ROUNDTRIP-COVERAGE-1, PERF-REAL-3, AREA-INTEGRATION-1, GEN-CHECK-VERDICT-1,
+DOCS-EXPLORER-1, CSP-1, PERF-ASM-1, PICK-ASM-1, BOM-ASM-1 (replaces the old
+flat-BOM entry), FLOW-ASM-1 (see Ready/Next/Later). Full detail:
+"Scorecard gaps" above and `docs/CODE-REVIEW.md`/`docs/GEOMETRY-QA.md`.
+
 ### Groom pass 20 (2026-09-13, backlog-groomer — frontend-redesign W0/W0REV/W2 reconciled onto BACKLOG)
 
 - **W0REV modal-gate fix** (`da98622`) — one capture-phase `modalGate.ts` closes 3 findings: Enter-on-exit-prompt applying the armed dimension, save-in-flight focus loss, sketch drafts outliving sign-out.
@@ -4806,12 +5223,15 @@ Full evidence: `docs/CHANGELOG.md`.
 
 ## Changelog
 
-- 2026-09-14 — **Groom pass 23 (backlog-groomer):** CRAFT-7 CLOSED
-  (`c9e037c`+`e56c9bc`); CRAFT-9a/9b/10/11 unblocked and dispatched (in
-  flight), CRAFT-9c filed Ready. Filed GAUGE-PROPORTION-1,
-  FORMATANGLE-MIGRATE-1, IMPERIAL-LADDER-1, GAUGE-TOUCH-1 (all
-  DIRECTION-W3-PROPOSALS.md §11); FLOW-JOURNEY-GAP-1 addendum recorded as a
-  stated prediction. See "Scorecard gaps" above for full detail.
+- 2026-09-15 — **Groom pass 25 (backlog-groomer):** SCRIPT-1 (public Python
+  scripting API), F1+F2 (gauntlet volume/determinism defects) and CRAFT-13
+  CLOSED; 16 items filed (perf/gauntlet, code-review P1s, Assemblies wave).
+  See "Scorecard gaps" above for full detail.
+- 2026-09-15 — **Groom pass 24:** Wave 3 CLOSED (CRAFT-9a/9b/10/11 + follow-
+  ups); Phase 5 opened. See "Scorecard gaps" above for full detail.
+- 2026-09-14 — **Groom pass 23:** CRAFT-7 CLOSED; CRAFT-9a/9b/10/11
+  dispatched; filed GAUGE-PROPORTION-1/FORMATANGLE-MIGRATE-1/
+  IMPERIAL-LADDER-1/GAUGE-TOUCH-1. Full detail: `docs/CHANGELOG.md`.
 - Passes 7-20: full reachability programme, CI hardening, SOLVE/PBT/SEL-2/
   ARC-BRANCH-1 clusters, frontend-redesign wave-log reconciliation. Full
   detail: `docs/CHANGELOG.md`.
