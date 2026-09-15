@@ -339,25 +339,51 @@ test.describe("the pattern gauges are two instruments, not one", () => {
 
     // COUNT: one press is one copy, the picture gains one, and the spacing
     // never moves.
+    //
+    // THE SETTLE IS NAMED, and it has to be (2026-09-15). This block used to
+    // read `ghostSegments` — a SCENE stamp — immediately after `countValue`, a
+    // DOM poll, with nothing synchronising the two. It passed because the scene
+    // happened to win that race on this machine, which is a coincidence of
+    // timing, not a wait: a viewport change elsewhere in the app altered how
+    // many frames the entry ease spends and the read began landing one press
+    // behind (`Expected > 24, Received 24`), pointing at an innocent diff. The
+    // file already owns the right instrument — `quiesce` — and this is the one
+    // place that was not using it.
     const spacingBefore = await spacingValue(page);
-    const segmentsBefore = await ghostSegments(page);
+    const segmentsBefore = await quiesce(
+      async () => (await ghostSegments(page)) ?? 0,
+    );
     await page.getByTestId(`${COUNT_GAUGE}-handle`).focus();
     await page.keyboard.press("ArrowUp");
     await expect.poll(async () => await countValue(page)).toBe("4");
     expect(await spacingValue(page)).toBe(spacingBefore);
-    expect(await ghostSegments(page)).toBeGreaterThan(segmentsBefore ?? 0);
+    // A poll, not a bare read: the assertion IS the wait, so a scene that never
+    // gains the copy still fails — it just no longer fails for being slow.
+    await expect
+      .poll(async () => await ghostSegments(page), {
+        message: "a count press must add a copy to the drawn ghost",
+      })
+      .toBeGreaterThan(segmentsBefore);
 
     // SPACING: one press is one snap increment, the count holds, and no copy
     // appears or vanishes.
     const spacing = Number.parseFloat(await spacingValue(page));
-    const segmentsAtFour = await ghostSegments(page);
+    const segmentsAtFour = await quiesce(
+      async () => (await ghostSegments(page)) ?? 0,
+    );
     await page.getByTestId(`${SPACING_GAUGE}-handle`).focus();
     await page.keyboard.press("ArrowUp");
     await expect
       .poll(async () => Number.parseFloat(await spacingValue(page)))
       .toBeGreaterThan(spacing);
     expect(await countValue(page)).toBe("4");
-    expect(await ghostSegments(page)).toBe(segmentsAtFour);
+    // "Must NOT change" cannot be a poll — a poll passes on the first sample,
+    // which is exactly the stale reading this block was tripping over. Settle
+    // first, THEN assert, so the number compared is the one the scene came to
+    // rest on.
+    expect(await quiesce(async () => (await ghostSegments(page)) ?? 0)).toBe(
+      segmentsAtFour,
+    );
   });
 
   test("only ONE instrument carries a tag", async ({ page }) => {

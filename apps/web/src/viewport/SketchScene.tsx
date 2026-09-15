@@ -42,6 +42,7 @@ import {
   OrthographicCamera,
   Quaternion,
   Vector3,
+  type Box3,
   type Camera,
   type LineSegments,
 } from "three";
@@ -135,6 +136,7 @@ import { bluingRadiusMm, bluingWash } from "./bluingWash";
 import { ConstraintGlyphs } from "./ConstraintGlyphs";
 import { sketchIsDrawn, usePartViewStore } from "./partView";
 import { SolveProposalAnchor } from "./SolveProposalAnchor";
+import { framingOf, planePickDistanceMm } from "./standoff";
 
 /**
  * DEPTH POLICY OF THE SKETCHER (founder defect, 2026-08-01: *"I had an
@@ -206,8 +208,13 @@ const PLANE_SIZE_MM = 90;
    in `sketch/origin.ts` with the fov and the frame fractions that scale off it,
    because `sketch/datum.ts` derives the frame's PICK region from the same
    framing and cannot import this file. */
-/** Plane-pick vantage: the studio iso the shell opens with, re-centred. */
-const PICK_CAMERA_DISTANCE_MM = 230;
+/**
+ * Plane-pick vantage DIRECTION: the studio iso the shell opens with, re-centred.
+ * The DISTANCE is solved per subject (`standoff.ts`) with
+ * `PICK_CAMERA_DISTANCE_MM` as its floor — a fixed 230 mm parks the camera
+ * inside any part bigger than the fixtures this repo grades itself on.
+ */
+const PICK_CAMERA_DIR = new Vector3(1, 0.68, 1.35).normalize();
 /**
  * Press timing for the click/drag discriminator. r3f's `e.delta` reports the
  * travel but not the duration, and duration is half of what separates a
@@ -2120,6 +2127,21 @@ function sketchFrameHalfHeightMm(
 }
 
 /**
+ * The drawn body's bounds in scene space, or null when nothing is drawn.
+ *
+ * `boundingBox` is computed by three on demand and the mesh normally has it
+ * already; computing it here rather than assuming it is present keeps this
+ * honest for a geometry that arrived by some other path — an absent box would
+ * otherwise read as "no subject" and silently restore the fixed vantage.
+ */
+function subjectBounds(geometry: BufferGeometry | null): Box3 | null {
+  if (geometry === null) return null;
+  if (geometry.boundingBox === null) geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  return box === null || box.isEmpty() ? null : box;
+}
+
+/**
  * Camera rig: eases to the plane-pick iso or the normal-on authoring pose
  * (instant under prefers-reduced-motion), releases the camera otherwise.
  *
@@ -2151,6 +2173,10 @@ function SketchCameraRig() {
   const plane = useSketchStore((state) => state.plane);
   const reducedMotion = useReducedMotion();
   const camera = useThree((state) => state.camera);
+  const gl = useThree((state) => state.gl);
+  // The DRAWN body, published by the mesh — the same geometry the pick surface
+  // raycasts, so the vantage is composed about exactly what can be picked.
+  const pickGeometry = usePartViewStore((state) => state.pickGeometry);
   const controls = useThree(
     (state) => state.controls,
   ) as OrbitControlsImpl | null;
@@ -2183,11 +2209,34 @@ function SketchCameraRig() {
         sketchCameraDistanceMm(plane, camera),
       );
     } else if (mode === "plane") {
-      const direction = new Vector3(1, 0.68, 1.35)
-        .normalize()
-        .multiplyScalar(PICK_CAMERA_DISTANCE_MM);
+      // STAND BACK FAR ENOUGH TO SEE THE SUBJECT. This used to be a fixed
+      // 230 mm from the world origin with no reference to the body — fine for a
+      // 10x20x30 box, and INSIDE a 1280 mm imported part. Measured on the
+      // gauntlet's gearbox: after this pose, 226 of its 452 face marks were
+      // behind the camera, 222 were off the left edge of the canvas, and
+      // `elementFromPoint` resolved ZERO of them. See `standoff.ts`.
+      //
+      // The target stays the world origin: that is the composition this vantage
+      // has always had, and changing it would move every fixture's pick
+      // coordinates for a defect none of them has.
+      const dir = PICK_CAMERA_DIR.clone();
+      const up = new Vector3(0, 1, 0);
+      const target = new Vector3(0, 0, 0);
+      const right = new Vector3().crossVectors(up, dir).normalize();
+      const distance = planePickDistanceMm(
+        subjectBounds(pickGeometry),
+        {
+          right,
+          up: new Vector3().crossVectors(dir, right).normalize(),
+          dir,
+          target,
+        },
+        framingOf(gl.domElement.parentElement),
+        cameraFov(camera),
+      );
+      const position = dir.multiplyScalar(distance);
       pose = {
-        position: [direction.x, direction.y, direction.z],
+        position: [position.x, position.y, position.z],
         up: [0, 1, 0],
         target: [0, 0, 0],
       };
@@ -2248,7 +2297,17 @@ function SketchCameraRig() {
       goal.current = next;
     }
     invalidate();
-  }, [mode, plane, reducedMotion, camera, controls, invalidate, requestPose]);
+  }, [
+    mode,
+    plane,
+    reducedMotion,
+    camera,
+    controls,
+    invalidate,
+    requestPose,
+    gl,
+    pickGeometry,
+  ]);
 
   useFrame((_, delta) => {
     const g = goal.current;

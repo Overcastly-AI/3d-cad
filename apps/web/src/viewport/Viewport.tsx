@@ -34,13 +34,14 @@ import { isDragGesture, type PointerPoint } from "./contextMenuGesture";
 import {
   fitDistance,
   fitZoom,
-  measureChrome,
   targetShift,
-  unobstructedRect,
   VIEWPORT_CHROME_EVENT,
-  type CameraSpacePoint,
   type Rect,
 } from "./fitFraming";
+// `boxCornersInCameraAxes` and the chrome measurement live in `standoff.ts`
+// because the SKETCH rig needs the same two, and two framing rules that
+// disagree is exactly the defect that module documents.
+import { boxCornersInCameraAxes, framingOf } from "./standoff";
 import {
   distanceForOrthoZoom,
   orthoClipPlanes,
@@ -98,39 +99,6 @@ interface CameraGoal {
 
 /** Within this fraction of the goal zoom, a parallel framing has landed. */
 const ZOOM_SETTLE_EPSILON = 0.002;
-
-/**
- * The subject's eight bounding corners resolved onto the camera's own axes —
- * the silhouette a fit has to make room for, DEPTH INCLUDED (a corner nearer
- * the camera projects wider, which is what `fitDistance` solves for). Empty for
- * an empty/absent box.
- */
-function boxCornersInCameraAxes(
-  box: Box3 | null,
-  center: Vector3,
-  right: Vector3,
-  up: Vector3,
-  dir: Vector3,
-): CameraSpacePoint[] {
-  if (box === null || box.isEmpty()) return [];
-  const corner = new Vector3();
-  const corners: CameraSpacePoint[] = [];
-  for (let i = 0; i < 8; i += 1) {
-    corner
-      .set(
-        i & 1 ? box.max.x : box.min.x,
-        i & 2 ? box.max.y : box.min.y,
-        i & 4 ? box.max.z : box.min.z,
-      )
-      .sub(center);
-    corners.push({
-      a: corner.dot(right),
-      b: corner.dot(up),
-      c: corner.dot(dir),
-    });
-  }
-  return corners;
-}
 
 /**
  * The camera rig: auto-fits when the fit key changes (a new body / a newly
@@ -1225,13 +1193,7 @@ export function Viewport({
    * — one fewer copy of the cube's geometry, and it can no longer drift from
    * the copy the chrome clamps against.
    */
-  const framing = useCallback(() => {
-    const node = containerRef.current;
-    if (node === null) return null;
-    const { canvas, obstructions } = measureChrome(node);
-    if (canvas.width <= 0 || canvas.height <= 0) return null;
-    return { canvas, free: unobstructedRect(canvas, obstructions) };
-  }, []);
+  const framing = useCallback(() => framingOf(containerRef.current), []);
 
   return (
     <div
