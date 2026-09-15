@@ -79,7 +79,7 @@ its own tangency residual and :func:`_violated_constraints` already refuses to
 ship a payload its own constraints contradict.
 
 **An arc has no radius FIELD, so the same collapse had no loud half at all**
-(ARC-DEGENERATE-1). :class:`~py_kit.schemas.sketch.SketchArc` carries three
+(ARC-DEGENERATE-1). :class:`~loft_wire.sketch.SketchArc` carries three
 coordinates and derives its radius from them, so a solve that drives an arc's
 start onto its own centre builds a DTO nothing refuses: no exception, a residual
 of zero (a point-sized arc satisfies the constraint that annihilated it exactly),
@@ -121,11 +121,11 @@ import math
 from collections.abc import Callable
 from typing import assert_never
 
+from loft_wire.sketch import spline_fit_index
 from planegcs import ArcId, CircleId, LineId, PointId
 from planegcs import ConstraintTag as GcsConstraintTag
 from planegcs import Sketch as GcsSystem
 from planegcs import SolveStatus as GcsSolveStatus
-from py_kit.schemas.sketch import spline_fit_index
 
 from geometry.sketch.angles import (
     AngleFrame,
@@ -759,7 +759,7 @@ def _shippable_arc_points(
     payload through :func:`_violated_constraints`. Nothing new decides the
     outcome. A translation is used rather than a re-derivation of angles because
     it preserves the author's radius, both endpoint angles and the CCW-from-start
-    invariant :class:`~py_kit.schemas.sketch.SketchArc` documents, exactly.
+    invariant :class:`~loft_wire.sketch.SketchArc` documents, exactly.
 
     The test is on ``max`` of the two endpoint distances — "the arc has collapsed
     ENTIRELY" — not on ``min``. An arc with ONE endpoint on its centre and the

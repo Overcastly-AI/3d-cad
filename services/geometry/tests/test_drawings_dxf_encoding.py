@@ -36,7 +36,7 @@ from geometry.drawings import DXF_ENCODING, serialize_dxf
 from geometry.drawings.compose import (
     _bend_row_cells,  # pyright: ignore[reportPrivateUsage]
 )
-from py_kit.schemas.drawings import ComposedSheet
+from loft_wire.drawings import ComposedSheet
 
 #: The exact strings the audit measured coming back WRONG. Stated literally, not
 #: derived, because the point of this module is that the shop reads these glyphs.

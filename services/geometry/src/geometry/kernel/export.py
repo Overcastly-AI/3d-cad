@@ -18,7 +18,7 @@ identical requests (RESEARCH §9); the geometry export gate asserts it:
   as the GLB tessellation path (``Shape.mesh``: relative linear deflection,
   parallel flag), so a given ``linear_deflection`` / ``angular_deflection``
   pair means the same facets in the viewport and in the exported file.
-  Defaults come from :mod:`py_kit.schemas.geometry`
+  Defaults come from :mod:`loft_wire.geometry`
   (``DEFAULT_LINEAR_DEFLECTION`` = 0.1 mm, ``DEFAULT_ANGULAR_DEFLECTION`` =
   0.1 rad — the viewport-quality tessellation settings).
 * **3MF:** an OPC (zip) container whose ``3D/3dmodel.model`` XML declares
@@ -38,7 +38,7 @@ identical requests (RESEARCH §9); the geometry export gate asserts it:
   is byte-identical to the mesh their screen is drawing, and its determinism is
   the tessellation path's determinism, already gated. **It is in METRES and
   Y-up**, per the glTF 2.0 spec, unlike every other format here, which are
-  millimetres and Z-up; ``py_kit.schemas.geometry.EXPORT_UNITS`` is the single
+  millimetres and Z-up; ``loft_wire.geometry.EXPORT_UNITS`` is the single
   place that says so and the export gate asserts the extents against it. That
   asymmetry is the format's, not ours: a GLB written in mm renders 1000x too
   large in every conformant viewer.
@@ -563,7 +563,7 @@ class AssemblyComponent:
 
     ``body`` is a resolved part :data:`BodyShape` in its LOCAL frame;
     ``translation`` / ``quaternion`` (the latter ``(x, y, z, w)``, matching
-    :class:`py_kit.schemas.assemblies.Quat`) are its SOLVED world placement; the
+    :class:`loft_wire.assemblies.Quat`) are its SOLVED world placement; the
     exporter positions the body by ``world = R(q)·local + t``. ``name`` becomes
     the STEP PRODUCT / occurrence name (traceability back to the instance).
     """
@@ -585,7 +585,7 @@ def placement_trsf(
     the interference check (:mod:`geometry.kernel.interference`) all position a
     solved instance through here, so no path reinvents it (rotation order
     geometry-QA-verified to 1e-14). ``quaternion`` is ``(x, y, z, w)``, matching
-    :class:`py_kit.schemas.assemblies.Quat`. Deterministic: a fixed sequence of
+    :class:`loft_wire.assemblies.Quat`. Deterministic: a fixed sequence of
     OCCT ops on the numeric pose.
     """
     qx, qy, qz, qw = quaternion

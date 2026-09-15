@@ -20,7 +20,7 @@ Contract requirements for any implementation (design ``assemblies.md`` §2):
   *input*: a mate naming an unknown instance, a self-mate, resolved geometry of
   the wrong kind for the mate.
 - **No foreign types:** input and output are the DTOs below (reusing the #1
-  boundary schema :mod:`py_kit.schemas.assemblies`); numpy arrays and the numeric
+  boundary schema :mod:`loft_wire.assemblies`); numpy arrays and the numeric
   solver never escape.
 
 The **resolved mate geometry** carried by :class:`SolverMate.geometry` is the
@@ -36,19 +36,19 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Literal, Protocol
 
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     AssemblyOverconstraintClass,
     AssemblySolveDiagnosis,
     AssemblySolveStatus,
     Mate,
     Placement,
 )
-from py_kit.schemas.geometry import Vec3
+from loft_wire.geometry import Vec3
 from pydantic import BaseModel, Field
 
 # ``AssemblySolveStatus`` / ``AssemblyOverconstraintClass`` /
 # ``AssemblySolveDiagnosis`` now live in the boundary schema
-# (:mod:`py_kit.schemas.assemblies`) so the evaluation RESULT can carry them
+# (:mod:`loft_wire.assemblies`) so the evaluation RESULT can carry them
 # without a parallel copy (CLAUDE.md DRY rule). They are re-exported here so
 # every existing ``geometry.assembly`` import site is unchanged.
 __all__ = [
@@ -120,7 +120,7 @@ class SolverInstance(BaseModel):
 class SolverMate(BaseModel):
     """One mate plus its resolved geometry (design §2.3).
 
-    ``mate`` is the #1 discriminated :class:`~py_kit.schemas.assemblies.Mate`
+    ``mate`` is the #1 discriminated :class:`~loft_wire.assemblies.Mate`
     (carrying ``flush`` / offsets / the two instance ids). ``geometry`` is the
     resolved ``(a, b)`` pair in the SAME order as the mate's ``a``/``b`` slots —
     two :class:`ResolvedFace` for ``coincident``/``distance``/``angle``, two

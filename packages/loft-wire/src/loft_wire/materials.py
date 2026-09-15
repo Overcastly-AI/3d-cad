@@ -101,7 +101,7 @@ class BodyMaterialAssignment(BaseModel):
 
     ``base_feature_id`` is the id of the feature that CREATED the body — the
     same key ``EvaluationState.bodies`` and
-    :class:`~py_kit.schemas.features.BodyLumpInfo` use — so an override survives
+    :class:`~loft_wire.features.BodyLumpInfo` use — so an override survives
     edits to other features the way any body reference does. An override naming
     a body the tree no longer produces is inert (it matches nothing); it is not
     an error, because a rolled-back tree legitimately hides the body for a while.

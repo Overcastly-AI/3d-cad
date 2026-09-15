@@ -52,7 +52,7 @@ def json_payload(model: BaseModel) -> dict[str, Any]:
     fail. That is the repo's "assert on the result, not the status" trap in its
     purest form — the request parsed, and meant something else.
 
-    The models are the server's own DTOs (``py_kit.schemas.auth``), which are
+    The models are the server's own DTOs (``loft_wire.auth``), which are
     written to be PARSED by a server and so have no client-side serializer for
     their secrets; unmasking here, at the one place bodies are encoded, is the
     alternative to either duplicating those models or hand-building auth dicts.

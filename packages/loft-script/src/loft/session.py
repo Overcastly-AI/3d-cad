@@ -8,13 +8,13 @@ from types import TracebackType
 from typing import Self
 
 import httpx2 as httpx
-from py_kit.schemas.auth import (
+from loft_wire.auth import (
     AuthTokenResponse,
     LoginRequest,
     RegisterRequest,
     UserResponse,
 )
-from py_kit.schemas.units import LengthUnit
+from loft_wire.units import LengthUnit
 from pydantic import SecretStr
 
 from loft import _operations as ops

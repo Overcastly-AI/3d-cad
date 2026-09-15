@@ -19,14 +19,7 @@ from typing import Annotated
 import anyio.to_thread
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from py_kit import (
-    ConflictError,
-    UnauthorizedError,
-    ValidationApiError,
-    get_logger,
-)
-from py_kit.db import SessionDep
-from py_kit.schemas.auth import (
+from loft_wire.auth import (
     PASSWORD_MAX_LENGTH,
     PASSWORD_MIN_LENGTH,
     AuthTokenResponse,
@@ -34,6 +27,13 @@ from py_kit.schemas.auth import (
     RegisterRequest,
     UserResponse,
 )
+from py_kit import (
+    ConflictError,
+    UnauthorizedError,
+    ValidationApiError,
+    get_logger,
+)
+from py_kit.db import SessionDep
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 

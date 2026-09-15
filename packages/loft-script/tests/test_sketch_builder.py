@@ -11,8 +11,8 @@ from typing import cast
 
 import pytest
 from loft.sketch import XY, Sketch, resolve_plane
-from py_kit.schemas.features import DatumPlaneRef
-from py_kit.schemas.sketch import (
+from loft_wire.features import DatumPlaneRef
+from loft_wire.sketch import (
     CoincidentConstraint,
     DiameterConstraint,
     DistanceConstraint,
@@ -186,7 +186,7 @@ def test_resolve_plane_accepts_the_three_origin_planes_and_names_them_on_error()
 
 def test_duplicate_entity_ids_are_refused_by_the_params_model() -> None:
     """The escape hatch does not escape validation."""
-    from py_kit.schemas.sketch import SketchPoint
+    from loft_wire.sketch import SketchPoint
 
     sketch = _sketch()
     sketch.point((0, 0))

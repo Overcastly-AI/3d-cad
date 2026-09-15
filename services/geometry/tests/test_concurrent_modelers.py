@@ -32,7 +32,7 @@ from types import ModuleType
 from typing import Any, cast
 
 from geometry.features.evaluate import evaluate_tree, reset_rebuild_cache
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 _BUILDERS_PATH = Path(__file__).resolve().parent / "_big_part_builders.py"
 

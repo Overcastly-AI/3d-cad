@@ -23,8 +23,8 @@ import loft
 import pytest
 from loft._operation import Operation
 from loft.transport import Transport
-from py_kit.schemas.features import ExtrudeFeature, SketchFeature
-from py_kit.schemas.sketch import SketchLine
+from loft_wire.features import ExtrudeFeature, SketchFeature
+from loft_wire.sketch import SketchLine
 from pydantic import BaseModel
 
 from .conftest import Stack

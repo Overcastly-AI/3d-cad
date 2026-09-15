@@ -27,7 +27,7 @@ import pytest
 from geometry.features import evaluate_tree
 from geometry.harness import evaluate_model
 from geometry.kernel.faces import planar_faces
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 #: One hole's worth of face area, Ø6.6: pi * 3.3^2 mm^2. The audit measured the four
 #: stored areas exactly this far apart; that spacing IS the defect, so it is asserted.

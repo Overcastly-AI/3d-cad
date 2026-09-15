@@ -66,7 +66,7 @@ from geometry.kernel.mirror import (
     fuse_reflected_tools,
     reflect_tools,
 )
-from py_kit.schemas.features import (
+from loft_wire.features import (
     CircularPatternParamsV1,
     EvaluateTreeRequest,
     LinearPatternParamsV1,
@@ -619,7 +619,7 @@ def test_the_selection_joins_the_dependency_graph() -> None:
     409-with-dependents, a reorder re-checks strict-backward, and a
     forward/self/``sketch`` selection is a 422 before it can be an evaluation
     error."""
-    from py_kit.schemas.features import (
+    from loft_wire.features import (
         BODY_AFFECTING_FEATURE_TYPES,
         feature_references,
     )

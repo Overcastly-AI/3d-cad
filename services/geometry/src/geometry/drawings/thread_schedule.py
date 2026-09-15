@@ -30,8 +30,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from py_kit.schemas.drawings import ThreadCalloutRow
-from py_kit.schemas.features import EvaluatedFeatureInput, HoleParamsV1
+from loft_wire.drawings import ThreadCalloutRow
+from loft_wire.features import EvaluatedFeatureInput, HoleParamsV1
 
 from geometry.kernel.threads import ThreadUnsupportedError, resolve_iso_metric_thread
 

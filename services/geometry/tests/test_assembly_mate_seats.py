@@ -54,7 +54,7 @@ from geometry.assembly import evaluate_assembly
 from geometry.assembly.transform import Pose
 from geometry.features import evaluate_tree
 from geometry.kernel.faces import face_signature_dto, planar_faces
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     CoincidentMate,
     EvaluateAssemblyRequest,
     EvaluateAssemblyResult,
@@ -64,14 +64,14 @@ from py_kit.schemas.assemblies import (
     Placement,
     Quat,
 )
-from py_kit.schemas.features import (
+from loft_wire.features import (
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
     ExtrudeFeature,
     PlanarFaceSignature,
     SketchFeature,
 )
-from py_kit.schemas.geometry import Vec3
+from loft_wire.geometry import Vec3
 
 #: Solver-convergence bound for the pose assertions, measured first then set
 #: (geometry-gates skill: never copy a bound blindly). Worst observed deviation

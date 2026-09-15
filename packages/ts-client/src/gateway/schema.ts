@@ -2134,7 +2134,7 @@ export interface components {
          * AssemblyResponse
          * @description An assembly as stored — identity, ownership, and its concurrency token.
          *
-         *     Mirrors :class:`~py_kit.schemas.parts.PartResponse` plus the ``doc_version``
+         *     Mirrors :class:`~loft_wire.parts.PartResponse` plus the ``doc_version``
          *     OCC counter. The full instance/mate graph rides :class:`AssemblyGraphResponse`.
          */
         AssemblyResponse: {
@@ -2150,7 +2150,7 @@ export interface components {
             doc_version: number;
             /**
              * Folder Id
-             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
+             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see loft_wire.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
              */
             folder_id?: string | null;
             /**
@@ -2230,7 +2230,7 @@ export interface components {
          * @description Restore the adjacent assembly history snapshot (undo-redo.md UR3).
          *
          *     The assembly sibling of the part's
-         *     :class:`~py_kit.schemas.features.UndoRedoRequest`: undo/redo ARE document
+         *     :class:`~loft_wire.features.UndoRedoRequest`: undo/redo ARE document
          *     edits — each bumps ``doc_version`` under the same optimistic-concurrency
          *     guard as every other assembly write (stale → 422,
          *     ``stale_assembly_version``), and the response is the restored graph
@@ -2407,7 +2407,7 @@ export interface components {
          *
          *     ``base_feature_id`` is the id of the feature that CREATED the body — the
          *     same key ``EvaluationState.bodies`` and
-         *     :class:`~py_kit.schemas.features.BodyLumpInfo` use — so an override survives
+         *     :class:`~loft_wire.features.BodyLumpInfo` use — so an override survives
          *     edits to other features the way any body reference does. An override naming
          *     a body the tree no longer produces is inert (it matches nothing); it is not
          *     an error, because a rolled-back tree legitimately hides the body for a while.
@@ -3382,7 +3382,7 @@ export interface components {
          *     stamped caption ("FRONT") and its position.
          *
          *     ``error`` carries the TYPED per-view failure through composition (FINDINGS #15):
-         *     the :class:`~py_kit.schemas.features.FeatureError` (code + human message) from the
+         *     the :class:`~loft_wire.features.FeatureError` (code + human message) from the
          *     source :class:`DrawingViewResult` — a ``view_projection_failed`` /
          *     ``section_plane_not_principal`` / ``section_empty`` /
          *     ``flat_pattern_not_sheet_metal`` / ``section_params_missing`` — so the sheet/print
@@ -3860,7 +3860,7 @@ export interface components {
          * @description Add a dimension to a view (append at the tip; design §3).
          *
          *     ``dimension`` is the discriminated :data:`Dimension` union; its geometry
-         *     references (via :class:`~py_kit.schemas.features.EdgeSignature`) resolve
+         *     references (via :class:`~loft_wire.features.EdgeSignature`) resolve
          *     against the view's referenced body geometry-side. ``order_index`` is stable
          *     per sheet, appended at the tip.
          */
@@ -4191,7 +4191,7 @@ export interface components {
          * DrawingBomLine
          * @description One NUMBERED line of a drawing's bill of materials (design §7 BOM).
          *
-         *     The shipped assembly :class:`~py_kit.schemas.assemblies.BomLine` (group key +
+         *     The shipped assembly :class:`~loft_wire.assemblies.BomLine` (group key +
          *     resolved name + `missing` + quantity, reused VERBATIM — no parallel taxonomy)
          *     plus the one thing a *drawing* adds: the ``item_number`` a balloon stamps.
          *
@@ -4365,7 +4365,7 @@ export interface components {
             doc_version: number;
             /**
              * Folder Id
-             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
+             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see loft_wire.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
              */
             folder_id?: string | null;
             /**
@@ -5272,7 +5272,7 @@ export interface components {
          * @description One thing that breaks if a feature is deleted.
          *
          *     ``name`` rides beside the id for the same reason it does on
-         *     :class:`~py_kit.schemas.workspace.DocumentDependent`: the reader is a person
+         *     :class:`~loft_wire.workspace.DocumentDependent`: the reader is a person
          *     who named these things, and "referenced by 2 other document(s)" — which is
          *     what this refusal used to say — ends the conversation instead of starting
          *     the next action.
@@ -5645,7 +5645,7 @@ export interface components {
          * FolderMember
          * @description One thing inside a folder whose delete was refused.
          *
-         *     Deliberately NOT reusing :class:`~py_kit.schemas.workspace.DocumentDependent`:
+         *     Deliberately NOT reusing :class:`~loft_wire.workspace.DocumentDependent`:
          *     that model means "something REFERENCES you" and its ``kind`` documents why a
          *     part can never appear in it. Membership is the opposite relation, and a part
          *     is its commonest member. Two relations, two models; one shared refusal
@@ -6520,7 +6520,7 @@ export interface components {
          * @description An axis derived from a CIRCULAR edge of an instance's part body (§2.1).
          *
          *     v1 derives an axis from a circular edge (``curve == "circle"``) — reusing
-         *     :class:`~py_kit.schemas.features.EdgeSignature`, whose seam-point centre and
+         *     :class:`~loft_wire.features.EdgeSignature`, whose seam-point centre and
          *     plane give the axis (design §2.1). This deliberately avoids needing a
          *     cylindrical-face signature (a clean additive future member): a hole rim and
          *     a shaft rim are both circular edges, enough for the canonical bolt joint.
@@ -6587,7 +6587,7 @@ export interface components {
          * MateFaceRef
          * @description A planar face of an instance's part body (design §1.5/§2.1).
          *
-         *     ``signature`` is the SAME :class:`~py_kit.schemas.features.PlanarFaceSignature`
+         *     ``signature`` is the SAME :class:`~loft_wire.features.PlanarFaceSignature`
          *     the ``on_face`` datum resolves (topological-naming.md §9) — reused verbatim,
          *     not a parallel taxonomy. ``instance_id`` scopes the face to one instance's
          *     resolved part body (the geometry service resolves the signature against that
@@ -7103,7 +7103,7 @@ export interface components {
          *
          *     The list position of this edge in :attr:`OverlayResult.edges` is its
          *     transient 0-based index — the SAME ordinal ``body.edges()`` yields, so
-         *     passing it as :class:`~py_kit.schemas.measure.EdgeTarget` ``index`` measures
+         *     passing it as :class:`~loft_wire.measure.EdgeTarget` ``index`` measures
          *     THIS edge. The transient index is for MEASUREMENT; the STABLE, rebuild-
          *     surviving reference is :attr:`signature` (topological naming) — echo it into
          *     an ``EdgeSubshapeRef`` to fillet/chamfer exactly this edge.
@@ -7132,7 +7132,7 @@ export interface components {
          * @description One face of the evaluated body — pickable for a sketch datum-on-a-face.
          *
          *     A PLANAR face carries a stage-1
-         *     :class:`~py_kit.schemas.features.PlanarFaceSignature` — the SAME fingerprint
+         *     :class:`~loft_wire.features.PlanarFaceSignature` — the SAME fingerprint
          *     a datum-on-face ``SubshapeRef`` stores and the geometry resolver matches
          *     against (one enumeration: the pick side and the resolve side share
          *     ``geometry.kernel.faces.planar_faces``; an order-equality gate proves it). To
@@ -7290,7 +7290,7 @@ export interface components {
             eval_state: "never" | "ok" | "failed" | "stale";
             /**
              * Folder Id
-             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
+             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see loft_wire.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
              */
             folder_id?: string | null;
             /**
@@ -8010,7 +8010,7 @@ export interface components {
          * @description The cutting plane + half selection of a section view (drawings-section.md §1).
          *
          *     v1 specifies the section's cutting plane by DATUM REFERENCE, not a drawn cutting
-         *     line (§1): ``plane`` is the shipped :data:`~py_kit.schemas.features.GeomRef`
+         *     line (§1): ``plane`` is the shipped :data:`~loft_wire.features.GeomRef`
          *     (``DatumPlaneRef`` for one of the XY/XZ/YZ origin planes, or a ``FeatureRef`` to
          *     an axis-aligned offset / midplane datum FEATURE in the referenced part) — the
          *     EXACT union a sketch's plane reference uses, so no parallel plane taxonomy is
@@ -8766,7 +8766,7 @@ export interface components {
          *     Sketching row): a REDUNDANT constraint is removable and the sketch still
          *     solves, whereas a CONFLICTING constraint makes the sketch unsolvable until
          *     one is relaxed. Built by :func:`classify_overconstraint`; carried on the
-         *     :class:`py_kit.schemas.features.FeatureError` (the ``sketch_conflicting``
+         *     :class:`loft_wire.features.FeatureError` (the ``sketch_conflicting``
          *     error path) and on the solved-sketch feature payload (the redundant-but-
          *     solvable path), so BOTH cases surface the same typed shape.
          */
@@ -8849,7 +8849,7 @@ export interface components {
          *       from that end to the nearest neighboring entity it meets in that
          *       direction (else 422 ``sketch_extend_no_target``).
          *
-         *     Units are millimetres (:mod:`py_kit.schemas.sketch` convention).
+         *     Units are millimetres (:mod:`loft_wire.sketch` convention).
          */
         SketchEditRequest: {
             /**
@@ -9018,7 +9018,7 @@ export interface components {
          *     Mirror **adds** geometry: the sources are untouched and the response carries
          *     only the NEW reflected copies (see :class:`SketchMirrorResult`). Every entity
          *     kind is reflectable (point, line, circle, arc). Units are millimetres
-         *     (:mod:`py_kit.schemas.sketch` convention).
+         *     (:mod:`loft_wire.sketch` convention).
          */
         SketchMirrorRequest: {
             /**
@@ -9121,7 +9121,7 @@ export interface components {
          *     ``{datum}``); the stored shape is unchanged, so this is purely additive — no
          *     ``param_version`` bump.
          *
-         *     Extends :class:`py_kit.schemas.sketch.SketchDefinition` (typed
+         *     Extends :class:`loft_wire.sketch.SketchDefinition` (typed
          *     ``entities``/``constraints`` — the §1.4 placeholder finalized by the
          *     "Sketch model + solver API" item), so a persisted sketch's params ARE
          *     valid solver input: same validation (unique sketch-local entity ids per

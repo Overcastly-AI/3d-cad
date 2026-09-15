@@ -70,8 +70,8 @@ from geometry.schemas import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
 )
-from py_kit.schemas.features import EvaluateTreeRequest
-from py_kit.schemas.overlay import MAX_PROVENANCE_FACES, OverlayRequest
+from loft_wire.features import EvaluateTreeRequest
+from loft_wire.overlay import MAX_PROVENANCE_FACES, OverlayRequest
 
 _HERE = Path(__file__).resolve().parent
 _BUILDERS_PATH = _HERE / "_big_part_builders.py"

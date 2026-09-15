@@ -1,6 +1,6 @@
 """Stateless selection-overlay service (BACKLOG #6b) — recompute + pick geometry.
 
-Ties the boundary contract (:mod:`py_kit.schemas.overlay`) to the kernel: it
+Ties the boundary contract (:mod:`loft_wire.overlay`) to the kernel: it
 recomputes the body from the supplied feature tree — reusing
 :func:`geometry.features.evaluate_tree` (DRY: the SAME ordered dispatch +
 strict-prefix rule as ``POST /api/v1/evaluate`` and ``/measure``, no duplicated
@@ -12,7 +12,7 @@ service is stateless); the response is a plain value DTO, no artifact and no
 kernel type crosses the boundary.
 """
 
-from py_kit.schemas.overlay import OverlayRequest, OverlayResult
+from loft_wire.overlay import OverlayRequest, OverlayResult
 
 from geometry.faults import unexpected_query_failure
 from geometry.features import evaluate_tree, tree_no_body_error

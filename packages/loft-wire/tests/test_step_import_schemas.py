@@ -11,9 +11,9 @@ resolver, :meth:`StepAssemblyImportResult.body_step_for`.
 
 import json
 
-from py_kit.schemas.assemblies import Placement, Quat
-from py_kit.schemas.geometry import Vec3
-from py_kit.schemas.step_import import (
+from loft_wire.assemblies import Placement, Quat
+from loft_wire.geometry import Vec3
+from loft_wire.step_import import (
     ImportedProduct,
     StepAssemblyImportResult,
 )

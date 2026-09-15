@@ -86,6 +86,7 @@ from dataclasses import dataclass, field
 from typing import Final
 
 from fastapi import FastAPI, Request, Response
+from loft_wire.instrument import register_feature_error_observer
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     CollectorRegistry,
@@ -414,10 +415,23 @@ def _bounded_code(code: str) -> str:
 def record_feature_error(code: str) -> None:
     """Count one failed feature evaluation.
 
-    Called from :meth:`py_kit.schemas.features.FeatureError.model_post_init` —
-    the contract DTO every feature failure in the product is rendered through.
+    Reached from :meth:`loft_wire.features.FeatureError.model_post_init` — the
+    contract DTO every feature failure in the product is rendered through — via
+    the observer registered below rather than by a direct call, because
+    ``loft_wire`` ships as a pydantic-only distribution and must not import a
+    Prometheus client. See :mod:`loft_wire.instrument` for why the arrow points
+    that way and what the inversion costs.
     """
     FEATURE_ERRORS.labels(code=_bounded_code(code)).inc()
+
+
+# Wired at IMPORT time, not in ``install_metrics``: a ``FeatureError`` can be
+# constructed by a worker, a CLI or a test that never builds an app, and a
+# failure that is not counted is indistinguishable from no failure at all. The
+# registry is idempotent, so re-import cannot double-count.
+# ``packages/py-kit/tests/test_metrics.py`` asserts the counter moves when a
+# ``FeatureError`` is CONSTRUCTED — that assertion is the gate on this line.
+register_feature_error_observer(record_feature_error)
 
 
 def record_rebuild_cache_hit() -> None:

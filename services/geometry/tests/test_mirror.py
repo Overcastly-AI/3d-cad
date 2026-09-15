@@ -29,7 +29,7 @@ from build123d import Edge, Face, Plane, Solid, Vector, Wire
 from fastapi.testclient import TestClient
 from geometry.kernel.mirror import mirror_union
 from geometry.main import app
-from py_kit.schemas.features import EvaluateTreeResult
+from loft_wire.features import EvaluateTreeResult
 
 client = TestClient(app)
 

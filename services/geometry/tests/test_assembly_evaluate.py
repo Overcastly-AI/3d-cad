@@ -29,8 +29,7 @@ from geometry.assembly import evaluate_assembly
 from geometry.features import evaluate_tree
 from geometry.kernel.edges import edge_signature_dto
 from geometry.kernel.faces import face_signature_dto, planar_faces
-from OCP.BRepAdaptor import BRepAdaptor_Curve
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     CoincidentMate,
     ConcentricMate,
     EvaluateAssemblyRequest,
@@ -41,14 +40,15 @@ from py_kit.schemas.assemblies import (
     Placement,
     Quat,
 )
-from py_kit.schemas.features import (
+from loft_wire.features import (
     EdgeSignature,
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
     PlanarFaceSignature,
     SketchFeature,
 )
-from py_kit.schemas.geometry import Vec3
+from loft_wire.geometry import Vec3
+from OCP.BRepAdaptor import BRepAdaptor_Curve
 
 TOL = 1e-6
 TOP_Z = 10.0

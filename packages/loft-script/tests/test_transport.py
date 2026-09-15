@@ -29,8 +29,8 @@ from loft.errors import (
     UpstreamError,
 )
 from loft.transport import Transport
-from py_kit.schemas.auth import RegisterRequest
-from py_kit.schemas.parts import PartCreate
+from loft_wire.auth import RegisterRequest
+from loft_wire.parts import PartCreate
 from pydantic import SecretStr
 
 PASSWORD = "correct-horse-battery"
@@ -86,7 +86,7 @@ def test_register_payload_carries_the_real_password() -> None:
     )
     transport.call(
         ops.POST_AUTH_REGISTER,
-        __import__("py_kit.schemas.auth", fromlist=["x"]).AuthTokenResponse,
+        __import__("loft_wire.auth", fromlist=["x"]).AuthTokenResponse,
         body=RegisterRequest(email="e@example.com", password=SecretStr(PASSWORD)),
     )
     payload = json.loads(seen[0].content)

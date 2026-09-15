@@ -1,4 +1,4 @@
-"""py_kit.schemas.features — envelopes, refs, registry/upcast totality.
+"""loft_wire.features — envelopes, refs, registry/upcast totality.
 
 The worked example asserted here is docs/design/feature-tree.md §6 verbatim
 (40 x 25 mm rectangle on XY, extruded 10 mm) — the same rows the documents
@@ -9,8 +9,8 @@ import uuid
 from typing import Any, Literal
 
 import pytest
-from py_kit.schemas.drawings import artifact_filename
-from py_kit.schemas.features import (
+from loft_wire.drawings import artifact_filename
+from loft_wire.features import (
     BODY_AFFECTING_FEATURE_TYPES,
     EXPORT_DOCUMENT_NAME_MAX_LENGTH,
     FEATURE_REGISTRY,
@@ -43,7 +43,7 @@ from py_kit.schemas.features import (
     feature_references,
     iter_feature_refs,
 )
-from py_kit.schemas.sketch import SketchDefinition, SketchLine
+from loft_wire.sketch import SketchDefinition, SketchLine
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 SKETCH_ID = uuid.UUID("6f3f6b64-0000-4000-8000-0000000000aa")

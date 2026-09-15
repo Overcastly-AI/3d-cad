@@ -2,7 +2,7 @@
 
 The documents half of the assembly-import pillar (BACKLOG P1, slice 2b). The
 gateway forwards the geometry service's structured read
-(:class:`~py_kit.schemas.step_import.StepAssemblyImportResult` — pure pydantic,
+(:class:`~loft_wire.step_import.StepAssemblyImportResult` — pure pydantic,
 no kernel type) here; this service materialises it into a REAL Loft graph:
 
 * ``has_assembly_structure=True`` → an **assembly** document plus one **part**
@@ -34,11 +34,9 @@ import uuid
 from typing import NamedTuple
 
 from fastapi import APIRouter, status
-from py_kit import ConflictError, ValidationApiError, get_logger
-from py_kit.db import SessionDep
-from py_kit.schemas.features import ImportParamsV1
-from py_kit.schemas.parts import PartResponse
-from py_kit.schemas.step_import import (
+from loft_wire.features import ImportParamsV1
+from loft_wire.parts import PartResponse
+from loft_wire.step_import import (
     MAX_IMPORT_ASSEMBLY_PRODUCTS,
     AssemblyImportResult,
     ImportAssemblyRequest,
@@ -47,6 +45,8 @@ from py_kit.schemas.step_import import (
     StepAssemblyImportResult,
     StepImportResponse,
 )
+from py_kit import ConflictError, ValidationApiError, get_logger
+from py_kit.db import SessionDep
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -170,7 +170,7 @@ def _bodied_products(result: StepAssemblyImportResult) -> list[_BodiedProduct]:
 
     Bodies travel ONCE per content address (``bodies[body_step_id]``), so this is
     where the shared map is resolved — through
-    :meth:`~py_kit.schemas.step_import.StepAssemblyImportResult.body_step_for`, the
+    :meth:`~loft_wire.step_import.StepAssemblyImportResult.body_step_for`, the
     single resolver — and where a product that cannot seed an editable part is
     dropped: no solid (no ``body_step_id``) or an address missing from the map (a
     malformed read). The geometry reader already 422s a file that yields NO solids

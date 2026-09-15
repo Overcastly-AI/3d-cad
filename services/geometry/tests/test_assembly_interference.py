@@ -28,15 +28,15 @@ from geometry.assembly import check_interference
 from geometry.assembly.transform import Pose
 from geometry.kernel.interference import CLASH_VOLUME_FLOOR_MM3
 from geometry.main import app
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     EvaluateAssemblyRequest,
     EvaluatedInstance,
     InterferenceResult,
     Placement,
     Quat,
 )
-from py_kit.schemas.features import EvaluatedFeatureInput, EvaluateTreeRequest
-from py_kit.schemas.geometry import Vec3
+from loft_wire.features import EvaluatedFeatureInput, EvaluateTreeRequest
+from loft_wire.geometry import Vec3
 
 client = TestClient(app)
 

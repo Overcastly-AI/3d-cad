@@ -21,17 +21,17 @@ import pytest
 from fastapi.testclient import TestClient
 from gateway.db import Base
 from gateway.main import GatewaySettings, build_app
-from py_kit import REQUEST_ID_HEADER
-from py_kit.db import async_dsn
-from py_kit.errors import RateLimitExceededError
-from py_kit.ratelimit import RateLimiter, RedisClient
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     ClashPair,
     EvaluateAssemblyRequest,
     EvaluatedInstance,
     InterferenceResult,
 )
-from py_kit.schemas.parts import PRINCIPAL_HEADER
+from loft_wire.parts import PRINCIPAL_HEADER
+from py_kit import REQUEST_ID_HEADER
+from py_kit.db import async_dsn
+from py_kit.errors import RateLimitExceededError
+from py_kit.ratelimit import RateLimiter, RedisClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
 TEST_JWT_SECRET = "unit-test-jwt-secret-0123456789abcdef"

@@ -26,17 +26,17 @@ import math
 from typing import Literal
 
 from build123d import GeomType, Vector
-from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
-from OCP.BRepExtrema import BRepExtrema_DistShapeShape
-from OCP.gp import gp_Pnt
-from OCP.TopoDS import TopoDS_Shape
-from py_kit.schemas.geometry import Vec3
-from py_kit.schemas.measure import (
+from loft_wire.geometry import Vec3
+from loft_wire.measure import (
     EdgeTarget,
     MeasureResult,
     MeasureTarget,
     PointTarget,
 )
+from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+from OCP.gp import gp_Pnt
+from OCP.TopoDS import TopoDS_Shape
 
 from geometry.kernel.types import BodyShape
 

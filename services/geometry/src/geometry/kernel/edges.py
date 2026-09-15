@@ -11,7 +11,7 @@ both resolved here against ``body.edges()`` (OCCT's deterministic traversal):
   ONE edge and leave its neighbour sharp.
 * **Picked edges** (topological naming, design §2.4/§10 — the SECOND
   ``SubshapeRef`` consumer, mirroring :mod:`geometry.kernel.faces`): each edge is
-  named by a stage-1 :class:`~py_kit.schemas.features.EdgeSignature` (curve kind +
+  named by a stage-1 :class:`~loft_wire.features.EdgeSignature` (curve kind +
   canonically-ordered endpoints + midpoint + length), matched
   nearest-within-tolerance, requiring EXACTLY ONE match — so an engineer rounds
   the specific edge they clicked.
@@ -73,15 +73,15 @@ from dataclasses import dataclass
 from typing import Literal
 
 from build123d import Edge, GeomType, Vector
-from OCP.BRepAdaptor import BRepAdaptor_Curve
-from py_kit.schemas.features import (
+from loft_wire.features import (
     AllEdgesSelector,
     AxisParallelEdgesSelector,
     EdgeSelector,
     EdgeSignature,
     PickedEdgesSelector,
 )
-from py_kit.schemas.geometry import Vec3
+from loft_wire.geometry import Vec3
+from OCP.BRepAdaptor import BRepAdaptor_Curve
 
 from geometry.kernel.faces import SubshapeAmbiguousError, SubshapeUnresolvedError
 
@@ -186,7 +186,7 @@ def circle_axis(edge: Edge) -> tuple[float, float, float]:
     """The unit axis of a CIRCULAR edge's plane, from the exact B-rep circle.
 
     The one quantity a circular edge carries that its stage-1
-    :class:`~py_kit.schemas.features.EdgeSignature` cannot: a full circle stores only
+    :class:`~loft_wire.features.EdgeSignature` cannot: a full circle stores only
     its seam and the antipodal midpoint (a diameter), which fixes the centre and the
     radius but NOT the plane. THE single accessor (CLAUDE.md DRY rule), shared by the
     drawings foreshortening flag (:mod:`geometry.drawings.measure` — a circle reads
@@ -343,7 +343,7 @@ _UNRESOLVED_MESSAGE = (
 
 #: Which tier of :func:`resolve_edge_durable` found the edge. Deliberately the
 #: same two words as the drawings wire vocabulary
-#: (:data:`~py_kit.schemas.drawings.DimensionAnchorTier`): what a consumer can DO
+#: (:data:`~loft_wire.drawings.DimensionAnchorTier`): what a consumer can DO
 #: about a match is "it is where you left it" vs "it moved and I followed it".
 EdgeMatchTier = Literal["exact", "durable"]
 

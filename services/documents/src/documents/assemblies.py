@@ -9,7 +9,7 @@ feature-tree.md §1.2 pattern), cross-document integrity enforced at write time
 dense-integer renumbering of the stable instance/mate order.
 
 This service never imports kernel code (CLAUDE.md service boundaries): a mate
-names part geometry with pure-pydantic signatures (:mod:`py_kit.schemas.
+names part geometry with pure-pydantic signatures (:mod:`loft_wire.
 assemblies`), never a kernel type. Acyclicity is a bounded documents-side walk
 over the sub-assembly instance edges (§1.2) — the cross-document analogue of the
 part tree's strict-backward acyclicity — rejected cleanly at write time, never a
@@ -20,9 +20,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Query, status
-from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
-from py_kit.db import SessionDep
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     MAX_ASSEMBLY_INSTANCES,
     MAX_ASSEMBLY_MATES,
     AssemblyBomResponse,
@@ -48,8 +46,10 @@ from py_kit.schemas.assemblies import (
     RefDocumentKind,
     mate_instance_ids,
 )
-from py_kit.schemas.features import EvaluatedFeatureInput
-from py_kit.schemas.materials import MaterialAssignment
+from loft_wire.features import EvaluatedFeatureInput
+from loft_wire.materials import MaterialAssignment
+from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
+from py_kit.db import SessionDep
 from pydantic import TypeAdapter
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError

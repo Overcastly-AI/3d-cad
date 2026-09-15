@@ -3,7 +3,7 @@
 Backs #WS2 — the half of the workspace row #WS1 deliberately did not ship,
 because a folder rail in front of nothing is the over-claiming defect this repo
 keeps closing. Contract and the four decisions behind it:
-:mod:`py_kit.schemas.folders`.
+:mod:`loft_wire.folders`.
 
 Three changes, in one revision because the third is only correct alongside the
 first two:
@@ -47,7 +47,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
-from py_kit.schemas.folders import FOLDER_NAME_MAX_LENGTH
+from loft_wire.folders import FOLDER_NAME_MAX_LENGTH
 
 revision: str = "0015"
 down_revision: str | None = "0014"

@@ -17,7 +17,7 @@ generate the two parts the scaling suite sweeps, on two INDEPENDENT axes:
   (tessellation, the provenance face matcher, export) from tree cost.
 
 The builders emit plain ``dict`` payloads validated by
-:class:`~py_kit.schemas.features.EvaluateTreeRequest`, not kernel objects — no
+:class:`~loft_wire.features.EvaluateTreeRequest`, not kernel objects — no
 OCCT import here, so a builder bug fails as a pydantic 422 at the test, never as
 a mysterious kernel raise.
 

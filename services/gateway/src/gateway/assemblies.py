@@ -21,7 +21,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Query, Request, status
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     AssemblyBomResponse,
     AssemblyCreate,
     AssemblyExtentsResponse,

@@ -67,13 +67,13 @@ from gateway.main import GatewaySettings
 from gateway.main import build_app as build_gateway_app
 from geometry.main import GeometrySettings
 from geometry.main import build_app as build_geometry_app
-from py_kit.db import async_dsn
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     AssemblyExtentsResponse,
     EvaluateAssemblyRequest,
     EvaluateAssemblyResult,
 )
-from py_kit.schemas.parts import PRINCIPAL_HEADER
+from loft_wire.parts import PRINCIPAL_HEADER
+from py_kit.db import async_dsn
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 

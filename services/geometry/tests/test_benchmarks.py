@@ -66,16 +66,16 @@ from geometry.kernel.tessellate import tessellate_glb
 from geometry.overlay import evaluate_overlay
 from geometry.schemas import DEFAULT_LINEAR_DEFLECTION
 from geometry.sketch import PlanegcsSketchSolver
-from py_kit.schemas.assemblies import EvaluateAssemblyRequest
-from py_kit.schemas.drawings import (
+from loft_wire.assemblies import EvaluateAssemblyRequest
+from loft_wire.drawings import (
     ComposeDrawingRequest,
     SheetLayout,
     SheetPoint,
     SheetViewPlacement,
     ViewScale,
 )
-from py_kit.schemas.features import EvaluateTreeRequest
-from py_kit.schemas.overlay import OverlayRequest
+from loft_wire.features import EvaluateTreeRequest
+from loft_wire.overlay import OverlayRequest
 
 _GEO_ROOT = Path(__file__).resolve().parent.parent
 _GOLDENS = _GEO_ROOT / "goldens"

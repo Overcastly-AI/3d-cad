@@ -15,14 +15,14 @@ from typing import Any
 
 import httpx2 as httpx
 from fastapi import APIRouter, Request, status
-from py_kit.schemas.parts import (
+from loft_wire.parts import (
     PRINCIPAL_HEADER,
     PartCreate,
     PartListResponse,
     PartResponse,
     PartUpdate,
 )
-from py_kit.schemas.workspace import DependencyConflictEnvelope
+from loft_wire.workspace import DependencyConflictEnvelope
 
 from gateway.auth import CurrentUser
 from gateway.db import User
@@ -35,7 +35,7 @@ DOCUMENTS_TIMEOUT_S = 10.0
 #: references (parts, assemblies — a drawing is a leaf and has none).
 #:
 #: Declaring the model is what makes the refusal ACTIONABLE end to end: it puts
-#: :class:`~py_kit.schemas.workspace.DocumentDependents` in the OpenAPI contract
+#: :class:`~loft_wire.workspace.DocumentDependents` in the OpenAPI contract
 #: and therefore in the generated TS client, so the register lists the assemblies
 #: and drawings that hold the reference — the whole point of refusing — from a
 #: typed payload instead of hopefully parsing an untyped ``details`` blob.

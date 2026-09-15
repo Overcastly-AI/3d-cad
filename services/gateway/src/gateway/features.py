@@ -28,13 +28,12 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Query, Request, Response, status
-from py_kit import get_logger
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     ARTIFACT_MEDIA_TYPES,
     FlatPatternDxfRequest,
     flat_pattern_filename,
 )
-from py_kit.schemas.features import (
+from loft_wire.features import (
     EvaluateTreeRequest,
     EvaluateTreeResult,
     ExportTreeRequest,
@@ -50,13 +49,14 @@ from py_kit.schemas.features import (
     RollbackBarMove,
     UndoRedoRequest,
 )
-from py_kit.schemas.geometry import (
+from loft_wire.geometry import (
     EXPORT_FORMAT_DESCRIPTION,
     EXPORT_MEDIA_TYPES,
     ExportFormat,
     export_responses,
 )
-from py_kit.schemas.parts import PartEvaluationRecord, PartResponse
+from loft_wire.parts import PartEvaluationRecord, PartResponse
+from py_kit import get_logger
 
 from gateway.affinity import forward_geometry
 from gateway.auth import CurrentUser
@@ -75,7 +75,7 @@ _GEOMETRY = "Geometry"
 
 #: The documented 409 of the feature delete. Declaring the model is what makes
 #: the refusal ACTIONABLE end to end: it puts
-#: :class:`~py_kit.schemas.features.FeatureDependents` in the OpenAPI contract
+#: :class:`~loft_wire.features.FeatureDependents` in the OpenAPI contract
 #: and therefore in the generated TS client, so the feature tree names the
 #: features and drawings that hold the reference instead of printing "2 other
 #: document(s)" (UI-REVIEW 2026-07-30 F3). Same shape as the document-level
@@ -414,7 +414,7 @@ async def export_part(
     # geometry's one slug rule, so what lands in a vendor's Downloads is
     # `motor-mount-bracket.step` rather than a uuid. That name is deliberately
     # NOT on the evaluation request — a name must never be an input to geometry
-    # (`py_kit.schemas.features.DocumentName`) — so it costs a second documents
+    # (`loft_wire.features.DocumentName`) — so it costs a second documents
     # read, here, on an export: the one hop that holds both the verified
     # principal and the thing that produces a file.
     upstream = await forward_documents(

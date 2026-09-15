@@ -18,8 +18,8 @@ from geometry.drawings.anchor import resolve_anchor_edge
 from geometry.kernel.edges import edge_signature_dto, enumerate_edges
 from geometry.kernel.faces import SubshapeAmbiguousError, SubshapeUnresolvedError
 from geometry.kernel.types import BodyShape
-from py_kit.schemas.features import EdgeSignature
-from py_kit.schemas.geometry import Vec3
+from loft_wire.features import EdgeSignature
+from loft_wire.geometry import Vec3
 
 #: Signature-value comparison bound (mm). The bodies below are exact prisms/cylinders,
 #: so a re-anchored edge's endpoints are exact rationals; this absorbs float

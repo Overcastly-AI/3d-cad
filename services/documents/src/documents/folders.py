@@ -3,7 +3,7 @@
 The documents-side half of the register's folder tree. The CONTRACT and the four
 decisions it encodes — per-kind trees, "unfiled" as a real state, per-folder name
 uniqueness, and a non-empty delete that is REFUSED and names its contents — are
-stated once in :mod:`py_kit.schemas.folders`; this module implements them and
+stated once in :mod:`loft_wire.folders`; this module implements them and
 owns the two rules a database cannot express portably:
 
 - **Acyclicity.** A folder may not be moved into itself or into one of its own
@@ -25,11 +25,9 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Query, status
-from py_kit import ConflictError, ValidationApiError, get_logger
-from py_kit.db import SessionDep
-from py_kit.schemas.assemblies import AssemblyResponse
-from py_kit.schemas.drawings import DrawingResponse
-from py_kit.schemas.folders import (
+from loft_wire.assemblies import AssemblyResponse
+from loft_wire.drawings import DrawingResponse
+from loft_wire.folders import (
     MAX_FOLDER_DEPTH,
     DocumentMove,
     FolderContents,
@@ -41,7 +39,9 @@ from py_kit.schemas.folders import (
     FolderRename,
     FolderResponse,
 )
-from py_kit.schemas.parts import PartResponse
+from loft_wire.parts import PartResponse
+from py_kit import ConflictError, ValidationApiError, get_logger
+from py_kit.db import SessionDep
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -280,7 +280,7 @@ async def rename_folder(
 ) -> FolderResponse:
     """Rename a folder (200; 404 unknown/foreign; 409 duplicate sibling name).
 
-    Renaming cannot move — see :class:`~py_kit.schemas.folders.FolderRename`.
+    Renaming cannot move — see :class:`~loft_wire.folders.FolderRename`.
     """
     folder = await get_owned_folder(session, owner_id, folder_id)
     kind = folder_kind(folder)
@@ -333,7 +333,7 @@ async def delete_folder(
     """Delete an EMPTY folder (204); 409 naming its contents when it is not.
 
     Not a cascade and not an orphan-to-root: see
-    :mod:`py_kit.schemas.folders` for why refusal is the only one of the three
+    :mod:`loft_wire.folders` for why refusal is the only one of the three
     that neither destroys work the user never named nor moves it somewhere they
     were not told about. The refusal lists what is inside, because the caller's
     next action is to move those things out and a count would not tell them
@@ -386,7 +386,7 @@ async def _move_document(
     """File (or un-file) one document — the shared body of the three routes.
 
     Two things it deliberately does NOT do, both for the same reason (filing is
-    not a document edit — see :class:`~py_kit.schemas.folders.DocumentMove`):
+    not a document edit — see :class:`~loft_wire.folders.DocumentMove`):
 
     - it does not bump ``tree_version``/``doc_version``, so a move cannot
       invalidate a recorded evaluate or lose a concurrent editor their write;

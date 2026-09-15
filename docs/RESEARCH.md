@@ -354,7 +354,7 @@ it or any GPL dependency into this MIT codebase. LGPL dynamic deps are fine.
 The solver stays behind the `SketchSolver` protocol
 (`geometry.sketch.solver`); callers import the interface package, never
 `planegcs`. The sketch DTOs are pure pydantic (no kernel, no solver types)
-and migrate to `py_kit.schemas` when the sketch API lands.
+and migrate to `loft_wire` when the sketch API lands.
 
 ## 3. Architecture — monorepo of microservices, contract-first, DRY
 
@@ -370,8 +370,10 @@ services/
                   # Stateless, CPU-bound, scaled horizontally, fed by a job queue.
   documents/      # Parts/assemblies as parametric feature trees; versioning. Postgres.
 packages/
-  py-kit/         # Shared Python: pydantic models, errors, logging, health,
-                  # queue client, service bootstrap. Every service builds on it.
+  loft-wire/      # The WIRE TYPES (`loft_wire`): the pydantic models that cross a
+                  # service boundary. Depends on pydantic and NOTHING else — see §3b.
+  py-kit/         # Shared Python services kit: errors, logging, health, metrics,
+                  # queue client, service bootstrap. Every SERVICE builds on it.
   loft-script/    # PUBLIC Python scripting API (`import loft`). A CLIENT of the
                   # gateway, exactly like apps/web — see §3a.
   ts-client/      # TypeScript API client GENERATED from the OpenAPI specs.
@@ -383,7 +385,7 @@ docs/             # This direction layer
 .claude/          # Agent org: agents, skills, workflows
 ```
 
-**The DRY rule (non-negotiable):** pydantic models in `py-kit`/service DTOs
+**The DRY rule (non-negotiable):** pydantic models in `loft-wire`/service DTOs
 are the single source of truth. OpenAPI is generated from them; the TS client
 is generated from the OpenAPI; the frontend imports only `@loft/ts-client`
 types. Hand-written duplicate types in TS or between services are a defect.
@@ -434,7 +436,7 @@ gone:
    recording cannot make it vacuously true.
 
 **Types are IMPORTED, not generated — the asymmetry with `packages/ts-client`
-is deliberate.** `py_kit.schemas.*` holds the pydantic models the services
+is deliberate.** `loft_wire.*` holds the pydantic models the services
 serve, and the Python client imports those classes. TypeScript cannot read a
 pydantic model, which is the *only* reason `ts-client` re-materialises the wire
 types; Python has no such constraint, so deriving a second set of Python DTOs
@@ -448,13 +450,101 @@ declares — because that lives in FastAPI decorators; that, and only that, is
 generated.
 
 **Consequence for py-kit.** The auth DTOs moved from `gateway.auth.schemas` to
-`py_kit.schemas.auth` when this landed. They were gateway-local with an
+the shared DTO package when this landed. They were gateway-local with an
 explicit note to extract on the second real use; the scripting client is that
 use, and a CLIENT importing the SERVICE package to speak its own contract would
 invert the dependency (pulling FastAPI, SQLAlchemy, asyncpg and argon2 into a
 library whose whole point is that it is just an HTTP caller). The gateway
 remains the auth service (§3); only the shapes moved, and the regenerated
 OpenAPI is byte-identical, which is the proof the move was wire-neutral.
+
+That reasoning was right and its DESTINATION was not: `py_kit.schemas` avoided
+argon2 and asyncpg and did not avoid FastAPI, uvicorn, SQLAlchemy, arq or redis.
+§3b is the correction.
+
+## 3b. The wire types are their own distribution — decision record (2026-09-15)
+
+**Decision:** the pydantic models that cross a Loft service boundary live in
+`packages/loft-wire` (`import loft_wire`), a distribution whose dependencies are
+`pydantic` and `email-validator` and nothing else. `loft-py-kit` depends on it;
+`loft-script` depends on it; the arrow never points back.
+
+**The defect it fixes.** §3a moved the auth DTOs into `py_kit.schemas` so the
+scripting client would not have to import the gateway, and the paragraph above
+names exactly why: a client importing a service package "would invert the
+dependency (pulling FastAPI, SQLAlchemy, asyncpg and argon2 into a library whose
+whole point is that it is just an HTTP caller)". The destination had the same
+disease in a milder form. Every module under `py_kit.schemas` imported nothing
+but pydantic and the standard library — but `loft-py-kit` the DISTRIBUTION
+declares FastAPI, uvicorn, SQLAlchemy, alembic, arq, redis and
+prometheus-client, because the rest of `py_kit` is a service kit and genuinely
+needs them. **A dependency is a property of the distribution, not of the
+module**, so the clean modules did not help: measured, `pip install loft-script`
+resolved **33 distributions**, including a web server, an async ORM, a task
+queue and a Redis client, into what is meant to sit next to numpy in a
+modelling script's venv. After the split: **15** — nineteen distributions gone
+(`fastapi`, `uvicorn`, `starlette`, `sqlalchemy`, `greenlet`, `alembic`, `mako`,
+`markupsafe`, `arq`, `redis`, `hiredis`, `pyjwt`, `click`, `structlog`,
+`prometheus-client`, `pydantic-settings`, `python-dotenv`, `annotated-doc`,
+`loft-py-kit`) and one added (`loft-wire`).
+
+That number matters beyond tidiness: the MCP server (Phase 5) is built on this
+library and would have inherited the weight, and a modelling API that
+installs uvicorn undercuts the product's own claim that "the modeling API *is*
+Python" rather than a bolted-on macro language.
+
+**Why a distribution rather than an extra.** The cheaper shape is
+`loft-py-kit[server]`: bare install is schemas-only, the services depend on the
+extra. It was rejected because it leaves a package whose bare install cannot
+import its own top-level module — `pip install loft-py-kit && python -c "import
+py_kit"` would raise — and because nothing in the metadata would then be TRUE:
+the declared dependencies of the bare distribution would not cover what its own
+modules import, so no tool and no gate could tell a correct state from a broken
+one. The split costs one distribution and a mechanical import rename; it buys
+metadata that is honest in both directions, which is the property a gate can
+stand on.
+
+**Where the boundary is enforced.** Both halves, each with a count floor,
+because a walk that finds nothing makes "all of them are fine" vacuously true:
+
+- `packages/loft-wire/tests/test_wire_dependency_closure.py` — AST-walks every
+  module under `loft_wire` and fails on any import that is not stdlib or a
+  declared dependency, with `py_kit`, `fastapi`, `sqlalchemy`, `starlette`,
+  `OCP` and `build123d` named individually so a failure says which boundary
+  broke. Read from SOURCE, not from `sys.modules`: an import-based check sees
+  only what the test process happened to load, and this defect class is
+  precisely a dependency present for reasons unrelated to the module.
+- `packages/loft-script/tests/test_install_weight.py` — walks the DECLARED
+  first-party closure and fails if any server distribution is reachable from
+  `loft-script`. This is the layer the original defect lived in, and it is
+  invisible to an AST walk: a transitive dependency changes no import line.
+
+**The one edge that had to be inverted.** `FeatureError.model_post_init` counts
+every feature failure, and the counter is a Prometheus metric in
+`py_kit.metrics` — a wire type importing the service kit, the only such edge in
+the subtree. It is now an observer registry (`loft_wire.instrument`): the wire
+publishes, `py_kit.metrics` registers `record_feature_error` at import time, and
+a process that imports only `loft_wire` gets a no-op list. The inversion creates
+its own hazard and that module's docstring names it — an unregistered observer
+is a FLAT LINE, which reads as "nothing is failing" rather than "nothing is
+counting", the same defect the instrumentation existed to prevent, moved one
+step. Two things hold it down: `py_kit/__init__.py` imports `py_kit.metrics`, so
+any process that touches py-kit at all has wired it before it can build a DTO;
+and `packages/py-kit/tests/test_metrics.py` asserts the counter moves when a
+`FeatureError` is CONSTRUCTED, which is a test of the WIRING, not of the
+recorder.
+
+**Wire-neutrality, verified rather than assumed.** FastAPI names a component
+after the model CLASS, so moving classes between modules is wire-neutral only if
+the class objects are the same ones — which a rename makes true and which is
+still worth measuring. With every `description` stripped, the three regenerated
+OpenAPI documents are **identical** to their committed predecessors: same paths,
+same operationIds, same component names, same field names, types, enums and
+required sets, and `loft/_operations.py` regenerates byte-identical. 59
+`description` strings did change, in all three documents, and every one is
+exactly the `py_kit.schemas` -> `loft_wire` substitution — docstring
+cross-references that would otherwise name a module that no longer exists. The
+set of description keys is unchanged, so none appeared or disappeared.
 
 ## 4. Data & messaging
 
@@ -630,7 +720,7 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   2026-07-31).
 - **A file outlives the screen that explained it.** Anything a user downloads is
   named after its DOCUMENT — filename and, where the format has one, the product
-  name inside — through one slug rule (`py_kit.schemas.features.document_slug`),
+  name inside — through one slug rule (`loft_wire.features.document_slug`),
   falling back to an id so an unnamed export still cannot collide. The name rides
   the EXPORT request only, never an evaluate request: a name must not be an input
   to geometry (finding N4).
@@ -688,7 +778,7 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   multi-body part AND breaks its in-process byte determinism.
   Mesh exports (STL/3MF/GLB) still go through build123d/lib3mf; only STEP is ours.
 - **Each export format declares its OWN length unit, and `EXPORT_UNITS` is the
-  single place that says which** (`py_kit.schemas.geometry`; EXPORT-2). STEP,
+  single place that says which** (`loft_wire.geometry`; EXPORT-2). STEP,
   STL and 3MF are millimetres and Z-up; **glTF/GLB is metres and Y-up by
   specification**, so its payload is the mm geometry / 1000 with a node
   transform doing the axis change. The gate is not "the file parses" but **the
@@ -753,7 +843,7 @@ comes from), and a body with **no material reports NO mass — null, never 0 g
 and never a defaulted steel**. Assignment is a per-document default plus
 per-body overrides keyed by the body's §MB-0 base feature id. Full design +
 rationale: `docs/design/materials.md`; the library (7 handbook densities) lives
-in `py_kit.schemas.materials` and is SERVED (`GET /api/v1/materials`) rather
+in `loft_wire.materials` and is SERVED (`GET /api/v1/materials`) rather
 than duplicated client-side.
 
 **Why it is an architecture decision, not a field:** it is the first input to
@@ -789,7 +879,7 @@ of instances + mates, not an ordered single-body history, so the part model's
 strict-backward / single-body-chain / strict-prefix invariants do not apply.
 It **reuses the part model's patterns** (owner-scoped auth, uniform-404,
 optimistic-concurrency `version` counter, alembic-only DDL, and the
-pydantic→OpenAPI→ts-client DRY flow via a new `py_kit.schemas.assemblies`
+pydantic→OpenAPI→ts-client DRY flow via a new `loft_wire.assemblies`
 sibling of `schemas.features`) but not its tables. Instances reference a part
 or sub-assembly document **by id**; sub-assemblies nest and are **rigid** in v1.
 
@@ -897,7 +987,7 @@ type** in `services/documents` (its own `drawings`/`sheets`/`views`/`dimensions`
 assembly. A drawing is a *layout* (sheets of views + dimensions + annotations that
 reference a part/assembly **by id**), so it reuses the assembly patterns
 (owner-scoped auth, uniform-404, OCC `version`, alembic-only DDL, the
-pydantic→OpenAPI→ts-client DRY flow via a new `py_kit.schemas.drawings` sibling of
+pydantic→OpenAPI→ts-client DRY flow via a new `loft_wire.drawings` sibling of
 `schemas.assemblies`) but not its tables. It is a pure **leaf consumer** — nothing
 references a drawing, so no acyclicity walk is needed. **Version pinning** carries
 the *identical honest constraint* as assemblies (§10 / assemblies §1.3):
@@ -972,7 +1062,7 @@ few manual linear/diameter/radius/angular dimensions referencing `EdgeSignature`
 on-face and offset-datum coordinate conventions were undocumented traps for
 the future scripting/MCP surface. Every claim below is read directly off the
 current kernel source (`geometry/kernel/datum.py`, `geometry/kernel/faces.py`,
-`py_kit/schemas/features.py`'s `DatumOffsetParams`/`DatumOnFaceParams`), not
+`loft_wire/features.py`'s `DatumOffsetParams`/`DatumOnFaceParams`), not
 inferred — including two live checks against the installed `build123d` to
 pin exact signs.
 

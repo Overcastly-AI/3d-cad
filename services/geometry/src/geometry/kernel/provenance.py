@@ -133,6 +133,10 @@ from dataclasses import dataclass
 from typing import NamedTuple
 
 from build123d import CenterOf, Face, GeomType
+
+# The documented work bound of ONE attribution pass (audit H4) — declared with the
+# overlay DTO it governs, exactly like the G2 per-request bounds.
+from loft_wire.overlay import MAX_PROVENANCE_FACES
 from OCP.Bnd import Bnd_Box
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.BRepBndLib import BRepBndLib
@@ -140,10 +144,6 @@ from OCP.GeomAbs import GeomAbs_SurfaceType
 from OCP.TopAbs import TopAbs_ShapeEnum
 from OCP.TopExp import TopExp_Explorer
 from OCP.TopoDS import TopoDS, TopoDS_Shape
-
-# The documented work bound of ONE attribution pass (audit H4) — declared with the
-# overlay DTO it governs, exactly like the G2 per-request bounds.
-from py_kit.schemas.overlay import MAX_PROVENANCE_FACES
 
 # The SAME documented stage-1 face tolerances the signature matcher uses
 # (geometry.kernel.faces) — reused, not re-declared (CLAUDE.md: no ad-hoc
@@ -701,7 +701,7 @@ def attribute_faces(
 
     BOUNDED (audit H4). The pass is skipped, returning all-``None``, when the total
     fingerprint budget ``len(final faces) + sum(len(snapshot faces))`` exceeds
-    :data:`~py_kit.schemas.overlay.MAX_PROVENANCE_FACES` — the SAME arithmetic and
+    :data:`~loft_wire.overlay.MAX_PROVENANCE_FACES` — the SAME arithmetic and
     the same crossing points as before (docs/PERF.md 2026-07-31b: the old 8 000
     crossed at N ~= 103 features, the re-derived 30 000 at N ~= 207), now charged
     by the recorder BEFORE the work rather than after it, so a refusal is free.

@@ -28,7 +28,7 @@ build twice. So:
 
 Where the types come from
 -------------------------
-The DTOs are ``py_kit.schemas.*`` — the very pydantic models the services
+The DTOs are ``loft_wire.*`` — the very pydantic models the services
 serve. They are imported, not regenerated: Python can read a pydantic model, so
 deriving a second set of Python classes from an OpenAPI document that was
 itself derived from those classes would lose information and add a drift
@@ -49,8 +49,8 @@ at a time never depends on state it cannot reconstruct.
 
 from __future__ import annotations
 
-from py_kit.schemas.geometry import ExportFormat, ShapeProperties
-from py_kit.schemas.sketch import Point2D, SolvedSketch
+from loft_wire.geometry import ExportFormat, ShapeProperties
+from loft_wire.sketch import Point2D, SolvedSketch
 
 from loft._operation import Operation
 from loft.errors import (

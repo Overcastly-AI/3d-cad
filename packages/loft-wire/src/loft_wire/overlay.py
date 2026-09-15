@@ -4,14 +4,14 @@ Single source of truth (CLAUDE.md DRY rule) for the stateless overlay query
 the geometry service serves at ``POST /api/v1/overlay`` and the gateway proxies
 at ``POST /api/v1/geometry/overlay``. Pure pydantic only — kernel types never
 appear here (CLAUDE.md service boundaries). Units are millimetres; coordinates
-are in the SAME world space as :mod:`py_kit.schemas.measure` (OCCT-native mm,
+are in the SAME world space as :mod:`loft_wire.measure` (OCCT-native mm,
 Z-up), so a vertex snapped from an overlay can be sent straight back as a
-:class:`py_kit.schemas.measure.PointTarget`.
+:class:`loft_wire.measure.PointTarget`.
 
 Why this endpoint exists (feature-tree measurement pickability, BACKLOG #6b):
 the measurement UI needs (a) EXACT vertex coordinates to snap to and (b) each
 edge's transient index — and that index MUST equal the ``body.edges()``
-position the measure endpoint resolves an :class:`~py_kit.schemas.measure.
+position the measure endpoint resolves an :class:`~loft_wire.measure.
 EdgeTarget` against, or an edge measurement would silently target the wrong
 edge. Both the overlay and the measure endpoint enumerate the SAME
 ``body.edges()`` list of the SAME recomputed body, so ``edges[i]`` here IS the
@@ -31,16 +31,16 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from py_kit.schemas.features import (
+from loft_wire.features import (
     EdgeSignature,
     EvaluateTreeRequest,
     PlanarFaceSignature,
 )
-from py_kit.schemas.geometry import Vec3
+from loft_wire.geometry import Vec3
 
 # --- Per-request work bound (engineering audit 2026-07-25 H4) --------------------
 #
-# Same posture as the G2 bounds in py_kit.schemas.features: the rate limiter caps
+# Same posture as the G2 bounds in loft_wire.features: the rate limiter caps
 # request FREQUENCY, these cap the WORK one authenticated request can demand.
 # Unlike the G2 bounds this one cannot be a parse-time ceiling — the face count is
 # an OUTPUT of evaluation, not an input — so it is enforced where the work happens
@@ -105,7 +105,7 @@ class OverlayEdge(BaseModel):
 
     The list position of this edge in :attr:`OverlayResult.edges` is its
     transient 0-based index — the SAME ordinal ``body.edges()`` yields, so
-    passing it as :class:`~py_kit.schemas.measure.EdgeTarget` ``index`` measures
+    passing it as :class:`~loft_wire.measure.EdgeTarget` ``index`` measures
     THIS edge. The transient index is for MEASUREMENT; the STABLE, rebuild-
     surviving reference is :attr:`signature` (topological naming) — echo it into
     an ``EdgeSubshapeRef`` to fillet/chamfer exactly this edge.
@@ -140,7 +140,7 @@ class OverlayFace(BaseModel):
     """One face of the evaluated body — pickable for a sketch datum-on-a-face.
 
     A PLANAR face carries a stage-1
-    :class:`~py_kit.schemas.features.PlanarFaceSignature` — the SAME fingerprint
+    :class:`~loft_wire.features.PlanarFaceSignature` — the SAME fingerprint
     a datum-on-face ``SubshapeRef`` stores and the geometry resolver matches
     against (one enumeration: the pick side and the resolve side share
     ``geometry.kernel.faces.planar_faces``; an order-equality gate proves it). To

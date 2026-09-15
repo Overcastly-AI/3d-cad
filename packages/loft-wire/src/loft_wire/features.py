@@ -11,7 +11,7 @@ types never appear here (CLAUDE.md service boundaries).
 
 Units are fixed per field, never tagged per value (design §8.2): lengths are
 millimetres, encoded in field names (``distance_mm``) exactly as
-:mod:`py_kit.schemas.geometry` does.
+:mod:`loft_wire.geometry` does.
 """
 
 import re
@@ -29,8 +29,7 @@ from pydantic import (
     model_validator,
 )
 
-from py_kit.metrics import record_feature_error
-from py_kit.schemas.geometry import (
+from loft_wire.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
     EXPORT_FORMAT_DESCRIPTION,
@@ -41,8 +40,9 @@ from py_kit.schemas.geometry import (
     ShapeProperties,
     Vec3,
 )
-from py_kit.schemas.materials import MaterialAssignment, MaterialKey
-from py_kit.schemas.sketch import (
+from loft_wire.instrument import notify_feature_error
+from loft_wire.materials import MaterialAssignment, MaterialKey
+from loft_wire.sketch import (
     EntityId,
     SketchConstraintDiagnosis,
     SketchDefinition,
@@ -757,7 +757,7 @@ class SketchParamsV1(SketchDefinition):
     ``{datum}``); the stored shape is unchanged, so this is purely additive — no
     ``param_version`` bump.
 
-    Extends :class:`py_kit.schemas.sketch.SketchDefinition` (typed
+    Extends :class:`loft_wire.sketch.SketchDefinition` (typed
     ``entities``/``constraints`` — the §1.4 placeholder finalized by the
     "Sketch model + solver API" item), so a persisted sketch's params ARE
     valid solver input: same validation (unique sketch-local entity ids per
@@ -3770,7 +3770,7 @@ class FeatureDependent(BaseModel):
     """One thing that breaks if a feature is deleted.
 
     ``name`` rides beside the id for the same reason it does on
-    :class:`~py_kit.schemas.workspace.DocumentDependent`: the reader is a person
+    :class:`~loft_wire.workspace.DocumentDependent`: the reader is a person
     who named these things, and "referenced by 2 other document(s)" — which is
     what this refusal used to say — ends the conversation instead of starting
     the next action.
@@ -4159,8 +4159,8 @@ def export_tree_filename(request: ExportTreeRequest) -> str:
 
 
 # CONSTRUCTING A ``FeatureError`` IS INSTRUMENTED (see ``model_post_init`` below:
-# :func:`py_kit.metrics.record_feature_error`), which is a side effect on a DTO
-# and therefore owes an explanation. The alternative is a ``.inc()`` beside each
+# :func:`loft_wire.instrument.notify_feature_error`), which is a side effect on a
+# DTO and therefore owes an explanation. The alternative is a ``.inc()`` beside each
 # of the ~85 ``FeatureError(code=…)`` sites across the kernel handlers — and the
 # 86th, written next month by someone who has never read this file, would
 # silently not be counted. That is this repo's "a gate that cannot fail" defect
@@ -4175,6 +4175,14 @@ def export_tree_filename(request: ExportTreeRequest) -> str:
 # Each service exports its own ``/metrics``, so the two are distinct series —
 # attribute failures to the geometry job and do not sum across jobs.
 # ``docs/OBSERVABILITY.md`` says so where an operator will read it.
+#
+# The notification is INDIRECT — an observer registry in :mod:`loft_wire.instrument`
+# rather than a direct ``py_kit.metrics`` import — because this module ships in a
+# distribution whose only dependency is pydantic, and a Prometheus counter would
+# have dragged ``prometheus_client``, FastAPI and ``pydantic-settings`` back into
+# it. That module's docstring names the hazard the indirection creates (an
+# unregistered observer is a flat line, which is this same defect one step
+# removed) and the two things that hold it down.
 #
 # The rationale lives in a COMMENT, not the docstring, on purpose: a model
 # docstring is the ``description`` of this schema in ``packages/contracts`` and
@@ -4203,7 +4211,7 @@ class FeatureError(BaseModel):
 
     def model_post_init(self, context: Any, /) -> None:
         """Count this failure by code (see the comment above the class)."""
-        record_feature_error(self.code)
+        notify_feature_error(self.code)
 
 
 class SolvedSketchData(SolvedSketch):

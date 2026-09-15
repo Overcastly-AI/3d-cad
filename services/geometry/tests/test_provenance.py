@@ -30,8 +30,8 @@ from geometry.kernel import FaceProvenance, attribute_faces, provenance
 from geometry.kernel.provenance import FaceFingerprint
 from geometry.kernel.types import BodyShape
 from geometry.main import app
-from py_kit.schemas.features import EvaluateTreeRequest
-from py_kit.schemas.overlay import OverlayRequest, OverlayResult
+from loft_wire.features import EvaluateTreeRequest
+from loft_wire.overlay import OverlayRequest, OverlayResult
 
 client = TestClient(app)
 

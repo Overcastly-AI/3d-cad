@@ -14,7 +14,7 @@ import uuid
 from typing import Any
 
 import pytest
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     MAX_ASSEMBLY_INSTANCES,
     MAX_ASSEMBLY_MATES,
     MAX_INTERFERENCE_INSTANCES,
@@ -23,7 +23,7 @@ from py_kit.schemas.assemblies import (
     EvaluatedMate,
     LockMate,
 )
-from py_kit.schemas.features import (
+from loft_wire.features import (
     MAX_LOFT_SECTIONS,
     MAX_PATTERN_COUNT,
     MAX_SELECTOR_REFS,
@@ -32,7 +32,7 @@ from py_kit.schemas.features import (
     LinearPatternParamsV1,
     LoftParamsV1,
 )
-from py_kit.schemas.geometry import (
+from loft_wire.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
     MIN_ANGULAR_DEFLECTION,
@@ -41,7 +41,7 @@ from py_kit.schemas.geometry import (
     TessellateRequest,
     Vec3,
 )
-from py_kit.schemas.sketch import (
+from loft_wire.sketch import (
     MAX_SKETCH_CONSTRAINTS,
     MAX_SKETCH_ENTITIES,
     MAX_SPLINE_POINTS,
@@ -49,7 +49,7 @@ from py_kit.schemas.sketch import (
     SketchEditRequest,
     SketchSpline,
 )
-from py_kit.schemas.step_import import (
+from loft_wire.step_import import (
     MAX_IMPORT_ASSEMBLY_PRODUCTS,
     StepAssemblyImportRequest,
 )
@@ -162,14 +162,14 @@ def _tree_payload(feature_count: int) -> dict[str, Any]:
 
 
 def test_evaluate_tree_features_over_ceiling_rejected() -> None:
-    from py_kit.schemas.features import EvaluateTreeRequest
+    from loft_wire.features import EvaluateTreeRequest
 
     with pytest.raises(ValidationError):
         EvaluateTreeRequest.model_validate(_tree_payload(MAX_TREE_FEATURES + 1))
 
 
 def test_evaluate_tree_features_at_ceiling_accepted() -> None:
-    from py_kit.schemas.features import EvaluateTreeRequest
+    from loft_wire.features import EvaluateTreeRequest
 
     request = EvaluateTreeRequest.model_validate(_tree_payload(MAX_TREE_FEATURES))
     assert len(request.features) == MAX_TREE_FEATURES
@@ -188,7 +188,7 @@ def test_loft_profiles_over_ceiling_rejected() -> None:
 
 
 def test_edge_selector_refs_over_ceiling_rejected() -> None:
-    from py_kit.schemas.features import PickedEdgesSelector
+    from loft_wire.features import PickedEdgesSelector
 
     ref = {
         "kind": "subshape",
@@ -310,7 +310,7 @@ def _drawing_payload(views: int) -> dict[str, Any]:
 
 
 def test_drawing_views_over_ceiling_rejected() -> None:
-    from py_kit.schemas.drawings import MAX_DRAWING_VIEWS, EvaluateDrawingViewsRequest
+    from loft_wire.drawings import MAX_DRAWING_VIEWS, EvaluateDrawingViewsRequest
 
     with pytest.raises(ValidationError):
         EvaluateDrawingViewsRequest.model_validate(
@@ -319,7 +319,7 @@ def test_drawing_views_over_ceiling_rejected() -> None:
 
 
 def test_drawing_dimensions_over_ceiling_rejected() -> None:
-    from py_kit.schemas.drawings import (
+    from loft_wire.drawings import (
         MAX_DRAWING_DIMENSIONS,
         EvaluateDrawingViewsRequest,
     )
@@ -352,7 +352,7 @@ def test_drawing_sheets_over_ceiling_rejected() -> None:
     delete route) serializes the WHOLE sheet tree, so the read model is bounded;
     documents carries the `sheet_limit_exceeded` write twin so a stored drawing
     can never grow past what its own response model parses."""
-    from py_kit.schemas.drawings import MAX_DRAWING_SHEETS, DrawingTreeResponse
+    from loft_wire.drawings import MAX_DRAWING_SHEETS, DrawingTreeResponse
 
     now = "2026-07-25T00:00:00Z"
     sheet: dict[str, Any] = {

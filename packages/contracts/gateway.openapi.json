@@ -437,7 +437,7 @@
         "type": "object"
       },
       "AssemblyResponse": {
-        "description": "An assembly as stored \u2014 identity, ownership, and its concurrency token.\n\nMirrors :class:`~py_kit.schemas.parts.PartResponse` plus the ``doc_version``\nOCC counter. The full instance/mate graph rides :class:`AssemblyGraphResponse`.",
+        "description": "An assembly as stored \u2014 identity, ownership, and its concurrency token.\n\nMirrors :class:`~loft_wire.parts.PartResponse` plus the ``doc_version``\nOCC counter. The full instance/mate graph rides :class:`AssemblyGraphResponse`.",
         "properties": {
           "created_at": {
             "format": "date-time",
@@ -459,7 +459,7 @@
                 "type": "null"
               }
             ],
-            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
+            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see loft_wire.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
             "title": "Folder Id"
           },
           "id": {
@@ -582,7 +582,7 @@
         "type": "object"
       },
       "AssemblyUndoRedoRequest": {
-        "description": "Restore the adjacent assembly history snapshot (undo-redo.md UR3).\n\nThe assembly sibling of the part's\n:class:`~py_kit.schemas.features.UndoRedoRequest`: undo/redo ARE document\nedits \u2014 each bumps ``doc_version`` under the same optimistic-concurrency\nguard as every other assembly write (stale \u2192 422,\n``stale_assembly_version``), and the response is the restored graph\n(instance/mate ids preserved VERBATIM \u2014 the load-bearing snapshot\ndecision). At a boundary \u2014 undo at the ring's floor, redo at its top \u2014\nthe op is a CLEAN no-op, not an error: 200 with the current graph,\nversion unchanged. ``can_undo``/``can_redo`` on\n:class:`AssemblyGraphResponse` let the UI disable the controls, so a\nclick racing that state is harmless.",
+        "description": "Restore the adjacent assembly history snapshot (undo-redo.md UR3).\n\nThe assembly sibling of the part's\n:class:`~loft_wire.features.UndoRedoRequest`: undo/redo ARE document\nedits \u2014 each bumps ``doc_version`` under the same optimistic-concurrency\nguard as every other assembly write (stale \u2192 422,\n``stale_assembly_version``), and the response is the restored graph\n(instance/mate ids preserved VERBATIM \u2014 the load-bearing snapshot\ndecision). At a boundary \u2014 undo at the ring's floor, redo at its top \u2014\nthe op is a CLEAN no-op, not an error: 200 with the current graph,\nversion unchanged. ``can_undo``/``can_redo`` on\n:class:`AssemblyGraphResponse` let the UI disable the controls, so a\nclick racing that state is harmless.",
         "properties": {
           "expected_version": {
             "description": "Optimistic-concurrency guard (design \u00a71.2)",
@@ -802,7 +802,7 @@
         "type": "object"
       },
       "BodyMaterialAssignment": {
-        "description": "A per-BODY material override, keyed by the body's \u00a7MB-0 identity.\n\n``base_feature_id`` is the id of the feature that CREATED the body \u2014 the\nsame key ``EvaluationState.bodies`` and\n:class:`~py_kit.schemas.features.BodyLumpInfo` use \u2014 so an override survives\nedits to other features the way any body reference does. An override naming\na body the tree no longer produces is inert (it matches nothing); it is not\nan error, because a rolled-back tree legitimately hides the body for a while.",
+        "description": "A per-BODY material override, keyed by the body's \u00a7MB-0 identity.\n\n``base_feature_id`` is the id of the feature that CREATED the body \u2014 the\nsame key ``EvaluationState.bodies`` and\n:class:`~loft_wire.features.BodyLumpInfo` use \u2014 so an override survives\nedits to other features the way any body reference does. An override naming\na body the tree no longer produces is inert (it matches nothing); it is not\nan error, because a rolled-back tree legitimately hides the body for a while.",
         "properties": {
           "base_feature_id": {
             "description": "Id of the feature that created the body (its MB-0 identity)",
@@ -2028,7 +2028,7 @@
         "type": "object"
       },
       "ComposedView": {
-        "description": "One placed view on the sheet \u2014 its edges, dimensions, caption (design \u00a74.2).\n\n``failed`` marks a view with no projection (an HLR failure or an absent\nresult): the serializer stamps a \"VIEW FAILED\" placeholder at ``anchor`` and\n``edges``/``dimensions`` are empty. ``anchor`` is the view-centre in SVG space\n(the placeholder + caption reference it); ``label``/``label_pos`` are the\nstamped caption (\"FRONT\") and its position.\n\n``error`` carries the TYPED per-view failure through composition (FINDINGS #15):\nthe :class:`~py_kit.schemas.features.FeatureError` (code + human message) from the\nsource :class:`DrawingViewResult` \u2014 a ``view_projection_failed`` /\n``section_plane_not_principal`` / ``section_empty`` /\n``flat_pattern_not_sheet_metal`` / ``section_params_missing`` \u2014 so the sheet/print\ncan show WHY a view is empty instead of a bare \"VIEW FAILED\". Null on success and\non an ABSENT result (a requested view with no evaluation, ``failed`` set but no\ntyped reason to carry).",
+        "description": "One placed view on the sheet \u2014 its edges, dimensions, caption (design \u00a74.2).\n\n``failed`` marks a view with no projection (an HLR failure or an absent\nresult): the serializer stamps a \"VIEW FAILED\" placeholder at ``anchor`` and\n``edges``/``dimensions`` are empty. ``anchor`` is the view-centre in SVG space\n(the placeholder + caption reference it); ``label``/``label_pos`` are the\nstamped caption (\"FRONT\") and its position.\n\n``error`` carries the TYPED per-view failure through composition (FINDINGS #15):\nthe :class:`~loft_wire.features.FeatureError` (code + human message) from the\nsource :class:`DrawingViewResult` \u2014 a ``view_projection_failed`` /\n``section_plane_not_principal`` / ``section_empty`` /\n``flat_pattern_not_sheet_metal`` / ``section_params_missing`` \u2014 so the sheet/print\ncan show WHY a view is empty instead of a bare \"VIEW FAILED\". Null on success and\non an ABSENT result (a requested view with no evaluation, ``failed`` set but no\ntyped reason to carry).",
         "properties": {
           "anchor": {
             "$ref": "#/components/schemas/ComposedPoint",
@@ -2646,7 +2646,7 @@
         "type": "object"
       },
       "DimensionCreate": {
-        "description": "Add a dimension to a view (append at the tip; design \u00a73).\n\n``dimension`` is the discriminated :data:`Dimension` union; its geometry\nreferences (via :class:`~py_kit.schemas.features.EdgeSignature`) resolve\nagainst the view's referenced body geometry-side. ``order_index`` is stable\nper sheet, appended at the tip.",
+        "description": "Add a dimension to a view (append at the tip; design \u00a73).\n\n``dimension`` is the discriminated :data:`Dimension` union; its geometry\nreferences (via :class:`~loft_wire.features.EdgeSignature`) resolve\nagainst the view's referenced body geometry-side. ``order_index`` is stable\nper sheet, appended at the tip.",
         "properties": {
           "dimension": {
             "description": "The dimension (discriminated on `type`)",
@@ -3083,7 +3083,7 @@
         "type": "object"
       },
       "DrawingBomLine": {
-        "description": "One NUMBERED line of a drawing's bill of materials (design \u00a77 BOM).\n\nThe shipped assembly :class:`~py_kit.schemas.assemblies.BomLine` (group key +\nresolved name + `missing` + quantity, reused VERBATIM \u2014 no parallel taxonomy)\nplus the one thing a *drawing* adds: the ``item_number`` a balloon stamps.\n\n``item_number`` is **derived**, not authored: lines are numbered 1..n in the\norder each referenced document FIRST appears in the assembly's stable instance\n``order_index``. It is therefore a pure function of the assembly graph \u2014 two\nreads of an unchanged assembly number identically, and a part RENAME (which\nre-sorts the name-ordered assembly BOM) leaves every number untouched.",
+        "description": "One NUMBERED line of a drawing's bill of materials (design \u00a77 BOM).\n\nThe shipped assembly :class:`~loft_wire.assemblies.BomLine` (group key +\nresolved name + `missing` + quantity, reused VERBATIM \u2014 no parallel taxonomy)\nplus the one thing a *drawing* adds: the ``item_number`` a balloon stamps.\n\n``item_number`` is **derived**, not authored: lines are numbered 1..n in the\norder each referenced document FIRST appears in the assembly's stable instance\n``order_index``. It is therefore a pure function of the assembly graph \u2014 two\nreads of an unchanged assembly number identically, and a part RENAME (which\nre-sorts the name-ordered assembly BOM) leaves every number untouched.",
         "properties": {
           "item_number": {
             "description": "1-based item number, DERIVED from the assembly's stable instance order (first appearance of this referenced document) \u2014 never stored on the drawing, so it can never drift from the assembly",
@@ -3326,7 +3326,7 @@
                 "type": "null"
               }
             ],
-            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
+            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see loft_wire.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
             "title": "Folder Id"
           },
           "id": {
@@ -4711,7 +4711,7 @@
         "type": "object"
       },
       "FeatureDependent": {
-        "description": "One thing that breaks if a feature is deleted.\n\n``name`` rides beside the id for the same reason it does on\n:class:`~py_kit.schemas.workspace.DocumentDependent`: the reader is a person\nwho named these things, and \"referenced by 2 other document(s)\" \u2014 which is\nwhat this refusal used to say \u2014 ends the conversation instead of starting\nthe next action.",
+        "description": "One thing that breaks if a feature is deleted.\n\n``name`` rides beside the id for the same reason it does on\n:class:`~loft_wire.workspace.DocumentDependent`: the reader is a person\nwho named these things, and \"referenced by 2 other document(s)\" \u2014 which is\nwhat this refusal used to say \u2014 ends the conversation instead of starting\nthe next action.",
         "properties": {
           "id": {
             "description": "The REFERENCING feature's or drawing's id",
@@ -5429,7 +5429,7 @@
         "type": "object"
       },
       "FolderMember": {
-        "description": "One thing inside a folder whose delete was refused.\n\nDeliberately NOT reusing :class:`~py_kit.schemas.workspace.DocumentDependent`:\nthat model means \"something REFERENCES you\" and its ``kind`` documents why a\npart can never appear in it. Membership is the opposite relation, and a part\nis its commonest member. Two relations, two models; one shared refusal\nGRAMMAR (409, ``details`` naming what blocks it), which is the part that\nmatters to a user.",
+        "description": "One thing inside a folder whose delete was refused.\n\nDeliberately NOT reusing :class:`~loft_wire.workspace.DocumentDependent`:\nthat model means \"something REFERENCES you\" and its ``kind`` documents why a\npart can never appear in it. Membership is the opposite relation, and a part\nis its commonest member. Two relations, two models; one shared refusal\nGRAMMAR (409, ``details`` naming what blocks it), which is the part that\nmatters to a user.",
         "properties": {
           "id": {
             "format": "uuid",
@@ -6506,7 +6506,7 @@
         "type": "object"
       },
       "MateAxisRef": {
-        "description": "An axis derived from a CIRCULAR edge of an instance's part body (\u00a72.1).\n\nv1 derives an axis from a circular edge (``curve == \"circle\"``) \u2014 reusing\n:class:`~py_kit.schemas.features.EdgeSignature`, whose seam-point centre and\nplane give the axis (design \u00a72.1). This deliberately avoids needing a\ncylindrical-face signature (a clean additive future member): a hole rim and\na shaft rim are both circular edges, enough for the canonical bolt joint.",
+        "description": "An axis derived from a CIRCULAR edge of an instance's part body (\u00a72.1).\n\nv1 derives an axis from a circular edge (``curve == \"circle\"``) \u2014 reusing\n:class:`~loft_wire.features.EdgeSignature`, whose seam-point centre and\nplane give the axis (design \u00a72.1). This deliberately avoids needing a\ncylindrical-face signature (a clean additive future member): a hole rim and\na shaft rim are both circular edges, enough for the canonical bolt joint.",
         "properties": {
           "instance_id": {
             "description": "The instance whose part body carries this axis edge",
@@ -6601,7 +6601,7 @@
         "type": "object"
       },
       "MateFaceRef": {
-        "description": "A planar face of an instance's part body (design \u00a71.5/\u00a72.1).\n\n``signature`` is the SAME :class:`~py_kit.schemas.features.PlanarFaceSignature`\nthe ``on_face`` datum resolves (topological-naming.md \u00a79) \u2014 reused verbatim,\nnot a parallel taxonomy. ``instance_id`` scopes the face to one instance's\nresolved part body (the geometry service resolves the signature against that\nbody in the part's local frame, \u00a74).",
+        "description": "A planar face of an instance's part body (design \u00a71.5/\u00a72.1).\n\n``signature`` is the SAME :class:`~loft_wire.features.PlanarFaceSignature`\nthe ``on_face`` datum resolves (topological-naming.md \u00a79) \u2014 reused verbatim,\nnot a parallel taxonomy. ``instance_id`` scopes the face to one instance's\nresolved part body (the geometry service resolves the signature against that\nbody in the part's local frame, \u00a74).",
         "properties": {
           "instance_id": {
             "description": "The instance whose part body carries this face",
@@ -7279,7 +7279,7 @@
         "type": "object"
       },
       "OverlayEdge": {
-        "description": "One pickable B-rep edge of the evaluated body (transient index).\n\nThe list position of this edge in :attr:`OverlayResult.edges` is its\ntransient 0-based index \u2014 the SAME ordinal ``body.edges()`` yields, so\npassing it as :class:`~py_kit.schemas.measure.EdgeTarget` ``index`` measures\nTHIS edge. The transient index is for MEASUREMENT; the STABLE, rebuild-\nsurviving reference is :attr:`signature` (topological naming) \u2014 echo it into\nan ``EdgeSubshapeRef`` to fillet/chamfer exactly this edge.",
+        "description": "One pickable B-rep edge of the evaluated body (transient index).\n\nThe list position of this edge in :attr:`OverlayResult.edges` is its\ntransient 0-based index \u2014 the SAME ordinal ``body.edges()`` yields, so\npassing it as :class:`~loft_wire.measure.EdgeTarget` ``index`` measures\nTHIS edge. The transient index is for MEASUREMENT; the STABLE, rebuild-\nsurviving reference is :attr:`signature` (topological naming) \u2014 echo it into\nan ``EdgeSubshapeRef`` to fillet/chamfer exactly this edge.",
         "properties": {
           "end": {
             "$ref": "#/components/schemas/Vec3",
@@ -7323,7 +7323,7 @@
         "type": "object"
       },
       "OverlayFace": {
-        "description": "One face of the evaluated body \u2014 pickable for a sketch datum-on-a-face.\n\nA PLANAR face carries a stage-1\n:class:`~py_kit.schemas.features.PlanarFaceSignature` \u2014 the SAME fingerprint\na datum-on-face ``SubshapeRef`` stores and the geometry resolver matches\nagainst (one enumeration: the pick side and the resolve side share\n``geometry.kernel.faces.planar_faces``; an order-equality gate proves it). To\nplace a sketch on a face, echo its ``signature`` into a ``SubshapeRef`` \u2014 the\nsame round-trip a vertex makes into a ``PointTarget``. A NON-planar face has\n``signature = null`` and is not sketchable in v1 (topological naming's face\nsignatures are planar-only until edge/curved-surface support lands).\n\n``index`` is TRANSIENT \u2014 the ``body.faces()`` position for THIS tree only,\nnot stable across edits (the persisted reference is the signature, never the\nindex \u2014 topological naming, feature-tree design \u00a72.4).",
+        "description": "One face of the evaluated body \u2014 pickable for a sketch datum-on-a-face.\n\nA PLANAR face carries a stage-1\n:class:`~loft_wire.features.PlanarFaceSignature` \u2014 the SAME fingerprint\na datum-on-face ``SubshapeRef`` stores and the geometry resolver matches\nagainst (one enumeration: the pick side and the resolve side share\n``geometry.kernel.faces.planar_faces``; an order-equality gate proves it). To\nplace a sketch on a face, echo its ``signature`` into a ``SubshapeRef`` \u2014 the\nsame round-trip a vertex makes into a ``PointTarget``. A NON-planar face has\n``signature = null`` and is not sketchable in v1 (topological naming's face\nsignatures are planar-only until edge/curved-surface support lands).\n\n``index`` is TRANSIENT \u2014 the ``body.faces()`` position for THIS tree only,\nnot stable across edits (the persisted reference is the signature, never the\nindex \u2014 topological naming, feature-tree design \u00a72.4).",
         "properties": {
           "feature_id": {
             "anyOf": [
@@ -7551,7 +7551,7 @@
                 "type": "null"
               }
             ],
-            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
+            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see loft_wire.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
             "title": "Folder Id"
           },
           "id": {
@@ -8527,7 +8527,7 @@
         "type": "object"
       },
       "SectionViewParams": {
-        "description": "The cutting plane + half selection of a section view (drawings-section.md \u00a71).\n\nv1 specifies the section's cutting plane by DATUM REFERENCE, not a drawn cutting\nline (\u00a71): ``plane`` is the shipped :data:`~py_kit.schemas.features.GeomRef`\n(``DatumPlaneRef`` for one of the XY/XZ/YZ origin planes, or a ``FeatureRef`` to\nan axis-aligned offset / midplane datum FEATURE in the referenced part) \u2014 the\nEXACT union a sketch's plane reference uses, so no parallel plane taxonomy is\nintroduced (DRY). The geometry service resolves it, checks the v1 axis-aligned\nprecondition (a non-principal normal is a typed ``section_plane_not_principal``,\n\u00a77), cuts, and hatches. ``flip`` chooses which half is removed (\u00a74): ``false``\n(default) removes the eye-side material (the standard \"cut away what is between\nyou and the plane\"), ``true`` the far side.",
+        "description": "The cutting plane + half selection of a section view (drawings-section.md \u00a71).\n\nv1 specifies the section's cutting plane by DATUM REFERENCE, not a drawn cutting\nline (\u00a71): ``plane`` is the shipped :data:`~loft_wire.features.GeomRef`\n(``DatumPlaneRef`` for one of the XY/XZ/YZ origin planes, or a ``FeatureRef`` to\nan axis-aligned offset / midplane datum FEATURE in the referenced part) \u2014 the\nEXACT union a sketch's plane reference uses, so no parallel plane taxonomy is\nintroduced (DRY). The geometry service resolves it, checks the v1 axis-aligned\nprecondition (a non-principal normal is a typed ``section_plane_not_principal``,\n\u00a77), cuts, and hatches. ``flip`` chooses which half is removed (\u00a74): ``false``\n(default) removes the eye-side material (the standard \"cut away what is between\nyou and the plane\"), ``true`` the far side.",
         "properties": {
           "flip": {
             "default": false,
@@ -9547,7 +9547,7 @@
         "type": "object"
       },
       "SketchConstraintDiagnosis": {
-        "description": "Typed classification of an over-constrained sketch (BACKLOG #6).\n\nExposes the solver's already-computed redundant/conflicting constraint sets\n(:class:`SolvedSketch`) as a STRUCTURED diagnosis a caller reads by field \u2014\nnever a message string the frontend has to parse. It distinguishes the two\nover-constraint kinds a working engineer must tell apart (VISION.md\nSketching row): a REDUNDANT constraint is removable and the sketch still\nsolves, whereas a CONFLICTING constraint makes the sketch unsolvable until\none is relaxed. Built by :func:`classify_overconstraint`; carried on the\n:class:`py_kit.schemas.features.FeatureError` (the ``sketch_conflicting``\nerror path) and on the solved-sketch feature payload (the redundant-but-\nsolvable path), so BOTH cases surface the same typed shape.",
+        "description": "Typed classification of an over-constrained sketch (BACKLOG #6).\n\nExposes the solver's already-computed redundant/conflicting constraint sets\n(:class:`SolvedSketch`) as a STRUCTURED diagnosis a caller reads by field \u2014\nnever a message string the frontend has to parse. It distinguishes the two\nover-constraint kinds a working engineer must tell apart (VISION.md\nSketching row): a REDUNDANT constraint is removable and the sketch still\nsolves, whereas a CONFLICTING constraint makes the sketch unsolvable until\none is relaxed. Built by :func:`classify_overconstraint`; carried on the\n:class:`loft_wire.features.FeatureError` (the ``sketch_conflicting``\nerror path) and on the solved-sketch feature payload (the redundant-but-\nsolvable path), so BOTH cases surface the same typed shape.",
         "properties": {
           "classification": {
             "description": "Over-constraint kind: 'redundant' (removable, still solves) or 'conflicting' (contradictory, unsolvable until relaxed).",
@@ -9650,7 +9650,7 @@
         "type": "object"
       },
       "SketchEditRequest": {
-        "description": "Input for a sketch trim or extend edit (stateless, one-shot).\n\n``entities`` is the whole sketch's entity list (same shapes the solver\nconsumes \u2014 a construction entity is trimmed/extended like any other).\n``target`` names the entity being edited; it MUST be present in\n``entities`` (else a 422 ``sketch_target_not_found``). ``pick`` is the\n2D sketch-plane point the user clicked:\n\n* **trim** \u2014 ``pick`` selects WHICH segment of ``target`` to delete: the\n  target curve is cut at its nearest intersection(s) with the other\n  entities on each side of the pick, and the segment containing the pick\n  is removed (standard Onshape/Fusion \"cut at intersection\" gesture). With\n  no intersection bounding a side, that side runs to the curve's end; with\n  no intersection at all, the whole target is deleted. The pick must\n  project onto the target's drawn extent (else 422\n  ``sketch_pick_not_on_target``).\n* **extend** \u2014 ``pick`` selects WHICH END of ``target`` to lengthen (the\n  nearer endpoint): the curve grows along its own supporting line/circle\n  from that end to the nearest neighboring entity it meets in that\n  direction (else 422 ``sketch_extend_no_target``).\n\nUnits are millimetres (:mod:`py_kit.schemas.sketch` convention).",
+        "description": "Input for a sketch trim or extend edit (stateless, one-shot).\n\n``entities`` is the whole sketch's entity list (same shapes the solver\nconsumes \u2014 a construction entity is trimmed/extended like any other).\n``target`` names the entity being edited; it MUST be present in\n``entities`` (else a 422 ``sketch_target_not_found``). ``pick`` is the\n2D sketch-plane point the user clicked:\n\n* **trim** \u2014 ``pick`` selects WHICH segment of ``target`` to delete: the\n  target curve is cut at its nearest intersection(s) with the other\n  entities on each side of the pick, and the segment containing the pick\n  is removed (standard Onshape/Fusion \"cut at intersection\" gesture). With\n  no intersection bounding a side, that side runs to the curve's end; with\n  no intersection at all, the whole target is deleted. The pick must\n  project onto the target's drawn extent (else 422\n  ``sketch_pick_not_on_target``).\n* **extend** \u2014 ``pick`` selects WHICH END of ``target`` to lengthen (the\n  nearer endpoint): the curve grows along its own supporting line/circle\n  from that end to the nearest neighboring entity it meets in that\n  direction (else 422 ``sketch_extend_no_target``).\n\nUnits are millimetres (:mod:`loft_wire.sketch` convention).",
         "properties": {
           "entities": {
             "description": "The whole sketch's entities (the edit rewrites this set), bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).",
@@ -9905,7 +9905,7 @@
         "type": "object"
       },
       "SketchMirrorRequest": {
-        "description": "Input for a sketch mirror (stateless, one-shot).\n\n``entities`` is the whole sketch's entity list \u2014 passed so each new copy\ngets a fresh id that cannot collide with an existing one (and to resolve a\n:class:`MirrorAxisEntity` axis). ``targets`` names the entities to reflect;\neach MUST be present in ``entities`` (else ``sketch_target_not_found``) and\nat least one is required. ``axis`` is the mirror line (see :data:`MirrorAxis`).\n\nMirror **adds** geometry: the sources are untouched and the response carries\nonly the NEW reflected copies (see :class:`SketchMirrorResult`). Every entity\nkind is reflectable (point, line, circle, arc). Units are millimetres\n(:mod:`py_kit.schemas.sketch` convention).",
+        "description": "Input for a sketch mirror (stateless, one-shot).\n\n``entities`` is the whole sketch's entity list \u2014 passed so each new copy\ngets a fresh id that cannot collide with an existing one (and to resolve a\n:class:`MirrorAxisEntity` axis). ``targets`` names the entities to reflect;\neach MUST be present in ``entities`` (else ``sketch_target_not_found``) and\nat least one is required. ``axis`` is the mirror line (see :data:`MirrorAxis`).\n\nMirror **adds** geometry: the sources are untouched and the response carries\nonly the NEW reflected copies (see :class:`SketchMirrorResult`). Every entity\nkind is reflectable (point, line, circle, arc). Units are millimetres\n(:mod:`loft_wire.sketch` convention).",
         "properties": {
           "axis": {
             "description": "The mirror axis: a line entity id or two points (see MirrorAxis).",
@@ -10129,7 +10129,7 @@
         "type": "object"
       },
       "SketchParamsV1": {
-        "description": "Sketch on a plane \u2014 an origin datum, or a ``datum`` feature (design \u00a72.1).\n\n``plane`` is a :data:`GeomRef`: a :class:`DatumPlaneRef` names one of the\nthree origin datums (XY/XZ/YZ), or a :class:`FeatureRef` points at an earlier\n``datum`` feature (an offset/parallel plane \u2014 docs/design/datum-planes.md).\nThe ``FeatureRef`` variant is now accepted when it resolves to a ``datum``\nfeature (widened in :func:`feature_references` from no acceptable target to\n``{datum}``); the stored shape is unchanged, so this is purely additive \u2014 no\n``param_version`` bump.\n\nExtends :class:`py_kit.schemas.sketch.SketchDefinition` (typed\n``entities``/``constraints`` \u2014 the \u00a71.4 placeholder finalized by the\n\"Sketch model + solver API\" item), so a persisted sketch's params ARE\nvalid solver input: same validation (unique sketch-local entity ids per\ndesign \u00a72.4) on the documents write path and the geometry request path.",
+        "description": "Sketch on a plane \u2014 an origin datum, or a ``datum`` feature (design \u00a72.1).\n\n``plane`` is a :data:`GeomRef`: a :class:`DatumPlaneRef` names one of the\nthree origin datums (XY/XZ/YZ), or a :class:`FeatureRef` points at an earlier\n``datum`` feature (an offset/parallel plane \u2014 docs/design/datum-planes.md).\nThe ``FeatureRef`` variant is now accepted when it resolves to a ``datum``\nfeature (widened in :func:`feature_references` from no acceptable target to\n``{datum}``); the stored shape is unchanged, so this is purely additive \u2014 no\n``param_version`` bump.\n\nExtends :class:`loft_wire.sketch.SketchDefinition` (typed\n``entities``/``constraints`` \u2014 the \u00a71.4 placeholder finalized by the\n\"Sketch model + solver API\" item), so a persisted sketch's params ARE\nvalid solver input: same validation (unique sketch-local entity ids per\ndesign \u00a72.4) on the documents write path and the geometry request path.",
         "properties": {
           "constraints": {
             "description": "The sketch's constraints, bounded by MAX_SKETCH_CONSTRAINTS (work bound, audit G2)",

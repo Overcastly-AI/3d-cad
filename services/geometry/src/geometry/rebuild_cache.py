@@ -131,6 +131,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import NamedTuple, Protocol
 
+from loft_wire.features import EvaluateTreeRequest
 from OCP.BRepTools import BRepTools
 from py_kit.metrics import (
     note_rebuild,
@@ -139,7 +140,6 @@ from py_kit.metrics import (
     record_rebuild_cache_miss,
     record_rebuild_cache_store,
 )
-from py_kit.schemas.features import EvaluateTreeRequest
 
 from geometry.kernel.types import BodyShape
 

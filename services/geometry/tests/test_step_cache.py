@@ -32,7 +32,7 @@ from geometry.kernel import (
     import_step_solid,
 )
 from geometry.kernel.types import BodyShape
-from py_kit.schemas.features import EvaluateTreeRequest, EvaluateTreeResult
+from loft_wire.features import EvaluateTreeRequest, EvaluateTreeResult
 
 PART_ID = uuid.UUID("00000000-0000-0000-0000-0000000000fc")
 IMPORT_ID = uuid.UUID("00000000-0000-0000-0000-00000000d001")

@@ -4,7 +4,7 @@ Auth-protected aggregation over the documents service, exactly the posture
 :mod:`gateway.parts` documents: apps/web talks ONLY to the gateway, every route
 resolves the caller through the JWT bearer dependency and forwards with the
 verified principal attached, and DTOs are the shared py-kit models
-(:mod:`py_kit.schemas.folders`) rather than hand-duplicated shapes.
+(:mod:`loft_wire.folders`) rather than hand-duplicated shapes.
 
 The three ``/move`` routes live here beside the folder CRUD rather than in
 ``gateway.parts`` / ``.assemblies`` / ``.drawings``: filing is one verb over
@@ -15,9 +15,9 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, Request, status
-from py_kit.schemas.assemblies import AssemblyResponse
-from py_kit.schemas.drawings import DrawingResponse
-from py_kit.schemas.folders import (
+from loft_wire.assemblies import AssemblyResponse
+from loft_wire.drawings import DrawingResponse
+from loft_wire.folders import (
     DocumentMove,
     FolderCreate,
     FolderKind,
@@ -27,7 +27,7 @@ from py_kit.schemas.folders import (
     FolderRename,
     FolderResponse,
 )
-from py_kit.schemas.parts import PartResponse
+from loft_wire.parts import PartResponse
 
 from gateway.auth import CurrentUser
 from gateway.parts import forward_documents
@@ -38,7 +38,7 @@ _SERVICE = "Documents"
 
 #: The documented 409 of the folder delete: a folder that still holds things is
 #: refused, and ``details.contents`` NAMES them. Declaring the model puts
-#: :class:`~py_kit.schemas.folders.FolderContents` in the OpenAPI contract and
+#: :class:`~loft_wire.folders.FolderContents` in the OpenAPI contract and
 #: therefore in the generated TS client, so the register lists what is inside
 #: from a type — the same treatment the document delete's dependents payload
 #: gets, because a user should meet one refusal grammar, not two.

@@ -4,7 +4,7 @@ Single source of truth (CLAUDE.md DRY rule) for the sketch shapes that cross
 service boundaries, moved here from ``geometry.sketch.schemas`` by the
 "Sketch model + solver API" item exactly as that module's docstring promised:
 the documents service persists these shapes inside sketch feature params
-(:mod:`py_kit.schemas.features`), the geometry service solves them, and
+(:mod:`loft_wire.features`), the geometry service solves them, and
 ``just gen`` exports them to ``packages/contracts`` / ``packages/ts-client``.
 Pure pydantic models: no kernel (OCP/build123d) and no solver (planegcs)
 types appear here.
@@ -16,7 +16,7 @@ the payload the ``FeatureResult.data`` extension (feature-tree §7.10)
 returns per sketch feature.
 
 Units: millimetres, matching the persisted feature params
-(``py_kit.schemas.geometry`` convention — units are fixed per field, never
+(``loft_wire.geometry`` convention — units are fixed per field, never
 tagged per value). Coordinates are 2D in the sketch plane; mapping the plane
 into 3D is the sketch *feature's* job, not the solver's.
 """
@@ -714,7 +714,7 @@ class SketchDefinition(BaseModel):
     Entity positions double as the solver's starting guess — the solved
     result stays near where the user drew. Both lists are **ordered**;
     solvers must process them in list order (determinism, RESEARCH §9).
-    ``SketchParamsV1`` (:mod:`py_kit.schemas.features`) extends this model
+    ``SketchParamsV1`` (:mod:`loft_wire.features`) extends this model
     with the sketch plane, so persisted sketch params ARE valid solver input.
     """
 
@@ -845,7 +845,7 @@ class SolvedSketch(BaseModel):
 
     This is the payload the per-feature solved-sketch ``FeatureResult.data``
     extension (feature-tree §7.10) carries for sketch features, via
-    :class:`py_kit.schemas.features.SolvedSketchData`.
+    :class:`loft_wire.features.SolvedSketchData`.
     """
 
     status: SketchSolveStatus
@@ -911,7 +911,7 @@ class SketchConstraintDiagnosis(BaseModel):
     Sketching row): a REDUNDANT constraint is removable and the sketch still
     solves, whereas a CONFLICTING constraint makes the sketch unsolvable until
     one is relaxed. Built by :func:`classify_overconstraint`; carried on the
-    :class:`py_kit.schemas.features.FeatureError` (the ``sketch_conflicting``
+    :class:`loft_wire.features.FeatureError` (the ``sketch_conflicting``
     error path) and on the solved-sketch feature payload (the redundant-but-
     solvable path), so BOTH cases surface the same typed shape.
     """
@@ -1050,7 +1050,7 @@ class SketchEditRequest(BaseModel):
       from that end to the nearest neighboring entity it meets in that
       direction (else 422 ``sketch_extend_no_target``).
 
-    Units are millimetres (:mod:`py_kit.schemas.sketch` convention).
+    Units are millimetres (:mod:`loft_wire.sketch` convention).
     """
 
     entities: list[SketchEntity] = Field(
@@ -1314,7 +1314,7 @@ class SketchMirrorRequest(BaseModel):
     Mirror **adds** geometry: the sources are untouched and the response carries
     only the NEW reflected copies (see :class:`SketchMirrorResult`). Every entity
     kind is reflectable (point, line, circle, arc). Units are millimetres
-    (:mod:`py_kit.schemas.sketch` convention).
+    (:mod:`loft_wire.sketch` convention).
     """
 
     entities: list[SketchEntity] = Field(

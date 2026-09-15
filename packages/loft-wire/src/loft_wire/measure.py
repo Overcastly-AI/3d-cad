@@ -4,7 +4,7 @@ Single source of truth (CLAUDE.md DRY rule) for the stateless distance query
 the geometry service serves at ``POST /api/v1/measure`` and the gateway proxies
 at ``POST /api/v1/geometry/measure``. Pure pydantic only — kernel types never
 appear here (CLAUDE.md service boundaries). Units are millimetres (lengths) and
-degrees (angles), fixed per field exactly as :mod:`py_kit.schemas.geometry`.
+degrees (angles), fixed per field exactly as :mod:`loft_wire.geometry`.
 
 Stateless contract (the KEY design decision, documented here and in the
 endpoint docstring + docs/GEOMETRY-QA.md): a measurement is a one-shot query,
@@ -37,8 +37,8 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
 
-from py_kit.schemas.features import EvaluateTreeRequest
-from py_kit.schemas.geometry import Vec3
+from loft_wire.features import EvaluateTreeRequest
+from loft_wire.geometry import Vec3
 
 
 class PointTarget(BaseModel):

@@ -2,7 +2,7 @@
 
 Implements the stateless documents→geometry evaluation contract of
 docs/design/feature-tree.md §4 over the shared DTOs in
-:mod:`py_kit.schemas.features`. The evaluator walks the request's ordered
+:mod:`loft_wire.features`. The evaluator walks the request's ordered
 feature list exactly as given (§4.2 — documents applies the rollback bar
 BEFORE sending, so a rolled-back tree arrives simply as a shorter list;
 geometry never knows rollback exists) and applies the strict-prefix
@@ -61,8 +61,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from build123d import Compound, Face, Plane, Solid, Vertex, Wire
-from py_kit.errors import ValidationApiError
-from py_kit.schemas.features import (
+from loft_wire.features import (
     HEM_CLOSED_RADIUS_RATIO,
     BodyLumpInfo,
     BooleanFeature,
@@ -114,13 +113,14 @@ from py_kit.schemas.features import (
     iter_feature_refs,
     resolve_hem_bend_radius_mm,
 )
-from py_kit.schemas.geometry import MeshStats, ShapeProperties
-from py_kit.schemas.materials import (
+from loft_wire.geometry import MeshStats, ShapeProperties
+from loft_wire.materials import (
     MaterialKey,
     density_kg_m3,
     resolve_body_material,
 )
-from py_kit.schemas.sketch import classify_overconstraint
+from loft_wire.sketch import classify_overconstraint
+from py_kit.errors import ValidationApiError
 
 from geometry.kernel import (
     DATUM_PLANES,

@@ -59,7 +59,7 @@ from geometry.sheet_metal.edge_flange import (
     EdgeFlangeEdgeError,
     _is_sheet_face,  # pyright: ignore[reportPrivateUsage]
 )
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 _GOLDEN_DIR = (
     Path(__file__).resolve().parent.parent

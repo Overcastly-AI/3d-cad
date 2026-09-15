@@ -38,7 +38,7 @@ zero-solid file or a 500 — mirroring the tree-export no-body posture (§4.3).
 
 from __future__ import annotations
 
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     ExportAssemblyRequest,
     assembly_export_root_name,
 )

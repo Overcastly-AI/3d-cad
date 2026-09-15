@@ -29,15 +29,15 @@ fully-typed :class:`OverlayResult` DTO keeps the boundary honest.
 import uuid
 
 from build123d import Edge, GeomType, Vector, Vertex
-from OCP.BRepAdaptor import BRepAdaptor_Curve
-from OCP.GCPnts import GCPnts_QuasiUniformDeflection
-from py_kit.schemas.geometry import Vec3
-from py_kit.schemas.overlay import (
+from loft_wire.geometry import Vec3
+from loft_wire.overlay import (
     OverlayEdge,
     OverlayEdgeKind,
     OverlayFace,
     OverlayResult,
 )
+from OCP.BRepAdaptor import BRepAdaptor_Curve
+from OCP.GCPnts import GCPnts_QuasiUniformDeflection
 
 from geometry.kernel.edges import edge_signature_dto
 from geometry.kernel.faces import face_signature_dto

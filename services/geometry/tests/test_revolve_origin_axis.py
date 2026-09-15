@@ -42,7 +42,7 @@ from fastapi.testclient import TestClient
 from geometry.kernel.datum import DATUM_PLANES, offset_plane
 from geometry.kernel.extrude import plane_point_to_local, plane_vector_to_local
 from geometry.main import app
-from py_kit.schemas.features import EvaluateTreeResult
+from loft_wire.features import EvaluateTreeResult
 
 client = TestClient(app)
 

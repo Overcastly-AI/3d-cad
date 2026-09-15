@@ -33,8 +33,8 @@ from geometry.kernel.properties import measure_shape
 from geometry.kernel.types import BodyShape
 from geometry.sheet_metal import unfold_sheet_metal
 from geometry.sheet_metal.resolve import cylindrical_face_widths
-from py_kit.schemas.drawings import ViewScale
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.drawings import ViewScale
+from loft_wire.features import EvaluateTreeRequest
 from pydantic import BaseModel, ConfigDict, Field
 
 _HERE = Path(__file__).resolve().parent

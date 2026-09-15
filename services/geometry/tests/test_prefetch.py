@@ -7,7 +7,7 @@ here are, in order of how much they matter:
 
 1. **A warm cannot be published.** Not "is not published today" — cannot. The
    entry point returns an ``int``, the wire reply
-   (:class:`~py_kit.schemas.features.WarmTreeResult`) has no field that could
+   (:class:`~loft_wire.features.WarmTreeResult`) has no field that could
    carry geometry, and — the test that would catch a future regression in the
    evaluator rather than in the DTOs —
    :func:`test_a_warm_leaves_no_artifact_anybody_could_fetch` shows that after a
@@ -55,7 +55,7 @@ from geometry.rebuild_cache import (
     WarmScheduler,
 )
 from geometry.warm import warm_scheduler, warm_work
-from py_kit.schemas.features import (
+from loft_wire.features import (
     EvaluateTreeRequest,
     WarmCancelRequest,
     WarmTreeRequest,

@@ -19,9 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 from gateway.db import Base
 from gateway.main import GatewaySettings, build_app
-from py_kit import REQUEST_ID_HEADER
-from py_kit.db import async_dsn
-from py_kit.schemas.geometry import (
+from loft_wire.geometry import (
     EXPORT_MEDIA_TYPES,
     GLB_MEDIA_TYPE,
     PROPERTIES_HEADER,
@@ -34,7 +32,9 @@ from py_kit.schemas.geometry import (
     TopologyCounts,
     Vec3,
 )
-from py_kit.schemas.parts import PRINCIPAL_HEADER
+from loft_wire.parts import PRINCIPAL_HEADER
+from py_kit import REQUEST_ID_HEADER
+from py_kit.db import async_dsn
 from sqlalchemy.ext.asyncio import create_async_engine
 
 TEST_JWT_SECRET = "unit-test-jwt-secret-0123456789abcdef"

@@ -3,7 +3,7 @@
 import uuid
 
 import pytest
-from py_kit.schemas.workspace import (
+from loft_wire.workspace import (
     DependencyConflictEnvelope,
     DocumentDependent,
     DocumentDependents,

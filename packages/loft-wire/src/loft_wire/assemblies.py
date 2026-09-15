@@ -10,11 +10,11 @@ only — kernel types never appear here (CLAUDE.md service boundaries).
 An assembly is a GRAPH — a set of instances + a set of mates — not an ordered
 single-body feature history (design §1.1). Mates name part geometry with the
 EXACT stage-1 signature machinery topological naming already ships
-(:class:`~py_kit.schemas.features.PlanarFaceSignature` /
-:class:`~py_kit.schemas.features.EdgeSignature`, reused VERBATIM — a mate is not
+(:class:`~loft_wire.features.PlanarFaceSignature` /
+:class:`~loft_wire.features.EdgeSignature`, reused VERBATIM — a mate is not
 a parallel taxonomy, design §1.5). Units are fixed per field, never tagged per
 value: lengths are millimetres, encoded in field names (``distance_mm``) exactly
-as :mod:`py_kit.schemas.geometry` does.
+as :mod:`loft_wire.geometry` does.
 """
 
 import uuid
@@ -23,7 +23,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from py_kit.schemas.features import (
+from loft_wire.features import (
     MAX_TREE_FEATURES,
     DocumentName,
     EdgeSignature,
@@ -32,8 +32,8 @@ from py_kit.schemas.features import (
     PlanarFaceSignature,
     document_slug,
 )
-from py_kit.schemas.folders import FOLDER_ID_DESCRIPTION
-from py_kit.schemas.geometry import (
+from loft_wire.folders import FOLDER_ID_DESCRIPTION
+from loft_wire.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
     EXPORT_FORMAT_DESCRIPTION,
@@ -45,8 +45,8 @@ from py_kit.schemas.geometry import (
     ShapeProperties,
     Vec3,
 )
-from py_kit.schemas.materials import MaterialAssignment
-from py_kit.schemas.units import DEFAULT_LENGTH_UNIT, LengthUnit
+from loft_wire.materials import MaterialAssignment
+from loft_wire.units import DEFAULT_LENGTH_UNIT, LengthUnit
 
 #: Upper bound for a user-facing assembly name ("Gearbox", "Bracket Stack").
 ASSEMBLY_NAME_MAX_LENGTH = 200
@@ -154,7 +154,7 @@ IDENTITY_PLACEMENT = Placement(position=Vec3(x=0.0, y=0.0, z=0.0))
 class MateFaceRef(BaseModel):
     """A planar face of an instance's part body (design §1.5/§2.1).
 
-    ``signature`` is the SAME :class:`~py_kit.schemas.features.PlanarFaceSignature`
+    ``signature`` is the SAME :class:`~loft_wire.features.PlanarFaceSignature`
     the ``on_face`` datum resolves (topological-naming.md §9) — reused verbatim,
     not a parallel taxonomy. ``instance_id`` scopes the face to one instance's
     resolved part body (the geometry service resolves the signature against that
@@ -174,7 +174,7 @@ class MateAxisRef(BaseModel):
     """An axis derived from a CIRCULAR edge of an instance's part body (§2.1).
 
     v1 derives an axis from a circular edge (``curve == "circle"``) — reusing
-    :class:`~py_kit.schemas.features.EdgeSignature`, whose seam-point centre and
+    :class:`~loft_wire.features.EdgeSignature`, whose seam-point centre and
     plane give the axis (design §2.1). This deliberately avoids needing a
     cylindrical-face signature (a clean additive future member): a hole rim and
     a shaft rim are both circular edges, enough for the canonical bolt joint.
@@ -465,7 +465,7 @@ class MateResponse(BaseModel):
 class AssemblyResponse(BaseModel):
     """An assembly as stored — identity, ownership, and its concurrency token.
 
-    Mirrors :class:`~py_kit.schemas.parts.PartResponse` plus the ``doc_version``
+    Mirrors :class:`~loft_wire.parts.PartResponse` plus the ``doc_version``
     OCC counter. The full instance/mate graph rides :class:`AssemblyGraphResponse`.
     """
 
@@ -519,7 +519,7 @@ class AssemblyUndoRedoRequest(BaseModel):
     """Restore the adjacent assembly history snapshot (undo-redo.md UR3).
 
     The assembly sibling of the part's
-    :class:`~py_kit.schemas.features.UndoRedoRequest`: undo/redo ARE document
+    :class:`~loft_wire.features.UndoRedoRequest`: undo/redo ARE document
     edits — each bumps ``doc_version`` under the same optimistic-concurrency
     guard as every other assembly write (stale → 422,
     ``stale_assembly_version``), and the response is the restored graph
@@ -1082,7 +1082,7 @@ def assembly_export_filename(request: ExportAssemblyRequest) -> str:
     the old constant ``assembly.<format>``: that named every assembly's download
     identically, so exporting two of them silently overwrote the first (audit
     N4). Shares the one slug rule with the part and drawing downloads
-    (:func:`~py_kit.schemas.features.document_slug`).
+    (:func:`~loft_wire.features.document_slug`).
     """
     slug = document_slug(request.name) if request.name is not None else ""
     return f"{slug or f'assembly-{request.assembly_id}'}.{request.format}"

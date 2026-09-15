@@ -1,0 +1,26 @@
+[project]
+name = "loft-wire"
+version = "0.1.0"
+description = "Loft's wire types — the pydantic models that cross a Loft service boundary. Pydantic and nothing else."
+requires-python = ">=3.12"
+license = "MIT"
+# THE DEPENDENCY LIST IS THE POINT OF THIS PACKAGE. It is asserted, not merely
+# intended: packages/loft-wire/tests/test_wire_dependency_closure.py walks every
+# module's imports and fails on anything that is not stdlib or named here, with
+# a count floor so a walk that finds nothing cannot pass vacuously.
+dependencies = [
+    # MIT.
+    "pydantic>=2.9",
+    # ``EmailStr`` on the auth DTOs (loft_wire.auth). Unlicense/CC0 + its one
+    # dependency dnspython is ISC — no copyleft (RESEARCH §8). It is the ONE
+    # non-pydantic runtime dependency, and it is here rather than in py-kit
+    # because the model that needs it is here.
+    "email-validator>=2.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/loft_wire"]

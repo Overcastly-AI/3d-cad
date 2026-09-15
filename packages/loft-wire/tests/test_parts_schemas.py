@@ -16,9 +16,9 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from py_kit.schemas.features import EvaluateTreeResult
-from py_kit.schemas.materials import EMPTY_MATERIAL_ASSIGNMENT
-from py_kit.schemas.parts import (
+from loft_wire.features import EvaluateTreeResult
+from loft_wire.materials import EMPTY_MATERIAL_ASSIGNMENT
+from loft_wire.parts import (
     PartResponse,
     derive_part_eval_scope,
     derive_part_eval_state,

@@ -33,7 +33,7 @@ WHAT NO DUPLICATE COPIES, in every kind:
   something it does not know. Opening the copy evaluates it and the record fills
   in a second later.
 
-Naming is :func:`py_kit.schemas.workspace.copy_name` — "Bracket copy", then
+Naming is :func:`loft_wire.workspace.copy_name` — "Bracket copy", then
 "Bracket copy 2" — shared by all three so the rule is one rule. The route
 RETURNS the created document, so the register renders the name the server
 actually assigned rather than the one the client predicted.
@@ -48,12 +48,12 @@ from collections.abc import Sequence
 from typing import Any, cast
 
 from fastapi import APIRouter, status
+from loft_wire.assemblies import ASSEMBLY_NAME_MAX_LENGTH, AssemblyResponse
+from loft_wire.drawings import DRAWING_NAME_MAX_LENGTH, DrawingResponse
+from loft_wire.parts import PART_NAME_MAX_LENGTH, PartResponse
+from loft_wire.workspace import copy_name
 from py_kit import ConflictError, get_logger
 from py_kit.db import SessionDep
-from py_kit.schemas.assemblies import ASSEMBLY_NAME_MAX_LENGTH, AssemblyResponse
-from py_kit.schemas.drawings import DRAWING_NAME_MAX_LENGTH, DrawingResponse
-from py_kit.schemas.parts import PART_NAME_MAX_LENGTH, PartResponse
-from py_kit.schemas.workspace import copy_name
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession

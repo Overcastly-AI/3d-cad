@@ -2,7 +2,7 @@
 
 The kernel half of the sweep feature (feature-tree design §4.3; BACKLOG #7) —
 the first NON-PRISMATIC body-affecting feature. The feature layer hands in the
-*solved* sketch entities (pydantic DTOs from :mod:`py_kit.schemas.sketch`) of a
+*solved* sketch entities (pydantic DTOs from :mod:`loft_wire.sketch`) of a
 CLOSED profile plus a SECOND, OPEN path sketch and its datum plane; this module
 owns every OCCT/build123d call. Failures raise the typed exceptions below with
 **sanitized messages** (no kernel internals) — the feature layer maps them 1:1
@@ -37,7 +37,7 @@ are pure functions of their inputs — no unordered iteration participates.
 from collections.abc import Sequence
 
 from build123d import Face, Plane, Solid, Wire
-from py_kit.schemas.sketch import SketchEntity
+from loft_wire.sketch import SketchEntity
 
 from geometry.kernel.extrude import (
     PROFILE_WIRE_TOLERANCE,

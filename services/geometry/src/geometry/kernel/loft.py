@@ -5,7 +5,7 @@ the second non-prismatic body-affecting feature after sweep. Where sweep
 follows ONE profile along a path, a loft blends a solid THROUGH two or more
 ordered cross-section sketches (the transitional-solid primitive named in the
 Part-modeling scorecard notes). The feature layer hands in the *solved* sketch
-entities (pydantic DTOs from :mod:`py_kit.schemas.sketch`) of each section plus
+entities (pydantic DTOs from :mod:`loft_wire.sketch`) of each section plus
 its datum plane; this module owns every OCCT/build123d call. Failures raise the
 typed exceptions below with **sanitized messages** (no kernel internals) — the
 feature layer maps them 1:1 onto ``FeatureError`` codes so geometry outcomes
@@ -52,7 +52,7 @@ identical inputs — no unordered iteration participates.
 from collections.abc import Sequence
 
 from build123d import Plane, Solid, Vertex, Wire
-from py_kit.schemas.sketch import SketchEntity, SketchPoint
+from loft_wire.sketch import SketchEntity, SketchPoint
 
 from geometry.kernel.extrude import (
     ProfileNotClosedError,

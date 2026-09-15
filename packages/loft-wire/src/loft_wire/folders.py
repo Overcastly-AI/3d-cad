@@ -83,7 +83,7 @@ MAX_FOLDER_DEPTH = 8
 FOLDER_ID_DESCRIPTION = (
     "The folder this document is filed in, or null when it is UNFILED (at the "
     "root of its drawer). Null is a real state, not a missing value — see "
-    "py_kit.schemas.folders. Changed only by the document's `/move` route, "
+    "loft_wire.folders. Changed only by the document's `/move` route, "
     "which is not a document edit: it moves neither the concurrency counter nor "
     "`updated_at`."
 )
@@ -201,7 +201,7 @@ FolderMemberKind = Literal["folder", "part", "assembly", "drawing"]
 class FolderMember(BaseModel):
     """One thing inside a folder whose delete was refused.
 
-    Deliberately NOT reusing :class:`~py_kit.schemas.workspace.DocumentDependent`:
+    Deliberately NOT reusing :class:`~loft_wire.workspace.DocumentDependent`:
     that model means "something REFERENCES you" and its ``kind`` documents why a
     part can never appear in it. Membership is the opposite relation, and a part
     is its commonest member. Two relations, two models; one shared refusal

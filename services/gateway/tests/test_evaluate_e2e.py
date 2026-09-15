@@ -32,9 +32,9 @@ from gateway.db import Base as GatewayBase
 from gateway.main import GatewaySettings
 from gateway.main import build_app as build_gateway_app
 from geometry.main import build_app as build_geometry_app
+from loft_wire.features import EvaluateTreeResult
+from loft_wire.sketch import SketchLine
 from py_kit.db import async_dsn
-from py_kit.schemas.features import EvaluateTreeResult
-from py_kit.schemas.sketch import SketchLine
 from sqlalchemy.ext.asyncio import create_async_engine
 
 TEST_JWT_SECRET = "e2e-test-jwt-secret-0123456789abcdef"

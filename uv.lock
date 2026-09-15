@@ -13,6 +13,7 @@ members = [
     "loft-geometry",
     "loft-py-kit",
     "loft-script",
+    "loft-wire",
     "loft-workspace",
 ]
 
@@ -1245,8 +1246,8 @@ source = { editable = "packages/py-kit" }
 dependencies = [
     { name = "alembic" },
     { name = "arq" },
-    { name = "email-validator" },
     { name = "fastapi" },
+    { name = "loft-wire" },
     { name = "prometheus-client" },
     { name = "pydantic-settings" },
     { name = "redis" },
@@ -1259,8 +1260,8 @@ dependencies = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.14" },
     { name = "arq", specifier = ">=0.26" },
-    { name = "email-validator", specifier = ">=2.2" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "loft-wire", editable = "packages/loft-wire" },
     { name = "prometheus-client", specifier = ">=0.21" },
     { name = "pydantic-settings", specifier = ">=2.7" },
     { name = "redis", specifier = ">=5" },
@@ -1275,13 +1276,28 @@ version = "0.1.0"
 source = { editable = "packages/loft-script" }
 dependencies = [
     { name = "httpx2" },
-    { name = "loft-py-kit" },
+    { name = "loft-wire" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "httpx2", specifier = ">=2.5" },
-    { name = "loft-py-kit", editable = "packages/py-kit" },
+    { name = "loft-wire", editable = "packages/loft-wire" },
+]
+
+[[package]]
+name = "loft-wire"
+version = "0.1.0"
+source = { editable = "packages/loft-wire" }
+dependencies = [
+    { name = "email-validator" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "email-validator", specifier = ">=2.2" },
+    { name = "pydantic", specifier = ">=2.9" },
 ]
 
 [[package]]
@@ -1298,6 +1314,7 @@ dev = [
     { name = "loft-geometry" },
     { name = "loft-py-kit" },
     { name = "loft-script" },
+    { name = "loft-wire" },
     { name = "moto", extra = ["s3", "server"] },
     { name = "pyright" },
     { name = "pytest" },
@@ -1315,6 +1332,7 @@ dev = [
     { name = "loft-geometry", editable = "services/geometry" },
     { name = "loft-py-kit", editable = "packages/py-kit" },
     { name = "loft-script", editable = "packages/loft-script" },
+    { name = "loft-wire", editable = "packages/loft-wire" },
     { name = "moto", extras = ["s3", "server"], specifier = ">=5.0" },
     { name = "pyright", specifier = ">=1.1.400" },
     { name = "pytest", specifier = ">=8.3" },

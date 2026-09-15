@@ -37,7 +37,7 @@ from geometry.drawings.compose import (
     _LYR_TITLE,  # pyright: ignore[reportPrivateUsage]
     _LYR_VISIBLE,  # pyright: ignore[reportPrivateUsage]
 )
-from py_kit.schemas.drawings import ComposedSheet
+from loft_wire.drawings import ComposedSheet
 
 #: The layers a fabricator keeps to get a cut path: the blank outline and the folds.
 #: This is the audit's stated workaround, asserted as a supported selection.

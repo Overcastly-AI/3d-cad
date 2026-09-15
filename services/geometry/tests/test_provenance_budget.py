@@ -2,7 +2,7 @@
 
 ``geometry.kernel.attribute_faces`` skips attribution entirely (returns
 all-``None``) once the fingerprint budget ``len(final faces) + sum(len(snapshot
-faces))`` exceeds :data:`~py_kit.schemas.overlay.MAX_PROVENANCE_FACES`. Past that
+faces))`` exceeds :data:`~loft_wire.overlay.MAX_PROVENANCE_FACES`. Past that
 point, clicking a feature in the tree silently stops highlighting that feature's
 faces and falls back to whole-body selection.
 
@@ -38,7 +38,7 @@ from typing import cast
 from build123d import Compound, Solid
 from geometry.kernel import FaceProvenance, attribute_faces
 from geometry.kernel.types import BodyShape
-from py_kit.schemas.overlay import MAX_PROVENANCE_FACES
+from loft_wire.overlay import MAX_PROVENANCE_FACES
 
 #: Lattice pitch/side for the synthetic part below — 2 mm apart so no two cubes
 #: touch (no boolean, no shared faces) and every face is geometrically distinct,

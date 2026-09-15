@@ -5,19 +5,26 @@ description = "Loft's public Python scripting API — model parts from code, thr
 requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
-    # The WIRE TYPES. py_kit.schemas holds the pydantic models the services
-    # serve, so the client imports them rather than re-deriving them from the
-    # generated OpenAPI — see packages/loft-script/README.md "Where the types
-    # come from". This is the ONLY first-party dependency: no gateway, no
-    # documents, and emphatically no geometry (the kernel never crosses here).
-    "loft-py-kit",
+    # The WIRE TYPES. loft_wire holds the pydantic models the services serve, so
+    # the client imports them rather than re-deriving them from the generated
+    # OpenAPI — see packages/loft-script/README.md "Where the types come from".
+    # This is the ONLY first-party dependency: no gateway, no documents, no
+    # py-kit, and emphatically no geometry (the kernel never crosses here).
+    #
+    # It was `loft-py-kit` when this library first landed, which put a web
+    # server, an async ORM, a task queue and a Redis client into every venv that
+    # `pip install loft-script` touched — 33 resolved distributions for a
+    # library whose premise is that it is just another HTTP caller; it is 15
+    # now. The modules were always clean; the DISTRIBUTION was not. See
+    # loft_wire's docstring and RESEARCH §3b.
+    "loft-wire",
     # BSD-3. The same HTTP client the gateway uses for its own upstream calls,
     # so there is one connection/timeout/TLS behaviour in the repo.
     "httpx2>=2.5",
 ]
 
 [tool.uv.sources]
-loft-py-kit = { workspace = true }
+loft-wire = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

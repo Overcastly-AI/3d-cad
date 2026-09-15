@@ -9,13 +9,13 @@ and a part response never hands a consumer two spellings of "nothing".
 import uuid
 
 import pytest
-from py_kit.schemas.geometry import (
+from loft_wire.geometry import (
     BoundingBox,
     ShapeProperties,
     TopologyCounts,
     Vec3,
 )
-from py_kit.schemas.materials import (
+from loft_wire.materials import (
     EMPTY_MATERIAL_ASSIGNMENT,
     MATERIALS,
     MATERIALS_BY_KEY,

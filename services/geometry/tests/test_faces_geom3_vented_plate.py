@@ -39,7 +39,7 @@ from typing import Any
 import pytest
 from geometry.features import evaluate_tree
 from geometry.kernel.faces import planar_faces
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 PART_ID = uuid.UUID("00000000-0000-0000-0000-000000003000")
 PLATE_SKETCH = uuid.UUID("00000000-0000-0000-0000-000000003001")

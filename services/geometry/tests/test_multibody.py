@@ -28,7 +28,7 @@ from build123d import Compound, Solid
 from geometry.features import evaluate_tree
 from geometry.kernel.edges import enumerate_edges, resolve_edge
 from geometry.kernel.faces import planar_faces, resolve_face_plane
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 
 def _iid(tag: str) -> str:
@@ -279,7 +279,7 @@ def test_mate_resolves_a_face_on_a_multilump_body() -> None:
     (centroid + outward normal) — never a silent break or a cross-lump tie."""
     from geometry.assembly.protocol import ResolvedFace
     from geometry.assembly.resolve import resolve_mate_geometry
-    from py_kit.schemas.assemblies import MateFaceRef
+    from loft_wire.assemblies import MateFaceRef
 
     near = _one_box()  # origin cube, x[0,20]
     far = Solid.make_box(20, 20, 20).translate((100, 0, 0))  # far lump, x[100,120]

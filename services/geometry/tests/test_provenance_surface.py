@@ -38,7 +38,7 @@ from geometry.kernel import FaceProvenance, attribute_faces
 from geometry.kernel.faces import face_signature_dto
 from geometry.kernel.provenance import SurfaceKey, _surface_key
 from geometry.kernel.types import BodyShape
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 A = uuid.UUID("00000000-0000-0000-0000-0000000e0001")
 B = uuid.UUID("00000000-0000-0000-0000-0000000e0002")

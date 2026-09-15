@@ -27,7 +27,7 @@ always done the more valuable half.
 
 from collections.abc import Callable
 
-from py_kit.schemas.features import WarmTreeRequest
+from loft_wire.features import WarmTreeRequest
 
 from geometry.features.evaluate import warm_rebuild_cache
 from geometry.rebuild_cache import WarmScheduler, live_work

@@ -1,4 +1,4 @@
-"""py_kit.schemas.assemblies — placement, mates, refs, CRUD DTOs.
+"""loft_wire.assemblies — placement, mates, refs, CRUD DTOs.
 
 Validates the docs/design/assemblies.md §1.5 shapes: the quaternion/placement
 defaults, the discriminated mate-geometry and mate unions (each of the five mate
@@ -10,7 +10,7 @@ import uuid
 from typing import Any
 
 import pytest
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     IDENTITY_PLACEMENT,
     AngleMate,
     CoincidentMate,

@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 from geometry.main import app
 from geometry.schemas import TessellationMetadata
-from py_kit.schemas.geometry import GLB_MEDIA_TYPE, PROPERTIES_HEADER
+from loft_wire.geometry import GLB_MEDIA_TYPE, PROPERTIES_HEADER
 
 client = TestClient(app)
 

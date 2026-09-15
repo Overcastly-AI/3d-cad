@@ -2,7 +2,7 @@
 
 The kernel half of the revolve feature (feature-tree design §4.3, the second
 core body-affecting feature): the feature layer hands in the *solved* sketch
-entities (pydantic DTOs from :mod:`py_kit.schemas.sketch`) plus the datum
+entities (pydantic DTOs from :mod:`loft_wire.sketch`) plus the datum
 plane, the axis line's sketch-local id, and the sweep angle; this module owns
 every OCCT/build123d call. Failures raise the typed exceptions below with
 **sanitized messages** (no kernel internals) — the feature layer maps them 1:1
@@ -67,8 +67,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from build123d import Axis, Face, Plane, Solid, Vector
-from py_kit.schemas.features import OriginAxis, RevolveAxis, SketchLineAxis
-from py_kit.schemas.sketch import (
+from loft_wire.features import OriginAxis, RevolveAxis, SketchLineAxis
+from loft_wire.sketch import (
     Point2D,
     SketchArc,
     SketchCircle,
@@ -192,7 +192,7 @@ class ResolvedRevolveAxis:
 def resolve_revolve_axis(
     axis: RevolveAxis, plane: Plane, entities: Sequence[SketchEntity]
 ) -> ResolvedRevolveAxis:
-    """Reduce any :data:`~py_kit.schemas.features.RevolveAxis` to the sketch plane.
+    """Reduce any :data:`~loft_wire.features.RevolveAxis` to the sketch plane.
 
     THE single axis-resolution point (CLAUDE.md DRY rule): every axis kind lands
     on one 2D sketch-plane line, so the profile-clearance guard and the sweep

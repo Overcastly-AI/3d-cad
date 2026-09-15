@@ -187,7 +187,7 @@ class ImportTooManyProductsError(Exception):
     otherwise expand into a full per-product ``body_step`` — a multi-GB response
     the gateway buffers before its own count cap can reject it. The assembly parse
     worker aborts the XDE walk once the leaf-occurrence count exceeds
-    :data:`~py_kit.schemas.step_import.MAX_IMPORT_ASSEMBLY_PRODUCTS`, INSIDE the
+    :data:`~loft_wire.step_import.MAX_IMPORT_ASSEMBLY_PRODUCTS`, INSIDE the
     CPU-bounded child (so even the accumulation is bounded), and the parent maps
     that worker exit code here — a rejection BEFORE the per-occurrence product
     build, never a 500."""
@@ -203,7 +203,7 @@ class ImportResponseTooLargeError(Exception):
     result shape carries ``body_step`` once per occurrence. The service layer
     tracks the running total of emitted ``body_step`` bytes and rejects here before
     materialising a product past
-    :data:`~py_kit.schemas.step_import.MAX_IMPORT_RESPONSE_BYTES` — a clean 422,
+    :data:`~loft_wire.step_import.MAX_IMPORT_RESPONSE_BYTES` — a clean 422,
     never a 500, regardless of occurrence count or body repetition."""
 
 

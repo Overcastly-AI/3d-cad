@@ -5,7 +5,7 @@ tree (:mod:`documents.features`, per docs/design/feature-tree.md), assembly
 CRUD (:mod:`documents.assemblies`, per docs/design/assemblies.md — a graph of
 instances + mates), and drawing CRUD (:mod:`documents.drawings`, per
 docs/design/drawings.md — a layout of sheets/views/dimensions/annotations),
-folder filing (:mod:`documents.folders`, per py_kit.schemas.folders — a
+folder filing (:mod:`documents.folders`, per loft_wire.folders — a
 per-drawer tree plus the document MOVE routes), plus the static material
 library (:mod:`documents.materials`, per
 docs/design/materials.md — densities served so nothing hardcodes one),

@@ -52,7 +52,7 @@ of an authored part never collide, and loose enough to absorb kernel jitter.
 
 The OCP wheel ships no type stubs, so the raw build123d/OCCT geometry calls are
 opaque to pyright; the directives scope that relaxation to this file only, and
-the fully-typed :class:`~py_kit.schemas.features.PlanarFaceSignature` DTO keeps
+the fully-typed :class:`~loft_wire.features.PlanarFaceSignature` DTO keeps
 the boundary honest.
 """
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
@@ -63,8 +63,8 @@ import math
 from dataclasses import dataclass
 
 from build123d import CenterOf, Face, GeomType, Plane, Vector, Wire
-from py_kit.schemas.features import PlanarFaceSignature
-from py_kit.schemas.geometry import Vec3
+from loft_wire.features import PlanarFaceSignature
+from loft_wire.geometry import Vec3
 
 from geometry.kernel.types import BodyShape
 

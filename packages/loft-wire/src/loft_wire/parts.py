@@ -18,9 +18,9 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
-from py_kit.schemas.folders import FOLDER_ID_DESCRIPTION
-from py_kit.schemas.materials import EMPTY_MATERIAL_ASSIGNMENT, MaterialAssignment
-from py_kit.schemas.units import DEFAULT_LENGTH_UNIT, LengthUnit
+from loft_wire.folders import FOLDER_ID_DESCRIPTION
+from loft_wire.materials import EMPTY_MATERIAL_ASSIGNMENT, MaterialAssignment
+from loft_wire.units import DEFAULT_LENGTH_UNIT, LengthUnit
 
 #: Internal header carrying the authenticated user id (gateway → documents).
 PRINCIPAL_HEADER = "X-Loft-User"
@@ -98,7 +98,7 @@ def is_stale_for_tree(*, built_from_tree_version: int, tree_version: int) -> boo
     Server-side this backs :func:`derive_part_eval_state`. On the wire the same
     comparison is available to a client — :attr:`PartResponse.tree_version`
     (current) against the ``tree_version`` a result carries
-    (:attr:`~py_kit.schemas.features.EvaluateTreeResult.tree_version`) — so a
+    (:attr:`~loft_wire.features.EvaluateTreeResult.tree_version`) — so a
     "up to date" readout can be DERIVED from provenance instead of inferred from
     whether a request happens to be in flight (docs/UI-REVIEW.md F2).
     """
@@ -232,7 +232,7 @@ class PartEvaluationRecord(BaseModel):
     from its own clock, so one clock orders every record.
 
     ``tree_version`` is the version of the tree the result BELONGS to (echoed
-    through :class:`~py_kit.schemas.features.EvaluateTreeResult`), which is what
+    through :class:`~loft_wire.features.EvaluateTreeResult`), which is what
     makes staleness derivable instead of assumed. Recording is monotonic in it:
     a late-arriving write for an older version is a no-op, never a resurrection
     of a superseded claim.

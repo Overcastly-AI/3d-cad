@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 from documents.main import DocumentsSettings, build_app
 from fastapi.testclient import TestClient
-from py_kit.schemas.parts import PRINCIPAL_HEADER
+from loft_wire.parts import PRINCIPAL_HEADER
 
 OWNER = "6f3f6b64-0000-4000-8000-00000000000c"
 

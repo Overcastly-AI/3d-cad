@@ -72,7 +72,7 @@ that could matter at :data:`SATISFIED_TOL_MM`.
 import math
 from typing import assert_never
 
-from py_kit.schemas.sketch import spline_fit_index
+from loft_wire.sketch import spline_fit_index
 
 from geometry.sketch.angles import AngleFrame, angle_frames, oriented_angle_rad
 from geometry.sketch.schemas import (

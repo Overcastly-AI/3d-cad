@@ -38,8 +38,8 @@ from geometry.kernel import (
 from geometry.kernel.degenerate import find_zero_width_slits
 from geometry.kernel.faces import planar_face_signature
 from geometry.main import app
-from py_kit.schemas.features import EvaluateTreeResult, PlanarFaceSignature
-from py_kit.schemas.geometry import Vec3
+from loft_wire.features import EvaluateTreeResult, PlanarFaceSignature
+from loft_wire.geometry import Vec3
 
 client = TestClient(app)
 

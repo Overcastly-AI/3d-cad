@@ -19,9 +19,9 @@ fully-typed :class:`ShapeProperties` DTO keeps the boundary honest.
 import math
 from collections.abc import Sequence
 
+from loft_wire.materials import mass_g
 from OCP.BRepGProp import BRepGProp
 from OCP.GProp import GProp_GProps
-from py_kit.schemas.materials import mass_g
 
 from geometry.kernel.types import BodyShape
 from geometry.schemas import BoundingBox, ShapeProperties, TopologyCounts, Vec3

@@ -47,7 +47,7 @@ from geometry.drawings.compose import (
     _bend_row_cells,  # pyright: ignore[reportPrivateUsage]
     _esc,  # pyright: ignore[reportPrivateUsage]
 )
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     ComposeDrawingRequest,
     ComposedSheet,
     SheetLayout,
@@ -55,7 +55,7 @@ from py_kit.schemas.drawings import (
     SheetViewPlacement,
     ViewScale,
 )
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 _HERE = Path(__file__).resolve().parent
 _GOLDENS_DIR = _HERE.parent / "goldens-sheet-metal"
@@ -229,10 +229,10 @@ from pathlib import Path
 from geometry.drawings import (
     evaluate_drawing_views, place_sheet, serialize_svg, serialize_pdf, serialize_dxf,
 )
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     ComposeDrawingRequest, SheetLayout, SheetPoint, SheetViewPlacement, ViewScale,
 )
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 model_path, title = sys.argv[1:3]
 scale = ViewScale(numerator=1, denominator=1)

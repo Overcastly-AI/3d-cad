@@ -33,12 +33,10 @@ from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, Response
-from py_kit.admission import ADMISSION_CONTROL
-from py_kit.errors import NotFoundError, ValidationApiError
 
 # Media types, filename rule, and the shared OpenAPI responses blocks live in
 # py-kit (single source of truth, shared with the gateway proxy).
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     MAX_INTERFERENCE_INSTANCES,
     EvaluateAssemblyRequest,
     EvaluateAssemblyResult,
@@ -46,7 +44,7 @@ from py_kit.schemas.assemblies import (
     InterferenceResult,
     assembly_export_filename,
 )
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     ARTIFACT_MEDIA_TYPES,
     ComposeDrawingRequest,
     ComposedSheet,
@@ -62,7 +60,7 @@ from py_kit.schemas.drawings import (
     artifact_filename,
     flat_pattern_filename,
 )
-from py_kit.schemas.features import (
+from loft_wire.features import (
     EvaluateTreeRequest,
     EvaluateTreeResult,
     ExportTreeRequest,
@@ -71,7 +69,7 @@ from py_kit.schemas.features import (
     WarmTreeResult,
     export_tree_filename,
 )
-from py_kit.schemas.geometry import (
+from loft_wire.geometry import (
     EXPORT_MEDIA_TYPES,
     GLB_MEDIA_TYPE,
     PROPERTIES_HEADER,
@@ -79,9 +77,9 @@ from py_kit.schemas.geometry import (
     export_responses,
     tessellate_responses,
 )
-from py_kit.schemas.measure import MeasureRequest, MeasureResult
-from py_kit.schemas.overlay import OverlayRequest, OverlayResult
-from py_kit.schemas.sketch import (
+from loft_wire.measure import MeasureRequest, MeasureResult
+from loft_wire.overlay import OverlayRequest, OverlayResult
+from loft_wire.sketch import (
     Point2D,
     SketchChamferRequest,
     SketchCornerResult,
@@ -94,10 +92,12 @@ from py_kit.schemas.sketch import (
     SketchOffsetRequest,
     SketchOffsetResult,
 )
-from py_kit.schemas.step_import import (
+from loft_wire.step_import import (
     StepAssemblyImportRequest,
     StepAssemblyImportResult,
 )
+from py_kit.admission import ADMISSION_CONTROL
+from py_kit.errors import NotFoundError, ValidationApiError
 
 from geometry.assembly import (
     AssemblyExportError,
@@ -320,7 +320,7 @@ def assembly_interference_route(
     route enforces a TIGHTER instance ceiling than the parse-time
     ``MAX_ASSEMBLY_INSTANCES`` — ``MAX_INTERFERENCE_INSTANCES`` (~19,900
     pairwise exact booleans at the cap; the constant's rationale comment in
-    :mod:`py_kit.schemas.assemblies` documents the N² math). Over the cap is a
+    :mod:`loft_wire.assemblies` documents the N² math). Over the cap is a
     typed 422 ``interference_too_many_instances``, never an unbounded scan.
     Cross-field (route-specific, not a property of the shared request model),
     so it is a handler check rather than a Field constraint.
@@ -782,7 +782,7 @@ def measure(request: MeasureRequest) -> MeasureResult:
     is EXACT; nothing is read from the tessellation. The response carries the
     minimum distance, its (dx, dy, dz) components, the two witness points, and
     (for two straight edges) the acute angle between them. See
-    :mod:`py_kit.schemas.measure` for the full contract + fidelity rationale.
+    :mod:`loft_wire.measure` for the full contract + fidelity rationale.
 
     A tree that recomputes to no body is a clean 422 ``tree_measure_failed``
     envelope; an out-of-range edge index is a 422 ``edge_index_out_of_range``.
@@ -812,7 +812,7 @@ def overlay(request: OverlayRequest) -> OverlayResult:
     Both index spaces are TRANSIENT — valid for this request/tree only, NOT
     stable across edits (stable named references are topological naming, Phase
     2). A tree that recomputes to no body is a clean 422 ``tree_overlay_failed``
-    envelope. See :mod:`py_kit.schemas.overlay` for the full contract.
+    envelope. See :mod:`loft_wire.overlay` for the full contract.
     """
     return evaluate_overlay(request)
 
@@ -854,7 +854,7 @@ def sketch_trim(request: SketchEditRequest) -> SketchEditResult:
     segment removed (Onshape/Fusion "cut at intersection"); an unbounded side
     runs to the curve end, and a curve with no intersection at all is deleted
     whole. Splits may add a second entity with a fresh deterministic id (see
-    :class:`py_kit.schemas.sketch.SketchEditResult`). Deterministic (RESEARCH
+    :class:`loft_wire.sketch.SketchEditResult`). Deterministic (RESEARCH
     §9): identical input yields coordinate-identical output.
 
     Errors are 422s with legible codes, never 500s: ``sketch_target_not_found``
@@ -966,7 +966,7 @@ def sketch_fillet(request: SketchFilletRequest) -> SketchCornerResult:
     replaced by a tangent arc of ``radius``: both lines are trimmed to their
     tangent points (ids preserved) and the arc is appended with a fresh
     deterministic id ``f"{a}.{n}"`` (see
-    :class:`py_kit.schemas.sketch.SketchCornerResult`). Exact closed-form and
+    :class:`loft_wire.sketch.SketchCornerResult`). Exact closed-form and
     deterministic (RESEARCH §9). **v1 is line-line only.**
 
     Errors are 422s with legible codes, never 500s: ``sketch_target_not_found``

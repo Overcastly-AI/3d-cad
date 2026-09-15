@@ -146,7 +146,7 @@ export interface paths {
          *     route enforces a TIGHTER instance ceiling than the parse-time
          *     ``MAX_ASSEMBLY_INSTANCES`` — ``MAX_INTERFERENCE_INSTANCES`` (~19,900
          *     pairwise exact booleans at the cap; the constant's rationale comment in
-         *     :mod:`py_kit.schemas.assemblies` documents the N² math). Over the cap is a
+         *     :mod:`loft_wire.assemblies` documents the N² math). Over the cap is a
          *     typed 422 ``interference_too_many_instances``, never an unbounded scan.
          *     Cross-field (route-specific, not a property of the shared request model),
          *     so it is a handler check rather than a Field constraint.
@@ -445,7 +445,7 @@ export interface paths {
          *     is EXACT; nothing is read from the tessellation. The response carries the
          *     minimum distance, its (dx, dy, dz) components, the two witness points, and
          *     (for two straight edges) the acute angle between them. See
-         *     :mod:`py_kit.schemas.measure` for the full contract + fidelity rationale.
+         *     :mod:`loft_wire.measure` for the full contract + fidelity rationale.
          *
          *     A tree that recomputes to no body is a clean 422 ``tree_measure_failed``
          *     envelope; an out-of-range edge index is a 422 ``edge_index_out_of_range``.
@@ -508,7 +508,7 @@ export interface paths {
          *     Both index spaces are TRANSIENT — valid for this request/tree only, NOT
          *     stable across edits (stable named references are topological naming, Phase
          *     2). A tree that recomputes to no body is a clean 422 ``tree_overlay_failed``
-         *     envelope. See :mod:`py_kit.schemas.overlay` for the full contract.
+         *     envelope. See :mod:`loft_wire.overlay` for the full contract.
          */
         post: operations["overlay_api_v1_overlay_post"];
         delete?: never;
@@ -595,7 +595,7 @@ export interface paths {
          *     replaced by a tangent arc of ``radius``: both lines are trimmed to their
          *     tangent points (ids preserved) and the arc is appended with a fresh
          *     deterministic id ``f"{a}.{n}"`` (see
-         *     :class:`py_kit.schemas.sketch.SketchCornerResult`). Exact closed-form and
+         *     :class:`loft_wire.sketch.SketchCornerResult`). Exact closed-form and
          *     deterministic (RESEARCH §9). **v1 is line-line only.**
          *
          *     Errors are 422s with legible codes, never 500s: ``sketch_target_not_found``
@@ -707,7 +707,7 @@ export interface paths {
          *     segment removed (Onshape/Fusion "cut at intersection"); an unbounded side
          *     runs to the curve end, and a curve with no intersection at all is deleted
          *     whole. Splits may add a second entity with a fresh deterministic id (see
-         *     :class:`py_kit.schemas.sketch.SketchEditResult`). Deterministic (RESEARCH
+         *     :class:`loft_wire.sketch.SketchEditResult`). Deterministic (RESEARCH
          *     §9): identical input yields coordinate-identical output.
          *
          *     Errors are 422s with legible codes, never 500s: ``sketch_target_not_found``
@@ -1111,7 +1111,7 @@ export interface components {
          *
          *     ``base_feature_id`` is the id of the feature that CREATED the body — the
          *     same key ``EvaluationState.bodies`` and
-         *     :class:`~py_kit.schemas.features.BodyLumpInfo` use — so an override survives
+         *     :class:`~loft_wire.features.BodyLumpInfo` use — so an override survives
          *     edits to other features the way any body reference does. An override naming
          *     a body the tree no longer produces is inert (it matches nothing); it is not
          *     an error, because a rolled-back tree legitimately hides the body for a while.
@@ -1477,7 +1477,7 @@ export interface components {
          *
          *     **Assembly source (design §7, Drawings #4).** A view referencing an ASSEMBLY
          *     (not a single part) carries the resolved assembly graph in ``assembly`` — the
-         *     reused :class:`~py_kit.schemas.assemblies.EvaluateAssemblyRequest` (instances +
+         *     reused :class:`~loft_wire.assemblies.EvaluateAssemblyRequest` (instances +
          *     mates + version) documents resolves for the referenced assembly document. When
          *     ``assembly`` is set the geometry service projects the SOLVED assembly compound
          *     (``evaluate_assembly_drawing_views`` — the ``/drawing/assembly/evaluate``
@@ -2123,7 +2123,7 @@ export interface components {
          *     stamped caption ("FRONT") and its position.
          *
          *     ``error`` carries the TYPED per-view failure through composition (FINDINGS #15):
-         *     the :class:`~py_kit.schemas.features.FeatureError` (code + human message) from the
+         *     the :class:`~loft_wire.features.FeatureError` (code + human message) from the
          *     source :class:`DrawingViewResult` — a ``view_projection_failed`` /
          *     ``section_plane_not_principal`` / ``section_empty`` /
          *     ``flat_pattern_not_sheet_metal`` / ``section_params_missing`` — so the sheet/print
@@ -3073,7 +3073,7 @@ export interface components {
          * @description Project a solved ASSEMBLY into its requested standard drawing views (§7).
          *
          *     documents sends INTENT — the assembly graph (via the reused
-         *     :class:`~py_kit.schemas.assemblies.EvaluateAssemblyRequest`: each instance's
+         *     :class:`~loft_wire.assemblies.EvaluateAssemblyRequest`: each instance's
          *     part feature prefix + authored/grounded placement + the mate graph) plus the
          *     standard views to project and the drawing scale. geometry is the sole evaluator:
          *     it solves the assembly ONCE (``solve_assembly`` — each unique part evaluated
@@ -3892,7 +3892,7 @@ export interface components {
          *     every incumbent ships it. Extends :class:`EvaluateTreeRequest` VERBATIM (the same
          *     ordered, rollback-applied prefix the evaluate/export routes take — one tree
          *     contract) and adds only the download name, exactly as
-         *     :class:`~py_kit.schemas.features.ExportTreeRequest` does.
+         *     :class:`~loft_wire.features.ExportTreeRequest` does.
          *
          *     There is deliberately NO scale field. A flat pattern is a cut path, not a
          *     picture, so 1:1 is not a default here — it is the only representable answer
@@ -4229,7 +4229,7 @@ export interface components {
          *
          *     ``name`` is the STEP PRODUCT name (``None`` when the file names no product —
          *     the caller supplies a fallback instance name). ``placement`` is the
-         *     product's WORLD pose (reusing :class:`~py_kit.schemas.assemblies.Placement` —
+         *     product's WORLD pose (reusing :class:`~loft_wire.assemblies.Placement` —
          *     identity for a flat single-body STEP), matched to the exported placement
          *     within the kernel round-trip tolerance.
          *
@@ -4242,7 +4242,7 @@ export interface components {
          *       placement STRIPPED (that is ``placement``, kept separate), stored ONCE under
          *       this key in :attr:`StepAssemblyImportResult.bodies`. The text is exactly what
          *       the single-body ``import`` feature ingests
-         *       (:class:`~py_kit.schemas.features.ImportParamsV1` ``data``), so the documents
+         *       (:class:`~loft_wire.features.ImportParamsV1` ``data``), so the documents
          *       service seeds each part with ``ImportParamsV1(data=<resolved body>)`` — ZERO
          *       new ingest path. A mesh is not editable geometry; this is what lets 2b build
          *       a REAL part per instance. ``None`` when the product produced no solid.
@@ -4577,7 +4577,7 @@ export interface components {
          * @description An axis derived from a CIRCULAR edge of an instance's part body (§2.1).
          *
          *     v1 derives an axis from a circular edge (``curve == "circle"``) — reusing
-         *     :class:`~py_kit.schemas.features.EdgeSignature`, whose seam-point centre and
+         *     :class:`~loft_wire.features.EdgeSignature`, whose seam-point centre and
          *     plane give the axis (design §2.1). This deliberately avoids needing a
          *     cylindrical-face signature (a clean additive future member): a hole rim and
          *     a shaft rim are both circular edges, enough for the canonical bolt joint.
@@ -4623,7 +4623,7 @@ export interface components {
          * MateFaceRef
          * @description A planar face of an instance's part body (design §1.5/§2.1).
          *
-         *     ``signature`` is the SAME :class:`~py_kit.schemas.features.PlanarFaceSignature`
+         *     ``signature`` is the SAME :class:`~loft_wire.features.PlanarFaceSignature`
          *     the ``on_face`` datum resolves (topological-naming.md §9) — reused verbatim,
          *     not a parallel taxonomy. ``instance_id`` scopes the face to one instance's
          *     resolved part body (the geometry service resolves the signature against that
@@ -5070,7 +5070,7 @@ export interface components {
          *
          *     The list position of this edge in :attr:`OverlayResult.edges` is its
          *     transient 0-based index — the SAME ordinal ``body.edges()`` yields, so
-         *     passing it as :class:`~py_kit.schemas.measure.EdgeTarget` ``index`` measures
+         *     passing it as :class:`~loft_wire.measure.EdgeTarget` ``index`` measures
          *     THIS edge. The transient index is for MEASUREMENT; the STABLE, rebuild-
          *     surviving reference is :attr:`signature` (topological naming) — echo it into
          *     an ``EdgeSubshapeRef`` to fillet/chamfer exactly this edge.
@@ -5099,7 +5099,7 @@ export interface components {
          * @description One face of the evaluated body — pickable for a sketch datum-on-a-face.
          *
          *     A PLANAR face carries a stage-1
-         *     :class:`~py_kit.schemas.features.PlanarFaceSignature` — the SAME fingerprint
+         *     :class:`~loft_wire.features.PlanarFaceSignature` — the SAME fingerprint
          *     a datum-on-face ``SubshapeRef`` stores and the geometry resolver matches
          *     against (one enumeration: the pick side and the resolve side share
          *     ``geometry.kernel.faces.planar_faces``; an order-equality gate proves it). To
@@ -5766,7 +5766,7 @@ export interface components {
          * @description The cutting plane + half selection of a section view (drawings-section.md §1).
          *
          *     v1 specifies the section's cutting plane by DATUM REFERENCE, not a drawn cutting
-         *     line (§1): ``plane`` is the shipped :data:`~py_kit.schemas.features.GeomRef`
+         *     line (§1): ``plane`` is the shipped :data:`~loft_wire.features.GeomRef`
          *     (``DatumPlaneRef`` for one of the XY/XZ/YZ origin planes, or a ``FeatureRef`` to
          *     an axis-aligned offset / midplane datum FEATURE in the referenced part) — the
          *     EXACT union a sketch's plane reference uses, so no parallel plane taxonomy is
@@ -6465,7 +6465,7 @@ export interface components {
          *     Sketching row): a REDUNDANT constraint is removable and the sketch still
          *     solves, whereas a CONFLICTING constraint makes the sketch unsolvable until
          *     one is relaxed. Built by :func:`classify_overconstraint`; carried on the
-         *     :class:`py_kit.schemas.features.FeatureError` (the ``sketch_conflicting``
+         *     :class:`loft_wire.features.FeatureError` (the ``sketch_conflicting``
          *     error path) and on the solved-sketch feature payload (the redundant-but-
          *     solvable path), so BOTH cases surface the same typed shape.
          */
@@ -6548,7 +6548,7 @@ export interface components {
          *       from that end to the nearest neighboring entity it meets in that
          *       direction (else 422 ``sketch_extend_no_target``).
          *
-         *     Units are millimetres (:mod:`py_kit.schemas.sketch` convention).
+         *     Units are millimetres (:mod:`loft_wire.sketch` convention).
          */
         SketchEditRequest: {
             /**
@@ -6717,7 +6717,7 @@ export interface components {
          *     Mirror **adds** geometry: the sources are untouched and the response carries
          *     only the NEW reflected copies (see :class:`SketchMirrorResult`). Every entity
          *     kind is reflectable (point, line, circle, arc). Units are millimetres
-         *     (:mod:`py_kit.schemas.sketch` convention).
+         *     (:mod:`loft_wire.sketch` convention).
          */
         SketchMirrorRequest: {
             /**
@@ -6820,7 +6820,7 @@ export interface components {
          *     ``{datum}``); the stored shape is unchanged, so this is purely additive — no
          *     ``param_version`` bump.
          *
-         *     Extends :class:`py_kit.schemas.sketch.SketchDefinition` (typed
+         *     Extends :class:`loft_wire.sketch.SketchDefinition` (typed
          *     ``entities``/``constraints`` — the §1.4 placeholder finalized by the
          *     "Sketch model + solver API" item), so a persisted sketch's params ARE
          *     valid solver input: same validation (unique sketch-local entity ids per
@@ -7060,8 +7060,8 @@ export interface components {
          * @description Read an assembly STEP into its structured product list (geometry-side).
          *
          *     ``data`` is the STEP AP214 part-21 TEXT inline, bounded/non-empty by
-         *     :data:`~py_kit.schemas.features.MAX_INLINE_STEP_CHARS` (the SAME cap the
-         *     single-body :class:`~py_kit.schemas.features.ImportParamsV1` uses) — an
+         *     :data:`~loft_wire.features.MAX_INLINE_STEP_CHARS` (the SAME cap the
+         *     single-body :class:`~loft_wire.features.ImportParamsV1` uses) — an
          *     oversize or empty payload is a request-validation 422 at the boundary, never
          *     a per-request geometry error. ``linear_deflection`` is the presentation
          *     tessellation parameter for each product's shared mesh (never persisted).

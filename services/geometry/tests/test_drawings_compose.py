@@ -46,7 +46,7 @@ from geometry.drawings.compose import (
     view_to_svg_edges,
 )
 from geometry.main import app
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     AngularDimensionParams,
     ComposedDimension,
     ComposedDimensionError,
@@ -70,8 +70,8 @@ from py_kit.schemas.drawings import (
     TitleBlock,
     ViewProjection,
 )
-from py_kit.schemas.features import EdgeSignature
-from py_kit.schemas.geometry import Vec3
+from loft_wire.features import EdgeSignature
+from loft_wire.geometry import Vec3
 
 client = TestClient(app)
 
@@ -259,7 +259,7 @@ def test_parity_foreshortened_marker() -> None:
 
 
 def test_parity_measurement_error_is_honest_marker() -> None:
-    from py_kit.schemas.features import FeatureError
+    from loft_wire.features import FeatureError
 
     a = _build(
         DiameterDimensionParams(edge=_circle_sig()),
@@ -419,7 +419,7 @@ def test_edge_to_edge_spans_the_gap_even_when_the_edges_are_staggered() -> None:
 def test_edge_to_edge_refusal_is_stamped_in_the_machinist_s_words() -> None:
     """A non-parallel pair never reaches placement — geometry refused it — so the
     sheet carries the typed marker, in words a shop can act on, and NO number."""
-    from py_kit.schemas.features import FeatureError
+    from loft_wire.features import FeatureError
 
     a = _build(
         LinearDimensionParams(
@@ -709,7 +709,7 @@ import sys
 from pathlib import Path
 
 from geometry.drawings import evaluate_drawing_views, place_sheet, serialize_svg
-from py_kit.schemas.drawings import ComposeDrawingRequest
+from loft_wire.drawings import ComposeDrawingRequest
 
 golden = Path(sys.argv[1])
 request = ComposeDrawingRequest.model_validate_json(
@@ -775,7 +775,7 @@ import sys
 from pathlib import Path
 
 from geometry.drawings import evaluate_drawing_views, place_sheet, serialize_pdf
-from py_kit.schemas.drawings import ComposeDrawingRequest
+from loft_wire.drawings import ComposeDrawingRequest
 
 golden = Path(sys.argv[1])
 request = ComposeDrawingRequest.model_validate_json(
@@ -859,7 +859,7 @@ import sys
 from pathlib import Path
 
 from geometry.drawings import evaluate_drawing_views, place_sheet, serialize_dxf
-from py_kit.schemas.drawings import ComposeDrawingRequest
+from loft_wire.drawings import ComposeDrawingRequest
 
 golden = Path(sys.argv[1])
 request = ComposeDrawingRequest.model_validate_json(
@@ -1429,7 +1429,7 @@ def test_sheet_endpoint_returns_composed_sheet_model() -> None:
     """`POST /api/v1/drawing/compose/sheet` returns the placed `ComposedSheet` as
     typed JSON (NOT serialized bytes) — the one placement source DE-1c renders from.
     It runs the SAME pipeline as `place_sheet`, so the wire model equals it exactly."""
-    from py_kit.schemas.drawings import ComposedSheet
+    from loft_wire.drawings import ComposedSheet
 
     request = _golden_request()
     response = client.post(

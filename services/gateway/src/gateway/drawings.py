@@ -22,9 +22,8 @@ import uuid
 from typing import Annotated, Any, NamedTuple
 
 from fastapi import APIRouter, Query, Request, Response, status
-from py_kit.errors import NotFoundError, ValidationApiError
-from py_kit.schemas.assemblies import EvaluateAssemblyRequest
-from py_kit.schemas.drawings import (
+from loft_wire.assemblies import EvaluateAssemblyRequest
+from loft_wire.drawings import (
     ARTIFACT_MEDIA_TYPES,
     AnnotationCreate,
     AnnotationMutationResponse,
@@ -53,7 +52,8 @@ from py_kit.schemas.drawings import (
     ViewUpdate,
     artifact_filename,
 )
-from py_kit.schemas.features import EvaluatedFeatureInput, EvaluateTreeRequest
+from loft_wire.features import EvaluatedFeatureInput, EvaluateTreeRequest
+from py_kit.errors import NotFoundError, ValidationApiError
 
 from gateway.affinity import forward_geometry
 from gateway.auth import CurrentUser

@@ -25,7 +25,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeVar
 
-from py_kit.schemas.features import (
+from loft_wire.features import (
     EvaluateTreeResult,
     ExtrudeFeature,
     ExtrudeParamsV1,
@@ -41,9 +41,9 @@ from py_kit.schemas.features import (
     SketchFeature,
     SolvedSketchData,
 )
-from py_kit.schemas.geometry import ExportFormat, ShapeProperties
-from py_kit.schemas.parts import PartCreate, PartListResponse, PartResponse, PartUpdate
-from py_kit.schemas.units import LengthUnit
+from loft_wire.geometry import ExportFormat, ShapeProperties
+from loft_wire.parts import PartCreate, PartListResponse, PartResponse, PartUpdate
+from loft_wire.units import LengthUnit
 
 from loft import _operations as ops
 from loft.errors import FeatureFailed, NoBody, StaleDocument
@@ -58,7 +58,7 @@ WriteT = TypeVar("WriteT")
 
 #: File suffix -> export format, so ``part.export("bracket.step")`` needs no
 #: second argument. The formats are the contract's own
-#: :data:`~py_kit.schemas.geometry.ExportFormat` literals; ``.gltf`` is absent
+#: :data:`~loft_wire.geometry.ExportFormat` literals; ``.gltf`` is absent
 #: deliberately (the gateway emits BINARY glTF, whose suffix is ``.glb``, and a
 #: ``.gltf`` file containing GLB bytes is a file no viewer will open).
 EXPORT_SUFFIXES: dict[str, ExportFormat] = {
@@ -73,7 +73,7 @@ EXPORT_SUFFIXES: dict[str, ExportFormat] = {
 class Evaluation:
     """The result of rebuilding a part — statuses, mass properties, provenance.
 
-    Wraps :class:`~py_kit.schemas.features.EvaluateTreeResult` rather than
+    Wraps :class:`~loft_wire.features.EvaluateTreeResult` rather than
     replacing it: ``evaluation.result`` is the untouched DTO, and everything
     here is a question a script actually asks of it.
     """
@@ -272,7 +272,7 @@ class Part:
         The typed verbs (:meth:`extrude`, :meth:`sketch`) are sugar over this.
         It is public because the typed verbs deliberately cover only a slice of
         the feature registry: a script that needs a revolve, a fillet or a hole
-        TODAY can build the ``py_kit.schemas.features`` envelope itself and pass
+        TODAY can build the ``loft_wire.features`` envelope itself and pass
         it here, rather than waiting for a method. The version guard, the
         optimistic-concurrency retry and the contract check all still apply.
         """

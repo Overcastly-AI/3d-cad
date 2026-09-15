@@ -20,14 +20,14 @@ import uuid
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
-from py_kit.schemas.features import (
+from loft_wire.features import (
     DatumPlaneRef,
     FeatureRef,
     GeomRef,
     SketchFeature,
     SketchParamsV1,
 )
-from py_kit.schemas.sketch import (
+from loft_wire.sketch import (
     CoincidentConstraint,
     ConcentricConstraint,
     DiameterConstraint,
@@ -221,7 +221,7 @@ class Sketch:
         by diameter on every drawing, fastener table and drill chart, so a
         scripting API that only took a radius would make an engineer halve every
         number they were given (the same argument
-        :class:`~py_kit.schemas.sketch.DiameterConstraint` exists for). When
+        :class:`~loft_wire.sketch.DiameterConstraint` exists for). When
         ``dimension`` is true the size also becomes a DRIVING dimension of the
         kind that matches how it was given, so the number in the script is the
         number in the model rather than a starting guess.
@@ -544,7 +544,7 @@ class Sketch:
         return solved
 
     def ref(self) -> FeatureRef:
-        """A :class:`~py_kit.schemas.features.FeatureRef` to this sketch feature."""
+        """A :class:`~loft_wire.features.FeatureRef` to this sketch feature."""
         return FeatureRef(kind="feature", feature_id=self.id)
 
 

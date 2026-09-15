@@ -32,7 +32,7 @@ from pathlib import Path
 
 import pytest
 from geometry.drawings import evaluate_drawing_views, place_sheet
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     ComposedLineEdge,
     ComposeDrawingRequest,
     ComposedSheet,
@@ -42,7 +42,7 @@ from py_kit.schemas.drawings import (
     SheetViewPlacement,
     ViewScale,
 )
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 from pydantic import BaseModel, ConfigDict, Field
 
 _HERE = Path(__file__).resolve().parent
@@ -216,10 +216,10 @@ import sys
 from pathlib import Path
 
 from geometry.drawings import evaluate_drawing_views, place_sheet
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     ComposeDrawingRequest, SheetLayout, SheetPoint, SheetViewPlacement, ViewScale,
 )
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 view_model, size, orientation, title = sys.argv[1:5]
 scale = ViewScale(numerator=1, denominator=1)

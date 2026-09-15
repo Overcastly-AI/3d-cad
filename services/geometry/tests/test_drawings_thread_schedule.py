@@ -32,14 +32,14 @@ from geometry.drawings import (
     thread_schedule_rows,
 )
 from geometry.main import app
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     ComposeDrawingRequest,
     SheetLayout,
     SheetPoint,
     SheetViewPlacement,
     ViewScale,
 )
-from py_kit.schemas.features import (
+from loft_wire.features import (
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
     HoleFeature,

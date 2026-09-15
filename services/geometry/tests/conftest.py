@@ -18,7 +18,7 @@ from ezdxf.document import Drawing
 from geometry.drawings import evaluate_drawing_views, place_sheet
 from geometry.features.evaluate import reset_rebuild_cache
 from geometry.schemas import ShapeProperties
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     ComposeDrawingRequest,
     ComposedSheet,
     SheetLayout,
@@ -26,7 +26,7 @@ from py_kit.schemas.drawings import (
     SheetViewPlacement,
     ViewScale,
 )
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 #: Round-trip tolerance for mass properties: the CLAUDE.md kernel linear
 #: tolerance (1e-7), NOT a fitted epsilon — the measured round-trip deviation

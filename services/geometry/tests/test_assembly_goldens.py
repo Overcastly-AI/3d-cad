@@ -35,12 +35,12 @@ from pathlib import Path
 import pytest
 from geometry.assembly import evaluate_assembly
 from geometry.assembly.transform import Pose
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     AssemblySolveStatus,
     EvaluateAssemblyRequest,
     Placement,
 )
-from py_kit.schemas.geometry import BoundingBox, Vec3
+from loft_wire.geometry import BoundingBox, Vec3
 from pydantic import BaseModel, ConfigDict, Field
 
 GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens-assembly"
@@ -248,7 +248,7 @@ _RESTART_PROBE = """\
 import sys
 
 from geometry.assembly import evaluate_assembly
-from py_kit.schemas.assemblies import EvaluateAssemblyRequest
+from loft_wire.assemblies import EvaluateAssemblyRequest
 
 request = EvaluateAssemblyRequest.model_validate_json(sys.stdin.read())
 print(evaluate_assembly(request).model_dump_json())

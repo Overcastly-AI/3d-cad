@@ -16,24 +16,24 @@ from typing import Annotated, Any, NoReturn
 
 import httpx2 as httpx
 from fastapi import APIRouter, Path, Request, Response
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     EvaluateAssemblyRequest,
     EvaluateAssemblyResult,
     ExportAssemblyRequest,
     InterferenceResult,
 )
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     EvaluateDrawingViewsRequest,
     EvaluateDrawingViewsResult,
 )
-from py_kit.schemas.features import (
+from loft_wire.features import (
     EvaluateTreeRequest,
     PrefetchRequest,
     WarmCancelRequest,
     WarmTreeRequest,
     WarmTreeResult,
 )
-from py_kit.schemas.geometry import (
+from loft_wire.geometry import (
     EXPORT_MEDIA_TYPES,
     GLB_MEDIA_TYPE,
     PROPERTIES_HEADER,
@@ -43,9 +43,9 @@ from py_kit.schemas.geometry import (
     export_responses,
     tessellate_responses,
 )
-from py_kit.schemas.measure import MeasureRequest, MeasureResult
-from py_kit.schemas.overlay import OverlayRequest, OverlayResult
-from py_kit.schemas.sketch import (
+from loft_wire.measure import MeasureRequest, MeasureResult
+from loft_wire.overlay import OverlayRequest, OverlayResult
+from loft_wire.sketch import (
     SketchChamferRequest,
     SketchCornerResult,
     SketchEditRequest,

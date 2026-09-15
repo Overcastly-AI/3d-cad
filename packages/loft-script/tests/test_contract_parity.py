@@ -112,9 +112,9 @@ def test_declared_models_are_importable_py_kit_or_gateway_classes() -> None:
     ``_check_request_model`` would start refusing correct payloads, so pin it
     for the models the library actually sends.
     """
-    import py_kit.schemas.auth as auth
-    import py_kit.schemas.features as features
-    import py_kit.schemas.parts as parts
+    import loft_wire.auth as auth
+    import loft_wire.features as features
+    import loft_wire.parts as parts
 
     sent = {
         "RegisterRequest": auth.RegisterRequest,

@@ -1,6 +1,6 @@
 """Stateless measurement service (BACKLOG #6a) — recompute + exact distance.
 
-Ties the boundary contract (:mod:`py_kit.schemas.measure`) to the kernel: point
+Ties the boundary contract (:mod:`loft_wire.measure`) to the kernel: point
 targets need no geometry, edge targets recompute the body from the supplied
 feature tree — reusing :func:`geometry.features.evaluate_tree` (DRY: the SAME
 ordered dispatch + strict-prefix rule as ``POST /api/v1/evaluate``, no
@@ -9,8 +9,8 @@ anything (CLAUDE.md: the geometry service is stateless); the response is a plain
 value DTO, no artifact and no kernel type crosses the boundary.
 """
 
+from loft_wire.measure import EdgeTarget, MeasureRequest, MeasureResult
 from py_kit.errors import ValidationApiError
-from py_kit.schemas.measure import EdgeTarget, MeasureRequest, MeasureResult
 
 from geometry.faults import unexpected_query_failure
 from geometry.features import evaluate_tree, tree_no_body_error

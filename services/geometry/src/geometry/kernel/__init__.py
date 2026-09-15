@@ -389,7 +389,7 @@ def export_solid(
     timestamp and the 3MF UUIDs).
 
     **The formats do not share a unit** — STEP/STL/3MF are millimetres, GLB is
-    metres per the glTF spec. ``py_kit.schemas.geometry.EXPORT_UNITS`` is the
+    metres per the glTF spec. ``loft_wire.geometry.EXPORT_UNITS`` is the
     single place that records it and the export gate asserts every format's
     round-tripped extents against it.
 

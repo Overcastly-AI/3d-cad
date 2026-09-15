@@ -49,8 +49,7 @@ from geometry.assembly import (
 from geometry.assembly.transform import Pose
 from geometry.kernel.edges import edge_signature_dto
 from geometry.kernel.faces import face_signature_dto, planar_faces
-from OCP.BRepAdaptor import BRepAdaptor_Curve
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     CoincidentMate,
     ConcentricMate,
     MateAxisRef,
@@ -58,8 +57,9 @@ from py_kit.schemas.assemblies import (
     Placement,
     Quat,
 )
-from py_kit.schemas.features import EdgeSignature, PlanarFaceSignature
-from py_kit.schemas.geometry import Vec3
+from loft_wire.features import EdgeSignature, PlanarFaceSignature
+from loft_wire.geometry import Vec3
+from OCP.BRepAdaptor import BRepAdaptor_Curve
 
 #: Per-model resolution/solve tolerance (mm for positions, dimensionless for
 #: normals / quaternion components). B-rep exact geometry → round-off residuals;

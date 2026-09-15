@@ -18,9 +18,9 @@ import sqlalchemy as sa
 from documents.db import Feature, FeatureDependency
 from documents.main import DocumentsSettings, build_app
 from fastapi.testclient import TestClient
+from loft_wire.features import FEATURE_REGISTRY
+from loft_wire.parts import PRINCIPAL_HEADER
 from py_kit.db import async_dsn, enable_sqlite_foreign_keys
-from py_kit.schemas.features import FEATURE_REGISTRY
-from py_kit.schemas.parts import PRINCIPAL_HEADER
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 

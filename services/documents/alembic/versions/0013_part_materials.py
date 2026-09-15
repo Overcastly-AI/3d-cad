@@ -2,7 +2,7 @@
 
 Implements docs/design/materials.md §2. One NULLABLE JSON/JSONB column,
 ``parts.materials``, holding a serialized
-:class:`~py_kit.schemas.materials.MaterialAssignment` — ``default_material``
+:class:`~loft_wire.materials.MaterialAssignment` — ``default_material``
 plus a ``bodies`` list of per-body overrides keyed by each body's §MB-0 base
 feature id.
 

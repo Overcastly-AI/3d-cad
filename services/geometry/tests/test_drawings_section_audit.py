@@ -43,7 +43,7 @@ from geometry.drawings.section import (
     section_cut,
 )
 from geometry.kernel.types import BodyShape
-from py_kit.schemas.drawings import ProjectedPoint, SectionFaceLoop
+from loft_wire.drawings import ProjectedPoint, SectionFaceLoop
 
 #: Kernel-scale tolerances: analytic axis-aligned parts, exact B-rep (no tessellation).
 _VOL_TOL = 1e-6

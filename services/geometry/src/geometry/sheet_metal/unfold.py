@@ -39,7 +39,7 @@ from dataclasses import dataclass, replace
 from typing import Literal, NamedTuple, cast
 
 from build123d import Face, GeomType, Vector
-from py_kit.schemas.features import CylindricalFaceSignature, PlanarFaceSignature
+from loft_wire.features import CylindricalFaceSignature, PlanarFaceSignature
 
 from geometry.kernel.faces import planar_signatures_match
 from geometry.kernel.types import BodyShape

@@ -1,6 +1,6 @@
 """Assembly STEP import boundary DTOs — the structured product-structure read.
 
-The inverse contract of the assembly export (:mod:`py_kit.schemas.assemblies`
+The inverse contract of the assembly export (:mod:`loft_wire.assemblies`
 ``ExportAssemblyRequest``): where export composes a solved assembly into ONE
 AP214 STEP with named PRODUCTs at solved placements, this reads such a STEP back
 into N structured products — each a PRODUCT **name**, a world **placement**, an
@@ -37,19 +37,19 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
 
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     MAX_ASSEMBLY_INSTANCES,
     AssemblyGraphResponse,
     AssemblyName,
     Placement,
 )
-from py_kit.schemas.features import MAX_INLINE_STEP_CHARS
-from py_kit.schemas.geometry import (
+from loft_wire.features import MAX_INLINE_STEP_CHARS
+from loft_wire.geometry import (
     DEFAULT_LINEAR_DEFLECTION,
     MIN_LINEAR_DEFLECTION,
     ShapeProperties,
 )
-from py_kit.schemas.parts import PartResponse
+from loft_wire.parts import PartResponse
 
 #: Upper bound on how many products (== instances) a single assembly-STEP upload
 #: may create. A DoS ceiling on the POST-transfer fan-out (documents-side part /
@@ -60,7 +60,7 @@ from py_kit.schemas.parts import PartResponse
 #: (so no partial assembly is ever created), and documents re-checks it as
 #: defense-in-depth. A few hundred instances comfortably covers real assemblies
 #: while bounding the fan-out (slice-2a security review, 2026-07-23). Tied to
-#: :data:`~py_kit.schemas.assemblies.MAX_ASSEMBLY_INSTANCES` (audit G2): an
+#: :data:`~loft_wire.assemblies.MAX_ASSEMBLY_INSTANCES` (audit G2): an
 #: import may not create more instances than one assembly compute request
 #: accepts, so the two ceilings can never drift apart.
 MAX_IMPORT_ASSEMBLY_PRODUCTS = MAX_ASSEMBLY_INSTANCES
@@ -75,7 +75,7 @@ MAX_IMPORT_ASSEMBLY_PRODUCTS = MAX_ASSEMBLY_INSTANCES
 #: rejects (``import_response_too_large``, a typed 422) before materialising a
 #: product past this ceiling, so the amplification is bounded ABSOLUTELY regardless
 #: of occurrence count or body repetition. Sized at 2x
-#: :data:`~py_kit.schemas.features.MAX_INLINE_STEP_CHARS` (== 32 MiB): a single
+#: :data:`~loft_wire.features.MAX_INLINE_STEP_CHARS` (== 32 MiB): a single
 #: product body is bounded by that 16 MiB inline cap, and 2x leaves headroom for a
 #: real assembly of several distinct large-ish part bodies while capping the
 #: buffered response at a defensible ceiling. Since the wire shape now carries each
@@ -90,8 +90,8 @@ class StepAssemblyImportRequest(BaseModel):
     """Read an assembly STEP into its structured product list (geometry-side).
 
     ``data`` is the STEP AP214 part-21 TEXT inline, bounded/non-empty by
-    :data:`~py_kit.schemas.features.MAX_INLINE_STEP_CHARS` (the SAME cap the
-    single-body :class:`~py_kit.schemas.features.ImportParamsV1` uses) — an
+    :data:`~loft_wire.features.MAX_INLINE_STEP_CHARS` (the SAME cap the
+    single-body :class:`~loft_wire.features.ImportParamsV1` uses) — an
     oversize or empty payload is a request-validation 422 at the boundary, never
     a per-request geometry error. ``linear_deflection`` is the presentation
     tessellation parameter for each product's shared mesh (never persisted).
@@ -122,7 +122,7 @@ class ImportedProduct(BaseModel):
 
     ``name`` is the STEP PRODUCT name (``None`` when the file names no product —
     the caller supplies a fallback instance name). ``placement`` is the
-    product's WORLD pose (reusing :class:`~py_kit.schemas.assemblies.Placement` —
+    product's WORLD pose (reusing :class:`~loft_wire.assemblies.Placement` —
     identity for a flat single-body STEP), matched to the exported placement
     within the kernel round-trip tolerance.
 
@@ -135,7 +135,7 @@ class ImportedProduct(BaseModel):
       placement STRIPPED (that is ``placement``, kept separate), stored ONCE under
       this key in :attr:`StepAssemblyImportResult.bodies`. The text is exactly what
       the single-body ``import`` feature ingests
-      (:class:`~py_kit.schemas.features.ImportParamsV1` ``data``), so the documents
+      (:class:`~loft_wire.features.ImportParamsV1` ``data``), so the documents
       service seeds each part with ``ImportParamsV1(data=<resolved body>)`` — ZERO
       new ingest path. A mesh is not editable geometry; this is what lets 2b build
       a REAL part per instance. ``None`` when the product produced no solid.
@@ -267,7 +267,7 @@ class ImportAssemblyRequest(BaseModel):
     the assembly name (``has_assembly_structure=True``) or the single part's name
     (the MB-4b fallback). Each product's editable body — resolved from the read's
     shared ``bodies`` map by ``body_step_id`` — seeds a part's ``import`` feature
-    (:class:`~py_kit.schemas.features.ImportParamsV1` — ZERO new ingest path),
+    (:class:`~loft_wire.features.ImportParamsV1` — ZERO new ingest path),
     products sharing a ``body_step_id`` collapse to ONE part with N instances, and
     the whole graph is created atomically (all-or-nothing — a failure leaves no
     orphan docs).

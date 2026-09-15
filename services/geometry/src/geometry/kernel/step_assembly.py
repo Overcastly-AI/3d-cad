@@ -80,10 +80,10 @@ import tempfile
 from dataclasses import dataclass
 
 from build123d import Solid
+from loft_wire.step_import import MAX_IMPORT_ASSEMBLY_PRODUCTS
 from OCP.TopAbs import TopAbs_SOLID
 from OCP.TopExp import TopExp_Explorer
 from OCP.TopoDS import TopoDS, TopoDS_Shape
-from py_kit.schemas.step_import import MAX_IMPORT_ASSEMBLY_PRODUCTS
 
 from geometry.kernel.imports import (
     DEFAULT_STEP_IMPORT_CPU_TIMEOUT_S,
@@ -117,7 +117,7 @@ class ReadProduct:
     :class:`~build123d.Compound`) exactly like the single-body import. ``name``
     is the STEP PRODUCT name (``None`` when the file names no product);
     ``translation`` + ``quaternion`` (the latter ``(x, y, z, w)``, matching
-    :class:`py_kit.schemas.assemblies.Quat`) are the occurrence's WORLD placement,
+    :class:`loft_wire.assemblies.Quat`) are the occurrence's WORLD placement,
     so ``world = R(quaternion)·local + translation`` reproduces the exported pose.
     """
 

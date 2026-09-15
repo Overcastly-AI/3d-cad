@@ -49,7 +49,7 @@ import uuid
 from dataclasses import dataclass
 
 import numpy as np
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     AssemblySolveDiagnosis,
     AssemblySolveStatus,
     EvaluateAssemblyRequest,
@@ -59,12 +59,12 @@ from py_kit.schemas.assemblies import (
     Placement,
     mate_instance_ids,
 )
-from py_kit.schemas.features import (
+from loft_wire.features import (
     EvaluateTreeRequest,
     EvaluateTreeResult,
     FeatureError,
 )
-from py_kit.schemas.geometry import (
+from loft_wire.geometry import (
     BoundingBox,
     ShapeProperties,
     TopologyCounts,

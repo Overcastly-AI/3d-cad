@@ -4,7 +4,7 @@ apps/web talks ONLY to the gateway (CLAUDE.md service boundaries), so the
 material picker reads the library through here; the documents route
 (:mod:`documents.materials`) stays internal.
 
-PROXY, not a second reader of ``py_kit.schemas.materials.MATERIALS``: the
+PROXY, not a second reader of ``loft_wire.materials.MATERIALS``: the
 gateway imports py-kit and could serve the table itself in-process, but then
 TWO services would own "what the library is" and the answer would fork the
 moment the library stops being a frozen constant (user-defined materials are
@@ -18,7 +18,7 @@ just rides along on the shared forwarding path.
 """
 
 from fastapi import APIRouter, Request, status
-from py_kit.schemas.materials import MaterialLibraryResponse
+from loft_wire.materials import MaterialLibraryResponse
 
 from gateway.auth import CurrentUser
 from gateway.parts import forward_documents

@@ -4,7 +4,7 @@ Pure numpy (no kernel type, no GPL) — the numeric core the ``AssemblySolver``
 manipulates (design ``docs/design/assemblies.md`` §2.3). A pose is a rigid
 transform ``x = (t ∈ ℝ³, q ∈ S³)`` acting on a point as ``world = R(q)·local +
 t``. Quaternions are stored ``(x, y, z, w)`` to match
-:class:`py_kit.schemas.assemblies.Quat` (identity ``(0, 0, 0, 1)``), so no lossy
+:class:`loft_wire.assemblies.Quat` (identity ``(0, 0, 0, 1)``), so no lossy
 representation change happens at the boundary.
 
 Determinism (RESEARCH §9): every routine is a fixed sequence of float64 numpy
@@ -20,9 +20,9 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
+from loft_wire.assemblies import Placement, Quat
+from loft_wire.geometry import Vec3
 from numpy.typing import NDArray
-from py_kit.schemas.assemblies import Placement, Quat
-from py_kit.schemas.geometry import Vec3
 
 Vector = NDArray[np.float64]
 

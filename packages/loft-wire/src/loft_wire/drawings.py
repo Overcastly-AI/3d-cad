@@ -16,14 +16,14 @@ the ``doc_version`` optimistic-concurrency counter, cross-document 409-with-
 dependents) but not their tables.
 
 A DIMENSION names model geometry with the EXACT shipped topological-naming
-machinery — :class:`~py_kit.schemas.features.EdgeSignature`, reused VERBATIM
+machinery — :class:`~loft_wire.features.EdgeSignature`, reused VERBATIM
 (the same signature a ``concentric`` mate resolves for its axis and the
 ``/overlay`` pick surface emits — design §3.3), never a parallel taxonomy and
 never an index into a projected-edge list (design §3.3 rejects (A)). The MEASURED
 value is computed by the geometry service later; documents stores only the
 reference + the dimension type + the authored 2D placement. Units are fixed per
 field, encoded in field names (``offset_mm``, ``x_mm``) exactly as
-:mod:`py_kit.schemas.geometry` does.
+:mod:`loft_wire.geometry` does.
 """
 
 import uuid
@@ -32,7 +32,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     AssemblySolveDiagnosis,
     AssemblySolveStatus,
     BomLine,
@@ -41,7 +41,7 @@ from py_kit.schemas.assemblies import (
     MateEvaluationError,
     RefDocumentKind,
 )
-from py_kit.schemas.features import (
+from loft_wire.features import (
     MAX_TREE_FEATURES,
     DocumentName,
     EdgeSignature,
@@ -51,7 +51,7 @@ from py_kit.schemas.features import (
     GeomRef,
     document_slug,
 )
-from py_kit.schemas.folders import FOLDER_ID_DESCRIPTION
+from loft_wire.folders import FOLDER_ID_DESCRIPTION
 
 #: Upper bound for a user-facing drawing name ("Bracket — Detail").
 DRAWING_NAME_MAX_LENGTH = 200
@@ -172,7 +172,7 @@ class SectionViewParams(BaseModel):
     """The cutting plane + half selection of a section view (drawings-section.md §1).
 
     v1 specifies the section's cutting plane by DATUM REFERENCE, not a drawn cutting
-    line (§1): ``plane`` is the shipped :data:`~py_kit.schemas.features.GeomRef`
+    line (§1): ``plane`` is the shipped :data:`~loft_wire.features.GeomRef`
     (``DatumPlaneRef`` for one of the XY/XZ/YZ origin planes, or a ``FeatureRef`` to
     an axis-aligned offset / midplane datum FEATURE in the referenced part) — the
     EXACT union a sketch's plane reference uses, so no parallel plane taxonomy is
@@ -561,7 +561,7 @@ class NoteAnnotationParams(BaseModel):
 
 
 #: v1 annotation union — one member (``note``), so a plain alias (the same idiom
-#: as :data:`~py_kit.schemas.features.Selector`).
+#: as :data:`~loft_wire.features.Selector`).
 Annotation = NoteAnnotationParams
 
 #: Plain alias for annotating validated values (symmetry with DimensionParams).
@@ -790,7 +790,7 @@ class DimensionCreate(BaseModel):
     """Add a dimension to a view (append at the tip; design §3).
 
     ``dimension`` is the discriminated :data:`Dimension` union; its geometry
-    references (via :class:`~py_kit.schemas.features.EdgeSignature`) resolve
+    references (via :class:`~loft_wire.features.EdgeSignature`) resolve
     against the view's referenced body geometry-side. ``order_index`` is stable
     per sheet, appended at the tip.
     """
@@ -1268,7 +1268,7 @@ ARTIFACT_MEDIA_TYPES: dict[ArtifactFormat, str] = {
 def artifact_filename(title: str, artifact_format: ArtifactFormat) -> str:
     """A safe download basename for a composed artifact — ``<slug>.<ext>``.
 
-    Delegates to the ONE slug rule (:func:`~py_kit.schemas.features.document_slug`
+    Delegates to the ONE slug rule (:func:`~loft_wire.features.document_slug`
     — lower-case, non-alphanumeric runs → single hyphen, edges trimmed), which
     ports ``apps/web/src/drawing/exportSvg.ts::sanitizeDrawingFilename`` verbatim
     so the server-composed download and the client's own SVG export name a file
@@ -1366,7 +1366,7 @@ class ComposeDrawingRequest(EvaluateDrawingViewsRequest):
 
     **Assembly source (design §7, Drawings #4).** A view referencing an ASSEMBLY
     (not a single part) carries the resolved assembly graph in ``assembly`` — the
-    reused :class:`~py_kit.schemas.assemblies.EvaluateAssemblyRequest` (instances +
+    reused :class:`~loft_wire.assemblies.EvaluateAssemblyRequest` (instances +
     mates + version) documents resolves for the referenced assembly document. When
     ``assembly`` is set the geometry service projects the SOLVED assembly compound
     (``evaluate_assembly_drawing_views`` — the ``/drawing/assembly/evaluate``
@@ -1416,7 +1416,7 @@ class FlatPatternDxfRequest(EvaluateTreeRequest):
     every incumbent ships it. Extends :class:`EvaluateTreeRequest` VERBATIM (the same
     ordered, rollback-applied prefix the evaluate/export routes take — one tree
     contract) and adds only the download name, exactly as
-    :class:`~py_kit.schemas.features.ExportTreeRequest` does.
+    :class:`~loft_wire.features.ExportTreeRequest` does.
 
     There is deliberately NO scale field. A flat pattern is a cut path, not a
     picture, so 1:1 is not a default here — it is the only representable answer
@@ -1637,7 +1637,7 @@ class ComposedView(BaseModel):
     stamped caption ("FRONT") and its position.
 
     ``error`` carries the TYPED per-view failure through composition (FINDINGS #15):
-    the :class:`~py_kit.schemas.features.FeatureError` (code + human message) from the
+    the :class:`~loft_wire.features.FeatureError` (code + human message) from the
     source :class:`DrawingViewResult` — a ``view_projection_failed`` /
     ``section_plane_not_principal`` / ``section_empty`` /
     ``flat_pattern_not_sheet_metal`` / ``section_params_missing`` — so the sheet/print
@@ -1953,7 +1953,7 @@ class EvaluateAssemblyDrawingViewsRequest(BaseModel):
     """Project a solved ASSEMBLY into its requested standard drawing views (§7).
 
     documents sends INTENT — the assembly graph (via the reused
-    :class:`~py_kit.schemas.assemblies.EvaluateAssemblyRequest`: each instance's
+    :class:`~loft_wire.assemblies.EvaluateAssemblyRequest`: each instance's
     part feature prefix + authored/grounded placement + the mate graph) plus the
     standard views to project and the drawing scale. geometry is the sole evaluator:
     it solves the assembly ONCE (``solve_assembly`` — each unique part evaluated
@@ -2054,7 +2054,7 @@ class EvaluateAssemblyDrawingViewsResult(BaseModel):
 class DrawingBomLine(BomLine):
     """One NUMBERED line of a drawing's bill of materials (design §7 BOM).
 
-    The shipped assembly :class:`~py_kit.schemas.assemblies.BomLine` (group key +
+    The shipped assembly :class:`~loft_wire.assemblies.BomLine` (group key +
     resolved name + `missing` + quantity, reused VERBATIM — no parallel taxonomy)
     plus the one thing a *drawing* adds: the ``item_number`` a balloon stamps.
 

@@ -40,8 +40,19 @@ be built twice. The constraint is enforced, not just documented:
 
 ## Where the types come from
 
-The wire DTOs are `py_kit.schemas.*` — the *same pydantic classes the services
+The wire DTOs are `loft_wire.*` — the *same pydantic classes the services
 serve*. They are imported, never regenerated.
+
+`loft-wire` is a distribution of its own whose dependencies are `pydantic` and
+`email-validator`, and that is the whole reason it exists separately from
+`loft-py-kit`: this library is installed next to numpy in a modelling script's
+environment, so it must not drag a web server, an ORM, a task queue and a Redis
+client in with it. Measured, `pip install loft-script` resolves **15**
+distributions; when the DTOs came from `loft-py-kit` it resolved **33**. The
+modules were pydantic-clean either way — a dependency is a property of the
+distribution, not of the module — so the boundary is enforced by
+`tests/test_install_weight.py` (declared closure) and by that package's own
+`test_wire_dependency_closure.py` (imports), each with a count floor.
 
 That is a deliberate asymmetry with `packages/ts-client`, which **is**
 generated. TypeScript cannot read a pydantic model, so it has no choice.

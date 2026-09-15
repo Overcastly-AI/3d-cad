@@ -37,7 +37,7 @@ from geometry.assembly import (
     SolverMate,
 )
 from geometry.assembly.transform import Pose, quat_from_rotvec
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     CoincidentMate,
     ConcentricMate,
     LockMate,
@@ -45,8 +45,8 @@ from py_kit.schemas.assemblies import (
     MateFaceRef,
     Placement,
 )
-from py_kit.schemas.features import EdgeSignature, PlanarFaceSignature
-from py_kit.schemas.geometry import Vec3
+from loft_wire.features import EdgeSignature, PlanarFaceSignature
+from loft_wire.geometry import Vec3
 
 #: Per-model solve tolerance (mm for positions, dimensionless for quaternion
 #: components / normals). The closed-form path is exact to ~1e-12; the numeric LM
@@ -615,7 +615,7 @@ def test_zero_rotvec_is_identity_quaternion() -> None:
 def test_seed_quaternion_is_renormalised() -> None:
     """A non-unit authored quaternion is renormalised on the way in (design §2.3
     — the boundary need not carry an exactly-unit quaternion)."""
-    from py_kit.schemas.assemblies import Placement, Quat
+    from loft_wire.assemblies import Placement, Quat
 
     placement = Placement(
         position=Vec3(x=0.0, y=0.0, z=0.0), orientation=Quat(x=0.0, y=0.0, z=0.0, w=2.0)

@@ -1,6 +1,6 @@
 """Sketch schema helpers — the typed over-constraint diagnosis (BACKLOG #6).
 
-Covers :func:`py_kit.schemas.sketch.classify_overconstraint`: a pure function
+Covers :func:`loft_wire.sketch.classify_overconstraint`: a pure function
 that turns the solver's already-computed ``conflicting``/``redundant`` sets
 (:class:`SolvedSketch`) into a typed :class:`SketchConstraintDiagnosis` — the
 structured shape a caller reads BY FIELD instead of parsing a message string.
@@ -10,7 +10,7 @@ sketcher UI reading the typed field) is the follow-up leg.
 """
 
 import pytest
-from py_kit.schemas.sketch import (
+from loft_wire.sketch import (
     EntityPointRef,
     SketchConstraintDiagnosis,
     SolvedSketch,

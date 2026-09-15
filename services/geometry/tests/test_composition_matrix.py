@@ -91,7 +91,7 @@ from geometry.features import evaluate_tree
 from geometry.features.evaluate import TreeEvaluation
 from geometry.kernel import measure_shape
 from geometry.schemas import ShapeProperties
-from py_kit.schemas.features import FEATURE_REGISTRY, EvaluateTreeRequest
+from loft_wire.features import FEATURE_REGISTRY, EvaluateTreeRequest
 
 # --- Documented tolerances (see the module docstring) -----------------------------
 

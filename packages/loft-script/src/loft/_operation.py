@@ -27,7 +27,7 @@ class Operation(NamedTuple):
     or ``None`` where the operation has no JSON body on that side (an export
     returns file bytes; an evaluate takes none). FastAPI names components after
     the pydantic class, so these are exactly the class names in
-    ``py_kit.schemas`` — which is what makes the contract-parity test possible:
+    ``loft_wire`` — which is what makes the contract-parity test possible:
     it can check that the class the library SENDS is the class the contract
     declares, a property a 2xx status cannot establish.
     """

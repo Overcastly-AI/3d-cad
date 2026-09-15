@@ -23,9 +23,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Query, status
-from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
-from py_kit.db import SessionDep
-from py_kit.schemas.features import (
+from loft_wire.features import (
     BODY_AFFECTING_FEATURE_TYPES,
     FEATURE_REGISTRY,
     MAX_TREE_FEATURES,
@@ -45,7 +43,9 @@ from py_kit.schemas.features import (
     UndoRedoRequest,
     feature_references,
 )
-from py_kit.schemas.materials import MaterialAssignment
+from loft_wire.materials import MaterialAssignment
+from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
+from py_kit.db import SessionDep
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 

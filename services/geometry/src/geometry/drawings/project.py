@@ -51,6 +51,8 @@ import math
 from dataclasses import dataclass, field, replace
 from typing import Literal
 
+from loft_wire.features import EdgeSignature
+from loft_wire.geometry import Vec3
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Line
 from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
@@ -59,8 +61,6 @@ from OCP.HLRBRep import HLRBRep_Algo, HLRBRep_HLRToShape
 from OCP.TopAbs import TopAbs_EDGE
 from OCP.TopExp import TopExp_Explorer
 from OCP.TopoDS import TopoDS, TopoDS_Shape
-from py_kit.schemas.features import EdgeSignature
-from py_kit.schemas.geometry import Vec3
 
 from geometry.kernel.edges import EdgeRecord, enumerate_edges
 from geometry.kernel.types import BodyShape

@@ -55,7 +55,7 @@ from geometry.drawings import (
     serialize_svg,
 )
 from geometry.drawings.compose import format_scale, parse_scale_label
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     ComposedLineEdge,
     ComposeDrawingRequest,
     ComposedSheet,
@@ -65,7 +65,7 @@ from py_kit.schemas.drawings import (
     ViewProjection,
     ViewScale,
 )
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 _HERE = Path(__file__).resolve().parent
 _GOLDENS_DIR = _HERE.parent / "goldens-sheet-metal"
