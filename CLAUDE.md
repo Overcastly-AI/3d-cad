@@ -621,6 +621,37 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   upstream can WITHDRAW an image, which no amount of pinning survives, and the
   next occurrence will wear the same "pull access denied" costume as a login
   problem.
+- **`conclusion: failure` WITH `total_jobs: 0` IS NOT A TEST FAILURE — IT IS
+  GITHUB REFUSING THE WORKFLOW FILE, AND NOTHING WE RUN LOCALLY CAN SEE IT.**
+  Measured 2026-09-15. `deploy-path` reported `failure` on a commit whose diff
+  was a container fix, and the natural read is that the fix did not work. It had
+  never been tested: **no job was ever created.** Three tells, all in the cheap
+  calls you already make:
+  · `created_at == run_started_at == updated_at` — a run that concluded in
+    **zero seconds** did not run;
+  · `get_job_logs` with `failed_only` returns `{"failed_jobs":0,"total_jobs":0}`
+    — and note `failed_jobs: 0` here means "no jobs exist", the opposite of the
+    green it looks like;
+  · the run's `name` is the **file path** (`.github/workflows/deploy-path.yml`)
+    rather than the workflow's `name:`, because GitHub never got far enough to
+    read it.
+  The cause was `${{ runner.temp }}` in a **job-level** `env:`. The `runner`
+  context is only available at STEP level; job-level `env` allows `github`,
+  `needs`, `strategy`, `matrix`, `vars`, `secrets` and `inputs`. An invalid
+  context reference is a schema rejection, not a runtime error.
+  **The local gates cannot catch this and it is worth knowing which ones give
+  false comfort:** the file parses as YAML, has no duplicate keys, has a correct
+  `jobs`/`steps`/`env` structure, and `docker compose config -q` is irrelevant
+  to it. `python -c "yaml.safe_load(...)"` passing means the file is *YAML*, not
+  that it is a *workflow*. So treat any workflow edit as unverifiable until the
+  run, and read the zero-second/zero-job shape before hunting in the diff.
+  **And the irony is the durable half: this was a VERDICT BLOCK — a diagnostic
+  added to make failures legible — and it made the workflow unrunnable, which
+  is the least legible failure available.** That is the second guard in one day
+  to manufacture the outcome it was added to prevent (the other: a build-time
+  `nginx -t` creating the root-owned pid file that then blocked the non-root
+  runtime). When you add a guard, ask what it does when IT is wrong, not only
+  what it catches when the subject is.
 - **A suspiciously FAST green deserves the same scrutiny as a red.** The
   usual cause is a job that skipped its work, and `conclusion: success` is
   emitted when every job is skipped. Discriminate by reading the log for
