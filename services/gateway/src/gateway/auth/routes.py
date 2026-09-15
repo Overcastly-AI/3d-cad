@@ -26,10 +26,7 @@ from py_kit import (
     get_logger,
 )
 from py_kit.db import SessionDep
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-
-from gateway.auth.schemas import (
+from py_kit.schemas.auth import (
     PASSWORD_MAX_LENGTH,
     PASSWORD_MIN_LENGTH,
     AuthTokenResponse,
@@ -37,6 +34,9 @@ from gateway.auth.schemas import (
     RegisterRequest,
     UserResponse,
 )
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
 from gateway.auth.security import (
     AuthConfig,
     TokenError,

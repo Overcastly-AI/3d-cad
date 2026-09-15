@@ -1244,6 +1244,7 @@ source = { editable = "packages/py-kit" }
 dependencies = [
     { name = "alembic" },
     { name = "arq" },
+    { name = "email-validator" },
     { name = "fastapi" },
     { name = "prometheus-client" },
     { name = "pydantic-settings" },
@@ -1257,6 +1258,7 @@ dependencies = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.14" },
     { name = "arq", specifier = ">=0.26" },
+    { name = "email-validator", specifier = ">=2.2" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "prometheus-client", specifier = ">=0.21" },
     { name = "pydantic-settings", specifier = ">=2.7" },

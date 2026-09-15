@@ -18,6 +18,9 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.36",
     "alembic>=1.14",
     "prometheus-client>=0.21",
+    # EmailStr on the auth DTOs (py_kit.schemas.auth). Unlicense/CC0 —
+    # no copyleft (RESEARCH §8); already present via the gateway.
+    "email-validator>=2.2",
 ]
 
 [build-system]

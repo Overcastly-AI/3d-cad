@@ -1,11 +1,24 @@
 """Auth DTOs — the ``/api/v1/auth/*`` contract (single source of truth).
 
-These pydantic models drive the generated OpenAPI/ts-client (`just gen`).
+These pydantic models drive the generated OpenAPI/ts-client (``just gen``).
 Passwords arrive as ``SecretStr`` so the value can never leak through a
 repr/log, and — deliberately — carry NO schema-level length constraints:
 pydantic 422s echo the offending input in their details, so the length policy
 is enforced in the route layer instead, where the error message is written
 without the value (see :func:`gateway.auth.routes.check_password_policy`).
+
+**Why these live in py-kit and not in the gateway.** They were gateway-local
+while the gateway was their only consumer, with an explicit note that they
+would move on the second real use (CLAUDE.md DRY: extract on the second real
+use, not the first imagined one). ``packages/loft-script`` is that second use:
+the Python scripting client has to POST a ``RegisterRequest`` and parse an
+``AuthTokenResponse``, and a CLIENT importing the SERVICE package to do it
+would invert the dependency — pulling FastAPI, SQLAlchemy, asyncpg and argon2
+into a library whose entire point is that it is just another HTTP caller. Every
+other boundary DTO in this package is here for the same reason: the models are
+the wire, and the wire belongs to nobody in particular.
+
+The gateway is still the auth SERVICE (RESEARCH §3); only the shapes moved.
 """
 
 import uuid
