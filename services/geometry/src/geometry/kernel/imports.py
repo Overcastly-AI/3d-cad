@@ -240,11 +240,21 @@ def solid_to_brep_bytes(body: BodyShape) -> bytes:
     on an unchanged import. Triangulation and normals are written OFF so the
     cached bytes are a pure function of the geometry (never a mesh at some
     deflection); the format version is pinned so the round-trip is deterministic
-    across interpreter restarts (RESEARCH §9). Because a fresh solid is
-    round-tripped BEFORE any downstream op meshes it, and BREP write→read is
-    idempotent on an already-BREP-read shape (the parse worker already returns
-    one), the cached body tessellates byte-identically to the direct parse. A
-    multi-lump import body is a :class:`~build123d.Compound`; BREP write
+    across interpreter restarts (RESEARCH §9).
+
+    **BREP write→read is NOT idempotent, and this docstring used to claim it
+    was.** Measured on a 1 018-face imported gearbox (F2, docs/GEOMETRY-QA.md
+    2026-09-15): the worker's body, its round-trip, and its round-trip's
+    round-trip all tessellate to three DIFFERENT GLB byte strings, and the
+    written bytes differ at every iteration — the serializer is lossy at ULP
+    level, so there is no fixed point to reach. Determinism is therefore NOT a
+    property of this function; it is a property of
+    :func:`geometry.step_cache.import_step_solid_cached`, which sends the miss
+    path and the hit path through the SAME cached byte string so neither can
+    observe the difference. Do not reintroduce a shortcut that returns a body
+    which skipped this round-trip.
+
+    A multi-lump import body is a :class:`~build123d.Compound`; BREP write
     serializes its lump order verbatim, so a cache round-trip preserves the
     :func:`~geometry.kernel.lumps.assemble_lumps` sort (§MB-4).
     """

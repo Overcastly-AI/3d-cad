@@ -7,6 +7,243 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-09-15 — F1 + F2 FIXED: the tolerance sweep that chose the integrator, and the NURBS coverage gap that outlives both (kernel-architect)
+
+Closes FINDING 1 and FINDING 2 of the gauntlet entry below. Both fixes are one
+line each; the value here is the measurement that says *which* line, and one
+correction to the brief that sent me.
+
+### THE CORRECTION FIRST: "the control failed" was the wrong reading
+
+The brief for this work said planar and quadric goldens must not move at all,
+called that the control, and reported that **eight goldens moved beyond
+tolerance at eps=1e-6 — "which per the brief is the control failing."**
+
+The eight are real. The reading was not. They are not "quadric parts" in any
+sense that indicts the fix — they are the **fillet, revolved-groove and
+shell-pinch** goldens, i.e. the corpus's *blend* bodies, and they carry its
+**tightest tolerances (1e-9 and 1e-8 absolute** — 52 of 59 goldens are at 1e-8
+or tighter). What moved them was not the fix being wrong; it was **eps being
+far too loose**, exactly as the brief's alternative hypothesis guessed. The
+adaptive integrator stops as soon as two successive refinements agree, so a
+loose bound makes the analytically-exact cases *worse* than the fixed order —
+it does not start from the exact answer and refine away from it.
+
+| eps | goldens outside their documented tolerance | worst deviation | **min margin (tol/dev)** | corpus integration cost |
+|---|---:|---:|---:|---:|
+| **FIXED (shipped before)** | 0 | 1.455e-11 | **68.7** | 29.6 ms |
+| 1e-3 | 8 | 4.475e-05 | FAILS | 52.5 ms |
+| 1e-4 | 8 | 4.475e-05 | FAILS | 76.8 ms |
+| 1e-5 | 8 | 1.387e-07 | FAILS | 86.1 ms |
+| 1e-6 | 8 | 1.387e-07 | FAILS | 100.3 ms |
+| 1e-7 | 8 | 1.387e-07 | FAILS | 113.9 ms |
+| 1e-8 | 0 | 2.947e-10 | 3.4 | 127.3 ms |
+| 1e-9 | 0 | 2.947e-10 | 3.4 | 137.9 ms |
+| **1e-10 (shipped now)** | **0** | **2.910e-11** | **68.7** | **154.5 ms** |
+| 1e-11 | 0 | 2.910e-11 | 55.0 | 167.2 ms |
+| 1e-12 | 0 | 1.455e-11 | 68.7 | 181.5 ms |
+| 1e-14 | 0 | 4.366e-11 | 22.9 | 208.0 ms |
+| 1e-16 | 0 | 4.366e-11 | 68.7 | 529.1 ms |
+
+Worst-deviation excludes ONE golden throughout: `sketch-angle-gusset-45deg` deviates 2.072e-08 from its analytic 8000 mm³ at
+**every** eps *and* under the fixed order. It is a constant offset from the
+sketch solve, not an integration residual, and its tolerance is 1e-5. Excluded
+from the "worst deviation" column everywhere else.
+
+**So a tolerance does exist, and the answer is not the loosest one that passes.**
+The column that decides it is the **margin** — the smallest ratio of a golden's
+documented tolerance to its actual deviation from its hand-derived analytic
+value — because *passes* and *passes with room to spare* are different claims
+and only the second survives an OCCT upgrade. At **1e-8 the corpus merely
+passes**: `mirror-revolve-groove-tangent-wall` still carries a 2.9e-10
+integration residual against a 1e-9 bound, 3.4x margin, one release away from
+going red for a reason nobody would recognise. At **1e-10 that residual
+disappears beneath float noise and the corpus margin becomes 68.7x — numerically
+identical to the fixed order's own** — and the golden that bounds it stops being
+a blend part and becomes the same float-noise case that bounds the exact
+integrator (`draft-frustum-box`). That equality is the criterion actually used:
+**1e-10 is where adaptive integration stops being measurably worse than exact
+integration on the shapes where exact integration is available.** Nothing in the
+corpus improves between 1e-10 and 1e-16.
+
+The eight, with the numbers, so nobody has to re-derive them:
+
+| golden | tol | fixed | eps 1e-6 | eps 1e-10 |
+|---|---:|---:|---:|---:|
+| `mirror-revolve-groove-tangent-wall-40x40x10` | 1e-9 | 3.6e-12 | 1.39e-07 | 7.3e-12 |
+| `mirror-revolve-groove-clear-of-plane-40x40x10` | 1e-9 | 3.6e-12 | 1.18e-07 | 1.1e-11 |
+| `fillet-plate-r5` | 1e-9 | 0.0 | 5.93e-08 | 0.0 |
+| `shell-pinch-boundary-plate-40x40x10-pocket-t1.9` | 1e-8 | 5.5e-12 | 4.19e-08 | 4.5e-12 |
+| `revise-width-fillet-on-grown-edge-55x25x10` | 1e-9 | 1.8e-12 | 2.18e-08 | 1.8e-12 |
+| `fillet-top-edge-40x25x10-r5` | 1e-9 | 1.8e-12 | 1.58e-08 | 1.8e-12 |
+| `boolean-union-disjoint-then-fillet-lump2` | 1e-9 | 1.8e-12 | 1.45e-08 | 1.8e-12 |
+| `boolean-union-then-fillet` | 1e-9 | 0.0 | 8.86e-09 | 0.0 |
+
+**Cost, paid knowingly: ~5.2x on volume integration.** 0.5 → 2.6 ms per golden
+(whole-tree benchmark ceilings are 1000/2000 ms, so this is noise there); on the
+4 123-face KUKA import, 1.9 s → ~14 s against an import+tessellate path already
+measured at ~34 s and already ranked P1 for being far too slow for other reasons.
+
+### F1 — and a second correction, this one to the gauntlet's own premise
+
+The gauntlet reported the adaptive integrator as "stable across six orders of
+tolerance while the shipped value is the outlier". **That is true of the KUKA and
+false of two of the five real parts**, which matters because it is the sentence
+that makes the fix look unambiguous:
+
+| part | fixed order | adaptive, across eps 1e-8…1e-14 | fixed vs adaptive | adaptive's own spread |
+|---|---:|---|---:|---:|
+| `as1-oc-214` | 764 520.2 | 764 518.027 (7 digits stable) | 2.89e-06 | <1e-09 |
+| `gearbox-11752` | 4 608 825.5 | 4 608 718.40 | 2.32e-05 | ~2e-07 |
+| **`kuka-kr600`** | **1 067 269 278.7** | **1 065 685 171 ± 740** | **1.484e-03** | **7.0e-07** |
+| `ventilator` | 30 939.04 | 30 938.2 … 30 939.4 | 1.0e-05 | **3.8e-05** |
+| `rc-buggy-suspension` | 291 326.6 | 291 028.9 … 292 280.8 | — | **4.3e-03** |
+
+On the **rc-buggy the adaptive readings disagree with each other by more than
+they disagree with the fixed order, and the fixed value sits inside their
+range** — so for that part this change is not an improvement and no claim is
+made that it is. OCCT's own returned error estimate stalls and stops improving
+(7.0e-07 for the KUKA and 1.2e-06 for the buggy at *every* eps from 1e-8 to
+1e-14), which is the integrator telling us it has hit a per-shape floor. The
+headline finding survives intact because the KUKA's 1.484e-03 defect is **2000x
+larger than the 7e-07 wander**, but "converged" was too strong a word and is not
+used here.
+
+**A third, fully independent oracle settles which integrator is right**, because
+two integrators disagreeing cannot adjudicate themselves. Volume by the
+divergence theorem over a tessellation — triangles, not surfaces, no GProp
+anywhere — on the KUKA at deflections 1.0/0.5/0.25/0.125: 1 064 963 548 →
+1 065 214 770 → 1 065 373 533 → 1 065 476 465, increments shrinking by ~0.64 each
+halving, extrapolating to ≈1 065 667 000. That lands on the **adaptive** value
+(1.7e-05 away) and is 1.5e-03 from the fixed one. The mesh oracle approaches from
+below, and its bias was characterised on a torus control first. Same verdict on
+the gearbox is *inconclusive* — the oracle's own bias there (-5.4e-04) exceeds
+the 2.3e-05 signal — and that is said rather than glossed.
+
+**Surface area has the same defect class and is deliberately NOT fixed.** It is
+two orders smaller (7.05e-06 on a lofted NURBS part, 1.74e-05 on the KUKA) and,
+decisively, **the adaptive area reading does not converge on the KUKA — it moves
+1.74e-05 → 2.91e-05 between eps 1e-8 and 1e-10, by the size of the signal
+itself**, while costing another ~11 s. Trading a known small bias for an
+unconverged number at double the price is not an improvement. Recorded as an
+open limit; the new golden below pins it visibly so it cannot be forgotten.
+
+### `just gauntlet` re-run — the real-part proof, and what it does NOT prove
+
+Leg I re-run on all five fixtures (4 cores, load 4.12 -> 2.82). `GProp rel` is
+the gauntlet's own column: the shipped reading against `_gauntlet_probes`'
+independent, one-decade-tighter integration.
+
+| part | faces | GProp rel BEFORE | GProp rel AFTER | STEP round-trip volume BEFORE | AFTER |
+|---|---:|---:|---:|---:|---:|
+| `as1-oc-214` | 160 | 2.89e-06 | **4.21e-13** | 0.00e+00 | 0.00e+00 |
+| `ventilator` | 305 | 2.73e-05 | 3.49e-05 | 1.04e-06 | 1.04e-06 |
+| `gearbox-11752` | 1 018 | 2.32e-05 | **1.86e-09** | 4.39e-08 | 4.09e-08 |
+| **`kuka-kr600`** | 4 123 | **1.49e-03** | **6.67e-07** | 1.01e-03 | **5.81e-06** |
+| `rc-buggy-suspension` | 10 665 | 1.02e-03 | 1.26e-03 | 3.82e-04 | 5.01e-04 |
+
+The KUKA improves **2 200x**, and its STEP round-trip volume agreement improves
+**174x** as a free consequence — both sides of that comparison were being
+measured with the same biased rule, so the round-trip was flattering itself.
+
+**The two that do not improve are the two where the integrator does not
+converge**, exactly as the table in the previous section predicts, and that is
+the honest limit of this fix: on the `ventilator` and the `rc-buggy` the
+residual is OCCT's own per-shape floor, not a bias the shipped call chose, and
+no eps removes it. `_gauntlet_probes.CONVERGED_EPS` is deliberately kept one
+decade tighter than the shipped `VOLUME_EPS` so that column stays a real second
+opinion rather than a number compared with itself — the probe's docstrings are
+updated in this commit to say so, because they described the pre-fix world and
+would otherwise have read as current.
+
+### F2 — the docstring's claim was the defect, and no fixture we own can gate it
+
+`step_cache` returned the worker's shape on a miss and a BREP round-trip on a
+hit, justified by "BREP write→read is idempotent on an already-BREP-read body".
+Measured on the 1 018-face gearbox, that claim is false **and not even
+asymptotically true**: the worker body, its round-trip and its round-trip's
+round-trip give **three different GLB hashes** (`83cf233e` / `f5bf9d58` /
+`16152c38`), and the written bytes differ at every iteration (780 752 of
+1 866 714 between the first and second write). The first two hashes are exactly
+the pair the gauntlet observed over HTTP.
+
+The fix makes determinism structural rather than a property of OCCT's
+serializer: **both paths now hand out `solid_from_brep_bytes(brep)` for one
+fixed `brep`**, so they cannot differ whatever the serializer does. Verified
+through the shipped entry points, cold parse + two cache hits:
+
+| part | faces | distinct GLB hashes before | after |
+|---|---:|---:|---:|
+| `as1-oc-214` | 160 | 1 | **1** |
+| `ventilator` | 305 | 1 | **1** |
+| `gearbox-11752` | 1 018 | **2** | **1** |
+| `kuka-kr600` | 4 123 | **2** | **1** |
+
+**The regression fixture does not exist and cannot be built here.** The gauntlet
+had already exported twelve goldens to STEP and re-imported them (all
+deterministic); I re-measured seven fixtures directly — box, imported box,
+cylinder, fillet plate, revolved pulley, spline extrude, **and the new NURBS
+loft golden** — and BREP write→read is byte-idempotent on **every one of them, 0
+differing bytes**. The defect needs foreign B-rep at ~1 000+ faces, and every
+real part we have measured is unredistributable. So the gate added is
+**structural, not behavioural**: it counts deserializations and asserts a miss
+takes the round-trip too. It reddens on the pre-fix code (`assert 0 == 1`) —
+mutation-verified, not assumed. The pre-existing
+`test_hit_is_byte_identical_to_miss` passed throughout the defect's entire life
+and is now annotated to say so.
+
+### The structural gap, and what closed of it
+
+**`services/geometry/goldens/loft-spline-sections-nurbs-h30` is the first and
+only golden in this repository with a genuine NURBS face.** Its wall is a
+`Geom_BSplineSurface` of degree 3 x 1 with 17 x 2 poles — read out of the B-rep,
+not assumed, because this repo has been burned by fixtures that could not fail
+for their own reason. Licence-clean: built by our own kernel from two spline
+sketches, nothing redistributed.
+
+It reproduces the defect **harder than the real robot does**: fixed order
+19 697.693 vs adaptive 19 738.923, **2.0888e-03**, and the adaptive reading is
+stable to 3.7e-16 relative across eps 1e-6…1e-14 (unlike the real parts above).
+Its expectation is *independently cross-checked*, not hand-derived, and that is
+stated in its `derivation` rather than glossed — the divergence-theorem oracle
+extrapolates to 19 738.738, **9.4e-06 from the adaptive value and 2.1e-03 from
+the fixed one, i.e. 222x closer to the one recorded**, with the oracle's bias
+characterised on a torus control first.
+
+**The coverage claim is measured, not asserted.** Reintroducing the fixed-order
+call and running the whole corpus: **1 failed, 59 passed** — the new golden is
+the *only* fixture of sixty that can see the defect, which is simultaneously the
+proof it closes the gap and the proof the gap was total.
+
+**NAMED COVERAGE GAP — NURBS (still open, narrowed).** What this golden does
+*not* close:
+
+- **Foreign NURBS.** Our spline surfaces are degree 3 x 1 with 17 poles. Real
+  imports carry trimmed, high-degree, multi-patch NURBS with foreign tolerances;
+  the ruled loft is the mildest possible member of the class. **F2 lives here
+  and is untestable without such a part** — proven, not supposed: our own NURBS
+  golden does *not* reproduce it.
+- **Scale.** The largest golden is 3 faces. The determinism defect needed 1 018.
+- **Multi-patch walls and non-convergent integration.** The rc-buggy's 4.3e-03
+  adaptive spread has no representative in the corpus at all, so the limit
+  documented above is invisible to every gate we run.
+
+What would close it: **one permissively-licensed foreign STEP part of ~1 000+
+faces with trimmed NURBS.** The blocker is acquisition, not engineering — all
+five gauntlet fixtures are all-rights-reserved or named individuals' uploads
+(`services/geometry/goldens-gauntlet/fixtures.json`). Candidate routes: a
+CC0/CC-BY part from an open hardware project exported through a third-party CAD,
+or commissioning one. Until then the gauntlet is the only instrument that can
+see this class, and it is fetch-only and not in CI.
+
+### Gates
+
+Full geometry suite; `just lint` (`uv run ruff`) clean; new golden JSON
+prettier-clean; `just gauntlet` re-run for the real-part proof. Both fixes
+mutation-verified in both directions. No pydantic model or service boundary
+touched — `measure_shape`'s signature and `ShapeProperties` are unchanged, so
+no contract regeneration is involved.
+
 ## 2026-09-15 — THE GAUNTLET: what this project looks like when it is graded on a real part instead of on its own fixtures (geometry-qa)
 
 **The brief was "we grade ourselves entirely on toys — fix that with
@@ -167,6 +404,13 @@ as "Loft runs at 0.3 fps". The hardware-relevant quantities are the ones above:
 
 ### FINDING 1 (P1) — the volume the product reports for a real part is wrong in the third significant figure
 
+**CLOSED 2026-09-15 — see the entry above.** `measure_shape` now integrates
+adaptively at `VOLUME_EPS = 1e-10`, chosen by a sweep over the whole golden
+corpus. Two claims below were overstated and are corrected there: the adaptive
+integrator does NOT converge on two of the five parts, and the KUKA figure is
+stable only to ~7e-07 rather than exactly. The 1.49e-03 defect is confirmed by
+an independent, non-GProp oracle.
+
 `measure_shape` calls the TWO-argument `BRepGProp::VolumeProperties_s`, which
 integrates at a **fixed Gauss order** chosen from each surface's degree. Against
 the adaptive integrator (`eps=1e-9`, `onlyClosed=False`):
@@ -195,6 +439,13 @@ six orders of tolerance (1e-5 … 1e-11) while the shipped value is the outlier.
 The shipped call is deterministic — it is biased, not noisy.
 
 ### FINDING 2 (P1) — `mesh_glb_id` is NOT deterministic for an imported part; it depends on whether the STEP cache was warm
+
+**CLOSED 2026-09-15 — see the entry above.** Both cache paths now return the
+deserialization of one fixed byte string. The diagnosis below is confirmed and
+sharpened: BREP write->read is not idempotent at ANY iteration count, so
+"round-trip until it settles" would not have worked. The regression fixture
+still does not exist and cannot be built from our own kernel — measured, not
+assumed.
 
 `rebuild_cache.py` documents at length that re-materialising an OCCT shape
 perturbs its tessellation, and transfers OWNERSHIP rather than storing a copy

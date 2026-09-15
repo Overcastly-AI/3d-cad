@@ -8,6 +8,11 @@ computed from the very volume this module just measured, in the same function,
 so the two cannot drift. A body whose caller passes no density reports
 ``mass_g=None`` — absent, never ``0.0``.
 
+VOLUME IS INTEGRATED ADAPTIVELY (:data:`VOLUME_EPS`), not at OCCT's default
+fixed Gauss order. That order is EXACT for planes and quadrics and biased on
+trimmed NURBS, which made the defect structurally invisible to this repo's
+own fixtures — see :data:`VOLUME_EPS` for the derivation and the numbers.
+
 The OCP wheel ships no type stubs, so the raw GProp calls below are opaque
 to pyright; the directives scope that relaxation to this file only, and the
 fully-typed :class:`ShapeProperties` DTO keeps the boundary honest.
@@ -25,6 +30,76 @@ from OCP.GProp import GProp_GProps
 
 from geometry.kernel.types import BodyShape
 from geometry.schemas import BoundingBox, ShapeProperties, TopologyCounts, Vec3
+
+#: Per-face relative bound handed to OCCT's ADAPTIVE volume integrator
+#: (``BRepGProp::VolumeProperties(S, VProps, Eps, OnlyClosed, SkipShared)``).
+#:
+#: WHY NOT THE DEFAULT. The two-argument overload integrates at a FIXED Gauss
+#: order chosen from each surface's degree. For a plane or a quadric that order
+#: is EXACT — which is precisely why this was invisible here for so long: every
+#: authored golden in this repo is planes, cylinders, cones, spheres and tori,
+#: and 58 of the 59 agree with their hand-derived analytic volumes to <= 3e-11
+#: under EITHER integrator (the 59th, `sketch-angle-gusset-45deg`, sits 2.1e-8
+#: out under both — a constant sketch-solve offset, not an integration residual).
+#: On trimmed NURBS the fixed order is NOT exact, and the error is not small:
+#: measured on a KUKA KR600 STEP import (4 123 faces)
+#: the fixed order reads 1 067 269 278.7 mm^3 where the adaptive integrator
+#: converges to 1 065 685 171 mm^3 — **1.49e-3 relative, ~1.58 litres on a
+#: 1.07 m^3 robot**, in the third significant figure of a number the inspector
+#: shows a user and that ``mass_g`` is computed from. A CAD tool that reports a
+#: plausible wrong mass is worse than a slow one, because nobody re-checks it.
+#:
+#: WHY 1e-10, AND WHY NOT LOOSER. Eps is a per-FACE RELATIVE bound, so it has no
+#: closed-form relationship to the absolute mm^3 tolerances the goldens assert;
+#: it was therefore DERIVED BY SWEEP over the whole 59-golden corpus rather than
+#: reasoned about. The column that decides it is the corpus-wide SAFETY MARGIN —
+#: the smallest ratio of a golden's documented tolerance to its actual deviation
+#: from its hand-derived analytic volume — because "passes" and "passes with room
+#: to spare" are different claims and only the second one survives an OCCT
+#: upgrade (full table in docs/GEOMETRY-QA.md, 2026-09-15):
+#:
+#:   eps        goldens outside tolerance   min margin (tol/deviation)
+#:   FIXED      0                           68.7
+#:   1e-3       8                           FAILS
+#:   1e-7       8                           FAILS
+#:   1e-8       0                            3.4
+#:   1e-9       0                            3.4
+#:   1e-10      0                           68.7
+#:   1e-12      0                           68.7
+#:
+#: The eight that fail are the FILLET, REVOLVED-GROOVE and SHELL-PINCH goldens —
+#: bodies with blend faces — and they carry the corpus's tightest tolerances
+#: (1e-9 and 1e-8 absolute). A LOOSE eps makes the analytically-exact cases WORSE
+#: than the fixed order did, because adaptive subdivision stops as soon as two
+#: successive refinements agree; it does not start from the exact answer.
+#:
+#: 1e-8 merely PASSES: `mirror-revolve-groove-tangent-wall` still carries a
+#: 2.9e-10 integration residual against a 1e-9 bound, i.e. 3.4x margin, which is
+#: a golden one OCCT release away from going red for a reason nobody would
+#: recognise. **At 1e-10 that residual vanishes beneath float noise and the
+#: corpus margin becomes 68.7x — numerically identical to the FIXED order's own
+#: margin**, and the golden that bounds it stops being a blend part
+#: (`mirror-revolve-groove-tangent-wall`) and becomes the same float-noise case
+#: that bounds the exact integrator (`draft-frustum-box`). That equality is the
+#: criterion: 1e-10 is where adaptive integration stops being measurably worse
+#: than exact integration on the shapes where exact integration is available.
+#: Nothing in the corpus improves between 1e-10 and 1e-16.
+#:
+#: COST, measured, because it is not free: ~5.2x on the volume integration.
+#: Across all 59 goldens 29.6 ms -> 154.5 ms (0.5 -> 2.6 ms each, against
+#: whole-tree benchmark ceilings of 1000/2000 ms); on the 4 123-face KUKA
+#: import 1.9 s -> ~14 s, against an import+tessellate path already measured at
+#: ~34 s. Bought knowingly: this is the difference between a right number and a
+#: fast wrong one.
+#:
+#: SURFACE AREA IS DELIBERATELY LEFT ON THE FIXED ORDER. It has the same defect
+#: class and two orders less of it (7.1e-6 on a lofted NURBS part, 1.7e-5 on the
+#: KUKA), and — decisively — the adaptive area reading does not CONVERGE on that
+#: part: it moves 1.7e-5 -> 2.9e-5 between eps 1e-8 and 1e-10, i.e. by the size
+#: of the signal, while costing another ~11 s. Swapping a known small bias for an
+#: unconverged reading at double the price is not an improvement. Recorded as a
+#: known limit in docs/GEOMETRY-QA.md rather than fixed in passing.
+VOLUME_EPS = 1e-10
 
 
 def measure_shape(
@@ -52,7 +127,16 @@ def measure_shape(
         raise ValueError("Cannot measure an empty shape")
 
     volume_props = GProp_GProps()
-    BRepGProp.VolumeProperties_s(shape.wrapped, volume_props)
+    # Adaptive integration (:data:`VOLUME_EPS`). ``OnlyClosed=False`` and
+    # ``SkipShared=False`` reproduce the two-argument overload's defaults
+    # EXACTLY, so the only behavioural change is the integration rule: passing
+    # OnlyClosed=True would silently drop open shells, which is a different
+    # answer to a different question and would confound an integration fix with
+    # a change of subject. The return value is OCCT's estimate of the relative
+    # error it reached; it is not consulted, because the sweep that chose
+    # VOLUME_EPS measured the achieved accuracy against hand-derived analytic
+    # values rather than against the integrator's opinion of itself.
+    BRepGProp.VolumeProperties_s(shape.wrapped, volume_props, VOLUME_EPS, False, False)
     surface_props = GProp_GProps()
     BRepGProp.SurfaceProperties_s(shape.wrapped, surface_props)
 
