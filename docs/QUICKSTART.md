@@ -328,9 +328,12 @@ The geometry image installs the OCCT wheel. Subsequent builds cache on
 `uv.lock`.
 
 **`http://localhost:8080` refuses the connection (Option A).**
-The `web` service is not up. `docker compose ps web` — if something else on
-your machine already holds 8080, set `WEB_PORT` in `.env` and bring the stack
-back up. `docker compose logs web` shows nginx's own complaint.
+The `web` service is not up, and `docker compose ps web` tells you which of two
+very different things happened. `Exited (1)` means the container started and
+nginx refused to run — `docker compose logs web` then carries nginx's own
+`[emerg]` line, which names the exact file or port it could not use. No
+container, or a port-bind error, means something else on your machine already
+holds 8080: set `WEB_PORT` in `.env` and bring the stack back up.
 
 **The app loads but every request returns `502` (Option A).**
 nginx reached the app but not the gateway. This is normal for a few seconds

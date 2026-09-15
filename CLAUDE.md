@@ -1455,6 +1455,37 @@ recipe here in the same commit as the fix.**
   because that method is the depth-limited variant and directory pruning happens
   in `walk()`). (b) Ship the gate with a `--self-test` that reproduces the
   defect and demands a failure, exactly as `just licence-selftest` does.
+- **`nginx -t` CREATES THE PID FILE. A BUILD-TIME CHECK RUN AS ROOT THEREFORE
+  MANUFACTURED THE RUNTIME CRASH IT WAS ADDED TO PREVENT.** Measured 2026-09-15;
+  the web container had exited 1 on boot on every commit since it landed —
+  `[emerg] 1#1: open() "/tmp/nginx.pid" failed (13: Permission denied)` — while
+  every other service came up healthy. "`nginx -t` only validates syntax" is
+  FALSE and is the belief that shipped this: `ngx_init_cycle()` runs almost the
+  whole startup under `-t`, creating the pid file (ngx_cycle.c ~322), creating
+  the cache/temp paths (~356) and opening the log files (~365); only the listen
+  sockets (~636) are skipped. `ngx_create_pidfile()` opens with
+  `NGX_FILE_CREATE_OR_OPEN` at 0644 under `-t`, and test mode returns from
+  `main()` **without** calling `ngx_delete_pidfile()`. So a root `nginx -t` in
+  the Dockerfile baked `-rw-r--r-- root:root /tmp/nginx.pid` into the image, and
+  the non-root master's `O_TRUNC` open of that existing file got EACCES.
+  **/tmp being 1777 is a red herring** — the sticky bit governs unlink and
+  rename, never writing to a file you do not own. Proved with three `open(2)`
+  calls from uid 100 under `setpriv`, which is how to settle this class without
+  a daemon: root-owned 0644 file in a 1777 dir → `(13: Permission denied)`;
+  same dir, file ABSENT → OK (so /tmp was innocent); dir owned by the runtime
+  user → OK, and OK again on re-open. Fix: a pid directory the image owns
+  (`/var/run/nginx`, chowned) plus the validation moved AFTER `USER nginx`, so
+  the check runs as the user that has to live with its artifacts.
+  Three things generalise beyond nginx. (a) **A build-time check that runs as a
+  different user than the runtime is not a check of the runtime** — it can pass
+  for reasons the container will never enjoy, and here it actively created the
+  fault. Put the gate after `USER`. (b) **A tool that VALIDATES may also WRITE**;
+  before trusting "it only inspects", read what it does, and delete or chown
+  what it leaves. (c) Reopening a fd through `/proc/self/fd/N` needs permission
+  on the underlying object, and **a root-owned pipe denies a non-root reopen
+  with the same errno 13** — which is why the build-time `nginx -t` now sends
+  its output to a regular file: `/var/log/nginx/error.log` is a symlink to
+  `/dev/stderr`, and BuildKit's stdio is not the container's.
 - **WHEN A NEW FIXTURE IS REJECTED BY EXISTING GATES, THAT REJECTION IS THE PROOF
   THEY WERE BLIND — do not "fix" the fixture.** Measured 2026-08-29 on STEPDET-1.
   A determinism hole survived because both assembly goldens were single-`Solid`

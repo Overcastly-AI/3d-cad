@@ -130,19 +130,144 @@ COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 
 # NON-ROOT, the same posture as the three Python service images (which run as
 # `loft`). Three edits, each one required by that decision and nothing else:
-#   * `pid` moves to /tmp — /var/run is root-owned, and a master that cannot
+#   * `pid` moves to a directory the `nginx` user OWNS — a master that cannot
 #     write its pid file exits immediately;
 #   * the `user` directive goes away — it is meaningful only to a root master,
 #     and nginx warns about it on every start otherwise;
 #   * the cache directories the workers write must be owned by `nginx`.
 # The server block listens on 8080 for the same reason (see nginx.conf): an
 # unprivileged process cannot bind port 80.
-RUN sed -i 's!^pid .*!pid /tmp/nginx.pid;!' /etc/nginx/nginx.conf \
-    && sed -i '/^user /d' /etc/nginx/nginx.conf \
-    && chown -R nginx:nginx /var/cache/nginx /usr/share/nginx/html \
-    && nginx -t -c /etc/nginx/nginx.conf
+#
+# ---------------------------------------------------------------------------
+# WHY THE PID IS NOT IN /tmp, AND WHY `nginx -t` USED TO *CAUSE* THE FAILURE IT
+# WAS SUPPOSED TO CATCH. Read this before moving the pid path again.
+#
+# The first version of this stage pointed `pid` at /tmp and ran `nginx -t` as
+# ROOT in the same RUN. Every container it produced died on boot:
+#
+#   [emerg] 1#1: open() "/tmp/nginx.pid" failed (13: Permission denied)
+#
+# /tmp is 1777, so "permission denied" there looks impossible — and the reason
+# is not /tmp at all. `nginx -t` DOES create the pid file; it is not a
+# syntax-only check. From nginx's own ngx_init_cycle() (src/core/ngx_cycle.c):
+#
+#     if (ngx_test_config) {
+#         if (ngx_create_pidfile(&ccf->pid, log) != NGX_OK) { goto failed; }
+#     } else if (!ngx_is_init_cycle(old_cycle)) { ... }
+#
+# and ngx_create_pidfile() opens the path with NGX_FILE_CREATE_OR_OPEN under
+# `-t` (NGX_FILE_TRUNCATE otherwise) at NGX_FILE_DEFAULT_ACCESS = 0644. Test
+# mode then returns from main() WITHOUT calling ngx_delete_pidfile(). So the
+# build-time check left `-rw-r--r-- root:root /tmp/nginx.pid` baked into the
+# image layer, and at runtime the non-root master's O_TRUNC open of that
+# existing root-owned file returned EACCES. The sticky bit governs unlink and
+# rename, never writing to a file you do not own, so 1777 buys nothing here.
+#
+# Reproduced without docker and without nginx, as three open(2) calls from
+# uid 100 (setpriv), which is what pins the cause rather than guessing at it:
+#   A  root-owned 0644 file, dir 1777  -> FAILED (13: Permission denied)   <- shipped
+#   B  same 1777 dir, file absent      -> OK                               <- /tmp was innocent
+#   C  dir owned by the runtime user   -> OK, and OK again on re-open      <- the fix
+#
+# The fix is therefore NOT "move the path and hope". It is: give the pid a
+# directory this image owns outright, and make the build-time check run AS THE
+# RUNTIME USER so it can no longer leave an artifact that user cannot write.
+# ---------------------------------------------------------------------------
+# Notes on the RUN below, kept OUT of it because no other Dockerfile here puts
+# comments inside a line-continued instruction and this one cannot be built
+# locally to prove the parser handles it:
+#   * /var/run is a symlink to /run on alpine, and nothing mounts a tmpfs over
+#     it in any of our compose files, so the directory persists into the
+#     container exactly as built.
+#   * A `sed` that matches NOTHING is silent, and the whole non-root posture
+#     rests on those two rewrites having landed — upstream is free to reformat
+#     its nginx.conf — so both are asserted. The `user` assertion is spelled as
+#     an `if ... exit 1` rather than `! grep`: POSIX says `set -e` is IGNORED
+#     for a pipeline beginning with `!`, so the obvious spelling would be a
+#     gate that cannot fail.
+#   * Everything the master or its workers WRITE is handed to `nginx`: the pid
+#     directory, plus the cache/temp trees ngx_create_paths() creates at
+#     startup. The web root is deliberately NOT chowned — nginx only reads it,
+#     so a worker that cannot rewrite the app it serves is one less thing a
+#     compromise can reach. `a+rX` (capital X) adds search on directories only.
+RUN set -eux; \
+    mkdir -p /var/run/nginx; \
+    sed -i 's!^pid[[:space:]].*!pid /var/run/nginx/nginx.pid;!' /etc/nginx/nginx.conf; \
+    sed -i '/^user[[:space:]]/d' /etc/nginx/nginx.conf; \
+    if ! grep -qx 'pid /var/run/nginx/nginx.pid;' /etc/nginx/nginx.conf; then \
+        echo "the pid rewrite matched nothing; upstream nginx.conf changed shape" >&2; \
+        grep -n 'pid' /etc/nginx/nginx.conf >&2 || true; \
+        exit 1; \
+    fi; \
+    if grep -q '^user[[:space:]]' /etc/nginx/nginx.conf; then \
+        echo "the 'user' directive survived; a non-root master would warn on every start" >&2; \
+        exit 1; \
+    fi; \
+    chown -R nginx:nginx /var/cache/nginx /var/run/nginx; \
+    chmod -R a+rX /usr/share/nginx/html
 
 USER nginx
+
+# THE BUILD-TIME GATE, AND THE POINT OF IT: this RUN is the first thing in the
+# file that executes as the user the container actually runs as, in the
+# filesystem state the container actually ships. The previous `nginx -t` ran as
+# root and therefore could not observe — could not even REACH — the failure it
+# was relied on to catch.
+#
+# `nginx -t` here is doing far more than a syntax pass, because ngx_init_cycle()
+# runs almost the whole startup under `-t`: it creates the pid file (line ~322),
+# creates the cache/temp paths (~356) and opens the log files (~365). Only the
+# listen sockets (~636) are skipped. So a permission fault on ANY of those paths
+# now fails the BUILD, loudly, instead of producing an image that exits 1 the
+# first time anyone runs it.
+#
+# The explicit pid write afterwards is the negative control for the exact defect
+# above: it is the same open(2) the master performs, and it fails if any earlier
+# step ever leaves a root-owned file at that path again. `nginx -t` will have
+# just created it, so this re-opens an EXISTING file — which is precisely the
+# case that broke, and precisely the case a "touch it once" check would miss.
+# The pid is then removed so the image ships no stale one.
+#
+# Two further details of the RUN below that are NOT arbitrary:
+#
+#   * `nginx -t` writes to a FILE here, not to the build log, and the output is
+#     cat'd back afterwards. Under `-t` nginx opens the configured error_log,
+#     which in this image is /var/log/nginx/error.log -> /dev/stderr ->
+#     /proc/self/fd/2. Reopening a fd through /proc requires permission on the
+#     underlying object, and a root-owned pipe denies it: measured here with
+#     setpriv, uid 100 reopening a root-owned pipe gets `(13: Permission
+#     denied)` — the very errno this commit is about. At RUNTIME that open
+#     demonstrably succeeds (the failing CI log's own `[emerg] 1#1:` line was
+#     written THROUGH the opened error_log, which proves nginx got past
+#     ngx_init_cycle as uid 101). BuildKit's stdio is a different object with
+#     no such evidence, so pointing fd 1/2 at a regular file the nginx user
+#     owns keeps this gate from failing for a reason that is about the builder
+#     rather than about the image.
+#
+#   * `test -f` on the pid file is the NON-VACUITY check. It asserts that
+#     `nginx -t` really did exercise the pid path, so the gate cannot silently
+#     become a syntax-only check again — which is exactly how the original
+#     defect shipped. If a future nginx stops creating the pid file under `-t`,
+#     this fails loudly and the message says what to re-derive.
+RUN set -eux; \
+    rc=0; \
+    nginx -t -c /etc/nginx/nginx.conf > /tmp/nginx-config-test.log 2>&1 || rc=$?; \
+    cat /tmp/nginx-config-test.log; \
+    rm -f /tmp/nginx-config-test.log; \
+    if [ "$rc" -ne 0 ]; then \
+        echo "nginx refused its own config as the runtime user ($(id -un))" >&2; \
+        exit "$rc"; \
+    fi; \
+    if [ ! -f /var/run/nginx/nginx.pid ]; then \
+        echo "nginx -t did not create the pid file: this gate no longer covers" >&2; \
+        echo "the pid path, which is the defect it exists to catch. Re-derive it" >&2; \
+        echo "against ngx_init_cycle() before deleting this assertion." >&2; \
+        exit 1; \
+    fi; \
+    : > /var/run/nginx/nginx.pid; \
+    rm -f /var/run/nginx/nginx.pid; \
+    test -r /usr/share/nginx/html/index.html; \
+    echo "ok: runtime user $(id -un) writes the pid path and reads the bundle"
 
 LABEL org.opencontainers.image.title="loft-web" \
       org.opencontainers.image.description="Loft — open-source cloud-native parametric 3D CAD (web app)" \
