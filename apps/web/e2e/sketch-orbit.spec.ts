@@ -1,7 +1,12 @@
 import { expect, test, type Page } from "./fixtures";
 
 import { angleBetween, cameraPose, installSceneProbe } from "./invariants";
-import { createPartViaApi, seedSession, waitForRenders } from "./support";
+import {
+  createPartViaApi,
+  expectSketchEntities,
+  seedSession,
+  waitForRenders,
+} from "./support";
 
 /**
  * VP-1 — orbit while sketching. Founder report: *"cannot orbit the 3D camera
@@ -546,7 +551,7 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
     await armRect(page);
 
     await drag(page, "left", { x: 660, y: 400 }, 300, 200);
-    await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
+    await expectSketchEntities(page, 4);
 
     // The drawing gesture is the sketcher's alone: unbinding LEFT from the
     // orbit rig must not have handed it BACK to the camera.
@@ -566,7 +571,7 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
 
     // The orbit is a camera gesture only — no stray geometry, tool still armed,
     // still on the plane.
-    await expect(page.getByTestId("sketch-save")).toContainText("0 entities");
+    await expectSketchEntities(page, 0);
     await expect(page.getByTestId("tool-rect")).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -589,7 +594,7 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
     // A camera gesture only: the press that orbited must not also have placed
     // the rectangle's first corner, which is what makes this different from
     // simply binding LEFT to ROTATE.
-    await expect(page.getByTestId("sketch-save")).toContainText("0 entities");
+    await expectSketchEntities(page, 0);
     await expect(page.getByTestId("tool-rect")).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -614,10 +619,11 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
     // cannot decay into a click that lands nowhere and asserts nothing.
     await planeAt(page, 600, 620);
     await page.mouse.click(600, 620, { button: "left" });
-    await expect(
-      page.getByTestId("sketch-save"),
+    await expectSketchEntities(
+      page,
+      0,
       "the Alt press left no anchor for the next click to close on",
-    ).toContainText("0 entities");
+    );
   });
 
   test("an Alt click picks nothing, with the select tool live", async ({
@@ -646,7 +652,7 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
       opposite.x - corner.x,
       opposite.y - corner.y,
     );
-    await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
+    await expectSketchEntities(page, 4);
 
     // Escape closes the size cells AND drops the tool, landing on `select` —
     // the resting tool, which has no button of its own. The wait on the cells
@@ -733,7 +739,7 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
 
     const before = await restCamera(page, REST_COARSE);
     await drag(page, "left", { x: 660, y: 400 }, 300, 200);
-    await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
+    await expectSketchEntities(page, 4);
 
     // The bounds sit between what a stuck LEFT binding would produce and the
     // residual of the coarse rest above: the Alt-orbit that precedes this turns
@@ -769,7 +775,7 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
     expect(distance(before.position, after.position)).toBeGreaterThan(1);
     expect(angleBetween(before.direction, after.direction)).toBeLessThan(0.5);
     await expect(page.getByTestId("viewport-context-menu")).toHaveCount(0);
-    await expect(page.getByTestId("sketch-save")).toContainText("0 entities");
+    await expectSketchEntities(page, 0);
   });
 
   test("after orbiting, the next entity lands where it was drawn", async ({
@@ -800,7 +806,7 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
       opposite.x - corner.x,
       opposite.y - corner.y,
     );
-    await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
+    await expectSketchEntities(page, 4);
     await page.keyboard.press("Escape"); // close the size cells, drop the tool
     // Load-bearing wait, not tidiness: the armed size cells are DOM seated on
     // the shape's far corner and they take pointer events
@@ -855,7 +861,7 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
       Math.round(b.y) - Math.round(a.y),
     );
     await page.keyboard.up("Control");
-    await expect(page.getByTestId("sketch-save")).toContainText("5 entities");
+    await expectSketchEntities(page, 5);
 
     // The camera really was off-axis for that draw — if the sketch rig had
     // snapped back to normal-on when the entity synced, the assertions below

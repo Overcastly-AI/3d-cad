@@ -176,6 +176,44 @@ export async function clickForReal(
 }
 
 /**
+ * How many entities the sketch buffer holds, read where the modeller reads it:
+ * the caption under the sketch strip's Save button.
+ *
+ * ASSERT ON THE CAPTION NODE, NEVER ON THE BUTTON'S `textContent`. The strip's
+ * Save control renders a LABEL and a CAPTION inside one element, so
+ * `toContainText` there is really an assertion about a concatenated blob —
+ * `"Save sketchnothing drawn yet"` — which couples every caller to the order
+ * the two strings happen to be laid out in and breaks on any re-ordering.
+ * `ToolButton` points the button's `aria-describedby` at its caption node for
+ * exactly this reason, so the accessible DESCRIPTION is the caption and nothing
+ * else, and it is the same string a screen reader is given.
+ *
+ * ZERO HAS ITS OWN WORDS, and they are the product's, not the test's: an empty
+ * sketch reads *"nothing drawn yet"* (d227843) rather than "0 entities". The
+ * count is intact for every non-empty buffer — 1 is "1 entity", 4 is
+ * "4 entities" — so nothing a modeller needs was lost when the zero case
+ * started speaking English; what changed is that the one reading a person
+ * cannot act on now says so in words instead of arithmetic.
+ *
+ * Callers asserting "that gesture drew nothing" want `count` 0 and should say
+ * WHY in `why`, because that is the sentence a red CI shard prints.
+ */
+export async function expectSketchEntities(
+  page: Page,
+  count: number,
+  why?: string,
+): Promise<void> {
+  const caption =
+    count === 0
+      ? "nothing drawn yet"
+      : `${count} ${count === 1 ? "entity" : "entities"}`;
+  await expect(
+    page.getByTestId("sketch-save"),
+    why,
+  ).toHaveAccessibleDescription(caption);
+}
+
+/**
  * Both History buttons settled at the given server gates (`can_undo` /
  * `can_redo` → aria-disabled). Shared by the part and assembly undo/redo
  * specs — the two workspaces render the SAME HistoryGroup, so the assertion

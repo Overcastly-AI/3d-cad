@@ -7,7 +7,12 @@ import {
   hoverPlane,
 } from "./planeMap";
 import { seedCube } from "./partSeed";
-import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
+import {
+  createPartViaApi,
+  expectSketchEntities,
+  SCREENSHOT_DIR,
+  seedSession,
+} from "./support";
 
 /**
  * TWO FOUNDER REPORTS, 2026-08-02, and they are one theme — the sketcher gave
@@ -108,7 +113,7 @@ test.describe("the sketch plane's own origin", () => {
     await page.keyboard.press("r");
     await clickPlane(page, at, { x: 0, y: 0 }, { x: 6, y: -5 });
     await clickPlane(page, at, { x: 40, y: 25 });
-    await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
+    await expectSketchEntities(page, 4);
 
     await page.getByTestId("sketch-save").click();
     await expect(page.getByTestId("feature-row")).toHaveCount(1, {
@@ -212,11 +217,11 @@ test.describe("undo and redo inside the sketcher", () => {
     await page.keyboard.press("r");
     await clickPlane(page, at, { x: 50, y: 5 });
     await clickPlane(page, at, { x: 90, y: 30 });
-    await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
+    await expectSketchEntities(page, 4);
     await expect(undo).toBeEnabled();
 
     await undo.click();
-    await expect(page.getByTestId("sketch-save")).toContainText("0 entities");
+    await expectSketchEntities(page, 0);
     // THE assertion this whole test exists for: the sketch's undo reversed a
     // SKETCH edit. The two features that made the cube are untouched — a
     // feature-history undo would have taken the extrude off the tree here.
@@ -224,20 +229,20 @@ test.describe("undo and redo inside the sketcher", () => {
 
     await expect(redo).toBeEnabled();
     await redo.click();
-    await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
+    await expectSketchEntities(page, 4);
 
     // The chord is bound to the same stack as the buttons.
     await page.keyboard.press("Control+z");
-    await expect(page.getByTestId("sketch-save")).toContainText("0 entities");
+    await expectSketchEntities(page, 0);
     await page.keyboard.press("Control+Shift+z");
-    await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
+    await expectSketchEntities(page, 4);
     await expect(page.getByTestId("feature-row")).toHaveCount(2);
 
     // And the body itself: undo everything, leave the sketcher, and read the
     // inspector (it stands down while sketching, so this is the check that
     // needs the round trip). Still a 20 mm cube, to the millimetre.
     await page.keyboard.press("Control+z");
-    await expect(page.getByTestId("sketch-save")).toContainText("0 entities");
+    await expectSketchEntities(page, 0);
     await page.getByTestId("sketch-exit").click();
     await expect(page.getByTestId("sketch-strip")).toHaveCount(0);
     await expect(page.getByTestId("feature-row")).toHaveCount(2);
@@ -261,7 +266,7 @@ test.describe("undo and redo inside the sketcher", () => {
     await page.keyboard.press("r");
     await clickPlane(page, at, { x: 0, y: 0 }, { x: 4, y: -4 });
     await clickPlane(page, at, { x: 40, y: 25 });
-    await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
+    await expectSketchEntities(page, 4);
     // Park the aim ON the origin so the frame, the mark and its word are all
     // in the frame the founder sees.
     await page.keyboard.press("l");
