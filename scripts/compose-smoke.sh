@@ -98,7 +98,13 @@ dump_logs() {
 # it must be built before teardown. Sourced rather than copied: the drill needs
 # the identical block, and a copy-paste pair is how the two would drift.
 VERDICT_LABEL="compose-smoke"
-VERDICT_FILE="${COMPOSE_SMOKE_VERDICT:-}"
+# On a runner, default to RUNNER_TEMP — the SAME path .github/workflows/
+# deploy-path.yml's Verdict step reads. Deliberately NOT passed in from a
+# job-level `env:`: `runner` is not an available context there and GitHub
+# rejects the whole workflow at run-creation if you try (see that step's
+# comment). `${VAR:+...}` leaves this EMPTY off a runner, so a local run still
+# writes no file anywhere — only the stderr copy.
+VERDICT_FILE="${COMPOSE_SMOKE_VERDICT:-${RUNNER_TEMP:+$RUNNER_TEMP/compose-smoke-verdict.txt}}"
 # shellcheck source=scripts/compose-verdict.sh
 . "$(dirname "$0")/compose-verdict.sh"
 

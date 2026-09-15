@@ -109,11 +109,6 @@ jobs:
   compose-stack-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      # ONE literal, read by the script that WRITES the verdict and by the step
-      # that re-prints it last. Two copies of this path is exactly how the
-      # verdict step would start silently printing nothing.
-      COMPOSE_SMOKE_VERDICT: ${{ runner.temp }}/compose-smoke-verdict.txt
     steps:
       - uses: actions/checkout@v4
       # ONE script, so a human can run the identical proof on any Docker host:
@@ -187,6 +182,23 @@ jobs:
       # it, one small fixed tail gets the whole answer. Same treatment e2e.yml
       # got in 2874f0a.
       #
+      # `$RUNNER_TEMP`, NOT `${{ runner.temp }}`, and NOT a job-level `env:`.
+      # The first version of this block hoisted the path into `jobs.<id>.env`
+      # so it would be written once — and `runner` is NOT AVAILABLE in a
+      # job-level env (GitHub's own workflow-parser schema lists github,
+      # inputs, vars, needs, strategy, matrix, secrets there; `runner` appears
+      # only at step level). GitHub rejects such a workflow at RUN-CREATION:
+      # the run exists with `total_jobs: 0` and zero duration, so the whole
+      # file becomes unrunnable and NOTHING is evaluated — a far worse failure
+      # than the red job it was meant to explain. scripts/check-workflow-
+      # contexts.py now gates exactly this.
+      #
+      # Inside a `run:` shell RUNNER_TEMP is an ordinary environment variable,
+      # so this needs no expression at all and cannot fail that way. The
+      # filename is repeated in compose-smoke.sh's default; that duplication is
+      # safe because the missing-file branch below is LOUD, which is what the
+      # original "one literal" argument was actually protecting against.
+      #
       # It refuses rather than staying silent when the file is missing: an
       # absent verdict means the script died before its EXIT trap (OOM, job
       # timeout, a `docker` that would not start), which is a real and
@@ -195,8 +207,9 @@ jobs:
       - name: Verdict
         if: always()
         run: |
-          if [ -f "$COMPOSE_SMOKE_VERDICT" ]; then
-            cat "$COMPOSE_SMOKE_VERDICT"
+          verdict="$RUNNER_TEMP/compose-smoke-verdict.txt"
+          if [ -f "$verdict" ]; then
+            cat "$verdict"
           else
             echo "== compose-smoke verdict =="
             echo "NO VERDICT WAS WRITTEN — compose-smoke.sh did not reach its EXIT"
@@ -226,8 +239,6 @@ jobs:
   backup-restore-drill:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      DRILL_VERDICT: ${{ runner.temp }}/drill-verdict.txt
     steps:
       - uses: actions/checkout@v4
       - name: Backup → destroy the volumes → restore → re-evaluate the part
@@ -235,12 +246,14 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v --remove-orphans
-      # Same reasoning as the compose job's verdict step above.
+      # Same reasoning as the compose job's verdict step above, including why
+      # this is `$RUNNER_TEMP` in a run: shell rather than a job-level env.
       - name: Verdict
         if: always()
         run: |
-          if [ -f "$DRILL_VERDICT" ]; then
-            cat "$DRILL_VERDICT"
+          verdict="$RUNNER_TEMP/drill-verdict.txt"
+          if [ -f "$verdict" ]; then
+            cat "$verdict"
           else
             echo "== backup-restore-drill verdict =="
             echo "NO VERDICT WAS WRITTEN — backup-restore-drill.sh did not reach its"

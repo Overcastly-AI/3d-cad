@@ -84,7 +84,9 @@ dump_logs() {
 # source, for the same reason: this job's ~150-line failure dump buries its own
 # diagnosis, and the job log is the only channel out of CI.
 VERDICT_LABEL="backup-restore-drill"
-VERDICT_FILE="${DRILL_VERDICT:-}"
+# Same path the workflow's Verdict step reads, and same reason it is derived
+# here from RUNNER_TEMP rather than handed in by a job-level `env:`.
+VERDICT_FILE="${DRILL_VERDICT:-${RUNNER_TEMP:+$RUNNER_TEMP/drill-verdict.txt}}"
 # shellcheck source=scripts/compose-verdict.sh
 . "$(dirname "$0")/compose-verdict.sh"
 
