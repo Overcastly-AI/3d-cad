@@ -257,49 +257,117 @@ is the landing record only, so the board is not silent about shipped work.
       2026-09-14] TERRITORY: extrude rail field component (wherever
       `ExtrudeDragHandle`'s sibling numeric-entry lives). agentType:
       frontend-builder.
-- [ ] (P1, M) **CRAFT-9a — IN FLIGHT (dispatched, groom pass 23).** Fillet
-      radius + chamfer distance gauges. `linear` track, anchor on the picked
-      edge's midpoint, normal to the edge, in the face-pair's bisector plane.
-      ACCEPTANCE per verb: drag N px moves the editor field AND the preview
-      redraws; arrow keys step it; `elementFromPoint` reaches the track at
-      >= 12 of 16 offsets; contract β — release the pointer and the instrument
-      stays where dragged (catches a missing echo). **§8.4 gate: must ship a
-      live preview with the gauge** — recommended: the rolling-ball tangent
-      circle at the current radius (fillet) / the bevel band (chamfer) — or
-      defer the whole item to W5; "the field updates and the model does not"
-      is not a shippable outcome. [src: DIRECTION-W3-PROPOSALS.md §8.3/§9]
-      TERRITORY: `apps/web/src/viewport/**` (gauges),
-      `apps/web/src/components/{Fillet,Chamfer}Editor.tsx`. agentType:
+- [x] (P1, M) **CRAFT-9a — CLOSED (`1f32a67`).** Fillet radius + chamfer
+      distance gauges. Band preview on every picked edge — the fillet closes
+      with the round's arc, the chamfer with the bevel chord. Reach 16/16
+      both verbs. Convexity is read from face CENTROIDS, not normals — a
+      box's convex edge and a step's concave one present identical outward
+      normals. Refuses rather than guesses on a closed edge with one planar
+      face. [src: DIRECTION-W3-PROPOSALS.md §8.3/§9] agentType:
       frontend-builder.
-- [ ] (P1, M) **CRAFT-9b — IN FLIGHT (dispatched, groom pass 23).** Shell
-      thickness + datum offset gauges. `linear` track, anchor on the picked
-      face's centroid along its normal. Same §8.4 preview gate as CRAFT-9a —
-      recommended: the inner offset outline (shell). Same proven-by criteria.
-      [src: DIRECTION-W3-PROPOSALS.md §8.3/§9] TERRITORY:
-      `apps/web/src/viewport/**` (gauges),
-      `apps/web/src/components/{Shell,Datum}Editor.tsx`. agentType:
+- [x] (P1, M) **CRAFT-9b — CLOSED (`11a0906`).** Shell thickness + datum
+      offset gauges. Shell draws the rim of the cavity the wall leaves —
+      line-work deliberately: a ghosted solid would paint material exactly
+      where the feature removes it. Both previews publish a QA stamp derived
+      from the buffer handed to the renderer, never the value that produced
+      it — needed TWO stamp functions, because a translating square has
+      constant perimeter. **Open follow-up: `craft9b-gauges` contract-β is
+      intermittent** — the rod springs back a step on release, 2/1/0 across
+      runs on the base tree; see CRAFT-13 below. [src:
+      DIRECTION-W3-PROPOSALS.md §8.3/§9] agentType: frontend-builder.
+- [x] (P1, M) **CRAFT-10 — CLOSED (`7ecc480`).** Revolve sweep + draft angle
+      on the 15°/5° ladder, **and it drew the revolve axis**, which did not
+      exist in the viewport at all before this (a dropdown read "Y axis ·
+      through the origin" with nothing on screen). **Its own follow-up,
+      `894c6f3`: the hit sleeve now follows the drawn ARC rather than its
+      chord** — reach was 0/16 with the chord sleeve, worse than the 2/16
+      CRAFT-7 was raised to fix; found and fixed by this agent, which
+      reverted its own out-of-territory file and escalated instead of
+      leaving it. [src: DIRECTION-W3-PROPOSALS.md §9 CRAFT-10] agentType:
       frontend-builder.
-- [ ] (P1, M) **CRAFT-10 — IN FLIGHT (dispatched, groom pass 23).** Angular
-      gauges: revolve angle, draft angle, bend angle. `angular` track, 15°/5°
-      ladder (NOT derived from the linear one — 10/20/50° is the named failure
-      mode), `formatAngle`. **Owns a prerequisite the item itself names:
-      MEASURED — the revolve axis is not drawn in the viewport at all**
-      (chosen from a dropdown reading "Y axis · through the origin", scene
-      shows nothing). Draw the axis first, as a brass centreline in idiom D's
-      vocabulary, before hanging the arc gauge on it — not scope creep, the
-      arc's anchor. Same §8.4 live-preview gate (swept arc + end plane).
-      [src: DIRECTION-W3-PROPOSALS.md §9 CRAFT-10] TERRITORY:
-      `apps/web/src/viewport/**` (gauges),
-      `apps/web/src/components/{Revolve,Draft}Editor.tsx`. agentType:
+- [x] (P1, M) **CRAFT-11 — CLOSED (`c0b5e5f`).** Pattern count + spacing
+      gauges, two mounts on one feature. Ghost copies are simultaneously the
+      preview and the count gauge's own stops; spacing keeps the tag, count
+      carries `tag: "none"` because the ghosts ARE its reading — only one
+      instrument may own the digits. **Follow-up `0c707b9`: the count
+      gauge's seat left the frame** — its screen-space offset floor was
+      written in world mm, so both `max()` floors selected their constant
+      below 17 mm radius and stopped shrinking with the part while the
+      camera-fitted frame kept shrinking. [src: DIRECTION-W3-PROPOSALS.md §9
+      CRAFT-11] agentType: frontend-builder.
+- [x] (P0, S) **Save-during-autosave race — CLOSED (`d227843`).** A ~280 ms
+      window in which the one control that ends a sketch (Save) did nothing,
+      silently, while an autosave was in flight; the queue already existed
+      one layer down, the disable is what made it unreachable. [src: Wave 3
+      cross-cutting finding, 2026-09-14] agentType: frontend-builder.
+- [ ] (P1, S) **CRAFT-12 — the camera never re-fits when a preview appears.**
+      kind: defect (viewport, cross-cutting). MEASURED: on an 11 mm part the
+      pattern ghosts run off the frame entirely. Now that all nine W3 mounts
+      ship previews, this threatens every verb whose preview extends past
+      the body, not just pattern. ACCEPTANCE: arming a gauge whose preview
+      geometry would render outside the current frame triggers a camera
+      re-fit (or a documented floor that keeps the preview in frame without
+      one), proven on at least the pattern and shell cases (the two measured
+      to overrun). [src: Wave 3 close-out finding 1, 2026-09-14] TERRITORY:
+      `apps/web/src/viewport/**` (camera/fit logic). agentType:
       frontend-builder.
-- [ ] (P1, M) **CRAFT-11 — IN FLIGHT (dispatched, groom pass 23).** Pattern
-      count + spacing gauges — two mounts on one feature: a `stepped` count
-      gauge along the pattern direction, a `linear` spacing gauge across the
-      first gap. Same §8.4 live-preview gate: ghost copies at the instance
-      positions. [src: DIRECTION-W3-PROPOSALS.md §9 CRAFT-11] TERRITORY:
-      `apps/web/src/viewport/**` (gauges),
-      `apps/web/src/components/PatternEditor.tsx`. agentType:
-      frontend-builder.
+- [ ] (P1, M) **CRAFT-13 — the gauge trails the panel by 0.4-0.8s after
+      release, and a live intermittent may be the same mechanism.** kind:
+      defect (investigation first). MEASURED: `gauge=13 field=13.5`,
+      agreeing only 360 ms later — two dialects on screen at once, which the
+      direction pass explicitly forbade. **Check this against
+      CRAFT-9b's `craft9b-gauges` contract-β intermittent (rod springs back
+      a step on release, 2/1/0 across runs) before treating them as two
+      separate bugs** — same release-time desync shape, unconfirmed whether
+      same root cause. ACCEPTANCE: root-cause the lag (and the contract-β
+      flake, if the same mechanism) to a specific echo/sync path; if they
+      are the same bug, one fix; if not, split CRAFT-13 into two tickets
+      with the finding stated. [src: Wave 3 close-out finding 2+3,
+      2026-09-14] TERRITORY: `apps/web/src/viewport/ParametricGauge.tsx`,
+      the editor panels' field sync. agentType: frontend-builder.
+- [ ] (P2, M) **CRAFT-14 — every `disabled={someTransientFlag}` is a latent
+      dead end.** kind: defect (systemic, audit first). `ToolButton` gives a
+      consumer no way to distinguish "busy" from "gated" — both collapse to
+      `aria-disabled` plus a swallowed handler. ACCEPTANCE: audit by the
+      QUESTION (is this a refusal or a delay?), never by grepping the
+      idiom — the last three defect-class audits that matched a shape missed
+      every instance wearing a different one. Do NOT change the primitive
+      first: the swallow is correct for genuine refusals; only add a
+      distinguishable state for transient ones, once the audit names which
+      call sites need it. [src: Wave 3 close-out finding 4, 2026-09-14]
+      TERRITORY: `packages/design/src/primitives/ToolButton.tsx` + call
+      sites repo-wide. agentType: frontend-builder.
+- [ ] (P2, S) **CRAFT-15 — 3 of 12 points along a picked edge were already
+      unreachable before any gauge mounted.** kind: defect, pre-existing
+      (measured against a no-gauge control, not a W3 regression).
+      PickMark/edge-overlay territory. ACCEPTANCE: reproduce on a control
+      edge with no gauge attached, root-cause the 3 unreachable offsets
+      (occlusion, hit-box shape, or z-order), and fix or document why they
+      are structurally unreachable. [src: Wave 3 close-out finding 5,
+      2026-09-14] TERRITORY: `apps/web/src/viewport/PickMark.tsx`, edge
+      overlay. agentType: frontend-builder.
+- [ ] (P2, S) **CRAFT-16 — should the shell gauge seat at the RIM rather
+      than the face centroid?** kind: question (product decision). On a
+      face the shell leaves open there is no wall along the centroid's
+      normal — the wall is at the rim, in-plane, exactly where the preview
+      already draws it. A rim seat would make the arrow and the outline one
+      drawing. ACCEPTANCE: a decision recorded here or in
+      `docs/design/REDESIGN-ROADMAP.md`, and if rim-seating wins, a builder
+      moves CRAFT-9b's gauge anchor accordingly with before/after
+      screenshots (CLAUDE.md design mandate rule 4). [src: Wave 3 close-out
+      finding 6, 2026-09-14] TERRITORY: `apps/web/src/viewport/**` (shell
+      gauge anchor). agentType: frontend-builder (decision may need
+      founder/vision-steward input first).
+- [ ] (P2, S) **CRAFT-17 — two competing e2e helper extractions must
+      converge.** kind: DRY (CLAUDE.md non-negotiable). `gaugeReach.ts`
+      (CRAFT-9a) and `gaugeProbe.ts` (CRAFT-9b, since extended by CRAFT-10
+      and CRAFT-11) both export `projectedSpine`/`gripCentre`/`reach`.
+      `gaugeProbe.ts` is the survivor — it is already the one CRAFT-10/11
+      built on. ACCEPTANCE: `gaugeReach.ts`'s callers move onto
+      `gaugeProbe.ts`, `gaugeReach.ts` deleted, no behavior change (same
+      reach numbers before/after on the specs that used it). [src: Wave 3
+      close-out finding 7, 2026-09-14] TERRITORY: `apps/web/e2e/**` (gauge
+      spec helpers). agentType: frontend-builder / qa-tester.
 - [ ] (P2, S) **GAUGE-PROPORTION-1 — the rod-vs-graduation proportion
       problem generalizes past the 2 mm case CRAFT-7 fixed.** kind: defect
       (visual craft, tolerance). MEASURED: at pitch <= 0.5 mm, or on a very
@@ -349,26 +417,61 @@ is the landing record only, so the board is not silent about shipped work.
       [src: DIRECTION-W3-PROPOSALS.md §11.7] TERRITORY: `packages/design/src/
       gauge.ts` (ladder selection), `apps/web/src/routes/units.ts`.
       agentType: frontend-builder.
-- [ ] (P1, S) **GAUGE-TOUCH-1 — a touch pass on the shipped gauge, W3-exit QA
-      gate.** kind: QA (not yet examined, flagged rather than guessed). The
-      24 px grip meets WCAG 2.2 SC 2.5.8 and CRAFT-7's hit sleeve is
-      >= 12 px, but both probes behind those numbers were mouse-driven, at
-      1280x800 and 1600x1000 only — nobody has put a finger on this
-      instrument. ACCEPTANCE: a real touch-emulated pass (Playwright touch
+- [ ] (P1, S) **GAUGE-TOUCH-1 — a touch pass on all nine shipped gauge
+      mounts, W3-exit QA gate.** kind: QA (not yet examined, flagged rather
+      than guessed). The 24 px grip meets WCAG 2.2 SC 2.5.8 and CRAFT-7's
+      hit sleeve is >= 12 px, but every reach measurement behind the wave —
+      all nine mounts across all seven verbs — was mouse-driven, at
+      1280x800 and 1600x1000 only; nobody has put a finger on any of these
+      instruments. ACCEPTANCE: a real touch-emulated pass (Playwright touch
       input or an actual touch-capable device) on the extrude gauge and at
-      least one of CRAFT-9a/9b/10/11 once shipped, asserting the drag actually
-      moves the value under touch pointer events, not just that the box is
-      large enough. This must close before Wave 3 is declared done — a gate,
-      not a nice-to-have. [src: DIRECTION-W3-PROPOSALS.md §11.4] TERRITORY:
-      `apps/web/e2e/**` (gauge specs), touch harness (see PLAYWRIGHT-TOUCH-1
-      for the existing harness-gap item this may share infrastructure with).
-      agentType: qa-tester.
+      least one of fillet/chamfer, shell/datum, revolve/draft, pattern,
+      asserting the drag actually moves the value under touch pointer
+      events, not just that the box is large enough. **Wave 3 is closed on
+      the board this pass (groom pass 24, per orchestrator direction) with
+      this gate still open** — noted as a tension, not resolved silently:
+      the wave's build work is done and none of the nine open follow-up
+      findings (CRAFT-12..17) block dispatching Phase 5 work in parallel,
+      but this QA gate is real and still owed. Dispatch qa-tester on this
+      alongside Phase 5 work, not instead of it. [src:
+      DIRECTION-W3-PROPOSALS.md §11.4; reconfirmed groom pass 24,
+      2026-09-15] TERRITORY: `apps/web/e2e/**` (gauge specs), touch harness
+      (see PLAYWRIGHT-TOUCH-1 for the existing harness-gap item this may
+      share infrastructure with). agentType: qa-tester.
 
 ## Scorecard gaps (docs/VISION.md daily-driver scorecard)
 
 See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
+
+- **Groom pass 24 (2026-09-15, backlog-groomer) — Wave 3 CLOSED.** CRAFT-9a
+  (`1f32a67`), CRAFT-9b (`11a0906`), CRAFT-10 (`7ecc480`+`894c6f3`) and
+  CRAFT-11 (`c0b5e5f`+`0c707b9`) all ticked CLOSED, plus a cross-cutting
+  Save-during-autosave fix (`d227843`). Nine gauge mounts now ship across
+  seven verbs, every one with a live preview. Filed six new items from the
+  wave's own findings (CRAFT-12..17: camera never re-fits on a preview,
+  gauge/panel desync possibly sharing a root cause with the craft9b-gauges
+  contract-β intermittent, `ToolButton` disabled-vs-busy audit, 3/12
+  pre-existing unreachable edge points, the shell rim-vs-centroid seat
+  decision, `gaugeReach.ts`/`gaugeProbe.ts` DRY convergence); GAUGE-TOUCH-1
+  updated to cover all nine mounts and explicitly noted as a still-open
+  W3-exit QA gate even though the wave itself is closed on the board this
+  pass — a stated tension, not a silent resolution. CRAFT-9c stays Ready,
+  now first in line. **Phase 5 (agent-native & extensibility) opened** —
+  the public Python scripting API is in flight (see ROADMAP "Current
+  focus" for the full rationale: it and the MCP server are one
+  architecture flipping two ❌ scorecard rows, Extensibility + Agent
+  access). Doc-tick debt measured: **12** commits since the last
+  `docs(board)` commit (`bd1e05a`), none touching ROADMAP/BACKLOG — larger
+  than pass 23's 4, all from Wave 3's remaining four gauge mounts landing
+  in worktrees while two builders stayed live; reconciled in full this
+  pass. **Board queue length: 183 open items (`grep`-counted), roughly flat
+  from 181 last pass** — this pass closed 4 (CRAFT-9a/9b/10/11) and filed 6
+  (CRAFT-12..17), consistent with the wave-close pattern: findings surface
+  fastest right at the end. No scorecard row flips this pass (flow/craft
+  items; Phase 5's own flips are ahead of us, not behind). ROADMAP "Current
+  focus" reconciled to match.
 
 - **Groom pass 23 (2026-09-14, backlog-groomer) — CRAFT-7's blocking finding
   is FIXED (`c9e037c`+`e56c9bc`); ticked CLOSED.** CRAFT-9a/9b/10/11 unblocked
@@ -429,11 +532,9 @@ duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
   re-check on Assemblies/Sheet metal/Performance/Collaboration/
   Extensibility/Selection is now EIGHT passes overdue.
 
-- **Groom pass 20 (2026-09-13):** reconciled the frontend-redesign wave log
-  onto BACKLOG (it had only been ticked in ROADMAP); filed six items
-  (MINIO-LICENSE-REVIEW-1, FLOW-JOURNEY-GAP-1, GRIDMINOR-TONEMAP-1,
-  AXISLABEL-ORTHO-1, VIEWFRONT-ORTHO-DECISION-1, MODALGATE-MIGRATION-1).
-  Full detail: `docs/CHANGELOG.md`.
+- **Groom pass 20 (2026-09-13):** reconciled the wave log onto BACKLOG; filed
+  six items (MINIO-LICENSE-REVIEW-1 + five more). Full detail:
+  `docs/CHANGELOG.md`.
 
 - **Groom pass 19 (2026-08-29):** CI-4's original question ANSWERED (shard
   3/4 was structurally overloaded, not systemic instability); K2, PBT-1,
@@ -446,12 +547,15 @@ duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 23 (2026-09-14) — CRAFT-9c joins the queue now
-that CRAFT-7 closed and CRAFT-9a/9b/10/11 are in flight (wave log above).**
-Ranked, disjoint, parallel-dispatchable; MINIO-LICENSE-REVIEW-1 and
-CUBE-SKETCH-OCCLUDE-1 are both decisions before they are build tasks — the
-first to the licensing custodian/founder, the second may need founder/
-vision-steward input on the options before a builder picks one:
+**Dispatch order, groom pass 24 (2026-09-15) — Wave 3 is CLOSED; CRAFT-9c
+now leads it (tag/`companion` shape settled across four verbs). Phase 5's
+scripting API (SCRIPT-1) is already in flight in its own worktree — tracked
+here, not queued for dispatch.** Ranked, disjoint, parallel-dispatchable;
+MINIO-LICENSE-REVIEW-1 and CUBE-SKETCH-OCCLUDE-1 are both decisions before
+they are build tasks — the first to the licensing custodian/founder, the
+second may need founder/vision-steward input on the options before a
+builder picks one. CRAFT-12/13 (new this pass, items 10-11) are P1 and
+should dispatch alongside CRAFT-9c, not after it:
 
 1. [ ] (P1, S) **MINIO-LICENSE-REVIEW-1** — MinIO is AGPL-3.0 and has no entry
    in `docs/LICENSING.md`; needs a human/licensing-custodian decision, not an
@@ -590,11 +694,12 @@ vision-steward input on the options before a builder picks one:
    reference cube's pick-armed pointer-yield (`d0a3190`) should extend to
    ordinary sketch drawing, not just armed picks.
 
-8. [ ] (P1, M) **CRAFT-9c** — hole depth + Ø gauges, the only `companion`
-   two-cell gauge in the wave. **Deliberately NOT dispatched alongside
-   CRAFT-9a/9b/10/11** — DIRECTION-W3-PROPOSALS.md §8.3 sequences it last,
-   once the tag/`companion` shape has settled from the other four in-flight
-   items (CRAFT-7's own follow-up found `companion` had shipped narrowed to
+8. [ ] (P1, M) **CRAFT-9c — now leads the Ready queue.** Hole depth + Ø
+   gauges, the only `companion` two-cell gauge in the wave. **Deliberately
+   NOT dispatched alongside CRAFT-9a/9b/10/11** — DIRECTION-W3-PROPOSALS.md
+   §8.3 sequences it last, once the tag/`companion` shape has settled from
+   the other four, now all CLOSED (CRAFT-7's own follow-up found `companion`
+   had shipped narrowed to
    `Pick<GaugeCell, "tagLabel"|"value">`, losing the per-cell `track` §6.1
    specified for a mixed-unit pair — fine for hole today since depth and Ø
    are both mm, but the shape this item inherits should be checked once
@@ -605,6 +710,39 @@ vision-steward input on the options before a builder picks one:
    and the depth plane, or defer to W5. [src: DIRECTION-W3-PROPOSALS.md
    §8.3/§9] TERRITORY: `apps/web/src/viewport/**` (gauges),
    `apps/web/src/components/HoleEditor.tsx`. agentType: frontend-builder.
+
+9. [ ] (P1, L) **SCRIPT-1 — IN FLIGHT (builder dispatched in a worktree, groom pass 24).**
+   Public Python scripting API, Phase 5's flagship item, opened this pass —
+   see ROADMAP "Current focus" for the full rationale (one architecture with
+   the future MCP server, flipping the Extensibility + Agent access ❌
+   scorecard rows). Built constraint: **same code path as the UI** — another
+   gateway client, importing no kernel and touching no database, typed from
+   `packages/contracts` exactly as `packages/ts-client` is. ACCEPTANCE: proof
+   of the constraint is a two-path geometry comparison against
+   `full-flow.spec.ts`'s part (script-driven vs. UI-driven produce the same
+   geometry/mass properties), not unit coverage alone. [src: founder/
+   orchestrator direction, 2026-09-15] TERRITORY: coordinate with the
+   in-flight builder before touching its files. agentType: backend-builder.
+
+10. [ ] (P1, S) **CRAFT-12** — the camera never re-fits when a preview
+    appears; on an 11 mm part the pattern ghosts run off the frame entirely.
+    Threatens every one of the nine W3 mounts whose preview can extend past
+    the body. Full ticket in the wave log above. TERRITORY:
+    `apps/web/src/viewport/**`. agentType: frontend-builder.
+
+11. [ ] (P1, M) **CRAFT-13** — the gauge trails the panel by 0.4-0.8s after
+    release (two dialects on screen, forbidden by the direction pass);
+    investigate together with the `craft9b-gauges` contract-β intermittent
+    before assuming they are two bugs. Full ticket in the wave log above.
+    TERRITORY: `apps/web/src/viewport/ParametricGauge.tsx`, editor panel
+    field sync. agentType: frontend-builder.
+
+**Also ready, not yet dispatched (P2, full tickets in the wave log above):**
+CRAFT-14 (`ToolButton` disabled-vs-busy audit), CRAFT-15 (3/12 pre-existing
+unreachable edge pick points), CRAFT-16 (shell gauge rim-vs-centroid seat,
+product decision), CRAFT-17 (`gaugeReach.ts`/`gaugeProbe.ts` DRY
+convergence), GAUGE-TOUCH-1 (W3-exit touch QA gate, now covering all nine
+mounts — still open, dispatch alongside Phase 5 work per its own note).
 
 **Carried from groom pass 19 — no new P0 that pass; SOLVE-CRASH-1, K2, PBT-1,
 CI-BAL, MEASURE-PROXY-1, PICKMARK-OCCLUDE-1, EXPORT-3, REACH-3-FLOW,

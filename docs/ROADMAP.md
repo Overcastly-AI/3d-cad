@@ -2,81 +2,99 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-09-14 (backlog-groomer pass 23) — Wave 3
-(direct manipulation) is mid-flight; CRAFT-7 is now CLOSED.** `CRAFT-8`
-landed first and alone (`4b0465d`, `<ParametricGauge>` extracted, three review
-fixes); `CRAFT-7` (`6864f82`+`e25f125`) made the extrude gauge grabbable
-(2/16 -> 16/16 sample points). Its OPEN BLOCKING REVIEW FINDING is now FIXED:
-the px/mm scale divided a projected seat->arrow-TIP length by a world
-seat->arrow-BASE length, inflating the reported 14 px floor to a real
-~11.9 px at depth 40; `c9e037c` re-derives it as `projectedSpineLength`, and
-the split snap-ladder floor (`majors >= 14px`, `pitch >= 7px`) it was
-gating survives unchanged. `e56c9bc` re-derived the grip's own e2e size
-tolerance as Blink's 1/64 px LayoutUnit quantum rather than a float32 ULP
-that silently doubled past x=1024 — the earlier constant was right by
-accident at one frame width and wrong at the other.
-**`CRAFT-9a` (fillet/chamfer), `CRAFT-9b` (shell/datum), `CRAFT-10` (angular:
-revolve+draft, and it owns drawing the revolve axis — MEASURED: it is not
-drawn in the viewport at all today) and `CRAFT-11` (pattern count+spacing)
-are now IN FLIGHT**, dispatched in parallel per the W3 direction's §8.2/§8.3
-(CRAFT-9 split into three — five verbs was not one wave item); each ships a
-live preview with its gauge or is deferred to W5 (§8.4), not a field that
-moves with no model to match. **`CRAFT-9c`** (hole depth+Ø, the only
-two-cell `companion` gauge) **is deliberately not dispatched** — §8.3
-sequences it last, once the tag has settled — filed Ready.
-Two items opened from this pass's own evidence: the gauge's rod-vs-graduation
-proportion problem still has no general fix (pitch <= 0.5 mm, or a 500 mm
-profile's 2.42 mm rod against a 1 mm `majorStep`, both put the mark inside
-the rod CRAFT-7's per-class spacing bound does not reach — filed
-GAUGE-PROPORTION-1); and two live e2e intermittents
-(`rect-rigidity.spec.ts:281`, `qa-cross-wave-0913.spec.ts:572`/`:253`,
-failure point moving between runs — the flake signature) are reconfirmed NOT
-caused by this wave, with the argument for leaving them alone stated
-explicitly: shipping a synchronization fix now would destroy the only
-evidence the next red run could give us to root-cause against
-(CRAFT-INTERMITTENT-1, updated).
-Three more rows the W3 direction pass explicitly declined to decide and
-filed for the board (its own §11), not yet on it before this pass: migrate
-the three hand-written angle formatters onto `formatAngle` now that CRAFT-8
-shipped it (FORMATANGLE-MIGRATE-1, DRY); whether the imperial snap ladder
-should be a binary series (1/32…1 in) rather than a decade one — flagged as
-needing a real inch-part measurement first, not decided from the armchair
-(IMPERIAL-LADDER-1, question); and a touch pass on the shipped gauge, since
-both WCAG probes to date were mouse-driven (GAUGE-TOUCH-1, W3-exit QA gate).
-**Stated prediction, not a regression: `FLOW-JOURNEY-GAP-1`'s 30-gesture
-number will not move for this whole wave, on any pass, and that is not a
-reason to distrust the metric.** It models an expert who already knows every
-verb; W3 buys legibility for an engineer who does not yet know what 5 mm of
-fillet looks like on THIS part until they drag it and see — same 3 gestures
-either way, forty seconds versus two. The metric is structurally blind to
-that value; W3's real evidence is screenshots, per-verb reach counts and the
-contract-β release test, not the gesture count.
+**Current focus, corrected 2026-09-15 (backlog-groomer pass 24) — Wave 3
+(direct manipulation) is CLOSED. Phase 5 (agent-native & extensibility) is
+now open: the public Python scripting API is in flight.**
+
+**Wave 3 close-out.** All seven verbs that had a form now have a gauge, nine
+mounts total, every one shipping a live preview (§8.4 route (b) —
+geometric line-work, not a translucent ghost): `1f32a67` (fillet radius +
+chamfer distance — band preview on the picked edge, convexity read from face
+CENTROIDS not normals, since a box's convex edge and a step's concave one
+present identical outward normals; refuses on a closed edge with one planar
+face rather than guessing), `11a0906` (shell thickness + datum offset — the
+preview draws the rim of the cavity the wall leaves, deliberately
+line-work; needed two stamp functions because a translating square has
+constant perimeter), `7ecc480` (revolve sweep + draft angle on the 15°/5°
+ladder, and it drew the revolve AXIS for the first time — it did not exist
+in the viewport at all, only a dropdown reading "Y axis · through the
+origin"), `c0b5e5f` (pattern count + spacing — the ghost copies are
+simultaneously the preview and the count gauge's own stops; count carries
+`tag: "none"` because the ghosts ARE its reading), `894c6f3` (the revolve
+gauge's hit sleeve now follows the drawn ARC rather than its chord — reach
+was 0/16 with the chord sleeve, worse than the 2/16 CRAFT-7 was raised to
+fix), `d227843` (Save during an autosave is no longer discarded — a ~280 ms
+window in which the one control that ends a sketch did nothing, silently),
+`0c707b9` (the pattern gauge's seat left the frame at small radii — its
+screen-space offset floor was written in world mm, so it stopped shrinking
+with the part while the camera-fitted frame kept shrinking). CRAFT-8
+(`4b0465d`) landed first as the shared `<ParametricGauge>` foundation the
+other four build on. CRAFT-9c (hole depth+Ø) stays Ready, sequenced last per
+§8.3 now that the tag/`companion` shape has settled across four verbs.
+
+**Nine findings from the wave filed to BACKLOG, none blocking the
+close-out — see BACKLOG Ready queue for acceptance criteria:** the camera
+never re-fits when a preview appears, which threatens every verb whose
+preview can run past the frame (CRAFT-12); the gauge trails the panel by
+0.4-0.8s, filed as one investigation alongside the craft9b-gauges
+contract-β intermittent (rod springs back on release, 2/1/0 across runs) —
+same mechanism unconfirmed, check before treating as two (CRAFT-13); a
+`disabled={someTransientFlag}` audit — `ToolButton` cannot distinguish
+"busy" from "gated," audit by the QUESTION not the idiom (CRAFT-14); 3 of 12
+points along a picked edge were already unreachable before any gauge
+mounted, PickMark/edge-overlay territory (CRAFT-15); whether the shell
+gauge should seat at the cavity's RIM instead of the face centroid, so the
+arrow and the outline are one drawing (CRAFT-16, product decision);
+`gaugeReach.ts` and `gaugeProbe.ts` both export the same three helpers,
+`gaugeProbe.ts` is the survivor (CRAFT-17). GAUGE-TOUCH-1 (already filed)
+now covers all nine shipped mounts, not just extrude.
+Two live e2e intermittents (`rect-rigidity.spec.ts:281`,
+`qa-cross-wave-0913.spec.ts:572`/`:253`) remain reconfirmed NOT caused by
+this wave (CRAFT-INTERMITTENT-1) — deliberately untouched, same reasoning as
+last pass.
 The founder has asked this branch be merged to `main` ("it's looking better
 but we still have a long way to go"); the merge is blocked only on CI
 finishing.
 Doc-tick debt measured this pass (CLAUDE.md's amended rule: count commits
-since the last `docs(board)` commit, don't read trailers): **4** commits
-since `e491540` (`9ef627e`, `c9e037c`, `e56c9bc`, `32cc3b4`) — 2 substantive,
-2 CLAUDE.md corrections, none touching ROADMAP/BACKLOG. The five other
-commits named in this pass's dispatch brief (`e25f125`, `c092b89`,
-`3be3735`, `bae9c66`, `bd58416`) were already ancestors of `e491540`, i.e.
-reconciled by groom pass 22 — the debt is small and the trailer convention
-is holding.
-Also fixed this pass, unrelated to the redesign: MinIO Inc. withdrew its
-binary images from Docker Hub entirely (not a rate limit — the repo itself
-now reads source-only), which had been failing three CI jobs on every commit;
-repointed to quay.io (`bd58416`) at the last tags the project's own Helm
-chart still ships. The prior CI-4/K2/PBT-1 focus (pass 19, 2026-08-29, below)
-remains CLOSED and superseded; full detail moved to `docs/CHANGELOG.md`.
+since the last `docs(board)` commit, don't read trailers): **12** commits
+since `bd1e05a` — the whole of Wave 3's remaining four gauge mounts
+(CRAFT-9a/9b/10/11) plus their follow-up fixes and two CLAUDE.md
+corrections, none touching ROADMAP/BACKLOG. Reconciled in full this pass;
 `scripts/check-ui-parity.py`'s 84/85 operations / 97/109 literals reading is
 unchanged.
 
-## Recent closures (2026-08-28 to 2026-09-14)
+**Phase 5 opens now — public Python scripting API in flight.** Chosen over
+the other four ❌ scorecard rows (Assemblies & mates, Sheet metal,
+Collaboration & versioning, Agent access): the scripting API and the MCP
+server are ONE architecture that flips TWO ❌ scorecard rows at once
+(Extensibility and Agent access — VISION.md's daily-driver table), and
+programmability is the one thing an MIT-licensed, self-hostable CAD can
+offer that a proprietary cloud tool structurally cannot — this is the
+differentiator, not a feature-parity bet. The constraint the item is built
+under, worth defending later because it IS the design: **same code path as
+the UI** — the library is another gateway client, importing no kernel and
+touching no database, with types generated from `packages/contracts`
+exactly as `packages/ts-client` is. Proof of that constraint is a two-path
+geometry comparison against `full-flow.spec.ts`'s part, not unit coverage
+alone.
+
+## Recent closures (2026-08-28 to 2026-09-15)
 
 One line per item; full narrative (measurements, mutation evidence, decision
 records) moved verbatim to `docs/CHANGELOG.md` under "ROADMAP historic
 closures pruned 2026-09-14 (groom pass 22)". Items also tracked in
 `docs/BACKLOG.md`'s Done archive are not re-described here.
+
+**Wave 3 CLOSED (2026-09-15):**
+- **CRAFT-8 CLOSED** (`4b0465d`, frontend-builder) — `<ParametricGauge>`
+  extracted out of `ExtrudeDragHandle` (601→88 lines), the shared foundation
+  the other four gauge mounts build on; three review fixes (listener churn,
+  ask-queue determinism, `extrudeTrack`'s unit-test seam).
+- **CRAFT-9a/9b/10/11 CLOSED** (`1f32a67`+`11a0906`+`7ecc480`+`c0b5e5f`, plus
+  follow-ups `894c6f3`+`d227843`+`0c707b9`) — fillet/chamfer, shell/datum,
+  revolve/draft (+ drawn axis), pattern count/spacing, all with live
+  previews per §8.4(b). Full detail in "Current focus" above this pass; nine
+  follow-up findings (CRAFT-12..17, GAUGE-TOUCH-1) filed to BACKLOG.
 
 **Frontend-redesign waves (2026-09-12/14):**
 - **CRAFT-7 CLOSED** (`c9e037c`+`e56c9bc`, frontend-builder) — the px/mm scale
@@ -473,9 +491,18 @@ flattening for boxes/hat channels, miter flanges/jogs, gauge/material
 bend-allowance tables, lofted bends, cosmetic bend reliefs, import-as-sheet-
 metal recognition, server-composed flat-pattern export.
 
-## Phase 5 — Agent-native & extensibility ⬜
+## Phase 5 — Agent-native & extensibility 🚧
 
-- ⬜ Public Python scripting API (same code path as the UI)
+Opened 2026-09-15 (backlog-groomer pass 24), ahead of the other three ⬜
+rows and of Assemblies/Sheet metal/Collaboration's remaining ❌ scorecard
+gaps — see "Current focus" above for why. Chosen because the scripting API
+and MCP server are one architecture flipping two ❌ scorecard rows at once
+(Extensibility, Agent access), and programmability is the differentiator an
+MIT self-hostable CAD can offer that a proprietary cloud tool cannot.
+
+- 🚧 Public Python scripting API (same code path as the UI — another
+      gateway client, no kernel import, no direct database access; types
+      generated from `packages/contracts`). IN FLIGHT.
 - ⬜ MCP server: create/edit sketches and features, query mass properties,
       export — the agent-native surface (`docs/VISION.md` advantage #4)
 - ⬜ Plugin/extension mechanism
