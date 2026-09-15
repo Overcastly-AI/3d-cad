@@ -290,6 +290,23 @@ jobs:
       # reasoning as its neighbours for living here: stdlib only, ~150ms.
       - name: Journey gesture cost (+ prove the gate can fail)
         run: python3 scripts/check-flow-cost.py --self-test
+      # AIRGAP-1. README.md sells "the whole stack can run air-gapped" and
+      # docs/VISION.md builds two of four structural advantages on it; nothing
+      # graded the claim, and it was FALSE — every service boots through
+      # py_kit.create_app, whose FastAPI(...) left docs_url/redoc_url at their
+      # defaults, so /docs on the gateway's published port sourced swagger-ui
+      # from cdn.jsdelivr.net and /redoc pulled fonts.googleapis.com. Those
+      # URLs live inside the fastapi package, never in our tree, so no grep of
+      # our own strings could ever have found them — only a structural check on
+      # the construction call. Six surfaces (python string literals, the
+      # FastAPI call, web source + markup, fonts, compose, Dockerfile runtime
+      # directives), each with a count floor so a collapsed walk REFUSES
+      # instead of passing. Belongs in this job for the same reason as its
+      # neighbours: stdlib only, no daemon, no uv environment, ~2.3s.
+      - name: Air-gap — nothing the running product needs is on the internet
+        run: |
+          python3 scripts/check-air-gap.py --self-test
+          python3 scripts/check-air-gap.py
 
   doc-tick:
     # DOCTICK-GATE — CLAUDE.md calls it NON-NEGOTIABLE that "every commit that

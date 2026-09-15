@@ -99,6 +99,17 @@ lint:
     # which that guard's literal regex cannot match at all.
     python3 scripts/check-tailwind-scale.py --self-test
     python3 scripts/check-tailwind-scale.py
+    # ~2.3s over 147 backend + 314 web source files. "The whole stack can run
+    # air-gapped" (README.md) is a load-bearing sales claim that NOTHING graded
+    # until AIRGAP-1 measured it false: every service's `/docs` sourced
+    # swagger-ui from cdn.jsdelivr.net and `/redoc` pulled fonts.googleapis.com,
+    # on the ONE port a self-hoster publishes. No test could have caught it —
+    # the URLs live inside the fastapi package, so only a structural check on
+    # our FastAPI(...) call can see them. Six surfaces, each with a count floor,
+    # because a gate that examines nothing passes vacuously (the lesson
+    # check-build-context.py's "0 COPY source(s)" taught).
+    python3 scripts/check-air-gap.py --self-test
+    python3 scripts/check-air-gap.py
     # ~150ms. stage-doc-hunks.py is the control EVERY agent uses on the shared
     # docs, and it had no test until it silently relocated an author's own entry
     # to the end of BACKLOG.md while printing success (2026-08-01, found by the

@@ -5045,3 +5045,254 @@ measurements.
   uvicorn/vite/pytest/playwright at any point; the browser suite ran after
   `just test` had exited, with the box otherwise idle. No red is reported here
   that did not repeat.
+
+---
+
+## 2026-09-15 — AIRGAP-1: grading the two VISION advantages nothing was grading (platform-builder)
+
+**Scope.** `docs/VISION.md` names four structural advantages and says a
+capability that exploits none of them is table stakes. The daily-driver
+scorecard has eleven rows; nine are table stakes and only Extensibility and
+Agent access map to an advantage. **Advantages #1 (free & unlimited, "a
+regulated shop can run the whole stack air-gapped") and #2 (your data, your
+files, your compute) have no row at all**, so no gate, test or review in this
+repo has ever asked whether either is true. `README.md:31` asserts the first
+one outright to the public. Both are testable. This pass tested them.
+
+Method was deliberately several-ways-per-question, because an audit that
+pattern-matches one idiom misses every instance wearing another: served HTML
+via a real `TestClient`, a production `vite build` scanned for hosts, AST over
+147 backend source files, the compose files, the Dockerfile, and the registry
+API. HEAD `87f4de4`. No stack booted (a sibling was taking timings); nothing
+here needed one.
+
+### Q1 — Does it run air-gapped? **NO as shipped. One defect, now fixed.**
+
+#### A1 — Every service served an API explorer that loads JavaScript from a CDN. **P1 · CONFIRMED · FIXED**
+
+All three services boot through `py_kit.app.create_app`, whose `FastAPI(...)`
+left `docs_url`/`redoc_url` at their defaults. Measured on fastapi 0.139.0 by
+building the real app and reading the bytes it serves:
+
+```
+/docs:   HTTP 200  -> https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js
+                      https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css
+                      https://fastapi.tiangolo.com/img/favicon.png
+/redoc:  HTTP 200  -> https://cdn.jsdelivr.net/npm/redoc@2/bundles/redoc.standalone.js
+                      https://fonts.googleapis.com/css?family=Montserrat:300,400,700|Roboto:...
+```
+
+This is on `:8000` — the **one port a self-hoster publishes** — so it is the
+first thing an evaluating engineer opens and it renders blank on a disconnected
+network. It falsified `README.md:31` for the exact customer the sentence was
+written to win.
+
+Two things make it worth the entry beyond the fix. (a) **No amount of grepping
+our own tree could have found it.** The URLs live inside the `fastapi` package;
+our source contains a single `FastAPI(` call and no CDN string anywhere. Only a
+*structural* check on the construction call, or a request against a running app,
+can see it — which is why the gate below does both kinds of check rather than
+one. (b) It is the `just gen`-reads-the-working-tree trap in another costume:
+the thing under audit was healthy, and the DEFAULT it inherited was the defect.
+
+Fixed in `packages/py-kit/src/py_kit/app.py` — `docs_url=None, redoc_url=None`.
+`/openapi.json` is untouched (verified 200 after the change): it is generated
+in-process, is the input to `packages/contracts`, and is what a self-hoster
+points a local explorer at. Nothing in the repo consumed the two HTML pages —
+measured, no spec, script or doc references `/docs` or `/redoc` as a route.
+**Restoring an interactive explorer means vendoring the swagger-ui assets and
+passing `swagger_js_url`/`swagger_css_url` at local paths; that is a ~3 MB
+dependency decision, filed rather than done here.**
+
+#### Everything else on the runtime surface is clean, and was measured, not assumed
+
+| surface | probe | result |
+|---|---|---|
+| HTML entry | `apps/web/index.html` read in full | one `<script src="/src/main.tsx">`; no `<link>`, no favicon, no preconnect |
+| Fonts | `pnpm --filter @loft/web build`, then the emitted asset list | **12 `.woff`/`.woff2` files in `dist/assets/`** — `@fontsource` is bundled, not fetched. The design mandate's self-hosted-fonts rule holds *in fact*, not just in intent |
+| Built bundle | every host in `dist/**` censused | 4 distinct external hosts, **all non-fetching**: `docs.pmnd.rs` + `github.com` in `throw new Error` text, `jcgt.org` in a GLSL citation comment, `www.w3.org` as the SVG namespace. (`i.test` was my own regex matching `/x/i.test(...)`.) |
+| Telemetry / analytics / error reporting / update check | dependency manifests + `sendBeacon`/`gtag`/`dataLayer` grep + the bundle census | **none exist.** There is no phone-home of any kind |
+| Backend egress | `httpx`/`requests`/`urllib`/`aiohttp` call sites | all gateway→`GEOMETRY_URL`/`DOCUMENTS_URL`, env-configured, compose-internal |
+| Backend string literals | AST over 147 non-test source files, docstrings excluded | 3 hits, all local or inert: `http://localhost:8002`/`8001` defaults, `http://www.w3.org/2000/svg` |
+| Container run time | `CMD` / `HEALTHCHECK` / `ENTRYPOINT` | `curl -fsS http://127.0.0.1:${PORT}/healthz` — loopback only. Nothing in any compose `command`, `entrypoint` or `healthcheck` leaves the stack network |
+
+#### A2 — The honest caveat: INSTALL is not air-gapped, and nothing says so. **P2 · CONFIRMED · FILED**
+
+Running is offline; *getting there* is not, and `docs/QUICKSTART.md` Option A is
+`git clone` + `docker compose up -d --build`, which needs Docker Hub, quay.io,
+ghcr.io, `deb.debian.org` and PyPI. That is normal and fine — an image is pulled
+once, not per request — but an air-gapped operator needs a told list, and there
+is none. The gate now prints it on every run:
+
+```
+images to MIRROR: postgres:16, redis:7,
+                  quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z,
+                  quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z
+base images to MIRROR: ghcr.io/astral-sh/uv:0.8.17-python3.12-bookworm-slim,
+                       python:3.12-slim-bookworm
+```
+
+Registry API probe, daemon-free, with a control in the same breath (the
+technique `bd58416` established):
+
+| image | manifest API |
+|---|---|
+| `library/postgres:16` | **200** (control) |
+| `library/redis:7` | **200** (control) |
+| `minio/minio:RELEASE.2024-12-18…` on Docker Hub | **401** — still withdrawn, confirming the quay.io repin was right |
+| `quay.io/v2/` from this container | `000` — agent-proxy denial, says nothing about the runner |
+
+Ask: a short "air-gapped install" section (`docker save`/`docker load` of the
+six images + a note that `--build` needs PyPI/apt) in `docs/OPERATIONS.md`.
+That is the documentation owner's call, not mine to write here.
+
+#### The gate, so this cannot decay: `scripts/check-air-gap.py`
+
+Stdlib, ~2.3 s, no daemon, no network. Wired into `just lint` and CI's `compose`
+job, both `--self-test` first. Six checks — backend string literals (AST),
+the `FastAPI(...)` construction, web source + markup, fonts, compose, Dockerfile
+runtime directives — plus an optional `--dist` scan of a built bundle's HTML/CSS.
+
+Three design notes that are the point of it rather than decoration:
+
+1. **Every check declares a count floor and REFUSES (exit 2) below it.** This
+   gate class's real failure mode here is vacuity: `check-build-context.py`
+   printed `0 COPY source(s) reach the build context` and exited 0, and
+   `check-tailwind-scale.py` was one `default=0` from the same. The self-test's
+   second control runs the REAL floors against an EMPTY tree and demands all six
+   refuse.
+2. **The fonts check is a positive control, not an absence.** "No Google Fonts
+   link found" is vacuously true of a repo with no fonts; it instead asserts
+   `fonts.ts` imports every face from `@fontsource`.
+3. **It re-execs under Python 3.12+ and refuses if it cannot find one.** This
+   container's `python3` is 3.11 and the tree uses PEP 695 generics, so the
+   naive invocation reported five `services/**` files "unparseable" locally and
+   zero in CI — a gate that disagrees with itself by location. Degrading to a
+   text scan would have kept the exit code green while checking something weaker
+   than advertised.
+
+Verified against the REAL defect, not only the fixtures: with `app.py` reverted
+to its pre-fix line, `check-air-gap.py` exits 1 naming
+`packages/py-kit/src/py_kit/app.py:91` for both `docs_url` and `redoc_url`.
+`--self-test` reproduces 9 injected defects (CDN `<link>`, Google-Fonts `<link>`,
+an external fetch in web code, an external URL in Python code, both halves of
+the FastAPI default, a non-`@fontsource` font, a compose runtime download, a
+healthcheck phoning home) and 2 controls.
+
+### Q2 — Can a user get their data out and run this themselves? **Mostly yes, with one real gap.**
+
+#### A3 — The self-host path ships no user interface, and QUICKSTART says it does. **P1 · CONFIRMED · FILED (not mine to fix)**
+
+There is **one Dockerfile in the repo** (`deploy/docker/service.Dockerfile`),
+and **no `web` service in any of the three compose files** — `docker-compose.yml`
+defines db/redis/minio/minio-init/gateway/documents/geometry; the dev overlay
+adds hot reload to the same three; `docker-compose.scale.yml` adds geometry
+replicas. No nginx, no static serving, nothing that serves `apps/web`.
+
+`docs/QUICKSTART.md` opens: *"Both paths end at the same place: a browser at a
+modeling viewport with a part in it."* Option A lists its prerequisites as
+Docker only — *"No host Python or Node needed"* — never mentions the web app,
+and then "Your first part" tells the reader to *"Register. The landing page
+takes an email and password."* **There is no landing page on the Option A
+path.** Only Option B ("container-free *development*") starts Vite.
+
+So the honest statement of what `deploy-path` CI proves, which is worth stating
+precisely because it proves a genuinely good deal:
+
+* **Proven:** the three service images build from the committed Dockerfile on a
+  real daemon; `docker compose up` reaches healthy; both schemas migrate from
+  the images with **no host toolchain**; a real modeling round-trip
+  (register → part → sketch → extrude → evaluate → fetch the mesh → export STEP)
+  works over the published gateway port with **per-run random non-default
+  credentials**; documents/geometry are unreachable from the host; and a
+  separate job destroys every volume and restores from a backup.
+* **Not proven, and not claimed by that job:** that anything renders in a
+  browser. `scripts/compose-smoke.sh` drives `scripts/compose-roundtrip.py`, a
+  stdlib HTTP client. A stranger following Option A gets a working **API**, not
+  the application.
+
+Note `justfile:8` already says "web joins the stack with the web-shell backlog
+item", so this is known internally — the defect is that the *user-facing* doc
+does not say it, and the scorecard cannot be honest about "self-host" while the
+gap is invisible. Territory: `apps/web` packaging + `docs/QUICKSTART.md`.
+
+#### A4 — Open format and direct DB access: **substantiated, better than "only code"**
+
+* **Machine-readable spec, committed, drift-gated.** `packages/contracts/*.openapi.json`
+  — 69 paths / 278 schemas (gateway), 44/194 (documents), 25/212 (geometry) —
+  is OpenAPI 3.1 generated from the pydantic models, committed, and CI fails on
+  drift (`just gen-check`). Every feature-params model is in it. A third party
+  can read a part's feature tree from `GET /api/v1/parts/{id}/features` against
+  a published schema, with no Loft code.
+* **Prose design spec** for the persistence model: `docs/design/feature-tree.md`
+  (storage shape, ordering, inter-feature references, rollback).
+* **Direct DB access is real but undocumented as a data dictionary.** 15 tables
+  (`users`, `folders`, `parts`, `features`, `feature_dependencies`,
+  `part_snapshots`, `assemblies`, `instances`, `mates`, `assembly_snapshots`,
+  `drawings`, `sheets`, `views`, `dimensions`, `annotations`), defined in
+  SQLAlchemy models + alembic migrations. Plain Postgres, reachable with `psql`.
+  There is **no ERD or table reference in `docs/`** — a user gets the schema by
+  reading `\d` or our models. That is weaker than the VISION wording implies,
+  though not false.
+* **Backup/restore is the strongest evidence on this advantage and it is
+  independently CI-proven.** `pg_dump -Fc` of both databases + a manifest
+  carrying alembic revision, exact per-table row counts and sha256; restore
+  refuses a backup from a NEWER Loft (exit 3), verifies row counts table-for-
+  table after restoring (exit 4 on mismatch), and migrates forward loudly. The
+  `deploy-path` drill destroys every volume and demands the same part volume and
+  the same content-addressed mesh id afterwards. The dumps are standard
+  Postgres archives — readable with `pg_restore`, no Loft involved.
+
+#### A5 — Export reaches geometry, not the parametric history. **P2 · CONFIRMED · FILED**
+
+| data | file export |
+|---|---|
+| part body | `step`, `stl`, `3mf`, `glb` |
+| assembly | same four (AP214 product structure for STEP) |
+| drawing sheet | `svg`, `pdf`, `dxf` |
+| **feature tree / sketches / constraints / parameters** | **none** |
+| **folders, materials, part metadata** | **none** |
+
+STEP-first interop is real and good for the *shape* — and a STEP file is a dumb
+solid. The parametric history, which is the part a user would most hate to lose,
+leaves the system only as (a) API JSON against the published OpenAPI schema, or
+(b) a Postgres dump. Both are genuinely open, so this is a **convenience and
+discoverability gap, not a lock-in one** — but "your files" implies a file, and
+today there is no "export this part's design" button that yields one. A
+`.loft`-style document export (the feature tree JSON + referenced sketches,
+schema-versioned) is the obvious closer. Filed, not built.
+
+### What I want scored — two new scorecard rows, with the evidence
+
+Handing these to the vision-steward rather than writing them (`docs/VISION.md`
+is not my territory):
+
+* **Air-gapped operation** → **➖**, not ✅ and not ❌. Runtime is now verifiably
+  offline-clean, gated on every push, with a self-test that reproduces nine
+  defects. It is held short of ✅ by A2: the install path needs six mirrored
+  images and no document says so. It was **❌ this morning** and nobody knew.
+* **Data portability / no lock-in** → **➖**. Strong on the substance —
+  committed OpenAPI 3.1 contracts with drift gating, a plain-Postgres schema, a
+  CI-proven destroy-and-restore drill, STEP/STL/3MF/GLB + SVG/PDF/DXF export —
+  and short of ✅ on A5 (no file carries the feature tree) and on the absent
+  data dictionary.
+
+Deliberately NOT proposing a "self-host" row yet: A3 means it would have to be
+scored against a claim the docs make and the artifact does not keep, and the
+right move is to fix the doc or ship the container, then score it.
+
+### Claims I could NOT settle, and what would settle them
+
+* **That the fix holds on a real compose stack.** I verified the served bytes
+  via `TestClient` against the same app object uvicorn serves, which is strong
+  but not the artifact. The registry is policy-denied here. `deploy-path`'s
+  `compose-stack-e2e` would settle it with one added assertion: `curl -sf
+  http://127.0.0.1:8000/docs` must now return **404**.
+* **CI green on this commit.** `api.github.com` is policy-denied to a subagent.
+* **Whether a stranger can self-host on their hardware.** Nobody can prove that
+  from inside our CI; A3 is the part of it that IS provable from here, and it
+  fails. The real check is a first-run report from someone who is not us.
+* **The bundle census covers HTML/CSS in `dist`, not the JS chunks** —
+  deliberate: a 2.1 MB production chunk inlines every dependency's error-message
+  URLs, so scanning it yields noise nobody can act on. Our own code is covered
+  by the source scan, which is the independent derivation.
