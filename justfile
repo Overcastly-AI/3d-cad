@@ -5,8 +5,10 @@ default:
     @just --list
 
 # Full dev stack via docker compose — needs a running docker daemon.
-# db/redis/minio + gateway/documents/geometry with hot reload (web joins the
-# stack with the web-shell backlog item). Foreground; Ctrl-C then `just dev-down`.
+# db/redis/minio + gateway/documents/geometry + the web app, all with hot
+# reload (the Python services via uvicorn --reload, the web app via the Vite
+# dev server). The app is at http://localhost:${WEB_PORT:-8080}; the gateway's
+# REST API is at :8000. Foreground; Ctrl-C then `just dev-down`.
 dev:
     docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 
@@ -27,6 +29,20 @@ smoke base_port="8000":
 # (the `deploy-path` workflow). Tears the stack down; KEEP_STACK=1 to keep it.
 compose-smoke:
     scripts/compose-smoke.sh
+
+# What a BROWSER sees on the two published ports, against a stack that is
+# ALREADY running (compose or `just dev`): the SPA entry document, the hashed
+# bundle it names, a missing asset 404ing, a client-side route falling back,
+# /api transparent to the gateway, and no CDN-loading /docs explorer. This is
+# the last step of `just compose-smoke`; run it alone to check a live stack.
+web-smoke:
+    scripts/web-smoke.sh
+
+# Prove those assertions can FAIL, with no Docker at all: stub servers that
+# reproduce the serving rules, then one per defect. ~11s. Run it when editing
+# web-smoke.sh — its only other exercise is CI, twenty minutes at a time.
+web-smoke-selftest:
+    scripts/web-smoke.sh --self-test
 
 # Back up a RUNNING stack: pg_dump -Fc of both databases + a manifest carrying
 # each one's alembic revision, exact per-table row counts and dump checksums.
@@ -64,10 +80,17 @@ lint:
     # GPL code fails at the moment somebody adds it — the OCP wheel proved that
     # "reviewers enforce the no-GPL rule" cannot work when the metadata lies.
     python3 scripts/check-licences.py --profile source-env
-    # ~10ms, same reasoning: a COPY source excluded by .dockerignore resolves to
+    # ~50ms, same reasoning: a COPY source excluded by .dockerignore resolves to
     # nothing and fails the image build, and the blocked registry puts that
     # failure out of local reach entirely — it surfaced only in `deploy-path`,
     # the slowest signal we have (2026-08-01, scripts/corresponding_source.py).
+    # It now also asks the question the first check cannot: is every uv
+    # workspace member in a service's dependency closure COPYed AT ALL? Adding
+    # a package and wiring it into py-kit touches no Dockerfile, so nothing in
+    # that diff suggests the image needs a line — `loft-wire` broke all three
+    # images exactly that way on 2026-09-15, and layer 1 resolves happily
+    # without it, so the obvious probe says everything is fine.
+    python3 scripts/check-build-context.py --self-test
     python3 scripts/check-build-context.py
     # ~60ms (mostly the PyYAML cross-check), same class of problem: a
     # concurrency expression cannot be exercised locally and only misbehaves

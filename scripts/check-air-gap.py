@@ -13,12 +13,15 @@ HTML sourcing ``cdn.jsdelivr.net`` and ``fastapi.tiangolo.com``, and ``/redoc``
 added ``fonts.googleapis.com``. Blank page, day one, for the only customer the
 claim was written for.
 
-A one-time audit decays; this does not. Six checks, each of which walks a
+A one-time audit decays; this does not. Seven checks, each of which walks a
 surface and asserts BOTH a property and a census:
 
-1. ``python`` — no non-docstring string literal in service/py-kit source names
-   an external host. AST-based, so a URL in a comment or a docstring (which is
-   documentation, and allowed) cannot trip it and a URL in code cannot hide.
+1. ``python`` — no non-docstring string literal in any shipped backend tree
+   (``BACKEND_ROOTS``: the services, py-kit, loft-wire and the loft-script
+   CLIENT) names an external host. AST-based, so a URL in a comment or a
+   docstring (which is documentation, and allowed) cannot trip it and a URL in
+   code cannot hide. Each declared root must contribute at least one file —
+   see ``Check.empty_roots``, which is what a total floor cannot do.
 2. ``fastapi-docs`` — every ``FastAPI(...)`` construction passes
    ``docs_url=None`` and ``redoc_url=None``. This is a STRUCTURAL check on the
    defect above: the offending URLs are inside the fastapi package, never in
@@ -38,7 +41,17 @@ surface and asserts BOTH a property and a census:
    mirror list an air-gapped operator must side-load.
 6. ``dockerfile`` — ``CMD``/``ENTRYPOINT``/``HEALTHCHECK`` (the only lines that
    execute when a container RUNS, as opposed to when it builds) reference
-   loopback only. ``FROM`` images join the mirror list.
+   loopback only. ``FROM`` images join the mirror list (stage names do not —
+   ``FROM deps AS build`` names an earlier stage, and telling an air-gapped
+   operator to go and find an image called "deps" wastes a real person's time).
+7. ``static-server`` — the nginx config the web edge RUNS: every ``proxy_pass``
+   and ``resolver`` target, with nginx ``set`` variables RESOLVED first. That
+   substitution is the whole check: the upstream is written
+   ``proxy_pass http://$loft_gateway$request_uri`` so nginx re-resolves it per
+   request, which means ``//`` is never followed by a hostname anywhere in the
+   file and the plain URL scan matches nothing at all. Measured — neuter the
+   substitution and an upstream pointed at ``telemetry.example`` goes
+   undetected.
 
 **Vacuity is the failure mode this gate class actually has here.** A sibling
 gate once printed ``0 COPY source(s) reach the build context`` and exited 0,
@@ -126,6 +139,8 @@ LOCAL_HOSTS: dict[str, str] = {
     "gateway": "compose service",
     "documents": "compose service",
     "geometry": "compose service",
+    "web": "compose service (nginx serving the SPA)",
+    "127.0.0.11": "Docker's embedded DNS, on the stack's own network",
     "geometry-1": "docker-compose.scale.yml named replica",
     "geometry-2": "docker-compose.scale.yml named replica",
     "geometry-3": "docker-compose.scale.yml named replica",
@@ -187,10 +202,19 @@ class Check:
     floor: int = 0
     findings: list[Finding] = field(default_factory=list[Finding])
     notes: list[str] = field(default_factory=list[str])
+    #: Declared source roots this check found NOTHING in. A total floor cannot
+    #: detect a check that quietly stops covering a subtree, because the total
+    #: stays comfortably above it: measured 2026-09-15, fifteen wire modules
+    #: moved out of packages/py-kit into a new distribution, `python` went
+    #: 147 -> 132 against a floor of 100, and the gate reported `ok` while the
+    #: new package was scanned by nothing at all. A floor catches a COLLAPSE;
+    #: only a per-root census catches a SHRINK, and a shrink is what a
+    #: refactor produces.
+    empty_roots: list[str] = field(default_factory=list[str])
 
     @property
     def vacuous(self) -> bool:
-        return self.walked < self.floor
+        return self.walked < self.floor or bool(self.empty_roots)
 
 
 # --------------------------------------------------------------------------
@@ -226,14 +250,37 @@ def _is_frontend_test(path: Path) -> bool:
 # --------------------------------------------------------------------------
 # 1. Python string literals (AST — comments and docstrings are documentation)
 # --------------------------------------------------------------------------
+#: EVERY Python tree that ships as part of the running product, in ONE place.
+#: It used to be an inline tuple repeated in the two AST checks below, which is
+#: precisely how a new distribution gets added to neither: `packages/loft-wire`
+#: and `packages/loft-script` were split out on 2026-09-15 and were scanned by
+#: nothing until this was hoisted. `loft-script` is here because it is a CLIENT
+#: users run — a phone-home in a client library is egress from the same
+#: air-gapped network, and the fact that it is not a server does not change
+#: whose firewall it crosses.
+BACKEND_ROOTS = (
+    "services",
+    "packages/py-kit",
+    "packages/loft-wire",
+    "packages/loft-script",
+)
+
+
+def _backend_sources(root: Path) -> tuple[list[Path], list[str]]:
+    """Every shipped backend .py file, plus any declared root that had none."""
+    files: list[Path] = []
+    empty: list[str] = []
+    for rel in BACKEND_ROOTS:
+        found = [p for p in _walk(root, rel, (".py",)) if not _is_backend_test(p)]
+        if not found:
+            empty.append(rel)
+        files.extend(found)
+    return files, empty
+
+
 def check_python(root: Path, floor: int) -> Check:
     check = Check("python", floor=floor)
-    files = [
-        p
-        for rel in ("services", "packages/py-kit")
-        for p in _walk(root, rel, (".py",))
-        if not _is_backend_test(p)
-    ]
+    files, check.empty_roots = _backend_sources(root)
     for path in files:
         try:
             tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
@@ -277,12 +324,7 @@ def check_python(root: Path, floor: int) -> Check:
 # --------------------------------------------------------------------------
 def check_fastapi_docs(root: Path, floor: int) -> Check:
     check = Check("fastapi-docs", floor=floor)
-    files = [
-        p
-        for rel in ("services", "packages/py-kit")
-        for p in _walk(root, rel, (".py",))
-        if not _is_backend_test(p)
-    ]
+    files, _ = _backend_sources(root)
     for path in files:
         try:
             tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
@@ -510,6 +552,103 @@ def check_compose(root: Path, floor: int) -> Check:
     return check
 
 
+#: Directives that make the SERVER open a connection of its own. A hostname
+#: anywhere else in an nginx config is a name it serves, not a name it fetches.
+_NGINX_EGRESS = re.compile(
+    r"^\s*(proxy_pass|fastcgi_pass|uwsgi_pass|scgi_pass|grpc_pass|resolver|"
+    r"proxy_ssl_trusted_certificate|auth_jwt_key_request)\s+(?P<rest>.+?);?\s*$"
+)
+#: `set $name "value";` — nginx's only assignment, and the thing that makes an
+#: upstream invisible to a naive URL scan (see the docstring below).
+_NGINX_SET = re.compile(
+    r"""^\s*set\s+(?P<name>\$[A-Za-z0-9_]+)\s+["']?(?P<value>[^"';]+)"""
+)
+#: host[:port] left after variable substitution.
+_HOSTPORT = re.compile(r"^(?P<host>[A-Za-z0-9._-]+)(?::\d+)?$")
+
+
+def check_static_server(root: Path, floor: int) -> Check:
+    """The web edge's own config — what the RUNNING nginx connects to.
+
+    A NEW SURFACE, added with the web service (2026-09-15). The five checks
+    above grade application source, compose and Dockerfiles; none of them can
+    see a reverse-proxy config, and this one is a process that makes outbound
+    connections on behalf of every user of the product. A `proxy_pass` at an
+    analytics host, or a `resolver 8.8.8.8`, would be egress from the one
+    container a self-hoster publishes, and every other check in this file would
+    pass.
+
+    It does NOT reuse the plain URL scan, and that is the whole reason it is a
+    function rather than three lines added to `check_dockerfile`. The upstream
+    is written `proxy_pass http://$loft_gateway$request_uri;` — deliberately,
+    so nginx re-resolves it per request instead of caching a dead container's
+    IP forever. `URL`'s host class is `[A-Za-z0-9._-]+`, which `$` is not in,
+    so the scan matches NOTHING there: the single most important line in the
+    file is invisible to it, and a check that reported `ok` on that basis would
+    be measuring its own blind spot. So variables are RESOLVED from the `set`
+    directives in the same file before the host is read.
+    """
+    check = Check("static-server", floor=floor)
+    base = root / "deploy/docker/web"
+    if not base.is_dir():
+        return check  # walked == 0 -> the vacuity guard reports it
+
+    for path in sorted(base.rglob("*.conf")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        variables: dict[str, str] = {}
+        for line in text.splitlines():
+            assignment = _NGINX_SET.match(line.split("#", 1)[0])
+            if assignment:
+                variables[assignment.group("name")] = assignment.group("value").strip()
+
+        for lineno, raw in enumerate(text.splitlines(), 1):
+            line = raw.split("#", 1)[0].strip()
+            if not line:
+                continue
+            check.walked += 1
+            where = f"{path.relative_to(root)}:{lineno}"
+
+            # (a) any absolute URL, wherever it appears
+            for match in URL.finditer(line):
+                host = match.group("host")
+                if not is_local(host):
+                    check.findings.append(
+                        Finding(
+                            where,
+                            f"nginx config references external host {host!r}",
+                        )
+                    )
+
+            # (b) the egress directives, with variables substituted
+            egress = _NGINX_EGRESS.match(line)
+            if not egress:
+                continue
+            for token in egress.group("rest").split():
+                resolved = token
+                for name, value in variables.items():
+                    resolved = resolved.replace(name, value)
+                # Strip a scheme and anything after the authority; drop the
+                # leftovers of unresolved nginx variables ($request_uri etc.).
+                resolved = resolved.split("://", 1)[-1].split("/", 1)[0]
+                resolved = resolved.split("$", 1)[0].rstrip(";")
+                hostport = _HOSTPORT.match(resolved)
+                if not hostport or not resolved:
+                    continue  # a flag like `valid=10s`, or `ipv6=off`
+                host = hostport.group("host")
+                if host in ("valid", "ipv6", "on", "off"):
+                    continue
+                if not is_local(host):
+                    check.findings.append(
+                        Finding(
+                            where,
+                            f"{egress.group(1)} would connect to external host "
+                            f"{host!r} at request time",
+                        )
+                    )
+    check.notes.append(f"{check.walked} nginx directive line(s) graded")
+    return check
+
+
 def check_dockerfile(root: Path, floor: int) -> Check:
     check = Check("dockerfile", floor=floor)
     froms: list[str] = []
@@ -519,13 +658,27 @@ def check_dockerfile(root: Path, floor: int) -> Check:
     ]
     for path in files:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        # `FROM deps AS build` names an EARLIER STAGE, not an image. Collect the
+        # stage names first so the mirror list below does not tell an air-gapped
+        # operator to go and find an image called "deps" (it did, the day the
+        # multi-stage web image landed). The note is advice somebody acts on, so
+        # a wrong entry in it costs a real person real time.
+        stages = {
+            parts[3].lower()
+            for parts in (line.strip().split() for line in lines)
+            if len(parts) >= 4
+            and parts[0].upper() == "FROM"
+            and parts[2].upper() == "AS"
+        }
         for lineno, line in enumerate(lines, 1):
             stripped = line.strip()
             if stripped.startswith("#"):
                 continue
             head = stripped.split(" ", 1)[0].upper()
             if head == "FROM":
-                froms.append(stripped.split(" ")[1])
+                reference = stripped.split(" ")[1]
+                if reference.lower() not in stages:
+                    froms.append(reference)
             if head not in RUNTIME_DIRECTIVES:
                 continue
             check.walked += 1
@@ -548,18 +701,28 @@ def check_dockerfile(root: Path, floor: int) -> Check:
 # --------------------------------------------------------------------------
 # Driver
 # --------------------------------------------------------------------------
-#: Floors measured against the tree at the commit this landed on (2026-09-15):
-#: 147 backend source files, 1 FastAPI site, 1 html + 319 ts/tsx/css, 4 font
-#: faces, 3 compose files, 1 CMD + 1 HEALTHCHECK. Set well below the real
-#: numbers so ordinary churn never trips them, and well above zero so a walk
-#: that collapses does.
+#: Floors re-measured against the tree at the commit this landed on
+#: (2026-09-15, after the loft-wire/loft-script split): 156 backend source
+#: files, 1 FastAPI site, 1 html + 319 ts/tsx/css, 4 font faces, 3 compose
+#: files, 3 Dockerfile runtime directives, 58 nginx directive lines. Set well
+#: below the real numbers so ordinary churn never trips them, and well above
+#: zero so a walk that collapses does.
+#:
+#: A FLOOR IS A COLLAPSE DETECTOR AND NOTHING MORE. `python` was 147 against a
+#: floor of 100; fifteen modules moved into a new distribution, the count fell
+#: to 132, the gate said `ok`, and the new package was scanned by nothing. No
+#: floor low enough to survive churn can catch that, so the real guard for
+#: shrinkage is `Check.empty_roots` — a per-root census that refuses when any
+#: DECLARED root contributes zero files. Raise these when the tree grows; do
+#: not rely on them to notice coverage leaving.
 REAL_FLOORS = {
-    "python": 100,
+    "python": 120,
     "fastapi-docs": 1,
     "web": 200,
     "fonts": 3,
     "compose": 3,
     "dockerfile": 2,
+    "static-server": 25,
     "dist": 2,
 }
 
@@ -574,6 +737,7 @@ def run_checks(
         check_fonts(root, floors["fonts"]),
         check_compose(root, floors["compose"]),
         check_dockerfile(root, floors["dockerfile"]),
+        check_static_server(root, floors["static-server"]),
     ]
     if dist is not None:
         checks.append(check_dist(dist, floors["dist"]))
@@ -585,12 +749,22 @@ def report(checks: list[Check], quiet: bool = False) -> int:
     for check in checks:
         if check.vacuous:
             failed = max(failed, 2)
-            print(
-                f"REFUSED  {check.name}: walked {check.walked} of an expected "
-                f"{check.floor}+ — this check examined (almost) nothing, so its "
-                f"verdict is not evidence.",
-                file=sys.stderr,
-            )
+            if check.empty_roots:
+                print(
+                    f"REFUSED  {check.name}: found NO files under "
+                    f"{', '.join(check.empty_roots)} — a declared source root "
+                    "is scanned by nothing, so this check's `ok` would be an "
+                    "`ok` about a smaller product than the one we ship. Either "
+                    "the tree moved (update BACKEND_ROOTS) or it is gone.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"REFUSED  {check.name}: walked {check.walked} of an expected "
+                    f"{check.floor}+ — this check examined (almost) nothing, so its "
+                    f"verdict is not evidence.",
+                    file=sys.stderr,
+                )
             continue
         if check.findings:
             failed = max(failed, 1)
@@ -658,12 +832,41 @@ CMD exec uvicorn "${SERVICE_NAME}.main:app" --host 0.0.0.0
 """
 
 
+_CLEAN_NGINX = """map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 8080;
+    root /usr/share/nginx/html;
+    location /assets/ {
+        try_files $uri =404;
+    }
+    location /api/ {
+        resolver 127.0.0.11 valid=10s ipv6=off;
+        set $loft_gateway "gateway:8000";
+        proxy_pass http://$loft_gateway$request_uri;
+        proxy_set_header Host $host;
+    }
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+"""
+
+
 def _fixture(root: Path) -> None:
     (root / "services/gateway/src/gateway").mkdir(parents=True)
     (root / "packages/py-kit/src/py_kit").mkdir(parents=True)
+    (root / "packages/loft-wire/src/loft_wire").mkdir(parents=True)
+    (root / "packages/loft-script/src/loft").mkdir(parents=True)
+    (root / "packages/loft-wire/src/loft_wire/auth.py").write_text(_CLEAN_PY)
+    (root / "packages/loft-script/src/loft/transport.py").write_text(_CLEAN_PY)
     (root / "apps/web/src").mkdir(parents=True)
     (root / "packages/design/src").mkdir(parents=True)
-    (root / "deploy/docker").mkdir(parents=True)
+    (root / "deploy/docker/web").mkdir(parents=True)
+    (root / "deploy/docker/web/nginx.conf").write_text(_CLEAN_NGINX)
     (root / "services/gateway/src/gateway/main.py").write_text(_CLEAN_PY)
     (root / "packages/py-kit/src/py_kit/app.py").write_text(_CLEAN_APP)
     (root / "apps/web/index.html").write_text(_CLEAN_HTML)
@@ -734,6 +937,32 @@ _MUTATIONS: list[tuple[str, str, str, str]] = [
         'HEALTHCHECK CMD curl -fsS "http://127.0.0.1:${PORT:-8000}/healthz" || exit 1',
         'HEALTHCHECK CMD curl -fsS "https://status.loft.example/ping" || exit 1',
     ),
+    # THE ONE THE PLAIN URL SCAN CANNOT SEE. The upstream is reached through an
+    # nginx variable, so `//` is never followed by a hostname anywhere in the
+    # file; only the substitution in check_static_server finds it. Reverting
+    # that substitution is the negative control for the whole check.
+    (
+        "nginx-proxies-offbox",
+        "deploy/docker/web/nginx.conf",
+        'set $loft_gateway "gateway:8000";',
+        'set $loft_gateway "telemetry.loft.example:443";',
+    ),
+    (
+        "nginx-public-resolver",
+        "deploy/docker/web/nginx.conf",
+        "resolver 127.0.0.11 valid=10s ipv6=off;",
+        "resolver 8.8.8.8 valid=10s ipv6=off;",
+    ),
+    # A static server can also serve egress by INJECTING it into the document
+    # it returns, which no amount of auditing the bundle would catch.
+    (
+        "nginx-injects-cdn",
+        "deploy/docker/web/nginx.conf",
+        "    listen 8080;",
+        "    listen 8080;\n"
+        '    sub_filter "</head>" '
+        '"<script src=\\"https://cdn.jsdelivr.net/npm/x.js\\"></script></head>";',
+    ),
 ]
 
 
@@ -763,7 +992,15 @@ def self_test() -> int:
         empty.mkdir()
         checks = run_checks(empty, REAL_FLOORS)
         refused = [c.name for c in checks if c.vacuous]
-        expected = {"python", "fastapi-docs", "web", "fonts", "compose", "dockerfile"}
+        expected = {
+            "python",
+            "fastapi-docs",
+            "web",
+            "fonts",
+            "compose",
+            "dockerfile",
+            "static-server",
+        }
         if set(refused) != expected:
             failures.append(
                 f"VACUITY GUARD: an empty tree must refuse every check; "
@@ -771,6 +1008,31 @@ def self_test() -> int:
             )
         else:
             print(f"ok  vacuity guard: an empty tree refuses all {len(refused)} checks")
+
+    # THE SHRINK CONTROL, and the reason Check.empty_roots exists. Reproduces
+    # the 2026-09-15 defect exactly: a declared backend root that the check
+    # walks NOTHING in, while the total stays far above the floor. Without the
+    # per-root census this case reports `ok` — verified by deleting one root's
+    # files from an otherwise healthy fixture and watching the total (which the
+    # floor reads) remain perfectly respectable.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "shrunk"
+        root.mkdir()
+        _fixture(root)
+        for orphan in (root / "packages/loft-wire").rglob("*.py"):
+            orphan.unlink()
+        shrunk = check_python(root, floor=1)
+        if not shrunk.vacuous or "packages/loft-wire" not in shrunk.empty_roots:
+            failures.append(
+                "SHRINK CONTROL: a declared root with no files must REFUSE; "
+                f"vacuous={shrunk.vacuous} empty_roots={shrunk.empty_roots} "
+                f"walked={shrunk.walked}"
+            )
+        else:
+            print(
+                "ok  shrink control: a declared root walked to zero REFUSES "
+                f"(walked {shrunk.walked}, still above the floor)"
+            )
 
     for name, rel, old, new in _MUTATIONS:
         with tempfile.TemporaryDirectory() as tmp:
@@ -797,7 +1059,7 @@ def self_test() -> int:
         for failure in failures:
             print(f"  {failure}", file=sys.stderr)
         return 1
-    print(f"\nself-test passed ({len(_MUTATIONS)} defects reproduced, 2 controls)")
+    print(f"\nself-test passed ({len(_MUTATIONS)} defects reproduced, 3 controls)")
     return 0
 
 

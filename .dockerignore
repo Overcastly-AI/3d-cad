@@ -17,7 +17,10 @@ docs
 .env
 .env.*
 
-# Node / frontend (web image will get its own Dockerfile + ignore rules)
+# Node / frontend. Excluded here and RE-INCLUDED at the bottom of this file for
+# the web image (deploy/docker/web.Dockerfile) — the ordering matters, so the
+# negations live together in one block down there rather than being inverted
+# here.
 node_modules
 apps
 packages/design
@@ -56,3 +59,43 @@ scripts
 !deploy/licenses
 !scripts/check-licences.py
 !scripts/corresponding_source.py
+
+# ---------------------------------------------------------------------------
+# THE WEB IMAGE'S CONTEXT (deploy/docker/web.Dockerfile).
+#
+# One .dockerignore serves every build in this context, so these negations also
+# widen the three SERVICE image contexts by ~8 MB of TypeScript they do not
+# COPY. That is the price of Docker's one-ignore-file-per-context rule; the
+# alternative (a sibling `web.Dockerfile.dockerignore`, which BuildKit does
+# honour) would be invisible to scripts/check-build-context.py and would fall
+# back to THIS file under the classic builder — i.e. it would fail in exactly
+# the place we cannot test. Context transfer is local I/O; correctness that can
+# be gated statically is worth more.
+#
+# The SPA build needs the workspace root manifests, apps/web, and the two
+# source-only packages it imports (@loft/design, @loft/ts-client).
+# packages/contracts is here because pnpm-workspace.yaml's `packages/*` glob
+# makes it a workspace member: with it absent, `pnpm install --frozen-lockfile`
+# would be comparing a different workspace against the lockfile.
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!apps/web
+!packages/design
+!packages/ts-client
+!packages/contracts
+!deploy/docker/web
+
+# …and then re-exclude the heavy or useless subtrees the negations above would
+# otherwise drag in. These MUST come last: `.dockerignore` is last-match-wins,
+# so the same rules written above the negations would simply be overridden.
+# `node_modules` near the top of this file matches only the ROOT one (a pattern
+# with no slash is anchored, exactly as in Docker), which is why the `**/`
+# form is repeated here — `apps/web/node_modules` alone is hundreds of MB and
+# would be the wrong platform's binaries besides.
+**/node_modules
+**/dist
+**/test-results
+**/playwright-report
+**/tests
+apps/web/e2e

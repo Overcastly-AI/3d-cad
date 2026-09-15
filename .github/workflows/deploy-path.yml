@@ -120,6 +120,30 @@ jobs:
       # `docker compose ps`, `df -h`, and `docker compose logs` on failure.
       - name: Compose stack end-to-end (build, boot, migrate, round-trip)
         run: scripts/compose-smoke.sh
+      # AIRGAP-1, second half. `check-air-gap.py` grades our SOURCE; this
+      # grades what the build EMITTED, which is the only artifact a
+      # self-hoster's browser ever loads. It matters because the two can
+      # disagree: a dependency that inlines a CDN <link>, a font that stops
+      # being bundled, an asset rewritten to an absolute URL — none of those
+      # appear in apps/web/src at all, and this is the only place the built
+      # bundle exists (nothing local can build this image; the Docker registry
+      # is policy-denied in the dev container).
+      #
+      # The image is found by its OWN label rather than by compose's naming
+      # convention, so it cannot silently inspect the wrong thing — and the
+      # `test -n` refuses rather than passing when the label matches nothing,
+      # which is the vacuity failure this repo keeps paying for.
+      - name: Air-gap posture of the BUILT web bundle
+        run: |
+          set -euo pipefail
+          img=$(docker images --filter 'label=org.opencontainers.image.title=loft-web' --format '{{.ID}}' | head -1)
+          test -n "$img" || { echo "no image carries the loft-web title label"; exit 1; }
+          cid=$(docker create "$img")
+          rm -rf /tmp/loft-dist && mkdir -p /tmp/loft-dist
+          docker cp "$cid:/usr/share/nginx/html/." /tmp/loft-dist
+          docker rm -f "$cid" >/dev/null
+          find /tmp/loft-dist -maxdepth 1 | head -20
+          python3 scripts/check-air-gap.py --dist /tmp/loft-dist
       # LIC-1 — assert the licence posture of the BUILT ARTIFACT, not of the
       # source tree. The Dockerfile already fails the build if jbigkit survives
       # the strip, if the OCI licence label disagrees with the contents, or if

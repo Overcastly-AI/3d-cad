@@ -28,7 +28,12 @@ they can't match** (the full thesis is in [`docs/VISION.md`](./docs/VISION.md)):
 1. **Free & unlimited.** Runs on your hardware; the marginal seat is $0. No
    hostage documents, no export limits, no feature gates.
 2. **Your data, your files, your compute.** Open document format, direct DB
-   access, STEP-first interop. The whole stack can run air-gapped.
+   access, STEP-first interop. The whole stack can run air-gapped — graded on
+   every push by `scripts/check-air-gap.py` (seven surfaces, each with a count
+   floor so a collapsed walk refuses rather than passes) plus a scan of the
+   BUILT web bundle, because a claim nothing measures is how this one came to
+   be false for a while. You still mirror the base images once, at install
+   time; the gate prints the list.
 3. **Open & extensible.** MIT license. Python is the modeling API, not a
    bolted-on macro language — the same code path the UI uses.
 4. **AI-native & agent-native.** Designed for an MCP server that lets coding
@@ -103,11 +108,14 @@ of truth for what phase we're in.
   because a correct behaviour change once shipped with a red spec while
   five straight CI runs reported green, and nothing before this workflow
   drove a browser at all.
-- **Compose stack** — Postgres 16 + Redis 7 + MinIO + the three services,
-  **proven end to end in CI**: every push builds the images, boots the stack,
-  migrates both schemas, and drives a real modeling round-trip (register →
-  part → sketch → extrude → evaluate → fetch mesh → export STEP) through the
-  published gateway port ([`deploy-path.yml`](./.github/workflows/deploy-path.yml),
+- **Compose stack** — Postgres 16 + Redis 7 + MinIO + the three services **and
+  the web app**, **proven end to end in CI**: every push builds the images,
+  boots the stack, migrates both schemas, drives a real modeling round-trip
+  (register → part → sketch → extrude → evaluate → fetch mesh → export STEP)
+  through the published gateway port, and then asserts that the app itself
+  comes back from the published web port — the entry document, the hashed
+  bundle it names, the client-side-routing fallback, and `/api` transparently
+  reaching the gateway ([`deploy-path.yml`](./.github/workflows/deploy-path.yml),
   i.e. `just compose-smoke`).
 
 **Known correctness gaps, filed and not yet fixed.** The
@@ -220,11 +228,16 @@ docker compose run --rm gateway   alembic -c /app/migrations/alembic.ini upgrade
 docker compose run --rm documents alembic -c /app/migrations/alembic.ini upgrade head
 ```
 
-Only the gateway is published (`:8000`); documents and geometry stay internal
-to the compose network on purpose. `just compose-smoke` proves the whole path
-— build, boot, migrate, then a real modeling round-trip over the published
-port — and **CI runs that same script on every push**, so this path is
-verified rather than assumed.
+Then open **<http://localhost:8080>**. That is the whole install: the stack
+builds the web app into its own image and serves it, proxying `/api` to the
+gateway on the compose network, so a browser only ever talks to one origin.
+
+Two ports are published — `8080` is the app, `8000` is the REST API for
+scripts. `documents` and `geometry` stay internal to the compose network on
+purpose. `just compose-smoke` proves the whole path — build, boot, migrate, a
+real modeling round-trip over the published port, and that the app itself comes
+back from `:8080` rather than a 404 — and **CI runs that same script on every
+push**, so this path is verified rather than assumed.
 
 For development without Docker (SQLite + an in-process mesh store, no
 datastores required), see
@@ -244,7 +257,7 @@ packages/py-kit     Shared service kit: config, logging, probes, errors, queue
 packages/contracts  Generated OpenAPI schemas (committed; CI fails on drift)
 packages/ts-client  Generated TypeScript client (never hand-edited)
 packages/design     Design tokens + primitives + fonts — one palette, two renderers
-deploy/             Dockerfile + compose assets (Helm later)
+deploy/             Dockerfiles (the three services + the web app) + compose assets
 docs/               VISION, RESEARCH, ROADMAP, BACKLOG, PERF, QA reports
 .claude/            The AI agent team: agents, skills, workflows
 ```

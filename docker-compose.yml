@@ -9,8 +9,11 @@
 # Host ports are all overridable so scripts/dev-instance.sh can run N
 # isolated stacks side by side (project loft-<N>, ports offset by N*100).
 #
-# The web app joins this stack with the "Web shell + first light" backlog
-# item (docs/BACKLOG.md); until then the stack is datastores + services.
+# TWO PUBLISHED PORTS, and they are different products:
+#   ${WEB_PORT:-8080}     the app — open this in a browser
+#   ${GATEWAY_PORT:-8000} the REST API — scripts, CI, and the web service's
+#                         own /api proxy target
+# Everything else is internal to the compose network on purpose (audit G3/G4).
 
 name: loft
 
@@ -173,6 +176,37 @@ services:
         condition: service_healthy
       geometry:
         condition: service_healthy
+
+  # THE APP. Without this service the "self-host" path ended at a JSON API and
+  # docs/QUICKSTART.md's "Register. The landing page takes an email and
+  # password" described a page that did not exist on it — the stack had no user
+  # interface at all (fixed 2026-09-15; see deploy/docker/web.Dockerfile).
+  #
+  # nginx serves the built SPA and reverse-proxies /api to the gateway on the
+  # compose network, which is what makes the app's same-origin relative
+  # requests (`baseUrl: "/"`) work in production exactly as Vite's dev proxy
+  # makes them work in development. docker-compose.dev.yml replaces this with
+  # the Vite dev server for hot reload, on the SAME host and container port.
+  web:
+    build:
+      context: .
+      dockerfile: deploy/docker/web.Dockerfile
+    # PUBLISHED on all interfaces, deliberately, like the gateway and unlike
+    # the datastores (audit G4): a self-hoster running this on a box in the
+    # corner has to be able to open it from their laptop, and a UI reachable
+    # only from the machine it runs on is not self-hosting. It serves static
+    # files and proxies to the gateway — it holds no credential and no data,
+    # and everything behind /api is still authenticated by the gateway.
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    # service_started, NOT service_healthy: nginx resolves the gateway per
+    # request (deploy/docker/web/nginx.conf), so the app loads and retries
+    # while the gateway is still coming up rather than refusing to start with
+    # it. A user who opens the page early sees the app, not a connection
+    # refused.
+    depends_on:
+      gateway:
+        condition: service_started
 
   documents:
     build:

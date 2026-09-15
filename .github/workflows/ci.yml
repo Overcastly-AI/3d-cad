@@ -234,11 +234,14 @@ jobs:
       # `docker compose config` — no daemon, no image pulls, no Python deps.
       - name: Compose invariants (audit G1/G3 guard)
         run: python3 scripts/check-compose.py
-      # Every Dockerfile COPY source survives .dockerignore. Stdlib, no daemon,
-      # ~10ms — and it is the ONLY place this class can be caught before the
-      # image build, which the blocked registry puts out of local reach: LIC-2's
-      # scripts/corresponding_source.py had no negation and failed all three
-      # image builds for two commits, visible only in `deploy-path`.
+      # Every Dockerfile COPY source survives .dockerignore, AND every uv
+      # workspace member a service depends on is COPYed at all. Stdlib, no
+      # daemon, ~50ms — and it is the ONLY place either class can be caught
+      # before the image build, which the blocked registry puts out of local
+      # reach: LIC-2's scripts/corresponding_source.py had no negation and
+      # failed all three image builds for two commits, visible only in
+      # `deploy-path`, and `loft-wire` did the same on 2026-09-15 by being a
+      # transitive dependency nobody added a COPY for.
       - name: Build-context reachability (+ prove the gate can fail)
         run: |
           python3 scripts/check-build-context.py --self-test
@@ -307,6 +310,26 @@ jobs:
         run: |
           python3 scripts/check-air-gap.py --self-test
           python3 scripts/check-air-gap.py
+      # scripts/web-smoke.sh asserts the compose stack ENDS AT THE APP — the
+      # entry document, the hashed bundle it names, the SPA fallback, a
+      # transparent /api proxy, and no CDN-loading FastAPI explorer. Those
+      # assertions only run inside `deploy-path`, which needs a Docker daemon
+      # and takes ~20 minutes, so a bash typo in them would be discovered one
+      # slow round trip at a time. This runs the checker against stub servers
+      # that reproduce the serving rules, and then against one stub per defect
+      # (a greedy fallback, an HTML bundle, a 13-byte bundle, a missing proxy,
+      # a 502 proxy, a directory listing, a live /docs, a gateway that 404s
+      # everything), demanding a failure each time — so every assertion in that
+      # script has been watched failing before it is trusted on a runner. It
+      # found a real defect on its first run: `set -o pipefail` made a grep
+      # that matched nothing abort the whole script with an EMPTY stderr.
+      #
+      # ~11s, and it is here rather than in `just lint` deliberately: that is
+      # ten seconds on every agent's every lint to guard a file that changes
+      # rarely, and this job gives the same verdict on every push. Run it by
+      # hand with `just web-smoke-selftest` when editing the script.
+      - name: Browser-path assertions (prove the deploy-path gate can fail)
+        run: scripts/web-smoke.sh --self-test
 
   doc-tick:
     # DOCTICK-GATE — CLAUDE.md calls it NON-NEGOTIABLE that "every commit that
