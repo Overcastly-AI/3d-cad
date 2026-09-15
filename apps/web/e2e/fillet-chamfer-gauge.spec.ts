@@ -44,8 +44,10 @@ import { seedCube } from "./partSeed";
 import {
   clickForReal,
   createPartViaApi,
+  expectSeatsSettled,
   SCREENSHOT_DIR,
   seedSession,
+  waitForFrames,
 } from "./support";
 
 /**
@@ -117,34 +119,86 @@ async function pickDraggableEdge(page: Page, gaugeId: string): Promise<number> {
   throw new Error(`no edge gave ${gaugeId} a track of ${MIN_TRACK_PX}px`);
 }
 
+/** One unreachable mark, and the thing that is on top of it. */
+interface Cover {
+  /** `edge-pick-<n>`. */
+  mark: string;
+  /** The nearest named ancestor of whatever `elementFromPoint` resolved to. */
+  by: string;
+  /** Whether that something belongs to THIS gauge — the sleeve, grip or tag. */
+  gauge: boolean;
+}
+
 /**
- * Which edge-pick marks a pointer aimed at their own centre does NOT reach.
+ * Which edge-pick marks a pointer aimed at their own centre does NOT reach,
+ * AND WHAT IS ON TOP OF EACH ONE.
  *
  * Some are unreachable for reasons that have nothing to do with this item — a
  * mark whose edge is buried behind the body, two marks that overlap at a
- * silhouette corner — so this is only meaningful as a BEFORE/AFTER pair. A bare
- * "4 of 12 are covered" is consistent with the gauge covering four and with it
- * covering none, and those are different products.
+ * silhouette corner — so a bare "4 of 12 are covered" is consistent with the
+ * gauge covering four and with it covering none, and those are different
+ * products. The original reading of that was a BEFORE/AFTER pair, and the
+ * subtraction is what went wrong: it attributes to the gauge every mark whose
+ * reachability changed for ANY reason between the two readings, and one such
+ * reason drifts on its own schedule (see `expectSeatsSettled` at both call
+ * sites). So each reading now names its own occluder and the verdict is read
+ * off the AFTER set directly — `gauge` is the guarantee, the delta is kept as
+ * a second, independently-derived opinion.
  */
-async function coveredMarks(page: Page): Promise<string[]> {
+async function coveredMarks(page: Page, gaugeId: string): Promise<Cover[]> {
   const nodes = page.locator('[data-testid^="edge-pick-"]');
   const count = await nodes.count();
-  const covered: string[] = [];
+  const covered: Cover[] = [];
   for (let i = 0; i < count; i += 1) {
     const testId = await nodes.nth(i).getAttribute("data-testid");
     if (testId === null) continue;
     const box = await nodes.nth(i).boundingBox();
     if (box === null) continue;
-    const own = await page.evaluate(
-      ({ x, y, id }: { x: number; y: number; id: string }) => {
+    const hit = await page.evaluate(
+      ({
+        x,
+        y,
+        id,
+        gauge,
+      }: {
+        x: number;
+        y: number;
+        id: string;
+        gauge: string;
+      }) => {
         const el = document.elementFromPoint(x, y);
-        return el?.closest(`[data-testid="${id}"]`) != null;
+        if (el === null) return { own: false, by: "(nothing)", gauge: false };
+        const named = el.closest("[data-testid]");
+        return {
+          own: el.closest(`[data-testid="${id}"]`) != null,
+          by:
+            (named as HTMLElement | null)?.dataset["testid"] ??
+            el.tagName.toLowerCase(),
+          // The instrument's own parts, by the hook `ParametricGauge` puts on
+          // them for exactly this question: `data-gauge` on the grip and every
+          // sleeve band, `<id>-readout` / `-steps` on the tag.
+          gauge:
+            el.closest(`[data-gauge="${gauge}"], [data-testid^="${gauge}-"]`) !=
+            null,
+        };
       },
-      { x: box.x + box.width / 2, y: box.y + box.height / 2, id: testId },
+      {
+        x: box.x + box.width / 2,
+        y: box.y + box.height / 2,
+        id: testId,
+        gauge: gaugeId,
+      },
     );
-    if (!own) covered.push(testId);
+    if (!hit.own) covered.push({ mark: testId, by: hit.by, gauge: hit.gauge });
   }
   return covered;
+}
+
+/** `edge-pick-3 (by viewport)`, for a message somebody has to read in CI. */
+function describeCovers(covers: readonly Cover[]): string {
+  return covers.length === 0
+    ? "none"
+    : covers.map(({ mark, by }) => `${mark} (by ${by})`).join(", ");
 }
 
 /** The preview subtree's world box, as a comparable string. */
@@ -300,6 +354,17 @@ for (const { verb, gaugeId, field, previewName } of VERBS) {
       await expect
         .poll(() => fieldValue(page, field), { timeout: 10_000 })
         .toBeCloseTo(before + 0.5, 3);
+      // AND THE SYNCHRONISATION IS WRITTEN DOWN, because the two readings live
+      // on different clocks: the poll above settles on the editor's INPUT — DOM
+      // — while `previewExtent` measures object matrices in a DEMAND-RENDERED
+      // scene, which are stale until r3f runs a frame. Nothing connected them,
+      // so the assertion was resolved by whichever won the race, and the race
+      // was being lost quietly on a fast machine (measured here 2/2: the box
+      // still read the opening 8 mm, `-0,0,-8, 8,20,0`, a step after the field
+      // said 8.5) while a loaded CI shard's slower round trips handed the
+      // renderer the time and it passed. An accidental settle is a latent flake
+      // whether or not anyone has tripped it — so state the wait.
+      await waitForFrames(page);
       expect(
         await previewExtent(page, previewName),
         "a keyed step must redraw the preview exactly as a drag does — a " +
@@ -333,24 +398,62 @@ for (const { verb, gaugeId, field, previewName } of VERBS) {
       // THE CONTROL: with pick mode armed and nothing picked yet, no gauge is
       // mounted. Whatever is unreachable here is unreachable for reasons that
       // predate this item.
-      const before = await coveredMarks(page);
+      //
+      // AND THE WAIT IS PART OF THE CONTROL, not tidiness. A mark's
+      // reachability is decided by the burial classification in
+      // `useEdgeMarkAnchors`, which is drained by a rotating per-frame budget
+      // and announces its own completion on `data-edge-mark-seats`; measured
+      // convergence after a camera move is 16-21 s quiet and up to 31 s under
+      // load (see `SEAT_SETTLE_TIMEOUT_MS`). `waitForCameraRest` above waits
+      // for the CAMERA and says nothing about that pass, so a BEFORE reading
+      // taken without this line is a half-drained census — and since the AFTER
+      // reading is taken seconds later, through a pick, every mark the pass
+      // buried in between shows up in the subtraction as work the gauge did.
+      // That is exactly how this case went red on CI at 894c6f3 with a sleeve
+      // that had not moved: `before [7, 8]` against `after [0, 7, 8, 10]`,
+      // where edge-pick-10 is buried behind the body and is covered by the
+      // CANVAS in both readings once the pass has drained.
+      await expectSeatsSettled(page, `${verb} marks, no gauge`);
+      const before = await coveredMarks(page, gaugeId);
       const first = await pickDraggableEdge(page, gaugeId);
       await expect(page.getByTestId("selected-count")).toContainText("1 edge");
-      const after = await coveredMarks(page);
+      await expectSeatsSettled(page, `${verb} marks, gauge mounted`);
+      const after = await coveredMarks(page, gaugeId);
 
       const nodes = page.locator('[data-testid^="edge-pick-"]');
       const count = await nodes.count();
-      const added = after.filter((id) => !before.includes(id));
+      const byGauge = after.filter((cover) => cover.gauge);
+      const beforeMarks = before.map(({ mark }) => mark);
+      const added = after.filter(({ mark }) => !beforeMarks.includes(mark));
       console.log(
-        `CRAFT-9a ${verb} mark cover: ${before.length}/${count} before, ` +
-          `${after.length}/${count} after; the gauge added [${added.join(", ") || "none"}]`,
+        `CRAFT-9a ${verb} mark cover: ${before.length}/${count} before ` +
+          `[${describeCovers(before)}], ${after.length}/${count} after ` +
+          `[${describeCovers(after)}]; the gauge itself covers ` +
+          `[${describeCovers(byGauge)}]`,
       );
+
+      // THE GUARANTEE, attributed rather than subtracted: of everything a
+      // pointer cannot reach with the gauge up, at most ONE mark has a piece of
+      // the gauge on top of it — its own seat. This is the assertion that says
+      // what the product promises, and unlike the delta it cannot be moved by
+      // anything the gauge does not own.
       expect(
-        added.length,
-        `the gauge may take at most the mark it stands on; it took ` +
-          `${added.length} (${added.join(", ")}) — before [${before.join(", ")}], ` +
-          `after [${after.join(", ")}]`,
+        byGauge.length,
+        `the gauge may take at most the mark it stands on; it is on top of ` +
+          `${byGauge.length} (${describeCovers(byGauge)}) — after ` +
+          `[${describeCovers(after)}]`,
       ).toBeLessThanOrEqual(1);
+
+      // And the second opinion, from a different derivation: with both censuses
+      // taken on a settled pass, nothing but the gauge can change between them,
+      // so the delta must agree with the attribution above. Two readings that
+      // disagree mean one of them is measuring something nobody named — which
+      // is the state this case was in — so it refuses rather than guessing.
+      expect(
+        added.map(({ mark }) => mark).sort(),
+        `the marks that became unreachable (${describeCovers(added)}) must be ` +
+          `exactly the marks the gauge is on top of (${describeCovers(byGauge)})`,
+      ).toEqual(byGauge.map(({ mark }) => mark).sort());
 
       // And a real click on a mark that is NOT the seat still picks.
       const other = (first + 1) % count;
