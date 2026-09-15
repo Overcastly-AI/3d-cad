@@ -372,6 +372,8 @@ services/
 packages/
   py-kit/         # Shared Python: pydantic models, errors, logging, health,
                   # queue client, service bootstrap. Every service builds on it.
+  loft-script/    # PUBLIC Python scripting API (`import loft`). A CLIENT of the
+                  # gateway, exactly like apps/web — see §3a.
   ts-client/      # TypeScript API client GENERATED from the OpenAPI specs.
   contracts/      # Exported OpenAPI schemas (generated from pydantic, committed).
   design/         # Design system: tokens (Tailwind preset + TS constants),
@@ -395,6 +397,64 @@ enforced in review.
 Feature-tree persistence (documents-side parametric history: schema, param
 envelope, references, rollback, evaluation contract) is specified in
 [`docs/design/feature-tree.md`](./design/feature-tree.md).
+
+## 3a. The scripting API is a gateway CLIENT — decision record (2026-09-15)
+
+**Decision:** `packages/loft-script` (the public Python API, `import loft`) is
+another client of the gateway, on exactly the footing `apps/web` has. It
+imports no kernel, opens no database connection, and calls no route the browser
+cannot call. The MCP server (Phase 5) will be a thin adapter over it, not a
+second path beside it.
+
+**Why, and what the alternative costs.** The tempting design is a library that
+drives the geometry service directly, or writes feature rows into Postgres —
+fewer hops, no auth, and an afternoon's work. It is also a SECOND PRODUCT: it
+would drift from the UI, grow its own bugs, and make every feature after it
+something the team ships twice. The roadmap's Phase 5 phrase for this is "same
+code path as the UI", and the existing service boundaries (§3) already express
+it; this entry records that the scripting surface is bound by them rather than
+being an exception to them.
+
+**How it is enforced, rather than asserted.** Three mechanisms, because a
+boundary that only lives in a review comment is one distracted review from
+gone:
+
+1. Every call names an `Operation` from a GENERATED table
+   (`loft/_operations.py`, produced by `scripts/gen-py-operations.py` from the
+   committed `packages/contracts/gateway.openapi.json`, diffed by
+   `just gen-check`). Only the gateway contract is read — adding `documents` or
+   `geometry` to that generator is the one-line change that would break this
+   decision, and it is therefore the line to guard in review.
+2. The transport REFUSES a request body whose model is not the one the contract
+   declares for that route (`ContractMismatch`), so the library cannot grow a
+   private payload shape the browser never sends.
+3. `packages/loft-script/tests/test_modelling.py` drives a real three-service
+   stack, records every call the modelling flow makes, and asserts that parity
+   over the calls that actually happened — with a count floor, so an empty
+   recording cannot make it vacuously true.
+
+**Types are IMPORTED, not generated — the asymmetry with `packages/ts-client`
+is deliberate.** `py_kit.schemas.*` holds the pydantic models the services
+serve, and the Python client imports those classes. TypeScript cannot read a
+pydantic model, which is the *only* reason `ts-client` re-materialises the wire
+types; Python has no such constraint, so deriving a second set of Python DTOs
+from an OpenAPI document that was itself derived from those classes would be a
+round trip that loses information (validators, cross-field model validators,
+shared derivations such as `is_stale_for_tree`) and adds a drift surface for
+nothing. The DRY rule rejects duplicate API types whether a human or a
+generator writes them. What a Python client genuinely cannot import is the
+ROUTING — method, URL template, and the component schema each operation
+declares — because that lives in FastAPI decorators; that, and only that, is
+generated.
+
+**Consequence for py-kit.** The auth DTOs moved from `gateway.auth.schemas` to
+`py_kit.schemas.auth` when this landed. They were gateway-local with an
+explicit note to extract on the second real use; the scripting client is that
+use, and a CLIENT importing the SERVICE package to speak its own contract would
+invert the dependency (pulling FastAPI, SQLAlchemy, asyncpg and argon2 into a
+library whose whole point is that it is just an HTTP caller). The gateway
+remains the auth service (§3); only the shapes moved, and the regenerated
+OpenAPI is byte-identical, which is the proof the move was wire-neutral.
 
 ## 4. Data & messaging
 

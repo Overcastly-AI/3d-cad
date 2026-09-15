@@ -192,10 +192,19 @@ bench:
     uv run pytest services/geometry/tests/test_benchmarks.py -m benchmark -s -p no:cacheprovider
 
 # Regenerate OpenAPI contracts (pydantic → packages/contracts) + typed TS
-# client (packages/ts-client). Both are committed; CI fails on drift.
+# client (packages/ts-client) + the Python client's gateway operation table
+# (packages/loft-script/src/loft/_operations.py). All three are committed; CI
+# fails on drift.
+#
+# The Python step emits ROUTES ONLY, not types — see the header of
+# scripts/gen-py-operations.py for why generating Python DTOs out of an OpenAPI
+# document generated out of Python DTOs would be a lossy round trip. Step 2 and
+# step 3 both read the contracts step 1 wrote, so one `just gen` cannot leave
+# the three layers describing different source.
 gen:
     uv run scripts/gen-contracts.py
     node scripts/gen-ts-client.mjs
+    uv run scripts/gen-py-operations.py
 
 # Drift check (CI calls this): regenerate into a tempdir and diff against the
 # committed output — non-zero on drift, never dirties the working tree.

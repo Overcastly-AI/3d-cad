@@ -12,6 +12,7 @@ members = [
     "loft-gateway",
     "loft-geometry",
     "loft-py-kit",
+    "loft-script",
     "loft-workspace",
 ]
 
@@ -1269,6 +1270,21 @@ requires-dist = [
 ]
 
 [[package]]
+name = "loft-script"
+version = "0.1.0"
+source = { editable = "packages/loft-script" }
+dependencies = [
+    { name = "httpx2" },
+    { name = "loft-py-kit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx2", specifier = ">=2.5" },
+    { name = "loft-py-kit", editable = "packages/py-kit" },
+]
+
+[[package]]
 name = "loft-workspace"
 version = "0.0.0"
 source = { virtual = "." }
@@ -1281,6 +1297,7 @@ dev = [
     { name = "loft-gateway" },
     { name = "loft-geometry" },
     { name = "loft-py-kit" },
+    { name = "loft-script" },
     { name = "moto", extra = ["s3", "server"] },
     { name = "pyright" },
     { name = "pytest" },
@@ -1297,6 +1314,7 @@ dev = [
     { name = "loft-gateway", editable = "services/gateway" },
     { name = "loft-geometry", editable = "services/geometry" },
     { name = "loft-py-kit", editable = "packages/py-kit" },
+    { name = "loft-script", editable = "packages/loft-script" },
     { name = "moto", extras = ["s3", "server"], specifier = ">=5.0" },
     { name = "pyright", specifier = ">=1.1.400" },
     { name = "pytest", specifier = ">=8.3" },
