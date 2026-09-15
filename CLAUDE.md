@@ -652,6 +652,34 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   `nginx -t` creating the root-owned pid file that then blocked the non-root
   runtime). When you add a guard, ask what it does when IT is wrong, not only
   what it catches when the subject is.
+  **AMENDED the same day — "the local gates cannot catch this" and "treat any
+  workflow edit as unverifiable until the run" were both TRUE when written and
+  are now PARTLY FALSE, which is exactly the kind of stale claim this file warns
+  about.** `scripts/check-workflow-contexts.py` (in `just lint` and CI) grades
+  every `${{ }}` expression in an `env:` mapping against the contexts allowed at
+  that level, and it catches THIS defect: run against the real broken bytes
+  (`git show 981a8d0:.github/workflows/*.yml`) it names both offending keys and
+  exits 1. The allowed sets are transcribed from GitHub's own workflow-parser
+  schema — `actions/languageservices`, `workflow-parser/src/workflow-v1.0.json`,
+  reachable via `raw.githubusercontent.com` — whose `job-env` / `step-env` /
+  `workflow-env` definitions each carry a `context` array; `--show-table` prints
+  what the gate believes so it can be diffed against that file rather than
+  trusted. Read it rather than guessing: the three sets really do nest,
+  `workflow-env` {github, inputs, vars, secrets} < `job-env` {+needs, strategy,
+  matrix} < `step-env` {+steps, job, **runner**, env, hashFiles}.
+  **What is still unverifiable, stated honestly so the amendment does not
+  overclaim:** the gate covers `env:` mappings only. Expressions in `if:`,
+  `with:` and `run:` are counted and REPORTED as not graded, and nothing here
+  validates the rest of the Actions schema. So the original advice still holds
+  for everything except this one class — which, being the one that silently
+  takes down a whole file, was the one worth buying.
+  Two practical rules that outlive the specific gate. **Prefer `$RUNNER_TEMP` to
+  `${{ runner.temp }}` inside any `run:` block** — in the shell it is an ordinary
+  environment variable, needs no expression, and cannot fail this way at all.
+  And **when an idiom fails, grep the repo for a WORKING instance before
+  inventing a fix**: `e2e.yml` uses `runner.temp` eight times and is green, every
+  one at step level, so the difference between the working and broken code was
+  one nesting level and was sitting in the tree the whole time.
 - **A suspiciously FAST green deserves the same scrutiny as a red.** The
   usual cause is a job that skipped its work, and `conclusion: success` is
   emitted when every job is skipped. Discriminate by reading the log for
