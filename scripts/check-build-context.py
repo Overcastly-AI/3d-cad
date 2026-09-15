@@ -32,7 +32,15 @@ Dockerfile in the repo, that each COPY source
   1. exists, and
   2. survives `.dockerignore`.
 
-Stdlib only, no daemon, ~10 ms — so it runs in `just lint` and in CI's `compose`
+It then asks a SECOND question the first cannot reach (`check_workspace_members`
+below): is every uv workspace member in a service's dependency closure actually
+COPYed at all? The first check grades the COPY lines that exist; this one grades
+the one nobody wrote. Adding a workspace package and wiring it into py-kit is a
+`packages/**` change that touches no Dockerfile, so nothing in that diff hints
+the image needs a new line — and `loft-wire` broke all three images that way on
+2026-09-15.
+
+Stdlib only, no daemon, ~50 ms — so it runs in `just lint` and in CI's `compose`
 job, beside `check-compose.py`: the two of them are the cheap half of the deploy
 gate, making a build failure visible at the moment somebody writes it rather than
 twenty minutes later on a runner.
@@ -46,6 +54,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path, PurePosixPath
+from typing import cast
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -305,10 +314,246 @@ def self_test() -> int:
     return 1
 
 
+# ---------------------------------------------------------------------------
+# Second check: every workspace member a service DEPENDS ON is in the context.
+#
+# The check above asks "does this COPY resolve to something?", which is the
+# failure `.dockerignore` produces. There is a second, independent way the same
+# Dockerfile breaks, and the first check is blind to it by construction: a COPY
+# that was never written at all. Adding a uv workspace member and wiring it into
+# py-kit is an ordinary, correct change in `packages/**`; nothing in that diff
+# touches `deploy/**`, so nothing suggests the image needs a new line — and the
+# author cannot build the image to find out, because the Docker registry is
+# policy-denied here.
+#
+# MEASURED on 2026-09-15, when `loft-wire` was split out of py-kit: layer 1
+# (`uv sync --no-install-workspace`) resolves HAPPILY with the member absent, so
+# the obvious probe says everything is fine, and layer 2 dies with
+#   error: Failed to determine installation plan
+#     Caused by: Distribution not found at: file:///app/packages/loft-wire
+# on all three images, in `deploy-path` only. Reproduced both ways in a scratch
+# context: exit 2 without the member's tree, exit 0 with it.
+#
+# So this derives the closure from pyproject.toml — for each service, which
+# workspace members does it reach, transitively, through `[tool.uv.sources]`
+# entries marked `workspace = true`? — and asserts each one's DIRECTORY is
+# copied by the Dockerfile that installs it.
+# ---------------------------------------------------------------------------
+
+#: The Dockerfile that installs the Python workspace, and the packages it
+#: builds. Both are read from the file itself where possible; this names the
+#: entry points, which are a build ARG and so cannot be.
+_WORKSPACE_DOCKERFILE = "deploy/docker/service.Dockerfile"
+_WORKSPACE_ENTRY_POINTS = ("loft-gateway", "loft-documents", "loft-geometry")
+
+
+def _read_toml(path: Path) -> dict[str, object]:
+    import tomllib
+
+    with path.open("rb") as handle:
+        return dict(tomllib.load(handle))
+
+
+def _table(parent: object, key: str) -> dict[str, object]:
+    """`parent[key]` when both are tables, else an empty one.
+
+    Every access below goes through this rather than chained `.get()` calls:
+    `tomllib` returns `Any`-valued containers, and under pyright strict an
+    unnarrowed chain is a wall of "partially unknown" errors. Narrowing once, in
+    one place, also means a malformed pyproject.toml degrades to "no members
+    found" — which the closure's own vacuity guard then REFUSES on, rather than
+    crashing with a TypeError nobody can act on.
+    """
+    if not isinstance(parent, dict):
+        return {}
+    value = cast("dict[str, object]", parent).get(key)
+    if not isinstance(value, dict):
+        return {}
+    return cast("dict[str, object]", value)
+
+
+def _string_list(parent: dict[str, object], key: str) -> list[str]:
+    value = parent.get(key)
+    if not isinstance(value, list):
+        return []
+    return [item for item in cast("list[object]", value) if isinstance(item, str)]
+
+
+def _workspace_members(root: Path) -> dict[str, Path]:
+    """Distribution name -> directory, for every uv workspace member."""
+    import glob as _glob
+
+    config = _read_toml(root / "pyproject.toml")
+    workspace = _table(_table(config, "tool"), "uv")
+    patterns = _string_list(_table(workspace, "workspace"), "members")
+    members: dict[str, Path] = {}
+    for pattern in patterns:
+        for match in sorted(_glob.glob(str(root / pattern))):
+            manifest = Path(match) / "pyproject.toml"
+            if not manifest.is_file():
+                continue
+            name = _table(_read_toml(manifest), "project").get("name")
+            if isinstance(name, str):
+                members[name] = Path(match).relative_to(root)
+    return members
+
+
+def _requires(root: Path, directory: Path) -> set[str]:
+    """Distribution names this member depends on (PEP 508 names only)."""
+    project = _table(_read_toml(root / directory / "pyproject.toml"), "project")
+    names: set[str] = set()
+    for requirement in _string_list(project, "dependencies"):
+        # Cut at the first character that cannot be part of a name.
+        name = re.split(r"[\s<>=!~;\[\(]", requirement.strip(), maxsplit=1)[0]
+        if name:
+            names.add(name)
+    return names
+
+
+def workspace_closure(root: Path, entry_points: tuple[str, ...]) -> dict[str, Path]:
+    """Every workspace member reachable from *entry_points*, transitively."""
+    members = _workspace_members(root)
+    seen: dict[str, Path] = {}
+    queue = [name for name in entry_points if name in members]
+    while queue:
+        name = queue.pop()
+        if name in seen:
+            continue
+        seen[name] = members[name]
+        for dependency in _requires(root, members[name]):
+            if dependency in members and dependency not in seen:
+                queue.append(dependency)
+    return seen
+
+
+def check_workspace_members(
+    root: Path, quiet: bool = False, entry_points: tuple[str, ...] = ()
+) -> int:
+    def say(line: str) -> None:
+        if not quiet:
+            print(line)
+
+    dockerfile = root / _WORKSPACE_DOCKERFILE
+    if not dockerfile.is_file():
+        say(f"check-build-context: {_WORKSPACE_DOCKERFILE} is missing — REFUSING.")
+        return 1
+
+    entry_points = entry_points or _WORKSPACE_ENTRY_POINTS
+    closure = workspace_closure(root, entry_points)
+    if not closure:
+        # VACUITY. An empty closure makes "every member is copied" trivially
+        # true, which is precisely how this gate would go quiet if the workspace
+        # config moved or the entry-point names were renamed.
+        say(
+            "check-build-context: the workspace closure of "
+            f"{', '.join(entry_points)} is EMPTY — either pyproject.toml's "
+            "[tool.uv.workspace] moved or those package names no longer exist. "
+            "A gate that walks nothing cannot fail."
+        )
+        return 1
+
+    copied = {source for _, source in copy_sources(dockerfile)}
+    say(f"\n{_WORKSPACE_DOCKERFILE} — uv workspace closure")
+    failures: list[str] = []
+    for name, directory in sorted(closure.items()):
+        posix = directory.as_posix()
+        # The member's TREE must be copied, not merely its manifest: layer 2
+        # builds a wheel from it. `COPY services services` covers every service.
+        if posix in copied or posix.rsplit("/", 1)[0] in copied:
+            say(f"  ok   {name} ({posix})")
+            continue
+        message = (
+            f"{_WORKSPACE_DOCKERFILE} never COPYs `{posix}`, but `{name}` is in "
+            f"the dependency closure of {', '.join(entry_points)} — layer 2's "
+            "`uv sync --no-editable` will fail with `Distribution not found at: "
+            f"file:///app/{posix}` on every service image. Layer 1 will NOT "
+            "catch it: --no-install-workspace resolves without the member."
+        )
+        say(f"  FAIL {message}")
+        failures.append(message)
+
+    if failures:
+        say(
+            f"\ncheck-build-context: FAILED ({len(failures)} workspace member(s) "
+            "missing from the image build context)"
+        )
+        return 1
+    say(
+        f"check-build-context: all {len(closure)} workspace member(s) in the "
+        "service closure reach the build context"
+    )
+    return 0
+
+
+def _workspace_self_test() -> int:
+    """Reproduce the loft-wire defect: a member nobody added a COPY for."""
+    import tempfile
+
+    results: list[tuple[str, bool]] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "deploy/docker").mkdir(parents=True)
+        (root / "packages/kit").mkdir(parents=True)
+        (root / "packages/wire").mkdir(parents=True)
+        (root / "services/gateway").mkdir(parents=True)
+        (root / "pyproject.toml").write_text(
+            '[tool.uv.workspace]\nmembers = ["services/*", "packages/kit", '
+            '"packages/wire"]\n'
+        )
+        (root / "packages/kit/pyproject.toml").write_text(
+            '[project]\nname = "loft-py-kit"\ndependencies = ["loft-wire", '
+            '"fastapi>=0.115"]\n'
+        )
+        (root / "packages/wire/pyproject.toml").write_text(
+            '[project]\nname = "loft-wire"\ndependencies = ["pydantic>=2"]\n'
+        )
+        (root / "services/gateway/pyproject.toml").write_text(
+            '[project]\nname = "loft-gateway"\ndependencies = ["loft-py-kit"]\n'
+        )
+
+        without = (
+            "FROM scratch\nCOPY packages/kit packages/kit\nCOPY services services\n"
+        )
+        (root / "deploy/docker/service.Dockerfile").write_text(without)
+        gateway = ("loft-gateway",)
+        before = check_workspace_members(root, quiet=True, entry_points=gateway)
+        results.append(("a transitive member with no COPY -> exit 1", before == 1))
+
+        (root / "deploy/docker/service.Dockerfile").write_text(
+            without + "COPY packages/wire packages/wire\n"
+        )
+        after = check_workspace_members(root, quiet=True, entry_points=gateway)
+        results.append(("…and adding the COPY -> exit 0", after == 0))
+
+        # VACUITY: an entry point that is not a member walks nothing, which
+        # would make every "all members are copied" verdict true of no members.
+        empty = check_workspace_members(root, quiet=True, entry_points=("nope",))
+        results.append(("an empty closure REFUSES rather than passing", empty == 1))
+
+    for label, passed in results:
+        print(f"  {'ok  ' if passed else 'FAIL'} {label}")
+    if all(passed for _, passed in results):
+        print(
+            "\ncheck-build-context: workspace self-test passed "
+            f"({len(results)} checks) — the gate can fail."
+        )
+        return 0
+    print("\ncheck-build-context: WORKSPACE SELF-TEST FAILED.")
+    return 1
+
+
 def main(argv: list[str]) -> int:
+    # BOTH checks always run and the statuses are combined, rather than
+    # `a() or b()`: short-circuiting would let a `.dockerignore` failure hide a
+    # missing workspace member, so the fix for the first would be followed by a
+    # second red run for a defect that was already present and already knowable.
     if "--self-test" in argv:
-        return self_test()
-    return run(REPO_ROOT)
+        first = self_test()
+        second = _workspace_self_test()
+        return max(first, second)
+    first = run(REPO_ROOT)
+    second = check_workspace_members(REPO_ROOT)
+    return max(first, second)
 
 
 if __name__ == "__main__":

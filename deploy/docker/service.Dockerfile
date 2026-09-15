@@ -46,6 +46,7 @@ WORKDIR /app
 # grows its kernel deps, so keep it keyed on uv.lock alone.
 COPY pyproject.toml uv.lock ./
 COPY packages/py-kit/pyproject.toml packages/py-kit/
+COPY packages/loft-wire/pyproject.toml packages/loft-wire/
 COPY services/gateway/pyproject.toml services/gateway/
 COPY services/documents/pyproject.toml services/documents/
 COPY services/geometry/pyproject.toml services/geometry/
@@ -54,7 +55,22 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Layer 2 — workspace sources; members installed as built wheels
 # (--no-editable) so the runtime stage only needs the venv.
+#
+# EVERY WORKSPACE MEMBER IN THE SELECTED PACKAGE'S DEPENDENCY CLOSURE MUST BE
+# HERE, not just the ones somebody remembered. `loft-wire` is a dependency of
+# `py-kit` (the wire DTOs were split out of it so a client does not pull a
+# service's 33 dependencies), so it is in all three services' closures even
+# though no service names it directly. Layer 1 does NOT catch its absence:
+# `--no-install-workspace` resolves happily without the member on disk, and the
+# build dies HERE with
+#   error: Failed to determine installation plan
+#     Caused by: Distribution not found at: file:///app/packages/loft-wire
+# — measured, along with the exit-0 the same context produces once the line
+# below is present. scripts/check-build-context.py now derives this closure
+# from pyproject.toml and fails in ~50 ms rather than twenty minutes into
+# `deploy-path`, which is the only workflow that can build an image at all.
 COPY packages/py-kit packages/py-kit
+COPY packages/loft-wire packages/loft-wire
 COPY services services
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable --package "loft-${SERVICE_NAME}"
