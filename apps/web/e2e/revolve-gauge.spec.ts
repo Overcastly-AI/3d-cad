@@ -31,6 +31,7 @@
 import { expect, test, type Page } from "./fixtures";
 import {
   gripCentre,
+  projectedTrack,
   reachAlongTrack,
   REACH_FLOOR,
   REACH_SAMPLES,
@@ -545,6 +546,163 @@ test.describe("CRAFT-10 — the revolve sweep gauge", () => {
     await page.mouse.up();
     await waitForFrames(page, 3);
     expect(Math.abs((await angleField(page)) - before)).toBeGreaterThan(0.5);
+  });
+
+  /**
+   * THE GESTURE OUTLIVES THE BAND IT WAS TAKEN ON — the arc's P0.
+   *
+   * The hit sleeve is one DOM band per projected spine segment, and the NUMBER
+   * of those segments is a function of the value being dragged: an angular
+   * track lays `ceil(|value| / 360 * 96)` of them, so a sweep carries 32 bands
+   * at 120 degrees and 24 at 90. The list is keyed by index, so shrinking the
+   * sweep unmounts the high-index bands — the ones at the SEAT, which is the
+   * half of the arc `894c6f3` exists to make grabbable. Capture taken on the
+   * band you grabbed therefore dies the moment the arc re-tessellates past it,
+   * and in Chromium a REMOVED capture host emits no `lostpointercapture` at
+   * all: there is not even an event to recover on.
+   *
+   * ## Why this case and not the one that was already here
+   *
+   * The only other arc-drag case asserts `|after - before| > 0.5` degrees. That
+   * is satisfied by the FIRST pointermove, before any band can unmount, so it
+   * is green against a gauge that dies one move later — another assertion that
+   * cannot observe its own failure mode. This one watches the value at four
+   * points ACROSS the re-tessellation and then asks the two questions a frozen
+   * gesture answers wrongly: did the release land, and does the value now
+   * follow a mouse with no button on it.
+   *
+   * Measured against the tree before the fix, on the stack this spec runs on:
+   * the value froze at **90** for the last three waypoints, `data-grabbed` read
+   * **"true"** after `mouse.up`, and moving the bare mouse afterwards carried it
+   * from **90 to 165**. All four assertions below fail there, in that order.
+   *
+   * ## Why the drag looks like this
+   *
+   * A real one. Press the drawn arc near its seat, pull wide — the first
+   * waypoint drops the sweep past the grabbed band's index and the rest of the
+   * gesture happens off the instrument, which is where a drag normally is.
+   * Every waypoint is asserted to be off every band, because "the value kept
+   * tracking" is only a claim about capture if nothing under the pointer could
+   * have been listening.
+   */
+  test("the arc drag survives the sweep re-tessellating under the pointer", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Washer");
+    await installSceneProbe(page);
+    await page.goto(`/parts/${part.id}`);
+    await openRevolve(page);
+
+    const field = page.getByTestId("revolve-angle");
+    const grip = page.getByTestId("revolve-angle-handle");
+    await field.fill("120");
+    await field.blur();
+    await waitForFrames(page, 3);
+
+    /** What `elementFromPoint` finds at a pixel: this gauge's band id, or null. */
+    const bandAt = async (at: Point): Promise<string | null> =>
+      page.evaluate(
+        (p: Point) =>
+          document
+            .elementFromPoint(p.x, p.y)
+            ?.closest('[data-gauge="revolve-angle"]')
+            ?.getAttribute("data-testid") ?? null,
+        at,
+      );
+
+    // A press point on the DRAWN arc near the seat — sampled off the projected
+    // polyline rather than guessed, so it is on the instrument the eye sees.
+    const track = await projectedTrack(page, "revolve-angle", 17);
+    const grab = track[3] as Point;
+    await page.mouse.move(grab.x, grab.y);
+    await waitForFrames(page, 2);
+    const held = await bandAt(grab);
+    expect(
+      held,
+      "the press point must be on a hit band, or this case proves nothing",
+    ).not.toBeNull();
+    const bands = page.locator(
+      '[data-gauge="revolve-angle"][data-testid*="sleeve"]',
+    );
+    const bandsBefore = await bands.count();
+    expect(bandsBefore).toBeGreaterThan(8);
+
+    // Waypoints, relative to the press: the first shrinks the sweep far enough
+    // to drop the grabbed band, the rest swing back out. All three are clear of
+    // the instrument.
+    // MEASURED, not guessed: with capture held throughout, these three pixels
+    // read 90 / 165 / 225 degrees and 24 / 44 / 60 bands, and `elementFromPoint`
+    // finds no band at any of them. The first is the only quadrant that shrinks
+    // the sweep rather than running it past the zero ray into the 360 clamp —
+    // which is why this is a measured triple and not an arbitrary flourish.
+    const away: Point[] = [
+      { x: grab.x + 240, y: grab.y + 80 },
+      { x: grab.x + 140, y: grab.y - 80 },
+      { x: grab.x - 140, y: grab.y - 80 },
+    ];
+
+    await page.mouse.down();
+    const seen: number[] = [];
+    for (const [i, point] of away.entries()) {
+      await page.mouse.move(point.x, point.y, { steps: 6 });
+      expect(
+        await bandAt(point),
+        `waypoint ${point.x},${point.y} must be clear of every band`,
+      ).toBeNull();
+      seen.push(await angleField(page));
+      if (i === 0) {
+        // THE PRECONDITION, asserted rather than assumed, AND ASSERTED HERE —
+        // at the one moment both trees agree on. The first waypoint is still
+        // delivered whatever the capture host is, so the sweep has shrunk and
+        // the grabbed band is gone in BOTH; from the second waypoint on the two
+        // diverge, and a fixed gauge has grown its bands back, which would make
+        // this check fail for the opposite reason if it were left to the end.
+        // Without it the case could pass because nothing re-tessellated — a
+        // gate that cannot reach its own defect, which this file documents
+        // twice already.
+        await expect(
+          page.locator(`[data-testid="${held ?? ""}"]`),
+          `${held} must have unmounted on the first waypoint — that is the ` +
+            `defect's mechanism, and this case is vacuous without it`,
+        ).toHaveCount(0);
+      }
+    }
+
+    // THE DRAG KEEPS TRACKING. The first waypoint is what kills the band; the
+    // second is the one a lost capture can no longer see.
+    const [first, second] = seen as [number, number, number];
+    console.log(
+      `[ARCDRAG] held=${held} bands ${bandsBefore} -> ${await bands.count()}, ` +
+        `value ${seen.map((v) => v.toFixed(1)).join(" -> ")}`,
+    );
+    expect(
+      Math.abs(second - first),
+      `the value must follow the pointer after the arc re-tessellated ` +
+        `(waypoints read ${seen.join(", ")})`,
+    ).toBeGreaterThan(20);
+
+    // THE RELEASE LANDS, off-band. A `pointerup` that reaches nobody leaves the
+    // grab record set and the ask-queue held, which is invisible until the next
+    // pointer move — hence the third assertion.
+    await page.mouse.up();
+    await waitForFrames(page, 2);
+    await expect(grip).toHaveAttribute("data-grabbed", "false");
+
+    // AND THE VALUE DOES NOT FOLLOW AN UNPRESSED MOUSE. Walk the bare pointer
+    // back across the instrument, which is exactly where a stuck gesture keeps
+    // authoring from.
+    const settled = await angleField(page);
+    const after = await projectedTrack(page, "revolve-angle", 9);
+    await page.mouse.move((after[3] as Point).x, (after[3] as Point).y);
+    await page.mouse.move((after[6] as Point).x, (after[6] as Point).y, {
+      steps: 6,
+    });
+    await waitForFrames(page, 2);
+    expect(
+      await angleField(page),
+      "with no button held the gauge is a readout, not a control",
+    ).toBeCloseTo(settled, 6);
   });
 
   /**

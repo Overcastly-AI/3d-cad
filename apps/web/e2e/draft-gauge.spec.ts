@@ -307,4 +307,65 @@ test.describe("CRAFT-10 — the draft taper gauge", () => {
     if (rest === null) throw new Error("the draft grip lost its box");
     expect(Math.hypot(rest.x - box.x, rest.y - box.y)).toBeGreaterThan(8);
   });
+
+  /**
+   * DRAFT IS IN THE SAME FAMILY AS REVOLVE, and this case is here to say so.
+   *
+   * Both angular verbs build their spine with `angularTrack`, whose
+   * tessellation is `ceil(|value| / 360 * 96)` segments — so the hit sleeve's
+   * band list has a LENGTH that is a function of the value being dragged, and
+   * shrinking the taper unmounts the bands at the seat end. That is the
+   * mechanism behind the P0 fixed in `ParametricGauge`: capture taken on a band
+   * dies when the arc re-tessellates past it, silently, with no
+   * `lostpointercapture` to recover on.
+   *
+   * The GATE for that lives in `revolve-gauge.spec.ts` — one case, on the
+   * shared component both verbs mount, rather than the same 60-second drag run
+   * twice. What is asserted HERE is the thing that makes the revolve gate stand
+   * for draft at all: that draft's band list really does shrink with its value.
+   * If a future change makes draft's spine fixed-length, this fails, and the
+   * honest response is to notice that the revolve case no longer covers it —
+   * not to delete this.
+   *
+   * Measured: 22 bands at 80 degrees, 12 at 45, 3 at 10, 2 at 1.
+   */
+  test("the taper's hit sleeve re-tessellates with the angle", async ({
+    page,
+  }) => {
+    const partId = await seedCubePart(page);
+    await installSceneProbe(page);
+    await page.goto(`/parts/${partId}`);
+    await waitForCube(page);
+    await openDraft(page);
+    await pickFaceAtZ(page, 10);
+    await waitForFrames(page, 3);
+
+    const bands = page.locator(
+      '[data-gauge="draft-angle"][data-testid*="sleeve"]',
+    );
+    const field = page.getByTestId("draft-angle");
+    const countAt = async (deg: string): Promise<number> => {
+      await field.fill(deg);
+      await field.blur();
+      await waitForFrames(page, 3);
+      return bands.count();
+    };
+
+    const wide = await countAt("80");
+    const narrow = await countAt("10");
+    console.log(`[DRAFT-SLEEVE] 80 deg -> ${wide} bands, 10 deg -> ${narrow}`);
+    // The band at index `narrow` and above have UNMOUNTED between these two
+    // readings. A grab held on one of them is a grab whose capture host is
+    // gone, which is the whole defect.
+    expect(
+      wide,
+      "a wide taper must lay several bands, or the sleeve is a single chord " +
+        "again and the arc is only grabbable at its point",
+    ).toBeGreaterThan(8);
+    expect(
+      narrow,
+      `the band list must shrink with the taper (80 deg: ${wide}, ` +
+        `10 deg: ${narrow}) — that is why the revolve gate covers this mount`,
+    ).toBeLessThan(wide);
+  });
 });

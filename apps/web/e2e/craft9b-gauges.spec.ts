@@ -130,6 +130,56 @@ async function waitForBlock(page: Page): Promise<void> {
 }
 
 /**
+ * THE DRAWN ROD, READ AFTER THE ASK IT DESCRIBES HAS LANDED — the settle the
+ * two contract-β cases were getting by accident.
+ *
+ * A gauge draws `live ?? value`: the optimistic ask while the pointer is
+ * authoring, the owner's prop once it lets go. So the instant after
+ * `mouse.up()` there is a window in which `live` is gone and the owner has not
+ * yet echoed the LAST ask of the drag, and the scene graph holds the previous
+ * step. Reading `scale.y` inside that window is reading a value that was
+ * current for one commit and is not the answer to "where did the rod end up".
+ * Measured: shell read `held 11` and then `10` on the frame after the release,
+ * settling back to 11; datum's rod read 24 while its own field already held 25,
+ * and both readings were 24 once the chain had drained. So the window catches
+ * EITHER end of the drag — the held reading is no safer than the released one.
+ *
+ * It was filed as a base-tree intermittent, and it was never intermittent —
+ * it was an UNSTATED SETTLE, the same defect class this repo has now hit five
+ * times. What supplied the flush before was a mid-drag `pointerleave` firing
+ * `disarmLadder`, i.e. an unrelated `setState` that happened to force React to
+ * commit; the arc-drag fix moves the pointer handlers onto the sleeve wrapper
+ * and that spurious boundary event correctly stops firing, so the accident
+ * stops happening. **The settle was always required; only the accident that
+ * hid it went away.**
+ *
+ * Stated here as two readings that agree, 100 ms apart, which cannot pass while
+ * the value is still moving and fails loudly (by timeout) if the rod never
+ * comes to rest at all. Deliberately NOT a poll toward an expected number: the
+ * assertion about WHERE it settles stays at the call site, where it can fail.
+ */
+async function settledSpineMm(page: Page, gaugeId: string): Promise<number> {
+  let previous: number | null = null;
+  await expect
+    .poll(
+      async () => {
+        const now = await spineLengthMm(page, gaugeId);
+        const stable = previous !== null && Math.abs(now - previous) < 1e-6;
+        previous = now;
+        return stable;
+      },
+      {
+        message:
+          `the drawn ${gaugeId} rod never came to rest — two readings ` +
+          `100 ms apart still disagree`,
+      },
+    )
+    .toBe(true);
+  if (previous === null) throw new Error(`no reading for gauge ${gaugeId}`);
+  return previous;
+}
+
+/**
  * Click the shell face-pick node at the extreme z — the TOP face — chosen from
  * the accessible name so the pick is deterministic, exactly as `shell.spec.ts`
  * does (no reliance on screen projection or overlay index).
@@ -267,9 +317,17 @@ test.describe("CRAFT-9b — the shell thickness gauge", () => {
     // on pointer-up and the rod springs back to 4 while the panel keeps the
     // number you dragged to — correct for the whole gesture, broken after it.
     await dragGauge(page, "shell-thickness", { dy: 70 }, { release: false });
-    const held = await spineLengthMm(page, "shell-thickness");
+    const held = await settledSpineMm(page, "shell-thickness");
     await page.mouse.up();
-    const released = await spineLengthMm(page, "shell-thickness");
+    // The release has been COMMITTED before the rod is read — `data-grabbed` is
+    // the grip's own witness for it, and `settledSpineMm` then waits out the
+    // owner's echo. See that helper: without both, this case reads the frame
+    // between "the optimistic value is gone" and "the prop caught up".
+    await expect(page.getByTestId("shell-thickness-handle")).toHaveAttribute(
+      "data-grabbed",
+      "false",
+    );
+    const released = await settledSpineMm(page, "shell-thickness");
     console.log(
       `CRAFT-9b shell β: rest ${atRest} → held ${held} → released ${released} mm`,
     );
@@ -385,9 +443,14 @@ test.describe("CRAFT-9b — the datum offset gauge", () => {
     const atRest = await spineLengthMm(page, "datum-offset");
     expect(atRest).toBeCloseTo(30, 3);
     await dragGauge(page, "datum-offset", { dy: 60 }, { release: false });
-    const held = await spineLengthMm(page, "datum-offset");
+    const held = await settledSpineMm(page, "datum-offset");
     await page.mouse.up();
-    const released = await spineLengthMm(page, "datum-offset");
+    // Same settle as the shell case, same reason — see `settledSpineMm`.
+    await expect(page.getByTestId("datum-offset-handle")).toHaveAttribute(
+      "data-grabbed",
+      "false",
+    );
+    const released = await settledSpineMm(page, "datum-offset");
     console.log(
       `CRAFT-9b datum β: rest ${atRest} → held ${held} → released ${released} mm`,
     );

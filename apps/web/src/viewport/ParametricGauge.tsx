@@ -571,6 +571,17 @@ export function ParametricGauge({
 
   const ask = queue.ask;
 
+  /**
+   * {@link endDrag}, reachable from {@link onPointerMove}, which is declared
+   * above it. A ref rather than a reorder: `endDrag` closes over `finishDrag`,
+   * which closes over the queue, and hoisting that whole chain above the
+   * pointer handlers to satisfy one call would put the drag's teardown a
+   * screen away from the drag. The indirection is also correct rather than
+   * merely convenient — the move handler wants whatever `endDrag` is NOW, not
+   * the one that existed when it was memoised.
+   */
+  const endDragRef = useRef<() => void>(() => {});
+
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return;
@@ -584,6 +595,12 @@ export function ParametricGauge({
       // mid-drag Escape — which arrives as a key event with no pointer on it —
       // can still release the capture it is abandoning. Without that the
       // pointer stays captured by a node the cancel is about to unmount.
+      //
+      // `currentTarget` is the element the HANDLER is on, never the one the
+      // pointer landed on, and both of this component's two routes into a grab
+      // put that handler on a node with the gauge's own lifetime: the grip, and
+      // the sleeve WRAPPER. That is load-bearing — see the sleeve's note. A
+      // capture host that a redraw can unmount loses the gesture in silence.
       const held = { value: from, pointerId: event.pointerId, on: target };
       if (at !== null) {
         grabRef.current = { mode: "track", at, ...held };
@@ -611,6 +628,35 @@ export function ParametricGauge({
     (event: ReactPointerEvent<HTMLDivElement>) => {
       const grab = grabRef.current;
       if (grab === null) return;
+      // NO BUTTON, NO DRAG — the backstop for a release that never arrived.
+      //
+      // Capture is what guarantees the terminating `pointerup` comes back to
+      // us, and capture can be taken away by things this component does not
+      // control: a node it loses (the defect above), a browser-level cancel, a
+      // context menu, an alt-tab that eats the button-up. When that happens
+      // `grabRef` stays set and every later move is read as authoring, so the
+      // value follows a pointer with nothing held down — the gauge appears
+      // possessed, and the only way out is Escape, which DISCARDS.
+      //
+      // `buttons` is a bitmask of what is CURRENTLY held, reported on every
+      // pointer event, so it is the one witness that cannot go stale: zero
+      // means the gesture is over no matter how it ended. Ending it here (not
+      // merely ignoring the move) releases the ask-queue's hold as well, so
+      // the prop becomes the truth again exactly as a real release would leave
+      // it. This is deliberately independent of the capture fix below — that
+      // one makes the loss unlikely, this one makes the BAD STATE unreachable.
+      //
+      // PROVEN LIVE, because a guard nobody has seen fire is not a guard. It
+      // was applied ALONE to the unfixed tree — capture still lost on the arc —
+      // and the possessed-gauge symptom stopped: the bare mouse afterwards took
+      // the sweep from 90 to 165 without it and left it at 90 with it, while
+      // the two assertions about the capture loss itself stayed red. That is
+      // the negative control, and it is why this stays even though the sleeve
+      // below can no longer lose its host.
+      if (event.buttons === 0) {
+        endDragRef.current();
+        return;
+      }
       let raw: number;
       if (grab.mode === "track") {
         const at = trackValueAt(event.clientX, event.clientY);
@@ -656,6 +702,7 @@ export function ParametricGauge({
   const endDrag = useCallback(() => {
     finishDrag();
   }, [finishDrag]);
+  endDragRef.current = endDrag;
 
   const requestSubmit = useCommandActionStore((s) => s.requestSubmit);
 
@@ -1178,15 +1225,70 @@ export function ParametricGauge({
         zIndexRange={SLEEVE_Z_RANGE}
         style={{ pointerEvents: "none" }}
       >
-        {/* HOVER IS THE WRAPPER'S, not each band's. React dispatches
-            enter/leave along the ancestor path, so crossing a seam between two
-            bands fires nothing here while arriving from outside and leaving the
-            sleeve entirely each fire exactly once. Per-band handlers would
-            disarm and re-arm the ladder at every seam, which on a 24-segment
-            arc is a ladder that strobes as the pointer slides along it. The
-            wrapper is not itself a target: `pointer-events` is inherited, the
-            `Html` above turns it off, and only the bands turn it back on. */}
-        <div onPointerEnter={armLadder} onPointerLeave={disarmLadder}>
+        {/* EVERY POINTER HANDLER IS THE WRAPPER'S, not each band's — hover for
+            the reason below, and the DRAG because the band under your finger
+            is not guaranteed to outlive your finger.
+
+            Hover first, since it came first: React dispatches enter/leave along
+            the ancestor path, so crossing a seam between two bands fires
+            nothing here while arriving from outside and leaving the sleeve
+            entirely each fire exactly once. Per-band handlers would disarm and
+            re-arm the ladder at every seam, which on a 24-segment arc is a
+            ladder that strobes as the pointer slides along it.
+
+            THE DRAG, AND THE P0 THIS FIXES. The band list's LENGTH is a
+            function of the value being dragged — an angular track tessellates
+            `ceil(|value| / 360 * 96)` segments, so a sweep carries 32 bands at
+            120 degrees and 24 at 90 — and the list is keyed by index, so
+            shrinking the sweep UNMOUNTS the high-index bands at the seat end.
+            `setPointerCapture` on the band you happened to grab therefore ends
+            the moment the arc re-tessellates past it, and a REMOVED capture
+            host does not merely stop capturing: MEASURED in Chromium, it emits
+            no `lostpointercapture` at all, so there is not even an event to
+            recover on. Everything after that is silent — moves that miss a
+            12 px band do nothing, and the terminating `pointerup` reaches
+            nobody, which leaves `grabRef` set, the ask-queue held, and the
+            value tracking a pointer with no button down.
+            Measured on the running app before this change: press the drawn arc
+            near its seat on a 120-degree sweep, drag wide, and the value froze
+            at 90 for the rest of the gesture, `data-grabbed` was still "true"
+            after the release, and moving the bare mouse afterwards took it from
+            90 to 165.
+
+            The wrapper is the only node in this subtree whose lifetime is the
+            GAUGE'S rather than the tessellation's, so capture taken on it
+            cannot be revoked by a redraw. The bands stay exactly what they were
+            — pure hit shapes, `pointer-events: auto`, one per drawn segment —
+            so `elementFromPoint` reach along the arc is unchanged; only the
+            LISTENER moved, from N transient nodes to one stable one. (It also
+            costs four listeners instead of four per band, which on a full turn
+            is 96 bands' worth.)
+
+            Two alternatives were rejected. Capturing on `bandRefs.current[0]`
+            works today only because `display: none` does NOT release capture in
+            Blink (measured) — the frame loop hides band 0 whenever its segment
+            collapses — and that is an implementation detail the Pointer Events
+            spec does not promise; it also leaves the handlers on transient
+            nodes, so the next hand re-opens the hole. Keeping the band count
+            monotonic for the duration of a grab makes the RENDER a function of
+            gesture state, an invariant invisible in this JSX, and deliberately
+            keeps a hit target over a segment that is no longer drawn — the
+            exact thing the frame loop's own tail-hiding guard exists to
+            prevent.
+
+            The wrapper is still not a target itself: `pointer-events` is
+            inherited, the `Html` above turns it off, only the bands turn it
+            back on, and its own box measures 0x0 because every child is
+            absolutely positioned. Capture does not care — it bypasses hit
+            testing, measured here on a `pointer-events: none` host. */}
+        <div
+          onPointerEnter={armLadder}
+          onPointerLeave={disarmLadder}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+        >
           {Array.from({ length: Math.max(1, drawing.spine.length - 1) }).map(
             (_, i) => (
               <div
@@ -1216,11 +1318,11 @@ export function ParametricGauge({
                    origin belongs beside it either way. `display: none` until
                    the first frame has measured the projection, so a zero-length
                    band is never briefly hittable. */
+                /* No pointer handlers: a band is a HIT SHAPE, and the gesture
+                   belongs to the wrapper above, whose lifetime a redraw cannot
+                   end. Events still arrive there by bubbling, so this element
+                   is exactly as grabbable as it was. */
                 style={{ transformOrigin: "0 50%", display: "none" }}
-                onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
-                onPointerUp={endDrag}
-                onPointerCancel={endDrag}
               />
             ),
           )}
