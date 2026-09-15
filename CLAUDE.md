@@ -1158,6 +1158,40 @@ recipe here in the same commit as the fix.**
   fixture that never reaches the path) and the downstream negative control (a
   probe injected past the guard) — a correct check pointed somewhere the defect
   is not.
+- **A BEFORE/AFTER SUBTRACTION ATTRIBUTES TO YOUR CHANGE EVERYTHING THAT DRIFTED
+  ON SOMEBODY ELSE'S CLOCK — and it does so in the direction that blames the
+  code.** Measured 2026-09-15. `fillet-chamfer-gauge.spec.ts` asserted "the gauge
+  covers ONLY the mark it stands on" by censusing reachable edge marks before and
+  after the gauge mounts and subtracting. It went red in CI naming two extra
+  marks, and the orchestrator's brief said the near-certain cause was the commit
+  that had just changed the hit sleeve. **That commit was innocent**, proved
+  geometrically: the band measured 223x24 at (279,514) and the accused mark sits
+  at (628,653), and the element on top of that mark is the viewport `<canvas>`
+  carrying `data-buried="true"` in BOTH readings — its edge is behind the body,
+  so it was never a pointer target at all.
+  The real cause: burial is decided by a **rotating per-frame budget** whose
+  convergence is 16-21 s quiet and **up to 31 s under load**. A helper for it
+  already existed, `expectSeatsSettled`, with that cost measured and written into
+  a named constant — **and the spec that needed it most never called it.** So
+  BEFORE was taken half-drained while AFTER, seconds later and through a pick,
+  could not be, and every mark the pass buried in between was scored as theft by
+  the gauge. On the slowest shard, in the direction that indicts the diff.
+  **The rule: when a check takes a BEFORE/AFTER pair, the two readings must be
+  taken in the SAME STATE, and the only way to know they were is to NAME THE
+  SETTLE OUT LOUD.** An unstated settle is not a wait, it is a coincidence of
+  timing that your next optimisation, new mount, or shard partner will delete.
+  And prefer **attribution to subtraction** where you can get it: the fixed
+  assertion reads each unreachable mark WITH its occluder and checks the
+  guarantee against the after-set by `data-gauge` ownership, keeping the delta
+  only as a second, independently-derived opinion that must AGREE — refusing
+  when the two disagree rather than guessing, because disagreement means one
+  reading is measuring something nobody named. That is strictly MORE sensitive,
+  not merely more stable: the negative control caught a mark being stolen that
+  was **already buried**, which the old subtraction scored as zero.
+  Third member this week of "a correct check pointed where the defect is not",
+  and the one with the sharpest tell: **a gate that names an innocent commit is
+  still a broken gate.** Before believing a bisect or a brief that fingers a
+  diff, check whether the measurement could have moved on its own.
 - **A CENSUS THAT GREPS THE ARGUMENT MISSES EVERY CALL THAT PASSES OPTIONS — AND
   THOSE ARE SYSTEMATICALLY THE INTERESTING ONES.** Measured 2026-09-14, by the
   orchestrator, in a brief. A red shard named `full-flow.spec.ts` with
