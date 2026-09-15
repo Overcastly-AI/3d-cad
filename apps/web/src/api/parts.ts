@@ -15,7 +15,7 @@ export type LengthUnit = PartResponse["length_unit"];
  * The part's REBUILD HEALTH as a verdict the UI may act on now: `never` | `ok` |
  * `failed` | `stale`. Derived SERVER-SIDE by one shared fold over the stored
  * record and the part's current `tree_version` (`derive_part_eval_state`,
- * py-kit) precisely so nobody re-derives it here — a client that compared
+ * loft_wire) precisely so nobody re-derives it here — a client that compared
  * timestamps would reinvent the skew bug the version comparison exists to
  * avoid. Read this field; never recompute it.
  */

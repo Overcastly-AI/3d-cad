@@ -1,8 +1,6 @@
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
+
+import { readWireModule } from "../test/wireSource";
 
 import type {
   FeatureResponse,
@@ -24,18 +22,9 @@ import {
 } from "./face";
 
 /**
- * The py-kit module the client set mirrors. The path is deliberate: if the
- * module moves, this test fails loudly rather than silently stopping guarding
- * anything (the idiom `thread.test.ts` uses for the kernel's pitch table).
- */
-const PY_KIT_FEATURES = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../../../packages/py-kit/src/py_kit/schemas/features.py",
-);
-
-/**
- * Parse `BODY_AFFECTING_FEATURE_TYPES` out of the py-kit module — THE source of
- * truth for the set (`packages/py-kit/src/py_kit/schemas/features.py`).
+ * Parse `BODY_AFFECTING_FEATURE_TYPES` out of the wire module — THE source of
+ * truth for the set (`packages/loft-wire/src/loft_wire/features.py`, located by
+ * `src/test/wireSource.ts`, which owns that path for every guard that reads it).
  *
  * Comments are stripped before the string literals are read, because the
  * comments inside that frozenset quote prose (`"sketch on an imported part's
@@ -46,12 +35,12 @@ const PY_KIT_FEATURES = resolve(
  * exposing it as a generated enum in `packages/contracts` would retire this
  * parse entirely, and is filed as a follow-up.
  */
-function pyKitBodyAffecting(source: string): string[] {
+function wireBodyAffecting(source: string): string[] {
   const marker = "\nBODY_AFFECTING_FEATURE_TYPES = frozenset(";
   const start = source.indexOf(marker);
   expect(
     start,
-    "py-kit BODY_AFFECTING_FEATURE_TYPES not found",
+    "loft_wire BODY_AFFECTING_FEATURE_TYPES not found",
   ).toBeGreaterThan(-1);
   const open = source.indexOf("{", start);
   const close = source.indexOf("\n)", open);
@@ -160,7 +149,7 @@ describe("lastBodyFeatureId", () => {
   });
 
   // "recognises every body-affecting op" moved into the drift-guard block
-  // below, where the list comes from py-kit instead of a hand-copy.
+  // below, where the list comes from loft_wire instead of a hand-copy.
 });
 
 describe("anchorBodyFeatureId — PICK-1 (M16)", () => {
@@ -225,37 +214,44 @@ describe("anchorBodyFeatureId — PICK-1 (M16)", () => {
 });
 
 describe("BODY_AFFECTING_FEATURE_TYPES — backend drift guard", () => {
-  const source = readFileSync(PY_KIT_FEATURES, "utf8");
+  // LAZY, and that is the whole point (2026-09-15). This used to read the file
+  // in the describe body, so when `14f6e14` moved the schemas out of py-kit the
+  // throw happened at COLLECTION: the file never loaded, the suite reported
+  // 2516 passing AND exit 1, and no assertion anywhere named the cause. A guard
+  // that becomes unloadable when the thing it guards moves stops guarding and
+  // stops explaining in the same instant. Reading per test makes a moved module
+  // one legible failure.
+  const source = (): string => readWireModule("features");
 
-  it("mirrors py_kit.schemas.features.BODY_AFFECTING_FEATURE_TYPES exactly", () => {
-    // A REAL drift guard (AUDIT-ENGINEERING J5): this reads the py-kit module
+  it("mirrors loft_wire.features.BODY_AFFECTING_FEATURE_TYPES exactly", () => {
+    // A REAL drift guard (AUDIT-ENGINEERING J5): this reads the wire module
     // and compares the client set to what it actually declares, so adding a
     // body-affecting feature server-side and forgetting the client fails here.
     // Until 2026-07-30 it compared a hand-copy in this file to a hand-copy in
     // `face.ts` — BOTH inside apps/web — so backend drift could not fail it,
     // while the comment claimed "a member added on ONE side fails here".
-    const pyKit = pyKitBodyAffecting(source);
+    const wire = wireBodyAffecting(source());
     // Non-vacuity: a regex that silently matched nothing (or a set that stopped
     // being a frozenset literal) would make the equality below vacuously true.
-    expect(pyKit.length).toBeGreaterThan(15);
-    expect(new Set(pyKit).size).toBe(pyKit.length);
+    expect(wire.length).toBeGreaterThan(15);
+    expect(new Set(wire).size).toBe(wire.length);
     // Order-independent set equality: a member added on ONE side fails here.
-    expect([...BODY_AFFECTING_FEATURE_TYPES].sort()).toEqual([...pyKit].sort());
+    expect([...BODY_AFFECTING_FEATURE_TYPES].sort()).toEqual([...wire].sort());
   });
 
-  it("recognises every body-affecting type py-kit declares", () => {
+  it("recognises every body-affecting type loft_wire declares", () => {
     // The pick-anchor consequence, stated as behaviour: `lastBodyFeatureId`
     // must anchor to EACH of them, or a later face/edge pick lands on the wrong
     // body (subshape_unresolved / a bad write-time dependency).
-    for (const type of pyKitBodyAffecting(source)) {
+    for (const type of wireBodyAffecting(source())) {
       expect(lastBodyFeatureId([typed("x", type)])).toBe("x");
     }
   });
 
-  it("excludes the types py-kit deliberately leaves out", () => {
-    const pyKit = pyKitBodyAffecting(source);
-    expect(pyKit).not.toContain("sketch");
-    expect(pyKit).not.toContain("datum");
+  it("excludes the types loft_wire deliberately leaves out", () => {
+    const wire = wireBodyAffecting(source());
+    expect(wire).not.toContain("sketch");
+    expect(wire).not.toContain("datum");
   });
 
   it("excludes the non-body-affecting types", () => {

@@ -4,7 +4,7 @@
  * nothing here re-describes a shape the server already documents.
  *
  * The four decisions this layer is a client of are stated on the server
- * (`py_kit/schemas/folders.py`) and are worth repeating only where they change
+ * (`loft_wire/folders.py`) and are worth repeating only where they change
  * what a caller may DO:
  *
  * - a folder belongs to ONE drawer, so every call carries a `kind`;

@@ -50,7 +50,7 @@ describe("isStaleForTree", () => {
   });
 
   it("calls a FUTURE version stale too — undo/redo also bumps the counter", () => {
-    // py_kit's `is_stale_for_tree` compares by INEQUALITY for this reason: a
+    // loft_wire's `is_stale_for_tree` compares by INEQUALITY for this reason: a
     // body stamped with a version the part never reached is as unusable as an
     // old one. A `<` here would silently trust it.
     expect(isStaleForTree({ builtFromTreeVersion: 9, treeVersion: 7 })).toBe(

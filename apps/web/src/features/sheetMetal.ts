@@ -545,7 +545,7 @@ export function canSubmitEdgeFlange(
 export type HemType = SheetMetalHemParams["hem_type"];
 
 /**
- * THE HEM RADIUS RULE (HEM-1), mirrored from `py_kit.schemas.features`:
+ * THE HEM RADIUS RULE (HEM-1), mirrored from `loft_wire.features`:
  * `HEM_CLOSED_RADIUS_RATIO` / `HEM_CLOSED_MAX_RADIUS_RATIO` /
  * `HEM_OPEN_RADIUS_RATIO` and `resolve_hem_bend_radius_mm`.
  *
@@ -562,7 +562,7 @@ export type HemType = SheetMetalHemParams["hem_type"];
  * to state `0.5 × gauge` for a closed hem, i.e. the one value the evaluator
  * refuses by name). So the rule is written once HERE, for every hem string and
  * readout the UI shows, and `sheetMetal.test.ts` pins these three constants
- * against the py-kit source itself — a hand-maintained number that agrees with
+ * against the loft_wire source itself — a hand-maintained number that agrees with
  * the server today is the same defect with a later date on it.
  *
  * The client ADVISES; the evaluator DECIDES. `hemRadiusConflict` is stated in
