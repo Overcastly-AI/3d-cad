@@ -257,6 +257,16 @@ jobs:
         run: |
           python3 scripts/check-workflow-concurrency.py --self-test
           python3 scripts/check-workflow-concurrency.py
+      # A context used where it is NOT AVAILABLE is rejected by GitHub at
+      # run-creation: the run is created with `total_jobs: 0` and zero
+      # duration, and the entire file never executes. `${{ runner.temp }}` in a
+      # job-level `env:` did that to deploy-path.yml on 2026-09-15, taking its
+      # jobs down with it. Valid YAML, no duplicate keys, correct structure —
+      # nothing else we run can see it. Stdlib + PyYAML, ~40ms.
+      - name: Workflow context availability (+ prove the gate can fail)
+        run: |
+          python3 scripts/check-workflow-contexts.py --self-test
+          python3 scripts/check-workflow-contexts.py
       # No mutation/ablation/debug marker survives into committed source.
       # Mutation testing is mandatory here, so an agent stopped mid-mutation
       # leaves a defect that is by construction invisible to every gate except

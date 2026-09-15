@@ -100,6 +100,17 @@ lint:
     # on the per-SHA push / per-ref PR shape.
     python3 scripts/check-workflow-concurrency.py --self-test
     python3 scripts/check-workflow-concurrency.py
+    # ~40ms, and the same class again one level deeper: a context used where it
+    # is not AVAILABLE is rejected by GitHub at run-creation, so the run exists
+    # with `total_jobs: 0` and zero duration and the WHOLE FILE never executes.
+    # A `runner.temp` expression in a job-level `env:` did exactly that to
+    # deploy-path.yml on 2026-09-15 — taking down the jobs that were about to
+    # prove an unrelated container fix — and it is invisible to every other
+    # gate: valid YAML, no duplicate keys, correct job/step structure.
+    # (NB the braces are spelled out in prose here on purpose: `just`
+    # interpolates a doubled curly brace even inside a recipe comment.)
+    python3 scripts/check-workflow-contexts.py --self-test
+    python3 scripts/check-workflow-contexts.py
     # ~900ms for both, over 877 tracked source files. Closes the class that put
     # a stopped agent's mutation-test constant into product code on 2026-08-14:
     # a `// <marker>: always 0` in apps/web/e2e/diagnostics.ts survived lint,
