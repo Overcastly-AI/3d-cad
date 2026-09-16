@@ -340,11 +340,41 @@ def self_test() -> int:
 # copied by the Dockerfile that installs it.
 # ---------------------------------------------------------------------------
 
-#: The Dockerfile that installs the Python workspace, and the packages it
-#: builds. Both are read from the file itself where possible; this names the
-#: entry points, which are a build ARG and so cannot be.
+#: The Dockerfile that installs the Python workspace.
 _WORKSPACE_DOCKERFILE = "deploy/docker/service.Dockerfile"
-_WORKSPACE_ENTRY_POINTS = ("loft-gateway", "loft-documents", "loft-geometry")
+
+#: The directory every shipped service lives in. The entry points are DERIVED
+#: from it rather than listed — see `_service_entry_points`.
+_SERVICE_ROOT = "services/"
+
+
+def _service_entry_points(root: Path) -> tuple[str, ...]:
+    """Every workspace member under `services/` — i.e. one per service image.
+
+    DERIVED, not written down, and that is the whole point. This used to be the
+    literal tuple ``("loft-gateway", "loft-documents", "loft-geometry")``, so a
+    FOURTH service added under ``services/`` would not have been an entry point,
+    its private dependency closure would have been graded by nothing, and the
+    gate would have said `ok` — while its image failed at layer 2 in
+    `deploy-path`, the one place the failure is reachable.
+
+    The existing empty-closure guard could not have caught that either: it fires
+    only when ALL entry points vanish, which is the collapse case. A new service
+    is a GROWTH the hardcoded list cannot see, exactly as a moved package is a
+    shrink a total floor cannot see.
+
+    This is the same argument the module docstring makes for the COPY lines
+    themselves: a check that reads the same list the code reads can only tell
+    you the list is self-consistent. Ask what SHOULD be in it, from somewhere
+    else — here, the workspace manifest.
+    """
+    return tuple(
+        sorted(
+            name
+            for name, directory in _workspace_members(root).items()
+            if directory.as_posix().startswith(_SERVICE_ROOT)
+        )
+    )
 
 
 def _read_toml(path: Path) -> dict[str, object]:
@@ -438,7 +468,21 @@ def check_workspace_members(
         say(f"check-build-context: {_WORKSPACE_DOCKERFILE} is missing — REFUSING.")
         return 1
 
-    entry_points = entry_points or _WORKSPACE_ENTRY_POINTS
+    entry_points = entry_points or _service_entry_points(root)
+    if not entry_points:
+        # VACUITY, one level up from the closure guard below: if the DERIVATION
+        # finds no services, every closure is empty and every verdict is true of
+        # nothing. Distinguished from the closure case because the fix is
+        # different — this one means the workspace manifest or `services/`
+        # moved, not that a package name is wrong.
+        say(
+            "check-build-context: no uv workspace member lives under "
+            f"`{_SERVICE_ROOT}` — either [tool.uv.workspace].members no longer "
+            "covers the services or they moved. Deriving zero entry points "
+            "would make every 'all members are copied' verdict vacuous."
+        )
+        return 1
+
     closure = workspace_closure(root, entry_points)
     if not closure:
         # VACUITY. An empty closure makes "every member is copied" trivially
@@ -454,6 +498,9 @@ def check_workspace_members(
 
     copied = {source for _, source in copy_sources(dockerfile)}
     say(f"\n{_WORKSPACE_DOCKERFILE} — uv workspace closure")
+    # Print the DERIVED entry points: a derivation nobody can see is a list
+    # nobody can check, and adding a service should visibly change this line.
+    say(f"  entry points (derived from `{_SERVICE_ROOT}`): {', '.join(entry_points)}")
     failures: list[str] = []
     for name, directory in sorted(closure.items()):
         posix = directory.as_posix()
@@ -529,6 +576,53 @@ def _workspace_self_test() -> int:
         # would make every "all members are copied" verdict true of no members.
         empty = check_workspace_members(root, quiet=True, entry_points=("nope",))
         results.append(("an empty closure REFUSES rather than passing", empty == 1))
+
+        # THE DERIVATION CONTROL. A FOURTH service, with a private dependency
+        # that nothing COPYs. With entry points DERIVED from `services/` this
+        # must be graded and REFUSE; with the old hardcoded triple it was not
+        # an entry point at all, its closure was never walked, and the gate
+        # said `ok` while that image failed at layer 2.
+        #
+        # Note the existing guards cannot stand in for this: the closure is
+        # non-empty (the three known services are still there) and the total
+        # is healthy, so neither vacuity check fires. Growth is invisible to a
+        # guard that only detects collapse.
+        (root / "services/reports").mkdir(parents=True, exist_ok=True)
+        (root / "packages/report-kit").mkdir(parents=True, exist_ok=True)
+        # The new package must be a declared workspace member, or the closure
+        # would skip it and this control would pass for the wrong reason —
+        # a probe aimed past the thing it is testing.
+        (root / "pyproject.toml").write_text(
+            '[tool.uv.workspace]\nmembers = ["services/*", "packages/kit", '
+            '"packages/wire", "packages/report-kit"]\n'
+        )
+        (root / "packages/report-kit/pyproject.toml").write_text(
+            '[project]\nname = "loft-report-kit"\ndependencies = ["pydantic>=2"]\n'
+        )
+        (root / "services/reports/pyproject.toml").write_text(
+            '[project]\nname = "loft-reports"\ndependencies = ["loft-report-kit"]\n'
+        )
+        derived = _service_entry_points(root)
+        results.append(
+            (
+                "a new services/ member IS derived as an entry point "
+                f"(got {', '.join(derived) or 'nothing'})",
+                "loft-reports" in derived and "loft-gateway" in derived,
+            )
+        )
+        # `COPY services services` covers the new service's own tree, so the
+        # only uncopied member is its private dependency — which is exactly the
+        # shape of the real `loft-wire` defect.
+        grown = check_workspace_members(root, quiet=True)
+        results.append(("…and its uncopied private dependency REFUSES", grown == 1))
+
+        (root / "deploy/docker/service.Dockerfile").write_text(
+            without
+            + "COPY packages/wire packages/wire\n"
+            + "COPY packages/report-kit packages/report-kit\n"
+        )
+        healed = check_workspace_members(root, quiet=True)
+        results.append(("…and adding THAT COPY -> exit 0", healed == 0))
 
     for label, passed in results:
         print(f"  {'ok  ' if passed else 'FAIL'} {label}")
