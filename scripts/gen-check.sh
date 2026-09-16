@@ -75,7 +75,7 @@ if ! diff -ru "$src/packages/ts-client/src" "$tmp/ts-client-src"; then
   fail=1
 fi
 # The Python client's gateway operation table (routes only — the DTOs are
-# imported from py_kit.schemas, never regenerated; see gen-py-operations.py).
+# imported from loft_wire, never regenerated; see gen-py-operations.py).
 if ! diff -u "$src/packages/loft-script/src/loft/_operations.py" \
     "$tmp/loft-operations.py"; then
   fail=1

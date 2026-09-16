@@ -195,13 +195,33 @@ def _fetch(entry: dict[str, Any], cache: Path) -> Path:
     would make every historical number in docs/GEOMETRY-QA.md incomparable.
     """
     cache.mkdir(parents=True, exist_ok=True)
-    target = cache / f"{entry['name']}.stp"
+
+    # The manifest is committed and this is a dev script, so neither of these
+    # can fire today. They cost two lines and they close the hole permanently,
+    # rather than leaving it to depend on a property of the manifest that
+    # nothing enforces: a `name` is about to become a FILENAME and a `url` is
+    # about to be handed to `urlopen`, which also speaks `file:` and `ftp:`.
+    name = str(entry["name"])
+    if "/" in name or "\\" in name or name in ("", ".", ".."):
+        raise SystemExit(
+            f"gauntlet: manifest entry name {name!r} is not a bare filename "
+            "component — it would escape the fixture cache directory."
+        )
+    url = str(entry["url"])
+    if not url.startswith("https://"):
+        raise SystemExit(
+            f"gauntlet: manifest entry {name!r} has a non-https url {url!r}. "
+            "urlopen also opens `file:` and `ftp:`, so a fixture source must "
+            "say https:// explicitly."
+        )
+
+    target = cache / f"{name}.stp"
     if target.exists():
         digest = hashlib.sha256(target.read_bytes()).hexdigest()
         if digest == entry["sha256"]:
             return target
         target.unlink()
-    with urllib.request.urlopen(entry["url"], timeout=300) as response:
+    with urllib.request.urlopen(url, timeout=300) as response:
         payload = response.read()
     digest = hashlib.sha256(payload).hexdigest()
     if digest != entry["sha256"]:

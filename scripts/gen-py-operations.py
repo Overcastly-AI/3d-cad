@@ -7,7 +7,7 @@ TYPES and this one deliberately does not
 TypeScript cannot read a pydantic model, so the TS client has to re-materialise
 the wire types in its own language — that is the ONLY reason
 ``packages/ts-client`` is generated rather than imported. Python has no such
-problem: ``py_kit.schemas`` IS the source of truth, and
+problem: ``loft_wire`` (``packages/loft-wire``) IS the source of truth, and
 ``packages/loft-script`` imports those classes directly. Generating a second
 set of Python DTOs out of an OpenAPI document that was itself generated out of
 those same classes would be a round trip that can only LOSE information
