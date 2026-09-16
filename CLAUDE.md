@@ -1264,6 +1264,46 @@ recipe here in the same commit as the fix.**
   fixture that never reaches the path) and the downstream negative control (a
   probe injected past the guard) — a correct check pointed somewhere the defect
   is not.
+- **`instanceof` AGAINST A LIBRARY CLASS IS FALSE FOR A PERFECTLY GOOD OBJECT WHEN
+  THE LIBRARY SHIPS DUAL ESM/CJS BUILDS — AND IT FAILS SILENTLY, IN THE DIRECTION
+  THAT LOOKS LIKE NOTHING HAPPENING.** Found 2026-09-16 by the pick-mark portal
+  agent, in its own code: `camera instanceof PerspectiveCamera` decided whether a
+  mark got a depth-sorted `z-index`. `three@0.185.1`'s exports map is
+  `{".": {"import": "./build/three.module.js", "require": "./build/three.cjs"}}` —
+  ONE version, TWO builds, so `PerspectiveCamera` resolved through `require` is a
+  DIFFERENT class object from the one resolved through `import`, and an instance
+  of either fails `instanceof` against the other. There is no version conflict to
+  find and no lockfile to fix; a single pinned version is enough to produce it.
+  The failure has no symptom at the failure site. The test is simply false, the
+  `if` does not run, and every mark silently keeps whatever `z-index` it had —
+  restacking an overlay against the HUD with no error, no warning and no visibly
+  wrong value. That is what puts it in the "assertion that cannot observe its
+  failure mode" family rather than in the ordinary-bug pile.
+  **Use the library's own duck-typed flag**: three sets `isPerspectiveCamera` /
+  `isOrthographicCamera` / `isMesh` on the prototypes precisely because its
+  maintainers know this, and a flag is true across every copy. Same reasoning for
+  any library that ships both builds. The test that proves you fixed it is a
+  stand-in object carrying the FLAG that fails `toBeInstanceOf` — if your test
+  uses a real instance from the same import as the code, it cannot fail either way.
+  **The census is the part worth copying, because the first fix was one site of
+  fifteen.** `grep -rn 'instanceof '` over `apps/web/src` + `packages/design/src`
+  finds 15 three-class sites — 12 in `Viewport.tsx` alone, plus `SketchScene.tsx`,
+  `BenchBackdrop.tsx` and an `instanceof Mesh` in `glbGeometry.ts` — every one
+  carrying the same latent defect. Grep the CALL (`instanceof `), never a
+  particular class name. Note `instanceof` against a **browser/JS builtin**
+  (`HTMLElement`, `Error`, `Uint32Array`, `DOMException`) is FINE here: one realm,
+  one class object, no duality — so this is not a blanket ban on the operator, and
+  a sweep that treats it as one will churn 20 innocent sites.
+  **What is NOT established, stated so nobody quotes this as more than it is:**
+  the failure was reproduced in the TEST environment (vitest emits
+  `THREE.WARNING: Multiple instances of Three.js being imported`), where CJS
+  interop can pull the `.cjs` build. Whether it also bites the PRODUCTION bundle
+  depends on whether anything in the graph resolves `three` through `require`, and
+  **we cannot currently answer that, because our e2e only ever exercises the Vite
+  dev server and never the built `dist`** — which is open board item #66. So treat
+  it as confirmed-in-test and unknown-in-prod, and prefer the flag regardless: it
+  is correct in both worlds and costs nothing.
+
 - **A COUNT FLOOR IS A COLLAPSE DETECTOR. IT CANNOT CATCH A SHRINK, AND A
   REFACTOR PRODUCES SHRINKS.** Measured 2026-09-15, and it corrects the advice
   the orchestrator gave. Splitting 15 modules out of `packages/py-kit` into a
