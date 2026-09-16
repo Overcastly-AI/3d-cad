@@ -4327,3 +4327,253 @@ let an unhittable target fail.
 - The diameter/radius `text_pos` branch of the placing stage under real pointer
   input — only the linear `offset_mm` branch was driven by hand here.
 - Whether a placement survives a re-project (`L`) with the view moved.
+
+---
+
+## 2026-09-16 — W3-EXIT TOUCH PASS: A FINGER ON ALL NINE PARAMETRIC GAUGES
+
+**Why this pass exists.** Every reach measurement this project has taken on the
+gauges — `gaugeProbe.ts`, `gaugeReach.ts`, `extrude-grip-reach.spec.ts`,
+`craft9b-gauges.spec.ts`, `fillet-chamfer-gauge.spec.ts`, `draft-gauge.spec.ts`,
+`revolve-gauge.spec.ts`, `pattern-gauges.spec.ts` — was **mouse-driven**, at
+1280×800 and 1600×1000. A 24×24 grip is a fine mouse target and a failing touch
+target, so that entire evidence base is silent on the hand a tablet user has.
+The 2026-08-30 pass said so itself, under "Coverage this pass did NOT reach":
+*"Touch emulation on either surface (target sizes measured; no touch project)."*
+This is that project, for the nine gauge mounts.
+
+**Method.** `apps/web/e2e/gauge-touch.spec.ts` (52 cases) + `touchTargets.ts` +
+`gaugeMounts.ts`. A `hasTouch: true` context at 1280×800; real touch through
+CDP `Input.dispatchTouchEvent` (there is no Playwright touch-DRAG API, and a
+`page.mouse` drag at the same pixels proves nothing about a finger — it carries
+`pointerType: "mouse"`, is never subject to `touch-action`, and cannot be stolen
+by a scroll). **No `click({ force: true })` anywhere, and no `toBeVisible()`
+standing in for reachability.** Every reach number is
+`document.elementFromPoint` resolving to `[data-gauge="<id>"]` or
+`[data-testid="<id>"]`. The settle is named out loud (`expectGaugeSettled`),
+with a measured branch: the `data-edge-mark-seats` stamp is only written while
+edge marks are addressable, so six of the nine mounts have no rotating burial
+budget running at all and a bare `expectSeatsSettled` hangs its full 90 s
+ceiling there — the helper says which world it is in, in the log.
+
+### The census — nine mounts, 1280×800, touch context
+
+`w×h` in CSS px. `→` is what `document.elementFromPoint` returns at the
+control's own centre. `gap` is the edge-to-edge distance to the nearest OTHER
+measured target. `tap` is a real `Input.dispatchTouchEvent` sequence.
+
+| mount | grip w×h | grip → | readout w×h | readout → | gap grip↔readout | sleeve w×h | sleeve → | finger drag on grip | finger drag on shaft | tap opens numeric cell |
+|---|---|---|---|---|---|---|---|---|---|---|
+| extrude-depth | **24.0×24.0** | self | 102.4×28.0 | self | **2.8** | 12.0×79.5 | self | ✅ 30→35 | ✅ 30→50 | ❌ **0** (keyboard: 1) |
+| fillet-radius | **24.0×24.0** | self | 102.4×28.0 | self | 0.0 (to sleeve) | 165.0×21.2¹ | self | ✅ 8→11.5 | ✅ 8→11.5 | ❌ **0** (keyboard: 1) |
+| chamfer-distance | **24.0×24.0** | self | 102.4×28.0 | self | 0.0 (to sleeve) | 165.0×21.2¹ | self | ✅ 8→12 | ✅ 8→11.5 | ❌ **0** (keyboard: 1) |
+| shell-thickness | **24.0×24.0** | self | 102.4×28.0 | self | **2.8** | 12.0×63.8 | self | ✅ 6→14 | ✅ 6→13 | ❌ **0** (keyboard: 1) |
+| revolve-angle (@120°) | **24.0×24.0** | self | 68.9×28.0 | self | **2.8** | 109.1×17.0¹ ×32 bands | self | ✅ 120→125 | ✅ 120→150 | ❌ **0** (keyboard: 1) |
+| draft-angle | **24.0×24.0** | self | 68.9×28.0 | self | **2.8** | 10.4×13.4¹ ×2 bands | **draft-angle-handle** | ✅ 3→30 | ✅ 3→25 | ❌ **0** (keyboard: 1) |
+| datum-offset | **24.0×24.0** | self | 102.4×28.0 | self | **2.8** | 12.0×267.3 | self | ✅ 25→32 | ✅ 25→33 | ❌ **0** (keyboard: 1) |
+| pattern-count-gauge | **24.0×24.0** | **timeline-way** | absent (`tag="none"`, by design) | — | 99.6 | 429.7×130.1¹ | **view-projection** | ❌ **`data-grabbed=false`, 3→3** | ❌ **→ view-bar, 3→3** | n/a (no tag; number is panel-only) |
+| pattern-spacing-gauge | **24.0×24.0** | self | 102.4×28.0 | self | **2.8** | 175.4×59.4¹ | self | ✅ 10→15 | ✅ 10→14 | ❌ **0** (keyboard: 1) |
+
+¹ **Read these AABBs with care and do not quote them as target thickness.** A
+band rotated on screen reports an axis-aligned bounding box that inflates BOTH
+axes. The real band thickness is `SLEEVE_MIN_PX = 12` (or the drawn width where
+that is wider). Only the three axis-aligned rows — extrude 12.0, shell 12.0,
+datum 12.0 — state the thickness directly. The arc bands, measured individually
+on the 360° revolve ring, run **6.1 to 12.9 px**.
+
+Also measured on every mount and clean: `{id}-steps`, the `aria-describedby`
+step sentence, is **1.0×1.0 at gap 0.0 from the grip** — the exact shape of the
+`sr-only` control this repo has been fooled by before. It is checked here rather
+than assumed: `elementFromPoint` at its centre returns `viewport`, so it is not
+a pointer target and steals nothing. Not a defect; recorded so the next audit
+does not have to re-derive it.
+
+### Findings, prioritised
+
+**P1-T1 — every gauge grip is 24×24: WCAG 2.2 AA exactly, and 20 px under the
+touch floor. All nine mounts, identical number.**
+`AxisGrip` renders `h-6 w-6` and its own doc comment cites SC 2.5.8, which is
+the 24 px *conformance* floor — the size below which a target is a failure, not
+the size at which a finger can use it. The touch figure is 44 (SC 2.5.5 AAA /
+Apple HIG; Material says 48). A gauge is a precision instrument used one-handed
+on a tablet while the other hand holds the device, and it is being graded
+against the failure floor.
+*Evidence:* `the grip meets the touch target floor` × 9, `Expected: >= 44,
+Received: 24`.
+*System-level fix — repair the primitive, not nine instances:*
+`packages/design/src/primitives/AxisGrip.tsx`. The 24 px box is a transparent
+target around a 12 px collar, so growing it to 44 under
+`@media (pointer: coarse)` changes **no ink at all** — the collar, the ring and
+the states are untouched. That needs a `coarse:` variant in
+`packages/design/src/tailwind-preset.ts` (this theme's scales are closed, so an
+ungenerated utility emits no rule — the third zero-area mechanism in this repo's
+history; add the variant, then use it). One edit covers every mount, present and
+future.
+
+**P1-T2 — the pattern COUNT instrument is not a control at all: its grip's own
+centre resolves to `timeline-way`, and a real touch never reaches it.**
+`data-grabbed` stayed `false` through a full touchStart/move/end on the grip's
+centre, and the value stayed at 3 in **both** drag directions. The shaft
+midpoint resolves to `view-bar`. The far rail is drawn into the bottom chrome
+band.
+*And it is NOT responsive.* The first reading was at 1280×800 and the obvious
+diagnosis was a small-laptop layout bug — an instrument that fits at the
+1600×1000 every existing gauge spec happens to run at and falls off the floor we
+promise. Measured at both: **24.0×24.0 at (929,758) → `timeline-way`** and
+**24.0×24.0 at (1192,984) → `timeline-way`**. Same occluder, both widths. The
+pair is in the spec permanently, because a lone "unreachable at 1280" sends the
+fix to a breakpoint instead of to the rail's seat.
+*This is a MOUSE defect too* — `elementFromPoint` knows nothing about pointer
+type — so it is not a touch finding that happens to also affect mice; it is an
+un-grabbable instrument that a touch pass happened to be the first to look at.
+*Why the existing gate missed it:* `pattern-gauges.spec.ts` asserts reach with
+`expectReach`, which counts `[data-gauge]` hits at 16 points **along the track**
+against a floor of 12/16. The count rail's sleeve AABB is 429.7×130.1, so enough
+of the long band clears the chrome to pass the floor while the **grip** — the
+one element that carries focus, the keyboard and the ARIA — is buried. A track
+census cannot see a buried apex. Recommend `expectReach` grow a companion
+assertion that the grip's own centre resolves to its own gauge.
+*System-level fix:* `apps/web/src/viewport/PatternGaugeLayer.tsx` — the far
+rail's seat must clear the bottom chrome band; or, more durably, the chrome
+strips that overhang the viewport should not claim pointer events over it.
+
+**P1-T3 — there is no touch route to numeric entry on any gauge. Precision
+input is physical-keyboard-only.**
+Tapping the readout opens **0** input cells on all eight tagged mounts. The
+companion in the same case, in the same state, on the same locator, seconds
+earlier: a keyboard digit opens exactly **1**. So the zero is a statement about
+the product, not a broken probe.
+The mechanism is in the primitive: `DimensionTagCell`'s rest branch renders a
+`<span aria-hidden>` — not a control, nothing to focus, no tap handler — and the
+only way into the edit branch is `useGlobalKeys` matching `/^[0-9.]$/` on a
+physical key. A tablet has no physical keyboard. The design mandate calls the
+numeric field "the precision fallback" for direct manipulation; on touch the
+fallback does not exist, so a gauge is a drag and nothing else.
+*Note the same `aria-hidden` also hides the number from assistive tech at rest.*
+That is survivable — the value travels on the slider's `aria-valuetext` — but it
+means the strip is decoration to every non-visual consumer.
+*System-level fix:* `packages/design/src/primitives/DimensionTag.tsx`. Make the
+rest cell a real focusable control (a `button` that swaps to the input on
+activate) rather than an `aria-hidden` span, and have `ParametricGauge` open the
+cell on its `onClick` as well as on a digit. One primitive, eight mounts.
+
+**P2-T4 — the readout sits 2.8 px from the grip: two touch targets with no
+channel between them.**
+Six of nine mounts measure a 2.8 px edge-to-edge gap between the 24×24 grip and
+the 102.4×28.0 (or 68.9×28.0) tag strip, and the strip is `pointer-events-auto`
+because it is a control. Two 44 px targets 2 px apart are one ambiguous target;
+these are 24 and 28 px targets 2.8 px apart. On a tablet a press meant for the
+number lands on the grip and **starts a drag** — i.e. the ambiguity does not
+merely mis-target, it silently edits the model. (Fixing P1-T3 makes this worse,
+not better: it turns the strip into a target people actually aim at.)
+*System-level fix:* the tag's offset comes from `packages/design/src/gauge.ts`
+(`placeGaugeTag`), which is the right place for a pointer-aware minimum
+separation — the leader already exists to keep the tag legible while detached,
+so moving it further costs nothing in comprehension.
+
+**P2-T5 — the hit sleeve is 12 px, and its stated justification no longer
+holds.**
+`SLEEVE_MIN_PX = 12` in `ParametricGauge.tsx`, with the comment: *"It is
+deliberately NOT the 24 px dense-target floor: the sleeve is a SECOND route to a
+control that already meets it (the grip is 24 × 24 at every size)."* That
+reasoning is exactly right for a mouse and false for a finger: the grip meets
+the 24 floor and neither route meets 44, so on touch **both** routes to the
+value are under-sized. Measured: 12.0 px on the three axis-aligned tracks, and
+6.1–12.9 px per band on the 360° revolve ring.
+*System-level fix:* make the floor pointer-aware in the same change as P1-T1, so
+the two numbers keep their stated relationship instead of drifting apart.
+
+**P2-T6 — a full-turn revolve ring sweeps across three chrome surfaces, and
+whether it does depends on the run.**
+At the seeded 360° — the angle pressing "Revolve" actually gives you, and one no
+gauge spec had ever measured — a 16-point census of the drawn ring returned
+**14/16, 14/16, 13/16** over three consecutive runs. The 13 named its thieves:
+`revolve-submit` (the command's own Submit button), a feature-tree
+`sketch-row-…`, and `view-front`. So a finger aimed at the ring can land on
+Submit, which does not drag the angle — it **commits the feature**.
+*How this was nearly mis-filed, because the lesson generalises:* the first
+version of this case pressed the ring's MIDPOINT, the way the straight-track
+case does. It reported `revolve-submit` once and passed the next run with the
+midpoint 282 px away. A full turn is a CLOSED loop, so "the midpoint" is just
+the point opposite the seat and where it lands is a function of the fitted
+camera — **one sample of a ring is a coin toss dressed as a measurement**, and
+it would have filed an intermittent as a hard defect or gone green and hidden a
+real overlap. The committed case walks the whole ring.
+*System-level fix:* the arc gauge should not be laid out across the editor
+panel's own footprint; failing that, `revolve-submit` and the view bar should
+not sit above an active manipulator in the stacking order.
+
+**P3-T7 — `view-iso` + `waitForCameraRest` produces two different framings for
+the same part across runs.** The 360° ring's projected midpoint moved from
+(273,505) to (555,487) between otherwise identical runs, which is what made
+P2-T6 intermittent. Something in the fit races the preview's arrival. Not a
+touch finding; it makes every screen-position assertion in the suite less
+reproducible than it looks.
+
+**P3-T8 — on `draft-angle` the drawn track is not the target; the grip is.**
+Both sleeve bands (10.4×13.4 and 8.2×12.2) resolve to `draft-angle-handle` —
+at the 3° seed the arc is shorter than the grip that sits on it, so the grip
+covers the whole instrument. The drag still works (3→30 from the "shaft"), so
+nothing is broken; but "the drawn track IS the target", which CRAFT-7 bought at
+some cost, is not true for draft at small angles, and a reach census there is
+measuring the grip.
+
+### Running component checklist (delta)
+
+- 🔴 `packages/design` `AxisGrip` — P1-T1 (24×24 on all nine mounts; no coarse-pointer size)
+- 🔴 `packages/design` `DimensionTag` / `DimensionTagCell` — P1-T3 (rest cell is an `aria-hidden` span; no tap route to numeric entry)
+- 🔴 `packages/design` `gauge.ts` (`placeGaugeTag`) — P2-T4 (2.8 px between two live targets)
+- 🔴 `apps/web` `PatternGaugeLayer` — P1-T2 (count rail's grip resolves to `timeline-way` at both widths; `data-grabbed=false` under a real finger)
+- 🔴 `apps/web` `ParametricGauge` `SLEEVE_MIN_PX` — P2-T5 (12 px, justified by a grip floor that touch does not meet)
+- 🔴 `apps/web` `RevolveGauge` at 360° — P2-T6 (ring crosses `revolve-submit`, the feature tree and the view bar)
+- 🟡 `apps/web` `DraftGauge` — P3-T8 (track is shorter than its own grip at the seed angle)
+- ✅ Touch DRAG on eight of nine mounts — real `Input.dispatchTouchEvent`, value moves, `data-grabbed=true`. The gesture itself is sound; `touch-none` is correctly set on both the grip and the bands, so nothing is stolen by scroll.
+- ✅ `{id}-steps` sr-only hint — 1×1 at gap 0.0 from the grip and NOT a pointer target (`elementFromPoint` → `viewport`). Checked, not assumed.
+- ✅ `pattern` two-instrument spacing — 99.6 px between the count grip and its nearest neighbour; no ambiguity between the two instruments.
+
+### Negative controls — every new assertion has been seen to fail
+
+Three of the new assertions passed on the live app from their first run, which
+is the shape of an assertion that can never fire. They are exercised against a
+deliberately broken input in `the probes' own negative controls`:
+
+- **zero-area guard** — `width: 0 !important` injected on a live grip: measured
+  `0×24`, guard fires.
+  **And the same control refuted an assumption:** `elementFromPoint` at the
+  centre of that starved box STILL resolves to the grip (`reaches=true`),
+  because a 0×24 box's "centre" is a point on its own left edge and the 12 px
+  collar child overflows past it. **So the reach check cannot stand in for the
+  area check** — both guards are independently necessary, and a probe that only
+  asked "what is under the centre" would have caught none of this repo's four
+  shipped zero-area controls.
+- **spacing floor** — driven through `nearestGap`, the function the assertion
+  reads: two 24 px grips with a 2 px gutter report 2. (Deliberately not by
+  nudging a DOM node in the live scene: measured, drei `Html` gives every mount
+  a *transformed* container, so a `position: fixed` child lands 1332 px away
+  instead of 2 — a negative control that silently tests nothing.)
+- **coverage** — drop a mount from the table and the check NAMES the hole.
+
+The rest were born red against the real app (44 px floor × 9, the count grip's
+reach, both count drags, the tap on eight readouts), so they have already
+demonstrated they can observe their subject. The 22 known-failing cases carry
+`test.fail()` with the finding id, split so that **each annotation covers one
+assertion** — a case marked expected-fail is satisfied by failing anywhere, so
+bundling the touch floor with the zero-area and reach guards would have let a
+future zero-area regression hide inside an annotation written about target size.
+When a gap closes, its case reddens for PASSING and the annotation has to come
+off. Full suite: **52 passed, exit 0** (`just lint` green).
+
+### Coverage this pass did NOT reach
+
+- **Only the nine gauge mounts.** The sketch DRO, the drawing sheet's pick
+  targets, the feature tree and the command band are untouched by this pass and
+  are still mouse-only evidence.
+- **One tablet profile.** 1280×800 with `hasTouch`, `deviceScaleFactor: 1`, no
+  `isMobile`, no real device-pixel-ratio and no on-screen keyboard. A physical
+  iPad's OSK would cover the lower viewport, which is exactly where P1-T2 lives.
+- **No multi-touch.** Pinch-zoom and two-finger orbit while a gauge is grabbed
+  are unmeasured; the CDP helper dispatches one touch point.
+- **No `prefers-reduced-motion` leg** — `GaugeTag` documents that it has no
+  motion to reduce, which is checked in source and not in the browser here.
+- **Contrast of the gauge ink against a lit aluminium face** was not sampled;
+  this pass measured targets and reach only.
