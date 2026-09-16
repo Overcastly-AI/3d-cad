@@ -130,16 +130,51 @@ describe("useAskQueue", () => {
     expect(h.actions().readBase()).toBe(20);
   });
 
-  it("keeps base on what the drag ended at, then defers to the prop", () => {
+  it("keeps drawing what the drag ended at until the owner answers", () => {
+    // THE MEASURED DEFECT, as a unit case. This used to assert `shown() === 10`
+    // — the owner's stale echo — and that assertion was the springback: in a
+    // real browser the rod reverted a step on pointer-up and held the wrong
+    // number for 236-241 ms while the panel already read the new one.
     const h = harness(10);
     h.state.dragging = true;
     act(() => h.actions().hold());
     act(() => h.actions().ask(12.4713)); // a free (Ctrl) drag
     h.state.dragging = false;
     act(() => h.actions().release());
-    // The first arrow press afterwards steps off what you dragged to.
+    // The first arrow press afterwards steps off what you dragged to...
     expect(h.actions().readBase()).toBe(12.4713);
-    expect(h.shown()).toBe(10); // ...while the arrow defers to the prop again
+    // ...and the arrow keeps DRAWING it rather than reverting to a prop that
+    // has not caught up yet.
+    expect(h.shown()).toBe(12.4713);
+    // The owner echoing retires the ask, and nothing moves on screen.
+    h.echo(12.4713);
+    expect(h.shown()).toBe(12.4713);
+  });
+
+  it("the owner still wins a release it disagrees with — by SPEAKING", () => {
+    // The sovereignty half of the release change: holding the last ask must not
+    // become "the gauge ignores a clamp". A max of 12 answers 12.4713 with 12,
+    // and the gauge takes it.
+    const h = harness(10);
+    h.state.dragging = true;
+    act(() => h.actions().hold());
+    act(() => h.actions().ask(12.4713));
+    h.state.dragging = false;
+    act(() => h.actions().release());
+    h.echo(12); // the owner clamps
+    expect(h.shown()).toBe(12);
+    expect(h.actions().readBase()).toBe(12);
+  });
+
+  it("a release with nothing dragged leaves the prop in charge", () => {
+    // `endDrag` also runs on the no-button backstop and on pointercancel, where
+    // there may have been no ask at all. Re-recording `base` must be a no-op
+    // there rather than pinning the gauge to a value nobody asked for.
+    const h = harness(10);
+    act(() => h.actions().release());
+    expect(h.shown()).toBe(10);
+    h.echo(31); // a stranger's edit still lands
+    expect(h.shown()).toBe(31);
   });
 
   it("taking the grip shows BASE, not the prop", () => {

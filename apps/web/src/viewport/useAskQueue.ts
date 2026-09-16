@@ -35,6 +35,44 @@
  * because the effect that reads it runs after the commit of the render that
  * changed `value`, i.e. it sees exactly what the closure would have seen.
  *
+ * ## LETTING GO IS NOT AN ANSWER (CRAFT-13 follow-up, measured 2026-09-16)
+ *
+ * `shown` is `live ?? value`, and `release` used to drop `live` outright — so
+ * the instant the pointer came up, the gauge asserted the owner's LAST ECHO.
+ * That echo is structurally behind: the drag's final ask reaches the panel
+ * field in one commit and the gauge's own `value` prop only after the owner has
+ * re-derived it (override -> editor form -> parse -> page state -> prop). In
+ * between, the gauge drew a number the user had already dragged past, while the
+ * panel beside it drew the right one — two dialects of one value on screen at
+ * once, which is worse than either being slow.
+ *
+ * Measured in a real browser at 1280x800, sampling the DRAWN rod (`scale.y` off
+ * the scene graph) and the panel input on every animation frame, against the
+ * r3f render clock:
+ *
+ * | gauge          | panel settles | rod shows the OLD value | rod settles |
+ * | -------------- | ------------- | ----------------------- | ----------- |
+ * | shell thickness| +8.7 ms       | +109.6 .. +350.7 ms      | +350.7 ms   |
+ * | extrude depth  | +4.9 ms       | +15.2 .. +251.0 ms       | +251.0 ms   |
+ *
+ * i.e. the rod REVERTED a step after release and held the wrong number for
+ * 236-241 ms. The wall figure is machine- and build-dependent (each of those
+ * commits cost 50-115 ms here); the machine-independent statement is that the
+ * rod was TWO RENDERS stale, and no amount of faster rendering makes zero out
+ * of two.
+ *
+ * So a release no longer abandons the ask. The final value stays OUTSTANDING
+ * and `acknowledgeAsk` retires it when the owner echoes — or overrides it when
+ * the owner answers with something else, which is the case that keeps the owner
+ * sovereign: a clamp, a snap or a refusal still wins, it simply has to WIN BY
+ * SPEAKING rather than by the gauge reading silence as disagreement.
+ *
+ * The cost of the change, stated because it is real: a mount whose echo is
+ * never wired no longer springs back, so it no longer advertises its own
+ * missing wiring. That contract is asserted where it belongs instead —
+ * `useGaugeOverride`'s cases and the per-verb e2e contract-β cases, which check
+ * the FIELD and the ROD, not the rod alone.
+ *
  * ## The actions object is referentially STABLE
  *
  * Same shape and same reason as `useGaugeOverride`: `[shown, actions]`, the
@@ -80,7 +118,10 @@ export interface AskQueueActions {
   ask: (next: number) => void;
   /** The grip has been taken: show `base` rather than the prop. */
   hold: () => void;
-  /** The pointer is done authoring: abandon the queue, keep `base`. */
+  /**
+   * The pointer is done authoring. The drag's FINAL ask stays outstanding —
+   * see {@link useAskQueue}'s note on why letting go is not an answer.
+   */
   release: () => void;
 }
 
@@ -117,7 +158,17 @@ export function useAskQueue({
         latest.current.onChange(next);
       },
       hold: () => apply(holdAsks(queueRef.current)),
-      release: () => apply(releaseAsks(queueRef.current)),
+      // LETTING GO IS NOT AN ANSWER — see the module note. `releaseAsks` empties
+      // the per-frame queue (the right thing: those frames are gone), and the
+      // final ask is then re-recorded as ONE outstanding, non-authoring ask, so
+      // the instrument keeps drawing what the drag ended on until the owner
+      // actually says something. Composed from the published rules rather than
+      // written as a sixth one, so `@loft/design`'s cases still describe every
+      // transition this hook can make.
+      release: () => {
+        const ended = queueRef.current.base;
+        apply(recordAsk(releaseAsks(queueRef.current), ended, false));
+      },
     }),
     [apply],
   );
