@@ -1294,15 +1294,31 @@ recipe here in the same commit as the fix.**
   (`HTMLElement`, `Error`, `Uint32Array`, `DOMException`) is FINE here: one realm,
   one class object, no duality — so this is not a blanket ban on the operator, and
   a sweep that treats it as one will churn 20 innocent sites.
-  **What is NOT established, stated so nobody quotes this as more than it is:**
-  the failure was reproduced in the TEST environment (vitest emits
-  `THREE.WARNING: Multiple instances of Three.js being imported`), where CJS
-  interop can pull the `.cjs` build. Whether it also bites the PRODUCTION bundle
-  depends on whether anything in the graph resolves `three` through `require`, and
-  **we cannot currently answer that, because our e2e only ever exercises the Vite
-  dev server and never the built `dist`** — which is open board item #66. So treat
-  it as confirmed-in-test and unknown-in-prod, and prefer the flag regardless: it
-  is correct in both worlds and costs nothing.
+  **CORRECTED within the hour by the agent that found it, because my first version
+  said "unknown in production" and that was a failure to measure, not a real
+  unknown — and it would have sent someone to sweep 15 sites at a priority they
+  do not deserve.** Measured: exactly ONE `three` is installed
+  (`node_modules/.pnpm/three@0.185.1`) and only `apps/web` depends on it, so the
+  Vite app bundle has a single module graph and **`instanceof` against a three
+  class is CORRECT in the shipped app today.** Those 15 sites are LATENT, not
+  broken.
+  Where it actually bites is **vitest**, where `@react-three/fiber` resolves to
+  its CJS dev build and pulls a second module record of the SAME package. Probed
+  against a real r3f root: `isPerspectiveCamera: true`, **`instanceof
+  PerspectiveCamera: false`**, `constructor === PerspectiveCamera: false`,
+  `constructor.name: "PerspectiveCamera"` — a genuine camera failing the check,
+  silently.
+  **So the durable rule is narrower and sharper than "instanceof is unsafe": a
+  dual ESM/CJS pair of the SAME package produces two classes of the same name, and
+  no version pin fixes it because there is no version skew to fix.** Two
+  consequences, and the second is the one that will actually save somebody a day:
+  (a) use the duck-typed flags in any code that must survive both module graphs,
+  which is what three does internally; (b) **the moment anyone writes a unit test
+  for `Viewport.tsx`'s camera logic, all 13 of its sites will start failing
+  inexplicably** — the app is fine, the test environment is not, and the natural
+  diagnosis ("my mock is wrong") is wrong. That is why this entry says the app is
+  FINE and why a new test breaks anyway; a rule that only said "instanceof is
+  dangerous" would have left the next agent debugging the wrong thing.
 
 - **A COUNT FLOOR IS A COLLAPSE DETECTOR. IT CANNOT CATCH A SHRINK, AND A
   REFACTOR PRODUCES SHRINKS.** Measured 2026-09-15, and it corrects the advice
