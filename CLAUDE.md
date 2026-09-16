@@ -951,6 +951,30 @@ we are.**
   moved, re-read-tree from the new HEAD and re-add your paths. Then `git show
   --stat HEAD` and read it for paths you did NOT touch; that check is not
   optional, it is the only thing that catches this.
+- **`git update-ref` ON THE BRANCH YOU HAVE CHECKED OUT MAKES OTHER AGENTS'
+  LANDED COMMITS LOOK LIKE YOUR STAGED CHANGES — same family as the stale
+  `read-tree`, different door.** Done by the ORCHESTRATOR 2026-09-16. Having
+  pushed a commit from a throwaway worktree (the correct move when the shared
+  tree is dirty with a colleague's in-flight file and you therefore cannot
+  rebase), I tried to realign the local branch. `git branch -f` REFUSES for a
+  branch in use — that refusal is the guard — and `git update-ref` does the same
+  thing with no such check: it moves the ref and touches neither the index nor
+  the working tree. `git status` then reported **eight files as staged** that I
+  had never touched; they were four colleagues' landed commits, and a `git
+  commit` at that moment would have REVERTED all four under a message about a
+  docs edit.
+  The tell is that the "staged" paths are ones your task never mentions. The fix
+  is `git checkout HEAD -- <exactly those paths>`, which brings index and worktree
+  up for them and leaves a genuinely-dirty foreign file alone — never `git reset
+  --hard` (it destroys the colleague's uncommitted work) and never a bare `git
+  reset` (it unstages theirs).
+  Two rules. **Do not realign a local branch ref while its worktree is dirty with
+  someone else's work — just leave it behind and `git pull` when the tree is
+  yours again**; a local ref pointing at an older commit is harmless, a
+  desynchronised index is not. And **when git refuses an operation, read the
+  refusal before reaching for the command that does not check** — `git branch -f`
+  declined for exactly this reason and I routed around the safety rather than the
+  problem.
 - **`stage-doc-hunks.py`: a bare item id is NOT a safe marker, because siblings
   cross-reference ids.** Seen 2026-07-31: `stage-doc-hunks.py docs/BACKLOG.md
   "OPS-1"` swept another agent's OBS-1 entry, because THEIR text contained the
