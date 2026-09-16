@@ -408,6 +408,33 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   ANSWER, not a cheap QUESTION. Ask it once per integration pass rather than on
   every wake, and remember there is no way to be woken by a CI transition, so
   the alternative to patience is spending context on impatience.
+  **SUPERSEDED 2026-09-16 — THE `status` PARAMETER IS IGNORED, EXACTLY LIKE
+  `per_page`, SO THE "FILTER BY `in_progress`" RECIPE ABOVE IS DEAD.** Measured
+  with a control, because a claim about a tool needs one: two calls differing
+  ONLY in `status` (`"in_progress"` then `"completed"`), same branch, same
+  minute, returned **byte-identical 126 225-byte spills** (`cmp -s` clean), both
+  carrying the same 30 rows, every one of them `completed`. A filter that
+  returns rows it was asked to exclude is not filtering.
+  Know which direction this fails in, because it is not the harmless one. The
+  old recipe reads an EMPTY listing as "nothing is running". The filter being
+  inert means the listing is **never** empty, so that question can no longer be
+  asked at all — and the rows you get back are COMPLETED runs wearing the label
+  you requested, so a reader following the old recipe would treat finished runs
+  as in-flight, or worse, poll forever waiting for a list that cannot empty.
+  **What to do instead, and it is no more expensive than the thing it replaces:
+  ONE `list_workflow_runs` call with the branch filter, let it spill, and parse
+  the spill for `head_sha` + `status` + `conclusion` together.** All three
+  fields are present (re-confirmed today), so a single call gives the whole
+  board, and the spill means the 126 KB never enters context — the cost is the
+  error message plus your own `python3` print, which is a few hundred tokens for
+  thirty runs. Completion is then `status == "completed"` read off the row you
+  already have, rather than a second call that does not work.
+  The durable half is the same lesson the `conclusion`-disappeared-and-came-back
+  entry above teaches, now with a second instance: **the parameters this tool
+  documents are not all honoured, and a silently-ignored filter is
+  success-shaped.** `per_page` was the first, `status` is the second. Before
+  believing any new filter argument, run it twice with two values that MUST
+  disagree and compare the bytes; if they match, the argument did nothing.
   **A FAST GREEN IS TOLD FROM AN ALL-SKIPPED GREEN BY STEP DURATION, and
   `deploy-path` is routinely fast for real.** Its nine runs today finished in
   under three minutes each, which looks exactly like the every-job-skipped shape
