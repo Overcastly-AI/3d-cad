@@ -90,8 +90,41 @@ class Gateway(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+#: What nginx's server block adds, and what every location that re-adds ANY
+#: header must therefore re-add in full. Modelled here because the discard rule
+#: is a RUNTIME property of nginx that no static read of the config can see.
+SECURITY_HEADERS = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
+    ("Referrer-Policy", "no-referrer"),
+)
+
+
 class Web(Gateway):
     gateway_port = 0
+
+    def send(self, status: int, body: bytes, content_type: str) -> None:
+        """Every response the web edge emits carries the server-level headers.
+
+        The `drop-*` scenarios reproduce the real defect: a `location` that
+        re-adds only `nosniff` and so discards the inherited `X-Frame-Options`
+        and `Referrer-Policy`. That is what `/assets/` and `/api/` did, and it
+        is invisible to `nginx -t` and to any config parse — only a response
+        can show it, which is why this stub is the only place a contributor can
+        watch the assertion fail.
+        """
+        dropped = (
+            self.scenario == "drop-asset-headers" and self.path.startswith("/assets/")
+        ) or (self.scenario == "drop-api-headers" and self.path.startswith("/api/"))
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        for name, value in SECURITY_HEADERS:
+            if dropped and name != "X-Content-Type-Options":
+                continue
+            self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_GET(self) -> None:
         if self.path.startswith("/api/"):
@@ -155,6 +188,12 @@ SCENARIOS = {
     "stock-index": False,
     "explorer-live": False,
     "dead-gateway": False,
+    # The nginx add_header discard rule, one scenario per location that had it
+    # wrong. Separate because each is reached by a different assertion, and a
+    # single combined scenario would stop at whichever fires first — proving
+    # only that ONE of the two checks works.
+    "drop-asset-headers": False,
+    "drop-api-headers": False,
 }
 
 

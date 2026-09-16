@@ -44,11 +44,35 @@ HOST="${SMOKE_HOST:-127.0.0.1}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-fetch() { curl -sS -o "$2" -w '%{http_code}' "$1"; }
+fetch() { curl -sS -o "$2" -D "$2.hdr" -w '%{http_code}' "$1"; }
 
 fail() {
   echo "web-smoke: $*" >&2
   exit 1
+}
+
+# nginx's `add_header` is NOT additive across levels: a location with ANY
+# `add_header` of its own discards every inherited one. So a location that
+# re-adds a SUBSET silently serves without the rest, and the config looks
+# careful while doing it — `/assets/` and `/api/` each re-added only
+# `nosniff` and therefore dropped the other two (found 2026-09-16).
+#
+# deploy/docker/web/nginx.conf documents that rule in a comment. A comment is
+# not a gate; this is. It runs against the REAL container in compose-smoke,
+# which is the only thing that can observe a response header — the rule is a
+# RUNTIME property of nginx, so neither `nginx -t` nor any static read of the
+# config can see it.
+want_header() {
+  local label="$1" hdrs="$2" name="$3" value="$4"
+  grep -qi "^${name}:[[:space:]]*${value}[[:space:]]*\$" "$hdrs" ||
+    fail "$label did not carry '${name}: ${value}'. nginx's add_header is not additive across levels — a location with any add_header of its own discards ALL inherited ones, so re-adding a subset drops the rest silently (deploy/docker/web/nginx.conf)."
+}
+
+assert_security_headers() {
+  local label="$1" hdrs="$2"
+  want_header "$label" "$hdrs" "X-Content-Type-Options" "nosniff"
+  want_header "$label" "$hdrs" "X-Frame-Options" "DENY"
+  want_header "$label" "$hdrs" "Referrer-Policy" "no-referrer"
 }
 
 run_checks() {
@@ -62,7 +86,8 @@ run_checks() {
     fail "the web root is not the SPA entry document (no #root mount point) — a directory listing or a stock server page answers 200 too"
   grep -q "<title>Loft</title>" "$tmp/index.html" ||
     fail "the entry document is not Loft's"
-  echo "  ok  / -> 200, $(wc -c <"$tmp/index.html") bytes, carries #root"
+  assert_security_headers "the entry document" "$tmp/index.html.hdr"
+  echo "  ok  / -> 200, $(wc -c <"$tmp/index.html") bytes, carries #root, 3 security headers"
 
   # The bundle is named BY THE DOCUMENT rather than guessed: a build whose
   # asset never reached the image would still serve a perfectly good
@@ -84,7 +109,10 @@ run_checks() {
   fi
   bytes=$(wc -c <"$tmp/bundle.js")
   ((bytes > 100000)) || fail "$asset is only $bytes bytes — that is not the app bundle"
-  echo "  ok  $asset -> 200, $bytes bytes, not HTML"
+  # `location /assets/` re-adds Cache-Control, so by the discard rule it must
+  # re-add all three security headers too — it re-added exactly one.
+  assert_security_headers "$asset" "$tmp/bundle.js.hdr"
+  echo "  ok  $asset -> 200, $bytes bytes, not HTML, 3 security headers"
 
   code=$(fetch "$web/assets/this-file-does-not-exist.js" "$tmp/missing")
   [[ "$code" == "404" ]] ||
@@ -107,7 +135,10 @@ run_checks() {
     fail "/api/v1/parts is $proxied through the web service but $direct on the gateway — the proxy is not transparent (404 = never forwarded; 502 = could not reach the gateway)"
   grep -q '"error"' "$tmp/proxied.json" ||
     fail "the proxied response carries no error envelope — it did not come from the gateway"
-  echo "  ok  /api/v1/parts -> $proxied through web, identical to the gateway direct"
+  # The PROXIED response only — the gateway's own port is not behind nginx and
+  # is not expected to carry these.
+  assert_security_headers "the proxied /api/v1/parts" "$tmp/proxied.json.hdr"
+  echo "  ok  /api/v1/parts -> $proxied through web, identical to the gateway direct, 3 security headers"
 
   for path in /docs /redoc; do
     code=$(fetch "$gw$path" "$tmp/explorer")
