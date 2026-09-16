@@ -111,6 +111,26 @@ admire and do not use. Four concrete tests, each one a defect when it fails:
   is: the wave is not "build direct manipulation", it is "make the thing we
   already drew grabbable, and then give the other six verbs one at all"
   (fillet/chamfer/shell/revolve/pattern/hole return `handles: []` today).
+  **CORRECTED AGAIN 2026-09-16 — the paragraph above is now itself STALE, and
+  this is the SECOND time this one sentence has gone out of date while briefs
+  quoted it.** Wave 3 (CRAFT-7 through CRAFT-11) did the work the correction
+  asked for. Measured against the running app at `93733b2`: a real
+  `page.mouse.down` / 12 moves / `up` from the extrude handle's centre drove
+  `extrude-distance` **10 -> 65 mm** with the readout tracking, and **26 of 143**
+  grid samples now resolve to `extrude-depth-handle` / `-sleeve` — against 2 of
+  16 and a drag that moved nothing. The same holds for fillet (10 -> 20), shell,
+  datum, and both pattern gauges; `handles: []` is no longer true of six verbs.
+  So do NOT brief "the extrude handle is unreachable" or "no verb has a handle" —
+  both were true, both are false, and a brief that quotes either sends an agent
+  to rebuild something that works.
+  What is still open is narrower and worth stating so the pendulum does not swing
+  too far: the gauges have had NO touch pass (every reach number above, old and
+  new, came from a mouse at 1280x800), and hole has no gauge yet (CRAFT-9c).
+  **The durable lesson is now stronger than the one below it, because the file
+  has demonstrated it twice on the same sentence: a correction is also a claim,
+  and it decays exactly like the claim it replaced.** Dating a correction does
+  not preserve it. The only thing that works is re-measuring before you quote it,
+  including when what you are quoting is itself labelled a correction.
   **The general lesson, and the reason this correction is here rather than only
   in the roadmap: a mandate sentence is a CLAIM ABOUT THE PRODUCT, and product
   claims go stale silently.** This one survived a rewrite of the surface it
