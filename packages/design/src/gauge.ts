@@ -47,10 +47,14 @@
  * function it used to and now delegates to this module, so that file's
  * untouched unit suite is the evidence the move was faithful.
  * {@link steppedTrack} is `linearTrack` with an integer quantiser and is
- * exercised only by the tests below. {@link angularTrack} has no consumer at
- * all yet — its first one should check it against a real camera before
- * trusting the screen fallback's sign convention, and a correction it needs is
- * a correction to this file, not a reason to write a fourth projection
+ * exercised only by the tests below. {@link angularTrack} HAS been checked
+ * against a real camera — `revolve-gauge.spec.ts` drives it through one,
+ * including the arc drag and the ray-intersection path, and `DraftGauge.tsx`,
+ * `axisAnchorGauge.ts` and `gaugePose.ts` all consume it. (This note used to
+ * say it "has no consumer at all yet" and asked its first one to do that
+ * check; the check happened and the sentence did not, which is how a claim
+ * about the product goes stale silently.) A correction it needs is still a
+ * correction to this file, not a reason to write a fourth projection
  * somewhere else.
  */
 import { proposal } from "./tokens";
