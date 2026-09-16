@@ -4028,3 +4028,430 @@ canvas then reports the un-styled `300x150` fingerprint — the same false signa
 CLAUDE.md records for a stale Tailwind preset. Launch the browser through
 Playwright (which supplies the ANGLE/SwiftShader flags) and assert the renderer
 string before believing any viewport observation.
+
+## Pass 2026-09-16 — the claim under audit: "the modelling flow now holds together"
+
+**HEAD `93733b2`** (`claude/frontend-workflow-redesign-8ae3su`), native no-Docker boot
+(geometry :8072 `--workers 1`, documents :8071, gateway :8070 on per-agent SQLite,
+Vite :5250), Chromium 141 headless driven over CDP by a long-lived Playwright
+driver. WebGL renderer asserted before any viewport claim:
+`ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)`.
+Viewport 1600x1000, re-checked at 1280x800.
+
+**The part**: *Gearbox housing* — 130 x 80 x 40 enclosure, 3 mm wall, open top,
+R8 on all four vertical corners, 4 x Ø8 through-holes at 25 mm pitch in the side
+wall. Six features: Sketch1 -> Extrude1 -> Fillet1 -> Shell1 -> Hole1 ->
+Pattern1. Final: 73,878.13 mm³, 51,074.07 mm², 27 faces / 72 edges. Built,
+broken by an edit, repaired, re-edited, reloaded, exported to STEP and imported
+back. Screenshots `01-landing.png` … `80-after-orbit.png` in this pass's
+scratchpad (`.../scratchpad/prodaudit/shots/`).
+
+### Answer to the operating question
+
+**Yes for a first build; no for the second edit.** The authoring path is now
+genuinely good — better than I expected and materially better than the last four
+passes of this document describe. The revision path is where it breaks, and it
+breaks on the most ordinary change in mechanical design: I changed one sketch
+dimension from 120 to 150 and **four of six features were destroyed**.
+
+### What is measurably better than the previous pass claims (stale findings in THIS file)
+
+These were P0/P1 in the 2026-08-24 pass and are **no longer true at `93733b2`**:
+
+- **"Centre the sign-in card — fourth pass reporting a 5%-of-frame panel"** —
+  FIXED. The sign-in page is now a full third-angle projection plate with the
+  auth card as a deliberate right-hand element (`01-landing.png`).
+- **"Give Pattern a seed selection … today the same dialog patterned a hole
+  once and the whole body the next"** — FIXED. Pattern opens with an explicit
+  `THIS BODY | HOLE1` scope toggle and the note *"Repeats Hole1's cut at every
+  placement. Nothing else about the body moves."*
+- **"Add ANGLE and DIAMETER dimensions to the sketcher (plus midpoint and
+  collinear)"** — FIXED. All present: DIMENSION carries distance/radius/diameter/
+  angle/equal; RELATIONAL carries coincident/concentric/midpoint/symmetric/fixed.
+- **"Add an orthographic/perspective toggle"** (flagged three consecutive
+  passes) — FIXED. `ORTHO`/`PERSP` toggle in the view bar; named views snap
+  orthographic.
+- **"Focus the W/H cells on mouse-up after a drag-draw and place them near the
+  cursor, so 'Type a size' is true"** — FIXED, and it is the best thing in the
+  product. Measured: after a drag-draw, `document.activeElement` is `BODY`, but
+  typing `120` routes the keystrokes into `draw-dimension-width` (focus moves on
+  the first character), `Tab` moves to height, `Enter` applies. This is intent
+  captured where it forms.
+- **"Make faces hover-pickable on the real geometry … no face highlight"** —
+  FIXED, and my own first reading of it this pass was wrong too. Hovering the
+  body tints the real face (pixel census over the front wall: **6,889 of 13,500
+  sampled pixels changed**, colour at the cursor `(124,135,147)` -> `(142,146,146)`),
+  and a real `page.mouse.click` at (700,650) — a point where `elementFromPoint`
+  returns only `CANVAS` — **picks the face**: the panel went from "Click a face"
+  to "Face at 60, 0, 20 mm". The 24x24 diamond proxies are an *additional*
+  target, not the only one. Any future audit that judges picking by
+  `elementFromPoint` alone will repeat my error: the raycast lives in GL and
+  wins.
+
+**And one claim in `CLAUDE.md` itself is now false.** The design mandate's
+2026-09-13 correction states the extrude drag handle "is unreachable … a real
+`page.mouse.down/move/up` from the shaft midpoint left `extrude-distance`
+unchanged at 40". Measured today: from the handle centre (1124.0, 302.7), a real
+`mouse.down` + 12 moves + `mouse.up` took `extrude-distance` **10 -> 65** with the
+gauge readout tracking every step. Reachability census over a 60x50 px grid
+around the gauge: **26 of 143 sample points** resolve to
+`extrude-depth-handle`/`extrude-depth-sleeve` — a genuine 24x24 grip plus a
+27x24 sleeve, both hit at their own centre. The same holds for `fillet-radius`
+(10 -> 20 by drag), `shell-thickness`, `datum-offset`, and both pattern gauges.
+Direct manipulation is real. That sentence in `CLAUDE.md` should be corrected
+there, not just here.
+
+### Ratings — daily-driver readiness (1 = unusable, 5 = I'd choose it)
+
+| Capability | Rating | The measurement behind it |
+|---|---|---|
+| Sketch: draw + dimension at the point of intent | **4.5** | Drag-draw -> W/H at the cursor -> type -> Enter. 120x80 applied in one gesture. Constraint set complete; `c` applied coincident and DOF went 2 -> 0 in 1.7 s. |
+| Sketch: view control | **2** | **There is no Fit in the sketcher.** Testids present: `view-cube`, `sketch-view-list` — no `view-fit`/`view-home`/`view-bar`. Applying a coincident constraint moved the profile so that only one edge remained on screen; recovery was six manual scroll-wheel notches. On re-entering the sketch to edit, 4 of 11 sketch glyphs were outside the frame (`glyph-9`, the 80 mm dimension, at **x = 1856 on a 1600 px frame**). |
+| Sketch: editing an existing sketch | **2.5** | Single-click on a dimension glyph opens an editor with the input already focused — exactly right. But the solid body is drawn **opaque on top of the sketch** (`62-edit-sketch1.png`), so the profile you are editing is hidden under the part it made. |
+| Extrude | **4.5** | Proposal chip -> profile pre-filled -> distance focused and selected -> draggable gauge -> 2.3 s rebuild. Closest thing in the product to Fusion's flow. |
+| Fillet | **3** | Two selection modes, and **BY RULE (all / parallel to X, Y, Z) is better than anything Fusion offers** for a prismatic part. PICK EDGES is where it costs time: see F-3, F-4. |
+| Shell | **3.5** | Face picking works on the real geometry; "No faces open — a sealed hollow" is a good default statement. Marred by the readout lag (F-5) and the proxy collision (F-4). |
+| Hole | **2.5** | Staged face -> point -> size flow with an excellent live check. Undermined by F-6 (it let me commit a hole it already knew was off the body) and by position being a pair of mm fields whose frame contradicts the label above them. |
+| Pattern | **4** | Scope toggle, ghost count and spacing gauges, clear note. Volume arithmetic exact (3 x 301.59 mm³ removed). |
+| Measure | **2** | See F-7: 110 pick proxies at once, 48 of them unreachable at their own centre, and a two-hole reading of **17 mm** for a **25 mm** pitch labelled only "DISTANCE". |
+| Export (STEP/STL/3MF/GLB) | **4.5** | 95,622-byte AP214; round-trip through a fresh part reproduced **73,878.13 mm³ / 51,074.07 mm² / 27 faces / 72 edges** — identical to the source to 2 dp. |
+| Failure communication | **5** | Best-in-class. Banner + tree row + red timeline chip + "Showing the last good state — built to Extrude1 … Export writes this body, named partial", and the export panel explains which features are excluded. Fusion does not do this. |
+| **The edit loop (rebuild after a dimension change)** | **1** | **The headline. See F-1.** |
+| Viewport feel | **3.5** | See "Tool feel" below. |
+
+### Findings
+
+#### F-1 — P0. One dimension change destroyed four of six features. This is the thing that sends an engineer back to Fusion.
+
+Sequence, all in the running app:
+
+1. Model complete and healthy: 6 features, `SOLVE Solved`, 120 x 80 x 40.
+2. Double-click `Sketch1` -> click the `120` dimension glyph -> type `150` ->
+   APPLY -> SAVE SKETCH.
+3. Result:
+
+```
+03 Fillet1  fillet  ERR   SUBSHAPE_UNRESOLVED
+            The referenced face can no longer be found — an earlier edit
+            changed the body. Re-pick the face.
+            Not attempted: the 3 features below. The build stops at the
+            first failure, even for a feature that does not depend on Fillet1.
+04 Shell1   shell   SKIP
+05 Hole1    hole    SKIP
+06 Pattern1 pattern SKIP
+```
+
+The part reverted to a bare block: **Volume 480,000 mm³, 6 faces, 12 edges.**
+
+The mechanism is in the persisted parameters, read back from
+`GET /api/v1/parts/{id}/features`. A picked edge is stored as a **pure
+geometric signature with no topological identity at all**:
+
+```json
+{"kind":"subshape","subshape_type":"edge","selector":{"selector_version":1,
+ "signature":{"subshape_type":"edge","curve":"line",
+  "end_a":{"x":120,"y":0,"z":0},"end_b":{"x":120,"y":0,"z":40},
+  "midpoint":{"x":120,"y":0,"z":20},"length_mm":40}}}
+```
+
+When the width becomes 150 those coordinates no longer exist. Note two things
+that make this sharper than "geometry moved":
+
+- **One of the three refs did not move at all** (`end_a {0,0,0}`, `end_b
+  {0,0,40}`) and was still exactly valid on the new body. The feature failed
+  anyway, so a single unresolved ref appears to poison the whole selection
+  rather than degrading to a partial fillet with a warning.
+- **The FACE references survived the identical change.** `Shell1`'s face
+  signature carries `area_mm2: 9558.79644737231` and a centroid, and the top
+  face's area changes with width — yet after repair it re-resolved through
+  120 -> 150 -> 130. So face matching is already tolerant and **edge matching is
+  not**. The fix is narrow and known-shaped.
+
+**This directly contradicts a ✅ row in `docs/VISION.md`.** Line 82, *Part
+modeling (features, history)*, flipped ➖ -> ✅ on 2026-09-15 citing
+`resolve_edge_durable()` as giving "edges the same durable two-tier re-match
+faces already had". In the running product at `93733b2` they do not have it:
+faces re-matched across a ±30 mm change, edges did not. Flag that row.
+
+**Repair cost and the escape hatch.** Re-opening `Fillet1`, switching to
+**BY RULE -> Edges parallel to Z -> 8 mm** rebuilt the entire tree (**16.6 s**,
+all six OK), and a *second* dimension edit (150 -> 130) then rebuilt cleanly with
+every feature OK. So the parametric loop works — it is picked-edge references
+that do not survive. An engineer who knows to prefer rules is fine; an engineer
+who picks edges (i.e. everyone, for anything non-prismatic) loses the model.
+
+For comparison: this exact edit — widen a shelled, filleted, hole-patterned box
+by 30 mm — is a non-event in Fusion 360, Onshape and SolidWorks. It is the
+single most common thing that happens to a part.
+
+#### F-2 — P1. The build aborts at the first failure, including features that cannot depend on it.
+
+The app says so itself: *"Not attempted: the 3 features below. The build stops
+at the first failure, even for a feature that does not depend on Fillet1."*
+Being honest about it is good; doing it is expensive. `Shell1`, `Hole1` and
+`Pattern1` do not reference `Fillet1`'s edges, and two of three would have
+resolved (proved: they all resolved immediately once the fillet was repaired,
+against a body whose dimensions had changed by 30 mm). Onshape and SolidWorks
+both continue past an errored feature and mark it. Second pass making this
+recommendation.
+
+#### F-3 — P1. Three of twelve edges cannot be picked without orbiting, and I shipped an asymmetric part because of it.
+
+In `Fillet1` PICK EDGES on the ISO view: 12 `edge-pick-*` proxies,
+`opacity: 0` / `pointer-events: none` on exactly the three whose edges are
+behind the solid (`data-buried="true"`). That part is defensible — you cannot
+click through a solid in Fusion either. What is not defensible is that there is
+no cue and no "select other": I picked the three reachable vertical edges,
+the count stopped at 3, and I filleted three of four corners without noticing
+until I looked at the render (`38-after-fillet.png`, back-left corner square).
+Volume confirms it: 382,351.86 mm³ = 384,000 − 3 x 549.4 (R8 x 40 mm).
+
+#### F-4 — P1. Pick proxies collide with each other and with the gauge; the collisions are systematic, not random.
+
+Measured with `elementFromPoint` at each proxy's own centre:
+
+| Command | Proxies | Not reachable at own centre | What is on top |
+|---|---|---|---|
+| Fillet (pick edges) | 12 | 3 buried (correct) + **1 after picking** | `fillet-radius-sleeve` (88x17 at 1239,500) lands exactly on `edge-pick-4` (1240,511) — the gauge that appears when you pick covers one of the things you pick |
+| Hole (face pick) | 11 | **2** | the *inner* wall's proxy sits 9 px from the *outer* wall's: `plane-pick-face-4` (outer left, centred 0,44,20) resolves to `plane-pick-face-12` (inner left, 3,42.5,21.5); same for `-6` -> `-14` |
+| Shell (face pick) | 6 | 0 | but `shell-face-1` is the **bottom outside face** (centroid 59.9,40.1,0) drawn at (799,615) — a screen point that lies inside the visible *front* wall. Clicking "the middle of the front wall" opens the bottom. I did it, and the panel cheerfully said "1 face open". |
+| Measure | **110** (66 edges + 44 vertices) | **48 (44 %)** | each other |
+
+The GL raycast rescues most of these — picking is decided in 3D, not by the DOM
+stack — but the *drawn* markers are what the user aims at, and they are lying
+about what is under them. Two faces 3 mm apart get two indistinguishable 24x24
+diamonds 9 px apart.
+
+#### F-5 — P0. The number on the gauge is not the number you are about to commit, for 0.6–1.0 s.
+
+Polled `extrude-distance` (panel field) against `extrude-depth-readout` (the tag
+drawn next to the model) after typing `55` into a field holding `40`:
+
+```
+  25 ms   field "55"   gauge "D 40 mm"
+ 395 ms   field "55"   gauge "D 40 mm"
+ 968 ms   field "55"   gauge "D 55 mm"
+```
+
+I hit this for real on Shell1: I typed `3` into `shell-thickness`, the gauge
+read **T 2 mm**, I pressed CREATE — and the committed feature is **3 mm**
+(volume 70,815.38 mm³; 2 mm would be ≈ 47,300). So the value that was on screen
+in the viewport at the moment of commit was never the value that got built.
+The same happened on the first extrude (`D 65 mm` on screen, `40` committed).
+
+During a *drag* the two are one snap-step out of phase in both directions:
+mid-drag `pattern-spacing` field `22` / gauge `S 24 mm`; on release field `24` /
+gauge `S 22 mm`; converged within 400 ms. A CAD readout has to be right at the
+instant of commit, because commit is the only instant anyone reads it.
+
+#### F-6 — P1. The hole command knew the feature would fail, said so quietly, and let me create it anyway.
+
+With `X = -45` on a face spanning X 0..120, the panel already displayed
+**"Off the face outline — move it onto the face."** CREATE stayed enabled. I
+clicked it; 5.6 s later: `Hole1 hole ERR HOLE_OFF_BODY`, `SOLVE Failed`,
+`STATUS Partial`. Everything downstream of a knowingly-invalid commit is wasted
+time. Either disable CREATE or make it a refusal with the reason, the way the
+disabled toolbar verbs already do ("Create a body first").
+
+Contributing cause, worth fixing on its own: the panel reads
+`POINT  Centre of face (60, 0, 20 mm)` and then offers `X` and `Y` fields —
+which are **absolute in the face frame**, not offsets from the centre it just
+named. `-45` reads as "45 mm left of centre" and means "45 mm outside the face".
+
+#### F-7 — P1. Measure gives a number an engineer will act on and get wrong.
+
+Picked the two adjacent Ø8 holes of the pattern, whose centre-to-centre pitch is
+**25 mm** by construction. The readout:
+
+```
+Edge 5 → Edge 6
+DISTANCE  17 mm     ΔX 17 mm    ΔY 0 mm    ΔZ 0 mm
+```
+
+17 = 25 − 8: it is the minimum distance between the two circles. That is a
+legitimate quantity and it is **not labelled as one**. Nothing on the readout
+says "minimum", and there is no centre-to-centre / diameter / radius option on a
+circular edge. Hole pitch is the single most common measurement on a plate.
+Fusion defaults two circular edges to centre-to-centre. The edge labels are also
+identity-free (`"Edge 5, circle"`, `"Edge 6, circle"` — no coordinates), so you
+cannot tell which two holes you measured.
+
+Secondary: entering Measure carpets the model in 110 markers
+(`60-measure-open.png`). The part is barely visible. Fusion/Plasticity hover-
+highlight one thing at a time and draw nothing until you pick.
+
+#### F-8 — P1. First run can dead-end on the sign-up screen with the answer already on the wire.
+
+Registering `pa…@loft.test` returns 422 and the UI prints **"Request validation
+failed."** The gateway's own response body carries the exact, human-readable
+reason:
+
+```json
+{"error":{"code":"validation_error","message":"Request validation failed.",
+ "details":[{"loc":["body","email"],
+ "msg":"value is not a valid email address: The part after the @-sign is a
+ special-use or reserved name that cannot be used with email."}]}}
+```
+
+Third pass reporting this. It is the product's first screen, and the failure is
+unactionable: nothing tells the user it is the domain.
+
+#### F-9 — P2. Re-opening a feature can pre-fill a value that is not the feature's.
+
+`Fillet1` was created at **radius 8** (stored `radius_mm: 8`, confirmed via the
+features API; volume arithmetic agrees). Opening it for edit in the same browser
+session showed **20** — the value I had dragged the gauge to before typing 8.
+One `Enter` would have silently made the fillet 2.5x bigger. A second open, after
+cancelling, correctly showed 8. So the command's local state outlives the
+command and wins over the persisted parameter on first re-entry.
+
+#### F-10 — P2. Undo is enabled and inert after a reload.
+
+Post-reload the Undo button reports `aria-disabled: null`, `disabled: false`, no
+reason text, and `Ctrl+Z` does nothing (extents unchanged across a 7.9 s wait).
+On a fresh part the same control correctly says "Nothing to undo". In-session
+undo works well (55 -> 40 reverted correctly). There is no version history to
+fall back on, so a reload is a hard horizon on recovery — Onshape's persistent
+version graph is a real differentiator here.
+
+#### F-11 — P2. The sketcher throws geometry out of frame and gives you no way back.
+
+Two separate times in one sitting. (a) Applying `coincident` between the
+rectangle's corner and the origin translated the profile so that only the bottom
+edge stayed on screen — the sketch looked *empty* (`24-after-coincident.png`).
+(b) After the 120 -> 150 edit, `glyph-9` (the 80 mm dimension) sat at x = 1856 on
+a 1600 px frame. There is no Fit, no Home, no zoom-to-selection in sketch mode.
+Every incumbent binds this to a key you press without thinking.
+
+#### F-12 — P3. STEP header carries placeholders.
+
+```
+FILE_NAME('Gearbox housing','2000-01-01T00:00:00',('Author'),('Open CASCADE'),
+          'Open CASCADE STEP processor 7.9','Loft','Unknown');
+```
+
+Originating system is correctly `Loft` (half of the last pass's P3 is fixed).
+The timestamp is a fixed epoch and author/organisation are literals. PDM systems
+key on that date.
+
+### Tool feel — benchmarked against Fusion 360 / Plasticity
+
+Rated as a daily-driver dimension, not decoration.
+
+**What earns its place.** The ISO viewport (`71-after-reload.png`) is genuinely
+good: grid reads to a horizon with no mid-frame fade into void, a soft vignette,
+a satin body shade with a legible silhouette, and the canvas is **full-frame
+(1280 x 652 at 1280x800)** with the panels floating over it rather than eating
+it. The ViewCube works — clicking FRONT snapped to the front orthographic view
+and the cube re-drew flat. The timeline strip at the bottom with per-feature
+chips, a rollback grip and `TO TIP / ALREADY AT THE TIP` is a good, quiet
+instrument. Disabled verbs carry their reason in the accessible name ("Extrude —
+draw a sketch first", "Fillet — create a body first"), which is better than
+Fusion's silent greying. The partial-body banner is the best failure surface I
+have seen in any CAD tool, desktop or web.
+
+**What still reads as a dashboard rather than a modelling tool.**
+
+1. **No contact shadow or ground occlusion.** The part floats over the grid at
+   every zoom. Plasticity's single biggest "this is a solid" cue is the shadow;
+   ours is a body suspended in a lattice.
+2. **The toolbar is 26 icon-only 32x32 glyphs in six groups with no labels.**
+   Fillet and chamfer are two nearly identical corner glyphs, 34 px apart. On a
+   surface an engineer uses a hundred times a day this is a memorisation tax
+   that Fusion pays for you with text.
+3. **The EXPORT panel renders "No body" four times on an empty part**
+   (`26-after-save-sketch.png`), occupying the top-right of the viewport before
+   any geometry exists. Chrome that can only say "nothing yet" has not earned
+   its pixels.
+4. **The command editor jumps sides.** `NEW FILLET` opens at x = 12 (left) and
+   relocates to x = 1268 (right) when you switch BY RULE -> PICK EDGES — the
+   same dialog, same command, 1,256 px of travel mid-task.
+5. **The next-step proposal degrades after the first step.** Post-sketch it is
+   an excellent anchored `EXTRUDE E` chip with a leader line to the profile.
+   Post-extrude it is `next-step-dot`: a **6 x 6 px dot with empty text** at
+   (456,68), i.e. a badge on a toolbar icon. The flow mandate's "the next step is
+   visible from the current state" is satisfied once and then not again.
+6. **A stray tooltip stayed painted in the viewport across a page reload**
+   (`GLB / Share` at ~1180,115 in `71-after-reload.png`).
+7. At 1280x800 the inspector clips: `Edges 72` is cut mid-row and TOPOLOGY's
+   last rows sit under the EXPORT block. There *is* a scroll container
+   (363 / 453 px) but only a fade, no scrollbar, hints at it.
+
+**Perf, measured cleanly.** Click OK on a feature edit -> rebuilt geometry
+reflected in the inspector: **2,268 ms** for this 6-feature part (polled at
+120 ms). That is well short of Fusion's sub-half-second and roughly double
+Onshape's regen for the same edit, but it is not the thing that would send
+someone away. F-1 is.
+
+### VISION.md scorecard rows that look stale
+
+1. **`Part modeling (features, history)` — ✅ is not supported by the running
+   product.** Line 82 cites `resolve_edge_durable()` as giving edges "the same
+   durable two-tier re-match faces already had". Measured at `93733b2`: a
+   120 -> 150 width change orphaned a three-edge picked fillet
+   (`SUBSHAPE_UNRESOLVED`) while every *face* reference in the same tree
+   survived the same change. The row also files "the build stops at the first
+   failure" nowhere, and files "no drag-to-reorder" as the residual — the
+   residual is the edit loop. **Recommend ✅ -> ➖ until F-1 closes.**
+2. **`Performance on real parts` — ➖ is fair; add a number.** This pass has a
+   clean one: 2.27 s from OK to rebuilt inspector on a 6-feature part.
+3. **`Interop (import + export)` — ➖ is fair and the export half is stronger
+   than the cell implies.** A full STEP round-trip through a fresh part
+   reproduced volume, area, face and edge counts exactly.
+4. **A row for *selection and picking* still does not exist**, and it is now the
+   third pass in which the common cause of several findings is invisible on a
+   capability-organised scorecard (F-3, F-4, F-7 here). Note the picture has
+   *improved* — hover highlight and real-geometry face picking both work now —
+   so the row would open at ➖, not ❌.
+
+### Prioritized recommendations (P0–P3, one line each, buildable)
+
+- **P0 — Give edge selectors the same tolerant re-match faces already have**: re-resolve a picked edge by topology (adjacent-face pair + relative position) rather than by `end_a`/`end_b`/`midpoint`/`length_mm`, with a golden that widens a filleted+shelled+patterned box by 30 mm and asserts all features rebuild (F-1).
+- **P0 — A selection with one unresolved ref must degrade, not abort**: rebuild the fillet on the refs that DID resolve and mark the feature with a re-anchor chip naming the lost one — one of my three refs was still exactly valid (F-1).
+- **P0 — Continue the rebuild past a failed feature** for features that do not depend on it; the app's own message already admits it does not, and all three skipped features resolved instantly once the fillet was repaired (F-2).
+- **P0 — Make the gauge readout track the numeric field synchronously**: it lags 0.6–1.0 s, and I committed a 3 mm shell while the viewport read `T 2 mm` (F-5).
+- **P1 — Refuse a knowingly-invalid commit**: CREATE stayed enabled while the hole panel already read "Off the face outline — move it onto the face" (F-6).
+- **P1 — Label what Measure measured and offer centre-to-centre on circular edges**: a 25 mm hole pitch reads as a bare "DISTANCE 17 mm" today (F-7).
+- **P1 — Draw Measure's markers on hover only**, not all 110 at once — 48 of them are unreachable at their own centre because they cover each other (F-7).
+- **P1 — Add Fit / Home / zoom-to-selection to the sketcher**: a coincident constraint pushed the profile off-frame and the 80 mm dimension glyph landed at x = 1856 on a 1600 px frame, with no control to recover (F-11).
+- **P1 — Ghost the body while a sketch is being edited**: the solid is drawn opaque over the profile you are editing; GHOST opacity already exists in the BODIES panel (F-11, `62-edit-sketch1.png`).
+- **P1 — Offer "select other" / occluded-edge cycling, or auto-orbit on a buried pick**: I shipped a three-cornered fillet on a four-cornered box without noticing (F-3).
+- **P1 — Render a `422`'s `details[]` as per-field errors**: the gateway returns the exact reason and the sign-in page prints "Request validation failed." — third pass (F-8).
+- **P1 — Seed a command editor from the feature's persisted params, never from the command's last in-session value**: `Fillet1` (stored 8 mm) re-opened at 20 mm, one Enter from a silent 2.5x change (F-9).
+- **P2 — Separate colliding pick proxies by depth and offset**: an inner wall's marker sits 9 px from its outer twin's, and a face's marker can land inside a different, visible face (F-4).
+- **P2 — Move the gauge sleeve off the pick proxies it covers**: `fillet-radius-sleeve` lands exactly on `edge-pick-4`, so a picked edge cannot be un-picked (F-4).
+- **P2 — Make the hole's X/Y fields mean what the line above them says** (offsets from the named point) or rename the label to the frame origin (F-6).
+- **P2 — Add a contact shadow / ground occlusion under the body** — the single largest remaining gap between our viewport and Plasticity's (tool feel 1).
+- **P2 — Label the toolbar or give fillet/chamfer visually distinct glyphs**: 26 icon-only 32x32 buttons, no text, two near-identical corner icons 34 px apart (tool feel 2).
+- **P2 — Keep the command editor on one side**: NEW FILLET travels 1,256 px between its own two selection modes (tool feel 4).
+- **P2 — Extend next-step proposals past the first step**: after an extrude the only cue is a 6x6 px unlabelled dot (tool feel 5).
+- **P2 — Disable Undo when the history is empty after a reload** — it currently reports enabled and does nothing (F-10).
+- **P3 — Hide the EXPORT panel (or collapse it to one line) until a body exists**: it renders "No body" four times over an empty viewport (tool feel 3).
+- **P3 — Fix the 1280x800 inspector clip**: give the scroll container a visible scrollbar, not only a fade (tool feel 7).
+- **P3 — Clear stray tooltips**: a `GLB / Share` tooltip survived a full page reload painted in the viewport (tool feel 6).
+- **P3 — Write a real timestamp and author into the STEP header** instead of `2000-01-01T00:00:00` / `Author` (F-12).
+
+### Evidence & reproduction
+
+Every number above came from the running app at `93733b2` in this session.
+Reproduction: boot natively per `CLAUDE.md`; register with a non-reserved email
+domain; model 120 x 80 rectangle -> extrude 40 -> fillet PICK EDGES on the
+vertical edges at 8 mm -> shell 3 mm opening the top -> hole Ø8 on a side face ->
+linear pattern 4 x 25 mm; then edit Sketch1's width to 150 and save. The tree
+collapses to `Fillet1 ERR` + three `SKIP` rows. Switching `Fillet1` to BY RULE /
+Edges parallel to Z restores it, and every subsequent dimensional edit then
+rebuilds cleanly — which is both the workaround and the proof that the defect is
+localised to picked-edge references.
+
+**Addendum, same day, before this pass was pushed.** Two commits landed on the
+branch while this audit was running: `fb32a13` *"a released gauge keeps what you
+dragged to until the owner answers"* and `cecf19b`. `fb32a13` fixes the **drag-
+release** half of F-5 — it measures the same desync I saw on
+`pattern-spacing` (rod 24 / field 22 on release) and reports 0 disagreeing
+frames after the fix. It does **not** obviously cover the half that actually
+cost me a wrong commit: typing into the panel field and watching the gauge hold
+the OLD number (measured here at 395 ms still stale, converged by 968 ms —
+slower than the 15–251 ms that commit profiles for the drag path, so probably a
+different route through the evaluate round trip). **Re-measure the typed-value
+path at the current tip before closing F-5**; everything else in this pass was
+measured at `93733b2` and is unaffected by either commit.
