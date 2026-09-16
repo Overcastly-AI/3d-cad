@@ -12,14 +12,15 @@ import {
   type ReactNode,
 } from "react";
 import {
+  Box3,
   MOUSE,
   OrthographicCamera,
   PerspectiveCamera,
   TOUCH,
   Vector3,
   type BufferGeometry,
+  type Group,
 } from "three";
-import type { Box3 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 import { useReducedMotion } from "../lib/useReducedMotion";
@@ -41,7 +42,13 @@ import {
 // `boxCornersInCameraAxes` and the chrome measurement live in `standoff.ts`
 // because the SKETCH rig needs the same two, and two framing rules that
 // disagree is exactly the defect that module documents.
-import { boxCornersInCameraAxes, framingOf } from "./standoff";
+import {
+  boxCornersInCameraAxes,
+  frameOverrun,
+  framingOf,
+  overrunNeedsRefit,
+} from "./standoff";
+import { handUnderway, instrumentsMounted } from "./instruments";
 import {
   distanceForOrthoZoom,
   orthoClipPlanes,
@@ -108,6 +115,7 @@ const ZOOM_SETTLE_EPSILON = 0.002;
  */
 function CameraRig({
   bounds,
+  proposal,
   fitKey,
   reducedMotion,
   framing,
@@ -115,6 +123,15 @@ function CameraRig({
   onSettle,
 }: {
   bounds: Box3 | null;
+  /**
+   * The world box of everything the OPEN COMMAND is drawing — the extrude
+   * ghost, the pattern copies, the shell's inner offset, a datum sheet — or
+   * null when no command is drawing anything. Read on demand rather than
+   * passed as a value: it changes on every frame of a drag, and a prop would
+   * re-render this rig once per frame to feed a number only its frame loop
+   * reads.
+   */
+  proposal: () => Box3 | null;
   fitKey: string;
   reducedMotion: boolean;
   /** The live canvas + unobstructed rect, measured from the DOM at fit time. */
@@ -148,6 +165,16 @@ function CameraRig({
   const framedRect = useRef<Rect | null>(null);
   /** Has the modeler moved the camera by hand since the last fit? */
   const userMoved = useRef(false);
+  /**
+   * The proposal watch's state — see the `useFrame` that reads it. All four are
+   * refs and two are REUSED Box3s, because this runs on every rendered frame
+   * and the viewport rule is that the render loop allocates nothing.
+   */
+  const seenProposal = useRef(new Box3());
+  const refitSubject = useRef(new Box3());
+  const handedLastFrame = useRef(false);
+  /** Has the modeler navigated since the CURRENT proposal appeared? */
+  const movedSinceProposal = useRef(false);
 
   /** Clip planes sized to the framed subject. */
   const setClipPlanes = useCallback(
@@ -492,6 +519,11 @@ function CameraRig({
   useEffect(() => {
     const onControlStart = () => {
       userMoved.current = true;
+      // ...and, separately, "since THIS proposal appeared". The two are not the
+      // same window and collapsing them would be the wrong policy: a modeler
+      // who framed the part by hand an hour ago has not thereby refused to see
+      // the thing the tool is about to build.
+      movedSinceProposal.current = true;
     };
     controls?.addEventListener("start", onControlStart);
     const onChromeChange = () => {
@@ -507,6 +539,115 @@ function CameraRig({
       window.removeEventListener(VIEWPORT_CHROME_EVENT, onChromeChange);
     };
   }, [controls, owns]);
+
+  /**
+   * KEEP THE PROPOSAL IN FRAME (CRAFT-12).
+   *
+   * The complaint, measured on an 11 mm part: open Pattern and the ghost copies
+   * are drawn entirely outside the frame. Every verb with a preview can do this
+   * — the preview is by definition geometry that does not exist yet, so nothing
+   * about the current framing accounts for it — and the modeler has to navigate
+   * before they can judge the thing they just asked for. Fusion and Plasticity
+   * both keep the proposed result in view; a proposal you cannot see is the
+   * flow rule failing at the exact moment the tool is supposed to be answering.
+   *
+   * ## The policy, and what each clause is refusing to do
+   *
+   *  · **Only when it does not fit.** A re-fit on every preview would be a
+   *    lurch on every command, including the overwhelming majority where the
+   *    ghost is comfortably inside the frame already. The threshold lives in
+   *    `standoff.PREVIEW_REFIT_OVERRUN` with the reasoning beside it.
+   *  · **Only outward.** `frameOverrun > 1` is the only trigger, so this can
+   *    pull back to reveal and can never push in. Framing the modeler chose is
+   *    never tightened by a preview appearing.
+   *  · **Re-frame, never re-orient.** The direction and up are taken from where
+   *    the camera is now — the same rule the auto-fit learned the hard way
+   *    ("after the extrude it flipped to xy"). Only the standoff and the target
+   *    move.
+   *  · **Never under a live hand.** A gauge computes its value by projecting
+   *    the pointer onto the track in SCREEN space, so moving the camera
+   *    mid-drag moves the ruler under the hand and the number jumps. The check
+   *    waits for the release, which is also when the value is final.
+   *  · **Once per command, and not at all if the modeler has navigated since it
+   *    appeared.** Deliberately narrower than `userMoved`: see `onControlStart`.
+   *  · **Eased, unless the modeler asked for stillness.** `applyPose` takes the
+   *    same `reducedMotion` snap every other pose in this rig takes.
+   *
+   * Registered BEFORE the ease below so a re-fit decided this frame is already
+   * being interpolated on the same frame rather than a frame later.
+   */
+  useFrame(() => {
+    // Not while the SKETCHER owns the camera — two rigs easing one camera is a
+    // deadlock, not an average (see `owns`). First, so a sketch session costs
+    // this watch nothing at all.
+    if (!owns) return;
+    const box = proposal();
+    if (box === null || box.isEmpty()) {
+      // No command is drawing. Forget this proposal entirely, so the NEXT one
+      // gets its own single re-fit and its own navigation grace rather than
+      // inheriting a verdict about geometry that is gone.
+      seenProposal.current.makeEmpty();
+      movedSinceProposal.current = false;
+      handedLastFrame.current = false;
+      return;
+    }
+    if (seenProposal.current.isEmpty()) {
+      // It just appeared: whatever the modeler did before this moment is not a
+      // refusal of it.
+      movedSinceProposal.current = false;
+    }
+    const handed = handUnderway();
+    const justReleased = handedLastFrame.current && !handed;
+    handedLastFrame.current = handed;
+    // The trigger is a CHANGE, not a clock: the subject moved, or a hand came
+    // off it. A timer would either poll a demand-rendered scene awake or miss
+    // the frame the ghost arrived on.
+    const moved = !seenProposal.current.equals(box);
+    seenProposal.current.copy(box);
+    if (!moved && !justReleased) return;
+    if (handed || movedSinceProposal.current) return;
+    if (goal.current !== null) return; // a pose is already in flight
+
+    const body = boundsRef.current;
+    const subject = refitSubject.current.copy(box);
+    if (body !== null && !body.isEmpty()) subject.union(body);
+    const measured = framing();
+    const target = controls?.target.clone() ?? subject.getCenter(new Vector3());
+    const offset = camera.position.clone().sub(target);
+    if (offset.lengthSq() <= 1e-12) return;
+    const dir = offset.clone().normalize();
+    const up = safeUp(dir, camera.up.clone());
+    const right = new Vector3().crossVectors(up, dir).normalize();
+    const trueUp = new Vector3().crossVectors(dir, right).normalize();
+    const corners = boxCornersInCameraAxes(subject, target, right, trueUp, dir);
+    const overrun = frameOverrun(
+      corners,
+      measured,
+      camera instanceof OrthographicCamera
+        ? { kind: "orthographic", zoom: camera.zoom }
+        : {
+            kind: "perspective",
+            fovDeg: camera instanceof PerspectiveCamera ? camera.fov : 0,
+            distanceMm: offset.length(),
+          },
+    );
+    if (!overrunNeedsRefit(overrun)) return;
+
+    const centre = subject.getCenter(new Vector3());
+    const diagonal = subject.getSize(new Vector3()).length();
+    setClipPlanes(diagonal);
+    applyPose(
+      framePose(
+        dir,
+        up,
+        centre,
+        Math.max(diagonal, 1) * FIT_FACTOR,
+        "fit-proposal",
+        subject,
+      ),
+      reducedMotion,
+    );
+  });
 
   useFrame((_, delta) => {
     const g = goal.current;
@@ -937,6 +1078,32 @@ export function Viewport({
     };
   }, [bounds]);
 
+  /**
+   * WHAT THE OPEN COMMAND IS DRAWING — the world box of the command layer, or
+   * null when no command is proposing anything (CRAFT-12).
+   *
+   * Two guards, and the first is the one that matters. The command layer also
+   * holds the RESTING sketch ink, which is present from page load and is not a
+   * proposal; without the instrument check the camera would read it as one and
+   * re-frame on a subject it has already framed. `instruments.ts` says why that
+   * question is asked of a registry rather than of the scene graph.
+   *
+   * The Box3 is REUSED. This is called on every rendered frame of an open
+   * command and the viewport rule is that the render loop allocates nothing;
+   * the caller reads it and does not keep it, which is stated here because a
+   * caller that stashed the reference would be holding a box that changes under
+   * it next frame.
+   */
+  const commandLayer = useRef<Group>(null);
+  const proposalBox = useRef(new Box3());
+  const readProposal = useCallback((): Box3 | null => {
+    const group = commandLayer.current;
+    if (group === null || !instrumentsMounted()) return null;
+    const box = proposalBox.current.makeEmpty();
+    box.setFromObject(group);
+    return box.isEmpty() ? null : box;
+  }, []);
+
   /** QA hook: which drafting board is up (CRAFT-2), or `none`. */
   const handleBackdrop = useCallback((state: string) => {
     const node = containerRef.current;
@@ -1280,9 +1447,30 @@ export function Viewport({
         {/* Origin planes + axes (UI-W2). Renders nothing until the browser
             enables a row, and never contributes to the camera fit. */}
         {viewNav ? <OriginGeometry bounds={bounds} /> : null}
-        {children}
+        {/* THE COMMAND LAYER — everything an open command draws: previews,
+            ghosts, gauges, pick overlays, the sketch ink. Named and wrapped for
+            one reason: it is the subtree the camera has to be able to SEE
+            (CRAFT-12), and a group is the only way to ask "what is the open
+            command drawing?" without a taxonomy of component names.
+
+            Why a wrapper and not a list of preview names: the nine W3 mounts
+            call their preview subtree `extrude-ghost`, `fillet-preview`,
+            `chamfer-preview`, `revolve-sweep-preview`, `pattern-ghosts`,
+            `shell-inner-offset` and `datum-offset-sheet`. Any regex over that
+            set is an audit that pattern-matches an IDIOM, so it would silently
+            miss the next verb that names its preview something else — and a
+            camera rule nobody can see failing is worse than no rule.
+
+            What it deliberately excludes is as load-bearing as what it holds:
+            the bench grid, the backdrop and the origin geometry are all sized
+            FROM the fit, so including any of them would make the camera chase
+            its own tail. They are siblings above, not children here. */}
+        <group name="command-layer" ref={commandLayer}>
+          {children}
+        </group>
         <CameraRig
           bounds={bounds}
+          proposal={readProposal}
           fitKey={resolvedFitKey}
           reducedMotion={reducedMotion}
           framing={framing}

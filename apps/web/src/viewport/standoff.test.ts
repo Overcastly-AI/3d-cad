@@ -1,9 +1,11 @@
 import { Box3, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 
-import type { Rect } from "./fitFraming";
+import { fitZoom, type Rect } from "./fitFraming";
 import {
   boxCornersInCameraAxes,
+  frameOverrun,
+  overrunNeedsRefit,
   PICK_CAMERA_DISTANCE_MM,
   planePickDistanceMm,
   type PlanePickStandoff,
@@ -222,5 +224,123 @@ describe("boxCornersInCameraAxes", () => {
       expect(after.b).toBeCloseTo(before.b - 50 * b.up.z, 9);
       expect(after.c).toBeCloseTo(before.c - 50 * b.dir.z, 9);
     }
+  });
+});
+
+/**
+ * CRAFT-12 — "IS THE PROPOSAL ON SCREEN?", which is the question a preview
+ * poses and the camera never used to ask.
+ *
+ * The cases are built as a PAIR around one camera pose deliberately: the same
+ * frame, the same attitude, a body that fits and a preview that does not. A
+ * predicate tested only against the overrunning case would pass a function that
+ * always says "re-fit", which is the jarring failure the policy note in
+ * `Viewport.tsx` rules out by name.
+ */
+describe("frameOverrun", () => {
+  const framing = { canvas: CANVAS, free: FREE };
+
+  /** Corners of a cube of side `mm` centred on the camera's target. */
+  const cube = (mm: number) =>
+    boxCornersInCameraAxes(
+      new Box3(
+        new Vector3(-mm / 2, -mm / 2, -mm / 2),
+        new Vector3(mm / 2, mm / 2, mm / 2),
+      ),
+      new Vector3(0, 0, 0),
+      basis().right,
+      basis().up,
+      basis().dir,
+    );
+
+  it("reads ~1 for a subject the camera is exactly framing", () => {
+    const corners = cube(40);
+    const exact = planePickDistanceMm(
+      new Box3(new Vector3(-20, -20, -20), new Vector3(20, 20, 20)),
+      basis(),
+      framing,
+      FOV,
+    );
+    const overrun = frameOverrun(corners, framing, {
+      kind: "perspective",
+      fovDeg: FOV,
+      distanceMm: Math.max(exact, 1),
+    });
+    // 230 mm is the FLOOR, so a 40 mm cube is framed from further than its own
+    // exact fit — the overrun is at or below 1 either way, never above.
+    expect(overrun).toBeLessThanOrEqual(1);
+    expect(overrunNeedsRefit(overrun)).toBe(false);
+  });
+
+  it("rises above the threshold when the preview runs past the frame", () => {
+    // The measured case: an 11 mm part framed close, and a pattern whose copies
+    // span 120 mm. Same camera, ten times the subject.
+    const close = frameOverrun(cube(11), framing, {
+      kind: "perspective",
+      fovDeg: FOV,
+      distanceMm: 40,
+    });
+    const withGhosts = frameOverrun(cube(120), framing, {
+      kind: "perspective",
+      fovDeg: FOV,
+      distanceMm: 40,
+    });
+    expect(overrunNeedsRefit(close)).toBe(false);
+    expect(overrunNeedsRefit(withGhosts)).toBe(true);
+    expect(withGhosts).toBeGreaterThan(close * 5);
+  });
+
+  it("measures a PARALLEL frame by zoom, not by distance", () => {
+    // The projection that carries no size in its position. The zoom is DERIVED
+    // from the exact fit of the 40 mm body rather than written as a literal —
+    // the corners are resolved onto the camera's TILTED axes, so a hand-picked
+    // number is really a guess about a rotation, and a wrong guess fails for a
+    // reason that has nothing to do with the predicate under test.
+    const zoom = fitZoom(cube(40), FREE);
+    expect(zoom).toBeGreaterThan(0);
+    const fits = frameOverrun(cube(40), framing, {
+      kind: "orthographic",
+      zoom,
+    });
+    const spills = frameOverrun(cube(120), framing, {
+      kind: "orthographic",
+      zoom,
+    });
+    expect(fits).toBeCloseTo(1, 6);
+    expect(overrunNeedsRefit(fits)).toBe(false);
+    expect(spills).toBeCloseTo(3, 6); // three times the subject, same frame
+    expect(overrunNeedsRefit(spills)).toBe(true);
+  });
+
+  it("returns 0 — not a verdict — when the question cannot be asked", () => {
+    // Each of these is a REFUSAL, and the predicate must read every one of them
+    // as "leave the camera alone". A `> 1.02` on a 0 gets this right; a
+    // `< 1` fits-test on the same 0 would get it exactly backwards, which is
+    // why the direction of the comparison is pinned here.
+    const degenerate: Rect = { x: 0, y: 0, width: 0, height: 0 };
+    expect(frameOverrun([], framing, { kind: "orthographic", zoom: 20 })).toBe(
+      0,
+    );
+    expect(
+      frameOverrun(cube(40), null, { kind: "orthographic", zoom: 20 }),
+    ).toBe(0);
+    expect(
+      frameOverrun(
+        cube(40),
+        { canvas: CANVAS, free: degenerate },
+        { kind: "perspective", fovDeg: FOV, distanceMm: 40 },
+      ),
+    ).toBe(0);
+    expect(
+      frameOverrun(cube(40), framing, {
+        kind: "perspective",
+        fovDeg: FOV,
+        distanceMm: 0,
+      }),
+    ).toBe(0);
+    expect(
+      frameOverrun(cube(40), framing, { kind: "orthographic", zoom: 0 }),
+    ).toBe(0);
+    for (const refused of [0]) expect(overrunNeedsRefit(refused)).toBe(false);
   });
 });

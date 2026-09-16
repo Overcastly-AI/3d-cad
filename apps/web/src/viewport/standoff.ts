@@ -48,11 +48,23 @@
  * projected corners, accounts for the chrome the panels cover, and is unit
  * tested. Two framing rules that disagree is the defect this file is fixing,
  * in a second costume.
+ *
+ * ## The second question, same arithmetic (CRAFT-12)
+ *
+ * "How far back must the camera stand?" has a yes/no sibling: "is the subject
+ * OUT of frame from where the camera is standing now?" — which is what a
+ * feature preview needs answered, because a proposal the modeler cannot see is
+ * a proposal they have to navigate to before they can judge it. {@link
+ * frameOverrun} asks it with the same corners, the same free rect and the same
+ * two solvers, so the check and the fix cannot drift apart. It lives here and
+ * not in `Viewport.tsx` for the reason the whole module exists: a framing rule
+ * written twice is a framing rule that will eventually disagree with itself.
  */
 import type { Box3, Vector3 } from "three";
 
 import {
   fitDistance,
+  fitZoom,
   measureChrome,
   unobstructedRect,
   type CameraSpacePoint,
@@ -144,4 +156,81 @@ export function planePickDistanceMm(
   const solved = fitDistance(corners, framing.canvas, framing.free, fovDeg);
   if (!Number.isFinite(solved) || solved <= 0) return PICK_CAMERA_DISTANCE_MM;
   return Math.max(PICK_CAMERA_DISTANCE_MM, solved);
+}
+
+/**
+ * How the camera is projecting right now — everything needed to ask whether the
+ * subject fits, and nothing else. The two variants are not interchangeable and
+ * the reason is in `fitFraming`: a perspective frame is sized by DISTANCE, a
+ * parallel one by ZOOM, and distance carries no size information at all under a
+ * parallel projection.
+ */
+export type ProjectionState =
+  | { kind: "perspective"; fovDeg: number; distanceMm: number }
+  | { kind: "orthographic"; zoom: number };
+
+/**
+ * HOW MUCH TOO BIG THE SUBJECT IS FOR THE FRAME IT IS BEING SEEN IN.
+ *
+ * `1` is an exact fit, `> 1` means it runs past the frame (2 = twice as much
+ * subject as there is room for), `< 1` means there is air to spare. `0` means
+ * the question could not be asked — no subject, no measurable frame, or a
+ * degenerate solve — and a caller MUST read that as "do nothing", never as "it
+ * fits", because those two answers have opposite consequences.
+ *
+ * One expression for both projections, because the alternative is two framing
+ * rules that can disagree, which is the defect the top of this file is about.
+ * Perspective compares the distance the subject NEEDS against the distance the
+ * camera is standing at; parallel compares the zoom it needs against the zoom
+ * in force, inverted because a bigger zoom is a tighter frame.
+ *
+ * Note what this deliberately does NOT do: it does not say where to put the
+ * camera. Framing is `Viewport.framePose`'s job and stays there — this only
+ * answers the yes/no that decides whether to disturb the modeler at all.
+ */
+export function frameOverrun(
+  corners: readonly CameraSpacePoint[],
+  framing: { canvas: Rect; free: Rect } | null,
+  projection: ProjectionState,
+): number {
+  if (framing === null || corners.length === 0) return 0;
+  if (projection.kind === "orthographic") {
+    const needed = fitZoom(corners, framing.free);
+    if (!(needed > 0) || !(projection.zoom > 0)) return 0;
+    return projection.zoom / needed;
+  }
+  const needed = fitDistance(
+    corners,
+    framing.canvas,
+    framing.free,
+    projection.fovDeg,
+  );
+  if (!(needed > 0) || !(projection.distanceMm > 0)) return 0;
+  return needed / projection.distanceMm;
+}
+
+/**
+ * How far past an exact fit the subject must run before the camera is allowed
+ * to move on its own.
+ *
+ * NOT an epsilon. `fitDistance` already builds in 1 % of slack (`FIT_PADDING`),
+ * so a freshly fitted scene sits a hair BELOW 1 and a bare `> 1` test would
+ * re-fire on rounding. Two per cent of the frame is roughly a dozen pixels of
+ * overhang at 1280 wide — small enough that a modeler has not lost anything,
+ * and moving the camera to recover it would cost more attention than it buys.
+ * Above it, part of what the tool is proposing is off the screen, which is the
+ * thing this whole mechanism exists to prevent.
+ */
+export const PREVIEW_REFIT_OVERRUN = 1.02;
+
+/**
+ * Should a preview at this overrun pull the camera back?
+ *
+ * Deliberately a named predicate over a bare comparison: it is the ONE place
+ * the policy is stated, and `0` — the unmeasurable answer — has to fall on the
+ * "leave the modeler alone" side, which an inlined `> 1.02` gets right by luck
+ * rather than by saying so.
+ */
+export function overrunNeedsRefit(overrun: number): boolean {
+  return overrun > PREVIEW_REFIT_OVERRUN;
 }

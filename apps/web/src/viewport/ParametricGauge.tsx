@@ -102,6 +102,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -122,6 +123,12 @@ import {
 import { useCommandActionStore } from "../features/commandActions";
 import { useCancelKey, useGlobalKeys } from "../lib/modalGate";
 import { gaugePose, projectedSpineLength, spineLength } from "./gaugePose";
+import {
+  beginHand,
+  mountInstrument,
+  releaseHand,
+  unmountInstrument,
+} from "./instruments";
 import { Segments } from "./overlaySegments";
 import { useAskQueue } from "./useAskQueue";
 
@@ -614,6 +621,10 @@ export function ParametricGauge({
         };
       }
       setGrabbed(true);
+      // The camera must not reframe under a live manipulator — the track is
+      // projected in SCREEN space, so moving the camera moves the ruler under
+      // the hand. See `instruments.ts`.
+      beginHand();
       setFree(event.ctrlKey || event.metaKey);
       armLadder();
       queue.hold();
@@ -684,6 +695,7 @@ export function ParametricGauge({
     const grab = grabRef.current;
     if (grab === null) return null;
     grabRef.current = null;
+    releaseHand();
     if (grab.on.hasPointerCapture(grab.pointerId)) {
       grab.on.releasePointerCapture(grab.pointerId);
     }
@@ -702,7 +714,51 @@ export function ParametricGauge({
   const endDrag = useCallback(() => {
     finishDrag();
   }, [finishDrag]);
-  endDragRef.current = endDrag;
+  /**
+   * PUBLISHED FROM AN EFFECT, NOT DURING RENDER.
+   *
+   * This was a bare `endDragRef.current = endDrag` in the render body. React's
+   * rule is that a render must not write a ref, and the reason is concrete
+   * rather than stylistic: a concurrent render that is DISCARDED would still
+   * have installed its closure, so the surviving tree would be reached through
+   * a callback that never committed. `useInsertionEffect` rather than
+   * `useEffect` because it runs before layout effects and therefore before any
+   * child's effect could fire a pointer path that reads this.
+   *
+   * Low practical risk in today's tree — the closure's reachable state is the
+   * ask queue and external stores rather than anything render-local — which is
+   * exactly why it would have stayed wrong indefinitely.
+   */
+  useInsertionEffect(() => {
+    endDragRef.current = endDrag;
+  }, [endDrag]);
+
+  /**
+   * THIS COMMAND IS PROPOSING SOMETHING — tell the camera, so it can keep the
+   * proposal in frame (CRAFT-12). One registration here covers all nine mounts
+   * and every verb added later, because a verb with no instrument has nothing
+   * to arm; see `instruments.ts` for why this is not matched off the scene
+   * graph by name.
+   *
+   * The cleanup also PUTS THE HAND DOWN if the gauge is unmounted mid-drag.
+   * `finishDrag` is the only other balanced `releaseHand` and it runs from
+   * pointer events, which a gauge removed by Escape, a cancel cascade, or its
+   * command closing under the pointer never receives. Left unbalanced, the
+   * count stays positive and the re-fit is silently disabled for the rest of
+   * the session — a defect whose only symptom is a behaviour that stops
+   * happening. CRAFT-13's root cause was exactly a capture host vanishing under
+   * a live drag, so this is not hypothetical.
+   */
+  useEffect(() => {
+    mountInstrument();
+    return () => {
+      unmountInstrument();
+      if (grabRef.current !== null) {
+        grabRef.current = null;
+        releaseHand();
+      }
+    };
+  }, []);
 
   const requestSubmit = useCommandActionStore((s) => s.requestSubmit);
 
