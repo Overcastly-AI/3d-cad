@@ -44,7 +44,16 @@
  * drawn stretch is, where the arc is seated on it — is checkable in node in
  * microseconds. The r3f shells (`RevolveAxisLine`, `RevolveGauge`) are thin.
  */
-import type { Vec3 } from "@loft/design";
+import {
+  addScaled,
+  cross,
+  dot,
+  length,
+  scale,
+  sub,
+  unit,
+  type Vec3,
+} from "@loft/design";
 
 import type { SketchEntity } from "../api/parts";
 import type { OriginAxisName, RevolveAxisRef } from "../features/revolve";
@@ -73,39 +82,16 @@ const ORIGIN_AXIS_KERNEL_DIR: Record<OriginAxisName, Vec3Tuple> = {
   Z: [0, 0, 1],
 };
 
-function sub(a: Vec3, b: Vec3): Vec3 {
-  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-}
-
-function dot(a: Vec3, b: Vec3): number {
-  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-function cross(a: Vec3, b: Vec3): Vec3 {
-  return [
-    a[1] * b[2] - a[2] * b[1],
-    a[2] * b[0] - a[0] * b[2],
-    a[0] * b[1] - a[1] * b[0],
-  ];
-}
-
-function scale(a: Vec3, k: number): Vec3 {
-  return [a[0] * k, a[1] * k, a[2] * k];
-}
-
-function addScaled(a: Vec3, b: Vec3, k: number): Vec3 {
-  return [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
-}
-
-function norm(a: Vec3): number {
-  return Math.sqrt(dot(a, a));
-}
-
-/** Unit vector, or `null` when there is no direction to give. */
-function unit(a: Vec3): Vec3 | null {
-  const l = norm(a);
-  return l > 0 ? scale(a, 1 / l) : null;
-}
+// The tuple arithmetic this file used to carry privately — `sub`, `dot`,
+// `cross`, `scale`, `addScaled`, a `norm` and a `unit` — is now `@loft/design`'s
+// `vec3`, one copy for all four modules that had grown one each (board #63).
+// Two behaviours changed here and both are deliberate: length is `Math.hypot`
+// rather than `Math.sqrt(dot(a,a))`, which no longer returns `[0,0,0]` as a
+// "unit" vector for an enormous input; and `unit` now refuses below a named
+// picometre floor instead of at exactly zero, so the cross product of two
+// nearly-antiparallel face normals yields `null` rather than a confident
+// direction distilled from rounding noise. See that module's note for the
+// measured table.
 
 /** A point on the sketch plane, in scene mm. */
 function onPlane(basis: PlaneBasis, u: number, v: number): Vec3 {
@@ -173,7 +159,7 @@ export function axisRadial(
   const along = dot(offset, anchor.dir);
   const foot = addScaled(anchor.base, anchor.dir, along);
   const out = sub(point, foot);
-  const distance = norm(out);
+  const distance = length(out);
   return { foot, radial: unit(out), distance };
 }
 

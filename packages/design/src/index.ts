@@ -152,8 +152,21 @@ export {
   type SteppedTrackOptions,
   steppedValue,
   type TrackDrawing,
-  type Vec3,
 } from "./gauge";
+export {
+  add,
+  addScaled,
+  cross,
+  dot,
+  length,
+  negate,
+  reject,
+  scale,
+  sub,
+  unit,
+  VEC3_UNIT_FLOOR,
+  type Vec3,
+} from "./vec3";
 export { TextField, type TextFieldProps } from "./primitives/TextField";
 export { Checkbox, type CheckboxProps } from "./primitives/Checkbox";
 export { Disclosure, type DisclosureProps } from "./primitives/Disclosure";

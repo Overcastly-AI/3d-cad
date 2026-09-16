@@ -49,10 +49,19 @@
  * choose, which is how this arrives at the right answer on an inside corner.
  */
 import {
+  add,
+  addScaled,
+  cross,
+  dot,
   type GaugeTrack,
+  length,
   type LengthUnit,
   formatLength,
   linearTrack,
+  reject,
+  scale,
+  sub,
+  unit,
   type Vec3,
 } from "@loft/design";
 
@@ -60,64 +69,14 @@ import { COARSE_STEP_FACTOR, keyStepMm, SNAP_MM } from "./extrudeHandle";
 
 // --- SMALL VECTOR ARITHMETIC, on plain tuples --------------------------------
 //
-// Deliberately local and deliberately tiny. `@loft/design/gauge.ts` keeps its
-// own private copies for the same reason: a shared micro-vector library is the
-// premature abstraction the DRY rule explicitly exempts, and importing `three`
-// here would drag a GPU dependency into a module whose whole value is being
-// testable without one.
-
-function sub(a: Vec3, b: Vec3): Vec3 {
-  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-}
-
-function add(a: Vec3, b: Vec3): Vec3 {
-  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-}
-
-function scale(a: Vec3, k: number): Vec3 {
-  return [a[0] * k, a[1] * k, a[2] * k];
-}
-
-function addScaled(a: Vec3, b: Vec3, k: number): Vec3 {
-  return [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
-}
-
-function dot(a: Vec3, b: Vec3): number {
-  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-function cross(a: Vec3, b: Vec3): Vec3 {
-  return [
-    a[1] * b[2] - a[2] * b[1],
-    a[2] * b[0] - a[0] * b[2],
-    a[0] * b[1] - a[1] * b[0],
-  ];
-}
-
-function length(a: Vec3): number {
-  return Math.hypot(a[0], a[1], a[2]);
-}
-
-/** Unit vector, or null when the input is too short to have a direction. */
-function unit(a: Vec3): Vec3 | null {
-  const l = length(a);
-  return l > UNIT_FLOOR ? scale(a, 1 / l) : null;
-}
-
-/** The component of `a` across `axis` (which must be a unit vector). */
-function reject(a: Vec3, axis: Vec3): Vec3 {
-  return addScaled(a, axis, -dot(a, axis));
-}
-
-/**
- * Shortest vector this module will normalise, scene mm.
- *
- * Below it a direction is noise: a face centroid that lands ON the edge line,
- * two faces whose normals cancel. Every caller of {@link unit} treats `null` as
- * "this edge has no anchor" and the gauge is simply not mounted there — a
- * refusal, not a guess, which is the rule this repo has paid for repeatedly.
- */
-const UNIT_FLOOR = 1e-9;
+// These used to be local copies, arguing that a shared micro-vector library was
+// the premature abstraction the DRY rule exempts. Three other modules made the
+// same argument and the four copies then diverged (board #63), so they are now
+// `@loft/design`'s `vec3` — still tuple-based, still no `three`, so this file
+// is still testable without a GPU. THIS file's behaviour is the one that was
+// promoted: the picometre floor and the `null` refusal below it, and `length`
+// as `Math.hypot`, are `edgeAnchor`'s and are unchanged here. `UNIT_FLOOR` is
+// now `VEC3_UNIT_FLOOR`, exported, with this file's reasoning carried across.
 
 /**
  * How far off a plane a point may sit and still count as ON it, scene mm.
@@ -130,6 +89,19 @@ const UNIT_FLOOR = 1e-9;
  * never mistaken for the one the edge belongs to.
  */
 export const PLANE_TOLERANCE_MM = 1e-3;
+
+/**
+ * Below this half-angle cosine the two faces have folded flat onto each other
+ * and there is no seat between them, so the anchor refuses.
+ *
+ * Numerically equal to `@loft/design`'s `VEC3_UNIT_FLOOR`, which is where this
+ * guard's value came from, and deliberately NOT that constant: a cosine is
+ * dimensionless and the shared floor is a length in scene mm. Sharing the
+ * symbol would make a later change to one of them silently change the other,
+ * which is the failure mode the consolidation in board #63 was fixing, not one
+ * to reintroduce by over-sharing.
+ */
+const DEGENERATE_HALF_ANGLE_COS = 1e-9;
 
 // --- INPUTS ------------------------------------------------------------------
 
@@ -356,7 +328,7 @@ export function edgeAnchor(
 
   const cosine = Math.min(1, Math.max(-1, dot(normals[0], normals[1])));
   const halfAngleCos = Math.sqrt((1 + cosine) / 2);
-  if (halfAngleCos <= UNIT_FLOOR) return null;
+  if (halfAngleCos <= DEGENERATE_HALF_ANGLE_COS) return null;
 
   return {
     key,

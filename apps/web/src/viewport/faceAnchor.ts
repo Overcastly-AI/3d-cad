@@ -42,7 +42,14 @@
  * with a persistent selection store, and a component that takes its anchor as a
  * prop is re-wired by that change rather than rewritten by it.
  */
-import type { GaugeSeat, Vec3 } from "@loft/design";
+import {
+  addScaled,
+  dot,
+  type GaugeSeat,
+  negate,
+  sub,
+  type Vec3,
+} from "@loft/design";
 
 import type { PlanarFaceSignature } from "../api/parts";
 import type { OverlayResult, Vec3 as ApiVec3 } from "../api/measure";
@@ -55,31 +62,13 @@ import {
 } from "../sketch/plane";
 
 // --- Tuple arithmetic --------------------------------------------------------
-// Deliberately local and deliberately tuple-based, matching `@loft/design`'s
-// `gauge.ts`: these run inside `useMemo`s the drag re-enters, and `Vector3` is
-// mutable and allocating. The r3f shell converts at its own boundary.
-
-function sub(a: Vec3, b: Vec3): Vec3 {
-  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-}
-
-function dot(a: Vec3, b: Vec3): number {
-  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-/**
- * Reverse a direction. The `+ 0` normalises `-0` to `+0`, the convention
- * `offsetBasis` already keeps in `sketch/plane`: a `-0` component compares
- * unequal in a deep comparison and prints as `-0` in a readout, so it becomes a
- * difference between two identical directions that nothing can act on.
- */
-function negate(a: Vec3): Vec3 {
-  return [-a[0] + 0, -a[1] + 0, -a[2] + 0];
-}
-
-function addScaled(a: Vec3, b: Vec3, k: number): Vec3 {
-  return [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
-}
+// Still tuple-based, still no `Vector3`: these run inside `useMemo`s the drag
+// re-enters and `Vector3` is mutable and allocating, so the r3f shell converts
+// at its own boundary. They are no longer LOCAL — `sub`, `dot`, `negate` and
+// `addScaled` are `@loft/design`'s `vec3`, one copy for the four modules that
+// had grown one each (board #63). This file's `negate`, including the `+ 0`
+// that normalises `-0`, is the version that was promoted; nothing it does here
+// changed.
 
 /**
  * How far off a plane a point may sit and still count as ON it, scene mm.

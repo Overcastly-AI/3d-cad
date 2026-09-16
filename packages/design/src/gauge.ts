@@ -54,52 +54,42 @@
  * somewhere else.
  */
 import { proposal } from "./tokens";
+import {
+  add,
+  addScaled,
+  cross,
+  dot,
+  scale,
+  sub,
+  unit,
+  type Vec3,
+} from "./vec3";
 
-/** A point or direction in world space. Plain tuple — see the module note. */
-export type Vec3 = readonly [number, number, number];
+// The tuple arithmetic this module runs on used to live here, as forty private
+// lines arguing that a shared micro-vector library would be premature. It is
+// now `./vec3`, because the four copies of those forty lines had diverged in
+// the one function with a decision in it — see that module's note for the
+// measured table. The surface of THIS module is still tracks and stops, not a
+// vector library: the helpers are imported, not re-exported.
+export type { Vec3 };
 
-// --- TUPLE ARITHMETIC --------------------------------------------------------
-// Deliberately not exported: the surface of this module is tracks and stops,
-// not a vector library. `three` is the vector library; this is the forty lines
-// that let the design system avoid importing it.
-
-function add(a: Vec3, b: Vec3): Vec3 {
-  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-}
-
-function sub(a: Vec3, b: Vec3): Vec3 {
-  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-}
-
-function scale(a: Vec3, k: number): Vec3 {
-  return [a[0] * k, a[1] * k, a[2] * k];
-}
-
-function addScaled(a: Vec3, b: Vec3, k: number): Vec3 {
-  return [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
-}
-
-function dot(a: Vec3, b: Vec3): number {
-  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-function cross(a: Vec3, b: Vec3): Vec3 {
-  return [
-    a[1] * b[2] - a[2] * b[1],
-    a[2] * b[0] - a[0] * b[2],
-    a[0] * b[1] - a[1] * b[0],
-  ];
-}
-
-function length(a: Vec3): number {
-  return Math.sqrt(dot(a, a));
-}
-
-/** Unit vector, or the input when it has no direction to give. */
-function normalize(a: Vec3): Vec3 {
-  const l = length(a);
-  return l > 0 ? scale(a, 1 / l) : a;
-}
+/**
+ * Where this module lands when a caller hands it a direction that is not one.
+ *
+ * {@link unit} refuses below `VEC3_UNIT_FLOOR` and returns `null`, which is the
+ * right answer and which {@link GaugeTrack}'s signature cannot carry: a track
+ * is built or it is not, and every consumer of {@link linearTrack} /
+ * {@link angularTrack} would have to learn a new failure mode to say so.
+ *
+ * So a seat with no direction collapses to a point — `pointAt` returns the base
+ * for every value, and there is visibly nothing to grab. That is the behaviour
+ * this file already shipped (its old `normalize` returned `[0,0,0]` unchanged
+ * for a zero input), and it is kept DELIBERATELY over the alternative of
+ * substituting some world axis: a dead instrument is a bug you can see, whereas
+ * a gauge that silently runs along an axis nobody chose is a control that moves
+ * the model the wrong way. Refuse visibly; never invent a direction.
+ */
+const NO_DIRECTION: Vec3 = [0, 0, 0];
 
 // --- STOPS, DRAWING, AND THE TRACK CONTRACT ----------------------------------
 
@@ -396,7 +386,11 @@ export function axisValueAt(
   rayOrigin: Vec3,
   rayDirection: Vec3,
 ): number | null {
-  const rd = normalize(rayDirection);
+  // A ray with no direction points nowhere, so the pointer is not on the track.
+  // Null is already this function's word for that; the old `normalize` returned
+  // `[0,0,0]` here and went on to compute a confident NUMBER from it.
+  const rd = unit(rayDirection);
+  if (rd === null) return null;
   const w0 = sub(base, rayOrigin);
   const b = dot(dir, rd);
   const denom = 1 - b * b;
@@ -901,6 +895,12 @@ export function rungHalfWidth(radius: number, pitch = Infinity): number {
   );
 }
 
+/** The arms used when a direction is too degenerate to derive a pair from. */
+const WORLD_ARMS: readonly [Vec3, Vec3] = [
+  [1, 0, 0],
+  [0, 1, 0],
+];
+
 /** Two unit directions across `dir`, for a track with no natural in-plane basis. */
 export function crossArms(dir: Vec3): readonly [Vec3, Vec3] {
   // Pick the world axis least aligned with `dir`, so the cross product is well
@@ -908,8 +908,15 @@ export function crossArms(dir: Vec3): readonly [Vec3, Vec3] {
   const [x, y, z] = [Math.abs(dir[0]), Math.abs(dir[1]), Math.abs(dir[2])];
   const seed: Vec3 =
     x <= y && x <= z ? [1, 0, 0] : y <= z ? [0, 1, 0] : [0, 0, 1];
-  const u = normalize(cross(dir, seed));
-  return [u, normalize(cross(dir, u))];
+  // `dir` is least aligned with `seed`, so both crosses are well conditioned
+  // and neither `??` branch is reachable from a real seat. They are not a
+  // formality: the OLD code returned `[[0,0,0],[0,0,0]]` for a degenerate
+  // `dir`, and arms of zero length draw a ladder of zero-length crosses — a
+  // ruler with no graduations, which is exactly the CRAFT-7 defect the
+  // screenshot gate caught and no unit assertion can see. A real orthonormal
+  // pair keeps the ladder legible even when the seat is nonsense.
+  const u = unit(cross(dir, seed)) ?? WORLD_ARMS[0];
+  return [u, unit(cross(dir, u)) ?? WORLD_ARMS[1]];
 }
 
 /**
@@ -928,8 +935,11 @@ function straightRungs(
 ): readonly (readonly [Vec3, Vec3])[] {
   const half = rungHalfWidth(seat.radius, pitch) * widthFrac;
   const [armU, armV] = seat.arms;
-  const u = scale(normalize(armU), half);
-  const v = scale(normalize(armV), half);
+  // `GaugeSeat.arms` is contracted to be a unit pair, so these normalisations
+  // are defensive. A degenerate arm draws no rung in that direction — the same
+  // outcome the old code reached by scaling a zero vector, now said out loud.
+  const u = scale(unit(armU) ?? NO_DIRECTION, half);
+  const v = scale(unit(armV) ?? NO_DIRECTION, half);
   const out: (readonly [Vec3, Vec3])[] = [];
   for (const value of at) {
     const centre = addScaled(seat.base, seat.dir, value * unitsPerValue);
@@ -1011,7 +1021,7 @@ export function linearTrack(
     unitsPerValue = 1,
     precision = 1e4,
   } = options;
-  const dir = normalize(seat.dir);
+  const dir = unit(seat.dir) ?? NO_DIRECTION;
   const seated: GaugeSeat = { ...seat, dir };
 
   const clamp = (value: number): number => clampTo(value, min, max);
@@ -1206,10 +1216,10 @@ export function angularTrack(
     format,
     segmentsPerTurn = 96,
   } = options;
-  const axis = normalize(seat.dir);
+  const axis = unit(seat.dir) ?? NO_DIRECTION;
   // A right-handed frame on the sweep plane: `ref` is 0°, `perp` is +90°.
-  const ref = normalize(seat.arms[0]);
-  const perp = normalize(cross(axis, ref));
+  const ref = unit(seat.arms[0]) ?? NO_DIRECTION;
+  const perp = unit(cross(axis, ref)) ?? NO_DIRECTION;
   const DEG = 180 / Math.PI;
 
   const at = (deg: number): Vec3 => {
@@ -1225,7 +1235,8 @@ export function angularTrack(
   return {
     pointAt: at,
     valueAt: (rayOrigin, rayDirection) => {
-      const rd = normalize(rayDirection);
+      const rd = unit(rayDirection);
+      if (rd === null) return null;
       const facing = dot(axis, rd);
       // Edge-on to the sweep plane: the intersection runs away to infinity
       // along the arc, which is arithmetically defined and useless to aim.
@@ -1291,7 +1302,10 @@ export function angularTrack(
       for (let i = 0; i <= steps; i += 1) spine.push(at((value * i) / steps));
       const tip = at(value);
       // The head points along the tangent at the sweep's end.
-      const tangent = normalize(sub(at(value + 0.5), at(value - 0.5)));
+      // The chord across 1° at `radius`, so it degenerates only on a gauge with
+      // no radius at all — which `screenValueAt` already guards as `radius<=0`.
+      const tangent =
+        unit(sub(at(value + 0.5), at(value - 0.5))) ?? NO_DIRECTION;
       // One half-width per CLASS, for the reason `GaugeStops.majorStep`
       // documents: arms are bounded by the gap they sit in, and a major's gap
       // is `majorStep`, not `pitch`.
@@ -1305,7 +1319,7 @@ export function angularTrack(
         const half = armFor(step) * widthFrac;
         const out: (readonly [Vec3, Vec3])[] = [];
         for (const deg of degrees) {
-          const radial = normalize(sub(at(deg), seat.base));
+          const radial = unit(sub(at(deg), seat.base)) ?? NO_DIRECTION;
           const centre = at(deg);
           out.push([
             addScaled(centre, radial, -half),
