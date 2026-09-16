@@ -92,6 +92,15 @@ lint:
     # without it, so the obvious probe says everything is fine.
     python3 scripts/check-build-context.py --self-test
     python3 scripts/check-build-context.py
+    # ~0.1s, no daemon. compose-verdict.sh is the last thing deploy-path says
+    # and the job log is the only channel out of CI, so a verdict that inspects
+    # NOTHING — SERVICES empty — printing "PASS, every step of this proof
+    # completed" is the walks-nothing shape in the one file whose whole purpose
+    # is legibility. It cannot turn a red job green, which is why it would never
+    # be noticed. Unlike `web-smoke-selftest` this is cheap enough to live here,
+    # and its docker stub means the branches are reachable despite the blocked
+    # registry — otherwise nothing about this file is verifiable outside CI.
+    bash scripts/compose-verdict.sh --self-test
     # ~60ms (mostly the PyYAML cross-check), same class of problem: a
     # concurrency expression cannot be exercised locally and only misbehaves
     # when two pushes land close together, so deploy-path.yml sat ref-keyed for

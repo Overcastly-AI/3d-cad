@@ -199,11 +199,18 @@ jobs:
       # safe because the missing-file branch below is LOUD, which is what the
       # original "one literal" argument was actually protecting against.
       #
-      # It refuses rather than staying silent when the file is missing: an
-      # absent verdict means the script died before its EXIT trap (OOM, job
-      # timeout, a `docker` that would not start), which is a real and
-      # otherwise invisible outcome — and a verdict step that prints nothing
-      # when something went wrong is worse than no verdict step at all.
+      # When the file is missing this SAYS SO LOUDLY and still exits 0. Both
+      # halves are deliberate, and the word matters: "refuse" elsewhere in this
+      # repo means a non-zero exit (check-air-gap prints REFUSED and exits 2),
+      # and this step does not do that. An absent verdict means the script died
+      # before its EXIT trap (OOM, job timeout, a `docker` that would not
+      # start) — a real and otherwise invisible outcome, and a verdict step
+      # that prints nothing when something went wrong is worse than no verdict
+      # step at all. But the JOB's status already carries that failure from the
+      # step that actually died, so making this one exit non-zero would add no
+      # signal and would manufacture a spurious failure on a CANCELLED job,
+      # where `if: always()` still runs it. This step explains; it does not
+      # judge.
       - name: Verdict
         if: always()
         run: |
