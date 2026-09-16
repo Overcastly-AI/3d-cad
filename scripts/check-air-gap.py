@@ -30,7 +30,10 @@ surface and asserts BOTH a property and a census:
    what a local explorer points at.
 3. ``web`` — no external ``src``/``href``/``url()``/``@import`` in the HTML
    entry, and no external URL in non-comment TS/TSX/CSS under ``apps/web/src``
-   or ``packages/design/src``.
+   or ``packages/design/src`` (``WEB_ROOTS``). Per-root census, same as check 1
+   and for the same measured reason: with the roots inlined at the call site,
+   emptying ``packages/design/src`` took the walk 315 -> 277 against a floor of
+   200 and the gate still said ``ok``.
 4. ``fonts`` — POSITIVE control: ``packages/design/src/fonts.ts`` must import
    every face from ``@fontsource`` (a self-hosted npm package whose files are
    emitted into the bundle). "No Google Fonts link found" is vacuously true of
@@ -202,6 +205,10 @@ class Check:
     floor: int = 0
     findings: list[Finding] = field(default_factory=list[Finding])
     notes: list[str] = field(default_factory=list[str])
+    #: Name of the constant declaring this check's roots, so the REFUSED
+    #: message tells the reader which list to go and fix. A message that names
+    #: the wrong constant sends the next person to the wrong file.
+    roots_const: str = ""
     #: Declared source roots this check found NOTHING in. A total floor cannot
     #: detect a check that quietly stops covering a subtree, because the total
     #: stays comfortably above it: measured 2026-09-15, fifteen wire modules
@@ -279,7 +286,7 @@ def _backend_sources(root: Path) -> tuple[list[Path], list[str]]:
 
 
 def check_python(root: Path, floor: int) -> Check:
-    check = Check("python", floor=floor)
+    check = Check("python", floor=floor, roots_const="BACKEND_ROOTS")
     files, check.empty_roots = _backend_sources(root)
     for path in files:
         try:
@@ -367,6 +374,54 @@ def check_fastapi_docs(root: Path, floor: int) -> Check:
 # --------------------------------------------------------------------------
 # 3. Web source + markup
 # --------------------------------------------------------------------------
+@dataclass(frozen=True)
+class WebRoot:
+    """One declared frontend root: where to look, at what, and how to read it.
+
+    The suffixes and the scan mode travel WITH the root because the two
+    surfaces fail differently: in markup a ``src``/``href``/``url()`` IS a
+    fetch, whereas in code only an absolute URL outside a comment is.
+    """
+
+    rel: str
+    suffixes: tuple[str, ...]
+    #: "markup" -> src/href/url()/@import refs, relative ones included.
+    #: "code"   -> absolute URLs only, comments stripped first.
+    surface: str
+
+
+#: EVERY frontend tree that ships in the bundle, in ONE place — the sibling of
+#: ``BACKEND_ROOTS`` above, and hoisted for the same reason. These roots used to
+#: be an inline literal tuple inside a comprehension in ``check_web``, with no
+#: per-root census at all, so this check had exactly the blindness `977f492`
+#: fixed for the backend: measured, stubbing ``packages/design/src`` to empty
+#: took the walk from 315 to 277 against a floor of 200 and the gate printed
+#: ``ok`` — the entire design system (tokens, primitives, CSS) scanned by
+#: nothing while the air-gap verdict stayed green. Renaming or moving a package
+#: is not hypothetical here; it is what happened to ``py_kit.schemas``.
+WEB_ROOTS = (
+    WebRoot("apps/web", (".html",), "markup"),
+    WebRoot("apps/web/src", (".ts", ".tsx", ".css"), "code"),
+    WebRoot("packages/design/src", (".ts", ".tsx", ".css"), "code"),
+)
+
+
+def _web_sources(root: Path) -> tuple[list[tuple[Path, str]], list[str]]:
+    """Every shipped frontend file with its surface, plus any root that had none."""
+    files: list[tuple[Path, str]] = []
+    empty: list[str] = []
+    for web_root in WEB_ROOTS:
+        found = [
+            p
+            for p in _walk(root, web_root.rel, web_root.suffixes)
+            if not _is_frontend_test(p)
+        ]
+        if not found:
+            empty.append(web_root.rel)
+        files.extend((p, web_root.surface) for p in found)
+    return files, empty
+
+
 def _strip_ts_comments(text: str) -> str:
     """Blank out // and /* */ comments so a documented URL is not a finding.
 
@@ -419,31 +474,27 @@ def _strip_ts_comments(text: str) -> str:
 
 
 def check_web(root: Path, floor: int) -> Check:
-    check = Check("web", floor=floor)
+    check = Check("web", floor=floor, roots_const="WEB_ROOTS")
+    files, check.empty_roots = _web_sources(root)
 
-    for path in _walk(root, "apps/web", (".html",)):
-        if _is_frontend_test(path):
-            continue
-        check.walked += 1
-        text = path.read_text(encoding="utf-8", errors="replace")
-        for pattern in (HTML_REF, CSS_REF):
-            for ref in pattern.findall(text):
-                match = URL.match(ref if "//" in ref[:8] else f"//{ref}")
-                host = match.group("host") if match else ref
-                if not is_local(host):
-                    check.findings.append(
-                        Finding(str(path.relative_to(root)), f"external asset {ref}")
-                    )
-
-    sources = [
-        p
-        for rel in ("apps/web/src", "packages/design/src")
-        for p in _walk(root, rel, (".ts", ".tsx", ".css"))
-        if not _is_frontend_test(p)
-    ]
-    for path in sources:
+    for path, surface in files:
         check.walked += 1
         raw = path.read_text(encoding="utf-8", errors="replace")
+
+        if surface == "markup":
+            for pattern in (HTML_REF, CSS_REF):
+                for ref in pattern.findall(raw):
+                    match = URL.match(ref if "//" in ref[:8] else f"//{ref}")
+                    host = match.group("host") if match else ref
+                    if not is_local(host):
+                        check.findings.append(
+                            Finding(
+                                str(path.relative_to(root)),
+                                f"external asset {ref}",
+                            )
+                        )
+            continue
+
         text = raw if path.suffix == ".css" else _strip_ts_comments(raw)
         for match in URL.finditer(text):
             if not match.group("scheme") and path.suffix != ".css":
@@ -715,6 +766,23 @@ def check_dockerfile(root: Path, floor: int) -> Check:
 #: shrinkage is `Check.empty_roots` — a per-root census that refuses when any
 #: DECLARED root contributes zero files. Raise these when the tree grows; do
 #: not rely on them to notice coverage leaving.
+#:
+#: THE DIVISION OF LABOUR, written here because the next reader will otherwise
+#: re-derive a floor and believe they have fixed this:
+#:
+#:   * the FLOOR catches TOTAL COLLAPSE — a walk that finds (almost) nothing,
+#:     e.g. the gate pointed at the wrong root, or run from the wrong cwd. It
+#:     is a single number over the whole check and it is all it can be.
+#:   * the PER-ROOT CENSUS (`Check.empty_roots`) catches a SHRINK — one
+#:     declared subtree going to zero while the total stays healthy. This is
+#:     what a refactor produces, and it is invisible to any floor.
+#:
+#: Both root-declaring checks now carry both: `python` over `BACKEND_ROOTS`
+#: and `web` over `WEB_ROOTS`. Measured on the real tree before the census
+#: existed — stub `packages/design/src` to empty and `web` goes 315 -> 277
+#: against this floor of 200 and prints `ok`. A check that adds a root list
+#: without a census inherits exactly that hole, so add the root to the named
+#: constant rather than inlining it at the call site.
 REAL_FLOORS = {
     "python": 120,
     "fastapi-docs": 1,
@@ -755,7 +823,8 @@ def report(checks: list[Check], quiet: bool = False) -> int:
                     f"{', '.join(check.empty_roots)} — a declared source root "
                     "is scanned by nothing, so this check's `ok` would be an "
                     "`ok` about a smaller product than the one we ship. Either "
-                    "the tree moved (update BACKEND_ROOTS) or it is gone.",
+                    f"the tree moved (update {check.roots_const or 'the root list'}"
+                    ") or it is gone.",
                     file=sys.stderr,
                 )
             else:
@@ -1009,29 +1078,78 @@ def self_test() -> int:
         else:
             print(f"ok  vacuity guard: an empty tree refuses all {len(refused)} checks")
 
-    # THE SHRINK CONTROL, and the reason Check.empty_roots exists. Reproduces
-    # the 2026-09-15 defect exactly: a declared backend root that the check
-    # walks NOTHING in, while the total stays far above the floor. Without the
-    # per-root census this case reports `ok` — verified by deleting one root's
-    # files from an otherwise healthy fixture and watching the total (which the
-    # floor reads) remain perfectly respectable.
+    # THE SHRINK CONTROLS, and the reason Check.empty_roots exists. Reproduces
+    # the 2026-09-15 defect exactly: a declared root that the check walks
+    # NOTHING in, while the total stays far above the floor. Without the
+    # per-root census these cases report `ok`.
+    #
+    # EVERY declared root is emptied IN TURN, for both root-declaring checks.
+    # A control that only empties one root cannot see a census that forgot a
+    # DIFFERENT root — which is the whole defect being fixed here, since
+    # `check_web` had a census for none of its three.
+    #
+    # Each case asserts the FLOOR IS STILL SATISFIED (`walked >= floor`) before
+    # asserting the refusal. That is what isolates the guard under test: if the
+    # shrink also dropped the total below the floor, the refusal would be the
+    # floor firing and the control would pass while proving nothing about the
+    # census. So the two assertions together ARE the "floor says ok, census
+    # says REFUSED" negative control, checked on every run.
+    shrink_cases = [
+        *((check_python, rel, (".py",)) for rel in BACKEND_ROOTS),
+        *((check_web, r.rel, r.suffixes) for r in WEB_ROOTS),
+    ]
+    for factory, rel, suffixes in shrink_cases:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "shrunk"
+            root.mkdir()
+            _fixture(root)
+            for orphan in (root / rel).rglob("*"):
+                if orphan.is_file() and orphan.suffix in suffixes:
+                    orphan.unlink()
+            shrunk = factory(root, 1)
+            floor_only_ok = shrunk.walked >= shrunk.floor
+            if not floor_only_ok:
+                failures.append(
+                    f"SHRINK CONTROL [{shrunk.name}/{rel}]: the fixture fell BELOW "
+                    f"the floor (walked {shrunk.walked} < {shrunk.floor}), so this "
+                    "case tests the floor, not the per-root census. Give the "
+                    "fixture more files outside this root."
+                )
+            elif not shrunk.vacuous or rel not in shrunk.empty_roots:
+                failures.append(
+                    f"SHRINK CONTROL [{shrunk.name}/{rel}]: a declared root with no "
+                    f"files must REFUSE; vacuous={shrunk.vacuous} "
+                    f"empty_roots={shrunk.empty_roots} walked={shrunk.walked}"
+                )
+            else:
+                print(
+                    f"ok  shrink control [{shrunk.name}/{rel}]: floor satisfied "
+                    f"(walked {shrunk.walked} >= {shrunk.floor}) yet the census "
+                    "REFUSES"
+                )
+
+    # The MIRROR of the shrink control: the census must not fire on a healthy
+    # tree. A guard written against one failure encodes that failure's
+    # direction, and an over-eager census that names a populated root would be
+    # a gate that cries wolf — which is how a gate gets muted.
     with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp) / "shrunk"
+        root = Path(tmp) / "healthy"
         root.mkdir()
         _fixture(root)
-        for orphan in (root / "packages/loft-wire").rglob("*.py"):
-            orphan.unlink()
-        shrunk = check_python(root, floor=1)
-        if not shrunk.vacuous or "packages/loft-wire" not in shrunk.empty_roots:
+        noisy = [
+            (c.name, c.empty_roots)
+            for c in (check_python(root, 1), check_web(root, 1))
+            if c.empty_roots
+        ]
+        if noisy:
             failures.append(
-                "SHRINK CONTROL: a declared root with no files must REFUSE; "
-                f"vacuous={shrunk.vacuous} empty_roots={shrunk.empty_roots} "
-                f"walked={shrunk.walked}"
+                f"CENSUS FALSE-POSITIVE CONTROL: every declared root is populated "
+                f"in the fixture, yet the census named {noisy}"
             )
         else:
             print(
-                "ok  shrink control: a declared root walked to zero REFUSES "
-                f"(walked {shrunk.walked}, still above the floor)"
+                "ok  census false-positive control: a populated tree names no "
+                "empty root"
             )
 
     for name, rel, old, new in _MUTATIONS:
@@ -1059,7 +1177,11 @@ def self_test() -> int:
         for failure in failures:
             print(f"  {failure}", file=sys.stderr)
         return 1
-    print(f"\nself-test passed ({len(_MUTATIONS)} defects reproduced, 3 controls)")
+    controls = 3 + len(shrink_cases)  # positive, vacuity, census false-positive
+    print(
+        f"\nself-test passed ({len(_MUTATIONS)} defects reproduced, "
+        f"{controls} controls)"
+    )
     return 0
 
 
