@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { fitZoom, type Rect } from "./fitFraming";
 import {
+  apparentSizeMm,
   boxCornersInCameraAxes,
   frameOverrun,
   overrunNeedsRefit,
@@ -342,5 +343,50 @@ describe("frameOverrun", () => {
       frameOverrun(cube(40), framing, { kind: "orthographic", zoom: 0 }),
     ).toBe(0);
     for (const refused of [0]) expect(overrunNeedsRefit(refused)).toBe(false);
+  });
+});
+
+/**
+ * THE SHEET HAS TO STAY CLICKABLE WHEN THE CAMERA STANDS BACK.
+ *
+ * The pair that matters is "unchanged at the floor" / "grows with the
+ * standoff": a function tested only on the big case would pass one that scaled
+ * every part, which would move the small-part composition the standoff fix was
+ * careful to leave alone.
+ */
+describe("apparentSizeMm", () => {
+  it("is EXACTLY a no-op at the floor", () => {
+    // Not `toBeCloseTo`. Every fixture in this repo gets the floor, so any
+    // drift here is a change to a hundred pick coordinates.
+    expect(apparentSizeMm(90, PICK_CAMERA_DISTANCE_MM)).toBe(90);
+  });
+
+  it("never shrinks a sheet below its composed size", () => {
+    // A standoff BELOW the floor cannot happen (`planePickDistanceMm` maxes
+    // against it), but a caller that passed one must not get a sheet smaller
+    // than the composition — failing toward the known-good size is the only
+    // safe direction, exactly as the standoff itself does. NaN is in here
+    // because `!(NaN > x)` is the only comparison that gets it right, and a
+    // later "tidy" to `standoffMm <= FLOOR` would silently invert it.
+    expect(apparentSizeMm(90, 10)).toBe(90);
+    expect(apparentSizeMm(90, 0)).toBe(90);
+    expect(apparentSizeMm(90, Number.NaN)).toBe(90);
+  });
+
+  it("holds the sheet's APPARENT size as the camera stands back", () => {
+    // The property, stated as the thing a user sees: sheet over distance sets
+    // the angle it subtends, so that ratio must not move.
+    const atFloor = 90 / PICK_CAMERA_DISTANCE_MM;
+    for (const standoff of [1291, 2366, 10_000]) {
+      expect(apparentSizeMm(90, standoff) / standoff).toBeCloseTo(atFloor, 12);
+    }
+  });
+
+  it("grows by the same factor the standoff did, on the measured parts", () => {
+    // gearbox-11752 and the 1600 mm column, the two the review measured.
+    expect(apparentSizeMm(90, 1291)).toBeCloseTo((90 * 1291) / 230, 9);
+    expect(apparentSizeMm(90, 2366)).toBeCloseTo((90 * 2366) / 230, 9);
+    // And the direction, said out loud: bigger standoff, bigger sheet.
+    expect(apparentSizeMm(90, 2366)).toBeGreaterThan(apparentSizeMm(90, 1291));
   });
 });

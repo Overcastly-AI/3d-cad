@@ -159,6 +159,50 @@ export function planePickDistanceMm(
 }
 
 /**
+ * A WORLD SIZE THAT HOLDS ITS APPARENT SIZE AS THE CAMERA STANDS BACK.
+ *
+ * ## The defect this exists for (measured 2026-09-16, by review)
+ *
+ * The plane-pick standoff became variable and the three datum sheets did not.
+ * `PLANE_SIZE_MM` is a fixed 90 mm of world, so the sheets subtend an angle
+ * that falls off as 1/distance — which means the fix that finally made big
+ * parts pickable SHRANK the affordance you have to click to start a sketch on
+ * one, by exactly the factor it moved the camera. Face-on, at FOV 40 on a
+ * 1280x800 frame:
+ *
+ * | subject                    | standoff  | sheet    |
+ * | -------------------------- | --------- | -------- |
+ * | 10x20x30 box (the fixture) |   230 mm  | ~430 px  |
+ * | 150x80x8 plate             |   230 mm  | ~430 px  |
+ * | 1280 mm gearbox            |  1291 mm  | ~ 77 px  |
+ * | 1600 mm column             |  2366 mm  | ~ 42 px  |
+ *
+ * and at the iso attitude the sheets foreshorten by `|dir·n|` (XZ 0.375, YZ
+ * 0.552, XY 0.745), so the most foreshortened sheet's minor dimension is ~29 px
+ * on the gearbox and ~16 px on the column, against ~161 px at the old fixed
+ * vantage. Small parts are unchanged, which is why nothing caught it — and
+ * `plane-pick-framing.spec.ts` is structurally blind to it, because it clicks
+ * `plane-pick-face` first and the sheets render only while `!facePicking`.
+ *
+ * ## Why a ratio to the FLOOR and not an absolute angular size
+ *
+ * 90 mm at 230 mm IS the composition — it was chosen by eye against the bench
+ * and the body, and it is correct for every part that still gets the floor. A
+ * sheet sized from an angle would re-derive that composition from a number
+ * nobody chose and would move the small-part case, which is the one thing the
+ * standoff fix was careful not to do. Scaling by `standoff / floor` is exactly
+ * 1 at the floor, so this is a no-op on every fixture in the repo and grows
+ * only where the camera actually went somewhere new.
+ */
+export function apparentSizeMm(
+  sizeAtFloorMm: number,
+  standoffMm: number,
+): number {
+  if (!(standoffMm > PICK_CAMERA_DISTANCE_MM)) return sizeAtFloorMm;
+  return (sizeAtFloorMm * standoffMm) / PICK_CAMERA_DISTANCE_MM;
+}
+
+/**
  * How the camera is projecting right now — everything needed to ask whether the
  * subject fits, and nothing else. The two variants are not interchangeable and
  * the reason is in `fitFraming`: a perspective frame is sized by DISTANCE, a

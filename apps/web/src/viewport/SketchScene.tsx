@@ -136,7 +136,12 @@ import { bluingRadiusMm, bluingWash } from "./bluingWash";
 import { ConstraintGlyphs } from "./ConstraintGlyphs";
 import { sketchIsDrawn, usePartViewStore } from "./partView";
 import { SolveProposalAnchor } from "./SolveProposalAnchor";
-import { framingOf, planePickDistanceMm } from "./standoff";
+import {
+  apparentSizeMm,
+  framingOf,
+  planePickDistanceMm,
+  type PlanePickStandoff,
+} from "./standoff";
 
 /**
  * DEPTH POLICY OF THE SKETCHER (founder defect, 2026-08-01: *"I had an
@@ -202,7 +207,18 @@ const COPLANAR_DECAL = {
   polygonOffsetUnits: -2,
 } as const;
 
-/** Datum sheet half-extent feels like stock on the table (mm). */
+/**
+ * Datum sheet size at the plane-pick FLOOR (mm) — stock on the table.
+ *
+ * It is the size at the floor, not the size: a subject too big for the floor
+ * pushes the camera back (`standoff.ts`) and the sheets grow with it, so they
+ * keep the apparent size this number was composed for. See
+ * `standoff.apparentSizeMm` for the measurement that made that necessary —
+ * unscaled, the most foreshortened sheet fell to ~29 px on a 1280 mm part.
+ *
+ * The one place the sheet's size is written down, for both the pick sheets and
+ * the offset hint sheet (board item #43).
+ */
 const PLANE_SIZE_MM = 90;
 /* Normal-on authoring distance (mm) — an A6-ish sheet fills the view. It lives
    in `sketch/origin.ts` with the fov and the frame fractions that scale off it,
@@ -215,6 +231,69 @@ const PLANE_SIZE_MM = 90;
  * inside any part bigger than the fixtures this repo grades itself on.
  */
 const PICK_CAMERA_DIR = new Vector3(1, 0.68, 1.35).normalize();
+
+/**
+ * The plane-pick camera basis, resolved from {@link PICK_CAMERA_DIR}.
+ *
+ * Extracted because the standoff now has TWO readers — the rig that poses the
+ * camera and the sheets that have to stay the right size for wherever it went
+ * — and a basis built twice is a basis that can be built differently. Returns
+ * fresh vectors: the rig mutates `dir` into a position.
+ */
+function planePickBasis(): PlanePickStandoff {
+  const dir = PICK_CAMERA_DIR.clone();
+  const up = new Vector3(0, 1, 0);
+  const right = new Vector3().crossVectors(up, dir).normalize();
+  return {
+    right,
+    up: new Vector3().crossVectors(dir, right).normalize(),
+    dir,
+    target: new Vector3(0, 0, 0),
+  };
+}
+
+/**
+ * How far the plane-pick camera stands back for the body currently on screen —
+ * ONE derivation, read by the rig that moves the camera and by the sheets that
+ * must remain clickable once it has.
+ *
+ * Every input is either a store value or read live from the DOM, so this can be
+ * called from any component inside the canvas and cannot disagree with itself.
+ */
+function usePlanePickStandoffMm(): number {
+  const camera = useThree((state) => state.camera);
+  const gl = useThree((state) => state.gl);
+  const pickGeometry = usePartViewStore((state) => state.pickGeometry);
+  return planePickDistanceMm(
+    subjectBounds(pickGeometry),
+    planePickBasis(),
+    framingOf(gl.domElement.parentElement),
+    cameraFov(camera),
+  );
+}
+
+/**
+ * The four edges of a square sheet of `sizeMm`, on `basis`, as a positions
+ * buffer. Shared by the pick sheets and the offset hint sheet — the same eight
+ * lines were written out twice, which is how one of them ends up scaled and
+ * the other does not.
+ */
+function sheetEdgePositions(basis: PlaneBasis, sizeMm: number): Float32Array {
+  const s = sizeMm / 2;
+  const corners = [
+    { x: -s, y: -s },
+    { x: s, y: -s },
+    { x: s, y: s },
+    { x: -s, y: s },
+  ];
+  const positions = new Float32Array(4 * 6);
+  corners.forEach((corner, i) => {
+    const next = corners[(i + 1) % 4] ?? corner;
+    positions.set(planeToWorld(basis, corner), i * 6);
+    positions.set(planeToWorld(basis, next), i * 6 + 3);
+  });
+  return positions;
+}
 /**
  * Press timing for the click/drag discriminator. r3f's `e.delta` reports the
  * travel but not the duration, and duration is half of what separates a
@@ -424,8 +503,23 @@ function InkPoints({
   );
 }
 
-/** One selectable datum sheet (plane-pick step). */
-function DatumSheet({ plane }: { plane: DatumPlaneName }) {
+/**
+ * One selectable datum sheet (plane-pick step).
+ *
+ * `sizeMm` is the sheet's world size AT THE CURRENT STANDOFF, not a constant:
+ * the camera stands back for a big body, and a sheet that did not grow with it
+ * shrinks to a few dozen pixels — see `standoff.apparentSizeMm`. It is a prop
+ * rather than something this component solves, so all three sheets are
+ * guaranteed to be the same size as each other and as the camera that framed
+ * them.
+ */
+function DatumSheet({
+  plane,
+  sizeMm,
+}: {
+  plane: DatumPlaneName;
+  sizeMm: number;
+}) {
   const hoveredPlane = useSketchStore((state) => state.hoveredPlane);
   const setHoveredPlane = useSketchStore((state) => state.setHoveredPlane);
   const choosePlane = useSketchStore((state) => state.choosePlane);
@@ -436,22 +530,10 @@ function DatumSheet({ plane }: { plane: DatumPlaneName }) {
 
   const basis = useMemo(() => sceneOriginBasis(plane), [plane]);
   const quaternion = useMemo(() => planeQuaternion(basis), [basis]);
-  const edgePositions = useMemo(() => {
-    const s = PLANE_SIZE_MM / 2;
-    const corners = [
-      { x: -s, y: -s },
-      { x: s, y: -s },
-      { x: s, y: s },
-      { x: -s, y: s },
-    ];
-    const positions = new Float32Array(4 * 6);
-    corners.forEach((corner, i) => {
-      const next = corners[(i + 1) % 4] ?? corner;
-      positions.set(planeToWorld(basis, corner), i * 6);
-      positions.set(planeToWorld(basis, next), i * 6 + 3);
-    });
-    return positions;
-  }, [basis]);
+  const edgePositions = useMemo(
+    () => sheetEdgePositions(basis, sizeMm),
+    [basis, sizeMm],
+  );
   const edgeGeometry = usePositionsGeometry(edgePositions);
 
   // Hover state changes must draw a frame under frameloop="demand".
@@ -460,7 +542,12 @@ function DatumSheet({ plane }: { plane: DatumPlaneName }) {
   }, [hovered, invalidate]);
 
   return (
-    <group>
+    // NAMED as a test hook. The sheet is a raycast mesh, so it is invisible to
+    // `elementFromPoint` and there is no DOM node whose size a probe could
+    // read — the scene-graph name is the only way to ask "how big is the thing
+    // I have to click", which is the question this component's size defect was
+    // about.
+    <group name={`datum-sheet-${plane}`}>
       <mesh
         quaternion={quaternion}
         onPointerOver={(e) => {
@@ -480,7 +567,7 @@ function DatumSheet({ plane }: { plane: DatumPlaneName }) {
           if (isClick(gestureOf(e))) choosePlane(plane);
         }}
       >
-        <planeGeometry args={[PLANE_SIZE_MM, PLANE_SIZE_MM]} />
+        <planeGeometry args={[sizeMm, sizeMm]} />
         <meshBasicMaterial
           color={sketch.planeFill}
           transparent
@@ -1995,22 +2082,16 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
  */
 function DatumHintSheet({ basis }: { basis: PlaneBasis }) {
   const quaternion = useMemo(() => planeQuaternion(basis), [basis]);
-  const edgePositions = useMemo(() => {
-    const s = PLANE_SIZE_MM / 2;
-    const corners = [
-      { x: -s, y: -s },
-      { x: s, y: -s },
-      { x: s, y: s },
-      { x: -s, y: s },
-    ];
-    const positions = new Float32Array(4 * 6);
-    corners.forEach((corner, i) => {
-      const next = corners[(i + 1) % 4] ?? corner;
-      positions.set(planeToWorld(basis, corner), i * 6);
-      positions.set(planeToWorld(basis, next), i * 6 + 3);
-    });
-    return positions;
-  }, [basis]);
+  // DELIBERATELY NOT scaled by the plane-pick standoff, unlike `DatumSheet`.
+  // This one is drawn in the DRAW step, where the camera is posed normal-on by
+  // `sketchCameraDistanceMm` — a different rule entirely — so scaling it by a
+  // standoff it is not being viewed from would make it wrong rather than
+  // right. If the authoring vantage ever becomes subject-dependent too, this is
+  // the line to revisit, and it should scale by THAT distance.
+  const edgePositions = useMemo(
+    () => sheetEdgePositions(basis, PLANE_SIZE_MM),
+    [basis],
+  );
   const edgeGeometry = usePositionsGeometry(edgePositions);
   const position: [number, number, number] = [
     basis.origin[0],
@@ -2219,22 +2300,14 @@ function SketchCameraRig() {
       // The target stays the world origin: that is the composition this vantage
       // has always had, and changing it would move every fixture's pick
       // coordinates for a defect none of them has.
-      const dir = PICK_CAMERA_DIR.clone();
-      const up = new Vector3(0, 1, 0);
-      const target = new Vector3(0, 0, 0);
-      const right = new Vector3().crossVectors(up, dir).normalize();
+      const standoff = planePickBasis();
       const distance = planePickDistanceMm(
         subjectBounds(pickGeometry),
-        {
-          right,
-          up: new Vector3().crossVectors(dir, right).normalize(),
-          dir,
-          target,
-        },
+        standoff,
         framingOf(gl.domElement.parentElement),
         cameraFov(camera),
       );
-      const position = dir.multiplyScalar(distance);
+      const position = standoff.dir.multiplyScalar(distance);
       pose = {
         position: [position.x, position.y, position.z],
         up: [0, 1, 0],
@@ -2395,13 +2468,19 @@ export function SketchScene({ solved, facePicking = false }: SketchSceneProps) {
   // nothing on screen explaining why.
   useEffect(() => () => usePartViewStore.getState().setSketchOpen(false), []);
   useSnapModifiers(mode === "draw");
+  // The sheets are sized for wherever the plane-pick camera is standing, from
+  // the SAME solve the rig poses with — so a body big enough to push the camera
+  // back cannot shrink the affordance you click to start a sketch on it.
+  const sheetSizeMm = apparentSizeMm(PLANE_SIZE_MM, usePlanePickStandoffMm());
   return (
     <group>
       {drawn.map((layer) => (
         <SolvedLayer key={layer.featureId} layer={layer} />
       ))}
       {mode === "plane" && !facePicking
-        ? DATUM_PLANES.map((name) => <DatumSheet key={name} plane={name} />)
+        ? DATUM_PLANES.map((name) => (
+            <DatumSheet key={name} plane={name} sizeMm={sheetSizeMm} />
+          ))
         : null}
       {mode === "draw" && plane !== null && basis !== null ? (
         <group>
