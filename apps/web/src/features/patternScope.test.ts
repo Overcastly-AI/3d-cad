@@ -1,10 +1,7 @@
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
 
 import type { FeatureResponse } from "../api/parts";
+import { readRepoSource } from "../test/wireSource";
 import {
   buildScope,
   type ScopeFeature,
@@ -21,15 +18,24 @@ import {
 } from "./patternScope";
 
 /**
- * The kernel module this list mirrors. The path is deliberate: if the module
- * moves, this test fails loudly rather than silently stopping guarding anything
- * (the idiom `face.test.ts` uses for the body-affecting set, and
- * `thread.test.ts` for the pitch table).
+ * The kernel module this list mirrors.
+ *
+ * Read LAZILY through {@link readRepoSource} (the idiom `face.test.ts` uses for
+ * the body-affecting set, and `thread.test.ts` for the pitch table). The read
+ * was already lazy here, which is why a move would have cost this file one
+ * named failure rather than all of it — but the path was a bare `resolve()`
+ * with no "it moved" message, so that one failure would have said `ENOENT` and
+ * left the reader to work out that a drift guard had stopped guarding.
  */
-const EVALUATE_PY = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../../../services/geometry/src/geometry/features/evaluate.py",
-);
+const EVALUATE_PY = "services/geometry/src/geometry/features/evaluate.py";
+
+const evaluateSource = (): string =>
+  readRepoSource(EVALUATE_PY, {
+    declaredIn: "EVALUATE_PY in apps/web/src/features/patternScope.test.ts",
+    guards:
+      "the kernel's _MIRROR_REFLECTABLE_TYPES set, a semantic subset that no " +
+      "generated type carries",
+  });
 
 /**
  * Parse `_MIRROR_REFLECTABLE_TYPES` out of the geometry evaluator — THE source
@@ -87,7 +93,7 @@ describe("REPEATABLE_FEATURE_TYPES", () => {
   // refuses with `pattern_feature_unsupported` AFTER the user commits — the
   // "refused kinds are non-selectable, not a post-OK error" rule of §7.4.
   it("matches the kernel's own reflectable set exactly", () => {
-    const kernel = kernelReflectableTypes(readFileSync(EVALUATE_PY, "utf8"));
+    const kernel = kernelReflectableTypes(evaluateSource());
     expect(kernel.length).toBeGreaterThan(0);
     expect([...REPEATABLE_FEATURE_TYPES].sort()).toEqual([...kernel].sort());
   });
