@@ -4577,3 +4577,81 @@ off. Full suite: **52 passed, exit 0** (`just lint` green).
   motion to reduce, which is checked in source and not in the browser here.
 - **Contrast of the gauge ink against a lit aluminium face** was not sampled;
   this pass measured targets and reach only.
+
+### 2026-09-18 addendum — the `data-gauge` hook, settled in the running app
+
+A probe reported `document.querySelector('[data-gauge="extrude-depth"]')`
+returning **null** while `[data-testid="extrude-depth-handle"]` resolved, and
+concluded the test hook was broken. **It is not.** Measured across all nine
+mounts, before and after the named settle, and across every live state the
+extrude gauge has (`apps/web/e2e/gauge-hooks.spec.ts`, 11 cases, green):
+
+| state | `[data-gauge="extrude-depth"]` | `[data-testid="extrude-depth-handle"]` | grip's own `data-gauge` |
+|---|---|---|---|
+| rest | resolves | resolves | `extrude-depth` |
+| grabbed (pointer down, mid-drag) | resolves | resolves | `extrude-depth` |
+| typing (numeric cell open) | resolves | resolves | `extrude-depth` |
+| after a view change | resolves | resolves | `extrude-depth` |
+| **command closed** | **absent** | **absent** | **ABSENT** |
+
+Node counts per mount, after the settle: 2 (grip + one band) on the four
+straight tracks and both pattern rails, 3 for draft, **33** for a 120° revolve
+arc. Identical before the settle in every case.
+
+**The two attributes are on the SAME element, so they appear and vanish
+together.** There is no state in which one answers and the other does not —
+which means the reported asymmetry cannot be produced by this component's
+lifecycle at all, and the two readings were taken at different moments rather
+than in one state where the hook is broken. "Absent because the command is
+closed" and "the hook is broken" are different facts, and only the second would
+justify changing anything.
+
+#### The nine read-sites, by what happens the day `data-gauge` stops resolving
+
+The census is nine, not seven — `gauge-touch.spec.ts` added two. Grouped by
+**failure direction**, which is the property that matters:
+
+| shape | sites | if `data-gauge` breaks |
+|---|---|---|
+| **ALONE, feeding a floored count** | `gaugeProbe.ts:231` (`reach`), `gaugeProbe.ts:519` (`reachAlongTrack`), `gaugeReach.ts:173`, `gauge-touch.spec.ts:711` | `hits` collapses to 0, `expectReach`'s `>= REACH_FLOOR` (12/16) fires — **loud** |
+| **AND (both attributes required)** | `draft-gauge.spec.ts:344`, `revolve-gauge.spec.ts:626` | the locator resolves nothing — **loud** |
+| **ALONE, diagnostic only** | `revolve-gauge.spec.ts:609`, `gauge-touch.spec.ts:304` | feeds a log line and a failure message, never an assertion — **silent, and harmless** |
+| **OR (`[data-gauge], [data-testid^=…]`)** | `fillet-chamfer-gauge.spec.ts:181` | **keeps passing, carried by the testid half** |
+
+So the answer to "which are load-bearing and which are rescued" is: **none of
+them fails silently in a way that matters today**, because every site whose
+result gates a pass/fail feeds a count with a floor under it. One site is
+genuinely carried by its fallback — the OR form — and that is the one worth
+changing.
+
+**But the OR form's real problem is not that it is a fallback — it is that it
+is a WIDER QUESTION, today, with the hook working perfectly.** Measured:
+
+```
+[data-gauge="extrude-depth"]         -> extrude-depth-handle, extrude-depth-sleeve
+[data-testid^="extrude-depth-"]      -> extrude-depth-handle, extrude-depth-readout,
+                                        extrude-depth-sleeve, extrude-depth-steps
+only the testid selector             -> extrude-depth-readout, extrude-depth-steps
+only the data-gauge selector         -> (none)
+```
+
+`data-gauge` is on the grip and the hit bands **only**. `data-testid^="X-"`
+additionally matches `-readout` (the tag strip — a *separate* control, the one
+P1-T3 is about) and `-steps` (the `sr-only` hint). So an OR-form ownership check
+scores a pixel that landed on the **number** as a pixel on the **rod**. For a
+reach census — whose entire question is "is the drawn track the target" — that
+is the assertion quietly widening until it cannot fail.
+
+**One `expectReach` assertion is already latently vacuous and worth naming:**
+`others === 0` ("this gauge's track never resolves to a DIFFERENT gauge"). If
+`data-gauge` vanished, `others` would be 0 too, and that assertion would pass
+for the wrong reason. It survives only because the `hits >= REACH_FLOOR`
+assertion beside it fires first. That is a dependency between two assertions
+that nothing writes down — fine today, fragile the moment someone relaxes the
+floor.
+
+*Suggested system-level fix:* drop the testid half of
+`fillet-chamfer-gauge.spec.ts:181` so it asks the same question as the other
+eight (that file is another agent's territory this pass — flagged, not edited),
+and keep `apps/web/e2e/gauge-hooks.spec.ts` as the standing gate so the hook's
+reachability is a measurement rather than an inference from a green gauge spec.
