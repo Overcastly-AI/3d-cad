@@ -118,15 +118,14 @@ async function trackGesture(
 for (const mount of MOUNTS) {
   test.describe(`touch census — ${mount.id}`, () => {
     test(`hit targets are sized and reachable`, async ({ page }) => {
-      // THE PATTERN COUNT GRIP IS KNOWN UNREACHABLE — its own centre resolves
-      // to `timeline-way`, at 1280x800 AND at 1600x1000 (see the two-width case
-      // below, which is what rules out a responsive cause). Annotated rather
-      // than excluded so the day the rail moves off the chrome this case
-      // reddens for PASSING and the annotation has to come off.
-      test.fail(
-        mount.id === "pattern-count-gauge",
-        "the count rail is drawn into the bottom chrome (P1 in docs/UI-REVIEW.md)",
-      );
+      // P1-T2 CLOSED 2026-09-18 — the annotation that used to sit here is gone
+      // because it did its job. The pattern COUNT grip's own centre resolved to
+      // `timeline-way` at both widths when this pass was written; it now
+      // resolves to ITSELF, at (831,646) on 1280x800 and (1062,832) on
+      // 1600x1000 — the far rail moved up out of the bottom chrome. The
+      // `test.fail()` reddened for PASSING, which is the whole reason to
+      // annotate a known gap rather than delete the case: a closed gap has to
+      // announce itself.
       await installSceneProbe(page);
       await mount.open(page);
       await expect(page.getByTestId(`${mount.id}-handle`)).toHaveCount(1);
@@ -213,13 +212,10 @@ for (const mount of MOUNTS) {
     });
 
     test(`a real finger drag on the grip moves the value`, async ({ page }) => {
-      // Eight of nine pass. The count gauge fails at `data-grabbed`, which is
-      // the diagnostic half of this case earning its keep: the finger never
-      // reached the control, so this is the burial above, not a dead handler.
-      test.fail(
-        mount.id === "pattern-count-gauge",
-        "the count grip is under `timeline-way`, so no touch reaches it",
-      );
+      // All nine pass as of 2026-09-18. The count gauge used to fail here at
+      // `data-grabbed` — the diagnostic half of this case earning its keep,
+      // because it proved the finger never reached the control and so pointed
+      // at the burial rather than at a dead handler.
       await installSceneProbe(page);
       await mount.open(page);
       await expectGaugeSettled(page, `${mount.id} grip drag`);
@@ -287,10 +283,6 @@ for (const mount of MOUNTS) {
     test(`a real finger drag on the drawn shaft moves the value`, async ({
       page,
     }) => {
-      test.fail(
-        mount.id === "pattern-count-gauge",
-        "the count rail's midpoint resolves to `view-bar`",
-      );
       await installSceneProbe(page);
       await mount.open(page);
       await expectGaugeSettled(page, `${mount.id} sleeve drag`);
@@ -487,22 +479,22 @@ test.describe("touch census — adjacent targets", () => {
 /**
  * WHAT IS UNDER THE PATTERN COUNT GRIP, AT 1280x800 AND AT 1600x1000.
  *
- * This case was written to test a hypothesis and it REFUTED it, which is why
- * both readings stay: the first census found the count grip's own centre
- * resolving to `timeline-way` at 1280x800 — the small-laptop floor CLAUDE.md
- * mandates — and the obvious read was a RESPONSIVE defect, an instrument that
- * fits at the size every existing gauge spec happens to run at (1600x1000, the
- * config default) and falls under the bottom chrome at the size we promise.
+ * This case was written to test a hypothesis, REFUTED it, and has since watched
+ * the defect it found get fixed — all three of which are why both readings stay.
  *
- * MEASURED: `timeline-way` at BOTH. 24x24 at (927,756) on 1280x800 and at
- * (1194,986) on 1600x1000. So it is not a layout-width artefact at all; the
- * far rail is drawn into the bottom chrome unconditionally, and every reach
- * number this suite has ever published for that instrument was taken at a
- * width where it is equally buried.
+ * The first census found the count grip's own centre resolving to
+ * `timeline-way` at 1280x800 — the small-laptop floor CLAUDE.md mandates — and
+ * the obvious read was a RESPONSIVE defect: an instrument that fits at the size
+ * every existing gauge spec happens to run at (1600x1000, the config default)
+ * and falls under the bottom chrome at the size we promise. Measured, it was
+ * `timeline-way` at BOTH — 24x24 at (927,756) and at (1194,986) — so it was
+ * never a layout-width artefact, and a lone "unreachable at 1280" would have
+ * sent the fix to a breakpoint instead of to the rail's seat.
  *
- * Both readings stay in the spec because the PAIR is the evidence. A lone
- * "unreachable at 1280" is consistent with a responsive bug and would send the
- * fix to the wrong place — a breakpoint instead of the rail's seat.
+ * FIXED 2026-09-18, and the pair is what shows it cleanly: the grip now
+ * resolves to ITSELF at (831,646) and (1062,832) — the far rail moved up out of
+ * the chrome at both widths, not merely at one. The assertion below is now a
+ * plain gate rather than an annotated gap.
  */
 test.describe("touch census — the pattern count rail at two widths", () => {
   for (const size of [
@@ -512,10 +504,6 @@ test.describe("touch census — the pattern count rail at two widths", () => {
     test(`${size.width}x${size.height}: what is under the count grip`, async ({
       page,
     }) => {
-      test.fail(
-        true,
-        "the count rail is drawn into the bottom chrome at BOTH widths",
-      );
       await page.setViewportSize(size);
       await installSceneProbe(page);
       const pattern = MOUNTS.find(

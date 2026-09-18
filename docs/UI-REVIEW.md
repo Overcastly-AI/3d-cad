@@ -4655,3 +4655,96 @@ floor.
 eight (that file is another agent's territory this pass — flagged, not edited),
 and keep `apps/web/e2e/gauge-hooks.spec.ts` as the standing gate so the hook's
 reachability is a measurement rather than an inference from a green gauge spec.
+
+### 2026-09-18 addendum — CRAFT-12 behaviours now have standing gates, and P1-T2 is CLOSED
+
+Three behaviours shipped guarded only by unit tests and a scratch harness that
+no longer exists. They now have specs: `apps/web/e2e/preview-overrun.spec.ts`,
+`gauge-release-sync.spec.ts`, `datum-sheet-size.spec.ts`, sharing a new
+`sceneProject.ts` (project a named subtree's world box through the live camera —
+neither a ghost nor a datum sheet has any DOM node, so `elementFromPoint` and
+`boundingBox()` are both blind to them).
+
+**P1-T2 from the 2026-09-16 pass is FIXED, and the annotation is what told us.**
+The pattern COUNT grip's own centre resolved to `timeline-way` at both widths
+when that pass was written. It now resolves to **itself**, at **(831,646)** on
+1280×800 and **(1062,832)** on 1600×1000 — the far rail moved up out of the
+bottom chrome. A real finger now grabs it (`data-grabbed=true`, 3 → 4) and the
+shaft midpoint resolves to `pattern-count-gauge-sleeve` rather than `view-bar`.
+Nearest-neighbour gap went 0.0 → 68.1 px. The five `test.fail()` annotations
+reddened for **passing**, which is the whole reason to annotate a known gap
+rather than delete the case; they are removed and those cases are plain gates
+now. P1-T1 (24×24 grips) and P1-T3 (no touch route to numeric entry) are
+unchanged and still annotated.
+
+#### What the new gates assert, and what each one measured
+
+| behaviour | measured | gate |
+|---|---|---|
+| proposal runs past the frame → camera comes out | **8/8** corners in frame, **100%** of the projected box covered | `cornersInFrame === 8`, covered > 0.99 |
+| …and is SUPPRESSED once the modeler navigated | camera moved **0.10%** of its own range; proposal left at **4/8** corners, 15–52% covered | relative move < 2%, and `< 8` corners as the positive case's control |
+| no re-frame under a live hand | **0.00%** of range while held, **29–76%** after release | held < 2%, released > 2% |
+| a shrink never ROTATES the view | **0.0006–0.0118°** across 11 runs; a hand orbit turns **49°** | turned < 0.5°, with the orbit as its control |
+| release desync | **0 disagreements** over 80 frames on 11 of 12 runs | longest CONSECUTIVE disagreeing run < 3, and the last frame agrees |
+| datum sheets on a 1600 mm column | **196.6 / 308.1 / 230.9 px** minor | ≥ 44 px each |
+| …sheet size vs body size | 30 mm and 1600 mm project **identically** | the two agree within 1 px |
+
+#### P2 — the outward-only rule does not hold reliably (for the camera's owner)
+
+Writing the "a shrinking proposal does not pull the camera in" gate turned up a
+**bimodal** result. Eleven runs of one flow — frame a 300 mm proposal, then set
+the distance to 12 — with nothing else changing:
+
+```
+held:     99.6  99.4  99.4  99.3  99.4   % of camera range kept
+pulled:    6.5   6.4   6.3   6.3   6.3   6.3
+```
+
+Either the camera holds its frame (the fraction of a per cent is the exponential
+ease's asymptotic tail) or it dollies **in** by ~15.7x, 608.9 → ~38.4. Nothing
+in between, across eleven runs — the signature of two code paths racing, not a
+noisy measurement. It is timing-correlated rather than random: **in isolation it
+pulled in 5 times of 7; run after its three siblings in the same file it held 3
+times of 4.**
+
+The preview re-fit's own predicate cannot be the one doing it —
+`overrunNeedsRefit` is `overrun > 1.02` where `overrun = needed / distanceMm`,
+so a subject that got *smaller* lowers `needed` and cannot clear the threshold.
+The likely other party is the ordinary bounds-driven fit, which is not
+outward-only. **That is an inference about code this pass does not own, so it is
+filed rather than asserted**: shipping `kept > 0.8` would redden CI on two runs
+in three in a file nobody touched. What the spec gates instead is the half that
+IS stable — whatever re-frames here is a pure dolly and never a rotation.
+
+#### Two measurement corrections worth keeping
+
+- **An absolute world-unit tolerance on a camera is scene-scale-dependent, and
+  it failed a correct product.** The first draft asserted "moved < 0.5 units" on
+  a camera sitting ~609 units out; the exponential ease
+  (`position.lerp(goal, 1 - exp(-dt*10))`) approaches asymptotically, so a
+  *settled* camera still drifts **3.835 units** — 0.63% — with the view
+  direction identical to four decimal places. Every such assertion is now a
+  FRACTION of the camera's own range. Note also that `expectCameraStable` checks
+  the direction ANGLE only, so it reads 0° of drift through a pure dolly — which
+  is exactly the move three of these cases exist to forbid.
+- **A watch armed before the event measures the transition, not the state after
+  it.** The release-desync census originally started before `finger.up()`
+  resolved, to catch frame 0, and reported `rod=25 field=26` at frame 2 on 1 run
+  in 6 — which reads exactly like the defect still being open. Armed *after* the
+  release it is clean 6 of 6 in isolation. The near-miss is the point: that
+  would have been filed as a live P1 regression against a fix that works.
+  Under heavy load a 1–2 frame transient still appears, which is why the gate
+  asserts the longest CONSECUTIVE run rather than a bare count — persistence is
+  the defect's signature (the rod was stale *by construction* until the echo
+  landed, and got worse on slower machines), while a transition sampled
+  mid-commit is bounded by the commit and does not.
+
+#### And one harness defect found in my own code
+
+`orbitByHand` pressed a hard-coded pixel. After the camera re-frames for a
+300 mm proposal the ghost and its gauge sprawl across the lower frame, so that
+pixel is sometimes the *instrument* — the drag became a value drag and the
+camera never moved, failing 2 of 6 heavy runs **in the helper, not the product**.
+It now hit-tests four candidates and presses the first that resolves to the bare
+canvas. Same discipline as everything else in this wave: ask the browser what is
+under the pixel before pressing it. Stable at 49.34° across three runs.
