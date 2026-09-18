@@ -1653,7 +1653,12 @@ export function PartPage() {
   // The authoring seat holds one editor at a time — an extrude OR a revolve —
   // so they share the saving/error state and the viewport top-left anchor.
   // (The union lives in `OpenEditor` above, which also keys COMMAND_LABEL.)
-  const [editor, setEditor] = useState<OpenEditor | null>(null);
+  // `setEditorState` is deliberately NOT used directly anywhere below — every
+  // call site goes through the `setEditor` wrapper defined beside the gauge
+  // channels, which ends the outgoing command's gauge session first. See the
+  // note there; the split exists so a gauge override cannot outlive the command
+  // that produced it.
+  const [editor, setEditorState] = useState<OpenEditor | null>(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(
     null,
   );
@@ -1764,6 +1769,67 @@ export function PartPage() {
   // twin of `extrudePreview`). Cleared the moment the editor closes.
   const [patternPreview, setPatternPreview] =
     useState<PatternPreviewState | null>(null);
+
+  /**
+   * End the gauge session — every override box back to null (ANCHOR B).
+   *
+   * A gauge override is SESSION state: it is the value a viewport instrument is
+   * asking the open editor for, and it means nothing once that editor is gone.
+   * Leaving one behind is not a stale readout, it is a WRONG NUMBER IN A FIELD
+   * THAT LOOKS AUTHORITATIVE — the next editor to mount applies the box over
+   * its own seed on its first effect pass, so a feature stored at 8 mm re-opens
+   * pre-filled at whatever the last drag reached, one Enter from a silent
+   * change the user never asked for (product audit 2026-09-16, F-9).
+   */
+  const endGaugeSession = useCallback(() => {
+    extrudeDepthGauge.reset();
+    filletRadiusGauge.reset();
+    chamferDistanceGauge.reset();
+    shellThicknessGauge.reset();
+    datumOffsetGauge.reset();
+    revolveAngleGauge.reset();
+    draftAngleGauge.reset();
+    // Both of the pattern's, because it mounts the gauge TWICE.
+    patternCountGauge.reset();
+    patternSpacingGauge.reset();
+  }, [
+    extrudeDepthGauge,
+    filletRadiusGauge,
+    chamferDistanceGauge,
+    shellThicknessGauge,
+    datumOffsetGauge,
+    revolveAngleGauge,
+    draftAngleGauge,
+    patternCountGauge,
+    patternSpacingGauge,
+  ]);
+
+  /**
+   * OPEN / REPLACE / CLOSE THE AUTHORING SEAT — the ONLY way `editor` moves.
+   *
+   * The reset used to live in `closeEditor` alone, described in
+   * `useGaugeOverride` as "the line everyone forgets". It was worse than
+   * forgettable: `closeEditor` is one of SEVEN ways an editor stops being the
+   * open one. A successful save calls `setEditor(null)` straight from the write
+   * handler, `selectFeature` REPLACES the open editor with another feature's,
+   * and entering the sketcher / arming Measure / importing a STEP each drop it
+   * on the floor. None of those ran the reset, so the box survived — and the
+   * audit's fillet re-opened at the drag value rather than at `radius_mm: 8`.
+   *
+   * Binding the reset to the TRANSITION rather than to one of its callers is
+   * what makes it structural: a later verb adds its channel to
+   * `endGaugeSession` and cannot get this wrong at any of the seven sites,
+   * because there are no longer seven sites. The reset is synchronous and runs
+   * BEFORE the state update on purpose — an effect would land after the newly
+   * mounted editor's own effects, i.e. after the clobber it exists to prevent.
+   */
+  const setEditor = useCallback(
+    (next: OpenEditor | null) => {
+      endGaugeSession();
+      setEditorState(next);
+    },
+    [endGaugeSession],
+  );
 
   // Earlier datum features offered to the datum editor as references (the
   // offset-from base + the midplane sides). Create authors at the tip, so every
@@ -3170,43 +3236,18 @@ export function PartPage() {
     setEditor(null);
     setEditorError(null);
     setExtrudePreview(null);
-    // ANCHOR B — the line everyone forgets. Without it the next Extrude opens
-    // seeded from the last drag instead of its own default. One per gauge, and
-    // the reason these are written out rather than looped is that forgetting
-    // ONE of them is silent: the wrong default surfaces on the NEXT open of
-    // that command, on a value the user never touched this time round. (The
-    // editors' own unmounts clear the live halves; the overrides outlive them.)
-    extrudeDepthGauge.reset();
-    filletRadiusGauge.reset();
-    chamferDistanceGauge.reset();
+    // The gauge OVERRIDES are reset by `setEditor` itself, for every transition
+    // and not just this one — see its note. What is left here is the other
+    // half: the editors' PROJECTIONS (the live value the viewport draws its
+    // preview from). Those are nulled by each editor's own unmount, and a close
+    // that does not unmount one — a retarget — would otherwise leave an arc or
+    // a row drawn on the feature you just left.
     setFilletRadiusMm(null);
     setChamferDistanceMm(null);
-    shellThicknessGauge.reset();
-    datumOffsetGauge.reset();
-    // Same line, per angular gauge (CRAFT-10). The projections are cleared too:
-    // the editors null them on unmount, but a close that does not unmount them
-    // (a retarget) would otherwise leave an arc on the previous feature.
-    revolveAngleGauge.reset();
-    draftAngleGauge.reset();
     setRevolveGauge(null);
     setDraftGauge(null);
-    // …and both of the pattern's, because it mounts the gauge TWICE. A count
-    // that survived the close would open the next row at whatever the last drag
-    // reached, on a value the user never touched this time round.
     setPatternPreview(null);
-    patternCountGauge.reset();
-    patternSpacingGauge.reset();
-  }, [
-    extrudeDepthGauge,
-    filletRadiusGauge,
-    chamferDistanceGauge,
-    shellThicknessGauge,
-    datumOffsetGauge,
-    revolveAngleGauge,
-    draftAngleGauge,
-    patternCountGauge,
-    patternSpacingGauge,
-  ]);
+  }, [setEditor]);
 
   // Global cancel for an open feature editor (FINDINGS #11). The command band
   // advertises "CANCEL ESC", so Escape MUST disarm the editor from any focus —
