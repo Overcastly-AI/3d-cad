@@ -142,6 +142,83 @@ async function drawSectionOnXZ(page: Page): Promise<void> {
   });
 }
 
+/**
+ * WAIT UNTIL THE CAMERA HAS STOPPED MOVING — POSITION, not direction.
+ *
+ * `waitForCameraRest` compares the view DIRECTION, and deliberately so: taking
+ * the viewpoint away is the defect it exists for, while re-framing distance and
+ * target is the behaviour users want. That makes it structurally blind to the
+ * move every case below has to outlast. CRAFT-12's preview re-fit (`7a15bea`)
+ * is a pure standoff-and-target ease — "re-frame, never re-orient" is one of
+ * its stated clauses — so the direction never changes and `waitForCameraRest`
+ * returns on its first sample while the camera is still sliding.
+ *
+ * ## The reading this repairs, because it is not a flake
+ *
+ * Growing the sweep to 120 degrees moves the proposal, which is the re-fit's
+ * trigger. Measured here at HEAD, with the position sampled either side of the
+ * pixel read: the camera travelled (157.14, 128.99, 178.98) ->
+ * (160.79, 130.84, 180.22) BETWEEN the frame that sampled the projected track
+ * and the frame that hit-tested a point off it. The press point is therefore
+ * computed in one pose and used in another, `elementFromPoint` finds nothing,
+ * and the case refuses to run — `held === null`, the failure shard 3/4 reported
+ * on six consecutive commits.
+ *
+ * It is deterministic on a hosted runner and green locally for the same reason
+ * in reverse: the only thing standing between the two reads was the latency of
+ * two CDP round trips, i.e. an ACCIDENTAL settle that nobody wrote down. Adding
+ * two `page.evaluate` calls between them reproduced the CI failure 3 times out
+ * of 3 locally, which is how the mechanism was confirmed rather than guessed.
+ *
+ * Kept in this file rather than pushed into `invariants.ts`: that module is
+ * shared across the suite and its camera helpers are owned elsewhere.
+ */
+async function waitForCameraStill(
+  page: Page,
+  options: { epsilonMm?: number; timeoutMs?: number } = {},
+): Promise<void> {
+  const { epsilonMm = 0.02, timeoutMs = 20_000 } = options;
+  const read = async (): Promise<[number, number, number]> =>
+    page.evaluate(() => {
+      const w = window as unknown as Record<string, unknown>;
+      const cameras = (w["__loftCameras"] ?? {}) as Record<
+        string,
+        { position: { x: number; y: number; z: number } }
+      >;
+      const order = (w["__loftSceneOrder"] ?? []) as string[];
+      for (const uuid of order) {
+        const camera = cameras[uuid];
+        if (camera !== undefined) {
+          return [camera.position.x, camera.position.y, camera.position.z] as [
+            number,
+            number,
+            number,
+          ];
+        }
+      }
+      return [0, 0, 0] as [number, number, number];
+    });
+  const deadline = Date.now() + timeoutMs;
+  let previous = await read();
+  for (;;) {
+    await waitForFrames(page, 4);
+    const current = await read();
+    const moved = Math.hypot(
+      current[0] - previous[0],
+      current[1] - previous[1],
+      current[2] - previous[2],
+    );
+    if (moved <= epsilonMm) return;
+    previous = current;
+    if (Date.now() > deadline) {
+      throw new Error(
+        `waitForCameraStill: camera still moving after ${timeoutMs}ms ` +
+          `(last step ${moved.toFixed(4)} mm)`,
+      );
+    }
+  }
+}
+
 /** Draw the section, then open the revolve editor on it, framed in iso. */
 async function openRevolve(page: Page): Promise<void> {
   await drawSectionOnXZ(page);
@@ -397,6 +474,11 @@ test.describe("CRAFT-10 — the revolve sweep gauge", () => {
     await field.fill("120");
     await field.blur();
     await waitForFrames(page, 3);
+    // THE SETTLE, NAMED. Growing the sweep moves the proposal, which is what
+    // CRAFT-12's re-fit triggers on, and every reading below samples a screen
+    // point in one frame and uses it in another. See `waitForCameraStill` for
+    // the 3.7 mm of camera travel that was landing between those two reads.
+    await waitForCameraStill(page);
 
     const before = await angleField(page);
     const beforePreview = await settledFingerprint(page);
@@ -453,6 +535,11 @@ test.describe("CRAFT-10 — the revolve sweep gauge", () => {
     await field.fill("120");
     await field.blur();
     await waitForFrames(page, 2);
+    // THE SETTLE, NAMED. Growing the sweep moves the proposal, which is what
+    // CRAFT-12's re-fit triggers on, and every reading below samples a screen
+    // point in one frame and uses it in another. See `waitForCameraStill` for
+    // the 3.7 mm of camera travel that was landing between those two reads.
+    await waitForCameraStill(page);
 
     const grip = page.getByTestId("revolve-angle-handle");
     await grip.focus();
@@ -521,12 +608,21 @@ test.describe("CRAFT-10 — the revolve sweep gauge", () => {
     await field.fill("120");
     await field.blur();
     await waitForFrames(page, 3);
+    // THE SETTLE, NAMED. Growing the sweep moves the proposal, which is what
+    // CRAFT-12's re-fit triggers on, and every reading below samples a screen
+    // point in one frame and uses it in another. See `waitForCameraStill` for
+    // the 3.7 mm of camera travel that was landing between those two reads.
+    await waitForCameraStill(page);
 
     // Arm the instrument the way a user does — the pointer on it — so the
     // sleeve is measured in the state it is used in.
     const grip = await gripCentre(page, "revolve-angle");
     await page.mouse.move(grip.x, grip.y);
-    await waitForFrames(page, 2);
+    // …and the arming itself moves the camera: the ladder is drawn INSIDE the
+    // command layer, so building it grows the box CRAFT-12 re-fits on. The
+    // census below samples the track and then hit-tests each point, so an ease
+    // still in flight costs hits for a reason that is not reach.
+    await waitForCameraStill(page);
 
     const walked = await reachAlongTrack(page, "revolve-angle");
     console.log(
@@ -599,6 +695,11 @@ test.describe("CRAFT-10 — the revolve sweep gauge", () => {
     await field.fill("120");
     await field.blur();
     await waitForFrames(page, 3);
+    // THE SETTLE, NAMED. Growing the sweep moves the proposal, which is what
+    // CRAFT-12's re-fit triggers on, and every reading below samples a screen
+    // point in one frame and uses it in another. See `waitForCameraStill` for
+    // the 3.7 mm of camera travel that was landing between those two reads.
+    await waitForCameraStill(page);
 
     /** What `elementFromPoint` finds at a pixel: this gauge's band id, or null. */
     const bandAt = async (at: Point): Promise<string | null> =>
@@ -613,6 +714,18 @@ test.describe("CRAFT-10 — the revolve sweep gauge", () => {
 
     // A press point on the DRAWN arc near the seat — sampled off the projected
     // polyline rather than guessed, so it is on the instrument the eye sees.
+    //
+    // ARM FIRST, THEN SAMPLE. Hovering the sleeve builds the ladder, and the
+    // ladder is drawn INSIDE the command layer — so arming the instrument grows
+    // the very box CRAFT-12 watches and fires a second re-fit, after the one the
+    // angle change already caused. Measured: the camera sits dead still at
+    // (157.14, 128.99, 178.98) right up to and including the hover, then travels
+    // 4.0 mm over the next two frames. Sampling before that lands means the
+    // pixel is computed in one pose and hit-tested in another, which is the
+    // `held === null` shard 3/4 has been reporting.
+    const armAt = await projectedTrack(page, "revolve-angle", 17);
+    await page.mouse.move((armAt[3] as Point).x, (armAt[3] as Point).y);
+    await waitForCameraStill(page);
     const track = await projectedTrack(page, "revolve-angle", 17);
     const grab = track[3] as Point;
     await page.mouse.move(grab.x, grab.y);
