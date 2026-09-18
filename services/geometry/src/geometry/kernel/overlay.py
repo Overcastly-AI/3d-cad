@@ -39,7 +39,7 @@ from loft_wire.overlay import (
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 from OCP.GCPnts import GCPnts_QuasiUniformDeflection
 
-from geometry.kernel.edges import edge_signature_dto
+from geometry.kernel.edges import edge_adjacency, edge_signature_dto
 from geometry.kernel.faces import face_signature_dto
 from geometry.kernel.types import BodyShape
 
@@ -112,8 +112,15 @@ def selection_overlay(
     """
     vertices = [_vertex_point(vertex) for vertex in body.vertices()]
 
+    # Faces first: their signatures are the input to the EDGE adjacency
+    # annotation (§14), and a planar face signature builds an outer-wire region —
+    # computing one per incident edge instead of reusing these would be quadratic
+    # on a real part.
+    face_signatures = [face_signature_dto(face) for face in body.faces()]
+    adjacency = edge_adjacency(body, face_signatures)
+
     edges: list[OverlayEdge] = []
-    for edge in body.edges():
+    for index, edge in enumerate(body.edges()):
         polyline = _edge_polyline(edge, linear_deflection)
         # start/end are the polyline ends so the three are always
         # self-consistent (start == polyline[0], end == polyline[-1]); the
@@ -128,14 +135,17 @@ def selection_overlay(
                 # SAME stage-1 signature the fillet/chamfer picked-edge resolver
                 # matches against, built by the SAME geometry.kernel.edges helper
                 # over the SAME body.edges() enumeration — pick side == resolve
-                # side (order-equality gate).
-                signature=edge_signature_dto(edge),
+                # side (order-equality gate). The §14 adjacency annotation rides
+                # along so a reference picked TODAY survives a later dimension
+                # edit that resizes the part (resolver tier 3); it is absent for
+                # an edge without two distinct planar neighbours, and the tiers
+                # above it do not read it.
+                signature=edge_signature_dto(edge, adjacency.get(index)),
             )
         )
 
     faces: list[OverlayFace] = []
-    for index, face in enumerate(body.faces()):
-        signature = face_signature_dto(face)
+    for index, signature in enumerate(face_signatures):
         feature_id = (
             face_features[index]
             if face_features is not None and index < len(face_features)

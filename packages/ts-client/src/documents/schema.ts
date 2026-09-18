@@ -2810,8 +2810,37 @@ export interface components {
          *     never a guess. Matching is nearest-within-tolerance at the documented
          *     subshape tolerance (geometry.kernel.edges / docs/GEOMETRY-QA.md), never an
          *     ad-hoc epsilon.
+         *
+         *     ADJACENCY (§14 — the ``adjacent_faces`` field). Every field above is an
+         *     ABSOLUTE WORLD COORDINATE, so a dimension edit that RESIZES the part — the
+         *     single most ordinary thing anyone does to a model — translates the edge off
+         *     every one of them, and §13's durable tier cannot help because it re-matches a
+         *     straight edge on its own SUPPORTING LINE, which a translation leaves behind.
+         *     §13 recorded the reason that looked unfixable: *"a face's area and in-plane
+         *     centroid carry an identity that an edge's direction and length do not."* True
+         *     of an edge's OWN geometry, and the escape is that an edge of a manifold solid
+         *     is the intersection of exactly TWO FACES — and a face's identity survives,
+         *     through four tiers, precisely because it has an area and an in-plane centroid.
+         *     So the identity an edge lacks in itself, it borrows from its neighbours: this
+         *     field stores the two adjacent planar faces' full
+         *     :class:`PlanarFaceSignature`\ s, canonically ordered, and the resolver's tier
+         *     3 re-resolves THEM through the face matcher and takes the edge they share.
+         *
+         *     OPTIONAL, for the same dual-read reason as the ``outer_*`` face fields: every
+         *     edge selector persisted before this field existed must keep resolving, and it
+         *     does — tiers 1 and 2 are untouched, and tier 3 simply does not fire for a
+         *     signature that carries no adjacency. Emitted by the pick side (the selection
+         *     overlay) from 2026-09-18 on, and ONLY when the edge has exactly two DISTINCT
+         *     PLANAR neighbours: a cylinder's seam (one face twice), a non-manifold edge, or
+         *     any edge bounded by a curved face carries no adjacency and is honestly left
+         *     without it rather than given a partial one.
          */
         EdgeSignature: {
+            /**
+             * Adjacent Faces
+             * @description The two PLANAR faces this edge bounds, canonically ordered by (normal, centroid) — the identity the edge's own absolute coordinates lose when a dimension edit RESIZES the part (topological-naming §14). The resolver's tier 3 re-resolves both through the four-tier face matcher and takes the edge they share, requiring exactly one. Absent on selectors authored before 2026-09-18, and on any edge without exactly two distinct planar neighbours; tier 3 then does not fire and the older tiers are unchanged.
+             */
+            adjacent_faces?: components["schemas"]["PlanarFaceSignature"][] | null;
             /**
              * Curve
              * @description Curve family — line | circle | other (spline/ellipse/…)

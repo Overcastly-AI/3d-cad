@@ -12,7 +12,7 @@ Why FEATURE references survived the same edit and dimensions did not
 — the strict stage-1 signature (normal + centroid + area) and, only when that finds
 nothing, a resilient re-match on the strongest INVARIANT alone (same-sense normal +
 coincident supporting plane), which survives any in-plane boundary change
-(``geometry.kernel.faces._match_face_records``, FINDINGS #3). Picked EDGES have only
+(``geometry.kernel.faces.match_face_records``, FINDINGS #3). Picked EDGES have only
 the strict tier: :func:`geometry.kernel.edges.resolve_edge` requires both endpoints,
 the midpoint AND the length to match within tolerance, so ANY change to the measured
 edge itself is fatal — while a dimension is, by definition, attached to the geometry

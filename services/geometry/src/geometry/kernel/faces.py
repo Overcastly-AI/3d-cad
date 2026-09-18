@@ -727,7 +727,7 @@ def inferred_enclosing_match(
     return region.is_inside(projected, tolerance=_CENTROID_TOL_MM)
 
 
-def _match_face_records(
+def match_face_records(
     records: list[PlanarFaceRecord], target: PlanarFaceSignature
 ) -> tuple[list[PlanarFaceRecord], bool]:
     """The four-tier planar-face match shared by both resolvers (CLAUDE.md DRY).
@@ -829,7 +829,7 @@ def resolve_face_plane(
     """Resolve a stage-1 face signature to its planar face's sketch plane.
 
     Matches *target* against the planar faces of *body* (:func:`planar_faces`) via
-    the four-tier :func:`_match_face_records` (strict signature, then a resilient
+    the four-tier :func:`match_face_records` (strict signature, then a resilient
     coplanar re-match — FINDINGS #3, then a translated re-match — QA-2, then an
     enclosing-face re-match on the outer boundary — GEOM-2/M17 §12a), requires
     EXACTLY ONE match (§7.2 — refuse to guess), and returns that face's deterministic
@@ -851,7 +851,7 @@ def resolve_face_plane(
         SubshapeAmbiguousError: two or more within tolerance (a congruent twin) —
             an honest error, never a coin flip (determinism, RESEARCH §9).
     """
-    matches, resilient = _match_face_records(planar_faces(body), target)
+    matches, resilient = match_face_records(planar_faces(body), target)
     if not matches:
         raise SubshapeUnresolvedError(
             "No planar face of the current body matches the stored face "
@@ -901,7 +901,7 @@ def resolve_faces(body: BodyShape, targets: list[PlanarFaceSignature]) -> list[F
         # The tier flag is irrelevant here: this resolver returns the kernel
         # :class:`Face` itself, not a derived POSITION, so there is no origin to
         # re-anchor (contrast :func:`resolve_face_plane`).
-        matches, _resilient = _match_face_records(records, target)
+        matches, _resilient = match_face_records(records, target)
         if not matches:
             raise SubshapeUnresolvedError(
                 "No planar face of the current body matches a picked face "

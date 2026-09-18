@@ -16,24 +16,30 @@ both resolved here against ``body.edges()`` (OCCT's deterministic traversal):
   nearest-within-tolerance, requiring EXACTLY ONE match — so an engineer rounds
   the specific edge they clicked.
 
-RESILIENT RE-MATCH (NAME-2, audit S-24/S-24b): a picked edge resolves through a
-TWO-TIER matcher (:func:`resolve_edge_durable`), the edge twin of the four-tier
-face matcher. Tier 1 is the strict signature above — exact on a clean rebuild.
-Tier 2 (only when tier 1 finds NOTHING) re-matches on the rebuild-invariant of
-the edge's curve kind: a STRAIGHT edge on its supporting line + span overlap
-(invariant under the edge growing or shrinking along itself — the dimension edit
-that widens the plate the edge bounds), a CIRCLE on its centre + angular station
-(invariant under a radius change). Before it existed, every dimension edit that
-moved a picked edge orphaned its fillet / chamfer / edge flange / hem on the
-FIRST edit; see the block comment above :data:`EdgeMatchTier` for the measurement
-and for why an invariant-based tier needs no re-stamping to survive edit N+1.
+RESILIENT RE-MATCH (NAME-2, audit S-24/S-24b; §14): a picked edge resolves through
+a THREE-TIER matcher (:func:`resolve_edge_durable`), the edge twin of the
+four-tier face matcher. Tier 1 is the strict signature above — exact on a clean
+rebuild. Tier 2 (only when tier 1 finds NOTHING) re-matches on the
+rebuild-invariant of the edge's curve kind: a STRAIGHT edge on its supporting line
++ span overlap (invariant under the edge growing or shrinking along itself), a
+CIRCLE on its centre + angular station (invariant under a radius change). Before
+it existed, every dimension edit that moved a picked edge orphaned its fillet /
+chamfer / edge flange / hem on the FIRST edit. Tier 3 (only when tier 2 finds
+NOTHING) re-matches on the edge's ADJACENCY — the two planar faces it bounds,
+re-resolved through the face matcher and intersected — which is what carries a
+reference through an edit that RESIZES the part and so translates the edge off
+every absolute coordinate tier 1 and tier 2 pin. See the block comments above
+:data:`EdgeMatchTier` and above :func:`_adjacency_matches` for the two
+measurements.
 
 The signature functions here feed the PICK side
-(:mod:`geometry.kernel.overlay`, the selection overlay) and the RESOLVE side
-(:func:`select_edges`) through the SAME ``body.edges()`` enumeration and the SAME
-:func:`edge_signature_dto`, so a picked edge resolves back to itself — the
-same-enumeration lesson from measurement/faces, asserted by an order-equality
-gate (``test_edges.py``).
+(:mod:`geometry.kernel.overlay`, the selection overlay, via
+:func:`enumerate_edges_with_adjacency`) and the RESOLVE side
+(:func:`select_edges`, via :func:`enumerate_edges`) through the SAME
+``body.edges()`` enumeration and the SAME :func:`edge_signature_dto`, so a picked
+edge resolves back to itself — the same-enumeration lesson from measurement/faces,
+asserted by an order-equality gate (``test_edges.py``). The two enumerations
+differ ONLY in the §14 adjacency annotation, which tier 1 does not compare.
 
 HONEST STAGE-1 LIMIT (topological-naming.md §7.3, mirroring faces): signature
 matching is BEST-EFFORT, not the structural non-retarget guarantee of stage 2.
@@ -72,18 +78,31 @@ import math
 from dataclasses import dataclass
 from typing import Literal
 
-from build123d import Edge, GeomType, Vector
+from build123d import Edge, Face, GeomType, Vector
 from loft_wire.features import (
     AllEdgesSelector,
     AxisParallelEdgesSelector,
     EdgeSelector,
     EdgeSignature,
     PickedEdgesSelector,
+    PlanarFaceSignature,
 )
 from loft_wire.geometry import Vec3
 from OCP.BRepAdaptor import BRepAdaptor_Curve
+from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE
+from OCP.TopExp import TopExp
+from OCP.TopTools import (
+    TopTools_IndexedDataMapOfShapeListOfShape,
+    TopTools_IndexedMapOfShape,
+)
 
-from geometry.kernel.faces import SubshapeAmbiguousError, SubshapeUnresolvedError
+from geometry.kernel.faces import (
+    SubshapeAmbiguousError,
+    SubshapeUnresolvedError,
+    face_signature_dto,
+    match_face_records,
+    planar_faces,
+)
 
 # The two subshape-resolution errors are generic (defined alongside the face
 # resolver); edge resolution reuses them rather than minting a parallel taxonomy.
@@ -162,7 +181,9 @@ def _canonical_endpoints(edge: Edge) -> tuple[Vector, Vector]:
     return b, a
 
 
-def edge_signature_dto(edge: Edge) -> EdgeSignature:
+def edge_signature_dto(
+    edge: Edge, adjacent_faces: list[PlanarFaceSignature] | None = None
+) -> EdgeSignature:
     """The stage-1 :class:`EdgeSignature` of *edge* (curve + endpoints + mid + len).
 
     THE single signature construction (CLAUDE.md DRY rule) shared by the pick
@@ -171,6 +192,14 @@ def edge_signature_dto(edge: Edge) -> EdgeSignature:
     one the resolver matches against — the same-enumeration guarantee. All metrics
     come from the exact B-rep (build123d ``@`` sampling + ``.length``), never a
     tessellation.
+
+    *adjacent_faces* is the §14 adjacency annotation — the edge's two planar
+    neighbours, already canonically ordered by :func:`adjacent_face_signatures`.
+    It defaults to ``None`` because an edge alone cannot know its neighbours: only
+    a caller holding the BODY can compute them, and only the PICK side needs to
+    (tier 3 resolves the TARGET's stored faces against the body, never a
+    candidate's — see :func:`_adjacency_matches`). So the resolve-side
+    :func:`enumerate_edges` deliberately stays cheap and passes nothing.
     """
     end_a, end_b = _canonical_endpoints(edge)
     return EdgeSignature(
@@ -179,7 +208,105 @@ def edge_signature_dto(edge: Edge) -> EdgeSignature:
         end_b=_vec(end_b),
         midpoint=_vec(edge @ 0.5),
         length_mm=float(edge.length),
+        adjacent_faces=adjacent_faces,
     )
+
+
+#: Canonical sort key for an adjacent-face signature (normal, then centroid). Two
+#: distinct faces meeting at one edge cannot share both, so the order is total —
+#: and being a pure function of the geometry it is DETERMINISTIC (RESEARCH §9):
+#: the same edge of the same body always stores the same pair in the same order,
+#: which matters because the signature is persisted and hashed.
+def _adjacency_sort_key(sig: PlanarFaceSignature) -> tuple[float, ...]:
+    return (
+        sig.normal.x,
+        sig.normal.y,
+        sig.normal.z,
+        sig.centroid.x,
+        sig.centroid.y,
+        sig.centroid.z,
+    )
+
+
+def edge_adjacency(
+    body: BodyShape,
+    face_signatures: list[PlanarFaceSignature | None] | None = None,
+) -> dict[int, list[PlanarFaceSignature]]:
+    """The §14 adjacency annotation for every edge of *body*, by ``body.edges()`` index.
+
+    THE single adjacency construction (CLAUDE.md DRY rule) — the PICK side stamps
+    its result into each :class:`EdgeSignature` it hands a client, and tier 3
+    later re-resolves those stored faces against a rebuilt body.
+
+    An edge is ABSENT from the result — never given a partial answer — whenever it
+    does not have exactly two DISTINCT PLANAR neighbours:
+
+    * a **seam** edge of a cylinder or cone, whose ancestor list names the SAME
+      face twice (there is no pair to intersect, so tier 3 has nothing to say);
+    * an edge bounded by any **curved** face (a hole rim, a fillet boundary) —
+      :class:`~loft_wire.features.PlanarFaceSignature` describes planes only, and
+      minting a curved sibling here would be a second signature schema, not a fix.
+      This is the stated honest limit of §14, not an oversight;
+    * a **non-manifold** or free edge (2 is the manifold-solid count).
+
+    *face_signatures*, when supplied, is index-aligned with ``body.faces()`` and
+    lets a caller that has ALREADY computed them (the selection overlay does,
+    for its own ``faces`` payload) share the work. It is not an optimisation
+    detail: a planar face signature builds an outer-wire region, so recomputing
+    one per incident edge is quadratic on a real part.
+    """
+    faces = list(body.faces())
+    face_index = TopTools_IndexedMapOfShape()
+    for face in faces:
+        face_index.Add(face.wrapped)
+    signatures = (
+        [face_signature_dto(face) for face in faces]
+        if face_signatures is None
+        else face_signatures
+    )
+
+    ancestors = TopTools_IndexedDataMapOfShapeListOfShape()
+    TopExp.MapShapesAndAncestors_s(body.wrapped, TopAbs_EDGE, TopAbs_FACE, ancestors)
+
+    adjacency: dict[int, list[PlanarFaceSignature]] = {}
+    for index, edge in enumerate(body.edges()):
+        if not ancestors.Contains(edge.wrapped):
+            continue
+        incident = list(ancestors.FindFromKey(edge.wrapped))
+        if len(incident) != 2 or incident[0].IsSame(incident[1]):
+            continue
+        pair: list[PlanarFaceSignature] = []
+        for shape in incident:
+            position = face_index.FindIndex(shape)
+            signature = signatures[position - 1] if position > 0 else None
+            if signature is None:
+                break
+            pair.append(signature)
+        if len(pair) == 2:
+            adjacency[index] = sorted(pair, key=_adjacency_sort_key)
+    return adjacency
+
+
+def enumerate_edges_with_adjacency(body: BodyShape) -> list[EdgeRecord]:
+    """:func:`enumerate_edges`, with each signature carrying its §14 adjacency.
+
+    The PICK-side enumeration. Deliberately SEPARATE from :func:`enumerate_edges`
+    rather than replacing it, because the two sides need different things and the
+    costs are not symmetric: the resolve side matches a stored target against
+    candidate signatures and never reads a CANDIDATE's adjacency (tier 3 resolves
+    the target's stored faces against the body — :func:`_adjacency_matches`), so
+    making the hot resolve path build a face signature per face would buy nothing
+    and cost an outer-wire region per face on every rebuild.
+    """
+    adjacency = edge_adjacency(body)
+    return [
+        EdgeRecord(
+            index=index,
+            signature=edge_signature_dto(edge, adjacency.get(index)),
+            edge=edge,
+        )
+        for index, edge in enumerate(body.edges())
+    ]
 
 
 def circle_axis(edge: Edge) -> tuple[float, float, float]:
@@ -334,18 +461,23 @@ _V = tuple[float, float, float]
 #: so the four call sites cannot drift apart (CLAUDE.md DRY).
 _UNRESOLVED_MESSAGE = (
     "No edge of the current body matches the stored edge signature (curve / "
-    "endpoints / midpoint / length), and none shares its rebuild invariant (a "
+    "endpoints / midpoint / length), none shares its rebuild invariant (a "
     "straight edge's supporting line and span, a circle's centre and angular "
-    "station) either; the referenced edge no longer exists after the rebuild. "
-    "Re-pick the edge, or edit the upstream feature back to a state where it "
-    "resolves."
+    "station), and the two faces the edge bounded do not meet at a single edge "
+    "on the rebuilt body; the referenced edge no longer exists after the "
+    "rebuild. Re-pick the edge, or edit the upstream feature back to a state "
+    "where it resolves."
 )
 
-#: Which tier of :func:`resolve_edge_durable` found the edge. Deliberately the
-#: same two words as the drawings wire vocabulary
+#: Which tier of :func:`resolve_edge_durable` found the edge. The first two words
+#: are deliberately the drawings wire vocabulary
 #: (:data:`~loft_wire.drawings.DimensionAnchorTier`): what a consumer can DO
 #: about a match is "it is where you left it" vs "it moved and I followed it".
-EdgeMatchTier = Literal["exact", "durable"]
+#: ``adjacent`` is the §14 third tier — "the edge itself moved off every
+#: coordinate I stored, and I found it again as the intersection of the two faces
+#: it bounds". It stays KERNEL-SIDE (this is not the wire alias) because no
+#: persisted DTO reports it yet.
+EdgeMatchTier = Literal["exact", "durable", "adjacent"]
 
 
 @dataclass(frozen=True)
@@ -532,28 +664,156 @@ def durable_edge_match(candidate: EdgeSignature, target: EdgeSignature) -> bool:
     return False
 
 
+# --------------------------------------------------------------------------- #
+# TIER 3 — the ADJACENCY re-anchor (product audit 2026-09-16, §14)             #
+# --------------------------------------------------------------------------- #
+#
+# THE DEFECT, measured before this tier existed, on the most ordinary edit there
+# is. A gearbox housing (130 x 80 x 40, 3 mm wall, R8 corners, 4 x D8 holes — six
+# features) with the sketch's width retyped 120 -> 150: `Fillet1 ERR
+# SUBSHAPE_UNRESOLVED`, `Shell1` / `Hole1` / `Pattern1` SKIP, the part collapsed
+# to a bare block of 480 000 mm^3 and 6 faces. Four of six features destroyed by
+# one dimension edit. The auditor's verdict: "Yes for a first build, no for the
+# second edit — that is the thing that sends an engineer back to Fusion."
+#
+# WHY TIER 2 CANNOT REACH IT, by construction rather than by tolerance. Every
+# field of an EdgeSignature is an ABSOLUTE WORLD COORDINATE, and tier 2's
+# straight-edge predicate re-matches on the edge's own SUPPORTING LINE. Widening
+# the part TRANSLATES the vertical edges from x = 120 onto a parallel line 30 mm
+# away: not collinear, so `collinear_overlapping_match` returns False for every
+# candidate and no tolerance would change that. Tier 2 is durable against an edge
+# being LENGTHENED OR SHORTENED IN PLACE; it is not durable against the part
+# CHANGING SIZE. A dimension edit is the second thing.
+#
+# THE ASYMMETRY IS THE CLUE, and it is an existence proof rather than an analogy.
+# Every FACE reference in that same tree re-resolved through 120 -> 150 -> 130,
+# including Shell1's. §13 recorded why it looked as though edges could not follow:
+# "freeing the perpendicular offset makes every parallel edge of the same length
+# an equally good candidate ... a face's area and in-plane centroid carry an
+# identity that an edge's direction and length do not." That is true of an edge's
+# OWN geometry and it is the whole reason this tier does not work on the edge's
+# geometry at all. An edge of a manifold solid IS the intersection of exactly two
+# faces; a face's identity survives, through four tiers, precisely because it has
+# an area and an in-plane centroid. So the identity an edge lacks in itself it
+# borrows from its neighbours: resolve the two stored faces through the face
+# matcher that already works, and take the edge they share.
+#
+# NOT GREEDY — STRICTLY MORE CONSTRAINED THAN THE RULE-BASED WORKAROUND. The
+# audit's repair was to retarget the fillet BY RULE ("edges parallel to Z"), which
+# rebuilds but selects a SET: all four vertical edges, which is not what the user
+# picked. Tier 3 names ONE edge, and names it by a pair of faces, so the other
+# three vertical edges of the widened box are not candidates at all — they bound
+# different pairs.
+#
+# ORDER IS THE SAFETY PROPERTY, as in tier 2 and in faces.py: tier 3 runs ONLY on
+# an EMPTY tier-2 result, so it can only turn an `unresolved` into a resolution or
+# an honest ambiguity. It can never retarget a reference that already resolves,
+# and `edge_signatures_match` deliberately does NOT compare adjacency, so adding
+# the field changes no tier-1 outcome either.
+#
+# REFUSE TO GUESS (§7.2) — the tier has three ways to decline and takes all of
+# them. A stored face that resolves to NOTHING, or to MORE THAN ONE face, makes
+# the pair unusable and the edge stays `subshape_unresolved` (the face resolver's
+# own honesty, inherited rather than re-litigated). Two faces that resolve
+# uniquely but share MORE THAN ONE edge — two coplanar runs of one intersection
+# line, e.g. a relief notch bitten out of the middle of a bottom-front edge — are
+# genuinely two equally valid re-anchors, and that is `subshape_ambiguous`.
+
+
+def _adjacency_matches(
+    body: BodyShape, records: list[EdgeRecord], target: EdgeSignature
+) -> list[EdgeRecord]:
+    """Tier 3: the edges shared by *target*'s two re-resolved adjacent faces.
+
+    Returns 0, 1 or >1 records, which :func:`_match_edge_records`'s caller maps
+    onto its typed error exactly as for the tiers above. An empty result covers
+    both "this signature carries no adjacency" (every selector authored before
+    §14, and every edge without two distinct planar neighbours) and "a stored face
+    no longer resolves uniquely" — in both cases the edge is honestly not found.
+
+    The face side is NOT re-implemented here: each stored signature goes through
+    :func:`geometry.kernel.faces.match_face_records`, the same four-tier matcher
+    every picked-FACE consumer uses, so this tier is exactly as durable and
+    exactly as honest as face resolution already is (CLAUDE.md DRY — one matcher,
+    two consumers).
+    """
+    stored = target.adjacent_faces
+    if stored is None or len(stored) != 2:
+        return []
+
+    face_records = planar_faces(body)
+    resolved: list[Face] = []
+    for signature in stored:
+        matches, _resilient = match_face_records(face_records, signature)
+        if len(matches) != 1:
+            # Zero -> that neighbour is gone; more than one -> the face resolver
+            # itself refuses to guess, and a pair we cannot pin cannot pin an edge.
+            return []
+        resolved.append(matches[0].face)
+
+    # OCCT shape identity (IsSame, orientation-blind), not a geometric re-compare:
+    # the faces came from THIS body, so their edges ARE the records' edges.
+    edge_index = TopTools_IndexedMapOfShape()
+    for record in records:
+        edge_index.Add(record.edge.wrapped)
+    on_face = [
+        {
+            position
+            for position in (edge_index.FindIndex(e.wrapped) for e in face.edges())
+            if position > 0
+        }
+        for face in resolved
+    ]
+    shared = on_face[0] & on_face[1]
+    return [
+        record
+        for record in records
+        if edge_index.FindIndex(record.edge.wrapped) in shared
+    ]
+
+
 def _match_edge_records(
-    records: list[EdgeRecord], target: EdgeSignature
-) -> tuple[list[EdgeRecord], bool]:
-    """The two-tier picked-edge match shared by every feature-tree consumer.
+    body: BodyShape, records: list[EdgeRecord], target: EdgeSignature
+) -> tuple[list[EdgeRecord], EdgeMatchTier]:
+    """The three-tier picked-edge match shared by every feature-tree consumer.
 
-    The edge twin of :func:`geometry.kernel.faces._match_face_records`: tier 1 is
-    the strict signature (:func:`edge_signatures_match`), tier 2 the durable
-    re-match (:func:`durable_edge_match`) and runs ONLY on an empty tier-1 result.
+    The edge twin of :func:`geometry.kernel.faces.match_face_records`, each tier
+    reached ONLY when the one above it finds NOTHING:
 
-    Returns ``(matched records, durable)`` — the records (0, 1, or >1), which the
-    caller maps onto its typed unresolved / ambiguous error, and whether tier 2
+    * **Tier 1 — strict** (:func:`edge_signatures_match`): curve kind, both
+      canonical endpoints, midpoint and length. Exact on a clean rebuild.
+    * **Tier 2 — durable** (:func:`durable_edge_match`): the rebuild invariant of
+      the edge's curve kind — a straight edge's supporting line + span overlap, a
+      circle's centre + angular station. Models the edge growing or shrinking
+      ALONG ITSELF.
+    * **Tier 3 — adjacency** (:func:`_adjacency_matches`): the two PLANAR FACES
+      the edge bounds, re-resolved through the four-tier face matcher. Models the
+      edge being CARRIED somewhere else by a dimension edit that resizes the part
+      — the case tiers 1 and 2 cannot reach because both pin an absolute position.
+
+    Returns ``(matched records, tier)`` — the records (0, 1, or >1), which the
+    caller maps onto its typed unresolved / ambiguous error, and which tier
     produced them.
     """
     strict = [r for r in records if edge_signatures_match(r.signature, target)]
     if strict:
-        return strict, False
-    return [r for r in records if durable_edge_match(r.signature, target)], True
-
-
-def _ambiguous(count: int, *, durable: bool) -> SubshapeAmbiguousError:
-    """The typed >1-match refusal, worded for the tier that produced it."""
+        return strict, "exact"
+    durable = [r for r in records if durable_edge_match(r.signature, target)]
     if durable:
+        return durable, "durable"
+    return _adjacency_matches(body, records, target), "adjacent"
+
+
+def _ambiguous(count: int, *, tier: EdgeMatchTier) -> SubshapeAmbiguousError:
+    """The typed >1-match refusal, worded for the tier that produced it."""
+    if tier == "adjacent":
+        return SubshapeAmbiguousError(
+            f"{count} edges of the current body are shared by BOTH faces the "
+            "stored edge reference names, so they are equally valid re-anchors "
+            "(the two faces meet along more than one run). Refusing to guess "
+            "which one the feature meant — re-pick the edge."
+        )
+    if tier == "durable":
         return SubshapeAmbiguousError(
             f"{count} edges of the current body are equally valid re-anchors for "
             "the stored edge signature (collinear segments of one line overlapping "
@@ -580,17 +840,13 @@ def resolve_edge_durable(body: BodyShape, target: EdgeSignature) -> ResolvedEdge
             longer exists (deleted, or moved off its own supporting line).
         SubshapeAmbiguousError: some tier found more than one candidate.
     """
-    matches, durable = _match_edge_records(enumerate_edges(body), target)
+    matches, tier = _match_edge_records(body, enumerate_edges(body), target)
     if not matches:
         raise SubshapeUnresolvedError(_UNRESOLVED_MESSAGE)
     if len(matches) > 1:
-        raise _ambiguous(len(matches), durable=durable)
+        raise _ambiguous(len(matches), tier=tier)
     record = matches[0]
-    return ResolvedEdge(
-        edge=record.edge,
-        signature=record.signature,
-        tier="durable" if durable else "exact",
-    )
+    return ResolvedEdge(edge=record.edge, signature=record.signature, tier=tier)
 
 
 def _resolve_picked_edges(body: BodyShape, selector: PickedEdgesSelector) -> list[Edge]:
@@ -610,11 +866,11 @@ def _resolve_picked_edges(body: BodyShape, selector: PickedEdgesSelector) -> lis
     records = enumerate_edges(body)
     chosen: dict[int, Edge] = {}
     for ref in selector.refs:
-        matches, durable = _match_edge_records(records, ref.selector.signature)
+        matches, tier = _match_edge_records(body, records, ref.selector.signature)
         if not matches:
             raise SubshapeUnresolvedError(_UNRESOLVED_MESSAGE)
         if len(matches) > 1:
-            raise _ambiguous(len(matches), durable=durable)
+            raise _ambiguous(len(matches), tier=tier)
         chosen[matches[0].index] = matches[0].edge
     return [chosen[index] for index in sorted(chosen)]
 

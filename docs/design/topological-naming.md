@@ -1728,3 +1728,146 @@ were promoted verbatim, and both read the same documented tolerances), and it is
 here and in the kernel module's block comment rather than left silent, so the collapse
 is a known follow-up and not a second naming scheme.
 
+
+## 14. Scoping delta — a picked EDGE survives the part CHANGING SIZE (2026-09-18)
+
+**This is §13's own stated limit, taken.** §13 ends by naming what it did not cover:
+*"An edge that leaves its own supporting line ... is still `subshape_unresolved`, and
+deliberately: freeing the perpendicular offset makes every parallel edge of the same
+length an equally good candidate ... That is the EDGE analogue of §12's tier 3 and it
+does not have §12's escape, because **a face's area and in-plane centroid carry an
+identity that an edge's direction and length do not.**"*
+
+That sentence is correct about an edge's OWN geometry, and it is the whole reason the
+escape is not in the edge's geometry at all.
+
+**Problem (product audit 2026-09-16 — P0).** A gearbox housing (130 x 80 x 40, 3 mm
+wall, R8 corner rounds, 4 x D8 holes — six features), then the most ordinary thing a
+working engineer does: **one sketch dimension, width 120 -> 150.** Result: `Fillet1
+ERR SUBSHAPE_UNRESOLVED`, `Shell1` / `Hole1` / `Pattern1` SKIP, the part collapsed to
+a bare block — **480 000 mm^3, 6 faces.** Four of six features destroyed by one
+dimension edit. The auditor's verdict: *"Yes for a first build, no for the second edit
+— that is the thing that sends an engineer back to Fusion."*
+
+**Why tier 2 cannot reach it — by construction, not by tolerance.** Every field of an
+`EdgeSignature` is an ABSOLUTE WORLD COORDINATE, and tier 2's straight-edge predicate
+re-matches on the edge's own SUPPORTING LINE plus a span overlap. That is invariant
+under the edge being lengthened or shortened IN PLACE. A width edit *translates* the
+vertical edges from x = 120 onto a parallel line 30 mm away, so
+`collinear_overlapping_match` returns False for every candidate at any epsilon. Stated
+plainly: **the durable tier is invariant under the transformation that almost never
+happens and not under the one that always does.**
+
+**The asymmetry is the clue, and it is an existence proof rather than an analogy.**
+Every FACE reference in the same tree re-resolved through 120 -> 150 -> 130, including
+`Shell1`'s. A face survives, through four tiers, *because* it has an area and an
+in-plane centroid. And an edge of a manifold solid IS the intersection of exactly two
+faces. So the identity an edge lacks in itself, it borrows from its neighbours.
+
+### Decision — tier 3 re-matches on ADJACENCY, via the face matcher that already works
+
+`EdgeSignature` gains an OPTIONAL `adjacent_faces: list[PlanarFaceSignature] | None`
+(exactly two when present, canonically ordered by normal then centroid). This is not a
+new idea: **§2b's illustrative edge signature carried `adjacent_faces` from the start**,
+and §10 dropped it as not-yet-needed complexity while recording *"adjacency remains
+available as an additive signature field if a future case needs finer discrimination."*
+The future case has arrived.
+
+`geometry.kernel.edges._adjacency_matches` resolves each stored face signature through
+`geometry.kernel.faces.match_face_records` — the SAME four-tier matcher every
+picked-FACE consumer uses, now public for this second consumer (CLAUDE.md DRY: one
+matcher, two callers) — requires exactly one match each, and returns the edges the two
+resolved faces SHARE, by OCCT `IsSame` identity rather than a geometric re-compare.
+
+**Not greedier — strictly MORE constrained than the workaround the audit applied.** The
+audit's repair was to retarget the fillet BY RULE ("edges parallel to Z"), which
+rebuilds but selects a SET: all four vertical edges, which is not what the user picked.
+Tier 3 names ONE edge, by a PAIR of faces, so the other three vertical edges of the
+widened box are not candidates at all — they bound different pairs. Gated over all four
+corners, each landing on its own.
+
+**ORDER IS THE SAFETY PROPERTY**, as in §12a and §13: tier 3 runs ONLY on an empty
+tier-2 result, and `edge_signatures_match` deliberately does NOT compare
+`adjacent_faces`. So the field cannot change a tier-1 outcome and the tier cannot
+retarget a reference that already resolves — it can only turn an `unresolved` into a
+resolution or an honest ambiguity.
+
+**Refuse to guess (§7.2) — three ways to decline, all taken.** A stored neighbour that
+resolves to NOTHING, or to MORE THAN ONE face, makes the pair unusable and the edge
+stays `subshape_unresolved` (the face resolver's own honesty, inherited rather than
+re-litigated). Two faces that resolve uniquely but share MORE THAN ONE edge — two
+collinear runs of one intersection line, e.g. a relief notch bitten out of the middle
+of a bottom-front edge — are genuinely two equally valid re-anchors, and that raises
+`SubshapeAmbiguousError` with tier 3's own wording.
+
+**Cost.** Zero on the happy path: tier 3 runs only after tiers 1 and 2 are both empty,
+and it never reads a CANDIDATE's adjacency (it resolves the TARGET's stored faces), so
+the resolve-side `enumerate_edges` stays exactly as cheap as before. The PICK side pays
+one `planar_faces`-equivalent pass, which the selection overlay was already doing for
+its own `faces` payload and now shares (`edge_adjacency(body, face_signatures)`) —
+recomputing an outer-wire region per incident edge would have been quadratic.
+
+### Dual-read — what happens to selectors persisted before this
+
+`adjacent_faces` is optional for the same reason the face `outer_*` fields are (§12b):
+tiers 1 and 2 are untouched, so a pre-§14 selector resolves on a clean rebuild exactly
+as it did, and tier 3 simply does not fire for it. The pick side emits adjacency from
+2026-09-18 on, so the legacy population closes as parts are re-picked.
+
+### Honest limits (§7.3 posture) — what tier 3 does NOT cover
+
+* **Curved neighbours get no adjacency at all.** `PlanarFaceSignature` describes
+  planes, so a bore's rim (top plane + CYLINDER) or a fillet boundary carries no
+  annotation rather than a partial one, and tier 3 never fires for it. Minting a
+  curved sibling signature is a second schema, not this delta. This is the biggest
+  gap: **edges on turned/drilled features are not helped.**
+* **A seam edge** (one face on both sides) and any non-manifold edge are likewise
+  skipped — there is no pair to intersect.
+* **Tier 3 is exactly as honest as FACE resolution and no more.** It inherits the
+  face matcher's best-effort §7.3 posture wholesale, including its silent-retarget
+  surface. Measured deliberately, on a fixture built to provoke it: a slab whose front
+  face moves -5 mm while a relief notch's back wall lands exactly on the vacated plane
+  y = 0 — `match_face_records` returns **exactly one** match for the stored front face,
+  and it is the NOTCH WALL, so tier 3 faithfully re-anchors the edge onto it. That is
+  the face resolver's tier-2 coplanar answer, and a picked FACE reference in the same
+  scenario retargets identically; tier 3 did not invent it. It is still a real widening
+  of the blast radius, because an edge reference now inherits a face's failure modes,
+  and it is written down here rather than discovered later.
+* **No structural non-retargeting.** As with every stage-1 signature, only stage-2
+  provenance (coordinate-blind) forecloses retargeting structurally. This is a bounded
+  first step that measurably survives the common edit, not persistent topological
+  naming.
+
+### Measured
+
+The reproduction was built and watched to fail BEFORE the fix, at the feature-tree
+level (`test_edges_adjacency_revision.py`) and at the kernel level
+(`test_edges.py::test_THE_DEFECT_...`): the audit's tree with adjacency stripped —
+byte-for-byte a pre-§14 selector — gives `('ad03', 'error', 'subshape_unresolved')`
+with `Shell1` strict-prefix `skipped`, and the message names both older tiers as having
+tried.
+
+With the annotation intact the same edit rebuilds every feature, and the correctness
+claim is not "it rebuilds": **the filleted body is byte-identical to the one an exact
+re-pick at 150 produces** — same GLB sha256, same volume, same centroid, same topology,
+same mesh. An independent closed form agrees on the finished part: outer prism with
+four R8 rounds minus a cavity inset 3 mm on all six sides with corners at R - WALL,
+`W*D - (4 - pi)*R^2` per plan, matching at the documented 1e-9.
+
+**A note on the whole-part GLB, because it is a trap the byte oracle walks into.** The
+SHELL emits the same 20 faces in a DIFFERENT ORDER when its input body was built by a
+different history, which re-partitions the glTF primitives while every geometric
+quantity stays equal. That is a property of the shell operator: the PRE-EXISTING tier-2
+durable re-match reproduces it exactly (filleted body byte-identical, post-shell GLB
+differs) and is in fact worse at it. So the byte oracle sits on the FILLET, where the
+claim is about this change, and the finished part is asserted on the quantities a
+consumer reads, at the documented tolerances.
+
+**Mutation evidence.** Disabling tier 3 (`_match_edge_records` returning `[]` instead
+of the adjacency candidates) reddens **exactly ten tests, all ten of them the new
+ones** — five in `test_edges.py`, five in `test_edges_adjacency_revision.py` — while
+`test_fillet.py`, `test_chamfer.py`, `test_overlay.py` and every pre-existing
+`test_edges.py` case stay green. So no existing gate was silently depending on the new
+tier, and the new ones fail for the stated reason rather than on a number. The
+ambiguity gate is among the ten, which is the point: it genuinely exercises tier 3's
+own `>1` branch rather than the older tiers' wording.
