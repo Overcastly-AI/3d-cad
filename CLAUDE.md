@@ -2004,6 +2004,63 @@ recipe here in the same commit as the fix.**
   renders and lies. **Restart Vite after touching `tailwind-preset.ts`,
   `tokens.ts`, `vite.config.ts`, or anything else Vite reads once at boot** —
   the same reflex as regenerating contracts after a pydantic change.
+- **A GATE THAT ASSERTS A SCREEN POSITION CANNOT TELL "THE THING MOVED" FROM
+  "THE CAMERA MOVED" — and for six commits ours reported a defect that was not in
+  its contract.** Measured 2026-09-18. `fillet-chamfer-gauge.spec.ts`'s *contract
+  beta* ("releasing the pointer must leave the instrument where the drag put it")
+  went red at `Expected: <= 6 | Received: 52.83`, which reads unambiguously as the
+  gauge springing back to its opening length. **The instrument never moved.**
+  Sampling the grip's own `data-value` across the release: 10.5 before `mouse.up`
+  and 10.5 at +0, +50, +150, +400, +1000 and +3000 ms, `aria-valuenow` and the
+  editor field agreeing throughout, the drawn arrow unchanged, the 24x24 box
+  byte-identical. What moved was the CAMERA — view-matrix translation
+  `(-8.07,-8.68,-81.32)` -> `(-6.84,-8.55,-85.43)`, a 5 % dolly that slid a
+  stationary instrument 52.7 px. The spec compared the grip's PAGE POSITION, a
+  proxy a legitimate camera move invalidates, and `handUnderway()` falling to zero
+  IS the re-fit's trigger, so the camera moves on exactly the frame the assertion
+  sampled.
+  **Assert the property, not a stand-in for it**: the fixed version watches
+  `data-value` vs the editor field on every animation frame via a sampler
+  installed IN THE PAGE and stamped by a `pointerup` listener, plus the
+  `gauge-<id>-spine` WORLD length — both camera-invariant, and strictly stronger
+  than what it replaced. Note the first rewrite read only the SETTLED state and
+  the mutant SURVIVED; it took the per-frame sampler to make the gate able to
+  redden (`+24.9ms rod=8 field=10.5`, 51 of 52 frames). Same family as the
+  `sr-only` control and the zero-area stroke: a check that cannot observe its
+  subject.
+  **And the wrong-gate hid a REAL defect it was not built to see.** The camera
+  move is itself a bug — releasing a gauge lurches the view when nothing is out of
+  frame — because `readProposal` unions the whole `command-layer` group, resting
+  sketch ink included. So the red was simultaneously a false accusation of the
+  gauge and a true signal about the camera, which is why "the assertion is wrong"
+  and "nothing is wrong" are different conclusions: fix the assertion, then go and
+  look at what it was accidentally detecting.
+- **`waitForCameraRest` COMPARES VIEW DIRECTION ONLY, so it is blind to every
+  re-frame — and a spec that samples a screen point after a preview changes may be
+  passing on round-trip latency.** Same pass. The CRAFT-12 re-fit is a pure
+  standoff/target ease ("re-frame, never re-orient"), so direction never changes
+  and the helper returns on its first sample MID-SLIDE. That is not a bug in it;
+  it is the wrong instrument. The revolve case reproduced 3/3 by adding what CI
+  has for free — latency, as four idle `page.evaluate` round trips between
+  sampling the projected track and hit-testing the pixel: camera dead still at
+  `157.14,128.99,178.98` through track/idle/hover, then `160.68,130.78,180.18` at
+  the read, `held=null`. **Hovering a sleeve builds the snap ladder, the ladder
+  draws inside `command-layer`, and that group's world box is what the re-fit
+  watches — so ARMING the instrument fires a second re-fit.**
+  Use a POSITION settle (`waitForCameraStill`: position, 0.02 mm over 4 frames),
+  name it at EVERY place the camera can move (after each value change AND after
+  the arming hover), and re-sample the track after arming rather than before.
+  Verify against the REPRODUCTION, not against quiet: green 3/3 with eight idle
+  round trips, double what reddened it. **There are likely more specs with this
+  latent hazard than the two that failed** — the ones green today may be green on
+  timing, exactly as this one was.
+- **A STALE PLAYWRIGHT TRANSFORM CACHE REPORTS WRONG TEST LINE NUMBERS AND MAY RUN
+  STALE BYTES.** Same pass: a combined run reported tests at lines 488/572/699
+  when the file on disk had them at 598/684/833. `rm -rf
+  /tmp/playwright-transform-cache-0` fixed it, and everything was re-run cold.
+  Same family as the stale-Vite transform: it corrupts your EVIDENCE rather than
+  your run, and the tell is cheap — if a reported line number does not match the
+  file, stop and clear the cache before believing anything else the run said.
 - **MAKING A SPEC FASTER CAN DELETE AN ACCIDENTAL SETTLE — an implicit wait
   nobody wrote down, which the slow version was providing for free.** Found
   2026-08-29 while closing QA-CI4-HEADROOM-1. A ring scan did 1068 full-frame
