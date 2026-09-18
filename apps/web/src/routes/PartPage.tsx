@@ -335,6 +335,7 @@ import { isTypingTarget } from "../lib/isTypingTarget";
 import { executeHistoryStep } from "../lib/historyStep";
 import {
   HistoryErrorAlert,
+  historyResyncNotice,
   type HistoryStepError,
 } from "../components/HistoryErrorAlert";
 import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
@@ -4585,6 +4586,15 @@ export function PartPage() {
             // The tree is unchanged server-side — say so through the HUD (the
             // import-error affordance), never a silent busy flash.
             setHistoryError({ step, message: outcome.message });
+          } else if (outcome.kind === "stale") {
+            // The step never ran: the tree moved in another window and the
+            // resync above put the CURRENT one on screen. Saying nothing here
+            // is the worse of the two silences — the user pressed a key, the
+            // model changed by an amount they did not ask for (the other
+            // window's edit arriving), and nothing distinguishes that from
+            // their own undo landing. Measured with two windows on one part:
+            // feature rows 3 -> 2 on a click that undid nothing.
+            setHistoryError(historyResyncNotice(step, "part"));
           }
         } finally {
           historyInFlight.current = false;

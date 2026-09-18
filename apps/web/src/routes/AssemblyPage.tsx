@@ -60,6 +60,7 @@ import { Breadcrumb } from "../components/Breadcrumb";
 import { AssemblyTreePanel } from "../components/AssemblyTreePanel";
 import {
   HistoryErrorAlert,
+  historyResyncNotice,
   type HistoryStepError,
 } from "../components/HistoryErrorAlert";
 import { DocumentUnitSelect } from "../components/DocumentUnitSelect";
@@ -744,6 +745,12 @@ export function AssemblyPage() {
           });
           if (outcome.kind === "failed") {
             setHistoryError({ step, message: outcome.message });
+          } else if (outcome.kind === "stale") {
+            // The step never ran — the graph moved in another window. Same
+            // reasoning as the part page: a quiet resync that changes what is
+            // on screen must say it did, or the user cannot tell their key
+            // from somebody else's edit.
+            setHistoryError(historyResyncNotice(step, "assembly"));
           }
         } finally {
           historyInFlight.current = false;
