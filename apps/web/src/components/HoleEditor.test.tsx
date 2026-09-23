@@ -612,6 +612,34 @@ describe("HoleEditor — dialling the position in (QA3-1)", () => {
     expect(frame).toHaveAccessibleName(/part origin projected onto it/);
   });
 
+  it("names the fields' zero ABOVE them, not after them (F-6)", () => {
+    // The audit read `POINT Centre of face (60, 0, 20 mm)` directly above X and
+    // Y, typed -45 meaning "45 mm left of that centre", and got a point 45 mm
+    // off the face: the fields are measured from the FRAME origin, and the row
+    // that said so sat underneath them, labelled "Frame".
+    renderEditor({ initial: placed() });
+    const frame = screen.getByTestId("hole-frame");
+    const point = screen.getByTestId("hole-position");
+    // Document order is reading order in this card: POINT, then the zero, then
+    // the fields the zero governs.
+    expect(
+      point.compareDocumentPosition(frame) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      frame.compareDocumentPosition(x()) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // The row's own label says what it is to the fields beneath it.
+    expect(frame.previousElementSibling).toHaveTextContent(/^From$/);
+    // …and each field's accessible name carries the same zero and direction,
+    // so a screen reader is never handed a bare "X" either.
+    expect(x()).toHaveAccessibleName(
+      "Drill X on the face, mm, measured from 0, 0, 10 along +X",
+    );
+    expect(y()).toHaveAccessibleName(
+      "Drill Y on the face, mm, measured from 0, 0, 10 along +Y",
+    );
+  });
+
   it("reads a keystroke in progress as PENDING, never as a mistake", () => {
     const { onSubmit } = renderEditor({ initial: placed() });
     fireEvent.change(x(), { target: { value: "-" } });

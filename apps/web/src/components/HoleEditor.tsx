@@ -546,6 +546,14 @@ export function HoleEditor({
     frame === null
       ? ""
       : `${round(frame.origin.x)}, ${round(frame.origin.y)}, ${round(frame.origin.z)} mm · X→${describeDirection(frame.u)} · Y→${describeDirection(frame.v)}`;
+  /**
+   * Each field's accessible name carries its zero, the same statement the FROM
+   * row makes to the eye — "X" alone is the ambiguity F-6 measured.
+   */
+  const axisAria = (axis: "X" | "Y"): string =>
+    frame === null
+      ? `Drill ${axis} on the face, ${unit}`
+      : `Drill ${axis} on the face, ${unit}, measured from ${round(frame.origin.x)}, ${round(frame.origin.y)}, ${round(frame.origin.z)} along ${describeDirection(axis === "X" ? frame.u : frame.v)}`;
   const frameTitle =
     frame === null
       ? ""
@@ -726,44 +734,23 @@ export function HoleEditor({
                 className="flex flex-col gap-1 pb-1 pt-1"
                 data-testid="hole-placement"
               >
-                <div className="flex gap-2">
-                  <NumberField
-                    className="flex-1"
-                    label="X"
-                    unit={unit}
-                    data-testid="hole-position-x"
-                    aria-label={`Drill X on the face, ${unit}`}
-                    value={form.xInput}
-                    error={xMsg}
-                    onChange={(e) =>
-                      setForm((f) =>
-                        applyHoleCoordinate(f, "x", e.target.value, unit),
-                      )
-                    }
-                    onFocus={(e) => e.currentTarget.select()}
-                  />
-                  <NumberField
-                    className="flex-1"
-                    label="Y"
-                    unit={unit}
-                    data-testid="hole-position-y"
-                    aria-label={`Drill Y on the face, ${unit}`}
-                    value={form.yInput}
-                    error={yMsg}
-                    onChange={(e) =>
-                      setForm((f) =>
-                        applyHoleCoordinate(f, "y", e.target.value, unit),
-                      )
-                    }
-                    onFocus={(e) => e.currentTarget.select()}
-                  />
-                </div>
                 {/* WHERE zero is, and which way the axes run — the one thing
                     an X/Y entry must never leave the user to guess. The
-                    viewport draws the same frame on the face itself. */}
+                    viewport draws the same frame on the face itself.
+
+                    It sits ABOVE the two fields and reads "FROM", and both
+                    are the fix for the audit's F-6 contributing cause. The
+                    row used to be labelled "Frame" and sit UNDER the pair,
+                    so the line directly above X and Y was POINT — "Centre of
+                    face (60, 0, 20 mm)" — and "-45" read as 45 mm left of
+                    that centre when it meant 45 mm outside the face. A
+                    reference printed after the fields it governs is read, if
+                    at all, after the number has been typed.
+                    Now the card tells ONE story top to bottom, all in world
+                    millimetres: POINT = FROM + X along X→ + Y along Y→. */}
                 <div className="flex items-baseline gap-2">
                   <span className="w-10 shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-gauge">
-                    Frame
+                    From
                   </span>
                   <span
                     data-testid="hole-frame"
@@ -778,6 +765,38 @@ export function HoleEditor({
                   >
                     {frameValue}
                   </span>
+                </div>
+                <div className="flex gap-2">
+                  <NumberField
+                    className="flex-1"
+                    label="X"
+                    unit={unit}
+                    data-testid="hole-position-x"
+                    aria-label={axisAria("X")}
+                    value={form.xInput}
+                    error={xMsg}
+                    onChange={(e) =>
+                      setForm((f) =>
+                        applyHoleCoordinate(f, "x", e.target.value, unit),
+                      )
+                    }
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                  <NumberField
+                    className="flex-1"
+                    label="Y"
+                    unit={unit}
+                    data-testid="hole-position-y"
+                    aria-label={axisAria("Y")}
+                    value={form.yInput}
+                    error={yMsg}
+                    onChange={(e) =>
+                      setForm((f) =>
+                        applyHoleCoordinate(f, "y", e.target.value, unit),
+                      )
+                    }
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
                 </div>
                 {checkMessage !== null ? (
                   <p
