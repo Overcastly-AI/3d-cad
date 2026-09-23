@@ -160,6 +160,42 @@ describe("proposalBoxOf", () => {
     expect(box.min.toArray()).toEqual([-1, -1, -1]);
   });
 
+  it("leaves out a ladder tagged INSIDE a proposal's own group", () => {
+    // The pattern COUNT gauge's rungs run AHEAD of its apex, inside the
+    // gauge's group. Skipping only the layer's direct children let a HOVER
+    // (which arms the ladder) grow the subject and slide the rod out from
+    // under the cursor. The gauge itself must still count.
+    const layer = new Group();
+    const gauge = block("pattern-count-gauge", new Vector3(0, 0, 0), 2);
+    const ladder = block("ladder", new Vector3(0, 0, 60), 2);
+    ladder.userData = { ...ANNOTATION_LAYER };
+    gauge.add(ladder);
+    layer.add(gauge);
+    layer.updateMatrixWorld(true);
+
+    const box = proposalBoxOf(layer, new Box3());
+    expect(box.max.z).toBeCloseTo(1, 6); // not 61: the rungs are out
+    expect(box.min.toArray()).toEqual([-1, -1, -1]);
+  });
+
+  it("frames a nested proposal under a moved parent in WORLD space", () => {
+    // The hand-rolled traversal must compose transforms exactly as
+    // `setFromObject` does, or a ghost parented under a posed group would be
+    // framed where its LOCAL coordinates say.
+    const layer = new Group();
+    const parent = new Group();
+    parent.position.set(100, 0, 0);
+    parent.add(block("ghost", new Vector3(0, 10, 0), 4));
+    layer.add(parent);
+    layer.updateMatrixWorld(true);
+
+    const expected = new Box3().setFromObject(parent);
+    const box = proposalBoxOf(layer, new Box3());
+    expect(box.min.toArray()).toEqual(expected.min.toArray());
+    expect(box.max.toArray()).toEqual(expected.max.toArray());
+    expect(box.min.x).toBeCloseTo(98, 6);
+  });
+
   it("treats only the exact tag as annotation", () => {
     // A near-miss key must NOT silence a subtree: the failure direction that
     // matters is a proposal quietly dropped, and a loose match (any userData,

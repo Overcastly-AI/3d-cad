@@ -87,7 +87,7 @@
  * would cost a subscription plus a re-render per grab for a value that nothing
  * renders.
  */
-import type { Box3, Object3D } from "three";
+import { Box3, type Object3D } from "three";
 
 let mounted = 0;
 let held = 0;
@@ -144,9 +144,10 @@ export const ANNOTATION_LAYER_KEY = "loftAnnotationLayer";
  * note for why the tag goes here rather than on the proposals.
  *
  * Spread onto the subtree's ROOT: `<group userData={ANNOTATION_LAYER}>`. A
- * component that renders several roots tags each of them; {@link proposalBoxOf}
- * reads the command layer's direct children, which is exactly the level a
- * mounted component's roots appear at.
+ * component that renders several roots tags each of them. The tag works at
+ * ANY depth — a whole overlay at the command layer's top level, or one
+ * instrument's snap ladder inside a proposal's own group — because
+ * {@link proposalBoxOf} leaves out every tagged subtree wherever it sits.
  */
 export const ANNOTATION_LAYER: Readonly<Record<string, boolean>> = {
   [ANNOTATION_LAYER_KEY]: true,
@@ -161,7 +162,7 @@ export function isAnnotationLayer(object: Object3D): boolean {
 
 /**
  * The world box of what the open command is PROPOSING — the command layer's
- * children minus the annotation ones.
+ * subtree minus every annotation subtree, at ANY depth.
  *
  * `into` is supplied by the caller and reused: this runs on every rendered
  * frame of an open command and the viewport rule is that the render loop
@@ -169,15 +170,63 @@ export function isAnnotationLayer(object: Object3D): boolean {
  * box every frame; the returned box IS `into`, and a caller that stashed the
  * reference would be holding a box that changes under it next frame.
  *
- * `Box3.expandByObject` is the same traversal `setFromObject` performs (that
- * method is literally `makeEmpty()` then this), applied per child so an
- * annotation root can be skipped whole.
+ * ## Why any depth, and not only the layer's direct children (2026-09-23)
+ *
+ * The first version skipped annotation ROOTS only, which covered the sketch
+ * ink and the pick overlays (each a component root in the layer). It did not
+ * cover the one annotation that lives INSIDE a proposal: an instrument's snap
+ * ladder, drawn within the gauge's own group. Arming a ladder is a HOVER, and
+ * on the pattern COUNT gauge the rungs run AHEAD of the apex (they mark the
+ * copies you could add), so the hover grew the box and started a re-fit.
+ * Measured on the running app at 1600x1000: 400 ms after the pointer came to
+ * rest on the count rod, its seat had moved (682,657) -> (537,553) and its
+ * apex (1073,766) -> (975,674) — the camera slid the instrument ~150 px out
+ * from under the cursor reaching for it, so the press landed on bare canvas,
+ * became an orbit, and `dragging COUNT past a rung` failed 6 runs in 8.
+ *
+ * The traversal mirrors `Box3.expandByObject`'s conservative branch (object-
+ * level box for instanced geometry, else the geometry's box, in world space),
+ * node by node, so a tagged subtree can be left out wherever it sits.
  */
 export function proposalBoxOf(layer: Object3D, into: Box3): Box3 {
   into.makeEmpty();
-  for (const child of layer.children) {
-    if (isAnnotationLayer(child)) continue;
-    into.expandByObject(child);
-  }
+  layer.updateWorldMatrix(false, false);
+  for (const child of layer.children) expandSkippingAnnotation(into, child);
   return into;
+}
+
+/** Scratch for one node's box — module-level so the frame loop allocates nothing. */
+const nodeBox = new Box3();
+
+/** The geometry-bearing surface of an Object3D, as three duck-types it. */
+interface WithGeometry {
+  geometry?: {
+    boundingBox: Box3 | null;
+    computeBoundingBox: () => void;
+  };
+  boundingBox?: Box3 | null;
+  computeBoundingBox?: () => void;
+}
+
+function expandSkippingAnnotation(into: Box3, object: Object3D): void {
+  if (isAnnotationLayer(object)) return;
+  object.updateWorldMatrix(false, false);
+  const drawn = object as Object3D & WithGeometry;
+  const geometry = drawn.geometry;
+  if (geometry !== undefined) {
+    let local: Box3 | null = null;
+    if (drawn.boundingBox !== undefined) {
+      // Object-level box (instanced / skinned / batched meshes).
+      if (drawn.boundingBox === null) drawn.computeBoundingBox?.();
+      local = drawn.boundingBox ?? null;
+    } else {
+      if (geometry.boundingBox === null) geometry.computeBoundingBox();
+      local = geometry.boundingBox;
+    }
+    if (local !== null) {
+      nodeBox.copy(local).applyMatrix4(object.matrixWorld);
+      into.union(nodeBox);
+    }
+  }
+  for (const child of object.children) expandSkippingAnnotation(into, child);
 }

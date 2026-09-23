@@ -124,6 +124,7 @@ import { useCommandActionStore } from "../features/commandActions";
 import { useCancelKey, useGlobalKeys } from "../lib/modalGate";
 import { gaugePose, projectedSpineLength, spineLength } from "./gaugePose";
 import {
+  ANNOTATION_LAYER,
   beginHand,
   mountInstrument,
   releaseHand,
@@ -1246,21 +1247,29 @@ export function ParametricGauge({
       ))}
       {/* Two weights, two draws. A per-stroke weight would need a vertex
           attribute and a custom material; two `Segments` is one draw call each
-          and says the drafting convention out loud. */}
-      <Segments
-        positions={majorPositions}
-        color={viewport.manipulator.axis}
-        opacity={majorOpacity}
-        depthTest={false}
-        renderOrder={12}
-      />
-      <Segments
-        positions={minorPositions}
-        color={viewport.manipulator.axis}
-        opacity={minorOpacity}
-        depthTest={false}
-        renderOrder={12}
-      />
+          and says the drafting convention out loud.
+
+          ANNOTATION, not a proposal: the ladder is a ruler that appears on
+          HOVER, and on a track whose rungs run ahead of the apex (the pattern
+          count) it grew the re-fit subject, so reaching for the rod slid it
+          ~150 px out from under the cursor. `instruments.ts` has the
+          measurement. */}
+      <group userData={ANNOTATION_LAYER}>
+        <Segments
+          positions={majorPositions}
+          color={viewport.manipulator.axis}
+          opacity={majorOpacity}
+          depthTest={false}
+          renderOrder={12}
+        />
+        <Segments
+          positions={minorPositions}
+          color={viewport.manipulator.axis}
+          opacity={minorOpacity}
+          depthTest={false}
+          renderOrder={12}
+        />
+      </group>
       <mesh
         name={`gauge-${gaugeId}-head`}
         geometry={headGeometry}
