@@ -55,6 +55,7 @@ including ``mesh_glb_id`` (a content hash of a deterministic GLB).
 """
 
 import dataclasses
+import functools
 import time
 import uuid
 from collections.abc import Callable, Sequence
@@ -636,72 +637,90 @@ class EvaluationState:
         del self.bodies[tool_id]
         self.active_body_id = target_id
 
+    def shape_slots(self) -> list[tuple[BodyShape, Callable[[BodyShape], None]]]:
+        """EVERY kernel shape this state holds, each with a setter for its slot.
+
+        THE one list of shape-bearing fields (PERF-REAL-2 review, DRY): both
+        :meth:`fork` (which copies these and writes the copies back through the
+        setters) and :meth:`_Checkpoint.detach` (which drops their triangulation)
+        walk it, so a shape added here is forked AND detached, and a shape
+        missing here is neither — which ``tests/test_rebuild_cache.py`` catches by
+        walking the state generically and comparing. The order is fixed (bodies,
+        last cut tools, captured feature tools, unfold body) so the combined copy
+        in :func:`~geometry.kernel.fork.fork_shapes` is deterministic.
+
+        The setters write INTO this state's containers, so only call them on a
+        state whose containers are its own (see :meth:`fork`).
+        """
+        slots: list[tuple[BodyShape, Callable[[BodyShape], None]]] = []
+        bodies = self.bodies
+        for body_id, body in bodies.items():
+            slots.append((body, functools.partial(bodies.__setitem__, body_id)))
+        cut_tools = self.last_cut_tools
+        if cut_tools is not None:
+            for index, tool in enumerate(cut_tools):
+
+                def set_cut(shape: BodyShape, index: int = index) -> None:
+                    cut_tools[index] = cast(Solid, shape)
+
+                slots.append((tool, set_cut))
+        for recorded in self.feature_tools.values():
+            for group in recorded.groups:
+                for index, tool in enumerate(group.tools):
+                    slots.append(
+                        (tool, functools.partial(group.tools.__setitem__, index))
+                    )
+        if self.sheet_metal_unfold_body is not None:
+
+            def set_unfold(shape: BodyShape) -> None:
+                self.sheet_metal_unfold_body = shape
+
+            slots.append((self.sheet_metal_unfold_body, set_unfold))
+        return slots
+
     def fork(self) -> tuple["EvaluationState", int]:
         """An independent copy of this state, and its weight in faces.
 
         The ladder primitive (PERF-REAL-2, :mod:`geometry.rebuild_cache`): every
-        KERNEL shape the state holds is copied in ONE
+        KERNEL shape the state holds (:meth:`shape_slots`) is copied in ONE
         :func:`~geometry.kernel.fork.fork_shapes` call, so shapes that share
         subshapes here (a body and the tool that cut it; the unfold body that IS
         the live body on an unrelieved part) still share them in the fork. Every
         container a later feature appends to is copied; the values inside the
         non-shape containers (solved sketches, planes, frozen sheet-metal records)
         are never mutated after insertion and are shared.
-
-        **The list of shape-bearing fields below is the same list**
-        :meth:`_Checkpoint.detach` **walks** — a new shape-bearing field on this
-        class belongs in both, or a fork would share it with the original.
         """
-        body_ids = list(self.bodies)
-        cut_tools = list(self.last_cut_tools or ())
-        tool_slots = [
-            (feature_id, recorded, group_index, len(group.tools))
-            for feature_id, recorded in self.feature_tools.items()
-            for group_index, group in enumerate(recorded.groups)
-        ]
-        shapes: list[BodyShape] = [
-            *self.bodies.values(),
-            *cut_tools,
-            *(
-                tool
-                for recorded in self.feature_tools.values()
-                for group in recorded.groups
-                for tool in group.tools
-            ),
-        ]
-        if self.sheet_metal_unfold_body is not None:
-            shapes.append(self.sheet_metal_unfold_body)
-        forked = fork_shapes(shapes)
-        copies = iter(forked.shapes)
-        bodies = {body_id: next(copies) for body_id in body_ids}
-        last_cut_tools = [cast(Solid, next(copies)) for _ in cut_tools]
-        regrouped: dict[uuid.UUID, list[RecordedToolGroup]] = {}
-        for feature_id, recorded, group_index, count in tool_slots:
-            group = recorded.groups[group_index]
-            regrouped.setdefault(feature_id, []).append(
-                RecordedToolGroup(group.op, [next(copies) for _ in range(count)])
-            )
-        unfold = None if self.sheet_metal_unfold_body is None else next(copies)
         twin = dataclasses.replace(
             self,
             solved_sketches=dict(self.solved_sketches),
             sketch_planes=dict(self.sketch_planes),
             datum_planes=dict(self.datum_planes),
-            bodies=bodies,
+            bodies=dict(self.bodies),
             provenance=self.provenance.fork(),
             sheet_metal_defaults=dict(self.sheet_metal_defaults),
             bend_provenance=dict(self.bend_provenance),
             corner_reliefs=dict(self.corner_reliefs),
-            sheet_metal_unfold_body=unfold,
-            last_cut_tools=None if self.last_cut_tools is None else last_cut_tools,
+            last_cut_tools=(
+                None if self.last_cut_tools is None else list(self.last_cut_tools)
+            ),
             feature_tools={
                 feature_id: RecordedFeatureTools(
-                    body_id=recorded.body_id, groups=regrouped.get(feature_id, [])
+                    body_id=recorded.body_id,
+                    groups=[
+                        RecordedToolGroup(group.op, list(group.tools))
+                        for group in recorded.groups
+                    ],
                 )
                 for feature_id, recorded in self.feature_tools.items()
             },
             scoped_feature_types=dict(self.scoped_feature_types),
         )
+        # The twin's containers are its own now, so its slots can be rewritten
+        # with the copies without touching this state.
+        slots = twin.shape_slots()
+        forked = fork_shapes([shape for shape, _ in slots])
+        for (_, put), copy in zip(slots, forked.shapes, strict=True):
+            put(copy)
         return twin, forked.faces
 
     def adopt(self, other: "EvaluationState") -> None:
@@ -3452,22 +3471,11 @@ class _Checkpoint:
         the docs/PERF.md tray: appending one feature to an already-tessellated
         body moved the final GLB; ``BRepTools::Clean`` on the stored bodies made
         it byte-exact again at every prefix length tried). Everything the state
-        can hand to a mesher is cleaned — a new shape-bearing field on
-        :class:`EvaluationState` belongs in this list.
+        can hand to a mesher is cleaned: the list is
+        :meth:`EvaluationState.shape_slots`, the same one a fork copies.
         """
-        for shape in (
-            *self.state.bodies.values(),
-            self.state.sheet_metal_unfold_body,
-            *(self.state.last_cut_tools or ()),
-            *(
-                tool
-                for recorded in self.state.feature_tools.values()
-                for group in recorded.groups
-                for tool in group.tools
-            ),
-        ):
-            if shape is not None:
-                drop_triangulation(shape)
+        for shape, _ in self.state.shape_slots():
+            drop_triangulation(shape)
 
     def fork(self) -> "_Checkpoint":
         """An independent copy for the caller of a LADDER rung (PERF-REAL-2).
@@ -3906,14 +3914,15 @@ def warm_rebuild_cache(
         if built == 0:
             continue  # nothing was stored, so there is nothing to reclaim
         reclaimed = _REBUILD_CACHE.take(keys[: built + 1])
-        if (
-            reclaimed is not None
-            and reclaimed.rung
-            and reclaimed.prefix_length != built
-        ):
-            # A fork of a rung SHORTER than what this warm had built: our banked
-            # prefix is gone and the rung is still on the ladder, so there is
-            # nothing to put back.
+        if reclaimed is not None and reclaimed.rung:
+            # ANY rung means our banked prefix is GONE — including a rung at
+            # exactly ``built``, which is where a warm paused on a multiple of
+            # RUNG_SPACING always has one. Continuing from that fork would re-run
+            # every feature the live request that took our prefix has just
+            # computed, on the one core it is using, and then overwrite its
+            # frontier with a speculative copy that has no artifacts (PERF-REAL-2
+            # review; CONC-4/CONC-6). The rung itself stays on the ladder, so
+            # there is nothing to put back.
             return built
         if reclaimed is None or reclaimed.prefix_length != built:
             # Somebody used it (the speculation paid off) or it lost its slot.

@@ -564,6 +564,7 @@ class PrefixCache[CheckpointT: Detachable]:
             for length in range(len(keys) - 1, 0, -1):
                 entry = self._entries.pop(keys[length], None)
                 if entry is not None:
+                    self._touch_rungs(keys, length)
                     self._hits += 1
                     self._resumed_features += length
                     record_rebuild_cache_hit()
@@ -571,7 +572,7 @@ class PrefixCache[CheckpointT: Detachable]:
                     return Resume(length, entry.checkpoint, entry.speculative)
                 rung = self._rungs.get(keys[length])
                 if rung is not None:
-                    self._rungs.move_to_end(keys[length])
+                    self._touch_rungs(keys, length)
                     rung_length = length
                     self._hits += 1
                     self._rung_hits += 1
@@ -658,6 +659,22 @@ class PrefixCache[CheckpointT: Detachable]:
                 self._rung_evictions += 1
             return key in self._rungs
 
+    def _touch_rungs(self, keys: Sequence[str], length: int) -> None:
+        """Mark every rung of ``keys[:length + 1]`` recently used, shallowest
+        first (caller holds the lock).
+
+        A hit at *length* proves the whole chain below it is live, not only the
+        rung that served it. Touching just that one let a drag on a late
+        feature age the chain's deep rungs out behind the dead branches the drag
+        itself kept creating (review probe: 40 drags on #241 of 250 left the live
+        chain with ONE rung, and 34 dead ones at 248), so the next edit further
+        in paid a full rebuild. Ascending order keeps the deepest rung the most
+        recent of them, which is the one the NEXT drag step resumes from.
+        """
+        for position in range(self._rung_spacing, length + 1, self._rung_spacing):
+            if keys[position] in self._rungs:
+                self._rungs.move_to_end(keys[position])
+
     @property
     def rung_spacing(self) -> int:
         """Rungs sit at every multiple of this prefix length. The evaluator reads
@@ -736,6 +753,8 @@ class PrefixCache[CheckpointT: Detachable]:
           SPECULATIVE entry if there is one, and only otherwise the LRU overall.
           So a real checkpoint outlives a guess even when the guess is newer,
           which is the direction CONC-6 says is correct.
+        * **refuse a speculative store that would REPLACE live work** under the
+          same key — a live entry may carry artifacts a guess never has.
         * **refuse a speculative store that would evict live work.** When the
           cache is full of real checkpoints, the warm's own result is dropped —
           the speculation simply achieved nothing, which is a far better outcome
@@ -753,6 +772,13 @@ class PrefixCache[CheckpointT: Detachable]:
         """
         checkpoint.detach()
         with self._lock:
+            existing = self._entries.get(key)
+            if speculative and existing is not None and not existing.speculative:
+                # A guess never REPLACES live work under the same key either —
+                # the collision form of the eviction rule below. The live entry
+                # may carry artifacts a guess never has.
+                self._speculative_refused += 1
+                return False
             self._entries.pop(key, None)
             full = len(self._entries) >= self._capacity
             if speculative and full and self._victim_key() is None:

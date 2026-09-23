@@ -16,6 +16,8 @@ the content-addressed ``mesh_glb_id``.
 
 from __future__ import annotations
 
+# pyright: reportPrivateUsage=false
+# (the ladder's structural gates drive `_climb_rung` / `_Checkpoint` directly)
 import copy
 import dataclasses
 import importlib
@@ -29,6 +31,8 @@ from typing import Any, cast
 
 import pytest
 from build123d import Solid
+from build123d.topology.shape_core import Shape
+from geometry.features import evaluate as evaluate_module
 from geometry.features.evaluate import (
     EvaluationState,
     RecordedFeatureTools,
@@ -39,7 +43,6 @@ from geometry.features.evaluate import (
     warm_rebuild_cache,
 )
 from geometry.kernel import FaceProvenance
-from geometry.kernel.types import BodyShape
 from geometry.rebuild_cache import (
     REBUILD_CACHE_CAPACITY,
     RUNG_DENSITY,
@@ -886,8 +889,10 @@ def test_thinning_only_touches_its_own_chain() -> None:
 #: Every EvaluationState field, by how ``EvaluationState.fork`` must treat it.
 #: A new field fails ``test_every_state_field_is_classified_for_the_fork`` until
 #: somebody decides which set it belongs in — and if it holds a kernel shape,
-#: puts it in ``fork`` (and ``_Checkpoint.detach``), or a ladder rung would share
-#: it with the evaluation that carries on past the rung.
+#: adds it to ``EvaluationState.shape_slots`` (which both the fork and the
+#: detach walk), or a ladder rung would share it with the evaluation that carries
+#: on past the rung. The name census forces the decision; the BEHAVIOUR is gated
+#: by ``test_every_shape_the_state_holds_is_forked_and_detached``.
 _FORKED_FIELDS = frozenset(
     {
         "bodies",
@@ -920,11 +925,11 @@ def test_every_state_field_is_classified_for_the_fork() -> None:
     names = {item.name for item in dataclasses.fields(EvaluationState)}
     assert names == _FORKED_FIELDS | _SHARED_IMMUTABLE_FIELDS, (
         "EvaluationState gained or lost a field: classify it for "
-        "EvaluationState.fork (and _Checkpoint.detach if it holds a shape)"
+        "EvaluationState.fork (and EvaluationState.shape_slots if it holds a shape)"
     )
 
 
-def _same(a: BodyShape, b: BodyShape) -> bool:
+def _same(a: Shape[Any], b: Shape[Any]) -> bool:
     """OCCT's own identity test: same ``TShape`` (and location)."""
     return bool(a.wrapped.IsSame(b.wrapped))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
 
@@ -977,3 +982,169 @@ def test_a_fork_shares_no_shape_with_its_original_and_keeps_its_own_sharing() ->
     target = EvaluationState(linear_deflection=0.5)
     target.adopt(twin)
     assert target.bodies is twin.bodies and target.linear_deflection == 0.1
+
+
+def test_a_drag_session_does_not_age_out_the_live_chains_deep_rungs() -> None:
+    """A hit proves the whole chain below it is live (PERF-REAL-2 review).
+
+    Dragging a parameter of feature #241 of 250 resumes from the rung at 240
+    every step and leaves one dead-branch rung at 248 per step. If only the rung
+    that served the hit were touched, the dead rungs would outlive the live
+    chain's deep rungs in the LRU — measured: 40 drags left the chain with ONE
+    rung — and the next edit further in (#200) would rebuild from zero. With the
+    whole chain touched, #200 still resumes from the rung at 200.
+    """
+    n, spacing, faces = 250, RUNG_SPACING, 560
+    cache: PrefixCache[_FakePayload] = PrefixCache(4)  # production rung bounds
+    base = _chain("k", n)
+    for length in range(spacing, n + 1, spacing):
+        cache.store_rung(base, length, _FakePayload(str(length)), faces=faces)
+    deep_before = [r for r in cache.rung_lengths(base) if r <= 200]
+    assert 200 in deep_before
+
+    for step in range(40):
+        dragged = base[:242] + [f"d{step}_{i}" for i in range(242, n + 1)]
+        taken = cache.take(dragged)
+        assert taken is not None and taken.prefix_length == 240
+        cache.store_rung(dragged, 248, _FakePayload("dead"), faces=faces)
+    assert cache.stats.rung_evictions > 0, "the session must have pressed the bound"
+
+    edited = base[:201] + [f"e{i}" for i in range(201, n + 1)]
+    taken = cache.take(edited)
+    assert taken is not None and taken.prefix_length == 200, (
+        "an edit at #200 after a drag session must still resume from rung 200"
+    )
+
+
+def _walk_shapes(value: object) -> list[Shape[Any]]:
+    """Every build123d shape reachable from *value* — derived GENERICALLY.
+
+    Deliberately independent of ``EvaluationState.shape_slots``: it walks dicts,
+    lists, tuples and dataclasses without knowing any field name, so a shape the
+    enumerator forgets is still found here and the comparison below fails.
+    """
+    if isinstance(value, Shape):
+        return [cast(Shape[Any], value)]
+    items: list[object]
+    if isinstance(value, dict):
+        items = list(cast(dict[object, object], value).values())
+    elif isinstance(value, (list, tuple)):
+        items = list(cast(list[object], value))
+    elif dataclasses.is_dataclass(value) and not isinstance(value, type):
+        items = [getattr(value, item.name) for item in dataclasses.fields(value)]
+    else:
+        return []
+    return [shape for item in items for shape in _walk_shapes(item)]
+
+
+def _populated_state() -> EvaluationState:
+    """A state with a shape in EVERY shape-bearing slot, and some sharing."""
+    body, other = Solid.make_box(10, 20, 30), Solid.make_box(5, 5, 5)
+    cutter = Solid.make_box(2, 2, 40)
+    body_id, other_id, tool_feature = (uuid.UUID(int=i) for i in (1, 2, 3))
+    return EvaluationState(
+        linear_deflection=0.1,
+        bodies={body_id: body, other_id: other},
+        last_cut_tools=[cutter],
+        feature_tools={
+            tool_feature: RecordedFeatureTools(
+                body_id=body_id,
+                groups=[
+                    RecordedToolGroup("cut", [cutter]),
+                    RecordedToolGroup("fuse", [Solid.make_box(1, 1, 1)]),
+                ],
+            )
+        },
+        sheet_metal_unfold_body=Solid.make_box(3, 3, 3),
+        active_body_id=body_id,
+        tool_scope_ids=frozenset({tool_feature}),
+    )
+
+
+def test_every_shape_the_state_holds_is_forked_and_detached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The DRY enumerator, checked by BEHAVIOUR against a generic walk.
+
+    ``EvaluationState.shape_slots`` is the one list both the fork and the
+    checkpoint's detach use. Whatever shape a generic walk of the state finds
+    must be detached, and must come back from a fork as a DIFFERENT ``TShape``
+    in a container the fork owns — a slot the enumerator forgot would be shared
+    between a ladder rung and the evaluation that carries on past it.
+    """
+    state = _populated_state()
+    expected = _walk_shapes(state)
+    assert len(expected) == 6, "the fixture must put a shape in every slot"
+
+    detached: list[int] = []
+
+    def record(shape: object) -> None:
+        detached.append(id(shape))
+
+    monkeypatch.setattr(evaluate_module, "drop_triangulation", record)
+    evaluate_module._Checkpoint(
+        state=state,
+        results=[],
+        last_good_feature_id=None,
+        suppressed_ids=frozenset(),
+        artifacts=None,
+    ).detach()
+    assert {id(shape) for shape in expected} <= set(detached), (
+        "a shape the state holds is not detached"
+    )
+
+    twin, _faces = state.fork()
+    forked = _walk_shapes(twin)
+    assert len(forked) == len(expected)
+    for shape in forked:
+        assert not any(_same(shape, original) for original in expected), (
+            "a fork shares a shape with its original"
+        )
+    for item in dataclasses.fields(EvaluationState):
+        mine, theirs = getattr(state, item.name), getattr(twin, item.name)
+        if isinstance(mine, (dict, list)) and mine:
+            assert theirs is not mine, f"{item.name}: the fork shares a container"
+
+
+def test_a_rung_climb_forks_twice_and_continues_on_neither_original_nor_rung(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Structural, so it does not depend on whether a copy moves a mesh by an ULP.
+
+    ``_climb_rung`` must (1) store a fork, and (2) continue on a fork OF THAT
+    fork. Either single-fork variant — carrying on with the original shapes, or
+    carrying on with the stored rung itself — leaves the continuing state
+    ``IsSame`` to something it must not share, and this catches both.
+    """
+    state = _populated_state()
+    originals = _walk_shapes(state)
+    stored: list[Any] = []
+
+    def capture(chain: object, length: int, checkpoint: object, **_: object) -> bool:
+        stored.append(checkpoint)
+        return True
+
+    monkeypatch.setattr(evaluate_module._REBUILD_CACHE, "store_rung", capture)
+    keys = [f"k{i}" for i in range(RUNG_SPACING + 1)]
+    evaluate_module._climb_rung(
+        RUNG_SPACING,
+        state,
+        [],
+        set(),
+        None,
+        evaluate_module._Ladder(keys, speculative=False),
+    )
+
+    assert len(stored) == 1
+    rung = _walk_shapes(stored[0].state)
+    live = _walk_shapes(state)
+    assert len(rung) == len(live) == len(originals)
+    for shape in live:
+        assert not any(_same(shape, other) for other in originals), (
+            "the evaluation continued on the un-forked original"
+        )
+        assert not any(_same(shape, other) for other in rung), (
+            "the evaluation continued on the stored rung itself"
+        )
+    for shape in rung:
+        assert not any(_same(shape, other) for other in originals)

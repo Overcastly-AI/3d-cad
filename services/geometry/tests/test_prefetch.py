@@ -50,9 +50,11 @@ from geometry.main import app
 from geometry.mesh_store import configure_mesh_store, fetch_mesh_glb
 from geometry.rebuild_cache import (
     DEFAULT_WARM_BUDGET_S,
+    RUNG_SPACING,
     LiveWorkGate,
     PrefixCache,
     WarmScheduler,
+    prefix_keys,
 )
 from geometry.warm import warm_scheduler, warm_work
 from loft_wire.features import (
@@ -649,6 +651,62 @@ def test_a_warm_that_loses_its_checkpoint_to_a_real_request_stops() -> None:
     cached = warm_rebuild_cache(request, prefix_length=8, budget_s=5.0, yield_to=gate)
 
     assert cached == 3, "the warm carried on after its reason had been served"
+
+
+def test_a_warm_paused_on_a_rung_does_not_redo_a_live_request_or_demote_it() -> None:
+    """The ladder's own trap for the reclaim (PERF-REAL-2 review, CONC-4/CONC-6).
+
+    When the warm pauses at a multiple of ``RUNG_SPACING`` there is also a LADDER
+    rung under the very key it banked. If a live request takes the banked prefix
+    during the pause, the reclaim must see "gone" — not fall through to the rung,
+    get a fork of the same length, and carry on. Doing that re-ran every feature
+    the live request had just computed on the one core it was using, and then
+    REPLACED the live frontier (with artifacts) by a speculative one (without).
+    Pausing at 3 never hit this; pausing at 8 did, which is why the case is here.
+    """
+    request = _request(_payload())
+    assert len(request.features) > RUNG_SPACING
+    keys = prefix_keys(
+        request,
+        capture_scope=evaluate_module._tool_scope_ids(request),  # pyright: ignore[reportPrivateUsage]
+        record_history=False,
+    )
+
+    reset_rebuild_cache()
+    gate = _BusyOnce(after=RUNG_SPACING, on_wait=lambda: evaluate_tree(request))
+    cached = warm_rebuild_cache(request, budget_s=5.0, yield_to=gate)
+
+    assert cached == RUNG_SPACING, "the warm carried on after its reason was served"
+    frontier = evaluate_module._REBUILD_CACHE.take(keys)  # pyright: ignore[reportPrivateUsage]
+    assert frontier is not None and frontier.prefix_length == len(request.features)
+    assert not frontier.rung
+    assert frontier.speculative is False, "a warm demoted live work to a guess"
+    assert frontier.checkpoint.artifacts is not None, (
+        "the live frontier's artifacts were replaced by a warm's bare state"
+    )
+
+
+def test_a_speculative_store_never_replaces_a_live_entry() -> None:
+    """The same rule as eviction, for a key collision: a guess may not overwrite
+    live work under its own key, whatever path tried to put it there."""
+    cache: PrefixCache[Any] = PrefixCache(4)
+    live, guess = _Payload("live"), _Payload("guess")
+    assert cache.store("k", live)
+    assert not cache.store("k", guess, speculative=True)
+    taken = cache.take(["root", "k"])
+    assert taken is not None and taken.checkpoint is live and not taken.speculative
+    assert cache.stats.speculative_refused == 1
+
+
+class _Payload:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def detach(self) -> None:
+        pass
+
+    def fork(self) -> _Payload:
+        return _Payload(self.name + "'")
 
 
 def test_the_budget_bounds_a_warm_that_never_gets_the_core() -> None:
