@@ -1,3 +1,4 @@
+import { ToolButton, ViewFitIcon } from "@loft/design";
 import { viewport } from "@loft/design/tokens";
 import { OrbitControls } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
@@ -23,7 +24,10 @@ import {
 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
+import { useGlobalKeys } from "../lib/modalGate";
 import { useReducedMotion } from "../lib/useReducedMotion";
+import { resolveSpecBasis } from "../sketch/plane";
+import { useSketchStore } from "../sketch/store";
 import { navigationControls, usePreferences } from "../settings/preferences";
 import { NavCue } from "../components/NavCue";
 import { ViewBar } from "../components/ViewBar";
@@ -57,6 +61,7 @@ import {
 } from "./projection";
 import { groundShadowTexture } from "./groundShadow";
 import { ModelMesh, type BodyHighlight } from "./ModelMesh";
+import { sketchWorldBox } from "./sketchFit";
 import { OriginGeometry } from "./OriginGeometry";
 import { MateColumnStrip } from "./MateColumnStrip";
 import { ViewCube } from "./ViewCube";
@@ -72,6 +77,7 @@ import {
   useViewCommandStore,
   useViewHotkeys,
   VIEW_DIRECTIONS,
+  VIEW_SHORTCUTS,
   type Projection,
 } from "./viewCommands";
 
@@ -108,6 +114,21 @@ interface CameraGoal {
 const ZOOM_SETTLE_EPSILON = 0.002;
 
 /**
+ * "The camera did not move this frame", as a squared distance (mm²). The same
+ * epsilon three-stdlib's OrbitControls uses to decide a frame changed nothing,
+ * so a Fit that waits for stillness waits exactly as long as damping coasts.
+ */
+const STILL_EPSILON_SQ = 1e-6;
+/**
+ * How many rendered frames a Fit issued during a sketch will wait for the
+ * camera to come to rest before giving up (~2 s at 60 fps). The only thing
+ * that moves the camera on its own mid-sketch is the sketcher's entry ease,
+ * which lands in well under a second; a camera still moving after this long
+ * is being driven by something this rig must not fight.
+ */
+const SKETCH_FIT_MAX_WAIT_FRAMES = 120;
+
+/**
  * The camera rig: auto-fits when the fit key changes (a new body / a newly
  * loaded assembly instance — the assembly fit no longer races the GLB load),
  * and executes view commands (home/fit/snaps, reference-cube picks) with a
@@ -120,6 +141,8 @@ function CameraRig({
   reducedMotion,
   framing,
   owns,
+  sketchSubject,
+  sketchFitNonce,
   onSettle,
 }: {
   bounds: Box3 | null;
@@ -150,6 +173,15 @@ function CameraRig({
    * target never becomes click-stable and the flow simply stops.
    */
   owns: boolean;
+  /**
+   * What a Fit frames while ANOTHER rig owns the camera — the open sketch's
+   * drawn entities (product audit F-11), or null to fall back to the model.
+   * Read on demand, like `proposal`, because it only matters at the instant a
+   * Fit executes.
+   */
+  sketchSubject: () => Box3 | null;
+  /** Bumped once per Fit the sketcher's own control asks for (F-11). */
+  sketchFitNonce: number;
   onSettle: (view: string, position: Vector3, framed: Rect | null) => void;
 }) {
   const camera = useThree((state) => state.camera);
@@ -175,6 +207,14 @@ function CameraRig({
   const handedLastFrame = useRef(false);
   /** Has the modeler navigated since the CURRENT proposal appeared? */
   const movedSinceProposal = useRef(false);
+  /**
+   * A Fit asked for while the SKETCHER owns the camera, waiting for it to be
+   * still — see the `useFrame` that serves it. `-1` = no Fit waiting; otherwise
+   * the number of frames it has waited. `stillAt` is where the camera was on
+   * the previous frame, REUSED so the wait allocates nothing.
+   */
+  const sketchFitWait = useRef(-1);
+  const stillAt = useRef(new Vector3());
 
   /** Clip planes sized to the framed subject. */
   const setClipPlanes = useCallback(
@@ -483,6 +523,27 @@ function CameraRig({
   ]);
 
   /**
+   * A Fit asked for WHILE DRAWING (F-11) arms the wait below. It arrives as
+   * its own nonce, NOT as the store's `fit` command, and that separation is
+   * load-bearing: the store's `fit` is also what a chrome change requests
+   * (`onChromeChange`), and entering the sketcher moves the chrome — measured,
+   * a chrome `fit` requested while this rig still owned the camera executes in
+   * the commit where it no longer does. Served as a sketch fit it re-framed
+   * every sketch on entry, overriding the park the sketcher chose. A request
+   * that crosses the ownership boundary must keep the meaning it was issued
+   * with, so only the sketcher's own control reaches this path.
+   */
+  const servedSketchFit = useRef(sketchFitNonce);
+  useEffect(() => {
+    if (sketchFitNonce === servedSketchFit.current) return;
+    servedSketchFit.current = sketchFitNonce;
+    if (owns) return;
+    framedOnce.current = true;
+    sketchFitWait.current = 0;
+    invalidate();
+  }, [sketchFitNonce, owns, invalidate]);
+
+  /**
    * RELEASE THE CAMERA when another rig takes over. An ease in flight is state:
    * `goal.current` keeps this rig writing the camera every frame until it lands
    * within its settle epsilon, and if the sketcher takes the view in that
@@ -644,6 +705,75 @@ function CameraRig({
         Math.max(diagonal, 1) * FIT_FACTOR,
         "fit-proposal",
         subject,
+      ),
+      reducedMotion,
+    );
+  });
+
+  /**
+   * SERVE A FIT ASKED FOR WHILE DRAWING (F-11) — frame the SKETCH, not the
+   * model, and only once the camera is still.
+   *
+   * The subject: the part rig's Fit frames the model, which is the wrong thing
+   * to recover in the sketcher — what goes missing there is the profile (the
+   * audit found an 80 mm dimension at x = 1856 on a 1600 px frame). So the box
+   * is `sketchSubject()`, the drawn entities, falling back to the model only
+   * when nothing is drawn yet.
+   *
+   * The wait: a Fit pressed during the sketcher's entry ease would otherwise be
+   * a second rig easing the same camera toward a different pose — the
+   * documented deadlock, where neither lands and both write forever. The sketch
+   * rig is DORMANT once its park lands (`AuthoringViewCube` measures 0.0000° of
+   * residual motion), so "the camera did not move since the last frame" is
+   * exactly "nobody else is driving it", and from then on this rig's ease is
+   * the only writer. The same wait lets orbit damping coast out first.
+   *
+   * The pose keeps the direction and up the modeler is looking from: a sketch
+   * Fit re-frames, it never turns the view off the plane. The sketcher's "give
+   * the view back" on exit is untouched — a Fit is not a hand on the camera,
+   * so the view it took the camera from is still the one it returns.
+   *
+   * Registered before the ease so a Fit decided this frame starts easing on the
+   * same frame. Allocation-free while waiting; the one frame that fires builds
+   * its pose, exactly as every other fit does.
+   */
+  useFrame(() => {
+    const waited = sketchFitWait.current;
+    if (waited < 0) return;
+    if (owns) {
+      // The sketch ended while the Fit waited — it no longer means anything.
+      sketchFitWait.current = -1;
+      return;
+    }
+    const moved =
+      waited === 0 ||
+      camera.position.distanceToSquared(stillAt.current) > STILL_EPSILON_SQ;
+    stillAt.current.copy(camera.position);
+    if (moved || goal.current !== null) {
+      sketchFitWait.current =
+        waited + 1 > SKETCH_FIT_MAX_WAIT_FRAMES ? -1 : waited + 1;
+      invalidate();
+      return;
+    }
+    sketchFitWait.current = -1;
+    const subject = sketchSubject() ?? boundsRef.current;
+    const hasBounds = subject !== null && !subject.isEmpty();
+    const target = controls?.target.clone() ?? new Vector3();
+    const offset = camera.position.clone().sub(target);
+    if (offset.lengthSq() <= 1e-12) return;
+    const dir = offset.normalize();
+    const center = hasBounds ? subject.getCenter(new Vector3()) : target;
+    const diagonal = hasBounds ? subject.getSize(new Vector3()).length() : 0;
+    userMoved.current = false;
+    if (hasBounds) setClipPlanes(diagonal);
+    applyPose(
+      framePose(
+        dir,
+        safeUp(dir, camera.up.clone()),
+        center,
+        hasBounds ? Math.max(diagonal, 1) * FIT_FACTOR : EMPTY_RADIUS,
+        "fit-sketch",
+        hasBounds ? subject : null,
       ),
       reducedMotion,
     );
@@ -927,6 +1057,81 @@ const ORBIT_BUTTONS: Record<
   },
 };
 
+/**
+ * The Fit key, read off the view rail's own table rather than restated, so the
+ * sketcher's Fit is the model's Fit key by construction (F-11) and the key
+ * card, which also reads `VIEW_SHORTCUTS`, cannot disagree with it.
+ */
+const FIT_KEY: string | null =
+  Object.entries(VIEW_SHORTCUTS).find(([, kind]) => kind === "fit")?.[0] ??
+  null;
+
+/**
+ * `0` = Fit while drawing (F-11) — the part rail's key, armed while the rail
+ * itself is not (`useViewHotkeys` stands down with `viewNav`, and the named
+ * snaps it carries must: they would turn the view off the plane).
+ *
+ * YIELDS TO A SIZE BEING TYPED. From the instant a shape is placed, a digit
+ * typed anywhere goes into its size cell (FLOW-A1, `drawDimensionKeys`), and
+ * `0` is a digit — "100", "0.5". So while the store holds a live draw
+ * dimension the key is the size's, read LIVE from the store for the same
+ * reason FLOW-A1 does: the draft is set inside the pointer handler, a render
+ * before anything React could tell this listener.
+ */
+function useSketchFitHotkey(onFit: (() => void) | null): void {
+  useGlobalKeys(
+    "sketch fit",
+    onFit !== null && FIT_KEY !== null
+      ? (event: KeyboardEvent) => {
+          if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)
+            return;
+          if (event.key !== FIT_KEY) return;
+          if (useSketchStore.getState().drawDimension !== null) return;
+          event.preventDefault();
+          onFit();
+        }
+      : null,
+  );
+}
+
+/**
+ * The sketcher's view rail: Fit, and only Fit (F-11).
+ *
+ * The part rail's seat, the part rail's frame, the part rail's icon and key —
+ * so the hand that reaches for Fit in the part workspace finds it in the same
+ * place mid-sketch. It is not the part rail with buttons hidden: the named
+ * snaps and the projection toggle are absent because the sketch rig holds the
+ * view normal-on to the plane and in perspective (see `ProjectionRig`), and a
+ * control that cannot do what it says is chrome that lies (mandate 3a-c). The
+ * reference cube already carries orientation here (`AuthoringViewCube`).
+ *
+ * The label says "Fit sketch" because that is what it frames — the drawn
+ * profile, not the model — and a verb must name what it does.
+ */
+function SketchViewBar({ onFit }: { onFit: () => void }) {
+  return (
+    <div
+      data-testid="sketch-view-bar"
+      role="toolbar"
+      aria-label="Sketch view"
+      // Docked over the scene exactly as the part rail is, so a fit frames the
+      // sketch ABOVE it (`fitFraming.ts`).
+      data-viewport-chrome="view-bar"
+      className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-stretch border border-hairline bg-anvil shadow-float"
+    >
+      <ToolButton
+        icon={<ViewFitIcon />}
+        label="Fit sketch"
+        caption="Frame everything drawn on this plane"
+        {...(FIT_KEY === null ? {} : { shortcut: FIT_KEY })}
+        tooltipSide="top"
+        data-testid="sketch-view-fit"
+        onClick={onFit}
+      />
+    </div>
+  );
+}
+
 export interface ViewportProps {
   glb?: ArrayBuffer | undefined;
   /** Extra scene content rendered inside the Canvas (e.g. the sketch layer). */
@@ -947,6 +1152,14 @@ export interface ViewportProps {
    * shadow). Off while a sketch rig owns the camera (plane pick / drawing).
    */
   viewNav?: boolean;
+  /**
+   * The sketcher's own view navigation — the one view verb that means the same
+   * thing on a plane as in space: Fit, framing the SKETCH (product audit F-11),
+   * on the rail's seat and the rail's key. On only while drawing (`viewNav` is
+   * off then); the named snaps and the projection stay with the part rail,
+   * because the sketch rig holds the view normal-on and in perspective.
+   */
+  sketchNav?: boolean;
   /**
    * Scene bounds override (scene mm). The assembly workspace passes its
    * combined instance bounds; a part viewport derives bounds from its own
@@ -1010,6 +1223,7 @@ export function Viewport({
   rotateEnabled = true,
   groundGrid = true,
   viewNav = true,
+  sketchNav = false,
   worldBounds,
   fitKey,
   bodyInteractive = false,
@@ -1040,6 +1254,32 @@ export function Viewport({
   // View accelerators (1/2/3/4 snaps, 0 fit, Home) — only while the rig owns
   // the camera (not during sketch authoring).
   useViewHotkeys(viewNav);
+  // ...and while drawing, the one of them that still applies: Fit, on the SAME
+  // key (F-11). See `SketchViewBar`.
+  const sketchFitShown = sketchNav && !viewNav;
+  const [sketchFitNonce, setSketchFitNonce] = useState(0);
+  const requestSketchFit = useCallback(
+    () => setSketchFitNonce((nonce) => nonce + 1),
+    [],
+  );
+  useSketchFitHotkey(sketchFitShown ? requestSketchFit : null);
+
+  /**
+   * What a Fit frames while drawing: the open sketch's drawn entities, in the
+   * scene frame, or null when nothing is drawn (the rig then falls back to the
+   * model). Read from the store at the instant of the Fit, never subscribed —
+   * a sketch that changes on every pointer move must not re-render the scene.
+   */
+  const sketchFitBox = useRef(new Box3());
+  const readSketchSubject = useCallback((): Box3 | null => {
+    const { mode, plane, entities } = useSketchStore.getState();
+    if (mode !== "draw" || plane === null) return null;
+    return sketchWorldBox(
+      entities,
+      resolveSpecBasis(plane),
+      sketchFitBox.current,
+    );
+  }, []);
 
   // The subject the camera frames. A part viewport prefers the bounds of what
   // is DRAWN over the whole mesh's, so hiding a body genuinely takes it out of
@@ -1476,6 +1716,8 @@ export function Viewport({
           // camera is in charge" — it is false exactly while the sketcher owns
           // the view, which is when a second rig is easing this same camera.
           owns={viewNav}
+          sketchSubject={readSketchSubject}
+          sketchFitNonce={sketchFitNonce}
           onSettle={handleSettle}
         />
         {/* Perspective ↔ orthographic (ORTHO-1). Mounted beside the pose rig
@@ -1522,6 +1764,7 @@ export function Viewport({
         <MateColumnStrip />
         {viewNav ? <ViewCube /> : null}
         {viewNav ? <ViewBar /> : null}
+        {sketchFitShown ? <SketchViewBar onFit={requestSketchFit} /> : null}
         {viewNav ? <NavCue /> : null}
         {/* The way back from an isolate / a hand-hidden scene (UI-W2). The same
             derived stamp the assembly workspace shows, over bodies. */}

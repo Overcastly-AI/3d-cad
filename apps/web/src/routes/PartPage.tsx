@@ -5282,6 +5282,7 @@ export function PartPage() {
               rotateEnabled={mode !== "draw"}
               groundGrid={mode !== "draw"}
               viewNav={mode === "off"}
+              sketchNav={mode === "draw"}
               bodyInteractive={
                 mode === "off" && editor === null && !measureActive
               }
