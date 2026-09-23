@@ -5,9 +5,10 @@ It holds what every orchestrator brief used to restate — ~40 lines per brief,
 six briefs a wave. Your brief now carries only three things: the **task**, your
 **territory**, and your **ports**. Everything else is here.
 
-Long-form evidence for each rule lives in `CLAUDE.md` → "Environment recipes".
-Read the section a rule points at when you need to know *why*; you do not need
-it to follow the rule.
+`CLAUDE.md` holds the repo-wide rules (and is auto-loaded); this file holds
+the per-agent ones, and neither repeats the other. Long-form evidence for each
+rule lives in `docs/LESSONS.md`, under a stable anchor. Read it when you need
+to know *why*; you do not need it to follow the rule.
 
 ---
 
@@ -89,7 +90,12 @@ any failure text back to you.
 
 - **Native boot only** — the Docker registry is 403 here. SQLite schema via
   SQLAlchemy `metadata.create_all` (not alembic); geometry with `--workers 1` and
-  `S3_URL` unset; `LOFT_ENV=dev` on the gateway. Full recipe in `CLAUDE.md`.
+  `S3_URL` unset; `LOFT_ENV=dev` on the gateway. Recipe: `CLAUDE.md` →
+  "Environment recipes" (schema step copied from `scripts/e2e.sh`).
+- `rm -f` your own SQLite files before a boot: `create_all` does not migrate,
+  so an old file is silently reused at its old schema.
+- Never put scratch files in `apps/web/test-results/` (Playwright wipes it) or
+  the repo root (`prettier --check .` walks the filesystem and fails everyone).
 - Use the **ports in your brief**; prefix SQLite files with your slug and
   `rm -f` only your own. **Never touch 8000/8001/8002/5173** (the shared stack).
 - Boot with `setsid nohup … < /dev/null &` plus a health-poll loop. **Never

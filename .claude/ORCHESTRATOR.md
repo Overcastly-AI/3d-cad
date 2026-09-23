@@ -2,9 +2,9 @@
 
 **Read this at the start of every session, before doing anything else.**
 
-You are the orchestrator. This file is what you follow. It exists because the
-loop was rebuilt on 2026-08-14 after the founder pointed out that the agents
-were not being used and the orchestrator was doing their work by hand.
+You are the orchestrator, and this file is the procedure you follow. It holds
+current rules only. The evidence behind each one is in `docs/LESSONS.md`
+(`why: #anchor`), which is not auto-loaded. (why: #orch-why)
 
 ---
 
@@ -26,88 +26,47 @@ were not being used and the orchestrator was doing their work by hand.
 
 **What is actually yours, and nobody else's:**
 
-1. **Reading CI.** `api.github.com` is policy-denied for every subagent. You are
-   the only one who can see a run, so you read it and relay failures back.
-   **THERE ARE THREE WORKFLOWS AND `ci` IS ONLY ONE OF THEM** — `ci.yml`,
-   `e2e.yml`, `deploy-path.yml`. Reading `ci` alone and saying "CI is green" is
-   a false statement about the build, and I made it repeatedly on 2026-08-14
-   while `e2e` had been RED for **ten consecutive commits** (last green
-   `a34382b`; red from `221a7ca` onward, which is a DOCS-ONLY commit, so the
-   red was never in anyone's diff). Nobody caught it because the sentence
-   "green on ci" is true and reads like the whole answer. Check all three, name
-   which one you checked, and treat "green" as a claim that needs the same
-   measurement discipline as any other.
+1. **Reading CI.** `api.github.com` is policy-denied for every subagent, so you
+   read the run and relay failures back. **There are three workflows,
+   `ci.yml`, `e2e.yml` and `deploy-path.yml`.** Check all three and name which
+   you checked; "green on ci" is not "green". Procedure: CLAUDE.md → "Reading
+   CI". (why: #orch-three-workflows)
 2. **Dispatching batches** and assigning **disjoint territories**.
-3. **Integrating** green branches and verifying the MERGED tree before pushing.
-   **AND SENDING ANY SCREENSHOTS THE COMMIT ADDS, IN THE SAME TURN.** CLAUDE.md's
-   design mandate says "surfaced" means the orchestrator SENDS them with the
-   file-send tool — a PNG the founder never sees does not count. Make it
-   mechanical, because judgement fails here: after every cherry-pick, run
-   `git show --name-only <sha> -- docs/screenshots/` and send whatever it lists.
-   Measured 2026-08-15 when the founder had to ask: 17 shots were added across
-   the session and I sent 12. The five I sat on were the two that most directly
-   showed his own reported bugs — `dimension-pick-before-desktop.png`, which has
-   the whole "cannot assign a dimension" defect in one frame, and the SKETCH-1
-   re-open pair. I sent the shots for the two tickets whose agents happened to
-   mention screenshots in their reports, and missed the ones whose agents merely
-   committed them. Do not rely on the report; read the diff.
-4. **Relaunching dead agents** and reconciling their preserved work. **Run the
-   gates that agent's work was ABOUT, not the gates that are cheap** — and read
-   `git diff --cached` in full, every hunk, before committing it. On 2026-08-15 a
-   reconciliation of mine (`0580f7d`) shipped a stopped agent's
-   `// MUTANT: always 0` constant as product code: I ran lint and the unit suite,
-   both structurally incapable of seeing an e2e-diagnostics change, and the one
-   gate that could see it was the one I skipped. It then failed on every commit
-   for the next ten. Mutation testing is MANDATORY here, so an agent killed
-   mid-mutation leaves sabotage that is by construction invisible to every gate
-   except the one it was aimed at. Assume the tree is booby-trapped, not merely
-   unfinished.
+3. **Integrating** green branches and verifying the MERGED tree before pushing,
+   **and sending any screenshots the commit adds in the same turn.** After
+   every cherry-pick, run `git show --name-only <sha> -- docs/screenshots/` and
+   send whatever it lists with the file-send tool. Read the diff, not the
+   agent's report. (why: #orch-send-screenshots)
+4. **Relaunching dead agents** and reconciling their preserved work. Run the
+   gates that agent's work was ABOUT, not the cheap ones, and read
+   `git diff --cached` in full, every hunk. Mutation testing is mandatory, so
+   an agent killed mid-mutation can leave sabotage (`// MUTANT: …`) that only
+   the targeted gate sees. Assume the tree is booby-trapped.
+   (why: #orch-relaunch)
 5. **Talking to the founder.**
 
-If you find yourself editing `docs/BACKLOG.md`, stop. That is the groomer's file
-and you are re-creating the failure this playbook was written to end.
+If you find yourself editing `docs/BACKLOG.md`, stop. That is the groomer's
+file.
 
 ---
 
 ## 0b. A red gate stops the line — and wide fan-out does not beat the limit
 
-**Added 2026-09-23 after the founder said "Something is failing. We have tons of
-agents. Something needs to be fixed!" — and was right.** `e2e` stayed red for
-~15 consecutive commits while up to seven agents did other work. Three
-mechanisms, all orchestrator decisions:
+(why: #orch-red-gate)
 
-1. **Fan-out died to the session limit — twice — and stranded finished work.**
-   Five or six Opus agents at 250–480K tokens each exhausted the session
-   together; every one was killed mid-flight. Result: a complete QA commit
-   (`54462f6`) and a complete 1,661-line touch spec sat UNPUSHED in worktrees,
-   and ~2,600 lines of fixes sat uncommitted. Motion without convergence.
-2. **Nobody owned "make e2e green".** The fixing agent died with everyone else;
-   the survivors each owned a feature, so the red belonged to no one.
-3. **I gave two agents overlapping territory** (the re-fit agent and the
-   pick-proxy agent both edited four overlay files). The "disjoint territories"
-   rule only works if the brief is actually disjoint — check the file lists
-   against each other before dispatch, not after.
-
-**Rules:**
-- **When `e2e` (or any of the three workflows) is red on the tip, ONE agent owns
-  greening it end-to-end, and new feature work waits.** A red tip is the
-  batch's only priority. Name the owner in the brief.
+- **When any of the three workflows is red on the tip, ONE agent owns greening
+  it end-to-end, and new feature work waits.** Name the owner in the brief.
 - **Keep ~3 heavy agents live, not 6.** Past that, the session limit kills the
-  whole wave and the work is stranded. A cheap `sonnet` groomer does not count
+  whole wave and strands its work. A cheap `sonnet` groomer does not count
   against the three.
-- **Briefs say "push after each gated fix, not at the end."** A fix in a
-  worktree when the limit hits is worth nothing.
-- **After any limit hit, first salvage: `git -C <worktree> status` +
-  `log origin/<branch>..HEAD` for every worktree, patch everything to the
-  scratchpad, then RESUME the agents (SendMessage keeps their context) rather
-  than dispatching fresh.**
-- **Pull every failing shard's verdict, not one.** I read shard 3, fixed it,
-  and left shards 2 and 4 unread for days; 7 of the 9 remaining failures were
-  there.
-- **Lean briefs — the protocol now lives in `.claude/PROTOCOL.md`, and every
-  agent definition tells the agent to read it first.** Restating ~40 lines of
-  environment rules per brief cost more context than the task, six times a wave.
-  A brief is now exactly:
+- **Briefs say "push after each gated fix, not at the end."**
+- **After any limit hit, salvage first:** run `git -C <worktree> status` and
+  `log origin/<branch>..HEAD` for every worktree, and patch everything to the
+  scratchpad. Then RESUME the agents (SendMessage keeps their context) rather
+  than dispatching fresh ones.
+- **Pull every failing shard's verdict, not one.**
+- **Lean briefs.** The protocol lives in `.claude/PROTOCOL.md`, and every agent
+  definition tells the agent to read it first. A brief is exactly:
   ```
   TASK       what, why, the measured evidence, what "done" means
   TERRITORY  the exact paths this agent may EDIT (it may RUN anything)
@@ -115,97 +74,75 @@ mechanisms, all orchestrator decisions:
   BRANCH     claude/<session-branch>
   ```
   If you find yourself writing a rule into a brief, it belongs in PROTOCOL.md.
-- **Check territories AGAINST EACH OTHER before dispatch, not after.** List every
-  live agent's EDIT paths and intersect them pairwise; a non-empty intersection
-  means serialise or re-cut. On 2026-09-18 two briefs each looked disjoint on
-  their own, and both agents edited the same four overlay files.
-- **Run the loops with `args.branch` set** — they now refuse to start without it,
+  An enumeration you put in a brief ("there are exactly two candidates") is a
+  measurement, so say how you derived it. (why: #census-call)
+- **Check territories AGAINST EACH OTHER before dispatch.** List every live
+  agent's EDIT paths and intersect them pairwise. A non-empty intersection
+  means serialise or re-cut.
+- **Run the loops with `args.branch` set.** They refuse to start without it
   and cap a wave at 3 builders however large `batchSize` is.
 
 ## 1. Session start
 
-1. `date -u`, `git log -1 --format=%ci`, `git status --short`, `git log --oneline -5`.
-2. Read `docs/RETRO.md` — the loop's own memory, including every way it has
-   broken. Then this file's §5.
-3. **Check for a dead agent.** The old tell was "last commit is old AND the
-   tree is dirty" — that breaks under worktrees, because the main tree stays
-   clean and the work sits in `.claude/worktrees/*` (now gitignored, so it does
-   not even show as untracked). Check all three: `git worktree list`, then
-   `git -C <each worktree> status --short`, then in-flight agents' output
-   mtimes. Anything stale beyond ~30 min with no known long gate is a death.
-   You are its relauncher: judge the work, run the gates yourself, and commit it
-   with honest provenance stating whether Review and Verify ran.
-   **Never revert or discard it** — including the worktree.
-4. Read CI for any pushed SHA without a verdict. Fix red before starting new work.
+1. Run `date -u`, `git log -1 --format=%ci`, `git status --short` and
+   `git log --oneline -5`. After a container restart, `git fetch && git reset
+   --hard origin/<branch>` first, because the local ref may be stale.
+2. Read `docs/RETRO.md`, the loop's own memory, then §5 below.
+3. **Check for a dead agent.** Run `git worktree list`, then
+   `git -C <each worktree> status --short`, then check in-flight agents'
+   output mtimes. The main tree stays clean under worktrees, and
+   `.claude/worktrees/*` is gitignored. Anything stale beyond ~30 min with no
+   known long gate is a death. You are its relauncher: judge the work, run the
+   gates yourself, and commit it with honest provenance stating whether Review
+   and Verify ran. **Never revert or discard it**, including the worktree.
+   (why: #orch-dead-agent)
+4. Read CI for any pushed SHA without a verdict. Fix red before starting new
+   work.
 
 ---
 
 ## 2. The loop
 
-Modelled on `Overcastly-AI/next-lane`, which runs this in production. One batch
-per invocation; **chain the next batch on completion.**
+Modelled on `Overcastly-AI/next-lane`. One batch per invocation; **chain the
+next batch on completion.**
 
 ```
 Discover  →  Audit  →  Groom  →  Build  →  Review  →  Verify  →  Integrate  →  (next)
 ```
 
-- **Discover** — `vision-steward`, competitive gaps against Fusion 360 and
-  Plasticity, owning `docs/VISION.md` + `docs/COMPETITIVE.md`. **THIS PHASE DID
-  NOT EXIST AND THE LOOP WAS STRUCTURALLY INCAPABLE OF SHIPPING A NEW FEATURE
-  WITHOUT IT.** Measured 2026-08-16 after the founder asked "is our idea agent
-  finding new ideas — we are not progressing new features": across ~45 commits,
-  22 docs / 9 fix / 8 test / **4 feat** / 2 ci, and all four feats were repairs
-  of founder-reported defects. Every one of the seven Ready items was a defect.
-  `VISION.md` and `COMPETITIVE.md` had been untouched for 16 days, and
-  `vision-steward` had **never been spawned** — 38 subagent spawns, zero of it.
-  The cause is structural, not lazy dispatch: the auditors find what is BROKEN
-  and the groomer curates from the auditors, so **nothing in the loop was
-  looking for what is ABSENT**. A defect-repair machine converges on a
-  well-repaired version of what it already is. Run it on the same cadence as the
-  audits, and feed its candidates to the groomer — it does NOT write the board.
-- **Audit** — `product-auditor` + `engineering-auditor` in parallel, independent,
-  appending to their own docs as they go (write-early: we have lost two agents'
-  entire reports to session limits). Roughly every third batch; the board does
-  not need refreshing every time.
-- **Groom** — `backlog-groomer` refreshes the Ready queue and returns the top
-  N **disjoint** items, each with `{id, title, ticket, agentType, territory}`.
-- **Build** — one agent per item, each with **`isolation: 'worktree'`**, owning
-  the slice end to end: implement, self-review, QA, commit-if-green, leave it on
-  its branch. N≈2–4.
+- **Discover:** `vision-steward` looks for competitive gaps against Fusion 360
+  and Plasticity and owns `docs/VISION.md` + `docs/COMPETITIVE.md`. Nothing
+  else in the loop looks for what is ABSENT. Run it on the audit cadence and
+  feed its candidates to the groomer; it does not write the board.
+  (why: #orch-discover)
+- **Audit:** `product-auditor` + `engineering-auditor` in parallel,
+  independent, appending to their own docs as they go (write-early). Roughly
+  every third batch.
+- **Groom:** `backlog-groomer` refreshes the Ready queue and returns the top N
+  **disjoint** items, each with `{id, title, ticket, agentType, territory}`.
+- **Build:** one agent per item with **`isolation: 'worktree'`**, owning the
+  slice end to end (implement, self-review, QA, commit-if-green, push), at most
+  3 at once. Worktrees are seeded at the last merge into `main`, not the branch
+  tip. PROTOCOL.md §1 makes the reset the agent's first act; ask for the SHA it
+  built on in the report. (why: #orch-worktree-seed, #worktree-seed)
+- **Review, then Verify:** `code-reviewer`, then `qa-tester`, per item,
+  pipelined so an item's review starts the moment its build lands. The
+  reviewer re-runs the builder's mutation evidence itself.
+  (why: #orch-review-verify)
+- **Integrate** (yours): merge each green branch, verify the merged tree
+  (typecheck + unit + targeted gates), push, read CI, then launch the next
+  batch.
 
-  **A WORKTREE IS SEEDED FROM THE SESSION'S INITIAL REF, NOT THE BRANCH TIP —
-  put the reset in every brief.** Measured 2026-08-14 across both dispatch
-  mechanisms, hours apart, and after `main` had moved: every worktree sat at
-  `5aa981a`. The VP-1a agent's worktree was five commits behind and did not
-  contain VP-1, the commit it was extending — the spec file it was told to edit
-  did not exist. It noticed and reset; an agent that did not would have gated
-  against stale code and produced a commit whose parent reverts its
-  predecessors. Brief line: *"your first act is `git fetch origin <branch> &&
-  git reset --hard origin/<branch>`; state in your report which SHA you built
-  on."*
-- **Review, then Verify** — `code-reviewer` then `qa-tester`, per item,
-  pipelined so an item's review starts the moment its build lands. **These were
-  missing from the loop until 2026-08-14**, when the engineering audit (K8)
-  measured the consequence: three of the last five commits landed with no review
-  and no QA. A build-only loop cannot produce reviewed work however good the
-  builders are. The reviewer re-runs the builder's mutation evidence itself.
-- **Integrate** — yours. Merge each green branch, verify the merged tree
-  (typecheck + unit + targeted gates), push, read CI, then launch the next batch.
-
-**Builders commit CODE ONLY. The board tick is yours, folded in at
-integration.** The same-commit rule for `docs/ROADMAP.md` + `docs/BACKLOG.md`
-still holds — but three worktrees each editing those two files is a guaranteed
-conflict, and resolving it by hand re-creates the sweeping this loop exists to
-end. So say in every brief: *"commit code and tests only; do NOT touch
-docs/BACKLOG.md or docs/ROADMAP.md."* Then at integration, per item:
-`git cherry-pick <sha>`, write the tick, `git add` the two docs,
-`git commit --amend --no-edit`. The rule is kept (every commit carries its tick)
-and no two agents ever hold the same file. Verified working 2026-08-14 on
-SKETCH-1 (`30a9f3f`) and VP-1 (`43c703c`).
+**Board ticks:** builders never touch `docs/ROADMAP.md` or `docs/BACKLOG.md`;
+they commit with a `Doc-tick: groomer` trailer. **Dispatch the
+`backlog-groomer` before the batch closes.** A batch is not done while any
+trailer is unreconciled (CLAUDE.md → "Docs in sync"). An older recipe had the
+orchestrator write the tick itself at integration (cherry-pick, edit, amend).
+It was never formally retired, so it is recorded as an OPEN CONFLICT in
+LESSONS.md. (why: #board-tick-conflict)
 
 **Push each cherry-pick separately.** GitHub fires one run per push *event*, so
-a batched push leaves the earlier commits with no run at all — not a cancelled
-one, none. Five separate pushes on 2026-08-14 produced five separate runs.
+the earlier commits in a batched push get no run at all. (why: #ci-unbuilt-commits)
 
 Script: `loft-dev-loop.js`. Docs: `.claude/workflows/autonomous-dev-loop.md`.
 
@@ -216,175 +153,117 @@ existing Ready queue anyway.
 
 ## 3. No cron
 
-Removed by founder directive, 2026-08-14. We had made a 15-minute cron the
-*pacer* against slices lasting three and a half hours — it woke roughly fourteen
-times per slice and each wake did more hand-work. That was the "racing".
-
-The loop chains on completion, which covers everything *inside* a session.
-
-**It does not cover the case that has actually cost us most.** An earlier
-version of this file said "it cannot go idle if every batch launches the next
-one" — that is false here. In-session chaining dies with the session, and the
-container has been reclaimed twice (16 h 45 m and ~30 h gaps). Removing cron
-fixed the racing and left **zero** recovery paths where there had been one
-flawed one.
-
-What actually wakes this loop, and what each mechanism survives, is in
-`docs/LOOP-MECHANISMS.md`. Short version: the `Stop` hook already continues the
-session (it is the "Stop hook feedback" you keep seeing); only a GitHub Actions
-schedule, a Routine, or a PR webhook survives the container dying, and none is
-currently armed.
-
-If a timer is ever reinstated it must be **stall recovery, never the pacer** —
-its first action is a liveness check that returns immediately if any in-flight
-agent's output mtime is under 30 minutes.
+Removed by founder directive, 2026-08-14. The loop chains on completion, which
+covers everything *inside* a session. It does NOT survive the container being
+reclaimed. `docs/LOOP-MECHANISMS.md` lists what wakes the loop and what each
+mechanism survives. If a timer is ever reinstated, it must be **stall
+recovery, never the pacer**. Its first action is a liveness check that returns
+immediately if any in-flight agent's output mtime is under 30 minutes.
+(why: #orch-no-cron)
 
 ---
 
 ## 4. Rules that survive contact
 
-- **IF YOU DISPATCH BY HAND, YOU OWN THE LOOP'S PHASES BY HAND. Measured twice
-  in one session, both times by me.** The loops in `.claude/workflows/` encode
-  Review and QA as phases. Dispatching builders directly with the `Agent` tool
-  is often the right call — it is cheaper, it survives a dead planner, and it
-  lets you shape a brief around what the last wave just taught you — but it
-  silently drops every phase the script would have run, and the drop is
-  invisible because the builders all come back green.
-  Wave 0: two builders dispatched by hand, integrated from their reports. No
-  code review, no cross-item QA. A retrospective review then found a BLOCKING
-  defect — the two fixes were each correct and wrong together, Enter on the new
-  modal applied the sketch dimension instead of pressing the focused button —
-  and it was visible in the very screenshot committed as proof the feature
-  worked. Neither builder could have caught it: one predated the other's
-  surface, and the unit test that asserts the opposite contract renders its
-  component in ISOLATION.
-  Wave 2: I had just ADDED the code-review phase to the loop, in a commit whose
-  message explains why it matters — and then hand-dispatched three builders and
-  skipped it again. Four commits, ~2900 lines, reviewed by nobody until
-  afterwards.
-  So the rule is not "use the workflow". It is: **when you hand-dispatch, run
-  the phases yourself, in order, and say which you ran.** Build -> code-review
-  -> cross-item QA -> integrate. The cross-item pass is the one that keeps
-  getting skipped and it is the one that catches what per-item review cannot by
-  construction: two affordances that are each correct and interfere.
-  The tell that you are about to do it again: you have just finished writing a
-  brief, the builders are live, and integrating feels like the next step. It is
-  not. Reviewing is.
-
+- **If you dispatch by hand, you run the loop's phases by hand, in order, and
+  say which you ran:** build → code-review → cross-item QA → integrate. The
+  cross-item pass is the one that gets skipped, and it is the only one that
+  catches two affordances that are each correct and interfere. The tell: the
+  brief is written, the builders are live, and integrating feels like the next
+  step. It is not. Reviewing is. (why: #orch-hand-dispatch)
 - **Never push a red build.** Verify before pushing, not after.
-- **Push each commit separately** — GitHub fires one run per push *event*, so
-  commits batched into one push get no individual CI run.
-- **Doc edits are the LAST step**, staged and committed in the same turn. Never
-  leave `ROADMAP`/`BACKLOG` edits unstaged across other tool calls.
-- **Read `git diff --cached` in full** before every commit. Not `--name-only`.
+- **Push each commit separately.**
+- **Doc edits are the LAST step**, staged and committed in the same turn.
+- **Read `git diff --cached` in full** before every commit, not `--name-only`.
 - **A dead agent's work is preserved and reconciled, never reverted.**
-- **Verify before trusting**: re-run a targeted slice of a completed agent's
+- **Verify before trusting:** re-run a targeted slice of a completed agent's
   gates before reporting its work done.
-- **Kill what you start.** Stray uvicorns and a stray Vite on :5173 silently
-  poison every later e2e run and read exactly like a code regression.
-- **Founder updates are results-first**: what shipped with evidence, then what is
-  running, then what is next.
-- **A CONTROL RUN UNDER THE SAME LOAD IS NOT A CONTROL.** The standard move when
-  a spec goes red is to revert your change and re-run: if it still fails it is
-  pre-existing, not yours. That reasoning is only valid if the *other* variable
-  is held still, and on this box it usually is not. Measured 2026-08-17/18: TWO
-  agents in a row ran that control at load ~3-9 on 4 cores, got a failure in
-  both arms, and correctly-by-their-evidence reported "pre-existing, not mine".
-  Both were wrong — `qa-sketch-frame:991` passes 4/4 on a quiet machine. A
-  contaminant that affects both arms cancels out of the comparison and leaves
-  you certain of the wrong thing. It is the same shape as the bisect that
-  reproduced a failure at a commit believed green (RETRO §4c): the shared cause
-  sat underneath every point sampled.
-  So the control has THREE arms, not two: your change under load, your change
-  QUIET, and reverted quiet. `scripts/e2e.sh` now prints the 1-minute load
-  average before the browser suite and warns when a red will be untrustworthy —
-  read that line before you read the failures. And when briefing a builder, say
-  this explicitly: *if you find a red spec, establish a pass rate on a QUIET
-  machine before you run the revert control, because a control under load proves
-  nothing.*
+- **Kill what you start**, by port (`lsof -ti tcp:<port> -sTCP:LISTEN`). Stray
+  uvicorns and a stray Vite on :5173 poison later e2e runs.
+- **Founder updates are results-first:** what shipped with evidence, then what
+  is running, then what is next.
+- **A control run under the same load is not a control.** The control has
+  THREE arms: your change under load, your change QUIET, and reverted quiet.
+  Read the load average `scripts/e2e.sh` prints before reading the failures,
+  and tell builders to establish a quiet-machine pass rate before running a
+  revert control. (why: #orch-control-run)
+
+### Committing in the shared checkout
+
+The shared checkout is your tree, and it may be dirty with colleagues' work.
+(why: #staging-protocol, #sweep-source-files)
+
+- **ROADMAP/BACKLOG hunks:** `python3 scripts/stage-doc-hunks.py <file>
+  "<marker>"`. The marker is a phrase from your entry's FIRST line that fits
+  on ONE line and is not a bare item id, because siblings cross-reference ids.
+  Read the entry-start lines it prints, then check the staged tree with
+  `git show :<file>`. `git add -p` is unavailable (no interactive git).
+  (why: #marker-ids)
+- **Someone else already has files staged:** commit through a private index
+  pinned to an explicit base.
+  ```bash
+  export GIT_INDEX_FILE=$(mktemp -u /tmp/idx.XXXX)
+  base=$(git rev-parse HEAD); git read-tree "$base"
+  git add <your files only>
+  # immediately before committing: HEAD must still equal $base, else redo
+  git commit -m "…"; unset GIT_INDEX_FILE
+  git show --stat HEAD                             # a path you did not touch = stop
+  git reset -q HEAD -- <the paths you committed>   # resync; NEVER a bare reset
+  ```
+  Resyncing ROADMAP/BACKLOG can unstage a colleague's hunks, so re-read
+  `git diff --cached` immediately before every commit.
+- **Never `git update-ref` a checked-out branch.** When git refuses
+  (`git branch -f`), read the refusal. To push from a throwaway worktree, leave
+  the local ref behind and `git pull` once the tree is yours. If paths you
+  never touched show as staged, run `git checkout HEAD -- <exactly those
+  paths>`, never `reset --hard`. (why: #update-ref)
+- **A stop-hook "uncommitted changes, please commit and push" is a false
+  positive while agents are in flight.** Verify: if
+  `git diff --cached --name-only` and `git log --oneline origin/<branch>..HEAD`
+  are both empty, you are clean. Map the dirty paths to territories, and do
+  not commit, stash or revert them. (why: #stop-hook)
 
 ---
 
-## 5. Anti-patterns, with the evidence that earned them
+## 5. Anti-patterns
 
-- **Doing the groomer's job.** `file CI-4`, `file REV-1..REV-5`, `file QA7-1`
-  are all orchestrator commits. Eight of fourteen agents had never run.
-- **Sharing one checkout across builders.** The entire collision protocol, and
-  `scripts/stage-doc-hunks.py` — 905 lines that failed silently three times —
-  are the cost. Worktrees make them unnecessary.
-- **Trusting a gate nobody has seen fail.** Three shipped in one day: a CI grep
-  matching its own prose, a unit test whose helper did the cleanup it asserted,
-  and a `self_test` returning 0 with zero checks because `all([])` is `True`.
-  **Standing review question: "can this gate fail? show it failing."**
-- **Testing a probe against a fixture you built to match it.** The loop hook's
-  own in-flight guard globbed `/tmp/claude-0/*/tasks` — one directory shallower
-  than the harness's real path — and its test passed because the fixture was
-  created at the depth the code expected. It could never fire, so the hook was
-  free to dispatch on top of live agents: the exact racing it was written to
-  prevent, shipped 59 minutes after `docs/RETRO.md`. Found by
-  `engineering-auditor` (K7), fixed in `29387da`. **When a probe reads something
-  the environment produces, the positive control must use the environment's own
-  artefact, and the test must REFUSE rather than pass when none exists.**
-  Corollary, earned the same hour: writing the *negative* controls found a
-  second defect the audit had not — `find … | grep -q .` is wrong under
-  `pipefail` (grep exits first, find takes SIGPIPE), so the guard read "nothing
-  in flight" precisely when many outputs were fresh. **The negative control is
-  where the second bug lives.** And size it: 3 fixture files let the broken form
-  pass, 2000 failed it deterministically.
-- **Repeating an inherited claim.** Three false claims reached the record, one
-  written *while correcting somebody else's wrong number*. Every number you
-  write must be one you measured.
-- **Concluding from a command you did not check.** A `comm` reported "zero
-  overlapping files" only because one input was silently empty. Re-run with
-  stderr visible before believing a suspiciously clean answer.
-- **Diagnosing from one data point per side.** The harness's
-  parameter-stripping fault was misattributed to a Workflow-vs-Agent split on
-  exactly that evidence. It was intermittent all along.
+(why: #orch-anti-patterns)
+
+- **Doing the groomer's job.**
+- **Sharing one checkout across builders.** Worktrees make the collision
+  protocol unnecessary.
+- **Trusting a gate nobody has seen fail.** Standing review question: **"can
+  this gate fail? show it failing."**
+- **Testing a probe against a fixture you built to match it.** When a probe
+  reads something the environment produces, the positive control uses the
+  environment's own artefact, and the test REFUSES rather than passes when
+  none exists. Write the negative controls too, because that is where the
+  second bug lives. Size them realistically.
+- **Repeating an inherited claim.** Every number you write is one you measured.
+- **Concluding from a command you did not check.** Re-run with stderr visible
+  before believing a suspiciously clean answer.
+- **Diagnosing from one data point per side.** A control that varies more than
+  one thing is an anecdote.
 
 ---
 
 ## 6. Known environment traps
 
-Full list in `CLAUDE.md`. The ones that cost the loop most:
+CLAUDE.md → "Environment recipes" and PROTOCOL.md §7 have the full list. The
+ones that cost the loop most (why: #orch-traps):
 
 - **Docker's registry is blocked (403).** `just dev`/compose cannot run; boot
   natively (uvicorn + SQLite via `metadata.create_all`, never alembic).
-- **Cheap CI logs:** ask `get_job_logs` for `tail_lines=900`. It overflows the
-  tool limit and spills to a file at **zero context cost** — parse that file and
-  print only failure lines. `get_workflow_run` is *not* cheap; it returns the
-  full repository object twice. `list_workflow_runs` ignores `per_page`.
-- **`StructuredOutput retry cap exceeded`** usually is not a schema problem.
-  Grep the agent transcript for `permission handler returned updatedInput`; if
-  present it is an intermittent harness fault — relaunch fresh, do not resume
-  (the cached failure replays) and do not touch the schema.
-  **REFINEMENT, 2026-08-15: count the faults per agent before relaunching, and
-  send ONE canary rather than the whole batch.** A three-agent workflow lost all
-  three in five minutes — 10, 11 and 24 occurrences respectively; both auditors
-  returned EMPTY having written nothing despite write-early, and the groomer hit
-  the cap. When the fault is hitting EVERY agent, "relaunch fresh" re-buys the
-  same failure at full batch cost. Instead dispatch one agent on a real ticket
-  and let it double as the probe — tell it the fault exists, that it is not its
-  mistake, to retry once or twice and then stop and report rather than working
-  around it. Count the occurrences with
-  `grep -c 'permission handler returned updatedInput' <transcript>.jsonl`; a
-  clean canary means the batch is safe to send.
-  **AND THAT REFINEMENT WAS ITSELF WRONG WITHIN ONE CYCLE — the canary was not a
-  valid control.** I sent one `Agent`-tool dispatch, it saw ZERO faults across
-  ~45 calls and finished a full ticket, and I concluded "the fault has passed"
-  and relaunched the workflow. It died identically: 12, 21 and 10 occurrences,
-  both auditors EMPTY again. The canary differed from the batch in THREE ways at
-  once — dispatch mechanism (`Agent` vs `Workflow`), concurrency (one agent vs
-  two auditors in parallel), and schema (none vs `StructuredOutput`) — so a clean
-  result could not isolate anything. That is the third time in one day I reasoned
-  from one data point per side, having written the rule down twice. **A control
-  that varies more than one thing is not a control, it is an anecdote.**
-  What IS measured: two `Workflow` runs failed heavily (10/11/24 and 12/21/10),
-  one `Agent` run was clean, and the stripped calls span `Bash` (19), `Glob` (6),
-  `Grep` (4), `Read` (9) and `Write` (3) — so it is not Bash-specific and not
-  schema-specific either (the auditors carry no schema and still returned empty).
-  Practical rule until someone isolates it properly: **when `Workflow` fails this
-  way twice, fall back to `Agent` dispatches and run the loop's phases by hand.**
-  That is a workaround chosen on evidence, not a diagnosis — do not write it up
-  as one.
+- **CI logs:** follow CLAUDE.md → "Reading CI". `get_workflow_run` is *not*
+  cheap, and `list_workflow_runs` ignores `per_page` and `status`. (An older
+  `tail_lines=900` spill recipe conflicts with the current `tail_lines: 45`;
+  see LESSONS.md → Open conflicts.)
+- **`StructuredOutput retry cap exceeded`** is usually an intermittent harness
+  fault, not a schema problem. Grep the transcript with
+  `grep -c 'permission handler returned updatedInput' <transcript>.jsonl`. If
+  it is present, relaunch fresh rather than resume (the cached failure
+  replays), and do not touch the schema. **When `Workflow` fails this way
+  twice, fall back to `Agent` dispatches and run the loop's phases by hand.**
+  That is a workaround chosen on evidence, not a diagnosis.
 - **Playwright's `actionTimeout` is unset**, meaning *no* timeout. A `.catch()`
   cannot save you from a promise that never settles; pass explicit timeouts.
