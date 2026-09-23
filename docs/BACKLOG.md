@@ -300,17 +300,16 @@ is the landing record only, so the board is not silent about shipped work.
       silently, while an autosave was in flight; the queue already existed
       one layer down, the disable is what made it unreachable. [src: Wave 3
       cross-cutting finding, 2026-09-14] agentType: frontend-builder.
-- [ ] (P1, S) **CRAFT-12 — the camera never re-fits when a preview appears.**
-      kind: defect (viewport, cross-cutting). MEASURED: on an 11 mm part the
-      pattern ghosts run off the frame entirely. Now that all nine W3 mounts
-      ship previews, this threatens every verb whose preview extends past
-      the body, not just pattern. ACCEPTANCE: arming a gauge whose preview
-      geometry would render outside the current frame triggers a camera
-      re-fit (or a documented floor that keeps the preview in frame without
-      one), proven on at least the pattern and shell cases (the two measured
-      to overrun). [src: Wave 3 close-out finding 1, 2026-09-14] TERRITORY:
-      `apps/web/src/viewport/**` (camera/fit logic). agentType:
-      frontend-builder.
+- [x] (P1, S) **CRAFT-12 — CLOSED (`7a15bea`).** A preview that would render
+      outside the frame now triggers a bounded re-fit (outward-only,
+      re-frame-never-re-orient, never mid-drag, once per command), measured
+      11 mm-part pattern ghosts 5.9% -> 100% visible. Hardening the
+      gauge/camera e2e against a real bug the re-fit's own scope surfaced:
+      `readProposal` unions the whole `command-layer` group including
+      RESTING sketch ink, so a release can re-fit the camera when nothing
+      is actually out of frame — filed AND CLOSED same day as
+      **CRAFT-12-READPROPOSAL-1** (`5274bea`) below.
+      [src: Wave 3 close-out finding 1, 2026-09-14; closed groom pass 26]
 - [x] (P1, M) **CRAFT-13 — CLOSED (`b4e7821`).** Root cause was NOT the panel
       field sync — it was a P0: `894c6f3`'s per-segment hit sleeve made band
       count a function of the value being dragged (a 120° sweep carries 32
@@ -469,6 +468,37 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
+- **Groom pass 26 (2026-09-23, backlog-groomer) — 29-commit debt reconciled
+  (largest batch yet); `e2e` is RED on the tip and is now the stated gate
+  ahead of new feature dispatch.** `543aad9`'s `e2e` run failed 9 cases
+  across shards 2 and 4 (`ci`/`deploy-path` green); an agent is already on
+  the root cause. **CRAFT-12, VEC3-DEDUP-1 and CSP-1 CLOSED** (`7a15bea`,
+  `4549da8`, `ed8c3d7`); **adjacency tier 3** (`bf05482`) closed the audit's
+  `SUBSHAPE_UNRESOLVED` collapse for straight edges under a dimension edit,
+  with curved neighbours (bore rims, fillet boundaries) recorded as an
+  explicit residual. **VISION.md re-scored twice** (`ecb9df8`, `0fbfe81`):
+  no capability row above parity, Performance ➖→❌. Filed 5 new items from
+  the 2026-09-16 product audit and this pass's own e2e hardening, one of
+  which closed the same day it was filed: **CRAFT-12-READPROPOSAL-1**
+  (filed AND closed via `5274bea` — a released gauge lurched the camera on
+  resting sketch ink; `readProposal` now skips tagged annotation roots),
+  **PICK-PROXY-COLLIDE-1** (F-4: 48 of 110 Measure proxies unreachable at
+  their own centre, plus systematic Fillet/Hole/Shell collisions),
+  **MEASURE-LABEL-PITCH-1** (F-7: a 25 mm hole pitch reads `DISTANCE 17 mm`
+  with no centre-to-centre option or label), **EDGE-RESOLVE-WARN-1** (no
+  warning channel exists for a best-effort/silently-mis-resolved edge
+  reference, sharper now that tier 3 is live), **INSTANCEOF-THREE-1** (15
+  `instanceof` sites against three.js classes, correct in the shipped app,
+  latent-broken for any future Viewport unit test). Updated the existing
+  CI-numbers ticket with an orchestrator-read figure: the geometry job ran
+  **21m57s** on a real CI run against the 30-min ceiling, confirming rather
+  than superseding the local 21m20s estimate. **Board queue length: 201 →
+  201 open items** (`grep -c '\[ \]'`) — closed 4 (CRAFT-12, VEC3-DEDUP-1,
+  CSP-1, CRAFT-12-READPROPOSAL-1), filed 4 that remain open, net flat, which
+  understates the pass: this is the largest reconciliation batch yet by
+  commit count. Pruned groom passes 22-23's full Scorecard-gaps narrative
+  into `docs/CHANGELOG.md`. ROADMAP "Current focus" reconciled to match.
+
 - **Groom pass 25 (2026-09-15, backlog-groomer) — Phase 5's flagship SHIPPED;
   the gauntlet found and fixed a wrong-volume P0-adjacent defect; CRAFT-13
   closed.** 25 commits landed since pass 24's `87f4de4`, ALL carrying
@@ -551,46 +581,15 @@ duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
   items; Phase 5's own flips are ahead of us, not behind). ROADMAP "Current
   focus" reconciled to match.
 
-- **Groom pass 23 (2026-09-14, backlog-groomer) — CRAFT-7's blocking finding
-  is FIXED (`c9e037c`+`e56c9bc`); ticked CLOSED.** CRAFT-9a/9b/10/11 unblocked
-  and dispatched in parallel worktrees this pass (in flight — wave log above);
-  CRAFT-9c deliberately held back per §8.3, filed Ready. Filed
-  GAUGE-PROPORTION-1 (the rod-vs-ladder proportion defect generalizes past the
-  2 mm case CRAFT-7 fixed — pitch <= 0.5 mm and a 500 mm profile's 2.42 mm rod
-  both still overrun), FORMATANGLE-MIGRATE-1 (DRY, §11.5), IMPERIAL-LADDER-1
-  (question, needs a real inch-part measurement before deciding, §11.7) and
-  GAUGE-TOUCH-1 (W3-exit QA gate — no touch probe exists yet, §11.4), all from
-  DIRECTION-W3-PROPOSALS.md §11's own explicit "did not decide, filing for the
-  board" list. CRAFT-INTERMITTENT-1 reconfirmed, argument for leaving it alone
-  now stated explicitly (a synchronization fix now would destroy the only
-  evidence a future red run could give a root-causer). FLOW-JOURNEY-GAP-1
-  addendum: the 30-gesture number is a STATED PREDICTION to stay flat for the
-  whole wave, not a per-pass regression — the metric is structurally blind to
-  what W3 buys (legibility, not fewer gestures). Doc-tick debt measured: **4**
-  commits since the last `docs(board)` commit (`e491540`), none touching
-  ROADMAP/BACKLOG — small, convention holding (see ROADMAP "Current focus" for
-  the full count). **Board queue length: 181 open items (`grep`-counted), up
-  from ~148 last pass** — Wave 3 is filing items faster than it closes them
-  this batch (5 dispatched builders' worth of new findings against 1 closure);
-  this is a QUEUE-LENGTH signal, not a hygiene one, consistent with the prior
-  pass's note — do not shrink it by editing, dispatch it down instead. No
-  scorecard row flips this pass (flow/craft items, not new-capability rows).
-  ROADMAP "Current focus" reconciled to match.
+- **Groom pass 23 (2026-09-14):** CRAFT-7's blocking finding fixed and
+  closed; CRAFT-9a/9b/10/11 unblocked and dispatched. Filed
+  GAUGE-PROPORTION-1, FORMATANGLE-MIGRATE-1, IMPERIAL-LADDER-1,
+  GAUGE-TOUCH-1. Full detail: `docs/CHANGELOG.md`.
 
-- **Groom pass 22 (2026-09-14, backlog-groomer) — board was stale: CRAFT-7
-  was still listed planned after it shipped.** Ticked CRAFT-8 (`4b0465d` +
-  three review fixes) and CRAFT-7 (`6864f82`+`e25f125`) into the wave log,
-  but **CRAFT-7 is not closed** — it carries an open blocking review finding
-  (px/mm scale biased by measuring a projected length against a world one;
-  the reported "14 px floor" is really ~11.9-9.7 px). CRAFT-9/10/11 are
-  blocked on it and on the snap-ladder floor re-derivation it is shipping
-  alongside. Filed three new items from this wave's findings
-  (ESLINT-HOOKS-1, EXTRUDE-RAIL-ESCAPE-1, CRAFT-INTERMITTENT-1) and ticked
-  the e2e verdict-reporter fix (`6043601`). FLOW-JOURNEY-GAP-1 unchanged at
-  30 gestures — confirmed BY DESIGN this wave, not a regression (the W3
-  direction states the flow-cost metric will not move; evidence is reach
-  counts, not gesture count). No scorecard row flips this pass (flow/craft
-  items). ROADMAP "Current focus" reconciled to match.
+- **Groom pass 22 (2026-09-14):** board was stale (CRAFT-7 listed planned
+  after shipping); ticked CRAFT-7/8, filed ESLINT-HOOKS-1,
+  EXTRUDE-RAIL-ESCAPE-1, CRAFT-INTERMITTENT-1. Full detail:
+  `docs/CHANGELOG.md`.
 
 - **Groom pass 21 (2026-09-13):** cross-wave QA (`debfea2`) found one
   regression + three collisions, all seven fixes ticked; filed
@@ -611,15 +610,18 @@ duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 25 (2026-09-15) — SCRIPT-1 and CRAFT-13 CLOSED
-this pass (see wave log / Scorecard gaps above); the gauntlet's ranked
-findings (PERF-REAL-1/2, ROADMAP "Current focus" items 1-2) and the code
-review's P1s (CONTRACT-PARITY-TEST-1, VEC3-DEDUP-1) lead the queue —
-correctness/interaction-cost risk outranks the remaining W3 craft polish.**
-Ranked, disjoint, parallel-dispatchable; MINIO-LICENSE-REVIEW-1 and
-CUBE-SKETCH-OCCLUDE-1 are both decisions before they are build tasks — the
-first to the licensing custodian/founder, the second may need founder/
-vision-steward input on the options before a builder picks one:
+**Dispatch order, groom pass 26 (2026-09-23) — `e2e` is RED on the tip
+(9 failures, shards 2 and 4); that is the gate, above everything below.**
+An agent is already on the root cause; do not dispatch net-new feature work
+from this list until it is confirmed green. Once it is: PERF-REAL-1 (now
+PARTLY addressed, see below — re-measure before re-ranking it),
+PERF-REAL-2, and the new product-audit findings (PICK-PROXY-COLLIDE-1,
+EDGE-RESOLVE-WARN-1, MEASURE-LABEL-PITCH-1) lead — correctness/interaction-
+cost risk still outranks craft polish. Ranked, disjoint,
+parallel-dispatchable; MINIO-LICENSE-REVIEW-1 and CUBE-SKETCH-OCCLUDE-1 are
+both decisions before they are build tasks — the first to the licensing
+custodian/founder, the second may need founder/vision-steward input on the
+options before a builder picks one:
 
 1. [ ] (P1, M) **PERF-REAL-1 — 55-73s to select one face, 12.6-14.7s to open a
    real imported part.** kind: defect (interaction cost, frontend/viewport).
@@ -630,14 +632,25 @@ vision-steward input on the options before a builder picks one:
    (bit-identical structural counts across two runs at different load, which
    is what makes this a real cost rather than an artefact). Ranked #1 by
    "what a user feels" in `docs/GEOMETRY-QA.md`'s gauntlet entry — nothing
-   else on that list matters if the tool cannot be touched. ACCEPTANCE: a
-   real part (or the gauntlet's own fixture) measures materially fewer than
-   452 pick-overlay DOM nodes and/or a settle time an order of magnitude
-   lower, OR a different pick mechanism (canvas raycast instead of per-face
-   DOM overlay) is proposed and measured against the same fixture. State the
-   before/after numbers; do not declare victory on a toy part. [src:
-   geometry-qa gauntlet, `docs/GEOMETRY-QA.md` 2026-09-15] TERRITORY:
-   `apps/web/src/viewport/**` (face-pick overlay). agentType:
+   else on that list matters if the tool cannot be touched.
+   **PARTLY ADDRESSED this pass by `9083f0a` (found while landing
+   PickMark's depth `instanceof` fix, not dispatched against this ticket
+   directly): drei's `Html` was calling `ReactDOM.createRoot` PER pick mark,
+   so 452 marks were 452 independent React roots — ~13s of main-thread
+   script, a hang rather than a slowdown. Now one portal host, one root, one
+   per-frame projection pass: 3.5x faster per mark in a real browser and
+   FLAT instead of super-linear in N (measured at N=113/452/904, all
+   ~0.30ms/mark against 1.08-1.32ms before).** The 55-73s / 17.5s-settle
+   figures above are NOT re-measured against this fix and are now an UPPER
+   BOUND — `docs/VISION.md`'s Selection & picking row says so explicitly.
+   ACCEPTANCE, updated: re-measure `just gauntlet` on `gearbox-11752` first
+   (this may already materially close the ticket); if the settle time is
+   still an order of magnitude off, the remaining lever is a different pick
+   mechanism (canvas raycast instead of per-face DOM overlay) rather than
+   further portal-host tuning. State the before/after numbers; do not
+   declare victory on a toy part. [src: geometry-qa gauntlet,
+   `docs/GEOMETRY-QA.md` 2026-09-15; progress `9083f0a`, groom pass 26]
+   TERRITORY: `apps/web/src/viewport/**` (face-pick overlay). agentType:
    frontend-builder.
 
 2. [ ] (P1, M) **PERF-REAL-2 — an incremental edit anywhere in a long feature
@@ -659,27 +672,8 @@ vision-steward input on the options before a builder picks one:
    `services/geometry/src/geometry/kernel/rebuild_cache.py`. agentType:
    kernel-architect.
 
-3. [ ] (P1, S) **VEC3-DEDUP-1** — four independent copies of the same Vec3
-   helpers (`sub`/`dot`/`cross`/`scale`/`addScaled`/`norm`/`unit`) across
-   `axisAnchor.ts`, `edgeAnchor.ts`, `faceAnchor.ts` and
-   `packages/design/src/gauge.ts`, and they have ALREADY diverged in
-   behaviour. kind: DRY (CLAUDE.md non-negotiable) + latent defect.
-   MEASURED: `edgeAnchor.unit` guards on `length > 1e-9` and returns `null`
-   on a degenerate direction; `axisAnchor.unit` guards on `norm > 0`, so on a
-   ~1e-300-magnitude direction (two nearly-coincident points defining a
-   revolve axis, a zero-length sketch segment) it returns a vector with
-   1e300-magnitude components instead of refusing — this propagates
-   Infinity/NaN into a gauge pose or a drawn spine. Four agents building four
-   anchor modules in parallel could not see each other. ACCEPTANCE: one
-   module (either `apps/web/src/viewport/vec3.ts` or exported from
-   `@loft/design` beside `gauge.ts`, which already owns the `Vec3` type) with
-   ONE documented degeneracy floor; all four call sites migrate; no behavior
-   change on any non-degenerate input (same output before/after); a
-   regression test proves the degenerate case now behaves identically
-   (refuses) from every call site that used to disagree. [src: code review
-   P1-4, `docs/CODE-REVIEW.md`, `451245c`] TERRITORY:
-   `apps/web/src/viewport/{axisAnchor,edgeAnchor,faceAnchor}.ts`,
-   `packages/design/src/gauge.ts`. agentType: frontend-builder.
+3. ~~**VEC3-DEDUP-1**~~ — **CLOSED (`4549da8`, groom pass 26).** See closure
+   note below, after this numbered list.
 
 4. [ ] (P1, S) **CONTRACT-PARITY-TEST-1** — the call-parity test
    `packages/loft-script/src/loft/transport.py` documents as closing the
@@ -858,17 +852,160 @@ vision-steward input on the options before a builder picks one:
    §8.3/§9] TERRITORY: `apps/web/src/viewport/**` (gauges),
    `apps/web/src/components/HoleEditor.tsx`. agentType: frontend-builder.
 
-13. [ ] (P1, S) **CRAFT-12** — the camera never re-fits when a preview
-    appears; on an 11 mm part the pattern ghosts run off the frame entirely.
-    Threatens every one of the nine W3 mounts whose preview can extend past
-    the body. Full ticket in the wave log above. TERRITORY:
-    `apps/web/src/viewport/**`. agentType: frontend-builder.
+~~**CRAFT-12-READPROPOSAL-1**~~ — **CLOSED (`5274bea`), same day as filed.**
+    `readProposal` returned the whole `command-layer` group's world box;
+    annotation roots (SketchScene, MeasureOverlay, EdgePickOverlay,
+    FacePickOverlay, ShellFaceOverlay, HolePointOverlay,
+    BendHighlightOverlay, FlangeSpanOverlay) now carry a tag `proposalBoxOf`
+    skips. Measured both directions on the fixture this ticket cited: a
+    resting sketch 100 mm away no longer triggers a re-fit on gauge release
+    (297.0 mm camera travel -> 5.5 mm, the residual being a LEGITIMATE
+    re-fit — the arrow itself pokes past the already-filled frame); a
+    genuinely out-of-frame proposal (10 mm body, 300 mm extrude) still
+    fires (550.5 mm travel). 5 new unit cases, each verified to redden
+    under a mutant.
+
+14. [ ] (P1, M) **PICK-PROXY-COLLIDE-1 — pick proxies collide with each
+    other and with the gauge; the collisions are systematic, not random.**
+    kind: defect (selection, frontend). MEASURED with `elementFromPoint` at
+    each proxy's own centre, on a real gearbox-housing part: Measure draws
+    **110 proxies (66 edges + 44 vertices) at once, 48 of them (44%)
+    unreachable at their own centre** — each other's collisions; Fillet's
+    `fillet-radius-sleeve` (88x17) lands exactly on `edge-pick-4`, so the
+    gauge that appears when you pick covers one of the things you pick;
+    Hole's inner-wall proxy sits 9px from the outer wall's twin and resolves
+    to it; Shell's `shell-face-1` (bottom face) is drawn at a screen point
+    inside the visible FRONT wall, so clicking the middle of the front wall
+    opens the bottom and the panel reports "1 face open" with no warning.
+    The GL raycast rescues most picks (decided in 3D, not by the DOM
+    stack), but the DRAWN markers are what a user aims at and they lie
+    about what is under them. ACCEPTANCE: a documented minimum separation
+    between simultaneously-drawn proxy centres (or a "select other" cycle
+    for coincident candidates, matching PICKMARK-OCCLUDE-1's precedent for
+    edges), verified on the same fixture class (a part dense enough to
+    produce >=40 proxies at once); the gauge/proxy overlap on Fillet is a
+    P0-shaped sub-case (a picked edge becomes un-unpickable) and should be
+    fixed first if the full census is too large for one slice. [src:
+    AUDIT-PRODUCT.md F-4, 2026-09-16 pass] TERRITORY:
+    `apps/web/src/viewport/{EdgePickOverlay,FacePickOverlay,
+    ShellFaceOverlay,HolePointOverlay,PickMark,MeasureOverlay}.tsx`.
+    agentType: frontend-builder.
+
+15. [ ] (P1, S) **MEASURE-LABEL-PITCH-1 — Measure gives a number an
+    engineer will act on and get wrong.** kind: defect (product/measure).
+    MEASURED: picking two adjacent Ø8 holes of a pattern whose
+    centre-to-centre pitch is **25 mm by construction** reads back
+    `DISTANCE 17 mm` (25 − 8, the minimum circle-to-circle distance) with
+    no label saying "minimum" and no centre-to-centre / diameter / radius
+    option on a circular edge — hole pitch is the single most common
+    measurement taken on a plate, and Fusion defaults two circular edges to
+    centre-to-centre. Edge labels are also identity-free (`"Edge 5,
+    circle"`, no coordinates), so there is no way to tell which two holes
+    were measured after the fact. ACCEPTANCE: picking two circular edges
+    offers (at minimum) a centre-to-centre reading, labelled as such and
+    distinct from the raw minimum-distance reading; edge labels carry
+    enough identity (coordinates or a stable name) to reconstruct which
+    entities were measured from the readout alone. [src: AUDIT-PRODUCT.md
+    F-7, 2026-09-16 pass] TERRITORY: `apps/web/src/measure/**`,
+    `services/geometry/src/geometry/**` (if centre-to-centre needs a new
+    measurement kind on the wire). agentType: frontend-builder
+    (backend-builder if a new measurement kind is needed).
+
+16. [ ] (P1, M) **EDGE-RESOLVE-WARN-1 — a feature needs a warning channel
+    before partial/best-effort edge resolution is safe to leave silent.**
+    kind: defect (trust/observability, backend + frontend). `docs/design/
+    topological-naming.md` §7.3 has always been explicit that stage-1
+    matching (which adjacency tier 3, `bf05482`, is one more tier of) is
+    **best-effort and can silently mis-resolve** — a lone wrong match after
+    a move is a documented, accepted residual, not a bug. Nothing in the
+    product today tells the modeler when this happened: a feature that
+    rebuilds via a best-effort tier reports exactly the same `OK` as one
+    that resolved on an exact match, so a silently-wrong pick (the wrong
+    edge, on a part with several similar ones) looks identical to a correct
+    rebuild until someone notices the geometry is off. This is now sharper
+    with tier 3 live: it "inherits the face matcher's best-effort §7.3
+    posture WHOLESALE, including its silent-retarget surface" (bf05482's
+    own commit message). ACCEPTANCE: the evaluator records WHICH tier
+    resolved each subshape reference (exact / durable / adjacency-assisted)
+    in the feature's rebuild result; the frontend surfaces a visible,
+    dismissable notice (tree row + banner, matching the existing
+    `SUBSHAPE_UNRESOLVED` vocabulary) when a feature rebuilt on anything
+    less than an exact match, naming the feature and the tier. Do not block
+    the rebuild — this is a warning channel, not a refusal. [src:
+    `docs/design/topological-naming.md` §7.3, `bf05482`, groom pass 26]
+    TERRITORY: `services/geometry/src/geometry/{features,kernel}/**`
+    (evaluator result), `apps/web/src/routes/PartPage.tsx` (tree row
+    surfacing). agentType: kernel-architect + frontend-builder (split into
+    a backend slice landing the tier-on-the-wire field, then a frontend
+    slice surfacing it).
+
+17. [ ] (P3, XS) **INSTANCEOF-THREE-1 — 15 `instanceof` sites against
+    three.js classes are latent in the shipped app and will break any new
+    Viewport unit test.** kind: defect (test-infra hazard, not a live
+    product bug). `three@0.185.1` ships dual ESM/CJS builds from one
+    version, so `instanceof PerspectiveCamera` resolved through `require`
+    is a DIFFERENT class object than one resolved through `import` — no
+    version skew, no lockfile fix possible. MEASURED: exactly one `three`
+    is installed and only `apps/web` depends on it, so the shipped Vite
+    bundle has a single module graph and all 15 sites (12 in
+    `Viewport.tsx`, plus `SketchScene.tsx`, `BenchBackdrop.tsx`,
+    `glbGeometry.ts`) are CORRECT today — this is not a live defect. It
+    bites in `vitest`, where `@react-three/fiber` resolves to its CJS dev
+    build and pulls a second module record of `three`: probed against a
+    real r3f root, `isPerspectiveCamera: true` while
+    `instanceof PerspectiveCamera: false`. So the moment anyone writes a
+    unit test for `Viewport.tsx`'s camera logic, all 13 of its sites will
+    fail inexplicably, reading as a broken mock rather than a test-
+    environment module-duality quirk. ACCEPTANCE: migrate the 15 sites to
+    three's own duck-typed flags (`isPerspectiveCamera`,
+    `isOrthographicCamera`, `isMesh`, etc. — true across every copy, cost
+    nothing), OR at minimum document the trap inline at each site so the
+    first unit-test author does not lose a debugging session to it. Grep
+    the CALL (`instanceof `) not a class name — `instanceof` against a
+    browser/JS builtin (`HTMLElement`, `Error`, etc.) is fine and out of
+    scope. [src: `docs/CLAUDE.md` environment recipe, `89d4d4d`+`dbddb17`,
+    groom pass 26] TERRITORY: `apps/web/src/viewport/Viewport.tsx`,
+    `SketchScene.tsx`, `BenchBackdrop.tsx`, `glbGeometry.ts`. agentType:
+    frontend-builder.
+
+18. [ ] (P2, S) **CRAFT12-OUTWARD-ONLY-1 — the preview re-fit's "outward
+    only, never tightens the modeler's own framing" rule does not hold
+    reliably.** kind: defect (viewport, filed not asserted — the author of
+    `f8a1ecb` measured it and could not root-cause it in the same pass, so
+    treat the mechanism as open). MEASURED across 11 runs of one flow: 5
+    held (99.3-99.6% of camera range kept, correct), 6 pulled IN by
+    ~15.7x (6.3-6.5% kept) — nothing in between, and timing-correlated
+    (5/7 reproduced in isolation, 1/4 after other specs ran first). The
+    re-fit's own overrun predicate (`needed/distance > 1.02`) cannot cause
+    an inward pull (it fires only when the subject grows past the frame),
+    so the likely second party is the ordinary bounds-driven fit — code
+    this investigation does not own. A direct assertion (`kept > 0.8`)
+    would redden CI 2 runs in 3 in a file nobody touched, so no gate exists
+    for this yet; the current spec only pins the stable half (whatever
+    re-frames is a pure dolly, never a rotation). ACCEPTANCE: root-cause
+    which code path is pulling the camera in on 6 of 11 runs and either fix
+    it or show it is a different, legitimate re-fit firing on the same
+    gesture; add the `kept > 0.8` (or equivalent) regression assertion once
+    the mechanism is understood, not before. [src: `f8a1ecb`, groom pass 26]
+    TERRITORY: `apps/web/src/viewport/**` (camera/fit logic). agentType:
+    frontend-builder.
 
 ~~**SCRIPT-1**~~ — **CLOSED (`153cfa6`+`ca2f9d9`+`14f6e14`+`43c03a1`, groom
 pass 25).** Public Python scripting API shipped; see wave log / ROADMAP
 "Current focus" for the full proof (two-path-identical against a
 browser-driven build, 12/12 facts, byte-equal STEP/STL hashes) and Done
 archive for the record.
+
+~~**CRAFT-12**~~ — **CLOSED (`7a15bea`, groom pass 26).** See wave log above
+for the fix and the residual it surfaced — CRAFT-12-READPROPOSAL-1, filed
+this pass and closed the same day (`5274bea`), see the Ready list below.
+
+~~**VEC3-DEDUP-1**~~ — **CLOSED (`4549da8`, groom pass 26).** One
+`packages/design/src/vec3.ts` replaces the four divergent copies
+(`axisAnchor`/`edgeAnchor`/`faceAnchor`/`gauge.ts`); consolidation chose
+`edgeAnchor`'s picometre-floor + `null`-refusal behaviour and closed a live
+Infinity-into-NaN path (`scale(a, 1/Infinity)` passed every copy's own
+floor guard). 44 e2e green, negative control reddens 9/17 new cases.
 
 ~~**CRAFT-13**~~ — **CLOSED (`b4e7821`, groom pass 25).** Root-caused: the
 per-segment hit sleeve made band count a function of drag value, so a
@@ -1620,26 +1757,18 @@ See Done archive / `docs/CHANGELOG.md` for the full two-defects-one-crash argume
       `packages/loft-script/src/loft/_operation.py`,
       `scripts/gen-py-operations.py`. agentType: backend-builder.
 
-- [ ] (P2, M) **CSP-1 — the self-hosted web container deliberately ships no
-      Content-Security-Policy, and nothing in CI can verify one.**
-      kind: capability (security hardening, deferred by design not
-      oversight). `deploy/docker/web/nginx.conf` already carries the
-      cheap non-breaking headers and an explicit comment on why CSP is
-      NOT among them: a CSP is the one header that could white-screen the
-      whole app (r3f/WebGL, inline styles from Tailwind's JIT, blob: URLs
-      for exports), and nothing in CI renders a real browser against the
-      BUILT artifact — e2e only ever exercises the Vite dev server. Closing
-      this gap also closes a wider one: no Playwright leg exists against
-      `deploy/docker/web.Dockerfile`'s output at all. ACCEPTANCE: a
-      Playwright (or equivalent) leg boots the PRODUCTION nginx-served
-      bundle and drives a real modeling flow against it (sketch → extrude →
-      export, minimum), proving the app works under the built artifact;
-      only then add a CSP header tuned against what that leg actually
-      requires, with the leg as the regression gate for any future
-      tightening. [src: `977f492`, `deploy/docker/web/nginx.conf` comment,
-      2026-09-15] TERRITORY: `deploy/docker/web/nginx.conf`,
-      `.github/workflows/deploy-path.yml` or a new CI leg. agentType:
-      platform-builder.
+~~**CSP-1**~~ — **CLOSED (`ed8c3d7`).** `scripts/dist-leg.sh` (`just
+      dist-leg`, e2e.yml's `dist-bundle` job) builds the bundle, serves it
+      through the real production nginx config, and drives Chromium against
+      it — the missing browser-against-the-BUILT-artifact leg this ticket
+      asked for, first. Found the proposed `font-src 'self'` CSP was wrong
+      (Vite inlines fonts as `data:` URLs, 8 violations, silent fallback-
+      typeface render); shipped `font-src 'self' data:`, verified with a
+      positive control (an injected inline script both fails to execute and
+      is the only violation recorded) plus a second, independently-derived
+      violation count from Chromium's own console. TERRITORY:
+      `deploy/docker/web/nginx.conf`, `scripts/dist-leg.sh`,
+      `scripts/render-web-nginx.py`, `apps/web/e2e-dist/**`.
 
 - [ ] (P2, L — spike first, S) **PERF-ASM-1 — measure assembly performance at
       realistic instance counts before proposing a fix.** kind: capability
@@ -4884,12 +5013,19 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
       extrapolated (was 352 when the "raise matrix to 6 past 30 min" rule
       was set; +55% in 20 days, 30 min/shard arrives in ~3 weeks —
       `e2e-shard-audit.py --timeline` has printed this on every run for ten
-      days, unread). Python job: `just test` measured 3735 passed / 1
-      skipped / 1280.7s (21m20s) locally, against a 30-min ceiling argued
-      from ~2958 tests/14m31s. Read the latest green `e2e complete` job log
-      for `--timeline` and the `python` job's Pytest step duration; write
-      both numbers into the two files' comments. [src: AUDIT-ENGINEERING.md
-      Pass 7 M5+M10]
+      days, unread). Python job: `just test` measured locally at 3735
+      passed / 1 skipped / 1280.7s (21m20s), against a 30-min ceiling argued
+      from ~2958 tests/14m31s. **Orchestrator-read CI number, groom pass
+      26: the geometry (`python`) job ran 21m57s on a real CI run** —
+      confirms the local 21m20s estimate rather than superseding it (both
+      now inside ~2 min of each other), and the margin against the 30-min
+      ceiling is ~27%, down from the original measurement's much wider gap.
+      Still owed: read the latest green `e2e complete` job log for
+      `--timeline` and the `python` job's Pytest step duration, and write
+      both numbers into the two files' comments —
+      the 30-min ceiling's own justification comment is still stale even
+      though the number it argues for currently holds. [src:
+      AUDIT-ENGINEERING.md Pass 7 M5+M10; CI reading groom pass 26]
 - [ ] (P2, S) **RETRO §1.1's durable server-side Routine** — needs one
       founder approval, denied four times; the loop lost 58.3 hours between
       `5bfb528` and `22a44bb` (container reclaimed, restarted by hand, an

@@ -4328,6 +4328,52 @@ export (rides the same deferred item as Drawings' PDF/DXF).
 - ⬜ SSO/OIDC for teams
 
 
+## 2026-09-14 (groom passes 22-23 — pruned from BACKLOG.md pass 26)
+
+Full text of the "Groom pass 22" and "Groom pass 23" Scorecard-gaps entries,
+one-lined in `docs/BACKLOG.md` this pass:
+
+Groom pass 23 (2026-09-14, backlog-groomer) — CRAFT-7's blocking finding
+is FIXED (`c9e037c`+`e56c9bc`); ticked CLOSED. CRAFT-9a/9b/10/11 unblocked
+and dispatched in parallel worktrees this pass (in flight — wave log above);
+CRAFT-9c deliberately held back per §8.3, filed Ready. Filed
+GAUGE-PROPORTION-1 (the rod-vs-ladder proportion defect generalizes past the
+2 mm case CRAFT-7 fixed — pitch <= 0.5 mm and a 500 mm profile's 2.42 mm rod
+both still overrun), FORMATANGLE-MIGRATE-1 (DRY, §11.5), IMPERIAL-LADDER-1
+(question, needs a real inch-part measurement before deciding, §11.7) and
+GAUGE-TOUCH-1 (W3-exit QA gate — no touch probe exists yet, §11.4), all from
+DIRECTION-W3-PROPOSALS.md §11's own explicit "did not decide, filing for the
+board" list. CRAFT-INTERMITTENT-1 reconfirmed, argument for leaving it alone
+now stated explicitly (a synchronization fix now would destroy the only
+evidence a future red run could give a root-causer). FLOW-JOURNEY-GAP-1
+addendum: the 30-gesture number is a STATED PREDICTION to stay flat for the
+whole wave, not a per-pass regression — the metric is structurally blind to
+what W3 buys (legibility, not fewer gestures). Doc-tick debt measured: 4
+commits since the last `docs(board)` commit (`e491540`), none touching
+ROADMAP/BACKLOG — small, convention holding. Board queue length: 181 open
+items (`grep`-counted), up from ~148 last pass — Wave 3 is filing items
+faster than it closes them this batch (5 dispatched builders' worth of new
+findings against 1 closure); this is a QUEUE-LENGTH signal, not a hygiene
+one, consistent with the prior pass's note — do not shrink it by editing,
+dispatch it down instead. No scorecard row flips this pass (flow/craft
+items, not new-capability rows). ROADMAP "Current focus" reconciled to
+match.
+
+Groom pass 22 (2026-09-14, backlog-groomer) — board was stale: CRAFT-7
+was still listed planned after it shipped. Ticked CRAFT-8 (`4b0465d` +
+three review fixes) and CRAFT-7 (`6864f82`+`e25f125`) into the wave log,
+but CRAFT-7 is not closed — it carries an open blocking review finding
+(px/mm scale biased by measuring a projected length against a world one;
+the reported "14 px floor" is really ~11.9-9.7 px). CRAFT-9/10/11 are
+blocked on it and on the snap-ladder floor re-derivation it is shipping
+alongside. Filed three new items from this wave's findings
+(ESLINT-HOOKS-1, EXTRUDE-RAIL-ESCAPE-1, CRAFT-INTERMITTENT-1) and ticked
+the e2e verdict-reporter fix (`6043601`). FLOW-JOURNEY-GAP-1 unchanged at
+30 gestures — confirmed BY DESIGN this wave, not a regression (the W3
+direction states the flow-cost metric will not move; evidence is reach
+counts, not gesture count). No scorecard row flips this pass (flow/craft
+items). ROADMAP "Current focus" reconciled to match.
+
 ## 2026-09-13 (groom pass 21 — pruned from BACKLOG.md pass 25)
 
 Full text of the "Groom pass 21" Scorecard-gaps entry, one-lined in

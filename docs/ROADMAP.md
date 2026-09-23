@@ -2,14 +2,43 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-09-15 (backlog-groomer pass 25) — the public
-Python scripting API SHIPPED and is proven two-path-identical against the
-UI; the MCP server is the remaining Phase 5 surface. In parallel, the
-geometry-qa gauntlet graded this project on foreign real-world parts for
-the first time and found a P1 wrong-volume defect, now FIXED, plus four
-performance findings that are the next priority (below "Performance
-findings" note). Wave 3 (direct manipulation) remains closed; CRAFT-13
-(gauge/panel desync + arc-drag pointer-capture P0) is now also closed.**
+**Current focus, corrected 2026-09-23 (backlog-groomer pass 26) — `e2e` is
+RED on the tip and getting it green is the gate. Do not dispatch new
+feature work ahead of it.** `543aad9`'s `e2e` run failed **9 cases across
+shards 2 and 4**; `ci` and `deploy-path` are both green on the same SHA, so
+this is scoped to the browser suite. An agent is already on the root cause;
+the orchestrator reads the run, not this doc, for the live verdict. Two
+product-audit findings closed this pass: **adjacency tier 3** (`bf05482`)
+re-matches a picked EDGE through the two faces it borders, closing the
+`SUBSHAPE_UNRESOLVED` wall a 2026-09-16 product audit hit on one ordinary
+width edit (4 of 6 features destroyed — see "Product audit 2026-09-16"
+below) — but it is a bounded first step, not persistent naming: **curved
+neighbours (bore rims, fillet boundaries) get no adjacency at all**,
+`PlanarFaceSignature` describes planes only, and that residual stays open.
+`docs/VISION.md` was re-scored twice this pass (`ecb9df8`, `0fbfe81`, 14
+rows re-derived against the running app): **no capability row is above
+parity** (only the two platform rows — Free & unlimited, Your data — are
+✅); Performance flipped ➖→❌ (51.7 s cold rebuild at 250 features, and an
+edit costs 89-108% of a full rebuild wherever it sits in the tree). Wave 3
+(direct manipulation) remains closed; Phase 5's scripting API remains
+shipped, the MCP server is still the open surface.**
+
+**Product audit 2026-09-16 — "the edit loop is the wall" (`576e37b`,
+`docs/AUDIT-PRODUCT.md`).** A gearbox-housing build-edit-repair-export
+session found ten findings (F-1..F-10). Closed this pass: F-1's root
+mechanism (adjacency tier 3, above — the residual is recorded there, not
+here); F-9 (`b3fbdcd`, a re-opened Fillet pre-filled the gauge's last DRAG
+value instead of the stored parameter — one Enter from a silent 2.5x
+change); a related stale-resync silence in multi-window Undo (`543aad9`,
+not itself F-10, see BACKLOG for the distinction). **Still open, now on
+BACKLOG:** F-3/F-4 (pick proxies collide — 48 of 110 Measure proxies
+unreachable at their own centre, plus systematic collisions on Fillet/Hole/
+Shell), F-7 (Measure reads **17 mm** for a **25 mm** hole pitch, unlabelled
+as a minimum and with no centre-to-centre option), F-8 (a 422's per-field
+reason is swallowed by the generic envelope message — already filed).
+`docs/design/topological-naming.md` §7.3's "best-effort, may silently
+mis-resolve" posture is unchanged by tier 3 and is not surfaced to the user
+anywhere — filed as a new warning-channel item.
 
 **Wave 3 close-out.** All seven verbs that had a form now have a gauge, nine
 mounts total, every one shipping a live preview (§8.4 route (b) —
@@ -61,12 +90,16 @@ The founder has asked this branch be merged to `main` ("it's looking better
 but we still have a long way to go"); the merge is blocked only on CI
 finishing.
 Doc-tick debt measured this pass (CLAUDE.md's amended rule: count commits
-since the last `docs(board)` commit, don't read trailers): **12** commits
-since `bd1e05a` — the whole of Wave 3's remaining four gauge mounts
-(CRAFT-9a/9b/10/11) plus their follow-up fixes and two CLAUDE.md
-corrections, none touching ROADMAP/BACKLOG. Reconciled in full this pass;
-`scripts/check-ui-parity.py`'s 84/85 operations / 97/109 literals reading is
-unchanged.
+since the last `docs(board)` commit, don't read trailers): **35** commits
+since `4e69434` (groom pass 25) — the largest batch yet (prior largest 25),
+none touching ROADMAP/BACKLOG. Spans the product audit + adjacency tier 3
+fix, ten e2e gauge/camera hardening commits (including `f8a1ecb`, which
+closed touch-census finding P1-T2 and filed CRAFT12-OUTWARD-ONLY-1), CSP-1's
+close (`ed8c3d7`, the first Playwright leg against the built/nginx-served
+bundle), six gate/CI hardening fixes, `VEC3-DEDUP-1`'s close, and two
+VISION.md rescores. Reconciled in full this pass;
+`scripts/check-ui-parity.py`'s 84/85 operations / 97/109 literals
+reading is unchanged.
 
 **Phase 5's flagship SHIPPED (`153cfa6`+`ca2f9d9`+`14f6e14`+`43c03a1`) — public
 Python scripting API, `import loft`.** Same code path as the UI, enforced in
@@ -101,12 +134,38 @@ outside golden-suite scale; (4) the mesh-determinism regression fixture
 needs a foreign NURBS part >1000 faces we do not have and cannot build from
 our own kernel — an acquisition problem, not an engineering one.
 
-## Recent closures (2026-08-28 to 2026-09-15)
+## Recent closures (2026-08-28 to 2026-09-23)
 
 One line per item; full narrative (measurements, mutation evidence, decision
 records) moved verbatim to `docs/CHANGELOG.md` under "ROADMAP historic
 closures pruned 2026-09-14 (groom pass 22)". Items also tracked in
 `docs/BACKLOG.md`'s Done archive are not re-described here.
+
+**Groom pass 26 batch (2026-09-16 to 2026-09-23, 29 commits):**
+- **Adjacency tier 3** (`bf05482`) — a picked edge re-matches through its two
+  bounding faces after a dimension edit TRANSLATES it (the durable tier is
+  invariant only under the edge growing along itself). Closes the audit's
+  `SUBSHAPE_UNRESOLVED` collapse for straight edges; curved neighbours (bore
+  rims, fillet boundaries) still get no adjacency — open on BACKLOG.
+- **VEC3-DEDUP-1 CLOSED** (`4549da8`) — one `packages/design/src/vec3.ts`
+  replaces four divergent copies; the consolidation also closed a live
+  Infinity-into-NaN path every copy shared.
+- **CRAFT-12 shipped, its residual found AND closed same day** (`7a15bea`
+  shipped the re-fit; `3e5afb1`/`7befa60`/`db61213`/`5b2ccce` hardened the
+  gauge specs against reading camera-relative page position instead of the
+  drawn value, which surfaced a real bug — `readProposal` unioned resting
+  sketch ink into the re-fit box; fixed by `5274bea` tagging annotation
+  roots for the box to skip).
+- **VISION.md re-scored twice** (`ecb9df8`, `0fbfe81`) — Part modeling
+  ✅→➖, Performance ➖→❌, Sketching ✅→➖; Selection & picking added as a
+  new row; Extensibility/Free&unlimited/Your-data flipped up on landed
+  evidence. See "Current focus" above.
+- **Six platform/CI gate-hardening fixes** (`690a4f8`, `d92c04d`, `410a4be`,
+  `379399a`, `1bb7758`, `9083f0a`) — each a gate that could pass while
+  examining nothing (an empty compose verdict, an entry-point allow-list
+  missing a fourth service, a scope-count arithmetic bug, `check_web`'s own
+  shrink-blindness) or a real defect (nginx header inheritance, per-mark
+  React roots). Self-contained; no BACKLOG tickets required.
 
 **Phase 5 + gauntlet batch (2026-09-15, 25 commits, groom pass 25):**
 - **SCRIPT-1 CLOSED** (`153cfa6`+`ca2f9d9`+`14f6e14`+`43c03a1`) — public
