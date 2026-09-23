@@ -206,29 +206,46 @@ is the landing record only, so the board is not silent about shipped work.
 - [x] (P2, S) **e2e verdict reporter** — a red shard named the failing test
       and withheld the reason: `results[].error.message` was being dropped
       from the summary block `6043601`.
-- [ ] (P3, S) **CRAFT-INTERMITTENT-1** — two live intermittents, neither
-      caused by Wave 3 and both proven so, RECONFIRMED this pass. (a)
-      `rect-rigidity.spec.ts:281` — red on 2 of 5 recent CI runs; 31 local
-      executions across seven stress axes gave zero failures, persisted
-      constraint set byte-identical every time. (b) `qa-cross-wave-0913.
-      spec.ts:572` "the cube is a control again once the pick is over" (also
-      seen at `:253`) — 1 of 3 on `--repeat-each`, 8/8 isolated; a cube-facet
-      click not moving the camera; **the failure POINT moves between runs,
-      which is this repo's own documented flake signature** (CLAUDE.md: "a
-      real code regression fails identically every time; a contention flake
-      wanders"). **DELIBERATELY NOT touched this pass, argument stated:**
-      shipping a synchronization fix now would destroy the only evidence a
-      future red run could hand a root-causer, on a suite that has so far
-      produced zero reproductions across the local stress runs above —
-      "fixing" an unreproduced race is guessing, and the guess consumes the
-      evidence trail whether or not it is right. ACCEPTANCE: root-cause at
-      least one to a specific race rather than filing it as "CI is noisy";
-      until then, quarantine or retry-tag rather than let it erode trust in
-      the gate. `6043601`'s verdict-block fix means the next occurrence will
-      name its own cause — use that first. [src: CRAFT-7 wave report,
-      2026-09-14; reconfirmed, groom pass 23] TERRITORY:
-      `apps/web/e2e/rect-rigidity.spec.ts`,
-      `apps/web/e2e/qa-cross-wave-0913.spec.ts`. agentType: qa-tester /
+- [ ] (P3, S) **CRAFT-INTERMITTENT-1 — one of its two cases is now CLOSED,
+      and the closure PARTIALLY REFUTES this ticket's own classification.**
+      (a) `rect-rigidity.spec.ts:281` — still open, unchanged; red on 2 of 5
+      recent CI runs, 31 local executions across seven stress axes gave zero
+      failures, persisted constraint set byte-identical every time. (b) was
+      `qa-cross-wave-0913.spec.ts:572` "the cube is a control again once the
+      pick is over" (also seen at `:253`), filed as ONE intermittent because
+      both lines shared a symptom (a cube-facet click not moving the camera)
+      and both wandered their failure point. **They were not one cause.**
+      `36360ae` (groom pass 27) root-caused the `:253` case (now "a click on
+      the cube steers the camera and keeps the offer"): a fixed 800ms sleep
+      read `data-camera-pos` before the click's camera ease had landed under
+      load — a real assertion-timing defect, not an unreproduced race,
+      fixed by polling the settle stamp the ease itself writes
+      (`onSettle` → `data-view === "direction"`). 7/7 red under load before,
+      7/7 green after; two new assertions each seen to redden (dropping the
+      click, or a precondition violated). This satisfies the ticket's own
+      ACCEPTANCE for that half ("root-cause at least one to a specific race
+      rather than filing it as CI is noisy") and means the "DELIBERATELY NOT
+      touched" argument below did not hold for this half — the fix did not
+      consume an evidence trail, it found the defect the trail was made of.
+      **The `:592` sibling (renumbered from `:572`; "the cube is a control
+      again once the pick is over" itself) still uses the SAME unfixed
+      pattern** (`page.waitForTimeout(800)` then compares `data-camera-pos`)
+      — filed separately as QA-CUBE-YIELD-SETTLE-1 (groom pass 27) rather
+      than folded back in here, since it is now a known fix shape, not an
+      open investigation. **Still applies to `rect-rigidity.spec.ts:281`:**
+      shipping a synchronization fix without a reproduction would destroy
+      the only evidence a future red run could hand a root-causer; that
+      reasoning is now proven right in one direction (don't guess) and wrong
+      in another (a suite that "produced zero reproductions" can still hide
+      a provable, load-sensitive defect — the `:253` case reproduced 7/8
+      under load and 0/8 quiet, which the ticket's local stress runs may not
+      have matched). ACCEPTANCE (rect-rigidity only, going forward):
+      root-cause it under CPU load, matching the discriminator that worked
+      here, before concluding it is unreproducible. `6043601`'s verdict-block
+      fix means the next occurrence will name its own cause — use that
+      first. [src: CRAFT-7 wave report, 2026-09-14; reconfirmed groom pass
+      23; `:253` half closed and `:592` half split out, groom pass 27]
+      TERRITORY: `apps/web/e2e/rect-rigidity.spec.ts`. agentType: qa-tester /
       frontend-builder.
 - [ ] (P2, M) **ESLINT-HOOKS-1** — `react-hooks` is not in `eslint.config.js`
       at all, repo-wide: no `exhaustive-deps`, no `rules-of-hooks`. That gap
@@ -332,6 +349,15 @@ is the landing record only, so the board is not silent about shipped work.
       build on `linearTrack`'s fixed two-point spine, one band always,
       re-run green. [src: Wave 3 close-out finding 2+3, 2026-09-14; closed
       groom pass 25]
+      **FOLLOW-UP CLOSED groom pass 27:** the panel-field-sync lag this
+      ticket ruled out as ITS cause was real on its own — seven of nine
+      gauge-fed editors wrote their form from an EFFECT, one commit after
+      the drag override, so a release could leave the drawn rod and the
+      field one step apart for 2-4 frames. `3b7f9ad` fixed ExtrudeEditor
+      (write during render, guarded by the override identity already
+      applied); `357b91e` generalised it into `useGaugeFedForm`, adopted by
+      all seven remaining editors. `gauge-release-sync.spec.ts` 12/12 after
+      (was 3 failed/12), 0 disagreeing frames across a 10-drag timeline.
 - [ ] (P2, M) **CRAFT-14 — every `disabled={someTransientFlag}` is a latent
       dead end.** kind: defect (systemic, audit first). `ToolButton` gives a
       consumer no way to distinguish "busy" from "gated" — both collapse to
@@ -610,10 +636,11 @@ duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 26 (2026-09-23) — `e2e` is RED on the tip
-(9 failures, shards 2 and 4); that is the gate, above everything below.**
-An agent is already on the root cause; do not dispatch net-new feature work
-from this list until it is confirmed green. Once it is: PERF-REAL-1 (now
+**Dispatch order, groom pass 27 (2026-09-23) — every known e2e failure on
+this branch (pass-26's 9 cases + the `f9fcce6`/`5444fa8` regression) is now
+diagnosed and fixed LOCALLY (see ROADMAP "Current focus"); CI verification
+is owed before new feature work resumes.** Once CI confirms the branch
+clean: PERF-REAL-1 (now
 PARTLY addressed, see below — re-measure before re-ranking it),
 PERF-REAL-2, and the new product-audit findings (PICK-PROXY-COLLIDE-1,
 EDGE-RESOLVE-WARN-1, MEASURE-LABEL-PITCH-1) lead — correctness/interaction-
@@ -968,27 +995,90 @@ options before a builder picks one:
     `SketchScene.tsx`, `BenchBackdrop.tsx`, `glbGeometry.ts`. agentType:
     frontend-builder.
 
-18. [ ] (P2, S) **CRAFT12-OUTWARD-ONLY-1 — the preview re-fit's "outward
-    only, never tightens the modeler's own framing" rule does not hold
-    reliably.** kind: defect (viewport, filed not asserted — the author of
-    `f8a1ecb` measured it and could not root-cause it in the same pass, so
-    treat the mechanism as open). MEASURED across 11 runs of one flow: 5
-    held (99.3-99.6% of camera range kept, correct), 6 pulled IN by
-    ~15.7x (6.3-6.5% kept) — nothing in between, and timing-correlated
-    (5/7 reproduced in isolation, 1/4 after other specs ran first). The
-    re-fit's own overrun predicate (`needed/distance > 1.02`) cannot cause
-    an inward pull (it fires only when the subject grows past the frame),
-    so the likely second party is the ordinary bounds-driven fit — code
-    this investigation does not own. A direct assertion (`kept > 0.8`)
-    would redden CI 2 runs in 3 in a file nobody touched, so no gate exists
-    for this yet; the current spec only pins the stable half (whatever
-    re-frames is a pure dolly, never a rotation). ACCEPTANCE: root-cause
-    which code path is pulling the camera in on 6 of 11 runs and either fix
-    it or show it is a different, legitimate re-fit firing on the same
-    gesture; add the `kept > 0.8` (or equivalent) regression assertion once
-    the mechanism is understood, not before. [src: `f8a1ecb`, groom pass 26]
-    TERRITORY: `apps/web/src/viewport/**` (camera/fit logic). agentType:
-    frontend-builder.
+18. ~~**CRAFT12-OUTWARD-ONLY-1**~~ — **CLOSED (`202cc9d`, groom pass 27).**
+    Root-caused: the bimodal pull was the preview re-fit ITSELF (not a
+    second bounds-driven fit) — `frameOverrun` was a FIT ratio
+    ("would a frame CENTRED ON THE ORBIT TARGET hold the subject") fed to a
+    pose that deliberately parks the target OFF the subject
+    (`targetShift`), so after a shrink the two disagreed and a second,
+    spurious re-fit fired on the shrink itself. Fixed by projecting each
+    corner exactly as the renderer will and returning distance from the
+    FREE-RECT centre as a fraction of half-extent — `<=1` is on screen by
+    construction, and a smaller subject cannot read larger, so "outward
+    only" is now arithmetic, not a race. 10/10 held (was 6/11 pulled in
+    15.7x); unit: 5 of 22 cases redden against the old ratio.
+    [src: `f8a1ecb`, groom pass 26; closed groom pass 27]
+
+19. ~~**CONSTRAINTS-GLYPH-1280-1**~~ — **CLOSED (`5444fa8`, same pass it was
+    filed in).** Root cause: at 1280x800 a canvas click DRAWS while
+    sketching (unlike the part workspace, where it orbits/selects), and
+    `f9fcce6`'s Fit control sat on the bottom-centre seat the sketch rig's
+    own -Y axis projects through at plane (0,-55) — `elementFromPoint`
+    there resolved to `sketch-view-fit`, so the spec's centerline click
+    became a Fit instead of a line start and the symmetric glyph never
+    drew. Fixed by seating the sketch Fit bar off the LEFT edge of the
+    reference cube's own box (same `*-view-cube` tokens, no new numbers),
+    off both sketch axes. `constraints.spec.ts` 12/12 (was red at :1112),
+    `sketch-fit.spec.ts` 3/3. Screenshots refreshed
+    (`sketch-fit-{entry,after}-{1280,1440}.png`).
+
+20. [ ] (P2, XS) **QA-CUBE-YIELD-SETTLE-1 — the sibling of `36360ae`'s fix,
+    same file, same unfixed pattern.** kind: defect (test hardening).
+    `qa-cross-wave-0913.spec.ts`'s "the cube is a control again once the
+    pick is over" (now line ~592) clicks a cube facet, `await page.
+    waitForTimeout(800)`, then compares `data-camera-pos` — the EXACT
+    pattern `36360ae` (groom pass 27) fixed at this file's other cube-click
+    case by polling `data-view` for the `direction` settle stamp instead of
+    sleeping. Three agents have seen this case fail locally under load;
+    CI has stayed green on it so far, which is consistent with the same
+    load-sensitivity `36360ae` measured (7/7 red under load, 0/8 quiet) —
+    triage before assuming either "load-sensitive timing gate" or "a real
+    defect" without checking. ACCEPTANCE: apply the same settle-stamp poll
+    (`onSettle` writes `data-view` when THIS click's ease lands); if it
+    reddens under load first and passes after, that confirms the same
+    class as `:253`; if it does NOT reproduce under load at all, say so
+    and close as environment-only. [src: reported by three agents under
+    load, filed by backlog-groomer pass 27; see CRAFT-INTERMITTENT-1 for
+    the `:253` sibling's closure] TERRITORY:
+    `apps/web/e2e/qa-cross-wave-0913.spec.ts`. agentType: qa-tester.
+
+21. [ ] (P2, S) **FILLET-GAUGE-FPS-FLOOR-1 — the ">10 frames sampled after
+    release" floor assumes ~6.7fps, which headless software GL misses
+    under load, and it fails on a clean tree.** kind: defect (test
+    hardening, needs an owner). `fillet-chamfer-gauge.spec.ts`'s contract-β
+    case asserts `frames.length` (sampled over `RELEASE_WINDOW_MS`) is
+    `toBeGreaterThan(10)` — a message-based floor on how many animation
+    frames rendered, not on the property the case actually cares about
+    (rod and field agree every sampled frame). MEASURED: reproduces on the
+    unmodified base tree too (`357b91e`'s own evidence: "fails on the
+    UNCHANGED tree too (1 of 8, received 9)"; `f9fcce6`'s evidence:
+    "reproduces on the CLEAN base 37e6e18 too, wandering between the
+    fillet and chamfer cases"). ACCEPTANCE: assert the property (every
+    sampled frame agrees, however many there are; and separately, that at
+    least one frame after release was sampled at all — the "window is
+    vacuous" guard, which can stay a small floor since it is a sanity
+    check, not a timing budget) rather than an fps-derived count; do not
+    fix it by lowering the threshold, which only moves the load level at
+    which it flakes. [src: reproduced independently by `357b91e` and
+    `f9fcce6`, filed by backlog-groomer pass 27] TERRITORY:
+    `apps/web/e2e/fillet-chamfer-gauge.spec.ts`. agentType: qa-tester.
+
+22. [ ] (P2, S) **PATTERN-SCOPE-TIMEOUT-1 — two `pattern-scope.spec.ts`
+    cases hit the 60s test timeout under load, on HEAD as well.** kind:
+    defect (test hardening). "select Hole1, press Pattern, get six holes
+    (not a six-times plate)" (line 324) and "a scoped pattern round-trips:
+    re-opening it shows Hole1, not a guess" (line 530) both time out under
+    CPU load without a code change implicated — same signature as this
+    repo's documented quiet-window flake class (CLAUDE.md: "a real code
+    regression fails identically every time; a contention flake wanders").
+    ACCEPTANCE: instrument before guessing (per-phase timers, not a
+    reflexive `expect.poll`/timeout bump) to find which step is slow under
+    load — building the plate, drilling, or the pattern dialog itself —
+    and fix or budget that step specifically; if the cost is legitimately
+    higher under load (e.g. more geometry to rebuild), raise ONLY that
+    step's timeout with the measured number stated, not the whole test's.
+    [src: reproduced under load on HEAD, filed by backlog-groomer pass 27]
+    TERRITORY: `apps/web/e2e/pattern-scope.spec.ts`. agentType: qa-tester.
 
 ~~**SCRIPT-1**~~ — **CLOSED (`153cfa6`+`ca2f9d9`+`14f6e14`+`43c03a1`, groom
 pass 25).** Public Python scripting API shipped; see wave log / ROADMAP
@@ -1642,6 +1732,75 @@ below.**
 
 ## Next (P2)
 
+**Filed groom pass 27 (2026-09-23) — sketch-Fit follow-ups + a DRY/infra pair:**
+
+- [ ] (P2, S) **E2E-SHARD-COUNT-1 — e2e shards run ~31.3 CI-min each against
+      the 40-min step cap (1.3x headroom), and the workflow's own header
+      already says to weigh N=5/6.** kind: capability (CI infra). `7c9ff95`
+      (groom pass 27) fixed the shard-4 timeout by re-measuring the
+      duration manifest, but the resulting spread's headroom is 1.3x — down
+      from a documented 2.1x a month ago, as the suite grew 145→180 spec
+      files — and `.github/workflows/e2e.yml`'s own header states "by the
+      rule above that is the point to weigh N=5 or 6" once T/N approaches
+      the cap. ACCEPTANCE: raise the shard matrix to 5 or 6 (per the
+      workflow's stated rule: N=6 puts T/N near 12.6 min per the
+      documented arithmetic), re-run `e2e-shard-plan.py --self-test` and a
+      real CI run to confirm the new spread and headroom, and state both
+      numbers in the workflow header (the file already tracks this history
+      inline — extend it, don't replace it). Related but distinct from
+      SHARD-MANIFEST-CI-1 (that ticket is about the manifest's SOURCE —
+      local vs CI-measured costs — not the shard COUNT). [src: `7c9ff95`
+      header note, filed by backlog-groomer pass 27] TERRITORY:
+      `.github/workflows/e2e.yml`, `scripts/e2e-shard-plan.py`. agentType:
+      platform-builder.
+- [ ] (P2, S) **VIEWBAR-DRY-1 — the sketch Fit bar duplicates the part view
+      bar's instrument-shell styling in `Viewport.tsx` instead of sharing
+      `components/ViewBar.tsx`.** kind: defect (DRY, frontend). `f9fcce6`'s
+      `SketchViewBar` (in `Viewport.tsx`) and `ViewBar`'s own container
+      (`components/ViewBar.tsx`) both render `role="toolbar"`,
+      `data-viewport-chrome="view-bar"`, and the identical shell classes
+      (`flex items-stretch border border-hairline bg-anvil shadow-float`)
+      — the exact "fix the primitive, never the instance" case CLAUDE.md's
+      design mandate names. **RE-VERIFIED after `5444fa8` moved the
+      sketch bar to hang off the reference cube:** the duplication survives
+      the move — only the POSITIONING classes now differ
+      (`SketchViewBar` anchors to the cube's own seat box via
+      `right-full top-1/2 mr-2 -translate-y-1/2`, `ViewBar` docks at
+      `bottom-3 left-1/2 -translate-x-1/2`), the shell styling is still
+      copy-pasted. ACCEPTANCE: extract the shared SHELL (role, chrome
+      attribute, border/background/shadow/flex classes) into one primitive
+      both compose, leaving only each bar's own positioning classes at the
+      call site; zero visual change (screenshot diff at 1280x800 and a
+      small-laptop width); a change to the rail's chrome (border, shadow)
+      now requires editing one place. [src: found while reviewing
+      `f9fcce6`, re-verified against `5444fa8`, filed by backlog-groomer
+      pass 27] TERRITORY: `apps/web/src/components/
+      ViewBar.tsx`, `apps/web/src/viewport/Viewport.tsx`. agentType:
+      frontend-builder.
+- [ ] (P2, S) **SKETCH-FIT-GRID-OCCLUDE-1 — a reported dark region near the
+      top-left of the sketcher may be hiding grid content; needs
+      re-measurement before a fix.** kind: defect (frontend, UNVERIFIED
+      dimensions). Reported at ~608x65px at the top-left of the sketcher
+      canvas; see `docs/screenshots/sketch-fit-after-1280.png`. A pixel
+      scan of that specific PNG did not find a flat/uniform block of those
+      exact dimensions at that position (the feature-tree panel there
+      measures ~332x236 and IS a legitimate DOM panel, not a canvas
+      artifact) — so either the dimensions/position have drifted, the
+      report was against a different viewport state, or this is a rendering
+      difference not visible in a static screenshot diff. ACCEPTANCE: a
+      frontend-qa or builder pass reproduces this LIVE against the running
+      app first (not from the static PNG) before scoping a fix; if it does
+      not reproduce, close with the measurement that shows so, the same
+      discipline LAYOUT-1 used. **RE-CHECKED against the screenshot
+      `5444fa8` refreshed** (same pass, moved the Fit bar off the
+      bottom-centre seat) — still no flat block of those dimensions found;
+      the referenced image is now stale a second time over, so measure
+      against the RUNNING app, not any static PNG in this repo. [src:
+      reported, unverified by backlog-groomer pass 27] TERRITORY: `apps/web/src/viewport/
+      SketchScene.tsx` (grid render), `apps/web/src/routes/PartPage.tsx`
+      (feature tree panel). agentType: frontend-qa (reproduce) then
+      frontend-builder (fix).
+
 **SOLVE-CRASH-1 is CLOSED (2026-08-29, kernel-architect, arbitrated P2->P1) —
 the untyped 500 is gone. The twelve crashes were TWO defects wanting opposite
 answers, measured before a fix was chosen: 3 had a negative radius of real
@@ -2035,6 +2194,15 @@ CHECKUIPARITY-FP-1 (below) also names. See Done archive.**
       card (a `getByText` resolved to two nodes); it now says "Choose a
       different flange for bend B." 2271 web + 141 design unit tests, 109 e2e.
       [src: HEM-1B survey, frontend-builder 2026-09-04]
+      **STRAGGLER CLOSED groom pass 27 (`17763b5`):** `OffsetPlanePanel`
+      (the sketch flow's inline datum-offset form) was never one of the 15
+      editors this rollout enumerated — it gates `SketchStrip`'s commit
+      button, not an `*Editor.tsx` module — so it kept a native `disabled`
+      with no `aria-describedby` and dropped out of the a11y tree while
+      gated. Now asks the same `datumSubmitBlocker({kind:"offset",...})` the
+      datum editor uses and renders through the editors' own
+      `PanelActionCell`. `offset-plane-reason.spec.ts` 2/2, red on the
+      pre-fix tree.
 
 - [ ] (P2, M) **QA-R3 — on touch, four of REACH-1's five new verbs cannot be
       reached at all, because a tablet cannot select two entities.** The rail's
@@ -2518,24 +2686,16 @@ bend radius. See Done archive for evidence/gates.**
       FOLLOW-UP FILED, not fixed here: exiting a sketch leaves the camera
       parked in the sketch's TOP view instead of restoring the previous view
       (pre-existing, unrelated, found while measuring) — see CAMRESTORE-1.
-      **GHOST-1 — editing a sketch on a part that already has a
-      body is barely legible; the body doesn't auto-ghost even though a
-      ghost control already exists.** kind: defect. MEASURED
-      (`docs/AUDIT-PRODUCT.md` "Pass 2026-08-21 (second pass today)" S-34,
-      repeat of R-15 previous pass): the body stays fully opaque and pale,
-      the white sketch profile draws over it, dimension labels land on
-      the body's specular highlight in small dark type. A `GHOST` opacity
-      control already exists in the BODIES panel — the sketcher just
-      doesn't use it. Fusion/Onshape ghost automatically on sketch entry.
-      FIX: apply the existing GHOST opacity automatically when a sketch
-      opens on a part with a body; restore on exit. ACCEPTANCE: opening a
-      sketch on an existing body reduces its opacity automatically
-      (screenshot before/after); manual GHOST toggle still works
-      independently.
-      [src: docs/AUDIT-PRODUCT.md R-15 (prior pass), S-34 ("second pass
-      today"), filed by backlog-groomer pass 9]
-      TERRITORY: apps/web sketch-entry flow + BODIES panel ghost control
-      (grep `GHOST`/opacity). agentType: frontend-builder.
+      **RESIDUAL CLOSED groom pass 27 (`0d96454`):** `ModelMesh` returned
+      before ghosting anything whenever a part's per-body face split
+      couldn't be resolved (two bodies welded at shared coordinates —
+      `bodyFaceSets` -> null), so such a part stayed fully OPAQUE over the
+      sketch being edited even though the Bodies panel correctly read
+      GHOST. Fixed: ghost the WHOLE mesh when no split exists and no body
+      carries a stop of its own (a stored stop still wins). Pixel witness
+      asserted first (bright fraction inside the plate's top face: 1.0 on
+      the pre-fix tree, 0.0 after); 22/22 regression across part-visibility,
+      multibody-disjoint/union and sketch-visibility.
 
 - [ ] (P1, XS) **STEPNAME-1 — assembly STEP export names components with
       raw UUIDs instead of their part names.** kind: defect. MEASURED
@@ -4196,6 +4356,69 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Later (P3)
 
+**Filed groom pass 27 (2026-09-23) — small, independently-shippable cleanup
+found while reconciling `f9fcce6`/`bc53e7d`:**
+
+- [ ] (P3, XS) **DATUM-DEADCODE-1 — `canSubmitOffset` in
+      `apps/web/src/features/datum.ts` is used only by its own test.**
+      kind: cleanup (dead code). `17763b5` (groom pass 27) moved
+      `OffsetPlanePanel` onto `datumSubmitBlocker` directly; `canSubmitOffset`
+      is now referenced only from `datum.test.ts`. ACCEPTANCE: delete the
+      function and its test cases (or fold the equivalent assertion into a
+      `datumSubmitBlocker` test if the coverage is otherwise lost); `grep -rn
+      canSubmitOffset apps/web/src` finds nothing outside the deletion diff.
+      [src: found while reconciling `17763b5`, filed by backlog-groomer
+      pass 27] TERRITORY: `apps/web/src/features/datum.ts`,
+      `apps/web/src/features/datum.test.ts`. agentType: frontend-builder.
+- [ ] (P3, XS) **SHORTCUT-SHEET-SKETCH-FIT-1 — the shortcut sheet's View
+      group still says view keys don't work while sketching, and does not
+      list `0` = Fit sketch.** kind: defect (docs-in-product accuracy).
+      `registry.ts`'s View group note reads "Whenever the camera is yours
+      (not while sketching)" — false since `f9fcce6` (F-11), which binds
+      the SAME `0` key (`FIT_KEY`, read off `VIEW_SHORTCUTS`) to "Fit
+      sketch" while a sketch is open; `viewShortcuts()` labels it "Fit to
+      the model" unconditionally, which is also wrong in that state.
+      ACCEPTANCE: the View group's note and the Fit row's label are correct
+      in BOTH contexts (not sketching: "Fit to the model" / the existing
+      note; sketching: "Fit sketch" / a note that says the Fit key works
+      while sketching, others do not) — derived from state, not hand-kept
+      in sync with `sketchFitShown`. [src: found while reconciling
+      `f9fcce6`, filed by backlog-groomer pass 27] TERRITORY:
+      `apps/web/src/shortcuts/registry.ts`. agentType: frontend-builder.
+- [ ] (P3, XS) **NEXTSTEP-COMMENT-STALE-1 — a stale comment and a
+      duplicated-label pair in `apps/web/src/components/nextStep.ts`.**
+      kind: cleanup (doc/DRY). The module doc says the dot "deliberately
+      carries no word, no key chip and no colour of its own" — true when
+      written, false since `bc53e7d` (groom pass 27) gave the resting dot a
+      NEXT+label+key stamp on hover/focus/once-per-step. Separately,
+      `REPEAT_ROWS[].label` (e.g. `"Extrude"`) is a second hardcoded copy of
+      the word each `ToolButton` already carries via its own `label` prop in
+      `CreateStrip.tsx` — the two can drift (nextStep.ts is used only to
+      lower-case it into a caption, e.g. "Another extrude on this body").
+      ACCEPTANCE: correct the comment to describe the current behaviour;
+      either derive `REPEAT_ROWS[].label` from the same source
+      `CreateStrip.tsx` reads (if practical) or, if the two must stay
+      separate strings, add a unit test that fails when they disagree so
+      the duplication is monitored rather than silent. [src: found while
+      reconciling `bc53e7d`, filed by backlog-groomer pass 27] TERRITORY:
+      `apps/web/src/components/nextStep.ts`,
+      `apps/web/src/components/CreateStrip.tsx`. agentType:
+      frontend-builder.
+- [ ] (P3, XS) **SCREENSHOT-REFRESH-SKETCH-FIT-1 — founder screenshots for
+      sketch-mode specs (`ghost1-*-after.png`) and `next-step-accent-*.png`
+      predate `f9fcce6`/earlier sketch-mode changes and are stale.** kind:
+      process (screenshot currency). Founder screenshots are refresh-on-
+      demand (CLAUDE.md), not regenerated per-run, so they silently drift
+      behind the product; the sketch-mode shots now predate the Fit control
+      and the current next-step note grammar. ACCEPTANCE: run
+      `UPDATE_SCREENSHOTS=1 pnpm --filter @loft/web e2e` for the affected
+      specs, review the diffs (this is the one check that asks "is the
+      thing legible", per CLAUDE.md), and surface the refreshed before/after
+      pair to the founder at the next milestone rather than silently
+      committing new PNGs. [src: found while reconciling `f9fcce6`/
+      `bc53e7d`, filed by backlog-groomer pass 27] TERRITORY:
+      `docs/screenshots/`. agentType: frontend-builder or qa-tester.
+
 **Filed groom pass 25 (2026-09-15):**
 
 - [ ] (P3, S) **AREA-INTEGRATION-1 — surface area has the same fixed-order
@@ -5041,6 +5264,39 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
 One line per item once its phase has closed (id, one clause, commit/evidence);
 full narrative lives in the commit message and, where noted, `docs/CHANGELOG.md`.
 
+### Groom pass 27 (2026-09-23, backlog-groomer — known e2e failures fixed, F-6 closed, gauge-lag closed)
+
+- **F-6 (hole CREATE lets through a known-off-face point)** (`503473c`+
+  `b99e4e4`+`37e6e18`) — a veto tried then withdrawn on measurement; the
+  commit control now carries the placement warning live, and the X/Y
+  fields' zero is named above them. Never filed as an open ticket; closed
+  the same audit cycle it was found.
+- **Gauge/panel one-commit lag** (`3b7f9ad`+`357b91e`) — `useGaugeFedForm`
+  generalises the render-phase write fix (see CRAFT-13 follow-up above) to
+  all nine gauge-fed mounts.
+- **F-11 Fit while sketching** (`f9fcce6`) — the view rail's Fit key frames
+  the open sketch instead of unmounting entirely; opened a real regression
+  in its own wake (`CONSTRAINTS-GLYPH-1280-1`, filed AND closed same pass
+  by `5444fa8` — a canvas click DRAWS while sketching, and the Fit bar's
+  bottom-centre seat sat on the sketch rig's own -Y axis; moved to hang off
+  the reference cube instead).
+- **Next-step dot gains a word** (`bc53e7d`) — the band's resting proposal
+  now speaks on hover/focus/once-per-step, reusing the viewport's own
+  leader-note grammar.
+- **REASON-GATE-1 straggler** (`17763b5`) — see REASON-GATE-1 follow-up
+  above (`OffsetPlanePanel` was outside the original 15-editor survey).
+- **GHOST-1 residual** (`0d96454`) — see GHOST-1 follow-up above (an
+  unsplittable part stayed opaque during a sketch edit).
+- **e2e known failures + shard-4 timeout** (`202cc9d`, `9375cb3`, `3b7f9ad`,
+  `36360ae`, `8f8adc2`, `004755d`, `7c9ff95`, `5444fa8`) — see ROADMAP
+  "Current focus"; CI verification owed.
+
+Filed: CONSTRAINTS-GLYPH-1280-1 (closed same pass), QA-CUBE-YIELD-SETTLE-1,
+FILLET-GAUGE-FPS-FLOOR-1, PATTERN-SCOPE-TIMEOUT-1,
+SCREENSHOT-REFRESH-SKETCH-FIT-1, DATUM-DEADCODE-1,
+SHORTCUT-SHEET-SKETCH-FIT-1, VIEWBAR-DRY-1, SKETCH-FIT-GRID-OCCLUDE-1,
+NEXTSTEP-COMMENT-STALE-1, E2E-SHARD-COUNT-1 (see Ready/Next).
+
 ### Groom pass 25 (2026-09-15, backlog-groomer — Phase 5 flagship + gauntlet F1/F2 + CRAFT-13)
 
 - **SCRIPT-1** (`153cfa6`+`ca2f9d9`+`14f6e14`+`43c03a1`) — public Python
@@ -5359,15 +5615,17 @@ Full evidence: `docs/CHANGELOG.md`.
 
 ## Changelog
 
+- 2026-09-23 — **Groom pass 27 (backlog-groomer):** e2e known-failures +
+  shard-4 timeout root-caused and fixed (6+1 commits, CI verification
+  owed); F-6 and the gauge/panel lag CLOSED; 11 items filed. See "Scorecard
+  gaps" above and BACKLOG Done archive for full detail.
+- 2026-09-23 — **Groom pass 26:** CRAFT-12/VEC3-DEDUP-1/CSP-1 CLOSED;
+  adjacency tier 3 shipped; VISION re-scored twice; 5 items filed. See
+  "Scorecard gaps" above for full detail.
 - 2026-09-15 — **Groom pass 25 (backlog-groomer):** SCRIPT-1 (public Python
   scripting API), F1+F2 (gauntlet volume/determinism defects) and CRAFT-13
   CLOSED; 16 items filed (perf/gauntlet, code-review P1s, Assemblies wave).
   See "Scorecard gaps" above for full detail.
-- 2026-09-15 — **Groom pass 24:** Wave 3 CLOSED (CRAFT-9a/9b/10/11 + follow-
-  ups); Phase 5 opened. See "Scorecard gaps" above for full detail.
-- 2026-09-14 — **Groom pass 23:** CRAFT-7 CLOSED; CRAFT-9a/9b/10/11
-  dispatched; filed GAUGE-PROPORTION-1/FORMATANGLE-MIGRATE-1/
-  IMPERIAL-LADDER-1/GAUGE-TOUCH-1. Full detail: `docs/CHANGELOG.md`.
-- Passes 7-20: full reachability programme, CI hardening, SOLVE/PBT/SEL-2/
-  ARC-BRANCH-1 clusters, frontend-redesign wave-log reconciliation. Full
-  detail: `docs/CHANGELOG.md`.
+- Passes 7-24: full reachability programme, CI hardening, SOLVE/PBT/SEL-2/
+  ARC-BRANCH-1 clusters, Wave 3 close-out, frontend-redesign wave-log
+  reconciliation. Full detail: `docs/CHANGELOG.md`.

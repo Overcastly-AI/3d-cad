@@ -2,13 +2,33 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-09-23 (backlog-groomer pass 26) — `e2e` is
-RED on the tip and getting it green is the gate. Do not dispatch new
-feature work ahead of it.** `543aad9`'s `e2e` run failed **9 cases across
-shards 2 and 4**; `ci` and `deploy-path` are both green on the same SHA, so
-this is scoped to the browser suite. An agent is already on the root cause;
-the orchestrator reads the run, not this doc, for the live verdict. Two
-product-audit findings closed this pass: **adjacency tier 3** (`bf05482`)
+**Current focus, corrected 2026-09-23 (backlog-groomer pass 27) — the known
+e2e failures are diagnosed and fixed locally; CI verification is owed to
+the orchestrator before resuming feature dispatch.** Pass 26 found `e2e` RED
+on `543aad9` (9 cases across shards 2 and 4). Each has since been
+root-caused and fixed with evidence, in commits `202cc9d` (preview re-fit
+compared a FIT ratio against a pose that parks the target off-subject),
+`9375cb3` (the pattern-count ladder's own re-fit slid the gauge out from
+under the cursor), `3b7f9ad` (a late drag answer stepped the rod back after
+release), `36360ae` (the cube-click case slept a fixed 800ms instead of
+polling the settle stamp), `8f8adc2` (HEM-1B's precondition stopped
+reproducing once adjacency tier 3 shipped — the product got better, the
+fixture didn't), `004755d` (FB-20's baseline was taken after CRAFT-12 had
+already framed the body). A SEPARATE cause — shard 4 hitting the 40-minute
+step timeout with 0 tests failing, because 31 of 175 spec files were
+unmeasured and packed at the heaviest guessed weight — is fixed by `7c9ff95`
+(manifest re-measured in full; predicted shard spread now 1.00x, ~31.3
+CI-min/shard against the 40-min cap, 1.3x headroom — see BACKLOG
+E2E-SHARD-COUNT-1 to weigh N=5/6 next). A THIRD, NEW regression landed and
+was fixed within this same pass: `f9fcce6` (F-11, Fit while sketching) put
+the Fit control on the sketch rig's own -Y-axis seat, so a canvas click
+meant to draw a centreline became a Fit click instead
+(`constraints.spec.ts:1112`, deterministic) — fixed by `5444fa8`, which
+seats the sketch Fit bar off the reference cube instead. **One live e2e
+item remains unfixed, filed this pass, not blocking:**
+QA-CUBE-YIELD-SETTLE-1 (P2, the sibling of `36360ae`'s fix at a different
+assertion in the same file, load-sensitive not yet load-tested to a verdict).
+Two product-audit findings closed pass 26: **adjacency tier 3** (`bf05482`)
 re-matches a picked EDGE through the two faces it borders, closing the
 `SUBSHAPE_UNRESOLVED` wall a 2026-09-16 product audit hit on one ordinary
 width edit (4 of 6 features destroyed — see "Product audit 2026-09-16"
@@ -30,7 +50,17 @@ mechanism (adjacency tier 3, above — the residual is recorded there, not
 here); F-9 (`b3fbdcd`, a re-opened Fillet pre-filled the gauge's last DRAG
 value instead of the stored parameter — one Enter from a silent 2.5x
 change); a related stale-resync silence in multi-window Undo (`543aad9`,
-not itself F-10, see BACKLOG for the distinction). **Still open, now on
+not itself F-10, see BACKLOG for the distinction). **F-6 closed pass 27, on
+measurement, not by picking a side:** `503473c` first made hole CREATE
+refuse a point its own panel already called off the face; `37e6e18`
+withdrew that veto after two QA specs pinned the opposite contract and a
+625-point sweep of a real imported part's face found the client-side
+outline check unprovable on loosely-sewn geometry (a 2-micron edge lift
+flips parity) — so CREATE stays enabled and the placement warning is now
+the commit control's own `aria-describedby`, live until the point is fixed.
+`b99e4e4` fixed a contributing cause: the X/Y fields' zero was named BELOW
+them, not above, so the audit's -45 read as "left of centre" when it meant
+"45mm from the frame origin". **Still open, now on
 BACKLOG:** F-3/F-4 (pick proxies collide — 48 of 110 Measure proxies
 unreachable at their own centre, plus systematic collisions on Fillet/Hole/
 Shell), F-7 (Measure reads **17 mm** for a **25 mm** hole pitch, unlabelled
@@ -72,7 +102,13 @@ never re-fits when a preview appears, which threatens every verb whose
 preview can run past the frame (CRAFT-12); the gauge trails the panel by
 0.4-0.8s, filed as one investigation alongside the craft9b-gauges
 contract-β intermittent (rod springs back on release, 2/1/0 across runs) —
-same mechanism unconfirmed, check before treating as two (CRAFT-13); a
+same mechanism unconfirmed, check before treating as two (CRAFT-13) — **the
+lag itself closed pass 27, separately from CRAFT-13's actual (pointer-
+capture) root cause:** `3b7f9ad` moved ExtrudeEditor's gauge-fed writes into
+render, guarded by the override already applied instead of a
+one-commit-late effect; `357b91e` generalised that fix into one hook,
+`useGaugeFedForm`, adopted by all seven remaining gauge-fed editors, so no
+editor keeps the effect-driven lag; a
 `disabled={someTransientFlag}` audit — `ToolButton` cannot distinguish
 "busy" from "gated," audit by the QUESTION not the idiom (CRAFT-14); 3 of 12
 points along a picked edge were already unreachable before any gauge
@@ -82,10 +118,15 @@ arrow and the outline are one drawing (CRAFT-16, product decision);
 `gaugeReach.ts` and `gaugeProbe.ts` both export the same three helpers,
 `gaugeProbe.ts` is the survivor (CRAFT-17). GAUGE-TOUCH-1 (already filed)
 now covers all nine shipped mounts, not just extrude.
-Two live e2e intermittents (`rect-rigidity.spec.ts:281`,
-`qa-cross-wave-0913.spec.ts:572`/`:253`) remain reconfirmed NOT caused by
-this wave (CRAFT-INTERMITTENT-1) — deliberately untouched, same reasoning as
-last pass.
+Of the two live e2e intermittents (`rect-rigidity.spec.ts:281`,
+`qa-cross-wave-0913.spec.ts:572`/`:253`, CRAFT-INTERMITTENT-1): the `:253`
+half is now CLOSED, and its classification as "not caused by this wave" was
+half right — `36360ae` root-caused it to a real assertion-timing defect (a
+fixed 800ms sleep read the camera before its settle-stamp landed under
+load), not an unreproduced race, satisfying the ticket's own acceptance
+criterion. `rect-rigidity.spec.ts:281` and the `:572`/(now `:592`) sibling
+test remain open and untouched, same reasoning as last pass — see BACKLOG
+QA-CUBE-YIELD-SETTLE-1 (filed pass 27, same fix shape as `36360ae`).
 The founder has asked this branch be merged to `main` ("it's looking better
 but we still have a long way to go"); the merge is blocked only on CI
 finishing.
@@ -100,6 +141,24 @@ bundle), six gate/CI hardening fixes, `VEC3-DEDUP-1`'s close, and two
 VISION.md rescores. Reconciled in full this pass;
 `scripts/check-ui-parity.py`'s 84/85 operations / 97/109 literals
 reading is unchanged.
+
+**Groom pass 27 (2026-09-23) doc-tick debt:** **20** commits since `2bfc660`
+(pass 26) — the branch advanced by one (`5444fa8`) mid-pass, reset onto and
+reconciled below — 17 of 20 carrying the trailer (the three without —
+`6f72947`/`2d719bf`/`4f25e27` — are a protocol-doc fix, a self-inflicted CI
+fix and the CLAUDE.md prune, none landing a feature/fix that needed a tick).
+All 20 reconciled. Spans the e2e root-causing above (7 commits, including
+`5444fa8`), the F-6 hole-editor cycle (3 commits: veto tried then withdrawn,
+plus its X/Y-zero contributing-cause fix), `useGaugeFedForm`'s
+generalisation (`357b91e`), the offset-plane panel's REASON-GATE-1 straggler
+(`17763b5`), a GHOST-1 residual (`0d96454`), F-11 Fit-while-sketching
+shipped and its own regression fixed same pass (`f9fcce6`+`5444fa8`), the
+next-step dot's word (`bc53e7d`, `docs/design/DIRECTION-W2-PROPOSALS.md`),
+the e2e shard-manifest fix (`7c9ff95`), and the CLAUDE.md/ORCHESTRATOR.md
+prune (`4f25e27`+`52c81df`, 165KB → 24KB, history moved to
+`docs/LESSONS.md`, verified by rare-token conservation). 11 new items
+filed, one (CONSTRAINTS-GLYPH-1280-1) closed the same pass it was filed —
+see BACKLOG Ready/Next/Later; none flip a scorecard row.
 
 **Phase 5's flagship SHIPPED (`153cfa6`+`ca2f9d9`+`14f6e14`+`43c03a1`) — public
 Python scripting API, `import loft`.** Same code path as the UI, enforced in
@@ -140,6 +199,39 @@ One line per item; full narrative (measurements, mutation evidence, decision
 records) moved verbatim to `docs/CHANGELOG.md` under "ROADMAP historic
 closures pruned 2026-09-14 (groom pass 22)". Items also tracked in
 `docs/BACKLOG.md`'s Done archive are not re-described here.
+
+**Groom pass 27 batch (2026-09-23, 20 commits):**
+- **Known e2e failures root-caused and fixed** (`202cc9d`, `9375cb3`,
+  `3b7f9ad`, `36360ae`, `8f8adc2`, `004755d`, `5444fa8`) + the shard-4
+  timeout fixed separately (`7c9ff95`, manifest re-measured, 1.3x
+  headroom) — see "Current focus" above; CI verification still owed.
+- **F-6 (hole CREATE lets through a known-off-face point) CLOSED**
+  (`503473c`+`b99e4e4`+`37e6e18`) — a veto tried, then withdrawn on
+  measurement (unprovable on loosely-sewn imports), for an on-control
+  warning that stays live until the point is fixed.
+- **Gauge/panel lag (Wave 3 finding, alongside CRAFT-13) CLOSED**
+  (`3b7f9ad`+`357b91e`) — `useGaugeFedForm` generalises the render-phase
+  write fix to all nine gauge-fed editors.
+- **F-11 Fit-while-sketching SHIPPED, its own regression fixed same pass**
+  (`f9fcce6`+`5444fa8`) — the view rail's Fit key frames the open sketch's
+  drawn entities while sketching, instead of the whole rail unmounting;
+  its bottom-centre seat sat on the sketch rig's own -Y axis and turned a
+  drawing click into a Fit click (`constraints.spec.ts:1112`), fixed by
+  seating the bar off the reference cube instead
+  (BACKLOG CONSTRAINTS-GLYPH-1280-1, filed and closed same pass).
+- **Next-step dot gains a word** (`bc53e7d`) — the band's resting proposal
+  dot speaks NEXT + the tool's own label on hover/focus/once-per-step,
+  reusing the viewport's leader-note grammar instead of a silent mark.
+- **REASON-GATE-1 straggler CLOSED** (`17763b5`) — `OffsetPlanePanel`, not
+  one of the 15+2 editors the original rollout enumerated, now follows the
+  same rule (enabled iff no blocker sentence).
+- **GHOST-1 residual CLOSED** (`0d96454`) — a part whose per-body split
+  fails (two bodies welded at shared coordinates) now still ghosts as a
+  whole while a sketch is open, instead of staying opaque over the sketch.
+- **CLAUDE.md/ORCHESTRATOR.md pruned** (`4f25e27`+`52c81df`) — 165KB → 24KB
+  and 24KB → 14KB; every incident and superseded layer moved verbatim to
+  `docs/LESSONS.md` (new, not auto-loaded), verified by rare-token
+  conservation (802/802 backtick tokens, 3,116/3,116 rare words survive).
 
 **Groom pass 26 batch (2026-09-16 to 2026-09-23, 29 commits):**
 - **Adjacency tier 3** (`bf05482`) — a picked edge re-matches through its two
@@ -272,9 +364,9 @@ SKETCH-COVERAGE-1, SOLVER-DOC-1, HEM-1B, HEM-1D — see BACKLOG for current
 tickets. HEM-1C is IN FLIGHT.
 
 **Still owed, carried forward again:** `docs/GEOMETRY-QA.md`/
-`docs/UI-REVIEW.md` refresh against the last seven batches; the
+`docs/UI-REVIEW.md` refresh against the last eight batches; the
 vision-steward's Sheet metal/Performance/Assemblies/Selection scorecard
-re-check (six passes overdue).
+re-check (seven passes overdue).
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
