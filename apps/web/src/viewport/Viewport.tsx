@@ -1097,9 +1097,20 @@ function useSketchFitHotkey(onFit: (() => void) | null): void {
 /**
  * The sketcher's view rail: Fit, and only Fit (F-11).
  *
- * The part rail's seat, the part rail's frame, the part rail's icon and key —
- * so the hand that reaches for Fit in the part workspace finds it in the same
- * place mid-sketch. It is not the part rail with buttons hidden: the named
+ * The part rail's frame, icon and key, SEATED BESIDE THE REFERENCE CUBE — not
+ * on the part rail's bottom-centre seat, and that is measured, not taste. In
+ * the part workspace a click on the canvas orbits or selects; in the sketcher
+ * every click on the canvas DRAWS, so opaque chrome in the drawing field
+ * steals drawing clicks. Bottom-centre is the worst place in that field: the
+ * sketch rig parks the plane origin at the centre of the frame, so the plane's
+ * -Y axis runs straight down into that seat. Measured at 1280x800: plane
+ * (0, -55) mm projected to (640, 716) and `elementFromPoint` there returned
+ * THIS button, so a line started on the axis became a Fit instead
+ * (`constraints.spec` "laptop: the new glyphs stay usable" went red). The
+ * cube's corner is already chrome and is off both axes, and the pair reads as
+ * one instrument: orientation, and framing, side by side.
+ *
+ * It is not the part rail with buttons hidden: the named
  * snaps and the projection toggle are absent because the sketch rig holds the
  * view normal-on to the plane and in perspective (see `ProjectionRig`), and a
  * control that cannot do what it says is chrome that lies (mandate 3a-c). The
@@ -1110,24 +1121,31 @@ function useSketchFitHotkey(onFit: (() => void) | null): void {
  */
 function SketchViewBar({ onFit }: { onFit: () => void }) {
   return (
-    <div
-      data-testid="sketch-view-bar"
-      role="toolbar"
-      aria-label="Sketch view"
-      // Docked over the scene exactly as the part rail is, so a fit frames the
-      // sketch ABOVE it (`fitFraming.ts`).
-      data-viewport-chrome="view-bar"
-      className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-stretch border border-hairline bg-anvil shadow-float"
-    >
-      <ToolButton
-        icon={<ViewFitIcon />}
-        label="Fit sketch"
-        caption="Frame everything drawn on this plane"
-        {...(FIT_KEY === null ? {} : { shortcut: FIT_KEY })}
-        tooltipSide="top"
-        data-testid="sketch-view-fit"
-        onClick={onFit}
-      />
+    // The cube's own seat box (the tokens `ViewCube` is placed with), inert,
+    // so the bar can hang off its LEFT edge centred on the cube without a
+    // single new number. `!pointer-events-none` beats the HUD layer's
+    // `[&>*]:pointer-events-auto`: this box overlaps the cube and must never
+    // take a click meant for it.
+    <div className="!pointer-events-none absolute bottom-view-cube right-view-cube h-view-cube w-view-cube">
+      <div
+        data-testid="sketch-view-bar"
+        role="toolbar"
+        aria-label="Sketch view"
+        // Charged as chrome, so a fit frames the sketch clear of it
+        // (`fitFraming.ts`).
+        data-viewport-chrome="view-bar"
+        className="pointer-events-auto absolute right-full top-1/2 mr-2 flex -translate-y-1/2 items-stretch border border-hairline bg-anvil shadow-float"
+      >
+        <ToolButton
+          icon={<ViewFitIcon />}
+          label="Fit sketch"
+          caption="Frame everything drawn on this plane"
+          {...(FIT_KEY === null ? {} : { shortcut: FIT_KEY })}
+          tooltipSide="top"
+          data-testid="sketch-view-fit"
+          onClick={onFit}
+        />
+      </div>
     </div>
   );
 }
@@ -1155,9 +1173,10 @@ export interface ViewportProps {
   /**
    * The sketcher's own view navigation — the one view verb that means the same
    * thing on a plane as in space: Fit, framing the SKETCH (product audit F-11),
-   * on the rail's seat and the rail's key. On only while drawing (`viewNav` is
-   * off then); the named snaps and the projection stay with the part rail,
-   * because the sketch rig holds the view normal-on and in perspective.
+   * beside the reference cube, on the rail's key. On only while drawing
+   * (`viewNav` is off then); the named snaps and the projection stay with the
+   * part rail, because the sketch rig holds the view normal-on and in
+   * perspective.
    */
   sketchNav?: boolean;
   /**
