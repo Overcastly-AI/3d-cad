@@ -69,6 +69,45 @@ and you are re-creating the failure this playbook was written to end.
 
 ---
 
+## 0b. A red gate stops the line — and wide fan-out does not beat the limit
+
+**Added 2026-09-23 after the founder said "Something is failing. We have tons of
+agents. Something needs to be fixed!" — and was right.** `e2e` stayed red for
+~15 consecutive commits while up to seven agents did other work. Three
+mechanisms, all orchestrator decisions:
+
+1. **Fan-out died to the session limit — twice — and stranded finished work.**
+   Five or six Opus agents at 250–480K tokens each exhausted the session
+   together; every one was killed mid-flight. Result: a complete QA commit
+   (`54462f6`) and a complete 1,661-line touch spec sat UNPUSHED in worktrees,
+   and ~2,600 lines of fixes sat uncommitted. Motion without convergence.
+2. **Nobody owned "make e2e green".** The fixing agent died with everyone else;
+   the survivors each owned a feature, so the red belonged to no one.
+3. **I gave two agents overlapping territory** (the re-fit agent and the
+   pick-proxy agent both edited four overlay files). The "disjoint territories"
+   rule only works if the brief is actually disjoint — check the file lists
+   against each other before dispatch, not after.
+
+**Rules:**
+- **When `e2e` (or any of the three workflows) is red on the tip, ONE agent owns
+  greening it end-to-end, and new feature work waits.** A red tip is the
+  batch's only priority. Name the owner in the brief.
+- **Keep ~3 heavy agents live, not 6.** Past that, the session limit kills the
+  whole wave and the work is stranded. A cheap `sonnet` groomer does not count
+  against the three.
+- **Briefs say "push after each gated fix, not at the end."** A fix in a
+  worktree when the limit hits is worth nothing.
+- **After any limit hit, first salvage: `git -C <worktree> status` +
+  `log origin/<branch>..HEAD` for every worktree, patch everything to the
+  scratchpad, then RESUME the agents (SendMessage keeps their context) rather
+  than dispatching fresh.**
+- **Pull every failing shard's verdict, not one.** I read shard 3, fixed it,
+  and left shards 2 and 4 unread for days; 7 of the 9 remaining failures were
+  there.
+- **Lean briefs.** Point at `CLAUDE.md` "Environment recipes" instead of
+  restating ~40 lines of it per brief; restating it cost more context than the
+  task description, six times over.
+
 ## 1. Session start
 
 1. `date -u`, `git log -1 --format=%ci`, `git status --short`, `git log --oneline -5`.
