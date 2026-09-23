@@ -593,3 +593,72 @@ describe("a save in flight is reported, not used as a refusal", () => {
     expect(save.textContent).toContain("nothing drawn yet");
   });
 });
+
+describe("the offset-plane panel explains a grey Sketch here (REASON-GATE)", () => {
+  /*
+   * The panel's commit used the native `disabled` attribute and no sentence:
+   * clear the distance and "Sketch here" went grey, dropped out of the
+   * accessibility tree, could not be hovered or focused, and said nothing. The
+   * product rule every feature editor follows is "the action is enabled iff
+   * there is no blocker sentence, and the sentence is shown" — one
+   * computation, two readings (`submitBlocker.ts`).
+   */
+  function openOffsetPanel(onAuthor = vi.fn()) {
+    useSketchStore.getState().begin();
+    render(
+      <SketchStrip
+        onSave={vi.fn()}
+        saving={false}
+        saveError={null}
+        onAuthorOffsetPlane={onAuthor}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("datum-offset-plane"));
+    return {
+      field: screen.getByTestId("offset-plane-offset"),
+      confirm: screen.getByTestId("offset-plane-confirm"),
+      onAuthor,
+    };
+  }
+
+  /** The text the confirm's accessible description resolves to. */
+  function description(el: HTMLElement): string {
+    const ids = (el.getAttribute("aria-describedby") ?? "").split(" ");
+    return ids
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ")
+      .trim();
+  }
+
+  it("an empty distance gates the action AND names the way out", () => {
+    const { field, confirm, onAuthor } = openOffsetPanel();
+    fireEvent.change(field, { target: { value: "" } });
+    expectGated(confirm);
+    expect(confirm.textContent).toContain("Enter the offset.");
+    // The same sentence reaches a screen reader, not a parallel one.
+    expect(description(confirm)).toBe("Enter the offset.");
+    fireEvent.click(confirm);
+    expect(onAuthor).not.toHaveBeenCalled();
+  });
+
+  it("an unparseable distance says CHECK, not ENTER", () => {
+    const { field, confirm } = openOffsetPanel();
+    fireEvent.change(field, { target: { value: "abc" } });
+    expectGated(confirm);
+    expect(confirm.textContent).toContain("Check the offset.");
+  });
+
+  it("a valid distance carries no gate and no sentence, and commits", () => {
+    const { field, confirm, onAuthor } = openOffsetPanel();
+    fireEvent.change(field, { target: { value: "-12.5" } });
+    expectNotGated(confirm);
+    expect(confirm.querySelector("[data-disabled-reason]")).toBeNull();
+    fireEvent.click(confirm);
+    expect(onAuthor).toHaveBeenCalledWith({
+      kind: "offset",
+      base: "XY",
+      offset_mm: -12.5,
+      flip: false,
+    });
+  });
+});

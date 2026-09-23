@@ -56,6 +56,7 @@ import {
   NumberField,
   OffsetIcon,
   Panel,
+  PanelActionCell,
   ParallelIcon,
   PerpendicularIcon,
   RadiusIcon,
@@ -88,7 +89,7 @@ import {
 import { withoutDatums } from "../sketch/datum";
 import {
   buildOffsetParams,
-  canSubmitOffset,
+  datumSubmitBlocker,
   DATUM_BASES,
   defaultOffsetForm,
   type OffsetForm,
@@ -495,7 +496,15 @@ function OffsetPlanePanel({
 }) {
   const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<OffsetForm>(defaultOffsetForm());
-  const canSubmit = canSubmitOffset(form, unit) && !busy;
+  // ONE computation, two readings (REASON-GATE-1, `submitBlocker.ts`): the
+  // action is enabled iff there is no blocker sentence, and the sentence is
+  // shown. The offset form IS the datum editor's `offset` kind, so it asks the
+  // same function that editor asks rather than a second copy of the rule.
+  // Null while creating: the label already says so.
+  const blocker = busy
+    ? null
+    : datumSubmitBlocker({ kind: "offset", ...form }, unit);
+  const canSubmit = blocker === null && !busy;
 
   const author = () => {
     const params = buildOffsetParams(form, unit);
@@ -528,7 +537,9 @@ function OffsetPlanePanel({
             onChange={(base) => setForm((f) => ({ ...f, base }))}
           />
           <NumberField
-            label="Distance"
+            // "Offset", the word the blocker sentence uses ("Enter the
+            // offset.") and the datum editor labels the same field with.
+            label="Offset"
             unit={unit}
             data-testid="offset-plane-offset"
             autoFocus
@@ -546,26 +557,28 @@ function OffsetPlanePanel({
             options={OFFSET_FLIP_OPTIONS}
             onChange={(v) => setForm((f) => ({ ...f, flip: v === "flip" }))}
           />
-          <div className="mt-1 flex items-center justify-between gap-2">
-            <button
-              type="button"
-              className="font-display text-2xs uppercase tracking-[0.14em] text-gauge hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
-              data-testid="offset-plane-cancel"
-              onClick={onClose}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="font-display text-2xs uppercase tracking-[0.14em] text-brass hover:text-brass-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass disabled:opacity-40"
-              data-testid="offset-plane-confirm"
-              aria-busy={busy}
-              disabled={!canSubmit}
-              onClick={author}
-            >
-              {busy ? "Creating…" : "Sketch here"}
-            </button>
-          </div>
+        </div>
+        {/* The editors' action row (`PanelActionCell`), not two restyled raw
+            buttons: a gated cell stays hoverable, focusable and in the
+            accessibility tree, and says WHY in the caption's line and in its
+            accessible description. The native `disabled` it replaces made a
+            grey "Sketch here" that could explain nothing to anyone. */}
+        <div className="grid grid-cols-2 divide-x divide-hairline border-t border-hairline">
+          <PanelActionCell
+            label="Cancel"
+            caption="Esc"
+            data-testid="offset-plane-cancel"
+            onClick={onClose}
+          />
+          <PanelActionCell
+            label={busy ? "Creating…" : "Sketch here"}
+            caption="Enter"
+            data-testid="offset-plane-confirm"
+            aria-busy={busy}
+            disabled={!canSubmit}
+            disabledReason={blocker ?? undefined}
+            onClick={author}
+          />
         </div>
       </Panel>
       {error ? (
