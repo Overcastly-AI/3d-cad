@@ -6,8 +6,10 @@ import {
   expectCameraStable,
   expectModelUnoccluded,
   installSceneProbe,
-  measureOcclusion,
+  namedWorldBox,
   waitForCameraRest,
+  waitForCameraStill,
+  type WorldBox,
 } from "./invariants";
 import { litPoints, measureReachabilityWith } from "./reachability";
 import {
@@ -86,6 +88,14 @@ async function drawProbeRectangle(page: Page): Promise<void> {
 /** Midpoint of the probe rectangle's bottom edge, in screen px. */
 const BOTTOM_EDGE = { x: 815, y: 640 };
 
+/**
+ * How far the re-opened ghost's world box may sit from the body's. Both are the
+ * same planar box here, so the honest difference is float noise (measured
+ * 4e-15 mm); the defect this guards was 10 mm (a prism on the wrong side of the
+ * sketch plane).
+ */
+const GHOST_TOL_MM = 0.01;
+
 /** Build a 10 mm box on XY so there is a body with six planar faces. */
 async function buildBox(page: Page): Promise<void> {
   await sketchOnXY(page);
@@ -117,6 +127,10 @@ async function buildBox(page: Page): Promise<void> {
  * the inspector mounts a beat later and gives the column back, which announces
  * a chrome change and re-frames. Both halves of the FB-7 gate start from the
  * same explicit fit so "before" and "after" are the same measurement.
+ *
+ * The stamp says a fit LANDED, not that nothing moves afterwards, so the
+ * settle is the camera's own position (`waitForCameraStill`). The caller must
+ * have run `installSceneProbe` before `page.goto`.
  */
 async function settleFit(page: Page): Promise<string | null> {
   const viewport = page.getByTestId("viewport");
@@ -127,7 +141,7 @@ async function settleFit(page: Page): Promise<string | null> {
   await expect(viewport).not.toHaveAttribute("data-fit-rect", "", {
     timeout: 20_000,
   });
-  await waitForFrames(page, 6);
+  await waitForCameraStill(page);
   return viewport.getAttribute("data-fit-rect");
 }
 
@@ -482,6 +496,7 @@ test.describe("founder picking reports", () => {
    * and a preview is not in them.
    */
   test("FB-7 gate: at rest, no chrome covers the model", async ({ page }) => {
+    await installSceneProbe(page); // before goto: settleFit reads the camera
     const account = await seedSession(page);
     const part = await createPartViaApi(page, account.token, "Occlusion rest");
     await page.goto(`/parts/${part.id}`);
@@ -497,16 +512,37 @@ test.describe("founder picking reports", () => {
   test("FB-7 FIXED: an open feature editor does not cover the model", async ({
     page,
   }) => {
+    await installSceneProbe(page); // before goto: the settles read the camera
     const account = await seedSession(page);
     const part = await createPartViaApi(page, account.token, "Occlusion edit");
     await page.goto(`/parts/${part.id}`);
     await buildBox(page);
     const restFit = await settleFit(page);
-    const restBox = (await measureOcclusion(page)).model;
 
     await page.getByTestId("feature-select-1").click();
     await expect(page.getByTestId("extrude-editor")).toBeVisible();
-    await waitForFrames(page, 6);
+    // Opening the editor can MOVE THE CAMERA, legitimately: the ghost and its
+    // drag handle are a proposal, and CRAFT-12 pulls the view back when the
+    // handle would sit outside the free rect. That is a re-frame at a constant
+    // direction, so the settle is on POSITION. It starts only once the ghost is
+    // in the scene graph, because the re-fit is decided on the frame the
+    // proposal first renders and a settle taken before that can return just
+    // before the slide begins.
+    //
+    // Measured 2026-09-23, and it is the whole of the CI flake this replaced.
+    // Whether the re-fit fires depends on the rest ELEVATION, which depends on
+    // how far the sketch-exit restore got before the chrome re-fit adopted its
+    // direction (27-28 deg here, about 32-34 deg on CI). From 32 deg the camera
+    // dollies 57.2 -> 58.4 mm and the body's silhouette bottom goes 849 -> 869
+    // px; CI failed "Expected <= 850 / 862, Received 869 / 870". The old gate
+    // compared that silhouette across the move, so it measured the camera.
+    await expect
+      .poll(
+        async () => (await namedWorldBox(page, "extrude-ghost"))?.vertices,
+        { timeout: 20_000 },
+      )
+      .toBeGreaterThan(0);
+    await waitForCameraStill(page);
 
     // NON-VACUITY, and it is the whole reason this reads as a pass rather than
     // as a gate that stopped looking: the editor must be CONTAINED by a rect
@@ -530,29 +566,42 @@ test.describe("founder picking reports", () => {
         `(rects: ${JSON.stringify(declared)}, editor: ${JSON.stringify(editorBox)})`,
     ).toBeDefined();
 
-    // Measured on this spec 2026-08-01, BEFORE the fix, so the size of what was
-    // wrong stays on record: the editor card (x 344-664, y 112-480) covered
-    // **50 069 px2 = 9.0 %** of the body's box (375-1239 x 307-951), and
-    // `view-bar` another 6 630 px2 (1.2 %) — the panel editing the part sitting
-    // on the part, plus the bottom rail catching the mis-framed ghost.
-    const report = await measureOcclusion(page);
-    expect(report.modelPixels, "body rendered").toBeGreaterThan(500);
-    expect(report.chromeCount, "chrome measured").toBeGreaterThan(0);
-    await expectModelUnoccluded(page);
+    // THE PROPERTY, read at rest: no declared chrome, the docked editor
+    // included, intersects the body's lit silhouette. Measured on this spec
+    // 2026-08-01, BEFORE the fix, so the size of what was wrong stays on
+    // record: the editor card (x 344-664, y 112-480) covered **50 069 px2 =
+    // 9.0 %** of the body's box (375-1239 x 307-951), and `view-bar` another
+    // 6 630 px2 (1.2 %) — the panel editing the part sitting on the part, plus
+    // the bottom rail catching the mis-framed ghost.
+    const report = await expectModelUnoccluded(page);
+    expect(report.chromeCount, "chrome measured").toBeGreaterThanOrEqual(3);
 
     // The FRAMING invariant that made docking the safe first move: the column
     // the editor takes is the column the tree already had, so the fit's free
-    // rect is untouched and the camera never moves (2026-08-06: 356,24,888,758
-    // either way).
+    // rect is untouched (2026-08-06: 356,24,888,758 either way). The CAMERA may
+    // still re-frame for the proposal (above); the rect it frames into may not.
     expect(
       await page.getByTestId("viewport").getAttribute("data-fit-rect"),
     ).toBe(restFit);
 
     // The GHOST invariant: re-opening an extrude WITHOUT changing anything
-    // previews exactly the body that is already there, so the lit silhouette
-    // must not grow. It grew 152 px downward before the frame fix — a
-    // translucent prism on the far side of the sketch plane (FB-7c / FB-9).
-    expect(report.model.bottom).toBeLessThanOrEqual(restBox.bottom + 2);
-    expect(report.model.top).toBeGreaterThanOrEqual(restBox.top - 2);
+    // previews exactly the body that is already there. Stated in WORLD space,
+    // because that is what the claim is about, and because a screen box cannot
+    // tell a grown ghost from a camera that moved or a drag handle that lit up
+    // (from the front view the handle alone lifts the silhouette's top 78 px).
+    // Before the frame fix the ghost was a prism on the far side of the sketch
+    // plane, 152 px below the body (FB-7c / FB-9): min y = -10, not 0.
+    const ghost = (await namedWorldBox(page, "extrude-ghost")) as WorldBox;
+    const body = await namedWorldBox(page, "model-body");
+    expect(body?.vertices ?? 0, "the body is still drawn").toBeGreaterThan(0);
+    for (const axis of [0, 1, 2] as const) {
+      for (const end of ["min", "max"] as const) {
+        const drawn = (body as WorldBox)[end][axis];
+        expect(
+          Math.abs(ghost[end][axis] - drawn),
+          `ghost ${end}[${axis}] ${ghost[end][axis]} vs body ${drawn}`,
+        ).toBeLessThan(GHOST_TOL_MM);
+      }
+    }
   });
 });
