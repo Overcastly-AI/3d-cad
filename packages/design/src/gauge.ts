@@ -279,21 +279,59 @@ export interface GaugeTrack {
  * ## The rules, which are the whole specification
  *
  *  1. {@link recordAsk} — an ask is remembered BEFORE it is sent, so the next
- *     input reasons from it even if no render has happened in between. Not
- *     while the pointer is authoring: a drag would otherwise grow one entry per
- *     `pointermove`.
+ *     input reasons from it even if no render has happened in between. ALSO
+ *     while the pointer is authoring (see "A drag's asks are asks" below); an
+ *     ask equal to the newest outstanding one is not queued twice, because the
+ *     owner will only ever answer it once.
  *  2. {@link acknowledgeAsk}, match — an arriving value equal (to the track's
  *     own tolerance) to an outstanding ask retires that ask AND EVERY OLDER
  *     ONE, and leaves `base` alone, because a later ask has already superseded
  *     it.
  *  3. {@link acknowledgeAsk}, no match — an arriving value we never asked for
- *     is somebody else's edit (a typed distance, a re-seeded editor) and wins
- *     outright: the queue is abandoned and it becomes the new `base`.
+ *     is somebody else's edit (a typed distance, a re-seeded editor, a clamp)
+ *     and wins outright: the queue is abandoned and it becomes the new `base`.
+ *     Mid-drag the queue is still abandoned, but `base` and `live` stay on the
+ *     pointer — the hand is the author until it lets go.
  *  4. {@link holdAsks} — taking the grip shows `base`, not the prop, so a grab
  *     straight after a key press does not jump back a step.
- *  5. {@link releaseAsks} — letting go abandons the queue (the prop is the
- *     truth again) but KEEPS `base` on the value the drag ended at, so the
- *     first arrow press afterwards steps off what you dragged to.
+ *  5. {@link releaseAsks} — letting go is not an answer: the drag's unanswered
+ *     asks stay outstanding and the newest is drawn until the owner speaks.
+ *     With nothing outstanding the prop is the truth again.
+ *
+ * ## A drag's asks are asks (measured 2026-09-23)
+ *
+ * The drag used to ask WITHOUT queueing, on the theory that a release would
+ * abandon the queue anyway. Once a release stopped abandoning it (the drag's
+ * final ask stays outstanding, see `useAskQueue`), that left the queue holding
+ * ONE value — the last — while the owner's pipeline was still carrying the
+ * two or three before it. The owner answers in ask order, so the answer to a
+ * SUPERSEDED drag ask routinely landed after the pointer came up, matched
+ * nothing, and was read by rule 3 as the owner overriding the release: the rod
+ * stepped back one notch for as long as the next answer took. Measured in the
+ * browser: `ask 26 · release · prop 25 (asks=26) · prop 26`, the rod reading 25
+ * against a field of 26 on 2-4 frames, on 3 of 12 runs.
+ *
+ * The owner echoes a bare NUMBER, so the only identity an answer carries is
+ * its value and its ORDER. Queueing every drag ask supplies the order: an echo
+ * that matches an older entry is recognisably the answer to a superseded ask
+ * (rule 2 trims, `live` stays on the newest), and an echo that matches no
+ * entry is still the owner speaking (rule 3 wins). A clamp that answers
+ * several asks with one echo therefore still wins, because a clamp answers
+ * with a value outside the asks it is answering.
+ *
+ * It also closes a hole the unqueued version had: a clamp whose one echo
+ * landed MID-drag (when it cannot move the rod) and never came again (the
+ * owner's value does not change) used to leave the rod on the drag's last ask
+ * for good. Now that echo abandons the queue, so a release with nothing asked
+ * since hands the instrument straight to the owner.
+ *
+ * What a value-only echo CANNOT tell apart, stated so nobody believes it can:
+ * a clamp whose value happens to equal an OLDER outstanding ask (a drag that
+ * passed through 30 on its way to 34, against an owner max of 30) reads as the
+ * late answer to that older ask, and the rod stays on 34 until the owner next
+ * speaks. So does a clamp that answers asks made AFTER its echo, since that
+ * value never arrives twice. Resolving either needs the owner to echo WHICH ask
+ * it is answering, not just a number. No owner in this codebase clamps today.
  */
 export interface AskQueue {
   /** Outstanding asks, oldest first. */
@@ -312,19 +350,16 @@ export function seedAsks(value: number): AskQueue {
 /**
  * Rule 1 — ask the owner for `next`.
  *
- * @param authoring True while the pointer holds the grip. The ask still becomes
- *   `base` and `live` (the arrow must follow the cursor), it is simply not
- *   QUEUED: {@link acknowledgeAsk} stands aside mid-drag and
- *   {@link releaseAsks} empties the queue, so an entry per frame would be
- *   allocation for nothing.
+ * Queued whether or not the pointer is authoring: the owner answers a drag's
+ * asks in order, and only a queue that holds them can tell the late answer to
+ * a superseded ask from the owner overriding the release (see the rules). An
+ * ask equal to the newest outstanding one is not queued again — the owner's
+ * value does not change, so it will answer the pair once, and a duplicate
+ * would sit outstanding for ever.
  */
-export function recordAsk(
-  queue: AskQueue,
-  next: number,
-  authoring: boolean,
-): AskQueue {
+export function recordAsk(queue: AskQueue, next: number): AskQueue {
   return {
-    asks: authoring ? queue.asks : [...queue.asks, next],
+    asks: queue.asks.at(-1) === next ? queue.asks : [...queue.asks, next],
     base: next,
     live: next,
   };
@@ -337,15 +372,21 @@ export function recordAsk(
  *   value passes through a form field as a DISPLAY STRING, so on an inch
  *   document the round trip is lossy and equality would read every
  *   acknowledgement as a stranger's edit.
+ * @param authoring True while the pointer holds the grip. The owner's answers
+ *   still retire the asks they answer — that is what keeps the queue down to
+ *   the few asks actually in flight — but `base` and `live` stay on the
+ *   pointer, which is the author until it lets go.
  */
 export function acknowledgeAsk(
   queue: AskQueue,
   value: number,
   same: (a: number, b: number) => boolean,
+  authoring = false,
 ): AskQueue {
   const at = queue.asks.findIndex((asked) => same(asked, value));
-  if (at < 0) return { asks: [], base: value, live: null };
-  const asks = queue.asks.slice(at + 1);
+  const asks = at < 0 ? [] : queue.asks.slice(at + 1);
+  if (authoring) return { asks, base: queue.base, live: queue.live };
+  if (at < 0) return { asks, base: value, live: null };
   return { asks, base: queue.base, live: asks.at(-1) ?? null };
 }
 
@@ -354,9 +395,18 @@ export function holdAsks(queue: AskQueue): AskQueue {
   return { asks: queue.asks, base: queue.base, live: queue.base };
 }
 
-/** Rule 5 — the pointer is done authoring; the prop is the truth from here. */
+/**
+ * Rule 5 — the pointer is done authoring. Letting go is not an answer: what the
+ * drag asked and the owner has not answered stays outstanding, and the newest
+ * of it is drawn. `base` keeps the value the drag ended on either way, so the
+ * first arrow press afterwards steps off what you dragged to.
+ */
 export function releaseAsks(queue: AskQueue): AskQueue {
-  return { asks: [], base: queue.base, live: null };
+  return {
+    asks: queue.asks,
+    base: queue.base,
+    live: queue.asks.at(-1) ?? null,
+  };
 }
 
 // --- PROJECTION --------------------------------------------------------------

@@ -801,7 +801,7 @@ describe("the ask queue", () => {
 
   /** Convenience: ask for each value in turn, off the pointer. */
   const askAll = (queue: AskQueue, ...values: number[]): AskQueue =>
-    values.reduce((q, v) => recordAsk(q, v, false), queue);
+    values.reduce((q, v) => recordAsk(q, v), queue);
 
   it("seeds on the owner's value with nothing outstanding", () => {
     expect(seedAsks(10)).toEqual({ asks: [], base: 10, live: null });
@@ -810,9 +810,9 @@ describe("the ask queue", () => {
   it("rule 1: remembers an ask BEFORE it is sent, so the next step reasons from it", () => {
     // The whole point: two presses land before either acknowledgement, and the
     // second must step off the FIRST ASK, not off the stale prop.
-    const first = recordAsk(seedAsks(10), 10.5, false);
+    const first = recordAsk(seedAsks(10), 10.5);
     expect(first.base).toBe(10.5);
-    const second = recordAsk(first, first.base + 0.5, false);
+    const second = recordAsk(first, first.base + 0.5);
     expect(second.base).toBe(11);
     expect(second.asks).toEqual([10.5, 11]);
     expect(second.live).toBe(11);
@@ -841,7 +841,7 @@ describe("the ask queue", () => {
   it("rule 2: recognition is by TOLERANCE, not equality — an inch round trip is lossy", () => {
     // A value that came back through a display string. Exact equality would
     // read this as a stranger's edit, on inch documents only.
-    const queue = recordAsk(seedAsks(10), 12.699999, false);
+    const queue = recordAsk(seedAsks(10), 12.699999);
     const acked = acknowledgeAsk(queue, 12.69995, near);
     expect(acked.asks).toEqual([]);
     expect(acked.base).toBe(12.699999); // OUR ask survived, not the echo
@@ -864,40 +864,125 @@ describe("the ask queue", () => {
     expect(acknowledgeAsk(queue, 10.5, near).base).toBe(11);
   });
 
-  it("rule 1 mid-drag: the arrow follows the pointer but the queue does not grow", () => {
-    // Ten `pointermove` frames. `base`/`live` track the cursor; nothing queues,
-    // because rule 5 is about to empty it anyway and the render loop stays
-    // allocation-free.
+  it("rule 1 mid-drag: the drag's asks are QUEUED, each distinct value once", () => {
+    // Three `pointermove` frames, each firing twice (a real drag does: the
+    // browser dispatches the same quantized value more than once). The owner
+    // answers asks in order, so the queue has to hold them to recognise a late
+    // answer — but a repeat of the newest ask is one answer, not two.
     let queue = holdAsks(seedAsks(10));
-    for (let frame = 1; frame <= 10; frame += 1) {
-      queue = recordAsk(queue, 10 + frame, true);
+    for (let frame = 1; frame <= 3; frame += 1) {
+      queue = recordAsk(queue, 10 + frame);
+      queue = recordAsk(queue, 10 + frame);
     }
-    expect(queue.asks).toEqual([]);
-    expect(queue.base).toBe(20);
-    expect(queue.live).toBe(20);
+    expect(queue.asks).toEqual([11, 12, 13]);
+    expect(queue.base).toBe(13);
+    expect(queue.live).toBe(13);
+  });
+
+  it("rule 1: a repeated ask is retired by the single answer it gets", () => {
+    // Without the de-duplication the second 12 would sit outstanding for ever:
+    // the owner's value does not change, so no second answer is coming.
+    const queue = askAll(seedAsks(10), 12, 12);
+    expect(acknowledgeAsk(queue, 12, near).asks).toEqual([]);
+  });
+
+  it("rule 2 mid-drag: an answer retires what it answers and moves nothing drawn", () => {
+    // The pointer is the author. The owner catching up trims the queue down to
+    // what is still in flight; `base` and `live` stay on the cursor.
+    const dragged = askAll(holdAsks(seedAsks(10)), 11, 12, 13);
+    const acked = acknowledgeAsk(dragged, 11, near, true);
+    expect(acked.asks).toEqual([12, 13]);
+    expect(acked.base).toBe(13);
+    expect(acked.live).toBe(13);
+    // Even an answer to the NEWEST ask leaves the pointer drawing: a drag that
+    // is still moving must not hand the rod to a prop for a frame.
+    const caughtUp = acknowledgeAsk(acked, 13, near, true);
+    expect(caughtUp.asks).toEqual([]);
+    expect(caughtUp.live).toBe(13);
+  });
+
+  it("rule 3 mid-drag: the owner disagreeing abandons the queue, not the pointer", () => {
+    const dragged = askAll(holdAsks(seedAsks(10)), 11, 12);
+    const clamped = acknowledgeAsk(dragged, 30, near, true);
+    expect(clamped.asks).toEqual([]);
+    expect(clamped.base).toBe(12);
+    expect(clamped.live).toBe(12);
   });
 
   it("rule 4: taking the grip shows BASE, not the prop", () => {
     // A grab straight after a key press. Showing the prop here is the "arrow
     // jumps back a step the instant the pointer moves" defect.
-    const pressed = recordAsk(seedAsks(10), 10.5, false);
+    const pressed = recordAsk(seedAsks(10), 10.5);
     expect(holdAsks(pressed).live).toBe(10.5);
     expect(holdAsks(pressed).asks).toEqual([10.5]); // and the ask still stands
   });
 
-  it("rule 5: letting go empties the queue and defers to the prop", () => {
-    const queue = askAll(seedAsks(10), 10.5, 11);
-    const released = releaseAsks(queue);
-    expect(released.asks).toEqual([]);
-    expect(released.live).toBeNull();
+  it("rule 5: letting go keeps what is unanswered and draws the newest of it", () => {
+    const dragged = askAll(holdAsks(seedAsks(10)), 25, 26);
+    const released = releaseAsks(dragged);
+    expect(released.asks).toEqual([25, 26]);
+    expect(released.live).toBe(26);
   });
 
-  it("rule 5: ...but KEEPS base on what the drag ended at", () => {
+  it("rule 5: with nothing unanswered, the prop is the truth again", () => {
+    // Every ask of the drag was answered before the pointer came up (or there
+    // was no drag at all: `endDrag` also runs on the no-button backstop).
+    const answered = acknowledgeAsk(
+      askAll(holdAsks(seedAsks(10)), 25, 26),
+      26,
+      near,
+      true,
+    );
+    expect(releaseAsks(answered).live).toBeNull();
+    expect(releaseAsks(seedAsks(10)).live).toBeNull();
+  });
+
+  it("rule 5: ...and KEEPS base on what the drag ended at", () => {
     // A free (Ctrl) drag ends on 12.4713 and the prop has not caught up. The
     // first arrow press afterwards must be able to put it back on a grid, which
     // it can only do from the value you actually dragged to.
-    const dragged = recordAsk(holdAsks(seedAsks(10)), 12.4713, true);
+    const dragged = recordAsk(holdAsks(seedAsks(10)), 12.4713);
     expect(releaseAsks(dragged).base).toBe(12.4713);
+  });
+
+  it("THE MEASURED DEFECT: a late answer to a superseded drag ask does not step the rod back", () => {
+    // Replayed from the browser timeline (2026-09-23): `ask 25 · ask 26 ·
+    // release · prop 25 · prop 26`. With the drag's asks unqueued, `prop 25`
+    // matched nothing, read as the owner overriding the release, and the rod
+    // drew 25 against a field of 26 until `prop 26` landed.
+    let queue = holdAsks(seedAsks(24));
+    queue = recordAsk(queue, 25);
+    queue = recordAsk(queue, 26);
+    queue = releaseAsks(queue);
+    queue = acknowledgeAsk(queue, 25, near);
+    expect(queue.live).toBe(26); // still what the drag ended on
+    expect(queue.base).toBe(26);
+    queue = acknowledgeAsk(queue, 26, near);
+    expect(queue.asks).toEqual([]);
+    expect(queue.live).toBeNull(); // answered: the prop speaks, and says 26
+  });
+
+  it("the owner still wins a release by SPEAKING: one clamp answers several asks", () => {
+    // An owner max of 30 answering a drag that asked 31, 32 and 33 with a
+    // single echo of 30. Nothing it said was asked for, so it is the owner
+    // overriding — and it wins, `base` included, so the next step is off 30.
+    let queue = askAll(holdAsks(seedAsks(29)), 31, 32, 33);
+    queue = releaseAsks(queue);
+    queue = acknowledgeAsk(queue, 30, near);
+    expect(queue.asks).toEqual([]);
+    expect(queue.live).toBeNull();
+    expect(queue.base).toBe(30);
+  });
+
+  it("...and a clamp that answered MID-drag wins on release when nothing followed it", () => {
+    // The clamp's echo lands while the pointer is still down (it cannot move
+    // the rod then), and the pointer asks nothing new before letting go. The
+    // release must hand the instrument to the owner's 30, not hold the 33.
+    let queue = askAll(holdAsks(seedAsks(29)), 31, 32, 33);
+    queue = acknowledgeAsk(queue, 30, near, true);
+    expect(queue.live).toBe(33); // mid-drag: the hand is the author
+    queue = releaseAsks(queue);
+    expect(queue.live).toBeNull(); // released: the owner's 30 is drawn
   });
 
   it("the transitions are pure — no input queue is mutated", () => {
@@ -906,7 +991,7 @@ describe("the ask queue", () => {
     const queue = askAll(seedAsks(10), 10.5, 11);
     const before = JSON.stringify(queue);
     acknowledgeAsk(queue, 10.5, near);
-    recordAsk(queue, 12, false);
+    recordAsk(queue, 12);
     holdAsks(queue);
     releaseAsks(queue);
     expect(JSON.stringify(queue)).toBe(before);
@@ -917,9 +1002,9 @@ describe("the ask queue", () => {
     // land before any acknowledgement; then the owner echoes them in order. The
     // answer must be 16 — the one-pending version gave 15.5.
     let queue = seedAsks(10);
-    queue = recordAsk(queue, queue.base + 0.5, false);
-    queue = recordAsk(queue, queue.base + 0.5, false);
-    queue = recordAsk(queue, queue.base + 5, false);
+    queue = recordAsk(queue, queue.base + 0.5);
+    queue = recordAsk(queue, queue.base + 0.5);
+    queue = recordAsk(queue, queue.base + 5);
     expect(queue.asks).toEqual([10.5, 11, 16]);
 
     queue = acknowledgeAsk(queue, 10.5, near);

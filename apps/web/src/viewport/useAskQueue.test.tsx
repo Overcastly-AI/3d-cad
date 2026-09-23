@@ -166,6 +166,58 @@ describe("useAskQueue", () => {
     expect(h.actions().readBase()).toBe(12);
   });
 
+  it("a LATE answer to a superseded drag ask does not step the rod back", () => {
+    // THE MEASURED FLICKER (2026-09-23), replayed from the browser timeline:
+    // `ask 25 · ask 26 · release · prop 25 · prop 26`. The owner's pipeline
+    // was still carrying 25 when the pointer came up. Before the drag's asks
+    // were queued, `prop 25` matched nothing outstanding, read as the owner
+    // overriding the release, and the rod drew 25 beside a field of 26.
+    const h = harness(24);
+    h.state.dragging = true;
+    act(() => h.actions().hold());
+    act(() => h.actions().ask(25));
+    act(() => h.actions().ask(26));
+    h.state.dragging = false;
+    act(() => h.actions().release());
+    h.echo(25); // late: the answer to an ask the drag has already superseded
+    expect(h.shown()).toBe(26);
+    h.echo(26);
+    expect(h.shown()).toBe(26);
+    expect(h.actions().readBase()).toBe(26);
+  });
+
+  it("one clamp answering several drag asks still wins the release", () => {
+    // The other direction of the same rule: an owner max of 30 answers 31, 32
+    // and 33 with ONE echo. It matches none of them, so it is the owner
+    // speaking, and it wins.
+    const h = harness(29);
+    h.state.dragging = true;
+    act(() => h.actions().hold());
+    act(() => h.actions().ask(31));
+    act(() => h.actions().ask(32));
+    act(() => h.actions().ask(33));
+    h.state.dragging = false;
+    act(() => h.actions().release());
+    h.echo(30);
+    expect(h.shown()).toBe(30);
+    expect(h.actions().readBase()).toBe(30);
+  });
+
+  it("a clamp that answered MID-drag wins as soon as the pointer lets go", () => {
+    // The echo lands while the hand is still the author, so it cannot move the
+    // rod then — and it will never arrive again, because the owner's value
+    // does not change. The release is the only moment left to honour it.
+    const h = harness(29);
+    h.state.dragging = true;
+    act(() => h.actions().hold());
+    act(() => h.actions().ask(31));
+    h.echo(30);
+    expect(h.shown()).toBe(31); // mid-drag: the pointer is the author
+    h.state.dragging = false;
+    act(() => h.actions().release());
+    expect(h.shown()).toBe(30);
+  });
+
   it("a release with nothing dragged leaves the prop in charge", () => {
     // `endDrag` also runs on the no-button backstop and on pointercancel, where
     // there may have been no ask at all. Re-recording `base` must be a no-op

@@ -67,6 +67,20 @@
  * sovereign: a clamp, a snap or a refusal still wins, it simply has to WIN BY
  * SPEAKING rather than by the gauge reading silence as disagreement.
  *
+ * ## ...AND A LATE ANSWER IS NOT AN OVERRIDE (measured 2026-09-23)
+ *
+ * Holding only the FINAL ask left one failure on the table, on 3 of 12 runs of
+ * `gauge-release-sync.spec.ts`: the owner's pipeline is two renders deep and a
+ * drag outruns it, so the answer to the drag's PREVIOUS ask routinely lands
+ * after the release — `ask 25 · ask 26 · release · prop 25 · prop 26`. With 26
+ * the only thing outstanding, `prop 25` matched nothing, rule 3 read it as the
+ * owner overriding the release, and the rod stepped back to 25 beside a field
+ * of 26 until `prop 26` landed. The drag's asks are now queued like any other
+ * (`recordAsk`), the owner's answers retire them mid-drag without moving what
+ * is drawn (`acknowledgeAsk(…, authoring)`), and a late answer is recognised as
+ * the answer to a superseded ask by its place in the queue. See `gauge.ts`,
+ * "A drag's asks are asks", for what a value-only echo still cannot tell apart.
+ *
  * The cost of the change, stated because it is real: a mount whose echo is
  * never wired no longer springs back, so it no longer advertises its own
  * missing wiring. That contract is asserted where it belongs instead —
@@ -119,8 +133,9 @@ export interface AskQueueActions {
   /** The grip has been taken: show `base` rather than the prop. */
   hold: () => void;
   /**
-   * The pointer is done authoring. The drag's FINAL ask stays outstanding —
-   * see {@link useAskQueue}'s note on why letting go is not an answer.
+   * The pointer is done authoring. What the drag asked and the owner has not
+   * answered stays outstanding, and the newest of it is drawn — see
+   * {@link useAskQueue}'s note on why letting go is not an answer.
    */
   release: () => void;
 }
@@ -154,29 +169,32 @@ export function useAskQueue({
       ask: (next: number) => {
         // The ask is RECORDED BEFORE IT IS SENT, so the next input reasons from
         // it even if no render has happened in between.
-        apply(recordAsk(queueRef.current, next, latest.current.authoring()));
+        apply(recordAsk(queueRef.current, next));
         latest.current.onChange(next);
       },
       hold: () => apply(holdAsks(queueRef.current)),
-      // LETTING GO IS NOT AN ANSWER — see the module note. `releaseAsks` empties
-      // the per-frame queue (the right thing: those frames are gone), and the
-      // final ask is then re-recorded as ONE outstanding, non-authoring ask, so
-      // the instrument keeps drawing what the drag ended on until the owner
-      // actually says something. Composed from the published rules rather than
-      // written as a sixth one, so `@loft/design`'s cases still describe every
-      // transition this hook can make.
+      // LETTING GO IS NOT AN ANSWER — see the module note. The drag's asks were
+      // queued like any other, so whatever the owner has not answered yet stays
+      // outstanding and the newest of it is what the instrument keeps drawing.
       release: () => {
-        const ended = queueRef.current.base;
-        apply(recordAsk(releaseAsks(queueRef.current), ended, false));
+        apply(releaseAsks(queueRef.current));
       },
     }),
     [apply],
   );
 
   useEffect(() => {
-    // Mid-drag the pointer is still the author and the props are chasing it.
-    if (latest.current.authoring()) return;
-    apply(acknowledgeAsk(queueRef.current, value, latest.current.same));
+    // Mid-drag the pointer is still the author: the owner's answers retire the
+    // asks they answer (so the queue holds only what is in flight) without
+    // moving what is drawn — see `acknowledgeAsk`.
+    apply(
+      acknowledgeAsk(
+        queueRef.current,
+        value,
+        latest.current.same,
+        latest.current.authoring(),
+      ),
+    );
     // `apply` is stable, so this is a `[value]`-only effect. That is the point;
     // read the module note before adding to this array.
   }, [value, apply]);

@@ -14,6 +14,7 @@
  * PartPage — not the pixels.
  */
 import { fireEvent, render, screen } from "@testing-library/react";
+import { Profiler } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ExtrudeParams } from "../api/parts";
@@ -360,5 +361,101 @@ describe("ExtrudeEditor server errors", () => {
     renderEditor({ error: "The profile is not a closed region." });
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("The profile is not a closed region.");
+  });
+});
+
+describe("ExtrudeEditor — the gauge writes the field in the SAME commit", () => {
+  /**
+   * Mounts the editor under a `<Profiler>` whose `onRender` reads the field
+   * straight off the DOM at every commit. That is the property under test:
+   * not "the field ends up right" (an effect gets there too, one commit late)
+   * but "no commit ever shows the field behind the override it was handed" —
+   * the one-commit lag that let the rod and the field disagree after a release.
+   */
+  function mountTracked(initial: ExtrudeForm) {
+    const commits: string[] = [];
+    const readField = () =>
+      screen.queryByTestId<HTMLInputElement>("extrude-distance")?.value ??
+      "<none>";
+    let props: {
+      initial: ExtrudeForm;
+      depthOverride: { mm: number } | null;
+      unit: LengthUnit;
+    } = { initial, depthOverride: null, unit: "mm" };
+    const tree = () => (
+      <Profiler id="extrude" onRender={() => commits.push(readField())}>
+        <DocumentUnitProvider unit={props.unit}>
+          <ExtrudeEditor
+            mode="create"
+            profiles={PROFILES}
+            initial={props.initial}
+            onSubmit={vi.fn()}
+            onCancel={vi.fn()}
+            saving={false}
+            error={null}
+            depthOverride={props.depthOverride}
+          />
+        </DocumentUnitProvider>
+      </Profiler>
+    );
+    const view = render(tree());
+    return {
+      commits,
+      rerender: (next: Partial<typeof props>) => {
+        props = { ...props, ...next };
+        commits.length = 0;
+        view.rerender(tree());
+      },
+    };
+  }
+
+  const field = () => screen.getByTestId("extrude-distance");
+
+  it("the dragged value is in the field on the commit that carries it", () => {
+    const t = mountTracked(defaultExtrudeForm("sk1"));
+    t.rerender({ depthOverride: { mm: 26 } });
+    // One commit, already reading 26. The effect this replaced produced
+    // ["10", "26"]: a commit in which the field was a drag step behind.
+    expect(t.commits).toEqual(["26"]);
+  });
+
+  it("a typed edit after a drag is not overwritten by the next render", () => {
+    // The in-render write must run once per NEW override, never per render —
+    // otherwise the field could not be typed into while an override stands.
+    const t = mountTracked(defaultExtrudeForm("sk1"));
+    const override = { mm: 26 };
+    t.rerender({ depthOverride: override });
+    fireEvent.change(field(), { target: { value: "33" } });
+    t.rerender({ depthOverride: override });
+    expect(field()).toHaveValue("33");
+  });
+
+  it("dragging back to the same number still arrives (the box is new)", () => {
+    const t = mountTracked(defaultExtrudeForm("sk1"));
+    t.rerender({ depthOverride: { mm: 26 } });
+    fireEvent.change(field(), { target: { value: "33" } });
+    t.rerender({ depthOverride: { mm: 26 } });
+    expect(field()).toHaveValue("26");
+  });
+
+  it("a retarget re-seeds the field, and a drag in the same render lands on top", () => {
+    const t = mountTracked(defaultExtrudeForm("sk1"));
+    t.rerender({ depthOverride: { mm: 26 } });
+    t.rerender({
+      initial: { ...defaultExtrudeForm("sk1"), distanceInput: "40" },
+    });
+    expect(field()).toHaveValue("40");
+    t.rerender({
+      initial: { ...defaultExtrudeForm("sk1"), distanceInput: "50" },
+      depthOverride: { mm: 12 },
+    });
+    expect(field()).toHaveValue("12");
+  });
+
+  it("a unit change re-writes a standing override in the new unit", () => {
+    const t = mountTracked(defaultExtrudeForm("sk1"));
+    t.rerender({ depthOverride: { mm: 25.4 } });
+    t.rerender({ unit: "in" });
+    expect(field()).toHaveValue("1");
   });
 });

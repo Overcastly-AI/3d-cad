@@ -143,6 +143,25 @@ function disagreements(readings: Reading[]): Reading[] {
  * single two-frame blip. Asserting the RUN LENGTH keeps the pre-fix behaviour
  * loudly red while a load transient does not manufacture a red CI shard on a
  * file nobody touched.
+ *
+ * CORRECTED 2026-09-23 — that "blip" was not load and not a transition. It was
+ * two real defects, and this case then failed ~2 runs in 9 in CI and 3 in 12
+ * here, the same way on a tree without the change it was blamed on:
+ *
+ *  - `rod=25 field=26`, 2-4 frames: the owner's answer to the drag's PREVIOUS
+ *    ask landed after the release, matched nothing the gauge still held, and
+ *    was read as the owner overriding the release (`useAskQueue`, "a late
+ *    answer is not an override"). Seen on 8 of 12 runs, at 2 frames on most of
+ *    them, which is why the `< 3` gate only caught it a quarter of the time.
+ *  - `rod=26 field=25`, 1 of 12 runs: the editor wrote the field from an
+ *    EFFECT, one commit after the override that carried the value
+ *    (`ExtrudeEditor`).
+ *
+ * With both fixed: 0 disagreeing frames on every run, the drag included. The
+ * gate stays at a run length rather than a bare zero for one honest reason:
+ * the rod and the field live in DIFFERENT React roots (r3f's and the page's),
+ * so nothing guarantees they commit in the same animation frame, and a single
+ * frame of that is a transition rather than two dialects of one number.
  */
 function longestRun(readings: Reading[]): number {
   let best = 0;
