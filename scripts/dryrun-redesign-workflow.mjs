@@ -36,7 +36,13 @@ function check(label, cond) {
   if (!cond) failures.push(label);
 }
 
-async function run(args) {
+// The loop REQUIRES args.branch (it refuses to guess since 2026-09-23), so the
+// harness supplies one unless a case deliberately omits it with `branch: null`.
+async function run(rawArgs) {
+  const args =
+    rawArgs && rawArgs.branch === null
+      ? { ...rawArgs, branch: undefined }
+      : { branch: "claude/dryrun-harness", ...rawArgs };
   const src = readFileSync(WORKFLOW, "utf8").replace(
     /^export const meta/m,
     "const meta",
@@ -270,6 +276,54 @@ const item = (id, subtree, extra = {}) => ({
   check(
     "negative control: the system path is distinguishable from the plain path",
     JSON.stringify(withSys.labels) !== JSON.stringify(without.labels),
+  );
+}
+
+// 5. The loop REFUSES to run without a branch. Two loops once hardcoded a dead
+//    branch and would have built against it silently; a guess is worse than a stop.
+{
+  let threw = null;
+  try {
+    await run({
+      branch: null,
+      skipCost: true,
+      items: [item("R1", "apps/web/src/sketch/**")],
+    });
+  } catch (e) {
+    threw = String(e && e.message);
+  }
+  check(
+    "a missing args.branch stops the run",
+    threw !== null && /args\.branch is required/.test(threw),
+  );
+}
+
+// 6. A wave is CAPPED at 3 builders however large batchSize is. Twice a wave of
+//    five or six died whole to the session limit and stranded finished commits.
+{
+  const subtrees = [
+    "apps/web/src/viewport/**",
+    "apps/web/src/sketch/**",
+    "apps/web/src/components/**",
+    "apps/web/src/features/**",
+    "apps/web/src/routes/**",
+  ];
+  const { calls } = await run({
+    skipCost: true,
+    batchSize: 5,
+    items: subtrees.map((t, i) => item(`C${i}`, t)),
+  });
+  const builds = calls.filter((c) => c.phase === "Build").length;
+  check(`batchSize 5 is capped at 3 builders (got ${builds})`, builds === 3);
+  // Control: the cap must not be what makes the count 3 when fewer are asked for.
+  const two = await run({
+    skipCost: true,
+    batchSize: 2,
+    items: subtrees.map((t, i) => item(`D${i}`, t)),
+  });
+  check(
+    "control: batchSize 2 still builds 2",
+    two.calls.filter((c) => c.phase === "Build").length === 2,
   );
 }
 
