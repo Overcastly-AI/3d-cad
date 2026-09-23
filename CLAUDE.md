@@ -495,8 +495,13 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   run that has barely started, and it reads exactly like green. Caught twice on
   2026-08-28, the second time only because the number looked odd. The free
   discriminator is already in the cheap call: `get_job_logs` reports
-  `total_jobs`, and a COMPLETE run has a known job count — **5 for `e2e`
-  (4 shards + `e2e complete`), 7 for `ci`**. So `total_jobs: 4` on an e2e run is
+  `total_jobs`, and a COMPLETE run has a known job count — **6 for `e2e`
+  (4 shards + `e2e complete` + `dist-bundle`), 7 for `ci`**. (It was 5 until
+  `ed8c3d7` added `dist-bundle` on 2026-09-23 — a count that is part of a
+  procedure goes stale when the workflow grows, so re-derive it from `e2e.yml`
+  rather than trusting this number. Note `dist-bundle` has no `needs`, so it
+  exists from t=0 and does not by itself make `total_jobs` a completion
+  signal; `e2e complete` still appears only after the four shards finish.) So `total_jobs: 4` on an e2e run is
   an UNFINISHED run, not a four-job one, and the `failed_jobs: 0` beside it says
   nothing at all. Confirming it any other way is expensive: `list_workflow_jobs`
   on a single run returns every step of every job with timestamps and cost ~8 k
