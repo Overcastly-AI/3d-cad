@@ -120,6 +120,20 @@ lint:
     # interpolates a doubled curly brace even inside a recipe comment.)
     python3 scripts/check-workflow-contexts.py --self-test
     python3 scripts/check-workflow-contexts.py
+    # ~30ms, no browser and no daemon. Two questions nothing else can answer
+    # cheaply. (a) Does deploy/docker/web/nginx.conf still have the shape
+    # `scripts/dist-leg.sh` can serve natively? That leg is the ONLY thing that
+    # ever loads the production bundle, and the registry block means the image
+    # it imitates cannot be built here at all — so a config reshaped past the
+    # renderer would silently take the browser gate offline. (b) Do the FOUR
+    # separately-written copies of the Content-Security-Policy still agree?
+    # They are transcribed rather than shared on purpose (a check that reads
+    # the value out of the thing under test proves only that it equals itself),
+    # and the price of that is drift, which this refuses — including the case
+    # where an extraction finds NOTHING, since four empty copies agree
+    # perfectly.
+    python3 scripts/render-web-nginx.py --self-test
+    python3 scripts/render-web-nginx.py --check-only
     # ~900ms for both, over 877 tracked source files. Closes the class that put
     # a stopped agent's mutation-test constant into product code on 2026-08-14:
     # a `// <marker>: always 0` in apps/web/e2e/diagnostics.ts survived lint,
@@ -323,3 +337,17 @@ e2e:
 # with a file: `just e2e-web e2e/measure.spec.ts`.
 e2e-web *args:
     scripts/e2e.sh --web-only -- {{args}}
+
+# THE BUILT-BUNDLE LEG — `vite build` output served through the REAL production
+# nginx config, in a real browser. Everything above drives the Vite DEV server,
+# which means two things that only ship to users had never been exercised: the
+# Content-Security-Policy (the dev server emits none, and a policy that blocks
+# a worker, a blob: URL or an inlined font is a total failure that ships green),
+# and rollup's module graph (three@0.185.1 ships a dual ESM/CJS build, so
+# `instanceof PerspectiveCamera` is false for a real camera whenever both
+# records reach one graph — already true under vitest).
+#
+# Needs nginx on PATH: apt-get install -y --no-install-recommends nginx-light.
+# ~15s to build plus ~20s of browser. Runs in CI as e2e.yml's `dist-bundle`.
+dist-leg *args:
+    scripts/dist-leg.sh {{args}}

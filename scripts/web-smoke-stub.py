@@ -99,6 +99,23 @@ SECURITY_HEADERS = (
     ("Referrer-Policy", "no-referrer"),
 )
 
+# The Content-Security-Policy, as deploy/docker/web/nginx.conf serves it. Held
+# separately from SECURITY_HEADERS because it is the one header with a long
+# exact VALUE, so it gets its own scenarios: a location can drop it (the
+# add_header discard rule) or serve a WEAKENED one, and those are different
+# defects with different fixes. `scripts/render-web-nginx.py --check-only`
+# refuses unless this string is byte-identical to the three other copies.
+# ONE literal, not a wrapped one: the consistency gate matches a complete
+# double-quoted policy string, and a string split across lines is not one.
+# The line-length suppression is there for that reason and not for tidiness.
+CSP = "default-src 'self' data: blob:; script-src 'self' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"  # noqa: E501
+
+# A policy that looks right and is not: script-src gains 'unsafe-inline', which
+# is the single change that makes a CSP stop being a defence. A value check
+# that only asserted "a policy is present" would pass this happily, and that is
+# precisely the check people write.
+WEAK_CSP = CSP.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'")
+
 
 class Web(Gateway):
     gateway_port = 0
@@ -116,9 +133,24 @@ class Web(Gateway):
         dropped = (
             self.scenario == "drop-asset-headers" and self.path.startswith("/assets/")
         ) or (self.scenario == "drop-api-headers" and self.path.startswith("/api/"))
+        # The CSP has its OWN drop scenarios, one per location, for the same
+        # reason the header drops do: a single combined scenario stops at
+        # whichever assertion fires first and proves only that one of them
+        # works. `no-csp` is the server-level case — the whole policy missing,
+        # which is what this file looked like before the browser leg existed.
+        csp_dropped = (
+            self.scenario == "no-csp"
+            or (self.scenario == "drop-asset-csp" and self.path.startswith("/assets/"))
+            or (self.scenario == "drop-api-csp" and self.path.startswith("/api/"))
+        )
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if not csp_dropped:
+            self.send_header(
+                "Content-Security-Policy",
+                WEAK_CSP if self.scenario == "weak-csp" else CSP,
+            )
         for name, value in SECURITY_HEADERS:
             if dropped and name != "X-Content-Type-Options":
                 continue
@@ -194,6 +226,13 @@ SCENARIOS = {
     # only that ONE of the two checks works.
     "drop-asset-headers": False,
     "drop-api-headers": False,
+    # The CSP: absent at the server, absent in one location, or present and
+    # weakened. The last one is the reason the check compares the whole string
+    # rather than asserting the header exists.
+    "no-csp": False,
+    "drop-asset-csp": False,
+    "drop-api-csp": False,
+    "weak-csp": False,
 }
 
 

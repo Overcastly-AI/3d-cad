@@ -389,13 +389,24 @@ fi
 # register — or worse, passes against a stale bundle. On a fresh runner nothing
 # should be listening, so say so loudly rather than discovering it as a spec
 # failure 10 minutes later.
-if [[ -n "${CI:-}" ]]; then
+#
+# E2E_NO_VITE: the BUILT-BUNDLE leg (scripts/dist-leg.sh) has no Vite at all —
+# it serves `apps/web/dist` through the production nginx config on its own port
+# and its Playwright config declares no `webServer`. Both checks below are
+# statements about Vite, so running them there would prove nothing and the
+# preflight would spend ~30 s booting a dev server this leg deliberately does
+# not use. Skipping is SAID OUT LOUD rather than inferred: a preflight that is
+# quietly absent is indistinguishable from one that quietly passed.
+if [[ -n "${CI:-}" && "${E2E_NO_VITE:-0}" != "1" ]]; then
   if [[ "$(probe "http://${HOST}:${VITE_PORT}/")" != "000" ]]; then
     echo "e2e: something is already listening on :${VITE_PORT} in CI." >&2
     echo "e2e: Playwright would REUSE it (reuseExistingServer) and test the wrong app." >&2
     exit 1
   fi
   preflight_vite
+elif [[ -n "${CI:-}" ]]; then
+  echo "e2e: E2E_NO_VITE=1 — skipping the Vite preflight and the :${VITE_PORT} check;"
+  echo "e2e: this leg serves a built bundle, not the dev server."
 fi
 
 start_service geometry geometry.main:app "$GEOMETRY_PORT"

@@ -68,8 +68,44 @@ want_header() {
     fail "$label did not carry '${name}: ${value}'. nginx's add_header is not additive across levels — a location with any add_header of its own discards ALL inherited ones, so re-adding a subset drops the rest silently (deploy/docker/web/nginx.conf)."
 }
 
+# THE CONTENT-SECURITY-POLICY, as this script expects it to be SERVED.
+#
+# A fourth transcription of the same string (the others: the `set $loft_csp`
+# line in deploy/docker/web/nginx.conf, EXPECTED_CSP in
+# apps/web/e2e-dist/distSupport.ts, and CSP in scripts/web-smoke-stub.py), and
+# deliberately not factored into one file the others read. A check that reads
+# the value out of the thing under test can only prove it equals itself; these
+# are four INDEPENDENT statements of intent, each held beside a different
+# oracle — the real container here, a real browser there, a stub in between.
+#
+# The drift that duplication invites is closed by a gate rather than by a
+# shared constant: `python3 scripts/render-web-nginx.py --check-only` (in
+# `just lint` and in CI) extracts all four and refuses unless they are
+# byte-identical — and refuses if any extraction finds nothing, because four
+# copies that all read empty would agree perfectly.
+EXPECTED_CSP="default-src 'self' data: blob:; script-src 'self' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+
+# Compared by EXACT STRING, not by the regex `want_header` uses. The policy is
+# 300 characters of punctuation and a `grep` pattern would treat several of
+# them as metacharacters — which is how a check for a long constant quietly
+# becomes a check for something looser than the constant.
+want_csp() {
+  local label="$1" hdrs="$2" served
+  served="$(tr -d '\r' <"$hdrs" | sed -n 's/^[Cc]ontent-[Ss]ecurity-[Pp]olicy: //p' | head -1)"
+  if [[ -z "$served" ]]; then
+    fail "$label carried NO Content-Security-Policy. nginx's add_header is not additive across levels, so a location with any add_header of its own discards every inherited one — this location is serving the app with no policy at all while the others look correct, and no status code anywhere says so (deploy/docker/web/nginx.conf)."
+  fi
+  if [[ "$served" != "$EXPECTED_CSP" ]]; then
+    fail "$label served a policy that is not the intended one.
+  expected: ${EXPECTED_CSP}
+  served:   ${served}
+A CSP change is the one header change that can white-screen the app, so it is gated by a real browser: apps/web/e2e-dist/dist-csp.spec.ts, run by \`just dist-leg\` and by e2e.yml's dist-bundle job."
+  fi
+}
+
 assert_security_headers() {
   local label="$1" hdrs="$2"
+  want_csp "$label" "$hdrs"
   want_header "$label" "$hdrs" "X-Content-Type-Options" "nosniff"
   want_header "$label" "$hdrs" "X-Frame-Options" "DENY"
   want_header "$label" "$hdrs" "Referrer-Policy" "no-referrer"
@@ -87,7 +123,7 @@ run_checks() {
   grep -q "<title>Loft</title>" "$tmp/index.html" ||
     fail "the entry document is not Loft's"
   assert_security_headers "the entry document" "$tmp/index.html.hdr"
-  echo "  ok  / -> 200, $(wc -c <"$tmp/index.html") bytes, carries #root, 3 security headers"
+  echo "  ok  / -> 200, $(wc -c <"$tmp/index.html") bytes, carries #root, the CSP + 3 security headers"
 
   # The bundle is named BY THE DOCUMENT rather than guessed: a build whose
   # asset never reached the image would still serve a perfectly good
@@ -112,7 +148,7 @@ run_checks() {
   # `location /assets/` re-adds Cache-Control, so by the discard rule it must
   # re-add all three security headers too — it re-added exactly one.
   assert_security_headers "$asset" "$tmp/bundle.js.hdr"
-  echo "  ok  $asset -> 200, $bytes bytes, not HTML, 3 security headers"
+  echo "  ok  $asset -> 200, $bytes bytes, not HTML, the CSP + 3 security headers"
 
   code=$(fetch "$web/assets/this-file-does-not-exist.js" "$tmp/missing")
   [[ "$code" == "404" ]] ||
@@ -138,7 +174,7 @@ run_checks() {
   # The PROXIED response only — the gateway's own port is not behind nginx and
   # is not expected to carry these.
   assert_security_headers "the proxied /api/v1/parts" "$tmp/proxied.json.hdr"
-  echo "  ok  /api/v1/parts -> $proxied through web, identical to the gateway direct, 3 security headers"
+  echo "  ok  /api/v1/parts -> $proxied through web, identical to the gateway direct, the CSP + 3 security headers"
 
   for path in /docs /redoc; do
     code=$(fetch "$gw$path" "$tmp/explorer")

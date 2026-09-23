@@ -19,9 +19,11 @@
   "include": [
     "src",
     "e2e",
+    "e2e-dist",
     "vite.config.ts",
     "vitest.config.ts",
     "tailwind.config.ts",
-    "playwright.config.ts"
+    "playwright.config.ts",
+    "playwright.dist.config.ts"
   ]
 }
