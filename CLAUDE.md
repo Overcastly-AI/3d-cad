@@ -244,70 +244,8 @@ note) once Phase 5 lands the surface.
   `just lint && just test && just e2e`. (why: #ci-local-gates)
 - **Every commit must be green on its own.** A required-field change and its
   callers belong in ONE commit, even across agent territories.
-
-## Reading CI (orchestrator only)
-
-Subagents cannot read CI: `api.github.com` is policy-denied for them, so briefs
-say "push and stop" and the orchestrator relays `get_job_logs` output back via
-SendMessage (why: #ci-access). The orchestrator reads CI **only through the
-GitHub MCP tools**. `Bash` is denied too, so a curl poll, `Monitor` or
-`Bash(run_in_background)` cannot work. Waiting is turn-based, so read once per
-integration pass. (why: #ci-reading-procedure)
-
-There are three workflows (`ci`, `e2e`, `deploy-path`). Check all three and
-name the ones you read.
-
-1. **Board:** ONE `list_workflow_runs` call with the branch filter. It spills
-   to a file; parse the spill with `python3` for `head_sha` + `status` +
-   `conclusion`. A run is complete when `status == "completed"`. **The
-   `status` and `per_page` arguments are IGNORED.** Before trusting any filter
-   argument, call it with two values that must disagree and compare the bytes.
-   If `conclusion` is absent (it has vanished once), the `KeyError` is the
-   tell, and you take the verdict from step 2.
-2. **Verdict:** `get_job_logs` with `failed_only: true` and
-   `return_content: false`. `failed_jobs: 0` is green ONLY on a completed run.
-   Complete runs have 6 jobs for `e2e` (4 shards + `e2e complete` +
-   `dist-bundle`) and 7 for `ci`; re-derive these from the workflow files when
-   they change. `ci` creates all its jobs at t=0, so its `total_jobs` says
-   nothing about completion.
-3. **Red:** re-call `get_job_logs` with `return_content: true` and
-   `tail_lines: 45` on the one failing job. It ends with the
-   `== e2e verdict ==` block. Pull EVERY failing shard's verdict.
-4. `get_workflow_run` carries the whole commit message, so use it only for the
-   run's own `conclusion` string. `list_workflow_jobs` costs ~8k tokens, so use
-   it only for step durations.
-
-How to read the results:
-
-- **`cancelled` on a branch push is anomalous.** Push groups are per-SHA
-  (`format('ci-sha-{0}', github.sha)`); PR groups are ref-keyed and do cancel.
-  Never re-enable blanket `cancel-in-progress`. An eviction kills every job
-  early; a `timeout-minutes` kill takes ONE job at its limit and leaves its
-  siblings green. Read durations before naming the cause.
-  (why: #ci-concurrency, #ci-cancelled-two-causes)
-- **A commit in the middle of a multi-commit push gets NO run.** Push commits
-  separately, and audit the runs list against `git log`. A commit with no row
-  is unverified. A descendant's green verifies the *tree*, never the
-  intermediate *commit*; say which you mean. (why: #ci-unbuilt-commits)
-- `e2e` has `paths-ignore: docs/**, **/*.md`, so a docs-only commit has no e2e
-  row by design. `deploy-path` runs on everything, so its missing row is
-  always an anomaly.
-- **`failure` with `total_jobs: 0`**, `created_at == run_started_at ==
-  updated_at`, and a run named by its file path mean GitHub refused the
-  workflow file. `scripts/check-workflow-contexts.py` (in `just lint`) grades
-  `env:` expressions only, so any other workflow edit is unverifiable until the
-  run. Use `$RUNNER_TEMP`, not `${{ runner.temp }}`, inside `run:`, and grep
-  for a working instance before inventing a fix. (why: #ci-workflow-refused)
-- **A fast green deserves a red's scrutiny.** An all-skipped run also reports
-  `success`, so read the MAIN step's duration. (why: #ci-fast-green)
-- **"pull access denied" can mean the upstream WITHDREW the image.** MinIO
-  did; the pins now use `quay.io`. Probe the Docker Hub manifest API
-  anonymously beside a CONTROL image: **429** is the rate limit, and **401**
-  while `library/postgres` returns 200 means that repo is gone. Never disable
-  `geometry-minio-smoke`. (why: #ci-minio-withdrawn)
-- **A log you own ends with a short verdict** (the tail is the only channel).
-  It must not count a `test.fail()` case as a failure.
-  (why: #pytest-verdict-last)
+- Only the orchestrator reads CI (api.github.com is denied to subagents);
+  procedure: [.claude/ORCHESTRATOR.md#ci](./.claude/ORCHESTRATOR.md#ci)
 
 ## Work as a dev team
 
@@ -455,6 +393,12 @@ here and the story to `docs/LESSONS.md`, in the fix's commit.** (why: #env-intro
   needs its own `baseURL`). `prettier --check .` walks the filesystem, so never
   leave dumps at the repo root. A temp spec in `apps/web/e2e/` is formatted at
   once and deleted the same turn. (why: #test-results-wiped, #gen-verify)
+- **Workflows and job logs you write:** `scripts/check-workflow-contexts.py`
+  grades `env:` expressions only, so other workflow edits are unverifiable
+  until the run. Use `$RUNNER_TEMP`, not `${{ runner.temp }}`, inside `run:`.
+  A log you own ends with a short verdict that does not count a `test.fail()`
+  case as a failure. Never disable `geometry-minio-smoke`.
+  (why: #ci-workflow-refused, #pytest-verdict-last, #ci-minio-withdrawn)
 - **Formatting:** committed JSON/MD/YAML, golden JSON included, passes
   `prettier --check`. Prefer ASCII (`x`, `-`, `<=`) in code and tests.
   (why: #lint-gate)

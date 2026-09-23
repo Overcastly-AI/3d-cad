@@ -18,10 +18,8 @@ them rather than to headings.
 of them contain statements that were later corrected, sometimes further down
 the same entry, and some read in the imperative ("do X") about an X that is no
 longer the rule. **Where an entry here disagrees with CLAUDE.md, PROTOCOL.md or
-ORCHESTRATOR.md, the rule file wins.** The one exception is an entry listed
-under *Open conflicts*: there, two layers disagree and nothing in the source
-says which wins, so the rule files state the one the task that moved them was
-told to keep, and the disagreement still needs an owner to decide it.
+ORCHESTRATOR.md, the rule file wins.** Conflicts found during the move, and how
+each was decided, are under *Conflicts found during the move* below.
 
 **How to add to it:** when a rule changes, REPLACE it in the rule file and
 append the old version plus the story here, under a new `<a id>` anchor in the
@@ -53,32 +51,37 @@ new `CLAUDE.md` + `ORCHESTRATOR.md` + `PROTOCOL.md` + this file.
 
 <a id="open-conflicts"></a>
 
-## Open conflicts — layers that disagree, with no winner stated
+## Conflicts found during the move — all RESOLVED 2026-09-23
 
-1. **Who writes the board tick.** `.claude/ORCHESTRATOR.md` §2 (verified
-   2026-08-14 on SKETCH-1 and VP-1) said builders commit code only and the
-   ORCHESTRATOR writes the ROADMAP/BACKLOG tick at integration
-   (`git cherry-pick`, edit both docs, `git commit --amend --no-edit`) — see
-   [board-tick-conflict](#board-tick-conflict). `CLAUDE.md`'s amended doc-sync
-   rule (2026-09-14, [doc-tick](#doc-tick)) says builders use a
-   `Doc-tick: groomer` trailer and the orchestrator dispatches the
-   `backlog-groomer` before the batch closes. That matches ORCHESTRATOR.md §0
-   ("If you find yourself editing `docs/BACKLOG.md`, stop") and PROTOCOL.md §2.
-   The amendment is later and the task that pruned these files named it the
-   final form, so the rule files state the trailer rule. But nothing in either
-   file retired the cherry-pick-and-amend recipe, and ORCHESTRATOR.md §0 and §2
-   contradicted each other internally. **Decide it and delete this item.**
-2. **How to pull a red job's log.** `CLAUDE.md` (2026-08-28, after `2874f0a`
-   added the `== e2e verdict ==` block): re-call `get_job_logs` with
-   `return_content: true` and `tail_lines: 45` on the one failing job — see
+The move turned up two places where the layers disagreed and nothing in the
+source said which one won. The orchestrator decided both on 2026-09-23. No
+conflicts are open.
+
+1. **Who writes the board tick. RESOLVED 2026-09-23: the trailer rule wins,
+   and the orchestrator-writes-the-tick recipe is RETIRED.**
+   `.claude/ORCHESTRATOR.md` §2 (verified 2026-08-14 on SKETCH-1 and VP-1)
+   said builders commit code only and the ORCHESTRATOR writes the
+   ROADMAP/BACKLOG tick at integration (`git cherry-pick`, edit both docs,
+   `git commit --amend --no-edit`); see [board-tick-conflict](#board-tick-conflict).
+   `CLAUDE.md`'s amended doc-sync rule (2026-09-14, [doc-tick](#doc-tick)) says
+   builders use a `Doc-tick: groomer` trailer and the orchestrator dispatches
+   the `backlog-groomer` before the batch closes. **Retired because the recipe
+   is the orchestrator doing the groomer's job, which orchestrator rule 1
+   forbids.** It also contradicted ORCHESTRATOR.md §0 ("If you find yourself
+   editing `docs/BACKLOG.md`, stop") and PROTOCOL.md §2. It has been removed
+   from the rule files. Do not revive it.
+2. **How to pull a red job's log. RESOLVED 2026-09-23: both are right, for
+   different jobs.** `CLAUDE.md` (2026-08-28, after `2874f0a` added the
+   `== e2e verdict ==` block) said `tail_lines: 45`; see
    [ci-reading-procedure](#ci-reading-procedure). `.claude/ORCHESTRATOR.md` §6
-   (undated): ask `get_job_logs` for `tail_lines=900` so that it overflows and
-   spills to a file at zero context cost, then parse the file for failure lines
-   — see [orch-traps](#orch-traps). These are different strategies for the same
-   step. The rule files state the 45-line tail, as the pruning task directed.
-   The 900-line spill is still a plausible fallback when a job has no verdict
-   block (for example a non-e2e job), but nothing says so. **Decide it and
-   delete this item.**
+   (undated) said `tail_lines=900`, which overflows the tool limit and spills
+   to a file at zero context cost, then parse that file; see
+   [orch-traps](#orch-traps). **The rule, now stated once in ORCHESTRATOR.md
+   §0c, depends on the job:**
+   - a job that ends with an `== e2e verdict ==` block (the e2e shards) gets
+     `tail_lines: 45`;
+   - a job with no verdict block (the `ci` jobs, `deploy-path`) gets
+     `tail_lines: 900`, spilled to a file, then grep or parse the file.
 
 ## Correction chains collapsed to their last state
 
@@ -87,7 +90,7 @@ carry only the last layer; the full chain is in the linked entry.
 
 | Topic | Superseded layers | Current (last) state |
 |---|---|---|
-| Reading CI ([ci-reading-procedure](#ci-reading-procedure)) | spill + parse ids only; `get_job_logs` per run; `conclusion` missing (08-28); `status: "completed"` empty listing (09-11); `status: "in_progress"` filter (09-11/13) | `status` and `per_page` are IGNORED (09-16); one `list_workflow_runs` call, parse the spill for `head_sha` + `status` + `conclusion`; `get_job_logs` `failed_only` for a verdict; `tail_lines: 45` on a red job |
+| Reading CI ([ci-reading-procedure](#ci-reading-procedure)) | spill + parse ids only; `get_job_logs` per run; `conclusion` missing (08-28); `status: "completed"` empty listing (09-11); `status: "in_progress"` filter (09-11/13) | `status` and `per_page` are IGNORED (09-16); one `list_workflow_runs` call, parse the spill for `head_sha` + `status` + `conclusion`; `get_job_logs` `failed_only` for a verdict; on a red job, `tail_lines: 45` (verdict block) or `tail_lines: 900` spilled to a file (no verdict block) |
 | e2e job count ([ci-reading-procedure](#ci-reading-procedure)) | 5 jobs | 6 (`dist-bundle` added in `ed8c3d7`, 2026-09-23) |
 | Concurrency ([ci-concurrency](#ci-concurrency)) | blanket `cancel-in-progress`; PR-only cancel | per-SHA push groups; ref-keyed PR groups |
 | Workflow-context failures ([ci-workflow-refused](#ci-workflow-refused)) | "local gates cannot catch this" | `scripts/check-workflow-contexts.py` grades `env:` only |
@@ -99,6 +102,9 @@ carry only the last layer; the full chain is in the linked entry.
 | stage-doc-hunks failures ([staging-protocol](#staging-protocol)) | "failed silently three times" | five silent failures; never use it in a worktree |
 | Push command ([worktree-push](#worktree-push)) | `git push -u origin <branch>` | `git push origin HEAD:<branch>`, then `git ls-remote` |
 | `git add -p` ([staging-protocol](#staging-protocol)) | suggested as a fallback | unavailable (no interactive git in this container) |
+| Board tick ([board-tick-conflict](#board-tick-conflict)) | orchestrator cherry-picks, edits both docs and amends at integration | RETIRED 2026-09-23; builders use `Doc-tick: groomer` and the groomer reconciles before the batch closes |
+| Red job log ([open-conflicts](#open-conflicts)) | `tail_lines: 45` vs `tail_lines=900` | 45 for jobs with an `== e2e verdict ==` block; 900 spilled to a file for jobs without one |
+| Where the CI procedure lives | CLAUDE.md (loaded by every agent) | `.claude/ORCHESTRATOR.md` §0c; CLAUDE.md keeps a one-line pointer (2026-09-23) |
 | Wave size ([orch-red-gate](#orch-red-gate)) | N≈2–4 builders | about 3 heavy agents live; loops cap a wave at 3 builders |
 | StructuredOutput fault ([orch-traps](#orch-traps)) | relaunch fresh; one canary | after two `Workflow` failures, fall back to `Agent` dispatches and run the phases by hand |
 
@@ -411,9 +417,9 @@ on."*
 
 <a id="board-tick-conflict"></a>
 
-### CONFLICT — the orchestrator writing the board tick at integration (2026-08-14)
+### RETIRED 2026-09-23 — the orchestrator writing the board tick at integration (2026-08-14)
 
-*Moved verbatim from `.claude/ORCHESTRATOR.md` lines 195–208 on 2026-09-23. Current rule: unresolved; see Open conflicts.*
+*Moved verbatim from `.claude/ORCHESTRATOR.md` lines 195–208 on 2026-09-23. Current rule: RETIRED; builders use Doc-tick: groomer (see Conflicts found during the move).*
 
 **Builders commit CODE ONLY. The board tick is yours, folded in at
 integration.** The same-commit rule for `docs/ROADMAP.md` + `docs/BACKLOG.md`
@@ -795,7 +801,7 @@ admire and do not use. Four concrete tests, each one a defect when it fails:
 
 ### Only the orchestrator can read CI
 
-*Moved verbatim from `CLAUDE.md` lines 356–365 on 2026-09-23. Current rule: CLAUDE.md → Reading CI.*
+*Moved verbatim from `CLAUDE.md` lines 356–365 on 2026-09-23. Current rule: ORCHESTRATOR.md §0c (Reading CI).*
 
 - **Only the ORCHESTRATOR can read CI — subagents cannot. Budget the relay
   into the brief.** A subagent has no `gh`, no GitHub MCP in its toolset, and
@@ -812,7 +818,7 @@ admire and do not use. Four concrete tests, each one a defect when it fails:
 
 ### Reading CI cheaply: the layered recipe and every correction to it
 
-*Moved verbatim from `CLAUDE.md` lines 366–544 on 2026-09-23. Current rule: CLAUDE.md → Reading CI.*
+*Moved verbatim from `CLAUDE.md` lines 366–544 on 2026-09-23. Current rule: ORCHESTRATOR.md §0c (Reading CI).*
 
 - **CI can ONLY be read through the GitHub MCP tools — never a bash poll, not
   even in the orchestrator's own session.** `api.github.com` is policy-denied
@@ -998,7 +1004,7 @@ admire and do not use. Four concrete tests, each one a defect when it fails:
 
 ### cancel-in-progress, then per-SHA concurrency groups
 
-*Moved verbatim from `CLAUDE.md` lines 545–582 on 2026-09-23. Current rule: CLAUDE.md → Reading CI.*
+*Moved verbatim from `CLAUDE.md` lines 545–582 on 2026-09-23. Current rule: ORCHESTRATOR.md §0c (Reading CI).*
 
 - **FIXED 2026-07-30 — `cancel-in-progress` is now PR-only, so a branch run
   that has STARTED is no longer killed by the next push. MEASURED, with one
@@ -1043,7 +1049,7 @@ admire and do not use. Four concrete tests, each one a defect when it fails:
 
 ### A commit in the middle of a multi-commit push gets no run
 
-*Moved verbatim from `CLAUDE.md` lines 583–599 on 2026-09-23. Current rule: CLAUDE.md → Reading CI.*
+*Moved verbatim from `CLAUDE.md` lines 583–599 on 2026-09-23. Current rule: ORCHESTRATOR.md §0c (Reading CI).*
 
 - **A COMMIT PUSHED IN THE MIDDLE OF A MULTI-COMMIT PUSH GETS NO RUN AT ALL —
   not a cancelled one, NOTHING — so "every commit green on its own" has a hole
@@ -1067,7 +1073,7 @@ admire and do not use. Four concrete tests, each one a defect when it fails:
 
 ### `cancelled` has two causes
 
-*Moved verbatim from `CLAUDE.md` lines 600–612 on 2026-09-23. Current rule: CLAUDE.md → Reading CI.*
+*Moved verbatim from `CLAUDE.md` lines 600–612 on 2026-09-23. Current rule: ORCHESTRATOR.md §0c (Reading CI).*
 
 - **`cancelled` HAS TWO CAUSES AND GITHUB USES THE SAME WORD FOR BOTH** — a
   concurrency eviction, and a job hitting `timeout-minutes`. Discriminate by
@@ -1087,7 +1093,7 @@ admire and do not use. Four concrete tests, each one a defect when it fails:
 
 ### geometry-minio-smoke: the MinIO images were withdrawn
 
-*Moved verbatim from `CLAUDE.md` lines 613–675 on 2026-09-23. Current rule: CLAUDE.md → Reading CI.*
+*Moved verbatim from `CLAUDE.md` lines 613–675 on 2026-09-23. Current rule: ORCHESTRATOR.md §0c (Reading CI).*
 
 - **`geometry-minio-smoke` STARTED FAILING ON THE RUNNER 2026-09-12 FOR A REASON
   THAT IS NOT IN THIS REPO — do not go looking for it in a diff.** The job dies
@@ -1157,7 +1163,7 @@ admire and do not use. Four concrete tests, each one a defect when it fails:
 
 ### `failure` with zero jobs: GitHub refused the workflow file
 
-*Moved verbatim from `CLAUDE.md` lines 676–734 on 2026-09-23. Current rule: CLAUDE.md → Reading CI.*
+*Moved verbatim from `CLAUDE.md` lines 676–734 on 2026-09-23. Current rule: ORCHESTRATOR.md §0c (Reading CI).*
 
 - **`conclusion: failure` WITH `total_jobs: 0` IS NOT A TEST FAILURE — IT IS
   GITHUB REFUSING THE WORKFLOW FILE, AND NOTHING WE RUN LOCALLY CAN SEE IT.**
@@ -1223,7 +1229,7 @@ admire and do not use. Four concrete tests, each one a defect when it fails:
 
 ### A suspiciously fast green
 
-*Moved verbatim from `CLAUDE.md` lines 735–741 on 2026-09-23. Current rule: CLAUDE.md → Reading CI.*
+*Moved verbatim from `CLAUDE.md` lines 735–741 on 2026-09-23. Current rule: ORCHESTRATOR.md §0c (Reading CI).*
 
 - **A suspiciously FAST green deserves the same scrutiny as a red.** The
   usual cause is a job that skipped its work, and `conclusion: success` is

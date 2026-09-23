@@ -29,8 +29,8 @@ current rules only. The evidence behind each one is in `docs/LESSONS.md`
 1. **Reading CI.** `api.github.com` is policy-denied for every subagent, so you
    read the run and relay failures back. **There are three workflows,
    `ci.yml`, `e2e.yml` and `deploy-path.yml`.** Check all three and name which
-   you checked; "green on ci" is not "green". Procedure: CLAUDE.md → "Reading
-   CI". (why: #orch-three-workflows)
+   you checked; "green on ci" is not "green". Procedure: §0c below.
+   (why: #orch-three-workflows)
 2. **Dispatching batches** and assigning **disjoint territories**.
 3. **Integrating** green branches and verifying the MERGED tree before pushing,
    **and sending any screenshots the commit adds in the same turn.** After
@@ -81,6 +81,76 @@ file.
   means serialise or re-cut.
 - **Run the loops with `args.branch` set.** They refuse to start without it
   and cap a wave at 3 builders however large `batchSize` is.
+
+<a id="ci"></a>
+
+## 0c. Reading CI
+
+Only you can read CI: `api.github.com` is policy-denied for subagents, so
+briefs say "push and stop" and you relay `get_job_logs` output back via
+SendMessage (why: #ci-access). Read CI **only through the GitHub MCP tools**.
+`Bash` is denied too, so a curl poll, `Monitor` or `Bash(run_in_background)`
+cannot work. Waiting is turn-based, so read once per integration pass.
+(why: #ci-reading-procedure)
+
+There are three workflows (`ci`, `e2e`, `deploy-path`). Check all three and
+name the ones you read.
+
+1. **Board:** ONE `list_workflow_runs` call with the branch filter. It spills
+   to a file; parse the spill with `python3` for `head_sha` + `status` +
+   `conclusion`. A run is complete when `status == "completed"`. **The
+   `status` and `per_page` arguments are IGNORED.** Before trusting any filter
+   argument, call it with two values that must disagree and compare the bytes.
+   If `conclusion` is absent (it has vanished once), the `KeyError` is the
+   tell, and you take the verdict from step 2.
+2. **Verdict:** `get_job_logs` with `failed_only: true` and
+   `return_content: false`. `failed_jobs: 0` is green ONLY on a completed run.
+   Complete runs have 6 jobs for `e2e` (4 shards + `e2e complete` +
+   `dist-bundle`) and 7 for `ci`; re-derive these from the workflow files when
+   they change. `ci` creates all its jobs at t=0, so its `total_jobs` says
+   nothing about completion.
+3. **Red:** re-call `get_job_logs` with `return_content: true` on the ONE
+   failing job. The tail length depends on whether the job ends with a
+   verdict block:
+   - **A job ending with an `== e2e verdict ==` block (the e2e shards):**
+     use `tail_lines: 45`, which returns the whole verdict.
+   - **A job with no verdict block (the `ci` jobs, `deploy-path`):** use
+     `tail_lines: 900`. That overflows the tool limit and spills to a file at
+     zero context cost; grep or parse that file for the failure lines.
+
+   Pull EVERY failing shard's verdict, not just one.
+   (why: #ci-reading-procedure, #orch-traps, #open-conflicts)
+4. `get_workflow_run` carries the whole commit message, so use it only for the
+   run's own `conclusion` string. `list_workflow_jobs` costs ~8k tokens, so use
+   it only for step durations.
+
+How to read the results:
+
+- **`cancelled` on a branch push is anomalous.** Push groups are per-SHA
+  (`format('ci-sha-{0}', github.sha)`); PR groups are ref-keyed and do cancel.
+  Never re-enable blanket `cancel-in-progress`. An eviction kills every job
+  early; a `timeout-minutes` kill takes ONE job at its limit and leaves its
+  siblings green. Read durations before naming the cause.
+  (why: #ci-concurrency, #ci-cancelled-two-causes)
+- **A commit in the middle of a multi-commit push gets NO run.** Push commits
+  separately, and audit the runs list against `git log`. A commit with no row
+  is unverified. A descendant's green verifies the *tree*, never the
+  intermediate *commit*; say which you mean. (why: #ci-unbuilt-commits)
+- `e2e` has `paths-ignore: docs/**, **/*.md`, so a docs-only commit has no e2e
+  row by design. `deploy-path` runs on everything, so its missing row is
+  always an anomaly.
+- **`failure` with `total_jobs: 0`**, `created_at == run_started_at ==
+  updated_at`, and a run named by its file path mean GitHub refused the
+  workflow file. `scripts/check-workflow-contexts.py` (in `just lint`) grades
+  `env:` expressions only. Grep for a working instance before inventing a fix.
+  (why: #ci-workflow-refused)
+- **A fast green deserves a red's scrutiny.** An all-skipped run also reports
+  `success`, so read the MAIN step's duration. (why: #ci-fast-green)
+- **"pull access denied" can mean the upstream WITHDREW the image.** MinIO
+  did; the pins now use `quay.io`. Probe the Docker Hub manifest API
+  anonymously beside a CONTROL image: **429** is the rate limit, and **401**
+  while `library/postgres` returns 200 means that repo is gone.
+  (why: #ci-minio-withdrawn)
 
 ## 1. Session start
 
@@ -136,10 +206,8 @@ Discover  →  Audit  →  Groom  →  Build  →  Review  →  Verify  →  Int
 **Board ticks:** builders never touch `docs/ROADMAP.md` or `docs/BACKLOG.md`;
 they commit with a `Doc-tick: groomer` trailer. **Dispatch the
 `backlog-groomer` before the batch closes.** A batch is not done while any
-trailer is unreconciled (CLAUDE.md → "Docs in sync"). An older recipe had the
-orchestrator write the tick itself at integration (cherry-pick, edit, amend).
-It was never formally retired, so it is recorded as an OPEN CONFLICT in
-LESSONS.md. (why: #board-tick-conflict)
+trailer is unreconciled (CLAUDE.md → "Docs in sync"). You never write the tick
+yourself. (why: #doc-tick, #board-tick-conflict)
 
 **Push each cherry-pick separately.** GitHub fires one run per push *event*, so
 the earlier commits in a batched push get no run at all. (why: #ci-unbuilt-commits)
@@ -254,10 +322,7 @@ ones that cost the loop most (why: #orch-traps):
 
 - **Docker's registry is blocked (403).** `just dev`/compose cannot run; boot
   natively (uvicorn + SQLite via `metadata.create_all`, never alembic).
-- **CI logs:** follow CLAUDE.md → "Reading CI". `get_workflow_run` is *not*
-  cheap, and `list_workflow_runs` ignores `per_page` and `status`. (An older
-  `tail_lines=900` spill recipe conflicts with the current `tail_lines: 45`;
-  see LESSONS.md → Open conflicts.)
+- **CI logs:** follow §0c.
 - **`StructuredOutput retry cap exceeded`** is usually an intermittent harness
   fault, not a schema problem. Grep the transcript with
   `grep -c 'permission handler returned updatedInput' <transcript>.jsonl`. If
