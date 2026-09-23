@@ -320,10 +320,31 @@ test.describe("MEASURE-PROXY-1 — a mark's own centre reaches the mark", () => 
 
     // NON-VACUITY: the probe must actually be finding the marks. Without this,
     // "zero wrappers" is satisfied by a page with no marks on it.
+    //
+    // The floor is on LIVE marks (board #76). A mark whose edge is behind the
+    // plate is now drawn as a dashed hidden line that takes no pointer, so its
+    // centre correctly resolves to the canvas; the old ">55 of 65 answer at
+    // their own centre" had been counting marks that were buried and drawn
+    // live anyway — the defect, scored as reach. Measured on this fixture after
+    // the fix: 46 live, 45 answering at their own centre (the one exception is
+    // a vertex mark winning its own edge's centre by design), 19 buried.
+    // So two readings, both real floors:
+    //  - LIVE > 40 — fails if marks collapse to zero OR all go buried, and if
+    //    burial starts swallowing marks that face the camera;
+    //  - every live mark but at most two answers at its own centre — a live
+    //    mark that does not is a control the pointer cannot use.
+    const live = probes.filter((p) => !p.buried);
+    const liveOthers = live.filter((p) => p.topmost !== "self");
     expect(
-      self.length,
-      "most marks must still answer at their own centre",
-    ).toBeGreaterThan(55);
+      live.length,
+      `most marks face the camera on this fixture and must be LIVE ` +
+        `(${live.length} live, ${probes.length - live.length} buried)`,
+    ).toBeGreaterThan(40);
+    expect(
+      liveOthers.length,
+      `every live mark but at most two must answer at its own centre: ` +
+        liveOthers.map((p) => `${p.id}->${p.topmost}`).join(", "),
+    ).toBeLessThanOrEqual(2);
   });
 
   test("a real mouse click at a mark's centre selects that mark's entity", async ({

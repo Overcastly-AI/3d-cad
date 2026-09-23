@@ -1029,7 +1029,30 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
       `the plate's top edges are on offer (${marks.map((m) => m.label).join(" | ")})`,
     ).toHaveLength(2);
     const wanted = new Set(topEdges.map((m) => String(m.index)));
-    const centre = (topEdges[0] as EdgeMark).centre;
+    // THE PROBE GOES AT THE TOP EDGE'S MID-SPAN — the stretch the wall covers.
+    // It used to be read off the top edge's own mark, which sat at mid-span
+    // whether or not mid-span was visible. Board #76 moved that mark onto the
+    // edge's VISIBLE run (a mark must be drawn where its subject can be
+    // reached), so its centre is now beside the wall, where the edge rightly
+    // answers — and a probe centred there tests nothing about occlusion.
+    // Mid-span is derived instead from the span's own ends: the plate's two
+    // vertical side edges (x = 0 and x = 60) bound the top edge on screen, and
+    // the front view puts every point of it on the top edges' row. Step 2
+    // below is the proof the point is ON the edge: hiding the wall must make
+    // it answer there.
+    const sides = marks.filter(
+      (m) =>
+        m.kind === "line" && /centred at (0|60), (30|50), 5 /.test(m.label),
+    );
+    const sideXs = sides.map((m) => m.centre.x);
+    expect(
+      sideXs.length,
+      `the plate's side edges bound the span (${marks.map((m) => m.label).join(" | ")})`,
+    ).toBeGreaterThanOrEqual(2);
+    const centre = {
+      x: (Math.min(...sideXs) + Math.max(...sideXs)) / 2,
+      y: (topEdges[0] as EdgeMark).centre.y,
+    };
 
     /**
      * Which edges answer along the occluded span, clear of any 24 px mark.

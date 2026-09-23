@@ -24,18 +24,24 @@
  */
 import { PickNode } from "@loft/design";
 import { useThree } from "@react-three/fiber";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import type { Mesh } from "three";
 
 import type { OverlayFace, PlanarFaceSignature } from "../api/parts";
 import { faceLabel, faceSignatureKey, isPickableFace } from "../features/face";
 import { useFacePickStore } from "../features/facePickStore";
 import { occtToScene } from "../measure/geometry";
+import { BuriedMark } from "./BuriedMark";
 import { ANNOTATION_LAYER } from "./instruments";
 import { FacePatch } from "./facePatch";
 import { useHiddenPicks } from "./hiddenPicks";
 import { PickMark } from "./PickMark";
-import { PickSurface } from "./pickSurface";
+import { PickSurface, usePickSurfaceTarget } from "./pickSurface";
 import { useViewportPickStamp } from "./pickStamp";
+import {
+  useSurfaceMarkBurial,
+  type SurfaceMarkSubject,
+} from "./useSurfaceMarkBurial";
 
 export interface ShellFaceOverlayProps {
   /**
@@ -88,6 +94,29 @@ export function ShellFaceOverlay({
   );
 
   /**
+   * WHETHER EACH MARK CAN BE REACHED WHERE IT STANDS (board item #76).
+   *
+   * A face mark sits at its face's area CENTROID, which is a point in space and
+   * not a point on screen — so a box's bottom face plants its mark inside the
+   * visible front wall, and a DOM button that never asked the scene anything
+   * took that pixel from the face the modeller can see. The oracle is the same
+   * surface the pointer uses, so the two cannot disagree.
+   */
+  const surfaceRef = useRef<Mesh | null>(null);
+  const { ordinalAt } = usePickSurfaceTarget();
+  const subjects = useMemo<SurfaceMarkSubject[]>(
+    () =>
+      offered.map((face) => ({
+        ordinal: face.index,
+        point: face.signature.centroid,
+        normal: face.signature.normal,
+        areaMm2: face.signature.area_mm2,
+      })),
+    [offered],
+  );
+  const seats = useSurfaceMarkBurial(subjects, surfaceRef, ordinalAt);
+
+  /**
    * A hit on a face that is not ON OFFER — non-planar (shell/draft address
    * planar faces only), or owned by a switched-off body — resolves to null and
    * is IGNORED rather than snapped to a neighbouring planar face. A pick that
@@ -126,40 +155,55 @@ export function ShellFaceOverlay({
   return (
     <group userData={ANNOTATION_LAYER}>
       <PickSurface
+        meshRef={surfaceRef}
         onMove={onSurfaceMove}
         onOut={() => setHoverFace(null)}
         onClick={onSurfaceClick}
       />
-      {offered.map((face) => (
-        <group key={`f${face.index}`}>
-          {pickedKeys.has(faceSignatureKey(face.signature)) ||
-          hoverFace === face.index ? (
-            <FacePatch
-              signature={face.signature}
-              selected={pickedKeys.has(faceSignatureKey(face.signature))}
-            />
-          ) : null}
-          <PickMark
-            position={occtToScene(face.signature.centroid)}
-            zIndexRange={[30, 10]}
-          >
-            <PickNode
-              shape="face"
-              // A7's recession: the drawn surface is this pick's primary
-              // hit-test now, so the mark is the keyboard/touch fallback.
-              recede
-              selected={pickedKeys.has(faceSignatureKey(face.signature))}
-              data-testid={`${testIdPrefix}-${face.index}`}
-              aria-label={faceLabel(face.index, face.signature)}
-              onClick={() => toggle(face.signature)}
-              onPointerOver={() => setHoverFace(face.index)}
-              onPointerOut={() => setHoverFace(null)}
-              onFocus={() => setHoverFace(face.index)}
-              onBlur={() => setHoverFace(null)}
-            />
-          </PickMark>
-        </group>
-      ))}
+      {offered.map((face, slot) => {
+        // A mark whose face is behind the material yields the pixel to the face
+        // in FRONT, and is drawn as a hidden-line ghost (`BuriedMark`).
+        const seat = seats[slot];
+        const hidden = seat?.buried === true;
+        return (
+          <group key={`f${face.index}`}>
+            {pickedKeys.has(faceSignatureKey(face.signature)) ||
+            hoverFace === face.index ? (
+              <FacePatch
+                signature={face.signature}
+                selected={pickedKeys.has(faceSignatureKey(face.signature))}
+              />
+            ) : null}
+            <PickMark
+              // The seat the surface pass found ON this face and clear of any
+              // gauge — the centroid unless that was hidden or covered.
+              position={seat?.position ?? occtToScene(face.signature.centroid)}
+              zIndexRange={[30, 10]}
+            >
+              {/* The hidden-line ghost: a buried face is BEHIND the part, not
+                  absent, and the difference is what the audit's modeller could
+                  not see. Drawn only while the mark itself is dark. */}
+              {hidden ? <BuriedMark shape="face" /> : null}
+              <PickNode
+                shape="face"
+                // A7's recession: the drawn surface is this pick's primary
+                // hit-test now, so the mark is the keyboard/touch fallback.
+                recede
+                occluded={hidden}
+                selected={pickedKeys.has(faceSignatureKey(face.signature))}
+                data-testid={`${testIdPrefix}-${face.index}`}
+                data-buried={hidden ? "true" : "false"}
+                aria-label={faceLabel(face.index, face.signature)}
+                onClick={() => toggle(face.signature)}
+                onPointerOver={() => setHoverFace(face.index)}
+                onPointerOut={() => setHoverFace(null)}
+                onFocus={() => setHoverFace(face.index)}
+                onBlur={() => setHoverFace(null)}
+              />
+            </PickMark>
+          </group>
+        );
+      })}
     </group>
   );
 }

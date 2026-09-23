@@ -29,6 +29,7 @@ import {
   polylineSegments,
 } from "../measure/geometry";
 import { useMeasureStore } from "../measure/store";
+import { BuriedMark } from "./BuriedMark";
 import { ANNOTATION_LAYER } from "./instruments";
 import { EdgeBandLayer } from "./EdgeBandLayer";
 import type { EdgeBandInput } from "./edgeBand";
@@ -236,33 +237,39 @@ export function MeasureOverlay() {
           the band cannot steal it. The `VERTEX_Z_RANGE` / `EDGE_Z_RANGE` split
           still settles edge-mark versus vertex-mark, which is a DOM-to-DOM
           contest. Asserted in `pick-affordance.spec.ts`, not assumed. */}
-      {offeredEdges.map(({ edge, index }, slot) => (
-        <PickMark
-          key={`e${index}`}
-          position={
-            anchors[slot]?.position ??
-            occtToScene(polylineMidpoint(edge.polyline))
-          }
-          zIndexRange={EDGE_Z_RANGE}
-        >
-          <PickNode
-            shape="edge"
-            // A7's recession: the edge band is this pick's primary hit-test
-            // now, so the mark is the keyboard/touch fallback.
-            recede
-            occluded={anchors[slot]?.buried ?? false}
-            selected={selectedEdges.has(index)}
-            data-testid={`measure-edge-${index}`}
-            data-buried={anchors[slot]?.buried === true ? "true" : "false"}
-            aria-label={`Edge ${index + 1}, ${edge.kind}`}
-            onClick={() => pickEdge(index)}
-            onPointerOver={() => setHoverEdge(index)}
-            onPointerOut={() => setHoverEdge(null)}
-            onFocus={() => setHoverEdge(index)}
-            onBlur={() => setHoverEdge(null)}
-          />
-        </PickMark>
-      ))}
+      {offeredEdges.map(({ edge, index }, slot) => {
+        const hidden = anchors[slot]?.buried === true;
+        // Board item #76: a buried mark is DRAWN as a hidden line rather
+        // than erased.
+        return (
+          <PickMark
+            key={`e${index}`}
+            position={
+              anchors[slot]?.position ??
+              occtToScene(polylineMidpoint(edge.polyline))
+            }
+            zIndexRange={EDGE_Z_RANGE}
+          >
+            {hidden ? <BuriedMark shape="edge" /> : null}
+            <PickNode
+              shape="edge"
+              // A7's recession: the edge band is this pick's primary hit-test
+              // now, so the mark is the keyboard/touch fallback.
+              recede
+              occluded={hidden}
+              selected={selectedEdges.has(index)}
+              data-testid={`measure-edge-${index}`}
+              data-buried={hidden ? "true" : "false"}
+              aria-label={`Edge ${index + 1}, ${edge.kind}`}
+              onClick={() => pickEdge(index)}
+              onPointerOver={() => setHoverEdge(index)}
+              onPointerOut={() => setHoverEdge(null)}
+              onFocus={() => setHoverEdge(index)}
+              onBlur={() => setHoverEdge(null)}
+            />
+          </PickMark>
+        );
+      })}
 
       {/* Pickable vertices — round snap nodes, rendered LAST + in the higher z
           band so they always win the hit-test against a nearby edge mark.

@@ -35,6 +35,7 @@ import {
   polylineMidpoint,
   polylineSegments,
 } from "../measure/geometry";
+import { BuriedMark } from "./BuriedMark";
 import { ANNOTATION_LAYER } from "./instruments";
 import { EdgeBandLayer } from "./EdgeBandLayer";
 import type { EdgeBandInput } from "./edgeBand";
@@ -177,22 +178,28 @@ export function EdgePickOverlay() {
       {offered.map(({ edge, index }, slot) => {
         const midpoint = polylineMidpoint(edge.polyline);
         const anchor = anchors[slot];
+        const hidden = anchor?.buried === true;
         return (
           <PickMark
             key={`e${index}`}
             position={anchor?.position ?? occtToScene(midpoint)}
             zIndexRange={EDGE_Z_RANGE}
           >
+            {/* The hidden-line ghost. A buried edge used to draw NOTHING, so
+                "behind the part" and "not there" were the same picture — which
+                is how a modeller filleted three of four corners and shipped an
+                asymmetric housing. */}
+            {hidden ? <BuriedMark shape="edge" /> : null}
             <PickNode
               shape="edge"
               // A7's recession: the edge band is this pick's primary hit-test
               // now, so the mark is the keyboard/touch fallback and may rest
               // quiet.
               recede
-              occluded={anchor?.buried ?? false}
+              occluded={hidden}
               selected={pickedKeys.has(edgeSignatureKey(edge.signature))}
               data-testid={`edge-pick-${index}`}
-              data-buried={anchor?.buried === true ? "true" : "false"}
+              data-buried={hidden ? "true" : "false"}
               aria-label={edgeLabel(index, edge.kind, midpoint)}
               onClick={() => toggle(edge.signature)}
               onPointerOver={() => setHoverEdge(index)}
