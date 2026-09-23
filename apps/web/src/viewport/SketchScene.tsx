@@ -134,6 +134,7 @@ import {
 import { AdaptiveGrid } from "./AdaptiveGrid";
 import { bluingRadiusMm, bluingWash } from "./bluingWash";
 import { ConstraintGlyphs } from "./ConstraintGlyphs";
+import { ANNOTATION_LAYER } from "./instruments";
 import { sketchIsDrawn, usePartViewStore } from "./partView";
 import { SolveProposalAnchor } from "./SolveProposalAnchor";
 import {
@@ -2473,7 +2474,12 @@ export function SketchScene({ solved, facePicking = false }: SketchSceneProps) {
   // back cannot shrink the affordance you click to start a sketch on it.
   const sheetSizeMm = apparentSizeMm(PLANE_SIZE_MM, usePlanePickStandoffMm());
   return (
-    <group>
+    // ANNOTATION, not a proposal. Sketch ink is present from page load and can
+    // sit anywhere the modeler has drawn — a shown sketch 100 mm clear of the
+    // body used to fly the camera 297 mm on the first edge pick of a 2 mm
+    // fillet, shrinking the part from 532 px to 82 px. `instruments.ts` carries
+    // the measurement and why the tag lives on the annotation.
+    <group userData={ANNOTATION_LAYER}>
       {drawn.map((layer) => (
         <SolvedLayer key={layer.featureId} layer={layer} />
       ))}

@@ -35,6 +35,7 @@ import {
   polylineMidpoint,
   polylineSegments,
 } from "../measure/geometry";
+import { ANNOTATION_LAYER } from "./instruments";
 import { EdgeBandLayer } from "./EdgeBandLayer";
 import type { EdgeBandInput } from "./edgeBand";
 import { useHiddenPicks } from "./hiddenPicks";
@@ -145,7 +146,7 @@ export function EdgePickOverlay() {
   if (overlay === null) return null;
 
   return (
-    <group>
+    <group userData={ANNOTATION_LAYER}>
       {/* The hit-test: a 24 px screen-space corridor along every edge. */}
       <EdgeBandLayer
         edges={bandEdges}

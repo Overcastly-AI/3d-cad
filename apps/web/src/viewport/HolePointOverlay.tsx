@@ -71,6 +71,7 @@ import {
 } from "../features/facePlacement";
 import { formatVec3Mm, occtToScene } from "../measure/geometry";
 import { sceneToOcctTuple } from "../sketch/plane";
+import { ANNOTATION_LAYER } from "./instruments";
 import { useIsHiddenFaceOrdinal } from "./hiddenPicks";
 import { PickMark } from "./PickMark";
 import { Segments } from "./overlaySegments";
@@ -316,7 +317,7 @@ export function HolePointOverlay({
     "pointer-events-none select-none rounded-sm bg-carbide/80 px-0.5 font-display text-2xs uppercase tracking-[0.14em] text-mist";
 
   return (
-    <group>
+    <group userData={ANNOTATION_LAYER}>
       {/* The datum + the live point. `depthTest={false}`: the placement face is
           as often as not the one turned AWAY from the camera (a back plate is
           drilled from behind), and an annotation of the ACTIVE command that

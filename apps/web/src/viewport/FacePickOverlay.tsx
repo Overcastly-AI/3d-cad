@@ -34,6 +34,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OverlayFace, PlanarFaceSignature } from "../api/parts";
 import { faceLabel, isPickableFace } from "../features/face";
 import { occtToScene } from "../measure/geometry";
+import { ANNOTATION_LAYER } from "./instruments";
 import { FacePatch } from "./facePatch";
 import { useHiddenPicks } from "./hiddenPicks";
 import { PickMark } from "./PickMark";
@@ -133,7 +134,7 @@ export function FacePickOverlay({
   if (faces === null) return null;
 
   return (
-    <group>
+    <group userData={ANNOTATION_LAYER}>
       <PickSurface
         onMove={onSurfaceMove}
         onOut={() => setHovered(null)}

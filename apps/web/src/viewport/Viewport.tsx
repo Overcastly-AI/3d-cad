@@ -48,7 +48,7 @@ import {
   framingOf,
   overrunNeedsRefit,
 } from "./standoff";
-import { handUnderway, instrumentsMounted } from "./instruments";
+import { handUnderway, instrumentsMounted, proposalBoxOf } from "./instruments";
 import {
   distanceForOrthoZoom,
   orthoClipPlanes,
@@ -1079,28 +1079,26 @@ export function Viewport({
   }, [bounds]);
 
   /**
-   * WHAT THE OPEN COMMAND IS DRAWING — the world box of the command layer, or
-   * null when no command is proposing anything (CRAFT-12).
+   * WHAT THE OPEN COMMAND IS PROPOSING — the world box of the command layer's
+   * non-annotation children, or null when no command is proposing anything
+   * (CRAFT-12).
    *
-   * Two guards, and the first is the one that matters. The command layer also
-   * holds the RESTING sketch ink, which is present from page load and is not a
-   * proposal; without the instrument check the camera would read it as one and
-   * re-frame on a subject it has already framed. `instruments.ts` says why that
-   * question is asked of a registry rather than of the scene graph.
+   * Two guards and they answer two different questions. `instrumentsMounted()`
+   * says WHETHER a command is proposing at all; `proposalBoxOf` says WHAT it is
+   * proposing, skipping the subtrees tagged {@link ANNOTATION_LAYER} — the
+   * resting sketch ink, the pick marks, the measure dimensions. Both halves are
+   * needed and having only the first is what let a shown sketch 100 mm away
+   * fly the camera off a 2 mm fillet; `instruments.ts` carries the measurement
+   * and the reason the tag sits on the annotation rather than on the proposals.
    *
-   * The Box3 is REUSED. This is called on every rendered frame of an open
-   * command and the viewport rule is that the render loop allocates nothing;
-   * the caller reads it and does not keep it, which is stated here because a
-   * caller that stashed the reference would be holding a box that changes under
-   * it next frame.
+   * The Box3 is REUSED — see `proposalBoxOf`.
    */
   const commandLayer = useRef<Group>(null);
   const proposalBox = useRef(new Box3());
   const readProposal = useCallback((): Box3 | null => {
     const group = commandLayer.current;
     if (group === null || !instrumentsMounted()) return null;
-    const box = proposalBox.current.makeEmpty();
-    box.setFromObject(group);
+    const box = proposalBoxOf(group, proposalBox.current);
     return box.isEmpty() ? null : box;
   }, []);
 

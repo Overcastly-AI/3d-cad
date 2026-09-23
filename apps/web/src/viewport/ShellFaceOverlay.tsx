@@ -30,6 +30,7 @@ import type { OverlayFace, PlanarFaceSignature } from "../api/parts";
 import { faceLabel, faceSignatureKey, isPickableFace } from "../features/face";
 import { useFacePickStore } from "../features/facePickStore";
 import { occtToScene } from "../measure/geometry";
+import { ANNOTATION_LAYER } from "./instruments";
 import { FacePatch } from "./facePatch";
 import { useHiddenPicks } from "./hiddenPicks";
 import { PickMark } from "./PickMark";
@@ -123,7 +124,7 @@ export function ShellFaceOverlay({
   if (overlay === null) return null;
 
   return (
-    <group>
+    <group userData={ANNOTATION_LAYER}>
       <PickSurface
         onMove={onSurfaceMove}
         onOut={() => setHoverFace(null)}
