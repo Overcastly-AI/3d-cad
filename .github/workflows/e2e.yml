@@ -153,6 +153,27 @@
 # when T/N approaches the cap (N=6 -> 12.6 min) and not before; N=6 also means 7
 # concurrent jobs per push from this workflow alone on top of ci.yml's 6.
 #
+# ── 2026-09-23: the balance decayed because the manifest did ────────────────
+#
+# `36360ae`'s shards ran 33m53 / 26m50 / 21m45 / 40m10 and shard 4 was killed
+# by the 40-minute step timeout with 0 of 233 tests failing. Cause: 31 of 175
+# spec files had been added since the manifest was measured, each packed at the
+# heaviest known weight, so 65 % of the weight the planner balanced was a guess.
+# Re-measured, that same partition predicts 1.04 / 0.84 / 0.82 / 1.31 of its
+# mean against the observed 1.11 / 0.88 / 0.71 / 1.31 — the guesses, not the
+# runner, made the imbalance. Fixed at the cause: the manifest was re-measured
+# in full, and `e2e complete` now REFUSES when more than 10 % of the plan is
+# guessed (see the step "The shard plan must rest on measurements").
+#
+# What balance cannot fix, stated so nobody mistakes it for headroom: the four
+# steps of that run sum to ~123 min, i.e. ~31 min per shard when balanced,
+# against the 40-minute step cap — 1.3x, down from the 2.1x recorded above,
+# as the suite went from 145 to 180 spec files in a month (and the older files
+# moved unevenly too: 1.3x to 5.3x between the two measurements against a
+# median of 2.2x, so a merge onto the old numbers was not enough and the whole
+# manifest was re-measured). By the rule above that is the point
+# to weigh N=5 or 6. Raising `timeout-minutes` instead is headroom, not a fix.
+#
 # The property that must survive is GATE-1's — a spec nobody named still runs.
 # It survives because the planner iterates the DISCOVERED set and looks the
 # manifest up per file, so an unmeasured file is still placed (and assumed to be
@@ -671,6 +692,31 @@ jobs:
         continue-on-error: true
         run: |
           python3 scripts/e2e-shard-plan.py --drift shard-reports/playwright-shard-*.json
+      # VOTES, unlike the drift report above — and the difference is the lesson
+      # of `36360ae` (2026-09-23). Unmeasured files were ALWAYS reported, here
+      # and in every shard's log, and nobody acted for 3.5 weeks: by then 31 of
+      # 175 spec files had no duration, 65 % of the weight the planner balanced
+      # was a guess, every shard predicted 53.7 min, and the real steps ran
+      # 33m53 / 26m50 / 21m45 / 40m10 — shard 4 killed by its 40-minute timeout
+      # with 0 of 233 tests failing. A report that has been ignored once has
+      # been measured as ignorable.
+      #
+      # It is DETERMINISTIC, which is why it may vote where the drift report
+      # may not: it compares the discovered file set with the committed
+      # manifest, and reads no timing to decide. Timings are used only to PRINT
+      # the fix — the missing entries, calibrated from these very shard reports
+      # onto the manifest's scale, ready to paste (the Verdict step re-prints
+      # them last, because the log tail is the only channel into this job).
+      # Budget: MAX_GUESSED_SHARE in scripts/e2e-shard-plan.py (10 % of the
+      # packed weight: two unmeasured specs pass with a warning, a third refuses).
+      - name: The shard plan must rest on measurements
+        id: manifest
+        continue-on-error: true
+        run: |
+          python3 scripts/e2e-shard-plan.py \
+            --check-manifest shard-reports/playwright-shard-*.json \
+            --list-json discovered.json \
+            --summary-out "$RUNNER_TEMP/manifest-check.txt"
       - name: Verdict
         run: |
           set -euo pipefail
@@ -795,8 +841,10 @@ jobs:
           echo "posture: no retries, $flag intact ($flagged/$invocations audit invocation(s))"
           shards='${{ needs.playwright.result }}'
           audit='${{ steps.audit.outcome }}'
+          manifest='${{ steps.manifest.outcome }}'
           echo "playwright shards: $shards"
           echo "coverage audit:    $audit"
+          echo "duration manifest: $manifest"
           failed=0
           if [[ "$shards" != "success" ]]; then
             echo "::error::playwright shards concluded '$shards' — see the shard logs"
@@ -804,6 +852,13 @@ jobs:
           fi
           if [[ "$audit" != "success" ]]; then
             echo "::error::the shards did not cover the suite — see the audit step"
+            failed=1
+          fi
+          # Last, so a tail of this job's log carries the entries to paste.
+          if [[ "$manifest" != "success" ]]; then
+            echo "::error::too much of the shard plan is guessed — add these to scripts/e2e-durations.json:"
+            cat "$RUNNER_TEMP/manifest-check.txt" 2>/dev/null ||
+              echo "(no summary written — the check died before it; read its step)"
             failed=1
           fi
           exit "$failed"

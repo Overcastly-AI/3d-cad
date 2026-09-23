@@ -38,6 +38,20 @@ suite, so an unmeasured newcomer degrades BALANCE (it may be over-provisioned)
 and never coverage. That asymmetry is deliberate: the optimistic default would
 pile unknown files onto one shard.
 
+Assume-heaviest bounds the damage of a FEW guesses and nothing more, and the
+2026-09-23 timeout (`36360ae`, shard 4 at 40m10 against a 40-minute cap, 0
+failures) is what many guesses do: 31 unmeasured files were 65 % of the packed
+weight, their real costs ran from 8 s to 11 min, and "balanced" meant balanced
+on invented numbers. Re-measured, that partition predicts 1.04 / 0.84 / 0.82 /
+1.31 of its mean against CI's observed 1.11 / 0.88 / 0.71 / 1.31. A better
+PRIOR was tried and rejected: tests x median seconds-per-test re-plans the
+held-out 31 at 1.07x where heaviest gives 1.17x, but it prices the suite's
+expensive few-test specs as cheap (camera-restore: 5 tests, 5 min, which
+median s/test prices at ~1 min), the one error the prior exists to avoid. So
+the prior stays pessimistic and the NUMBER of guesses is bounded instead:
+`--check-manifest` refuses above `MAX_GUESSED_SHARE`, and `e2e complete` runs
+it.
+
 Three checks make that assertable rather than intended:
 
 1. `--self-test` includes an unlisted file and demands it be assigned, and
@@ -62,6 +76,13 @@ Usage:
         refused (--allow-shrink overrides): it would drop the other shards'
         measurements, and each dropped file then packs at the pessimistic
         weight — the balance quietly undone, with no gate to notice.
+    e2e-shard-plan.py --emit-durations REPORT.json ... --merge
+        ADD only the files the manifest lacks, calibrated onto its scale by the
+        files measured on both sides (>= MIN_CALIBRATION_FILES). Never drops or
+        rescales an existing entry. The cheap refresh after adding a spec.
+    e2e-shard-plan.py --check-manifest [REPORT.json ...] [--list-json FILE]
+        Refuse when more than MAX_GUESSED_SHARE of the plan's weight is
+        unmeasured. With reports, print the missing entries ready to paste.
     e2e-shard-plan.py --drift REPORT.json ...
     e2e-shard-plan.py --self-test
 """
@@ -88,6 +109,34 @@ MANIFEST = REPO / "scripts" / "e2e-durations.json"
 #: With any measurements present the default is the manifest's own maximum — see
 #: `pessimistic_weight`. Both are deliberately at the top of the range.
 FALLBACK_SECONDS = 300.0
+
+#: How much of a plan's predicted weight may be GUESSED before the plan stops
+#: being a measurement at all. `--check-manifest` refuses above it.
+#:
+#: WHY A REFUSAL AND NOT ANOTHER WARNING (2026-09-23, `36360ae`). The planner
+#: always printed its unmeasured files — to stderr of each shard, and again in
+#: the `--drift` step of `e2e complete` — and for 3.5 weeks nobody acted on it.
+#: By then 31 of 175 files (18 %) were unmeasured, each packed at the heaviest
+#: known weight (277.8 s), so **65 % of the weight the packer balanced was
+#: invented**: every shard predicted 53.7 min, and the four real steps ran
+#: 33m53 / 26m50 / 21m45 / 40m10 — shard 4 killed by its 40-minute step
+#: timeout with 0 failures. A warning that has been ignored once has been
+#: measured as ignorable. The guess is bounded here instead.
+#:
+#: 10 % because it is the point at which a guess can plausibly decide a shard:
+#: with a fresh manifest the ideal quarter is ~25 % of the suite, and a shard's
+#: guessed content is at most the whole guessed share, so at 10 % the worst case
+#: misallocates under half a quarter — the same order as the biggest single
+#: file, which is the floor no plan can beat anyway. (An unmeasured file costs
+#: `pessimistic_weight`, i.e. one heaviest-file's worth — ~5 % of the suite at
+#: the 2026-09-23 refresh — so this admits two new specs and refuses the third;
+#: each refused run prints the exact entries to paste, see `cmd_check`.)
+MAX_GUESSED_SHARE = 0.10
+
+#: A calibration ratio (seconds on THIS machine per manifest second) needs a
+#: few files measured on both sides, or it is one file's noise wearing the
+#: name of a ratio. Used by `--emit-durations --merge` and `--check-manifest`.
+MIN_CALIBRATION_FILES = 3
 
 
 # ── discovery ────────────────────────────────────────────────────────────────
@@ -178,6 +227,51 @@ def pessimistic_weight(durations: dict[str, float]) -> float:
     the next `qa-*` spec on whichever shard is already worst.
     """
     return max(durations.values()) if durations else FALLBACK_SECONDS
+
+
+def guessed_share(
+    discovered: dict[str, int], durations: dict[str, float]
+) -> tuple[float, list[str]]:
+    """(fraction of the packed weight that is a GUESS, the unmeasured files).
+
+    Weighted by what the packer actually USES — an unmeasured file at the
+    pessimistic weight — because that is the quantity that decides where files
+    go. A count ("3 of 176 unmeasured") understates it: each guess is packed as
+    the heaviest file in the suite, so three guesses can be 10 % of the plan.
+    """
+    default = pessimistic_weight(durations)
+    unmeasured = sorted(f for f in discovered if f not in durations)
+    total = sum(durations.get(f, default) for f in discovered)
+    guessed = default * len(unmeasured)
+    return (guessed / total if total else 1.0), unmeasured
+
+
+def calibration_ratio(
+    observed: dict[str, float], manifest: dict[str, float]
+) -> tuple[float, list[str]]:
+    """Seconds in `observed` per manifest second, over the files both measured.
+
+    The manifest is in ONE machine's seconds (it has to be: shards are balanced
+    by relative cost, and mixing a CI runner's numbers with a dev container's
+    would weight some files ~2x against others for no reason in the files). So
+    a measurement from anywhere else — a CI run, a loaded local box — enters the
+    manifest only after being divided by this ratio.
+
+    Ratio of SUMS, not a median of per-file ratios: it weights the heavy files,
+    which are the ones whose placement matters, and a 6 s file whose cost
+    doubled from a cold Vite cannot swing it.
+    """
+    common = sorted(
+        f for f in observed if manifest.get(f, 0) > 0 and observed.get(f, 0) > 0
+    )
+    if len(common) < MIN_CALIBRATION_FILES:
+        raise SystemExit(
+            f"e2e-shard-plan: only {len(common)} file(s) are measured both here "
+            f"and in the manifest — at least {MIN_CALIBRATION_FILES} are needed "
+            "to calibrate one machine's seconds against the other's. Run a few "
+            "already-measured specs alongside the new ones."
+        )
+    return sum(observed[f] for f in common) / sum(manifest[f] for f in common), common
 
 
 # ── packing ──────────────────────────────────────────────────────────────────
@@ -403,6 +497,9 @@ def _collect_durations(suite: dict[str, Any], found: dict[str, float]) -> None:
         _collect_durations(nested, found)
 
 
+DEFAULT_NOTE = "regenerated from a full sharded run"
+
+
 def write_manifest(path: Path, totals: dict[str, float], note: str) -> None:
     payload = {
         "note": note,
@@ -436,6 +533,21 @@ def cmd_shard(args: argparse.Namespace) -> int:
         f"{loads[index - 1] / 60:.1f} min predicted",
         file=sys.stderr,
     )
+    if unmeasured:
+        # An ANNOTATION, on stdout where the runner reads workflow commands, so
+        # it lands on the run's summary page rather than in the middle of a
+        # 40-minute log. The stderr line above was the only signal for the 3.5
+        # weeks it took 31 unmeasured files to time a shard out.
+        share, _ = guessed_share(discovered, durations)
+        mine = [f for f in files if f not in durations]
+        print(
+            f"::warning title=e2e duration manifest::{len(unmeasured)} spec "
+            f"file(s) have no measured duration, so {share:.0%} of this plan's "
+            f"weight is a guess (this shard holds {len(mine)}: "
+            f"{', '.join(mine[:6]) or 'none'}). `e2e complete` refuses above "
+            f"{MAX_GUESSED_SHARE:.0%}; see scripts/e2e-shard-plan.py "
+            "--check-manifest."
+        )
     if not args.no_verify:
         problems = verify(files, patterns, args.config)
         if problems:
@@ -520,6 +632,8 @@ def cmd_emit(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    if args.merge:
+        return _merge(args, totals)
     # THE PARTIAL-REFRESH GUARD. The empty case above is the easy half; the
     # dangerous half is a refresh from SOME of the shards, which is what you
     # have on hand after re-running one red shard locally. It writes a manifest
@@ -543,12 +657,133 @@ def cmd_emit(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    write_manifest(args.out, totals, args.note)
+    write_manifest(args.out, totals, args.note or DEFAULT_NOTE)
     print(
         f"wrote {len(totals)} file durations to {args.out} "
         f"(total {sum(totals.values()) / 60:.1f} min)"
     )
     return 0
+
+
+def _merge(args: argparse.Namespace, totals: dict[str, float]) -> int:
+    """ADD the files the manifest lacks, calibrated onto its scale.
+
+    The cheap refresh, and the one `--check-manifest` points at: run the new
+    specs locally together with a few that are already measured, then merge.
+    Existing entries are never touched (a partial run cannot shrink or rescale
+    the manifest — the partial-refresh guard's concern cannot arise), and every
+    added number is divided by the ratio measured on the overlap, so a loaded
+    box or a CI runner lands in the manifest's own seconds.
+    """
+    existing = load_manifest(args.out)
+    if not existing:
+        print(
+            "e2e-shard-plan: --merge needs an existing manifest to calibrate "
+            f"against, and {args.out} has none — use a full --emit-durations.",
+            file=sys.stderr,
+        )
+        return 1
+    ratio, common = calibration_ratio(totals, existing)
+    added = {f: v / ratio for f, v in totals.items() if f not in existing}
+    if not added:
+        print(
+            f"nothing to merge: every file in these reports is already in "
+            f"{args.out} (calibration {ratio:.2f}x over {len(common)} files)"
+        )
+        return 0
+    note = args.note or str(json.loads(args.out.read_text()).get("note", ""))
+    write_manifest(args.out, {**existing, **added}, note)
+    print(
+        f"merged {len(added)} file(s) into {args.out}, calibrated by "
+        f"{ratio:.2f}x (this run's seconds per manifest second, over "
+        f"{len(common)} file(s) measured on both sides: {', '.join(common[:5])}"
+        f"{' …' if len(common) > 5 else ''})"
+    )
+    for f in sorted(added):
+        print(f"  {totals[f]:7.1f} s here -> {added[f]:7.1f} s  {f}")
+    return 0
+
+
+def check_manifest(
+    discovered: dict[str, int],
+    durations: dict[str, float],
+    observed: dict[str, float] | None = None,
+) -> tuple[bool, list[str], dict[str, float]]:
+    """Is the plan a MEASUREMENT? (ok, report lines, suggested entries).
+
+    Refuses when more than `MAX_GUESSED_SHARE` of the packed weight rests on
+    files with no measured duration. When `observed` durations are supplied
+    (the shard reports `e2e complete` already holds), it also computes the
+    missing entries on the manifest's scale, so a refusal carries its own fix
+    rather than an instruction to go and measure something.
+    """
+    share, unmeasured = guessed_share(discovered, durations)
+    gone = sorted(set(durations) - set(discovered))
+    ok = share <= MAX_GUESSED_SHARE
+    lines = [
+        f"{len(discovered)} discovered spec files, "
+        f"{len(discovered) - len(unmeasured)} measured, {len(unmeasured)} not; "
+        f"{share:.1%} of the plan's weight is a guess "
+        f"(budget {MAX_GUESSED_SHARE:.0%})"
+    ]
+    for f in unmeasured:
+        lines.append(f"  unmeasured (packed as heaviest): {f}")
+    if gone:
+        lines.append(
+            f"  {len(gone)} manifest "
+            f"{'entry names' if len(gone) == 1 else 'entries name'} no discovered "
+            f"file (renamed or deleted?): {', '.join(gone[:6])}"
+        )
+    suggested: dict[str, float] = {}
+    if unmeasured and observed:
+        try:
+            ratio, common = calibration_ratio(observed, durations)
+        except SystemExit as exc:
+            lines.append(f"  cannot suggest entries: {exc}")
+        else:
+            suggested = {
+                f: round(observed[f] / ratio, 1) for f in unmeasured if f in observed
+            }
+            lines.append(
+                f"  suggested entries, this run's seconds / {ratio:.2f} "
+                f"(calibrated over {len(common)} files measured on both sides):"
+            )
+            lines.extend(f'    "{f}": {v},' for f, v in sorted(suggested.items()))
+    return ok, lines, suggested
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    if args.list_json:
+        discovered = files_in_report(json.loads(args.list_json.read_text()))
+    else:
+        discovered = files_in_report(playwright_list(args.config))
+    if not discovered:
+        print("e2e-shard-plan: --check-manifest discovered NO spec files.")
+        return 1
+    durations = load_manifest(args.durations)
+    observed: dict[str, float] | None = None
+    if args.check_manifest:
+        observed, notes = durations_from_reports(args.check_manifest)
+        for line in notes:
+            print(f"  note: {line}")
+    ok, lines, _ = check_manifest(discovered, durations, observed)
+    print("\n== duration manifest coverage ===============================")
+    for line in lines:
+        print(line)
+    text = "\n".join(lines) + "\n"
+    if args.summary_out:
+        args.summary_out.write_text(text)
+    if ok:
+        print("OK — the shard plan rests on measurements.")
+        return 0
+    print(
+        f"::error title=e2e duration manifest::more than "
+        f"{MAX_GUESSED_SHARE:.0%} of the shard plan is guessed — the shards are "
+        "balanced on invented numbers. Add the suggested entries above to "
+        "scripts/e2e-durations.json, or measure locally and run "
+        "`scripts/e2e-shard-plan.py --emit-durations REPORT.json --merge`."
+    )
+    return 1
 
 
 def cmd_drift(args: argparse.Namespace) -> int:
@@ -640,6 +875,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="rebuild the manifest from Playwright JSON reports",
     )
     mode.add_argument(
+        "--check-manifest",
+        nargs="*",
+        type=Path,
+        metavar="REPORT",
+        help="refuse when more than MAX_GUESSED_SHARE of the plan's weight is "
+        "unmeasured; given shard reports, print the missing entries calibrated "
+        "onto the manifest's scale",
+    )
+    mode.add_argument(
         "--drift",
         nargs="+",
         type=Path,
@@ -651,7 +895,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--durations", type=Path, default=MANIFEST)
     parser.add_argument("--list-json", type=Path, help="a pre-computed --list dump")
     parser.add_argument("--out", type=Path, default=MANIFEST)
-    parser.add_argument("--note", default="regenerated from a full sharded run")
+    parser.add_argument(
+        "--note",
+        default=None,
+        help="the manifest's note (default: kept under --merge, else a stock line)",
+    )
+    parser.add_argument(
+        "--merge",
+        action="store_true",
+        help="with --emit-durations: ADD only the files the manifest lacks, "
+        "divided by a calibration ratio measured on the files both sides have",
+    )
+    parser.add_argument(
+        "--summary-out",
+        type=Path,
+        help="with --check-manifest: also write the report here (for a verdict "
+        "step to re-print at the end of the job log)",
+    )
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument(
         "--allow-shrink",
@@ -697,6 +957,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_simulate(args)
     if args.emit_durations:
         return cmd_emit(args)
+    if args.check_manifest is not None:
+        return cmd_check(args)
     return cmd_drift(args)
 
 
@@ -707,7 +969,7 @@ def main(argv: list[str] | None = None) -> int:
 
 #: See e2e-shard-audit.py — `all([])` is True, so a lost `checks.append` would
 #: remove coverage while the self-test still printed success.
-EXPECTED_CHECKS = 24
+EXPECTED_CHECKS = 32
 
 
 def self_test() -> int:
@@ -918,6 +1180,112 @@ def self_test() -> int:
         ok(
             override == 0 and len(load_manifest(full)) == 1,
             "…and --allow-shrink is the deliberate override (negative control)",
+        )
+
+    # THE GUESS BUDGET (2026-09-23). The failure it exists for was not a wrong
+    # number but an ignored one: 31 unmeasured files, 65 % of the packed weight
+    # invented, a shard timed out. So it is exercised on BOTH sides of the
+    # threshold — a budget that only ever refuses would be deleted, and one that
+    # never does is the stderr line it replaced. A suite of 100 x 100 s plus one
+    # 150 s file puts the boundary between 7 guesses (9.4 %) and 8 (10.6 %).
+    wide = {f"w-{i:03d}.spec.ts": 2 for i in range(101)}
+    wide_d = {f"w-{i:03d}.spec.ts": 100.0 for i in range(100)}
+    wide_d["w-100.spec.ts"] = 150.0
+
+    def with_new(k: int) -> dict[str, int]:
+        return {**wide, **{f"new-{j}.spec.ts": 1 for j in range(k)}}
+
+    ok_in, _, _ = check_manifest(wide, wide_d)
+    ok(
+        ok_in and guessed_share(wide, wide_d)[0] == 0.0,
+        "a fully measured suite passes the guess budget at 0 %",
+    )
+    ok_7, _, _ = check_manifest(with_new(7), wide_d)
+    ok_8, lines_8, _ = check_manifest(with_new(8), wide_d)
+    ok(ok_7, "7 guesses (9.4 % of the packed weight) are within the budget")
+    ok(
+        not ok_8 and any("new-7.spec.ts" in line for line in lines_8),
+        "…8 guesses (10.6 %) are REFUSED, naming the unmeasured files",
+    )
+    # Weighted, not counted: the share must price a guess at what the packer
+    # charges for it (the heaviest file), or 8 files in 109 would read as 7 %.
+    ok(
+        abs(guessed_share(with_new(8), wide_d)[0] - 1200 / 11350) < 1e-9,
+        "…and the share is the PACKED weight of the guesses, not their count",
+    )
+    # A refusal that carries its own fix: given a run's reports, the missing
+    # entries come back on the manifest's scale. This "run" is 2x slower than
+    # the manifest on every file both measured, so a new file observed at 400 s
+    # belongs in the manifest at 200 s.
+    observed = {f: v * 2 for f, v in wide_d.items()}
+    observed["new-0.spec.ts"] = 400.0
+    _, _, suggested = check_manifest(with_new(8), wide_d, observed)
+    ok(
+        suggested == {"new-0.spec.ts": 200.0},
+        "…and given a run's reports it suggests entries CALIBRATED to the manifest",
+    )
+    try:
+        calibration_ratio({"a": 1.0, "b": 1.0}, {"a": 1.0, "b": 1.0})
+    except SystemExit as exc:
+        ok("at least 3" in str(exc), "a calibration over < 3 shared files REFUSES")
+    else:
+        ok(False, "a calibration over < 3 shared files REFUSES")
+
+    # --merge end to end: adds only what is missing, divided by the measured
+    # ratio, and never rewrites an entry that exists.
+    def report_of(seconds: dict[str, float]) -> dict[str, Any]:
+        return {
+            "suites": [
+                {
+                    "file": f,
+                    "specs": [
+                        {"file": f, "tests": [{"results": [{"duration": s * 1000}]}]}
+                    ],
+                }
+                for f, s in seconds.items()
+            ]
+        }
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        manifest = root / "manifest.json"
+        write_manifest(manifest, durations, "keep this note")
+        run = root / "run.json"
+        # Three calibration files at 3x IN SUM but not each (60 + 120 + 900 against
+        # 30 + 30 + 300), so an entry wrongly rescaled would CHANGE and show;
+        # one new file at 90 s.
+        run.write_text(
+            json.dumps(
+                report_of(
+                    {
+                        "light-00.spec.ts": 60.0,
+                        "light-01.spec.ts": 120.0,
+                        "qa-heavy-0.spec.ts": 900.0,
+                        "fresh.spec.ts": 90.0,
+                    }
+                )
+            )
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = main(
+                ["--emit-durations", str(run), "--out", str(manifest), "--merge"]
+            )
+        merged = load_manifest(manifest)
+        ok(
+            code == 0
+            and merged.get("fresh.spec.ts") == 30.0
+            and {k: v for k, v in merged.items() if k != "fresh.spec.ts"} == durations
+            and json.loads(manifest.read_text())["note"] == "keep this note",
+            "--merge adds ONLY the missing file, calibrated (90 s at 3x -> 30 s), "
+            "and leaves every existing entry and the note untouched",
+        )
+        # Negative control: the same run WITHOUT --merge is a partial refresh,
+        # which the shrink guard must still refuse — merge is not a bypass of it.
+        with contextlib.redirect_stderr(io.StringIO()):
+            partial = main(["--emit-durations", str(run), "--out", str(manifest)])
+        ok(
+            partial == 1 and load_manifest(manifest) == merged,
+            "…and the same reports WITHOUT --merge are still refused as partial",
         )
 
     for good, label in checks:
