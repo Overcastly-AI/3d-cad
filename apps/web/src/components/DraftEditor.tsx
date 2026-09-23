@@ -20,7 +20,7 @@ import {
   type LengthUnit,
   type SegmentOption,
 } from "@loft/design";
-import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect } from "react";
 
 import type { DraftParams } from "../api/parts";
 import {
@@ -38,6 +38,7 @@ import { useFacePickStore } from "../features/facePickStore";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { DatumPlaneName } from "../sketch/plane";
 import { EditorCard } from "./EditorCard";
+import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
 /**
  * The open form projected for the VIEWPORT — what the taper gauge needs to place
@@ -158,14 +159,16 @@ export function DraftEditor({
   angleOverride = null,
 }: DraftEditorProps) {
   const unit = useDocumentLengthUnit();
-  const [form, setForm] = useState<DraftForm>(initial);
-  useEffect(() => setForm(initial), [initial]);
-
-  // The viewport gauge writes THIS field — one angle, two controls.
-  useEffect(() => {
-    if (angleOverride === null) return;
-    setForm((f) => ({ ...f, angleInput: draftAngleInput(angleOverride.deg) }));
-  }, [angleOverride]);
+  // Re-seeded on retarget; the viewport gauge writes THIS field — one angle,
+  // two controls. Both writes land during render (`useGaugeFedForm`), so the
+  // field commits WITH the override that carries it.
+  const [form, setForm] = useGaugeFedForm(
+    initial,
+    gaugeWrite(angleOverride, (f: DraftForm, o) => ({
+      ...f,
+      angleInput: draftAngleInput(o.deg),
+    })),
+  );
 
   // Feed the viewport gauge; the cleanup clears it on unmount.
   useEffect(() => {

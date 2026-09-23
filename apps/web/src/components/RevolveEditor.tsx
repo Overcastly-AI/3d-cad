@@ -25,7 +25,7 @@ import {
   type SegmentOption,
   SelectField,
 } from "@loft/design";
-import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect } from "react";
 
 import { useCommandBridge } from "../features/commandActions";
 import type { RevolveParams } from "../api/parts";
@@ -45,6 +45,7 @@ import {
   type RevolveOperation,
 } from "../features/revolve";
 import { EditorCard } from "./EditorCard";
+import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
 /**
  * The open form projected for the VIEWPORT — what the sweep gauge needs in order
@@ -160,20 +161,21 @@ export function RevolveEditor({
   onGaugeChange,
   angleOverride = null,
 }: RevolveEditorProps) {
-  const [form, setForm] = useState<RevolveForm>(initial);
-  // Re-seed when the editor is retargeted at a different feature.
-  useEffect(() => setForm(initial), [initial]);
-
-  const axes = axesByProfile[form.profileFeatureId] ?? [];
-
-  // The viewport gauge writes THIS field. It is not a second copy of the angle;
+  // Re-seeded when the editor is retargeted at a different feature. The
+  // viewport gauge writes THIS field. It is not a second copy of the angle;
   // it is the same one, reached by a different control — and it is written
   // through the same formatter the seed uses, so a dragged value and a typed one
-  // are indistinguishable afterwards.
-  useEffect(() => {
-    if (angleOverride === null) return;
-    setForm((f) => ({ ...f, angleInput: formatAngleInput(angleOverride.deg) }));
-  }, [angleOverride]);
+  // are indistinguishable afterwards. Both writes land during render
+  // (`useGaugeFedForm`), so the field commits WITH the override that carries it.
+  const [form, setForm] = useGaugeFedForm(
+    initial,
+    gaugeWrite(angleOverride, (f: RevolveForm, o) => ({
+      ...f,
+      angleInput: formatAngleInput(o.deg),
+    })),
+  );
+
+  const axes = axesByProfile[form.profileFeatureId] ?? [];
 
   const submit = useCallback(() => {
     const angle = parseAngleDeg(form.angleInput);

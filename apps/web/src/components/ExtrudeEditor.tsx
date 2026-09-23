@@ -29,7 +29,7 @@ import {
   type SegmentOption,
   SelectField,
 } from "@loft/design";
-import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect } from "react";
 
 import { useCommandBridge } from "../features/commandActions";
 import { lengthInputValue } from "../units/length";
@@ -53,6 +53,7 @@ import {
   withProfile,
 } from "../features/extrude";
 import { EditorCard } from "./EditorCard";
+import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
 export interface ExtrudeEditorProps {
   mode: "create" | "edit";
@@ -154,49 +155,24 @@ export function ExtrudeEditor({
   depthOverride = null,
 }: ExtrudeEditorProps) {
   const unit = useDocumentLengthUnit();
-  const [form, setForm] = useState<ExtrudeForm>(initial);
-
-  // BOTH WRITES BELOW HAPPEN DURING RENDER, NOT IN AN EFFECT — and that is the
-  // fix for a measured flicker, not style (2026-09-23). As effects they cost the
-  // field one extra commit, at DEFAULT priority, after the render that carried
-  // the new prop. The gauge draws its ask in the render of the pointer event
-  // itself, so for every drag step the rod led the field by a commit, and after
-  // a release the field read the PREVIOUS step against the rod's new one for
-  // 100-300 ms (`release · rod=26 field=25 · ... · field=26`) — on 2 of 10
-  // drags timed frame by frame, and once in 12 runs of
-  // `gauge-release-sync.spec.ts`. Written here, the field commits with the
-  // override that carries the value: 0 disagreeing frames in 10 drags, the
-  // drag included, where every step used to show one. This is React's
-  // "adjusting state when a prop changes" pattern: each write is guarded by the
-  // prop identity it has already applied, so it runs once per new prop.
-  //
-  // Re-seed when the editor is retargeted at a different feature. Ordered
-  // before the gauge's write so a retarget and a drag landing in the same
-  // render compose exactly as the two effects they replace did.
-  const [seededFrom, setSeededFrom] = useState(initial);
-  if (seededFrom !== initial) {
-    setSeededFrom(initial);
-    setForm(initial);
-  }
-  // The viewport gauge writes the field. Deliberately written in the DOCUMENT
-  // unit through the same formatter the seed uses, so a dragged value and a
-  // typed one are indistinguishable afterwards — including on an inch part,
-  // where the stored millimetres are not what the field shows. Re-written on a
-  // unit change, as the effect it replaces was.
-  const [wrote, setWrote] = useState<{
-    override: { mm: number };
-    unit: typeof unit;
-  } | null>(null);
-  if (
-    depthOverride !== null &&
-    (wrote?.override !== depthOverride || wrote.unit !== unit)
-  ) {
-    setWrote({ override: depthOverride, unit });
-    setForm((f) => ({
-      ...f,
-      distanceInput: lengthInputValue(depthOverride.mm, unit),
-    }));
-  }
+  // The re-seed on retarget and the gauge's write both happen DURING RENDER
+  // (`useGaugeFedForm`), so the field commits with the override that carries
+  // its value rather than one commit behind the drawn rod. The gauge's write is
+  // in the DOCUMENT unit through the same formatter the seed uses, so a dragged
+  // value and a typed one are indistinguishable afterwards — including on an
+  // inch part, where the stored millimetres are not what the field shows — and
+  // is re-written on a unit change.
+  const [form, setForm] = useGaugeFedForm(
+    initial,
+    gaugeWrite(
+      depthOverride,
+      (f: ExtrudeForm, o) => ({
+        ...f,
+        distanceInput: lengthInputValue(o.mm, unit),
+      }),
+      unit,
+    ),
+  );
 
   // Feed the live ghost: every form/unit change re-projects the preview; the
   // cleanup clears it so closing the editor (unmount) never leaves a ghost.

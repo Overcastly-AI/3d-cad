@@ -12,7 +12,7 @@ import {
   SegmentedControl,
   SelectField,
 } from "@loft/design";
-import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect } from "react";
 
 import type { ChamferParams } from "../api/parts";
 import { useCommandBridge } from "../features/commandActions";
@@ -29,6 +29,7 @@ import {
   type SelectionMode,
 } from "../features/modify";
 import { EditorCard } from "./EditorCard";
+import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
 export interface ChamferEditorProps {
   mode: "create" | "edit";
@@ -72,19 +73,23 @@ export function ChamferEditor({
   onPreviewChange,
 }: ChamferEditorProps) {
   const unit = useDocumentLengthUnit();
-  const [form, setForm] = useState<ChamferForm>(initial);
-  useEffect(() => setForm(initial), [initial]);
-
-  // The viewport gauge writes the field, in the DOCUMENT unit through the same
-  // formatter the seed uses — a dragged bevel and a typed one are
-  // indistinguishable afterwards, on an inch part as much as a metric one.
-  useEffect(() => {
-    if (distanceOverride === null) return;
-    setForm((f) => ({
-      ...f,
-      distanceInput: lengthInputValue(distanceOverride.mm, unit),
-    }));
-  }, [distanceOverride, unit]);
+  // Re-seeded on retarget; the viewport gauge writes the field. Both writes
+  // land during render (`useGaugeFedForm`), so the field commits WITH the
+  // override that carries it, never a commit behind the drawn gauge. Written
+  // in the DOCUMENT unit through the same formatter the seed uses — a dragged
+  // bevel and a typed one are indistinguishable afterwards, on an inch part as
+  // much as a metric one.
+  const [form, setForm] = useGaugeFedForm(
+    initial,
+    gaugeWrite(
+      distanceOverride,
+      (f: ChamferForm, o) => ({
+        ...f,
+        distanceInput: lengthInputValue(o.mm, unit),
+      }),
+      unit,
+    ),
+  );
 
   // Feed the live preview; the cleanup clears it, so closing the editor
   // (unmount) never leaves a band drawn on a body nothing is about to bevel.

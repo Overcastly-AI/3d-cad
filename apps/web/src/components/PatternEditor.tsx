@@ -20,7 +20,7 @@ import {
   type SegmentOption,
   SelectField,
 } from "@loft/design";
-import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect } from "react";
 
 import { useCommandBridge } from "../features/commandActions";
 import { useDocumentLengthUnit } from "../units/documentUnit";
@@ -43,6 +43,7 @@ import { lengthInputValue } from "../units/length";
 import type { PatternPreviewState } from "../viewport/patternGhost";
 import { EditorCard } from "./EditorCard";
 import { ScopeRow } from "./ScopeRow";
+import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
 /**
  * The row the viewport should draw for this form, or `null` when the form is
@@ -129,26 +130,28 @@ export function PatternEditor({
   spacingOverride = null,
 }: PatternEditorProps) {
   const unit = useDocumentLengthUnit();
-  const [form, setForm] = useState<PatternForm>(initial);
-  // Re-seed when the editor is retargeted at a different feature.
-  useEffect(() => setForm(initial), [initial]);
-
   // The viewport's gauges write the fields. A count is a plain integer; a
   // spacing is written in the DOCUMENT unit through the same formatter the seed
   // uses, so a dragged spacing and a typed one are indistinguishable afterwards
   // — including on an inch part, where the stored millimetres are not what the
-  // field shows.
-  useEffect(() => {
-    if (countOverride === null) return;
-    setForm((f) => ({ ...f, countInput: String(Math.round(countOverride.n)) }));
-  }, [countOverride]);
-  useEffect(() => {
-    if (spacingOverride === null) return;
-    setForm((f) => ({
+  // field shows. Re-seeded when the editor is retargeted at a different
+  // feature; every write lands during render (`useGaugeFedForm`), in this
+  // order, so a field commits WITH the override that carries it.
+  const [form, setForm] = useGaugeFedForm(
+    initial,
+    gaugeWrite(countOverride, (f: PatternForm, o) => ({
       ...f,
-      spacingInput: lengthInputValue(spacingOverride.mm, unit),
-    }));
-  }, [spacingOverride, unit]);
+      countInput: String(Math.round(o.n)),
+    })),
+    gaugeWrite(
+      spacingOverride,
+      (f: PatternForm, o) => ({
+        ...f,
+        spacingInput: lengthInputValue(o.mm, unit),
+      }),
+      unit,
+    ),
+  );
 
   // Feed the live ghosts and gauges: every form/unit change re-projects the
   // row; the cleanup clears it so closing the editor never leaves copies drawn.

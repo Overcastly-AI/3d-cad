@@ -13,7 +13,7 @@
  * the overlay); this editor reads its count and builds the params on submit.
  */
 import { NumberField, Panel, PanelActionCell } from "@loft/design";
-import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect } from "react";
 
 import type { ShellParams } from "../api/parts";
 import { useCommandBridge } from "../features/commandActions";
@@ -28,6 +28,7 @@ import {
   thicknessError,
 } from "../features/shell";
 import { EditorCard } from "./EditorCard";
+import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
 export interface ShellEditorProps {
   mode: "create" | "edit";
@@ -84,9 +85,6 @@ export function ShellEditor({
   onThicknessChange,
 }: ShellEditorProps) {
   const unit = useDocumentLengthUnit();
-  const [form, setForm] = useState<ShellForm>(initial);
-  useEffect(() => setForm(initial), [initial]);
-
   // THE ECHO (direction contract β). The gauge renders `live ?? value` and drops
   // `live` on pointer-up, so unless this field is fed back into the gauge's
   // `value` the arrow springs to its old length the instant you let go — while
@@ -97,13 +95,20 @@ export function ShellEditor({
   // Written in the DOCUMENT unit through the formatter the seed uses, so a
   // dragged value and a typed one are indistinguishable afterwards — including
   // on an inch part, where the stored millimetres are not what the field shows.
-  useEffect(() => {
-    if (thicknessOverride === null) return;
-    setForm((f) => ({
-      ...f,
-      thicknessInput: lengthInputValue(thicknessOverride.mm, unit),
-    }));
-  }, [thicknessOverride, unit]);
+  // Re-seeded on retarget, and both writes land during render
+  // (`useGaugeFedForm`), so the field commits WITH the override that carries
+  // it — never a commit behind the drawn gauge.
+  const [form, setForm] = useGaugeFedForm(
+    initial,
+    gaugeWrite(
+      thicknessOverride,
+      (f: ShellForm, o) => ({
+        ...f,
+        thicknessInput: lengthInputValue(o.mm, unit),
+      }),
+      unit,
+    ),
+  );
 
   // Feed the gauge and its preview; the cleanup clears them, so closing the
   // editor (unmount) never leaves an instrument standing on the model.

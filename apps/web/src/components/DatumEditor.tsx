@@ -24,13 +24,7 @@ import {
   type SegmentOption,
   SelectField,
 } from "@loft/design";
-import {
-  type KeyboardEvent,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type KeyboardEvent, useCallback, useEffect, useRef } from "react";
 
 import { useCommandBridge } from "../features/commandActions";
 import { useDocumentLengthUnit } from "../units/documentUnit";
@@ -59,6 +53,7 @@ import {
 } from "../features/datum";
 import type { DatumPlaneName } from "../sketch/plane";
 import { EditorCard } from "./EditorCard";
+import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
 export interface DatumEditorProps {
   mode: "create" | "edit";
@@ -334,24 +329,25 @@ export function DatumEditor({
   onPlaneChange,
 }: DatumEditorProps) {
   const unit = useDocumentLengthUnit();
-  const [form, setForm] = useState<DatumForm>(initial);
-  // Re-seed when the editor is retargeted at a different feature.
-  useEffect(() => setForm(initial), [initial]);
-
   // THE ECHO (direction contract β). Without it the arrow springs back to its
   // pre-drag length on pointer-up while the panel shows the number you dragged
   // to — a defect that fires AFTER every screenshot anyone would take. The
   // gauge drives a distance and the anchor carries the side, so the sign the
   // form already holds is untouched here; a midplane has no offset field and
-  // never receives one.
-  useEffect(() => {
-    if (offsetOverride === null) return;
-    setForm((f) =>
-      f.kind === "midplane"
-        ? f
-        : { ...f, offsetInput: lengthInputValue(offsetOverride.mm, unit) },
-    );
-  }, [offsetOverride, unit]);
+  // never receives one. Re-seeded when the editor is retargeted at a different
+  // feature; both writes land during render (`useGaugeFedForm`), so the field
+  // commits WITH the override that carries it, never a commit behind the gauge.
+  const [form, setForm] = useGaugeFedForm(
+    initial,
+    gaugeWrite(
+      offsetOverride,
+      (f: DatumForm, o) =>
+        f.kind === "midplane"
+          ? f
+          : { ...f, offsetInput: lengthInputValue(o.mm, unit) },
+      unit,
+    ),
+  );
 
   // Feed the gauge + the drawn sheet; the cleanup clears them, so closing the
   // editor (unmount) never leaves a plane floating in the scene.

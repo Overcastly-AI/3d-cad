@@ -20,7 +20,7 @@ import {
   SegmentedControl,
   SelectField,
 } from "@loft/design";
-import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect } from "react";
 
 import type { FilletParams } from "../api/parts";
 import { useCommandBridge } from "../features/commandActions";
@@ -37,6 +37,7 @@ import {
   type SelectionMode,
 } from "../features/modify";
 import { EditorCard } from "./EditorCard";
+import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
 export interface FilletEditorProps {
   mode: "create" | "edit";
@@ -83,20 +84,23 @@ export function FilletEditor({
   onPreviewChange,
 }: FilletEditorProps) {
   const unit = useDocumentLengthUnit();
-  const [form, setForm] = useState<FilletForm>(initial);
-  useEffect(() => setForm(initial), [initial]);
-
-  // The viewport gauge writes the field. Written in the DOCUMENT unit through
-  // the same formatter the seed uses, so a dragged radius and a typed one are
-  // indistinguishable afterwards — including on an inch part, where the stored
-  // millimetres are not what the field shows.
-  useEffect(() => {
-    if (radiusOverride === null) return;
-    setForm((f) => ({
-      ...f,
-      radiusInput: lengthInputValue(radiusOverride.mm, unit),
-    }));
-  }, [radiusOverride, unit]);
+  // Re-seeded on retarget; the viewport gauge writes the field. Both writes
+  // land during render (`useGaugeFedForm`), so the field commits WITH the
+  // override that carries it, never a commit behind the drawn gauge. Written in
+  // the DOCUMENT unit through the same formatter the seed uses, so a dragged
+  // radius and a typed one are indistinguishable afterwards — including on an
+  // inch part, where the stored millimetres are not what the field shows.
+  const [form, setForm] = useGaugeFedForm(
+    initial,
+    gaugeWrite(
+      radiusOverride,
+      (f: FilletForm, o) => ({
+        ...f,
+        radiusInput: lengthInputValue(o.mm, unit),
+      }),
+      unit,
+    ),
+  );
 
   // Feed the live preview; the cleanup clears it, so closing the editor
   // (unmount) never leaves line-work drawn on a body nothing is about to round.
