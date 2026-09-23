@@ -264,7 +264,11 @@ def test_a_warmed_prefix_is_never_served_for_a_different_tree() -> None:
 def test_a_warm_of_a_longer_prefix_cannot_answer_a_shorter_tree() -> None:
     """A checkpoint for 12 features is not an answer for the 9-feature tree that
     precedes it — the state has run past where the shorter tree ends. Rolling the
-    travel stop backwards is exactly this case."""
+    travel stop backwards is exactly this case.
+
+    What the shorter tree MAY use is a LADDER rung inside it (PERF-REAL-2): the
+    rung is the state after its own first k features and nothing more, so the
+    frontier must not be served, and the resume must stop short of the tree."""
     payload = _payload()
     shorter = _request(_payload(TREE_N - 3))
     cold = _cold(shorter)
@@ -273,7 +277,9 @@ def test_a_warm_of_a_longer_prefix_cannot_answer_a_shorter_tree() -> None:
     assert warm_rebuild_cache(_request(payload)) == TREE_N
     before = rebuild_cache_stats()
     assert _answer(shorter) == cold
-    assert rebuild_cache_stats().misses == before.misses + 1
+    after = rebuild_cache_stats()
+    assert after.hits - after.rung_hits == before.hits - before.rung_hits
+    assert after.resumed_features - before.resumed_features < len(shorter.features)
 
 
 def test_warming_the_prefix_of_an_open_editor_serves_the_commit() -> None:

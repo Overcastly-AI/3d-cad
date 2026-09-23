@@ -625,6 +625,24 @@ class FaceProvenanceRecorder:
                 entries.append((order, extent))
         self._snapshots.append((feature_id, tuple(fingerprints)))
 
+    def fork(self) -> "FaceProvenanceRecorder":
+        """An independent recorder with the same history and an EMPTY memo.
+
+        For a rebuild-cache ladder rung (:mod:`geometry.rebuild_cache`), which
+        forks the evaluator state — shapes included — at fixed positions. The
+        memo is keyed on ``TShape`` identity, and a forked body has none of the
+        original's ``TShape``s, so a carried-over memo could never hit; it would
+        only pin dead faces. Dropping it changes what is COMPUTED, never what is
+        answered (the class docstring's own rule). Everything that is appended to
+        in place is copied; the fingerprint tuples are immutable and shared.
+        """
+        twin = FaceProvenanceRecorder(memoize=self._memoize)
+        twin._snapshots = list(self._snapshots)
+        twin._face_count = self._face_count
+        twin._refused = self._refused
+        twin._surfaces = {key: list(entries) for key, entries in self._surfaces.items()}
+        return twin
+
     def freeze(self) -> FaceProvenance:
         """An immutable snapshot for the :class:`TreeEvaluation` being published.
 

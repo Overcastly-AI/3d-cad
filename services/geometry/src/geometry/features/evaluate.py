@@ -54,11 +54,12 @@ functions of their inputs — the same request yields an identical result,
 including ``mesh_glb_id`` (a content hash of a deterministic GLB).
 """
 
+import dataclasses
 import time
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast
 
 from build123d import Compound, Face, Plane, Solid, Vertex, Wire
 from loft_wire.features import (
@@ -217,6 +218,7 @@ from geometry.kernel import (
     sweep_profile,
     tessellate_glb,
 )
+from geometry.kernel.fork import fork_shapes
 from geometry.kernel.healing import body_is_valid, new_geometry_is_valid
 from geometry.kernel.lumps import lump_count
 from geometry.kernel.provenance import FaceProvenance, FaceProvenanceRecorder
@@ -633,6 +635,83 @@ class EvaluationState:
         )
         del self.bodies[tool_id]
         self.active_body_id = target_id
+
+    def fork(self) -> tuple["EvaluationState", int]:
+        """An independent copy of this state, and its weight in faces.
+
+        The ladder primitive (PERF-REAL-2, :mod:`geometry.rebuild_cache`): every
+        KERNEL shape the state holds is copied in ONE
+        :func:`~geometry.kernel.fork.fork_shapes` call, so shapes that share
+        subshapes here (a body and the tool that cut it; the unfold body that IS
+        the live body on an unrelieved part) still share them in the fork. Every
+        container a later feature appends to is copied; the values inside the
+        non-shape containers (solved sketches, planes, frozen sheet-metal records)
+        are never mutated after insertion and are shared.
+
+        **The list of shape-bearing fields below is the same list**
+        :meth:`_Checkpoint.detach` **walks** — a new shape-bearing field on this
+        class belongs in both, or a fork would share it with the original.
+        """
+        body_ids = list(self.bodies)
+        cut_tools = list(self.last_cut_tools or ())
+        tool_slots = [
+            (feature_id, recorded, group_index, len(group.tools))
+            for feature_id, recorded in self.feature_tools.items()
+            for group_index, group in enumerate(recorded.groups)
+        ]
+        shapes: list[BodyShape] = [
+            *self.bodies.values(),
+            *cut_tools,
+            *(
+                tool
+                for recorded in self.feature_tools.values()
+                for group in recorded.groups
+                for tool in group.tools
+            ),
+        ]
+        if self.sheet_metal_unfold_body is not None:
+            shapes.append(self.sheet_metal_unfold_body)
+        forked = fork_shapes(shapes)
+        copies = iter(forked.shapes)
+        bodies = {body_id: next(copies) for body_id in body_ids}
+        last_cut_tools = [cast(Solid, next(copies)) for _ in cut_tools]
+        regrouped: dict[uuid.UUID, list[RecordedToolGroup]] = {}
+        for feature_id, recorded, group_index, count in tool_slots:
+            group = recorded.groups[group_index]
+            regrouped.setdefault(feature_id, []).append(
+                RecordedToolGroup(group.op, [next(copies) for _ in range(count)])
+            )
+        unfold = None if self.sheet_metal_unfold_body is None else next(copies)
+        twin = dataclasses.replace(
+            self,
+            solved_sketches=dict(self.solved_sketches),
+            sketch_planes=dict(self.sketch_planes),
+            datum_planes=dict(self.datum_planes),
+            bodies=bodies,
+            provenance=self.provenance.fork(),
+            sheet_metal_defaults=dict(self.sheet_metal_defaults),
+            bend_provenance=dict(self.bend_provenance),
+            corner_reliefs=dict(self.corner_reliefs),
+            sheet_metal_unfold_body=unfold,
+            last_cut_tools=None if self.last_cut_tools is None else last_cut_tools,
+            feature_tools={
+                feature_id: RecordedFeatureTools(
+                    body_id=recorded.body_id, groups=regrouped.get(feature_id, [])
+                )
+                for feature_id, recorded in self.feature_tools.items()
+            },
+            scoped_feature_types=dict(self.scoped_feature_types),
+        )
+        return twin, forked.faces
+
+    def adopt(self, other: "EvaluationState") -> None:
+        """Become *other*, field for field, keeping this object's identity.
+
+        The dispatch loop's callers hold a reference to the state they passed in;
+        swapping in a forked state at a ladder rung has to be visible through it.
+        """
+        for item in dataclasses.fields(self):
+            setattr(self, item.name, getattr(other, item.name))
 
 
 #: One feature handler: evaluate the item, record outputs on ``state``, and
@@ -3350,9 +3429,12 @@ class _PublishedArtifacts:
 class _Checkpoint:
     """One cached prefix: the evaluator state, plus what it had produced.
 
-    The cache owns this EXCLUSIVELY (see :mod:`geometry.rebuild_cache`) — nothing
-    is copied on the way in or out, which is what makes a resumed rebuild
-    byte-identical to a cold one.
+    The cache owns this EXCLUSIVELY (see :mod:`geometry.rebuild_cache`). As a
+    FRONTIER entry nothing is copied on the way in or out, which is what makes a
+    resumed rebuild byte-identical to a cold one. As a LADDER rung it is the
+    first of the two forks :func:`_climb_rung` takes, and it is handed out only
+    as :meth:`fork` — which is what every evaluation continues with at that rung,
+    so the resume is byte-identical for the same reason.
     """
 
     state: EvaluationState
@@ -3386,6 +3468,23 @@ class _Checkpoint:
         ):
             if shape is not None:
                 drop_triangulation(shape)
+
+    def fork(self) -> "_Checkpoint":
+        """An independent copy for the caller of a LADDER rung (PERF-REAL-2).
+
+        The rung itself stays on the ladder; the resuming evaluation continues
+        with this fork, which is exactly what a cold evaluation continues with at
+        the same rung (:func:`_climb_rung`). No artifacts: a rung is never the
+        end of the tree that published them.
+        """
+        state, _faces = self.state.fork()
+        return _Checkpoint(
+            state=state,
+            results=list(self.results),
+            last_good_feature_id=self.last_good_feature_id,
+            suppressed_ids=self.suppressed_ids,
+            artifacts=None,
+        )
 
 
 #: The per-worker rebuild cache (docs/PERF.md fix #1). Process-global like the
@@ -3435,6 +3534,63 @@ def _published_artifacts(
     )
 
 
+@dataclass(frozen=True)
+class _Ladder:
+    """Where one dispatch pass offers its rungs: the request's key chain, and
+    whether the pass is speculation (a warm) or live work."""
+
+    keys: Sequence[str]
+    speculative: bool
+
+
+def _climb_rung(
+    position: int,
+    state: EvaluationState,
+    results: list[FeatureResult],
+    suppressed_ids: set[uuid.UUID],
+    last_good_feature_id: uuid.UUID | None,
+    ladder: _Ladder,
+) -> None:
+    """Fork the state at rung *position* and continue on the fork (PERF-REAL-2).
+
+    Runs at EVERY multiple of the cache's ``rung_spacing`` (default
+    :data:`~geometry.rebuild_cache.RUNG_SPACING`) on EVERY evaluation, whether or
+    not anything is cached or will be kept — that is the invariant that makes a
+    ladder resume byte-identical to a cold rebuild.
+    Two forks, and both are needed:
+
+    * ``stored = fork(state)`` goes on the ladder and is never touched again, so
+      the features evaluated after this point cannot rewrite it in place;
+    * ``live = fork(stored)`` is what THIS evaluation continues with.
+
+    A resume from the rung later continues with ``fork(stored)`` too — the same
+    OCCT copy of the same untouched input, so it is the same state, down to the
+    ULP a copy can move a mesh by. Forking once and continuing on the original
+    would make the cold path carry the un-copied shapes forward and the resumed
+    one a copy, so ``mesh_glb_id`` would be byte-identical only for as long as a
+    copy happens to re-mesh like its original. That held on every tree the suite
+    has (measured 2026-09-23: the single-fork variant passes it), and did NOT
+    hold on 2026-07-31 (:mod:`geometry.rebuild_cache`), so the second fork —
+    ~9 ms at 560 faces — buys a guarantee the suite cannot currently check.
+    """
+    stored, faces = state.fork()
+    live, _ = stored.fork()
+    state.adopt(live)
+    _REBUILD_CACHE.store_rung(
+        ladder.keys,
+        position,
+        _Checkpoint(
+            state=stored,
+            results=list(results),
+            last_good_feature_id=last_good_feature_id,
+            suppressed_ids=frozenset(suppressed_ids),
+            artifacts=None,
+        ),
+        faces=faces,
+        speculative=ladder.speculative,
+    )
+
+
 def _dispatch_prefix(
     features: Sequence[EvaluatedFeatureInput],
     state: EvaluationState,
@@ -3443,6 +3599,8 @@ def _dispatch_prefix(
     last_good_feature_id: uuid.UUID | None,
     *,
     record_history: bool,
+    offset: int,
+    ladder: _Ladder,
     stop: Callable[[], bool] | None = None,
 ) -> tuple[uuid.UUID | None, bool, int]:
     """The ordered dispatch pass (§4.2/§4.3), shared by evaluate and warm.
@@ -3455,6 +3613,10 @@ def _dispatch_prefix(
     bound. ONE implementation on purpose: a speculative warm that dispatched
     features differently from a real evaluation would eventually cache a state a
     real evaluation would not have produced.
+
+    *offset* is the absolute index of ``features[0]`` in the request, because the
+    ladder rungs sit at ABSOLUTE positions (:func:`_climb_rung`): a pass that
+    resumed at 37 must fork after feature 40 exactly as a cold pass does.
     """
     failed = False
     consumed = 0
@@ -3465,60 +3627,81 @@ def _dispatch_prefix(
         if failed:
             results.append(FeatureResult(feature_id=item.id, status="skipped"))
             continue
-        if item.feature.suppressed:
-            # Skip a suppressed feature entirely: no dispatch, no body mutation,
-            # no last-good/prev-body advance — the running body state carries
-            # forward as the last non-suppressed body (§4.3a).
-            suppressed_ids.add(item.id)
-            results.append(FeatureResult(feature_id=item.id, status="suppressed"))
-            continue
-        ref_error = _suppressed_reference_error(item.feature, suppressed_ids)
-        if ref_error is not None:
-            results.append(
-                FeatureResult(feature_id=item.id, status="error", error=ref_error)
-            )
+        _dispatch_one(item, state, results, suppressed_ids, record_history)
+        if results[-1].status == "error":
             failed = True
             continue
-        error = _dispatch(item, state)
-        if error is None:
-            results.append(
-                FeatureResult(
-                    feature_id=item.id,
-                    status="ok",
-                    data=_feature_data(item.id, state),
-                )
-            )
+        if results[-1].status == "ok":
             last_good_feature_id = item.id
-            # Remember the TYPE of every captured feature, in evaluation order: a
-            # `features`-scope mirror reads it to tell "not in this prefix"
-            # (reference_unresolved) from "in the prefix but not reflectable"
-            # (mirror_feature_unsupported), and the insertion order IS the tree order
-            # its reflected tools are applied in (mirror-semantics §8.1).
-            if item.id in state.tool_scope_ids:
-                state.scoped_feature_types[item.id] = item.feature.type
-            # Advance the last ok body-affecting feature id so the NEXT feature (a
-            # pattern) can tell whether the recorded cut tools came from its
-            # IMMEDIATE predecessor (BACKLOG #3, `_pattern_cut_tools`). Set AFTER
-            # dispatch, so a pattern reads the feature BEFORE it, then this
-            # advances to the pattern itself.
-            if item.feature.type in BODY_AFFECTING_TYPES:
-                state.prev_body_feature_id = item.id
-                # FINGERPRINT the body set for per-face feature provenance
-                # (FINDINGS #9): each final face is attributed to the earliest
-                # feature after which it exists in its final form. Taken HERE, not
-                # from a retained snapshot at attribution time (PERF-5b) — see
-                # :class:`FaceProvenanceRecorder`. OPT-IN (audit H4) — only the
-                # overlay path reads these, so no other caller pays the
-                # fingerprinting (or the per-feature Compound construction on a
-                # multi-body part), and the intermediate body dies as before.
-                if record_history and state.bodies:
-                    state.provenance.record(item.id, _snapshot_shape(state.bodies))
-        else:
-            results.append(
-                FeatureResult(feature_id=item.id, status="error", error=error)
+        position = offset + consumed
+        if position % _REBUILD_CACHE.rung_spacing == 0:
+            _climb_rung(
+                position, state, results, suppressed_ids, last_good_feature_id, ladder
             )
-            failed = True
     return last_good_feature_id, failed, consumed
+
+
+def _dispatch_one(
+    item: EvaluatedFeatureInput,
+    state: EvaluationState,
+    results: list[FeatureResult],
+    suppressed_ids: set[uuid.UUID],
+    record_history: bool,
+) -> None:
+    """Evaluate ONE feature into *state*, appending exactly one result.
+
+    The body of :func:`_dispatch_prefix`'s loop, split out so the loop can own
+    the rung bookkeeping. The appended status says what happened: ``suppressed``,
+    ``ok`` or ``error``.
+    """
+    if item.feature.suppressed:
+        # Skip a suppressed feature entirely: no dispatch, no body mutation,
+        # no last-good/prev-body advance — the running body state carries
+        # forward as the last non-suppressed body (§4.3a).
+        suppressed_ids.add(item.id)
+        results.append(FeatureResult(feature_id=item.id, status="suppressed"))
+        return
+    ref_error = _suppressed_reference_error(item.feature, suppressed_ids)
+    if ref_error is not None:
+        results.append(
+            FeatureResult(feature_id=item.id, status="error", error=ref_error)
+        )
+        return
+    error = _dispatch(item, state)
+    if error is None:
+        results.append(
+            FeatureResult(
+                feature_id=item.id,
+                status="ok",
+                data=_feature_data(item.id, state),
+            )
+        )
+        # Remember the TYPE of every captured feature, in evaluation order: a
+        # `features`-scope mirror reads it to tell "not in this prefix"
+        # (reference_unresolved) from "in the prefix but not reflectable"
+        # (mirror_feature_unsupported), and the insertion order IS the tree order
+        # its reflected tools are applied in (mirror-semantics §8.1).
+        if item.id in state.tool_scope_ids:
+            state.scoped_feature_types[item.id] = item.feature.type
+        # Advance the last ok body-affecting feature id so the NEXT feature (a
+        # pattern) can tell whether the recorded cut tools came from its
+        # IMMEDIATE predecessor (BACKLOG #3, `_pattern_cut_tools`). Set AFTER
+        # dispatch, so a pattern reads the feature BEFORE it, then this
+        # advances to the pattern itself.
+        if item.feature.type in BODY_AFFECTING_TYPES:
+            state.prev_body_feature_id = item.id
+            # FINGERPRINT the body set for per-face feature provenance
+            # (FINDINGS #9): each final face is attributed to the earliest
+            # feature after which it exists in its final form. Taken HERE, not
+            # from a retained snapshot at attribution time (PERF-5b) — see
+            # :class:`FaceProvenanceRecorder`. OPT-IN (audit H4) — only the
+            # overlay path reads these, so no other caller pays the
+            # fingerprinting (or the per-feature Compound construction on a
+            # multi-body part), and the intermediate body dies as before.
+            if record_history and state.bodies:
+                state.provenance.record(item.id, _snapshot_shape(state.bodies))
+    else:
+        results.append(FeatureResult(feature_id=item.id, status="error", error=error))
 
 
 def warm_rebuild_cache(
@@ -3637,6 +3820,12 @@ def warm_rebuild_cache(
         last_good = checkpoint.last_good_feature_id
         suppressed = set(checkpoint.suppressed_ids)
 
+    if resume is not None and resume.rung and start == target:
+        # A LADDER rung already sits at exactly the requested prefix, and it
+        # stays there: the request this warm is for will fork it. The fork we were
+        # handed is surplus — storing it too would only spend a second slot on the
+        # same state.
+        return target
     if start == target:
         # Already cached at exactly the requested prefix — put it straight back
         # (`take` REMOVED it) and do no kernel work. A re-declared editor open
@@ -3671,6 +3860,8 @@ def warm_rebuild_cache(
             suppressed,
             last_good,
             record_history=record_history,
+            offset=built,
+            ladder=_Ladder(keys, speculative=True),
             stop=dispatching,
         )
         built += consumed
@@ -3715,6 +3906,15 @@ def warm_rebuild_cache(
         if built == 0:
             continue  # nothing was stored, so there is nothing to reclaim
         reclaimed = _REBUILD_CACHE.take(keys[: built + 1])
+        if (
+            reclaimed is not None
+            and reclaimed.rung
+            and reclaimed.prefix_length != built
+        ):
+            # A fork of a rung SHORTER than what this warm had built: our banked
+            # prefix is gone and the rung is still on the ladder, so there is
+            # nothing to put back.
+            return built
         if reclaimed is None or reclaimed.prefix_length != built:
             # Somebody used it (the speculation paid off) or it lost its slot.
             # Either way this ticket's reason to keep spending is gone; starting
@@ -3785,13 +3985,18 @@ def _evaluate_tree(
     identically to a cached prefix RESUMES there and evaluates only what is new,
     so appending to a 200-feature tree costs one feature instead of 27 s, and the
     ``/measure`` / ``/tessellate`` / ``/export`` / drawings calls that follow an
-    ``/evaluate`` of the same tree reuse both the state and the artifacts. The
-    cache is transparent by construction — a hit hands over the very shapes a
-    cold rebuild would have built, never a copy (see
-    :mod:`geometry.rebuild_cache` for the measurement that forced that) — and a
-    miss is only slower. NOT cached: a tree that failed (its last-good state is
-    not a resume point, and a failed op may have rewritten its argument in place
-    — CM-6b), and a tree whose publish-time re-check found the body invalidated.
+    ``/evaluate`` of the same tree reuse both the state and the artifacts. An
+    EDIT at feature *k* resumes from the ladder rung at or below *k*
+    (PERF-REAL-2), so editing #249 of 250 re-runs a handful of features rather
+    than all of them. The cache is transparent by construction — a frontier hit
+    hands over the very shapes a cold rebuild would have built, and a rung hit
+    hands over the same fork a cold rebuild continues with at that rung (see
+    :mod:`geometry.rebuild_cache`) — and a miss is only slower. NOT cached as a
+    frontier: a tree that failed (its last-good state is not a resume point, and
+    a failed op may have rewritten its argument in place — CM-6b), and a tree
+    whose publish-time re-check found the body invalidated. The rungs such a tree
+    passed BEFORE its failure stay: each is a fork taken while every feature so
+    far had succeeded, so a later in-place rewrite cannot reach it.
     """
     keys = prefix_keys(
         request,
@@ -3825,6 +4030,8 @@ def _evaluate_tree(
         suppressed_ids,
         last_good_feature_id,
         record_history=record_history,
+        offset=start,
+        ladder=_Ladder(keys, speculative=False),
     )
     # A resume that consumed NOTHING is the same tree again, so the artifacts the
     # earlier call derived are still the right answer — provided nothing outside

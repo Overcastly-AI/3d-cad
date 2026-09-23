@@ -52,6 +52,9 @@ class _Checkpoint:
     def detach(self) -> None:
         self.detached = True
 
+    def fork(self) -> "_Checkpoint":
+        return _Checkpoint(f"{self.name}'")
+
 
 def _keys(count: int, *, lineage: str) -> list[str]:
     """A key chain shaped like :func:`geometry.rebuild_cache.prefix_keys` output:
@@ -121,7 +124,8 @@ def test_recording_does_not_change_what_the_cache_returns() -> None:
 
     taken = cache.take(keys)
     # A live (non-speculative) checkpoint, resumed at its full prefix length.
-    assert taken == (3, checkpoint, False)
+    assert taken == (3, checkpoint, False, False)
+    assert taken is not None and not taken.rung, "a frontier entry, not a ladder rung"
     # `take` REMOVES the entry (ownership transfer), so a second take misses.
     assert cache.take(keys) is None
     stats = cache.stats

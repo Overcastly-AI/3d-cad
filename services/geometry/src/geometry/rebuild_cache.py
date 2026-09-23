@@ -42,12 +42,60 @@ hands out copies on a hit. It is wrong here, and only measurement says so:
   then structural — the resumed evaluation runs the identical OCCT calls on the
   identical objects a cold rebuild would have built — and it is asserted, at
   several prefix lengths, in ``tests/test_rebuild_cache.py``.
-* The price is honest and worth stating: the cache holds **one live checkpoint
-  per lineage** (the frontier), so it serves APPEND ("the tree I just evaluated,
-  plus one") and REPEAT ("the same tree again, from `/measure`, `/tessellate`,
-  `/export`, drawings"), and it does NOT serve an edit in the middle of a long
-  tree — that would need a ladder of intermediate checkpoints, which cannot be
-  built without copies. See docs/PERF.md for the follow-up.
+* The price: the frontier is **one live checkpoint per lineage**, so on its
+  own it serves APPEND ("the tree I just evaluated, plus one") and REPEAT ("the
+  same tree again, from `/measure`, `/tessellate`, `/export`, drawings") and
+  nothing else. An EDIT is served by the ladder below.
+
+THE LADDER (PERF-REAL-2, 2026-09-23). The frontier alone made every edit a full
+rebuild: the gauntlet measured edit #249 of a 250-feature tray at 36.5 s against
+a 36.1 s cold rebuild. The fix is a ladder of intermediate checkpoints, and the
+paragraph above is why it cannot simply keep references to the intermediate
+states — they are the objects the rest of the evaluation mutates. So a rung
+needs a COPY, and a copy is not guaranteed to re-mesh like its original (the
+2026-07-31 measurement above; re-checked 2026-09-23, a fork of the tray's body
+at N=12/19/40/100 tessellated byte-identically, so the effect is real on some
+kernel/shape combinations and absent on others — the design must not depend on
+which). The way out is to make the copy part of the evaluation rather than a
+side effect of caching:
+
+* **Every evaluation forks its state at every multiple of** :data:`RUNG_SPACING`
+  (``evaluate._climb_rung``), cached or not. It forks twice: the first fork goes
+  on the ladder and is never touched again; the evaluation continues on a fork
+  OF THAT FORK. A resume from the rung continues on another fork of the same
+  untouched rung, so the cold path and the resumed path run identical OCCT calls
+  on identical inputs — the same structural byte-exactness the frontier has,
+  re-established one copy later. It is asserted, including ``mesh_glb_id`` and
+  face provenance, in ``tests/test_rebuild_cache.py``.
+* **A rung is never handed out**: :meth:`PrefixCache.take` hands out
+  ``rung.fork()`` and leaves the rung where it is, so dragging one parameter
+  back and forth resumes from the same rung every time. At equal length the
+  frontier wins (no fork needed).
+* **Invalidation is the key and nothing else.** A rung is stored under
+  ``keys[r]`` — the rolling hash of exactly the *r* features it has evaluated —
+  so an edit at feature index *k* can reach rungs at ``r <= k`` only. The
+  off-by-one in either direction is gated by editing the features on BOTH sides
+  of every rung and comparing to a cold rebuild.
+* **Bounded three ways.** Per chain, :func:`rung_retained` thins older rungs
+  geometrically (dense near the frontier, sparse towards feature 0), so a
+  250-feature tree keeps 15 rungs, not 31. Across the worker, at most
+  :data:`RUNG_CAPACITY` rungs and :data:`RUNG_FACE_BUDGET` faces, LRU-first with
+  speculation evicted before live work, as for the frontier.
+
+What it buys, measured by ``just gauntlet``'s deep leg at N=250, before and
+after back to back on the same machine: **edit #249 went from 36 527 ms to
+1 763 ms (20.7x)**; ``repeat`` (163 -> 173 ms) and ``append`` (1 868 -> 1 718
+ms) did not move beyond noise, and cold rebuild paid the fork tax (36.1 -> 37.1
+s, of which ~0.6 s is forking). Further in, same tree, ladder on vs off in a
+quiet window (load ~1): edit #230 34.5 -> 7.8 s, #186 34.7 -> 18.7 s, #125
+35.7 -> 30.8 s — the saving follows the ~N^2.15 cost curve, as it must.
+
+What it CANNOT buy is an edit near the start of a linear tree: an edit at
+feature *k* must re-run every feature after *k* (each one's input is the body
+the previous one left), so editing #3 — the shell every later feature is cut
+into — still re-runs 247 of 250 features (35.3 -> 36.1 s, i.e. unchanged). That
+floor belongs to the evaluator, not the cache; only a dependency-aware
+evaluator could go under it.
 
 WHY A `weakref` HAND-BACK. Ownership transfer only works if the cache's copy of
 a state is referenced by nobody else — otherwise a resuming evaluation would
@@ -129,7 +177,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Generator, Iterable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import NamedTuple, Protocol
+from typing import NamedTuple, Protocol, Self
 
 from loft_wire.features import EvaluateTreeRequest
 from OCP.BRepTools import BRepTools
@@ -147,7 +195,7 @@ from geometry.kernel.types import BodyShape
 #: a feature is serialised, or what a checkpoint stores). The cache is
 #: in-process, so a version skew cannot outlive a worker — this exists so a
 #: future change is a deliberate, greppable bust rather than a silent stale hit.
-CACHE_KEY_VERSION = 1
+CACHE_KEY_VERSION = 2
 
 #: Max live checkpoints (LRU). **32, derived from concurrency and priced in RAM
 #: — not a leftover.** With ownership transfer each entry is ONE lineage's
@@ -185,6 +233,71 @@ CACHE_KEY_VERSION = 1
 #: marginal cost, not as a delta after a clear.)
 REBUILD_CACHE_CAPACITY = 32
 
+#: Every ``RUNG_SPACING``-th feature boundary is a LADDER rung (PERF-REAL-2): the
+#: evaluator forks its state there on EVERY evaluation and offers the fork to the
+#: ladder. **8, from what a fork costs against what a feature costs.** A fork of
+#: the N=250 tray's final state (560 faces) measured **18-20 ms**; the evaluator
+#: does two per rung, and summed over a cold N=250 rebuild that is **~630 ms of
+#: ~38 s (1.6 %)** — while one late feature of that tray costs ~0.4-1 s. So
+#: halving the spacing would double a small tax to save about one feature per
+#: edit, and doubling it would save ~0.3 s per cold rebuild and cost up to four
+#: more features (~2-4 s) on every late edit.
+RUNG_SPACING = 8
+
+#: How densely the ladder keeps rungs as they recede from the chain's frontier
+#: (:func:`rung_retained`). **2, from the tray's measured cost curve.** Rebuild
+#: cost grows as ~N^2.15 (docs/GEOMETRY-QA.md 2026-09-15), so waste near feature 0
+#: is cheap and waste near the end is not. Modelling an edit at a uniformly random
+#: feature of the 250-feature tray, the re-run cost the ladder adds over the
+#: unavoidable floor is: density 1 -> 9 rungs, mean 5.3 % / worst 18 % of a cold
+#: rebuild; **density 2 -> 15 rungs, 2.9 % / 10.5 %**; density 3 -> 23 rungs,
+#: 1.7 % / 5.8 %. Density 2 buys most of the gain for ~1.6x the rungs of density 1.
+RUNG_DENSITY = 2
+
+#: Max rungs held across every chain in this worker — the secondary bound, for a
+#: workload of many tiny parts whose face count says little about their overhead.
+RUNG_CAPACITY = 64
+
+#: Max total FACES held by rungs in this worker — **the memory bound.** Faces,
+#: because rung size varies by two orders of magnitude between a bracket and the
+#: tray, and a count cap alone would either starve small parts or let big ones
+#: through unpriced. Measured on the N=250 tray: a forked state is **1.76 MiB for
+#: 560 faces = 3.2 KiB/face** of heap in use (``mallinfo2``, 10 forks held), so
+#: **20 000 faces is ~64 MiB** — half the frontier cache's ~128 MiB ceiling and
+#: ~6 % of docs/OPERATIONS.md §6's ~1 GiB per worker. One 250-feature chain costs
+#: ~5 600 faces (~18 MiB), so the budget holds three and a half of the largest
+#: chains we measure, or dozens of ordinary parts, before LRU eviction starts.
+#: The per-face price is for this tray's analytic surfaces; a face on a dense
+#: NURBS surface weighs more, so treat 64 MiB as the analytic-part figure, not a
+#: hard byte ceiling.
+RUNG_FACE_BUDGET = 20_000
+
+
+def rung_retained(
+    unit: int, frontier_unit: int, *, density: int = RUNG_DENSITY
+) -> bool:
+    """Whether rung *unit* stays on a chain whose newest rung is *frontier_unit*.
+
+    Units count rungs (``prefix_length // RUNG_SPACING``). The rule keeps every
+    rung near the frontier and progressively fewer further back: at distance
+    ``d = frontier_unit - unit + 1`` a rung survives iff ``unit`` is a multiple of
+    ``2 ** max(0, floor(log2 d) - density)``. So the gap below an edit is under
+    ``2 ** (1 - density)`` times its distance from the frontier (checked for every
+    frontier up to 400 units: worst 0.66x at density 1, **0.28x at density 2**) —
+    an edit ``D`` features from the end re-runs under ~``1.3 D`` features plus one
+    spacing — and a chain holds at most ``2**density * units.bit_length()``
+    rungs, not one per unit.
+
+    MONOTONE, which is what makes it safe to apply incrementally: as the frontier
+    advances the required power of two only grows, so a rung dropped once would be
+    dropped again — a later evaluation never needs a rung an earlier one threw
+    away. (Asserted in ``tests/test_rebuild_cache.py``.)
+    """
+    if unit <= 0 or unit > frontier_unit:
+        return unit > frontier_unit
+    level = (frontier_unit - unit + 1).bit_length() - 1
+    return unit % (1 << max(0, level - density)) == 0
+
 
 def drop_triangulation(shape: BodyShape) -> None:
     """Discard any mesh stored on *shape* (``BRepTools::Clean``).
@@ -213,6 +326,18 @@ class Detachable(Protocol):
         checkpoint that is not detached would resume to a subtly different GLB.
         """
 
+    def fork(self) -> Self:
+        """An independent copy the caller will own (a LADDER rung's hand-out).
+
+        A rung is never handed out itself — it stays on the ladder for the next
+        edit — so :meth:`PrefixCache.take` hands out ``rung.fork()``. That is
+        byte-transparent ONLY because the evaluator forks at every rung position
+        on every evaluation, cached or not (see "THE LADDER" in the module
+        docstring); a payload whose fork is not what the evaluator itself
+        continues with would make the resume differ from a cold rebuild.
+        """
+        ...
+
 
 @dataclass(frozen=True)
 class CacheStats:
@@ -234,6 +359,16 @@ class CacheStats:
     evictions: int
     resumed_features: int
     speculative_refused: int = 0
+    #: The LADDER's counters (PERF-REAL-2). ``rung_hits`` is the subset of
+    #: ``hits`` served by a rung rather than by a frontier checkpoint;
+    #: ``rung_evictions`` counts rungs dropped for the global bound (count or
+    #: faces), ``rung_thinned`` those dropped by :func:`rung_retained`.
+    rung_hits: int = 0
+    rung_stores: int = 0
+    rung_evictions: int = 0
+    rung_thinned: int = 0
+    rungs: int = 0
+    rung_faces: int = 0
 
 
 class Resume[CheckpointT: Detachable](NamedTuple):
@@ -249,6 +384,9 @@ class Resume[CheckpointT: Detachable](NamedTuple):
     prefix_length: int
     checkpoint: CheckpointT
     speculative: bool
+    #: ``True`` when this is a FORK of a ladder rung, which is still on the
+    #: ladder: there is nothing to put back, and nothing to re-store.
+    rung: bool = False
 
 
 @dataclass(frozen=True)
@@ -257,6 +395,15 @@ class _Entry[CheckpointT: Detachable]:
 
     checkpoint: CheckpointT
     speculative: bool
+
+
+@dataclass(frozen=True)
+class _Rung[CheckpointT: Detachable]:
+    """One ladder rung: a checkpoint nobody else references, and its weight."""
+
+    checkpoint: CheckpointT
+    speculative: bool
+    faces: int
 
 
 def prefix_keys(
@@ -347,27 +494,61 @@ class PrefixCache[CheckpointT: Detachable]:
     makes that true rather than the callers' good manners — see :meth:`store`.
     """
 
-    def __init__(self, capacity: int) -> None:
+    def __init__(
+        self,
+        capacity: int,
+        *,
+        rung_capacity: int = RUNG_CAPACITY,
+        rung_face_budget: int = RUNG_FACE_BUDGET,
+        rung_spacing: int = RUNG_SPACING,
+    ) -> None:
         if capacity <= 0:
             raise ValueError(f"capacity must be > 0, got {capacity}")
+        if rung_capacity < 0 or rung_face_budget < 0 or rung_spacing <= 0:
+            raise ValueError("rung bounds must be >= 0 and the spacing > 0")
         self._capacity = capacity
+        self._rung_capacity = rung_capacity
+        self._rung_face_budget = rung_face_budget
+        self._rung_spacing = rung_spacing
         self._lock = threading.Lock()
         self._entries: OrderedDict[str, _Entry[CheckpointT]] = OrderedDict()
+        self._rungs: OrderedDict[str, _Rung[CheckpointT]] = OrderedDict()
+        self._rung_faces = 0
         self._hits = 0
         self._misses = 0
         self._stores = 0
         self._evictions = 0
         self._resumed_features = 0
         self._speculative_refused = 0
+        self._rung_hits = 0
+        self._rung_stores = 0
+        self._rung_evictions = 0
+        self._rung_thinned = 0
 
     def take(self, keys: Sequence[str]) -> Resume[CheckpointT] | None:
-        """The longest cached prefix of *keys*, removed, or ``None``.
+        """The longest cached prefix of *keys*, owned by the caller, or ``None``.
 
         Searches longest-first, so a repeat of the same tree resumes at the full
         length (zero further features) and an append resumes one short of it.
         ``keys[0]`` (the empty prefix) is never a useful checkpoint and is not
         probed. Returns ``(prefix_length, checkpoint)``; the caller owns the
         checkpoint and MUST NOT assume the cache still holds it.
+
+        Two sources, one rule -- the LONGEST prefix wins, whichever holds it:
+
+        * a FRONTIER checkpoint is REMOVED and handed over (ownership transfer);
+        * a LADDER rung stays where it is and the caller gets ``rung.fork()``,
+          taken outside the lock since it is OCCT work. A rung is never mutated
+          after it is stored, so forking it while another thread evicts it is
+          harmless: eviction only drops the cache's reference.
+
+        At equal length the frontier wins: it needs no fork.
+
+        INVALIDATION IS THE KEY, AND ONLY THE KEY. ``keys[k]`` addresses the first
+        *k* features, so an edit at feature index *k* changes ``keys[k + 1:]`` and
+        nothing before -- the longest match is then at most *k*, and no state that
+        has seen the pre-edit feature can be reached. Both sources are looked up
+        under exactly that key; there is no second index to drift.
 
         THIS IS ALSO THE REBUILD OBSERVABILITY SEAM (:mod:`py_kit.metrics`).
         ``evaluate_tree`` consults the cache unconditionally — it is the second
@@ -377,6 +558,8 @@ class PrefixCache[CheckpointT: Detachable]:
         leave the tenth uncounted and the graph silently wrong. Nothing about the
         cache's behaviour depends on the recording.
         """
+        rung: _Rung[CheckpointT] | None = None
+        rung_length = 0
         with self._lock:
             for length in range(len(keys) - 1, 0, -1):
                 entry = self._entries.pop(keys[length], None)
@@ -386,10 +569,122 @@ class PrefixCache[CheckpointT: Detachable]:
                     record_rebuild_cache_hit()
                     note_rebuild(features=len(keys) - 1, resumed=length)
                     return Resume(length, entry.checkpoint, entry.speculative)
-            self._misses += 1
-            record_rebuild_cache_miss()
-            note_rebuild(features=len(keys) - 1, resumed=0)
-            return None
+                rung = self._rungs.get(keys[length])
+                if rung is not None:
+                    self._rungs.move_to_end(keys[length])
+                    rung_length = length
+                    self._hits += 1
+                    self._rung_hits += 1
+                    self._resumed_features += length
+                    record_rebuild_cache_hit()
+                    note_rebuild(features=len(keys) - 1, resumed=length)
+                    break
+            else:
+                self._misses += 1
+                record_rebuild_cache_miss()
+                note_rebuild(features=len(keys) - 1, resumed=0)
+                return None
+        assert rung is not None
+        return Resume(rung_length, rung.checkpoint.fork(), speculative=False, rung=True)
+
+    def store_rung(
+        self,
+        chain: Sequence[str],
+        prefix_length: int,
+        checkpoint: CheckpointT,
+        *,
+        faces: int,
+        speculative: bool = False,
+    ) -> bool:
+        """Put *checkpoint* on the ladder as the state after *prefix_length*
+        features of *chain*, then thin the chain's older rungs. Returns whether it
+        was kept.
+
+        *checkpoint* must be exclusively owned and never touched again by the
+        caller -- the evaluator hands over the FIRST of its two forks at a rung and
+        carries on with the second (module docstring, "THE LADDER"). *faces* is
+        its weight against the face budget.
+
+        It goes in under ``chain[prefix_length]`` -- the key of exactly the
+        features it has evaluated, which is the whole invalidation argument (see
+        :meth:`take`). Then every older rung ON THE SAME CHAIN that
+        :func:`rung_retained` no longer keeps is dropped, and finally the global
+        bounds are enforced LRU-first with speculation evicted before live work,
+        the order :meth:`store` uses. A speculative rung that could only be kept
+        by evicting live rungs is refused; so is any rung heavier than the whole
+        face budget. A key already on the ladder keeps its checkpoint (every
+        evaluation forks at the same positions, so it is the same state); a live
+        pass over a speculative rung only upgrades its claim.
+        """
+        if prefix_length <= 0 or prefix_length % self._rung_spacing:
+            raise ValueError(
+                f"a rung sits on a multiple of {self._rung_spacing}, "
+                f"got prefix length {prefix_length}"
+            )
+        key = chain[prefix_length]
+        with self._lock:
+            existing = self._rungs.get(key)
+            if existing is not None:
+                self._rungs.move_to_end(key)
+                if existing.speculative and not speculative:
+                    # Live work has now passed this rung too: it is no longer a
+                    # guess, so it stops being the first victim.
+                    self._rungs[key] = _Rung(existing.checkpoint, False, existing.faces)
+                return True
+            if faces > self._rung_face_budget or self._rung_capacity == 0:
+                self._speculative_refused += int(speculative)
+                return False
+            frontier = prefix_length // self._rung_spacing
+            for unit in range(1, frontier):
+                older = chain[unit * self._rung_spacing]
+                if older in self._rungs and not rung_retained(unit, frontier):
+                    self._drop_rung(older)
+                    self._rung_thinned += 1
+            if speculative and not self._rung_room_without_live(faces):
+                self._speculative_refused += 1
+                return False
+            self._rungs[key] = _Rung(checkpoint, speculative, faces)
+            self._rung_faces += faces
+            self._rung_stores += 1
+            while (
+                len(self._rungs) > self._rung_capacity
+                or self._rung_faces > self._rung_face_budget
+            ):
+                victim = next(
+                    (k for k, r in self._rungs.items() if r.speculative),
+                    next(iter(self._rungs)),
+                )
+                self._drop_rung(victim)
+                self._rung_evictions += 1
+            return key in self._rungs
+
+    @property
+    def rung_spacing(self) -> int:
+        """Rungs sit at every multiple of this prefix length. The evaluator reads
+        it HERE, so the positions it forks at and the positions this cache accepts
+        cannot disagree."""
+        return self._rung_spacing
+
+    def _rung_room_without_live(self, faces: int) -> bool:
+        """Could a new rung of *faces* fit by evicting speculative rungs only?
+        (caller holds the lock)"""
+        live = [r for r in self._rungs.values() if not r.speculative]
+        return (
+            len(live) + 1 <= self._rung_capacity
+            and sum(r.faces for r in live) + faces <= self._rung_face_budget
+        )
+
+    def _drop_rung(self, key: str) -> None:
+        """Remove one rung and its weight (caller holds the lock)."""
+        rung = self._rungs.pop(key)
+        self._rung_faces -= rung.faces
+
+    def rung_lengths(self, keys: Sequence[str]) -> list[int]:
+        """The prefix lengths of *keys* holding a rung (TEST SEAM + diagnostics)."""
+        with self._lock:
+            return [
+                length for length in range(1, len(keys)) if keys[length] in self._rungs
+            ]
 
     def store_on_release(
         self, owner: object, key: str, checkpoint: CheckpointT
@@ -492,6 +787,8 @@ class PrefixCache[CheckpointT: Detachable]:
         """Drop every entry (test isolation; production never calls this)."""
         with self._lock:
             self._entries.clear()
+            self._rungs.clear()
+            self._rung_faces = 0
 
     @property
     def stats(self) -> CacheStats:
@@ -503,6 +800,12 @@ class PrefixCache[CheckpointT: Detachable]:
                 evictions=self._evictions,
                 resumed_features=self._resumed_features,
                 speculative_refused=self._speculative_refused,
+                rung_hits=self._rung_hits,
+                rung_stores=self._rung_stores,
+                rung_evictions=self._rung_evictions,
+                rung_thinned=self._rung_thinned,
+                rungs=len(self._rungs),
+                rung_faces=self._rung_faces,
             )
 
 

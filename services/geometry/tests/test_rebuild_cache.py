@@ -28,17 +28,25 @@ from types import ModuleType
 from typing import Any, cast
 
 import pytest
+from build123d import Solid
 from geometry.features.evaluate import (
+    EvaluationState,
+    RecordedFeatureTools,
+    RecordedToolGroup,
     evaluate_tree,
     rebuild_cache_stats,
     reset_rebuild_cache,
     warm_rebuild_cache,
 )
 from geometry.kernel import FaceProvenance
+from geometry.kernel.types import BodyShape
 from geometry.rebuild_cache import (
     REBUILD_CACHE_CAPACITY,
+    RUNG_DENSITY,
+    RUNG_SPACING,
     PrefixCache,
     prefix_keys,
+    rung_retained,
 )
 from loft_wire.features import EvaluateTreeRequest
 
@@ -335,18 +343,24 @@ def test_an_evaluation_still_in_use_is_never_lent_to_another_rebuild() -> None:
     once nothing else can touch it. The cache therefore stores a checkpoint on
     the RELEASE of the ``TreeEvaluation`` that owns those shapes: while a caller
     holds its evaluation (here, ``/export`` still writing a STEP file), a second
-    rebuild of the same tree must MISS and build its own body.
+    rebuild of the same tree must MISS the frontier and build its own body.
+
+    A LADDER rung may serve it (PERF-REAL-2) — a rung is a fork nobody else
+    holds, and the caller gets a fork of THAT — so "missed the frontier" is
+    asserted as "no frontier hit, and resumed short of the full tree".
     """
     request = _request(_payload())
     cold = _cold(request)
     reset_rebuild_cache()
 
     held = evaluate_tree(request)  # kept alive for the whole test
-    misses = rebuild_cache_stats().misses
+    before = rebuild_cache_stats()
     assert _answer(request) == cold, "a concurrent rebuild must still be correct"
-    assert rebuild_cache_stats().misses == misses + 1, (
-        "the entry was served while its owner was still using it"
+    after = rebuild_cache_stats()
+    assert after.hits - after.rung_hits == before.hits - before.rung_hits, (
+        "the frontier entry was served while its owner was still using it"
     )
+    assert after.resumed_features - before.resumed_features < len(request.features)
     assert held.body is not None
 
 
@@ -407,6 +421,9 @@ class _FakePayload:
 
     def detach(self) -> None:
         self.detached.append(self.name)
+
+    def fork(self) -> _FakePayload:
+        return _FakePayload(f"{self.name}'")
 
 
 def test_the_cache_is_bounded_and_evicts_the_least_recently_used() -> None:
@@ -596,3 +613,367 @@ def test_a_warm_is_bounded_and_cancellable() -> None:
     warm_rebuild_cache(request, cancelled=cancel_after_three)
     calls["n"] = 0
     assert _answer(request) == cold
+
+
+# --- The checkpoint ladder (PERF-REAL-2) ----------------------------------------
+
+#: Two full rungs (at RUNG_SPACING and 2 * RUNG_SPACING) with at least two
+#: features past the second, so every rung has a feature on BOTH sides of it and
+#: the feature after the last rung has a consumer.
+LADDER_N = 2 * RUNG_SPACING + 3
+
+#: The numeric params the edit gate nudges, in the order it looks for them.
+_NUDGEABLE = (
+    "distance_mm",
+    "depth_mm",
+    "diameter_mm",
+    "radius_mm",
+    "thickness_mm",
+    "offset_mm",
+    "angle_deg",
+)
+
+
+def _edit_at(payload: dict[str, Any], index: int) -> dict[str, Any]:
+    """*payload* with feature *index* changed in a way that changes the answer.
+
+    A numeric parameter is shrunk 3 % where the feature has one (a revolve's 360
+    degrees must go DOWN to stay valid); a feature with no dimension (a sketch,
+    a pattern, a mirror) is suppressed instead, which also moves its consumers.
+    Either way the key of every prefix past *index* changes.
+    """
+    edited = copy.deepcopy(payload)
+    feature = edited["features"][index]["feature"]
+    params = feature.get("params", {})
+    for name in _NUDGEABLE:
+        value = params.get(name)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value:
+            params[name] = value * 0.97
+            return edited
+    feature["suppressed"] = True
+    return edited
+
+
+@pytest.mark.parametrize(
+    "side", [-1, 0, 1], ids=["last-inside", "first-outside", "next"]
+)
+@pytest.mark.parametrize("rung", [RUNG_SPACING, 2 * RUNG_SPACING])
+def test_an_edit_beside_a_rung_resumes_from_the_rung_below_it_and_no_further(
+    rung: int, side: int
+) -> None:
+    """THE ladder gate: invalidation around every rung, in both directions.
+
+    A rung at prefix length *r* holds the state after features ``0..r-1``, under
+    ``keys[r]``. So:
+
+    * an edit to feature ``r - 1`` (the LAST one inside the rung) must not be
+      served that rung — it has seen the old feature. It must resume from the
+      rung below (``r - RUNG_SPACING``), or rebuild;
+    * an edit to feature ``r`` or ``r + 1`` must be served exactly rung *r*.
+
+    Filed against PERF-REAL-2's "an edit at feature k must never serve a cached
+    state computed from a pre-edit feature <= k", and written so it fails when
+    the rung's key is off by one EITHER way. Storing the state under ``keys[r-1]``
+    serves an edit at ``r - 1`` a state that already contains the old feature;
+    storing it under ``keys[r+1]`` serves an edit at ``r + 1`` a state MISSING
+    feature ``r``. Both are caught twice: by the resume length, and by the answer
+    differing from a cold rebuild of the edited tree (GLB bytes, mesh id, mass
+    properties, statuses).
+    """
+    payload = _payload(LADDER_N)
+    index = rung + side
+    edited = _request(_edit_at(payload, index))
+    original_cold = _cold(_request(payload))
+    edited_cold = _cold(edited)
+    assert edited_cold != original_cold, "the edit must change the answer"
+
+    reset_rebuild_cache()
+    _answer(_request(payload))  # builds the ladder under the ORIGINAL keys
+    before = rebuild_cache_stats()
+    warm = _answer(edited)
+    after = rebuild_cache_stats()
+
+    # The property first (the answer), then the mechanism (where it resumed).
+    assert warm == edited_cold, (
+        "a ladder resume differs from a cold rebuild of the edited tree"
+    )
+    expected = (index // RUNG_SPACING) * RUNG_SPACING
+    assert after.resumed_features - before.resumed_features == expected, (
+        f"an edit at feature {index} must resume from the rung at {expected}"
+    )
+    assert expected <= index
+    if expected:
+        assert after.rung_hits == before.rung_hits + 1, "a rung must have served it"
+
+
+def test_a_ladder_resume_keeps_face_provenance_exact() -> None:
+    """The ``record_history`` lineage forks its provenance recorder at every rung
+    (the memo is dropped: a fork has none of the original ``TShape``s). The
+    fingerprints a face pick attributes with must still equal a cold rebuild's,
+    so an overlay after an edit highlights the same faces a fresh worker would."""
+    payload = _payload(LADDER_N)
+    edited = _request(_edit_at(payload, 2 * RUNG_SPACING))
+    cold = _cold(edited, record_history=True)
+
+    reset_rebuild_cache()
+    _answer(_request(payload), record_history=True)
+    before = rebuild_cache_stats()
+    warm = _answer(edited, record_history=True)
+    assert rebuild_cache_stats().rung_hits == before.rung_hits + 1
+    assert warm == cold
+    assert warm.provenance.snapshots, "the gate must compare a real history"
+
+
+def test_a_rung_serves_every_edit_of_a_dragged_parameter() -> None:
+    """A rung is never handed out, only forked — so a parameter dragged through
+    three values resumes from the SAME rung three times, and each answer is its
+    own cold rebuild's."""
+    payload = _payload(LADDER_N)
+    index = 2 * RUNG_SPACING
+    assert payload["features"][index]["feature"]["type"] == "revolve"
+    drags: list[EvaluateTreeRequest] = []
+    for angle in (300.0, 280.0, 260.0):
+        dragged = copy.deepcopy(payload)
+        dragged["features"][index]["feature"]["params"]["angle_deg"] = angle
+        drags.append(_request(dragged))
+    references = [_cold(request) for request in drags]
+
+    reset_rebuild_cache()
+    _answer(_request(payload))  # ONE ladder, built once, for all three drags
+    for request, reference in zip(drags, references, strict=True):
+        before = rebuild_cache_stats()
+        warm = _answer(request)
+        after = rebuild_cache_stats()
+        assert after.rung_hits == before.rung_hits + 1
+        assert after.resumed_features - before.resumed_features == index
+        assert warm == reference
+    assert len({reference.volume for reference in references}) == 3
+
+
+def test_rung_retention_is_monotone_logarithmic_and_leaves_bounded_gaps() -> None:
+    """The thinning rule, checked exhaustively rather than by example.
+
+    * MONOTONE: a rung dropped when the frontier was at U is never wanted again at
+      U + 1 — which is what makes it safe to thin as the evaluation goes;
+    * the newest rung is always kept;
+    * at most ``2**density * U.bit_length()`` rungs survive, not U;
+    * the gap below any unit is under ``2**(1 - density)`` times its distance from
+      the frontier — the edit-cost bound the docstring promises.
+    """
+    for frontier in range(1, 300):
+        kept = [u for u in range(1, frontier + 1) if rung_retained(u, frontier)]
+        later = {u for u in range(1, frontier + 1) if rung_retained(u, frontier + 1)}
+        assert later <= set(kept), f"a dropped rung came back at frontier {frontier}"
+        assert kept[-1] == frontier
+        assert len(kept) <= (1 << RUNG_DENSITY) * frontier.bit_length()
+        for unit in range(1, frontier + 1):
+            below = max((u for u in kept if u <= unit), default=0)
+            distance = frontier - unit + 1
+            assert unit - below < distance / 2 ** (RUNG_DENSITY - 1), (frontier, unit)
+
+
+def _chain(name: str, length: int) -> list[str]:
+    return [f"{name}{i}" for i in range(length + 1)]
+
+
+def test_a_rung_is_handed_out_as_a_fork_and_stays_on_the_ladder() -> None:
+    cache: PrefixCache[_FakePayload] = PrefixCache(4, rung_spacing=2)
+    chain = _chain("a", 6)
+    rung = _FakePayload("rung")
+    assert cache.store_rung(chain, 4, rung, faces=10)
+    first = cache.take(chain)
+    second = cache.take(chain)
+    assert first is not None and second is not None
+    assert first.rung and first.prefix_length == 4
+    assert first.checkpoint is not rung and first.checkpoint.name == "rung'"
+    assert second.checkpoint is not first.checkpoint
+    assert rung.detached == [], "a rung is a fresh fork; nothing to detach"
+    assert cache.stats.rung_hits == 2
+
+
+def test_the_longest_prefix_wins_across_frontier_and_ladder() -> None:
+    cache: PrefixCache[_FakePayload] = PrefixCache(4, rung_spacing=2)
+    chain = _chain("a", 8)
+    cache.store_rung(chain, 6, _FakePayload("rung6"), faces=1)
+    cache.store(chain[5], _FakePayload("frontier5"))
+    taken = cache.take(chain)
+    assert taken is not None and taken.prefix_length == 6 and taken.rung
+
+    cache.store(chain[6], _FakePayload("frontier6"))
+    taken = cache.take(chain)
+    assert taken is not None and taken.prefix_length == 6 and not taken.rung, (
+        "at equal length the frontier wins: it needs no fork"
+    )
+    assert taken.checkpoint.name == "frontier6"
+
+
+def test_a_rung_off_the_grid_is_refused() -> None:
+    cache: PrefixCache[_FakePayload] = PrefixCache(4, rung_spacing=4)
+    with pytest.raises(ValueError):
+        cache.store_rung(_chain("a", 8), 3, _FakePayload("x"), faces=1)
+
+
+def test_the_ladder_is_bounded_by_count_and_by_faces() -> None:
+    """The memory bound, as a unit: LRU-first eviction on the rung COUNT and on
+    the total FACES, and a rung heavier than the whole budget is never kept."""
+    cache: PrefixCache[_FakePayload] = PrefixCache(
+        4, rung_capacity=3, rung_face_budget=100, rung_spacing=1
+    )
+    for name in "abcd":
+        cache.store_rung(_chain(name, 1), 1, _FakePayload(name), faces=10)
+    assert cache.stats.rungs == 3 and cache.stats.rung_evictions == 1
+    assert cache.take(_chain("a", 1)) is None, "the LRU rung went first"
+
+    cache.store_rung(_chain("e", 1), 1, _FakePayload("e"), faces=85)
+    assert cache.stats.rung_faces <= 100
+    assert cache.take(_chain("e", 1)) is not None
+
+    assert not cache.store_rung(_chain("f", 1), 1, _FakePayload("f"), faces=101)
+    assert cache.stats.rung_faces <= 100
+
+
+def test_a_speculative_rung_never_evicts_a_live_one() -> None:
+    """The frontier's CONC-4 rule, applied to rungs: a warm's rung is the first
+    victim, and a warm's rung that could only be kept by evicting live rungs is
+    refused rather than stored."""
+    cache: PrefixCache[_FakePayload] = PrefixCache(
+        4, rung_capacity=2, rung_face_budget=1000, rung_spacing=1
+    )
+    cache.store_rung(_chain("live", 1), 1, _FakePayload("live"), faces=1)
+    assert cache.store_rung(
+        _chain("guess", 1), 1, _FakePayload("guess"), faces=1, speculative=True
+    )
+    cache.store_rung(_chain("newer", 1), 1, _FakePayload("newer"), faces=1)
+    assert cache.take(_chain("guess", 1)) is None, "speculation is evicted first"
+    assert cache.take(_chain("live", 1)) is not None, "older live work survives"
+    assert cache.take(_chain("newer", 1)) is not None
+
+    assert not cache.store_rung(
+        _chain("late", 1), 1, _FakePayload("late"), faces=1, speculative=True
+    ), "every slot is live work, so the guess yields"
+    assert cache.stats.rungs == 2
+
+    # A guess that live work then passes over is promoted, not duplicated.
+    promoted: PrefixCache[_FakePayload] = PrefixCache(
+        4, rung_capacity=2, rung_face_budget=1000, rung_spacing=1
+    )
+    promoted.store_rung(_chain("q", 1), 1, _FakePayload("q"), faces=1)
+    promoted.store_rung(_chain("p", 1), 1, _FakePayload("p"), faces=1, speculative=True)
+    promoted.store_rung(_chain("p", 1), 1, _FakePayload("again"), faces=1)
+    promoted.store_rung(_chain("r", 1), 1, _FakePayload("r"), faces=1)
+    kept = promoted.take(_chain("p", 1))
+    assert kept is not None, "promoted to live, it outlives the older live rung"
+    assert kept.checkpoint.name == "p'", "the original checkpoint, not the re-offer"
+    assert promoted.take(_chain("q", 1)) is None
+
+
+def test_thinning_only_touches_its_own_chain() -> None:
+    """Retention is per chain: a long evaluation of part A must not thin part B's
+    rungs, which sit at the same positions under different keys."""
+    cache: PrefixCache[_FakePayload] = PrefixCache(4, rung_spacing=1)
+    other = _chain("b", 40)
+    for length in range(1, 5):
+        cache.store_rung(other, length, _FakePayload(f"b{length}"), faces=1)
+    mine = _chain("a", 40)
+    for length in range(1, 41):
+        cache.store_rung(mine, length, _FakePayload(f"a{length}"), faces=1)
+    assert cache.rung_lengths(other) == [1, 2, 3, 4]
+    kept = cache.rung_lengths(mine)
+    assert kept == [u for u in range(1, 41) if rung_retained(u, 40)]
+    assert len(kept) < 40
+
+
+#: Every EvaluationState field, by how ``EvaluationState.fork`` must treat it.
+#: A new field fails ``test_every_state_field_is_classified_for_the_fork`` until
+#: somebody decides which set it belongs in — and if it holds a kernel shape,
+#: puts it in ``fork`` (and ``_Checkpoint.detach``), or a ladder rung would share
+#: it with the evaluation that carries on past the rung.
+_FORKED_FIELDS = frozenset(
+    {
+        "bodies",
+        "sheet_metal_unfold_body",
+        "last_cut_tools",
+        "feature_tools",
+        "provenance",
+        "solved_sketches",
+        "sketch_planes",
+        "datum_planes",
+        "sheet_metal_defaults",
+        "bend_provenance",
+        "corner_reliefs",
+        "scoped_feature_types",
+    }
+)
+_SHARED_IMMUTABLE_FIELDS = frozenset(
+    {
+        "linear_deflection",
+        "active_body_id",
+        "prev_body_feature_id",
+        "last_cut_feature_id",
+        "last_cut_body_id",
+        "tool_scope_ids",
+    }
+)
+
+
+def test_every_state_field_is_classified_for_the_fork() -> None:
+    names = {item.name for item in dataclasses.fields(EvaluationState)}
+    assert names == _FORKED_FIELDS | _SHARED_IMMUTABLE_FIELDS, (
+        "EvaluationState gained or lost a field: classify it for "
+        "EvaluationState.fork (and _Checkpoint.detach if it holds a shape)"
+    )
+
+
+def _same(a: BodyShape, b: BodyShape) -> bool:
+    """OCCT's own identity test: same ``TShape`` (and location)."""
+    return bool(a.wrapped.IsSame(b.wrapped))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+
+
+def test_a_fork_shares_no_shape_with_its_original_and_keeps_its_own_sharing() -> None:
+    """The two properties the ladder rests on, on a hand-built state.
+
+    * NOTHING shared with the original: every forked shape is a different
+      ``TShape`` (``IsSame`` false), so features evaluated after a rung cannot
+      rewrite the rung in place;
+    * EVERYTHING shared inside the state stays shared: the body, the tool that
+      shaped it and the unfold body are one shape here, and must still be one
+      shape in the fork — copying them separately would turn one B-rep into
+      three unrelated ones as far as a later boolean is concerned.
+    """
+    body = Solid.make_box(10, 20, 30)
+    cutter = Solid.make_box(2, 2, 40)
+    body_id, tool_feature = uuid.UUID(int=1), uuid.UUID(int=2)
+    state = EvaluationState(
+        linear_deflection=0.1,
+        bodies={body_id: body},
+        last_cut_tools=[cutter],
+        feature_tools={
+            tool_feature: RecordedFeatureTools(
+                body_id=body_id, groups=[RecordedToolGroup("fuse", [body, cutter])]
+            )
+        },
+        sheet_metal_unfold_body=body,
+        active_body_id=body_id,
+        tool_scope_ids=frozenset({tool_feature}),
+    )
+    twin, faces = state.fork()
+
+    forked_body = twin.bodies[body_id]
+    assert twin.sheet_metal_unfold_body is not None
+    assert twin.last_cut_tools is not None
+    group = twin.feature_tools[tool_feature].groups[0]
+    originals = [body, cutter]
+    for shape in (forked_body, twin.sheet_metal_unfold_body, *twin.last_cut_tools):
+        assert not any(_same(shape, original) for original in originals)
+    assert _same(forked_body, twin.sheet_metal_unfold_body)
+    assert _same(forked_body, group.tools[0])
+    assert _same(twin.last_cut_tools[0], group.tools[1])
+    assert faces == 12, "two boxes' faces, the shared one counted once"
+    assert forked_body.volume == pytest.approx(body.volume, rel=0, abs=0)
+    assert twin.bodies is not state.bodies
+    assert twin.feature_tools is not state.feature_tools
+    assert twin.provenance is not state.provenance
+
+    target = EvaluationState(linear_deflection=0.5)
+    target.adopt(twin)
+    assert target.bodies is twin.bodies and target.linear_deflection == 0.1
