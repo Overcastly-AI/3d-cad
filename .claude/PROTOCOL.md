@@ -94,9 +94,12 @@ any failure text back to you.
   `rm -f` only your own. **Never touch 8000/8001/8002/5173** (the shared stack).
 - Boot with `setsid nohup … < /dev/null &` plus a health-poll loop. **Never
   `Bash(run_in_background)`** for a stack — the harness reaps the listener.
-- **Kill by port:** `lsof -ti :<port>`. **Never `pkill -f`** and never a
-  process-name grep — both kill other agents' stacks. (`ss` resolves nothing in
-  this container; a teardown built on it silently does nothing.)
+- **Kill by port, LISTENERS only:** `lsof -ti tcp:<port> -sTCP:LISTEN`. Plain
+  `lsof -ti :<port>` also returns processes merely CONNECTED to the port — our
+  gateway holds sockets to documents, so it can kill the wrong service and leave
+  one running on a deleted DB. **Never `pkill -f`** and never a process-name
+  grep — both kill other agents' stacks. (`ss` resolves nothing in this
+  container; a teardown built on it silently does nothing.)
 - `pnpm run <script> -- <args>` **drops the `--`**. Never write it; check the
   port Vite actually printed.
 - **Restart Vite** after touching `packages/design`, `tailwind-preset.ts`,

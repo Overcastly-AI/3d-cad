@@ -1940,9 +1940,24 @@ recipe here in the same commit as the fix.**
   also kill a stale Vite — but SCOPE THE KILL TO PORT 5173.** Resolve the pid
   from the listener, never from a process-name grep:
   ```bash
-  pid=$(lsof -ti :5173 2>/dev/null | head -1)
-  [ -n "$pid" ] && kill "$pid"      # ONLY the process actually holding :5173
+  pid=$(lsof -ti tcp:5173 -sTCP:LISTEN 2>/dev/null)
+  [ -n "$pid" ] && kill $pid        # ONLY the process LISTENING on :5173
   ```
+  **CORRECTED 2026-09-23 — the version above this said `lsof -ti :5173 | head -1`,
+  and that kills the wrong process.** `lsof -ti :PORT` returns every process
+  with a socket on the port, CLIENTS included. Measured with a control: a
+  listener and a separate client connected to it, `lsof -ti :PORT` -> both pids,
+  `lsof -ti tcp:PORT -sTCP:LISTEN` -> the listener only. With `head -1` the one
+  you kill depends on ordering — and our gateway holds sockets to documents, so
+  tearing down documents' port could kill the GATEWAY and leave documents
+  running on a deleted database file, which surfaces as `attempt to write a
+  readonly database`: the same mask as three other faults in this file. Found by
+  the hole-editor agent, which hit it.
+  **This is the THIRD wrong version of this one recipe** — a process-name grep
+  (killed every agent's Vite), then `ss` (silently killed nothing), then this
+  (can kill a neighbour). Each was plausible and none was tested against the
+  case that breaks it. A teardown recipe needs a control that includes a
+  process it must NOT kill, not only one it must.
   **USE `lsof -ti`, NOT `ss`. `ss -lptn` RESOLVES NOTHING IN THIS CONTAINER** — it
   prints no row at all for a listener the calling shell owns, so a teardown built
   on it **silently no-ops** and reads exactly like a clean teardown while every
