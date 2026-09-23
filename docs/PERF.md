@@ -816,7 +816,9 @@ resume from shapes a first is still reading. That is not fastidiousness, it is
 forced by measurement — see "why a copy is not an option" below — and it has one
 honest consequence: the cache holds **one checkpoint per lineage** (the
 frontier), so it serves APPEND and REPEAT and does **not** serve an edit in the
-middle of a long tree.
+middle of a long tree. *(Superseded 2026-09-23: the checkpoint ladder serves an
+edit from the nearest retained rung below it — see "Mid-tree edits" under "Not
+cached, and why".)*
 
 ### Why a copy is not an option (measured, on the N=25 tray)
 
@@ -869,11 +871,27 @@ memoised artifacts are additionally guarded on the resolved per-body material).
   (CM-6b), so its last-good state is not something to build on.
 * **A tree whose publish-time re-check found the body invalidated.** Same reason,
   plus it is a state that publishes nothing.
-* **Mid-tree edits.** Only frontier checkpoints exist (see above). The follow-up
-  is filed: `warm_rebuild_cache()` — the prefetch seam that ships with this,
-  bounded and cancellable, returning an `int` so a speculative body can never be
-  published — is exactly what a background re-warm of the consumed prefix would
-  use.
+* **Mid-tree edits — served since `09416c6` (PERF-REAL-2), except near the
+  start.** The frontier is still one checkpoint per lineage, but every
+  evaluation now also lays a LADDER rung every 8 features (a fork of its state,
+  thinned geometrically towards feature 0: 15 of 31 kept at N=250, the lowest at
+  32), and an edit at feature *k* resumes from the nearest retained rung at or
+  below *k*. Re-measured by geometry QA 2026-09-23 (`just gauntlet` deep leg,
+  N=250, parent `b9d2a78` vs `09416c6`, two back-to-back passes in opposite
+  order, load 1.0-2.4): **edit #249 34.3 / 34.0 s -> 1.83 / 1.87 s (18.5x)**.
+  **An edit near the START is a floor the cache cannot go under**: #3 is the
+  shell every later feature is cut into, so it re-runs 247 of 250 features
+  (35.1 / 35.1 s -> 37.0 / 37.5 s in the gauntlet's single samples), i.e. a full
+  rebuild; a targeted A/B (4 interleaved samples a side, load 4-6) puts it at
+  +4 %, which is the fork tax every cold rebuild now pays (+3 % on the same
+  runs, ~1 s at N=250). Between the two, the saving follows the distance to the
+  rung below the edit and the ~N^2.15 cost curve; only a dependency-aware
+  evaluator could beat the floor. Two limits measured the same day: the ladder
+  is LRU across the worker, so dragging a late feature through a few values
+  evicts the live tree's rungs BELOW it (N=250, drag #200: rungs 32-192 gone
+  after 6 values), and its memory bound is in FACES (64 rungs / 20 000 faces),
+  which is ~64 MiB only on analytic parts — 50 KiB/face on a lofted NURBS part
+  against the tray's 3.2. Both in docs/GEOMETRY-QA.md 2026-09-23.
 * **Anything durable.** Per worker, in memory, never a correctness dependency:
   a miss re-evaluates.
 

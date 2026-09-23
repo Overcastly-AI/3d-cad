@@ -7,6 +7,228 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-09-23 — PERF-REAL-2 INDEPENDENT VERIFICATION of `09416c6`: the ladder is correct and 18.5x on a late edit, its double fork is load-bearing on today's kernel, and its memory bound is in faces, not bytes (geometry-qa)
+
+Every claim in the commit re-measured on this machine, against the parent
+`b9d2a78` (a `git archive` copy with its own venv), never taken from the report.
+
+| # | claim (09416c6) | verdict | evidence |
+| --- | --- | --- | --- |
+| 1 | edit #249 of the N=250 tray 36.5 s -> 1.76 s | **PASS** (18.5x, not 20.7x) | 34.3 / 34.0 s -> 1.83 / 1.87 s, table below |
+| 1 | edit #3 unchanged — a floor | **PASS** | a full rebuild, +4 % = the cold fork tax (A/B below) |
+| 1 | repeat / append / cold: no regression beyond noise, ~+1 s fork cost | **PASS** | cold +1.5 % (+0.5 s), repeat flat, append +3 % / +13 % single samples |
+| 2 | an edit at *k* never resumes from a rung that has seen feature <= *k* | **PASS** | exhaustive over all 26 positions of a new tree; key +-1 mutants go red in 31-33 tests |
+| 3 | a resumed rebuild is byte-identical to a cold one | **PASS** — mesh AND STEP | 14 edit positions on 2 trees, in-process and across a process restart |
+| 4 | the suite cannot catch "fork once, continue on the original" | **no longer true** | a copy moves the GLB on 13 of 89 trees; new byte gate goes red under that mutant |
+| 5 | bounded at 64 rungs / 20 000 faces ~ 64 MiB | **FAILS on freeform** | 3.2 KiB/face reproduced on the tray; **50.4 KiB/face** on a lofted NURBS part |
+
+### 1. The gauntlet deep leg, parent vs child, back to back
+
+`uv run python scripts/gauntlet.py --leg deep --deep-sweep 250`, two passes in
+OPPOSITE order so drift cannot favour one side (parent, child, child, parent),
+22:20-22:45 UTC. Load 1.0-2.4 on 4 cores — other agents were live; stated, not
+hidden. Cold is the median of 3 with its spread; the rest are single samples.
+
+| run | cold ms | spread | repeat ms | append ms | edit #249 ms | edit #3 ms | peak RSS MiB | RSS MiB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| parent pass 1 (load 1.0 -> 2.4) | 34 632 | ±2 % | 178 | 1 681 | 34 262 | 35 073 | 684 | 590 |
+| child pass 1 (2.4 -> 1.6) | 35 342 | ±1 % | 169 | 1 735 | **1 826** | 36 981 | 756 | 664 |
+| child pass 2 (1.4 -> 2.2) | 35 005 | ±1 % | 160 | 1 901 | **1 874** | 37 475 | 808 | 717 |
+| parent pass 2 (2.2 -> 2.1) | 34 696 | ±2 % | 160 | 1 678 | 33 989 | 35 101 | 760 | 682 |
+
+Identical geometry on both sides at every point: volume **614829.7427058021
+mm^3** bit-for-bit, 548 faces, 39 240 triangles, 1 384.5 KiB GLB, all 250
+features `ok`.
+
+- **Late edit: 18.1x-18.8x** (mean 34.1 s -> 1.85 s). The builder's 20.7x was
+  against a 36.5 s parent sample; the speedup is real, the ratio is a little
+  optimistic. It resumes from the rung at 248 and re-runs two features.
+- **Early edit: a floor, as claimed** — #3 is the shell under everything, and no
+  rung sits below it (at N=250 the lowest retained rung is 32: kept are 32, 64,
+  96, 128, 144 ... 248, 15 of 31). The gauntlet's single samples read
+  **+5.4 % / +6.8 %** against the parent where cold paid +2.0 % / +0.9 %, so I
+  ran a targeted A/B (`early_ab`: seed with the original, time edit #3, then time
+  a cold rebuild of the SAME edited tree; parent, child, parent, child, 2 samples
+  each, load 4-6): edit #3 **35.08 -> 36.48 s median (+4.0 %)**, cold rebuild of
+  the edited tree **34.94 -> 36.04 s (+3.1 %)**, and in-process edit-minus-cold
+  **+1.1 % / -0.7 %** (parent) vs **+1.8 % / +1.1 %** (child). So the early edit
+  is exactly a cold rebuild, and what it pays over the parent is the fork tax a
+  cold rebuild pays — ~1.1 s at this load, the builder's "~+1 s". Not a
+  defect.
+- **Cold +1.5 % (+0.5 s)**, under the builder's "+1 s". Repeat flat.
+  **Append +3 % / +13 %** on single samples (mean 1 680 -> 1 818 ms, +8 %): the
+  append at N=250 -> 251 resumes from the frontier and crosses no rung, so there
+  is no mechanism for it to pay fork tax; I read it as load noise and record it
+  as a watch item, not a defect.
+- RSS **+35 to +74 MiB** (peak +48 to +72) at the end of the leg — the ladders the leg left behind.
+
+### 2. Correctness beyond the builder's fixtures — `tests/test_rebuild_ladder_qa.py` (18)
+
+New file, not the builder's (which they own and are editing). What it adds:
+
+- **The STEP export, byte for byte**, beside the GLB, `mesh_glb_id`, mass
+  properties + topology and per-feature statuses. The builder's gate compared the
+  mesh only.
+- **A 26-feature tree whose booleans SHARE faces** (`shared_face_tree`): a block
+  unioned to a block it touches on x = 30; a body with coplanar top AND bottom
+  subtracted into a through-window; a pocket re-cut deeper through its own walls;
+  a hole patterned 3x (one tool `TShape` at three locations); a block unioned on
+  three shared planes; a 2 mm slab on the part's OWN outline subtracted (every
+  side wall coincident); a pocket refilled by an extrude of its own profile; a
+  notch flush with a wall. All 26 `ok`, one shell (asserted, or the gates below
+  would be vacuous).
+- **Positions the builder's gate did not pick**: the FIRST feature (0), both
+  sides of rung 8 (6, 7, 8, 9 — 7 suppresses the subtract, so feature 10 fails
+  and the FAILURE path is compared too), between rungs (12), a rung boundary (16), the last
+  feature inside rung 24 (23), the LAST feature (25); on the housing tray at
+  N=28: the shell under everything (3), 12, 16, a hole (20), the last feature
+  (27). Each asserts the resume length (`floor(k/8)*8`) and the rung hit too.
+- **Exhaustive**: an edit at EVERY index 0..25 resumes from exactly
+  `floor(k/8)*8` — never past itself, never short.
+- **A session**: original -> edit 25 -> edit 12 -> edits 12+20 -> original ->
+  edit 25 -> edit 17, each against its own cold rebuild, so resumes also start
+  from rungs laid by RESUMED evaluations.
+
+All 18 green on `09416c6`. **Across a process restart** (resumed in one
+interpreter, cold in a fresh one): 14 / 14 positions identical in `mesh_glb_id`,
+STEP sha256 and volume `repr`.
+
+**Mutation matrix** — each mutant applied to the kernel source in my worktree,
+both files run (63 tests), source restored with `git checkout`:
+
+| mutant | QA file (18) red | builder's file (45) red |
+| --- | ---: | ---: |
+| rung stored under `chain[r - 1]` | 14 | 19 |
+| rung stored under `chain[r + 1]` | 13 | 18 |
+| `take()` hands out the rung itself, not a fork | 1 (structural) | 3 |
+| no fork at all (rung shares the live shapes) | 12 | 13 |
+| continue on the STORED rung itself | 12 | 13 |
+| **fork once, continue on the ORIGINAL** | **6** (4 byte + structural + session) | **0** |
+| store the original, continue on ONE fork (benign control) | 0 | 0 |
+
+### 3. The double fork: the fixture exists, and it is ordinary parts
+
+The builder wrote that the single-fork variant "passes" the suite and that a fork
+of the tray's body "at N=12/19/40/100 tessellated byte-identically". I measured
+the premise directly: evaluate each tree with the ladder OFF (`_climb_rung`
+patched to a no-op — the parent's evaluator), fork the final body, tessellate
+both at the request's deflection.
+
+**13 of 89 trees re-mesh differently after ONE `BRepBuilderAPI_Copy`** (all 77
+goldens with a feature tree, housing N=12..100, heat sinks, the shared-face
+tree, two freeform trees): `pattern-cut-6hole-boltcircle`, five sheet-metal
+goldens (`closed-hem-guard-panel`, `pan-four-corner-relieved`,
+`pan-four-flange-perp-unfold`, both `u-channel-*`), **housing 27, 40, 60, 100**,
+heat sink 16 and 64 fins, and the shared-face tree. STEP bytes and mass
+properties identical in every case. What moves:
+
+| tree | original vs fork | fork vs fork-of-fork | two forks of one fork |
+| --- | --- | --- | --- |
+| housing-40 | accessor max z `0.020000000000000004` vs `0.02`; 0 BIN words | identical | identical |
+| housing-100 | min z `0.019999999999999997`, max z `...04` vs `0.02` | identical | identical |
+| shared-face | 5 accessor bounds, e.g. `0.003999999999999999` vs `0.004` | identical | identical |
+| pan-four-corner-relieved | 4 bounds + 6 BIN words, max diff 1.3e-18 | identical | identical |
+| heat sink 64 | 48 BIN words, max diff 3.7e-40 (denormals) | identical | identical |
+
+So a copy **normalises** 1-ULP noise the original's construction left in its
+coordinates, and a copy of a copy changes nothing. That is exactly why the
+double fork works — both paths continue on a copy of the same rung — and exactly
+why the single fork does not: the cold path would carry the un-normalised
+original. The builder's N=40/100 re-check was most likely taken on a body that
+had already been forked by the ladder.
+
+**The fixture is therefore not exotic**: under "fork once, continue on the
+original" the byte gate goes red on the shared-face edits at 16, 23, 25 and the
+housing edit at 27 (`mesh_glb_id` and GLB differ, STEP equal), and the builder's
+`LADDER_N = 19` housing tree is one of the trees where a copy happens not to move
+the mesh. Landed as behaviour
+(`test_a_ladder_resume_is_byte_identical_to_cold_in_mesh_and_step`) AND
+structurally (`test_every_rung_climb_carries_on_with_a_copy_of_the_rung`: after
+every climb, cold and resumed, the live state shares no face `TShape` —
+`IsPartner`, i.e. at any location — with the state it arrived with or with the
+stored rung, and a resume shares none with the rung it forked). Seen red under
+the mutant; seen green on `09416c6`.
+
+Two consequences, neither a defect:
+
+- **`09416c6` changed the served GLB bytes of every part that reaches a rung**
+  (8+ features) where a copy normalises: `pan-four-corner-relieved` (10
+  features), housing 27+, the shared-face tree — accessor bounds by 1 ULP,
+  geometry, STEP and mesh counts unchanged (the golden suite, which pins counts
+  and not bytes, stays green). Their `mesh_glb_id`s change once at upgrade.
+  `pattern-cut-6hole` (5 features, no rung) is byte-identical to the parent.
+- **The second fork is optional in a way the builder did not note**: storing the
+  ORIGINAL and continuing on one fork of it is byte-equivalent (both paths then
+  continue on a copy of the same state), passes all 63 tests, and halves the fork
+  tax. The structural gate deliberately permits it.
+
+### 4. Memory on a freeform part — the face budget is not a byte budget
+
+Method as the builder's: heap in use (`mallinfo2` `uordblks + hblkhd`, after
+`gc.collect()` + `malloc_trim(0)`). Fill one worker's ladder by re-evaluating the
+part with the FIRST feature changed each time (every evaluation lays a new
+chain), until the cap binds; then drop the ladder alone and measure what it held.
+
+| part | rungs at cap | rung faces | ladder heap | **KiB / face** | at 20 000 faces |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| housing tray N=100 (analytic; builder's calibration) | 64 | 9 188 | 28.8 MiB | **3.2** | 63 MiB |
+| 24 lofted 18-point spline bumps on a plate, overlapping (76 features) | 64 | 2 344 | **115.4 MiB** | **50.4** | **~985 MiB** |
+
+The calibration reproduces the builder's 3.2 KiB/face exactly, so the method is
+the same. On the freeform part a face weighs **15.7x** more (merged BSpline faces
+trimmed by approximated BSpline-BSpline intersection edges). The COUNT cap bound
+first here, at 12 % of the face budget, and the ladder already held **1.8x** the
+stated 64 MiB; a part whose freeform states reach 312+ faces would let the face
+budget bind at ~1 GiB, the whole per-worker budget in docs/OPERATIONS.md §6.
+(The single-fork weight of the same state agrees: 57 KiB/face.)
+
+### 5. Two reviewer findings, confirmed by measurement
+
+- **A late-feature drag evicts the live chain's deep rungs.** N=250, drag #200
+  through 6 values (each ~14 s, resuming from rung 200): the ladder grew
+  15 -> 39 rungs / 5 809 -> 19 833 faces, then the LRU evicted. After the 6th
+  value the CURRENT tree's retained rungs went from `[32 ... 192, 200 ... 248]` to
+  `[200, 208, ..., 248]` — every rung below the drag is gone, while the rungs of
+  four abandoned drag values survive. The next edit anywhere below #200 is a full
+  36 s rebuild.
+- The warm-paused-at-a-multiple-of-8 finding I did not re-measure.
+
+### 6. Gates run
+
+| gate | result |
+| --- | --- |
+| full geometry suite (`uv run pytest services/geometry/tests`) | **3172 passed**, 1 skipped, 5 deselected (benchmark), 18 min 24 s |
+| goldens (`test_goldens.py`, incl. cross-process determinism) | 242 passed |
+| assembly goldens | 17 passed |
+| STEP round-trip (`test_step_roundtrip.py` + sheet metal) | 61 + 4 passed |
+| `test_rebuild_cache.py` (builder) + `test_rebuild_ladder_qa.py` (new) | 45 + 18 passed |
+
+Golden coverage audit: the ladder adds no modelling capability, so no golden is
+owed. Note only 2 goldens even reach a rung (`pan-four-corner-relieved`,
+`hemmed-wall-tray-unfold`) and no golden resumes; resume correctness lives in the
+two unit files above.
+
+### Findings
+
+- **GQA-LADDER-1 (P2, memory)** — the ladder's bound is in faces and a face's
+  weight varies 15.7x between the tray and a lofted NURBS part: 115 MiB at the
+  64-rung cap already, ~1 GiB projected at the 20 000-face budget. Root cause:
+  `RUNG_FACE_BUDGET` prices every face at the tray's 3.2 KiB. Fix direction:
+  weigh a rung in bytes at store time (the fork already walks every shape; a
+  pole/knot count or a serialized-size estimate is cheap beside a 9-20 ms fork),
+  and keep the face count as a secondary bound. The `RUNG_FACE_BUDGET` comment
+  already concedes the number is "the analytic-part figure".
+- **GQA-LADDER-2 (P2, perf)** — confirms the reviewer's drag finding above;
+  already with the builder.
+- **GQA-LADDER-3 (P3, docs)** — two statements in the shipped code are now
+  contradicted: `rebuild_cache.py` "a fork of the tray's body at N=12/19/40/100
+  tessellated byte-identically" (N=40 and 100 do not, on a pre-ladder body), and
+  `_climb_rung` "the single-fork variant passes it ... the second fork buys a
+  guarantee the suite cannot currently check" (it can now).
+- **Watch (not filed)** — append +8 % mean over two single samples (+3 % /
+  +13 %) with no mechanism (it resumes from the frontier and crosses no rung).
+  The early-edit reading from the gauntlet was single-sample noise (A/B above).
+
 ## 2026-09-15 — F1 + F2 FIXED: the tolerance sweep that chose the integrator, and the NURBS coverage gap that outlives both (kernel-architect)
 
 Closes FINDING 1 and FINDING 2 of the gauntlet entry below. Both fixes are one
