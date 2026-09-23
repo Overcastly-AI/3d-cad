@@ -104,9 +104,23 @@ mechanisms, all orchestrator decisions:
 - **Pull every failing shard's verdict, not one.** I read shard 3, fixed it,
   and left shards 2 and 4 unread for days; 7 of the 9 remaining failures were
   there.
-- **Lean briefs.** Point at `CLAUDE.md` "Environment recipes" instead of
-  restating ~40 lines of it per brief; restating it cost more context than the
-  task description, six times over.
+- **Lean briefs — the protocol now lives in `.claude/PROTOCOL.md`, and every
+  agent definition tells the agent to read it first.** Restating ~40 lines of
+  environment rules per brief cost more context than the task, six times a wave.
+  A brief is now exactly:
+  ```
+  TASK       what, why, the measured evidence, what "done" means
+  TERRITORY  the exact paths this agent may EDIT (it may RUN anything)
+  PORTS      gateway/documents/geometry + Vite, unique to this agent
+  BRANCH     claude/<session-branch>
+  ```
+  If you find yourself writing a rule into a brief, it belongs in PROTOCOL.md.
+- **Check territories AGAINST EACH OTHER before dispatch, not after.** List every
+  live agent's EDIT paths and intersect them pairwise; a non-empty intersection
+  means serialise or re-cut. On 2026-09-18 two briefs each looked disjoint on
+  their own, and both agents edited the same four overlay files.
+- **Run the loops with `args.branch` set** — they now refuse to start without it,
+  and cap a wave at 3 builders however large `batchSize` is.
 
 ## 1. Session start
 

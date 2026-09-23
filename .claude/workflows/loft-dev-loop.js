@@ -143,7 +143,12 @@ const VERIFIED = {
   },
 }
 
-const batchSize = (args && args.batchSize) || 3
+// CAPPED, not just defaulted (2026-09-23). Twice in one week a wave of five or
+// six heavy builders exhausted the session limit together; every one was killed
+// mid-flight and finished commits were stranded unpushed in their worktrees. A
+// larger batch is not more throughput — past ~3 it is a wave that dies whole.
+const MAX_BUILDERS = 3
+const batchSize = Math.min((args && args.batchSize) || MAX_BUILDERS, MAX_BUILDERS)
 const skipAudit = !!(args && args.skipAudit)
 const skipDiscover = !!(args && args.skipDiscover)
 const skipCurate = !!(args && args.skipCurate)
@@ -197,9 +202,17 @@ const KERNEL_PATHS = ['services/geometry', 'packages/py-kit', 'goldens', 'kernel
 const isKernelAdjacent = (it) =>
   KERNEL_PATHS.some((k) => String((it && it.territory) || '').includes(k))
 const occupied = (args && args.occupiedTerritories) || []
-const branch = (args && args.branch) || 'claude/branch-review-development-hkbbnb'
+// REQUIRED, never defaulted (2026-09-23). Two of the three loops hardcoded
+// 'claude/branch-review-development-hkbbnb' long after the working branch had
+// moved on, so running them built against a dead branch — silently, since every
+// agent would reset to it and report green. A missing branch must stop the run.
+if (!(args && typeof args.branch === 'string' && args.branch.startsWith('claude/'))) {
+  throw new Error("args.branch is required (e.g. 'claude/<session-branch>'). This loop no longer guesses the branch.")
+}
+const branch = args.branch
 
 const STANDARD = `
+Read .claude/PROTOCOL.md before your first tool call and follow it: it is the shared start / commit / push / CI / stack / evidence protocol for every agent. Where anything below disagrees with it, PROTOCOL.md wins and you say so in your report. Push after EACH gated fix, not at the end — a wave that hits the session limit loses everything unpushed.
 HOW THIS REPO JUDGES WORK:
 * An assertion never SEEN to fail is not a gate. For any gate you add or change,
   build the mutation that should redden it, RUN it, quote the red output, revert,

@@ -134,8 +134,20 @@ const SYSTEM_SUBTREE = FOUNDATION_SUBTREES[0]
 // whatever surfaces the wave happens to touch, so it belongs inside those items
 // rather than being one.
 
-const batchSize = (args && args.batchSize) || 3
-const branch = (args && args.branch) || 'claude/frontend-workflow-redesign-8ae3su'
+// CAPPED, not just defaulted (2026-09-23). Twice in one week a wave of five or
+// six heavy builders exhausted the session limit together; every one was killed
+// mid-flight and finished commits were stranded unpushed in their worktrees. A
+// larger batch is not more throughput — past ~3 it is a wave that dies whole.
+const MAX_BUILDERS = 3
+const batchSize = Math.min((args && args.batchSize) || MAX_BUILDERS, MAX_BUILDERS)
+// REQUIRED, never defaulted (2026-09-23). Two of the three loops hardcoded
+// 'claude/branch-review-development-hkbbnb' long after the working branch had
+// moved on, so running them built against a dead branch — silently, since every
+// agent would reset to it and report green. A missing branch must stop the run.
+if (!(args && typeof args.branch === 'string' && args.branch.startsWith('claude/'))) {
+  throw new Error("args.branch is required (e.g. 'claude/<session-branch>'). This loop no longer guesses the branch.")
+}
+const branch = args.branch
 const occupied = (args && args.occupiedSubtrees) || []
 const seedItems = (args && Array.isArray(args.items) && args.items) || []
 const skipCost = !!(args && args.skipCost)
@@ -208,6 +220,7 @@ const PLAN = {
 
 // --- The shared standard ----------------------------------------------------
 const STANDARD = `
+Read .claude/PROTOCOL.md before your first tool call and follow it: it is the shared start / commit / push / CI / stack / evidence protocol for every agent. Where anything below disagrees with it, PROTOCOL.md wins and you say so in your report. Push after EACH gated fix, not at the end — a wave that hits the session limit loses everything unpushed.
 HOW THIS REPO JUDGES FRONTEND WORK:
 * ALWAYS invoke the \`frontend-design\` skill before writing UI. The bar is
   Fusion 360 / Plasticity, not "premium dashboard" — judge your result against a

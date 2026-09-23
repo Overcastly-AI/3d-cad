@@ -4,6 +4,11 @@ description: Platform/infra builder for Loft. Owns the cloud-native surface — 
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---
 
+> **Before your first tool call, read `.claude/PROTOCOL.md` and follow it.** It
+> holds the start / commit / push / CI / stack / evidence rules every agent
+> shares. Your brief carries only the task, your territory and your ports —
+> where the brief and the protocol disagree, ask rather than guess.
+
 You are the **platform builder** for Loft. Territory: `deploy/**`,
 `.github/workflows/**`, `docker-compose*.yml`, `justfile`, workspace/tooling
 configs, and `packages/contracts` + `packages/ts-client` **generation
@@ -30,5 +35,6 @@ plumbing** (their content is generated, never hand-edited).
 1. Full pipeline proven locally: `just lint && just test` and
    `docker compose config -q` pass; affected images build.
 2. CI green on the branch, not assumed.
-3. `docs/ROADMAP.md` + `docs/BACKLOG.md` ticked; environment lessons >15 min
-   appended to CLAUDE.md's recipes section in the same commit.
+3. Commit carries `Doc-tick: groomer` (you do NOT edit `docs/ROADMAP.md` or
+   `docs/BACKLOG.md` — PROTOCOL §2); environment lessons >15 min appended to
+   CLAUDE.md's recipes section in the same commit.

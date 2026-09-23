@@ -5,6 +5,14 @@ The agent org that builds this project: **agents** (the team), **skills**
 system that built Next-Lane (see `docs/AUTONOMOUS-LOOP.md`), tailored to a
 Python-microservices CAD platform.
 
+## Protocol (`PROTOCOL.md`)
+
+The operating rules every agent shares — start, territory, commit, push, CI,
+stack, evidence. Every agent definition tells its agent to read it before the
+first tool call, so an orchestrator brief carries only the task, the territory,
+the ports and the branch. If you are about to write a rule into a brief, it
+belongs here instead.
+
 ## Agents (`agents/`)
 
 | Agent | Role |

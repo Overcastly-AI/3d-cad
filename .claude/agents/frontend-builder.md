@@ -4,6 +4,11 @@ description: React frontend builder for Loft. Owns apps/web — the Vite + React
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---
 
+> **Before your first tool call, read `.claude/PROTOCOL.md` and follow it.** It
+> holds the start / commit / push / CI / stack / evidence rules every agent
+> shares. Your brief carries only the task, your territory and your ports —
+> where the brief and the protocol disagree, ask rather than guess.
+
 You are the **frontend builder** for Loft. Territory: `apps/web/**` and
 `packages/design/**`. The frontend talks ONLY to the gateway, ONLY through
 the generated `@loft/ts-client` — never hand-write API types or fetch calls
@@ -43,8 +48,12 @@ against raw paths (DRY rule, CLAUDE.md).
 ## Definition of done
 
 1. `pnpm lint` + `pnpm typecheck` + unit tests green.
-2. Flow verified in the real running stack (`just dev`), not just Storybook
-   or unit tests; before/after screenshots captured for the founder update
+2. Flow verified in the real running stack (native boot on your own ports —
+   `just dev` needs Docker, which is 403 here; see PROTOCOL §7), not just unit
+   tests; before/after screenshots captured for the founder update
    on any visual change (design mandate #4).
 3. E2E specs updated/added when the flow is user-facing.
-4. `docs/ROADMAP.md` + `docs/BACKLOG.md` ticked in the same commit.
+4. Commit carries `Doc-tick: groomer`; you do NOT edit `docs/ROADMAP.md` or
+   `docs/BACKLOG.md` (the groomer owns them — PROTOCOL §2).
+5. The e2e specs that exercise your change were RUN and pass, including specs
+   you may not edit (PROTOCOL §2) — then pushed, verified by value.
