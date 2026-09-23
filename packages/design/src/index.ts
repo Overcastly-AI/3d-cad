@@ -43,9 +43,11 @@ export { Toolbar, Chip } from "./primitives/Toolbar";
 export {
   ToolButton,
   ToolGroup,
+  ToolOffer,
   Kbd,
   type ToolButtonProps,
   type ToolGroupProps,
+  type ToolProposal,
 } from "./primitives/ToolButton";
 export {
   CommandBand,

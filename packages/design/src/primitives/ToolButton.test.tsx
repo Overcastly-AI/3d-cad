@@ -163,3 +163,88 @@ describe("ToolButton gate-reason description", () => {
     expect(tooltip).toHaveTextContent(REASON);
   });
 });
+
+/**
+ * The band's NEXT-STEP OFFER (`proposal`). The browser proves what is PAINTED
+ * and what a real pointer hits (`apps/web/e2e/next-step-label.spec.ts`); these
+ * pin the structural half, which is where a refactor would quietly break it.
+ */
+describe("ToolButton next-step offer", () => {
+  const CAPTION = "Round the new body's edges";
+  const offerOf = (button: HTMLElement) =>
+    button.querySelector<HTMLElement>("[data-testid='next-step-label']");
+  const partsOf = (button: HTMLElement) => [
+    offerOf(button),
+    button.querySelector("[data-next-step-leader]"),
+    button.querySelector("[data-testid='next-step-dot']"),
+  ];
+
+  it("draws nothing of the offer on an ordinary tool", () => {
+    renderTool({ caption: QUALIFIER });
+    const button = screen.getByTestId("tool-extrude");
+    for (const part of partsOf(button)) expect(part).toBeNull();
+  });
+
+  it("names the offer — NEXT, the tool's own name and key, over the caption", () => {
+    renderTool({ caption: CAPTION, proposal: "resting" });
+    const button = screen.getByTestId("tool-extrude");
+    // One source: the words are the tool's own `label` and `shortcut` plus the
+    // caption the caller already passes. Nothing here is a second string table.
+    expect(offerOf(button)).toHaveTextContent(`NextExtrudeE${CAPTION}`);
+    expect(
+      button.querySelector("[data-testid='next-step-dot']"),
+    ).not.toBeNull();
+  });
+
+  it("REPLACES the tooltip: one stamp per tool, never two", () => {
+    renderTool({ caption: CAPTION, proposal: "resting" });
+    const button = screen.getByTestId("tool-extrude");
+    expect(button.querySelectorAll("[data-tooltip]")).toHaveLength(1);
+    expect(button.querySelector("[data-tooltip]")).toBe(offerOf(button));
+  });
+
+  it("keeps the caption as the description, and is silent itself", () => {
+    renderTool({ caption: CAPTION, proposal: "announced" });
+    const button = screen.getByRole("button", { name: "Extrude — E" });
+    // The words reach a screen reader exactly as before the offer existed…
+    expect(button).toHaveAccessibleDescription(CAPTION);
+    // …and the drawn note does not announce itself a second time.
+    for (const part of partsOf(button)) {
+      expect(part).toHaveAttribute("aria-hidden", "true");
+    }
+  });
+
+  it("can take no pointer: every part of the note is pointer-events-none", () => {
+    renderTool({ caption: CAPTION, proposal: "announced" });
+    for (const part of partsOf(screen.getByTestId("tool-extrude"))) {
+      expect(part?.getAttribute("class") ?? "").toContain(
+        "pointer-events-none",
+      );
+    }
+  });
+
+  it("is up unprompted only while announced; otherwise on hover/focus", () => {
+    const { rerender } = renderTool({ caption: CAPTION, proposal: "resting" });
+    const resting = offerOf(screen.getByTestId("tool-extrude"))!;
+    expect(resting).toHaveAttribute("data-announced", "false");
+    expect(resting.className).toContain("opacity-0");
+    expect(resting.className).toContain("group-hover/tt:opacity-100");
+    expect(resting.className).toContain("group-focus-visible/tt:opacity-100");
+
+    rerender(
+      <ToolButton
+        icon={<svg aria-hidden />}
+        label="Extrude"
+        shortcut="E"
+        data-testid="tool-extrude"
+        caption={CAPTION}
+        proposal="announced"
+      />,
+    );
+    const said = offerOf(screen.getByTestId("tool-extrude"))!;
+    expect(said).toHaveAttribute("data-announced", "true");
+    // Exclusive branches: never both, so stylesheet order cannot decide it.
+    expect(said.className).toContain("opacity-100");
+    expect(said.className).not.toContain("opacity-0");
+  });
+});

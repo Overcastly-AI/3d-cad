@@ -20,19 +20,18 @@ import {
   ToolGroup,
   VerbGlyph,
 } from "@loft/design";
-import type { VerbGlyphProps } from "@loft/design";
+import type { ToolProposal, VerbGlyphProps } from "@loft/design";
 import type { ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ExportedFile, ExportFormat } from "../api/exportPart";
 import { useCommandActionStore } from "../features/commandActions";
 import { verbHint, verbLabel } from "../features/patternScope";
-import { useCancelKey } from "../lib/modalGate";
+import { useCancelKey, useGlobalKeys } from "../lib/modalGate";
 import { partVerbKey } from "../shortcuts/registry";
 import { ExportToolGroup } from "./ExportToolGroup";
 import { HistoryGroup } from "./HistoryGroup";
 import type { NextStepProposal, NextStepTool } from "./nextStep";
-import { NextStepDot } from "./NextStepDot";
 
 /**
  * Which groups keep their words when the band runs out of room (higher holds
@@ -340,6 +339,79 @@ function useNextStepAccent(
   return shown;
 }
 
+/**
+ * How long a NEW step's offer stays up unprompted before it settles back to
+ * the bare dot — long enough to read `NEXT FILLET F` and its one-line caption
+ * (six to eight words) without chasing it, short enough that a user who is not
+ * looking at the band is not left with a note parked over the model. Anything
+ * the user does first ends it sooner; hover and keyboard focus bring it back
+ * at will, so a note that settles has not been lost.
+ */
+export const NEXT_STEP_ANNOUNCE_MS = 4000;
+
+/**
+ * Is the band's offer being SAID OUT LOUD right now — the once-per-step
+ * reveal, before it settles back to the bare dot.
+ *
+ * WHAT COUNTS AS A NEW STEP: a proposal about a feature this band has not
+ * announced before, i.e. a new `featureId`. That is the identity the proposal
+ * already arms and dismisses on (`NextStepProposal.featureId`, "written once
+ * per build"), and it is used here for the same reason: a step is a BUILD, not
+ * a verb. Keying on the verb or the caption instead would go wrong both ways —
+ * a second extrude after a first is a new body the user just made (so it is
+ * worth saying, even in the same words), while the SAME build's proposal
+ * coming back is not news at all. And it does come back: suppressing the
+ * feature and un-suppressing it (measured — the case `next-step-label.spec.ts`
+ * drives) drops the proposal and returns it under the same id, and anything
+ * else that hides the body and restores it will do the same. Keyed on "the
+ * accent appeared", each of those would re-announce a proposal the user has
+ * already read. So the memory is a SET of ids rather than "the last one", and
+ * it outlives the accent vanishing.
+ *
+ * `live` is the proposal as actually DRAWN (null while a command holds the
+ * band): a feature lands while its own command is still open, and announcing
+ * then would spend the one showing behind a sheet nobody can see through.
+ *
+ * WHAT SETTLES IT: the hold running out, or the user's next action — any
+ * pointer press, wheel or key anywhere. Every one of those listeners is
+ * PASSIVE: it never calls `preventDefault` and never claims a key, so the
+ * press still does what it was aimed at (the keyboard path goes through
+ * `useGlobalKeys`, which also stands down for a focused control's own
+ * activation key — the W2 finding this file must not reintroduce).
+ */
+function useNextStepAnnouncement(live: NextStepProposal | null): boolean {
+  const said = useRef<Set<string>>(new Set());
+  const [saying, setSaying] = useState<string | null>(null);
+  const id = live?.featureId ?? null;
+
+  useEffect(() => {
+    if (id === null || said.current.has(id)) return;
+    said.current.add(id);
+    setSaying(id);
+  }, [id]);
+
+  const settle = useCallback(() => setSaying(null), []);
+  const armed = saying !== null;
+  useEffect(() => {
+    if (!armed) return;
+    const timer = window.setTimeout(settle, NEXT_STEP_ANNOUNCE_MS);
+    const options = { capture: true, passive: true } as const;
+    window.addEventListener("pointerdown", settle, options);
+    window.addEventListener("wheel", settle, options);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("pointerdown", settle, options);
+      window.removeEventListener("wheel", settle, options);
+    };
+  }, [armed, settle]);
+  useGlobalKeys("the next-step announcement", armed ? settle : null, {
+    capture: true,
+    whileTyping: true,
+  });
+
+  return id !== null && saying === id;
+}
+
 export function CreateStrip({
   treeReady,
   canUndo = false,
@@ -472,32 +544,51 @@ export function CreateStrip({
    * dies of, so it is checked once, here, for every row.
    */
   const accent = useNextStepAccent(canModify ? nextStep : null, locked);
+  /**
+   * Whether each tool that can take the accent is usable right now. A proposal
+   * on a disabled tool would be a dead end — the accent's whole claim is "you
+   * can do this now" — so this is required for the dot AND for the
+   * announcement. Keyed by the `NextStepTool` union, so a tool added to the
+   * table without a row here is a compile error rather than a dot that never
+   * lights.
+   */
+  const nextStepReady: Readonly<Record<NextStepTool, boolean>> = {
+    "new-extrude": canExtrude && treeReady,
+    "new-revolve": canRevolve && treeReady,
+    "new-fillet": filletReady,
+    "new-chamfer": chamferReady,
+    "new-hole": holeReady,
+    "new-edge-flange": edgeFlangeReady,
+  };
+  /** The proposal as actually DRAWN on the band — null when no tool wears it. */
+  const drawn =
+    accent !== null && !locked && nextStepReady[accent.tool] ? accent : null;
+  const announcing = useNextStepAnnouncement(drawn);
 
   /**
    * Everything the ACCENTED tool wears, as one spread — the glyph (always), the
-   * 6px dot beside it, the proposal's caption, and the `data-next-step` hook the
-   * flow audit names. One call per candidate tool, because three props that must
-   * agree at six call sites will otherwise drift apart at exactly one of them.
+   * proposal's caption, the `proposal` state that makes `ToolButton` draw the
+   * dot and its leader note, and the `data-next-step` hook the flow audit
+   * names. One call per candidate tool, because props that must agree at six
+   * call sites will otherwise drift apart at exactly one of them.
    *
-   * `ready` is required, not inferred: a proposal on a disabled tool would be a
-   * dead end, and the accent's whole claim is "you can do this now".
-   *
-   * The dot rides in the `icon` slot because it is absolutely positioned against
-   * `ToolButton`'s own `relative` box (see `NextStepDot`) — it must be INSIDE
-   * the button and it must cost no width, and the icon slot is the only place
-   * that is both.
+   * The dot and the note belong to `ToolButton` (`ToolOffer` in
+   * `packages/design`), not to this band: the leader has to start at the dot's
+   * exact centre and land on the stamp that replaces the tool's tooltip, and
+   * geometry split across two packages is geometry that drifts. This band
+   * decides only WHICH tool and WHETHER the note is being said out loud.
    */
   const withNextStep = (
     tool: NextStepTool,
     verb: VerbGlyphProps["verb"],
-    ready: boolean,
     caption: string | undefined,
   ): {
     icon: ReactNode;
     caption: string | undefined;
+    proposal: ToolProposal | undefined;
     "data-next-step": "true" | undefined;
   } => {
-    const on = accent?.tool === tool && ready && !locked;
+    const on = drawn?.tool === tool;
     return {
       icon: (
         <>
@@ -547,12 +638,12 @@ export function CreateStrip({
           <span className={on ? "text-brass" : undefined}>
             <VerbGlyph verb={verb} />
           </span>
-          {on ? <NextStepDot /> : null}
         </>
       ),
       // The gate/lock reason still wins where there is one — but `on` requires
       // `ready && !locked`, so the two can never both want the line.
-      caption: on && accent !== null ? accent.caption : caption,
+      caption: on && drawn !== null ? drawn.caption : caption,
+      proposal: on ? (announcing ? "announced" : "resting") : undefined,
       "data-next-step": on ? "true" : undefined,
     };
   };
@@ -733,7 +824,6 @@ export function CreateStrip({
             {...withNextStep(
               "new-extrude",
               "extrude",
-              canExtrude && treeReady,
               captionFor(canExtrude && treeReady, "Draw a sketch to extrude"),
             )}
             showLabel
@@ -752,7 +842,6 @@ export function CreateStrip({
             {...withNextStep(
               "new-revolve",
               "revolve",
-              canRevolve && treeReady,
               captionFor(canRevolve && treeReady, "Draw a sketch to revolve"),
             )}
             showLabel
@@ -863,7 +952,6 @@ export function CreateStrip({
             {...withNextStep(
               "new-fillet",
               "fillet",
-              filletReady,
               captionFor(filletReady, "Create a body first"),
             )}
             showLabel
@@ -882,7 +970,6 @@ export function CreateStrip({
             {...withNextStep(
               "new-chamfer",
               "chamfer",
-              chamferReady,
               captionFor(chamferReady, "Create a body first"),
             )}
             showLabel
@@ -946,7 +1033,6 @@ export function CreateStrip({
             {...withNextStep(
               "new-hole",
               "hole",
-              holeReady,
               captionFor(holeReady, "Create a body first"),
             )}
             showLabel
@@ -1014,7 +1100,6 @@ export function CreateStrip({
             {...withNextStep(
               "new-edge-flange",
               "sheet_metal_edge_flange",
-              edgeFlangeReady,
               captionFor(edgeFlangeReady, "Add a base flange first"),
             )}
             showLabel
