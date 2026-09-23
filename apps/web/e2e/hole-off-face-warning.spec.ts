@@ -1,23 +1,26 @@
 /**
- * THE HOLE COMMAND REFUSES A POINT ITS OWN PANEL HAS CALLED OFF THE FACE (F-6).
+ * THE HOLE COMMAND'S COMMIT CONTROL SAYS WHAT ITS PANEL SAYS (F-6).
  *
  * The product audit of 2026-09-16 drilled `X = -45` on a face spanning X
- * 0..120. The panel already read "Off the face outline — move it onto the
- * face"; CREATE stayed enabled; the click bought 5.6 s of evaluation and came
- * back `HOLE_OFF_BODY` / `SOLVE Failed` / `STATUS Partial`. Everything
- * downstream of a knowingly-invalid commit is wasted time, and a panel whose
- * button disagrees with its own copy teaches the user to distrust both.
+ * 0..120. The placement line read "Off the face outline — move it onto the
+ * face" while CREATE carried a bare "Enter"; the click bought 5.6 s of
+ * evaluation and came back `HOLE_OFF_BODY`. The panel knew and the button did
+ * not say.
  *
- * Driven in the real browser rather than only in jsdom because the claim is
- * that a USER cannot commit it: the refused cell is pressed through
- * `clickRefusedControl`, which first proves a pointer at its centre resolves to
- * the cell itself, and the proof it did nothing is that the editor is still
- * open and the tree has not grown — not that a handler was not called, which a
- * synthetic click could satisfy while the product shipped a hole anyway.
+ * The button now says it — in its caption and, for a screen reader, by taking
+ * the placement line as its description — and it STAYS A LIVE CONTROL. The
+ * client's verdict reads the outline off overlay edges within 1e-3 mm of the
+ * face plane, so a file sewn looser than that can make a point on material
+ * read `outside` (pinned in `HoleEditor.test.tsx`); refusing on it would make a
+ * legal hole a dead end, while letting it through costs a named, recoverable
+ * `hole_off_body` from the kernel. That honest-failure path is asserted by
+ * `import-remix.spec.ts` ("still fails HONESTLY") and `repick-face.spec.ts`;
+ * this spec asserts the half they do not: that the warning is ON the control a
+ * user is about to press, and leaves it the moment the point is fixed.
  */
 import { expect, test, type Page } from "./fixtures";
 import { seedCube } from "./partSeed";
-import { clickRefusedControl, createPartViaApi, seedSession } from "./support";
+import { createPartViaApi, seedSession } from "./support";
 
 /** Click the body's TOP face node — greatest z in the pick node's own name. */
 async function clickTopFace(page: Page): Promise<void> {
@@ -38,7 +41,7 @@ async function clickTopFace(page: Page): Promise<void> {
   await nodes.nth(bestIndex).click();
 }
 
-test("CREATE refuses a drill point the panel says is off the face", async ({
+test("CREATE carries the off-the-face warning and drops it once the point is fixed", async ({
   page,
 }) => {
   const account = await seedSession(page);
@@ -56,35 +59,24 @@ test("CREATE refuses a drill point the panel says is off the face", async ({
   await clickTopFace(page);
   await expect(page.getByTestId("hole-placement")).toBeVisible();
 
-  // On material first — the locator CAN resolve and the gate CAN open, so the
-  // refusal below is a state change rather than a control that never works.
-  await page.getByTestId("hole-position-x").fill("10");
-  await page.getByTestId("hole-position-y").fill("10");
   const check = page.getByTestId("hole-position-check");
-  await expect(check).toHaveAttribute("data-verdict", "material");
   const submit = page.getByTestId("hole-submit");
-  await expect(submit).not.toHaveAttribute("aria-disabled", "true");
 
-  // …now off the 20 mm face's outline entirely.
+  // Off the 20 mm face's outline entirely: the placement line says so, and so
+  // does the control the user is about to press — which stays pressable.
   await page.getByTestId("hole-position-x").fill("50");
+  await page.getByTestId("hole-position-y").fill("10");
   await expect(check).toHaveAttribute("data-verdict", "outside");
   await expect(check).toContainText("Off the face outline");
-  await expect(submit).toHaveAttribute("aria-disabled", "true");
-  await expect(submit).toHaveAccessibleDescription(
-    "The drill point is not on the face.",
-  );
+  await expect(submit).toContainText("off the face");
+  await expect(submit).toHaveAccessibleDescription(/Off the face outline/);
+  await expect(submit).not.toHaveAttribute("aria-disabled", "true");
 
-  // Aim at the refused cell the way a user would. It stays in the
-  // accessibility tree (that is how it explains itself), so the sanctioned
-  // helper first proves a pointer at its centre reaches IT and not a neighbour,
-  // then presses — and the proof of the refusal is that nothing was written.
-  await clickRefusedControl(page, submit, "the refused hole CREATE");
-  await expect(page.getByTestId("hole-editor")).toBeVisible();
-  await expect(page.getByTestId("feature-row")).toHaveCount(rowsBefore);
-
-  // And it is not a dead end: move the point back and the same click commits.
+  // Back on material: the warning leaves the button with the verdict, and the
+  // same control commits a real hole.
   await page.getByTestId("hole-position-x").fill("10");
   await expect(check).toHaveAttribute("data-verdict", "material");
+  await expect(submit).not.toContainText("off the face");
   await submit.click();
   await expect(page.getByTestId("hole-editor")).toHaveCount(0, {
     timeout: 30_000,

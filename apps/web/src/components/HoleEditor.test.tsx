@@ -676,12 +676,10 @@ describe("HoleEditor — dialling the position in (QA3-1)", () => {
     expect(check()).toHaveAttribute("data-verdict", "outside");
   });
 
-  it("WARNS about an AMBIGUOUS bad point without blocking the write", () => {
-    // Deliberate, and narrower than it used to be. `opening` cannot tell a bore
-    // mouth from a boss rim — a point inside a fitted in-plane circle may be on
-    // solid material — so refusing here could make a legal hole unauthorable,
-    // and a false refusal is a dead end. The kernel's typed `hole_off_body`
-    // stays the authority for this one.
+  it("WARNS about a bad point without blocking the write", () => {
+    // `opening` cannot tell a bore mouth from a boss rim — a point inside a
+    // fitted in-plane circle may be on solid material — and the kernel's typed
+    // `hole_off_body` is the authority either way.
     const { onSubmit } = renderEditor({ initial: placed(), edges: FACE_EDGES });
     expect(screen.getByTestId("hole-position-check")).toHaveAttribute(
       "data-verdict",
@@ -691,36 +689,60 @@ describe("HoleEditor — dialling the position in (QA3-1)", () => {
     expect(submitted(onSubmit).position).toEqual({ x: 5, y: 5, z: 10 });
   });
 
-  it("REFUSES a point the panel has already called off the face (F-6)", () => {
-    // The audit drilled X = -45 on a face spanning 0..120: the panel read "Off
-    // the face outline" and CREATE stayed enabled, buying 5.6 s of evaluation
-    // and a partial body. A panel that knows the answer while its own button
-    // disagrees with it is the defect, not the round trip.
-    //
-    // `outside` is safe to gate on where `opening` is not, because the
-    // coplanar-edge proxy can only make the measured region TOO BIG: it can
-    // call a bad point `material`, never a good point `outside`.
+  it("SAYS off-the-face at the commit control, and still lets the kernel decide (F-6)", () => {
+    // The audit's complaint: the placement line read "Off the face outline"
+    // while CREATE carried a bare "Enter" — the panel knew, the button did not
+    // say. The button now says it, in words and as its description; it stays a
+    // live control, because the verdict cannot be trusted to veto (below).
     const { onSubmit } = renderEditor({ initial: placed(), edges: FACE_EDGES });
     fireEvent.change(x(), { target: { value: "50" } });
     const check = screen.getByTestId("hole-position-check");
     expect(check).toHaveAttribute("data-verdict", "outside");
 
-    const gate = submit();
-    expectGated(gate);
-    // The refusal carries its reason where every other gated verb carries one,
-    // and NOT in the placement line's own words — one sentence, one place.
-    expect(gate).toHaveAccessibleDescription(
-      "The drill point is not on the face.",
-    );
-    expect(check).not.toHaveTextContent("The drill point is not on the face.");
-    fireEvent.click(gate);
-    expect(onSubmit).not.toHaveBeenCalled();
+    const cell = submit();
+    expect(cell).toHaveTextContent("Enter · off the face");
+    expect(cell).toHaveAccessibleDescription(/Off the face outline/);
+    expect(cell).not.toHaveAttribute("aria-disabled");
+    expect(submitted(onSubmit).position).toEqual({ x: 50, y: 5, z: 10 });
+  });
 
-    // …and it is not a dead end: moving the point back onto material re-arms
-    // the write, with the same click that was refused a moment ago.
+  it("drops the warning from the button once the point is back on material", () => {
+    renderEditor({ initial: placed(), edges: FACE_EDGES });
+    fireEvent.change(x(), { target: { value: "50" } });
+    expect(submit()).toHaveTextContent("off the face");
     fireEvent.change(x(), { target: { value: "2" } });
     fireEvent.change(y(), { target: { value: "2" } });
-    expect(check).toHaveAttribute("data-verdict", "material");
+    expect(screen.getByTestId("hole-position-check")).toHaveAttribute(
+      "data-verdict",
+      "material",
+    );
+    expect(submit()).not.toHaveTextContent("off the face");
+    expect(submit()).not.toHaveAccessibleDescription(/Off the face/);
+  });
+
+  it("can call a point ON the face `outside` — which is why the verdict never vetoes", () => {
+    // The mechanism, pinned: the outline is read as the overlay edges within
+    // 1e-3 mm of the face plane. Lift ONE outline edge 2 microns — what a file
+    // sewn to a looser tolerance does — and it is dropped, the loop opens, and
+    // a point on solid material reads `outside`. The client cannot know an
+    // imported file's tolerance; the kernel can. Had CREATE refused on this
+    // verdict (as `503473c` briefly did), this legal hole would be a dead end.
+    const lifted = FACE_EDGES.map((edge, index) =>
+      index === 1
+        ? {
+            ...edge,
+            polyline: edge.polyline.map((pt) => ({ ...pt, z: pt.z + 0.002 })),
+          }
+        : edge,
+    );
+    const { onSubmit } = renderEditor({ initial: placed(), edges: lifted });
+    fireEvent.change(x(), { target: { value: "2" } });
+    fireEvent.change(y(), { target: { value: "2" } });
+    expect(screen.getByTestId("hole-position-check")).toHaveAttribute(
+      "data-verdict",
+      "outside",
+    );
+    // …and the write is still the user's to make.
     expect(submit()).not.toHaveAttribute("aria-disabled");
     expect(submitted(onSubmit).position).toEqual({ x: 2, y: 2, z: 10 });
   });

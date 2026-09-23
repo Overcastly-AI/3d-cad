@@ -45,6 +45,7 @@ import {
   type KeyboardEvent,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -441,30 +442,42 @@ export function HoleEditor({
       : checkPlacement(placement, { x: typedX, y: typedY });
 
   /**
-   * THE ONE VERDICT THAT REFUSES THE WRITE — and why only this one.
+   * OFF THE FACE: SAID AT THE BUTTON, NEVER A VETO (F-6, second decision).
    *
-   * The audit of 2026-09-16 (F-6) drilled `X = -45` on a face spanning X
-   * 0..120: the panel already read "Off the face outline — move it onto the
-   * face" and CREATE stayed enabled, so the click bought 5.6 s of evaluation
-   * and came back `HOLE_OFF_BODY`, `SOLVE Failed`, `STATUS Partial`. A panel
-   * that knows the answer while its own button disagrees with it is the
-   * `disabled={transientFlag}` family wearing the opposite costume.
+   * The audit drilled `X = -45` on a face spanning X 0..120: the placement line
+   * read "Off the face outline — move it onto the face", CREATE carried a bare
+   * "Enter", and the click bought 5.6 s of evaluation and `HOLE_OFF_BODY`. The
+   * defect is that the COMMIT CONTROL said nothing while the panel above it
+   * knew — so the button now says it too, and a screen reader hears the
+   * placement line as the button's description.
    *
-   * `outside` is the ONLY verdict safe to gate on, and the asymmetry is the
-   * reason. The check reads coplanar in-plane edges, so where the proxy is
-   * wrong (two coplanar faces of one body sharing an edge) the region it
-   * measures is TOO BIG — which can turn a bad point into `material`, never a
-   * good point into `outside`. `opening` stays advisory because a fitted
-   * in-plane circle is a bore mouth OR a boss rim and this cannot tell them
-   * apart; refusing there could make a legal hole unauthorable, and a false
-   * refusal is a dead end, which is worse than the round trip it saves.
-   * `unknown` (the overlay has not arrived) never blocks anything.
+   * It does NOT refuse the write, and that was tried (`503473c`) and reverted
+   * on evidence, because the check cannot be trusted to veto:
    *
-   * It is a REFUSAL WITH THE REASON, not a silent grey: the sentence rides
-   * `disabledReason` on the action cell, the same seat every other gated verb
-   * in the app uses.
+   *  · It reads the face's outline as the overlay edges lying within
+   *    `PLANE_TOL_MM` (1e-3 mm) of the face plane. An imported file sewn to a
+   *    looser tolerance — routine from other CAD — can put one outline edge a
+   *    few microns off-plane; that edge is DROPPED, the loop opens, and the
+   *    even-odd parity flips for every point whose ray crosses it. A point on
+   *    solid material then reads `outside`. `HoleEditor.test.tsx` pins exactly
+   *    that: a 2 µm lift on one edge makes a centred, legal point read
+   *    `outside`. The client cannot know the file's tolerance; the kernel can.
+   *  · The costs are not symmetric. A wrong ACCEPT is recoverable — the kernel
+   *    answers with a typed, named `hole_off_body` on the row and the last-good
+   *    body is untouched (`import-remix.spec.ts`, `repick-face.spec.ts`). A
+   *    wrong REFUSAL is a dead end: a legal hole the UI will not let you make,
+   *    with no way past it but moving a point you believe is right.
+   *
+   * Measured before deciding, so the call is not a guess about the common
+   * case: on the imported NEMA 17 plate's back face a 625-point sweep scored
+   * 420 material / 9 opening / 196 outside against the analytic outline with
+   * ZERO disagreements. The check is right where the file is clean — which is
+   * why it is worth saying at the button — and unprovable where it is not,
+   * which is why it must not decide.
    */
-  const offFaceBlocked = check?.verdict === "outside";
+  const offFace = check?.verdict === "outside";
+  /** The placement line's id, so the commit cell can be described BY it. */
+  const checkId = useId();
 
   const hasFace = form.face !== null;
   /**
@@ -476,24 +489,16 @@ export function HoleEditor({
    * its own button in the first place).
    *
    * Order is cheapest-to-fix first: the face, then the coordinates, then the
-   * point being off the face — which is only worth saying once there IS a face
-   * and two numbers — then the fields, which are already red with their own
-   * rules and need only be pointed at.
+   * fields, which are already red with their own rules and need only be
+   * pointed at. (Off-the-face is deliberately NOT a rung — see `offFace`.)
    */
   const submitBlocker: string | null = !hasFace
     ? "Click a face in the viewport to place the hole."
     : !coordinatesComplete(form, unit)
       ? "Finish the X and Y position."
-      : offFaceBlocked
-        ? // Deliberately NOT the placement line's own sentence. The two say the
-          // same thing and must not say it in the same words: a card that
-          // renders one string twice makes every `getByText` on it ambiguous
-          // and reads as a stutter (REASON-GATE-1). This one names the blocker;
-          // the line above it carries the fix.
-          "The drill point is not on the face."
-        : !canSubmitHole(form, unit)
-          ? "Check the highlighted fields."
-          : null;
+      : !canSubmitHole(form, unit)
+        ? "Check the highlighted fields."
+        : null;
 
   const canSubmit = submitBlocker === null && !saving;
   useCommandBridge(submit, canSubmit);
@@ -800,6 +805,7 @@ export function HoleEditor({
                 </div>
                 {checkMessage !== null ? (
                   <p
+                    id={checkId}
                     data-testid="hole-position-check"
                     data-verdict={check?.verdict}
                     role="status"
@@ -858,7 +864,13 @@ export function HoleEditor({
             />
             <PanelActionCell
               label={saving ? "Saving…" : mode === "create" ? "Create" : "Save"}
-              caption="Enter"
+              // The commit control says what the placement line says, so the
+              // two can no longer be read as disagreeing — in words (the
+              // caption, which keeps the key) and to a screen reader (the
+              // line itself becomes the button's description). It stays a
+              // live control on purpose: see `offFace`.
+              caption={offFace ? "Enter · off the face" : "Enter"}
+              aria-describedby={offFace ? checkId : undefined}
               data-testid="hole-submit"
               aria-busy={saving}
               disabled={!canSubmit}
