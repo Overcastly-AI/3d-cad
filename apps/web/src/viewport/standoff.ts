@@ -55,8 +55,10 @@
  * OUT of frame from where the camera is standing now?" — which is what a
  * feature preview needs answered, because a proposal the modeler cannot see is
  * a proposal they have to navigate to before they can judge it. {@link
- * frameOverrun} asks it with the same corners, the same free rect and the same
- * two solvers, so the check and the fix cannot drift apart. It lives here and
+ * frameOverrun} asks it with the same corners and the same free rect, and it
+ * asks it as CONTAINMENT through the camera as it stands rather than as a fit
+ * ratio — its own note says why a ratio disagreed with the pose it triggered,
+ * and the unit tests pin that the check and the pose agree. It lives here and
  * not in `Viewport.tsx` for the reason the whole module exists: a framing rule
  * written twice is a framing rule that will eventually disagree with itself.
  */
@@ -64,7 +66,6 @@ import type { Box3, Vector3 } from "three";
 
 import {
   fitDistance,
-  fitZoom,
   measureChrome,
   unobstructedRect,
   type CameraSpacePoint,
@@ -214,19 +215,44 @@ export type ProjectionState =
   | { kind: "orthographic"; zoom: number };
 
 /**
- * HOW MUCH TOO BIG THE SUBJECT IS FOR THE FRAME IT IS BEING SEEN IN.
+ * HOW FAR PAST THE VISIBLE FRAME THE SUBJECT RUNS, FROM WHERE THE CAMERA IS.
  *
- * `1` is an exact fit, `> 1` means it runs past the frame (2 = twice as much
- * subject as there is room for), `< 1` means there is air to spare. `0` means
- * the question could not be asked — no subject, no measurable frame, or a
- * degenerate solve — and a caller MUST read that as "do nothing", never as "it
- * fits", because those two answers have opposite consequences.
+ * `corners` are measured from the ORBIT TARGET on the camera's own axes (see
+ * {@link boxCornersInCameraAxes}). Each is projected exactly as the renderer
+ * will draw it — the target lands on the CANVAS centre, because that is what
+ * the camera looks at — and the answer is how far the furthest corner sits
+ * from the centre of the chrome-free rect, as a fraction of that rect's
+ * half-extent. So `<= 1` means every corner is on screen and clear of every
+ * panel, `> 1` means some of the subject is off the frame or under the chrome.
+ * `0` means the question could not be asked — no subject, no measurable frame,
+ * a degenerate camera — and a caller MUST read that as "do nothing", never as
+ * "it fits", because those two answers have opposite consequences. A corner
+ * BEHIND a perspective camera reads `Infinity`: it is certainly not on screen.
  *
- * One expression for both projections, because the alternative is two framing
- * rules that can disagree, which is the defect the top of this file is about.
- * Perspective compares the distance the subject NEEDS against the distance the
- * camera is standing at; parallel compares the zoom it needs against the zoom
- * in force, inverted because a bigger zoom is a tighter frame.
+ * ## Why containment, and the defect the old ratio had (measured 2026-09-23)
+ *
+ * This used to be `fitZoom(corners) / zoom` (resp. `fitDistance / distance`):
+ * "would a frame CENTRED ON THE TARGET hold the subject?". That is a FIT
+ * question, and it is the wrong one twice over:
+ *
+ *  · the camera does not look at the target through the free rect, it looks
+ *    through the canvas — and `framePose` deliberately parks the target OFF the
+ *    subject (`targetShift`) so the subject lands mid-free-rect. The ratio
+ *    ignored both offsets, so it disagreed with the very pose it triggers;
+ *  · after a proposal SHRINKS, the target still sits at the old subject's
+ *    centre, and mirroring a 14 mm ghost about a point 150 mm above it reads as
+ *    needing as much room as the 300 mm ghost did. Measured on a 10 mm body,
+ *    300 mm -> 12 mm extrude: overrun **1.139 for both**, so the re-fit fired
+ *    on the SHRINK and re-centred on the small subject — a 15.7x pull IN, from
+ *    a mechanism documented as "only outward". Whether it fired depended on
+ *    whether an earlier ease was still in flight when the smaller box arrived,
+ *    which is why it was bimodal across identical runs (6 of 11).
+ *
+ * Containment has neither problem. It is a statement about pixels the modeler
+ * can see, it agrees with `framePose` by construction (a freshly posed subject
+ * reads `1 / FIT_PADDING`, just under 1), and a subject that got smaller cannot
+ * read larger — so "only outward" is now a property of the arithmetic rather
+ * than of a race.
  *
  * Note what this deliberately does NOT do: it does not say where to put the
  * camera. Framing is `Viewport.framePose`'s job and stays there — this only
@@ -238,19 +264,47 @@ export function frameOverrun(
   projection: ProjectionState,
 ): number {
   if (framing === null || corners.length === 0) return 0;
-  if (projection.kind === "orthographic") {
-    const needed = fitZoom(corners, framing.free);
-    if (!(needed > 0) || !(projection.zoom > 0)) return 0;
-    return projection.zoom / needed;
+  const { canvas, free } = framing;
+  if (!(free.width > 0) || !(free.height > 0) || !(canvas.height > 0)) {
+    return 0;
   }
-  const needed = fitDistance(
-    corners,
-    framing.canvas,
-    framing.free,
-    projection.fovDeg,
-  );
-  if (!(needed > 0) || !(projection.distanceMm > 0)) return 0;
-  return needed / projection.distanceMm;
+  // Pixels per world unit at depth `c` (measured TOWARD the camera from the
+  // target), or null when the corner cannot be projected at all.
+  let scaleAt: (c: number) => number | null;
+  if (projection.kind === "orthographic") {
+    // r3f's frustum is the canvas's CSS half-extents over `zoom`, so one world
+    // unit is `zoom` pixels at every depth (the convention `fitZoom` uses).
+    if (!(projection.zoom > 0)) return 0;
+    const zoom = projection.zoom;
+    scaleAt = () => zoom;
+  } else {
+    const tan = Math.tan((projection.fovDeg * Math.PI) / 360);
+    const distance = projection.distanceMm;
+    if (!(tan > 0) || !(distance > 0)) return 0;
+    const focal = canvas.height / 2 / tan;
+    scaleAt = (c) => {
+      const depth = distance - c;
+      return depth > distance * 1e-6 ? focal / depth : null;
+    };
+  }
+  const aimX = canvas.width / 2 - (free.x - canvas.x);
+  const aimY = canvas.height / 2 - (free.y - canvas.y);
+  const halfW = free.width / 2;
+  const halfH = free.height / 2;
+  let worst = 0;
+  for (const { a, b, c } of corners) {
+    const scale = scaleAt(c);
+    if (scale === null) return Number.POSITIVE_INFINITY;
+    // Free-rect coordinates of the projected corner (y down, as the DOM is).
+    const x = aimX + a * scale;
+    const y = aimY - b * scale;
+    worst = Math.max(
+      worst,
+      Math.abs(x - halfW) / halfW,
+      Math.abs(y - halfH) / halfH,
+    );
+  }
+  return worst;
 }
 
 /**

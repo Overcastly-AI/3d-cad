@@ -1,7 +1,7 @@
 import { Box3, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 
-import { fitZoom, type Rect } from "./fitFraming";
+import { fitDistance, fitZoom, targetShift, type Rect } from "./fitFraming";
 import {
   apparentSizeMm,
   boxCornersInCameraAxes,
@@ -10,6 +10,7 @@ import {
   PICK_CAMERA_DISTANCE_MM,
   planePickDistanceMm,
   type PlanePickStandoff,
+  type ProjectionState,
 } from "./standoff";
 
 /**
@@ -232,85 +233,177 @@ describe("boxCornersInCameraAxes", () => {
  * CRAFT-12 — "IS THE PROPOSAL ON SCREEN?", which is the question a preview
  * poses and the camera never used to ask.
  *
- * The cases are built as a PAIR around one camera pose deliberately: the same
- * frame, the same attitude, a body that fits and a preview that does not. A
- * predicate tested only against the overrunning case would pass a function that
- * always says "re-fit", which is the jarring failure the policy note in
- * `Viewport.tsx` rules out by name.
+ * Built around the POSE the re-fit itself produces, because the defect this
+ * block was rewritten for (2026-09-23) was a check that disagreed with its own
+ * remedy: `framePose` parks the orbit target OFF the subject so the subject
+ * lands mid-free-rect, and the old ratio mirrored the subject about that target
+ * as if it sat mid-free-rect already. A 300 mm -> 12 mm shrink then read 1.139
+ * both ways and the camera pulled IN 15.7x, on 6 of 11 identical runs.
+ *
+ * Every case is a PAIR where it can be — a subject that is on screen and one
+ * that is not, under one camera — because a predicate tested only against the
+ * overrunning case would pass a function that always says "re-fit".
  */
 describe("frameOverrun", () => {
-  const framing = { canvas: CANVAS, free: FREE };
+  /**
+   * The shell measured in the running app with an extrude editor open at
+   * 1280x800: the feature tree on the left, the editor on the right and the
+   * command bar above, so the free rect is off centre in BOTH axes. The
+   * re-fit's own pose is built for this frame below, which is what makes the
+   * check-agrees-with-pose cases able to fail.
+   */
+  const REFIT_FREE: Rect = { x: 356, y: 24, width: 568, height: 558 };
+  const framing = { canvas: CANVAS, free: REFIT_FREE };
 
-  /** Corners of a cube of side `mm` centred on the camera's target. */
-  const cube = (mm: number) =>
-    boxCornersInCameraAxes(
-      new Box3(
-        new Vector3(-mm / 2, -mm / 2, -mm / 2),
-        new Vector3(mm / 2, mm / 2, mm / 2),
+  /** A box's corners on the shipped attitude, measured from `about`. */
+  const cornersOf = (box: Box3, about: Vector3) =>
+    boxCornersInCameraAxes(box, about, basis().right, basis().up, basis().dir);
+
+  /**
+   * THE POSE `Viewport.framePose` WOULD PRODUCE for `box`: solve the standoff
+   * (or zoom) about the subject's centre, then slide the target by
+   * `targetShift` so the subject lands in the middle of the free rect. Returns
+   * the target it chose and the projection it would leave the camera in — so a
+   * case can ask the check about the frame the fix actually builds.
+   */
+  function posed(
+    box: Box3,
+    kind: "perspective" | "orthographic",
+  ): { target: Vector3; projection: ProjectionState } {
+    const b = basis();
+    const centre = box.getCenter(new Vector3());
+    const corners = cornersOf(box, centre);
+    let shift: { right: number; up: number };
+    let projection: ProjectionState;
+    if (kind === "orthographic") {
+      const zoom = fitZoom(corners, REFIT_FREE);
+      shift = targetShift(CANVAS, REFIT_FREE, {
+        width: CANVAS.width / zoom,
+        height: CANVAS.height / zoom,
+      });
+      projection = { kind, zoom };
+    } else {
+      const distanceMm = fitDistance(corners, CANVAS, REFIT_FREE, FOV);
+      const visibleHeight = 2 * distanceMm * Math.tan((FOV * Math.PI) / 360);
+      shift = targetShift(CANVAS, REFIT_FREE, {
+        width: visibleHeight * (CANVAS.width / CANVAS.height),
+        height: visibleHeight,
+      });
+      projection = { kind, fovDeg: FOV, distanceMm };
+    }
+    const target = centre
+      .clone()
+      .add(b.right.clone().multiplyScalar(shift.right))
+      .add(b.up.clone().multiplyScalar(shift.up));
+    return { target, projection };
+  }
+
+  /** A box standing on the XZ plane, `h` mm tall — an extrude ghost. */
+  const column = (h: number) =>
+    new Box3(new Vector3(0, 0, -10), new Vector3(10, h, 0));
+
+  for (const kind of ["perspective", "orthographic"] as const) {
+    it(`reads just under 1 for the frame the re-fit itself builds (${kind})`, () => {
+      // The check and the pose must AGREE: a subject the re-fit has just framed
+      // must not read as needing another re-fit. The free rect here is off
+      // centre (a 330 px panel on the left), so a check that ignored where the
+      // camera actually aims — the old ratio — fails this by the panel width.
+      const box = column(300);
+      const { target, projection } = posed(box, kind);
+      const overrun = frameOverrun(cornersOf(box, target), framing, projection);
+      expect(overrun).toBeGreaterThan(0.9); // not vacuous: it IS framed tight
+      expect(overrun).toBeLessThanOrEqual(1);
+      expect(overrunNeedsRefit(overrun)).toBe(false);
+    });
+
+    it(`never reads a SHRINKING proposal as larger — "only outward" (${kind})`, () => {
+      // The measured flow: frame a 300 mm ghost, then type 12. The target is
+      // still where the 300 mm pose left it, 150 mm up the column.
+      //
+      // An invariant guard rather than the reproduction, and said so: against
+      // the OLD ratio this case on its own passes. In the app the pull-in
+      // needed a SECOND re-fit first -- the old check read the 300 mm ghost's
+      // own freshly posed frame as 1.139 and fired again -- and that is the
+      // disagreement the case above pins, and reddens on.
+      const { target, projection } = posed(column(300), kind);
+      const wide = frameOverrun(
+        cornersOf(column(300), target),
+        framing,
+        projection,
+      );
+      const narrow = frameOverrun(
+        cornersOf(column(12), target),
+        framing,
+        projection,
+      );
+      // `<=`, not `<`: the base corner is shared by both ghosts and can be the
+      // binding one, so "never larger" is the property, not "always smaller".
+      expect(narrow).toBeLessThanOrEqual(wide);
+      expect(overrunNeedsRefit(narrow)).toBe(false);
+    });
+
+    it(`fires when the proposal outgrows the frame it was posed for (${kind})`, () => {
+      const { target, projection } = posed(column(12), kind);
+      const small = frameOverrun(
+        cornersOf(column(12), target),
+        framing,
+        projection,
+      );
+      const grown = frameOverrun(
+        cornersOf(column(300), target),
+        framing,
+        projection,
+      );
+      expect(overrunNeedsRefit(small)).toBe(false);
+      expect(overrunNeedsRefit(grown)).toBe(true);
+    });
+  }
+
+  it("fires for a subject parked under a panel, even one that would fit a centred frame", () => {
+    // The other half of what the old ratio could not see. The camera aims at
+    // the CANVAS centre; the left 330 px are under the feature tree. A small
+    // cube sitting mostly behind that panel is not on screen, however little
+    // room it would need if it were centred.
+    const zoom = 20;
+    const target = new Vector3(0, 0, 0);
+    const b = basis();
+    // Push the cube left by ~20 mm of world: 20 * zoom = 400 px from centre,
+    // i.e. at x ~ 240 on a 1280 canvas — under the 330 px panel.
+    const centre = b.right.clone().multiplyScalar(-20);
+    const cube = new Box3(
+      centre.clone().subScalar(2),
+      centre.clone().addScalar(2),
+    );
+    // One panel on the left and nothing else, so the free rect is off the
+    // canvas centre HORIZONTALLY -- the axis this case is about.
+    const leftPanel = { canvas: CANVAS, free: FREE };
+    const hidden = frameOverrun(cornersOf(cube, target), leftPanel, {
+      kind: "orthographic",
+      zoom,
+    });
+    const visible = frameOverrun(
+      cornersOf(
+        new Box3(new Vector3(-2, -2, -2), new Vector3(2, 2, 2)),
+        target,
       ),
-      new Vector3(0, 0, 0),
-      basis().right,
-      basis().up,
-      basis().dir,
+      leftPanel,
+      { kind: "orthographic", zoom },
     );
+    expect(overrunNeedsRefit(hidden)).toBe(true);
+    expect(overrunNeedsRefit(visible)).toBe(false);
+  });
 
-  it("reads ~1 for a subject the camera is exactly framing", () => {
-    const corners = cube(40);
-    const exact = planePickDistanceMm(
-      new Box3(new Vector3(-20, -20, -20), new Vector3(20, 20, 20)),
-      basis(),
+  it("reads a corner BEHIND a perspective camera as off screen", () => {
+    const behind = frameOverrun(
+      cornersOf(
+        new Box3(new Vector3(-60, -60, -60), new Vector3(60, 60, 60)),
+        new Vector3(),
+      ),
       framing,
-      FOV,
+      { kind: "perspective", fovDeg: FOV, distanceMm: 40 },
     );
-    const overrun = frameOverrun(corners, framing, {
-      kind: "perspective",
-      fovDeg: FOV,
-      distanceMm: Math.max(exact, 1),
-    });
-    // 230 mm is the FLOOR, so a 40 mm cube is framed from further than its own
-    // exact fit — the overrun is at or below 1 either way, never above.
-    expect(overrun).toBeLessThanOrEqual(1);
-    expect(overrunNeedsRefit(overrun)).toBe(false);
-  });
-
-  it("rises above the threshold when the preview runs past the frame", () => {
-    // The measured case: an 11 mm part framed close, and a pattern whose copies
-    // span 120 mm. Same camera, ten times the subject.
-    const close = frameOverrun(cube(11), framing, {
-      kind: "perspective",
-      fovDeg: FOV,
-      distanceMm: 40,
-    });
-    const withGhosts = frameOverrun(cube(120), framing, {
-      kind: "perspective",
-      fovDeg: FOV,
-      distanceMm: 40,
-    });
-    expect(overrunNeedsRefit(close)).toBe(false);
-    expect(overrunNeedsRefit(withGhosts)).toBe(true);
-    expect(withGhosts).toBeGreaterThan(close * 5);
-  });
-
-  it("measures a PARALLEL frame by zoom, not by distance", () => {
-    // The projection that carries no size in its position. The zoom is DERIVED
-    // from the exact fit of the 40 mm body rather than written as a literal —
-    // the corners are resolved onto the camera's TILTED axes, so a hand-picked
-    // number is really a guess about a rotation, and a wrong guess fails for a
-    // reason that has nothing to do with the predicate under test.
-    const zoom = fitZoom(cube(40), FREE);
-    expect(zoom).toBeGreaterThan(0);
-    const fits = frameOverrun(cube(40), framing, {
-      kind: "orthographic",
-      zoom,
-    });
-    const spills = frameOverrun(cube(120), framing, {
-      kind: "orthographic",
-      zoom,
-    });
-    expect(fits).toBeCloseTo(1, 6);
-    expect(overrunNeedsRefit(fits)).toBe(false);
-    expect(spills).toBeCloseTo(3, 6); // three times the subject, same frame
-    expect(overrunNeedsRefit(spills)).toBe(true);
+    expect(behind).toBe(Number.POSITIVE_INFINITY);
+    expect(overrunNeedsRefit(behind)).toBe(true);
   });
 
   it("returns 0 — not a verdict — when the question cannot be asked", () => {
@@ -318,31 +411,35 @@ describe("frameOverrun", () => {
     // as "leave the camera alone". A `> 1.02` on a 0 gets this right; a
     // `< 1` fits-test on the same 0 would get it exactly backwards, which is
     // why the direction of the comparison is pinned here.
+    const cube40 = cornersOf(
+      new Box3(new Vector3(-20, -20, -20), new Vector3(20, 20, 20)),
+      new Vector3(),
+    );
     const degenerate: Rect = { x: 0, y: 0, width: 0, height: 0 };
     expect(frameOverrun([], framing, { kind: "orthographic", zoom: 20 })).toBe(
       0,
     );
-    expect(
-      frameOverrun(cube(40), null, { kind: "orthographic", zoom: 20 }),
-    ).toBe(0);
+    expect(frameOverrun(cube40, null, { kind: "orthographic", zoom: 20 })).toBe(
+      0,
+    );
     expect(
       frameOverrun(
-        cube(40),
+        cube40,
         { canvas: CANVAS, free: degenerate },
         { kind: "perspective", fovDeg: FOV, distanceMm: 40 },
       ),
     ).toBe(0);
     expect(
-      frameOverrun(cube(40), framing, {
+      frameOverrun(cube40, framing, {
         kind: "perspective",
         fovDeg: FOV,
         distanceMm: 0,
       }),
     ).toBe(0);
     expect(
-      frameOverrun(cube(40), framing, { kind: "orthographic", zoom: 0 }),
+      frameOverrun(cube40, framing, { kind: "orthographic", zoom: 0 }),
     ).toBe(0);
-    for (const refused of [0]) expect(overrunNeedsRefit(refused)).toBe(false);
+    expect(overrunNeedsRefit(0)).toBe(false);
   });
 });
 
