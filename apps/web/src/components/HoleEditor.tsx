@@ -418,10 +418,85 @@ export function HoleEditor({
     [saving, submit],
   );
 
-  const canSubmit = canSubmitHole(form, unit) && !saving;
-  useCommandBridge(submit, canSubmit);
+  // --- Placement: the frame, and the live material check -------------------
+  // Computed HERE, above the submit gate, because the gate reads it. QA3-1:
+  // the point used to be a read-only readout offering the face centroid and
+  // its corners, which on a vendor plate whose centre IS the shaft bore means
+  // the hole cannot be placed at all. Coordinates fix that, and the frame row
+  // is what keeps them honest — an X/Y entry that does not say where its zero
+  // is, is how QA3-2's 0.065 mm eccentric ring happened.
+  const frame = holeFaceFrame(form);
+  const placement = useMemo(
+    () =>
+      form.face === null ? null : facePlacement(form.face.signature, edges),
+    [form.face, edges],
+  );
+  const xMsg = coordinateError(form.xInput, unit, "X");
+  const yMsg = coordinateError(form.yInput, unit, "Y");
+  const typedX = parseSignedLengthMm(form.xInput, unit);
+  const typedY = parseSignedLengthMm(form.yInput, unit);
+  const check: PlacementCheck | null =
+    placement === null || typedX === null || typedY === null
+      ? null
+      : checkPlacement(placement, { x: typedX, y: typedY });
+
+  /**
+   * THE ONE VERDICT THAT REFUSES THE WRITE — and why only this one.
+   *
+   * The audit of 2026-09-16 (F-6) drilled `X = -45` on a face spanning X
+   * 0..120: the panel already read "Off the face outline — move it onto the
+   * face" and CREATE stayed enabled, so the click bought 5.6 s of evaluation
+   * and came back `HOLE_OFF_BODY`, `SOLVE Failed`, `STATUS Partial`. A panel
+   * that knows the answer while its own button disagrees with it is the
+   * `disabled={transientFlag}` family wearing the opposite costume.
+   *
+   * `outside` is the ONLY verdict safe to gate on, and the asymmetry is the
+   * reason. The check reads coplanar in-plane edges, so where the proxy is
+   * wrong (two coplanar faces of one body sharing an edge) the region it
+   * measures is TOO BIG — which can turn a bad point into `material`, never a
+   * good point into `outside`. `opening` stays advisory because a fitted
+   * in-plane circle is a bore mouth OR a boss rim and this cannot tell them
+   * apart; refusing there could make a legal hole unauthorable, and a false
+   * refusal is a dead end, which is worse than the round trip it saves.
+   * `unknown` (the overlay has not arrived) never blocks anything.
+   *
+   * It is a REFUSAL WITH THE REASON, not a silent grey: the sentence rides
+   * `disabledReason` on the action cell, the same seat every other gated verb
+   * in the app uses.
+   */
+  const offFaceBlocked = check?.verdict === "outside";
 
   const hasFace = form.face !== null;
+  /**
+   * ONE COMPUTATION, TWO READINGS — the REASON-GATE-1 shape, which this editor
+   * was one of two not to use. `canSubmit` is DEFINED as "nothing is blocking",
+   * so a grey Create with no sentence beside it is unreachable rather than
+   * merely absent, and a later rung cannot be added to the gate and forgotten
+   * in the copy (or the reverse, which is how the panel came to disagree with
+   * its own button in the first place).
+   *
+   * Order is cheapest-to-fix first: the face, then the coordinates, then the
+   * point being off the face — which is only worth saying once there IS a face
+   * and two numbers — then the fields, which are already red with their own
+   * rules and need only be pointed at.
+   */
+  const submitBlocker: string | null = !hasFace
+    ? "Click a face in the viewport to place the hole."
+    : !coordinatesComplete(form, unit)
+      ? "Finish the X and Y position."
+      : offFaceBlocked
+        ? // Deliberately NOT the placement line's own sentence. The two say the
+          // same thing and must not say it in the same words: a card that
+          // renders one string twice makes every `getByText` on it ambiguous
+          // and reads as a stutter (REASON-GATE-1). This one names the blocker;
+          // the line above it carries the fix.
+          "The drill point is not on the face."
+        : !canSubmitHole(form, unit)
+          ? "Check the highlighted fields."
+          : null;
+
+  const canSubmit = submitBlocker === null && !saving;
+  useCommandBridge(submit, canSubmit);
   /**
    * What each reference row SAYS. An empty required reference under an armed
    * pick is not "empty" — it is an instruction, so it reads as one and takes
@@ -459,42 +534,13 @@ export function HoleEditor({
       ? "Click a point"
       : positionReadout(form);
   /**
-   * WHY the footer action is gated, said in the footer itself. The gate is
-   * `buildHoleParams(...) !== null`, i.e. "a face and every field valid", and
-   * until 2026-07-30 the greyed cell could not even be hovered, so a user had to
-   * hunt for the missing piece (UI-REVIEW 2026-07-30 P2). Cheapest honest
-   * version: name the ONE thing that is missing, face first because it is the
-   * only one the fields cannot show inline.
+   * WHY the footer action is gated, said in the footer itself — until
+   * 2026-07-30 the greyed cell could not even be hovered, so a user had to hunt
+   * for the missing piece (UI-REVIEW 2026-07-30 P2). The sentence IS the gate
+   * (see `submitBlocker`); null while saving, because the label already says so
+   * and a second sentence repeating it is the one accessory to remove.
    */
-  const submitReason = !canSubmit
-    ? saving
-      ? undefined
-      : !hasFace
-        ? "Click a face in the viewport to place the hole."
-        : !coordinatesComplete(form, unit)
-          ? "Finish the X and Y position."
-          : "Check the highlighted fields."
-    : undefined;
-  // --- Placement: the frame, the cells, and the live material check --------
-  // QA3-1: the point used to be a read-only readout offering the face centroid
-  // and its corners, which on a vendor plate whose centre IS the shaft bore
-  // means the hole cannot be placed at all. Coordinates fix that, and the frame
-  // row is what keeps them honest — an X/Y entry that does not say where its
-  // zero is, is how QA3-2's 0.065 mm eccentric ring happened.
-  const frame = holeFaceFrame(form);
-  const placement = useMemo(
-    () =>
-      form.face === null ? null : facePlacement(form.face.signature, edges),
-    [form.face, edges],
-  );
-  const xMsg = coordinateError(form.xInput, unit, "X");
-  const yMsg = coordinateError(form.yInput, unit, "Y");
-  const typedX = parseSignedLengthMm(form.xInput, unit);
-  const typedY = parseSignedLengthMm(form.yInput, unit);
-  const check: PlacementCheck | null =
-    placement === null || typedX === null || typedY === null
-      ? null
-      : checkPlacement(placement, { x: typedX, y: typedY });
+  const submitReason = saving ? undefined : (submitBlocker ?? undefined);
   const round = (n: number) => (Object.is(n, -0) ? 0 : Math.round(n * 10) / 10);
   const frameValue =
     frame === null
