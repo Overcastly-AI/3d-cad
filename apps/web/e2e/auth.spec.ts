@@ -497,8 +497,14 @@ test.describe("session refresh (any stack)", () => {
     page,
     context,
   }) => {
-    // Tab A: X signs in.
+    // Tab A: X signs in, and X's parts list is in tab A's query cache.
     const x = await signUpThroughUi(page);
+    const xPart = `X private part ${Date.now()}`;
+    await createPartViaApi(page, x.token, xPart);
+    await page.goto("/");
+    await expect(
+      page.getByTestId("part-open").filter({ hasText: xPart }),
+    ).toBeVisible();
 
     // Tab B, same browser: X signs out there (ending X's session), and Y
     // signs in, so the one cookie jar now holds Y's refresh cookie.
@@ -525,5 +531,28 @@ test.describe("session refresh (any stack)", () => {
     // And Y is untouched: still signed in, across a reload.
     await tabB.reload();
     await expect(tabB.getByTestId("session-email")).toHaveText(yEmail);
+
+    // Y now signs in in tab A. Nothing X's session cached is shown to Y
+    // (QUERY-CACHE-USER-SWITCH-1). Y's parts list is HELD in flight, so a
+    // cached copy, which would render at once (30 s staleTime), has the stage.
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route("**/api/v1/parts", async (route) => {
+      if (route.request().method() === "GET") await held;
+      await route.continue();
+    });
+    const listed = page.waitForResponse(
+      (r) =>
+        new URL(r.url()).pathname === "/api/v1/parts" &&
+        r.request().method() === "GET",
+    );
+    await page.getByTestId("auth-email").fill(yEmail);
+    await page.getByTestId("auth-password").fill(TEST_PASSWORD);
+    await page.getByTestId("auth-password").press("Enter");
+    await expect(page.getByTestId("session-email")).toHaveText(yEmail);
+    await expect(page.getByText(xPart)).toHaveCount(0);
+    release();
+    expect((await listed).status()).toBe(200);
+    await expect(page.getByText(xPart)).toHaveCount(0);
   });
 });
