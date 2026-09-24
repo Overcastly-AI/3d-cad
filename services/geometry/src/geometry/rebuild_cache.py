@@ -52,12 +52,15 @@ rebuild: the gauntlet measured edit #249 of a 250-feature tray at 36.5 s against
 a 36.1 s cold rebuild. The fix is a ladder of intermediate checkpoints, and the
 paragraph above is why it cannot simply keep references to the intermediate
 states — they are the objects the rest of the evaluation mutates. So a rung
-needs a COPY, and a copy is not guaranteed to re-mesh like its original (the
-2026-07-31 measurement above; re-checked 2026-09-23, a fork of the tray's body
-at N=12/19/40/100 tessellated byte-identically, so the effect is real on some
-kernel/shape combinations and absent on others — the design must not depend on
-which). The way out is to make the copy part of the evaluation rather than a
-side effect of caching:
+needs a COPY, and a copy does not always re-mesh like its original (the
+2026-07-31 measurement above; re-measured by geometry QA on 2026-09-23 on
+PRE-ladder bodies: ONE ``BRepBuilderAPI_Copy`` moves the GLB of **13 of 89**
+trees — housing N=27/40/60/100, five sheet-metal goldens, a bolt-circle pattern,
+two heat sinks — by a ULP in an accessor bound, with STEP bytes and mass
+properties identical. An earlier note here said the N=40/100 tray forks were
+byte-identical; that was measured on bodies that had ALREADY been forked by the
+ladder, i.e. a copy of a copy, and it was wrong about the original.) The way out
+is to make the copy part of the evaluation rather than a side effect of caching:
 
 * **Every evaluation forks its state at every multiple of** :data:`RUNG_SPACING`
   (``evaluate._climb_rung``), cached or not. It forks twice: the first fork goes
@@ -79,8 +82,9 @@ side effect of caching:
 * **Bounded three ways.** Per chain, :func:`rung_retained` thins older rungs
   geometrically (dense near the frontier, sparse towards feature 0), so a
   250-feature tree keeps 15 rungs, not 31. Across the worker, at most
-  :data:`RUNG_CAPACITY` rungs and :data:`RUNG_FACE_BUDGET` faces, LRU-first with
-  speculation evicted before live work, as for the frontier.
+  :data:`RUNG_CAPACITY` rungs and :data:`RUNG_BYTE_BUDGET` estimated heap bytes,
+  LRU-first with speculation evicted before live work, as for the frontier; a
+  single rung over :data:`RUNG_MAX_BYTES` is never stored.
 
 What it buys, measured by ``just gauntlet``'s deep leg at N=250, before and
 after back to back on the same machine: **edit #249 went from 36 527 ms to
@@ -255,22 +259,35 @@ RUNG_SPACING = 8
 RUNG_DENSITY = 2
 
 #: Max rungs held across every chain in this worker — the secondary bound, for a
-#: workload of many tiny parts whose face count says little about their overhead.
+#: workload of many tiny parts, where per-rung Python overhead outweighs the bytes.
 RUNG_CAPACITY = 64
 
-#: Max total FACES held by rungs in this worker — **the memory bound.** Faces,
-#: because rung size varies by two orders of magnitude between a bracket and the
-#: tray, and a count cap alone would either starve small parts or let big ones
-#: through unpriced. Measured on the N=250 tray: a forked state is **1.76 MiB for
-#: 560 faces = 3.2 KiB/face** of heap in use (``mallinfo2``, 10 forks held), so
-#: **20 000 faces is ~64 MiB** — half the frontier cache's ~128 MiB ceiling and
-#: ~6 % of docs/OPERATIONS.md §6's ~1 GiB per worker. One 250-feature chain costs
-#: ~5 600 faces (~18 MiB), so the budget holds three and a half of the largest
-#: chains we measure, or dozens of ordinary parts, before LRU eviction starts.
-#: The per-face price is for this tray's analytic surfaces; a face on a dense
-#: NURBS surface weighs more, so treat 64 MiB as the analytic-part figure, not a
-#: hard byte ceiling.
-RUNG_FACE_BUDGET = 20_000
+#: Max total estimated HEAP BYTES held by rungs in this worker — **the memory
+#: bound.** 64 MiB: ~6 % of docs/OPERATIONS.md §6's ~1 GiB per worker, and half
+#: what the frontier cache's 32 entries cost on analytic parts. (That frontier
+#: bound is a COUNT, so it has the same blind spot this one had: on the 24-lobe
+#: NURBS part its entries measure ~5.5 MiB each, ~176 MiB at 32 — filed, not
+#: fixed here.) Each rung is weighed when it is
+#: stored (:func:`geometry.kernel.fork.estimate_heap_bytes`: its binary BRep
+#: size, which carries the geometry, plus a per-face term for the topology),
+#: because a face's weight varies 15.7x between part kinds.
+#:
+#: WHY BYTES AND NOT FACES (GQA-LADDER-1, 2026-09-24). The first ladder was
+#: bounded at 20 000 faces, priced at the housing tray's 3.2 KiB/face. On a part
+#: of overlapping lofted NURBS lobes geometry QA measured **50.4 KiB/face**: 2 344
+#: faces were already 115 MiB, and the face budget projected to ~985 MiB per
+#: worker. ``tests/test_rebuild_cache.py`` holds that part's ladder under this
+#: bound and fails with a face-priced weight put back. The estimate is calibrated
+#: to read +8-11 % HIGH on every part measured, so the bound errs towards holding
+#: less.
+RUNG_BYTE_BUDGET = 64 * 1024 * 1024
+
+#: No single rung may weigh more than this; a heavier one is refused, not stored.
+#: A quarter of the budget, so one enormous part cannot evict every other chain
+#: in one store, and still ~8x the heaviest state measured (the 560-face tray at
+#: ~2 MiB, the 24-lobe NURBS part at ~4 MiB). A part past it gets no ladder:
+#: its edits cost what they cost before PERF-REAL-2, and its memory is bounded.
+RUNG_MAX_BYTES = RUNG_BYTE_BUDGET // 4
 
 
 def rung_retained(
@@ -362,13 +379,14 @@ class CacheStats:
     #: The LADDER's counters (PERF-REAL-2). ``rung_hits`` is the subset of
     #: ``hits`` served by a rung rather than by a frontier checkpoint;
     #: ``rung_evictions`` counts rungs dropped for the global bound (count or
-    #: faces), ``rung_thinned`` those dropped by :func:`rung_retained`.
+    #: bytes), ``rung_thinned`` those dropped by :func:`rung_retained`;
+    #: ``rung_bytes`` is the estimated heap the ladder holds right now.
     rung_hits: int = 0
     rung_stores: int = 0
     rung_evictions: int = 0
     rung_thinned: int = 0
     rungs: int = 0
-    rung_faces: int = 0
+    rung_bytes: int = 0
 
 
 class Resume[CheckpointT: Detachable](NamedTuple):
@@ -403,7 +421,7 @@ class _Rung[CheckpointT: Detachable]:
 
     checkpoint: CheckpointT
     speculative: bool
-    faces: int
+    nbytes: int
 
 
 def prefix_keys(
@@ -499,21 +517,26 @@ class PrefixCache[CheckpointT: Detachable]:
         capacity: int,
         *,
         rung_capacity: int = RUNG_CAPACITY,
-        rung_face_budget: int = RUNG_FACE_BUDGET,
+        rung_byte_budget: int = RUNG_BYTE_BUDGET,
+        rung_max_bytes: int = RUNG_MAX_BYTES,
         rung_spacing: int = RUNG_SPACING,
     ) -> None:
         if capacity <= 0:
             raise ValueError(f"capacity must be > 0, got {capacity}")
-        if rung_capacity < 0 or rung_face_budget < 0 or rung_spacing <= 0:
+        if (
+            min(rung_capacity, rung_byte_budget, rung_max_bytes) < 0
+            or rung_spacing <= 0
+        ):
             raise ValueError("rung bounds must be >= 0 and the spacing > 0")
         self._capacity = capacity
         self._rung_capacity = rung_capacity
-        self._rung_face_budget = rung_face_budget
+        self._rung_byte_budget = rung_byte_budget
+        self._rung_max_bytes = min(rung_max_bytes, rung_byte_budget)
         self._rung_spacing = rung_spacing
         self._lock = threading.Lock()
         self._entries: OrderedDict[str, _Entry[CheckpointT]] = OrderedDict()
         self._rungs: OrderedDict[str, _Rung[CheckpointT]] = OrderedDict()
-        self._rung_faces = 0
+        self._rung_bytes = 0
         self._hits = 0
         self._misses = 0
         self._stores = 0
@@ -594,7 +617,7 @@ class PrefixCache[CheckpointT: Detachable]:
         prefix_length: int,
         checkpoint: CheckpointT,
         *,
-        faces: int,
+        nbytes: int,
         speculative: bool = False,
     ) -> bool:
         """Put *checkpoint* on the ladder as the state after *prefix_length*
@@ -603,8 +626,8 @@ class PrefixCache[CheckpointT: Detachable]:
 
         *checkpoint* must be exclusively owned and never touched again by the
         caller -- the evaluator hands over the FIRST of its two forks at a rung and
-        carries on with the second (module docstring, "THE LADDER"). *faces* is
-        its weight against the face budget.
+        carries on with the second (module docstring, "THE LADDER"). *nbytes* is
+        its estimated heap weight against the byte budget.
 
         It goes in under ``chain[prefix_length]`` -- the key of exactly the
         features it has evaluated, which is the whole invalidation argument (see
@@ -612,8 +635,8 @@ class PrefixCache[CheckpointT: Detachable]:
         :func:`rung_retained` no longer keeps is dropped, and finally the global
         bounds are enforced LRU-first with speculation evicted before live work,
         the order :meth:`store` uses. A speculative rung that could only be kept
-        by evicting live rungs is refused; so is any rung heavier than the whole
-        face budget. A key already on the ladder keeps its checkpoint (every
+        by evicting live rungs is refused; so is any rung heavier than
+        :data:`RUNG_MAX_BYTES`. A key already on the ladder keeps its checkpoint (every
         evaluation forks at the same positions, so it is the same state); a live
         pass over a speculative rung only upgrades its claim.
         """
@@ -630,9 +653,11 @@ class PrefixCache[CheckpointT: Detachable]:
                 if existing.speculative and not speculative:
                     # Live work has now passed this rung too: it is no longer a
                     # guess, so it stops being the first victim.
-                    self._rungs[key] = _Rung(existing.checkpoint, False, existing.faces)
+                    self._rungs[key] = _Rung(
+                        existing.checkpoint, False, existing.nbytes
+                    )
                 return True
-            if faces > self._rung_face_budget or self._rung_capacity == 0:
+            if nbytes > self._rung_max_bytes or self._rung_capacity == 0:
                 self._speculative_refused += int(speculative)
                 return False
             frontier = prefix_length // self._rung_spacing
@@ -641,15 +666,15 @@ class PrefixCache[CheckpointT: Detachable]:
                 if older in self._rungs and not rung_retained(unit, frontier):
                     self._drop_rung(older)
                     self._rung_thinned += 1
-            if speculative and not self._rung_room_without_live(faces):
+            if speculative and not self._rung_room_without_live(nbytes):
                 self._speculative_refused += 1
                 return False
-            self._rungs[key] = _Rung(checkpoint, speculative, faces)
-            self._rung_faces += faces
+            self._rungs[key] = _Rung(checkpoint, speculative, nbytes)
+            self._rung_bytes += nbytes
             self._rung_stores += 1
             while (
                 len(self._rungs) > self._rung_capacity
-                or self._rung_faces > self._rung_face_budget
+                or self._rung_bytes > self._rung_byte_budget
             ):
                 victim = next(
                     (k for k, r in self._rungs.items() if r.speculative),
@@ -682,19 +707,19 @@ class PrefixCache[CheckpointT: Detachable]:
         cannot disagree."""
         return self._rung_spacing
 
-    def _rung_room_without_live(self, faces: int) -> bool:
-        """Could a new rung of *faces* fit by evicting speculative rungs only?
+    def _rung_room_without_live(self, nbytes: int) -> bool:
+        """Could a new rung of *nbytes* fit by evicting speculative rungs only?
         (caller holds the lock)"""
         live = [r for r in self._rungs.values() if not r.speculative]
         return (
             len(live) + 1 <= self._rung_capacity
-            and sum(r.faces for r in live) + faces <= self._rung_face_budget
+            and sum(r.nbytes for r in live) + nbytes <= self._rung_byte_budget
         )
 
     def _drop_rung(self, key: str) -> None:
         """Remove one rung and its weight (caller holds the lock)."""
         rung = self._rungs.pop(key)
-        self._rung_faces -= rung.faces
+        self._rung_bytes -= rung.nbytes
 
     def rung_lengths(self, keys: Sequence[str]) -> list[int]:
         """The prefix lengths of *keys* holding a rung (TEST SEAM + diagnostics)."""
@@ -814,7 +839,7 @@ class PrefixCache[CheckpointT: Detachable]:
         with self._lock:
             self._entries.clear()
             self._rungs.clear()
-            self._rung_faces = 0
+            self._rung_bytes = 0
 
     @property
     def stats(self) -> CacheStats:
@@ -831,7 +856,7 @@ class PrefixCache[CheckpointT: Detachable]:
                 rung_evictions=self._rung_evictions,
                 rung_thinned=self._rung_thinned,
                 rungs=len(self._rungs),
-                rung_faces=self._rung_faces,
+                rung_bytes=self._rung_bytes,
             )
 
 

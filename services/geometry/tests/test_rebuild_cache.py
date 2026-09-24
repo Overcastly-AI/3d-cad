@@ -19,9 +19,12 @@ from __future__ import annotations
 # pyright: reportPrivateUsage=false
 # (the ladder's structural gates drive `_climb_rung` / `_Checkpoint` directly)
 import copy
+import ctypes
 import dataclasses
+import gc
 import importlib
 import importlib.util
+import math
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -43,6 +46,7 @@ from geometry.features.evaluate import (
     warm_rebuild_cache,
 )
 from geometry.kernel import FaceProvenance
+from geometry.kernel.fork import HEAP_BYTES_PER_FACE, fork_shapes
 from geometry.rebuild_cache import (
     REBUILD_CACHE_CAPACITY,
     RUNG_DENSITY,
@@ -783,7 +787,7 @@ def test_a_rung_is_handed_out_as_a_fork_and_stays_on_the_ladder() -> None:
     cache: PrefixCache[_FakePayload] = PrefixCache(4, rung_spacing=2)
     chain = _chain("a", 6)
     rung = _FakePayload("rung")
-    assert cache.store_rung(chain, 4, rung, faces=10)
+    assert cache.store_rung(chain, 4, rung, nbytes=10)
     first = cache.take(chain)
     second = cache.take(chain)
     assert first is not None and second is not None
@@ -797,7 +801,7 @@ def test_a_rung_is_handed_out_as_a_fork_and_stays_on_the_ladder() -> None:
 def test_the_longest_prefix_wins_across_frontier_and_ladder() -> None:
     cache: PrefixCache[_FakePayload] = PrefixCache(4, rung_spacing=2)
     chain = _chain("a", 8)
-    cache.store_rung(chain, 6, _FakePayload("rung6"), faces=1)
+    cache.store_rung(chain, 6, _FakePayload("rung6"), nbytes=1)
     cache.store(chain[5], _FakePayload("frontier5"))
     taken = cache.take(chain)
     assert taken is not None and taken.prefix_length == 6 and taken.rung
@@ -813,26 +817,35 @@ def test_the_longest_prefix_wins_across_frontier_and_ladder() -> None:
 def test_a_rung_off_the_grid_is_refused() -> None:
     cache: PrefixCache[_FakePayload] = PrefixCache(4, rung_spacing=4)
     with pytest.raises(ValueError):
-        cache.store_rung(_chain("a", 8), 3, _FakePayload("x"), faces=1)
+        cache.store_rung(_chain("a", 8), 3, _FakePayload("x"), nbytes=1)
 
 
-def test_the_ladder_is_bounded_by_count_and_by_faces() -> None:
+def test_the_ladder_is_bounded_by_count_and_by_bytes() -> None:
     """The memory bound, as a unit: LRU-first eviction on the rung COUNT and on
-    the total FACES, and a rung heavier than the whole budget is never kept."""
+    the total estimated BYTES, and a rung over the per-rung cap is never kept."""
     cache: PrefixCache[_FakePayload] = PrefixCache(
-        4, rung_capacity=3, rung_face_budget=100, rung_spacing=1
+        4, rung_capacity=3, rung_byte_budget=100, rung_spacing=1
     )
     for name in "abcd":
-        cache.store_rung(_chain(name, 1), 1, _FakePayload(name), faces=10)
+        cache.store_rung(_chain(name, 1), 1, _FakePayload(name), nbytes=10)
     assert cache.stats.rungs == 3 and cache.stats.rung_evictions == 1
     assert cache.take(_chain("a", 1)) is None, "the LRU rung went first"
 
-    cache.store_rung(_chain("e", 1), 1, _FakePayload("e"), faces=85)
-    assert cache.stats.rung_faces <= 100
+    cache.store_rung(_chain("e", 1), 1, _FakePayload("e"), nbytes=85)
+    assert cache.stats.rung_bytes <= 100
     assert cache.take(_chain("e", 1)) is not None
 
-    assert not cache.store_rung(_chain("f", 1), 1, _FakePayload("f"), faces=101)
-    assert cache.stats.rung_faces <= 100
+    assert not cache.store_rung(_chain("f", 1), 1, _FakePayload("f"), nbytes=101)
+    assert cache.stats.rung_bytes <= 100
+
+    capped: PrefixCache[_FakePayload] = PrefixCache(
+        4, rung_byte_budget=100, rung_max_bytes=40, rung_spacing=1
+    )
+    assert capped.store_rung(_chain("g", 1), 1, _FakePayload("g"), nbytes=40)
+    assert not capped.store_rung(_chain("h", 1), 1, _FakePayload("h"), nbytes=41), (
+        "a rung over the per-rung cap is refused, whatever room is left"
+    )
+    assert capped.stats.rungs == 1
 
 
 def test_a_speculative_rung_never_evicts_a_live_one() -> None:
@@ -840,30 +853,32 @@ def test_a_speculative_rung_never_evicts_a_live_one() -> None:
     victim, and a warm's rung that could only be kept by evicting live rungs is
     refused rather than stored."""
     cache: PrefixCache[_FakePayload] = PrefixCache(
-        4, rung_capacity=2, rung_face_budget=1000, rung_spacing=1
+        4, rung_capacity=2, rung_byte_budget=1000, rung_spacing=1
     )
-    cache.store_rung(_chain("live", 1), 1, _FakePayload("live"), faces=1)
+    cache.store_rung(_chain("live", 1), 1, _FakePayload("live"), nbytes=1)
     assert cache.store_rung(
-        _chain("guess", 1), 1, _FakePayload("guess"), faces=1, speculative=True
+        _chain("guess", 1), 1, _FakePayload("guess"), nbytes=1, speculative=True
     )
-    cache.store_rung(_chain("newer", 1), 1, _FakePayload("newer"), faces=1)
+    cache.store_rung(_chain("newer", 1), 1, _FakePayload("newer"), nbytes=1)
     assert cache.take(_chain("guess", 1)) is None, "speculation is evicted first"
     assert cache.take(_chain("live", 1)) is not None, "older live work survives"
     assert cache.take(_chain("newer", 1)) is not None
 
     assert not cache.store_rung(
-        _chain("late", 1), 1, _FakePayload("late"), faces=1, speculative=True
+        _chain("late", 1), 1, _FakePayload("late"), nbytes=1, speculative=True
     ), "every slot is live work, so the guess yields"
     assert cache.stats.rungs == 2
 
     # A guess that live work then passes over is promoted, not duplicated.
     promoted: PrefixCache[_FakePayload] = PrefixCache(
-        4, rung_capacity=2, rung_face_budget=1000, rung_spacing=1
+        4, rung_capacity=2, rung_byte_budget=1000, rung_spacing=1
     )
-    promoted.store_rung(_chain("q", 1), 1, _FakePayload("q"), faces=1)
-    promoted.store_rung(_chain("p", 1), 1, _FakePayload("p"), faces=1, speculative=True)
-    promoted.store_rung(_chain("p", 1), 1, _FakePayload("again"), faces=1)
-    promoted.store_rung(_chain("r", 1), 1, _FakePayload("r"), faces=1)
+    promoted.store_rung(_chain("q", 1), 1, _FakePayload("q"), nbytes=1)
+    promoted.store_rung(
+        _chain("p", 1), 1, _FakePayload("p"), nbytes=1, speculative=True
+    )
+    promoted.store_rung(_chain("p", 1), 1, _FakePayload("again"), nbytes=1)
+    promoted.store_rung(_chain("r", 1), 1, _FakePayload("r"), nbytes=1)
     kept = promoted.take(_chain("p", 1))
     assert kept is not None, "promoted to live, it outlives the older live rung"
     assert kept.checkpoint.name == "p'", "the original checkpoint, not the re-offer"
@@ -876,10 +891,10 @@ def test_thinning_only_touches_its_own_chain() -> None:
     cache: PrefixCache[_FakePayload] = PrefixCache(4, rung_spacing=1)
     other = _chain("b", 40)
     for length in range(1, 5):
-        cache.store_rung(other, length, _FakePayload(f"b{length}"), faces=1)
+        cache.store_rung(other, length, _FakePayload(f"b{length}"), nbytes=1)
     mine = _chain("a", 40)
     for length in range(1, 41):
-        cache.store_rung(mine, length, _FakePayload(f"a{length}"), faces=1)
+        cache.store_rung(mine, length, _FakePayload(f"a{length}"), nbytes=1)
     assert cache.rung_lengths(other) == [1, 2, 3, 4]
     kept = cache.rung_lengths(mine)
     assert kept == [u for u in range(1, 41) if rung_retained(u, 40)]
@@ -961,7 +976,7 @@ def test_a_fork_shares_no_shape_with_its_original_and_keeps_its_own_sharing() ->
         active_body_id=body_id,
         tool_scope_ids=frozenset({tool_feature}),
     )
-    twin, faces = state.fork()
+    twin, nbytes = state.fork(weigh=True)
 
     forked_body = twin.bodies[body_id]
     assert twin.sheet_metal_unfold_body is not None
@@ -973,7 +988,11 @@ def test_a_fork_shares_no_shape_with_its_original_and_keeps_its_own_sharing() ->
     assert _same(forked_body, twin.sheet_metal_unfold_body)
     assert _same(forked_body, group.tools[0])
     assert _same(twin.last_cut_tools[0], group.tools[1])
-    assert faces == 12, "two boxes' faces, the shared one counted once"
+    assert fork_shapes([body, cutter, body]).faces == 12, (
+        "two boxes' faces, the shared one counted once"
+    )
+    assert nbytes >= 12 * HEAP_BYTES_PER_FACE, "a weighed fork carries its weight"
+    assert state.fork()[1] == 0, "an unweighed fork pays nothing to weigh"
     assert forked_body.volume == pytest.approx(body.volume, rel=0, abs=0)
     assert twin.bodies is not state.bodies
     assert twin.feature_tools is not state.feature_tools
@@ -984,35 +1003,48 @@ def test_a_fork_shares_no_shape_with_its_original_and_keeps_its_own_sharing() ->
     assert target.bodies is twin.bodies and target.linear_deflection == 0.1
 
 
-def test_a_drag_session_does_not_age_out_the_live_chains_deep_rungs() -> None:
-    """A hit proves the whole chain below it is live (PERF-REAL-2 review).
+@pytest.mark.parametrize(
+    ("dragged_at", "steps", "probe_at", "expected"),
+    [(241, 40, 200, 200), (200, 6, 100, 96)],
+    ids=["drag-241-then-edit-200", "drag-200-then-edit-100"],
+)
+def test_a_drag_session_does_not_age_out_the_live_chains_deep_rungs(
+    dragged_at: int, steps: int, probe_at: int, expected: int
+) -> None:
+    """A hit proves the whole chain below it is live (PERF-REAL-2 review,
+    GQA-LADDER-2).
 
-    Dragging a parameter of feature #241 of 250 resumes from the rung at 240
-    every step and leaves one dead-branch rung at 248 per step. If only the rung
-    that served the hit were touched, the dead rungs would outlive the live
-    chain's deep rungs in the LRU — measured: 40 drags left the chain with ONE
-    rung — and the next edit further in (#200) would rebuild from zero. With the
-    whole chain touched, #200 still resumes from the rung at 200.
+    Each drag step resumes from the rung below the dragged feature and lays
+    dead-branch rungs above it. If only the rung that served the hit were
+    touched, those dead rungs would outlive the live chain's deep rungs in the
+    LRU — measured: 40 drags on #241 left the chain with ONE rung, and 6 values
+    dragged on #200 evicted every rung from 32 to 192 — and the next edit
+    further in would rebuild from zero. Rungs are weighed at the tray's
+    measured ~2 MiB each, so the production byte budget is what binds.
     """
-    n, spacing, faces = 250, RUNG_SPACING, 560
+    n, spacing, weight = 250, RUNG_SPACING, 2 * 1024 * 1024
     cache: PrefixCache[_FakePayload] = PrefixCache(4)  # production rung bounds
     base = _chain("k", n)
     for length in range(spacing, n + 1, spacing):
-        cache.store_rung(base, length, _FakePayload(str(length)), faces=faces)
-    deep_before = [r for r in cache.rung_lengths(base) if r <= 200]
-    assert 200 in deep_before
+        cache.store_rung(base, length, _FakePayload(str(length)), nbytes=weight)
+    assert expected in cache.rung_lengths(base)
+    resume_at = (dragged_at // spacing) * spacing
 
-    for step in range(40):
-        dragged = base[:242] + [f"d{step}_{i}" for i in range(242, n + 1)]
+    for step in range(steps):
+        dragged = base[: dragged_at + 1] + [
+            f"d{step}_{i}" for i in range(dragged_at + 1, n + 1)
+        ]
         taken = cache.take(dragged)
-        assert taken is not None and taken.prefix_length == 240
-        cache.store_rung(dragged, 248, _FakePayload("dead"), faces=faces)
+        assert taken is not None and taken.prefix_length == resume_at
+        for length in range(resume_at + spacing, n + 1, spacing):
+            cache.store_rung(dragged, length, _FakePayload("dead"), nbytes=weight)
     assert cache.stats.rung_evictions > 0, "the session must have pressed the bound"
 
-    edited = base[:201] + [f"e{i}" for i in range(201, n + 1)]
+    edited = base[: probe_at + 1] + [f"e{i}" for i in range(probe_at + 1, n + 1)]
     taken = cache.take(edited)
-    assert taken is not None and taken.prefix_length == 200, (
-        "an edit at #200 after a drag session must still resume from rung 200"
+    assert taken is not None and taken.prefix_length == expected, (
+        f"an edit at #{probe_at} after a drag session on #{dragged_at} must still "
+        f"resume from rung {expected}"
     )
 
 
@@ -1093,7 +1125,7 @@ def test_every_shape_the_state_holds_is_forked_and_detached(
         "a shape the state holds is not detached"
     )
 
-    twin, _faces = state.fork()
+    twin, _nbytes = state.fork()
     forked = _walk_shapes(twin)
     assert len(forked) == len(expected)
     for shape in forked:
@@ -1148,3 +1180,201 @@ def test_a_rung_climb_forks_twice_and_continues_on_neither_original_nor_rung(
         )
     for shape in rung:
         assert not any(_same(shape, other) for other in originals)
+
+
+# --- The ladder's memory bound on a FREEFORM part (GQA-LADDER-1) ---------------
+
+
+def _spline_loop(
+    cx: float, cy: float, radius: float, wobble: float, phase: float
+) -> list[dict[str, float]]:
+    points: list[dict[str, float]] = []
+    for i in range(18):
+        a = 2 * math.pi * i / 18
+        r = radius * (
+            1 + wobble * math.sin(3 * a + phase) + 0.5 * wobble * math.cos(5 * a)
+        )
+        points.append(
+            {"x": round(cx + r * math.cos(a), 4), "y": round(cy + r * math.sin(a), 4)}
+        )
+    points.append(dict(points[0]))
+    return points
+
+
+def _lobed_plate_tree(motifs: int, plate_mm: float) -> dict[str, Any]:
+    """A plate under a field of lofted spline lobes that overlap the plate AND
+    each other — geometry QA's freeform fixture (docs/GEOMETRY-QA.md 2026-09-23,
+    GQA-LADDER-1), where a face weighs ~50 KiB against the tray's 3.2 KiB:
+    merged BSpline faces trimmed by approximated BSpline-BSpline intersection
+    edges. *plate_mm* is feature 1, so changing it lays a whole new chain."""
+    features: list[dict[str, Any]] = []
+
+    def add(feature: dict[str, Any]) -> str:
+        feature_id = str(uuid.UUID(int=0xF0F0_0000 + len(features) + 1))
+        features.append({"id": feature_id, "feature": feature})
+        return feature_id
+
+    def sketch(plane: dict[str, Any], entities: list[dict[str, Any]]) -> str:
+        return add(
+            {
+                "type": "sketch",
+                "version": 1,
+                "params": {"plane": plane, "entities": entities, "constraints": []},
+            }
+        )
+
+    cols, pitch = 8, 16.0
+    rows = max(1, (motifs + cols - 1) // cols)
+    corners = [
+        {"x": -14.0, "y": -14.0},
+        {"x": cols * pitch, "y": -14.0},
+        {"x": cols * pitch, "y": rows * pitch},
+        {"x": -14.0, "y": rows * pitch},
+    ]
+    plate = sketch(
+        {"kind": "datum_plane", "plane": "XY"},
+        [
+            {
+                "id": f"p{i}",
+                "kind": "line",
+                "start": corners[i],
+                "end": corners[(i + 1) % 4],
+            }
+            for i in range(4)
+        ],
+    )
+    add(
+        {
+            "type": "extrude",
+            "version": 1,
+            "params": {
+                "profile": {"kind": "feature", "feature_id": plate},
+                "distance_mm": plate_mm,
+                "operation": "add",
+                "direction": "normal",
+            },
+        }
+    )
+    low, high = (
+        add(
+            {
+                "type": "datum",
+                "version": 1,
+                "params": {"kind": "offset", "base": "XY", "offset_mm": offset},
+            }
+        )
+        for offset in (2.0, 14.0)
+    )
+    for m in range(motifs):
+        cx, cy = (m % cols) * pitch, (m // cols) * pitch
+        bottom = sketch(
+            {"kind": "feature", "feature_id": low},
+            [
+                {
+                    "id": "s",
+                    "kind": "spline",
+                    "points": _spline_loop(cx, cy, 10.0, 0.12, m * 0.7),
+                }
+            ],
+        )
+        top = sketch(
+            {"kind": "feature", "feature_id": high},
+            [
+                {
+                    "id": "s",
+                    "kind": "spline",
+                    "points": _spline_loop(cx + 1.5, cy - 1.0, 6.5, 0.2, m * 1.3),
+                }
+            ],
+        )
+        add(
+            {
+                "type": "loft",
+                "version": 1,
+                "params": {
+                    "profiles": [
+                        {"kind": "feature", "feature_id": bottom},
+                        {"kind": "feature", "feature_id": top},
+                    ],
+                    "operation": "add",
+                },
+            }
+        )
+    return {
+        "part_id": str(uuid.UUID(int=0xF0F0)),
+        "tree_version": 1,
+        "features": features,
+    }
+
+
+class _MallInfo2(ctypes.Structure):
+    _fields_ = [
+        (name, ctypes.c_size_t)
+        for name in (
+            "arena",
+            "ordblks",
+            "smblks",
+            "hblks",
+            "hblkhd",
+            "usmblks",
+            "fsmblks",
+            "uordblks",
+            "fordblks",
+            "keepcost",
+        )
+    ]
+
+
+def _heap_in_use() -> int:
+    """glibc's bytes in use (``mallinfo2``: small chunks + mmapped chunks) —
+    where OCCT's allocations land. The same reading geometry QA and the ladder's
+    calibration used, so the gate measures what the bound claims to bound."""
+    libc = ctypes.CDLL("libc.so.6")
+    libc.mallinfo2.restype = _MallInfo2
+    gc.collect()
+    info = libc.mallinfo2()
+    return int(info.uordblks + info.hblkhd)
+
+
+#: Small enough that four chains of the 8-lobe part overflow it several times.
+_FREEFORM_BUDGET = 3 * 1024 * 1024
+
+
+def test_a_freeform_ladder_holds_no_more_heap_than_its_byte_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GQA-LADDER-1: the ladder's memory bound, measured in HEAP, not estimated.
+
+    The first ladder priced every face at the tray's 3.2 KiB, and on this part a
+    face weighs ~50 KiB, so a budget that read "64 MiB" held 115 MiB at its count
+    cap and projected to ~1 GiB. Here a ladder with a 3 MiB budget is filled by
+    four chains of the lofted-lobe part (feature 1 changed each time, so every
+    evaluation lays a new chain), the cap is shown to BIND, and then the ladder
+    alone is dropped and the heap that frees is compared with the budget. With
+    the rung weighed at 3.2 KiB/face instead, the same fill holds several times
+    the budget and this fails.
+    """
+    cache: PrefixCache[Any] = PrefixCache(
+        REBUILD_CACHE_CAPACITY,
+        rung_byte_budget=_FREEFORM_BUDGET,
+        rung_max_bytes=_FREEFORM_BUDGET,
+    )
+    monkeypatch.setattr(evaluate_module, "_REBUILD_CACHE", cache)
+    for chain in range(4):
+        payload = _lobed_plate_tree(8, 4.0 - 0.25 * chain)
+        result = evaluate_tree(_request(payload)).result
+        assert all(feature.status == "ok" for feature in result.features)
+    stats = cache.stats
+    before = _heap_in_use()
+    cache._rungs.clear()  # the ladder alone; the frontier entries stay
+    freed = before - _heap_in_use()
+    assert freed <= _FREEFORM_BUDGET, (
+        f"the ladder held {freed / 2**20:.1f} MiB of heap against a "
+        f"{_FREEFORM_BUDGET / 2**20:.0f} MiB budget ({stats.rungs} rungs)"
+    )
+    # Only then, the guards that keep the comparison above from being vacuous:
+    # the probe saw the ladder, the fill pressed the bound, a ladder remained.
+    assert freed > 0, "dropping the ladder freed nothing: the probe is blind"
+    assert stats.rung_evictions > 0, "the budget must have BOUND"
+    assert stats.rungs >= 2, "and still hold a ladder"
+    assert stats.rung_bytes <= _FREEFORM_BUDGET

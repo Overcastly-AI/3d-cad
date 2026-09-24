@@ -678,8 +678,8 @@ class EvaluationState:
             slots.append((self.sheet_metal_unfold_body, set_unfold))
         return slots
 
-    def fork(self) -> tuple["EvaluationState", int]:
-        """An independent copy of this state, and its weight in faces.
+    def fork(self, *, weigh: bool = False) -> tuple["EvaluationState", int]:
+        """An independent copy of this state, and (if *weigh*) its heap bytes.
 
         The ladder primitive (PERF-REAL-2, :mod:`geometry.rebuild_cache`): every
         KERNEL shape the state holds (:meth:`shape_slots`) is copied in ONE
@@ -718,10 +718,10 @@ class EvaluationState:
         # The twin's containers are its own now, so its slots can be rewritten
         # with the copies without touching this state.
         slots = twin.shape_slots()
-        forked = fork_shapes([shape for shape, _ in slots])
+        forked = fork_shapes([shape for shape, _ in slots], weigh=weigh)
         for (_, put), copy in zip(slots, forked.shapes, strict=True):
             put(copy)
-        return twin, forked.faces
+        return twin, forked.nbytes
 
     def adopt(self, other: "EvaluationState") -> None:
         """Become *other*, field for field, keeping this object's identity.
@@ -3485,7 +3485,7 @@ class _Checkpoint:
         the same rung (:func:`_climb_rung`). No artifacts: a rung is never the
         end of the tree that published them.
         """
-        state, _faces = self.state.fork()
+        state, _ = self.state.fork()
         return _Checkpoint(
             state=state,
             results=list(self.results),
@@ -3575,13 +3575,17 @@ def _climb_rung(
     OCCT copy of the same untouched input, so it is the same state, down to the
     ULP a copy can move a mesh by. Forking once and continuing on the original
     would make the cold path carry the un-copied shapes forward and the resumed
-    one a copy, so ``mesh_glb_id`` would be byte-identical only for as long as a
-    copy happens to re-mesh like its original. That held on every tree the suite
-    has (measured 2026-09-23: the single-fork variant passes it), and did NOT
-    hold on 2026-07-31 (:mod:`geometry.rebuild_cache`), so the second fork —
-    ~9 ms at 560 faces — buys a guarantee the suite cannot currently check.
+    one a copy, and a single copy DOES re-mesh differently on 13 of 89 trees
+    (geometry QA, 2026-09-23; :mod:`geometry.rebuild_cache`), so ``mesh_glb_id``
+    would depend on cache state. Both single-fork variants are gated: by bytes
+    in ``tests/test_rebuild_ladder_qa.py`` (a resume is byte-identical to cold
+    in mesh AND STEP on the shared-face tree, which that mutant reddens) and
+    structurally, by ``IsSame``, in ``tests/test_rebuild_cache.py``
+    (``test_a_rung_climb_forks_twice_*``) and
+    ``test_every_rung_climb_carries_on_with_a_copy_of_the_rung``. The second
+    fork costs ~9 ms at 560 faces.
     """
-    stored, faces = state.fork()
+    stored, nbytes = state.fork(weigh=True)
     live, _ = stored.fork()
     state.adopt(live)
     _REBUILD_CACHE.store_rung(
@@ -3594,7 +3598,7 @@ def _climb_rung(
             suppressed_ids=frozenset(suppressed_ids),
             artifacts=None,
         ),
-        faces=faces,
+        nbytes=nbytes,
         speculative=ladder.speculative,
     )
 
