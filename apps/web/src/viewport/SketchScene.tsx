@@ -133,6 +133,7 @@ import {
 } from "../sketch/tools";
 import { AdaptiveGrid } from "./AdaptiveGrid";
 import { bluingRadiusMm, bluingWash } from "./bluingWash";
+import { cameraEaseStep } from "./cameraEase";
 import { ConstraintGlyphs } from "./ConstraintGlyphs";
 import { ANNOTATION_LAYER } from "./instruments";
 import { sketchIsDrawn, usePartViewStore } from "./partView";
@@ -2273,6 +2274,8 @@ function SketchCameraRig() {
   const parked = useRef<ViewPose | null>(null);
   /** Has the modeller moved the camera by hand since the park landed? */
   const tookTheCamera = useRef(false);
+  /** Did the previous rendered frame take an ease step? See `cameraEase.ts`. */
+  const easing = useRef(false);
 
   useEffect(() => {
     const onStart = () => {
@@ -2385,9 +2388,14 @@ function SketchCameraRig() {
 
   useFrame((_, delta) => {
     const g = goal.current;
-    if (g === null) return;
-    // Exponential ease — frame-rate independent, allocation-free.
-    const k = 1 - Math.exp(-Math.min(delta, 0.1) * 10);
+    if (g === null) {
+      easing.current = false;
+      return;
+    }
+    // Exponential ease — frame-rate independent, allocation-free. Time-based
+    // down to 2 fps, not 10: see `cameraEase.ts` (PERF-REAL-1).
+    const k = cameraEaseStep(delta, easing.current);
+    easing.current = true;
     camera.position.lerp(g.position, k);
     camera.up.lerp(g.up, k).normalize();
     if (controls) {
@@ -2401,6 +2409,7 @@ function SketchCameraRig() {
       camera.up.copy(g.up);
       controls?.update();
       goal.current = null;
+      easing.current = false;
     }
     invalidate();
   });

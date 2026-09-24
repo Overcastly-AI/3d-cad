@@ -34,6 +34,7 @@ import { ViewBar } from "../components/ViewBar";
 import { VisibilityStamp } from "../components/VisibilityStamp";
 import { AdaptiveGrid } from "./AdaptiveGrid";
 import { BenchBackdrop } from "./BenchBackdrop";
+import { cameraEaseStep } from "./cameraEase";
 import { publishViewQuaternion } from "./cameraOrientation";
 import { isDragGesture, type PointerPoint } from "./contextMenuGesture";
 import {
@@ -228,6 +229,8 @@ function CameraRig({
   const boundsRef = useRef<Box3 | null>(bounds);
   boundsRef.current = bounds;
   const goal = useRef<CameraGoal | null>(null);
+  /** Did the previous rendered frame take an ease step? See `cameraEase.ts`. */
+  const easing = useRef(false);
   const framedRect = useRef<Rect | null>(null);
   /** Has the modeler moved the camera by hand since the last fit? */
   const userMoved = useRef(false);
@@ -815,9 +818,14 @@ function CameraRig({
 
   useFrame((_, delta) => {
     const g = goal.current;
-    if (g === null) return;
-    // Exponential ease — frame-rate independent, allocation-free.
-    const k = 1 - Math.exp(-Math.min(delta, 0.1) * 10);
+    if (g === null) {
+      easing.current = false;
+      return;
+    }
+    // Exponential ease — frame-rate independent, allocation-free. Time-based
+    // down to 2 fps, not 10: see `cameraEase.ts` (PERF-REAL-1).
+    const k = cameraEaseStep(delta, easing.current);
+    easing.current = true;
     camera.position.lerp(g.position, k);
     camera.up.lerp(g.up, k).normalize();
     // The parallel half of the ease. Under an orthographic camera the position
@@ -849,6 +857,7 @@ function CameraRig({
       }
       controls?.update();
       goal.current = null;
+      easing.current = false;
       onSettle(g.view, camera.position, framedRect.current);
     }
     invalidate();

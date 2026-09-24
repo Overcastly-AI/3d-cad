@@ -55,12 +55,13 @@
  * ## The budget, and the settle
  *
  * A camera gate (quantised, because `OrbitControls` damping decays
- * asymptotically), a gauge gate, an oracle gate, and a per-frame cap on
- * raycasts, exactly as the edge pass. `data-face-mark-seats` on the viewport
- * reads `pending` until every offered mark has an answer for the CURRENT
- * camera and gauges, `settled` after — deliberately a SEPARATE attribute from
- * `data-edge-mark-seats`, so a spec cannot wait on a settle nothing is
- * draining.
+ * asymptotically), a gauge gate, an oracle gate, and a per-frame budget on
+ * raycasts — the edge pass's floor, plus a time slice that lets a cheap pass
+ * finish in a frame or two (`SURFACE_SEAT_FRAME_MS`). `data-face-mark-seats`
+ * on the viewport reads `pending` until every offered mark has an answer for
+ * the CURRENT camera and gauges, `settled` after — deliberately a SEPARATE
+ * attribute from `data-edge-mark-seats`, so a spec cannot wait on a settle
+ * nothing is draining.
  */
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -72,11 +73,56 @@ import { occtToScene } from "../measure/geometry";
 import { GaugeKeepOuts, SEAT_CONFIRM_FRAMES } from "./useEdgeMarkAnchors";
 
 /**
- * How many raycasts the pass may spend per frame. A subject's walk is always
- * finished once started (so a mark never publishes a half-searched seat), which
- * means one frame can overrun this by up to one walk.
+ * How many raycasts the pass may ALWAYS spend per frame. A subject's walk is
+ * always finished once started (so a mark never publishes a half-searched
+ * seat), which means one frame can overrun this by up to one walk.
  */
 export const SURFACE_SEAT_FRAME_BUDGET = 24;
+
+/**
+ * The wall-clock slice, in ms, the pass may keep going for once the floor above
+ * is spent: a THIRD OF WHAT A FRAME CURRENTLY COSTS (the share the edge pass's
+ * budget was sized to at 60 fps), never less than `SURFACE_SEAT_FRAME_MS` and
+ * never more than `SURFACE_SEAT_MAX_SLICE_MS`. See {@link seatSliceMs}.
+ *
+ * WHY A SLICE AND NOT ONLY A COUNT (PERF-REAL-1). The count was sized for a
+ * raycast that cost a quarter of a millisecond on a small part. On the
+ * gauntlet's 1 018-face gearbox the face pick offers 452 marks, most of them
+ * buried — and a buried mark walks all 17 of its candidates, so one camera pose
+ * owes thousands of raycasts. At 24 a frame that is ~190 frames before the pick
+ * can settle; measured at the tip before this change, it had not settled after
+ * 158 frames and eleven minutes. The raycast is now a hierarchy walk
+ * (`pickBvh.ts`) costing microseconds, so the frame COUNT became the whole
+ * remaining cost — and a count cannot know that its raycasts got cheap. A slice
+ * does: a cheap pass drains in a frame or two, and an expensive one still
+ * stops at the floor exactly as before.
+ *
+ * WHY PROPORTIONAL TO THE FRAME. A fixed 6 ms is right at 60 fps and wrong on a
+ * machine where a frame of a 400 000-triangle part costs seconds (software GL,
+ * which is where CI and the gauntlet run): there, 6 ms slices spread ~70 ms of
+ * work over a dozen multi-second frames. A third of the frame keeps the pass's
+ * share of the frame the same everywhere. The ceiling bounds the one case
+ * where `delta` is not a frame cost — the first frame after an idle spell,
+ * whose delta is the idle time.
+ */
+export const SURFACE_SEAT_FRAME_MS = 6;
+
+/** The ceiling on one frame's slice, in ms — see `SURFACE_SEAT_FRAME_MS`. */
+export const SURFACE_SEAT_MAX_SLICE_MS = 250;
+
+/**
+ * The slice the pass may spend in a frame whose predecessor took
+ * `frameSeconds` (r3f's `delta`): a third of it, clamped to
+ * [`SURFACE_SEAT_FRAME_MS`, `SURFACE_SEAT_MAX_SLICE_MS`].
+ */
+export function seatSliceMs(frameSeconds: number): number {
+  const third = (frameSeconds * 1000) / 3;
+  if (!Number.isFinite(third)) return SURFACE_SEAT_FRAME_MS;
+  return Math.min(
+    SURFACE_SEAT_MAX_SLICE_MS,
+    Math.max(SURFACE_SEAT_FRAME_MS, third),
+  );
+}
 
 /**
  * The walk's two rings, as fractions of the face's characteristic length
@@ -254,7 +300,7 @@ export function useSurfaceMarkBurial(
     };
   }, [canvas]);
 
-  useFrame(() => {
+  useFrame((_state, delta) => {
     // THE WORKING ARRAY MUST NEVER BE THE PUBLISHED ONE (board item #76).
     //
     // `working` and `published` were both initialised with the SAME `fallback`
@@ -339,7 +385,11 @@ export function useSurfaceMarkBurial(
     };
 
     let spent = 0;
-    while (owed.current > 0 && spent < SURFACE_SEAT_FRAME_BUDGET) {
+    const deadline = performance.now() + seatSliceMs(delta);
+    while (
+      owed.current > 0 &&
+      (spent < SURFACE_SEAT_FRAME_BUDGET || performance.now() < deadline)
+    ) {
       const i = cursor.current % subjects.length;
       cursor.current = (cursor.current + 1) % subjects.length;
       owed.current -= 1;

@@ -22,9 +22,12 @@
  *    `material.resolution` (drei sets it from the viewport size) and three's
  *    raycaster skips invisible objects, so `visible={false}` would silently
  *    kill every hit. `colorWrite={false}` + `depthWrite={false}` is how it
- *    draws nothing while staying live — the same trick `PickSurface` uses, and
- *    drei's `Line` already forwards material props here (`ModelMesh` passes
- *    `toneMapped`/`depthWrite`/`polygonOffset*` through it).
+ *    draws nothing while staying live, and drei's `Line` already forwards
+ *    material props here (`ModelMesh` passes `toneMapped`/`depthWrite`/
+ *    `polygonOffset*` through it). `PickSurface` used the same trick until
+ *    PERF-REAL-1, which read three's `Raycaster` and found it tests `layers`
+ *    only, so the surface now skips its draw with `material.visible = false`;
+ *    the band has not been re-examined against that reading.
  *
  *  * r3f dedupes to ONE hit per OBJECT, so the band resolves nearest-in-DEPTH
  *    rather than nearest-in-screen. See `resolveBandEdge` for why that is the

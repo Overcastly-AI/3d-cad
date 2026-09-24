@@ -190,15 +190,22 @@ export function PickSurface({
 
   return (
     /*
-      The raycast target. It draws NOTHING — `colorWrite:false` plus
-      `depthWrite:false` means it contributes no fragments and no depth, so the
-      body on screen is still the real mesh's and this cannot tint, hide or
-      z-fight with it. It exists purely so r3f's event system has a surface to
-      hit, and it must actually RENDER rather than be `visible={false}`, because
-      three's raycaster skips invisible objects. `renderOrder={-1}` puts it
-      first within its pass; it carries no `transparent`, because
-      `colorWrite:false` already guarantees nothing is written and the OPAQUE
-      list is the cheaper place to draw nothing.
+      The raycast target. It is NEVER DRAWN, so the body on screen is still
+      the real mesh's and this cannot tint, hide or z-fight with it. It exists
+      purely so r3f's event system has a surface to hit.
+
+      Not drawn, rather than drawn as nothing (PERF-REAL-1). It used to render
+      with `colorWrite:false` + `depthWrite:false`, on the understanding that
+      three's raycaster skips invisible objects. Read in `three@0.185.1`:
+      `Raycaster`'s `intersect()` tests only `layers`, and `Mesh.raycast`
+      consults only `material.side` — neither reads `visible` of any kind —
+      and r3f's event `intersect()` adds no visibility filter either. What DOES
+      read `material.visible` is the renderer's render-list build, which skips
+      the object. So `visible={false}` on the MATERIAL keeps the mesh exactly
+      as hittable and removes a full second pass over the part from every
+      frame while a pick is armed: on the gauntlet's gearbox that was 399 478
+      triangles of vertex work per frame for zero pixels. (The OBJECT stays
+      `visible`, so nothing that walks the scene graph by visibility loses it.)
 
       `raycast` is the SEL-6 filter: it reports the nearest DRAWN triangle, so a
       hidden body in FRONT is seen past rather than merely refused. It has to be
@@ -212,19 +219,16 @@ export function PickSurface({
       onPointerMove={handleMove}
       onPointerOut={onOut}
       onClick={onClick === undefined ? undefined : handleClick}
-      renderOrder={-1}
     >
       {/*
         `DoubleSide` in column mode is what makes a BURIED face testable at all
         — three's `checkIntersection` consults `material.side`, so a body's far
         wall is skipped under the default `FrontSide`. It cannot change which
         face is NEAREST (on a closed body the near wall is struck first), and
-        the material still writes no colour and no depth, so nothing about the
-        picture moves either.
+        the material is never drawn, so nothing about the picture moves either.
       */}
       <meshBasicMaterial
-        colorWrite={false}
-        depthWrite={false}
+        visible={false}
         side={column ? DoubleSide : FrontSide}
       />
     </mesh>
