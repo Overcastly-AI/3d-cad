@@ -546,6 +546,21 @@ describe("twist (helical-gear gap G1)", () => {
     });
   });
 
+  it("a no-op Save sends a stored twist back EXACTLY, at full precision", () => {
+    // Review B1: seeding the field through toPrecision(12) turned
+    // 31.280937437761875 into 31.2809374378, so opening a twisted feature and
+    // pressing Enter changed its helix and its rebuild cache key.
+    for (const angle of [31.280937437761875, -0.1 - 0.2, 12.358, 3600]) {
+      const stored: ExtrudeParams = {
+        ...plain,
+        twist_angle_deg: angle,
+        twist_center: { x: 10.000000000000002, y: -3.3333333333333335 },
+      };
+      const form = formFromParams(stored, "mm");
+      expect(extrudeParamsFromForm(form, 20)).toEqual(stored);
+    }
+  });
+
   it("clearing a stored twist removes BOTH fields, centre included", () => {
     const twisted: ExtrudeParams = {
       ...plain,

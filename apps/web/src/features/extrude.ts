@@ -78,13 +78,27 @@ export function twistHand(twistDeg: number): "Right-hand" | "Left-hand" | null {
   return twistDeg > 0 ? "Right-hand" : "Left-hand";
 }
 
-/** A typed twist written back into the field (the gauge's write). */
+/**
+ * A twist the GAUGE asked for, written into the field. Twelve significant
+ * digits shed the float noise a drag leaves behind (0.1 + 0.2).
+ *
+ * GAUGE WRITES ONLY. A STORED twist seeds the field through
+ * {@link storedTwistInput} instead: rounding it here turned 31.280937437761875
+ * into 31.2809374378, so a Save that touched nothing changed the helix and
+ * its rebuild cache key (review B1).
+ */
 export function formatTwistInput(twistDeg: number): string {
-  // Twelve significant digits: enough that a STORED twist (12.358, typed into a
-  // script) comes back exactly, few enough to shed float noise a drag leaves
-  // behind (0.1 + 0.2). Rounding to a display precision here would change the
-  // helix on the first Save that touched nothing.
   return String(Number(twistDeg.toPrecision(12)));
+}
+
+/**
+ * A STORED twist as field text, exactly: `String` is JavaScript's shortest
+ * round-trip form, so `parseTwistDeg(storedTwistInput(t)) === t` for every
+ * twist the kernel accepts (1e-9 <= |t| <= 3600), and a no-op Save sends back
+ * the number it was given.
+ */
+export function storedTwistInput(twistDeg: number): string {
+  return String(twistDeg);
 }
 
 /**
@@ -273,7 +287,7 @@ export function formFromParams(
     twistInput:
       params.twist_angle_deg === undefined || params.twist_angle_deg === null
         ? ""
-        : formatTwistInput(params.twist_angle_deg),
+        : storedTwistInput(params.twist_angle_deg),
     // A stored centre is kept as the exact point it names; the sketch origin
     // is what an absent one means.
     twistCentre:
