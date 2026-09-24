@@ -2,43 +2,47 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-09-24 (backlog-groomer pass 30) — CI is
-green through `9c21801` (all three workflows, orchestrator-confirmed).**
-Passes 26/27/29 root-caused and fixed the e2e reds of that window (shard
-2/4 failures, a shard-4 timeout, a Fit-while-sketching regression) and
-closed five more BACKLOG items (QA-CUBE-YIELD-SETTLE-1/FB-7,
-E2E-SHARD-COUNT-1, PICK-PROXY-COLLIDE-1, CONTRACT-PARITY-TEST-1,
-PERF-REAL-2); full narrative moved to `docs/CHANGELOG.md`'s ROADMAP archive
-(2026-09-24 entry) — one-line pointers in "Recent closures" below. Pass 26
-also shipped **adjacency tier 3** (`bf05482`, re-matches a picked EDGE
-through the two faces it borders, closing the `SUBSHAPE_UNRESOLVED` wall the
-2026-09-16 product audit hit — see "Product audit 2026-09-16" below) as a
-bounded first step: **curved neighbours (bore rims, fillet boundaries) get
-no adjacency at all**, and that residual stays open. `docs/VISION.md` was
-re-scored twice pass 26: no capability row is above parity, and Performance
-flipped ➖→❌ (51.7s cold rebuild at 250 features, an edit costs 89-108% of a
-full rebuild wherever it sits). **Pass 30 closed four more BACKLOG items, all
-CI-confirmed:** W0REV-3 (`87daed6`+`caebc10` — sketch drafts sweep on
-expiry/cap; a full-quota session write now surfaces to the user via a new
-`packages/design` `Notice` primitive instead of failing silently);
-MEASURE-LABEL-PITCH-1 / product-audit F-7 (`dc49558` — Measure gives a
-labelled centre-to-centre reading distinct from the kernel's raw minimum,
-25.0mm vs 17.0mm verified on a known plate — see "Product audit 2026-09-16"
-below); PERF-REAL-1 (`a785d84`+`ac568b7`+`fafbf78`+`14838cb` — a BVH replaces
-the brute-force pick raycast, 22ms→0.2ms/ray, 0 mismatches over 19,800 rays;
-on `gearbox-11752` arm→prompt 42-48s→~11s, click→sketch-on-face ~31s→8-15s,
-mark settle never→~34-36s; also fixed a real camera-ownership bug the
-speed-up exposed, the part rig's auto-fit posing the camera while the
-sketcher owned it); and a reused-id PERF-REAL-3, a DIFFERENT defect from the
-still-open mesh-payload PERF-REAL-3 (see "Performance findings" below) —
-`496d275`+`989349c`+`9c21801` took `record_history` out of the rebuild-cache
-key so a face pick after an evaluate is a cache hit, overlay 8.8s→~2.1s via
-the gateway. 9 items filed (see BACKLOG Next (P2)). **No scorecard row flips
-this pass, but Selection & picking's upper bound is now materially closed
-and the Performance row (PERF-REAL-2 pass 29 + PERF-REAL-1 this pass) is more
-overdue than ever for a vision-steward re-check** (see "Still owed" below).
-Wave 3 (direct manipulation) remains closed; Phase 5's scripting API remains
-shipped, the MCP server is still the open surface.**
+**Current focus, corrected 2026-09-24 (backlog-groomer pass 32) — 28 commits
+land since pass 31's `639f21c`, all reconciled this pass; CI confirmation on
+this batch is owed to the next orchestrator read (not yet performed by this
+groomer — see PROTOCOL §5).** The helical-gear product test's kernel/UX gaps
+close out: **G1 twisted extrude** (`d823af9` + five review fixes,
+geometry-QA independently verified TWICE — `a83d53a`, `e686107` — volume
+exact to 4.7e-7 relative against a closed-form screw-motion truth, twist to
+5 dp, 29/29 stress cases byte-deterministic) replaces the ruled-loft
+workaround's -0.61%-volume error; **G2/G3/G4/G7/G8/G12** (typed sketch
+coordinates + configurable grid, no more view-reset-on-edit, no more
+glyph-click-steal, sketch entity delete + two independent trim-drop causes
+fixed, open-profile-end marking, the stuck-Undo nonce bug) all close the
+same live-measured residuals `docs/VISION.md`'s Sketching & constraints row
+carried; **G6 sliding sessions** (`cd6baed`+`3c18833`+6 review fixes)
+replaces the 1-hour hard session expiry that had been dropping in-flight
+commands. CI: MinIO now builds from pinned source (`78cca5b` — Docker Hub
+AND quay.io both withdrew prebuilt images), a metrics-seams flake fixed
+(`5ef2db0`). **Geometry-QA's independent verification also found 4 fresh
+findings** (`docs/GEOMETRY-QA.md` 2026-09-24): F1 (P1, pre-existing, NOT a
+twist defect — a plain spline-flank extrude's `measure_shape` reads
++5.37mm^3/1.47e-4 high, the adaptive volume integrator not converging on
+`EXTRUSION` faces), F3 (P3, exact inside-out twisted sweeps wrongly
+refused), F4 (P2, twists inside the accepted bound cost 59-415s, almost all
+tessellation), F6 (P3, feature-tree row clipped by a long name) — F1 and a
+twisted-extrude authoring UI (the kernel feature shipped with NO UI surface
+yet) are IN FLIGHT and Ready; F3/F4/F6 filed to Next/Later, also IN FLIGHT.
+Two more real gaps found independently this pass, both filed to Ready and
+P1: a shared-browser user switch leaves the prior user's React Query cache
+live (no `queryClient.clear()` anywhere), and `/auth/register` carries no
+rate limit despite a route-posture test's own exemption text claiming it
+does. **No scorecard row flips on the groomer's own authority this pass**
+(role split, CLAUDE.md/PROTOCOL.md) — proposed changes for the
+vision-steward are in `docs/BACKLOG.md`'s "Scorecard gaps": the ruled-loft
+helix gap is now avoidable (Part modeling), and 5 of 6 Sketching &
+constraints residuals from pass 31 are closed. Passes 26-30's own detail
+(adjacency tier 3, `docs/VISION.md` rescored twice, W0REV-3,
+MEASURE-LABEL-PITCH-1/F-7, PERF-REAL-1, the reused-id PERF-REAL-3) is
+unchanged and moved to `docs/CHANGELOG.md`'s ROADMAP archive; one-line
+pointers in "Recent closures" below. Wave 3 (direct manipulation) remains
+closed; Phase 5's scripting API remains shipped, the MCP server is still the
+open surface.**
 
 **Product test 2026-09-24 — first complex real part, a helical gear
 (`docs/qa/helical-gear-2026-09-24.md`, tested at `95dd9cd`).** Module-2,
@@ -51,16 +55,22 @@ sketcher workarounds, and nothing in the result is parametric (a helix-angle
 or tooth-count change means redrawing every section by hand); Fusion/Onshape
 do the same part in one add-in dialog, an estimated ~5 min. **The kernel is
 not the blocker** — the loft-script route builds exact involutes, round-trips
-STEP and rebuilds a helix edit in 5-9 s. The 16 ranked gaps are in the
+STEP and rebuilds a helix edit in 5-9 s. The 16 ranked gaps were in the
 sketcher (no typed point entry, the sketch view resets to default framing
 after an edit, glyphs steal clicks aimed at the geometry beneath them, no way
 to delete a sketch entity), missing helical/twisted-extrude construction (the
 only route today is a ruled loft, -0.61% volume / 0.11 mm tooth-thickness
 error at 2 sections), and the 1-hour hard session TTL with no refresh (a
 mid-command 401 drops the open command and its picks). 16 gaps filed/
-reconciled onto BACKLOG this pass; see `docs/BACKLOG.md`'s "Scorecard gaps"
+reconciled onto BACKLOG that pass; see `docs/BACKLOG.md`'s "Scorecard gaps"
 section for the proposed VISION.md evidence changes this test raises, not
-yet applied.
+yet applied. **Groom pass 32 update: G1/G2/G3/G4/G6/G7/G8/G12 (8 of the 16
+gaps) are now CLOSED — see "Current focus" above.** The ruled-loft workaround
+is avoidable and the sketcher residuals that cost the ~45-minute build are
+fixed; a re-run of this same product test with the twisted extrude WOULD
+still need an authoring UI (TWIST-EXTRUDE-UI-1, no surface exists yet) and
+would hit the freshly found F1 wrong-volume bug on any spline-flanked extrude
+— both IN FLIGHT. G5 (trig functions) and G9-G16 remain open.
 
 **Product audit 2026-09-16 — "the edit loop is the wall" (`576e37b`,
 `docs/AUDIT-PRODUCT.md`).** A gearbox-housing build-edit-repair-export
@@ -158,47 +168,24 @@ finishing.
 adjacency tier 3 + CSP-1 + VEC3-DEDUP-1):** full detail moved to
 `docs/CHANGELOG.md`'s ROADMAP archive.
 
-**Groom pass 30 (2026-09-24) doc-tick debt:** **11** commits since `cb88b15`
-(pass 29) — all 11 carrying the trailer. All reconciled this pass. Spans
-W0REV-3's draft sweep + its `Notice`-primitive follow-up (`87daed6`+
-`caebc10`), MEASURE-LABEL-PITCH-1 (`dc49558`), a camera-settle e2e hardening
-(`81fcccb`, found running PERF-REAL-1's camera specs), PERF-REAL-1's BVH +
-browser-leg gauntlet spec + camera-ownership fix + review follow-ups
-(`a785d84`+`ac568b7`+`fafbf78`+`14838cb`), and the reused-id PERF-REAL-3's
-cache-key fix + provenance-cost follow-up + doc correction
-(`496d275`+`989349c`+`9c21801`). 9 new items filed; none flip a scorecard row
-(the Selection & picking upper bound closing and the Performance re-check
-becoming more overdue are notable, not scorecard-flipping, on their own).
+**Groom pass 32 (2026-09-24) doc-tick debt:** **28** commits since `639f21c`
+(pass 31). Spans G1 twisted extrude + 5 review fixes + geometry-QA's two
+independent verifications (`d823af9`, `debd5b7`, `87d099f`, `43ab526`,
+`cbc5720`, `000cc4d`, `a83d53a`, `e686107`), G2 typed coordinates
+(`e4d5805`), G3 view reset (`fc5e840`), G4 glyph click-steal (`09cb3d8`), G6
+sliding sessions + 6 review fixes + 3 doc commits (`cd6baed`, `3c18833`,
+`9a780b4`, `2d0df47`, `3cb432f`, `fdcae20`, `82be0e4`, `9336165`, `6f6afb7`,
+`a449f85`, `1719d0a`), G7/G12 entity delete + trim + stuck Undo (`851d6ef`),
+G8 open-profile marker (`f57111d`), the extrude-editor twist-on-edit fix
+(`8c0ec52`), and two CI fixes (MinIO source build `78cca5b`, metrics-seams
+flake `5ef2db0`). All reconciled this pass. 13 new items filed, 1 annotated
+(MINIO-LICENSE-REVIEW-1); no scorecard row flipped on the groomer's own
+authority — proposed changes for the vision-steward in BACKLOG's "Scorecard
+gaps".
 
-**Groom pass 29 (2026-09-24) doc-tick debt:** **14** commits since `454931e`
-(pass 28's structural prune) — 13 of 14 carrying the trailer (the exception,
-`55df4d3`, is an orchestrator CI-confirmation note landing no feature/fix).
-All 14 reconciled. Spans PICK-PROXY-COLLIDE-1's pick-mark fix + its
-import-remix spec fix (`9404cb1`+`b9d2a78`), CONTRACT-PARITY-TEST-1
-(`647f939`), PERF-REAL-2's checkpoint ladder and its two review/QA follow-ups
-(`09416c6`+`4fcb108`+`560eab1`), GQA-LADDER-1/2/3 (`8e9e5c8`), the FB-7/
-QA-CUBE-YIELD-SETTLE-1 camera-settle fixes (`d0604c5`+`856e3c0`), the shared
-`waitForCameraStill` refactor (`9b1e45f`), E2E-SHARD-COUNT-1 (`d3d0446`), and
-the frontier cache's byte-bound + oversize exemption (`8077ede`+`83e3c67`).
-6 new items filed; none flip a scorecard row.
-
-**Groom pass 27 (2026-09-23) doc-tick debt:** **20** commits since `2bfc660`
-(pass 26) — the branch advanced by one (`5444fa8`) mid-pass, reset onto and
-reconciled below — 17 of 20 carrying the trailer (the three without —
-`6f72947`/`2d719bf`/`4f25e27` — are a protocol-doc fix, a self-inflicted CI
-fix and the CLAUDE.md prune, none landing a feature/fix that needed a tick).
-All 20 reconciled. Spans the e2e root-causing above (7 commits, including
-`5444fa8`), the F-6 hole-editor cycle (3 commits: veto tried then withdrawn,
-plus its X/Y-zero contributing-cause fix), `useGaugeFedForm`'s
-generalisation (`357b91e`), the offset-plane panel's REASON-GATE-1 straggler
-(`17763b5`), a GHOST-1 residual (`0d96454`), F-11 Fit-while-sketching
-shipped and its own regression fixed same pass (`f9fcce6`+`5444fa8`), the
-next-step dot's word (`bc53e7d`, `docs/design/DIRECTION-W2-PROPOSALS.md`),
-the e2e shard-manifest fix (`7c9ff95`), and the CLAUDE.md/ORCHESTRATOR.md
-prune (`4f25e27`+`52c81df`, 165KB → 24KB, history moved to
-`docs/LESSONS.md`, verified by rare-token conservation). 11 new items
-filed, one (CONSTRAINTS-GLYPH-1280-1) closed the same pass it was filed —
-see BACKLOG Ready/Next/Later; none flip a scorecard row.
+Passes 27/29/30's doc-tick-debt narrative (commit-by-commit detail) moved to
+`docs/CHANGELOG.md`'s ROADMAP archive (2026-09-24 entry, "doc-tick debt
+pruned by groom pass 32").
 
 **Phase 5's flagship SHIPPED (`153cfa6`+`ca2f9d9`+`14f6e14`+`43c03a1`) — public
 Python scripting API, `import loft`.** Same code path as the UI, enforced in
@@ -256,27 +243,31 @@ OVERLAY-CACHE-HIT-RESIDUAL-1).
 
 ## Recent closures (2026-08-28 to 2026-09-24)
 
-One line per batch below; full batch-by-batch detail (2026-08-28 to
-2026-09-23, groom passes 19-27 -- measurements, mutation evidence, decision
-records) moved verbatim to `docs/CHANGELOG.md` under "ROADMAP recent closures
-pruned 2026-09-23 (groom pass 28)" and "2026-09-24 (pass-26/27/29 detail
-pruned by groom pass 30)", alongside the older "ROADMAP historic closures
-pruned 2026-09-14 (groom pass 22)" entry this section already pointed at.
-Items also tracked in `docs/BACKLOG-ARCHIVE.md`'s Done archive are not
-re-described here.
+One line per batch below; full batch-by-batch detail moved verbatim to
+`docs/CHANGELOG.md` under "ROADMAP recent closures pruned 2026-09-23 (groom
+pass 28)", "2026-09-24 (pass-26/27/29 detail pruned by groom pass 30)" and
+"2026-09-24 (ROADMAP doc-tick debt, passes 27/29/30, pruned by groom pass
+32)", alongside the older "ROADMAP historic closures pruned 2026-09-14
+(groom pass 22)" entry this section already pointed at. Items also tracked
+in `docs/BACKLOG-ARCHIVE.md`'s Done archive are not re-described here.
 
+- **Groom pass 32 (2026-09-24):** helical-gear kernel/UX gaps closed
+  (G1 twisted extrude, G2/G3/G4/G7/G8/G12 sketcher fixes, G6 sliding
+  sessions); geometry-QA verified the twisted extrude and found 4 fresh
+  findings (F1 in flight); MinIO CI build + a metrics flake fixed; 13 items
+  filed, 1 annotated. CI confirmation owed.
+- **Groom pass 31 (2026-09-24):** helical-gear product test filed
+  (16 gaps); STEPNAME-1/1B/2 closed; EDGE-RESOLVE-WARN-1 kernel half closed.
 - **Groom pass 30 (2026-09-24):** CI confirmed green through `9c21801`;
   W0REV-3, MEASURE-LABEL-PITCH-1/F-7, PERF-REAL-1 and the reused-id
   PERF-REAL-3 closed; 9 items filed.
 - **Groom pass 29 (2026-09-24):** CI confirmed green through `d3d0446`;
   PICK-PROXY-COLLIDE-1, CONTRACT-PARITY-TEST-1, PERF-REAL-2,
   E2E-SHARD-COUNT-1 and QA-CUBE-YIELD-SETTLE-1/FB-7 closed; 6 items filed.
-- **Groom pass 27 (2026-09-23):** known e2e failures root-caused and fixed;
-  F-6 and the gauge/panel lag closed; F-11 (Fit while sketching) shipped with
-  its own same-pass regression fixed.
-- **Groom pass 26 (2026-09-16 to 2026-09-23):** adjacency tier 3, VEC3-DEDUP-1
-  and CRAFT-12 closed; VISION.md re-scored twice; six platform/CI
-  gate-hardening fixes.
+- **Groom pass 26-27 (2026-09-16 to 2026-09-23):** adjacency tier 3,
+  VEC3-DEDUP-1 and CRAFT-12 closed; VISION.md re-scored twice; known e2e
+  failures root-caused and fixed; F-6 and the gauge/panel lag closed; F-11
+  (Fit while sketching) shipped with its own same-pass regression fixed.
 - **Phase 5 + gauntlet batch (2026-09-15, groom pass 25):** SCRIPT-1 (public
   Python scripting API) closed; F1 (wrong volume) + F2 (mesh_glb_id
   non-determinism) closed; CRAFT-13 closed; the air-gap claim fixed and the
@@ -290,12 +281,14 @@ TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1, MATE-OBS-2,
 SKETCH-COVERAGE-1, SOLVER-DOC-1, HEM-1B, HEM-1D — see BACKLOG for current
 tickets. HEM-1C is IN FLIGHT.
 
-**Still owed, carried forward again:** `docs/GEOMETRY-QA.md`/
-`docs/UI-REVIEW.md` refresh against the last ten batches; the
-vision-steward's Sheet metal/Performance/Assemblies/Selection scorecard
-re-check (nine passes overdue — Performance specifically now has fresh
-evidence from BOTH PERF-REAL-2 (pass 29) and PERF-REAL-1 (pass 30), worth
-folding in).
+**Still owed, carried forward again:** `docs/UI-REVIEW.md` refresh against
+the last eleven batches (`docs/GEOMETRY-QA.md` got a fresh entry pass 32,
+the twisted-extrude verification, but the rest of the app is unmeasured
+since); the vision-steward's Sheet metal/Performance/Assemblies/Selection
+scorecard re-check (ten passes overdue — Performance has fresh evidence from
+PERF-REAL-2 (pass 29) and PERF-REAL-1 (pass 30); the helical-gear test also
+raises fresh Sketching & constraints / Part modeling / Extensibility
+evidence, see BACKLOG "Scorecard gaps").
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.

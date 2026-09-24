@@ -5,6 +5,47 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-09-24 (ROADMAP doc-tick debt, passes 27/29/30, pruned by groom pass 32)
+
+**Groom pass 30:** **11** commits since `cb88b15` (pass 29) — all 11 carrying
+the trailer. Spans W0REV-3's draft sweep + its `Notice`-primitive follow-up
+(`87daed6`+`caebc10`), MEASURE-LABEL-PITCH-1 (`dc49558`), a camera-settle
+e2e hardening (`81fcccb`), PERF-REAL-1's BVH + browser-leg gauntlet spec +
+camera-ownership fix + review follow-ups (`a785d84`+`ac568b7`+`fafbf78`+
+`14838cb`), and the reused-id PERF-REAL-3's cache-key fix + provenance-cost
+follow-up + doc correction (`496d275`+`989349c`+`9c21801`). 9 items filed.
+
+**Groom pass 29:** **14** commits since `454931e` (pass 28's structural
+prune) — 13 of 14 carrying the trailer (`55df4d3` is a CI-confirmation note
+landing no feature/fix). Spans PICK-PROXY-COLLIDE-1's pick-mark fix + its
+import-remix spec fix (`9404cb1`+`b9d2a78`), CONTRACT-PARITY-TEST-1
+(`647f939`), PERF-REAL-2's checkpoint ladder + two review/QA follow-ups
+(`09416c6`+`4fcb108`+`560eab1`), GQA-LADDER-1/2/3 (`8e9e5c8`), the FB-7/
+QA-CUBE-YIELD-SETTLE-1 camera-settle fixes (`d0604c5`+`856e3c0`), the shared
+`waitForCameraStill` refactor (`9b1e45f`), E2E-SHARD-COUNT-1 (`d3d0446`), and
+the frontier cache's byte-bound + oversize exemption (`8077ede`+`83e3c67`).
+6 items filed.
+
+**Groom pass 27:** **20** commits since `2bfc660` (pass 26) — the branch
+advanced by one (`5444fa8`) mid-pass, reset onto and reconciled — 17 of 20
+carrying the trailer (`6f72947`/`2d719bf`/`4f25e27` are a protocol-doc fix, a
+self-inflicted CI fix and the CLAUDE.md prune, none landing a feature/fix
+that needed a tick). Spans the e2e root-causing (7 commits, incl.
+`5444fa8`), the F-6 hole-editor cycle (3 commits), `useGaugeFedForm`'s
+generalisation (`357b91e`), the offset-plane panel's REASON-GATE-1 straggler
+(`17763b5`), a GHOST-1 residual (`0d96454`), F-11 Fit-while-sketching
+shipped + its own same-pass regression fix (`f9fcce6`+`5444fa8`), the
+next-step dot's word (`bc53e7d`), the e2e shard-manifest fix (`7c9ff95`), and
+the CLAUDE.md/ORCHESTRATOR.md prune (`4f25e27`+`52c81df`, 165KB -> 24KB).
+11 items filed, one (CONSTRAINTS-GLYPH-1280-1) closed the same pass.
+
+## 2026-09-24 (Groom pass 29, pruned from BACKLOG.md's Changelog by pass 32)
+
+PICK-PROXY-COLLIDE-1, CONTRACT-PARITY-TEST-1, PERF-REAL-2, E2E-SHARD-COUNT-1,
+QA-CUBE-YIELD-SETTLE-1/FB-7 all CLOSED; CI green through `d3d0446`; 6 items
+filed. Full detail: `docs/BACKLOG-ARCHIVE.md`'s Done archive, "Groom pass 29"
+entry.
+
 ## 2026-09-23 (Groom pass 27, pruned from BACKLOG.md's Changelog by pass 31)
 
 e2e known-failures + shard-4 timeout root-caused and fixed (6+1 commits);

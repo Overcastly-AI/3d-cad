@@ -290,11 +290,122 @@ kind: question (needs a measurement, not yet a decision). The ladder-as-snap-sto
 
 kind: QA (not yet examined, flagged rather than guessed). The 24 px grip meets WCAG 2.2 SC 2.5.8 and CRAFT-7's hit sleeve is >= 12 px, but every reach measurement behind the wave — all nine mounts across all seven verbs — was mouse-driven, at 1280x800 and 1600x1000 only; nobody has put a finger on any of these instruments.
 
+<a id="item-kernel-helical-sweep"></a>
+
+### Kernel: helical sweep -> threads/gears (G1)
+
+*kind: item-story*
+
+CLOSED groom pass 32 (`d823af9` + review fixes `debd5b7`/`87d099f`/`43ab526`/`cbc5720`, build `000cc4d`). Twisted extrude ships: geometry-QA independently verified it twice (`a83d53a`, `e686107`) against a closed-form gear/screw-motion truth — volume 36470.392 vs. 36470.374 analytic (+4.7e-7 relative), twist to 5 dp, 29/29 stress cases byte-deterministic, STEP round-trips at <=4.4e-9 mm^3. The ruled-loft workaround's -0.61%-volume/0.11mm-tooth-error gap is now avoidable. Four residuals the same QA pass found are filed separately (TWIST-VOLUME-INTEGRATOR-1, TWIST-EXTRUDE-UI-1, TWIST-TESSELLATION-PERF-1, TWIST-ORIENT-INSIDE-OUT-1, FEATURE-TREE-ROW-CLIP-1).
+
+<a id="item-sketch-typed-point-1"></a>
+
+### SKETCH-TYPED-POINT-1
+
+*kind: item-story*
+
+CLOSED groom pass 32 (`e4d5805`). A sketch point accepts a typed X/Y while placing (FB-16's typed-dimension idiom); `setSnapStep` gained a UI caller so the grid step is configurable.
+
+<a id="item-sketch-view-reset-1"></a>
+
+### SKETCH-VIEW-RESET-1
+
+*kind: item-story*
+
+CLOSED groom pass 32 (`fc5e840`). A sketch edit (constraint/dimension/trim) no longer re-frames the zoomed sketch view; an explicit Fit/Home still does.
+
+<a id="item-sketch-glyph-hittest-1"></a>
+
+### SKETCH-GLYPH-HITTEST-1
+
+*kind: item-story*
+
+CLOSED groom pass 32 (`09cb3d8`). A click on a constraint/dimension label no longer lands at the canvas corner.
+
+<a id="item-sketch-entity-delete-1"></a>
+
+### SKETCH-ENTITY-DELETE-1
+
+*kind: item-story*
+
+CLOSED groom pass 32 (`851d6ef`), same commit as G12's stuck Undo (UNDO-BUSY-LABEL-1). Delete/Backspace on a selected sketch entity removes it and every constraint that named it, as one undo step; two independent trim-dropping causes fixed in the same investigation (a stale request nonce, and a trimmed curve keeping its old-shape constraints).
+
+<a id="item-sketch-arc-snap-gap-1"></a>
+
+### SKETCH-ARC-SNAP-GAP-1
+
+*kind: item-story*
+
+CLOSED groom pass 32 (`f57111d`). The sketcher marks open profile ends and names the gap — the ticket's "explicit open-profile warning before the feature error fires" branch.
+
+<a id="item-session-ttl-refresh-1"></a>
+
+### SESSION-TTL-REFRESH-1
+
+*kind: item-story*
+
+CLOSED groom pass 32 (`cd6baed`+`3c18833`, review fixes `9a780b4`/`2d0df47`/`3cb432f`/`fdcae20`/`82be0e4`/`9336165`, docs `6f6afb7`/`a449f85`/`1719d0a`). Sliding sessions with rotating refresh cookies replace the 1-hour hard expiry.
+
+<a id="item-undo-busy-label-1"></a>
+
+### UNDO-BUSY-LABEL-1
+
+*kind: item-story*
+
+CLOSED groom pass 32 (`851d6ef`), same root cause as SKETCH-ENTITY-DELETE-1/G7: a stale request nonce (every geometry request took `previous.nonce + 1`, but success cleared the request to null, so the 2nd edit of a session restarted at 1 and never landed, leaving Undo stuck on "Finishing the last edit...").
+
 <a id="scorecard-gaps-history-25-19"></a>
 
-### Scorecard gaps — groom passes 19-27 narrative
+### Scorecard gaps — groom passes 19-31 narrative
 
 *kind: scorecard-history*
+
+- **Groom pass 31 (2026-09-24, backlog-groomer) — the helical-gear product
+  test (`docs/qa/helical-gear-2026-09-24.md`, tested at `95dd9cd`), first
+  real complex-part test since the 2026-09-16 gearbox audit.** 16 ranked gaps
+  filed/reconciled (Ready: SKETCH-TYPED-POINT-1/VIEW-RESET-1/GLYPH-HITTEST-1/
+  EXPR-FUNCTIONS-1/ENTITY-DELETE-1/ARC-SNAP-GAP-1/SESSION-TTL-REFRESH-1;
+  Next: SKETCH-DIM-POINT-DISTANCE-1, CHAMFER-FACE-LOOP-SELECT-1,
+  PATTERN-LOFT-EVAL-COST-1, UNDO-BUSY-LABEL-1, STEPIMPORT-PART-NAME-1; Later:
+  SKETCH-CIRCLE-RUBBERBAND-TYPE-1, LOFT-EDITOR-PRESELECT-1,
+  CHAMFER-ERROR-COPY-1, LOFT-BSPLINE-OPTION-1). The helical/twisted-extrude
+  kernel item and the session-TTL item were IN FLIGHT with other agents, not
+  Ready (both closed pass 32). STEPNAME-1/1B/2 closed and removed
+  (`5220841`+`95dd9cd`). Proposed VISION.md scorecard changes (judgment call
+  for the vision-steward): Sketching & constraints (➖) gains four more
+  live-app-measured residuals in the same shape as its existing "no
+  Fit/Home" finding (view reset after a constraint/edit, glyph click
+  mis-mapping, no entity delete, arc-snap gap); Part modeling (➖) gains a
+  first live measurement of the ruled-loft-only helix gap (-0.61% volume /
+  0.11mm tooth error); Extensibility/scripting (➖) gains a positive data
+  point (the script route built the same part correctly in 6.2s and
+  re-derived a helix edit in 5-9s).
+
+- **Groom pass 30 (2026-09-24, backlog-groomer) — CI-confirmed green through
+  `9c21801` (all three workflows); W0REV-3, MEASURE-LABEL-PITCH-1, PERF-REAL-1
+  and the reused-id PERF-REAL-3 (overlay cache-key collision) all CLOSED.**
+  `87daed6`+`caebc10` sweep sketch drafts (expiry then oldest-first, ≤20
+  drafts/2 MiB) and surface a full-quota session write failure to the user via
+  a new `packages/design` `Notice` primitive, instead of a silent "logged out
+  on reload". `dc49558` gives Measure a labelled centre-to-centre reading
+  distinct from the raw minimum-distance one (25.0mm pitch vs 17.0mm min,
+  verified on a known plate) plus per-target identity in the readout.
+  `a785d84`+`ac568b7`+`fafbf78`+`14838cb` replace the brute-force per-face
+  raycast with a BVH (22ms→0.2ms/ray, 0 mismatches over 19,800 rays) and fix a
+  real bug the speed-up exposed (the part rig's auto-fit was posing the
+  camera while the sketcher owned it); on `gearbox-11752`, arm→prompt
+  42-48s→~11s, click→sketch-on-face ~31s→8-15s, mark settle never→~34-36s.
+  `496d275`+`989349c`+`9c21801` (reusing the id PERF-REAL-3 for a DIFFERENT
+  defect than the still-open mesh-payload PERF-REAL-3) took `record_history`
+  out of the rebuild-cache key so a face pick after an evaluate is a cache
+  hit, not a guaranteed miss (overlay after evaluate 8.8s→~2.1s via the
+  gateway; recording costs 0.06-1.6% of a cold rebuild). Filed 9 items
+  (GAUNTLET-BROWSER-CI-1, EDGE-BAND-RAYCAST-BVH-1,
+  OVERLAY-CACHE-HIT-RESIDUAL-1, STEP-IMPORT-CACHE-1, GAUGE-POINTERUP-FLAKE-1,
+  E2E-DURATIONS-MANIFEST-1, MEASURE-CIRCLE-STRAIGHT-EDGE-1,
+  LINEAGES-DOCSTRING-STALE-1, SESSION-EXPIRED-NOTICE-1). No scorecard row
+  flips this pass; Selection & picking's PERF-REAL-1 upper bound is now
+  stale in VISION.md's favour, a vision-steward re-check is owed.
 
 - **Groom pass 27 (2026-09-23, backlog-groomer) — every known e2e failure on
   the branch root-caused and fixed LOCALLY; CI verification owed.** F-6
@@ -2161,6 +2272,12 @@ kind: polish. Surfaced by A11Y-TOOLBTN-1's blast-radius enumeration, from Chrome
 ## Done — archive
 
 One line per item once its phase has closed (id, one clause, commit/evidence); full narrative lives in the commit message and, where noted, `docs/CHANGELOG.md`.
+
+### Groom pass 32 (2026-09-24, backlog-groomer — helical-gear kernel/UX gaps closed; geometry-QA verified the twisted extrude; 13 items filed)
+
+- **Kernel: helical sweep -> threads/gears (G1)** (`d823af9`+`debd5b7`+`87d099f`+`43ab526`+`cbc5720`+`000cc4d`, geometry-QA `a83d53a`+`e686107`) — twisted extrude ships, verified exact against a closed-form truth. - **SKETCH-TYPED-POINT-1 (G2)** (`e4d5805`) — typed X/Y while placing + configurable grid step. - **SKETCH-VIEW-RESET-1 (G3)** (`fc5e840`) — a sketch edit no longer re-frames the view. - **SKETCH-GLYPH-HITTEST-1 (G4)** (`09cb3d8`) — a label click no longer lands at the canvas corner. - **SKETCH-ENTITY-DELETE-1 (G7) + UNDO-BUSY-LABEL-1 (G12)** (`851d6ef`) — entity delete + trim/nonce fix, same root cause as the stuck Undo. - **SKETCH-ARC-SNAP-GAP-1 (G8)** (`f57111d`) — open profile ends marked, gap named. - **SESSION-TTL-REFRESH-1 (G6)** (`cd6baed`+`3c18833`+6 review fixes) — sliding sessions replace the 1-hour hard expiry. - **Extrude editor keeps twist on edit** (`8c0ec52`). - **CI: MinIO built from source** (`78cca5b`) — Docker Hub and quay.io both withdrew prebuilt images. - **CI: metrics-seams flake fixed** (`5ef2db0`).
+
+Filed: TWIST-VOLUME-INTEGRATOR-1, TWIST-EXTRUDE-UI-1, QUERY-CACHE-USER-SWITCH-1, AUTH-REGISTER-RATELIMIT-1 (Ready); TWIST-TESSELLATION-PERF-1, AUTH-SHORT-TTL-E2E-1, DEEPLINK-SIGNIN-RETURN-1, LOFT-ERROR-COPY-1, SKETCH-DELETE-DRY-1, CRAFT-12-PANEL-ZOOM-1 (Next P2); TWIST-ORIENT-INSIDE-OUT-1, FEATURE-TREE-ROW-CLIP-1, AUDIT-ENGINEERING-MINIO-STALE-1 (Later P3); MINIO-LICENSE-REVIEW-1 annotated, not new (see Ready).
 
 ### Groom pass 31 (2026-09-24, backlog-groomer — helical-gear product test filed; STEPNAME-1/1B/2 closed; EDGE-RESOLVE-WARN-1 kernel half closed)
 
