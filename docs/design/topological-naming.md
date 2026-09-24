@@ -859,9 +859,13 @@ don't move the face **resolve**; T1/T2 are **best-effort at stage 1** — an
 edit that removes/moves the face is an honest `subshape_unresolved` /
 `subshape_ambiguous` on the datum, but a drastic change **can** retarget to a
 coincidentally-congruent face **without erroring** (the residual signature hole,
-§1.3/§2b). Stage 1 does **not** ship the §6.3 mis-resolve telemetry yet — it is
-"unlikely and mostly honest-failing", not measured; that (and the structural
-non-retarget guarantee) waits on stage-2 provenance. **For FACES specifically,**
+§1.3/§2b). *(Corrected 2026-09-24, §15.)* Stage 1 now REPORTS, per feature, which
+tier re-found each picked reference (`FeatureResult.subshape_resolution`), so a
+rebuild that stood on a best-effort re-match is visible rather than a bare `ok`. It
+still does **not** DETECT a mis-resolve: a lone wrong match on a best-effort tier
+reports that tier and nothing more. The rate is "unlikely and mostly
+honest-failing", not measured, and the structural non-retarget guarantee still
+waits on stage-2 provenance. **For FACES specifically,**
 `subshape_ambiguous` is effectively unreachable today: two distinct planar faces
 of a manifold solid cannot share a centroid, so the exactly-one rule always
 finds one (the ambiguity branch is guarded-but-defensive, becoming load-bearing
@@ -944,9 +948,10 @@ don't move the edge **resolve**; T1/T2 are **best-effort at stage 1** — an edi
 that removes/moves the edge is an honest `subshape_unresolved` /
 `subshape_ambiguous`, but a drastic change **can** retarget to a
 coincidentally-congruent edge **without erroring** (the residual signature hole,
-§1.3/§2b). Stage 1 does **not** ship the §6.3 mis-resolve telemetry yet; that
-(and the structural non-retarget guarantee) waits on stage-2 provenance.
-**Unlike faces,** edge `subshape_ambiguous` is genuinely REACHABLE — a symmetric
+§1.3/§2b). *(Corrected 2026-09-24, §15.)* Stage 1 now REPORTS which tier re-found
+each picked edge (`exact` / `durable` / `adjacent`), but it does not DETECT a wrong
+match, and the structural non-retarget guarantee still waits on stage-2
+provenance. **Unlike faces,** edge `subshape_ambiguous` is genuinely REACHABLE — a symmetric
 part has congruent edges (the §1.2 four vertical edges) — so the exactly-one rule
 is load-bearing here, not merely defensive.
 
@@ -1871,3 +1876,113 @@ ones** — five in `test_edges.py`, five in `test_edges_adjacency_revision.py` �
 tier, and the new ones fail for the stated reason rather than on a number. The
 ambiguity gate is among the ten, which is the point: it genuinely exercises tier 3's
 own `>1` branch rather than the older tiers' wording.
+
+## 15. Scoping delta: a rebuilt feature SAYS which tier re-found its picks (2026-09-24)
+
+**Problem (EDGE-RESOLVE-WARN-1, groom pass 26).** §7.3 has always said that the
+stage-1 tiers beyond `exact` are best-effort and can re-find the WRONG subshape
+without erroring, and §14 measured one case deliberately. Nothing reported it,
+though. A fillet that rebuilt on an adjacency re-match returned the same bare `ok`
+as one that matched verbatim, so a silent retarget looked exactly like a correct
+rebuild. The resolvers already knew the tier. The edge matcher returned it, and
+the face matcher returned a `resilient` flag. Both feature-tree call sites then
+dropped it.
+
+### What shipped (`6bf58e0`, kernel half)
+
+An additive, optional field on the per-feature result:
+
+```python
+SubshapeResolutionTier = Literal["exact", "durable", "adjacent"]   # best -> worst
+
+class SubshapeResolutionSummary(BaseModel):
+    worst_tier: SubshapeResolutionTier
+    exact: int      # >= 0
+    durable: int    # >= 0
+    adjacent: int   # >= 0
+
+FeatureResult.subshape_resolution: SubshapeResolutionSummary | None = None
+```
+
+* **One count per picked reference**, in the tier that resolved it. It is
+  present on an `ok` feature that resolved at least one picked edge or face. It is
+  `null` for a feature with no picked reference, and for any feature that did not
+  evaluate `ok`, where the `subshape_unresolved` / `subshape_ambiguous` error
+  already speaks.
+* **Tier mapping.** Edges report their own three tiers (§13/§14) verbatim. Faces
+  report tier 1 as `exact`, and their resilient tiers 2-4 (coplanar, translated,
+  enclosing, §12/§12a/§12b) all as `durable`. That is the drawings vocabulary
+  (`DimensionAnchorTier`): "it moved or changed, and I followed it". **`adjacent`
+  is edge-only.** The kernel's `EdgeMatchTier` is now this wire alias, so there is
+  one vocabulary.
+* **Mechanism.** A `geometry.kernel.resolution.ResolutionTally` is passed
+  EXPLICITLY (`tally=`) to `resolve_face_plane`, `resolve_faces`, `select_edges`
+  and `resolve_edge_durable`, and the resolver notes the tier only once a
+  reference has resolved uniquely. Drawings, mates and the selection overlay pass
+  nothing and report nothing. The evaluator installs a fresh tally per feature.
+  The flange/hem clean-body re-fold (§4.4.4 of the sheet-metal design) re-finds
+  the SAME pick and is deliberately not tallied.
+* **Determinism and cache.** Recording is observation only. It changes no
+  returned subshape, no enumeration order and no rebuild-cache key, and the
+  summary rides on the cached `FeatureResult`, so a resumed rebuild reports what
+  the cold rebuild did (gated).
+
+### What it deliberately does NOT do
+
+* **No refusal.** A best-effort tier never blocks a rebuild. This is a warning
+  channel, and §7.2's "refuse to guess" still applies only to zero or several
+  candidates.
+* **No detection.** It reports which tier fired, not whether that tier chose
+  correctly. A §14-style lone wrong match reports `durable` or `adjacent` and
+  nothing more. Structural non-retargeting is still stage 2's job (§7.3).
+* **No web surfacing yet.** The tree-row notice and banner are the separate
+  frontend slice of EDGE-RESOLVE-WARN-1.
+* **Internal sheet-metal provenance is not a picked reference.** Corner reliefs
+  and the unfold resolve bend signatures by feature provenance, and those
+  resolutions are not tallied.
+
+### Guidance for the web half: warn on `adjacent`, word `durable` gently
+
+`durable` fires ROUTINELY on correct rebuilds. A face reports it whenever a
+SIBLING feature changes that face's boundary while its plane stays put. Two tree
+goldens do exactly this with no edit at all:
+
+* `holed-bracket-flat-pattern-view` drills two holes per face from one stored face
+  signature, and the first hole changes the face's area, so the second resolves
+  coplanar;
+* `shell-pinch-boundary-plate-40x40x10-pocket-t1.9` opens the top face by the
+  plain plate's signature after a pocket and rounds have cut it.
+
+A hole-diameter edit on a shared face produces the same result. A loud warning on
+every `durable` would therefore fire on ordinary modelling and train users to
+dismiss it. The recommendation is to warn visibly on `adjacent`, the tier that
+inherits the face matcher's whole silent-retarget surface (§14 honest limits), and
+to treat `durable` as a quiet, dismissable "followed a moved reference" note. The
+counts let the notice say how many picks moved (for example "2 of 4 edges").
+
+### Measured
+
+* **Tiers driven by real edits**, with picks captured through the overlay's
+  enumeration (`tests/test_subshape_resolution.py`):
+
+  | Part | Edit | Reported |
+  | --- | --- | --- |
+  | §14 housing fillet | none (clean rebuild) | 4 `exact` |
+  | §14 housing fillet | height 40 -> 55 | 4 `durable` |
+  | §14 housing fillet | width 120 -> 150 | 2 `exact` + 2 `adjacent` |
+  | §14 housing fillet, adjacency stripped | width 120 -> 150 | error, no summary |
+  | hem | none | `exact` |
+  | hem | blank widened | `durable` |
+  | hem | blank lengthened | `adjacent` |
+
+* **Census.** Every feature type whose WIRE SCHEMA can hold a `SubshapeRef` /
+  `EdgeSubshapeRef` (8 types, derived from the schema) must contribute a report.
+  Across every tree golden, each feature's counts must equal its own number of
+  picked references, read off the input.
+* **Mutations.** Eight wiring mutations, each seen red: a dropped note in either
+  edge resolver, face tiers forced to `exact`, worst taken as best, no per-feature
+  reset, the re-fold tallied, a summary on errors, and summaries stripped from the
+  cache.
+* **Cost.** On the N=100 housing (cold rebuild, medians of 3, A/B interleaved) the
+  difference is inside run-to-run noise: 6220 / 6460 / 6342 ms with recording
+  against 6518 / 6193 / 6274 ms without. The direct cost is 88 us per rebuild.
