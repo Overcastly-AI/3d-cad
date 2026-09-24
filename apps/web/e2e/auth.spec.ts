@@ -440,7 +440,42 @@ test.describe("session refresh (short-TTL stack)", () => {
   });
 });
 
+/**
+ * Sign-in brought the user back to the cube part, not the parts list, and the
+ * part is really there. ONE assertion for every route back to a page:
+ * an expiry mid-session and a first signed-out visit (DEEPLINK-SIGNIN-RETURN-1).
+ */
+async function expectBackOnCubePart(page: Page, partId: string): Promise<void> {
+  await expect(page).toHaveURL(new RegExp(`/parts/${partId}$`));
+  await expect(page.getByTestId("feature-row")).toHaveCount(2, {
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId("prop-volume")).toContainText("8,000", {
+    timeout: 30_000,
+  });
+}
+
 test.describe("session refresh (any stack)", () => {
+  test("a first visit to a part while signed out: sign-in lands on the part", async ({
+    page,
+  }) => {
+    const { email, token } = await registerViaApi(page);
+    const part = await createPartViaApi(page, token, "Deep-linked cube");
+    await seedCube(page, token, part.id);
+
+    // No session in this browser: the link goes to sign-in first...
+    await page.goto(`/parts/${part.id}`);
+    await expect(page).toHaveURL(/\/sign-in$/);
+    // ...quietly: nothing expired, there was never a session here.
+    await expect(page.getByTestId("session-expired-notice")).toHaveCount(0);
+
+    await page.getByTestId("auth-email").fill(email);
+    await page.getByTestId("auth-password").fill(TEST_PASSWORD);
+    await page.getByTestId("auth-password").press("Enter");
+
+    await expectBackOnCubePart(page, part.id);
+  });
+
   test("when renewal truly fails: sign-in says so, then returns to the part", async ({
     page,
   }) => {
@@ -473,14 +508,7 @@ test.describe("session refresh (any stack)", () => {
     await page.getByTestId("auth-password").fill(TEST_PASSWORD);
     await page.getByTestId("auth-password").press("Enter");
 
-    // Back on the part, not the parts list, and the part is really there.
-    await expect(page).toHaveURL(new RegExp(`/parts/${partId}$`));
-    await expect(page.getByTestId("feature-row")).toHaveCount(2, {
-      timeout: 30_000,
-    });
-    await expect(page.getByTestId("prop-volume")).toContainText("8,000", {
-      timeout: 30_000,
-    });
+    await expectBackOnCubePart(page, partId);
 
     // The return path is used once: a later deliberate sign-out and sign-in
     // lands on the parts home as it always did.

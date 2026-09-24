@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { Navigate, Outlet } from "@tanstack/react-router";
+import { Outlet, useLocation, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 
 import { fetchMe } from "../api/auth";
 import { useSessionStore } from "../auth/session";
@@ -13,7 +14,7 @@ import { ShortcutSheetHost } from "../components/ShortcutSheet";
  */
 export function AuthedLayout() {
   const token = useSessionStore((state) => state.token);
-  if (token === null) return <Navigate to="/sign-in" replace />;
+  if (token === null) return <ToSignIn />;
   return (
     <>
       <SessionProbe token={token} />
@@ -24,6 +25,31 @@ export function AuthedLayout() {
       <Outlet />
     </>
   );
+}
+
+/**
+ * Signed out on a page behind sign-in: go to the sign-in sheet, and ask the
+ * store to remember this page so sign-in comes back to it
+ * (DEEPLINK-SIGNIN-RETURN-1). Whether it is remembered is the store's call:
+ * a first visit is, a deliberate sign-out is not, and an expiry has already
+ * recorded its own path. The store write comes first, in the same effect,
+ * so it is in place before the sign-in page reads it.
+ *
+ * The page is read ONCE, at mount. This component is still mounted when the
+ * location has already become "/sign-in" (the route match switches after
+ * the location does), and a live read re-ran the effect with that, wiping
+ * the path it had just recorded (seen in e2e).
+ */
+function ToSignIn() {
+  const navigate = useNavigate();
+  const href = useLocation({ select: (location) => location.href });
+  const [from] = useState(href);
+  const rememberDeepLink = useSessionStore((state) => state.rememberDeepLink);
+  useEffect(() => {
+    rememberDeepLink(from);
+    void navigate({ to: "/sign-in", replace: true });
+  }, [from, navigate, rememberDeepLink]);
+  return null;
 }
 
 /**

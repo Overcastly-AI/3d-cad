@@ -204,6 +204,52 @@ describe("createSessionStore", () => {
     expect(store.getState().returnTo).toBe("/parts/x-part");
   });
 
+  it("a first signed-out visit is remembered for whoever signs in (DEEPLINK-SIGNIN-RETURN-1)", () => {
+    const { storage } = fakeStorage();
+    const store = createSessionStore(storage);
+    store.getState().rememberDeepLink("/parts/p-1?view=iso#f3");
+    expect(store.getState().returnTo).toBe("/parts/p-1?view=iso#f3");
+    expect(store.getState().expired).toBe(false); // no "session expired" copy
+    store.getState().signIn("tok-y", { ...USER, id: "user-y" });
+    expect(store.getState().returnTo).toBe("/parts/p-1?view=iso#f3");
+
+    // Hostile paths go through the same gate as an expiry's.
+    const fresh = createSessionStore(fakeStorage().storage);
+    fresh.getState().rememberDeepLink("//evil.example/parts");
+    expect(fresh.getState().returnTo).toBeNull();
+  });
+
+  it("a deep link is not remembered once a session in this page has ended", () => {
+    const { storage } = fakeStorage();
+
+    // Signed in: nothing to remember.
+    const signedIn = createSessionStore(storage);
+    signedIn.getState().signIn("tok-x", USER);
+    signedIn.getState().rememberDeepLink("/parts/p-1");
+    expect(signedIn.getState().returnTo).toBeNull();
+
+    // Deliberate sign-out: the next sign-in goes home, as it always did.
+    signedIn.getState().signOut();
+    signedIn.getState().rememberDeepLink("/parts/p-1");
+    expect(signedIn.getState().returnTo).toBeNull();
+
+    // Expiry recorded X's path and its owner; the redirect must not replace
+    // it with an ownerless one that Y would inherit.
+    const expired = createSessionStore(storage);
+    expired.getState().signIn("tok-x", USER);
+    expired.getState().expire("/parts/x-part");
+    expired.getState().rememberDeepLink("/parts/x-part");
+    expired.getState().signIn("tok-y", { ...USER, id: "user-y" });
+    expect(expired.getState().returnTo).toBeNull();
+
+    // Abandon: the page belongs to someone else's session.
+    const abandoned = createSessionStore(storage);
+    abandoned.getState().signIn("tok-x", USER);
+    abandoned.getState().abandon();
+    abandoned.getState().rememberDeepLink("/parts/x-part");
+    expect(abandoned.getState().returnTo).toBeNull();
+  });
+
   it("safeReturnPath keeps in-app paths and refuses everything else", () => {
     expect(safeReturnPath("/parts/abc")).toBe("/parts/abc");
     expect(safeReturnPath("/drawings/d1?source=p1")).toBe(

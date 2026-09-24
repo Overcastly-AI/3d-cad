@@ -132,13 +132,25 @@ export interface SessionState {
   /** True after a global invalid-token catch — the quiet sign-in notice. */
   expired: boolean;
   /**
-   * The in-app path the user was on when the session ended involuntarily
-   * (see {@link safeReturnPath}); sign-in sends them back there. Null after a
-   * deliberate sign-out, and cleared once used.
+   * The in-app path sign-in sends the user to (see {@link safeReturnPath}):
+   * where they were when the session ended involuntarily, or the page a
+   * signed-out visit asked for ({@link SessionState.rememberDeepLink}). Null
+   * after a deliberate sign-out, and cleared once used.
    */
   returnTo: string | null;
   /** Sign-in has used {@link SessionState.returnTo}; forget it. */
   clearReturnTo: () => void;
+  /**
+   * A signed-out visit to a page behind sign-in (a deep link, a bookmark, a
+   * shared URL): sign-in goes there next (DEEPLINK-SIGNIN-RETURN-1).
+   *
+   * Only while no session has ended in this page. After a deliberate
+   * sign-out the next sign-in goes home, as it always did. After an expiry,
+   * `expire` has already recorded the path, together with whose it is, and
+   * this must not overwrite that. After `abandon`, the page is someone
+   * else's. A no-op while signed in.
+   */
+  rememberDeepLink: (path: string | null) => void;
   /**
    * Non-null when the last sign-in could NOT be written to storage, even
    * after evicting every sketch draft to make room — the session works until
@@ -278,6 +290,8 @@ export function createSessionStore(
   // Whose return path `returnTo` is: a different user signing in next does
   // not inherit it (it would open the previous user's part).
   let returnOwner: string | null = null;
+  // Set by every way a session ends here; see rememberDeepLink.
+  let sessionEnded = false;
   return create<SessionState>()((set, get) => ({
     token: initial?.token ?? null,
     receivedAt: initial?.receivedAt ?? null,
@@ -285,6 +299,11 @@ export function createSessionStore(
     expired: false,
     returnTo: null,
     clearReturnTo: () => set({ returnTo: null }),
+    rememberDeepLink: (path) => {
+      if (sessionEnded || get().token !== null) return;
+      // No owner: whoever signs in asked for this page themselves.
+      set({ returnTo: safeReturnPath(path) });
+    },
     persistError: null,
     dismissPersistError: () => set({ persistError: null }),
     signIn: (token, user) => {
@@ -301,6 +320,7 @@ export function createSessionStore(
       });
     },
     signOut: () => {
+      sessionEnded = true;
       clearSessionScopedWork(storage);
       set({
         token: null,
@@ -311,6 +331,7 @@ export function createSessionStore(
       });
     },
     expire: (returnTo) => {
+      sessionEnded = true;
       returnOwner = get().user?.id ?? null;
       clearSessionScopedWork(storage);
       set({
@@ -322,6 +343,7 @@ export function createSessionStore(
       });
     },
     abandon: () => {
+      sessionEnded = true;
       returnOwner = null;
       set({
         token: null,
