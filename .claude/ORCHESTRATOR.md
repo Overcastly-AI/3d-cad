@@ -105,8 +105,8 @@ name the ones you read.
    tell, and you take the verdict from step 2.
 2. **Verdict:** `get_job_logs` with `failed_only: true` and
    `return_content: false`. `failed_jobs: 0` is green ONLY on a completed run.
-   Complete runs have 8 jobs for `e2e` (6 shards + `e2e complete` +
-   `dist-bundle`; 6 shards since `d3d0446`, confirmed on its run) and 7 for
+   Complete runs have 9 jobs for `e2e` (6 shards + `e2e complete` +
+   `dist-bundle` + `auth-short-ttl`; the last since `7af8e4e`) and 7 for
    `ci`; re-derive these from the workflow files when
    they change. `ci` creates all its jobs at t=0, so its `total_jobs` says
    nothing about completion.
