@@ -8,6 +8,7 @@
  */
 import {
   GridSnapIcon,
+  InlineSelect,
   Panel,
   PanelActionCell,
   isMacPlatform,
@@ -16,7 +17,9 @@ import {
 import { formatDroMm } from "../lib/format";
 import { formatSolveCell } from "../sketch/constraints";
 import { describePlane } from "../sketch/plane";
+import { gridStepOptions } from "../sketch/pointEntry";
 import { useSketchStore } from "../sketch/store";
+import { useDocumentLengthUnit } from "../units/documentUnit";
 
 const SOLVE_TONE_CLASS = {
   brass: "text-brass",
@@ -38,6 +41,8 @@ export function SketchDro({ solving }: SketchDroProps) {
   const snapStepMm = useSketchStore((state) => state.snapStepMm);
   const snapSuppressed = useSketchStore((state) => state.snapSuppressed);
   const toggleSnap = useSketchStore((state) => state.toggleSnap);
+  const setSnapStep = useSketchStore((state) => state.setSnapStep);
+  const lengthUnit = useDocumentLengthUnit();
   const solve = useSketchStore((state) => state.solve);
   const bound = useSketchStore((state) => state.featureId !== null);
 
@@ -84,6 +89,27 @@ export function SketchDro({ solving }: SketchDroProps) {
         data-snap-suppressed={snapSuppressed || undefined}
         onClick={toggleSnap}
       />
+      {/* THE GRID STEP (helical-gear gap G2). The store has always had a
+          configurable step and nothing ever set it, so every sketch snapped to
+          1 mm. It lives HERE, beside the SNAP cell that reports it, and not in
+          the command band: a permanent 140 px control in the band pushed the
+          offer rail's words off at 1280 px ("D R Del" instead of "Diameter,
+          Radius, Delete"), which is chrome eating the band's most specific
+          information to make room for a setting. Offered in the document's
+          unit, always listing the step in use. */}
+      <div className="flex items-center px-3 py-2">
+        <InlineSelect
+          eyebrow="Grid"
+          aria-label="Grid snap step"
+          data-testid="sketch-grid-step"
+          options={gridStepOptions(lengthUnit, snapStepMm).map((step) => ({
+            value: String(step.mm),
+            label: step.label,
+          }))}
+          value={String(snapStepMm)}
+          onChange={(event) => setSnapStep(Number(event.target.value))}
+        />
+      </div>
       <div className="px-3 py-2">
         <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
           Plane
