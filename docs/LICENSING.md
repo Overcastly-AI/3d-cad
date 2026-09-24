@@ -414,6 +414,25 @@ Checked across both ecosystems. Zero AGPL components. The one thing to keep
 watching is that AGPL is common in the adjacent tooling space (some
 visualization and collaboration servers), so the review rule stays.
 
+**Fact recorded 2026-09-24, not a change of posture: the compose stack RUNS
+one AGPL program, and it is not a dependency.** `docker-compose.yml` includes
+MinIO and its `mc` client (both AGPL-3.0-or-later) as the S3 stand-in. No Loft
+code imports, links or bundles them: the geometry service talks to it over the
+network through the S3 API (boto3), and any S3-compatible store can replace it
+through `S3_URL`. That was already true when the stack pulled MinIO Inc.'s
+prebuilt images. What changed is how the binaries arrive: those images stopped
+being pullable (Docker Hub 2026-09-12, quay.io 2026-09-24), so
+`deploy/docker/minio.Dockerfile` now builds the same two releases,
+**unmodified**, from source at checksum-pinned module versions. The build runs
+on the self-hoster's machine or CI runner. **We publish no MinIO image**:
+no workflow pushes images anywhere. If one is ever published, AGPL §6 applies.
+The image already carries both `LICENSE` files under `/licenses/`, and its
+labels name the exact corresponding source (`github.com/minio/minio@<version>`,
+`github.com/minio/mc@<version>`), which stays fetchable from `proxy.golang.org`.
+Whether the reference stack should carry an AGPL server at all under RESEARCH
+§8 is an open question, and the source-only, unmaintained upstream adds
+weight to it. It is not settled here.
+
 ---
 
 ## 6. Compliance checklist

@@ -475,7 +475,11 @@ jobs:
       - name: Generate an ephemeral MinIO credential
         run: |
           echo "MINIO_ROOT_PASSWORD=minio-$(od -An -tx1 -N18 /dev/urandom | tr -d ' \n')" >> "$GITHUB_ENV"
-      - name: Boot MinIO
+      # MinIO is BUILT FROM SOURCE here (deploy/docker/minio.Dockerfile, ~4-5
+      # min cold): upstream withdrew its prebuilt images from Docker Hub and
+      # then from quay.io, so there is no registry image left to pull. `up`
+      # builds the missing image; minio-init below reuses the same build.
+      - name: Build + boot MinIO (from pinned source)
         run: docker compose up -d --wait minio
       - name: Provision the mesh bucket
         run: docker compose run --rm minio-init

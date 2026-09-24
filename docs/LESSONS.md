@@ -94,7 +94,7 @@ carry only the last layer; the full chain is in the linked entry.
 | e2e job count ([ci-reading-procedure](#ci-reading-procedure)) | 5 jobs | 6 (`dist-bundle` added in `ed8c3d7`, 2026-09-23) |
 | Concurrency ([ci-concurrency](#ci-concurrency)) | blanket `cancel-in-progress`; PR-only cancel | per-SHA push groups; ref-keyed PR groups |
 | Workflow-context failures ([ci-workflow-refused](#ci-workflow-refused)) | "local gates cannot catch this" | `scripts/check-workflow-contexts.py` grades `env:` only |
-| MinIO smoke ([ci-minio-withdrawn](#ci-minio-withdrawn)) | "rate limit or distribution change, not ours" | images withdrawn from Docker Hub; repointed to `quay.io` in `bd58416` |
+| MinIO smoke ([ci-minio-withdrawn](#ci-minio-withdrawn)) | "rate limit or distribution change, not ours"; repointed to `quay.io` (`bd58416`) | withdrawn from quay.io too (2026-09-24); built from pinned source via the Go module proxy (`deploy/docker/minio.Dockerfile`) |
 | Extrude handle ([extrude-handle-claims](#extrude-handle-claims)) | "a form with no handle" (FALSE since T-23); "drawn but unreachable" (09-13) | 2026-09-16 at `93733b2`: extrude, fillet, shell, datum and both pattern gauges drag; no touch pass; hole has no gauge (CRAFT-9c) |
 | Doc ticks ([doc-tick](#doc-tick)) | ROADMAP + BACKLOG in the same commit | same commit OR `Doc-tick: groomer`, which is a debt the groomer clears before the batch closes |
 | Port teardown ([stale-vite-teardown](#stale-vite-teardown)) | process-name grep; `ss -lptn`; `lsof -ti :PORT \| head -1` | `lsof -ti tcp:<port> -sTCP:LISTEN`, for uvicorns as well as Vite |
@@ -1158,6 +1158,36 @@ admire and do not use. Four concrete tests, each one a defect when it fails:
   upstream can WITHDRAW an image, which no amount of pinning survives, and the
   next occurrence will wear the same "pull access denied" costume as a login
   problem.
+  **IT RECURRED 2026-09-24, ELEVEN DAYS LATER, ON QUAY.IO — and the fix is now
+  to stop pulling MinIO at all.** `deploy-path` (both jobs) died on `cd6baed`
+  and `fc5e840` with `minio Error unauthorized: access to the requested
+  resource is not authorized`, ten minutes after the SAME pins pulled green on
+  `639f21c`; neither commit touched compose. That sentence is quay's anonymous
+  answer for a repository that is gone or private (Docker Hub's is "pull access
+  denied"), so the costume changed with the registry. quay.io itself is
+  `CONNECT 403` from this container (000), so it could not be probed directly;
+  the evidence gathered instead: Docker Hub `minio/{minio,mc}` still **401** /
+  `object not found`, beside controls `library/redis:7` **200** and
+  `library/postgres:16` **429** (the anonymous rate limit, a different word);
+  `ghcr.io/minio/minio` has no public repo (token 403) while
+  `ghcr.io/versity/versitygw` answers 200; and upstream's own history shows
+  why: `minio/minio` `05e5699` (2025-10-19) moved community publishing off
+  quay to `registry.min.dev/community/minio`, a registry MinIO controls and
+  that is also 403 here. **A third vendor registry would be the same bet a
+  third time.** Fixed by building the SAME two releases from source:
+  `go install github.com/minio/{minio,mc}@<pseudo-version>` resolves through
+  `proxy.golang.org` (reachable here, and it keeps every version it has ever
+  served), the pseudo-versions are the exact commits the RELEASE tags point at
+  (proxy `.info` `Origin.Hash`), and the `h1:` sums are pinned in the
+  Dockerfile and recorded in `sum.golang.org`. Proven locally without docker:
+  the Dockerfile's own RUN bodies, replayed, built both binaries in 274 s cold
+  on 4 cores, `minio --version` names the release, `mc ready local` + `mc mb`
+  work, and `services/geometry/tests/test_s3_store.py` with
+  `LOFT_MINIO_SMOKE=1` ran **18 passed** against it (**1 failed** with a wrong
+  secret, the negative control; a corrupted pinned sum makes the build
+  REFUSE). The lesson that generalises: **when an upstream has withdrawn a
+  distribution channel once, treat every channel it controls as withdrawable
+  and build from a content-addressed source you do not have to trust it for.**
 
 <a id="ci-workflow-refused"></a>
 
