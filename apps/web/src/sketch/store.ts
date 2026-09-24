@@ -150,7 +150,7 @@ const axisInferenceHint = (
         ? "Horizontal"
         : "Vertical"
       : "Horizontal and vertical";
-  return `${named} inferred from the line you drew — select the glyph and press Delete to drop it, or hold Ctrl/Cmd while drawing to place freehand.`;
+  return `${named} inferred from the line you drew — press Esc for Select, click the glyph and press Delete to drop it, or hold Ctrl/Cmd while drawing to place freehand.`;
 };
 
 /** How a picked entity is named back to the user ("That is a circle."). */

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 
+import { createFeature } from "./partSeed";
 import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
 
 /**
@@ -382,4 +383,189 @@ test.describe("UI-W5 — founder shots", () => {
       }
     });
   }
+});
+
+/**
+ * Helical-gear gap G4 — A LABEL OVER A SNAP POINT MUST NOT MOVE THE CLICK.
+ *
+ * The product test (docs/qa/helical-gear-2026-09-24.md, step 10): the
+ * rectangle's width label landed on the sketch origin, and three Line clicks on
+ * the origin created three stray lines at (-42.2, +24.5) mm, under the toolbar.
+ * The label is a DOM button over the canvas. The click landed on it, bubbled
+ * into the viewport's event layer, and was raycast from the pointer's offset
+ * INSIDE THE LABEL, which maps to the canvas's top-left corner.
+ *
+ * The fixture reproduces the geometry exactly: a 10 mm line at y = 3.5 whose
+ * distance label sits `glyphOffsetMm` (3.5 mm) below its midpoint, i.e. ON the
+ * origin. The precondition proves the label covers the origin; then a real
+ * `page.mouse.click` there with the Line tool must start the line AT the
+ * origin, read back from the persisted sketch.
+ */
+test.describe("helical-gear G4: a label over a snap point", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("a Line click on a dimension label covering the origin starts the line at the origin", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const { token } = await seedSession(page);
+    const part = await createPartViaApi(page, token, "Label over origin");
+    await createFeature(page, token, part.id, {
+      name: "Sketch1",
+      feature: {
+        type: "sketch",
+        version: 1,
+        params: {
+          plane: { kind: "datum_plane", plane: "XY" },
+          entities: [
+            {
+              id: "e1",
+              kind: "line",
+              start: { x: -5, y: 3.5 },
+              end: { x: 5, y: 3.5 },
+            },
+          ],
+          constraints: [
+            { kind: "horizontal", entity: "e1" },
+            { kind: "distance", entity: "e1", value_mm: 10 },
+          ],
+        },
+      },
+      expected_tree_version: 0,
+    });
+    await page.goto(`/parts/${part.id}`);
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await page.getByTestId("feature-row").first().click({ button: "right" });
+    await page.getByTestId("tree-ctx-edit").click();
+    await expect(page.getByTestId("sketch-step")).toHaveText("On XY");
+
+    const at = await calibratePlane(
+      page,
+      { x: 900, y: 620 },
+      { x: 1060, y: 520 },
+    );
+    const origin = at({ x: 0, y: 0 });
+    // PRECONDITION: the distance label is what is on top at the origin.
+    const onTop = await page.evaluate(
+      ({ x, y }) =>
+        document
+          .elementFromPoint(x, y)
+          ?.closest('[data-testid^="glyph-"]')
+          ?.getAttribute("data-kind") ?? null,
+      origin,
+    );
+    expect(onTop, "the distance label covers the origin").toBe("distance");
+
+    await page.keyboard.press("l");
+    await expect(page.getByTestId("tool-line")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    // A real click, on the label's pixels, at the origin.
+    await page.mouse.move(origin.x, origin.y);
+    await page.mouse.click(origin.x, origin.y);
+    const end = at({ x: 15, y: -10 });
+    await page.mouse.move(end.x, end.y);
+    await page.mouse.click(end.x, end.y);
+    await page.keyboard.press("Escape");
+    await page.mouse.move(1200, 640);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/sketch-gear-fix-g4-after.png`,
+    });
+    // The label is still a control: it stays in the tab order.
+    const label = page.locator('[data-testid^="glyph-"][data-kind="distance"]');
+    await label.focus();
+    await expect(label).toBeFocused();
+
+    // Finish: edits of a re-opened sketch save live, and the strip leaves only
+    // once the write chain has drained.
+    await page.getByTestId("sketch-save").click();
+    await expect(page.getByTestId("sketch-strip")).toHaveCount(0);
+    const tree = await page.request.get(`/api/v1/parts/${part.id}/features`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = (await tree.json()) as {
+      features: Array<{ feature: { params: { entities: SketchEntityRow[] } } }>;
+    };
+    const lines = (body.features[0]?.feature.params.entities ?? []).filter(
+      (entity) => entity.kind === "line" && entity.id !== "e1",
+    );
+    expect(lines, "exactly one new line was drawn").toHaveLength(1);
+    const start = lines[0]?.start ?? { x: NaN, y: NaN };
+    expect(
+      Math.hypot(start.x, start.y),
+      `the line starts at the origin under the pointer, not at (${start.x}, ${start.y})`,
+    ).toBeLessThan(1e-6);
+  });
+
+  /**
+   * The same class through a CONTROL rather than an annotation: the typed-size
+   * cell is an overlay a hand clicks into, with the Rectangle tool still live.
+   * That click bubbled into the viewport's event layer too and was raycast from
+   * inside the cell, so it placed a point near the canvas's top-left corner
+   * behind the user's back. Nothing may be placed from a click that did not
+   * land on the canvas: the rectangle comes out at the typed size, and it is
+   * the only thing drawn.
+   */
+  test("a click into the typed-size cell places nothing on the canvas", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const { token } = await seedSession(page);
+    const part = await createPartViaApi(page, token, "Click the size cell");
+    await page.goto(`/parts/${part.id}`);
+    await enterSketch(page, "XY");
+    const at = await calibratePlane(
+      page,
+      { x: 700, y: 600 },
+      { x: 1000, y: 400 },
+    );
+    await page.keyboard.press("r");
+    await clickPlane(page, at, { x: 0, y: 0 });
+    const corner = at({ x: 20, y: 10 });
+    await page.mouse.move(corner.x, corner.y);
+    await page.mouse.click(corner.x, corner.y);
+    const width = page.getByTestId("draw-dimension-width");
+    await expect(width).toBeVisible();
+    const cell = await width.boundingBox();
+    expect(cell, "the size cell has a box").not.toBeNull();
+    // A real click into the cell, the way a hand reaches for it.
+    await page.mouse.click(
+      cell!.x + cell!.width / 2,
+      cell!.y + cell!.height / 2,
+    );
+    await expect(width).toBeFocused();
+    await page.keyboard.press("Control+a");
+    await page.keyboard.type("12");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
+
+    const created = page.waitForResponse(
+      (r) =>
+        r.url().includes(`/parts/${part.id}/features`) &&
+        r.request().method() === "POST",
+    );
+    await page.getByTestId("sketch-save").click();
+    expect((await created).ok()).toBe(true);
+    const tree = await page.request.get(`/api/v1/parts/${part.id}/features`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = (await tree.json()) as {
+      features: Array<{ feature: { params: { entities: SketchEntityRow[] } } }>;
+    };
+    const lines = (body.features[0]?.feature.params.entities ?? []).filter(
+      (entity) => entity.kind === "line",
+    );
+    expect(lines, "the rectangle is the only thing drawn").toHaveLength(4);
+    const widths = lines
+      .filter((l) => l.start !== undefined && l.end !== undefined)
+      .filter((l) => Math.abs(l.start!.y - l.end!.y) < 1e-9)
+      .map((l) => Math.abs(l.end!.x - l.start!.x));
+    expect(widths, "both horizontal edges carry the typed 12").toEqual([
+      12, 12,
+    ]);
+  });
 });

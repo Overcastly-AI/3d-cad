@@ -645,6 +645,7 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
   const setHoverPick = useSketchStore((state) => state.setHoverPick);
   const invalidate = useThree((state) => state.invalidate);
   const camera = useThree((state) => state.camera);
+  const gl = useThree((state) => state.gl);
   const heightPx = useThree((state) => state.size.height);
   const quaternion = useMemo(() => planeQuaternion(basis), [basis]);
 
@@ -675,12 +676,29 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
     suppressed: e.nativeEvent.ctrlKey || e.nativeEvent.metaKey,
     axisLock: e.nativeEvent.shiftKey,
   });
+  /**
+   * DID THE POINTER EVENT HAPPEN ON THE CANVAS? (helical-gear gap G4.)
+   *
+   * r3f listens on the canvas's parent, and every drei `Html` overlay (glyphs,
+   * the inline editors, the proposal note) lives inside it, so an event on
+   * one of them bubbles into this raycast too. r3f reads the pointer from
+   * `offsetX/offsetY`, which are relative to the element that was HIT, so an
+   * event on a 20 px label raycasts as if it were 20 px from the canvas's
+   * top-left corner. The gear test drew three stray lines at (-42.2, 24.5) mm
+   * that way, clicking the origin through a width label. An event that did not
+   * land on the canvas has no plane point, so nothing is aimed, placed or
+   * picked from it. (Under a live tool the glyphs pass the pointer through to
+   * the canvas, so the click there is a canvas click; see ConstraintGlyphs.)
+   */
+  const onCanvas = (e: ThreeEvent<PointerEvent> | ThreeEvent<MouseEvent>) =>
+    e.nativeEvent.target === gl.domElement;
 
   return (
     <mesh
       position={[basis.origin[0], basis.origin[1], basis.origin[2]]}
       quaternion={quaternion}
       onPointerMove={(e) => {
+        if (!onCanvas(e)) return;
         const raw = rawPlanePoint(e);
         // ONE aim path (store.aim): it resolves the entity snap / axis lock /
         // grid AND records which one it took, so the mark the user reads and
@@ -755,6 +773,7 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
         invalidate();
       }}
       onPointerDown={(e) => {
+        if (!onCanvas(e)) return;
         notePressStart(e);
         strokeOpen.current = false;
         const store = useSketchStore.getState();
@@ -794,6 +813,7 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
         // sketcher's: it places nothing and picks nothing. `strokeOpen` is
         // cleared so a press that began un-modified and released under Alt
         // cannot leave a stale "a drag is in flight" flag for the next click.
+        if (!onCanvas(e)) return;
         if (e.nativeEvent.altKey) {
           strokeOpen.current = false;
           return;
@@ -894,6 +914,7 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
         // points). The two down-events already placed the trailing point (the
         // second is rejected as coincident), so committing the pending set is
         // exactly right.
+        if (!onCanvas(e)) return;
         if (useSketchStore.getState().tool !== "spline") return;
         e.stopPropagation();
         useSketchStore.getState().finishPlacement();
