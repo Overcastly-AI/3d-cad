@@ -45,12 +45,35 @@
  * buffer from a fortnight ago is not a session anyone is resuming, and silently
  * re-opening the sketcher on it would be a surprise rather than a rescue.
  *
+ * ## The sweep (W0REV-3)
+ *
+ * Dropping on read was the ONLY expiry, and it only ever looked at the one key
+ * being read — so fifty parts touched once left fifty buffers on disk forever,
+ * and a full origin quota then broke the one write that matters most: the
+ * session token, which reads to the user as "logged out on reload" and would
+ * never be traced back here. So drafts are now swept as a set
+ * ({@link sweepSketchDrafts}): expired and unreadable ones go, and the
+ * survivors are capped at {@link MAX_SKETCH_DRAFTS} drafts and
+ * {@link MAX_SKETCH_DRAFT_BYTES}, oldest evicted first. It runs at app start
+ * (the session store, before it reads anything) and on the draft write path,
+ * throttled so a sketch session does not re-parse every other part's buffer on
+ * every edit. And because the sweep keeps drafts WELL inside the quota rather
+ * than guaranteeing room, any write that still hits "full" — a draft's own, or
+ * the session's — evicts drafts oldest-first and retries
+ * ({@link writeEvictingDrafts}): a stale buffer from another part is always
+ * worth less than the write being attempted.
+ *
  * Storage is `localStorage` — it has to survive the tab dying, which is the
  * case `sessionStorage` cannot cover and the whole reason this exists. Same
  * injectable-storage seam as `auth/session.ts` and `settings/preferences.ts`,
  * so the unit tests drive a fake and never touch the real thing.
  */
-import type { SessionStorageLike } from "../auth/session";
+import {
+  defaultStorage,
+  isQuotaExceeded,
+  storageKeys,
+  type SessionStorageLike,
+} from "../auth/storage";
 import type { SketchConstraint } from "../sketch/constraints";
 import type { SketchPlaneSpec } from "../sketch/plane";
 import type { SketchEntity } from "../sketch/tools";
@@ -74,8 +97,33 @@ export const SKETCH_DRAFT_KEY_PREFIX = "loft.sketch-draft.v1.";
 
 const KEY_PREFIX = SKETCH_DRAFT_KEY_PREFIX;
 
-/** How long a draft is worth restoring. Older ones are dropped on read. */
+/** How long a draft is worth restoring. Older ones are dropped on read and swept. */
 export const DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * How many drafts are kept at most. A draft is one part's UNSAVED sketch; the
+ * live save loop persists work the whole time the token is valid, so more than
+ * a handful at once is already unusual and twenty is a generous ceiling, not a
+ * working set.
+ */
+export const MAX_SKETCH_DRAFTS = 20;
+
+/**
+ * The byte budget for all drafts together, measured the way browsers meter the
+ * quota: UTF-16, so two bytes per code unit of key + value. Origins get about
+ * 5 MiB; drafts may use two of it and leave the rest to everything else. The
+ * LIVE draft is never evicted to meet this — a single huge sketch still keeps
+ * its own copy; it just pushes every older draft out first.
+ */
+export const MAX_SKETCH_DRAFT_BYTES = 2 * 1024 * 1024;
+
+/**
+ * The write path re-sweeps at most this often for a part it has already seen.
+ * A write for a part the last sweep did NOT see always sweeps, so the count
+ * cap holds exactly; this interval only bounds how stale the byte total can
+ * get while one sketch grows.
+ */
+export const DRAFT_SWEEP_INTERVAL_MS = 60 * 1000;
 
 /** The sketch buffer, as it survives a navigation or a dead tab. */
 export interface SketchDraft {
@@ -122,16 +170,12 @@ export function readSketchDraft(
     return null;
   }
   if (raw === null) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
+  const parsed = parseDraft(raw);
+  if (parsed === null || now - parsed.savedAt > DRAFT_MAX_AGE_MS) {
+    // Nothing will ever restore these bytes; do not leave them on the quota.
+    removeQuietly(storage, draftKey(partId));
     return null;
   }
-  if (!isDraft(parsed)) return null;
-  if (parsed.version !== DRAFT_VERSION) return null;
-  if (parsed.entities.length === 0) return null;
-  if (now - parsed.savedAt > DRAFT_MAX_AGE_MS) return null;
   return parsed;
 }
 
@@ -151,16 +195,64 @@ export function writeSketchDraft(
   storage: SessionStorageLike = defaultStorage(),
   now: number = Date.now(),
 ): boolean {
+  const key = draftKey(partId);
   const payload: SketchDraft = {
     ...draft,
     version: DRAFT_VERSION,
     savedAt: now,
   };
+  let serialized: string;
   try {
-    storage.setItem(draftKey(partId), JSON.stringify(payload));
-    return true;
+    serialized = JSON.stringify(payload);
   } catch {
     return false;
+  }
+  const written = writeEvictingDrafts(
+    storage,
+    () => storage.setItem(key, serialized),
+    key,
+  );
+  if (written.ok) maybeSweep(storage, key, now);
+  return written.ok;
+}
+
+/** What {@link writeEvictingDrafts} did, so no caller has to guess. */
+export type EvictingWriteResult =
+  | { ok: true; evicted: number }
+  | { ok: false; evicted: number; error: unknown };
+
+/**
+ * Run *write*; if the storage is FULL, evict drafts oldest-first — one at a
+ * time, retrying after each — until it fits or no draft is left to evict.
+ *
+ * Never throws. Only a quota error triggers eviction: a storage that refuses
+ * writes for any other reason (switched off, private mode) is not cured by
+ * deleting a user's work, so that failure is returned untouched. *keep* names
+ * a draft that must survive (the one being written — evicting it to make room
+ * for itself would be absurd).
+ */
+export function writeEvictingDrafts(
+  storage: SessionStorageLike,
+  write: () => void,
+  keep: string | null = null,
+): EvictingWriteResult {
+  let evicted = 0;
+  let queue: string[] | null = null;
+  for (;;) {
+    try {
+      write();
+      return { ok: true, evicted };
+    } catch (error) {
+      if (!isQuotaExceeded(error)) return { ok: false, evicted, error };
+      queue ??= (listDrafts(storage) ?? [])
+        .filter((entry) => entry.key !== keep)
+        .map((entry) => entry.key);
+      const victim = queue.shift();
+      if (victim === undefined || !removeQuietly(storage, victim)) {
+        return { ok: false, evicted, error };
+      }
+      evicted += 1;
+    }
   }
 }
 
@@ -189,21 +281,64 @@ export function clearSketchDraft(
 export function clearAllSketchDrafts(
   storage: SessionStorageLike = defaultStorage(),
 ): number {
-  const { key, length } = storage;
-  if (typeof key !== "function" || typeof length !== "number") return -1;
-  const doomed: string[] = [];
-  try {
-    for (let index = 0; index < length; index += 1) {
-      const name = key.call(storage, index);
-      if (name !== null && name.startsWith(KEY_PREFIX)) doomed.push(name);
-    }
-    for (const name of doomed) storage.removeItem(name);
-  } catch {
+  const keys = storageKeys(storage);
+  if (keys === null) return -1;
+  let removed = 0;
+  for (const name of keys) {
     // Same posture as every other write here: a storage that throws must not
     // take down the sign-out that called this.
-    return doomed.length;
+    if (name.startsWith(KEY_PREFIX) && removeQuietly(storage, name)) {
+      removed += 1;
+    }
   }
-  return doomed.length;
+  sweepState.delete(storage);
+  return removed;
+}
+
+/**
+ * Sweep the drafts as a SET: drop every one that is expired or unreadable,
+ * then evict oldest-first until at most {@link MAX_SKETCH_DRAFTS} remain and
+ * they total at most {@link MAX_SKETCH_DRAFT_BYTES}. Only keys under
+ * {@link SKETCH_DRAFT_KEY_PREFIX} are ever touched — the storage is the whole
+ * origin's, and the session, the preferences and anything else living there
+ * are not ours to tidy.
+ *
+ * *keep* is exempt (the live draft, written moments ago — evicting it to meet
+ * a budget it is the newest member of would delete the one buffer that
+ * matters). Returns how many keys it removed, or -1 when the storage cannot be
+ * enumerated, for the same reason {@link clearAllSketchDrafts} does. Never
+ * throws.
+ */
+export function sweepSketchDrafts(
+  storage: SessionStorageLike = defaultStorage(),
+  now: number = Date.now(),
+  keep: string | null = null,
+): number {
+  const entries = listDrafts(storage);
+  if (entries === null) return -1;
+  let removed = 0;
+  const survivors: DraftEntry[] = [];
+  for (const entry of entries) {
+    const dead =
+      entry.key !== keep &&
+      (entry.savedAt === null || now - entry.savedAt > DRAFT_MAX_AGE_MS);
+    if (!dead) survivors.push(entry);
+    else if (removeQuietly(storage, entry.key)) removed += 1;
+  }
+  let count = survivors.length;
+  let bytes = survivors.reduce((sum, entry) => sum + entry.bytes, 0);
+  const kept = new Set(survivors.map((entry) => entry.key));
+  // `listDrafts` is oldest-first, so this walk IS the eviction order.
+  for (const entry of survivors) {
+    if (count <= MAX_SKETCH_DRAFTS && bytes <= MAX_SKETCH_DRAFT_BYTES) break;
+    if (entry.key === keep || !removeQuietly(storage, entry.key)) continue;
+    removed += 1;
+    count -= 1;
+    bytes -= entry.bytes;
+    kept.delete(entry.key);
+  }
+  sweepState.set(storage, { at: now, keys: kept });
+  return removed;
 }
 
 /** How long ago the draft was written, in the workshop's plain words. */
@@ -235,17 +370,90 @@ function isDraft(value: unknown): value is SketchDraft {
   );
 }
 
-/** No-op storage for environments without localStorage (SSR, unit tests). */
-const nullStorage: SessionStorageLike = {
-  getItem: () => null,
-  setItem: () => undefined,
-  removeItem: () => undefined,
-};
+/** A draft as the sweep sees it: enough to order, cap and evict it. */
+interface DraftEntry {
+  key: string;
+  /** Null when the bytes are not a draft this build can restore. */
+  savedAt: number | null;
+  /** UTF-16 bytes of key + value, the unit browsers meter the quota in. */
+  bytes: number;
+}
 
-function defaultStorage(): SessionStorageLike {
-  try {
-    return globalThis.localStorage ?? nullStorage;
-  } catch {
-    return nullStorage;
+/**
+ * Every draft in *storage*, OLDEST FIRST — unreadable ones before all others,
+ * since nothing will ever restore them. Null when the storage cannot be
+ * enumerated ("could not look" is not "no drafts").
+ */
+function listDrafts(storage: SessionStorageLike): DraftEntry[] | null {
+  const keys = storageKeys(storage);
+  if (keys === null) return null;
+  const entries: DraftEntry[] = [];
+  for (const key of keys) {
+    if (!key.startsWith(KEY_PREFIX)) continue;
+    let raw: string | null;
+    try {
+      raw = storage.getItem(key);
+    } catch {
+      continue;
+    }
+    if (raw === null) continue;
+    entries.push({
+      key,
+      savedAt: parseDraft(raw)?.savedAt ?? null,
+      bytes: (key.length + raw.length) * 2,
+    });
   }
+  const age = (entry: DraftEntry) => entry.savedAt ?? Number.NEGATIVE_INFINITY;
+  return entries.sort((a, b) => age(a) - age(b));
+}
+
+/** The draft in *raw*, or null for every shape this build cannot restore. */
+function parseDraft(raw: string): SketchDraft | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!isDraft(parsed)) return null;
+  if (parsed.version !== DRAFT_VERSION) return null;
+  if (parsed.entities.length === 0) return null;
+  return parsed;
+}
+
+/** `removeItem` that reports instead of throwing. */
+function removeQuietly(storage: SessionStorageLike, key: string): boolean {
+  try {
+    storage.removeItem(key);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The last sweep per storage: when it ran and which drafts it left standing.
+ * A WeakMap, so a test's throwaway fake takes its entry with it.
+ */
+const sweepState = new WeakMap<
+  SessionStorageLike,
+  { at: number; keys: Set<string> }
+>();
+
+/**
+ * The write path's sweep, kept cheap: a write for a draft the last sweep did
+ * not see (a NEW part — the only way the count grows) always sweeps; a write
+ * to a known draft sweeps at most once per {@link DRAFT_SWEEP_INTERVAL_MS}.
+ * A sketch session therefore costs one scan when it starts, not one per edit.
+ */
+function maybeSweep(storage: SessionStorageLike, key: string, now: number) {
+  const last = sweepState.get(storage);
+  if (
+    last !== undefined &&
+    last.keys.has(key) &&
+    now - last.at < DRAFT_SWEEP_INTERVAL_MS
+  ) {
+    return;
+  }
+  sweepSketchDrafts(storage, now, key);
 }

@@ -1,12 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createSessionStore,
+  SESSION_NOT_PERSISTED_MESSAGE,
   SESSION_STORAGE_KEY,
   type SessionStorageLike,
   type SessionUser,
 } from "./session";
-import { SKETCH_DRAFT_KEY_PREFIX } from "../routes/sketchDraft";
+import {
+  DRAFT_MAX_AGE_MS,
+  SKETCH_DRAFT_KEY_PREFIX,
+} from "../routes/sketchDraft";
 
 const USER: SessionUser = {
   id: "6f2f0e6a-9c1e-4be5-9d3e-6a1c76a3c001",
@@ -14,11 +18,25 @@ const USER: SessionUser = {
   created_at: "2026-07-10T12:00:00Z",
 };
 
-function fakeStorage(initial: Record<string, string> = {}) {
+function fakeStorage(
+  initial: Record<string, string> = {},
+  quotaChars = Number.POSITIVE_INFINITY,
+) {
   const map = new Map(Object.entries(initial));
+  const used = () =>
+    [...map].reduce((sum, [key, value]) => sum + key.length + value.length, 0);
   const storage: SessionStorageLike = {
     getItem: (key) => map.get(key) ?? null,
-    setItem: (key, value) => void map.set(key, value),
+    // Metered like the real thing: key + value code units against a quota,
+    // and a write that would cross it throws the browser's own error NAME.
+    setItem: (key, value) => {
+      const after =
+        used() - (map.get(key)?.length ?? -key.length) + value.length;
+      if (after > quotaChars) {
+        throw new DOMException("quota", "QuotaExceededError");
+      }
+      map.set(key, value);
+    },
     removeItem: (key) => void map.delete(key),
     // Enumerable, like the real `Storage`: the sign-out purge below has to find
     // keys whose names it does not know.
@@ -153,7 +171,110 @@ describe("createSessionStore", () => {
     expect(store.getState().token).toBeNull();
     store.getState().signIn("tok-6", USER); // must not throw
     expect(store.getState().token).toBe("tok-6");
+    // ...but not silently: the reload that loses it is announced now.
+    expect(store.getState().persistError).toBe(SESSION_NOT_PERSISTED_MESSAGE);
     store.getState().signOut(); // must not throw
     expect(store.getState().token).toBeNull();
+    expect(store.getState().persistError).toBeNull();
+  });
+});
+
+/**
+ * W0REV-3 — a quota full of sketch drafts made the session write fail, the
+ * failure was swallowed, and the user met it as "logged out on reload" with
+ * nothing pointing here.
+ */
+describe("session persistence under a full storage (W0REV-3)", () => {
+  const NOW = 1_800_000_000_000;
+  /** A readable draft, *chars* long, written *ageMs* before NOW. */
+  const draft = (chars: number, ageMs: number) =>
+    JSON.stringify({
+      version: 1,
+      savedAt: NOW - ageMs,
+      plane: { kind: "origin", base: "XY" },
+      entities: [{ kind: "point", id: "x".repeat(chars) }],
+      constraints: [],
+      featureId: null,
+      nextIdIndex: 2,
+      revision: 1,
+      userConstrained: false,
+    });
+
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    errorSpy.mockRestore();
+  });
+
+  it("QuotaExceededError on the session write evicts drafts, oldest first, and the session survives a reload", () => {
+    const { storage, map } = fakeStorage({}, 12_000);
+    const store = createSessionStore(storage, NOW);
+    // The storage fills AFTER app start (the start-up sweep only trims to the
+    // budget; it never guarantees room) — three fresh drafts and a neighbour.
+    map.set(draftKeyFor("oldest"), draft(3_900, 3_000));
+    map.set(draftKeyFor("middle"), draft(3_900, 2_000));
+    map.set(draftKeyFor("newest"), draft(3_900, 1_000));
+    map.set("loft.preferences.v1", '{"unit":"mm"}');
+
+    store.getState().signIn("tok-q", USER);
+
+    // The reload: a fresh store over the same storage is still signed in.
+    const reloaded = createSessionStore(storage, NOW);
+    expect(reloaded.getState().token).toBe("tok-q");
+    expect(reloaded.getState().user).toEqual(USER);
+    expect(store.getState().persistError).toBeNull();
+    // Only as much as it needed, and oldest first.
+    expect(map.has(draftKeyFor("oldest"))).toBe(false);
+    expect(map.has(draftKeyFor("newest"))).toBe(true);
+    expect(map.get("loft.preferences.v1")).toBe('{"unit":"mm"}');
+  });
+
+  it("a write that STILL fails is surfaced, never swallowed, and touches nothing it does not own", () => {
+    // Full of someone else's data: evicting every draft cannot make room.
+    const { storage, map } = fakeStorage(
+      { "another-app": "y".repeat(9_900) },
+      10_000,
+    );
+    const store = createSessionStore(storage, NOW);
+    store.getState().signIn("tok-r", USER);
+
+    expect(store.getState().token).toBe("tok-r"); // works until reload
+    expect(store.getState().persistError).toBe(SESSION_NOT_PERSISTED_MESSAGE);
+    expect(errorSpy).toHaveBeenCalled();
+    expect(map.has(SESSION_STORAGE_KEY)).toBe(false);
+    expect(map.get("another-app")).toBe("y".repeat(9_900));
+  });
+
+  it("a non-quota refusal (storage switched off) evicts no drafts", () => {
+    const { storage, map } = fakeStorage();
+    map.set(draftKeyFor("keep-me"), draft(10, 0));
+    const blocked: SessionStorageLike = {
+      ...storage,
+      get length() {
+        return storage.length;
+      },
+      key: storage.key,
+      setItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+    };
+    const store = createSessionStore(blocked, NOW);
+    store.getState().signIn("tok-s", USER);
+    expect(store.getState().persistError).toBe(SESSION_NOT_PERSISTED_MESSAGE);
+    expect(map.has(draftKeyFor("keep-me"))).toBe(true);
+  });
+
+  it("app start sweeps expired drafts before anything needs the room", () => {
+    const { storage, map } = fakeStorage({
+      [draftKeyFor("stale")]: draft(10, DRAFT_MAX_AGE_MS + 1),
+      [draftKeyFor("fresh")]: draft(10, 1_000),
+      "loft.preferences.v1": '{"unit":"mm"}',
+    });
+    createSessionStore(storage, NOW);
+    expect(map.has(draftKeyFor("stale"))).toBe(false);
+    expect(map.has(draftKeyFor("fresh"))).toBe(true);
+    expect(map.get("loft.preferences.v1")).toBe('{"unit":"mm"}');
   });
 });

@@ -13,26 +13,28 @@
 import type { components } from "@loft/ts-client/gateway";
 import { create } from "zustand";
 
-import { clearAllSketchDrafts } from "../routes/sketchDraft";
+import {
+  clearAllSketchDrafts,
+  sweepSketchDrafts,
+  writeEvictingDrafts,
+} from "../routes/sketchDraft";
+import { defaultStorage, type SessionStorageLike } from "./storage";
+
+// The seam lives in `./storage` (a leaf, so `sketchDraft.ts` can use its
+// helpers without an import cycle); re-exported so existing consumers keep
+// importing it from here.
+export type { SessionStorageLike } from "./storage";
 
 export type SessionUser = components["schemas"]["UserResponse"];
 
 export const SESSION_STORAGE_KEY = "loft.session.v1";
 
-/** The subset of the Storage API the store needs (injectable for tests). */
-export interface SessionStorageLike {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-  removeItem(key: string): void;
-  /**
-   * Enumeration, optional because most consumers here address keys by name.
-   * A real `Storage` supplies both; the purge below needs them to find keys it
-   * does not know the names of (one sketch draft per part id), and says so
-   * rather than pretending a storage it cannot walk held nothing.
-   */
-  readonly length?: number;
-  key?(index: number): string | null;
-}
+/**
+ * What the user is told when a sign-in could not be written down. The
+ * in-memory session still works; only the next reload loses it.
+ */
+export const SESSION_NOT_PERSISTED_MESSAGE =
+  "This browser would not save your session — you will be signed out when the page reloads.";
 
 interface PersistedSession {
   token: string;
@@ -45,6 +47,14 @@ export interface SessionState {
   user: SessionUser | null;
   /** True after a global invalid-token catch — the quiet sign-in notice. */
   expired: boolean;
+  /**
+   * Non-null when the last sign-in could NOT be written to storage, even
+   * after evicting every sketch draft to make room — the session works until
+   * the next reload and no longer. {@link SESSION_NOT_PERSISTED_MESSAGE} is
+   * the text; chrome that shows it reads it from here. Cleared by the next
+   * successful write and by sign-out.
+   */
+  persistError: string | null;
   /** Store a fresh session (register/login success). Clears `expired`. */
   signIn: (token: string, user: SessionUser) => void;
   /** Deliberate sign-out — clears the session without a notice. */
@@ -78,13 +88,32 @@ function loadPersisted(storage: SessionStorageLike): PersistedSession | null {
   }
 }
 
-function persist(storage: SessionStorageLike, session: PersistedSession) {
-  try {
-    storage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-  } catch {
-    // Quota/private-mode failure: the in-memory session still works; only
-    // reload persistence is lost.
-  }
+/**
+ * Write the session down, making room if the storage is full. Returns null on
+ * success, or the user-facing error when it could not be written.
+ *
+ * W0REV-3: this used to swallow every failure, so a quota filled by sketch
+ * drafts made sign-in look fine and then "logged the user out" on reload,
+ * with nothing anywhere pointing at the cause. A full storage now evicts
+ * drafts oldest-first before giving up — a stale unsaved sketch from another
+ * part is worth less than staying signed in — and a write that STILL fails
+ * (private mode, storage switched off, a quota filled by something that is not
+ * ours) is reported: in the store, for the chrome, and on the console.
+ */
+function persist(
+  storage: SessionStorageLike,
+  session: PersistedSession,
+): string | null {
+  const serialized = JSON.stringify(session);
+  const written = writeEvictingDrafts(storage, () =>
+    storage.setItem(SESSION_STORAGE_KEY, serialized),
+  );
+  if (written.ok) return null;
+  console.error(
+    `[loft] session not persisted (evicted ${written.evicted} sketch draft(s) first):`,
+    written.error,
+  );
+  return SESSION_NOT_PERSISTED_MESSAGE;
 }
 
 function clearPersisted(storage: SessionStorageLike) {
@@ -121,41 +150,37 @@ function clearSessionScopedWork(storage: SessionStorageLike) {
   clearAllSketchDrafts(storage);
 }
 
-/** Build a session store over *storage* (tests inject a fake). */
-export function createSessionStore(storage: SessionStorageLike) {
+/**
+ * Build a session store over *storage* (tests inject a fake).
+ *
+ * Creating the store is app start, so it is also where the sketch drafts are
+ * swept (W0REV-3): expired and over-budget drafts go BEFORE anything else in
+ * this session needs room — the sign-in write above all.
+ */
+export function createSessionStore(
+  storage: SessionStorageLike,
+  now: number = Date.now(),
+) {
+  sweepSketchDrafts(storage, now);
   const initial = loadPersisted(storage);
   return create<SessionState>()((set) => ({
     token: initial?.token ?? null,
     user: initial?.user ?? null,
     expired: false,
+    persistError: null,
     signIn: (token, user) => {
-      persist(storage, { token, user });
-      set({ token, user, expired: false });
+      const persistError = persist(storage, { token, user });
+      set({ token, user, expired: false, persistError });
     },
     signOut: () => {
       clearSessionScopedWork(storage);
-      set({ token: null, user: null, expired: false });
+      set({ token: null, user: null, expired: false, persistError: null });
     },
     expire: () => {
       clearSessionScopedWork(storage);
-      set({ token: null, user: null, expired: true });
+      set({ token: null, user: null, expired: true, persistError: null });
     },
   }));
-}
-
-/** No-op storage for environments without localStorage (SSR, unit tests). */
-const nullStorage: SessionStorageLike = {
-  getItem: () => null,
-  setItem: () => undefined,
-  removeItem: () => undefined,
-};
-
-function defaultStorage(): SessionStorageLike {
-  try {
-    return globalThis.localStorage ?? nullStorage;
-  } catch {
-    return nullStorage;
-  }
 }
 
 /** THE app session store (browser localStorage-backed). */
