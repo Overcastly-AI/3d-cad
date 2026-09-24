@@ -20,7 +20,8 @@ tests/test_auth_sessions.py):
   every access token is re-checked against its live session.
 """
 
-from datetime import UTC, datetime
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, cast
 
 import anyio.to_thread
@@ -46,6 +47,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gateway.auth.security import (
+    REFRESH_REUSE_INTERVAL_S,
     AccessClaims,
     AuthConfig,
     TokenError,
@@ -273,19 +275,70 @@ async def _issue_refresh_token(
     auth_session: AuthSession,
     config: AuthConfig,
     now: datetime,
-) -> tuple[str, datetime]:
-    """Add a fresh refresh token to *auth_session*; plaintext + its expiry."""
+) -> tuple[str, datetime, uuid.UUID]:
+    """Add a fresh refresh token to *auth_session*; plaintext, expiry, row id."""
     plaintext = new_refresh_token()
     expires_at = refresh_expiry(now, auth_session.expires_at, config)
+    row_id = uuid.uuid4()
     session.add(
         RefreshToken(
+            id=row_id,
             session_id=auth_session.id,
             token_hash=hash_refresh_token(plaintext),
             created_at=now,
             expires_at=expires_at,
         )
     )
-    return plaintext, expires_at
+    return plaintext, expires_at, row_id
+
+
+async def _conditional_spend(
+    session: AsyncSession, token_id: uuid.UUID, now: datetime
+) -> bool:
+    """Stamp ``used_at`` iff the token is still unspent; True if WE spent it.
+
+    A conditional UPDATE, so of two concurrent presentations of one token
+    exactly one wins. An UPDATE yields a CursorResult (rowcount); `execute` is
+    typed as the general Result, hence the cast.
+    """
+    spent = cast(
+        "CursorResult[Any]",
+        await session.execute(
+            update(RefreshToken)
+            .where(RefreshToken.id == token_id, RefreshToken.used_at.is_(None))
+            .values(used_at=now)
+            .execution_options(synchronize_session=False)
+        ),
+    )
+    return spent.rowcount == 1
+
+
+async def _spend(
+    session: AsyncSession, token_row: RefreshToken, now: datetime
+) -> RefreshToken | None:
+    """Spend *token_row*, or its successor inside the reuse interval.
+
+    Returns the row that was actually spent, or None for REUSE (the caller
+    revokes). The retry case: *token_row* was spent less than
+    REFRESH_REUSE_INTERVAL_S ago and the token issued in its place has never
+    been used, i.e. the client never received it. Spending that successor
+    renews the session exactly as the lost response would have.
+    """
+    if await _conditional_spend(session, token_row.id, now):
+        return token_row
+    await session.refresh(token_row)  # the winner's commit: used_at, successor
+    if token_row.used_at is None or token_row.replaced_by_id is None:
+        return None
+    if now - as_utc(token_row.used_at) > timedelta(seconds=REFRESH_REUSE_INTERVAL_S):
+        return None
+    successor = await session.get(RefreshToken, token_row.replaced_by_id)
+    if successor is None or not await _conditional_spend(session, successor.id, now):
+        return None
+    _logger.info(
+        "refresh_retried_within_reuse_interval",
+        session_id=str(token_row.session_id),
+    )
+    return successor
 
 
 def _token_response(
@@ -322,7 +375,7 @@ async def _start_session(
     )
     session.add(auth_session)
     await session.flush()  # assigns auth_session.id for the token FK
-    plaintext, refresh_expires_at = await _issue_refresh_token(
+    plaintext, refresh_expires_at, _ = await _issue_refresh_token(
         session, auth_session, config, now
     )
     await session.commit()
@@ -450,20 +503,8 @@ async def refresh(
             bearer_user_id=str(bearer.user_id),
         )
         raise UnauthorizedError(_SESSION_MISMATCH, code="session_mismatch")
-    # Spend it: a conditional UPDATE, so of two concurrent presentations of
-    # one token exactly one wins; the loser is treated as the reuse it is.
-    # An UPDATE yields a CursorResult (rowcount); `execute` is typed as the
-    # general Result, hence the cast.
-    spent = cast(
-        "CursorResult[Any]",
-        await session.execute(
-            update(RefreshToken)
-            .where(RefreshToken.id == token_row.id, RefreshToken.used_at.is_(None))
-            .values(used_at=now)
-            .execution_options(synchronize_session=False)
-        ),
-    )
-    if spent.rowcount != 1:
+    spent_row = await _spend(session, token_row, now)
+    if spent_row is None:
         await _revoke(session, auth_session)
         _logger.warning(
             "refresh_token_reuse_detected",
@@ -471,14 +512,21 @@ async def refresh(
             session_id=str(auth_session.id),
         )
         raise _refresh_rejected()
-    if as_utc(token_row.expires_at) <= now:
+    if as_utc(spent_row.expires_at) <= now:
         await session.commit()  # keep it spent; it is dead either way
         raise _refresh_rejected()
     user = await session.get(User, auth_session.user_id)
     if user is None:  # pragma: no cover - the FK cascade removes the session
         raise _refresh_rejected()
-    plaintext, refresh_expires_at = await _issue_refresh_token(
+    plaintext, refresh_expires_at, successor_id = await _issue_refresh_token(
         session, auth_session, config, now
+    )
+    await session.flush()  # the successor row exists before it is linked
+    await session.execute(
+        update(RefreshToken)
+        .where(RefreshToken.id == spent_row.id)
+        .values(replaced_by_id=successor_id)
+        .execution_options(synchronize_session=False)
     )
     await session.commit()
     _set_refresh_cookie(response, plaintext, refresh_expires_at, now)

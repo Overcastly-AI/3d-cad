@@ -51,6 +51,16 @@ there:
   means two parties hold it, which is the signature of a copied token, so the
   whole session is revoked: thief and owner both lose it, and the owner signs
   in again. This is the refresh-rotation rule of the OAuth 2.0 Security BCP.
+  ONE exception, the reuse interval (:data:`REFRESH_REUSE_INTERVAL_S`): a
+  token spent less than that long ago whose successor has never been used
+  is a client that did not receive the rotation response (a laptop lid, a
+  navigation, a proxy 502) or a second tab racing the first without the Web
+  Locks API. It is answered by spending that successor instead, so an honest
+  retry costs nothing. Outside the interval, or once the successor has been
+  used, reuse revokes as before. What the interval concedes, stated: a
+  thief who presents a copied token within 30 s of the owner's refresh, and
+  before the owner's next one, is served; the owner's next refresh then
+  presents a spent token and trips detection for both.
 - **Revocation.** Access tokens carry ``sid`` (the session id), and
   :func:`gateway.auth.routes.get_current_user` re-checks the session on every
   request. Logout and reuse detection therefore end the access tokens too,
@@ -96,6 +106,12 @@ MIN_JWT_SECRET_LENGTH = 32
 #: Tokens signed with it are forgeable by anyone; see the module docstring.
 DEV_JWT_SECRET = "loft-dev-only-jwt-secret-do-not-deploy-0000"
 
+
+#: How long after a refresh token is spent a retry with it is still
+#: answered (by spending its unused successor) instead of revoking the
+#: session. Long enough for a lost response to be retried, short enough that
+#: a copied token is almost always presented outside it.
+REFRESH_REUSE_INTERVAL_S = 30
 
 #: Default sliding window of a refresh token (24 h): a session survives a
 #: closed laptop overnight, and every refresh restarts the window.

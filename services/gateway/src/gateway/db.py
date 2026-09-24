@@ -141,3 +141,11 @@ class RefreshToken(Base):
     used_at: Mapped[datetime | None] = mapped_column(
         sa.DateTime(timezone=True), nullable=True
     )
+    #: The token issued when this one was spent. It is what lets a client that
+    #: lost the rotation response retry inside the reuse interval (see
+    #: :data:`gateway.auth.security.REFRESH_REUSE_INTERVAL_S`).
+    replaced_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(),
+        sa.ForeignKey("refresh_tokens.id", ondelete="SET NULL"),
+        nullable=True,
+    )

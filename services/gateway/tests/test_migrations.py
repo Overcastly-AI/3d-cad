@@ -71,3 +71,17 @@ def test_0002_offline_downgrade_drops_everything(
     assert sql.index("DROP TABLE refresh_tokens") < sql.index(
         "DROP TABLE auth_sessions"
     )
+
+
+def test_0003_offline_sql_links_a_spent_token_to_its_successor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sql = _offline_sql(monkeypatch, "0002:0003")
+    assert "ALTER TABLE refresh_tokens ADD COLUMN replaced_by_id UUID" in sql
+    assert (
+        "ALTER TABLE refresh_tokens ADD CONSTRAINT fk_refresh_tokens_replaced_by "
+        "FOREIGN KEY(replaced_by_id) REFERENCES refresh_tokens (id) "
+        "ON DELETE SET NULL" in sql
+    )
+    down = _offline_sql(monkeypatch, "0003:0002", downgrade=True)
+    assert "ALTER TABLE refresh_tokens DROP COLUMN replaced_by_id" in down

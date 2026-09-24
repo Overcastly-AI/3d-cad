@@ -32,6 +32,7 @@ import sqlalchemy as sa
 from fastapi.testclient import TestClient
 from gateway.auth.routes import REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATH
 from gateway.auth.security import (
+    REFRESH_REUSE_INTERVAL_S,
     AuthConfig,
     create_access_token,
     refresh_expiry,
@@ -255,8 +256,19 @@ def test_an_access_token_is_not_a_refresh_token(client: TestClient) -> None:
 # --- reuse detection -----------------------------------------------------------
 
 
+def _spent_seconds_ago(db_url: str, seconds: float) -> None:
+    """Move every spent token's ``used_at`` to *seconds* in the past."""
+    when = datetime.now(UTC) - timedelta(seconds=seconds)
+    _run_sql(
+        db_url,
+        sa.update(RefreshToken)
+        .where(RefreshToken.used_at.is_not(None))
+        .values(used_at=when),
+    )
+
+
 def test_reusing_a_spent_refresh_token_revokes_the_whole_session(
-    client: TestClient, capsys: pytest.CaptureFixture[str]
+    client: TestClient, db_url: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     first_access, stolen = _sign_in(client)
     legit = _refresh(client, stolen)  # the owner rotates; `stolen` is now spent
@@ -264,6 +276,7 @@ def test_reusing_a_spent_refresh_token_revokes_the_whole_session(
     successor = _cookie_value(legit)
     successor_access = legit.json()["access_token"]
     assert _me(client, successor_access) == 200
+    _spent_seconds_ago(db_url, REFRESH_REUSE_INTERVAL_S + 1)
 
     _assert_rejected(_refresh(client, stolen))  # the copy is presented
 
@@ -274,15 +287,70 @@ def test_reusing_a_spent_refresh_token_revokes_the_whole_session(
     assert "refresh_token_reuse_detected" in capsys.readouterr().out
 
 
-def test_reuse_revokes_only_the_session_it_happened_in(client: TestClient) -> None:
+def test_reuse_revokes_only_the_session_it_happened_in(
+    client: TestClient, db_url: str
+) -> None:
     """Two sign-ins (two devices) are two sessions; one's theft is not the
     other's logout."""
     _, laptop = _sign_in(client)
     desk_access, desk = _sign_in(client, register=False)
     assert _refresh(client, laptop).status_code == 200
+    _spent_seconds_ago(db_url, REFRESH_REUSE_INTERVAL_S + 1)
     _assert_rejected(_refresh(client, laptop))  # reuse on the laptop session
     assert _me(client, desk_access) == 200
     assert _refresh(client, desk).status_code == 200
+
+
+# --- the reuse interval: an honest retry is answered, not punished ------------
+
+
+def test_a_lost_rotation_response_can_be_retried(
+    client: TestClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The server spent T1 and issued T2, and the client never saw T2 (a lid
+    closed, a proxy 502). Its retry with T1 renews from T2 instead of ending
+    the session."""
+    _, t1 = _sign_in(client)
+    lost = _refresh(client, t1)
+    assert lost.status_code == 200  # ...and its Set-Cookie never arrives
+
+    retry = _refresh(client, t1)
+    assert retry.status_code == 200, retry.text
+    t3 = _cookie_value(retry)
+    assert t3 not in (t1, _cookie_value(lost))
+    assert _me(client, retry.json()["access_token"]) == 200
+    assert _refresh(client, t3).status_code == 200  # the chain goes on
+    assert "refresh_token_reuse_detected" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("seconds_ago", "answered"),
+    [(REFRESH_REUSE_INTERVAL_S - 1, True), (REFRESH_REUSE_INTERVAL_S + 1, False)],
+)
+def test_the_reuse_interval_boundary(
+    client: TestClient, db_url: str, seconds_ago: int, answered: bool
+) -> None:
+    _, t1 = _sign_in(client)
+    assert _refresh(client, t1).status_code == 200
+    _spent_seconds_ago(db_url, seconds_ago)
+    retry = _refresh(client, t1)
+    if answered:
+        assert retry.status_code == 200, retry.text
+    else:
+        _assert_rejected(retry)
+        assert _scalar(db_url, sa.select(AuthSession.revoked_at)) is not None
+
+
+def test_inside_the_interval_a_used_successor_still_means_theft(
+    client: TestClient, db_url: str
+) -> None:
+    """T1 -> T2 -> T3: the owner HAS used T2, so T1 coming back is not a lost
+    response, it is a second holder. Revoked, even seconds later."""
+    _, t1 = _sign_in(client)
+    t2 = _cookie_value(_refresh(client, t1))
+    assert _refresh(client, t2).status_code == 200
+    _assert_rejected(_refresh(client, t1))
+    assert _scalar(db_url, sa.select(AuthSession.revoked_at)) is not None
 
 
 # --- identity: a shared browser never renews one user into another ------------
