@@ -1,9 +1,13 @@
 import { expect, test, type Page } from "./fixtures";
 
 import { handClick } from "./hand";
-import { installSceneProbe, waitForCameraStill } from "./invariants";
-import { createFeature } from "./partSeed";
-import { calibratePlane, enterSketch } from "./planeMap";
+import {
+  installSceneProbe,
+  waitForCameraStill,
+  type CameraPose,
+} from "./invariants";
+import { createFeature, seedCube } from "./partSeed";
+import { calibratePlane, enterSketch, type PlaneMapper } from "./planeMap";
 import {
   createPartViaApi,
   SCREENSHOT_DIR,
@@ -356,4 +360,231 @@ test("F-11 — a size typed as 0.5 goes into the size cell, not to Fit", async (
   // plus its ease at this size.
   await waitForFrames(page, 30);
   await expect(viewport).not.toHaveAttribute("data-view", "fit-sketch");
+});
+
+/**
+ * Helical-gear gap G3 — AN EDIT MUST NEVER MOVE THE SKETCH VIEW.
+ *
+ * The product test (docs/qa/helical-gear-2026-09-24.md, step 8): zoomed in to
+ * 0.0183 mm/px to close a 0.3 um gap, the modeller applied a coincident and the
+ * view jumped back to the sketcher's entry framing (0.1646 mm/px) within 4 s.
+ * The same happened after a typed rectangle size and after a trim. Every
+ * detail action cost a ~30 s re-zoom.
+ *
+ * The cause is not the edit itself but what follows it: an edit of a sketch
+ * that is already a feature is synced, the part re-evaluates, a fresh mesh
+ * lands, and the sketcher's camera park re-ran on the new mesh and flew the
+ * camera back to the plane's default standoff. So the fixture needs a BODY on
+ * screen (a cube) and a sketch that is already a FEATURE (re-opened from the
+ * tree) — without either, nothing re-evaluates and the defect cannot show.
+ *
+ * The property: after zooming in by hand, each of the three edits the product
+ * test named leaves the camera POSITION where it was, within 0.01 mm, settled
+ * on position (`waitForCameraStill`), not direction. The settle is taken
+ * after the part's re-evaluation has landed and the scene has drawn it.
+ */
+
+/** Sketch2's fixture geometry, sketch-plane mm on XY, clear of the cube. */
+const E1 = { start: { x: 28, y: -8 }, end: { x: 48, y: -8 } };
+/** A free line whose start sits 1.2 mm from E1's end: the coincident pair. */
+const E2 = { start: { x: 49, y: -7.2 }, end: { x: 60, y: -2 } };
+/** A crossing pair for the trim: E3 horizontal, E4 vertical, meet at (40,-18). */
+const E3 = { start: { x: 28, y: -18 }, end: { x: 54, y: -18 } };
+const E4 = { start: { x: 40, y: -26 }, end: { x: 40, y: -12 } };
+
+function detailSketch() {
+  const line = (
+    id: string,
+    l: { start: { x: number; y: number }; end: { x: number; y: number } },
+  ) => ({ id, kind: "line", start: l.start, end: l.end });
+  return {
+    plane: { kind: "datum_plane", plane: "XY" },
+    entities: [line("e1", E1), line("e2", E2), line("e3", E3), line("e4", E4)],
+    constraints: [],
+  };
+}
+
+async function seedDetailPart(page: Page): Promise<string> {
+  await installSceneProbe(page);
+  const { token } = await seedSession(page);
+  const part = await createPartViaApi(page, token, "Detail zoom");
+  const version = await seedCube(page, token, part.id);
+  await createFeature(page, token, part.id, {
+    name: "Sketch2",
+    feature: { type: "sketch", version: 1, params: detailSketch() },
+    expected_tree_version: version,
+  });
+  return part.id;
+}
+
+/**
+ * Open the part, re-open Sketch2 from the tree (a sketch that is already a
+ * feature, so every edit syncs and re-evaluates), zoom in by hand toward the
+ * detail and return the calibrated map at the zoomed scale plus the settled
+ * pose.
+ */
+async function zoomIntoDetail(
+  page: Page,
+  partId: string,
+): Promise<{ at: PlaneMapper; pose: CameraPose }> {
+  await page.goto(`/parts/${partId}`);
+  await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+    timeout: 30_000,
+  });
+  await page
+    .getByTestId("feature-row")
+    .filter({ hasText: "Sketch2" })
+    .click({ button: "right" });
+  await page.getByTestId("tree-ctx-edit").click();
+  await expect(page.getByTestId("sketch-step")).toHaveText("On XY");
+  await waitForCameraStill(page);
+
+  const coarse = await calibratePlane(
+    page,
+    { x: 500, y: 600 },
+    { x: 800, y: 400 },
+  );
+  const focus = coarse({ x: 40, y: -12 });
+  await page.mouse.move(focus.x, focus.y);
+  for (let notch = 0; notch < 16; notch += 1) {
+    await page.mouse.wheel(0, -120);
+    await waitForFrames(page, 2);
+  }
+  await waitForCameraStill(page);
+  // Re-calibrate at the zoomed scale, near the detail, so every click below
+  // lands where the sketch actually is.
+  const at = await calibratePlane(
+    page,
+    { x: focus.x - 120, y: focus.y + 100 },
+    { x: focus.x + 120, y: focus.y - 100 },
+  );
+  const zoomedPxPerMm = Math.abs(
+    (at({ x: 10, y: 0 }).x - at({ x: 0, y: 0 }).x) / 10,
+  );
+  const coarsePxPerMm = Math.abs(
+    (coarse({ x: 10, y: 0 }).x - coarse({ x: 0, y: 0 }).x) / 10,
+  );
+  // PRECONDITION: the wheel really zoomed in (px per mm grew), so a reset to
+  // the entry framing is a measurable move and not a no-op.
+  expect(
+    zoomedPxPerMm,
+    `the wheel zoomed in (px/mm ${coarsePxPerMm.toFixed(2)} -> ${zoomedPxPerMm.toFixed(2)})`,
+  ).toBeGreaterThan(coarsePxPerMm * 1.8);
+  return { at, pose: await waitForCameraStill(page) };
+}
+
+/**
+ * Wait until the edit has been synced and the part re-evaluated, then settle
+ * the camera on POSITION and return it.
+ */
+async function settleAfterEdit(
+  page: Page,
+  evaluated: Promise<unknown>,
+): Promise<CameraPose> {
+  await evaluated;
+  await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+    timeout: 30_000,
+  });
+  // The re-park this gate exists for eased over several hundred ms after the
+  // mesh landed; 30 painted frames covers the mesh swap and the start of any
+  // ease, and the position settle then waits the ease out.
+  await waitForFrames(page, 30);
+  return waitForCameraStill(page);
+}
+
+function nextEvaluate(page: Page, partId: string): Promise<unknown> {
+  return page.waitForResponse(
+    (r) =>
+      r.url().includes(`/parts/${partId}/evaluate`) &&
+      r.request().method() === "POST",
+    { timeout: 30_000 },
+  );
+}
+
+function expectSamePosition(
+  before: CameraPose,
+  after: CameraPose,
+  what: string,
+): void {
+  const moved = Math.hypot(
+    after.position[0] - before.position[0],
+    after.position[1] - before.position[1],
+    after.position[2] - before.position[2],
+  );
+  expect(
+    moved,
+    `${what} moved the camera ${moved.toFixed(3)} mm ` +
+      `(${before.position.map((v) => v.toFixed(2)).join(",")} -> ` +
+      `${after.position.map((v) => v.toFixed(2)).join(",")})`,
+  ).toBeLessThanOrEqual(0.01);
+}
+
+test.describe("helical-gear G3: a sketch edit keeps the user's zoom", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("a coincident constraint does not re-frame the zoomed view", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const partId = await seedDetailPart(page);
+    const { at, pose } = await zoomIntoDetail(page, partId);
+
+    const a = at(E1.end);
+    const b = at(E2.start);
+    await handClick(page, a.x, a.y);
+    await page.keyboard.down("Shift");
+    await handClick(page, b.x, b.y);
+    await page.keyboard.up("Shift");
+    await expect(page.getByTestId("selection-readout")).toContainText("2 pts");
+    const evaluated = nextEvaluate(page, partId);
+    await page.keyboard.press("c");
+    const after = await settleAfterEdit(page, evaluated);
+    // Founder pair (UPDATE_SCREENSHOTS only): the frame the modeller is left
+    // looking at once the coincident has been synced and the part rebuilt.
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/sketch-gear-fix-g3-after.png`,
+    });
+    expectSamePosition(pose, after, "a coincident");
+  });
+
+  test("a typed rectangle size does not re-frame the zoomed view", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const partId = await seedDetailPart(page);
+    const { at, pose } = await zoomIntoDetail(page, partId);
+
+    await page.keyboard.press("r");
+    const a = at({ x: 32, y: -14.5 });
+    const b = at({ x: 36, y: -12.5 });
+    await handClick(page, a.x, a.y);
+    await page.mouse.move(b.x, b.y);
+    await handClick(page, b.x, b.y);
+    const width = page.getByTestId("draw-dimension-width");
+    await expect(width).toBeVisible();
+    for (const key of ["3", ".", "5"]) await page.keyboard.press(key);
+    await expect(width).toHaveValue("3.5");
+    const evaluated = nextEvaluate(page, partId);
+    await page.keyboard.press("Enter");
+    const after = await settleAfterEdit(page, evaluated);
+    expectSamePosition(pose, after, "a typed rectangle size");
+  });
+
+  test("a trim does not re-frame the zoomed view", async ({ page }) => {
+    test.setTimeout(120_000);
+    const partId = await seedDetailPart(page);
+    const { at, pose } = await zoomIntoDetail(page, partId);
+
+    await page.keyboard.press("j");
+    await expect(page.getByTestId("tool-trim")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    const evaluated = nextEvaluate(page, partId);
+    const target = at({ x: 48, y: -18 }); // E3, right of the crossing
+    await handClick(page, target.x, target.y);
+    await expect(page.getByTestId("sketch-edit-note")).toContainText("Trimmed");
+    const after = await settleAfterEdit(page, evaluated);
+    expectSamePosition(pose, after, "a trim");
+  });
 });

@@ -2250,6 +2250,18 @@ function subjectBounds(geometry: BufferGeometry | null): Box3 | null {
  * ease this rig is writing the camera every frame, so a drag in that window is
  * overwritten and the modeller sees no turn at all; treating it as a choice
  * would suppress the restore on the strength of a gesture that had no effect.
+ *
+ * THE DRAW PARK HAPPENS ONCE PER PLANE, NOT ONCE PER EFFECT RUN (helical-gear
+ * gap G3). The effect below re-runs whenever the drawn body changes, because
+ * the PLANE-PICK standoff is solved from it. It used to re-park the DRAW pose
+ * on every such run too, and an edit of a sketch that is already a feature
+ * re-evaluates the part, so a fresh mesh lands a few seconds after every
+ * coincident, typed size or trim. Each one flew the camera back to the entry
+ * framing: measured in the gear test as 0.0183 -> 0.1646 mm/px within 4 s,
+ * a ~30 s re-zoom per detail action. `parkedFor` records what the draw park
+ * was solved for (the plane the user picked, on this camera), and nothing
+ * else may re-park it. Only entering the sketch and an explicit Fit (`0`,
+ * served by the part rig) frame the view while drawing.
  */
 function SketchCameraRig() {
   const mode = useSketchStore((state) => state.mode);
@@ -2276,6 +2288,15 @@ function SketchCameraRig() {
   const tookTheCamera = useRef(false);
   /** Did the previous rendered frame take an ease step? See `cameraEase.ts`. */
   const easing = useRef(false);
+  /**
+   * The (plane, camera) the current DRAW park was solved for; null outside a
+   * draw park. A re-run of the park effect for anything else (a new mesh, a
+   * reduced-motion flip) must leave the modeller's zoom and pan alone.
+   */
+  const parkedFor = useRef<{
+    plane: SketchPlaneSpec;
+    camera: Camera;
+  } | null>(null);
 
   useEffect(() => {
     const onStart = () => {
@@ -2289,11 +2310,17 @@ function SketchCameraRig() {
   useEffect(() => {
     let pose: CameraPose | null = null;
     if (mode === "draw" && plane !== null) {
+      const last = parkedFor.current;
+      if (last !== null && last.plane === plane && last.camera === camera) {
+        return;
+      }
+      parkedFor.current = { plane, camera };
       pose = planeCameraPose(
         resolveSpecBasis(plane),
         sketchCameraDistanceMm(plane, camera),
       );
     } else if (mode === "plane") {
+      parkedFor.current = null;
       // STAND BACK FAR ENOUGH TO SEE THE SUBJECT. This used to be a fixed
       // 230 mm from the world origin with no reference to the body — fine for a
       // 10x20x30 box, and INSIDE a 1280 mm imported part. Measured on the
@@ -2322,6 +2349,7 @@ function SketchCameraRig() {
       const remembered = parked.current;
       const chose = tookTheCamera.current;
       parked.current = null;
+      parkedFor.current = null;
       tookTheCamera.current = false;
       goal.current = null;
       camera.up.set(0, 1, 0);
