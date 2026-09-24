@@ -31,7 +31,7 @@
  * live camera and reports the minor screen dimension.
  */
 import { expect, test, type Page } from "./fixtures";
-import { installSceneProbe, waitForCameraRest } from "./invariants";
+import { installSceneProbe, waitForCameraStill } from "./invariants";
 import { createFeature, rectangleSketch } from "./partSeed";
 import { createPartViaApi, seedSession, waitForFrames } from "./support";
 import { describeProjected, expectProjected } from "./sceneProject";
@@ -100,7 +100,13 @@ async function openPlanePick(page: Page, partId: string): Promise<void> {
   });
   await page.getByTestId("new-sketch").click();
   await expect(page.getByTestId("plane-XY")).toBeVisible();
-  await waitForCameraRest(page);
+  // POSITION, not direction. Entering the plane pick eases the camera out to a
+  // vantage whose STANDOFF depends on the body, along a direction that barely
+  // changes — so a direction-only settle (`waitForCameraRest`) returned while
+  // the 1600 mm column's camera was still sliding, and its sheets measured
+  // 196.6-198.8 px across runs of one build against a 1 px agreement bar. A
+  // measurement taken mid-slide measures the camera, not the sheet.
+  await waitForCameraStill(page);
   await waitForFrames(page, 3);
 }
 
@@ -216,7 +222,8 @@ test.describe("CRAFT-12 — datum sheet size", () => {
     for (let i = 0; i < 40; i += 1) {
       await page.mouse.wheel(0, 240);
     }
-    await waitForCameraRest(page);
+    // A zoom is a pure dolly: the one move a direction-only settle cannot see.
+    await waitForCameraStill(page);
     await waitForFrames(page, 3);
     const after = await sheetMinors(page);
 
