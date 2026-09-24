@@ -87,8 +87,9 @@ of truth for what phase we're in.
   service kit (`packages/py-kit`: config, JSON logging, health/readiness,
   error envelope, metrics, rate limiting, response compression, queue client),
   backed by Postgres 16 + Redis 7 + MinIO/S3.
-- **Auth** — registration, login, JWT-bearer sessions; internal services are
-  not reachable from the host in the compose topology.
+- **Auth** — registration, login, sliding sessions (short-lived JWT + rotating
+  refresh cookie); internal services are not reachable from the host in the
+  compose topology.
 - **Web app** — React 19 + Vite + TypeScript, an r3f modeling viewport
   (ViewCube, studio shading, feature tree, timeline with a draggable travel
   stop, mass-properties inspector, settings surface) over a token-driven
