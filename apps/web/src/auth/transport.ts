@@ -71,25 +71,32 @@ export function createAuthMiddleware(
   fetchImpl?: (request: Request) => Promise<Response>,
 ): Middleware {
   // A body can be read once and `fetch` has read it, so a request that might
-  // need a retry keeps an unread copy. Keyed on the Request object, so the
-  // copy goes when the request does. The price is that the copy holds the
-  // body in memory until then: small for JSON, a transient second copy for a
-  // STEP upload.
-  const replays = new WeakMap<Request, Request>();
+  // need a resend keeps its body as BYTES, read once before the first send.
+  // Both sends are built from those same bytes. It is NOT a `request.clone()`:
+  // a clone tees the body into a stream, Chromium then uploads it as a
+  // stream, and nothing observing the page (DevTools, Playwright's
+  // postData()) can see the body any more. That silently broke 15 e2e specs
+  // that read the payload the app sent (3c18833). Keyed on the Request that
+  // is actually sent, so the bytes go when the request does: small for JSON,
+  // one buffer for a STEP upload.
+  const replays = new WeakMap<Request, ArrayBuffer>();
   // The user each request was SENT as. A resend goes out only as that same
   // user: never replay one person's write under another person's token.
   const sentAs = new WeakMap<Request, string | null>();
   return {
     async onRequest({ request, schemaPath }) {
-      sentAs.set(request, session.getUserId());
       const token = session.getToken();
       if (token !== null) {
         request.headers.set("Authorization", `Bearer ${token}`);
       }
+      let sendable = request;
       if (!SESSION_ROUTES.has(schemaPath) && request.body !== null) {
-        replays.set(request, request.clone());
+        const bytes = await request.arrayBuffer();
+        sendable = new Request(request, { body: bytes });
+        replays.set(sendable, bytes);
       }
-      return request;
+      sentAs.set(sendable, session.getUserId());
+      return sendable;
     },
     async onResponse({ request, response, schemaPath, options }) {
       if (SESSION_ROUTES.has(schemaPath)) return response;
@@ -111,8 +118,12 @@ export function createAuthMiddleware(
       const owner = sentAs.get(request) ?? null;
       if (owner === null || session.getUserId() !== owner) return response;
 
-      const replay = replays.get(request) ?? new Request(request);
+      const bytes = replays.get(request);
       replays.delete(request);
+      const replay =
+        bytes === undefined
+          ? new Request(request)
+          : new Request(request, { body: bytes });
       replay.headers.set("Authorization", `Bearer ${token}`);
       // Detached on purpose: `options.fetch(...)` would call the browser's
       // fetch with `this` = the options object, and Chromium throws "Illegal
