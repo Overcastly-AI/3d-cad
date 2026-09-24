@@ -76,6 +76,13 @@ disabled because their HTML loads JavaScript from `cdn.jsdelivr.net`, which
 would break an air-gapped install. `/openapi.json` is served as usual and is
 generated in-process, so point a local explorer at it.
 
+> **Sliding sessions need HTTPS (or `localhost`).** This default setup is
+> plain HTTP, and the refresh cookie is `Secure`-flagged, so a non-localhost
+> address (e.g. `http://nas.local:8080`) drops it and sessions hard-expire
+> after `JWT_TTL_S` (1 h by default) instead of the normal 24 h sliding
+> window. Put TLS in front for real self-host use — see
+> [`docs/OPERATIONS.md`](./OPERATIONS.md) §7.
+
 ### Check it
 
 ```bash
