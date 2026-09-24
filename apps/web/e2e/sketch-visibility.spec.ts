@@ -1,5 +1,10 @@
 import { expect, test, type Page } from "./fixtures";
 
+import {
+  cameraPose,
+  installSceneProbe,
+  waitForCameraStill,
+} from "./invariants";
 import { seedCube } from "./partSeed";
 import {
   countLitPixels,
@@ -131,23 +136,35 @@ async function measurePlaneFrame(page: Page): Promise<PlaneFrame> {
   };
 }
 
-/** Pick the body's TOP face by the centroid z in the pick node's a11y name. */
-async function clickTopFace(page: Page): Promise<void> {
+/**
+ * Pick the body's TOP face by the centroid z in the pick node's a11y name, and
+ * return that centroid (OCCT mm, z up) as the name states it.
+ */
+async function clickTopFace(
+  page: Page,
+): Promise<{ x: number; y: number; z: number }> {
   const nodes = page.locator('[data-testid^="plane-pick-face-"]');
   await expect(nodes.first()).toBeVisible({ timeout: 30_000 });
   const count = await nodes.count();
   let bestZ = -Infinity;
   let bestIndex = 0;
+  let best = { x: Number.NaN, y: Number.NaN, z: Number.NaN };
   for (let i = 0; i < count; i += 1) {
     const label = (await nodes.nth(i).getAttribute("aria-label")) ?? "";
-    const nums = label.match(/-?\d+(?:\.\d+)?/g) ?? [];
-    const z = Number.parseFloat(nums[nums.length - 1] as string);
+    const nums = (label.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+    const z = nums[nums.length - 1] as number;
     if (Number.isFinite(z) && z > bestZ) {
       bestZ = z;
       bestIndex = i;
+      best = {
+        x: nums[nums.length - 3] as number,
+        y: nums[nums.length - 2] as number,
+        z,
+      };
     }
   }
   await nodes.nth(bestIndex).click();
+  return best;
 }
 
 /** Seed a 20 mm cube through the API and open it with the solid on screen. */
@@ -423,6 +440,78 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
     };
     const lit = await countLitPixels(page, 150, interior);
     expect(lit).toBeLessThan(interior.width * interior.height * 0.05);
+  });
+
+  test("the sketcher's park over the face HOLDS when the body re-fits", async ({
+    page,
+  }) => {
+    // THE ASSERTION THE INK TEST ABOVE RESTS ON. Its px/mm band assumes the
+    // camera is where the sketcher parked it — normal-on over the picked face
+    // at the face's own distance. It was not always: seating the sketch
+    // authors a datum, the part re-evaluates, the new mesh changes the part
+    // rig's fit key, and the part rig's auto-fit POSED THE CAMERA while the
+    // sketcher owned it — measured, 46.7 mm over the face centre knocked to
+    // 29.4 mm and 2.4 mm off it (42.6 px/mm against 26.6). It only came back
+    // when the sketcher's entry ease was still in flight as the mesh landed.
+    // That made the ink test a race between an ease and a server round trip
+    // (PERF-REAL-1 sped the ease up on slow frames and CI lost it).
+    //
+    // So this takes the race out: the park is allowed to LAND first, then the
+    // fit key is changed deliberately — hiding the body and showing it again
+    // re-keys the auto-fit exactly as a new mesh does — and the camera must not
+    // have moved.
+    await installSceneProbe(page);
+    await openCubePart(page);
+    await page.getByTestId("new-sketch").click();
+    await page.getByTestId("plane-pick-face").click();
+    const centroid = await clickTopFace(page);
+    await expect(page.getByTestId("sketch-step")).toHaveText("On Face", {
+      timeout: 30_000,
+    });
+    const parked = await waitForCameraStill(page);
+
+    // NON-VACUITY, and the first half of the property: the camera is the
+    // SKETCHER'S park — looking straight down the top face's normal from
+    // directly over its centroid (OCCT x,y -> scene x,-z). A pose the part rig
+    // had already knocked it to fails here, rather than passing the "did not
+    // move" check below by never having been parked at all.
+    expect(parked.direction[1]).toBeLessThan(-0.999);
+    const offCentre = Math.hypot(
+      parked.position[0] - centroid.x,
+      parked.position[2] + centroid.y,
+    );
+    expect(
+      offCentre,
+      `the camera settled ${offCentre.toFixed(2)} mm off the picked face's ` +
+        `centre (${parked.position.map((v) => v.toFixed(2)).join(",")}): ` +
+        `not the sketcher's park, so something else posed it`,
+    ).toBeLessThan(0.1);
+
+    const viewport = page.getByTestId("viewport");
+    const eye = page.getByTestId("body-visibility-0");
+    await eye.click();
+    await expect(viewport).not.toHaveAttribute("data-hidden-faces", "0");
+    await eye.click();
+    await expect(viewport).toHaveAttribute("data-hidden-faces", "0");
+    await waitForFrames(page, 10);
+    const after = await waitForCameraStill(page);
+    const drift = Math.hypot(
+      after.position[0] - parked.position[0],
+      after.position[1] - parked.position[1],
+      after.position[2] - parked.position[2],
+    );
+    console.log(
+      `[sketch park] parked ${parked.position.map((v) => v.toFixed(2)).join(",")} ` +
+        `-> after re-fit key ${after.position.map((v) => v.toFixed(2)).join(",")} ` +
+        `(drift ${drift.toFixed(3)} mm)`,
+    );
+    expect(
+      drift,
+      "the part rig re-posed the camera while the sketcher owned it",
+    ).toBeLessThan(0.01);
+    // And the sketcher still has the plane: still on the face, still drawing.
+    await expect(page.getByTestId("sketch-step")).toHaveText("On Face");
+    expect((await cameraPose(page)).direction[1]).toBeLessThan(-0.999);
   });
 
   test("a sketch you are NOT editing stays behind the solid", async ({

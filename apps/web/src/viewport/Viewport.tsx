@@ -436,6 +436,23 @@ function CameraRig({
     const diagonal = box.getSize(new Vector3()).length();
     setClipPlanes(diagonal);
 
+    // NOT WHILE THE SKETCHER OWNS THE CAMERA. The clip planes above still
+    // follow the new body; the POSE is not this rig's to set. Seating a sketch
+    // on a face authors a datum, the part re-evaluates, and the new mesh
+    // changes `fitKey` while `SketchCameraRig` holds the camera parked
+    // normal-on over that face. Posing here snapped the camera off the park to
+    // a body fit the sketcher never chose (measured on a 20 mm cube: parked
+    // over the face centre at 46.7 mm, knocked to 29.4 mm and 2.4 mm off
+    // centre). It only ever came back when the sketcher's ease was STILL IN
+    // FLIGHT as the mesh landed and dragged the camera home: a race, which a
+    // faster ease (PERF-REAL-1) or a slower server loses, and which then leaves
+    // the modeller on the wrong framing for the whole sketch. Same rule as the
+    // chrome fit (`onChromeChange`) and the release effect below: one rig
+    // writes the camera at a time. Leaving the sketch hands the view back
+    // through `requestPose` (the view the modeller came from), and any later
+    // change of body re-fits as usual once this rig owns the camera again.
+    if (!owns) return;
+
     const first = !framedOnce.current;
     framedOnce.current = true;
     if (first) userMoved.current = false;
