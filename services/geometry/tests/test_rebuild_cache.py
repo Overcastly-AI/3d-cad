@@ -1390,8 +1390,7 @@ def test_a_freeform_ladder_holds_no_more_heap_than_its_byte_budget(
 
 def test_the_frontier_is_bounded_by_bytes_as_well_as_count() -> None:
     """A count prices every checkpoint the same; the byte budget does not. LRU
-    eviction on either bound, and a checkpoint heavier than the whole budget is
-    refused rather than allowed to break it."""
+    eviction on either bound, and a take hands its bytes back."""
     cache: PrefixCache[_FakePayload] = PrefixCache(8, byte_budget=100)
     for name in "abc":
         assert cache.store(f"key-{name}", _FakePayload(name, nbytes=40))
@@ -1400,9 +1399,69 @@ def test_the_frontier_is_bounded_by_bytes_as_well_as_count() -> None:
     assert cache.take(["root", "key-c"]) is not None
     assert cache.stats.entry_bytes == 40, "a take hands its bytes back"
 
-    assert not cache.store("huge", _FakePayload("huge", nbytes=101))
+
+def test_the_newest_live_checkpoint_is_kept_even_when_it_outweighs_the_budget() -> None:
+    """A byte budget must never make the part in front of the user SLOWER than no
+    budget at all. A live checkpoint heavier than the whole budget (the 211-solid
+    gauntlet assembly's GLB alone is 142 MB) is held ALONE — everything else is
+    evicted first — so its repeats (``/measure``, ``/tessellate``, ``/export``)
+    stay cache hits. The exemption is bounded: at most one such entry, the
+    newest; a second evicts the first, any ordinary store evicts it, and a
+    speculative oversize checkpoint is still refused."""
+    cache: PrefixCache[_FakePayload] = PrefixCache(8, byte_budget=100)
+    cache.store("small-a", _FakePayload("small-a", nbytes=40))
+    cache.store("small-b", _FakePayload("small-b", nbytes=40))
+
+    assert cache.store("huge", _FakePayload("huge", nbytes=150))
+    assert cache.stats.entry_bytes == 150, "held alone: everything else went first"
+    assert cache.take(["root", "small-a"]) is None
+    repeat = cache.take(["root", "huge"])
+    assert repeat is not None and repeat.checkpoint.name == "huge", (
+        "the repeat of the oversize part is a cache HIT"
+    )
+    assert cache.store("huge", repeat.checkpoint), "and its release re-stores it"
+
+    assert cache.store("huge-2", _FakePayload("huge-2", nbytes=150))
+    assert cache.take(["root", "huge"]) is None, "a second oversize evicts the first"
+    assert cache.stats.entry_bytes == 150
+
+    assert not cache.store(
+        "huge-guess", _FakePayload("huge-guess", nbytes=150), speculative=True
+    ), "a speculative oversize checkpoint is still refused"
     assert cache.stats.oversize_refused == 1
-    assert cache.take(["root", "key-b"]) is not None, "and evicted nothing"
+    assert cache.take(["root", "huge-2"]) is not None, "and evicted nothing"
+
+    cache.store("huge-2", _FakePayload("huge-2", nbytes=150))
+    assert cache.store("small-c", _FakePayload("small-c", nbytes=40))
+    assert cache.take(["root", "huge-2"]) is None, (
+        "an ordinary store brings the cache back under its budget"
+    )
+    assert cache.stats.entry_bytes == 40
+
+
+def test_an_oversize_part_repeats_from_the_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same exemption through the evaluator: with a budget every real
+    checkpoint outweighs, a repeat is still a full-length HIT, byte-identical to
+    a cold rebuild, and the next part's checkpoint replaces it."""
+    request = _request(_payload())
+    other = _request(_payload(TREE_N - 1))
+    cold = _cold(request)
+    cache: PrefixCache[Any] = PrefixCache(REBUILD_CACHE_CAPACITY, byte_budget=1024)
+    monkeypatch.setattr(evaluate_module, "_REBUILD_CACHE", cache)
+
+    _answer(request)
+    before = cache.stats
+    repeat = _answer(request)
+    after = cache.stats
+    assert after.hits - after.rung_hits == before.hits - before.rung_hits + 1
+    assert after.resumed_features - before.resumed_features == len(request.features)
+    assert repeat == cold
+    assert after.entry_bytes > 1024, "the entry really is over the budget"
+
+    _answer(other)
+    assert cache.stats.evictions > after.evictions, "the next part replaced it"
 
 
 def test_speculation_yields_bytes_as_well_as_slots() -> None:

@@ -256,12 +256,23 @@ REBUILD_CACHE_CAPACITY = 32
 #: ``tests/test_rebuild_cache.py`` fills the cache with that freeform part and
 #: measures the heap it actually frees against the budget.
 #:
-#: What does NOT fit: a single checkpoint heavier than the whole budget is not
-#: cached at all (counted in :attr:`CacheStats.oversize_refused`). That is a
-#: part whose state plus mesh exceeds 128 MiB — e.g. the 211-solid gauntlet
-#: assembly, whose GLB alone is 142 MB — and which already needs ~2 GiB of peak
-#: RSS; its repeats rebuild, as every repeat did before PERF-1, rather than let
-#: one part take the whole worker's cache.
+#: THE ONE-ENTRY EXEMPTION, for a checkpoint heavier than the whole budget — a
+#: part whose state plus mesh exceeds 128 MiB, e.g. the 211-solid gauntlet
+#: assembly, whose GLB alone is 142 MB. Refusing it would make every repeat of
+#: that part (``/measure``, ``/tessellate``, ``/export``) a full rebuild — a
+#: budget making the part in front of the user SLOWER than no budget at all, on
+#: exactly the large real parts PERF-REAL-1 is about. So a LIVE oversize
+#: checkpoint is held ALONE: every other entry is evicted first
+#: (:attr:`CacheStats.oversize_held`). It is bounded: at most one such entry
+#: exists (the next store of any size puts the cache over budget, and the LRU
+#: eviction takes it first), and a SPECULATIVE oversize checkpoint is still
+#: refused (:attr:`CacheStats.oversize_refused`).
+#:
+#: WORST CASE, stated: at rest the frontier holds either <= this budget, or
+#: exactly ONE live oversize checkpoint and nothing else. For the instant of an
+#: oversize store — between the new entry being handed over and the others
+#: being dropped — it is this budget plus that one checkpoint. The oversize
+#: part's own cost (~2 GiB peak RSS for the 211-solid assembly) dwarfs either.
 REBUILD_CACHE_BYTE_BUDGET = 128 * 1024 * 1024
 
 #: Every ``RUNG_SPACING``-th feature boundary is a LADDER rung (PERF-REAL-2): the
@@ -412,10 +423,12 @@ class CacheStats:
     evictions: int
     resumed_features: int
     speculative_refused: int = 0
-    #: FRONTIER bytes held right now (estimated), and checkpoints refused
-    #: because one alone outweighed the whole byte budget.
+    #: FRONTIER bytes held right now (estimated); SPECULATIVE checkpoints
+    #: refused because one alone outweighed the whole byte budget; and LIVE ones
+    #: that did, and were held alone under the one-entry exemption.
     entry_bytes: int = 0
     oversize_refused: int = 0
+    oversize_held: int = 0
     #: The LADDER's counters (PERF-REAL-2). ``rung_hits`` is the subset of
     #: ``hits`` served by a rung rather than by a frontier checkpoint;
     #: ``rung_evictions`` counts rungs dropped for the global bound (count or
@@ -576,6 +589,7 @@ class PrefixCache[CheckpointT: Detachable]:
         self._byte_budget = byte_budget
         self._entry_bytes = 0
         self._oversize_refused = 0
+        self._oversize_held = 0
         self._rung_capacity = rung_capacity
         self._rung_byte_budget = rung_byte_budget
         self._rung_max_bytes = min(rung_max_bytes, rung_byte_budget)
@@ -819,8 +833,10 @@ class PrefixCache[CheckpointT: Detachable]:
 
         *speculative* marks a checkpoint a PREFETCH built (nobody asked for it
         yet), and it buys the entry a strictly weaker claim on a slot. Returns
-        whether the entry was cached — ``False`` for a refused speculative store,
-        or for a checkpoint that alone outweighs :data:`REBUILD_CACHE_BYTE_BUDGET`.
+        whether the entry was cached — ``False`` only for a refused speculative
+        store (including one that alone outweighs
+        :data:`REBUILD_CACHE_BYTE_BUDGET`; a LIVE one that does is held alone —
+        see the one-entry exemption there).
         The cache is bounded by COUNT and by estimated HEAP BYTES
         (:meth:`Detachable.weigh`, taken here after ``detach``, outside the lock);
         "full" below means either bound. The rule, in the order the code applies
@@ -858,14 +874,24 @@ class PrefixCache[CheckpointT: Detachable]:
                 # may carry artifacts a guess never has.
                 self._speculative_refused += 1
                 return False
-            if nbytes > self._byte_budget:
-                # One checkpoint heavier than the whole budget cannot be held
-                # without breaking the bound it exists to keep.
+            if nbytes > self._byte_budget and speculative:
+                # A GUESS heavier than the whole budget is never worth a slot.
                 self._oversize_refused += 1
                 return False
             if existing is not None:
                 del self._entries[key]
                 self._entry_bytes -= existing.nbytes
+            if nbytes > self._byte_budget:
+                # THE ONE-ENTRY EXEMPTION: the part in front of the user is never
+                # made slower by the budget than by no budget at all. A LIVE
+                # checkpoint heavier than the whole budget is stored anyway, and
+                # the eviction loop below drops every OTHER entry (it is the
+                # newest, so it is never the victim while another remains) and
+                # then stops with it held ALONE, so its repeats stay hits. At
+                # most one such entry exists: the next store of any size puts the
+                # cache over budget with two entries, and the loop takes this
+                # one (then the LRU) first.
+                self._oversize_held += 1
             if speculative and not self._room_without_live(nbytes):
                 # Only live work could make room. Speculation yields — silently
                 # to the user, and loudly to the counters.
@@ -875,9 +901,10 @@ class PrefixCache[CheckpointT: Detachable]:
             self._entry_bytes += nbytes
             self._stores += 1
             record_rebuild_cache_store()
-            while (
-                len(self._entries) > self._capacity
-                or self._entry_bytes > self._byte_budget
+            # Over budget with ONE entry left means that entry is the exempt
+            # oversize checkpoint just stored: it stays (see the exemption above).
+            while len(self._entries) > self._capacity or (
+                self._entry_bytes > self._byte_budget and len(self._entries) > 1
             ):
                 speculative_victim = self._victim_key()
                 victim = (
@@ -927,6 +954,7 @@ class PrefixCache[CheckpointT: Detachable]:
                 speculative_refused=self._speculative_refused,
                 entry_bytes=self._entry_bytes,
                 oversize_refused=self._oversize_refused,
+                oversize_held=self._oversize_held,
                 rung_hits=self._rung_hits,
                 rung_stores=self._rung_stores,
                 rung_evictions=self._rung_evictions,
