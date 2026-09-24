@@ -358,8 +358,37 @@ export interface paths {
         /**
          * Login
          * @description Exchange email + password for an access token (uniform 401 on failure).
+         *
+         *     Also sets the refresh cookie that ``/auth/refresh`` renews the session
+         *     with; a client that ignores cookies (loft-script) simply signs in again
+         *     when its access token expires.
          */
         post: operations["login_api_v1_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Logout
+         * @description End the session: revoke it server-side and clear the refresh cookie.
+         *
+         *     The session is found from the refresh cookie, from a still-valid bearer
+         *     token, or both. Revocation ends the refresh chain AND every access token
+         *     minted from it (see :func:`get_current_user`). Always 204 — idempotent,
+         *     and it says nothing about whether the credentials were any good.
+         */
+        post: operations["logout_api_v1_auth_logout_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -380,6 +409,33 @@ export interface paths {
         get: operations["me_api_v1_auth_me_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh
+         * @description Rotate the refresh cookie and mint a fresh access token.
+         *
+         *     The presented refresh token is spent (single use) and a successor is set
+         *     in its place. Every failure is the same generic 401 ``invalid_token`` and
+         *     clears the cookie: a missing or unknown token, an expired one, a session
+         *     that was revoked or has reached its absolute bound — and REUSE, a token
+         *     that was already spent, which additionally revokes the whole session
+         *     because two parties holding one token means it was copied.
+         */
+        post: operations["refresh_api_v1_auth_refresh_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10627,6 +10683,36 @@ export interface operations {
             };
         };
     };
+    logout_api_v1_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                /** @description Refresh token, set by register/login/refresh as an HttpOnly, Secure, SameSite=Strict cookie. Browsers send it automatically; it is never readable by script and never appears in a body. */
+                loft_refresh?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     me_api_v1_auth_me_get: {
         parameters: {
             query?: never;
@@ -10643,6 +10729,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+        };
+    };
+    refresh_api_v1_auth_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                /** @description Refresh token, set by register/login/refresh as an HttpOnly, Secure, SameSite=Strict cookie. Browsers send it automatically; it is never readable by script and never appears in a body. */
+                loft_refresh?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthTokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

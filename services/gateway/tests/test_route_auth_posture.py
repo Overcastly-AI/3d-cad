@@ -90,8 +90,18 @@ GATEWAY_EXEMPTIONS: dict[Operation, str] = {
         "exchanges credentials for the token every other route needs. Uniform "
         "401 and constant-cost argon2 on the miss path (anti-enumeration)"
     ),
+    ("POST", "/api/v1/auth/refresh"): (
+        "renews an EXPIRED access token, so it cannot require a valid one. "
+        "Authenticated by the HttpOnly/Secure/SameSite=Strict refresh cookie "
+        "instead: single-use, reuse revokes the session (gateway.auth.routes)"
+    ),
+    ("POST", "/api/v1/auth/logout"): (
+        "must work after the access token has expired. Revokes only the "
+        "session named by the caller's own refresh cookie or bearer token; "
+        "always 204, so it discloses nothing"
+    ),
 }
-EXPECTED_GATEWAY_EXEMPTIONS = 5
+EXPECTED_GATEWAY_EXEMPTIONS = 7
 
 DOCUMENTS_EXEMPTIONS: dict[Operation, str] = {
     **PROBE_EXEMPTIONS,

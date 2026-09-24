@@ -12428,7 +12428,7 @@
     },
     "/api/v1/auth/login": {
       "post": {
-        "description": "Exchange email + password for an access token (uniform 401 on failure).",
+        "description": "Exchange email + password for an access token (uniform 401 on failure).\n\nAlso sets the refresh cookie that ``/auth/refresh`` renews the session\nwith; a client that ignores cookies (loft-script) simply signs in again\nwhen its access token expires.",
         "operationId": "login_api_v1_auth_login_post",
         "requestBody": {
           "content": {
@@ -12468,6 +12468,56 @@
         ]
       }
     },
+    "/api/v1/auth/logout": {
+      "post": {
+        "description": "End the session: revoke it server-side and clear the refresh cookie.\n\nThe session is found from the refresh cookie, from a still-valid bearer\ntoken, or both. Revocation ends the refresh chain AND every access token\nminted from it (see :func:`get_current_user`). Always 204 \u2014 idempotent,\nand it says nothing about whether the credentials were any good.",
+        "operationId": "logout_api_v1_auth_logout_post",
+        "parameters": [
+          {
+            "description": "Refresh token, set by register/login/refresh as an HttpOnly, Secure, SameSite=Strict cookie. Browsers send it automatically; it is never readable by script and never appears in a body.",
+            "in": "cookie",
+            "name": "loft_refresh",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Refresh token, set by register/login/refresh as an HttpOnly, Secure, SameSite=Strict cookie. Browsers send it automatically; it is never readable by script and never appears in a body.",
+              "title": "Loft Refresh"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Logout",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/auth/me": {
       "get": {
         "description": "The authenticated account (protected: bearer token required).",
@@ -12490,6 +12540,58 @@
           }
         ],
         "summary": "Me",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "description": "Rotate the refresh cookie and mint a fresh access token.\n\nThe presented refresh token is spent (single use) and a successor is set\nin its place. Every failure is the same generic 401 ``invalid_token`` and\nclears the cookie: a missing or unknown token, an expired one, a session\nthat was revoked or has reached its absolute bound \u2014 and REUSE, a token\nthat was already spent, which additionally revokes the whole session\nbecause two parties holding one token means it was copied.",
+        "operationId": "refresh_api_v1_auth_refresh_post",
+        "parameters": [
+          {
+            "description": "Refresh token, set by register/login/refresh as an HttpOnly, Secure, SameSite=Strict cookie. Browsers send it automatically; it is never readable by script and never appears in a body.",
+            "in": "cookie",
+            "name": "loft_refresh",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Refresh token, set by register/login/refresh as an HttpOnly, Secure, SameSite=Strict cookie. Browsers send it automatically; it is never readable by script and never appears in a body.",
+              "title": "Loft Refresh"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthTokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Refresh",
         "tags": [
           "auth"
         ]

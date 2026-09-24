@@ -197,12 +197,32 @@ POST_AUTH_LOGIN: Final = Operation(
     required_query=(),
 )
 
+POST_AUTH_LOGOUT: Final = Operation(
+    operation_id="logout_api_v1_auth_logout_post",
+    method="POST",
+    path="/api/v1/auth/logout",
+    request_model=None,
+    response_model=None,
+    path_params=(),
+    required_query=(),
+)
+
 GET_AUTH_ME: Final = Operation(
     operation_id="me_api_v1_auth_me_get",
     method="GET",
     path="/api/v1/auth/me",
     request_model=None,
     response_model="UserResponse",
+    path_params=(),
+    required_query=(),
+)
+
+POST_AUTH_REFRESH: Final = Operation(
+    operation_id="refresh_api_v1_auth_refresh_post",
+    method="POST",
+    path="/api/v1/auth/refresh",
+    request_model=None,
+    response_model="AuthTokenResponse",
     path_params=(),
     required_query=(),
 )
@@ -900,7 +920,9 @@ OPERATIONS: Final[Mapping[str, Operation]] = MappingProxyType(
         "redo_assembly_api_v1_assemblies__assembly_id__redo_post": POST_ASSEMBLIES_ASSEMBLY_ID_REDO,
         "undo_assembly_api_v1_assemblies__assembly_id__undo_post": POST_ASSEMBLIES_ASSEMBLY_ID_UNDO,
         "login_api_v1_auth_login_post": POST_AUTH_LOGIN,
+        "logout_api_v1_auth_logout_post": POST_AUTH_LOGOUT,
         "me_api_v1_auth_me_get": GET_AUTH_ME,
+        "refresh_api_v1_auth_refresh_post": POST_AUTH_REFRESH,
         "register_api_v1_auth_register_post": POST_AUTH_REGISTER,
         "list_drawings_api_v1_drawings_get": GET_DRAWINGS,
         "create_drawing_api_v1_drawings_post": POST_DRAWINGS,
