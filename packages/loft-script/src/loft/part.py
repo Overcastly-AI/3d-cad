@@ -414,11 +414,12 @@ class Part:
         through ``twist_center`` (sketch-local mm), defaulting to the sketch
         origin. ``None`` or ``0`` is the plain prism.
 
-        Refusals are the server's: a non-positive ``distance_mm`` or a twist
-        beyond ten turns is a 422 from the same validator the browser's request
-        hits; an open profile is a ``profile_not_closed`` and a twist too tight
-        for the profile a ``twist_failed`` feature error, raised by
-        :meth:`evaluate`.
+        A non-positive ``distance_mm``, a non-finite value, or a twist beyond
+        ten turns is refused CLIENT-side by the shared DTO (a ``ValueError``,
+        the same validator the server runs), so no payload the server would
+        reject is ever sent. An open profile is a ``profile_not_closed`` and a
+        twist too tight for the profile a ``twist_failed`` feature error, raised
+        by :meth:`evaluate`.
         """
         if isinstance(profile, Sketch):
             if profile.solved is None:
@@ -466,7 +467,11 @@ class Part:
         """Change an existing extrude's twist (``None``/``0`` straightens it).
 
         Same whole-envelope replacement as :meth:`set_extrude_distance`, so the
-        operation, direction and twist axis stay as stored.
+        operation, direction and twist axis stay as stored — except that
+        straightening also drops the stored axis, exactly as the wire model
+        normalises a twist-less extrude. A NaN or infinite twist is a
+        pydantic ``ValidationError`` (a ``ValueError``) naming the field, before
+        anything is sent.
         """
         return self._update_extrude(feature_id, twist_angle_deg=twist_angle_deg)
 
@@ -479,9 +484,17 @@ class Part:
             raise TypeError(
                 f"feature {feature_id} is a {stored.type!r}, not an extrude"
             )
-        # model_copy does not validate, deliberately: refusals are the
-        # server's, so an out-of-range value is the same 422 the browser gets.
-        params = stored.params.model_copy(update=changes)
+        # Re-VALIDATE the merged envelope; model_copy(update=...) does not. That
+        # is the same client-side refusal `extrude` gets from constructing the
+        # DTO, and it runs the wire model's twist normalisation. Without it
+        # (measured, review of d823af9) a NaN twist is carried by the unvalidated
+        # copy into the request and dies in the HTTP client's JSON encoder with
+        # an opaque "Out of range float values" error, while any path that
+        # serialises the model with model_dump_json would write it as null and
+        # silently straighten the extrude.
+        params = type(stored.params).model_validate(
+            {**stored.params.model_dump(), **changes}
+        )
         updated = self.update_feature(
             feature_id,
             feature=ExtrudeFeature(type="extrude", version=1, params=params),

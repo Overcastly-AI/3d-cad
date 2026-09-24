@@ -27,7 +27,7 @@ from loft.sketch import SOLVED_STATUSES
 from loft.transport import Transport
 from loft_wire.features import ExtrudeFeature, SketchFeature
 from loft_wire.sketch import SketchArc, SketchCircle, SketchLine
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .conftest import Stack
 
@@ -194,6 +194,56 @@ def test_a_twisted_extrude_reaches_the_kernel_and_can_be_straightened(
     )
     assert straight.centroid.x == pytest.approx(cx, abs=VOLUME_TOLERANCE_MM3)
     assert straight.centroid.y == pytest.approx(cy, abs=VOLUME_TOLERANCE_MM3)
+
+
+def test_twist_center_reaches_the_kernel_and_a_bad_twist_never_leaves(
+    stack: Stack,
+) -> None:
+    """``twist_center`` through the stack, and the setter's refusals.
+
+    About the rectangle's OWN centre (20, 12.5) the section spins in place, so
+    the centroid stays on that axis at (20, 12.5, 5); about the default origin
+    it would swing about 6 mm away (the test above), so a dropped centre cannot
+    pass. Then: a NaN twist is refused by VALIDATION, client-side, and the
+    stored extrude is untouched. The assertion is the pydantic error type:
+    without re-validation the NaN reached the HTTP client's JSON encoder and
+    failed there with a bare ValueError that names no field. Straightening
+    with ``None`` drops the stored centre too, so the row reads exactly like
+    an extrude that never had a twist.
+    """
+    with _session(stack) as session:
+        part = session.new_part("Twisted about its centre")
+        sketch = part.sketch(on="XY")
+        sketch.rect(WIDTH_MM, HEIGHT_MM)
+        sketch.solve()
+        feature = part.extrude(
+            sketch,
+            DEPTH_MM,
+            twist_angle_deg=30.0,
+            twist_center=(WIDTH_MM / 2, HEIGHT_MM / 2),
+        )
+        spun = part.mass_properties()
+        with pytest.raises(ValidationError, match="twist_angle_deg"):
+            part.set_extrude_twist(feature.id, math.nan)
+        kept = part.feature(feature.id).feature
+        part.set_extrude_twist(feature.id, None)
+        straightened = part.feature(feature.id).feature
+
+    assert spun.volume == pytest.approx(
+        EXPECTED_VOLUME_MM3, abs=TWIST_VOLUME_TOLERANCE_MM3
+    )
+    assert spun.centroid.x == pytest.approx(
+        WIDTH_MM / 2, abs=TWIST_CENTROID_TOLERANCE_MM
+    )
+    assert spun.centroid.y == pytest.approx(
+        HEIGHT_MM / 2, abs=TWIST_CENTROID_TOLERANCE_MM
+    )
+    assert isinstance(kept, ExtrudeFeature)
+    assert kept.params.twist_angle_deg == 30.0
+    assert isinstance(straightened, ExtrudeFeature)
+    dumped = straightened.params.model_dump(mode="json")
+    assert "twist_angle_deg" not in dumped
+    assert "twist_center" not in dumped
 
 
 # --- export -----------------------------------------------------------------
