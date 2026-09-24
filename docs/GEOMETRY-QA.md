@@ -7,6 +7,216 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-09-24 — Twisted extrude INDEPENDENT VERIFICATION of `d823af9` (+ fixes `debd5b7`, `87d099f`, `43ab526`): the helix is exact, the gear numbers hold, and the spur gear next to it reports the wrong volume (geometry-qa)
+
+Every number below was re-measured on this machine against a closed-form truth
+derived from gear theory and from the definition of a screw motion, not from
+the builder's code. Measured first at `d823af9`, then again at `43ab526` after
+the review fixes landed. Both rounds gave the same values, except where a row
+says otherwise. Load was 5-8 on 4 cores, with other agents running.
+
+### 1. The helical gear: every claim confirmed
+
+The truth is closed form, computed with mpmath at 40 digits
+(`m_t = m_n / cos(beta)`, `alpha_t = atan(tan(alpha_n) / cos(beta))`, zero
+profile shift). The involute gap area inside `ra` is integrated exactly with
+`rho = rb sqrt(1+t^2)`:
+`int 2 inv(alpha) rho drho = 2 rb^2 [t^3/3 - ((t^2+1) atan t - t)/2]`. Every
+transverse slice of a twisted cut is a rotated copy of the section, and the
+blank is rotation-invariant, so the true volume is the section area x `b`.
+
+| quantity                                   | analytic truth (independent) | builder claimed         | measured, `--twisted` (d823af9 and 43ab526) | verdict                             |
+| ------------------------------------------ | ---------------------------- | ----------------------- | ------------------------------------------- | ----------------------------------- |
+| volume, mm^3                               | **36470.37440**              | 36470.392 vs 36470.374  | 36470.392 (+0.017, +4.7e-7)                 | CONFIRMED                           |
+| twist across the face `b tan(beta) / r`    | 12.35770 deg                 | -                       | cut built with 12.358 deg                   | CONFIRMED                           |
+| twist, z = 0.05..19.95                     | 12.29591 deg                 | 12.2959 vs 12.2959      | 12.2959, worst deviation +0.00000 (5 dp)    | CONFIRMED                           |
+| transverse thickness on the pitch circle   | `pi m_t / 2` = 3.252416 mm   | 3.25242 vs 3.25242      | 3.25242 at z = 0, 10 and 19.95              | CONFIRMED                           |
+| root radius `r - 1.25 m_n`                 | 22.346628 mm                 | 22.3466 vs 22.3466      | 22.3466 at z = 0, deepest 22.3466           | CONFIRMED                           |
+| topology / STEP re-read                    | -                            | 150/444/1, delta 7e-10  | 150/444/1 both sides; STEP 36470.392        | CONFIRMED                           |
+| ruled loft (2 sections), vs true           | -0.61 % (the sag)            | -0.611 %                | 36247.566, **-0.61093 %**; mid-face 3.14080 | CONFIRMED                           |
+| helix edit to beta = 20, twisted           | 38685.960                    | -                       | 38685.979 (+0.019), rebuild 8.8 s           | CONFIRMED (the same spline residual) |
+
+**Where the +0.017 mm^3 comes from, measured independently.** The planar top
+face of the twisted gear, integrated adaptively (eps 1e-10 and 1e-12) and
+multiplied by 20, gives **36470.3915**. That equals the solid's volume to four
+decimals, so the twisted body satisfies Cavalieri as a whole part, not only
+per tool. The residual is therefore in the section: the 12-point spline that
+stands in for the involute. On one gap it is -0.0007 mm^3 of removal against
+the analytic 298.15781 mm^3. The builder's attribution is correct.
+
+Build timings, twisted route: 15.7-16.6 s (pattern x24 8.6-9.6 s, bore 4.6-6.0
+s). Loft route: 7.9 s.
+
+### 2. Stress cases, beyond the builder's
+
+The probe builds each case through `evaluate_tree`. For every accepted body it
+asserts BRepCheck validity, volume = area x d, and the analytic area
+`2A + sum over edges of int sqrt(d^2 |v'|^2 + theta^2 (v.v')^2) du`. It also
+checks a closed-form centroid. For handedness, it records the distance to the
+centroid a MIRRORED helix would give (column "LH"). It places turned profile
+vertices and edge midpoints on the boundary at t = 0, 1/4, 1/2, 3/4 and 1, and
+it runs a STEP export and re-import. Profiles are a 20 mm square (sq20), a
+10 x 10 square 10..20 mm off the axis (off), and a 40 mm square with three r3
+holes and a square hole (multihole). The thin slots are 0.2 x 20 mm, radial at
+r 10..30 and tangential at r ~20.
+
+| case                                    | status                  | rel. volume | rel. area | centroid err / LH, mm | boundary dev, mm | STEP dV / dA         | s (d823af9) |
+| --------------------------------------- | ----------------------- | ----------: | --------: | --------------------- | ---------------: | -------------------- | ----------: |
+| sq20 h30, 0.001 deg                     | ok                      |     2.5e-11 |   2.9e-11 | 1.8e-15 / (symmetric) |           5.4e-10 | -1.4e-9 / -2.3e-10   |        0.03 |
+| sq20 h30, 1e-9 deg (the floor)          | ok                      |     1.5e-16 |  -1.4e-16 | 7.5e-17 / -           |           2.5e-10 | 0 / 0                |        0.02 |
+| sq20 h30, 1e-300 deg                    | **d823af9: evaluation_failed**; 43ab526: ok (a prism) | 1.5e-16 | -1.4e-16 | -             |                 0 | 0 / 0                |        0.01 |
+| off h30, +90 / -90 / reverse x2         | ok                      |    -4.6e-10 |  -2.5e-10 | 1.2e-9 / **19.1**     |           3.4e-08 | <= 5.4e-10           |        0.03 |
+| off on XZ +90; on YZ +90 reverse        | ok                      |    -4.6e-10 |  -2.5e-10 | 1.2e-9 / **19.1**     |           3.4e-08 | <= 5.4e-10           |        0.03 |
+| sq20 h30, 359 / 360 / 720 deg           | ok                      |   <= 7.5e-12 |  <= 6.5e-11 | <= 1e-14            |        <= 2.9e-9 | <= 3.1e-9 / 1.3e-9   | 1.6 / 1.5 / 7.6 |
+| sq20 h30, 1800 / 2700 deg               | ok                      |   <= 6.1e-10 |         - | <= 3.8e-14            |        <= 1.1e-11 | -                    | **97 / 216** |
+| sq20 h30, +3600 deg                     | **twist_failed**        |           - |         - | -                     |                 - | -                    |        0.19 |
+| sq20 h30, -3600 deg                     | ok                      |     1.3e-10 |         - | 3.0e-14               |           1.5e-11 | -                    |     **402** |
+| sq20, axis at (50, 0), 90 deg           | ok                      |     1.5e-11 |   1.1e-11 | 5.1e-10 / **63.7**    |           4.0e-09 | -5.4e-10 / -2.8e-10  |        0.06 |
+| sq20, axis at (200, 0) / (1000, 0), 360 | ok                      |   <= 7.5e-12 |  <= 1.4e-10 | <= 8.2e-10          |        <= 4.3e-8 | <= 4.1e-9 / 1.7e-7   |   0.9 / 5.8 |
+| multihole h20, 60 deg                   | ok, 13/33/1             |    -8.1e-10 |   7.0e-10 | 3.2e-10 / **0.21**    |           6.0e-08 | -2.4e-9 / -5.3e-10   |        0.55 |
+| multihole h20, 720 deg                  | ok, 13/33/1             |     6.3e-12 | **-6.6e-7** | 4.8e-12             |           2.8e-12 | -4.4e-9 / -5.3e-9    |          41 |
+| thin radial slot h20, 180..3600 deg     | ok at all four          |  <= 3.2e-10 |  <= 2.6e-10 | 4.2e-9 / **25.5** (180) |      <= 6.5e-11 | <= 2.1e-10 / 7.0e-9  |   0.06..3.8 |
+| thin tangential slot h20, 360 / 1800    | ok                      |  <= 1.3e-10 |  <= 6.5e-11 | <= 5.3e-11          |        <= 4.6e-9 | 1.7e-10 / -1.4e-10   |    1.3 / 44 |
+| axis through a vertex, 90 deg           | ok                      |    -4.6e-10 |  -2.2e-10 | 5.8e-10 / **9.0**     |           2.3e-08 | 2.6e-11 / 6.4e-12    |        0.05 |
+| circle centred on the axis, 90 deg      | ok, 3/3/1               |     1.5e-11 |   5.3e-12 | 4.7e-15               |           5.3e-10 | -9.6e-10 / -1.7e-10  |        0.11 |
+| cut: 3 regions (one holed), depth 10, +45 / -400 | ok, 17/33/1    | 1.7e-11 / -6.3e-13 |   - | -                  |                 - | <= 4.1e-10           |  1.0 / 12.5 |
+| cut: the same, THROUGH (depth 20)       | boolean_failed (2 lumps) |          - |         - | -                     |                 - | -                    |        0.12 |
+| cut: thin radial slot through, 360 deg  | ok, 7/15/1              |     3.3e-13 |         - | -                     |                 - | -3.6e-10 / -5.3e-10  |        0.25 |
+
+Reading the table:
+
+- **Handedness is right on every plane and in both directions.** Each chiral
+  case is 1e-9 mm from the right-hand centroid and 0.2-64 mm from the
+  left-hand one. That includes XZ and YZ sketches, which the builder's suite
+  did not have at `d823af9` (`43ab526` since added a test on them).
+- **The guard never MISSED.** Every body it accepted is correct to 6e-8 mm on
+  the boundary, including 0.2 mm slots at ten turns and an axis 1000 mm off
+  the profile. It never refused a thin slot, so it produced no false positive
+  there either. Its only false positives are the inside-out sweeps in F3
+  below.
+- **Determinism: 29 / 29 cases byte-identical across two fresh interpreters.**
+  That covers the evaluate-result JSON sha256, the GLB sha256, volume, area,
+  centroid and topology, on both `d823af9` and `43ab526`.
+- **STEP round trip: all 26 accepted bodies survive.** Topology is exact, the
+  re-imported body is valid, |dV| <= 4.4e-9 mm^3, and |dA| <= 1.7e-7 mm^2
+  (that one is 7e-13 relative, on the 253 948 mm^2 orbiting square).
+- The THROUGH multi-region cut is refused correctly. The holed region's r1.5
+  island becomes a second lump, and the existing in-chain lump rule refuses
+  that. It is not a twist defect.
+- The mid-height slice areas agree to <= 7.5e-6 mm^2. That residual belongs to
+  the split used to measure the slice, which intersects a fitted surface. The
+  boundary check is the sharper instrument, and it reads 6e-8.
+
+### 3. Findings, ranked
+
+**F1 - P1, pre-existing, NOT twist: a plain extrude with sketch-spline flanks
+reports the wrong volume, and the integrator does not converge on it.** Take
+the same gear with the twist dropped: the spur twin, reachable from the UI
+through a spline sketch and an extrude. Its true volume is 36470.3915. That is
+the planar top face, integrated adaptively, x 20, stable at eps 1e-10 and
+1e-12, and identical to the twisted gear by Cavalieri.
+
+| reading of the SAME spur body              | volume     | vs truth    |
+| ------------------------------------------ | ---------- | ----------- |
+| `measure_shape` (shipped, eps 1e-10)       | 36475.7411 | **+5.3667** |
+| adaptive eps 1e-12                         | 36470.0484 | -0.3260     |
+| adaptive eps 1e-14                         | 36468.2754 | -2.0990     |
+| fixed Gauss order                          | 36470.0871 | -0.2873     |
+| `BRepBuilderAPI_NurbsConvert` copy, 1e-10  | 36470.3915 | +0.0171     |
+| `BRepBuilderAPI_NurbsConvert` copy, 1e-12  | 36470.3915 | +0.0171     |
+
+The API reports 36 475.74 mm^3 for this spur gear (the same `properties` the
+Inspector renders; read here through loft-script), 1.47e-4 high. The
+twisted gear next to it is right to 4.7e-7. Root cause (feature-eval /
+properties): the flank faces are `EXTRUSION`
+(`Geom_SurfaceOfLinearExtrusion` over a B-spline curve), and GProp's adaptive
+volume integration does not converge on them. It wanders by +5.4 / -0.3 / -2.1
+mm^3 as eps tightens. A NURBS-converted copy converges at once to the value
+the top face gives. The golden `sketch-spline-extrude` passes, so its
+spline evidently does not trigger it (not investigated further). Nothing covers a many-knot spline flank after a boolean.
+**Owner: kernel-architect.** Suggested fix: measure a NURBS-converted copy
+(or convert only the `EXTRUSION`/`REVOLUTION` faces). Add a golden: the spur
+twin, with the section-area truth above.
+
+**F2 - P2, FIXED in `debd5b7` (found here at `d823af9`, and independently in
+review): a vanishing twist crashed or hung a worker.** At `d823af9`, 1e-200
+and 1e-300 deg gave `evaluation_failed` (a bare ZeroDivisionError from
+build123d's `make_helix`, whose pitch vector overflows). 5e-324 deg sent
+through loft-script -> gateway -> geometry got `UpstreamError` after 90 s. The
+worker's `/healthz` timed out from 20 s onward, the worker never recovered,
+and it was killed by port. At `43ab526`, |twist| < 1e-9 is normalised to a
+prism, and 1e-300 is now `ok` with byte-identical results.
+`test_a_vanishing_twist_either_side_of_the_floor_is_a_prism` locks both sides
+of the floor.
+
+**F3 - P3, open: the guard refuses exact sweeps that came back inside-out.**
+The raw pipe-shell sweep of sq20 over 30 mm returns volume **-12000** at -3000,
++3100, -3400, +3500, +/-3550, +3599 and +3600 deg. A 40 mm square does the
+same at -3250, +3550 and +3600 deg. The 4 mm and 10 mm squares never do. Each
+of these is geometrically EXACT: the turned vertices sit on the boundary to
+1.2e-8..3.4e-8 mm, and `BRepLib::OrientClosedSolid` restores +12000. The
+Cavalieri guard refuses them as "too tight", while -3600 deg of the same
+square is accepted. The message therefore tells the user something false, and
+the accepted range has holes in it. Fix (feature-eval / twist): orient the
+swept solid before the invariant check. Pinned by the strict xfail
+`test_an_inside_out_sweep_is_reoriented_not_refused`, which the fix flips to
+XPASS (seen: "M5" below). **Owner: kernel-architect.**
+
+**F4 - P2 perf, open: twists inside the accepted bound pin a worker for
+minutes.** sq20 h30 took 7.6 s at 720 deg, 97 s at 1800, 216 s at 2700 and
+402 s at -3600 (single samples at `d823af9`, load 5-8). Re-timed at `43ab526`:
+1800 deg 59 s and -3600 deg 415 s (load 7-9), so the class stands. The sweep costs 0.01-0.04 s. The time goes to TESSELLATION:
+BRepMesh took 10.3 of 11.2 s at 720 deg, and in the raw mesh sweep 1.4 s at
+360 deg, 6.8 s at 720 and 41 s at 1440. The fit tolerance does not explain it:
+1e-4 and 1e-7 mesh equally slowly. Past 90 s the gateway gives up while the
+worker keeps meshing, because there is no evaluate timeout. So "ten turns" is
+advertised, but a 20 mm square cannot actually get it, and it occupies a
+worker. Suggested fix: bound the twist by what the mesher can do, for example
+turns x profile radius per mm, or a pre-flight deflection budget. The bound
+should not be a flat 3600 deg. **Owner: kernel-architect.**
+
+**F5 - P3, known limit extended: surface area on multi-turn bodies.**
+multihole at 720 deg reads -6.6e-7 relative against the analytic area (the
+shipped fixed Gauss order). Adaptive is WORSE: +2.05e-4 at eps 1e-8 and
++2.13e-5 at 1e-10. This is the class the 2026-09-15 F2 entry deliberately left
+unfixed. It is recorded here so that nobody reads a twisted body's area as
+converged.
+
+**F6 - P3, UI (frontend-builder): the feature-tree status cell is clipped by a
+long name.** At 1440 px, row 04 "Tooth gap (twisted cut)" shows its `OK` cut
+to one glyph in `docs/screenshots/helical-gear-15-twisted.png`. Other rows
+show it whole.
+
+### 4. Gates added: `services/geometry/tests/test_twisted_extrude_qa.py`
+
+The file holds 17 passing tests and 1 strict xfail (F3). Tolerances were
+measured first: volume 8.1e-10 and area 7.0e-10 relative, centroid 2.2e-8 mm,
+boundary 6.0e-8 mm. They were then set at `REL_TOL` 1e-8, `CENTROID_TOL`
+1e-7 and `BOUNDARY_TOL` 5e-7. Mutation runs on `43ab526`, each against the
+whole file:
+
+| mutant                                             | result                                        |
+| -------------------------------------------------- | --------------------------------------------- |
+| M1 flip `lefthand` (handedness)                     | 10 failed (every chiral case + the xfail XPASSes) |
+| M2 axis forced to the sketch origin                 | 1 failed (axis 50 mm off)                     |
+| M3 `reverse` ignored                                | 2 failed (XY reverse, YZ reverse)             |
+| M4 sweep fit 1e-2 mm                                | 12 failed (incl. both STEP round trips)       |
+| M5 the F3 fix (OrientClosedSolid)                   | 1 failed: the xfail XPASSes, as designed      |
+| M6 the `debd5b7` wire floor removed                 | 1 failed (1e-200 deg -> twist_failed)         |
+
+Twist gate slice at `43ab526` (`test_twisted_extrude`, `test_twisted_extrude_qa`,
+and the twist golden in `test_goldens` / `test_step_roundtrip`): 44 passed,
+1 xfailed.
+
+### 5. Founder evidence
+
+`docs/screenshots/helical-gear-15-twisted.png` shows the part in the iso,
+ortho view: Inspector volume 36 470.39 mm^3, 150/444/1. The close-up of the
+helical flanks is `docs/screenshots/helical-gear-16-twisted-teeth.png`. Both
+were captured at 1440x900 against a native stack built at `a83d53a` (ports
+8480-8482, Vite 5580). The gear was built through loft-script with
+`build_twisted` from `docs/qa/helical-gear.py`.
+
 ## 2026-09-23 — PERF-REAL-2 INDEPENDENT VERIFICATION of `09416c6`: the ladder is correct and 18.5x on a late edit, its double fork is load-bearing on today's kernel, and its memory bound is in faces, not bytes (geometry-qa)
 
 Every claim in the commit re-measured on this machine, against the parent
