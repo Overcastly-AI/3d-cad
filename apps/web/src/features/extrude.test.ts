@@ -8,6 +8,7 @@ import {
   defaultProfileId,
   describeExtrudeDirection,
   distanceError,
+  extrudeParamsFromForm,
   extrudePreviewState,
   formFromParams,
   optionProvenance,
@@ -295,6 +296,52 @@ describe("formFromParams", () => {
       // Session-scoped: the stored direction shows as authored, but an
       // operation switch in this session re-defaults it (FB-4).
       directionTouched: false,
+      merge: true,
+      // The whole stored envelope rides along, for the fields the form does
+      // not show (see `extrudeParamsFromForm`).
+      stored: params,
+    });
+  });
+
+  it("round-trips a TWISTED extrude through the form unchanged", () => {
+    const params: ExtrudeParams = {
+      profile: { kind: "feature", feature_id: "sk" },
+      distance_mm: 20,
+      operation: "cut",
+      direction: "reverse",
+      merge: true,
+      twist_angle_deg: 12.358,
+      twist_center: { x: 0.25, y: -3 },
+    };
+    const form = formFromParams(params, "mm");
+    const distance = parseDistanceMm(form.distanceInput, "mm");
+    expect(distance).not.toBeNull();
+    expect(extrudeParamsFromForm(form, distance as number)).toEqual(params);
+  });
+
+  it("writes the edited fields OVER the stored twist, never instead of it", () => {
+    const params: ExtrudeParams = {
+      profile: { kind: "feature", feature_id: "sk" },
+      distance_mm: 20,
+      operation: "add",
+      direction: "normal",
+      merge: true,
+      twist_angle_deg: -30,
+    };
+    const edited = withDirection(formFromParams(params, "mm"), "reverse");
+    expect(extrudeParamsFromForm(edited, 35)).toEqual({
+      ...params,
+      distance_mm: 35,
+      direction: "reverse",
+    });
+  });
+
+  it("a new extrude carries no stored fields", () => {
+    expect(extrudeParamsFromForm(defaultExtrudeForm("sk"), 10)).toEqual({
+      profile: { kind: "feature", feature_id: "sk" },
+      distance_mm: 10,
+      operation: "add",
+      direction: "normal",
       merge: true,
     });
   });

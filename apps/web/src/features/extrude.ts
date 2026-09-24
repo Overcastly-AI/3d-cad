@@ -59,6 +59,16 @@ export interface ExtrudeForm {
    * and never shown, but always sent (the wire field is required, MB-0).
    */
   merge: boolean;
+  /**
+   * The feature's params as STORED, when this form edits an existing extrude
+   * (absent on create). The form edits five fields; the feature can carry
+   * more than the editor shows (a twist authored by loft-script, d823af9), and
+   * a PATCH replaces the whole envelope, so {@link extrudeParamsFromForm}
+   * writes the edited fields OVER these rather than instead of them. Without
+   * that, changing the depth of a twisted (helical gear) extrude, or dragging
+   * its depth handle, silently straightened it.
+   */
+  stored?: ExtrudeParams;
 }
 
 /** A sketch the extrude may consume, as offered in the profile picker. */
@@ -163,6 +173,29 @@ export function formFromParams(
     direction: params.direction,
     directionTouched: false,
     merge: params.merge,
+    stored: params,
+  };
+}
+
+/**
+ * The params a submit writes: the edited fields OVER the stored params, so
+ * every field the editor does not show (today, a loft-script twist) survives
+ * the round trip. The ONE builder for every extrude write the editor makes,
+ * the typed Save and the depth gauge's commit alike.
+ */
+export function extrudeParamsFromForm(
+  form: ExtrudeForm,
+  distanceMm: number,
+): ExtrudeParams {
+  return {
+    ...form.stored,
+    profile: { kind: "feature", feature_id: form.profileFeatureId },
+    distance_mm: distanceMm,
+    operation: form.operation,
+    direction: form.direction,
+    // Merge is an ADD choice only; a cut always removes from the active body,
+    // so it sends the neutral `true` regardless of a stale toggle.
+    merge: form.operation === "add" ? form.merge : true,
   };
 }
 

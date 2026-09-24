@@ -43,6 +43,7 @@ import {
   type ExtrudeForm,
   type ExtrudeOperation,
   type ExtrudePreviewState,
+  extrudeParamsFromForm,
   extrudePreviewState,
   optionProvenance,
   parseDistanceMm,
@@ -184,15 +185,9 @@ export function ExtrudeEditor({
   const submit = useCallback(() => {
     const distance = parseDistanceMm(form.distanceInput, unit);
     if (distance === null || form.profileFeatureId === "") return;
-    onSubmit({
-      profile: { kind: "feature", feature_id: form.profileFeatureId },
-      distance_mm: distance,
-      operation: form.operation,
-      direction: form.direction,
-      // Merge is an ADD choice only; a cut always removes from the active body,
-      // so it sends the neutral `true` regardless of a stale toggle.
-      merge: form.operation === "add" ? form.merge : true,
-    });
+    // Over the STORED params, never instead of them: a field this editor does
+    // not show (a loft-script twist) must survive an edit of one it does.
+    onSubmit(extrudeParamsFromForm(form, distance));
   }, [form, onSubmit, unit]);
 
   const onKeyDown = useCallback(

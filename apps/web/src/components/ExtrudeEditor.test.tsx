@@ -25,6 +25,7 @@ import {
   type ExtrudeForm,
   type ExtrudeOperation,
   type ExtrudePreviewState,
+  formFromParams,
   type PlaneProvenance,
   type ProfileOption,
 } from "../features/extrude";
@@ -160,6 +161,29 @@ describe("ExtrudeEditor form", () => {
     const params = onSubmit.mock.calls[0]?.[0] as ExtrudeParams;
     expect(params.distance_mm).toBeCloseTo(25.4, 9);
     expect(params.profile).toEqual({ kind: "feature", feature_id: "sk1" });
+  });
+
+  it("keeps a stored twist when only the depth is edited (loft-script helical gear)", () => {
+    // d823af9 added `twist_angle_deg` / `twist_center`; this editor shows
+    // neither. Opening a loft-script gear and changing its depth used to PATCH
+    // a fresh five-field envelope, and the twist was gone.
+    const stored: ExtrudeParams = {
+      profile: { kind: "feature", feature_id: "sk1" },
+      distance_mm: 20,
+      operation: "add",
+      direction: "normal",
+      merge: true,
+      twist_angle_deg: 12.358,
+      twist_center: { x: 1.5, y: -2 },
+    };
+    const onSubmit = vi.fn();
+    renderEditor({ onSubmit, initial: formFromParams(stored, "mm") });
+    fireEvent.change(screen.getByTestId("extrude-distance"), {
+      target: { value: "25" },
+    });
+    fireEvent.click(screen.getByTestId("extrude-submit"));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]?.[0]).toEqual({ ...stored, distance_mm: 25 });
   });
 
   it("sends the neutral merge flag on a cut, whatever the stale toggle said", () => {
