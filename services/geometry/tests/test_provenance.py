@@ -26,6 +26,7 @@ import pytest
 from build123d import Compound, Face, GeomType, Solid
 from fastapi.testclient import TestClient
 from geometry.features import evaluate_tree
+from geometry.features.evaluate import reset_rebuild_cache
 from geometry.kernel import FaceProvenance, attribute_faces, provenance
 from geometry.kernel.provenance import FaceFingerprint
 from geometry.kernel.types import BodyShape
@@ -158,7 +159,6 @@ def test_hole_wall_attributes_to_hole_base_faces_to_extrude() -> None:
     plate top. Fusion and SolidWorks light the bore wall; so does this now."""
     evaluation = evaluate_tree(
         EvaluateTreeRequest.model_validate(_block_and_hole_tree()),
-        record_history=True,
     )
     assert evaluation.body is not None
     # Two body-affecting features → two snapshots, earliest first.
@@ -192,8 +192,8 @@ def test_hole_wall_attributes_to_hole_base_faces_to_extrude() -> None:
 def test_attribution_is_deterministic() -> None:
     """Same tree → identical attribution (RESEARCH §9)."""
     tree = EvaluateTreeRequest.model_validate(_block_and_hole_tree())
-    first = evaluate_tree(tree, record_history=True)
-    second = evaluate_tree(tree, record_history=True)
+    first = evaluate_tree(tree)
+    second = evaluate_tree(tree)
     assert first.body is not None and second.body is not None
     assert attribute_faces(first.body, first.face_provenance) == attribute_faces(
         second.body, second.face_provenance
@@ -214,38 +214,45 @@ def test_glb_has_one_primitive_per_brep_face() -> None:
     assert face_count == evaluation.result.properties.topology.faces
 
 
-# --- Cost: opt-in history, indexed matching, bounded work (audit H4) -------------
+# --- Cost: recorded everywhere, indexed matching, bounded work (audit H4) --------
 
 
-def test_only_an_opted_in_caller_records_face_provenance() -> None:
-    """AUDIT H4(a): recording face provenance is OPT-IN, so the eight non-overlay
-    `evaluate_tree` call sites (tessellate, export, measure, drawing compose,
-    per-instance assembly evaluation, the golden harness) stop paying a GProp area
-    + centroid per face per body-affecting feature they never read.
-
-    The evaluated GEOMETRY must be identical either way — the flag governs what is
-    KEPT, never what is built — so this asserts the default keeps nothing while the
-    mesh id (a content hash of the deterministic GLB) and mass properties match the
-    recording run byte for byte."""
+def test_recording_face_provenance_changes_nothing_that_is_built(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every evaluation records face provenance since PERF-REAL-3 (one cache
+    lineage, so a face pick resumes the checkpoint an ``/evaluate`` left). That
+    puts the recorder on EVERY rebuild path — tessellate, export, measure,
+    drawings, assemblies, the goldens — so it must only READ geometry: the same
+    tree with the recorder disabled has to produce the identical mesh (bytes and
+    content-addressed id) and mass properties. And the default must really record,
+    or this equality would hold vacuously."""
     tree = EvaluateTreeRequest.model_validate(_block_and_hole_tree())
-    plain = evaluate_tree(tree)
-    recording = evaluate_tree(tree, record_history=True)
-
-    assert plain.face_provenance.snapshots == ()  # nothing recorded on the hot path
+    recording = evaluate_tree(tree)
     assert [fid for fid, _fps in recording.face_provenance.snapshots] == [
         EXTRUDE_ID,
         HOLE_ID,
     ]
-    # Same geometry: same content-addressed mesh, same mass properties.
-    assert plain.result.mesh_glb_id == recording.result.mesh_glb_id
-    assert plain.result.properties == recording.result.properties
-    assert plain.glb == recording.glb
+
+    def record_nothing(
+        _recorder: provenance.FaceProvenanceRecorder,
+        _feature_id: uuid.UUID,
+        _shape: BodyShape,
+    ) -> None:
+        return None
+
+    reset_rebuild_cache()
+    monkeypatch.setattr(provenance.FaceProvenanceRecorder, "record", record_nothing)
+    silent = evaluate_tree(tree)
+    assert silent.face_provenance.snapshots == ()
+    assert silent.result.mesh_glb_id == recording.result.mesh_glb_id
+    assert silent.result.properties == recording.result.properties
+    assert silent.glb == recording.glb
 
 
-def test_the_overlay_endpoint_is_the_only_route_that_pays_for_history() -> None:
-    """The flag's wiring: `/api/v1/overlay` still returns full attribution (so the
-    opt-in did not silently disable the feature), while `/api/v1/evaluate` — the
-    tessellate hot path — is unaffected."""
+def test_the_overlay_carries_attribution_and_evaluate_does_not() -> None:
+    """The wiring: `/api/v1/overlay` returns full attribution, while the
+    `/api/v1/evaluate` response shape is unchanged (it never carried provenance)."""
     tree = _block_and_hole_tree()
     payload = OverlayRequest.model_validate({"tree": tree}).model_dump(mode="json")
     overlay = OverlayResult.model_validate(
@@ -308,7 +315,7 @@ def test_the_attribution_pass_fingerprints_only_the_final_body(
     The fingerprints now arrive from evaluation, so the pass touches OCCT exactly
     once per face of the final body and never for a snapshot. Asserted as an
     equality, not a bound: one snapshot fingerprint here is the whole regression."""
-    evaluation = evaluate_tree(_tray_tree(), record_history=True)
+    evaluation = evaluate_tree(_tray_tree())
     assert evaluation.body is not None
     faces = len(evaluation.body.faces())
     recorded = evaluation.face_provenance.face_count
@@ -338,7 +345,7 @@ def test_the_recorder_memoises_the_faces_a_boolean_did_not_touch(
     into. Without the memo, recording would cost exactly the ``face_count`` the old
     pass cost — the same quadratic in a different place."""
     count = _counting_fingerprint(monkeypatch)
-    evaluation = evaluate_tree(_tray_tree(), record_history=True)
+    evaluation = evaluate_tree(_tray_tree())
     recorded = evaluation.face_provenance.face_count
 
     assert count() < recorded // 2, (
@@ -368,7 +375,7 @@ def test_the_memo_changes_what_is_computed_never_what_is_answered(
         real_record(self, feature_id, shape)
 
     monkeypatch.setattr(provenance.FaceProvenanceRecorder, "record", stashing)
-    evaluation = evaluate_tree(_tray_tree(), record_history=True)
+    evaluation = evaluate_tree(_tray_tree())
     assert evaluation.body is not None
     monkeypatch.undo()
 

@@ -429,7 +429,7 @@ def test_provenance_bound_is_reachable_by_an_authored_part() -> None:
     past the OLD crossing still attributes."""
     assert MAX_PROVENANCE_FACES == 30_000
     request = _request(housing_tree(GATE_FEATURES))
-    evaluation = evaluate_tree(request, record_history=True)
+    evaluation = evaluate_tree(request)
     body = evaluation.body
     assert body is not None
     budget = len(body.faces()) + evaluation.face_provenance.face_count
@@ -513,7 +513,7 @@ def test_record_provenance_budget_crossing(capsys: pytest.CaptureFixture[str]) -
         start = time.perf_counter()
         overlay = evaluate_overlay(OverlayRequest(tree=request))
         elapsed = (time.perf_counter() - start) * 1000.0
-        evaluation = evaluate_tree(request, record_history=True)
+        evaluation = evaluate_tree(request)
         body = evaluation.body
         assert body is not None
         budget = len(body.faces()) + evaluation.face_provenance.face_count

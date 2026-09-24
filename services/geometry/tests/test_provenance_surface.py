@@ -146,7 +146,7 @@ def test_the_fifth_hole_owns_its_bore_wall_and_nothing_else() -> None:
 
     Note the bore wall's area is 75.3982 mm² and so is every one of the four VENDOR
     Ø3 bores — the part itself says that area cannot identify a feature's work."""
-    evaluation = evaluate_tree(_nema_remix(), record_history=True)
+    evaluation = evaluate_tree(_nema_remix())
     assert evaluation.body is not None
     owners = attribute_faces(evaluation.body, evaluation.face_provenance)
 
@@ -316,7 +316,7 @@ def test_the_surface_rule_never_answers_later_than_the_old_one() -> None:
     spec.loader.exec_module(module)
 
     evaluation = evaluate_tree(
-        EvaluateTreeRequest.model_validate(module.housing_tree(10)), record_history=True
+        EvaluateTreeRequest.model_validate(module.housing_tree(10))
     )
     assert evaluation.body is not None
     provenance = evaluation.face_provenance
@@ -361,8 +361,8 @@ def test_the_index_and_the_attribution_are_deterministic() -> None:
     extent lists are append-only, so two evaluations of one tree agree entry for
     entry — not merely on the owners they imply."""
     tree = _nema_remix()
-    first = evaluate_tree(tree, record_history=True)
-    second = evaluate_tree(tree, record_history=True)
+    first = evaluate_tree(tree)
+    second = evaluate_tree(tree)
     assert first.body is not None and second.body is not None
     assert first.face_provenance.surfaces == second.face_provenance.surfaces
     assert attribute_faces(first.body, first.face_provenance) == attribute_faces(

@@ -199,22 +199,25 @@ from geometry.kernel.types import BodyShape
 #: a feature is serialised, or what a checkpoint stores). The cache is
 #: in-process, so a version skew cannot outlive a worker — this exists so a
 #: future change is a deliberate, greppable bust rather than a silent stale hit.
-CACHE_KEY_VERSION = 2
+CACHE_KEY_VERSION = 3
 
 #: Max live checkpoints (LRU). **32, derived from concurrency and priced in RAM
 #: — not a leftover.** With ownership transfer each entry is ONE lineage's
 #: frontier, so the working set is "lineages being worked on in this worker right
 #: now", and the arithmetic that sizes it is:
 #:
-#: * a working modeler holds **two** lineages, the plain one an edit rebuilds and
-#:   the ``record_history`` one a face pick uses (measured, docs/PERF.md
-#:   2026-08-01 §2), so entries = 2x users;
+#: * a working modeler holds **one** lineage per part they are working on. It
+#:   was sized at two — a plain one for edits and a ``record_history`` one for
+#:   face picks (docs/PERF.md 2026-08-01 §2) — until PERF-REAL-3 made every
+#:   evaluation record, so an edit and the pick after it share one checkpoint;
+#:   the arithmetic below keeps the old factor of 2 as headroom (a modeler
+#:   flipping between two parts);
 #: * docs/OPERATIONS.md §6 sizes a host for up to **8 concurrent modelers**, and
 #:   without session affinity every one of them can land on any worker — so one
-#:   worker must be able to hold 8 users x 2 lineages = **16** live checkpoints;
+#:   worker must be able to hold 8 users x 2 = **16** live checkpoints;
 #: * speculation now has a strictly weaker claim (see :meth:`PrefixCache.store`),
-#:   but it still needs room to be worth having: one warm ticket is up to 2
-#:   entries, plus the stale ones superseded tickets leave behind;
+#:   but it still needs room to be worth having: one warm ticket is one entry
+#:   (two before PERF-REAL-3), plus the stale ones superseded tickets leave behind;
 #: * an assembly evaluates one tree per unique part inside a single request, so a
 #:   ~10-part assembly wants ~10 transient entries of its own.
 #:
@@ -231,7 +234,7 @@ CACHE_KEY_VERSION = 2
 #: docs/OPERATIONS.md §6 whose floor is OCCT's ~500 MiB plus the resident part.
 #: That is the tradeoff, stated: **up to ~13 % of a worker's budget spent to stop
 #: the fifth user costing everyone 79x.** It is a ceiling, not a reservation —
-#: one modeler occupies two entries, and RSS only grows if 32 distinct large
+#: one modeler occupies one or two entries, and RSS only grows if 32 distinct large
 #: lineages are genuinely live. (Releasing them does not return RSS to the OS —
 #: glibc keeps the arena — which is why the per-entry figure is measured as a
 #: marginal cost, not as a delta after a clear.)
@@ -482,7 +485,6 @@ def prefix_keys(
     request: EvaluateTreeRequest,
     *,
     capture_scope: Iterable[uuid.UUID],
-    record_history: bool,
 ) -> list[str]:
     """Rolling content address of every prefix of *request*'s feature list.
 
@@ -508,13 +510,6 @@ def prefix_keys(
       evaluated without the right capture set turned a later mirror into
       ``reference_unresolved``. Adding a scoped mirror is therefore a miss, which
       is correct.
-    * **``record_history``**, because a history-recording evaluation retains an
-      intermediate body per body-affecting feature and a plain one retains none —
-      so a prefix evaluated without history cannot serve per-face provenance
-      (the missing snapshots would silently mis-attribute every face the prefix
-      built). Two keys means two independent lineages that BOTH stay cached, so
-      an edit → pick → edit → pick session hits on the picks instead of
-      ping-ponging one entry between the two callers.
     * **:data:`CACHE_KEY_VERSION`**, the deliberate-bust seam.
 
     WHAT IS DELIBERATELY *NOT* IN THE KEY, with the rule that makes it safe: a
@@ -527,13 +522,23 @@ def prefix_keys(
     see ``evaluate.py``). Keying on ``tree_version`` in particular would be worse
     than useless: it changes on every edit, so it would defeat the cache entirely
     while protecting nothing.
+
+    Nor is WHO is asking. Until PERF-REAL-3 a ``record_history`` flag was in the
+    header, because only a face pick recorded per-face provenance and a prefix
+    evaluated without it cannot serve one; that split every modeler into two
+    lineages and made the pick after every open or edit a full-tree miss (7.9 s
+    on the 1 018-face gearbox). Every evaluation now records, so the state after
+    *k* features is the same object whichever route asked, and one key serves them
+    all — ``/evaluate``, ``/overlay``, ``/measure``, ``/tessellate``, export and
+    drawings. A future evaluation mode that changes what the state HOLDS must go
+    back in the header; one that only changes what is published afterwards must
+    not.
     """
     header = json.dumps(
         {
             "version": CACHE_KEY_VERSION,
             "linear_deflection": request.linear_deflection,
             "capture_scope": sorted(str(feature_id) for feature_id in capture_scope),
-            "record_history": record_history,
         },
         sort_keys=True,
         separators=(",", ":"),

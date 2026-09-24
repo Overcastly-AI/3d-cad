@@ -72,8 +72,9 @@ patch.
 
 Mechanism: evaluation FINGERPRINTS the whole body set after each ok
 body-affecting feature (:class:`FaceProvenanceRecorder`, held by
-:attr:`geometry.features.evaluate.EvaluationState.provenance`) — OPT-IN, so only
-the overlay path funds it (audit H4) — in evaluation order. Each face of the
+:attr:`geometry.features.evaluate.EvaluationState.provenance`) — on every
+evaluation, so the cache checkpoint an ``/evaluate`` leaves can serve the face
+pick that follows it (PERF-REAL-3) — in evaluation order. Each face of the
 final body then resolves against TWO indices built from those snapshots, and
 takes the EARLIER of what they say (see :func:`attribute_faces`):
 
@@ -514,11 +515,11 @@ class FaceProvenanceRecorder:
     """Accumulates each snapshot's face fingerprints AS evaluation produces them.
 
     One per :class:`~geometry.features.evaluate.EvaluationState`, fed by the
-    dispatcher after every ok body-affecting feature when the caller opted into
-    history (audit H4). Replaces retaining the snapshot B-reps themselves
-    (PERF-5b): the pass that reads this is then ``O(final faces)`` instead of
-    ``O(features x faces)``, and the intermediate bodies die as before provenance
-    existed.
+    dispatcher after every ok body-affecting feature (on every evaluation since
+    PERF-REAL-3; it was opt-in under audit H4). Replaces retaining the snapshot
+    B-reps themselves (PERF-5b): the pass that reads this is then
+    ``O(final faces)`` instead of ``O(features x faces)``, and the intermediate
+    bodies die as before provenance existed.
 
     **The memo, and why it is exact.** A boolean shares the ``TShape`` of every
     face it did not touch, so consecutive snapshots overlap heavily — 1 765 of
@@ -628,7 +629,7 @@ class FaceProvenanceRecorder:
     def retained_faces(self) -> list[object]:
         """Every face the memo keeps alive (its keys are ``TShape`` identity, so
         it must hold them). Only a rebuild-cache checkpoint's weight reads this:
-        on a ``record_history`` lineage these can outlive the body that made them,
+        these can outlive the body that made them (they are intermediate faces),
         so they are memory the checkpoint pins."""
         return [face for bucket in self._memo.values() for face, _ in bucket]
 

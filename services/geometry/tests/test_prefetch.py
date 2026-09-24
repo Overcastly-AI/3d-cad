@@ -110,8 +110,8 @@ class Answer:
     provenance: FaceProvenance
 
 
-def _answer(request: EvaluateTreeRequest, *, record_history: bool = False) -> Answer:
-    evaluation = evaluate_tree(request, record_history=record_history)
+def _answer(request: EvaluateTreeRequest) -> Answer:
+    evaluation = evaluate_tree(request)
     result = evaluation.result
     return Answer(
         statuses=tuple(feature.status for feature in result.features),
@@ -123,10 +123,10 @@ def _answer(request: EvaluateTreeRequest, *, record_history: bool = False) -> An
     )
 
 
-def _cold(request: EvaluateTreeRequest, *, record_history: bool = False) -> Answer:
+def _cold(request: EvaluateTreeRequest) -> Answer:
     """The answer with the cache emptied — the reference every gate compares to."""
     reset_rebuild_cache()
-    answer = _answer(request, record_history=record_history)
+    answer = _answer(request)
     reset_rebuild_cache()
     return answer
 
@@ -302,36 +302,31 @@ def test_warming_the_prefix_of_an_open_editor_serves_the_commit() -> None:
     assert after.resumed_features == before.resumed_features + index
 
 
-def test_warming_the_provenance_lineage_serves_the_first_face_pick() -> None:
+def test_one_warm_serves_the_commit_and_the_first_face_pick() -> None:
     """The visible one (docs/PERF.md: 29 s for the first pick at N=200).
 
-    A face pick evaluates with ``record_history=True``, which is a SEPARATE cache
-    lineage — a plain prefix retains no intermediate bodies and so cannot answer
-    per-face provenance. Warming both lineages while the editor is open therefore
-    serves the commit AND the pick that follows it; warming only the plain one
-    leaves the pick exactly as cold as before.
+    A face pick needs per-face provenance, which every evaluation records since
+    PERF-REAL-3 — so there is ONE lineage, and one warm while the editor is open
+    serves the commit, whose checkpoint then serves the pick that follows it with
+    no rebuild at all. The history both carry must be the complete one a cold
+    evaluation builds.
     """
     payload = _payload()
     index = _first_editable_float_index(payload)
     edited = _request(_retype(payload, index))
-    cold = _cold(edited, record_history=True)
+    cold = _cold(edited)
     assert len(cold.provenance.snapshots) > 0
 
     reset_rebuild_cache()
-    warm_rebuild_cache(_request(payload), prefix_length=index)  # plain lineage only
+    warm_rebuild_cache(_request(payload), prefix_length=index)
     before = rebuild_cache_stats()
-    assert _answer(edited, record_history=True) == cold
-    assert rebuild_cache_stats().misses == before.misses + 1, (
-        "the plain lineage must not be able to serve a provenance rebuild"
-    )
-
-    reset_rebuild_cache()
-    warm_rebuild_cache(_request(payload), prefix_length=index, record_history=True)
-    before = rebuild_cache_stats()
-    assert _answer(edited, record_history=True) == cold
+    assert _answer(edited) == cold  # the commit resumes the warm prefix
+    assert _answer(edited) == cold  # the pick resumes the commit's frontier
     after = rebuild_cache_stats()
-    assert after.hits == before.hits + 1
-    assert after.resumed_features == before.resumed_features + index
+    assert (after.hits, after.misses) == (before.hits + 2, before.misses)
+    assert after.resumed_features == before.resumed_features + index + len(
+        edited.features
+    )
 
 
 def test_re_declaring_the_same_open_editor_keeps_the_checkpoint() -> None:
@@ -669,7 +664,6 @@ def test_a_warm_paused_on_a_rung_does_not_redo_a_live_request_or_demote_it() -> 
     keys = prefix_keys(
         request,
         capture_scope=evaluate_module._tool_scope_ids(request),  # pyright: ignore[reportPrivateUsage]
-        record_history=False,
     )
 
     reset_rebuild_cache()
@@ -761,17 +755,18 @@ def test_the_default_budget_is_stated_and_bounded() -> None:
 # --- 4. The work one ticket represents ------------------------------------------
 
 
-def test_warm_work_warms_the_requested_lineages_in_order() -> None:
+def test_warm_work_warms_the_one_lineage_whatever_the_ticket_names() -> None:
     """`warm_work` is the whole translation from "a ticket was accepted" to
-    kernel work: lineages in priority order under one shared stop predicate, and
-    a stop between them so a cancelled ticket cannot start the second."""
+    kernel work. A ticket still names ``evaluate`` and ``provenance`` (the wire
+    contract predates PERF-REAL-3); both address the ONE lineage now, so the warm
+    runs once and stores ONE checkpoint, and the rebuild that follows resumes it."""
     payload = _payload()
     index = _first_editable_float_index(payload)
     edited = _request(_retype(payload, index))
-    plain_cold = _cold(edited)
-    history_cold = _cold(edited, record_history=True)
+    cold = _cold(edited)
 
     reset_rebuild_cache()
+    before_warm = rebuild_cache_stats()
     warm_work(
         WarmTreeRequest(
             ticket="t",
@@ -780,12 +775,13 @@ def test_warm_work_warms_the_requested_lineages_in_order() -> None:
             lineages=["evaluate", "provenance"],
         )
     )(lambda: False)
+    warmed = rebuild_cache_stats()
+    assert warmed.misses == before_warm.misses + 1, "one warm, not one per name"
 
-    before = rebuild_cache_stats()
-    assert _answer(edited) == plain_cold
-    assert _answer(edited, record_history=True) == history_cold
+    assert _answer(edited) == cold
     after = rebuild_cache_stats()
-    assert after.hits == before.hits + 2, "both lineages were warmed"
+    assert after.hits == warmed.hits + 1
+    assert after.resumed_features == warmed.resumed_features + index
 
 
 def test_an_already_stopped_ticket_does_no_work_at_all() -> None:

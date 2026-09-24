@@ -105,8 +105,8 @@ class Answer:
     provenance: FaceProvenance
 
 
-def _answer(request: EvaluateTreeRequest, *, record_history: bool = False) -> Answer:
-    evaluation = evaluate_tree(request, record_history=record_history)
+def _answer(request: EvaluateTreeRequest) -> Answer:
+    evaluation = evaluate_tree(request)
     result = evaluation.result
     return Answer(
         statuses=tuple(feature.status for feature in result.features),
@@ -122,10 +122,10 @@ def _answer(request: EvaluateTreeRequest, *, record_history: bool = False) -> An
     )
 
 
-def _cold(request: EvaluateTreeRequest, *, record_history: bool = False) -> Answer:
+def _cold(request: EvaluateTreeRequest) -> Answer:
     """The answer with the cache emptied — the reference every gate compares to."""
     reset_rebuild_cache()
-    answer = _answer(request, record_history=record_history)
+    answer = _answer(request)
     reset_rebuild_cache()
     return answer
 
@@ -300,19 +300,22 @@ def test_a_material_change_alone_still_reports_the_new_mass() -> None:
     assert _answer(plain) == cold_plain
 
 
-def test_history_recording_never_resumes_a_prefix_that_has_no_history() -> None:
-    """Per-face provenance walks a snapshot per body-affecting feature. A prefix
-    evaluated WITHOUT history has none, so serving it to an overlay rebuild would
-    silently mis-attribute every face the prefix built. The two callers get two
-    lineages (``record_history`` is in the key), and this asserts the history a
-    warm overlay sees is the COMPLETE one a cold overlay sees."""
+def test_a_resumed_prefix_carries_the_complete_history() -> None:
+    """Per-face provenance walks a snapshot per body-affecting feature, so a
+    prefix whose checkpoint lacked them would silently mis-attribute every face
+    it built. Every evaluation records since PERF-REAL-3 — which is what lets a
+    face pick resume the checkpoint an ``/evaluate`` left — so the history a
+    warm evaluation carries must be the COMPLETE one a cold evaluation builds,
+    across a frontier resume AND an append."""
     request = _request(_payload())
-    cold = _cold(request, record_history=True)
+    cold = _cold(request)
     assert len(cold.provenance.snapshots) > 0
 
     reset_rebuild_cache()
-    _answer(request)  # a plain evaluate first — the tempting stale prefix
-    warm = _answer(request, record_history=True)
+    _answer(_request(_payload(TREE_N - 1)))  # a shorter prefix, then the append
+    appended = _answer(request)
+    assert appended.provenance == cold.provenance
+    warm = _answer(request)  # the same tree again: a frontier hit
     assert warm.provenance == cold.provenance
     assert warm.glb == cold.glb
 
@@ -515,14 +518,14 @@ def test_a_resumed_entry_reports_the_claim_it_was_stored_with() -> None:
 
 
 def test_the_capacity_is_sized_for_more_than_four_modelers() -> None:
-    """CONC-4: a working modeler holds TWO lineages (the plain one an edit
-    rebuilds, and the ``record_history`` one a face pick uses), so the old
-    capacity of 8 was exactly four users and the fifth cost everyone 79x on
-    ``/measure``. docs/OPERATIONS.md §6 sizes a host for up to 8 concurrent
-    modelers, and without affinity all of them can land on one worker.
+    """CONC-4: the old capacity of 8 was exactly four users (each then held two
+    lineages) and the fifth cost everyone 79x on ``/measure``. docs/OPERATIONS.md
+    §6 sizes a host for up to 8 concurrent modelers, and without affinity all of
+    them can land on one worker. A modeler holds ONE lineage per part since
+    PERF-REAL-3; the factor of 2 is kept as headroom for flipping between parts.
     """
     assert REBUILD_CACHE_CAPACITY >= 8 * 2, (
-        "8 modelers x 2 lineages is the working set one worker must hold"
+        "8 modelers x 2 parts is the working set one worker must hold"
     )
 
 
@@ -553,35 +556,28 @@ def test_prefix_keys_roll_forward_and_break_at_the_change() -> None:
     changes exactly the keys from *k+1* on (so nothing before it is invalidated
     and nothing after it survives)."""
     payload = _payload(10)
-    base = prefix_keys(_request(payload), capture_scope=(), record_history=False)
+    base = prefix_keys(_request(payload), capture_scope=())
     longer_payload = _payload(12)
-    longer = prefix_keys(
-        _request(longer_payload), capture_scope=(), record_history=False
-    )
+    longer = prefix_keys(_request(longer_payload), capture_scope=())
     assert longer[: len(base)] == base
 
     edited_payload = copy.deepcopy(payload)
     index = _last_extrude_index(edited_payload)
     params = edited_payload["features"][index]["feature"]["params"]
     params["distance_mm"] = params["distance_mm"] + 1.0
-    edited = prefix_keys(
-        _request(edited_payload), capture_scope=(), record_history=False
-    )
+    edited = prefix_keys(_request(edited_payload), capture_scope=())
     assert edited[: index + 1] == base[: index + 1]
     assert all(
         a != b for a, b in zip(edited[index + 1 :], base[index + 1 :], strict=True)
     )
 
 
-def test_the_capture_scope_and_history_flag_are_part_of_the_key() -> None:
+def test_the_capture_scope_is_part_of_the_key() -> None:
     request = _request(_payload(10))
-    plain = prefix_keys(request, capture_scope=(), record_history=False)
-    scoped = prefix_keys(
-        request, capture_scope=(uuid.UUID(int=7),), record_history=False
-    )
-    history = prefix_keys(request, capture_scope=(), record_history=True)
-    assert plain[0] != scoped[0] != history[0] != plain[0]
-    assert len({plain[-1], scoped[-1], history[-1]}) == 3
+    plain = prefix_keys(request, capture_scope=())
+    scoped = prefix_keys(request, capture_scope=(uuid.UUID(int=7),))
+    assert plain[0] != scoped[0]
+    assert plain[-1] != scoped[-1]
 
 
 # --- The prefetch seam ---------------------------------------------------------
@@ -719,18 +715,18 @@ def test_an_edit_beside_a_rung_resumes_from_the_rung_below_it_and_no_further(
 
 
 def test_a_ladder_resume_keeps_face_provenance_exact() -> None:
-    """The ``record_history`` lineage forks its provenance recorder at every rung
-    (the memo is dropped: a fork has none of the original ``TShape``s). The
+    """The evaluator forks its provenance recorder at every rung (the memo is
+    dropped: a fork has none of the original ``TShape``s). The
     fingerprints a face pick attributes with must still equal a cold rebuild's,
     so an overlay after an edit highlights the same faces a fresh worker would."""
     payload = _payload(LADDER_N)
     edited = _request(_edit_at(payload, 2 * RUNG_SPACING))
-    cold = _cold(edited, record_history=True)
+    cold = _cold(edited)
 
     reset_rebuild_cache()
-    _answer(_request(payload), record_history=True)
+    _answer(_request(payload))
     before = rebuild_cache_stats()
-    warm = _answer(edited, record_history=True)
+    warm = _answer(edited)
     assert rebuild_cache_stats().rung_hits == before.rung_hits + 1
     assert warm == cold
     assert warm.provenance.snapshots, "the gate must compare a real history"

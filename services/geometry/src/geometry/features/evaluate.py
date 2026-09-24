@@ -404,8 +404,9 @@ class EvaluationState:
     #: It holds fingerprints and NOT the snapshot B-reps (PERF-5b): retaining bodies
     #: made the interactive attribution pass ``O(features x faces)`` — 11-16 % of
     #: every ``/overlay`` request, quadratic in tree length — and kept an
-    #: intermediate body alive per feature. Recorded ONLY when the caller passes
-    #: ``record_history=True`` (audit H4); an untouched recorder costs nothing.
+    #: intermediate body alive per feature. Recorded on EVERY evaluation since
+    #: PERF-REAL-3 (see :func:`evaluate_tree`, "ONE LINEAGE"), bounded by
+    #: :data:`~loft_wire.overlay.MAX_PROVENANCE_FACES`.
     provenance: FaceProvenanceRecorder = field(default_factory=FaceProvenanceRecorder)
     #: The part's sheet-metal defaults (gauge/K/bend-radius) keyed by the
     #: base-flange feature id that created the sheet body (docs/design/
@@ -743,9 +744,8 @@ FeatureHandler = Callable[[EvaluatedFeatureInput, EvaluationState], FeatureError
 def _tool_scope_ids(request: EvaluateTreeRequest) -> frozenset[uuid.UUID]:
     """Every feature id named by a ``features``-scope mirror OR PATTERN in *request*.
 
-    The OPT-IN pre-pass of docs/design/mirror-semantics.md §9, the same posture
-    ``record_history`` took for per-face provenance (audit H4: only the caller that
-    needs the retained intermediates funds them). v1 retained exactly ONE tool list
+    The OPT-IN pre-pass of docs/design/mirror-semantics.md §9: only a tree that
+    names features funds retaining their tools. v1 retained exactly ONE tool list
     (the most recent cut); v2 must retain a tool list for every feature some mirror
     might name, which without a gate would grow with tree length x tool complexity
     for the whole evaluation. The selection is known BEFORE evaluation starts, so
@@ -3316,9 +3316,9 @@ class TreeEvaluation:
     #: (evaluation order). Per-face feature provenance (FINDINGS #9) — the overlay
     #: service threads :func:`geometry.kernel.attribute_faces` over ``(body,
     #: face_provenance)`` onto ``OverlayFace.feature_id`` for feature-localized
-    #: selection. EMPTY unless the caller asked for it (``evaluate_tree(...,
-    #: record_history=True)`` — audit H4: only the overlay path funds the
-    #: fingerprinting), and for a body-less tree. Carries no kernel shape, so
+    #: selection. Recorded on every evaluation (one cache lineage, PERF-REAL-3);
+    #: EMPTY for a body-less tree and for one past
+    #: :data:`~loft_wire.overlay.MAX_PROVENANCE_FACES`. Carries no kernel shape, so
     #: holding a :class:`TreeEvaluation` no longer pins an intermediate B-rep per
     #: feature (PERF-5b).
     face_provenance: FaceProvenance = field(default_factory=FaceProvenance)
@@ -3634,7 +3634,6 @@ def _dispatch_prefix(
     suppressed_ids: set[uuid.UUID],
     last_good_feature_id: uuid.UUID | None,
     *,
-    record_history: bool,
     offset: int,
     ladder: _Ladder,
     stop: Callable[[], bool] | None = None,
@@ -3663,7 +3662,7 @@ def _dispatch_prefix(
         if failed:
             results.append(FeatureResult(feature_id=item.id, status="skipped"))
             continue
-        _dispatch_one(item, state, results, suppressed_ids, record_history)
+        _dispatch_one(item, state, results, suppressed_ids)
         if results[-1].status == "error":
             failed = True
             continue
@@ -3682,7 +3681,6 @@ def _dispatch_one(
     state: EvaluationState,
     results: list[FeatureResult],
     suppressed_ids: set[uuid.UUID],
-    record_history: bool,
 ) -> None:
     """Evaluate ONE feature into *state*, appending exactly one result.
 
@@ -3730,11 +3728,12 @@ def _dispatch_one(
             # (FINDINGS #9): each final face is attributed to the earliest
             # feature after which it exists in its final form. Taken HERE, not
             # from a retained snapshot at attribution time (PERF-5b) — see
-            # :class:`FaceProvenanceRecorder`. OPT-IN (audit H4) — only the
-            # overlay path reads these, so no other caller pays the
-            # fingerprinting (or the per-feature Compound construction on a
-            # multi-body part), and the intermediate body dies as before.
-            if record_history and state.bodies:
+            # :class:`FaceProvenanceRecorder`. UNCONDITIONAL since PERF-REAL-3
+            # (see :func:`evaluate_tree`, "ONE LINEAGE"): a state that has not
+            # recorded cannot serve a face pick, so recording only for the pick
+            # made every pick after an open or an edit a full rebuild. The
+            # intermediate body still dies as before; only fingerprints stay.
+            if state.bodies:
                 state.provenance.record(item.id, _snapshot_shape(state.bodies))
     else:
         results.append(FeatureResult(feature_id=item.id, status="error", error=error))
@@ -3744,7 +3743,6 @@ def warm_rebuild_cache(
     request: EvaluateTreeRequest,
     *,
     prefix_length: int | None = None,
-    record_history: bool = False,
     budget_s: float | None = None,
     cancelled: Callable[[], bool] | None = None,
     yield_to: WorkGate | None = None,
@@ -3837,7 +3835,6 @@ def warm_rebuild_cache(
     keys = prefix_keys(
         request,
         capture_scope=_tool_scope_ids(request),
-        record_history=record_history,
     )
     resume = _REBUILD_CACHE.take(keys[: target + 1])
     start = 0 if resume is None else resume.prefix_length
@@ -3895,7 +3892,6 @@ def warm_rebuild_cache(
             results,
             suppressed,
             last_good,
-            record_history=record_history,
             offset=built,
             ladder=_Ladder(keys, speculative=True),
             stop=dispatching,
@@ -3969,9 +3965,7 @@ def warm_rebuild_cache(
         suppressed = set(reclaimed.checkpoint.suppressed_ids)
 
 
-def evaluate_tree(
-    request: EvaluateTreeRequest, *, record_history: bool = False
-) -> TreeEvaluation:
+def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
     """Evaluate a feature tree — the ONE funnel every rebuild in the product
     passes through, and therefore where real work announces itself.
 
@@ -3983,12 +3977,10 @@ def evaluate_tree(
     a counter, never a lock: concurrent real rebuilds do not serialise on it.
     """
     with live_work().tracked():
-        return _evaluate_tree(request, record_history=record_history)
+        return _evaluate_tree(request)
 
 
-def _evaluate_tree(
-    request: EvaluateTreeRequest, *, record_history: bool = False
-) -> TreeEvaluation:
+def _evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
     """Evaluate an ordered feature prefix under the strict-prefix rule (§4.3).
 
     Suppressed features (§4.3a) are SKIPPED: the body is built from the
@@ -3997,26 +3989,34 @@ def _evaluate_tree(
     suppressed one is a typed ``references_suppressed`` error
     (:func:`_suppressed_reference_error`), never a raise.
 
-    *record_history* (OPT-IN, audit H4) turns on the per-feature face
-    FINGERPRINTING that feeds per-face provenance
-    (:attr:`TreeEvaluation.face_provenance`). It is off by default because ONLY the
-    overlay service consumes it, while ``evaluate_tree`` has nine call sites —
-    tessellate, export, measure, drawing compose, per-instance assembly evaluation,
-    the golden harness. Recording unconditionally would make every one of those pay
-    a GProp area + centroid per face per body-affecting feature (up to
-    ``MAX_TREE_FEATURES``, and per unique part in an assembly) plus, for a
-    multi-body part, CONSTRUCT a fresh ``Compound`` per feature — real OCCT work on
-    the tessellate hot path, funded by callers that never read the result. With it
-    off, nothing is recorded and each intermediate body dies as the next feature
-    supersedes it, exactly as before provenance existed. Since PERF-5b it is
-    fingerprints that are retained rather than the intermediate B-reps, so even the
-    opted-in caller no longer pins a body per feature.
+    Every evaluation FINGERPRINTS the body set after each body-affecting feature
+    (:class:`~geometry.kernel.FaceProvenanceRecorder`), which is what per-face
+    provenance (:attr:`TreeEvaluation.face_provenance`) is attributed from. It
+    reads geometry and never writes it, so it changes NOTHING about what is built.
+
+    ONE LINEAGE (PERF-REAL-3, 2026-09-24). Recording used to be opt-in (audit H4:
+    only ``/overlay`` reads it, so the other callers should not pay for it), and
+    because a prefix evaluated without it cannot serve a face pick, the flag was
+    part of the cache key. The consequence nobody had priced: **a face pick after
+    an open or an edit was ALWAYS a miss**, on a lineage of its own, and re-ran the
+    whole tree. That is the product's core loop — edit, then click a face — and on
+    the gauntlet's imported ``gearbox-11752`` (1 018 faces) the pick re-spent
+    7.9 s of an 8.5 s cold evaluate in process (15.3 s through the browser). What
+    H4 protected against had meanwhile shrunk: since PERF-5b recording is a
+    TShape-memoised fingerprint of each DISTINCT face. Its price, measured as time
+    inside ``record()`` on cold rebuilds: 403 ms of 6.2 s on the gearbox, 115 ms /
+    399 ms / 1 477 ms of 1.6 / 5.9 / 25.0 s on the housing tray at N=50/100/200 —
+    ~6-8 % of a cold rebuild (and of the re-run tail of an edit), paid to delete a
+    whole second rebuild from every pick. Removing even that is possible by
+    deferring the GProps to the first attribution (the memo already keys the
+    faces); it is not done here. Recording
+    is still bounded by :data:`~loft_wire.overlay.MAX_PROVENANCE_FACES` (a 20 000-face
+    import costs one face count, then stops), and one lineage per modeler instead
+    of two halves what the cache must hold per user.
 
     Deterministic: same request → identical statuses, identical solved
     positions, byte-identical GLB and therefore identical ``mesh_glb_id``
-    (RESEARCH §9) — and *record_history* changes NOTHING about the evaluated
-    geometry, only whether the intermediates are kept. Never raises for geometry
-    outcomes.
+    (RESEARCH §9). Never raises for geometry outcomes.
 
     REBUILD CACHE (docs/PERF.md fix #1). A request whose leading features hash
     identically to a cached prefix RESUMES there and evaluates only what is new,
@@ -4038,7 +4038,6 @@ def _evaluate_tree(
     keys = prefix_keys(
         request,
         capture_scope=_tool_scope_ids(request),
-        record_history=record_history,
     )
     resume = _REBUILD_CACHE.take(keys)
     start = 0 if resume is None else resume.prefix_length
@@ -4066,7 +4065,6 @@ def _evaluate_tree(
         results,
         suppressed_ids,
         last_good_feature_id,
-        record_history=record_history,
         offset=start,
         ladder=_Ladder(keys, speculative=False),
     )

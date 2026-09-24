@@ -29,11 +29,11 @@ def evaluate_overlay(request: OverlayRequest) -> OverlayResult:
     Deterministic end to end (RESEARCH §9): the tree evaluation and the overlay
     enumeration are pure functions of the request.
     """
-    # The ONLY caller that asks for body history: per-face provenance below needs
-    # the per-feature face fingerprints, and no other evaluate path does (audit H4 —
-    # the flag keeps tessellate / export / measure / drawings / assembly from paying
-    # a GProp per face per feature for an answer they never read).
-    evaluation = evaluate_tree(request.tree, record_history=True)
+    # Per-face provenance below reads the per-feature face fingerprints every
+    # evaluation records, so a pick right after an ``/evaluate`` of the same tree
+    # resumes that evaluation's checkpoint and re-runs nothing (PERF-REAL-3: this
+    # used to ask for a separate ``record_history`` lineage, and missed every time).
+    evaluation = evaluate_tree(request.tree)
     if evaluation.body is None:
         raise tree_no_body_error(
             evaluation.result, code="tree_overlay_failed", action="overlay"
