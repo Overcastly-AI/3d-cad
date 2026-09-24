@@ -46,6 +46,7 @@ import { useMeasureStore } from "../measure/store";
 import { MeasureReadout } from "../components/MeasureReadout";
 import { AuthoringViewCube } from "../components/AuthoringViewCube";
 import { MeasureOverlay } from "../viewport/MeasureOverlay";
+import { profileRegions, regionsCentroid } from "../viewport/profileLoops";
 import {
   type BooleanParams,
   booleanFeatureCreate,
@@ -1320,6 +1321,24 @@ export function PartPage() {
     }
     return layers;
   }, [tree.data, evaluation.data, mode, featureId, datumById, datumBasisById]);
+
+  /**
+   * Each solved profile's area centroid, for the extrude's "Centroid" twist
+   * axis (helical-gear gap G1). One map per solve, so the object the editor
+   * receives for a profile is STABLE until its geometry changes.
+   */
+  const profileCentroids = useMemo(() => {
+    const map = new Map<string, { x: number; y: number }>();
+    for (const layer of solved) {
+      const c = regionsCentroid(profileRegions(layer.entities));
+      if (c !== null) map.set(layer.featureId, c);
+    }
+    return map;
+  }, [solved]);
+  const profileCentroid = useCallback(
+    (id: string) => profileCentroids.get(id) ?? null,
+    [profileCentroids],
+  );
 
   // Keyboard-first: Escape cascade always; tools, snap, constraint verbs and
   // Delete while drawing. One keyboard, two vocabularies — selection
@@ -5394,6 +5413,7 @@ export function PartPage() {
                         error={editorError}
                         onPreviewChange={setExtrudePreview}
                         depthOverride={extrudeDepthOverride}
+                        profileCentroid={profileCentroid}
                       />
                     ) : editor.kind === "revolve" ? (
                       <RevolveEditor

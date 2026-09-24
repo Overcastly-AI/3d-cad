@@ -44,6 +44,10 @@ import {
   type ExtrudeOperation,
   type ExtrudePreviewState,
   extrudeParamsFromForm,
+  formatTwistInput,
+  parseTwistDeg,
+  twistError,
+  twistHand,
   extrudePreviewState,
   optionProvenance,
   parseDistanceMm,
@@ -88,7 +92,39 @@ export interface ExtrudeEditorProps {
    * swallowed.
    */
   depthOverride?: { mm: number } | null;
+  /**
+   * A twist set by DIRECT MANIPULATION — the viewport's twist arc on the far
+   * cap (helical-gear gap G1). The same contract as `depthOverride`: the arc
+   * asks, the Twist field takes the number, and the ghost and the arc redraw
+   * from the field. Boxed for the same reason.
+   */
+  twistOverride?: { deg: number } | null;
+  /**
+   * The area centroid of a profile's closed regions, in its sketch's (x, y)
+   * mm, or null when it has none. Offered as the twist axis only when known:
+   * the editor sees profile ids, the caller sees their geometry.
+   */
+  profileCentroid?: (
+    profileFeatureId: string,
+  ) => { x: number; y: number } | null;
+  // (The returned object must be STABLE per profile — it feeds the preview
+  // effect's dependencies; PartPage memoises one map for the whole tree.)
 }
+
+const TWIST_CENTRES: ReadonlyArray<SegmentOption<"origin" | "centroid">> = [
+  {
+    value: "origin",
+    label: "Origin",
+    "data-testid": "extrude-twist-centre-origin",
+    "aria-label": "Twist axis: through the sketch origin",
+  },
+  {
+    value: "centroid",
+    label: "Centroid",
+    "data-testid": "extrude-twist-centre-centroid",
+    "aria-label": "Twist axis: through the profile's centroid",
+  },
+];
 
 // No `icon` on these four: they render in a DENSE segmented control, which
 // spends the glyph's width on the word instead (see `SegmentedControl`, and the
@@ -154,6 +190,8 @@ export function ExtrudeEditor({
   error,
   onPreviewChange,
   depthOverride = null,
+  twistOverride = null,
+  profileCentroid,
 }: ExtrudeEditorProps) {
   const unit = useDocumentLengthUnit();
   // The re-seed on retarget and the gauge's write both happen DURING RENDER
@@ -173,22 +211,29 @@ export function ExtrudeEditor({
       }),
       unit,
     ),
+    gaugeWrite(twistOverride, (f: ExtrudeForm, o) => ({
+      ...f,
+      twistInput: formatTwistInput(o.deg),
+    })),
   );
+
+  const centroid = profileCentroid?.(form.profileFeatureId) ?? null;
 
   // Feed the live ghost: every form/unit change re-projects the preview; the
   // cleanup clears it so closing the editor (unmount) never leaves a ghost.
   useEffect(() => {
-    onPreviewChange?.(extrudePreviewState(form, unit));
+    onPreviewChange?.(extrudePreviewState(form, unit, centroid));
     return () => onPreviewChange?.(null);
-  }, [form, unit, onPreviewChange]);
+  }, [form, unit, onPreviewChange, centroid]);
 
   const submit = useCallback(() => {
     const distance = parseDistanceMm(form.distanceInput, unit);
     if (distance === null || form.profileFeatureId === "") return;
+    if (parseTwistDeg(form.twistInput) === null) return;
     // Over the STORED params, never instead of them: a field this editor does
-    // not show (a loft-script twist) must survive an edit of one it does.
-    onSubmit(extrudeParamsFromForm(form, distance));
-  }, [form, onSubmit, unit]);
+    // not show must survive an edit of one it does.
+    onSubmit(extrudeParamsFromForm(form, distance, centroid));
+  }, [form, onSubmit, unit, centroid]);
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -205,6 +250,14 @@ export function ExtrudeEditor({
   // options so retargeting the profile re-reads it.
   const provenance = optionProvenance(profiles, form.profileFeatureId);
   const distanceMsg = distanceError(form.distanceInput, unit);
+  const twistMsg = twistError(form.twistInput);
+  const twistDeg = parseTwistDeg(form.twistInput) ?? 0;
+  const twistNote =
+    twistDeg === 0
+      ? undefined
+      : `${twistHand(twistDeg)}: the far end turns ${Math.abs(twistDeg)}° ${
+          twistDeg > 0 ? "anticlockwise" : "clockwise"
+        } looking back along the extrude.`;
   // ONE computation, two readings (REASON-GATE-1): `canSubmit` is DEFINED as
   // "nothing is blocking", so a grey Save with an empty reason line is
   // unreachable rather than merely absent. Null while saving — the label says
@@ -319,6 +372,61 @@ export function ExtrudeEditor({
               }
               onFocus={(e) => e.currentTarget.select()}
             />
+
+            {/*
+              THE TWIST (helical-gear gap G1). Quiet, one row, and empty by
+              default: most extrudes are straight, and an untwisted extrude
+              sends no twist fields at all. The arc on the ghost's far cap is
+              the primary control; this is its exact fallback. The axis row
+              appears only once there is a twist to put an axis under.
+            */}
+            <NumberField
+              label="Twist"
+              layout="inline"
+              unit="°"
+              placeholder="0"
+              data-testid="extrude-twist"
+              value={form.twistInput}
+              error={twistMsg}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, twistInput: e.target.value }))
+              }
+              onFocus={(e) => e.currentTarget.select()}
+            />
+            {twistDeg !== 0 ? (
+              <FieldRow
+                label="Axis"
+                note={twistNote}
+                noteLabel="About the twist"
+                noteTestId="extrude-twist-hint"
+              >
+                {form.twistCentre.kind === "point" ? (
+                  // A centre a script placed is kept exactly as it was; it
+                  // is shown, not offered, so a Save cannot move it.
+                  <span
+                    className="font-data text-md text-mist"
+                    data-testid="extrude-twist-centre-point"
+                  >
+                    {`(${form.twistCentre.at.x}, ${form.twistCentre.at.y})`}
+                  </span>
+                ) : (
+                  <SegmentedControl
+                    label="Twist axis"
+                    hideLabel
+                    size="dense"
+                    value={form.twistCentre.kind}
+                    options={
+                      centroid === null
+                        ? TWIST_CENTRES.slice(0, 1)
+                        : TWIST_CENTRES
+                    }
+                    onChange={(kind) =>
+                      setForm((f) => ({ ...f, twistCentre: { kind } }))
+                    }
+                  />
+                )}
+              </FieldRow>
+            ) : null}
 
             {/*
               THE SWEEP ROW. Operation and Direction are both 2-state and both

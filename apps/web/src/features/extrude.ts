@@ -32,6 +32,80 @@ export type ExtrudeDirection = ExtrudeParams["direction"];
  */
 export type PlaneProvenance = "face" | "base";
 
+/**
+ * Where the twist axis stands: the sketch ORIGIN (the kernel's default, and a
+ * gear's axis), the profile's area CENTROID (a twisted column drawn off the
+ * origin), or the exact point a STORED feature already names (a loft-script
+ * build), kept as it was rather than silently moved.
+ */
+export type TwistCentre =
+  | { kind: "origin" }
+  | { kind: "centroid" }
+  | { kind: "point"; at: { x: number; y: number } };
+
+/** The kernel's sanity bound on a twist, degrees (ten turns; design note §4). */
+export const MAX_TWIST_DEG = 3600;
+
+/**
+ * Below this a twist is no twist: the kernel normalises `|twist| < 1e-9` deg to
+ * absent (design note §4), so the form does the same rather than send a value
+ * the stored row will not keep.
+ */
+export const MIN_TWIST_DEG = 1e-9;
+
+/**
+ * Parse the twist field to signed degrees: 0 for empty or a vanishing value
+ * (no twist), or null when it is not a number or beyond ten turns.
+ */
+export function parseTwistDeg(input: string): number | null {
+  const trimmed = input.trim();
+  if (trimmed === "") return 0;
+  const value = Number(trimmed);
+  if (!Number.isFinite(value) || Math.abs(value) > MAX_TWIST_DEG) return null;
+  return Math.abs(value) < MIN_TWIST_DEG ? 0 : value;
+}
+
+/** Field-level validation message for the twist, or null when it is valid. */
+export function twistError(input: string): string | null {
+  return parseTwistDeg(input) === null
+    ? `Twist must be a number of degrees, at most ${MAX_TWIST_DEG} either way.`
+    : null;
+}
+
+/** The hand of a twist, as an engineer says it, or null for none. */
+export function twistHand(twistDeg: number): "Right-hand" | "Left-hand" | null {
+  if (twistDeg === 0) return null;
+  return twistDeg > 0 ? "Right-hand" : "Left-hand";
+}
+
+/** A typed twist written back into the field (the gauge's write). */
+export function formatTwistInput(twistDeg: number): string {
+  // Twelve significant digits: enough that a STORED twist (12.358, typed into a
+  // script) comes back exactly, few enough to shed float noise a drag leaves
+  // behind (0.1 + 0.2). Rounding to a display precision here would change the
+  // helix on the first Save that touched nothing.
+  return String(Number(twistDeg.toPrecision(12)));
+}
+
+/**
+ * The twist centre as a sketch-plane point, or null for the sketch origin
+ * (which the params express by leaving `twist_center` out). `centroid` is the
+ * profile's area centroid, supplied by the caller that can see the profile.
+ */
+export function twistCentrePoint(
+  centre: TwistCentre,
+  centroid: { x: number; y: number } | null,
+): { x: number; y: number } | null {
+  switch (centre.kind) {
+    case "origin":
+      return null;
+    case "centroid":
+      return centroid;
+    case "point":
+      return centre.at;
+  }
+}
+
 /** The editable extrude form state (distance kept as raw text — unit input). */
 export interface ExtrudeForm {
   profileFeatureId: string;
@@ -59,6 +133,16 @@ export interface ExtrudeForm {
    * and never shown, but always sent (the wire field is required, MB-0).
    */
   merge: boolean;
+  /**
+   * The twist over the whole distance, degrees, as typed (helical-gear gap G1,
+   * `docs/design/twisted-extrude.md`). Signed: positive is a RIGHT-hand helix
+   * about the direction of travel, negative left. Empty or 0 is no twist, and
+   * then the params carry NO twist fields at all, so an untwisted extrude
+   * stays byte-identical to one saved before twist existed.
+   */
+  twistInput: string;
+  /** Where the twist axis pierces the sketch plane (see {@link TwistCentre}). */
+  twistCentre: TwistCentre;
   /**
    * The feature's params as STORED, when this form edits an existing extrude
    * (absent on create). The form edits five fields; the feature can carry
@@ -91,12 +175,21 @@ export interface ExtrudePreviewState {
   distanceMm: number;
   direction: ExtrudeDirection;
   operation: ExtrudeOperation;
+  /**
+   * Signed twist, degrees; 0 = a straight prism. An invalid twist field
+   * previews as 0 (the field is red and Save is gated; the ghost should not
+   * vanish while you correct it).
+   */
+  twistDeg: number;
+  /** The twist axis's sketch-plane point, or null for the sketch origin. */
+  twistCentre: { x: number; y: number } | null;
 }
 
 /** The current form as a preview projection, or null while it is incomplete. */
 export function extrudePreviewState(
   form: ExtrudeForm,
   unit: LengthUnit,
+  centroid: { x: number; y: number } | null = null,
 ): ExtrudePreviewState | null {
   const distanceMm = parseDistanceMm(form.distanceInput, unit);
   if (distanceMm === null || form.profileFeatureId === "") return null;
@@ -105,6 +198,8 @@ export function extrudePreviewState(
     distanceMm,
     direction: form.direction,
     operation: form.operation,
+    twistDeg: parseTwistDeg(form.twistInput) ?? 0,
+    twistCentre: twistCentrePoint(form.twistCentre, centroid),
   };
 }
 
@@ -150,6 +245,8 @@ export function defaultExtrudeForm(
     direction: defaultExtrudeDirection("add", provenance),
     directionTouched: false,
     merge: true,
+    twistInput: "",
+    twistCentre: { kind: "origin" },
   };
 }
 
@@ -173,6 +270,16 @@ export function formFromParams(
     direction: params.direction,
     directionTouched: false,
     merge: params.merge,
+    twistInput:
+      params.twist_angle_deg === undefined || params.twist_angle_deg === null
+        ? ""
+        : formatTwistInput(params.twist_angle_deg),
+    // A stored centre is kept as the exact point it names; the sketch origin
+    // is what an absent one means.
+    twistCentre:
+      params.twist_center === undefined || params.twist_center === null
+        ? { kind: "origin" }
+        : { kind: "point", at: params.twist_center },
     stored: params,
   };
 }
@@ -186,9 +293,15 @@ export function formFromParams(
 export function extrudeParamsFromForm(
   form: ExtrudeForm,
   distanceMm: number,
+  centroid: { x: number; y: number } | null = null,
 ): ExtrudeParams {
-  return {
-    ...form.stored,
+  // The twist fields are the FORM's now, so the stored ones never ride along:
+  // clearing the twist must remove them, not leave the old helix behind.
+  const kept: Partial<ExtrudeParams> = { ...form.stored };
+  delete kept.twist_angle_deg;
+  delete kept.twist_center;
+  const params: ExtrudeParams = {
+    ...kept,
     profile: { kind: "feature", feature_id: form.profileFeatureId },
     distance_mm: distanceMm,
     operation: form.operation,
@@ -197,6 +310,15 @@ export function extrudeParamsFromForm(
     // so it sends the neutral `true` regardless of a stale toggle.
     merge: form.operation === "add" ? form.merge : true,
   };
+  const twist = parseTwistDeg(form.twistInput) ?? 0;
+  // NO TWIST SENDS NO TWIST FIELDS — not `null`, not `0`: absent keys, so an
+  // untwisted extrude's params are the same object they were before twist
+  // existed (design note §5, "zero twist is byte-identical").
+  if (twist === 0) return params;
+  const centre = twistCentrePoint(form.twistCentre, centroid);
+  return centre === null
+    ? { ...params, twist_angle_deg: twist }
+    : { ...params, twist_angle_deg: twist, twist_center: centre };
 }
 
 /**
@@ -335,10 +457,14 @@ export function extrudeSubmitBlocker(
   unit: LengthUnit,
 ): string | null {
   if (form.profileFeatureId === "") return "Choose a sketch profile.";
-  return fieldBlocker(
-    form.distanceInput,
-    parseDistanceMm(form.distanceInput, unit),
-    "distance",
+  return (
+    fieldBlocker(
+      form.distanceInput,
+      parseDistanceMm(form.distanceInput, unit),
+      "distance",
+    ) ??
+    // An empty twist is a valid answer (none), so only a wrong one blocks.
+    fieldBlocker(form.twistInput, parseTwistDeg(form.twistInput), "twist")
   );
 }
 

@@ -19,6 +19,10 @@ import {
   withDirection,
   withOperation,
   withProfile,
+  extrudeSubmitBlocker,
+  parseTwistDeg,
+  twistError,
+  twistHand,
 } from "./extrude";
 
 function sketch(id: string, name: string): FeatureResponse {
@@ -161,6 +165,8 @@ describe("defaultExtrudeForm", () => {
       direction: "normal",
       directionTouched: false,
       merge: true,
+      twistInput: "",
+      twistCentre: { kind: "origin" },
     });
   });
 
@@ -299,6 +305,8 @@ describe("formFromParams", () => {
       merge: true,
       // The whole stored envelope rides along, for the fields the form does
       // not show (see `extrudeParamsFromForm`).
+      twistInput: "",
+      twistCentre: { kind: "origin" },
       stored: params,
     });
   });
@@ -446,6 +454,8 @@ describe("extrudePreviewState", () => {
       distanceMm: 12,
       direction: "reverse",
       operation: "add",
+      twistDeg: 0,
+      twistCentre: null,
     });
   });
 
@@ -476,5 +486,93 @@ describe("extrudePreviewState", () => {
         "mm",
       ),
     ).toBeNull();
+  });
+});
+
+describe("twist (helical-gear gap G1)", () => {
+  const plain: ExtrudeParams = {
+    profile: { kind: "feature", feature_id: "sk" },
+    distance_mm: 20,
+    operation: "cut",
+    direction: "normal",
+    merge: true,
+  };
+
+  it("parses a signed twist; empty and vanishing are no twist; beyond ten turns is wrong", () => {
+    expect(parseTwistDeg("")).toBe(0);
+    expect(parseTwistDeg("  ")).toBe(0);
+    expect(parseTwistDeg("12.358")).toBe(12.358);
+    expect(parseTwistDeg("-30")).toBe(-30);
+    expect(parseTwistDeg("1e-12")).toBe(0);
+    expect(parseTwistDeg("3600")).toBe(3600);
+    expect(parseTwistDeg("3600.1")).toBeNull();
+    expect(parseTwistDeg("twelve")).toBeNull();
+    expect(twistError("-3600")).toBeNull();
+    expect(twistError("4000")).toMatch(/3600/);
+  });
+
+  it("names the hand the way an engineer says it", () => {
+    expect(twistHand(15)).toBe("Right-hand");
+    expect(twistHand(-15)).toBe("Left-hand");
+    expect(twistHand(0)).toBeNull();
+  });
+
+  it("NO twist sends NO twist fields: absent keys, not null or 0", () => {
+    for (const input of ["", "0", "-0", "1e-12"]) {
+      const form = { ...formFromParams(plain, "mm"), twistInput: input };
+      const params = extrudeParamsFromForm(form, 20);
+      expect(params).toEqual(plain);
+      expect(Object.keys(params)).not.toContain("twist_angle_deg");
+      expect(Object.keys(params)).not.toContain("twist_center");
+    }
+  });
+
+  it("a typed twist about the sketch origin sends the angle alone", () => {
+    const form = { ...defaultExtrudeForm("sk"), twistInput: "12.358" };
+    const params = extrudeParamsFromForm(form, 10);
+    expect(params.twist_angle_deg).toBe(12.358);
+    expect(Object.keys(params)).not.toContain("twist_center");
+  });
+
+  it("the centroid centre sends the point the caller measured", () => {
+    const form = {
+      ...defaultExtrudeForm("sk"),
+      twistInput: "-45",
+      twistCentre: { kind: "centroid" as const },
+    };
+    expect(extrudeParamsFromForm(form, 10, { x: 3, y: -4 })).toMatchObject({
+      twist_angle_deg: -45,
+      twist_center: { x: 3, y: -4 },
+    });
+  });
+
+  it("clearing a stored twist removes BOTH fields, centre included", () => {
+    const twisted: ExtrudeParams = {
+      ...plain,
+      twist_angle_deg: 30,
+      twist_center: { x: 1, y: 2 },
+    };
+    const form = { ...formFromParams(twisted, "mm"), twistInput: "" };
+    expect(extrudeParamsFromForm(form, 20)).toEqual(plain);
+  });
+
+  it("a wrong twist holds Save with a reason; an empty one does not", () => {
+    const form = defaultExtrudeForm("sk");
+    expect(extrudeSubmitBlocker({ ...form, twistInput: "" }, "mm")).toBeNull();
+    expect(extrudeSubmitBlocker({ ...form, twistInput: "abc" }, "mm")).toBe(
+      "Check the twist.",
+    );
+  });
+
+  it("the preview carries the twist and its resolved centre", () => {
+    const form = {
+      ...defaultExtrudeForm("sk"),
+      twistInput: "90",
+      twistCentre: { kind: "centroid" as const },
+    };
+    expect(extrudePreviewState(form, "mm", { x: 5, y: 5 })).toMatchObject({
+      twistDeg: 90,
+      twistCentre: { x: 5, y: 5 },
+    });
   });
 });

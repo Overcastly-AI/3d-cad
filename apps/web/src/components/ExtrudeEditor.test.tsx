@@ -95,6 +95,8 @@ describe("ExtrudeEditor preview projection", () => {
       distanceMm: 10,
       direction: "normal",
       operation: "add",
+      twistDeg: 0,
+      twistCentre: null,
     });
   });
 

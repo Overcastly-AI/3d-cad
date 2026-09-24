@@ -247,6 +247,8 @@ const CASES: Case[] = [
           direction: "normal",
           directionTouched: false,
           merge: true,
+          twistInput: "",
+          twistCentre: { kind: "origin" },
         }}
         onSubmit={noop}
         onCancel={noop}
