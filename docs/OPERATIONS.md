@@ -492,6 +492,16 @@ Two other bounds worth knowing before you promise anything:
   `openssl rand -hex 32`), plus real `POSTGRES_PASSWORD` and
   `MINIO_ROOT_PASSWORD`. The services **refuse to boot** on the repo-public dev
   defaults outside `LOFT_ENV=dev` — deliberately.
+* **Session and refresh-token lifetimes** (see also RESEARCH §13). `SESSION_IDLE_TTL_S`
+  (default 24 h: 86400 s) is the sliding-window idle timeout—every refresh
+  restarts it—and `SESSION_MAX_AGE_S` (default 7 d: 604800 s) is the absolute
+  session bound: no sequence of refreshes outlives it. Constraints **enforced
+  at boot**: `SESSION_IDLE_TTL_S >= JWT_TTL_S` (default 1 h: 3600 s, overridable
+  via `JWT_TTL_S`) and `SESSION_MAX_AGE_S >= SESSION_IDLE_TTL_S`, else the
+  gateway refuses to start. The refresh token is `Secure`-flagged (HTTPS only),
+  so **plain-HTTP non-localhost deployments fall back to 1 h hard session limit**
+  — use TLS. **Deploying this build forces every user to sign in once:** tokens
+  minted before this landed (no `sid` claim) are rejected on every request.
 * Backups contain password hashes and every part your users own. Treat a backup
   directory like the database itself: restricted permissions, encrypted at rest
   if it leaves the host.

@@ -1149,3 +1149,21 @@ already-resolved sign, on-face always follows the picked face) — a script
 must read the resolved plane back from the evaluated feature tree, or
 replicate `DATUM_PLANES`/`deterministic_x_dir` verbatim, rather than assume
 a sign.
+
+## 13. Session and token design — short-lived JWT + rotating refresh cookie
+
+**Decision:** Access tokens are short-lived HS256 JWTs (default 1 h) carrying
+`sub` (user ID) and `sid` (session ID). Refresh tokens are cryptographic
+random 256-bit values, issued to the browser as `HttpOnly; Secure; SameSite=Strict`
+cookies scoped to `/api/v1/auth`, never exposed to script. On refresh, the
+server rotates the token and verifies the new request does not replay a
+`used_at` token: reuse means two parties hold it (token copied), so the whole
+session is revoked (OAuth 2.0 Security BCP). Sessions idle-timeout at 24 h
+(sliding: refresh restarts the window) but never past 7 d absolute. Tokens
+without `sid` (pre-deployment systems) are rejected on every access—one
+sign-in cost per user. The `Secure` flag requires TLS; plain-HTTP
+non-localhost deployments fall back to 1 h hard limit.
+
+**Alternatives considered:** Long-lived JWT (no revocation without server
+blacklist), refresh-cookie-only sessions (opaque IDs need a shared store), bearer
+refresh tokens (script-exposed if a flag is missed).
