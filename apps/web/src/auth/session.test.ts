@@ -225,6 +225,35 @@ describe("createSessionStore", () => {
     }
   });
 
+  it("safeReturnPath decides like the URL parser does (review N3)", () => {
+    const origin = "https://loft.example";
+    const resolvesHome = (path: string) =>
+      new URL(path, origin).origin === origin &&
+      !path.startsWith("//") &&
+      path.startsWith("/");
+    for (const hostile of [
+      "/\t/evil.com", // the parser strips the tab: "//evil.com"
+      "/\n/evil.com",
+      "/\\evil.com", // backslash reads as a slash
+      "/..//evil.com", // normalises to the path "//evil.com"
+      "/./\\evil.com",
+      "/sign-in/../sign-in",
+    ]) {
+      expect(
+        safeReturnPath(hostile, origin),
+        JSON.stringify(hostile),
+      ).toBeNull();
+    }
+    // Encoded slashes are a literal path segment: kept, and still on-origin.
+    const encoded = safeReturnPath("/%2F%2Fevil.com", origin);
+    expect(encoded).toBe("/%2F%2Fevil.com");
+    expect(resolvesHome(encoded ?? "")).toBe(true);
+    // What comes back is the parser's serialisation, not the input.
+    expect(safeReturnPath("/parts/./abc/../xyz?tab=1#f2", origin)).toBe(
+      "/parts/xyz?tab=1#f2",
+    );
+  });
+
   it("a later signIn clears the expired notice", () => {
     const { storage } = fakeStorage();
     const store = createSessionStore(storage);

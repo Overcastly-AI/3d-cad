@@ -38,12 +38,28 @@ export type RefreshOutcome =
    */
   | { kind: "switched" };
 
+/**
+ * How long a refresh may take before it counts as "unavailable". Safe to give
+ * up on only because of the gateway's reuse interval (30 s): if the gateway
+ * DID rotate and this client stopped listening, the retry with the old
+ * cookie is answered, not treated as theft.
+ */
+export const REFRESH_TIMEOUT_MS = 15_000;
+
 /** Ask the gateway to rotate the refresh cookie (one HTTP call, no retries). */
 export async function requestRefresh(
   client: GatewayClient,
+  timeoutMs: number = REFRESH_TIMEOUT_MS,
 ): Promise<RefreshOutcome> {
+  // A controller plus a timer that is cleared when the call settles, so no
+  // abort timer outlives an answered refresh.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const { data, error, response } = await client.POST("/api/v1/auth/refresh");
+    const { data, error, response } = await client.POST(
+      "/api/v1/auth/refresh",
+      { signal: controller.signal },
+    );
     if (data !== undefined) {
       return { kind: "refreshed", token: data.access_token, user: data.user };
     }
@@ -55,6 +71,8 @@ export async function requestRefresh(
       : { kind: "rejected" };
   } catch {
     return { kind: "unavailable" };
+  } finally {
+    clearTimeout(timer);
   }
 }
 

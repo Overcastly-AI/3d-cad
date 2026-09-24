@@ -28,6 +28,17 @@ function clientAnswering(answer: () => Promise<Response>) {
   return { client, seen };
 }
 
+/**
+ * The fake network's in-flight requests, held from MODULE scope the way a
+ * real network stack holds its sockets. A Request follows its caller's
+ * signal only weakly (undici), and a stalled fake fetch is otherwise
+ * reachable from nothing but that weak link, so the whole pending call can be
+ * garbage-collected mid-test and the timeout never fires. Measured: with the
+ * array inside the test it hung every time, and it passed whenever anything
+ * else happened to keep the test's frame reachable.
+ */
+const inFlight: Request[] = [];
+
 describe("requestRefresh", () => {
   it("200 is a new access token for the same user", async () => {
     const { client, seen } = clientAnswering(async () =>
@@ -66,6 +77,24 @@ describe("requestRefresh", () => {
       ),
     );
     expect(await requestRefresh(client)).toEqual({ kind: "rejected" });
+  });
+
+  it("a refresh that never answers gives up as 'unavailable' (review N4)", async () => {
+    // Hangs until the request is aborted, as a stalled network would.
+    const client = createGatewayClient({
+      baseUrl: "http://gateway.test",
+      fetch: (request) => {
+        inFlight.push(request);
+        return new Promise<Response>((_, reject) => {
+          request.signal.addEventListener("abort", () =>
+            reject(request.signal.reason as Error),
+          );
+        });
+      },
+    });
+    const started = Date.now();
+    expect(await requestRefresh(client, 30)).toEqual({ kind: "unavailable" });
+    expect(Date.now() - started).toBeLessThan(5_000);
   });
 
   it.each([

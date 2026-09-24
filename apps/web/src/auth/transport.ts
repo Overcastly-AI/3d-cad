@@ -16,6 +16,7 @@
  * the safety net for a sleeping laptop, a throttled tab, or a token the
  * gateway revoked.
  */
+import type { paths } from "@loft/ts-client/gateway";
 import type { Middleware } from "openapi-fetch";
 
 import { envelopeCode } from "../api/envelope";
@@ -45,12 +46,17 @@ export interface SessionTransport {
  * spent cookie) and must never trigger a renewal, or a failed refresh would
  * try to refresh itself.
  */
-export const SESSION_ROUTES: ReadonlySet<string> = new Set([
+export const SESSION_ROUTES: ReadonlySet<keyof paths> = new Set<keyof paths>([
   "/api/v1/auth/login",
   "/api/v1/auth/register",
   "/api/v1/auth/refresh",
   "/api/v1/auth/logout",
 ]);
+
+/** `schemaPath` is typed `string` by openapi-fetch; the set's keys are routes. */
+function isSessionRoute(schemaPath: string): boolean {
+  return (SESSION_ROUTES as ReadonlySet<string>).has(schemaPath);
+}
 
 async function isInvalidToken(response: Response): Promise<boolean> {
   if (response.status !== 401) return false;
@@ -90,7 +96,7 @@ export function createAuthMiddleware(
         request.headers.set("Authorization", `Bearer ${token}`);
       }
       let sendable = request;
-      if (!SESSION_ROUTES.has(schemaPath) && request.body !== null) {
+      if (!isSessionRoute(schemaPath) && request.body !== null) {
         const bytes = await request.arrayBuffer();
         sendable = new Request(request, { body: bytes });
         replays.set(sendable, bytes);
@@ -99,7 +105,7 @@ export function createAuthMiddleware(
       return sendable;
     },
     async onResponse({ request, response, schemaPath, options }) {
-      if (SESSION_ROUTES.has(schemaPath)) return response;
+      if (isSessionRoute(schemaPath)) return response;
       if (!(await isInvalidToken(response))) return response;
 
       // Another request may already have renewed the session while this one

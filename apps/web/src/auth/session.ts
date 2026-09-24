@@ -76,19 +76,41 @@ export function probeSessionPersistence(
   return written.ok ? null : SIGN_IN_WILL_NOT_PERSIST_MESSAGE;
 }
 
+/** Stands in for the page origin where there is no page (unit tests, SSR). */
+const NO_PAGE_ORIGIN = "http://localhost";
+
 /**
  * Where to send the user after they sign in again: a path INSIDE this app, or
- * null. Anything else (another origin, a protocol-relative `//host`, a
- * backslash trick, the sign-in page itself) is refused, so a crafted value
- * can never turn sign-in into an open redirect.
+ * null, so a crafted value can never turn sign-in into an open redirect.
+ *
+ * Decided the way the browser will decide, not by pattern-matching the
+ * string: the path is resolved by the URL parser against this origin, must
+ * stay on it, and is then RE-SERIALISED from the parsed parts. The parser
+ * strips tabs and newlines and reads backslashes as slashes, which is exactly
+ * how "/\t/evil.com" and "/\\evil.com" become another host. The serialised
+ * result is checked again, because normalisation can also CREATE a
+ * protocol-relative href: "/..//evil.com" parses on-origin with the path
+ * "//evil.com". The sign-in page itself is refused (a loop).
  */
-export function safeReturnPath(path: string | null | undefined): string | null {
-  if (typeof path !== "string") return null;
-  if (!path.startsWith("/") || path.startsWith("//")) return null;
-  if (path.includes("\\")) return null;
-  if (path === "/sign-in" || path.startsWith("/sign-in?")) return null;
-  if (path.startsWith("/sign-in/") || path.startsWith("/sign-in#")) return null;
-  return path;
+export function safeReturnPath(
+  path: string | null | undefined,
+  origin: string = (globalThis.location as Location | undefined)?.origin ??
+    NO_PAGE_ORIGIN,
+): string | null {
+  if (typeof path !== "string" || !path.startsWith("/")) return null;
+  let url: URL;
+  try {
+    url = new URL(path, origin);
+  } catch {
+    return null;
+  }
+  if (url.origin !== origin) return null;
+  const serialised = `${url.pathname}${url.search}${url.hash}`;
+  if (!serialised.startsWith("/") || serialised.startsWith("//")) return null;
+  if (url.pathname === "/sign-in" || url.pathname.startsWith("/sign-in/")) {
+    return null;
+  }
+  return serialised;
 }
 
 interface PersistedSession {
