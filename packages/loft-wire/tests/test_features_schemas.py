@@ -14,6 +14,7 @@ from loft_wire.features import (
     BODY_AFFECTING_FEATURE_TYPES,
     EXPORT_DOCUMENT_NAME_MAX_LENGTH,
     FEATURE_REGISTRY,
+    MIN_TWIST_ANGLE_DEG,
     DatumFeature,
     DatumMidplaneParams,
     DatumOffsetFromParams,
@@ -584,12 +585,20 @@ def test_extrude_twist_is_absent_by_default_and_legacy_rows_read_untwisted() -> 
 
 
 def test_a_twisted_extrude_dumps_its_twist_and_an_untwisted_one_does_not() -> None:
-    """Null twist fields are OMITTED (byte-identical legacy envelope); set ones
-    round-trip, including an explicit 0."""
+    """Every spelling of "no twist" dumps as the legacy envelope (no twist keys):
+    absent, null, 0, -0, a sub-``MIN_TWIST_ANGLE_DEG`` value (incl. the smallest
+    sub-normal, which used to hang the kernel), and a leftover centre with no
+    twist. A real twist round-trips, the smallest one included."""
     for extra, expected in (
         ({}, {}),
         ({"twist_angle_deg": None, "twist_center": None}, {}),
-        ({"twist_angle_deg": 0.0}, {"twist_angle_deg": 0.0}),
+        ({"twist_angle_deg": 0.0}, {}),
+        ({"twist_angle_deg": -0.0}, {}),
+        ({"twist_angle_deg": 5e-324}, {}),
+        ({"twist_angle_deg": -9.99e-10}, {}),
+        ({"twist_angle_deg": 0.0, "twist_center": {"x": 1.0, "y": -2.0}}, {}),
+        ({"twist_center": {"x": 1.0, "y": -2.0}}, {}),
+        ({"twist_angle_deg": MIN_TWIST_ANGLE_DEG}, {"twist_angle_deg": 1e-9}),
         (
             {"twist_angle_deg": 12.5, "twist_center": {"x": 1.0, "y": -2.0}},
             {"twist_angle_deg": 12.5, "twist_center": {"x": 1.0, "y": -2.0}},
@@ -605,7 +614,8 @@ def test_a_twisted_extrude_dumps_its_twist_and_an_untwisted_one_does_not() -> No
 
 
 @pytest.mark.parametrize(
-    ("twist", "twisted"), [(0.0, False), (-0.0, False), (12.36, True), (-3600.0, True)]
+    ("twist", "twisted"),
+    [(0.0, False), (-0.0, False), (5e-324, False), (12.36, True), (-3600.0, True)],
 )
 def test_extrude_is_twisted_only_for_a_nonzero_twist(
     twist: float, twisted: bool

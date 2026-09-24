@@ -838,6 +838,14 @@ MERGE_FIELD = Field(
 #: (docs/design/twisted-extrude.md §4).
 MAX_TWIST_ANGLE_DEG = 3600.0
 
+#: Smallest |twist| that IS a twist (degrees over the whole distance); anything
+#: smaller is normalised to "no twist" (absent). 1e-9 deg is 1.75e-11 rad, which
+#: moves a point 5.7 m from the axis by 1e-7 mm — the kernel's own linear
+#: tolerance — so no modelled part can tell it from zero. It also keeps the
+#: kernel's auxiliary helix pitch (360 / twist x distance) finite and sane: a
+#: sub-normal twist (5e-324 deg) made that pitch infinite and hung the worker.
+MIN_TWIST_ANGLE_DEG = 1e-9
+
 
 def _is_none(value: object) -> bool:
     """``exclude_if`` predicate: an absent optional field is not serialized.
@@ -882,8 +890,9 @@ class ExtrudeParamsV1(BaseModel):
             "rotates uniformly about the twist axis as it travels, a true helical "
             "sweep. Positive is RIGHT-HANDED about the extrusion direction (a "
             "right-hand helix whichever way `direction` points); negative is "
-            "left-handed. None (the default) or 0 is a plain straight prism, "
-            "byte-identical to an extrude with no twist. A twist too tight for "
+            "left-handed. None (the default), 0, or any |twist| below 1e-9 deg "
+            "is NO twist: it is normalised to absent, and the extrude is a plain "
+            "prism, byte-identical to one with no twist. A twist too tight for "
             "the profile is a `twist_failed` rebuild error."
         ),
     )
@@ -894,24 +903,42 @@ class ExtrudeParamsV1(BaseModel):
             "Where the twist axis pierces the sketch plane, in the profile "
             "sketch's own (x, y) mm. The axis runs parallel to the extrusion "
             "direction through this point. None (the default) is the sketch "
-            "origin. Ignored when there is no twist."
+            "origin. Dropped (normalised to absent) when there is no twist."
         ),
     )
 
     @model_validator(mode="after")
-    def _finite_twist_center(self) -> Self:
-        """A twist axis through a non-finite point is no axis at all (422)."""
+    def _normalise_twist(self) -> Self:
+        """Refuse a non-finite axis; fold "no twist" into ONE spelling: absent.
+
+        * A twist axis through a non-finite point is no axis at all (422).
+        * ``|twist| < MIN_TWIST_ANGLE_DEG`` — ``0``, ``-0`` and anything too
+          small to move geometry — becomes ``None``: it is not a twist, and a
+          sub-normal one used to hang the kernel's helix (5e-324 deg).
+        * With no twist the axis means nothing, so a leftover ``twist_center``
+          is dropped too.
+
+        The result is that every untwisted extrude DUMPS identically (no twist
+        keys at all), whatever it was spelled as on the way in — the stored row,
+        the response and the rebuild-cache key agree with an extrude written
+        before the twist existed.
+        """
         centre = self.twist_center
         if centre is not None and not (
             math.isfinite(centre.x) and math.isfinite(centre.y)
         ):
             raise ValueError("twist_center must have finite x and y (mm)")
+        twist = self.twist_angle_deg
+        if twist is not None and abs(twist) < MIN_TWIST_ANGLE_DEG:
+            self.twist_angle_deg = None
+        if self.twist_angle_deg is None:
+            self.twist_center = None
         return self
 
     @property
     def is_twisted(self) -> bool:
-        """Whether this extrude takes the twisted-sweep path (nonzero twist)."""
-        return bool(self.twist_angle_deg)
+        """Whether this extrude takes the twisted-sweep path (a real twist)."""
+        return self.twist_angle_deg is not None
 
 
 class SketchLineAxis(BaseModel):

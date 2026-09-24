@@ -3763,10 +3763,10 @@ export interface components {
             profile: components["schemas"]["FeatureRef"];
             /**
              * Twist Angle Deg
-             * @description Twist over the whole extrusion distance (degrees). The profile rotates uniformly about the twist axis as it travels, a true helical sweep. Positive is RIGHT-HANDED about the extrusion direction (a right-hand helix whichever way `direction` points); negative is left-handed. None (the default) or 0 is a plain straight prism, byte-identical to an extrude with no twist. A twist too tight for the profile is a `twist_failed` rebuild error.
+             * @description Twist over the whole extrusion distance (degrees). The profile rotates uniformly about the twist axis as it travels, a true helical sweep. Positive is RIGHT-HANDED about the extrusion direction (a right-hand helix whichever way `direction` points); negative is left-handed. None (the default), 0, or any |twist| below 1e-9 deg is NO twist: it is normalised to absent, and the extrude is a plain prism, byte-identical to one with no twist. A twist too tight for the profile is a `twist_failed` rebuild error.
              */
             twist_angle_deg?: number | null;
-            /** @description Where the twist axis pierces the sketch plane, in the profile sketch's own (x, y) mm. The axis runs parallel to the extrusion direction through this point. None (the default) is the sketch origin. Ignored when there is no twist. */
+            /** @description Where the twist axis pierces the sketch plane, in the profile sketch's own (x, y) mm. The axis runs parallel to the extrusion direction through this point. None (the default) is the sketch origin. Dropped (normalised to absent) when there is no twist. */
             twist_center?: components["schemas"]["Point2D"] | null;
         };
         /**

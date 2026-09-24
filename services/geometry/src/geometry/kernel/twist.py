@@ -28,6 +28,8 @@ are opaque to pyright; the directives scope that relaxation to this file only
 # pyright: reportUnknownVariableType=false, reportAttributeAccessIssue=false
 # pyright: reportUnknownArgumentType=false
 
+import math
+
 from build123d import Edge, Face, Plane, Solid, Wire
 from loft_wire.sketch import Point2D
 from OCP.BRepGProp import BRepGProp
@@ -69,6 +71,19 @@ TWIST_AUX_HELIX_RADIUS_MM = 1.0
 #: solid, volume ~ -A*d, which ``BRepCheck`` still calls valid (that square at
 #: 3600 deg) — misses by 2.0.
 TWIST_VOLUME_REL_TOL = 1e-6
+
+
+#: Largest auxiliary-helix pitch (mm per turn) the sweep will attempt. The pitch
+#: is ``360 / |twist| * distance``, so a vanishing twist or a vast distance
+#: drives it toward infinity, and build123d's helix normalises the direction
+#: ``(2 pi, pitch)``, whose length overflows past ~1.3e154. Measured on the way
+#: there: an INFINITE pitch (twist 5e-324 deg) hangs ``Edge.make_helix`` forever,
+#: and a pitch past the overflow (twist 1e-160 deg) raises ``ZeroDivisionError``.
+#: 1e150 stays clear of both. The wire model already folds any
+#: ``|twist| < MIN_TWIST_ANGLE_DEG`` into "no twist", so from the API this bound
+#: is reached only by a distance beyond ~1e138 mm; it exists so that no caller
+#: of this function can hang a worker.
+MAX_AUX_HELIX_PITCH_MM = 1e150
 
 
 class TwistError(RuntimeError):
@@ -162,8 +177,10 @@ def twisted_extrude_face(
     Raises:
         ValueError: ``distance_mm <= 0`` or a zero twist (caller errors: a zero
             twist belongs on ``extrude_face``, byte-identically).
-        TwistError: the sweep failed, did not leave one solid, or failed the
-            invariant (a twist too tight for the profile).
+        TwistError: the twist is too small for its distance to sweep
+            (:data:`MAX_AUX_HELIX_PITCH_MM`), the sweep failed, did not leave
+            one solid, or failed the invariant (a twist too tight for the
+            profile).
     """
     if distance_mm <= 0:
         raise ValueError(f"distance_mm must be > 0, got {distance_mm}")
@@ -172,23 +189,31 @@ def twisted_extrude_face(
 
     direction = plane.z_dir * (-1.0 if reverse else 1.0)
     origin = plane_point_to_world(plane, center)
-    spine = Wire([Edge.make_line(origin, origin + direction * distance_mm)])
-    # make_helix's handedness is about its OWN normal, which is the direction of
-    # travel here: exactly the right-hand-about-travel convention above.
-    aux_helix = Wire(
-        [
-            Edge.make_helix(
-                pitch=360.0 / abs(twist_angle_deg) * distance_mm,
-                height=distance_mm,
-                radius=TWIST_AUX_HELIX_RADIUS_MM,
-                center=origin,
-                normal=direction,
-                lefthand=twist_angle_deg < 0,
-            )
-        ]
-    )
+    pitch = 360.0 / abs(twist_angle_deg) * distance_mm
+    if not (math.isfinite(pitch) and pitch <= MAX_AUX_HELIX_PITCH_MM):
+        # Checked BEFORE the helix is built: an infinite pitch hangs
+        # Edge.make_helix outright (measured: twist 5e-324 deg never returned).
+        raise TwistError(
+            f"A {twist_angle_deg:g} deg twist over {distance_mm:g} mm is too small "
+            "to sweep; set the twist to 0 for a straight extrusion."
+        )
 
     try:
+        spine = Wire([Edge.make_line(origin, origin + direction * distance_mm)])
+        # make_helix's handedness is about its OWN normal, which is the direction
+        # of travel here: exactly the right-hand-about-travel convention above.
+        aux_helix = Wire(
+            [
+                Edge.make_helix(
+                    pitch=pitch,
+                    height=distance_mm,
+                    radius=TWIST_AUX_HELIX_RADIUS_MM,
+                    center=origin,
+                    normal=direction,
+                    lefthand=twist_angle_deg < 0,
+                )
+            ]
+        )
         tool = _sweep_wire(face.outer_wire(), spine, aux_helix)
         holes = [_sweep_wire(inner, spine, aux_helix) for inner in face.inner_wires()]
         if holes:

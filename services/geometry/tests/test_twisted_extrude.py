@@ -27,6 +27,8 @@ first, then set, and say so.
 
 import json
 import math
+import subprocess
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
@@ -351,6 +353,91 @@ def test_twisted_cut_of_disjoint_regions_and_a_holed_region() -> None:
 
 
 # --- Refusals ---------------------------------------------------------------------
+
+#: The vanishing-twist probe runs in a CHILD process with this wall-clock limit,
+#: because the defect it guards is a HANG (an infinite helix pitch never
+#: returned from Edge.make_helix): in-process, a regression would stall the
+#: whole suite instead of failing this test. A passing run costs a few seconds,
+#: nearly all of it the child's imports.
+VANISHING_TWIST_TIMEOUT_S = 120
+
+_VANISHING_TWIST_PROBE = """
+import json
+import sys
+
+from build123d import Face, Wire, Plane
+from fastapi.testclient import TestClient
+from geometry.kernel.twist import TwistError, twisted_extrude_face
+from geometry.main import app
+from loft_wire.sketch import Point2D
+
+face = Face(Wire.make_polygon(
+    [(-5, -5, 0), (5, -5, 0), (5, 5, 0), (-5, 5, 0)], close=True))
+kernel = {}
+for twist, distance in ((5e-324, 10.0), (1e-305, 10.0), (1e-300, 10.0),
+                        (1e-160, 10.0), (1e-9, 1e150)):
+    try:
+        twisted_extrude_face(face, Plane.XY, distance, False, twist,
+                             Point2D(x=0.0, y=0.0))
+        kernel[repr(twist)] = "ok"
+    except TwistError:
+        kernel[repr(twist)] = "twist_error"
+    except Exception as exc:
+        kernel[repr(twist)] = type(exc).__name__
+
+client = TestClient(app)
+responses = [client.post("/api/v1/evaluate", json=body).content.decode()
+             for body in json.loads(sys.argv[1])]
+print(json.dumps({"kernel": kernel, "responses": responses}))
+"""
+
+
+def test_a_vanishing_twist_cannot_hang_a_worker() -> None:
+    """Regression (review of d823af9): a VALID sub-normal twist made the aux
+    helix pitch infinite and ``Edge.make_helix`` never returned - no evaluate
+    timeout exists, and the stored row re-hung every rebuild. Both guards are
+    asserted, in a child process with a timeout so a regression FAILS here
+    instead of stalling the suite:
+
+    * the wire model folds ``|twist| < 1e-9`` into "no twist", so over the API
+      5e-324 is simply the plain prism, byte-identical to no twist at all;
+    * the kernel refuses a non-finite / overflowing pitch as ``TwistError``
+      BEFORE building the helix, for any caller (1e-300 used to escape as a
+      bare ZeroDivisionError, and a vast distance overflows it too).
+    """
+    square = _rect("s", -5.0, -5.0, 5.0, 5.0)
+    bodies = [
+        {
+            "part_id": str(PART_ID),
+            "tree_version": 1,
+            "features": [
+                _sketch(SKETCH_ID, square),
+                _extrude(EXTRUDE_ID, SKETCH_ID, 10.0, **extra),
+            ],
+        }
+        for extra in ({"twist_angle_deg": 5e-324}, {})
+    ]
+    child = subprocess.run(
+        [sys.executable, "-c", _VANISHING_TWIST_PROBE, json.dumps(bodies)],
+        capture_output=True,
+        text=True,
+        timeout=VANISHING_TWIST_TIMEOUT_S,
+        check=False,
+    )
+    assert child.returncode == 0, child.stderr[-2000:]
+    report = json.loads(child.stdout.strip().splitlines()[-1])
+    assert report["kernel"] == {
+        "5e-324": "twist_error",
+        "1e-305": "twist_error",
+        "1e-300": "twist_error",
+        "1e-160": "twist_error",
+        "1e-09": "twist_error",
+    }
+    vanishing, untwisted = report["responses"]
+    assert vanishing == untwisted
+    assert json.loads(vanishing)["properties"]["volume"] == pytest.approx(
+        1000.0, abs=1e-9
+    )
 
 
 def test_a_twist_too_tight_for_the_profile_is_twist_failed() -> None:

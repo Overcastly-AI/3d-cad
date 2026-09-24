@@ -117,6 +117,28 @@ round-trip loss, and the probe now reads the volume adaptively.
 - **Request validation:** `|twist_angle_deg| <= 3600` (ten turns),
   `allow_inf_nan=False`, and a finite `twist_center`, else 422. This is a sanity
   bound, not the geometric limit.
+- **A vanishing twist is NO twist, not a refusal.** `|twist| < 1e-9` deg
+  (`MIN_TWIST_ANGLE_DEG`) is normalised to absent by the wire model rather
+  than rejected with a 422. It is a legal number whose geometry cannot be told
+  from zero: 1e-9 deg is 1.75e-11 rad, which moves a point 5.7 m from the axis
+  by 1e-7 mm, the kernel's linear tolerance. Refusing it would make a user or
+  script that types `1e-12` fix something that is not wrong. Normalising is
+  also what closed a hang (review of `d823af9`). The aux helix's pitch is
+  `360 / |twist| * distance`. A sub-normal twist (5e-324 deg) made it
+  infinite, and `Edge.make_helix` never returned. There is no evaluate
+  timeout, and the stored row re-hung every rebuild of the part.
+- **The kernel guards the pitch for any caller.** `twisted_extrude_face`
+  refuses a pitch that is not finite or exceeds `MAX_AUX_HELIX_PITCH_MM = 1e150`
+  as `twist_failed`. It checks this before building the helix, and the helix
+  is built inside the error-mapping `try`. Measured: a twist of 1e-300 or
+  1e-160 deg escaped as a bare `ZeroDivisionError` (build123d normalises
+  `(2 pi, pitch)`, whose length overflows past about 1.3e154), and 1e-9 deg
+  over 1e150 mm raised a raw `StdFail_NotDone`. From the API, with the 1e-9
+  floor, the bound is reached only by a distance beyond about 1e138 mm.
+  `test_a_vanishing_twist_cannot_hang_a_worker` runs both guards in a child
+  process under a 120 s timeout. With the kernel guard mutated out it fails
+  on `TimeoutExpired`. With the normalisation mutated out, the 5e-324
+  response differs from the untwisted one.
 - **The geometric limit depends on the profile.** How tight a twist can be swept
   depends on the profile's distance from the axis relative to the distance
   travelled. Measured: a 20 mm square over 30 mm sweeps cleanly up to 3000°
@@ -140,10 +162,13 @@ round-trip loss, and the probe now reads the volume adaptively.
 and omitted from a dump while null; the generated TS client leaves them
 optional. There is no `param_version` bump:
 
-- `twist_angle_deg: float | None`: the total twist over `distance_mm`. `None`
-  or `0` means no twist.
+- `twist_angle_deg: float | None`: the total twist over `distance_mm`. `None`,
+  `0`, `-0` and any `|twist| < 1e-9` mean no twist, and are all normalised to
+  absent (§4).
 - `twist_center: Point2D | None`: where the axis pierces the sketch plane, in the
-  profile sketch's (x, y) mm. `None` means the sketch origin.
+  profile sketch's (x, y) mm. `None` means the sketch origin. With no twist it
+  is dropped (normalised to absent), so a leftover centre cannot make an
+  untwisted row differ from one that never had a twist.
 
 **Zero twist is byte-identical.** `_extrude_tool` in `features/evaluate.py` is
 the single branch point for ADD and CUT. No twist never leaves `extrude_face`,
