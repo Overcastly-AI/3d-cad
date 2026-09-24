@@ -42,6 +42,7 @@ from py_kit import (
     get_logger,
 )
 from py_kit.db import SessionDep
+from py_kit.ratelimit import RateLimiter
 from sqlalchemy import CursorResult, delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -82,8 +83,9 @@ _SESSION_MISMATCH = "This browser is signed in as a different account now."
 REFRESH_COOKIE_NAME = "loft_refresh"
 
 #: The cookie is sent to the auth routes and nowhere else: a proxied feature
-#: call, a mesh fetch, an upstream log line never carries it.
-REFRESH_COOKIE_PATH = "/api/v1/auth"
+#: call, a mesh fetch, an upstream log line never carries it. Derived from the
+#: router, so moving the routes cannot strand the cookie on a dead path.
+REFRESH_COOKIE_PATH = router.prefix
 
 
 def get_auth_config(request: Request) -> AuthConfig:
@@ -393,6 +395,31 @@ async def _revoke(session: AsyncSession, auth_session: AuthSession) -> None:
 # --- routes -------------------------------------------------------------------
 
 
+async def limit_auth_attempts(request: Request) -> None:
+    """Rate-limit the unauthenticated auth routes per client address.
+
+    The same py-kit limiter (and budget) as the compute routes, in its own
+    ``auth`` scope. It cannot be keyed on a user, because there is none yet;
+    it is keyed on the connecting address. Behind a reverse proxy that is the
+    proxy's, so all clients share one bucket: conservative (it cannot be
+    spoofed with a header), and a 429 on refresh is "try again", never a
+    sign-out (apps/web/src/auth/refresh.ts). No-op when rate limiting is off.
+
+    The limiter is read from ``app.state`` directly rather than through
+    ``gateway.ratelimit.get_rate_limiter``: that module imports
+    ``gateway.auth`` for ``CurrentUser``, so importing it here would be a
+    cycle.
+    """
+    limiter: RateLimiter | None = getattr(request.app.state, "rate_limiter", None)
+    if limiter is None:
+        return
+    client = request.client.host if request.client is not None else "unknown"
+    await limiter.check(client, scope="auth")
+
+
+AUTH_RATE_LIMIT = Depends(limit_auth_attempts)
+
+
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(
     request: RegisterRequest,
@@ -420,7 +447,7 @@ async def register(
     return await _start_session(session, user, config, response)
 
 
-@router.post("/login")
+@router.post("/login", dependencies=[AUTH_RATE_LIMIT])
 async def login(
     request: LoginRequest,
     config: AuthConfigDep,
@@ -456,7 +483,7 @@ async def login(
     return await _start_session(session, user, config, response)
 
 
-@router.post("/refresh")
+@router.post("/refresh", dependencies=[AUTH_RATE_LIMIT])
 async def refresh(
     config: AuthConfigDep,
     session: SessionDep,
@@ -526,6 +553,22 @@ async def refresh(
         update(RefreshToken)
         .where(RefreshToken.id == spent_row.id)
         .values(replaced_by_id=successor_id)
+        .execution_options(synchronize_session=False)
+    )
+    # Prune this session's tokens spent longer ago than the idle window. Such
+    # a token expired before it could be spent again anyway (it lived at most
+    # the idle window from issue), so presenting it again is refused whether
+    # or not the row exists; only the reuse ALARM for it is given up. A
+    # week-long session refreshing hourly otherwise keeps ~170 dead rows.
+    await session.execute(
+        delete(RefreshToken)
+        .where(
+            RefreshToken.session_id == auth_session.id,
+            RefreshToken.used_at.is_not(None),
+            RefreshToken.used_at < now - timedelta(seconds=config.session_idle_ttl_s),
+        )
+        # Rows loaded in this session (naive on SQLite) are not re-evaluated
+        # in Python against an aware `now`; the database decides.
         .execution_options(synchronize_session=False)
     )
     await session.commit()

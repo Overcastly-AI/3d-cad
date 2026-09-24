@@ -30,6 +30,7 @@ import jwt as pyjwt
 import pytest
 import sqlalchemy as sa
 from fastapi.testclient import TestClient
+from gateway.auth import auth_router
 from gateway.auth.routes import REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATH
 from gateway.auth.security import (
     REFRESH_REUSE_INTERVAL_S,
@@ -40,7 +41,9 @@ from gateway.auth.security import (
 )
 from gateway.db import AuthSession, Base, RefreshToken
 from gateway.main import GatewaySettings, build_app
+from py_kit import RateLimitExceededError
 from py_kit.db import async_dsn
+from py_kit.ratelimit import RateLimiter
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 TEST_JWT_SECRET = "unit-test-jwt-secret-0123456789abcdef"
@@ -574,6 +577,65 @@ def test_expired_sessions_are_pruned_at_the_next_sign_in(
     _sign_in(client, register=False)
     assert _scalar(db_url, sa.select(sa.func.count()).select_from(AuthSession)) == 1
     assert _scalar(db_url, sa.select(sa.func.count()).select_from(RefreshToken)) == 1
+
+
+# --- housekeeping and abuse bounds (review N1, N5) -----------------------------
+
+
+class _CountingLimiter(RateLimiter):
+    """An in-memory limiter: counts every check, refuses past *allow*."""
+
+    def __init__(self, allow: int) -> None:  # no Redis behind it
+        self.allow = allow
+        self.calls: list[tuple[str, str]] = []
+
+    async def check(self, identity: str, *, scope: str = "compute") -> None:
+        self.calls.append((identity, scope))
+        if len(self.calls) > self.allow:
+            raise RateLimitExceededError("Slow down.", retry_after_s=7)
+
+
+def test_login_and_refresh_are_rate_limited(db_url: str) -> None:
+    limiter = _CountingLimiter(allow=2)
+    app = build_app(_settings(db_url), rate_limiter=limiter)
+    with TestClient(app, base_url="https://testserver") as limited_client:
+        _, cookie = _sign_in(limited_client)  # register: not limited here
+        assert limiter.calls == []
+        cookie = _cookie_value(_refresh(limited_client, cookie))  # 1
+        _sign_in(limited_client, register=False)  # 2: login
+        refused = _refresh(limited_client, cookie)  # 3: over budget
+        assert refused.status_code == 429
+        assert refused.headers["Retry-After"] == "7"
+        # Refused BEFORE the handler ran: nothing spent, nothing cleared, so
+        # the same cookie works once the budget allows.
+        assert _refresh_cookie_headers(refused) == []
+        limiter.allow = 10
+        assert _refresh(limited_client, cookie).status_code == 200
+    assert limiter.calls == [("testclient", "auth")] * 4
+
+
+def test_refresh_prunes_tokens_spent_longer_ago_than_the_idle_window(
+    client: TestClient, db_url: str
+) -> None:
+    _, cookie = _sign_in(client)
+    for _ in range(3):
+        cookie = _cookie_value(_refresh(client, cookie))
+    count = sa.select(sa.func.count()).select_from(RefreshToken)
+    assert _scalar(db_url, count) == 4  # three spent + the live one
+    _spent_seconds_ago(db_url, IDLE_TTL_S + 1)
+
+    assert _refresh(client, cookie).status_code == 200
+    # The three long-dead rows are gone; the one just spent and its successor
+    # remain (reuse detection for them is intact).
+    assert _scalar(db_url, count) == 2
+
+
+def test_the_cookie_path_covers_every_route_that_reads_the_cookie() -> None:
+    """Derived from the router: the cookie is sent to refresh and logout,
+    and to nothing outside /api/v1/auth."""
+    assert REFRESH_COOKIE_PATH == "/api/v1/auth"
+    for path in ("/refresh", "/logout"):
+        assert f"{auth_router.prefix}{path}".startswith(f"{REFRESH_COOKIE_PATH}/")
 
 
 # --- configuration --------------------------------------------------------------
