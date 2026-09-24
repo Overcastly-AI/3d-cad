@@ -39,6 +39,7 @@ export type {
   PanelActionCellProps,
 } from "./primitives/Panel";
 export { Stamp, type StampProps, type StampTone } from "./primitives/Stamp";
+export { Notice, type NoticeProps } from "./primitives/Notice";
 export { Toolbar, Chip } from "./primitives/Toolbar";
 export {
   ToolButton,

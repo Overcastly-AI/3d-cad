@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createSessionStore,
+  probeSessionPersistence,
   SESSION_NOT_PERSISTED_MESSAGE,
   SESSION_STORAGE_KEY,
+  SIGN_IN_WILL_NOT_PERSIST_MESSAGE,
   type SessionStorageLike,
   type SessionUser,
 } from "./session";
@@ -245,6 +247,59 @@ describe("session persistence under a full storage (W0REV-3)", () => {
     expect(errorSpy).toHaveBeenCalled();
     expect(map.has(SESSION_STORAGE_KEY)).toBe(false);
     expect(map.get("another-app")).toBe("y".repeat(9_900));
+  });
+
+  it("the notice is dismissible, and a later successful sign-in clears it too", () => {
+    const { storage, map } = fakeStorage(
+      { "another-app": "y".repeat(9_900) },
+      10_000,
+    );
+    const store = createSessionStore(storage, NOW);
+    store.getState().signIn("tok-d", USER);
+    expect(store.getState().persistError).toBe(SESSION_NOT_PERSISTED_MESSAGE);
+    store.getState().dismissPersistError();
+    expect(store.getState().persistError).toBeNull();
+    expect(store.getState().token).toBe("tok-d"); // dismissing is not signing out
+
+    store.getState().signIn("tok-e", USER);
+    expect(store.getState().persistError).toBe(SESSION_NOT_PERSISTED_MESSAGE);
+    map.delete("another-app"); // the user freed some storage
+    store.getState().signIn("tok-f", USER);
+    expect(store.getState().persistError).toBeNull();
+  });
+
+  it("the sign-in probe answers the way sign-in will, and leaves no trace", () => {
+    // Full of someone else's data: no amount of draft eviction helps.
+    const full = fakeStorage({ "another-app": "y".repeat(9_900) }, 10_000);
+    expect(probeSessionPersistence(full.storage)).toBe(
+      SIGN_IN_WILL_NOT_PERSIST_MESSAGE,
+    );
+    expect([...full.map.keys()]).toEqual(["another-app"]);
+
+    // Full of drafts: the probe makes the room sign-in would have made.
+    const drafts = fakeStorage({}, 9_000);
+    drafts.map.set(draftKeyFor("old"), draft(4_000, 2_000));
+    drafts.map.set(draftKeyFor("new"), draft(4_000, 1_000));
+    expect(probeSessionPersistence(drafts.storage)).toBeNull();
+    expect(drafts.map.has(draftKeyFor("old"))).toBe(false);
+    expect(drafts.map.has(draftKeyFor("new"))).toBe(true);
+    expect([...drafts.map.keys()].some((key) => key.endsWith(".probe"))).toBe(
+      false,
+    );
+
+    // Private mode / blocked storage: a warning, never an exception.
+    const blocked: SessionStorageLike = {
+      getItem: () => null,
+      setItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+      removeItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+    };
+    expect(probeSessionPersistence(blocked)).toBe(
+      SIGN_IN_WILL_NOT_PERSIST_MESSAGE,
+    );
   });
 
   it("a non-quota refusal (storage switched off) evicts no drafts", () => {

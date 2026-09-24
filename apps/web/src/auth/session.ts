@@ -31,10 +31,46 @@ export const SESSION_STORAGE_KEY = "loft.session.v1";
 
 /**
  * What the user is told when a sign-in could not be written down. The
- * in-memory session still works; only the next reload loses it.
+ * in-memory session still works; only the next reload loses it. What
+ * happened, then the two things that actually help.
  */
 export const SESSION_NOT_PERSISTED_MESSAGE =
-  "This browser would not save your session — you will be signed out when the page reloads.";
+  "This browser would not store your sign-in, so reloading or closing this tab will sign you out. Free up storage for this site in your browser settings, or keep this tab open.";
+
+/**
+ * The same condition seen BEFORE sign-in: the sign-in page probes storage on
+ * arrival (see {@link probeSessionPersistence}) because once a sign-in
+ * succeeds the page is left at once, so a failure found then can only be
+ * reported by the chrome the user lands in.
+ */
+export const SIGN_IN_WILL_NOT_PERSIST_MESSAGE =
+  "This browser is not storing sign-ins right now, so after you sign in, reloading or closing this tab will sign you out. Free up storage for this site in your browser settings, or keep the tab open.";
+
+/** A write the size of a real session (token + user), for the probe. */
+const PROBE_KEY = `${SESSION_STORAGE_KEY}.probe`;
+const PROBE_VALUE = "x".repeat(1024);
+
+/**
+ * Whether a sign-in written now would survive a reload: null if it would, the
+ * user-facing message if it would not.
+ *
+ * It asks the storage the same way sign-in will — a session-sized write
+ * through the same draft eviction — and removes the probe afterwards, so it
+ * leaves nothing behind but the room it made. Never throws.
+ */
+export function probeSessionPersistence(
+  storage: SessionStorageLike = defaultStorage(),
+): string | null {
+  const written = writeEvictingDrafts(storage, () =>
+    storage.setItem(PROBE_KEY, PROBE_VALUE),
+  );
+  try {
+    storage.removeItem(PROBE_KEY);
+  } catch {
+    // Nothing further to do; the answer below is already known.
+  }
+  return written.ok ? null : SIGN_IN_WILL_NOT_PERSIST_MESSAGE;
+}
 
 interface PersistedSession {
   token: string;
@@ -51,10 +87,12 @@ export interface SessionState {
    * Non-null when the last sign-in could NOT be written to storage, even
    * after evicting every sketch draft to make room — the session works until
    * the next reload and no longer. {@link SESSION_NOT_PERSISTED_MESSAGE} is
-   * the text; chrome that shows it reads it from here. Cleared by the next
-   * successful write and by sign-out.
+   * the text; the top bar shows it from here. Cleared by the next successful
+   * write, by sign-out, and by the user dismissing it.
    */
   persistError: string | null;
+  /** The user has read the persistence notice; stop showing it. */
+  dismissPersistError: () => void;
   /** Store a fresh session (register/login success). Clears `expired`. */
   signIn: (token: string, user: SessionUser) => void;
   /** Deliberate sign-out — clears the session without a notice. */
@@ -168,6 +206,7 @@ export function createSessionStore(
     user: initial?.user ?? null,
     expired: false,
     persistError: null,
+    dismissPersistError: () => set({ persistError: null }),
     signIn: (token, user) => {
       const persistError = persist(storage, { token, user });
       set({ token, user, expired: false, persistError });

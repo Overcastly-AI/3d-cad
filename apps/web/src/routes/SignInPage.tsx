@@ -1,15 +1,16 @@
 import {
   Button,
+  Notice,
   Panel,
   PanelActionCell,
   PanelSection,
   TextField,
 } from "@loft/design";
 import { Navigate, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { login, registerAccount } from "../api/auth";
-import { useSessionStore } from "../auth/session";
+import { probeSessionPersistence, useSessionStore } from "../auth/session";
 import { LoftMark } from "../components/LoftMark";
 import {
   ProjectionPlate,
@@ -141,6 +142,15 @@ function AuthTitleBlock() {
   const [fieldErrors, setFieldErrors] = useState<AuthFormErrors>({});
   const [serverError, setServerError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // W0REV-3: a successful sign-in leaves this page at once, so a browser that
+  // will not store the session has to be caught HERE, before the user signs
+  // in, or the first sign of it is being signed out by a reload. A probe, not
+  // a guess: the same session-sized write sign-in will make, with the same
+  // draft eviction, removed afterwards.
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
+  useEffect(() => {
+    setStorageWarning(probeSessionPersistence());
+  }, []);
 
   const switchMode = (next: Mode) => {
     setMode(next);
@@ -199,6 +209,19 @@ function AuthTitleBlock() {
         >
           Session expired — sign in again.
         </p>
+      ) : null}
+
+      {storageWarning !== null ? (
+        <Notice
+          role="status"
+          label="Sign-in won't be saved"
+          layout="stacked"
+          onDismiss={() => setStorageWarning(null)}
+          data-testid="sign-in-storage-notice"
+          dismissTestId="sign-in-storage-notice-dismiss"
+        >
+          {storageWarning}
+        </Notice>
       ) : null}
 
       <div
