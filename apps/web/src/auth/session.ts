@@ -133,6 +133,13 @@ export interface SessionState {
    * `returnTo` is where the user was, so sign-in can take them back.
    */
   expire: (returnTo?: string | null) => void;
+  /**
+   * The browser's sign-in now belongs to someone ELSE (another tab signed in
+   * as a different user). This tab forgets its session and shows the notice,
+   * and touches nothing in storage: the stored session and the drafts there
+   * are the other user's now, and clearing them would sign THEM out.
+   */
+  abandon: () => void;
 }
 
 function isSessionUser(v: unknown): v is SessionUser {
@@ -235,7 +242,10 @@ export function createSessionStore(
 ) {
   sweepSketchDrafts(storage, now);
   const initial = loadPersisted(storage);
-  return create<SessionState>()((set) => ({
+  // Whose return path `returnTo` is: a different user signing in next does
+  // not inherit it (it would open the previous user's part).
+  let returnOwner: string | null = null;
+  return create<SessionState>()((set, get) => ({
     token: initial?.token ?? null,
     user: initial?.user ?? null,
     expired: false,
@@ -245,7 +255,14 @@ export function createSessionStore(
     dismissPersistError: () => set({ persistError: null }),
     signIn: (token, user) => {
       const persistError = persist(storage, { token, user });
-      set({ token, user, expired: false, persistError });
+      const keepReturn = returnOwner === null || returnOwner === user.id;
+      set({
+        token,
+        user,
+        expired: false,
+        persistError,
+        ...(keepReturn ? {} : { returnTo: null }),
+      });
     },
     signOut: () => {
       clearSessionScopedWork(storage);
@@ -258,12 +275,23 @@ export function createSessionStore(
       });
     },
     expire: (returnTo) => {
+      returnOwner = get().user?.id ?? null;
       clearSessionScopedWork(storage);
       set({
         token: null,
         user: null,
         expired: true,
         returnTo: safeReturnPath(returnTo),
+        persistError: null,
+      });
+    },
+    abandon: () => {
+      returnOwner = null;
+      set({
+        token: null,
+        user: null,
+        expired: true,
+        returnTo: null,
         persistError: null,
       });
     },

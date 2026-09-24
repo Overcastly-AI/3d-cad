@@ -383,10 +383,14 @@ export interface paths {
          * Logout
          * @description End the session: revoke it server-side and clear the refresh cookie.
          *
-         *     The session is found from the refresh cookie, from a still-valid bearer
-         *     token, or both. Revocation ends the refresh chain AND every access token
-         *     minted from it (see :func:`get_current_user`). Always 204 — idempotent,
-         *     and it says nothing about whether the credentials were any good.
+         *     The session is found from the bearer token (signature verified, expiry
+         *     not required: an expired token still names its own session), from the
+         *     refresh cookie, or both. Revocation ends the refresh chain AND every
+         *     access token minted from it (see :func:`get_current_user`). When the
+         *     bearer and the cookie belong to DIFFERENT users, only the bearer's session
+         *     ends and the cookie is left alone — it is someone else's sign-in. Always
+         *     204 — idempotent, and it says nothing about whether the credentials were
+         *     any good.
          */
         post: operations["logout_api_v1_auth_logout_post"];
         delete?: never;

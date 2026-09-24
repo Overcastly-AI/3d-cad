@@ -167,6 +167,35 @@ describe("createSessionStore", () => {
     expect(store.getState().returnTo).toBeNull();
   });
 
+  it("abandon (the cookie is another user's) drops this tab's session and touches no storage", () => {
+    const { storage, map } = fakeStorage();
+    const store = createSessionStore(storage);
+    store.getState().signIn("tok-x", USER);
+    // Another tab signs in as Y: the storage now holds Y's session + drafts.
+    map.set(SESSION_STORAGE_KEY, '{"token":"tok-y"}');
+    map.set(draftKeyFor("part-y"), '{"version":1}');
+    store.getState().abandon();
+    expect(store.getState().token).toBeNull();
+    expect(store.getState().expired).toBe(true);
+    expect(store.getState().returnTo).toBeNull();
+    expect(map.get(SESSION_STORAGE_KEY)).toBe('{"token":"tok-y"}');
+    expect(map.has(draftKeyFor("part-y"))).toBe(true);
+  });
+
+  it("a return path is only honoured for the user it belongs to", () => {
+    const { storage } = fakeStorage();
+    const store = createSessionStore(storage);
+    store.getState().signIn("tok-x", USER);
+    store.getState().expire("/parts/x-part");
+    store.getState().signIn("tok-y", { ...USER, id: "user-y" });
+    expect(store.getState().returnTo).toBeNull(); // not X's part for Y
+
+    store.getState().signIn("tok-x", USER);
+    store.getState().expire("/parts/x-part");
+    store.getState().signIn("tok-x2", USER);
+    expect(store.getState().returnTo).toBe("/parts/x-part");
+  });
+
   it("safeReturnPath keeps in-app paths and refuses everything else", () => {
     expect(safeReturnPath("/parts/abc")).toBe("/parts/abc");
     expect(safeReturnPath("/drawings/d1?source=p1")).toBe(

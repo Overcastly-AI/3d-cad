@@ -48,6 +48,16 @@ describe("requestRefresh", () => {
     expect(new URL(seen[0]?.url ?? "").pathname).toBe("/api/v1/auth/refresh");
   });
 
+  it("401 session_mismatch means the cookie is another user's now", async () => {
+    const { client } = clientAnswering(async () =>
+      Response.json(
+        { error: { code: "session_mismatch", message: "x", details: null } },
+        { status: 401 },
+      ),
+    );
+    expect(await requestRefresh(client)).toEqual({ kind: "switched" });
+  });
+
   it("401 means the session is over", async () => {
     const { client } = clientAnswering(async () =>
       Response.json(
@@ -124,6 +134,29 @@ describe("createRefresher", () => {
     await again;
     expect(unavailable.calls.rejected).toBe(0);
     expect(unavailable.calls.refreshed).toEqual([]);
+  });
+
+  it("a renewal that comes back as a different user is not adopted", async () => {
+    const calls = { refreshed: 0, switched: 0, rejected: 0 };
+    const refresher = createRefresher({
+      request: async () => ({
+        kind: "refreshed",
+        token: "tok-y",
+        user: { ...USER, id: "user-y" },
+      }),
+      currentUserId: () => USER.id,
+      onRefreshed: () => {
+        calls.refreshed += 1;
+      },
+      onRejected: () => {
+        calls.rejected += 1;
+      },
+      onSwitched: () => {
+        calls.switched += 1;
+      },
+    });
+    expect(await refresher.refresh()).toEqual({ kind: "switched" });
+    expect(calls).toEqual({ refreshed: 0, switched: 1, rejected: 0 });
   });
 
   it("the request runs inside the lock", async () => {

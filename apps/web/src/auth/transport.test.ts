@@ -20,17 +20,24 @@ function envelope401(code: string): Response {
   );
 }
 
-/** A session whose refresh answers with *outcome* (counting calls). */
+/**
+ * A session whose refresh answers with *outcome* (counting calls). *during*
+ * runs inside the refresh, to change the world while it is in flight.
+ */
 function session(
   token: string | null,
   outcome: RefreshOutcome = { kind: "rejected" },
+  during: (state: { userId: string | null }) => void = () => undefined,
 ) {
   const calls = { expired: 0, refreshed: 0 };
   let current = token;
+  const state = { userId: token === null ? null : USER.id };
   const transport: SessionTransport = {
     getToken: () => current,
+    getUserId: () => state.userId,
     refresh: async () => {
       calls.refreshed += 1;
+      during(state);
       if (outcome.kind === "refreshed") current = outcome.token;
       return outcome;
     },
@@ -189,6 +196,33 @@ describe("createAuthMiddleware", () => {
     expect(calls.refreshed).toBe(1);
   });
 
+  it("a renewal that turns out to be SOMEONE ELSE's is never replayed (shared browser)", async () => {
+    const { transport, calls } = session("tok-x", { kind: "switched" });
+    const { client, sent } = clientWith(transport, [
+      envelope401("invalid_token"),
+    ]);
+    const { response } = await createFeature(client);
+    expect(response.status).toBe(401);
+    expect(sent).toHaveLength(1); // X's command is not resent as anybody
+    expect(calls.refreshed).toBe(1);
+  });
+
+  it("a request sent as X is not resent after the tab became Y, even on a good renewal", async () => {
+    const { transport } = session(
+      "tok-x",
+      { kind: "refreshed", token: "tok-y", user: { ...USER, id: "user-y" } },
+      (state) => {
+        state.userId = "user-y"; // Y signed in while X's request was out
+      },
+    );
+    const { client, sent } = clientWith(transport, [
+      envelope401("invalid_token"),
+    ]);
+    const { response } = await createFeature(client);
+    expect(response.status).toBe(401);
+    expect(sent.map((s) => s.bearer)).toEqual(["Bearer tok-x"]);
+  });
+
   it("an unreachable refresh keeps the session: no resend, no expiry", async () => {
     const { transport, calls } = session("tok-stale", { kind: "unavailable" });
     const { client, sent } = clientWith(transport, [
@@ -239,6 +273,7 @@ describe("createAuthMiddleware", () => {
     });
     const transport: SessionTransport = {
       getToken: () => current,
+      getUserId: () => USER.id,
       refresh: () => refresher.refresh(),
       expire: () => undefined,
     };

@@ -32,6 +32,8 @@ import { useSessionStore } from "./session";
 /** What the middleware needs from the session (injectable for tests). */
 export interface SessionTransport {
   getToken(): string | null;
+  /** Who this tab is signed in as — requests are only ever resent as them. */
+  getUserId(): string | null;
   /** Renew the session (single flight; see `refresh.ts`). */
   refresh(): Promise<RefreshOutcome>;
   /** The session cannot continue: clear it and send the user to sign in. */
@@ -74,8 +76,12 @@ export function createAuthMiddleware(
   // body in memory until then: small for JSON, a transient second copy for a
   // STEP upload.
   const replays = new WeakMap<Request, Request>();
+  // The user each request was SENT as. A resend goes out only as that same
+  // user: never replay one person's write under another person's token.
+  const sentAs = new WeakMap<Request, string | null>();
   return {
     async onRequest({ request, schemaPath }) {
+      sentAs.set(request, session.getUserId());
       const token = session.getToken();
       if (token !== null) {
         request.headers.set("Authorization", `Bearer ${token}`);
@@ -102,6 +108,8 @@ export function createAuthMiddleware(
         if (outcome.kind !== "refreshed") return response;
         token = outcome.token;
       }
+      const owner = sentAs.get(request) ?? null;
+      if (owner === null || session.getUserId() !== owner) return response;
 
       const replay = replays.get(request) ?? new Request(request);
       replays.delete(request);
@@ -162,10 +170,13 @@ export function installAuthTransport(): void {
       if (store.getState().token !== null) store.getState().signIn(token, user);
     },
     onRejected: expire,
+    currentUserId: () => store.getState().user?.id ?? null,
+    onSwitched: () => store.getState().abandon(),
   });
   gatewayClient.use(
     createAuthMiddleware({
       getToken: () => store.getState().token,
+      getUserId: () => store.getState().user?.id ?? null,
       refresh: () => refresher.refresh(),
       expire,
     }),

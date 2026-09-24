@@ -492,4 +492,38 @@ test.describe("session refresh (any stack)", () => {
     await page.getByTestId("auth-password").press("Enter");
     await expect(page).toHaveURL(/\/$/);
   });
+
+  test("a shared browser: X's old tab is never renewed into Y's sign-in", async ({
+    page,
+    context,
+  }) => {
+    // Tab A: X signs in.
+    const x = await signUpThroughUi(page);
+
+    // Tab B, same browser: X signs out there (ending X's session), and Y
+    // signs in, so the one cookie jar now holds Y's refresh cookie.
+    const tabB = await context.newPage();
+    await tabB.goto("/");
+    await expect(tabB.getByTestId("session-email")).toHaveText(x.email);
+    await tabB.getByTestId("sign-out").click();
+    await expect(tabB).toHaveURL(/\/sign-in$/);
+    const yEmail = uniqueEmail();
+    await tabB.getByTestId("auth-mode-register").click();
+    await tabB.getByTestId("auth-email").fill(yEmail);
+    await tabB.getByTestId("auth-password").fill(TEST_PASSWORD);
+    await tabB.getByTestId("auth-password").press("Enter");
+    await expect(tabB.getByTestId("session-email")).toHaveText(yEmail);
+
+    // Tab A still shows X. Its next request is refused (X's session ended);
+    // renewing with Y's cookie must NOT make tab A Y.
+    await page.bringToFront();
+    await page.getByTestId("nav-assemblies").click();
+    await expect(page).toHaveURL(/\/sign-in$/, { timeout: 15_000 });
+    await expect(page.getByTestId("session-expired-headline")).toBeVisible();
+    await expect(page.getByTestId("session-email")).toHaveCount(0);
+
+    // And Y is untouched: still signed in, across a reload.
+    await tabB.reload();
+    await expect(tabB.getByTestId("session-email")).toHaveText(yEmail);
+  });
 });

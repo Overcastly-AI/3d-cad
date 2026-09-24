@@ -296,7 +296,9 @@ def create_access_token(
     return AccessToken(token=token, expires_in=max(0, expires_at - issued_at))
 
 
-def decode_access_token(token: str, config: AuthConfig) -> AccessClaims:
+def decode_access_token(
+    token: str, config: AuthConfig, *, verify_exp: bool = True
+) -> AccessClaims:
     """Verify *token* and return the user and session it asserts.
 
     Pins the algorithm list (``alg`` confusion / ``none`` rejected by PyJWT),
@@ -304,13 +306,17 @@ def decode_access_token(token: str, config: AuthConfig) -> AccessClaims:
     defect — callers translate to a generic 401 without detailing which check
     failed. Whether the session is still LIVE is the caller's check (it needs
     the database): see :func:`gateway.auth.routes.get_current_user`.
+
+    ``verify_exp=False`` is for asking WHO an expired token was issued to (the
+    refresh and logout identity checks); the signature is still verified, so
+    the answer cannot be forged. It never authorises a request.
     """
     try:
         claims = jwt.decode(  # pyright: ignore[reportUnknownMemberType]
             token,
             config.jwt_secret,
             algorithms=[JWT_ALGORITHM],
-            options={"require": ["exp", "sub", "sid"]},
+            options={"require": ["exp", "sub", "sid"], "verify_exp": verify_exp},
         )
         return AccessClaims(
             user_id=uuid.UUID(str(claims["sub"])),

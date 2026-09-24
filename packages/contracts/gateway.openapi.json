@@ -12495,7 +12495,7 @@
     },
     "/api/v1/auth/logout": {
       "post": {
-        "description": "End the session: revoke it server-side and clear the refresh cookie.\n\nThe session is found from the refresh cookie, from a still-valid bearer\ntoken, or both. Revocation ends the refresh chain AND every access token\nminted from it (see :func:`get_current_user`). Always 204 \u2014 idempotent,\nand it says nothing about whether the credentials were any good.",
+        "description": "End the session: revoke it server-side and clear the refresh cookie.\n\nThe session is found from the bearer token (signature verified, expiry\nnot required: an expired token still names its own session), from the\nrefresh cookie, or both. Revocation ends the refresh chain AND every\naccess token minted from it (see :func:`get_current_user`). When the\nbearer and the cookie belong to DIFFERENT users, only the bearer's session\nends and the cookie is left alone \u2014 it is someone else's sign-in. Always\n204 \u2014 idempotent, and it says nothing about whether the credentials were\nany good.",
         "operationId": "logout_api_v1_auth_logout_post",
         "parameters": [
           {
@@ -12616,6 +12616,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Refresh",
         "tags": [
           "auth"

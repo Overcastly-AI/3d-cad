@@ -20,8 +20,6 @@ tests/test_auth_sessions.py):
   every access token is re-checked against its live session.
 """
 
-import contextlib
-import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any, cast
 
@@ -48,6 +46,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gateway.auth.security import (
+    AccessClaims,
     AuthConfig,
     TokenError,
     as_utc,
@@ -73,6 +72,9 @@ _INVALID_CREDENTIALS = "Invalid email or password."
 
 #: One message for every token defect — never detail expired vs. tampered.
 _INVALID_TOKEN = "Invalid or expired token."
+
+#: The refresh cookie belongs to a different user than the bearer asking.
+_SESSION_MISMATCH = "This browser is signed in as a different account now."
 
 #: The refresh cookie. Its name is not a secret; its value is.
 REFRESH_COOKIE_NAME = "loft_refresh"
@@ -238,6 +240,34 @@ def _refresh_rejected() -> UnauthorizedError:
 # --- sessions -----------------------------------------------------------------
 
 
+def _bearer_identity(
+    credentials: HTTPAuthorizationCredentials | None, config: AuthConfig
+) -> AccessClaims | None:
+    """Who a bearer token was issued to, expired or not; None if unverifiable."""
+    if credentials is None:
+        return None
+    try:
+        return decode_access_token(credentials.credentials, config, verify_exp=False)
+    except TokenError:
+        return None
+
+
+async def _session_of_refresh_token(
+    session: AsyncSession, refresh_token: str
+) -> AuthSession | None:
+    """The session a presented refresh token belongs to (spent or not)."""
+    token_row = (
+        await session.execute(
+            select(RefreshToken).where(
+                RefreshToken.token_hash == hash_refresh_token(refresh_token)
+            )
+        )
+    ).scalar_one_or_none()
+    if token_row is None:
+        return None
+    return await session.get(AuthSession, token_row.session_id)
+
+
 async def _issue_refresh_token(
     session: AsyncSession,
     auth_session: AuthSession,
@@ -378,6 +408,7 @@ async def refresh(
     config: AuthConfigDep,
     session: SessionDep,
     response: Response,
+    credentials: BearerCredentials,
     refresh_token: RefreshCookie = None,
 ) -> AuthTokenResponse:
     """Rotate the refresh cookie and mint a fresh access token.
@@ -404,6 +435,21 @@ async def refresh(
     auth_session = await session.get(AuthSession, token_row.session_id)
     if auth_session is None or not _session_is_live(auth_session, now):
         raise _refresh_rejected()
+    # Whose renewal is this? On a shared browser the cookie belongs to whoever
+    # signed in LAST, and an earlier user's tab must not be renewed into it:
+    # it would carry that user's screen, and resend that user's failed write,
+    # as somebody else. A bearer (expired is fine; forged is not) naming a
+    # different user is refused WITHOUT spending or clearing the cookie, which
+    # stays valid for its owner. A missing or unverifiable bearer adds no
+    # claim either way.
+    bearer = _bearer_identity(credentials, config)
+    if bearer is not None and bearer.user_id != auth_session.user_id:
+        _logger.warning(
+            "refresh_identity_mismatch",
+            user_id=str(auth_session.user_id),
+            bearer_user_id=str(bearer.user_id),
+        )
+        raise UnauthorizedError(_SESSION_MISMATCH, code="session_mismatch")
     # Spend it: a conditional UPDATE, so of two concurrent presentations of
     # one token exactly one wins; the loser is treated as the reuse it is.
     # An UPDATE yields a CursorResult (rowcount); `execute` is typed as the
@@ -454,38 +500,41 @@ async def logout(
 ) -> None:
     """End the session: revoke it server-side and clear the refresh cookie.
 
-    The session is found from the refresh cookie, from a still-valid bearer
-    token, or both. Revocation ends the refresh chain AND every access token
-    minted from it (see :func:`get_current_user`). Always 204 — idempotent,
-    and it says nothing about whether the credentials were any good.
+    The session is found from the bearer token (signature verified, expiry
+    not required: an expired token still names its own session), from the
+    refresh cookie, or both. Revocation ends the refresh chain AND every
+    access token minted from it (see :func:`get_current_user`). When the
+    bearer and the cookie belong to DIFFERENT users, only the bearer's session
+    ends and the cookie is left alone — it is someone else's sign-in. Always
+    204 — idempotent, and it says nothing about whether the credentials were
+    any good.
     """
-    session_ids: set[uuid.UUID] = set()
+    bearer = _bearer_identity(credentials, config)
+    targets: list[AuthSession] = []
+    if bearer is not None:
+        own = await session.get(AuthSession, bearer.session_id)
+        if own is not None and own.user_id == bearer.user_id:
+            targets.append(own)
+    cookie_is_someone_elses = False
     if refresh_token:
-        token_row = (
-            await session.execute(
-                select(RefreshToken).where(
-                    RefreshToken.token_hash == hash_refresh_token(refresh_token)
-                )
-            )
-        ).scalar_one_or_none()
-        if token_row is not None:
-            session_ids.add(token_row.session_id)
-    if credentials is not None:
-        # An unusable bearer revokes nothing; the cookie may still.
-        with contextlib.suppress(TokenError):
-            session_ids.add(
-                decode_access_token(credentials.credentials, config).session_id
-            )
-    for session_id in session_ids:
-        auth_session = await session.get(AuthSession, session_id)
-        if auth_session is not None:
-            await _revoke(session, auth_session)
-            _logger.info(
-                "auth_session_revoked",
-                user_id=str(auth_session.user_id),
-                session_id=str(auth_session.id),
-            )
-    _clear_refresh_cookie(response)
+        cookie_session = await _session_of_refresh_token(session, refresh_token)
+        if cookie_session is not None:
+            # A shared browser: the cookie can belong to whoever signed in
+            # last, while this tab's bearer is an earlier user's. Signing the
+            # earlier user out must not sign the later one out.
+            if bearer is not None and cookie_session.user_id != bearer.user_id:
+                cookie_is_someone_elses = True
+            else:
+                targets.append(cookie_session)
+    for auth_session in {target.id: target for target in targets}.values():
+        await _revoke(session, auth_session)
+        _logger.info(
+            "auth_session_revoked",
+            user_id=str(auth_session.user_id),
+            session_id=str(auth_session.id),
+        )
+    if not cookie_is_someone_elses:
+        _clear_refresh_cookie(response)
 
 
 @router.get("/me")

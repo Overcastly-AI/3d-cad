@@ -128,19 +128,33 @@ def _cookie_value(response: httpx.Response) -> str:
     return value
 
 
-def _sign_in(client: TestClient, *, register: bool = True) -> tuple[str, str]:
+def _sign_in(
+    client: TestClient, *, register: bool = True, email: str = EMAIL
+) -> tuple[str, str]:
     """(access token, refresh cookie value) for a fresh sign-in."""
     path = "/api/v1/auth/register" if register else "/api/v1/auth/login"
-    response = client.post(path, json={"email": EMAIL, "password": PASSWORD})
+    response = client.post(path, json={"email": email, "password": PASSWORD})
     assert response.status_code in (200, 201), response.text
     return response.json()["access_token"], _cookie_value(response)
 
 
-def _refresh(client: TestClient, cookie: str | None) -> httpx.Response:
+def _refresh(
+    client: TestClient, cookie: str | None, *, bearer: str | None = None
+) -> httpx.Response:
     """POST /refresh presenting exactly *cookie* (the jar is bypassed)."""
     client.cookies.clear()
     headers = {} if cookie is None else {"Cookie": f"{REFRESH_COOKIE_NAME}={cookie}"}
+    if bearer is not None:
+        headers["Authorization"] = f"Bearer {bearer}"
     return client.post("/api/v1/auth/refresh", headers=headers)
+
+
+def _refresh_cookie_headers(response: httpx.Response) -> list[str]:
+    return [
+        value
+        for value in response.headers.get_list("set-cookie")
+        if value.startswith(f"{REFRESH_COOKIE_NAME}=")
+    ]
 
 
 def _me(client: TestClient, access_token: str) -> int:
@@ -269,6 +283,91 @@ def test_reuse_revokes_only_the_session_it_happened_in(client: TestClient) -> No
     _assert_rejected(_refresh(client, laptop))  # reuse on the laptop session
     assert _me(client, desk_access) == 200
     assert _refresh(client, desk).status_code == 200
+
+
+# --- identity: a shared browser never renews one user into another ------------
+
+OTHER_EMAIL = "dave@example.com"
+
+
+def test_refresh_refuses_a_tab_of_one_user_with_another_users_cookie(
+    client: TestClient,
+) -> None:
+    """X's tab (bearer X) meets the cookie Y set by signing in last: refused,
+    and Y's cookie is neither spent nor cleared."""
+    x_access, _ = _sign_in(client)
+    y_access, y_cookie = _sign_in(client, email=OTHER_EMAIL)
+
+    response = _refresh(client, y_cookie, bearer=x_access)
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "session_mismatch"
+    assert _refresh_cookie_headers(response) == []  # Y's cookie left as it was
+
+    # Y's own tab renews with that same, unspent cookie.
+    renewed = _refresh(client, y_cookie, bearer=y_access)
+    assert renewed.status_code == 200
+    assert renewed.json()["user"]["email"] == OTHER_EMAIL
+
+
+def test_an_expired_bearer_still_names_its_user(client: TestClient) -> None:
+    """The tab asking for renewal holds an EXPIRED token by definition; its
+    signature still says whose it is."""
+    x_access, _ = _sign_in(client)
+    _, y_cookie = _sign_in(client, email=OTHER_EMAIL)
+    claims = _claims(x_access)
+    config = AuthConfig(jwt_secret=TEST_JWT_SECRET, token_ttl_s=TOKEN_TTL_S)
+    expired = create_access_token(
+        uuid.UUID(claims["sub"]),
+        uuid.UUID(claims["sid"]),
+        config,
+        now=datetime.now(UTC) - timedelta(seconds=TOKEN_TTL_S + 60),
+    ).token
+    assert _me(client, expired) == 401  # really expired
+    response = _refresh(client, y_cookie, bearer=expired)
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "session_mismatch"
+
+
+def test_an_unverifiable_bearer_claims_nothing(client: TestClient) -> None:
+    """A forged or garbled bearer is ignored (it cannot vouch for anyone), so
+    the cookie alone decides, exactly as with no bearer at all."""
+    _, cookie = _sign_in(client)
+    attacker = AuthConfig(
+        jwt_secret="attacker-controlled-secret-0123456789", token_ttl_s=3600
+    )
+    forged = create_access_token(uuid.uuid4(), uuid.uuid4(), attacker).token
+    assert _refresh(client, cookie, bearer=forged).status_code == 200
+
+
+def test_the_same_user_in_another_session_may_renew(client: TestClient) -> None:
+    """Signing in again in another tab replaces the cookie; the older tab of the
+    SAME person renews into the newer session rather than being thrown out."""
+    first_access, _ = _sign_in(client)
+    _, second_cookie = _sign_in(client, register=False)
+    response = _refresh(client, second_cookie, bearer=first_access)
+    assert response.status_code == 200
+    renewed = _claims(response.json()["access_token"])
+    assert renewed["sub"] == _claims(first_access)["sub"]
+
+
+def test_logout_from_one_users_tab_leaves_another_users_cookie_alone(
+    client: TestClient,
+) -> None:
+    x_access, _ = _sign_in(client)
+    y_access, y_cookie = _sign_in(client, email=OTHER_EMAIL)
+    client.cookies.clear()
+    response = client.post(
+        "/api/v1/auth/logout",
+        headers={
+            "Authorization": f"Bearer {x_access}",
+            "Cookie": f"{REFRESH_COOKIE_NAME}={y_cookie}",
+        },
+    )
+    assert response.status_code == 204
+    assert _refresh_cookie_headers(response) == []
+    assert _me(client, x_access) == 401  # X is signed out
+    assert _me(client, y_access) == 200  # Y is not
+    assert _refresh(client, y_cookie, bearer=y_access).status_code == 200
 
 
 # --- revocation (logout) ---------------------------------------------------------

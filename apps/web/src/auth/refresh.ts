@@ -22,6 +22,7 @@
  */
 import type { GatewayClient } from "@loft/ts-client/gateway";
 
+import { envelopeCode } from "../api/envelope";
 import type { SessionUser } from "./session";
 
 export type RefreshOutcome =
@@ -29,20 +30,29 @@ export type RefreshOutcome =
   /** The refresh route said 401: revoked, expired, reused, or no cookie. */
   | { kind: "rejected" }
   /** Could not ask (network, 5xx, 429). The session may well be fine. */
-  | { kind: "unavailable" };
+  | { kind: "unavailable" }
+  /**
+   * The cookie now belongs to a DIFFERENT user (a shared browser: someone
+   * else signed in after this tab's user). This tab's session is over, and
+   * the other user's must be left alone.
+   */
+  | { kind: "switched" };
 
 /** Ask the gateway to rotate the refresh cookie (one HTTP call, no retries). */
 export async function requestRefresh(
   client: GatewayClient,
 ): Promise<RefreshOutcome> {
   try {
-    const { data, response } = await client.POST("/api/v1/auth/refresh");
+    const { data, error, response } = await client.POST("/api/v1/auth/refresh");
     if (data !== undefined) {
       return { kind: "refreshed", token: data.access_token, user: data.user };
     }
-    return response.status === 401
-      ? { kind: "rejected" }
-      : { kind: "unavailable" };
+    if (response.status !== 401) return { kind: "unavailable" };
+    // The gateway refuses to renew a tab of one user with another user's
+    // cookie (gateway.auth.routes.refresh) and says so with its own code.
+    return envelopeCode(error) === "session_mismatch"
+      ? { kind: "switched" }
+      : { kind: "rejected" };
   } catch {
     return { kind: "unavailable" };
   }
@@ -73,6 +83,10 @@ export interface RefresherDeps {
   onRefreshed: (token: string, user: SessionUser) => void;
   /** The session is over; send the user to sign in. */
   onRejected: () => void;
+  /** The user this tab is signed in as (null: nobody). */
+  currentUserId?: () => string | null;
+  /** The cookie is another user's now: drop THIS tab's session only. */
+  onSwitched?: () => void;
 }
 
 export interface Refresher {
@@ -87,11 +101,25 @@ export function createRefresher(deps: RefresherDeps): Refresher {
     refresh() {
       if (inflight !== null) return inflight;
       const attempt = (async () => {
-        const outcome = await lock(deps.request);
+        let outcome = await lock(deps.request);
+        // Defence in depth for the gateway's own identity check: a renewal
+        // that comes back as somebody else is never adopted, whatever the
+        // server said. (No bearer is sent when signed out, so the server can
+        // only check when there is a user to check against; so can we.)
+        const expected = deps.currentUserId?.() ?? null;
+        if (
+          outcome.kind === "refreshed" &&
+          expected !== null &&
+          outcome.user.id !== expected
+        ) {
+          outcome = { kind: "switched" };
+        }
         if (outcome.kind === "refreshed") {
           deps.onRefreshed(outcome.token, outcome.user);
         } else if (outcome.kind === "rejected") {
           deps.onRejected();
+        } else if (outcome.kind === "switched") {
+          (deps.onSwitched ?? deps.onRejected)();
         }
         return outcome;
       })();
