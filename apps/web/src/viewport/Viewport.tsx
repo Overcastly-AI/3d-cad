@@ -110,6 +110,40 @@ interface CameraGoal {
   zoom?: number;
 }
 
+/**
+ * The attitude the camera is COMMITTED to — the one a re-frame must keep.
+ *
+ * AN EASE IN FLIGHT IS THE VIEWPOINT, not the pixel the camera happens to be
+ * passing through: while a pose is easing, its destination is what the
+ * modeler (or the rig acting for them) asked for, so read the direction and up
+ * from the goal; only with nothing in flight is the live camera the intent.
+ *
+ * Both fits read it. The auto-fit learned this first (CAMRESTORE-1). The
+ * chrome-change fit did not, and that cost a timing-dependent view: leaving a
+ * sketch starts the restore ease back to the pre-sketch view, the sketch strip
+ * unmounting announces a chrome change a few frames later, and the fit it
+ * requests adopted whatever attitude the restore had reached. Measured on the
+ * first sketch of an empty part (pre-sketch elevation 23.11 deg): the rest
+ * elevation landed anywhere from 23.85 to 27.63 deg depending on CPU speed and
+ * latency, so the same flow left CI and a laptop looking from different views.
+ *
+ * Direction points from the target TO the camera (framePose's convention).
+ * Returns null for a degenerate pose (camera sitting on its target), which
+ * would otherwise normalise to a zero vector — the caller keeps its fallback.
+ */
+function committedAttitude(
+  inFlight: CameraGoal | null,
+  camera: { position: Vector3; up: Vector3 },
+  target: Vector3,
+): { dir: Vector3; up: Vector3 } | null {
+  const from = inFlight?.position ?? camera.position;
+  const aim = inFlight?.target ?? target;
+  const offset = from.clone().sub(aim);
+  if (offset.lengthSq() <= 1e-12) return null;
+  const dir = offset.normalize();
+  return { dir, up: safeUp(dir, (inFlight?.up ?? camera.up).clone()) };
+}
+
 /** Within this fraction of the goal zoom, a parallel framing has landed. */
 const ZOOM_SETTLE_EPSILON = 0.002;
 
@@ -403,30 +437,23 @@ function CameraRig({
     framedOnce.current = true;
     if (first) userMoved.current = false;
 
-    // Direction points from the target TO the camera, matching framePose's
-    // convention. The iso fallback is for a scene NOBODY has posed yet (an
-    // empty part opening for the first time) and for a degenerate pose (camera
-    // sitting exactly on its target), which would otherwise normalise to a zero
-    // vector. It is not the "first geometry" case: see `framedOnce`.
+    // The iso fallback is for a scene NOBODY has posed yet (an empty part
+    // opening for the first time) and for a degenerate pose. It is not the
+    // "first geometry" case: see `framedOnce`.
     //
-    // AN EASE IN FLIGHT IS THE VIEWPOINT, not the pixel the camera happens to
-    // be passing through. A refit that lands mid-ease (leaving a sketch that
-    // built geometry does both within a few hundred ms — CAMRESTORE-1) would
-    // otherwise adopt an arbitrary intermediate attitude AND cancel the ease by
-    // posing instantly, so the modeler ends up somewhere neither rig meant. The
-    // goal is the intent; read it when there is one.
+    // A refit that lands mid-ease (leaving a sketch that built geometry does
+    // both within a few hundred ms — CAMRESTORE-1) must keep the ease's
+    // DESTINATION attitude, or it adopts an arbitrary intermediate one AND
+    // cancels the ease by posing instantly — see `committedAttitude`.
     let dir = ISO_DIR.clone();
     let up = new Vector3(0, 1, 0);
-    const inFlight = goal.current;
     if (!first) {
-      const currentTarget =
-        inFlight?.target.clone() ?? controls?.target.clone() ?? center.clone();
-      const from = inFlight?.position ?? camera.position;
-      const offset = from.clone().sub(currentTarget);
-      if (offset.lengthSq() > 1e-12) {
-        dir = offset.normalize();
-        up = safeUp(dir, (inFlight?.up ?? camera.up).clone());
-      }
+      const committed = committedAttitude(
+        goal.current,
+        camera,
+        controls?.target.clone() ?? center.clone(),
+      );
+      if (committed !== null) ({ dir, up } = committed);
     }
 
     applyPose(
@@ -493,12 +520,19 @@ function CameraRig({
         view: "direction",
       };
     } else if (command.kind === "fit") {
-      // Keep the view direction, frame the subject.
-      const dir = camera.position.clone().sub(currentTarget).normalize();
+      // Keep the view direction, frame the subject. The direction is the one
+      // the camera is COMMITTED to: a fit requested mid-ease (the chrome change
+      // that follows every sketch exit, or a Fit pressed during a snap) keeps
+      // the ease's destination, not the attitude it happened to be passing
+      // through — see `committedAttitude`.
+      const committed = committedAttitude(goal.current, camera, currentTarget);
+      const dir =
+        committed?.dir ??
+        camera.position.clone().sub(currentTarget).normalize();
       userMoved.current = false;
       pose = framePose(
         dir,
-        safeUp(dir, camera.up.clone()),
+        committed?.up ?? safeUp(dir, camera.up.clone()),
         center,
         fitRadius,
         "fit",
