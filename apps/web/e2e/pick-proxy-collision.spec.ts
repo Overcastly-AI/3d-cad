@@ -37,6 +37,8 @@
  */
 import { expect, test, type Page } from "./fixtures";
 
+import { installSceneProbe, waitForCameraStill } from "./invariants";
+
 import { createFeature, rectangleSketch } from "./partSeed";
 import {
   createPartViaApi,
@@ -192,64 +194,6 @@ async function seedShelledHousing(
     },
     expected_tree_version: solid.tree_version,
   });
-}
-
-/**
- * Wait until the camera POSITION has stopped moving, not merely until its
- * direction has settled.
- *
- * The distinction cost six commits of red CI elsewhere on this branch: a re-fit
- * is a pure re-frame — the camera dollies and slides while looking at exactly
- * the same thing — so a direction-only rest check returns mid-slide and every
- * screen coordinate read after it measures the camera rather than the proxies.
- * The shape is taken from `revolve-gauge.spec.ts`, deliberately duplicated
- * rather than imported: that file is another agent's in-flight work and this
- * spec must not pin it.
- */
-async function waitForCameraStill(
-  page: Page,
-  options: { epsilonMm?: number; timeoutMs?: number } = {},
-): Promise<void> {
-  const { epsilonMm = 0.02, timeoutMs = 20_000 } = options;
-  const read = async (): Promise<[number, number, number]> =>
-    page.evaluate(() => {
-      const w = window as unknown as Record<string, unknown>;
-      const cameras = (w["__loftCameras"] ?? {}) as Record<
-        string,
-        { position: { x: number; y: number; z: number } }
-      >;
-      const order = (w["__loftSceneOrder"] ?? []) as string[];
-      for (const uuid of order) {
-        const camera = cameras[uuid];
-        if (camera !== undefined) {
-          return [camera.position.x, camera.position.y, camera.position.z] as [
-            number,
-            number,
-            number,
-          ];
-        }
-      }
-      return [0, 0, 0] as [number, number, number];
-    });
-  const deadline = Date.now() + timeoutMs;
-  let previous = await read();
-  for (;;) {
-    await waitForFrames(page, 4);
-    const current = await read();
-    const moved = Math.hypot(
-      current[0] - previous[0],
-      current[1] - previous[1],
-      current[2] - previous[2],
-    );
-    if (moved <= epsilonMm) return;
-    previous = current;
-    if (Date.now() > deadline) {
-      throw new Error(
-        `waitForCameraStill: camera still moving after ${timeoutMs}ms ` +
-          `(last step ${moved.toFixed(4)} mm)`,
-      );
-    }
-  }
 }
 
 /**
@@ -648,6 +592,7 @@ async function openHousing(
   page: Page,
   options: { shelled?: boolean } = {},
 ): Promise<void> {
+  await installSceneProbe(page); // before goto: the settles read the camera
   const account = await seedSession(page);
   const part = await createPartViaApi(page, account.token, "Gearbox housing");
   await (options.shelled === true ? seedShelledHousing : seedHousing)(

@@ -1,13 +1,12 @@
 import { expect, test, type Page } from "./fixtures";
 
-import { cameraPose, installSceneProbe } from "./invariants";
+import { installSceneProbe, waitForCameraStill } from "./invariants";
 import { createFeature, rectangleSketch } from "./partSeed";
 import {
   clickForReal,
   createPartViaApi,
   SCREENSHOT_DIR,
   seedSession,
-  waitForFrames,
 } from "./support";
 
 /**
@@ -99,24 +98,6 @@ async function brightFraction(page: Page): Promise<number> {
     }
     return bright / (data.length / 4);
   });
-}
-
-/** POSITION settle: 0.02 mm or less between samples, four samples running. */
-async function waitForCameraStill(page: Page): Promise<void> {
-  let previous = (await cameraPose(page)).position;
-  let still = 0;
-  for (let i = 0; i < 200 && still < 4; i += 1) {
-    await waitForFrames(page, 3);
-    const current = (await cameraPose(page)).position;
-    const moved = Math.hypot(
-      current[0] - previous[0],
-      current[1] - previous[1],
-      current[2] - previous[2],
-    );
-    still = moved <= 0.02 ? still + 1 : 0;
-    previous = current;
-  }
-  expect(still, "the camera never came to rest").toBeGreaterThanOrEqual(4);
 }
 
 async function seedTouchingBodies(page: Page): Promise<string> {

@@ -45,14 +45,10 @@ import {
   expectCameraStable,
   installSceneProbe,
   waitForCameraRest,
+  waitForCameraStill,
 } from "./invariants";
 import { enterSketch } from "./planeMap";
-import {
-  createPartViaApi,
-  distinctCanvasColors,
-  seedSession,
-  waitForFrames,
-} from "./support";
+import { createPartViaApi, distinctCanvasColors, seedSession } from "./support";
 
 /** The direction the shell opens with (`VIEW_DIRECTIONS.iso`, normalised). */
 const ISO_FORWARD: [number, number, number] = [-0.5518, -0.3752, -0.7449];
@@ -106,29 +102,6 @@ async function sample(
   };
   console.log(`[AXIS] ${JSON.stringify(s)}`);
   return s;
-}
-
-/**
- * Wait until the camera's POSITION stops moving: 0.02 mm or less between
- * samples, four samples running, each a few rendered frames apart.
- *
- * Not `waitForCameraRest`, which compares view DIRECTION only — and both
- * re-frames in this flow (the CRAFT-12 preview re-fit and the auto-fit) are
- * pure dollies that never change the direction, so that helper returns on its
- * first sample in the middle of the slide.
- */
-async function waitForCameraStill(
-  page: import("@playwright/test").Page,
-): Promise<void> {
-  let previous = (await cameraPose(page)).position;
-  let still = 0;
-  for (let i = 0; i < 200 && still < 4; i += 1) {
-    await waitForFrames(page, 3);
-    const current = (await cameraPose(page)).position;
-    still = distance(previous, current) <= 0.02 ? still + 1 : 0;
-    previous = current;
-  }
-  expect(still, "the camera never came to rest").toBeGreaterThanOrEqual(4);
 }
 
 /** `data-camera-pos` as numbers — the settled position, to 0.1. */

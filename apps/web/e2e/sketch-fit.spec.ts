@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "./fixtures";
 
 import { handClick } from "./hand";
-import { installSceneProbe } from "./invariants";
+import { installSceneProbe, waitForCameraStill } from "./invariants";
 import { createFeature } from "./partSeed";
 import { calibratePlane, enterSketch } from "./planeMap";
 import {
@@ -153,25 +153,6 @@ function inside(
   return (
     p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height
   );
-}
-
-/**
- * Wait until the camera's POSITION stops moving: a Fit is a pure re-frame (it
- * keeps the direction), so a direction-only settle would return mid-slide.
- */
-async function waitForCameraStill(page: Page): Promise<void> {
-  let previous = (await project(page, [[0, 0]]))[0]!;
-  let still = 0;
-  for (let i = 0; i < 200 && still < 4; i += 1) {
-    await waitForFrames(page, 3);
-    const current = (await project(page, [[0, 0]]))[0]!;
-    still =
-      Math.hypot(current.x - previous.x, current.y - previous.y) <= 0.05
-        ? still + 1
-        : 0;
-    previous = current;
-  }
-  expect(still, "the camera never came to rest").toBeGreaterThanOrEqual(4);
 }
 
 /** The glyphs' centres — the audit's own instrument (drei `Html` anchors). */

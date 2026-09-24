@@ -431,6 +431,21 @@ export async function waitForCameraRest(
  * the body's silhouette bottom 849 -> 869 px. CI read the silhouette on both
  * sides of that slide and failed at "Expected <= 850/862, Received 869/870".
  *
+ * The same class, earlier, in revolve-gauge.spec.ts (the CRAFT-12 re-fit,
+ * `7a15bea`): growing the sweep to 120 deg moved the proposal, and the camera
+ * travelled (157.14, 128.99, 178.98) -> (160.79, 130.84, 180.22) BETWEEN the
+ * frame that projected the gauge track and the frame that hit-tested a point
+ * off it. The press point was computed in one pose and used in another, so
+ * `elementFromPoint` found nothing (`held === null`) on shard 3/4 for six
+ * consecutive commits. Locally the latency of two CDP round trips had been an
+ * accidental settle; two extra `page.evaluate` calls reproduced it 3 of 3.
+ *
+ * ONE copy, here. Five specs used to carry their own, with four different
+ * criteria, and one of them (pick-proxy-collision) read `__loftCameras`
+ * without ever installing the probe, so it saw [0,0,0] every sample and
+ * "settled" immediately. This one reads through {@link cameraPose}, which
+ * refuses to answer about a camera the probe never saw.
+ *
  * The condition is the camera's own: `stillSamples` consecutive samples, each
  * `framesPerSample` painted frames apart, that agree to within `epsilonMm` of
  * position and `epsilonDeg` of direction. Not a `waitForTimeout` guess at how
