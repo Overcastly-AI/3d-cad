@@ -219,7 +219,7 @@ from geometry.kernel import (
     sweep_profile,
     tessellate_glb,
 )
-from geometry.kernel.fork import fork_shapes
+from geometry.kernel.fork import fork_shapes, weigh_shapes
 from geometry.kernel.healing import body_is_valid, new_geometry_is_valid
 from geometry.kernel.lumps import lump_count
 from geometry.kernel.provenance import FaceProvenance, FaceProvenanceRecorder
@@ -3461,6 +3461,8 @@ class _Checkpoint:
     last_good_feature_id: uuid.UUID | None
     suppressed_ids: frozenset[uuid.UUID]
     artifacts: _PublishedArtifacts | None
+    #: The :meth:`weigh` memo — ``None`` until the cache first weighs it.
+    nbytes: int | None = None
 
     def detach(self) -> None:
         """Drop the triangulation the producing request left on these shapes.
@@ -3476,6 +3478,28 @@ class _Checkpoint:
         """
         for shape, _ in self.state.shape_slots():
             drop_triangulation(shape)
+
+    def weigh(self) -> int:
+        """Estimated heap this checkpoint pins in the FRONTIER cache.
+
+        Every shape of the state (:meth:`EvaluationState.shape_slots`), the faces
+        the provenance memo keeps alive, and the published shape, serialised
+        together so shared subshapes count once
+        (:func:`~geometry.kernel.fork.weigh_shapes`), plus the memoised GLB's exact
+        length. Memoised on the checkpoint, and carried across a REPEAT (which
+        re-stores the same state and artifacts) by :func:`_evaluate_tree`, so the
+        ``/measure`` / ``/tessellate`` / ``/export`` calls that follow an
+        ``/evaluate`` do not pay to re-weigh an unchanged checkpoint.
+        """
+        if self.nbytes is None:
+            shapes: list[object] = [s.wrapped for s, _ in self.state.shape_slots()]
+            shapes.extend(self.state.provenance.retained_faces())
+            glb = 0
+            if self.artifacts is not None:
+                shapes.append(cast(object, self.artifacts.shape.wrapped))
+                glb = len(self.artifacts.glb)
+            self.nbytes = weigh_shapes(shapes) + glb
+        return self.nbytes
 
     def fork(self) -> "_Checkpoint":
         """An independent copy for the caller of a LADDER rung (PERF-REAL-2).
@@ -4093,6 +4117,7 @@ def _evaluate_tree(
         for base_id in state.bodies
     }
     body_measures: dict[uuid.UUID, ShapeProperties] = {}
+    reused_nbytes: int | None = None
     if (
         state.bodies
         and not body_invalidated
@@ -4107,6 +4132,8 @@ def _evaluate_tree(
         # so the id is the same one.
         shape, glb, mesh = unchanged.shape, unchanged.glb, unchanged.mesh
         properties, body_measures = unchanged.properties, unchanged.body_measures
+        # Same state, same shape, same GLB: the checkpoint weighs what it weighed.
+        reused_nbytes = None if checkpoint is None else checkpoint.nbytes
         mesh_glb_id = store_mesh_glb(glb)
     elif state.bodies and not body_invalidated:
         # Tree/insertion-ordered body set (§MB-0): a part with ONE body measures
@@ -4203,6 +4230,7 @@ def _evaluate_tree(
                 artifacts=_published_artifacts(
                     body_materials, body_measures, properties, shape, glb, mesh
                 ),
+                nbytes=reused_nbytes,
             ),
         )
     return evaluation

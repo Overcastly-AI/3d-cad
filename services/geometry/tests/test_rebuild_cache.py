@@ -32,6 +32,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
 
+import geometry.mesh_store as mesh_store
 import pytest
 from build123d import Solid
 from build123d.topology.shape_core import Shape
@@ -425,9 +426,13 @@ class _FakePayload:
 
     name: str
     detached: list[str] = field(default_factory=list[str])
+    nbytes: int = 0
 
     def detach(self) -> None:
         self.detached.append(self.name)
+
+    def weigh(self) -> int:
+        return self.nbytes
 
     def fork(self) -> _FakePayload:
         return _FakePayload(f"{self.name}'")
@@ -1378,3 +1383,108 @@ def test_a_freeform_ladder_holds_no_more_heap_than_its_byte_budget(
     assert stats.rung_evictions > 0, "the budget must have BOUND"
     assert stats.rungs >= 2, "and still hold a ladder"
     assert stats.rung_bytes <= _FREEFORM_BUDGET
+
+
+# --- The FRONTIER cache's memory bound (GQA-LADDER-1's twin) -------------------
+
+
+def test_the_frontier_is_bounded_by_bytes_as_well_as_count() -> None:
+    """A count prices every checkpoint the same; the byte budget does not. LRU
+    eviction on either bound, and a checkpoint heavier than the whole budget is
+    refused rather than allowed to break it."""
+    cache: PrefixCache[_FakePayload] = PrefixCache(8, byte_budget=100)
+    for name in "abc":
+        assert cache.store(f"key-{name}", _FakePayload(name, nbytes=40))
+    assert cache.stats.entry_bytes == 80 and cache.stats.evictions == 1
+    assert cache.take(["root", "key-a"]) is None, "the LRU entry went first"
+    assert cache.take(["root", "key-c"]) is not None
+    assert cache.stats.entry_bytes == 40, "a take hands its bytes back"
+
+    assert not cache.store("huge", _FakePayload("huge", nbytes=101))
+    assert cache.stats.oversize_refused == 1
+    assert cache.take(["root", "key-b"]) is not None, "and evicted nothing"
+
+
+def test_speculation_yields_bytes_as_well_as_slots() -> None:
+    """CONC-4 on the byte bound: a warm's checkpoint is the first victim when a
+    live one needs the bytes, and is refused when only live work could make
+    room for it."""
+    cache: PrefixCache[_FakePayload] = PrefixCache(8, byte_budget=100)
+    cache.store("live", _FakePayload("live", nbytes=40))
+    assert cache.store("guess", _FakePayload("guess", nbytes=40), speculative=True)
+    cache.store("newer", _FakePayload("newer", nbytes=40))
+    assert cache.take(["root", "guess"]) is None, "speculation is evicted first"
+    assert cache.take(["root", "live"]) is not None, "older live work survives"
+
+    cache.store("big-live", _FakePayload("big-live", nbytes=50))
+    assert not cache.store(
+        "late-guess", _FakePayload("late-guess", nbytes=60), speculative=True
+    ), "only live work could make room, so the guess yields"
+    assert cache.stats.entry_bytes == 90
+
+
+def test_a_repeat_does_not_pay_to_reweigh_its_checkpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Weighing is a serialisation of the whole state, so it must not be paid on
+    the cheap path: the ``/measure``, ``/tessellate``, ``/export`` calls that
+    REPEAT a tree re-store the same state and artifacts, and carry its weight."""
+    calls: list[int] = []
+    real = evaluate_module.weigh_shapes  # pyright: ignore[reportPrivateImportUsage]
+
+    def counting(shapes: Any) -> int:
+        calls.append(1)
+        return real(shapes)
+
+    monkeypatch.setattr(evaluate_module, "weigh_shapes", counting)
+    request = _request(_payload())
+    reset_rebuild_cache()
+    _answer(request)
+    assert len(calls) == 1, "the first release weighs the checkpoint once"
+    for _ in range(3):
+        _answer(request)
+    assert len(calls) == 1, "a repeat re-weighed an unchanged checkpoint"
+    assert rebuild_cache_stats().entry_bytes > 0
+
+
+#: Small enough that five frontier checkpoints of the 8-lobe part overflow it.
+_FRONTIER_BUDGET = 4 * 1024 * 1024
+
+
+def test_a_freeform_frontier_holds_no_more_heap_than_its_byte_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The frontier cache's memory bound, measured in HEAP, not estimated.
+
+    Before it had a byte budget the frontier was bounded by COUNT (32 entries),
+    documented as "~128 MiB ... of big parts" — true for the tray, and ~176 MiB
+    on the lofted-lobe part, whose checkpoints weigh ~5.5 MiB each. Here five
+    evaluations of the 8-lobe part (feature 1 changed each time, so each stores
+    a new frontier checkpoint) fill a frontier with a 4 MiB byte budget; then the
+    frontier alone is dropped and the heap that frees is compared with the
+    budget. The ladder is off and the mesh store keeps one GLB, so what is freed
+    is the frontier's own. With the count-only bound put back, this fails.
+    """
+    cache: PrefixCache[Any] = PrefixCache(
+        REBUILD_CACHE_CAPACITY, byte_budget=_FRONTIER_BUDGET, rung_capacity=0
+    )
+    monkeypatch.setattr(evaluate_module, "_REBUILD_CACHE", cache)
+    monkeypatch.setattr(mesh_store, "_active_store", mesh_store.MeshStore(1))
+    for chain in range(5):
+        payload = _lobed_plate_tree(8, 4.0 - 0.25 * chain)
+        result = evaluate_tree(_request(payload)).result
+        assert all(feature.status == "ok" for feature in result.features)
+
+    stats = cache.stats
+    before = _heap_in_use()
+    cache._entries.clear()  # the frontier alone
+    freed = before - _heap_in_use()
+    assert freed <= _FRONTIER_BUDGET, (
+        f"the frontier held {freed / 2**20:.1f} MiB of heap against a "
+        f"{_FRONTIER_BUDGET / 2**20:.0f} MiB budget ({stats.stores} stores, "
+        f"{stats.evictions} evictions)"
+    )
+    # Only then, the guards that keep the comparison above from being vacuous.
+    assert freed > 0, "dropping the frontier freed nothing: the probe is blind"
+    assert stats.evictions > 0, "the byte budget must have BOUND"
+    assert stats.stores == 5 and stats.entry_bytes <= _FRONTIER_BUDGET

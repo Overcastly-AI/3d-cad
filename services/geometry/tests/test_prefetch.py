@@ -705,6 +705,9 @@ class _Payload:
     def detach(self) -> None:
         pass
 
+    def weigh(self) -> int:
+        return 0
+
     def fork(self) -> _Payload:
         return _Payload(self.name + "'")
 

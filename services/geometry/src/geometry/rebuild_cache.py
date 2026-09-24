@@ -235,7 +235,34 @@ CACHE_KEY_VERSION = 2
 #: lineages are genuinely live. (Releasing them does not return RSS to the OS —
 #: glibc keeps the arena — which is why the per-entry figure is measured as a
 #: marginal cost, not as a delta after a clear.)
+#:
+#: SINCE 2026-09-24 THIS IS THE SECONDARY BOUND. "~128 MiB" above was true of
+#: analytic parts only: a count prices every entry the same, and a freeform
+#: checkpoint weighs more. The memory bound is now
+#: :data:`REBUILD_CACHE_BYTE_BUDGET`, which keeps 128 MiB as the ceiling.
 REBUILD_CACHE_CAPACITY = 32
+
+#: Max total estimated HEAP BYTES held by frontier checkpoints in this worker —
+#: **the frontier cache's memory bound**, with :data:`REBUILD_CACHE_CAPACITY` now
+#: the secondary (count) bound. **128 MiB: the ceiling the capacity comment above
+#: already documents** ("a completely full cache of big parts is ~128 MiB"), which
+#: was only TRUE for analytic parts. A count prices every entry the same, and on
+#: geometry QA's lofted-NURBS plate (GQA-LADDER-1's part; 24 lobes, 76 features)
+#: one entry measured ~5.5 MiB of heap, so 32 of them would have been ~176 MiB.
+#: Each entry is weighed when it is stored (:meth:`Detachable.weigh`: the state's
+#: shapes and the provenance memo's faces by
+#: :func:`geometry.kernel.fork.estimate_heap_bytes`, plus the memoised GLB's
+#: exact length), and evicted LRU-first with speculation first, as before.
+#: ``tests/test_rebuild_cache.py`` fills the cache with that freeform part and
+#: measures the heap it actually frees against the budget.
+#:
+#: What does NOT fit: a single checkpoint heavier than the whole budget is not
+#: cached at all (counted in :attr:`CacheStats.oversize_refused`). That is a
+#: part whose state plus mesh exceeds 128 MiB — e.g. the 211-solid gauntlet
+#: assembly, whose GLB alone is 142 MB — and which already needs ~2 GiB of peak
+#: RSS; its repeats rebuild, as every repeat did before PERF-1, rather than let
+#: one part take the whole worker's cache.
+REBUILD_CACHE_BYTE_BUDGET = 128 * 1024 * 1024
 
 #: Every ``RUNG_SPACING``-th feature boundary is a LADDER rung (PERF-REAL-2): the
 #: evaluator forks its state there on EVERY evaluation and offers the fork to the
@@ -264,13 +291,11 @@ RUNG_CAPACITY = 64
 
 #: Max total estimated HEAP BYTES held by rungs in this worker — **the memory
 #: bound.** 64 MiB: ~6 % of docs/OPERATIONS.md §6's ~1 GiB per worker, and half
-#: what the frontier cache's 32 entries cost on analytic parts. (That frontier
-#: bound is a COUNT, so it has the same blind spot this one had: on the 24-lobe
-#: NURBS part its entries measure ~5.5 MiB each, ~176 MiB at 32 — filed, not
-#: fixed here.) Each rung is weighed when it is
-#: stored (:func:`geometry.kernel.fork.estimate_heap_bytes`: its binary BRep
-#: size, which carries the geometry, plus a per-face term for the topology),
-#: because a face's weight varies 15.7x between part kinds.
+#: :data:`REBUILD_CACHE_BYTE_BUDGET`, the frontier cache's own byte ceiling —
+#: so the whole rebuild cache is bounded at ~192 MiB estimated heap. Each rung
+#: is weighed when it is stored (:func:`geometry.kernel.fork.estimate_heap_bytes`:
+#: its binary BRep size, which carries the geometry, plus a per-face term for the
+#: topology), because a face's weight varies 15.7x between part kinds.
 #:
 #: WHY BYTES AND NOT FACES (GQA-LADDER-1, 2026-09-24). The first ladder was
 #: bounded at 20 000 faces, priced at the housing tray's 3.2 KiB/face. On a part
@@ -343,6 +368,17 @@ class Detachable(Protocol):
         checkpoint that is not detached would resume to a subtly different GLB.
         """
 
+    def weigh(self) -> int:
+        """Estimated heap bytes this checkpoint pins while it is cached.
+
+        Called by the cache, after :meth:`detach` and outside its lock, when a
+        FRONTIER checkpoint is stored — the weight the byte budget
+        (:data:`REBUILD_CACHE_BYTE_BUDGET`) is charged. A count alone could not
+        bound memory: one freeform checkpoint weighs ~5.5 MiB where the tray's
+        weighs ~2-4 MiB (see that constant).
+        """
+        ...
+
     def fork(self) -> Self:
         """An independent copy the caller will own (a LADDER rung's hand-out).
 
@@ -376,6 +412,10 @@ class CacheStats:
     evictions: int
     resumed_features: int
     speculative_refused: int = 0
+    #: FRONTIER bytes held right now (estimated), and checkpoints refused
+    #: because one alone outweighed the whole byte budget.
+    entry_bytes: int = 0
+    oversize_refused: int = 0
     #: The LADDER's counters (PERF-REAL-2). ``rung_hits`` is the subset of
     #: ``hits`` served by a rung rather than by a frontier checkpoint;
     #: ``rung_evictions`` counts rungs dropped for the global bound (count or
@@ -413,6 +453,7 @@ class _Entry[CheckpointT: Detachable]:
 
     checkpoint: CheckpointT
     speculative: bool
+    nbytes: int = 0
 
 
 @dataclass(frozen=True)
@@ -516,19 +557,25 @@ class PrefixCache[CheckpointT: Detachable]:
         self,
         capacity: int,
         *,
+        byte_budget: int = REBUILD_CACHE_BYTE_BUDGET,
         rung_capacity: int = RUNG_CAPACITY,
         rung_byte_budget: int = RUNG_BYTE_BUDGET,
         rung_max_bytes: int = RUNG_MAX_BYTES,
         rung_spacing: int = RUNG_SPACING,
     ) -> None:
-        if capacity <= 0:
-            raise ValueError(f"capacity must be > 0, got {capacity}")
+        if capacity <= 0 or byte_budget <= 0:
+            raise ValueError(
+                f"capacity and byte budget must be > 0, got {capacity}, {byte_budget}"
+            )
         if (
             min(rung_capacity, rung_byte_budget, rung_max_bytes) < 0
             or rung_spacing <= 0
         ):
             raise ValueError("rung bounds must be >= 0 and the spacing > 0")
         self._capacity = capacity
+        self._byte_budget = byte_budget
+        self._entry_bytes = 0
+        self._oversize_refused = 0
         self._rung_capacity = rung_capacity
         self._rung_byte_budget = rung_byte_budget
         self._rung_max_bytes = min(rung_max_bytes, rung_byte_budget)
@@ -587,6 +634,7 @@ class PrefixCache[CheckpointT: Detachable]:
             for length in range(len(keys) - 1, 0, -1):
                 entry = self._entries.pop(keys[length], None)
                 if entry is not None:
+                    self._entry_bytes -= entry.nbytes
                     self._touch_rungs(keys, length)
                     self._hits += 1
                     self._resumed_features += length
@@ -771,8 +819,12 @@ class PrefixCache[CheckpointT: Detachable]:
 
         *speculative* marks a checkpoint a PREFETCH built (nobody asked for it
         yet), and it buys the entry a strictly weaker claim on a slot. Returns
-        whether the entry was cached — ``False`` only ever for a refused
-        speculative store. The rule, in the order the code applies it:
+        whether the entry was cached — ``False`` for a refused speculative store,
+        or for a checkpoint that alone outweighs :data:`REBUILD_CACHE_BYTE_BUDGET`.
+        The cache is bounded by COUNT and by estimated HEAP BYTES
+        (:meth:`Detachable.weigh`, taken here after ``detach``, outside the lock);
+        "full" below means either bound. The rule, in the order the code applies
+        it:
 
         * **evict speculation first.** The victim is the least-recently-used
           SPECULATIVE entry if there is one, and only otherwise the LRU overall.
@@ -790,12 +842,14 @@ class PrefixCache[CheckpointT: Detachable]:
         property of this method rather than an assumption about the working set —
         the assumption that measurably failed at four users on one worker.
 
-        ``detach`` runs before the decision, so a refused checkpoint is detached
-        and then dropped. That is deliberate: doing it inside the lock would hold
-        the lock across an OCCT call, and the only cost is a ``BRepTools::Clean``
-        on shapes about to be garbage anyway.
+        ``detach`` and ``weigh`` run before the decision, so a refused
+        checkpoint is detached, weighed and then dropped. That is deliberate:
+        doing it inside the lock would hold the lock across an OCCT call, and
+        the only cost is a ``BRepTools::Clean`` and a serialisation of shapes
+        about to be garbage anyway.
         """
         checkpoint.detach()
+        nbytes = checkpoint.weigh()
         with self._lock:
             existing = self._entries.get(key)
             if speculative and existing is not None and not existing.speculative:
@@ -804,27 +858,46 @@ class PrefixCache[CheckpointT: Detachable]:
                 # may carry artifacts a guess never has.
                 self._speculative_refused += 1
                 return False
-            self._entries.pop(key, None)
-            full = len(self._entries) >= self._capacity
-            if speculative and full and self._victim_key() is None:
-                # Every slot holds live work. Speculation yields — silently to
-                # the user, and loudly to the counters.
+            if nbytes > self._byte_budget:
+                # One checkpoint heavier than the whole budget cannot be held
+                # without breaking the bound it exists to keep.
+                self._oversize_refused += 1
+                return False
+            if existing is not None:
+                del self._entries[key]
+                self._entry_bytes -= existing.nbytes
+            if speculative and not self._room_without_live(nbytes):
+                # Only live work could make room. Speculation yields — silently
+                # to the user, and loudly to the counters.
                 self._speculative_refused += 1
                 return False
-            self._entries[key] = _Entry(checkpoint, speculative)
+            self._entries[key] = _Entry(checkpoint, speculative, nbytes)
+            self._entry_bytes += nbytes
             self._stores += 1
             record_rebuild_cache_store()
-            while len(self._entries) > self._capacity:
+            while (
+                len(self._entries) > self._capacity
+                or self._entry_bytes > self._byte_budget
+            ):
                 speculative_victim = self._victim_key()
                 victim = (
                     next(iter(self._entries))
                     if speculative_victim is None
                     else speculative_victim
                 )
-                del self._entries[victim]
+                self._entry_bytes -= self._entries.pop(victim).nbytes
                 self._evictions += 1
                 record_rebuild_cache_eviction()
         return True
+
+    def _room_without_live(self, nbytes: int) -> bool:
+        """Could an entry of *nbytes* fit by evicting speculative entries only?
+        (caller holds the lock)"""
+        live = [entry for entry in self._entries.values() if not entry.speculative]
+        return (
+            len(live) + 1 <= self._capacity
+            and sum(entry.nbytes for entry in live) + nbytes <= self._byte_budget
+        )
 
     def _victim_key(self) -> str | None:
         """The least-recently-used SPECULATIVE entry, or ``None`` if every entry
@@ -838,6 +911,7 @@ class PrefixCache[CheckpointT: Detachable]:
         """Drop every entry (test isolation; production never calls this)."""
         with self._lock:
             self._entries.clear()
+            self._entry_bytes = 0
             self._rungs.clear()
             self._rung_bytes = 0
 
@@ -851,6 +925,8 @@ class PrefixCache[CheckpointT: Detachable]:
                 evictions=self._evictions,
                 resumed_features=self._resumed_features,
                 speculative_refused=self._speculative_refused,
+                entry_bytes=self._entry_bytes,
+                oversize_refused=self._oversize_refused,
                 rung_hits=self._rung_hits,
                 rung_stores=self._rung_stores,
                 rung_evictions=self._rung_evictions,

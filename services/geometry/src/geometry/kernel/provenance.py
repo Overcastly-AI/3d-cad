@@ -625,6 +625,13 @@ class FaceProvenanceRecorder:
                 entries.append((order, extent))
         self._snapshots.append((feature_id, tuple(fingerprints)))
 
+    def retained_faces(self) -> list[object]:
+        """Every face the memo keeps alive (its keys are ``TShape`` identity, so
+        it must hold them). Only a rebuild-cache checkpoint's weight reads this:
+        on a ``record_history`` lineage these can outlive the body that made them,
+        so they are memory the checkpoint pins."""
+        return [face for bucket in self._memo.values() for face, _ in bucket]
+
     def fork(self) -> "FaceProvenanceRecorder":
         """An independent recorder with the same history and an EMPTY memo.
 

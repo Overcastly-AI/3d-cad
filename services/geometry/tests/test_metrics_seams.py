@@ -52,6 +52,9 @@ class _Checkpoint:
     def detach(self) -> None:
         self.detached = True
 
+    def weigh(self) -> int:
+        return 0
+
     def fork(self) -> "_Checkpoint":
         return _Checkpoint(f"{self.name}'")
 

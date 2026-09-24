@@ -95,6 +95,25 @@ def estimate_heap_bytes(shape: Any, faces: int) -> int:
     return math.ceil(HEAP_BYTES_PER_BIN_BYTE * sink.count) + HEAP_BYTES_PER_FACE * faces
 
 
+def weigh_shapes(shapes: Sequence[object]) -> int:
+    """:func:`estimate_heap_bytes` of several ``TopoDS_Shape``s held together.
+
+    They go into one throwaway compound first, so a subshape they share — a face
+    of a body that is also the published shape, a memoised face still in the
+    body — is serialised, and charged, once.
+    """
+    if not shapes:
+        return 0
+    builder = BRep_Builder()
+    compound = TopoDS_Compound()
+    builder.MakeCompound(compound)
+    for shape in shapes:
+        builder.Add(compound, shape)
+    faces = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(compound, TopAbs_FACE, faces)
+    return estimate_heap_bytes(compound, faces.Extent())
+
+
 class ForkedShapes[ShapeT: Shape[Any]]:
     """The forked shapes, in input order, plus what they weigh.
 
