@@ -192,8 +192,12 @@ test.describe("small laptop (1280×800)", () => {
  *
  * The first two specs need an access token that expires DURING the test, i.e.
  * a stack booted with a short `JWT_TTL_S` (the TTL is config-driven; 20 s was
- * used when this landed). On a default stack they skip and SAY so. The last
- * spec needs no special stack: it revokes the session server-side.
+ * used when this landed). On a default stack they skip and SAY so. CI runs
+ * them in a job of their own, `auth-short-ttl` in .github/workflows/e2e.yml,
+ * which boots the gateway with JWT_TTL_S=20 and sets E2E_REQUIRE_SHORT_TTL=1.
+ * There a long-TTL stack FAILS them instead: a leg that exists to run these
+ * two specs must not go green by skipping them (AUTH-SHORT-TTL-E2E-1). The
+ * specs after them need no special stack; they revoke sessions server-side.
  *
  * Sign-in goes through the UI, not `page.request`: the refresh cookie is
  * `Secure`, which Chromium honours over http://127.0.0.1 but Playwright's own
@@ -203,6 +207,19 @@ test.describe("small laptop (1280×800)", () => {
 
 /** Tokens this long-lived make the expiry specs too slow to run here. */
 const MAX_TTL_FOR_EXPIRY_SPECS_S = 60;
+
+/**
+ * Skip on a stack whose tokens outlive the spec, or, where the short-TTL leg
+ * is REQUIRED (E2E_REQUIRE_SHORT_TTL=1), fail with the same message.
+ */
+function needsShortTtl(ttl: number): void {
+  const why = `needs a stack booted with JWT_TTL_S <= ${MAX_TTL_FOR_EXPIRY_SPECS_S}; this one issues ${ttl} s tokens`;
+  if (process.env["E2E_REQUIRE_SHORT_TTL"] === "1") {
+    expect(ttl, why).toBeLessThanOrEqual(MAX_TTL_FOR_EXPIRY_SPECS_S);
+  } else {
+    test.skip(ttl > MAX_TTL_FOR_EXPIRY_SPECS_S, why);
+  }
+}
 
 interface SignedIn {
   email: string;
@@ -307,10 +324,7 @@ test.describe("session refresh (short-TTL stack)", () => {
     page,
   }) => {
     const { token } = await signUpThroughUi(page);
-    test.skip(
-      ttlOf(token) > MAX_TTL_FOR_EXPIRY_SPECS_S,
-      `needs a stack booted with JWT_TTL_S <= ${MAX_TTL_FOR_EXPIRY_SPECS_S}; this one issues ${ttlOf(token)} s tokens`,
-    );
+    needsShortTtl(ttlOf(token));
     // Setup plus one token lifetime of wall clock, with room to spare.
     test.setTimeout(60_000 + ttlOf(token) * 3_000);
     const partId = await openCubePart(page, token);
@@ -409,10 +423,7 @@ test.describe("session refresh (short-TTL stack)", () => {
   }) => {
     const { token } = await signUpThroughUi(page);
     const ttl = ttlOf(token);
-    test.skip(
-      ttl > MAX_TTL_FOR_EXPIRY_SPECS_S,
-      `needs a stack booted with JWT_TTL_S <= ${MAX_TTL_FOR_EXPIRY_SPECS_S}; this one issues ${ttl} s tokens`,
-    );
+    needsShortTtl(ttl);
     // Setup plus 2.5 token lifetimes of wall clock, with room to spare.
     test.setTimeout(60_000 + ttl * 4_000);
     const partId = await openCubePart(page, token);

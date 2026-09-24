@@ -218,8 +218,8 @@
 #
 # Raising the shard count also multiplies CONCURRENT jobs, which matters
 # because pushes get per-SHA concurrency groups (see below) and four agents
-# push in parallel — at N=6 a single push occupies 8 of this workflow's jobs
-# (6 shards, `e2e complete`, `dist-bundle`) on top of ci.yml's and
+# push in parallel — at N=6 a single push occupies 9 of this workflow's jobs
+# (6 shards, `e2e complete`, `dist-bundle`, `auth-short-ttl`) on top of ci.yml's and
 # deploy-path's.
 
 name: e2e
@@ -491,9 +491,10 @@ jobs:
   # nginx locations against the REAL container in deploy-path's compose-smoke,
   # and it has a stub self-test with four CSP defect scenarios.
   #
-  # NOTE FOR WHOEVER READS THIS WORKFLOW'S JOB COUNT: `e2e` has EIGHT jobs
-  # (6 shards + `e2e complete` + this) since 2026-09-24; it was six with four
-  # shards. The `total_jobs` discriminator for a COMPLETE e2e run in
+  # NOTE FOR WHOEVER READS THIS WORKFLOW'S JOB COUNT: `e2e` has NINE jobs
+  # (6 shards + `e2e complete` + this + `auth-short-ttl`, below) since
+  # 2026-09-24; it was eight before auth-short-ttl and six with four shards.
+  # The `total_jobs` discriminator for a COMPLETE e2e run in
   # .claude/ORCHESTRATOR.md has to move with it. This job is
   # independent of the shards and is deliberately NOT in `reconcile`'s `needs`:
   # reconcile proves the six shards covered `apps/web/e2e/`, and these specs
@@ -613,6 +614,122 @@ jobs:
           # concluding "the specs failed".
           echo "::error::no verdict file at $verdict — the leg never reached the browser. Read the 'Built bundle through the production nginx config' step: it fails separately for a bad build, a config scripts/render-web-nginx.py refuses, an nginx that would not start (it prints the 127.0.0.1 / [::1] probe and the error log), and a service that would not become ready."
           ls -la "$RUNNER_TEMP/dist-leg-logs" || true
+
+  # ── THE SHORT-TTL AUTH LEG (AUTH-SHORT-TTL-E2E-1) ─────────────────────────
+  #
+  # Two specs in apps/web/e2e/auth.spec.ts need an access token that expires
+  # DURING the test: a command in flight across the expiry, and the keepalive
+  # renewing ahead of it. The shards run the default 1 h TTL, where both SKIP,
+  # so sliding sessions had no browser coverage of their own edge cases. This
+  # job boots the same native stack with JWT_TTL_S=20 and runs auth.spec.ts
+  # only, the whole file: the rest of auth.spec also runs here with a renewal
+  # every ~20 s. SESSION_IDLE_TTL_S keeps its 24 h default, which already
+  # satisfies the gateway's boot check (idle >= JWT_TTL_S).
+  #
+  # E2E_REQUIRE_SHORT_TTL=1 turns the two skips into FAILURES here. Without it,
+  # a stack that somehow issued long tokens would skip both specs and this job
+  # would go green having examined nothing.
+  #
+  # Deliberately NOT in `reconcile`'s `needs`, and its report is not named
+  # `playwright-json-shard-*`: reconcile proves the six shards executed every
+  # discovered test exactly once, and this job's second run of auth.spec would
+  # read there as duplicates. The shard plan and scripts/e2e-durations.json are
+  # untouched too; auth.spec stays in whichever shard it is in, with its two
+  # skips.
+  auth-short-ttl:
+    name: auth.spec on a short-TTL stack
+    runs-on: ubuntu-latest
+    # auth.spec ran in 2.2-2.6 min on the dev container at JWT_TTL_S=20 (12
+    # tests, this exact command included), and the
+    # keepalive spec alone waits 2.5 token lifetimes. 25 is headroom for a cold
+    # runner plus ~4 min of setup, not a prediction (see the shards' note on
+    # why guessing low is worse).
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Sync uv environment (locked)
+        run: uv sync --locked
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Resolve the pinned Playwright version
+        id: pw
+        run: |
+          version=$(node -p "require('./apps/web/node_modules/@playwright/test/package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Playwright $version"
+      # The SAME cache key the shards use.
+      - name: Cache the browser binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - name: Install Chromium
+        run: pnpm --filter @loft/web exec playwright install --with-deps chromium
+      # scripts/e2e.sh boots the three services, and they inherit this step's
+      # env, so JWT_TTL_S reaches the gateway. The file is a positional filter,
+      # so Playwright loads auth.spec.ts alone.
+      - name: auth.spec with 20 s access tokens
+        timeout-minutes: 20
+        env:
+          JWT_TTL_S: "20"
+          E2E_REQUIRE_SHORT_TTL: "1"
+          E2E_LOG_DIR: ${{ runner.temp }}/e2e-logs-short-ttl
+          E2E_JSON_REPORT: ${{ runner.temp }}/playwright-short-ttl.json
+        run: >-
+          scripts/e2e.sh --web-only --
+          e2e/auth.spec.ts
+          --forbid-only
+      - name: The run must not have dirtied the tree
+        if: always()
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "::error::the short-TTL leg modified the working tree:"
+            git status --porcelain
+            git diff --stat
+            exit 1
+          fi
+          echo "tree clean after the run"
+      - name: Upload traces/screenshots from a failing run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auth-short-ttl-artifacts
+          path: |
+            apps/web/test-results
+            apps/web/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload the service logs and the JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auth-short-ttl-diagnostics
+          path: |
+            ${{ runner.temp }}/e2e-logs-short-ttl
+            ${{ runner.temp }}/playwright-short-ttl.json
+          if-no-files-found: warn
+          retention-days: 7
+      # LAST, for the same reason as the shards' verdict: a tail of the job
+      # log is the only channel into a red run from the dev container.
+      - name: Verdict (kept last so a tail of the job log finds it)
+        if: always()
+        run: |
+          verdict="$RUNNER_TEMP/e2e-logs-short-ttl/verdict.txt"
+          if [[ -s "$verdict" ]]; then
+            cat "$verdict"
+            exit 0
+          fi
+          echo "::error::no verdict file at $verdict — scripts/e2e.sh never reached its summary, so this leg died BEFORE or DURING setup (uv sync / pnpm install / browser install / service boot, e.g. a gateway that refused JWT_TTL_S), or hit the 20-minute step timeout. Its reason is in the 'auth.spec with 20 s access tokens' step above."
+          ls -la "$RUNNER_TEMP/e2e-logs-short-ttl" || true
 
   # The control that keeps the sharding honest, and the single job to read.
   #
