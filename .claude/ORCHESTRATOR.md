@@ -147,8 +147,9 @@ How to read the results:
   (why: #ci-workflow-refused)
 - **A fast green deserves a red's scrutiny.** An all-skipped run also reports
   `success`, so read the MAIN step's duration. (why: #ci-fast-green)
-- **"pull access denied" can mean the upstream WITHDREW the image.** MinIO
-  did; the pins now use `quay.io`. Probe the Docker Hub manifest API
+- **"pull access denied" / "unauthorized" can mean the upstream WITHDREW the
+  image.** MinIO did, twice (Docker Hub, then quay.io); it is now built from
+  pinned source (`deploy/docker/minio.Dockerfile`, `78cca5b`). Probe the Docker Hub manifest API
   anonymously beside a CONTROL image: **429** is the rate limit, and **401**
   while `library/postgres` returns 200 means that repo is gone.
   (why: #ci-minio-withdrawn)
