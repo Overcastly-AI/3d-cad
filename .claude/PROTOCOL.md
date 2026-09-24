@@ -42,6 +42,10 @@ to know *why*; you do not need it to follow the rule.
   your deliverable.
 - **Builders never edit `docs/ROADMAP.md` or `docs/BACKLOG.md`.** Put
   `Doc-tick: groomer` in the commit; the `backlog-groomer` owns the board.
+- **Never mint a board ID.** Use the ID your brief names, or none. On
+  2026-09-24 a builder titled its commits "PERF-REAL-3" for a new defect while
+  that ID already named a different open item, and the groomer had to untangle
+  the two. New work gets its ID from the groomer.
 
 ## 3. Commit
 
