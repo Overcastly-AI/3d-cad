@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createSessionStore,
   probeSessionPersistence,
+  safeReturnPath,
   SESSION_NOT_PERSISTED_MESSAGE,
   SESSION_STORAGE_KEY,
   SIGN_IN_WILL_NOT_PERSIST_MESSAGE,
@@ -146,6 +147,45 @@ describe("createSessionStore", () => {
     map.set(draftKeyFor("part-c"), '{"version":1}');
     store.getState().expire();
     expect(map.has(draftKeyFor("part-c"))).toBe(false);
+  });
+
+  it("expire remembers where the user was; sign-out forgets it", () => {
+    const { storage } = fakeStorage();
+    const store = createSessionStore(storage);
+    store.getState().signIn("tok-9", USER);
+    store.getState().expire("/parts/abc?tab=tree#f3");
+    expect(store.getState().returnTo).toBe("/parts/abc?tab=tree#f3");
+    // A silent refresh (or the sign-in itself) must not drop it: the sign-in
+    // page reads it AFTER the token lands.
+    store.getState().signIn("tok-10", USER);
+    expect(store.getState().returnTo).toBe("/parts/abc?tab=tree#f3");
+    store.getState().clearReturnTo();
+    expect(store.getState().returnTo).toBeNull();
+
+    store.getState().expire("/parts/xyz");
+    store.getState().signOut();
+    expect(store.getState().returnTo).toBeNull();
+  });
+
+  it("safeReturnPath keeps in-app paths and refuses everything else", () => {
+    expect(safeReturnPath("/parts/abc")).toBe("/parts/abc");
+    expect(safeReturnPath("/drawings/d1?source=p1")).toBe(
+      "/drawings/d1?source=p1",
+    );
+    for (const hostile of [
+      "https://evil.example/parts",
+      "//evil.example/parts",
+      "/\\evil.example",
+      "javascript:alert(1)",
+      "parts/abc",
+      "",
+      "/sign-in",
+      "/sign-in?next=/x",
+      null,
+      undefined,
+    ]) {
+      expect(safeReturnPath(hostile)).toBeNull();
+    }
   });
 
   it("a later signIn clears the expired notice", () => {

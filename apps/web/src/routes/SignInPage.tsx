@@ -6,7 +6,7 @@ import {
   PanelSection,
   TextField,
 } from "@loft/design";
-import { Navigate, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { login, registerAccount } from "../api/auth";
@@ -61,7 +61,7 @@ type Mode = "sign-in" | "register";
  */
 export function SignInPage() {
   const token = useSessionStore((state) => state.token);
-  if (token !== null) return <Navigate to="/" replace />;
+  if (token !== null) return <LeaveSignIn />;
   return (
     <div className="relative h-full overflow-hidden bg-carbide">
       <SheetGrid />
@@ -101,6 +101,27 @@ export function SignInPage() {
 }
 
 /**
+ * Signed in: leave the sheet, for the page the session ended on when there
+ * is one, else the parts home.
+ *
+ * The ONE place sign-in navigates, on purpose. The form only signs in; this
+ * renders the moment the store holds a token. Two navigations (one here, one
+ * awaited in the submit handler) used to race, which was harmless while both
+ * went to "/" and would not be once one of them goes back to a part.
+ */
+function LeaveSignIn() {
+  const navigate = useNavigate();
+  const returnTo = useSessionStore((state) => state.returnTo);
+  const clearReturnTo = useSessionStore((state) => state.clearReturnTo);
+  const [target] = useState(() => returnTo ?? "/");
+  useEffect(() => {
+    clearReturnTo();
+    void navigate({ href: target, replace: true });
+  }, [clearReturnTo, navigate, target]);
+  return null;
+}
+
+/**
  * The strip a real drawing prints along its bottom edge. Every field is TRUE —
  * the design mandate's "a readout that only decorates is a defect" applies to a
  * decorative surface as much as to the modeller's chrome, so there is no
@@ -132,9 +153,9 @@ function SheetFooter() {
 }
 
 function AuthTitleBlock() {
-  const navigate = useNavigate();
   const signIn = useSessionStore((state) => state.signIn);
   const expired = useSessionStore((state) => state.expired);
+  const returnTo = useSessionStore((state) => state.returnTo);
 
   const [mode, setMode] = useState<Mode>("sign-in");
   const [email, setEmail] = useState("");
@@ -171,8 +192,8 @@ function AuthTitleBlock() {
         mode === "register"
           ? await registerAccount(credentials)
           : await login(credentials);
+      // Leaving the sheet is `LeaveSignIn`'s job; it renders on this token.
       signIn(session.access_token, session.user);
-      await navigate({ to: "/" });
     } catch (error) {
       setServerError(
         error instanceof Error ? error.message : "Sign-in failed — try again.",
@@ -202,13 +223,24 @@ function AuthTitleBlock() {
       </div>
 
       {expired ? (
-        <p
+        <div
           role="status"
           className="border-b border-hairline px-3 py-2 font-data text-xs text-gauge"
           data-testid="session-expired-notice"
         >
-          Session expired — sign in again.
-        </p>
+          <p data-testid="session-expired-headline">
+            Session expired — sign in again.
+          </p>
+          {returnTo !== null ? (
+            // Said plainly, because it is only partly good news: the page
+            // comes back, an unfinished command does not (the drafts of a
+            // session that ended are deleted with it, see session.ts).
+            <p className="mt-1" data-testid="session-expired-return">
+              You will go back to the page you were on. Saved work is safe; a
+              command or sketch that was still open was not kept.
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       {storageWarning !== null ? (

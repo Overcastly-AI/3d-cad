@@ -2,13 +2,17 @@
  * Session state — the signed-in identity, shared by the transport middleware
  * (bearer header), the route gate, and the chrome (user cell + sign out).
  *
- * Persistence: the token + user are mirrored to localStorage so a reload
- * keeps the session (backlog #7 acceptance). SECURITY TRADEOFF, v1 by
- * decision: localStorage is readable by any script that achieves XSS, unlike
- * an httpOnly cookie. Accepted for v1 because tokens live 1 h with no
- * refresh, the app ships no third-party runtime scripts, and expired/invalid
- * tokens are caught globally (see transport.ts) — the httpOnly-cookie
- * migration is a tracked later item (see the 2026-07-10 changelog entry).
+ * Persistence: the ACCESS token + user are mirrored to localStorage so a
+ * reload keeps the session (backlog #7 acceptance). SECURITY TRADEOFF, by
+ * decision: localStorage is readable by any script that achieves XSS. What
+ * bounds it is the split the gateway makes (gateway.auth.security): the
+ * access token is short-lived and dies with its session on logout or reuse
+ * detection, while the long-lived credential — the refresh token — lives only
+ * in an HttpOnly cookie no script can read. A script running in the page can
+ * still ASK for new access tokens while it runs (same-origin fetch sends the
+ * cookie); it cannot carry a lasting credential away. The app ships no
+ * third-party runtime scripts. Renewal is `refresh.ts` + `keepalive.ts`;
+ * invalid tokens are caught globally in `transport.ts`.
  */
 import type { components } from "@loft/ts-client/gateway";
 import { create } from "zustand";
@@ -72,6 +76,21 @@ export function probeSessionPersistence(
   return written.ok ? null : SIGN_IN_WILL_NOT_PERSIST_MESSAGE;
 }
 
+/**
+ * Where to send the user after they sign in again: a path INSIDE this app, or
+ * null. Anything else (another origin, a protocol-relative `//host`, a
+ * backslash trick, the sign-in page itself) is refused, so a crafted value
+ * can never turn sign-in into an open redirect.
+ */
+export function safeReturnPath(path: string | null | undefined): string | null {
+  if (typeof path !== "string") return null;
+  if (!path.startsWith("/") || path.startsWith("//")) return null;
+  if (path.includes("\\")) return null;
+  if (path === "/sign-in" || path.startsWith("/sign-in?")) return null;
+  if (path.startsWith("/sign-in/") || path.startsWith("/sign-in#")) return null;
+  return path;
+}
+
 interface PersistedSession {
   token: string;
   user: SessionUser;
@@ -84,6 +103,14 @@ export interface SessionState {
   /** True after a global invalid-token catch — the quiet sign-in notice. */
   expired: boolean;
   /**
+   * The in-app path the user was on when the session ended involuntarily
+   * (see {@link safeReturnPath}); sign-in sends them back there. Null after a
+   * deliberate sign-out, and cleared once used.
+   */
+  returnTo: string | null;
+  /** Sign-in has used {@link SessionState.returnTo}; forget it. */
+  clearReturnTo: () => void;
+  /**
    * Non-null when the last sign-in could NOT be written to storage, even
    * after evicting every sketch draft to make room — the session works until
    * the next reload and no longer. {@link SESSION_NOT_PERSISTED_MESSAGE} is
@@ -93,12 +120,19 @@ export interface SessionState {
   persistError: string | null;
   /** The user has read the persistence notice; stop showing it. */
   dismissPersistError: () => void;
-  /** Store a fresh session (register/login success). Clears `expired`. */
+  /**
+   * Store a fresh session: register/login success, and every silent refresh
+   * (a refresh is a new access token for the same session, so it takes the
+   * same path). Clears `expired`; leaves `returnTo` for the sign-in page.
+   */
   signIn: (token: string, user: SessionUser) => void;
   /** Deliberate sign-out — clears the session without a notice. */
   signOut: () => void;
-  /** Invalid/expired token — clears the session AND flags the notice. */
-  expire: () => void;
+  /**
+   * The session could not be renewed — clears it AND flags the notice.
+   * `returnTo` is where the user was, so sign-in can take them back.
+   */
+  expire: (returnTo?: string | null) => void;
 }
 
 function isSessionUser(v: unknown): v is SessionUser {
@@ -205,6 +239,8 @@ export function createSessionStore(
     token: initial?.token ?? null,
     user: initial?.user ?? null,
     expired: false,
+    returnTo: null,
+    clearReturnTo: () => set({ returnTo: null }),
     persistError: null,
     dismissPersistError: () => set({ persistError: null }),
     signIn: (token, user) => {
@@ -213,11 +249,23 @@ export function createSessionStore(
     },
     signOut: () => {
       clearSessionScopedWork(storage);
-      set({ token: null, user: null, expired: false, persistError: null });
+      set({
+        token: null,
+        user: null,
+        expired: false,
+        returnTo: null,
+        persistError: null,
+      });
     },
-    expire: () => {
+    expire: (returnTo) => {
       clearSessionScopedWork(storage);
-      set({ token: null, user: null, expired: true, persistError: null });
+      set({
+        token: null,
+        user: null,
+        expired: true,
+        returnTo: safeReturnPath(returnTo),
+        persistError: null,
+      });
     },
   }));
 }
