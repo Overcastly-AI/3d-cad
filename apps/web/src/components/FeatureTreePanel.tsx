@@ -20,6 +20,7 @@ import {
   Stamp,
   SuppressIcon,
   TextField,
+  Truncated,
 } from "@loft/design";
 import {
   useCallback,
@@ -511,6 +512,7 @@ export function FeatureTreePanel({
                   status === "suppressed";
                 const suppressBusy = feature.id === suppressingId;
                 const renaming = feature.id === renamingId;
+                const badge = featureBadge(feature.feature, features);
                 // This row was never attempted — and the cause is a DIFFERENT
                 // feature, so the row has to name it.
                 const blockedBy =
@@ -618,7 +620,7 @@ export function FeatureTreePanel({
                         }
                       />
                       {renaming ? (
-                        <div className="flex grow items-baseline gap-2">
+                        <div className="flex min-w-0 grow items-baseline gap-2">
                           <TextField
                             label={`Rename ${feature.name}`}
                             hideLabel
@@ -645,7 +647,7 @@ export function FeatureTreePanel({
                             }
                           />
                           <span className="shrink-0 font-body text-xs text-gauge">
-                            {featureBadge(feature.feature, features)}
+                            {badge}
                           </span>
                         </div>
                       ) : (
@@ -655,19 +657,26 @@ export function FeatureTreePanel({
                           aria-pressed={selected}
                           aria-label={`Select ${feature.name}`}
                           data-testid={`feature-select-${index}`}
-                          className="flex min-h-target-dense grow items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+                          // `min-w-0` IS the fix for GEOMETRY-QA F6. A flex
+                          // item's automatic minimum width is its content, so
+                          // without it this button would not shrink below the
+                          // whole name. The row ran past the panel and the
+                          // status column was what got clipped: "Tooth gap
+                          // (twisted cut)" showed its OK cut to one glyph.
+                          className="flex min-h-target-dense min-w-0 grow items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
                         >
-                          <span
-                            className={`grow truncate font-data text-sm ${
+                          {/* The NAME is what gives way: `Truncated`
+                              ellipsises and keeps the whole name on `title`. */}
+                          <Truncated
+                            text={feature.name}
+                            className={`grow font-data text-sm ${
                               suppressed
                                 ? "text-gauge line-through decoration-etch"
                                 : rolledBack
                                   ? "text-gauge"
                                   : "text-mist"
                             }`}
-                          >
-                            {feature.name}
-                          </span>
+                          />
                           {/* The SCOPE stamp — the same word the command band
                               uses for the same fact, so the two surfaces teach
                               one vocabulary rather than two. It takes the badge
@@ -683,8 +692,16 @@ export function FeatureTreePanel({
                               Scope
                             </Stamp>
                           ) : (
-                            <span className="shrink-0 font-body text-xs text-gauge">
-                              {featureBadge(feature.feature, features)}
+                            // Capped, so a pattern's badge naming a long
+                            // source ("pattern · Tooth gap (twisted cut)")
+                            // cannot take the row the name gave up either.
+                            // (Not `Truncated`: its own `max-w-full` would
+                            // race this cap in the stylesheet's order.)
+                            <span
+                              title={badge}
+                              className="min-w-0 max-w-[60%] shrink-0 truncate font-body text-xs text-gauge"
+                            >
+                              {badge}
                             </span>
                           )}
                         </button>

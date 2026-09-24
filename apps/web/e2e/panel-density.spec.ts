@@ -569,3 +569,97 @@ for (const size of [
     });
   });
 }
+
+/**
+ * GEOMETRY-QA 2026-09-24 F6 — A LONG FEATURE NAME MUST NOT EAT THE STATUS.
+ *
+ * At 1440 px the helical gear's row "Tooth gap (twisted cut)" showed its OK cut
+ * to one glyph: the name never ellipsised, because the flex BUTTON it sits in
+ * kept its automatic minimum width (its content), so the row ran past the
+ * panel and the status column was what got clipped. The name is the thing to
+ * give up: it truncates (and keeps the whole string on `title`), and the
+ * status stays in the same column as every other row's, at its full width.
+ */
+test.describe("a long feature name @1440x900", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("truncates the NAME, never the status column", async ({ page }) => {
+    const LONG = "Tooth gap (twisted cut) for the helical gear, rev B";
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Long names");
+    const sketch = await createFeature(page, account.token, part.id, {
+      name: "Sketch1",
+      feature: {
+        type: "sketch",
+        version: 1,
+        params: rectangleSketch(0, 0, 20, 20),
+      },
+      expected_tree_version: 0,
+    });
+    await createFeature(page, account.token, part.id, {
+      name: LONG,
+      feature: {
+        type: "extrude",
+        version: 1,
+        params: {
+          profile: { kind: "feature", feature_id: sketch.feature.id },
+          distance_mm: 20,
+          operation: "add",
+          direction: "normal",
+          merge: true,
+          twist_angle_deg: 30,
+        },
+      },
+      expected_tree_version: sketch.tree_version,
+    });
+    await page.goto(`/parts/${part.id}`);
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await withStableSessionEmail(page, () =>
+      page.screenshot({
+        path: `${SCREENSHOT_DIR}/feature-tree-long-name-${SHOT_TAG}-1440.png`,
+      }),
+    );
+
+    const rows = page.getByTestId("feature-row");
+    await expect(rows).toHaveCount(2);
+    const measure = (index: number) =>
+      rows.nth(index).evaluate((row) => {
+        const status = row.lastElementChild as HTMLElement;
+        const name = row.querySelector(
+          "[data-testid^=feature-select-] > span",
+        ) as HTMLElement;
+        const panel = row.closest("[data-testid=feature-tree]") as HTMLElement;
+        const s = status.getBoundingClientRect();
+        return {
+          statusText: status.textContent,
+          statusLeft: s.left,
+          statusRight: s.right,
+          statusWidth: s.width,
+          statusClipped: status.scrollWidth > status.clientWidth,
+          rowRight: row.getBoundingClientRect().right,
+          panelRight: panel.getBoundingClientRect().right,
+          nameEllipsised: name.scrollWidth > name.clientWidth,
+          nameTitle: name.getAttribute("title"),
+        };
+      });
+    const short = await measure(0);
+    const long = await measure(1);
+    console.log(
+      `[F6] short ${JSON.stringify(short)} long ${JSON.stringify(long)}`,
+    );
+
+    expect(long.statusText).toBe("OK");
+    expect(long.statusClipped, "the status glyphs must not be cut").toBe(false);
+    // The same column as a short-named row, at the same width: nothing moved.
+    expect(long.statusLeft).toBeCloseTo(short.statusLeft, 0);
+    expect(long.statusWidth).toBeCloseTo(short.statusWidth, 0);
+    // Inside the row, and the row inside its panel.
+    expect(long.statusRight).toBeLessThanOrEqual(long.rowRight + 0.5);
+    expect(long.rowRight).toBeLessThanOrEqual(long.panelRight + 0.5);
+    // The NAME is what gave way, and it is still recoverable in full.
+    expect(long.nameEllipsised, "the long name must ellipsise").toBe(true);
+    expect(long.nameTitle).toBe(LONG);
+  });
+});
