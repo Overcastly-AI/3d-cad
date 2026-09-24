@@ -24,7 +24,7 @@ import {
   type HolePickTarget,
 } from "../features/hole";
 import { DocumentUnitProvider } from "../units/documentUnit";
-import { HoleEditor } from "./HoleEditor";
+import { HoleEditor, type HoleGaugeState } from "./HoleEditor";
 import type { LengthUnit } from "@loft/design";
 import { expectGated } from "../test/gated";
 
@@ -54,6 +54,9 @@ function renderEditor(
     edges?: readonly OverlayEdge[] | null;
     canPickFace?: boolean;
     pickBlockedReason?: string | null;
+    diameterOverride?: { mm: number } | null;
+    depthOverride?: { mm: number } | null;
+    onGaugeChange?: (state: HoleGaugeState | null) => void;
   } = {},
 ) {
   const onSubmit = vi.fn<(params: HoleParams) => void>();
@@ -62,6 +65,11 @@ function renderEditor(
       <HoleEditor
         mode="create"
         initial={overrides.initial ?? placed()}
+        diameterOverride={overrides.diameterOverride ?? null}
+        depthOverride={overrides.depthOverride ?? null}
+        {...(overrides.onGaugeChange === undefined
+          ? {}
+          : { onGaugeChange: overrides.onGaugeChange })}
         onSubmit={onSubmit}
         onCancel={vi.fn()}
         saving={false}
@@ -806,5 +814,112 @@ describe("hole face pick — nothing to pick", () => {
     expect(pick).not.toHaveAttribute("aria-disabled");
     fireEvent.click(pick);
     expect(onTogglePick).toHaveBeenCalledWith("face");
+  });
+});
+
+/**
+ * CRAFT-9c — the hole's two gauges, seen from the editor's side of contract β.
+ *
+ * The viewport half (drag, reach, the per-frame agreement) is
+ * `craft9c-hole-gauge.spec.ts`; what is here is the half a browser run would
+ * only show as "the arrow sprang back": the editor must PUBLISH the two numbers
+ * the gauges stand on, and must ECHO each gauge's override into its own field
+ * and nothing else.
+ */
+describe("HoleEditor — the Ø and depth gauges (CRAFT-9c)", () => {
+  const blind = (): HoleForm => ({
+    ...placed(),
+    depthMode: "blind",
+    depthInput: "12",
+  });
+  const depth = () =>
+    screen.getByTestId("hole-blind-depth") as HTMLInputElement;
+  const last = (fn: ReturnType<typeof vi.fn>): HoleGaugeState | null =>
+    (fn.mock.calls[fn.mock.calls.length - 1]?.[0] ??
+      null) as HoleGaugeState | null;
+
+  it("publishes the bore and NO depth for a through-all hole", () => {
+    const onGaugeChange = vi.fn();
+    renderEditor({ onGaugeChange });
+    expect(last(onGaugeChange)).toEqual({ diameterMm: 6, depthMm: null });
+  });
+
+  it("publishes the blind depth, in canonical mm", () => {
+    const onGaugeChange = vi.fn();
+    renderEditor({ initial: blind(), onGaugeChange });
+    expect(last(onGaugeChange)).toEqual({ diameterMm: 6, depthMm: 12 });
+    fireEvent.change(depth(), { target: { value: "20" } });
+    expect(last(onGaugeChange)).toEqual({ diameterMm: 6, depthMm: 20 });
+  });
+
+  it("publishes no bore while the field does not parse", () => {
+    // There is no honest picture of a `6q` hole.
+    const onGaugeChange = vi.fn();
+    renderEditor({ onGaugeChange });
+    fireEvent.change(diameter(), { target: { value: "6q" } });
+    expect(last(onGaugeChange)?.diameterMm).toBeNull();
+  });
+
+  it("clears the gauges on unmount, so no instrument outlives its editor", () => {
+    const onGaugeChange = vi.fn();
+    const view = renderEditor({ onGaugeChange });
+    view.unmount();
+    expect(onGaugeChange.mock.calls.at(-1)?.[0]).toBeNull();
+  });
+
+  it("echoes a Ø override into the diameter field and nothing else", () => {
+    renderEditor({ initial: blind(), diameterOverride: { mm: 9.5 } });
+    expect(diameter().value).toBe("9.5");
+    expect(depth().value).toBe("12");
+  });
+
+  it("echoes a depth override into the depth field only — the mode is untouched", () => {
+    renderEditor({ initial: blind(), depthOverride: { mm: 17 } });
+    expect(depth().value).toBe("17");
+    expect(diameter().value).toBe("6");
+    expect(screen.getByTestId("hole-depth-blind")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("writes the override in the DOCUMENT unit, as a typed value would read", () => {
+    renderEditor({ unit: "in", diameterOverride: { mm: 25.4 } });
+    expect(diameter().value).toBe("1");
+  });
+
+  it("a NEW box carrying the same number still lands after a typed edit", () => {
+    // Boxed so that dragging back to a number the field already had arrives.
+    const onGaugeChange = vi.fn();
+    const view = renderEditor({ diameterOverride: { mm: 9 }, onGaugeChange });
+    fireEvent.change(diameter(), { target: { value: "7" } });
+    expect(diameter().value).toBe("7");
+    view.rerender(
+      <DocumentUnitProvider unit="mm">
+        <HoleEditor
+          mode="create"
+          initial={placed()}
+          diameterOverride={{ mm: 9 }}
+          depthOverride={null}
+          onGaugeChange={onGaugeChange}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          saving={false}
+          error={null}
+          canPickFace
+          activePick={null}
+          onTogglePick={vi.fn()}
+          facePick={null}
+          pointPick={null}
+          pickError={null}
+          pickBlockedReason={null}
+          placementHidden={false}
+          edges={null}
+          onPreviewChange={vi.fn()}
+        />
+      </DocumentUnitProvider>,
+    );
+    expect(diameter().value).toBe("9");
+    expect(last(onGaugeChange)?.diameterMm).toBe(9);
   });
 });

@@ -250,6 +250,12 @@ interface Ink {
   total: number;
 }
 
+/**
+ * How far the resting origin marks' DATUM ink may drift between the hidden
+ * floor and the hidden claim, px — framing jitter, not crosshair. See (d).
+ */
+const ORIGIN_MARK_JITTER_PX = 3;
+
 /** The plate's row in the Bodies panel, plus the ink floor of its hidden state. */
 interface PlateProbe {
   row: number;
@@ -455,12 +461,30 @@ test.describe("SEL-7 — a hidden body withholds the hole placement overlay", ()
       "crosshair ink, plate hidden",
       `datum ${inkHidden.datum} px + live point ${inkHidden.point} px`,
     );
+    //     The BRASS point is the overlay's alone, so it is still exact. The
+    //     DATUM ink carries CRAFT-3's resting origin marks, whose AA edge moves
+    //     with the framing — and since CRAFT-9c the framing here is no longer
+    //     identical to the floor's: the hole's Ø gauge appears the moment the
+    //     face is picked, CRAFT-12's proposal re-fit takes it (this fixture's
+    //     two-body fit overruns the frame the hole card leaves), and the re-fit
+    //     moves the orbit target by a hair. Measured on the settled camera:
+    //     floor pose (122.311, 64.253, 74.620) vs claim pose (122.319..122.323,
+    //     64.258..64.260, 74.610..74.613), datum 33 px vs 31-32 px, across
+    //     three runs. The bound is that jitter and nothing more: the defect it
+    //     gates draws the crosshair, which is a HUNDRED-plus pixels of this ink
+    //     (`inkDrawn` above asserts > 100 over the floor), so a 3 px allowance
+    //     keeps a margin of more than thirty to one.
     expect(
-      inkHidden.total,
-      `no crosshair may be drawn over the void ` +
+      inkHidden.point,
+      `no drill-point crosshair may be drawn over the void ` +
+        `(hidden: ${inkHidden.point} px; floor ${hiddenFloor.point} px)`,
+    ).toBe(hiddenFloor.point);
+    expect(
+      Math.abs(inkHidden.datum - hiddenFloor.datum),
+      `no datum crosshair may be drawn over the void ` +
         `(hidden: datum ${inkHidden.datum} px, point ${inkHidden.point} px; ` +
         `hidden floor ${hiddenFloor.total} px; drawn ${inkDrawn.total} px)`,
-    ).toBe(hiddenFloor.total);
+    ).toBeLessThanOrEqual(ORIGIN_MARK_JITTER_PX);
 
     // (e) …and a click where a bore-centre diamond floated drills nothing.
     //     This is the reported defect in one action: under the old overlay the

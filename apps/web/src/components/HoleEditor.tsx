@@ -53,6 +53,7 @@ import {
 
 import { useCommandBridge } from "../features/commandActions";
 import { EditorCard } from "./EditorCard";
+import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { HoleParams } from "../api/parts";
 import type { OverlayEdge } from "../api/measure";
@@ -62,7 +63,11 @@ import {
   facePlacement,
   type PlacementCheck,
 } from "../features/facePlacement";
-import { parseSignedLengthMm } from "../units/length";
+import {
+  lengthInputValue,
+  parsePositiveLengthMm,
+  parseSignedLengthMm,
+} from "../units/length";
 import {
   applyHoleCoordinate,
   applyHoleFace,
@@ -200,6 +205,39 @@ export interface HoleEditorProps {
   edges: readonly OverlayEdge[] | null;
   /** Mirror the live face + position up so the parent can draw the point overlay. */
   onPreviewChange: (preview: HolePreview | null) => void;
+  /**
+   * A bore diameter asserted by the viewport's Ø gauge (CRAFT-9c), canonical
+   * mm. Boxed (`{ mm }`) so dragging back to a number the field already holds
+   * still arrives — a bare number would compare equal and React would swallow
+   * it, which is the difference between "drag out to 12 and back to 8" leaving
+   * the field at 8 and leaving it at whatever it was before the gesture.
+   */
+  diameterOverride?: { mm: number } | null;
+  /** A blind depth asserted by the viewport's depth gauge, boxed the same way. */
+  depthOverride?: { mm: number } | null;
+  /**
+   * The live bore and depth in canonical mm, published on every keystroke so
+   * the viewport can stand its gauges and draw the bore before Save. Null on
+   * unmount. The FIELDS ARE NOT REPLACED by the gauges and must not be: the
+   * panel's numbers are the exact path, the gauges the fast one, and they are
+   * one value read twice.
+   */
+  onGaugeChange?: (state: HoleGaugeState | null) => void;
+}
+
+/**
+ * The editor's two pullable numbers, projected up for the viewport's gauges
+ * (the hole twin of `DraftGaugeState` / `RevolveGaugeState`).
+ */
+export interface HoleGaugeState {
+  /** The bore, canonical mm — null while the field does not parse. */
+  diameterMm: number | null;
+  /**
+   * The blind depth, canonical mm — null for a THROUGH-ALL hole, and while a
+   * blind depth field does not parse. Either way there is no bottom to pull,
+   * so the viewport mounts no depth gauge and draws no depth plane.
+   */
+  depthMm: number | null;
 }
 
 /**
@@ -359,15 +397,51 @@ export function HoleEditor({
   placementHidden,
   edges,
   onPreviewChange,
+  diameterOverride = null,
+  depthOverride = null,
+  onGaugeChange,
 }: HoleEditorProps) {
   const unit = useDocumentLengthUnit();
-  const [form, setForm] = useState<HoleForm>(initial);
+  // THE ECHO (direction contract β). Each field must take the number its gauge
+  // asked for, and the gauge's `value` is then fed from that field, so the
+  // instrument and the panel end every gesture on ONE number. Measured with
+  // the echo broken (`craft9c-hole-gauge.spec.ts`): an ask that never reaches
+  // this form leaves the arrow at 16 and the field at 8; an echo that lands a
+  // DIFFERENT number springs the arrow back to it on release. Written in the
+  // DOCUMENT unit through the seed's own formatter, so a dragged value and a
+  // typed one are indistinguishable afterwards, and written DURING RENDER
+  // (`useGaugeFedForm`) so each field commits WITH the override that carries
+  // it, never a commit behind the drawn arrow. Re-seeded on retarget.
+  //
+  // The depth write does not touch `depthMode`: the depth gauge only exists
+  // while the hole is blind, so a depth that arrives here is always a blind
+  // one, and a write that silently flipped the mode would give one gesture a
+  // second meaning.
+  const [form, setForm] = useGaugeFedForm(
+    initial,
+    gaugeWrite(
+      diameterOverride,
+      (f: HoleForm, o) => ({
+        ...f,
+        diameterInput: lengthInputValue(o.mm, unit),
+      }),
+      unit,
+    ),
+    gaugeWrite(
+      depthOverride,
+      (f: HoleForm, o) => ({
+        ...f,
+        depthInput: lengthInputValue(o.mm, unit),
+      }),
+      unit,
+    ),
+  );
   // The thread block is disclosed, not deleted: an already-tapped hole opens
   // with it showing (its content is load-bearing there), a fresh hole does not.
   const [threadOpen, setThreadOpen] = useState(initial.tapped);
-  // Re-seed when the editor is retargeted at a different feature.
+  // Re-seed the disclosure when the editor is retargeted at another feature
+  // (the form itself re-seeds inside `useGaugeFedForm`).
   useEffect(() => {
-    setForm(initial);
     setThreadOpen(initial.tapped);
   }, [initial]);
 
@@ -397,6 +471,19 @@ export function HoleEditor({
     });
   }, [form.face, form.position, onPreviewChange]);
   useEffect(() => () => onPreviewChange(null), [onPreviewChange]);
+
+  // Feed the gauges the two numbers they pull, in canonical mm. The cleanup
+  // clears them, so closing the editor never leaves an instrument standing on
+  // the model.
+  const liveDiameterMm = parsePositiveLengthMm(form.diameterInput, unit);
+  const liveDepthMm =
+    form.depthMode === "blind"
+      ? parsePositiveLengthMm(form.depthInput, unit)
+      : null;
+  useEffect(() => {
+    onGaugeChange?.({ diameterMm: liveDiameterMm, depthMm: liveDepthMm });
+    return () => onGaugeChange?.(null);
+  }, [liveDiameterMm, liveDepthMm, onGaugeChange]);
 
   const submit = useCallback(() => {
     const params = buildHoleParams(form, unit);

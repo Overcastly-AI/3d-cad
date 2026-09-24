@@ -1,5 +1,5 @@
 /**
- * W3-EXIT — A FINGER ON ALL NINE PARAMETRIC GAUGES.
+ * W3-EXIT — A FINGER ON EVERY PARAMETRIC GAUGE (nine at W3 exit, eleven with CRAFT-9c).
  *
  * Every reach measurement this project has taken on these instruments was
  * MOUSE-driven, at 1280x800 and 1600x1000. A 24x24 grip is a fine mouse target
@@ -148,8 +148,16 @@ for (const mount of MOUNTS) {
       // carry a tag as the companion proving the locator shape resolves at all.
       if (mount.tag === "none") {
         await expect(page.getByTestId(`${mount.id}-readout`)).toHaveCount(0);
+        // The SPEAKER is named by the mount rather than hard-coded here: two
+        // verbs now mount a silent instrument (pattern count, hole depth), and
+        // a companion that always looked for the pattern's tag would pass the
+        // hole's silence for the wrong reason — or fail it for none.
+        expect(
+          mount.speaker,
+          `${mount.id} is silent but names no gauge that speaks for it`,
+        ).toBeDefined();
         await expect(
-          page.getByTestId("pattern-spacing-gauge-readout"),
+          page.getByTestId(`${mount.speaker ?? "none"}-readout`),
         ).toHaveCount(1);
       }
 
@@ -460,7 +468,7 @@ test.describe("touch census — adjacent targets", () => {
 
   test("every gauge id in the app is covered by this pass", async () => {
     // A census that walks what it happens to find can only grade work somebody
-    // remembered to do. The nine ids are derived ONCE, in `gaugeMounts.ts`, and
+    // remembered to do. The ids are derived ONCE, in `gaugeMounts.ts`, and
     // this asserts the mount table covers every one of them — so a tenth gauge
     // added without a touch mount fails here rather than being silently
     // unmeasured.

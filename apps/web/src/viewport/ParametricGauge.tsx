@@ -957,7 +957,15 @@ export function ParametricGauge({
       // Tab is the KEYBOARD ROUTE TO PRECISION and it is one key. It used to go
       // to `view-home` — 800 px away in the view rail, mid-command, which is
       // the dead end FB-13 describes wearing a different hat.
-      if (event.key === "Tab" && !event.shiftKey) {
+      //
+      // NOT on a silent instrument. A `tag: "none"` gauge has no cell to open,
+      // so taking Tab there opened an INVISIBLE one: focus stayed on the grip,
+      // nothing appeared, and the next Escape was spent closing a cell nobody
+      // could see instead of cancelling the command — a key that did nothing
+      // followed by a key that did the wrong thing. Found mounting hole's depth
+      // gauge (CRAFT-9c); the pattern's count gauge had the same trap. Tab
+      // simply moves on from a gauge that has nowhere to put it.
+      if (event.key === "Tab" && !event.shiftKey && tag !== "none") {
         event.preventDefault();
         openCell(0, null);
         return;
@@ -968,7 +976,7 @@ export function ParametricGauge({
       event.stopPropagation();
       ask(next);
     },
-    [ask, openCell, readBase, requestSubmit, track],
+    [ask, openCell, readBase, requestSubmit, tag, track],
   );
 
   const onCellKeyDown = useCallback(

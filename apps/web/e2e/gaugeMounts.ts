@@ -1,12 +1,14 @@
 /**
- * THE NINE GAUGE MOUNTS, AND HOW TO GET EACH ONE ON SCREEN.
+ * THE ELEVEN GAUGE MOUNTS, AND HOW TO GET EACH ONE ON SCREEN.
  *
- * `ParametricGauge` is mounted nine times across the app — eight components,
- * one of which (`PatternGaugeLayer`) mounts two instruments on one feature:
+ * `ParametricGauge` is mounted eleven times across the app — nine components,
+ * two of which (`PatternGaugeLayer`, `HoleGauge`) mount two instruments on one
+ * feature:
  *
  *   extrude-depth · fillet-radius · chamfer-distance · shell-thickness
  *   revolve-angle · draft-angle · datum-offset
  *   pattern-count-gauge · pattern-spacing-gauge
+ *   hole-diameter-gauge · hole-depth-gauge
  *
  * Every one of those recipes already existed, once each, inside the spec file
  * for its own verb (`extrude-grip-reach`, `fillet-chamfer-gauge`,
@@ -44,6 +46,8 @@ export const GAUGE_IDS = [
   "datum-offset",
   "pattern-count-gauge",
   "pattern-spacing-gauge",
+  "hole-diameter-gauge",
+  "hole-depth-gauge",
 ] as const;
 
 export type GaugeId = (typeof GAUGE_IDS)[number];
@@ -143,6 +147,13 @@ export interface Mount {
    * tolerate it.
    */
   tag: "leader" | "none";
+  /**
+   * For a `tag: "none"` instrument, the SIBLING that speaks for it — the gauge
+   * whose `-readout` carries this one's number. Named so a census can prove the
+   * silence is a handover rather than a loss, without hard-coding which verb it
+   * is looking at (pattern and hole both mount a silent instrument).
+   */
+  speaker?: GaugeId;
   /** Put the gauge on screen, framed so its track has a screen direction. */
   open: (page: Page) => Promise<void>;
 }
@@ -299,6 +310,7 @@ export const MOUNTS: readonly Mount[] = [
   {
     id: "pattern-count-gauge",
     tag: "none",
+    speaker: "pattern-spacing-gauge",
     field: "pattern-count",
     open: openPattern,
   },
@@ -308,7 +320,58 @@ export const MOUNTS: readonly Mount[] = [
     field: "pattern-spacing",
     open: openPattern,
   },
+  {
+    id: "hole-diameter-gauge",
+    tag: "leader",
+    field: "hole-diameter",
+    open: async (page) => {
+      await openHole(page);
+    },
+  },
+  {
+    id: "hole-depth-gauge",
+    tag: "none",
+    speaker: "hole-diameter-gauge",
+    field: "hole-blind-depth",
+    open: async (page) => {
+      await openHole(page);
+    },
+  },
 ];
+
+/**
+ * A blind hole on the top of a 40 mm block, both instruments on screen (the
+ * CRAFT-9c recipe, shared with `craft9c-hole-gauge.spec.ts`).
+ *
+ * BLIND, because a through-all hole has no bottom and so mounts no depth gauge.
+ * The face is taken off the pick node's accessible name, not a projection —
+ * `pickFaceAt`'s note says why that one pick is dispatched rather than pressed;
+ * every gauge interaction after it is a real mouse.
+ */
+export async function openHole(
+  page: Page,
+  values: { diameter?: string; depth?: string; name?: string } = {},
+): Promise<string> {
+  const partId = await seedBlockPart(page, values.name ?? "Touch hole");
+  await page.goto(`/parts/${partId}`);
+  await dismissNavCue(page);
+  await expect(page.getByTestId("prop-volume")).toContainText("64,000", {
+    timeout: 60_000,
+  });
+  await page.getByTestId("new-hole").click();
+  await expect(page.getByTestId("hole-editor")).toBeVisible();
+  // Nothing preselected, so the face pick is ARMED on open (UI-W3) and the
+  // gauges are stood down until it lands.
+  await pickFaceAt(page, "plane-pick-face-", 40);
+  await expect(page.getByTestId("hole-face")).toContainText("40");
+  await page.getByTestId("hole-diameter").fill(values.diameter ?? "8");
+  await page.getByTestId("hole-depth-blind").click();
+  await page.getByTestId("hole-blind-depth").fill(values.depth ?? "12");
+  await iso(page);
+  await expect(page.getByTestId("hole-diameter-gauge-handle")).toBeVisible();
+  await expect(page.getByTestId("hole-depth-gauge-handle")).toBeVisible();
+  return partId;
+}
 
 /** A part whose body is a 20 mm cube at the origin. */
 async function seedCubePart(page: Page, name: string): Promise<string> {

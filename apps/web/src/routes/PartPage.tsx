@@ -148,7 +148,7 @@ import { FloatingPanel } from "../components/FloatingPanel";
 import { DatumEditor } from "../components/DatumEditor";
 import { DraftEditor, type DraftGaugeState } from "../components/DraftEditor";
 import { ExtrudeEditor } from "../components/ExtrudeEditor";
-import { HoleEditor } from "../components/HoleEditor";
+import { HoleEditor, type HoleGaugeState } from "../components/HoleEditor";
 import { BaseFlangeEditor } from "../components/BaseFlangeEditor";
 import { EdgeFlangeEditor } from "../components/EdgeFlangeEditor";
 import { HemEditor } from "../components/HemEditor";
@@ -380,6 +380,8 @@ import {
   type DatumGaugeSeed,
 } from "../viewport/faceAnchor";
 import { ShellGauge } from "../viewport/ShellGauge";
+import { HoleGauge } from "../viewport/HoleGauge";
+import { holeAnchor } from "../viewport/holeAnchor";
 import { PatternGaugeLayer } from "../viewport/PatternGaugeLayer";
 import {
   patternAnchor,
@@ -1770,6 +1772,13 @@ export function PartPage() {
   // twin of `extrudePreview`). Cleared the moment the editor closes.
   const [patternPreview, setPatternPreview] =
     useState<PatternPreviewState | null>(null);
+  // ANCHOR A, hole (CRAFT-9c). Two channels, one per instrument — Ø and blind
+  // depth — for the pattern's reason: two gauges driving one box could not hold
+  // one number steady while the other moves. `holeGauge` is the editor's live
+  // pair projected up (the hole twin of `draftGauge`); cleared on close.
+  const [holeDiameterOverride, holeDiameterGauge] = useGaugeOverride("mm");
+  const [holeDepthOverride, holeDepthGauge] = useGaugeOverride("mm");
+  const [holeGauge, setHoleGauge] = useState<HoleGaugeState | null>(null);
 
   /**
    * End the gauge session — every override box back to null (ANCHOR B).
@@ -1793,6 +1802,9 @@ export function PartPage() {
     // Both of the pattern's, because it mounts the gauge TWICE.
     patternCountGauge.reset();
     patternSpacingGauge.reset();
+    // Both of the hole's, for the same reason.
+    holeDiameterGauge.reset();
+    holeDepthGauge.reset();
   }, [
     extrudeDepthGauge,
     filletRadiusGauge,
@@ -1803,6 +1815,8 @@ export function PartPage() {
     draftAngleGauge,
     patternCountGauge,
     patternSpacingGauge,
+    holeDiameterGauge,
+    holeDepthGauge,
   ]);
 
   /**
@@ -3248,6 +3262,7 @@ export function PartPage() {
     setRevolveGauge(null);
     setDraftGauge(null);
     setPatternPreview(null);
+    setHoleGauge(null);
   }, [setEditor]);
 
   // Global cancel for an open feature editor (FINDINGS #11). The command band
@@ -3390,6 +3405,16 @@ export function PartPage() {
         (featureId) => datumBasisById.get(featureId) ?? null,
       ),
     [datumGaugeSeed, datumBasisById],
+  );
+  // The hole instruments stand on the editor's live face + drill point — the
+  // SAME mirror the placement overlay draws from, so the bore is drawn exactly
+  // where the crosshair says the drill goes.
+  const holeGaugeAnchor = useMemo(
+    () =>
+      holePreview?.signature == null || holePreview.position === null
+        ? null
+        : holeAnchor(holePreview.signature, holePreview.position),
+    [holePreview],
   );
   useEffect(() => {
     if (!shellSessionOpen || bodyFeatureId === null) return;
@@ -5489,6 +5514,9 @@ export function PartPage() {
                         placementHidden={holePlacementHidden}
                         edges={holeOverlayEdges}
                         onPreviewChange={onHolePreviewChange}
+                        onGaugeChange={setHoleGauge}
+                        diameterOverride={holeDiameterOverride}
+                        depthOverride={holeDepthOverride}
                       />
                     ) : editor.kind === "baseFlange" ? (
                       <BaseFlangeEditor
@@ -5914,6 +5942,28 @@ export function PartPage() {
                   faces={holePickableFaces}
                   onPick={pickHoleFace}
                   pendingIndex={null}
+                />
+              ) : null}
+              {/* ANCHOR D, hole (CRAFT-9c) — Ø and depth, with the bore circle
+                  and the depth plane. Stood down while a PICK is armed: a pick
+                  in progress is a different gesture on the same face, and a
+                  hit sleeve lying across the drill point would take the very
+                  click the point pick is waiting for. It comes back the moment
+                  the pick lands. Withheld with the placement overlay when the
+                  face's body is hidden (SEL-7), for that overlay's reason. */}
+              {mode === "off" &&
+              editor?.kind === "hole" &&
+              holePick === null &&
+              !holePlacementHidden &&
+              holeGaugeAnchor !== null &&
+              holeGauge !== null &&
+              holeGauge.diameterMm !== null ? (
+                <HoleGauge
+                  anchor={holeGaugeAnchor}
+                  diameterMm={holeGauge.diameterMm}
+                  depthMm={holeGauge.depthMm}
+                  onDiameterChange={holeDiameterGauge.set}
+                  onDepthChange={holeDepthGauge.set}
                 />
               ) : null}
               {/* The placement overlay shows from the moment a face exists, not
