@@ -15,13 +15,6 @@ The redesign loop (`.claude/workflows/loft-frontend-redesign-loop.js`) works
 from `docs/design/REDESIGN-ROADMAP.md`, not from the Ready queue. This section
 is the landing record only, so the board is not silent about shipped work.
 
-- [ ] (P1, S) **W0REV-3** — sketch drafts are never swept: `DRAFT_MAX_AGE_MS`
-      is checked only on read of that one key, so 50 parts leave 50 buffers on
-      disk indefinitely. A full quota then degrades `auth/session.ts`
-      silently, which reads as "logged out on reload" and will never be traced
-      here. Needs the storage seam widened to allow a key scan [W0 code
-      review, 2026-09-12]
-
 - [ ] (P2, M) **W0REV-5** — the unsaved-sketch guard lives inline in
       `PartPage.tsx` (~5,690 lines) rather than the `useUnsavedSketchGuard`
       hook the audit specified, so the two order-dependent effects,
@@ -207,39 +200,42 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
-- **Groom pass 29 (2026-09-24, backlog-groomer) — the e2e root-causing batch
-  is CI-confirmed green through `d3d0446` (8 jobs, 0 failed); PICK-PROXY-COLLIDE-1,
-  CONTRACT-PARITY-TEST-1, PERF-REAL-2, E2E-SHARD-COUNT-1 and
-  QA-CUBE-YIELD-SETTLE-1/FB-7 all CLOSED.** `9404cb1` fixed pick-mark seat
-  publishing, buried-mark drawing and gauge/proxy occlusion (census: 0 lies,
-  up from 7 live-but-buried on Fillet alone); `647f939` closed the
-  contract-parity gate's own blind spot (expected set now derived from the
-  OpenAPI doc directly, 0 mismatches over 86 ops) and confirmed
-  `part.py:317` was already fixed by `43c03a1`, not deliberate.
-  `09416c6`+`4fcb108`+`560eab1`+`8e9e5c8`+`8077ede`+`83e3c67` shipped
-  PERF-REAL-2's checkpoint ladder (edit #249 34.1s→1.85s, 18.5x, QA-measured)
-  with both caches now bounded in heap bytes (ladder 64 MiB, frontier 128
-  MiB + one live oversize checkpoint held alone) — the early-edit floor
-  (editing near the tree's start) is UNCHANGED and refiled as PERF-REAL-2B,
-  needing a dependency-aware evaluator, not a bigger cache. `d3d0446` raised
-  the e2e shard matrix to 6 (~22.6 predicted CI-min/shard, 1.77x headroom),
-  confirmed on a real run by `55df4d3`. `d0604c5`+`856e3c0` root-caused the
-  shared camera-rest-elevation nondeterminism behind both the FB-7 CI flake
-  and QA-CUBE-YIELD-SETTLE-1: a sketch-exit fit reading the restore ease's
-  in-flight direction instead of its committed destination (27-34°
-  depending on load); rest elevation is now 23.11°, 0.00° off, in all 9
-  CPU×latency combinations tried. Filed 6 items (GAUGE-READOUT-TAG-1,
-  FACE-HOVER-BORE-FLAKE-1, PERF-REAL-2B, FRONTIER-OVERSIZE-SIDESLOT-1,
-  PICK-SPEC-REWEIGH-1, LADDER-PROVENANCE-WEIGH-1) — see Ready/Later. `e2e`
-  runs for `8077ede`/`83e3c67` still in flight at write time. No scorecard
-  row flips this pass (correctness/perf hardening, not new capability).
+- **Groom pass 30 (2026-09-24, backlog-groomer) — CI-confirmed green through
+  `9c21801` (all three workflows); W0REV-3, MEASURE-LABEL-PITCH-1, PERF-REAL-1
+  and the reused-id PERF-REAL-3 (overlay cache-key collision) all CLOSED.**
+  `87daed6`+`caebc10` sweep sketch drafts (expiry then oldest-first, ≤20
+  drafts/2 MiB) and surface a full-quota session write failure to the user via
+  a new `packages/design` `Notice` primitive, instead of a silent "logged out
+  on reload". `dc49558` gives Measure a labelled centre-to-centre reading
+  distinct from the raw minimum-distance one (25.0mm pitch vs 17.0mm min,
+  verified on a known plate) plus per-target identity in the readout.
+  `a785d84`+`ac568b7`+`fafbf78`+`14838cb` replace the brute-force per-face
+  raycast with a BVH (22ms→0.2ms/ray, 0 mismatches over 19,800 rays) and fix a
+  real bug the speed-up exposed (the part rig's auto-fit was posing the
+  camera while the sketcher owned it); on `gearbox-11752`, arm→prompt
+  42-48s→~11s, click→sketch-on-face ~31s→8-15s, mark settle never→~34-36s.
+  `496d275`+`989349c`+`9c21801` (reusing the id PERF-REAL-3 for a DIFFERENT
+  defect than the still-open mesh-payload PERF-REAL-3 below) took
+  `record_history` out of the rebuild-cache key so a face pick after an
+  evaluate is a cache hit, not a guaranteed miss (overlay after evaluate
+  8.8s→~2.1s via the gateway; recording costs 0.06-1.6% of a cold rebuild).
+  Filed 9 items (GAUNTLET-BROWSER-CI-1, EDGE-BAND-RAYCAST-BVH-1,
+  OVERLAY-CACHE-HIT-RESIDUAL-1, STEP-IMPORT-CACHE-1, GAUGE-POINTERUP-FLAKE-1,
+  E2E-DURATIONS-MANIFEST-1, MEASURE-CIRCLE-STRAIGHT-EDGE-1,
+  LINEAGES-DOCSTRING-STALE-1, SESSION-EXPIRED-NOTICE-1) — see Next (P2). No
+  scorecard row flips this pass (correctness/perf hardening, not new
+  capability); Selection & picking's PERF-REAL-1 upper bound is now stale in
+  VISION.md's favour, a vision-steward re-check is owed alongside the other
+  overdue re-checks below.
 
-- Passes 19-27: full narrative moved to
+- Passes 19-29: full narrative moved to
   docs/BACKLOG-ARCHIVE.md#scorecard-gaps-history-25-19 (2026-09-23 structural
-  prune, extended pass 29). Headline: Phase 5 flagship (SCRIPT-1) and the
+  prune, extended passes 29/30). Headline: Phase 5 flagship (SCRIPT-1) and the
   gauntlet volume/determinism P0s (F1/F2) shipped; CRAFT-13 closed; Wave 3
-  closed; adjacency tier 3 shipped; the e2e known-failure batch (pass 27)
-  root-caused and fixed.
+  closed; adjacency tier 3 shipped; the e2e known-failure batch (pass 27) and
+  the CI-confirmation batch (pass 29: PICK-PROXY-COLLIDE-1,
+  CONTRACT-PARITY-TEST-1, PERF-REAL-2, E2E-SHARD-COUNT-1,
+  QA-CUBE-YIELD-SETTLE-1/FB-7) root-caused and fixed.
 - **Prior passes (8-18):** reconciled in `docs/CHANGELOG.md` / Done archive.
   Still true and still open: `docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` are
   stale against the last nine batches — dispatch `geometry-qa` and
@@ -247,29 +243,15 @@ duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 29 (2026-09-24) — CI is green through `d3d0446`
-(8 jobs, 0 failed, orchestrator-confirmed `55df4d3`); the `e2e` runs for
-`8077ede` and `83e3c67` are still in flight.** PICK-PROXY-COLLIDE-1,
-CONTRACT-PARITY-TEST-1, PERF-REAL-2 and E2E-SHARD-COUNT-1 CLOSED this pass —
-see Done archive. PERF-REAL-1 (re-measure before re-ranking) and the
-remaining product-audit findings (EDGE-RESOLVE-WARN-1, MEASURE-LABEL-PITCH-1)
-lead — correctness/interaction-cost risk still outranks craft polish. Ranked,
-disjoint, parallel-dispatchable; MINIO-LICENSE-REVIEW-1 and
+**Dispatch order, groom pass 30 (2026-09-24) — CI green through `9c21801`
+(orchestrator-confirmed, all three workflows).** PERF-REAL-1, W0REV-3,
+MEASURE-LABEL-PITCH-1 and the reused-id PERF-REAL-3 (overlay cache-key
+collision) CLOSED this pass — see Done archive. EDGE-RESOLVE-WARN-1 leads —
+the remaining product-audit correctness finding still outranks craft polish.
+Ranked, disjoint, parallel-dispatchable; MINIO-LICENSE-REVIEW-1 and
 CUBE-SKETCH-OCCLUDE-1 are both decisions before they are build tasks — the
 first to the licensing custodian/founder, the second may need
 founder/vision-steward input on the options before a builder picks one:
-
-- [ ] (P1, M) **PERF-REAL-1 — 55-73s to select one face, 12.6-14.7s to open a
-      real imported part.** ACCEPTANCE, updated: re-measure `just gauntlet` on
-      `gearbox-11752` first (this may already materially close the ticket); if
-      the settle time is still an order of magnitude off, the remaining lever
-      is a different pick mechanism (canvas raycast instead of per-face DOM
-      overlay) rather than further portal-host tuning. State the before/after
-      numbers; do not declare victory on a toy part. [src: geometry-qa
-      gauntlet, `docs/GEOMETRY-QA.md` 2026-09-15; progress `9083f0a`, groom
-      pass 26] TERRITORY: `apps/web/src/viewport/**` (face-pick overlay).
-      agentType: frontend-builder. (history:
-      docs/BACKLOG-ARCHIVE.md#item-perf-real-1)
 
 - [ ] (P1, S) **MINIO-LICENSE-REVIEW-1** ACCEPTANCE: a licensing-custodian
       pass (or founder decision) records a verdict in `docs/LICENSING.md` —
@@ -386,18 +368,6 @@ founder/vision-steward input on the options before a builder picks one:
       `apps/web/src/viewport/useSurfaceMarkBurial.ts`. agentType:
       frontend-builder. (history: docs/BACKLOG-ARCHIVE.md#item-gauge-readout-tag-1)
 
-- [ ] (P1, S) **MEASURE-LABEL-PITCH-1 — Measure gives a number an engineer
-      will act on and get wrong.** ACCEPTANCE: picking two circular edges
-      offers (at minimum) a centre-to-centre reading, labelled as such and
-      distinct from the raw minimum-distance reading; edge labels carry enough
-      identity (coordinates or a stable name) to reconstruct which entities
-      were measured from the readout alone. [src: AUDIT-PRODUCT.md F-7,
-      2026-09-16 pass] TERRITORY:
-      `apps/web/src/measure/**`, `services/geometry/src/geometry/**` (if centre-to-centre needs a new measurement kind on the wire).
-      agentType: frontend-builder (backend-builder if a new measurement kind
-      is needed). (history:
-      docs/BACKLOG-ARCHIVE.md#item-measure-label-pitch-1)
-
 - [ ] (P1, M) **EDGE-RESOLVE-WARN-1 — a feature needs a warning channel before
       partial/best-effort edge resolution is safe to leave silent.**
       ACCEPTANCE: the evaluator records WHICH tier resolved each subshape
@@ -431,14 +401,16 @@ founder/vision-steward input on the options before a builder picks one:
 
 - [ ] (P2, S) **FACE-HOVER-BORE-FLAKE-1 — `face-hover.spec.ts:463` ("the
       addressed BORE wall, small laptop") is intermittent, not a pick-mark
-      regression.** ACCEPTANCE: root-cause the 2/6 failure rate (reproduced on
-      source predating `9404cb1`, so PICK-PROXY-COLLIDE-1's fix is not
-      involved) with the same settle-stamp discipline as `36360ae`/`d0604c5`;
-      if it reddens under load and passes after a named settle fix, close
-      with that evidence, otherwise state why it is environment-only. [src:
-      found while verifying `9404cb1`, filed by backlog-groomer pass 29]
-      TERRITORY: `apps/web/e2e/face-hover.spec.ts`. agentType: qa-tester.
-      (history: docs/BACKLOG-ARCHIVE.md#item-face-hover-bore-flake-1)
+      regression.** RECURRED groom pass 30 — found live again during the
+      PERF-REAL-1 review sweep; still unroot-caused. ACCEPTANCE: root-cause
+      the 2/6 failure rate (reproduced on source predating `9404cb1`, so
+      PICK-PROXY-COLLIDE-1's fix is not involved) with the same settle-stamp
+      discipline as `36360ae`/`d0604c5`; if it reddens under load and passes
+      after a named settle fix, close with that evidence, otherwise state why
+      it is environment-only. [src: found while verifying `9404cb1`, filed by
+      backlog-groomer pass 29] TERRITORY: `apps/web/e2e/face-hover.spec.ts`.
+      agentType: qa-tester. (history:
+      docs/BACKLOG-ARCHIVE.md#item-face-hover-bore-flake-1)
 
 - [ ] (P2, S) **FILLET-GAUGE-FPS-FLOOR-1 — the ">10 frames sampled after
       release" floor assumes ~6.7fps, which headless software GL misses under
@@ -693,6 +665,97 @@ not yet dispatched this batch.
 
 ## Next (P2)
 
+**Filed groom pass 30 (2026-09-24) — PERF-REAL-1/PERF-REAL-3(reused-id)
+close-out residuals + W0REV-3/MEASURE-LABEL-PITCH-1 follow-ups:**
+
+- [ ] (P2, S) **GAUNTLET-BROWSER-CI-1 — the gauntlet browser leg
+      (`apps/web/e2e/gauntlet/`, `ac568b7`) is not wired into `just
+      gauntlet`.** ACCEPTANCE: `just gauntlet` runs the browser leg alongside
+      the existing in-process measurements, in one report; a deliberately
+      broken browser-leg assertion fails the target. [src: PERF-REAL-1
+      close-out, groom pass 30] TERRITORY: `justfile`, `apps/web/e2e/gauntlet/`.
+      agentType: platform-builder.
+
+- [ ] (P2, S) **EDGE-BAND-RAYCAST-BVH-1 — the edge-band line raycast is still
+      a full segment scan; PERF-REAL-1's BVH covers surface/face picks only,
+      and edge picking on `gearbox-11752` was not measured.** ACCEPTANCE:
+      measure edge-pick settle time on `gearbox-11752` first; if it is a real
+      cost, extend the BVH (or an equivalent spatial index) to the edge-band
+      raycast with the same before/after discipline `a785d84` used. [src:
+      PERF-REAL-1 close-out, groom pass 30] TERRITORY:
+      `apps/web/src/viewport/pickRaycast.ts` (edge-band path), `apps/web/src/viewport/pickBvh.ts`.
+      agentType: frontend-builder.
+
+- [ ] (P2, S) **OVERLAY-CACHE-HIT-RESIDUAL-1 — a cache-hit `/overlay` on
+      `gearbox-11752` still costs ~2.1s: extraction ~1.3s plus a
+      publish-time validity re-check ~0.5s kept deliberately for CM-6b.**
+      ACCEPTANCE: either shrink the extraction cost (state the new number) or
+      record why ~1.3s is the honest floor for 1 018 faces; the CM-6b validity
+      re-check stays — do not remove it to chase this number without a
+      decision recorded. [src: `496d275`/`989349c` close-out measurement,
+      groom pass 30] TERRITORY: `services/geometry/src/geometry/features/overlay.py`
+      (or wherever the overlay hit path extracts). agentType: kernel-architect.
+
+- [ ] (P3, S) **STEP-IMPORT-CACHE-1 — a persistent content-addressed STEP
+      import cache would save ~2s once per part on a cold open or a different
+      worker.** Deferred: today's per-worker in-memory cache already serves
+      the common same-worker case. ACCEPTANCE: a content-addressed cache
+      keyed on the uploaded file's hash, shared across workers (Redis or
+      object storage), measurably cuts a cold/different-worker open by the
+      stated ~2s. [src: PERF-REAL-1/PERF-REAL-3 close-out measurement, groom
+      pass 30] TERRITORY: `services/geometry/src/geometry/kernel/imports.py`.
+      agentType: kernel-architect.
+
+- [ ] (P2, S) **GAUGE-POINTERUP-FLAKE-1 — three e2e cases reproduce on the
+      untouched tip and share a hypothesis: a missed pointerup leaves a gauge
+      drag live.** `preview-overrun.spec.ts:224`, `qa-sketch-frame.spec.ts:1134`,
+      `craft9b-gauges.spec.ts:516` (failed once in CI on `ac568b7`, 0/26
+      locally including under CPU throttle). ACCEPTANCE: root-cause whether a
+      pointerup is genuinely dropped under load (fix the listener/capture) or
+      the settle the specs wait on is unnamed (fix the spec); state which, with
+      the reproduction that proves it. [src: found running PERF-REAL-1's e2e
+      sweep, groom pass 30] TERRITORY: `apps/web/e2e/preview-overrun.spec.ts`,
+      `apps/web/e2e/qa-sketch-frame.spec.ts`, `apps/web/e2e/craft9b-gauges.spec.ts`,
+      `apps/web/src/viewport/ParametricGauge.tsx`. agentType: qa-tester.
+
+- [ ] (P3, XS) **E2E-DURATIONS-MANIFEST-1 — `scripts/e2e-durations.json` has
+      no entry for `session-storage-full.spec.ts` (`caebc10`) or
+      `measure-pitch.spec.ts` (`dc49558`), so both are packed at the heaviest
+      guessed weight (see `7c9ff95`'s fix for the same defect class).**
+      ACCEPTANCE: both specs measured and added to the manifest; shard-spread
+      prediction stays within its existing headroom. [src: W0REV-3/
+      MEASURE-LABEL-PITCH-1 close-out, groom pass 30] TERRITORY:
+      `scripts/e2e-durations.json`. agentType: platform-builder.
+
+- [ ] (P3, S) **MEASURE-CIRCLE-STRAIGHT-EDGE-1 — a circle picked alongside a
+      straight edge gets no centre reading** (MEASURE-LABEL-PITCH-1 shipped
+      circle-circle and circle-vertex centre readings only). ACCEPTANCE:
+      circle+straight-edge offers a centre-to-nearest-point reading, labelled
+      the same way MEASURE-LABEL-PITCH-1 labelled circle-circle; negative
+      control (two straight edges) keeps today's plain distance reading. [src:
+      MEASURE-LABEL-PITCH-1 close-out (`dc49558`), groom pass 30] TERRITORY:
+      `apps/web/src/measure/**`. agentType: frontend-builder.
+
+- [ ] (P3, XS) **LINEAGES-DOCSTRING-STALE-1 — five docstrings/comments still
+      describe "lineages" (plural, per-caller) after `496d275`/`989349c`
+      collapsed the rebuild cache onto one lineage per part.**
+      `services/geometry/src/geometry/rebuild_cache.py` ~1089 and ~1113-1115,
+      `services/gateway/tests/test_geometry_affinity.py` lines 6 and ~248,
+      `services/gateway/tests/test_prefetch_proxy.py` ~189. ACCEPTANCE: each
+      reworded to match `9c21801`'s "one checkpoint" language; no behaviour
+      change. [src: PERF-REAL-3 close-out, `9c21801` follow-up, groom pass 30]
+      TERRITORY: the five files above (docstrings/comments only). agentType:
+      kernel-architect / backend-builder.
+
+- [ ] (P3, XS) **SESSION-EXPIRED-NOTICE-1 — the sign-in page's
+      session-expired line predates `caebc10`'s `Notice` primitive and could
+      adopt it for the same role=status treatment.** ACCEPTANCE: the
+      `session-expired-notice` element renders through `packages/design`'s
+      `Notice`, same dismiss/announce behaviour as the persist-error notices;
+      no change to when it appears. [src: W0REV-3 follow-up close-out, groom
+      pass 30] TERRITORY: `apps/web/src/routes/SignInPage.tsx`. agentType:
+      frontend-builder.
+
 **Filed groom pass 27 (2026-09-23) — sketch-Fit follow-ups + a DRY/infra
 pair:**
 
@@ -729,7 +792,11 @@ pair:**
 DIRECTION-ASSEMBLIES.md findings, ranked by scorecard/correctness impact:**
 
 - [ ] (P2, M) **PERF-REAL-3 — a real part's mesh payload is 142MB, gzip only
-      reaches 1.58x.** ACCEPTANCE: mesh quantization (e.g. Draco or a
+      reaches 1.58x.** ID NOTE (groom pass 30): a 496d275/989349c/9c21801
+      commit trio reused this id for a DIFFERENT defect (an overlay cache-key
+      collision) — that one is CLOSED, this mesh-payload one is not; see
+      BACKLOG-ARCHIVE.md's Done archive pass 30 entry for the closed item.
+      ACCEPTANCE: mesh quantization (e.g. Draco or a
       fixed-point vertex encoding) measurably shrinks the same fixture's
       payload, stated as a before/after number; per-face-primitive glTF export
       (one primitive per B-rep face) is a named contributor worth checking as
@@ -2403,6 +2470,9 @@ Moved verbatim to `docs/BACKLOG-ARCHIVE.md#done-archive` in the 2026-09-23 struc
 
 ## Changelog
 
+- 2026-09-24 — **Groom pass 30 (backlog-groomer):** W0REV-3,
+  MEASURE-LABEL-PITCH-1, PERF-REAL-1 and the reused-id PERF-REAL-3 (overlay
+  cache-key collision) all CLOSED; CI green through `9c21801`; 9 items filed.
 - 2026-09-24 — **Groom pass 29 (backlog-groomer):** PICK-PROXY-COLLIDE-1,
   CONTRACT-PARITY-TEST-1, PERF-REAL-2, E2E-SHARD-COUNT-1,
   QA-CUBE-YIELD-SETTLE-1/FB-7 all CLOSED; CI green through `d3d0446`;
@@ -2410,9 +2480,7 @@ Moved verbatim to `docs/BACKLOG-ARCHIVE.md#done-archive` in the 2026-09-23 struc
 - 2026-09-23 — **Groom pass 27 (backlog-groomer):** e2e known-failures +
   shard-4 timeout root-caused and fixed (6+1 commits); F-6 and the
   gauge/panel lag CLOSED; 11 items filed. See "Scorecard gaps" above.
-- 2026-09-23 — **Groom pass 26:** CRAFT-12/VEC3-DEDUP-1/CSP-1 CLOSED;
-  adjacency tier 3 shipped; VISION re-scored twice; 5 items filed. See
-  "Scorecard gaps" above for full detail.
-- Passes 7-25: full reachability programme, CI hardening, SOLVE/PBT/SEL-2/
+- Passes 7-26: full reachability programme, CI hardening, SOLVE/PBT/SEL-2/
   ARC-BRANCH-1 clusters, Wave 3 close-out, Phase 5 flagship (SCRIPT-1),
-  gauntlet F1/F2, CRAFT-13. Full detail: `docs/CHANGELOG.md`.
+  gauntlet F1/F2, CRAFT-13, CRAFT-12/VEC3-DEDUP-1/CSP-1, adjacency tier 3.
+  Full detail: `docs/CHANGELOG.md`.

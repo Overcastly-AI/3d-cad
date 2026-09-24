@@ -26,6 +26,14 @@ Full-detail item narratives and closed-item records pruned from `docs/BACKLOG.md
 
 - [x] (P0, M) **W0REV modal-gate fix** — the blocking review finding (Enter on the exit prompt applied the armed draw dimension instead of saving/ leaving; `Ctrl+Z` leaked into the sketch behind the modal too) plus two more (a save in flight blurred the dialog and dropped its own focus trap; sketch drafts outlived sign-out) — one capture-phase `lib/modalGate.ts`, not a patch per listener `da98622` [W0 code review, 2026-09-12]
 
+<a id="closed-wave-w0rev-3"></a>
+
+### W0REV-3
+
+*kind: closed*
+
+- [x] (P1, S) **W0REV-3** — sketch drafts were never swept (`DRAFT_MAX_AGE_MS` checked only on read of that one key, so 50 parts left 50 buffers on disk indefinitely) and a full quota then degraded `auth/session.ts` silently, reading as "logged out on reload". **CLOSED groom pass 30 (`87daed6`+`caebc10`).** `auth/storage.ts` is now a leaf storage seam (key scan, quota detection); `sweepSketchDrafts` drops expired/unreadable drafts and caps the rest at 20 drafts / 2 MiB, oldest first, run at app start and (rate-limited) on writes; `writeEvictingDrafts` evicts oldest-first on `QuotaExceededError` and retries, never swallowing an unrecoverable failure (`state.persistError` now set + logged). A follow-up shipped the SAME pass: a new `packages/design` `Notice` primitive (in-flow, role=alert/status, row/stacked layouts) surfaces the failure — a dismissable top-bar strip on every page while `persistError` is set, and a pre-sign-in probe warning on `SignInPage` (a session-sized write through the same eviction path, removed after). New `session-storage-full.spec.ts` proves both notices are announced by role, reachable by `elementFromPoint`, and dismissed by a real click. [W0 code review, 2026-09-12]
+
 <a id="closed-wave-flow-b2"></a>
 
 ### FLOW-B2
@@ -328,6 +336,31 @@ kind: QA (not yet examined, flagged rather than guessed). The 24 px grip meets W
 
 kind: defect (interaction cost, frontend/viewport). MEASURED by `just gauntlet` on `gearbox-11752` (1018 faces): arm face-pick → prompt visible 40.8s/30.0s (two runs); click → prompt cleared 31.6s/24.6s — 55-73s total against 0.6s to reach "Pick a plane" in the first place. Pick-node census: 452 DOM overlay nodes for one part, 17.5s to settle them (bit-identical structural counts across two runs at different load, which is what makes this a real cost rather than an artefact). Ranked #1 by "what a user feels" in `docs/GEOMETRY-QA.md`'s gauntlet entry — nothing else on that list matters if the tool cannot be touched. **PARTLY ADDRESSED this pass by `9083f0a` (found while landing PickMark's depth `instanceof` fix, not dispatched against this ticket directly): drei's `Html` was calling `ReactDOM.createRoot` PER pick mark, so 452 marks were 452 independent React roots — ~13s of main-thread script, a hang rather than a slowdown. Now one portal host, one root, one per-frame projection pass: 3.5x faster per mark in a real browser and FLAT instead of super-linear in N (measured at N=113/452/904, all ~0.30ms/mark against 1.08-1.32ms before).** The 55-73s / 17.5s-settle figures above are NOT re-measured against this fix and are now an UPPER BOUND — `docs/VISION.md`'s Selection & picking row says so explicitly.
 
+**CLOSED groom pass 30 (`a785d84`+`ac568b7`+`fafbf78`+`14838cb`).** Re-measured
+on the same `gearbox-11752` gauntlet fixture, production bundle, software GL:
+the surface/face pick raycast (`Mesh.raycast`'s triangle loop, ~22ms/ray on
+the real mesh, ~4,600 rays/pose at 24/frame) was the dominant cost, not the
+pick-mark render `9083f0a` already fixed. A per-geometry triangle BVH
+(`pickBvh.ts`) replaces the brute-force scan for surface/face raycasts:
+22ms->0.2ms/ray, 0 mismatches against brute force over 1,200+19,800 rays
+(landing commit + review). After: prompt 10.5s (was 42.3s), first mark 20.8s,
+seats settled 34.0s (was never-settling at 158 frames/666s), click->sketch
+on face 8.2s (was 30.7s). `ac568b7` added a real browser-leg gauntlet spec
+(`apps/web/e2e/gauntlet/`) proving the numbers outside the in-process
+harness. `fafbf78` found and fixed a real product bug the speed-up exposed:
+the part rig's auto-fit was posing the camera (an instant re-fit on mesh
+change) while `SketchCameraRig` owned it — a race that used to lose because
+the slow raycast kept the sketcher's own ease in flight long enough to win;
+made deterministic by a new regression asserting <0.01mm drift (was
+17.46mm, 2/2). `14838cb` closed 5 review findings (first-frame-after-idle
+budget bug, unsorted material-group fallback, geometry-dispose tree
+rebuild + memory drop 90MB->44MB peak, a DRY raycast-oracle merge, an
+expanded hit-field/edge-case pickBvh test suite) — each seen red under its
+own mutation. Edge-band raycast (still a full segment scan) and edge-pick
+timing on a real part were NOT measured this pass — refiled as
+EDGE-BAND-RAYCAST-BVH-1. The gauntlet browser leg is not yet wired into
+`just gauntlet` — refiled as GAUNTLET-BROWSER-CI-1.
+
 <a id="item-perf-real-2"></a>
 
 ### PERF-REAL-2
@@ -461,6 +494,22 @@ face the camera shows FACING AWAY).
 *kind: item-story*
 
 kind: defect (product/measure). MEASURED: picking two adjacent Ø8 holes of a pattern whose centre-to-centre pitch is **25 mm by construction** reads back `DISTANCE 17 mm` (25 − 8, the minimum circle-to-circle distance) with no label saying "minimum" and no centre-to-centre / diameter / radius option on a circular edge — hole pitch is the single most common measurement taken on a plate, and Fusion defaults two circular edges to centre-to-centre. Edge labels are also identity-free (`"Edge 5, circle"`, no coordinates), so there is no way to tell which two holes were measured after the fact.
+
+**CLOSED groom pass 30 (`dc49558`).** No wire change: every `OverlayEdge`
+already carries its stage-1 signature (end_a, end_b, midpoint), so the centre
+is derived client-side exactly as the kernel's own resolver does it
+(`geometry.kernel.edges._circle_centre`). A picked circle's hero reading is
+now "Centre to centre" (or "Centre to point"/"Point to centre" against a
+vertex), with the kernel's minimum-distance reading kept at the row's end,
+labelled "Min distance"; point-point measurements are unchanged ("Distance").
+From/To lines now name each target with its centre coordinates. Verified
+against the geometry service at full precision on the audit's own plate:
+centres (-12,-3.5,6)/(12,3.5,6), centre-to-centre 25.0mm (0 error), kernel
+minimum 17.0mm (0 error). New `measure-pitch.spec.ts` (real mouse picks) was
+red before the fix; three independent mutations (centre off by /2.0001, min
+label reverted, centre dropped from the label) each redden it. A
+circle-picked-with-a-straight-edge case still gets no centre reading —
+refiled as MEASURE-CIRCLE-STRAIGHT-EDGE-1.
 
 <a id="item-edge-resolve-warn-1"></a>
 
@@ -1012,6 +1061,46 @@ kind: defect (frontend, UNVERIFIED dimensions). Reported at ~608x65px at the top
 *kind: item-story*
 
 kind: defect (perf, delivery). MEASURED on `rc-buggy-suspension` (211 solids, 6 867 576 triangles): 142MB GLB, 90MB gzipped. `docs/PERF.md`'s 5.2x-11.8x compression figures were measured on toy parts, where the win was JSON overhead; a real mesh is dominated by incompressible vertex data, and 142MB is not deliverable to a browser on any connection a user has. Ranked #3 in `docs/GEOMETRY-QA.md`'s gauntlet ranking.
+
+**STILL OPEN, unrelated to the item below** — see BACKLOG.md's Next (P2)
+for the live ticket.
+
+<a id="item-perf-real-3-cache-key"></a>
+
+### PERF-REAL-3 (reused id — overlay cache-key collision)
+
+*kind: closed*
+
+**A DIFFERENT defect than the mesh-payload PERF-REAL-3 above; three landing
+commits reused this id for it, so it is recorded here rather than minted a
+fresh one.** kind: defect (perf, kernel). Root cause of a 15.3s
+`/geometry/overlay` on the imported `gearbox-11752`: the overlay evaluated
+with `record_history=True`, and `record_history` was IN the rebuild-cache
+key, so a face pick after every open or edit was a guaranteed miss on a
+lineage of its own and re-ran the whole tree — publish work (tessellation,
+mass properties, validity) included, none of which the overlay reads.
+
+**CLOSED groom pass 30 (`496d275`+`989349c`+`9c21801`).** Every evaluation
+now records per-face provenance fingerprints and the flag is gone from the
+key (`CACHE_KEY_VERSION` 3), so `/evaluate`, `/overlay`, `/measure`,
+`/tessellate`, export and drawings share ONE lineage. Measured on
+`gearbox-11752` (1,018 faces): overlay after evaluate 7,861ms MISS ->
+2,222ms HIT in process (~8.8s -> ~2.1s via the gateway); cold open 8.5s (STEP
+parse 24%). `989349c` cut the resulting cold-rebuild recording cost from
+~6-8% to 0.06-1.6% (403ms->4ms on gearbox, 1,477ms->390ms at N=200) by
+resolving snapshot faces to a distinct-face index instead of re-fingerprinting
+copies on every ladder-rung fork. `9c21801` corrected the "separate cache
+lineages, warmed in priority order" language in `loft-wire`'s `WarmLineage`
+docs and `gateway/affinity.py` to match (comments/contract description only,
+no behaviour change) — five more stale "lineages" references elsewhere were
+found and refiled as LINEAGES-DOCSTRING-STALE-1. New
+`test_overlay_after_evaluate.py` asserts cache counters (+1 hit, +0 misses)
+and was red before the fix; disabling recording reddens 8 gates. Geometry
+suite 3,191 passed / 1 skipped throughout. A cache-hit overlay still costs
+~2.1s (extraction ~1.3s + a publish-time validity re-check ~0.5s kept
+deliberately for CM-6b) — refiled as OVERLAY-CACHE-HIT-RESIDUAL-1; a
+persistent content-addressed STEP import cache (saves ~2s once per part on a
+cold/different worker) refiled as STEP-IMPORT-CACHE-1.
 
 <a id="item-nurbs-fixture-1"></a>
 
@@ -2072,6 +2161,12 @@ kind: polish. Surfaced by A11Y-TOOLBTN-1's blast-radius enumeration, from Chrome
 ## Done — archive
 
 One line per item once its phase has closed (id, one clause, commit/evidence); full narrative lives in the commit message and, where noted, `docs/CHANGELOG.md`.
+
+### Groom pass 30 (2026-09-24, backlog-groomer — W0REV-3, MEASURE-LABEL-PITCH-1, PERF-REAL-1, reused-id PERF-REAL-3 all closed; CI green through 9c21801)
+
+- **W0REV-3** (`87daed6`+`caebc10`) — sketch drafts now sweep (expiry, then oldest-first, ≤20 drafts/2 MiB); the session write evicts drafts on quota instead of failing silently; a new `packages/design` `Notice` primitive shows the failure to the user (top-bar strip + sign-in warning). - **MEASURE-LABEL-PITCH-1** (`dc49558`) — a picked circle's hero reading is centre-to-centre, labelled and distinct from the kernel's raw minimum-distance reading; edge labels carry coordinates. Verified 25.0mm pitch vs 17.0mm min on a known plate; no wire change (derived from each edge's existing stage-1 signature). - **PERF-REAL-1** (`a785d84`+`ac568b7`+`fafbf78`+`14838cb`) — a BVH replaces the brute-force per-face raycast (22ms->0.2ms/ray, 0 mismatches over 19,800 rays in review); on `gearbox-11752`, arm->prompt 42-48s->~11s, click->sketch-on-face ~31s->8-15s, mark settle never->~34-36s. `fafbf78` fixed a real bug the speed-up exposed: the part rig's auto-fit was posing the camera while the sketcher owned it. - **PERF-REAL-3 (reused id, overlay cache-key collision — distinct from the still-open mesh-payload PERF-REAL-3)** (`496d275`+`989349c`+`9c21801`) — `record_history` came out of the rebuild-cache key so a face pick after an evaluate is a cache hit, not a guaranteed miss; overlay after evaluate 8.8s->~2.1s via the gateway, recording costs 0.06-1.6% of a cold rebuild.
+
+Filed: GAUNTLET-BROWSER-CI-1, EDGE-BAND-RAYCAST-BVH-1, OVERLAY-CACHE-HIT-RESIDUAL-1, STEP-IMPORT-CACHE-1, GAUGE-POINTERUP-FLAKE-1, E2E-DURATIONS-MANIFEST-1, MEASURE-CIRCLE-STRAIGHT-EDGE-1, LINEAGES-DOCSTRING-STALE-1, SESSION-EXPIRED-NOTICE-1 (see BACKLOG.md Next (P2)).
 
 ### Groom pass 29 (2026-09-24, backlog-groomer — PICK-PROXY-COLLIDE-1, CONTRACT-PARITY-TEST-1, PERF-REAL-2, E2E-SHARD-COUNT-1, QA-CUBE-YIELD-SETTLE-1/FB-7 all closed; CI green through d3d0446)
 

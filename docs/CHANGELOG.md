@@ -5,6 +5,42 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-09-24 (ROADMAP "Groom pass 26 doc-tick debt" paragraph pruned by groom pass 30)
+
+Verbatim: Doc-tick debt measured pass 26 (CLAUDE.md's amended rule: count
+commits since the last `docs(board)` commit, don't read trailers): **35**
+commits since `4e69434` (groom pass 25) — the largest batch yet (prior
+largest 25), none touching ROADMAP/BACKLOG. Spans the product audit +
+adjacency tier 3 fix, ten e2e gauge/camera hardening commits (including
+`f8a1ecb`, which closed touch-census finding P1-T2 and filed
+CRAFT12-OUTWARD-ONLY-1), CSP-1's close (`ed8c3d7`, the first Playwright leg
+against the built/nginx-served bundle), six gate/CI hardening fixes,
+`VEC3-DEDUP-1`'s close, and two VISION.md rescores. Reconciled in full that
+pass; `scripts/check-ui-parity.py`'s 84/85 operations / 97/109 literals
+reading was unchanged.
+
+## 2026-09-24 (ROADMAP "Current focus" pass-26/27/29 detail pruned by groom pass 30)
+
+Verbatim narrative pruned from `docs/ROADMAP.md`'s "Current focus" block:
+the pass-26 `543aad9` e2e-red root-causing (`202cc9d`/`9375cb3`/`3b7f9ad`/
+`36360ae`/`8f8adc2`/`004755d`, 6 cause-named fixes across 9 cases in shards 2
+and 4), the shard-4 40-minute-timeout fix (`7c9ff95`, manifest re-measured,
+1.00x predicted spread), the pass-27 F-11 regression-and-fix
+(`f9fcce6`+`5444fa8`, Fit-while-sketching), and the pass-29 closures
+(QA-CUBE-YIELD-SETTLE-1/FB-7 shared-root-cause fix `d0604c5`+`856e3c0`
+landing rest elevation at 23.11°/0.00° off across 9 CPU×latency
+combinations; E2E-SHARD-COUNT-1 `d3d0446`, N=6 shards, 1.77x headroom).
+ROADMAP now carries the one-line-per-pass pointer in "Recent closures"; full
+detail also lives in `docs/BACKLOG-ARCHIVE.md`'s Done archive (pass 29 entry)
+and the cited commit messages.
+
+## 2026-09-23 (Groom pass 26, pruned from BACKLOG.md's Changelog by pass 30)
+
+CRAFT-12/VEC3-DEDUP-1/CSP-1 CLOSED; adjacency tier 3 shipped; VISION.md
+re-scored twice; 5 items filed. Full detail: docs/BACKLOG-ARCHIVE.md's Done
+archive, "Groom pass 26" entry, and ROADMAP.md's "Current focus"/"Wave 3
+close-out" sections.
+
 ## 2026-09-23 (BACKLOG.md structural prune, groom pass 28 — backlog-groomer)
 
 `docs/BACKLOG.md` had grown to ~400 KB / 5,631 lines and agents were reading

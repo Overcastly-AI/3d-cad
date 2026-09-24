@@ -2,57 +2,43 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-09-24 (backlog-groomer pass 29) — CI is
-green through `d3d0446` (8 jobs, 0 failed, orchestrator-confirmed `55df4d3`);
-the `e2e` runs for `8077ede` and `83e3c67` are still in flight.** Pass 26
-found `e2e` RED on `543aad9` (9 cases across shards 2 and 4). Each has since
-been
-root-caused and fixed with evidence, in commits `202cc9d` (preview re-fit
-compared a FIT ratio against a pose that parks the target off-subject),
-`9375cb3` (the pattern-count ladder's own re-fit slid the gauge out from
-under the cursor), `3b7f9ad` (a late drag answer stepped the rod back after
-release), `36360ae` (the cube-click case slept a fixed 800ms instead of
-polling the settle stamp), `8f8adc2` (HEM-1B's precondition stopped
-reproducing once adjacency tier 3 shipped — the product got better, the
-fixture didn't), `004755d` (FB-20's baseline was taken after CRAFT-12 had
-already framed the body). A SEPARATE cause — shard 4 hitting the 40-minute
-step timeout with 0 tests failing, because 31 of 175 spec files were
-unmeasured and packed at the heaviest guessed weight — is fixed by `7c9ff95`
-(manifest re-measured in full; predicted shard spread now 1.00x, ~31.3
-CI-min/shard against the 40-min cap, 1.3x headroom). A THIRD, NEW regression
-landed and was fixed within this same pass: `f9fcce6` (F-11, Fit while
-sketching) put the Fit control on the sketch rig's own -Y-axis seat, so a
-canvas click meant to draw a centreline became a Fit click instead
-(`constraints.spec.ts:1112`, deterministic) — fixed by `5444fa8`, which
-seats the sketch Fit bar off the reference cube instead. **Pass 29 closed
-the pass-27 residual and four more BACKLOG items, all now CI-confirmed:**
-QA-CUBE-YIELD-SETTLE-1 and the FB-7 CI flake shared one root cause (a
-sketch-exit fit reading the restore ease's in-flight direction instead of
-its committed destination, drifting rest elevation 27-34° under load) — both
-CLOSED by `d0604c5`+`856e3c0`, landing the rest elevation at 23.11°, 0.00°
-off, across 9 CPU×latency combinations. E2E-SHARD-COUNT-1 CLOSED (`d3d0446`,
-matrix raised to N=6, ~22.6 predicted CI-min/shard, 1.77x headroom).
-PICK-PROXY-COLLIDE-1 CLOSED (`9404cb1`+`b9d2a78`, see "Product audit
-2026-09-16" below). CONTRACT-PARITY-TEST-1 CLOSED (`647f939`). PERF-REAL-2
-CLOSED (see "Performance findings" below). Two product-audit findings closed
-pass 26: **adjacency tier 3** (`bf05482`)
-re-matches a picked EDGE through the two faces it borders, closing the
-`SUBSHAPE_UNRESOLVED` wall a 2026-09-16 product audit hit on one ordinary
-width edit (4 of 6 features destroyed — see "Product audit 2026-09-16"
-below) — but it is a bounded first step, not persistent naming: **curved
-neighbours (bore rims, fillet boundaries) get no adjacency at all**,
-`PlanarFaceSignature` describes planes only, and that residual stays open.
-`docs/VISION.md` was re-scored twice pass 26 (`ecb9df8`, `0fbfe81`, 14
-rows re-derived against the running app): **no capability row is above
-parity** (only the two platform rows — Free & unlimited, Your data — are
-✅); Performance flipped ➖→❌ (51.7 s cold rebuild at 250 features, and an
-edit costs 89-108% of a full rebuild wherever it sits in the tree). **That
-Performance reading is now PARTLY stale, not yet re-scored:** PERF-REAL-2
-(pass 29) cut an edit near the END of the tree to 1.85s (18.5x), but an edit
-near the START is unchanged at 89-108% — a vision-steward re-check is owed
-(see "Still owed" below). Wave 3 (direct manipulation) remains closed;
-Phase 5's scripting API remains shipped, the MCP server is still the open
-surface.**
+**Current focus, corrected 2026-09-24 (backlog-groomer pass 30) — CI is
+green through `9c21801` (all three workflows, orchestrator-confirmed).**
+Passes 26/27/29 root-caused and fixed the e2e reds of that window (shard
+2/4 failures, a shard-4 timeout, a Fit-while-sketching regression) and
+closed five more BACKLOG items (QA-CUBE-YIELD-SETTLE-1/FB-7,
+E2E-SHARD-COUNT-1, PICK-PROXY-COLLIDE-1, CONTRACT-PARITY-TEST-1,
+PERF-REAL-2); full narrative moved to `docs/CHANGELOG.md`'s ROADMAP archive
+(2026-09-24 entry) — one-line pointers in "Recent closures" below. Pass 26
+also shipped **adjacency tier 3** (`bf05482`, re-matches a picked EDGE
+through the two faces it borders, closing the `SUBSHAPE_UNRESOLVED` wall the
+2026-09-16 product audit hit — see "Product audit 2026-09-16" below) as a
+bounded first step: **curved neighbours (bore rims, fillet boundaries) get
+no adjacency at all**, and that residual stays open. `docs/VISION.md` was
+re-scored twice pass 26: no capability row is above parity, and Performance
+flipped ➖→❌ (51.7s cold rebuild at 250 features, an edit costs 89-108% of a
+full rebuild wherever it sits). **Pass 30 closed four more BACKLOG items, all
+CI-confirmed:** W0REV-3 (`87daed6`+`caebc10` — sketch drafts sweep on
+expiry/cap; a full-quota session write now surfaces to the user via a new
+`packages/design` `Notice` primitive instead of failing silently);
+MEASURE-LABEL-PITCH-1 / product-audit F-7 (`dc49558` — Measure gives a
+labelled centre-to-centre reading distinct from the kernel's raw minimum,
+25.0mm vs 17.0mm verified on a known plate — see "Product audit 2026-09-16"
+below); PERF-REAL-1 (`a785d84`+`ac568b7`+`fafbf78`+`14838cb` — a BVH replaces
+the brute-force pick raycast, 22ms→0.2ms/ray, 0 mismatches over 19,800 rays;
+on `gearbox-11752` arm→prompt 42-48s→~11s, click→sketch-on-face ~31s→8-15s,
+mark settle never→~34-36s; also fixed a real camera-ownership bug the
+speed-up exposed, the part rig's auto-fit posing the camera while the
+sketcher owned it); and a reused-id PERF-REAL-3, a DIFFERENT defect from the
+still-open mesh-payload PERF-REAL-3 (see "Performance findings" below) —
+`496d275`+`989349c`+`9c21801` took `record_history` out of the rebuild-cache
+key so a face pick after an evaluate is a cache hit, overlay 8.8s→~2.1s via
+the gateway. 9 items filed (see BACKLOG Next (P2)). **No scorecard row flips
+this pass, but Selection & picking's upper bound is now materially closed
+and the Performance row (PERF-REAL-2 pass 29 + PERF-REAL-1 this pass) is more
+overdue than ever for a vision-steward re-check** (see "Still owed" below).
+Wave 3 (direct manipulation) remains closed; Phase 5's scripting API remains
+shipped, the MCP server is still the open surface.**
 
 **Product audit 2026-09-16 — "the edit loop is the wall" (`576e37b`,
 `docs/AUDIT-PRODUCT.md`).** A gearbox-housing build-edit-repair-export
@@ -75,10 +61,11 @@ them, not above, so the audit's -45 read as "left of centre" when it meant
 29** (`9404cb1`+`b9d2a78`, see "Current focus" above): real seat publishing,
 occlusion oracles for face marks, a dashed `BuriedMark` state, and
 `GaugeKeepOuts` refusing seats a gauge covers — census 0 lies, up from 7
-live-but-buried on Fillet alone. **Still open, now on BACKLOG:** F-7 (Measure
-reads **17 mm** for a **25 mm** hole pitch, unlabelled as a minimum and with
-no centre-to-centre option), F-8 (a 422's per-field reason is swallowed by
-the generic envelope message — already filed).
+live-but-buried on Fillet alone. **F-7 CLOSED pass 30** (`dc49558`, see
+"Current focus" above): a picked circle's hero reading is now labelled
+centre-to-centre, distinct from the kernel's raw minimum-distance reading.
+Of the ten findings, only F-8 remains open on BACKLOG (a 422's per-field
+reason is swallowed by the generic envelope message — already filed).
 `docs/design/topological-naming.md` §7.3's "best-effort, may silently
 mis-resolve" posture is unchanged by tier 3 and is not surfaced to the user
 anywhere — filed as a new warning-channel item.
@@ -145,17 +132,21 @@ untouched, same reasoning as last pass.
 The founder has asked this branch be merged to `main` ("it's looking better
 but we still have a long way to go"); the merge is blocked only on CI
 finishing.
-Doc-tick debt measured this pass (CLAUDE.md's amended rule: count commits
-since the last `docs(board)` commit, don't read trailers): **35** commits
-since `4e69434` (groom pass 25) — the largest batch yet (prior largest 25),
-none touching ROADMAP/BACKLOG. Spans the product audit + adjacency tier 3
-fix, ten e2e gauge/camera hardening commits (including `f8a1ecb`, which
-closed touch-census finding P1-T2 and filed CRAFT12-OUTWARD-ONLY-1), CSP-1's
-close (`ed8c3d7`, the first Playwright leg against the built/nginx-served
-bundle), six gate/CI hardening fixes, `VEC3-DEDUP-1`'s close, and two
-VISION.md rescores. Reconciled in full this pass;
-`scripts/check-ui-parity.py`'s 84/85 operations / 97/109 literals
-reading is unchanged.
+**Groom pass 26 doc-tick debt (35 commits since `4e69434`, product audit +
+adjacency tier 3 + CSP-1 + VEC3-DEDUP-1):** full detail moved to
+`docs/CHANGELOG.md`'s ROADMAP archive.
+
+**Groom pass 30 (2026-09-24) doc-tick debt:** **11** commits since `cb88b15`
+(pass 29) — all 11 carrying the trailer. All reconciled this pass. Spans
+W0REV-3's draft sweep + its `Notice`-primitive follow-up (`87daed6`+
+`caebc10`), MEASURE-LABEL-PITCH-1 (`dc49558`), a camera-settle e2e hardening
+(`81fcccb`, found running PERF-REAL-1's camera specs), PERF-REAL-1's BVH +
+browser-leg gauntlet spec + camera-ownership fix + review follow-ups
+(`a785d84`+`ac568b7`+`fafbf78`+`14838cb`), and the reused-id PERF-REAL-3's
+cache-key fix + provenance-cost follow-up + doc correction
+(`496d275`+`989349c`+`9c21801`). 9 new items filed; none flip a scorecard row
+(the Selection & picking upper bound closing and the Performance re-check
+becoming more overdue are notable, not scorecard-flipping, on their own).
 
 **Groom pass 29 (2026-09-24) doc-tick debt:** **14** commits since `454931e`
 (pass 28's structural prune) — 13 of 14 carrying the trailer (the exception,
@@ -223,24 +214,38 @@ now bounded in heap bytes rather than a proxy count (faces / entries), after
 geometry-qa found the original bounds priced 6-16x low on real NURBS parts:
 the ladder at 64 MiB, the frontier at 128 MiB with one live oversize
 checkpoint held alone so a >128 MiB part's own repeats stay cache hits
-(`09416c6`+`4fcb108`+`560eab1`+`8e9e5c8`+`8077ede`+`83e3c67`). **Still left
-open, ranked by user feel, not ease** — see BACKLOG for full items:
-(1) 55-73s to select one face (PERF-REAL-1); (2) a 142MB GLB mesh for one
-part, gzip only 1.58x; (3) STEP round-trip gains 22 edges on a 211-solid
-assembly, outside golden-suite scale; (4) the mesh-determinism regression
-fixture needs a foreign NURBS part >1000 faces we do not have and cannot
-build from our own kernel — an acquisition problem, not an engineering one.
+(`09416c6`+`4fcb108`+`560eab1`+`8e9e5c8`+`8077ede`+`83e3c67`). **PERF-REAL-1
+(55-73s to select one face) CLOSED pass 30** — a BVH replaces the
+brute-force per-face pick raycast (22ms→0.2ms/ray); on `gearbox-11752`,
+arm→prompt 42-48s→~11s, click→sketch-on-face ~31s→8-15s (see "Current focus"
+above for the full evidence). **A reused-id PERF-REAL-3 (a face-pick
+cache-key collision, distinct from the mesh-payload PERF-REAL-3 below) also
+CLOSED pass 30** — a face pick after an evaluate is now a cache hit, overlay
+8.8s→~2.1s via the gateway. **Still left open, ranked by user feel, not
+ease** — see BACKLOG for full items: (1) a 142MB GLB mesh for one part, gzip
+only 1.58x (PERF-REAL-3, mesh payload); (2) STEP round-trip gains 22 edges on
+a 211-solid assembly, outside golden-suite scale; (3) the mesh-determinism
+regression fixture needs a foreign NURBS part >1000 faces we do not have and
+cannot build from our own kernel — an acquisition problem, not an
+engineering one; (4) the edge-band raycast is still a full segment scan, and
+a cache-hit overlay still costs ~2.1s (extraction + a deliberate CM-6b
+validity re-check) — both refiled this pass (EDGE-BAND-RAYCAST-BVH-1,
+OVERLAY-CACHE-HIT-RESIDUAL-1).
 
 ## Recent closures (2026-08-28 to 2026-09-24)
 
 One line per batch below; full batch-by-batch detail (2026-08-28 to
 2026-09-23, groom passes 19-27 -- measurements, mutation evidence, decision
 records) moved verbatim to `docs/CHANGELOG.md` under "ROADMAP recent closures
-pruned 2026-09-23 (groom pass 28)", alongside the older "ROADMAP historic
-closures pruned 2026-09-14 (groom pass 22)" entry this section already pointed
-at. Items also tracked in `docs/BACKLOG-ARCHIVE.md`'s Done archive are not
+pruned 2026-09-23 (groom pass 28)" and "2026-09-24 (pass-26/27/29 detail
+pruned by groom pass 30)", alongside the older "ROADMAP historic closures
+pruned 2026-09-14 (groom pass 22)" entry this section already pointed at.
+Items also tracked in `docs/BACKLOG-ARCHIVE.md`'s Done archive are not
 re-described here.
 
+- **Groom pass 30 (2026-09-24):** CI confirmed green through `9c21801`;
+  W0REV-3, MEASURE-LABEL-PITCH-1/F-7, PERF-REAL-1 and the reused-id
+  PERF-REAL-3 closed; 9 items filed.
 - **Groom pass 29 (2026-09-24):** CI confirmed green through `d3d0446`;
   PICK-PROXY-COLLIDE-1, CONTRACT-PARITY-TEST-1, PERF-REAL-2,
   E2E-SHARD-COUNT-1 and QA-CUBE-YIELD-SETTLE-1/FB-7 closed; 6 items filed.
@@ -254,10 +259,9 @@ re-described here.
   Python scripting API) closed; F1 (wrong volume) + F2 (mesh_glb_id
   non-determinism) closed; CRAFT-13 closed; the air-gap claim fixed and the
   self-host path now reaches the app.
-- **Wave 3 (2026-09-15):** CRAFT-8 through CRAFT-11 closed -- all six verbs
-  get a live-preview gauge.
-- **Frontend-redesign waves (2026-09-12/14):** CRAFT-7, W0, W0REV, W2 and the
-  cross-wave QA pass all closed; W1 partially landed.
+- **Wave 3 + frontend-redesign waves (2026-09-12/15):** CRAFT-7 through
+  CRAFT-11, W0, W0REV, W2 and the cross-wave QA pass all closed (W1 partially
+  landed) -- all six original verbs get a live-preview gauge.
 
 **Still open, unchanged in substance:** REACH-2-FLOW, REACH-3-FLOW, NAME-2b,
 TITLEBLOCK-STAMP-1, QA-R3, SPEC-8, A11Y-TOOLBTN-1, MATE-OBS-2,
@@ -265,10 +269,11 @@ SKETCH-COVERAGE-1, SOLVER-DOC-1, HEM-1B, HEM-1D — see BACKLOG for current
 tickets. HEM-1C is IN FLIGHT.
 
 **Still owed, carried forward again:** `docs/GEOMETRY-QA.md`/
-`docs/UI-REVIEW.md` refresh against the last nine batches; the
+`docs/UI-REVIEW.md` refresh against the last ten batches; the
 vision-steward's Sheet metal/Performance/Assemblies/Selection scorecard
-re-check (eight passes overdue — Performance specifically now has fresh,
-partial evidence from PERF-REAL-2's close, pass 29, worth folding in).
+re-check (nine passes overdue — Performance specifically now has fresh
+evidence from BOTH PERF-REAL-2 (pass 29) and PERF-REAL-1 (pass 30), worth
+folding in).
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
