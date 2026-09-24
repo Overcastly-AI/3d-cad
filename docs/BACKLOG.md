@@ -200,6 +200,29 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
+- **Groom pass 31 (2026-09-24, backlog-groomer) — the helical-gear product
+  test (`docs/qa/helical-gear-2026-09-24.md`, tested at `95dd9cd`), first
+  real complex-part test since the 2026-09-16 gearbox audit.** 16 ranked gaps
+  filed/reconciled (Ready: SKETCH-TYPED-POINT-1/VIEW-RESET-1/GLYPH-HITTEST-1/
+  EXPR-FUNCTIONS-1/ENTITY-DELETE-1/ARC-SNAP-GAP-1/SESSION-TTL-REFRESH-1;
+  Next: SKETCH-DIM-POINT-DISTANCE-1, CHAMFER-FACE-LOOP-SELECT-1,
+  PATTERN-LOFT-EVAL-COST-1, UNDO-BUSY-LABEL-1, STEPIMPORT-PART-NAME-1; Later:
+  SKETCH-CIRCLE-RUBBERBAND-TYPE-1, LOFT-EDITOR-PRESELECT-1,
+  CHAMFER-ERROR-COPY-1, LOFT-BSPLINE-OPTION-1). The helical/twisted-extrude
+  kernel item and the session-TTL item are IN FLIGHT with other agents, not
+  Ready. STEPNAME-1/1B/2 closed and removed (`5220841`+`95dd9cd`).
+  **Proposed VISION.md scorecard changes not applied this pass (judgment call
+  for the vision-steward, not the groomer — see PROTOCOL/CLAUDE.md role
+  split):** Sketching & constraints (➖) gains four more live-app-measured
+  residuals in the same shape as its existing "no Fit/Home" finding (view
+  reset after a constraint/edit, glyph click mis-mapping, no entity delete,
+  arc-snap gap) — does not obviously change the ➖ verdict but is fresh
+  evidence worth folding in; Part modeling (➖) gains a first live measurement
+  of the ruled-loft-only helix gap (-0.61% volume / 0.11mm tooth error) as a
+  concrete instance of "missing modelling features"; Extensibility/scripting
+  (➖) gains a positive data point (the script route built the same part
+  correctly in 6.2s and re-derived a helix edit in 5-9s) worth citing
+  alongside SCRIPT-1's existing evidence.
 - **Groom pass 30 (2026-09-24, backlog-groomer) — CI-confirmed green through
   `9c21801` (all three workflows); W0REV-3, MEASURE-LABEL-PITCH-1, PERF-REAL-1
   and the reused-id PERF-REAL-3 (overlay cache-key collision) all CLOSED.**
@@ -243,15 +266,145 @@ duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 30 (2026-09-24) — CI green through `9c21801`
-(orchestrator-confirmed, all three workflows).** PERF-REAL-1, W0REV-3,
-MEASURE-LABEL-PITCH-1 and the reused-id PERF-REAL-3 (overlay cache-key
-collision) CLOSED this pass — see Done archive. EDGE-RESOLVE-WARN-1 leads —
-the remaining product-audit correctness finding still outranks craft polish.
+**Dispatch order, groom pass 31 (2026-09-24) — the helical-gear product test
+(`docs/qa/helical-gear-2026-09-24.md`, tested at `95dd9cd`) filed.** 16 gaps,
+ranked; the report's own ranking is kept below. Two are already being worked
+by other agents and are marked IN FLIGHT rather than Ready (the helical/
+twisted-extrude kernel feature, annotated onto the existing "Kernel: helical
+sweep -> threads" item in Next (P2); the session TTL/refresh, filed as
+SESSION-TTL-REFRESH-1 below). STEPNAME-1 (and its 1B/2 sub-items) is now
+FULLY CLOSED — `95dd9cd` pinned the audit's exact two-PRODUCT case in bytes
+plus an XCAF read-back, on top of `5220841`'s web fix — removed from the
+board; see Done archive. EDGE-RESOLVE-WARN-1's KERNEL half also shipped
+(`6bf58e0`); only its web-surfacing half remains, downgraded S from M.
 Ranked, disjoint, parallel-dispatchable; MINIO-LICENSE-REVIEW-1 and
 CUBE-SKETCH-OCCLUDE-1 are both decisions before they are build tasks — the
 first to the licensing custodian/founder, the second may need
 founder/vision-steward input on the options before a builder picks one:
+
+- [ ] (P1, S) **SKETCH-TYPED-POINT-1 — the sketch DRO is read-only and the
+      snap grid is fixed at 1 mm, so an exact profile can only be placed by
+      eye.** The helical-gear test placed every involute fit point by reading
+      the (read-only) DRO at 0.024 mm/px and measured the result off by
+      +0.029 mm on pitch-circle tooth thickness — a working engineer would
+      type the coordinate instead. ACCEPTANCE: a sketch point/fit-point tool
+      accepts a typed X/Y (or polar) coordinate while placing, matching the
+      existing typed-dimension-while-drawing idiom (FB-16); `setSnapStep`
+      (`apps/web/src/sketch/store.ts`) gains a UI caller so the 1 mm grid is
+      configurable, not hardcoded. [src: `docs/qa/helical-gear-2026-09-24.md`
+      G2, filed by backlog-groomer pass 31] TERRITORY: `apps/web/src/sketch/tools.ts`,
+      `apps/web/src/sketch/store.ts`, `apps/web/src/components/SketchDro.tsx`.
+      agentType: frontend-builder.
+
+- [ ] (P1, S) **SKETCH-VIEW-RESET-1 — the sketch view resets to default
+      framing after a round-tripped edit, at any zoom level.** Measured
+      (`docs/qa/helical-gear-2026-09-24.md` G3): applying a Coincident
+      constraint (twice, reproducible), typing a rectangle dimension, and
+      trimming all reset the camera scale 0.0183 -> 0.1646 mm/px within 4 s
+      of the action — detail work at 0.02 mm/px costs a ~30 s re-zoom per
+      edit. ACCEPTANCE: zoom in, select 2 points, Relational > Coincident —
+      the sketch camera scale is UNCHANGED after the constraint solves
+      (negative control: an explicit Fit/Home key still re-frames); same
+      check for a typed dimension and a trim. [src:
+      `docs/qa/helical-gear-2026-09-24.md` G3, filed by backlog-groomer pass
+      31] TERRITORY: `apps/web/src/viewport/sketchFit.ts`,
+      `apps/web/src/viewport/SketchScene.tsx`. agentType: frontend-builder.
+
+- [ ] (P1, S) **SKETCH-GLYPH-HITTEST-1 — a click over a constraint/dimension
+      glyph is read in the GLYPH'S OWN coordinates and mapped near the
+      canvas's top-left corner, silently placing geometry at the wrong
+      location.** Measured (`docs/qa/helical-gear-2026-09-24.md` G4): clicking
+      the sketch origin under the rectangle's "3" width label created a line
+      at (-42.19, 23.95) three times, with no warning — `elementFromPoint` at
+      the origin resolves to the label `div`, and glyphs sit ON TOP OF snap
+      points (width labels on the origin, "H" glyphs on edge midpoints).
+      ACCEPTANCE: a click over a constraint/dimension glyph either forwards
+      the CORRECT world coordinate to the tool underneath (pointer-events
+      pass-through with the glyph's own DOM rect excluded from hit-testing)
+      or the glyph itself claims the click for its own affordance (e.g. edit
+      the dimension) — never a silent wrong-location placement; a regression
+      test reproduces the origin/width-label collision and asserts no stray
+      entity is created off-target. [src: `docs/qa/helical-gear-2026-09-24.md`
+      G4, filed by backlog-groomer pass 31] TERRITORY:
+      `apps/web/src/viewport/ConstraintGlyphs.tsx`,
+      `apps/web/src/sketch/clickIntent.ts`, `apps/web/src/sketch/pick.ts`.
+      agentType: frontend-builder.
+
+- [ ] (P1, S) **SKETCH-ENTITY-DELETE-1 — a sketch entity (line, arc, spline,
+      circle) cannot be deleted; Delete/Backspace only remove a selected
+      CONSTRAINT.** Confirmed in `PartPage.tsx`'s sketch key handler (only
+      `store.removeConstraint` fires on Delete/Backspace) and independently by
+      `docs/qa/helical-gear-2026-09-24.md` G7 (the keyway sketch's stray
+      centreline segments had no removal path; the only workaround was Undo
+      or turning the entity into construction). Trim also does not split at a
+      T-junction or remove a segment with no interior crossings — cite in the
+      same fix if the trim/delete territory overlaps. ACCEPTANCE: selecting a
+      sketch entity (not a constraint) and pressing Delete/Backspace removes
+      it and any constraint that referenced it (dangling refs dropped, per the
+      existing trim/extend reconciliation path); a regression test draws an
+      entity, selects it, deletes it, and asserts it and its constraints are
+      gone. [src: `docs/qa/helical-gear-2026-09-24.md` G7, filed by
+      backlog-groomer pass 31] TERRITORY: `apps/web/src/routes/PartPage.tsx`
+      (sketch key handler), `apps/web/src/sketch/store.ts`. agentType:
+      frontend-builder.
+
+- [ ] (P1, S) **SKETCH-ARC-SNAP-GAP-1 — the arc tool projects its end onto its
+      own circle and adds no coincident constraint, so a freehand profile
+      closed by eye comes out open by a few micrometres with no cue.**
+      Measured (`docs/qa/helical-gear-2026-09-24.md` G8): a stored arc end at
+      (21.5705, 5.8494) against a line start at (21.5707, 5.8494) — a
+      0.2-7 um gap — produced `PROFILE_NOT_CLOSED` on Loft/Extrude with the
+      error naming neither the section nor the gap ("before extruding"); the
+      sketcher itself gave no open-profile indicator (Sketch3 read OK).
+      ACCEPTANCE: an arc end drawn onto an existing point/endpoint auto-adds a
+      coincident constraint (matching line/spline endpoint-snap behaviour)
+      OR the sketch surfaces an explicit open-profile warning naming the gap
+      location and size before the feature error fires; a regression test
+      reproduces sub-micron-gap closure and asserts the fixed behaviour. [src:
+      `docs/qa/helical-gear-2026-09-24.md` G8, filed by backlog-groomer pass
+      31] TERRITORY: `apps/web/src/sketch/tools.ts` (arc placement),
+      `apps/web/src/sketch/snap.ts`. agentType: frontend-builder.
+
+- [ ] (P1, S) **SKETCH-EXPR-FUNCTIONS-1 — the dimension-expression grammar is
+      arithmetic-only (`+ - * / ( )`), with no trig, so a helix-derived
+      dimension (e.g. `20 * tan(15deg)`) cannot be expressed in a sketch at
+      all and must be pre-computed by hand.** This is the same residual
+      `docs/VISION.md`'s Sketching & constraints row already names ("no
+      trig/units/named functions"), now corroborated live: the helical-gear
+      test computed twist (`20 tan 15deg / 24.846`) outside the app and typed
+      the result, so a helix-angle change means recomputing and retyping
+      every dependent dimension by hand, not editing one expression. Sections
+      are also baked coordinates with no part-level variable — changing beta
+      or tooth count means redrawing every section sketch. ACCEPTANCE
+      (scoped to the smaller, well-defined half): `DimensionConstraint.expression`
+      accepts `sin`/`cos`/`tan` (degrees, matching the app's existing
+      degree-everywhere convention) alongside the existing arithmetic
+      operators, solved server-side same as today; a sketch dimension typed
+      as `20*tan(15)` evaluates correctly and round-trips through save/reload.
+      Part-level variables (the larger ask, shared across sketches) are a
+      distinct design problem — note it as a follow-up, do not scope-creep
+      this slice to include it. [src: `docs/qa/helical-gear-2026-09-24.md`
+      G5, `docs/VISION.md` Sketching & constraints row residual, filed by
+      backlog-groomer pass 31] TERRITORY: `apps/web/src/sketch/dimensionExpr.ts`,
+      `services/geometry/src/geometry/sketch/**` (expression solver).
+      agentType: frontend-builder + kernel-architect.
+
+- [ ] (P1, M) **SESSION-TTL-REFRESH-1 — IN FLIGHT, another agent is already
+      building this; do not re-dispatch.** A 1-hour hard session expiry
+      (`DEFAULT_TOKEN_TTL_S = 3600`, `services/gateway/src/gateway/main.py`)
+      with no refresh drops the in-flight command on a 401 (picks/edits
+      lost) and lands re-login on the register page rather than back on the
+      part. Measured (`docs/qa/helical-gear-2026-09-24.md` G6): a 24-edge
+      chamfer pick was lost mid-Create to exactly this. ACCEPTANCE: a
+      refresh-token (or silent re-auth) path keeps a working session alive
+      across a CAD-length sitting; an in-flight command that hits expiry
+      either transparently retries after a refresh or fails with the work
+      preserved (not silently dropped); re-auth returns the user to the part
+      they were on, not the register page. [src:
+      `docs/qa/helical-gear-2026-09-24.md` G6, filed by backlog-groomer pass
+      31] TERRITORY: `services/gateway/src/gateway/auth/**`,
+      `apps/web/src/api/**` (auth/session handling). agentType:
+      backend-builder + frontend-builder.
 
 - [ ] (P1, S) **MINIO-LICENSE-REVIEW-1** ACCEPTANCE: a licensing-custodian
       pass (or founder decision) records a verdict in `docs/LICENSING.md` —
@@ -368,22 +521,25 @@ founder/vision-steward input on the options before a builder picks one:
       `apps/web/src/viewport/useSurfaceMarkBurial.ts`. agentType:
       frontend-builder. (history: docs/BACKLOG-ARCHIVE.md#item-gauge-readout-tag-1)
 
-- [ ] (P1, M) **EDGE-RESOLVE-WARN-1 — a feature needs a warning channel before
-      partial/best-effort edge resolution is safe to leave silent.**
-      ACCEPTANCE: the evaluator records WHICH tier resolved each subshape
-      reference (exact / durable / adjacency-assisted) in the feature's
-      rebuild result; the frontend surfaces a visible, dismissable notice
-      (tree row + banner, matching the existing `SUBSHAPE_UNRESOLVED`
-      vocabulary) when a feature rebuilt on anything less than an exact match,
-      naming the feature and the tier. Do not block the rebuild — this is a
-      warning channel, not a refusal. [src:
-      `docs/design/topological-naming.md` §7.3, `bf05482`, groom pass 26]
-      TERRITORY:
-      `services/geometry/src/geometry/{features,kernel}/**` (evaluator result), `apps/web/src/routes/PartPage.tsx` (tree row surfacing).
-      agentType: kernel-architect + frontend-builder (split into a backend
-      slice landing the tier-on-the-wire field, then a frontend slice
-      surfacing it). (history:
-      docs/BACKLOG-ARCHIVE.md#item-edge-resolve-warn-1)
+- [ ] (P1, S) **EDGE-RESOLVE-WARN-1 — KERNEL HALF SHIPPED (`6bf58e0`, design
+      doc `1aa7b17`); the WEB half surfacing it to the user is the remaining
+      work.** `FeatureResult.subshape_resolution: {worst_tier: "exact" |
+      "durable" | "adjacent", exact, durable, adjacent} | None` now rides on
+      every rebuilt feature that resolved >= 1 picked reference (null when a
+      feature has no picked reference or has failed — `SUBSHAPE_UNRESOLVED`
+      already speaks there). Nothing in the UI reads the field yet — a
+      best-effort rebuild still shows the same bare tree row as an exact one.
+      ACCEPTANCE: the frontend surfaces a visible, dismissable notice (tree
+      row + banner, matching the existing `SUBSHAPE_UNRESOLVED` vocabulary)
+      whenever `subshape_resolution.worst_tier != "exact"`, naming the feature
+      and the tier; word it as informational, not alarming — "durable" and
+      "adjacent" are re-match TIERS a feature routinely resolves through, not
+      defects, so the copy should read as "resolved via a durable/adjacent
+      match" rather than warn like an error. Do not block the rebuild. [src:
+      `docs/design/topological-naming.md` §7.3/§15, `bf05482`, groom pass 26;
+      kernel half `6bf58e0`+`1aa7b17`] TERRITORY: `apps/web/src/routes/PartPage.tsx`
+      (tree row + banner surfacing `subshape_resolution`). agentType:
+      frontend-builder. (history: docs/BACKLOG-ARCHIVE.md#item-edge-resolve-warn-1)
 
 - [ ] (P3, XS) **INSTANCEOF-THREE-1 — 15 `instanceof` sites against three.js
       classes are latent in the shipped app and will break any new Viewport
@@ -470,16 +626,6 @@ CI-BAL, MEASURE-PROXY-1, PICKMARK-OCCLUDE-1, EXPORT-3, REACH-3-FLOW,
 REACH-2-FLOW, A11Y-TOOLBTN-1, HEM-1C, HEM-1D, SEL-8 and PGTEST-GATE all
 shipped that batch or the last (see Done archive). Nothing is in flight.**
 Ranked, disjoint, parallel-dispatchable:
-
-5. **STEPNAME-1 is PART-SHIPPED, and the headline half is NOT ours** Two REAL
-      geometry defects found and fixed alongside (non-ASCII names corrupted;
-      the file named build123d as its author). See the entry below;
-      STEPNAME-1B was the remaining web half and is closed. **STEPNAME-2 is
-      closed too (2026-09-04)** — the single-body export carried both of those
-      defects on the MORE common path, and now writes through the same owned
-      writer, proved byte-identical to build123d's output so no file's shape
-      and no golden's hash moved. (history:
-      docs/BACKLOG-ARCHIVE.md#item-stepname-1)
 
 6. **ARC-DEGENERATE-1 is SHIPPED** (kernel-architect, 2026-08-29) — 27 of 2000
       payloads were shipping an arc collapsed onto its own centre, at a
@@ -664,6 +810,76 @@ not yet dispatched this batch.
       docs/BACKLOG-ARCHIVE.md#item-checkuiparity-fp-1)
 
 ## Next (P2)
+
+**Filed groom pass 31 (2026-09-24) — helical-gear product test
+(`docs/qa/helical-gear-2026-09-24.md`), P2-severity gaps G9-G12; P1s G2-G8
+filed to Ready above, G1/G6 annotated onto existing/new IN-FLIGHT items:**
+
+- [ ] (P2, S) **SKETCH-DIM-POINT-DISTANCE-1 — point-to-point and
+      point-to-line distance dimensions do not exist; `DistanceConstraint` is
+      a line's LENGTH only.** Locating a feature from an axis or another point
+      (e.g. a keyway's offset from the bore centre) needs a construction-line
+      trick today; the helical-gear test placed its keyway freehand instead,
+      measuring **1.4 um and 2.2 um off**. ACCEPTANCE: a point-to-point
+      distance dimension and a point-to-line distance dimension are both
+      authorable through the sketch UI, drive the solver the same way the
+      existing line-length dimension does, and round-trip through
+      save/reload; negative control keeps the existing line-length dimension
+      unchanged. [src: `docs/qa/helical-gear-2026-09-24.md` G9, filed by
+      backlog-groomer pass 31] TERRITORY: `apps/web/src/sketch/constraints.ts`,
+      `packages/loft-wire/src/loft_wire/sketch.py` (`DistanceConstraint`),
+      `services/geometry/src/geometry/sketch/{schemas,planegcs_solver}.py`.
+      agentType: kernel-architect + frontend-builder.
+
+- [ ] (P2, S) **CHAMFER-FACE-LOOP-SELECT-1 — chamfer/fillet edge selection is
+      one-click-per-edge only; there is no "edges of this face", loop, or
+      tangent-chain selection.** Measured (`docs/qa/helical-gear-2026-09-24.md`
+      G10): 24 tip edges took 24 individual clicks among 446 overlapping pick
+      marks (one misfire), and the bottom face needed an orbit — there is no
+      bottom-view button. ACCEPTANCE: at least one bulk-selection mode (e.g.
+      click-a-face to select its edge loop, or a modifier-click to extend
+      along tangent edges) is reachable from the chamfer/fillet edge picker;
+      a 24-edge pattern-of-tip-edges case that previously took 24 clicks is
+      reachable in materially fewer. [src: `docs/qa/helical-gear-2026-09-24.md`
+      G10, filed by backlog-groomer pass 31] TERRITORY:
+      `apps/web/src/components/ChamferEditor.tsx`,
+      `apps/web/src/viewport/EdgePickOverlay.tsx`,
+      `apps/web/src/viewport/ChamferGauge.tsx`. agentType: frontend-builder.
+
+- [ ] (P2, S) **PATTERN-LOFT-EVAL-COST-1 — a 24x circular pattern of a
+      ruled-loft cut costs 3.6-19 s to rebuild depending on section count (2
+      to 11), and a long tree then makes every later sketch edit wait for a
+      whole-part evaluate.** Measured (`docs/qa/helical-gear-2026-09-24.md`
+      G11, script timings): pattern-x24 alone 3.6/7.7/19.0 s at 2/5/11
+      sections; a settle of 6.2 s measured after drawing ONE line in Sketch4
+      on the resulting tree. Related to, but a distinct symptom from,
+      PERF-REAL-2B's early-tree-edit cost (both are "the rest of the tree
+      re-runs on a small change") — cross-reference rather than duplicate
+      the investigation; state whether the dependency-aware evaluator
+      PERF-REAL-2B is building also fixes this case before filing separate
+      machinery. ACCEPTANCE: measure whether PERF-REAL-2B's fix improves this
+      case; if not, state the distinct mechanism and its own number. [src:
+      `docs/qa/helical-gear-2026-09-24.md` G11, filed by backlog-groomer pass
+      31] TERRITORY: `services/geometry/src/geometry/kernel/rebuild_cache.py`,
+      `services/geometry/src/geometry/kernel/loft.py`. agentType:
+      kernel-architect.
+
+- [ ] (P2, XS) **UNDO-BUSY-LABEL-1 — Undo can read as disabled with the label
+      "Finishing the last edit…" for longer than a trim/edit actually takes to
+      settle, so a stray edit made during that window cannot be undone.**
+      Measured (`docs/qa/helical-gear-2026-09-24.md` G12): the label was still
+      showing after a trim sequence had visibly finished. Likely the same
+      defect CLASS as CRAFT-14 (`disabled={someTransientFlag}` cannot
+      distinguish "busy" from "gated") — audit by the question, not the
+      idiom, before assuming a shared fix. ACCEPTANCE: root-cause whether the
+      hold genuinely tracks an in-flight write (and is just slow) or is stale
+      (holds after the write settled); fix whichever is true, with a
+      regression test asserting Undo re-enables within one settle of the
+      triggering edit completing. [src: `docs/qa/helical-gear-2026-09-24.md`
+      G12, filed by backlog-groomer pass 31] TERRITORY:
+      `apps/web/src/components/HistoryGroup.tsx`,
+      `apps/web/src/components/SketchStrip.tsx` (`holdReason`/`editBusy`).
+      agentType: frontend-builder.
 
 **Filed groom pass 30 (2026-09-24) — PERF-REAL-1/PERF-REAL-3(reused-id)
 close-out residuals + W0REV-3/MEASURE-LABEL-PITCH-1 follow-ups:**
@@ -1093,42 +1309,30 @@ DIRECTION-ASSEMBLIES.md findings, ranked by scorecard/correctness impact:**
       agentType: frontend-builder. (history:
       docs/BACKLOG-ARCHIVE.md#item-reach-2-flow-c)
 
-- [ ] (P1, XS) **STEPNAME-1 — assembly STEP export names components with raw
-      UUIDs instead of their part names.** ACCEPTANCE: exporting the audit's
-      two-part assembly and reading it back names both components by their
-      part name, not a UUID; new golden/assertion on the STEP writer.
-      **GEOMETRY HALF SHIPPED (kernel-architect, 2026-08-29); THE HEADLINE
-      HALF IS NOT A GEOMETRY DEFECT.** The writer has threaded the instance
-      name into the NAUO and the PRODUCT since
-      `0d3ea59` (2026-07-31, three weeks BEFORE the audit) — asserted on the
-      emitted bytes, not assumed. The UUID the audit read is the documented
-      FALLBACK for a request with no `name`, and the caller that omits it is
-      `apps/web/src/assembly/evaluateRequest.ts`, which builds
-      `EvaluateAssemblyRequest` without the field the DTO has carried all
-      along. That is a one-line web change in foreign territory: STEPNAME-1B.
-      What WAS wrong here, found by exercising the writer rather than reading
-      it, and both fixed: (a) **every non-ASCII name was corrupted** —
-      `TCollection_ExtendedString(str)` binds the `isMultiByte=False` overload
-      and walks UTF-8 bytes as characters, so "Flänsch" measured 17 characters
-      instead of 13 and reached the file double-encoded; (b) the originating
-      system read `build123d`, so a file Loft authored named a library
-      instead. Note (a) is why fixing the web alone would have been wrong: a
-      name that is present and corrupted is not better than one that is absent
-      and obvious. Duplicate part names DECIDED and pinned: two instances of
-      one part correctly share one PRODUCT (the case that occurs); two
-      DIFFERENT parts a user names alike keep the name verbatim and collide on
-      `PRODUCT.id`, which we do not disambiguate because that means mangling a
-      part number in the file a supplier quotes from. Two mutants, both
-      restored: reverting the encoding reddens 8 cases (all and only the
-      non-ASCII ones, on both `BodyShape` members); reverting the originating
-      system reddens 1. Filed alongside: STEPNAME-1B (web), STEPNAME-2
-      (single-body path), STEPDET-1 (a determinism hole found by writing the
-      test). Gates: `just lint` exit 0, `uv run pyright` clean, 482
-      STEP-adjacent tests green. [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21
-      (second pass today)" S-22, filed by backlog-groomer pass 9] TERRITORY:
-      `services/geometry/src/geometry/kernel/` STEP export path (assembly
-      writer). agentType: kernel-architect. (history:
-      docs/BACKLOG-ARCHIVE.md#item-stepname-1-2)
+- [ ] (P2, S) **STEPIMPORT-PART-NAME-1 — a re-imported multi-product STEP
+      names its PARTS after the occurrence, not the product.** `_create_assembly`
+      (`services/documents/src/documents/step_import.py`) builds each part's
+      name from the FIRST occurrence's `product.name`, and the XCAF walk
+      (`services/geometry/src/geometry/kernel/_step_assembly_parse_worker.py`
+      `_walk_components`, deliberately) prefers the NAUO/occurrence label
+      ("Chassis bracket <1>") over the PRODUCT label ("Chassis bracket") so
+      that repeated instances read as distinct rather than collapsing to one
+      name — correct for the INSTANCE name, wrong for the PART name a part is
+      deduped onto by `body_step_id`. A re-imported "Chassis bracket" part is
+      named "Chassis bracket <1>" in the Loft workspace. Found while pinning
+      `95dd9cd`'s two-product STEPNAME-1B case (the XCAF read-back is exact on
+      instance names; the part-naming choice sits one layer up in
+      `documents.step_import`). ACCEPTANCE: importing a two-product assembly
+      STEP names the resulting PARTS after their product ("Chassis bracket",
+      "Mounting plate"), not the occurrence suffix; the INSTANCE names keep
+      the occurrence label unchanged (no regression on the existing
+      `assembly-step-names.spec.ts` round-trip); a part occurring twice under
+      two different NAUO labels still dedupes to ONE part (existing
+      `body_step_id` contract, unchanged). [src: found alongside `95dd9cd`,
+      filed by backlog-groomer, helical-gear test pass]
+      TERRITORY: `services/documents/src/documents/step_import.py`
+      (`_create_assembly`, `_clean_name` call site). agentType:
+      backend-builder.
 
 - [ ] (P3, XS) **STEPHDR-1 — a non-ASCII document name reaches the part-21
       HEADER as raw UTF-8 rather than the standard's `\X2\` escapes.**
@@ -1649,11 +1853,23 @@ measurement in docs/QA-REVIEW.md CI-4]
       server strings; byte goldens updated + the cross-serializer consistency
       test still passes. [src: docs/UI-REVIEW.md 2026-07-19 P2]
 
-- [ ] (P2, L — spike first, S) Kernel: helical sweep → threads. Any screw
-      closure is unbuildable today; OCCT helix wire spike, then size the
-      feature slice (pitch, turns, profile, handedness, taper). Sequence after
-      the sheet-metal + assembly-interop commitments ahead of it. [src: WB-64
-      retro; competitive]
+- [ ] (P1, L — spike first, S) **Kernel: helical sweep → threads/gears — IN
+      FLIGHT, another agent is already building this; do not re-dispatch.**
+      Any screw closure is unbuildable today; OCCT helix wire spike, then size
+      the feature slice (pitch, turns, profile, handedness, taper). **Raised
+      P2→P1 and re-ranked to lead this bucket** (`docs/qa/helical-gear-2026-09-24.md`
+      G1, backlog-groomer pass 31): a 24-tooth helical gear has no twisted
+      extrude, sweep-twist (`SweepParamsV1` is documented "NO twist") or 3D
+      helix path today — the only route is a ruled loft through hand-drawn
+      rotated sections, measured **-0.61% volume and 0.11 mm tooth-thickness
+      error at 2 sections** (down to -0.04%/6 um at 5/11 sections, script-only
+      — every extra section is another hand-drawn sketch in the UI). The
+      kernel is NOT the bottleneck once a section is right: the script route
+      builds exact involutes with 5+ sections, round-trips STEP, and rebuilds
+      a helix-angle edit in 5.3-9.2 s. Sequence after the sheet-metal +
+      assembly-interop commitments ahead of it, per the existing note — the
+      priority bump is about RANK within P1, not about jumping the queue.
+      [src: WB-64 retro; competitive; `docs/qa/helical-gear-2026-09-24.md` G1]
 
 - [ ] (P2, M) Units — sketch-dimension + roll-up unit display (follow-up to
       U2). Sketch driving/driven dimensions (`ConstraintGlyphs`/
@@ -1717,6 +1933,67 @@ measurement in docs/QA-REVIEW.md CI-4]
       docs/BACKLOG-ARCHIVE.md#item-qa-ci4-headroom-2)
 
 ## Later (P3)
+
+**Filed groom pass 31 (2026-09-24) — helical-gear product test
+(`docs/qa/helical-gear-2026-09-24.md`), P3-severity gaps G13-G16:**
+
+- [ ] (P3, XS) **SKETCH-CIRCLE-RUBBERBAND-TYPE-1 — a size typed while a
+      circle is still rubber-banding (Fusion's idiom) is silently discarded;
+      the value is only accepted after the SECOND click.** Measured
+      (`docs/qa/helical-gear-2026-09-24.md` G13, step 2): typing `26.8466`
+      while the circle radius was still live left R at the drag's last value
+      until a second click landed. ACCEPTANCE: a size typed during an active
+      circle drag is accepted immediately (matching the typed-while-drawing
+      idiom FB-16 already established for other tools); a regression test
+      types mid-drag and asserts the radius updates without a second click.
+      [src: `docs/qa/helical-gear-2026-09-24.md` G13, filed by
+      backlog-groomer pass 31] TERRITORY: `apps/web/src/sketch/tools.ts`
+      (circle placement), `apps/web/src/sketch/drawDimensionKeys.ts`.
+      agentType: frontend-builder.
+
+- [ ] (P3, XS) **LOFT-EDITOR-PRESELECT-1 — the loft editor pre-selects the
+      FIRST two sketches on the part, not the latest two; the extrude
+      proposal also doesn't appear for a 4th sketch.** Measured
+      (`docs/qa/helical-gear-2026-09-24.md` G14, steps 7 and 10): opening Loft
+      defaulted to Sketch1 (the blank) + Sketch2 rather than the two
+      just-drawn section sketches, requiring a manual re-pick every time.
+      ACCEPTANCE: Loft's default section pre-selection prefers the two most
+      recently created eligible sketches; the solved-sketch extrude proposal
+      fires regardless of how many sketches already exist on the part. [src:
+      `docs/qa/helical-gear-2026-09-24.md` G14, filed by backlog-groomer pass
+      31] TERRITORY: `apps/web/src/components/LoftEditor.tsx`,
+      `apps/web/src/viewport/sketchProposal.ts`. agentType: frontend-builder.
+
+- [ ] (P3, XS) **CHAMFER-ERROR-COPY-1 — two small chamfer/error-copy
+      papercuts found on the same step.** (a) The `SUBSHAPE_UNRESOLVED`
+      message says "referenced face" when the unresolved reference is an
+      EDGE (`apps/web/src/features/featureErrors.ts`); (b) after a loft
+      `PROFILE_NOT_CLOSED` error the ViewCube showed TOP rotated 180 deg.
+      ACCEPTANCE: (a) the error copy names the correct subshape kind (edge vs
+      face) from the feature's own error payload; (b) reproduce the ViewCube
+      rotation on a loft error and fix or explain it. [src:
+      `docs/qa/helical-gear-2026-09-24.md` G15, filed by backlog-groomer pass
+      31] TERRITORY: `apps/web/src/features/featureErrors.ts`,
+      `apps/web/src/viewport/ViewCube.tsx`. agentType: frontend-builder.
+
+- [ ] (P3, S) **LOFT-BSPLINE-OPTION-1 — a ruled multi-section loft splits
+      every flank into (n-1) flat patches, which is heavy for CAM/FEA
+      downstream and is the geometric cause of G1's tooth-thickness error at
+      low section counts.** Measured (`docs/qa/helical-gear-2026-09-24.md`
+      G16, section table): 150 -> 1230 faces and 1.1 -> 6.4 MB of STEP going
+      from 2 to 11 sections on the SAME part. Not a kernel bug — `LoftParamsV1`
+      is documented as "a RULED (straight) loft" — but a smooth (B-spline)
+      loft OPTION would remove the need for many sections at all. Sequence
+      after G1 (helical/twisted extrude) lands, since a native helix may
+      obsolete the multi-section-loft workaround entirely for this specific
+      use case. ACCEPTANCE: a loft feature option selects ruled vs. smooth
+      (B-spline through the sections) interpolation; a golden pins the smooth
+      variant's face count staying flat (not (n-1)x) as sections increase.
+      [src: `docs/qa/helical-gear-2026-09-24.md` G16, filed by
+      backlog-groomer pass 31] TERRITORY:
+      `services/geometry/src/geometry/kernel/loft.py`,
+      `packages/loft-wire/src/loft_wire/features.py` (`LoftParamsV1`).
+      agentType: kernel-architect.
 
 **Filed groom pass 29 (2026-09-24) — perf/QA residue from the PERF-REAL-2
 and E2E-SHARD-COUNT-1 closures:**
@@ -2470,6 +2747,10 @@ Moved verbatim to `docs/BACKLOG-ARCHIVE.md#done-archive` in the 2026-09-23 struc
 
 ## Changelog
 
+- 2026-09-24 — **Groom pass 31 (backlog-groomer):** helical-gear product test
+  filed/reconciled (16 gaps; STEPNAME-1/1B/2 CLOSED and removed;
+  EDGE-RESOLVE-WARN-1 kernel half CLOSED, web half remains). See "Scorecard
+  gaps" above and `docs/ROADMAP.md` "Current focus".
 - 2026-09-24 — **Groom pass 30 (backlog-groomer):** W0REV-3,
   MEASURE-LABEL-PITCH-1, PERF-REAL-1 and the reused-id PERF-REAL-3 (overlay
   cache-key collision) all CLOSED; CI green through `9c21801`; 9 items filed.
@@ -2477,10 +2758,7 @@ Moved verbatim to `docs/BACKLOG-ARCHIVE.md#done-archive` in the 2026-09-23 struc
   CONTRACT-PARITY-TEST-1, PERF-REAL-2, E2E-SHARD-COUNT-1,
   QA-CUBE-YIELD-SETTLE-1/FB-7 all CLOSED; CI green through `d3d0446`;
   6 items filed. See "Scorecard gaps" above and BACKLOG-ARCHIVE Done archive.
-- 2026-09-23 — **Groom pass 27 (backlog-groomer):** e2e known-failures +
-  shard-4 timeout root-caused and fixed (6+1 commits); F-6 and the
-  gauge/panel lag CLOSED; 11 items filed. See "Scorecard gaps" above.
-- Passes 7-26: full reachability programme, CI hardening, SOLVE/PBT/SEL-2/
+- Passes 7-27: full reachability programme, CI hardening, SOLVE/PBT/SEL-2/
   ARC-BRANCH-1 clusters, Wave 3 close-out, Phase 5 flagship (SCRIPT-1),
   gauntlet F1/F2, CRAFT-13, CRAFT-12/VEC3-DEDUP-1/CSP-1, adjacency tier 3.
   Full detail: `docs/CHANGELOG.md`.

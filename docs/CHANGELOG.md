@@ -5,6 +5,12 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-09-23 (Groom pass 27, pruned from BACKLOG.md's Changelog by pass 31)
+
+e2e known-failures + shard-4 timeout root-caused and fixed (6+1 commits);
+F-6 and the gauge/panel lag CLOSED; 11 items filed. Full detail:
+`docs/BACKLOG-ARCHIVE.md`'s Done archive, "Groom pass 27" entry.
+
 ## 2026-09-24 (ROADMAP "Groom pass 26 doc-tick debt" paragraph pruned by groom pass 30)
 
 Verbatim: Doc-tick debt measured pass 26 (CLAUDE.md's amended rule: count

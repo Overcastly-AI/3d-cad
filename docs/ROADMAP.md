@@ -40,6 +40,28 @@ overdue than ever for a vision-steward re-check** (see "Still owed" below).
 Wave 3 (direct manipulation) remains closed; Phase 5's scripting API remains
 shipped, the MCP server is still the open surface.**
 
+**Product test 2026-09-24 — first complex real part, a helical gear
+(`docs/qa/helical-gear-2026-09-24.md`, tested at `95dd9cd`).** Module-2,
+24-tooth, 15° helix gear with bore, DIN 6885 keyway and tip chamfer: modelled
+successfully both through the UI and through a script, dimensions correct to
+measurement precision (24 teeth, twist 12.32° vs analytic 12.2959°, STEP
+round-trips exactly). **Verdict: not yet a daily driver for this part** — the
+UI build took ~45 min of driven wall-clock plus a forced re-login and four
+sketcher workarounds, and nothing in the result is parametric (a helix-angle
+or tooth-count change means redrawing every section by hand); Fusion/Onshape
+do the same part in one add-in dialog, an estimated ~5 min. **The kernel is
+not the blocker** — the loft-script route builds exact involutes, round-trips
+STEP and rebuilds a helix edit in 5-9 s. The 16 ranked gaps are in the
+sketcher (no typed point entry, the sketch view resets to default framing
+after an edit, glyphs steal clicks aimed at the geometry beneath them, no way
+to delete a sketch entity), missing helical/twisted-extrude construction (the
+only route today is a ruled loft, -0.61% volume / 0.11 mm tooth-thickness
+error at 2 sections), and the 1-hour hard session TTL with no refresh (a
+mid-command 401 drops the open command and its picks). 16 gaps filed/
+reconciled onto BACKLOG this pass; see `docs/BACKLOG.md`'s "Scorecard gaps"
+section for the proposed VISION.md evidence changes this test raises, not
+yet applied.
+
 **Product audit 2026-09-16 — "the edit loop is the wall" (`576e37b`,
 `docs/AUDIT-PRODUCT.md`).** A gearbox-housing build-edit-repair-export
 session found ten findings (F-1..F-10). Closed this pass: F-1's root
