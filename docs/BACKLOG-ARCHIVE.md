@@ -284,9 +284,27 @@ kind: QA (not yet examined, flagged rather than guessed). The 24 px grip meets W
 
 <a id="scorecard-gaps-history-25-19"></a>
 
-### Scorecard gaps — groom passes 19-25 narrative
+### Scorecard gaps — groom passes 19-27 narrative
 
 *kind: scorecard-history*
+
+- **Groom pass 27 (2026-09-23, backlog-groomer) — every known e2e failure on
+  the branch root-caused and fixed LOCALLY; CI verification owed.** F-6
+  closed on measurement (hole CREATE veto tried then withdrawn); the
+  gauge/panel one-commit lag generalised into `useGaugeFedForm` across all
+  nine gauge-fed mounts; F-11 (Fit while sketching) shipped with its own
+  same-pass regression fixed. 11 items filed (QA-CUBE-YIELD-SETTLE-1,
+  FILLET-GAUGE-FPS-FLOOR-1, E2E-SHARD-COUNT-1 among them), one
+  (CONSTRAINTS-GLYPH-1280-1) closed same pass. No scorecard row flip.
+
+- **Groom pass 26 (2026-09-23, backlog-groomer) — 29-commit debt reconciled
+  (largest batch yet at the time); `e2e` found RED on the tip.** CRAFT-12,
+  VEC3-DEDUP-1 and CSP-1 closed; adjacency tier 3 closed the audit's
+  `SUBSHAPE_UNRESOLVED` collapse for straight edges (curved neighbours left
+  as an explicit residual). VISION.md re-scored twice: no capability row
+  above parity, Performance ➖→❌. Filed PICK-PROXY-COLLIDE-1,
+  MEASURE-LABEL-PITCH-1, EDGE-RESOLVE-WARN-1, INSTANCEOF-THREE-1;
+  CRAFT-12-READPROPOSAL-1 filed and closed same pass.
 
 - **Groom pass 25 (2026-09-15, backlog-groomer) — Phase 5's flagship SHIPPED; the gauntlet found and fixed a wrong-volume P0-adjacent defect; CRAFT-13 closed.** 25 commits landed since pass 24's `87f4de4`, ALL carrying `Doc-tick: groomer` — the largest debt batch yet (prior largest was 12), reconciled in full this pass. Highlights: **SCRIPT-1 CLOSED** — the public Python scripting API (`import loft`) shipped, proven two-path-identical to a browser-driven build (12/12 facts, byte-equal STEP/STL hashes), then split into `packages/loft-wire` (a script's venv: 33 deps → 15). **F1/F2 CLOSED** (geometry-qa's gauntlet, `0e3cc35`+`f7cd483`) — real-part volume was wrong by 1.49e-3 (1.58 L on a 1.07 m³ robot; no golden could ever fail for this — the bias is exact on planes/quadrics) and `mesh_glb_id` was non-deterministic across cache state; both fixed with a new golden and a structural gate. **CRAFT-13 CLOSED** (`b4e7821`) — root cause was a P0 (an arc gauge's pointer-capture host could unmount mid-drag) plus an unstated settle masquerading as an intermittent; both fixed with a negative-control-verified two-part change. **Air-gap claim FIXED** (`725bc4b`) and **self-host path now reaches the app** (`977f492`+`093dfc1`, a `web` service existed nowhere before), each shipped alongside a CI guard that had manufactured its own failure (root-owned nginx pidfile; a job-level `${{ runner.temp }}` rejecting the whole workflow at zero jobs) — both now closed with dedicated gates. **Scorecard freshness gate shipped** (`b1bb1b6`) — the mechanical check VISION.md itself proposed after the 19-day-stale Assemblies incident; advisory only, and a code review found it has no PENDING deadline (filed SCOREFRESH-PENDING-1). **DIRECTION-ASSEMBLIES.md filed** (`21a039f`, vision-steward) — four items (PERF-ASM-1/PICK-ASM-1/BOM-ASM-1/FLOW-ASM-1) now on the board, BOM-ASM-1 replacing the old flat "RECURSIVE BOM" entry. A same-day code review (`451245c`, `docs/CODE-REVIEW.md`) found two P0s (both fixed same batch: the `delete_feature` 422 and the CRAFT-13 arc-drag P0) plus five P1s/P2s now filed: CONTRACT-PARITY-TEST-1, VEC3-DEDUP-1 (four divergent Vec3 helper copies, already diverged in behaviour — a real NaN-propagation risk), SCOREFRESH-PENDING-1 (above), plus two P2 process notes folded into existing items (CRAFT-17, gen-check's verdict line). **Scorecard gaps flagged for the vision-steward (not mine to score):** Extensibility (was ❌, PENDING on SCRIPT-1) now has a two-path-proof landed — re-score due; Free & unlimited / Your data-your-files (both PENDING on the air-gap/self-host audit) now have `725bc4b`+`977f492`'s evidence to score against; Performance (PENDING on the gauntlet) now has the gauntlet's numbers, and they are bad — score in whichever direction the evidence points, do not assume the direction. Full ranking of what the gauntlet found: ROADMAP "Current focus" — interaction cost (55-73s/face pick, 46-51s/edit) ranks first, ahead of the mesh payload and the round-trip drift. **Board queue length: 183 → 201 open items** (`grep -c '\[ \]'`-counted) — this pass closed 3 headline items (SCRIPT-1, F1+F2, CRAFT-13) and filed 16 (four PERF-REAL/gauntlet items, four code-review P1/P2 items, four Assemblies-wave items from DIRECTION-ASSEMBLIES.md, and four smaller process items — GEN-CHECK- VERDICT-1, DOCS-EXPLORER-1, CSP-1, AREA-INTEGRATION-1) net of one removed duplicate (the old flat-BOM entry BOM-ASM-1 replaces) — a filing-heavy pass, consistent with "a batch this large surfaces more findings than it closes." ROADMAP "Current focus" reconciled to match; Phase 5 marks the scripting API ✅, MCP server remains the open surface.
 
@@ -318,6 +336,21 @@ kind: defect (interaction cost, frontend/viewport). MEASURED by `just gauntlet` 
 
 kind: defect (perf, kernel). MEASURED at 250 features: repeat 235ms, append 2444ms, edit feature #249 (near the end) 45955ms, edit feature #3 (near the start) 48449ms, cold rebuild 51741ms — an edit costs 89-108% of a full cold rebuild WHEREVER it sits in the tree, confirmed load-invariant by re-measuring at a different load average (the edit/cold RATIO moved from 0.89/0.94 to 1.02/1.08, i.e. it did not improve under less contention). `rebuild_cache.py` already documents that it does not serve a mid-tree edit; this gives the gap a number on a realistic part: ~46-51s for a one-parameter change. Ranked #1 (tied with PERF-REAL-1) in `docs/GEOMETRY-QA.md`'s gauntlet ranking.
 
+**CLOSED groom pass 29 (`09416c6`+`4fcb108`+`560eab1`+`8e9e5c8`+`8077ede`+
+`83e3c67`).** A checkpoint ladder forks state at every 8th feature boundary;
+geometry-qa independently re-measured edit #249 at 34.1/34.0s -> 1.85/1.87s
+(18.5x, both directions). Edit #3 is an explicit, accepted floor (+4% over a
+cold rebuild, the fork tax) — no ladder can buy back an edit whose every
+later feature must re-run; refiled as PERF-REAL-2B (dependency-aware
+evaluator). Both caches this feature touches are now bounded in heap BYTES,
+not a proxy count (faces / entry count), after geometry-qa found the
+original bounds priced 6-16x low on real NURBS parts: the ladder at 64 MiB
+(`8e9e5c8`, GQA-LADDER-1/2/3 all fixed in the same commit) and the frontier
+at 128 MiB (`8077ede`) with one live oversize checkpoint held alone rather
+than refused, so a >128 MiB part's own repeats stay cache hits (`83e3c67`).
+Full geometry suite green throughout (3160-3180 passed each commit); every
+new gate mutation-verified red first.
+
 <a id="closed-ready-vec3-dedup-1"></a>
 
 ### VEC3-DEDUP-1
@@ -333,6 +366,17 @@ kind: defect (perf, kernel). MEASURED at 250 features: repeat 235ms, append 2444
 *kind: item-story*
 
 — the call-parity test `packages/loft-script/src/loft/transport.py` documents as closing the loop does not exist. kind: defect (missing gate, not a live bug — SCRIPT-1 follow-up). `transport.py:148-156` states the model passed to `call()` is never looked up from `operation.response_model` "on purpose ... the contract-parity test closes the loop by asserting the two agree for every call site" — but `test_contract_parity.py`'s five tests only assert that `response_model` NAMES resolve to contract components, never that any `transport.call(op, Model)` site passes the Model the contract declares for that op. AST-walking the 16 call sites by hand today finds 0 mismatches, so this is not yet a live defect — but Pydantic's `extra="ignore"` default means a structurally-compatible WRONG model validates silently (CLAUDE.md's own documented trap), and the docstring claims a guarantee nothing enforces.
+
+**CLOSED groom pass 29 (`647f939`).** Expected set now derived independently
+from `gateway.openapi.json` (method/path/response/request/params), not from
+the generated table the call sites import — 0 disagreements over 86
+operations. Adds a >=16-site census floor per declared root module, the
+helper axis (call/call_none/call_bytes chosen from the contract's success
+response), and an import-alias check. 6 negative controls, each reverted
+after reddening the new test. Confirmed with the author: `part.py:317`
+(`delete_feature`'s `call_none`-on-a-DELETE-that-returns-a-body shape) was
+NOT deliberate — it was the bug `43c03a1` already fixed 25 minutes after this
+ticket was filed, moving it to `call(..., FeatureTreeResponse)`.
 
 <a id="item-minio-license-review-1"></a>
 
@@ -398,6 +442,18 @@ Hole depth + Ø gauges, the only `companion` two-cell gauge in the wave. **Delib
 
 kind: defect (selection, frontend). MEASURED with `elementFromPoint` at each proxy's own centre, on a real gearbox-housing part: Measure draws **110 proxies (66 edges + 44 vertices) at once, 48 of them (44%) unreachable at their own centre** — each other's collisions; Fillet's `fillet-radius-sleeve` (88x17) lands exactly on `edge-pick-4`, so the gauge that appears when you pick covers one of the things you pick; Hole's inner-wall proxy sits 9px from the outer wall's twin and resolves to it; Shell's `shell-face-1` (bottom face) is drawn at a screen point inside the visible FRONT wall, so clicking the middle of the front wall opens the bottom and the panel reports "1 face open" with no warning. The GL raycast rescues most picks (decided in 3D, not by the DOM stack), but the DRAWN markers are what a user aims at and they lie about what is under them.
 
+**CLOSED groom pass 29 (`9404cb1`+`b9d2a78`).** Real occlusion/publishing
+root causes, one per symptom: edge marks published stale (`working`/
+`published` shared one array); the settled stamp fired before the seat
+reached the screen; face marks had no occlusion oracle (`useSurfaceMarkBurial`
+now asks the pick surface itself); a buried mark drew nothing (now a dashed
+`BuriedMark`); a gauge covered the mark that spawned it (`GaugeKeepOuts`).
+Census (47 marks, 1280x800): before 7 live-but-buried + 3 faces stealing a
+visible wall + gauge blocking its own pick; after 0 lies, 13-24 reachable per
+class, un-pick by a real click restored. `b9d2a78` fixed 3 import-remix specs
+that had relied on a buried mark being clickable (a real defect: picking a
+face the camera shows FACING AWAY).
+
 <a id="item-measure-label-pitch-1"></a>
 
 ### MEASURE-LABEL-PITCH-1
@@ -445,6 +501,99 @@ kind: defect (test-infra hazard, not a live product bug). `three@0.185.1` ships 
 *kind: item-story*
 
 kind: defect (test hardening). `qa-cross-wave-0913.spec.ts`'s "the cube is a control again once the pick is over" (now line ~592) clicks a cube facet, `await page. waitForTimeout(800)`, then compares `data-camera-pos` — the EXACT pattern `36360ae` (groom pass 27) fixed at this file's other cube-click case by polling `data-view` for the `direction` settle stamp instead of sleeping. Three agents have seen this case fail locally under load; CI has stayed green on it so far, which is consistent with the same load-sensitivity `36360ae` measured (7/7 red under load, 0/8 quiet) — triage before assuming either "load-sensitive timing gate" or "a real defect" without checking.
+
+**CLOSED groom pass 29 (`d0604c5`+`856e3c0`):** both this ticket and the FB-7
+CI flake (`founder-picking.spec.ts:555`) shared one root cause — a
+sketch-exit fit reading the restore ease's in-flight CURRENT direction
+instead of its committed destination, so the rest elevation after a sketch
+was a function of frame timing (27-34 deg depending on load). `d0604c5`
+moved FB-7's own case onto a camera-POSITION settle; `856e3c0` fixed the
+shared mechanism (`committedAttitude`), landing the rest elevation at
+23.11 deg, 0.00 deg off, across all 9 CPU x latency combinations tried —
+closing both the FB-7 flake and this ticket's load-sensitive pattern.
+
+<a id="item-gauge-readout-tag-1"></a>
+
+### GAUGE-READOUT-TAG-1
+
+*kind: item-story*
+
+kind: cleanup (DRY, frontend). `9404cb1`'s `GaugeKeepOuts` finds a gauge's
+value readout by string-matching the bare `<id>-readout` testid against
+every `[data-gauge]` element's own id, because `GaugeTag` in
+`ParametricGauge.tsx` carries a `data-testid` but no `data-gauge` of its
+own — a comment in `useEdgeMarkAnchors.ts` names the collapse: "A
+`data-gauge` tag on the readout ... would let this collapse to one rule."
+Not a live defect (the current match is correct, per `9404cb1`'s own
+measurement), just a second code path doing one job.
+
+<a id="item-face-hover-bore-flake-1"></a>
+
+### FACE-HOVER-BORE-FLAKE-1
+
+*kind: item-story*
+
+kind: defect (test hardening, unowned). `face-hover.spec.ts:463` ("the
+addressed BORE wall, small laptop") is intermittent — found failing 2/6 while
+verifying `9404cb1`, then reproduced at the same rate on source PREDATING
+that commit, so PICK-PROXY-COLLIDE-1's pick-mark fix is not the cause. No
+root cause identified yet; filed rather than silently retried.
+
+<a id="item-perf-real-2b"></a>
+
+### PERF-REAL-2B
+
+*kind: item-story*
+
+kind: defect (perf, kernel) — the residual PERF-REAL-2 left standing.
+MEASURED (`09416c6`/`560eab1`): the checkpoint ladder cut edit #249 (near the
+end of a 250-feature tree) from 34.1s to 1.85s (18.5x), but edit #3 (near the
+START) is unchanged, 34.0-37.1s either way, matching a 36.1-37.1s cold
+rebuild — every later feature must re-run regardless of any checkpoint, so
+no cache scheme can buy this back. Needs a dependency-aware evaluator (only
+features that reference the edited one's outputs re-run).
+
+<a id="item-frontier-oversize-sideslot-1"></a>
+
+### FRONTIER-OVERSIZE-SIDESLOT-1
+
+*kind: item-story*
+
+kind: question (perf trade-off, kernel). `83e3c67`'s one-entry exemption
+holds a live checkpoint over the 128 MiB frontier budget ALONE — every other
+lineage's frontier entry on that worker is evicted first, so its repeats
+stay cache hits instead of full rebuilds. Deliberate and measured as the
+right trade for a single worker, single large part (`/measure`,
+`/tessellate`, `/export` all stay ~160ms hits instead of a full rebuild), but
+under concurrent multi-user load on the same worker it means one big part
+being worked can evict every other user's frontier entry repeatedly. Not
+reproduced as a real-world problem yet.
+
+<a id="item-pick-spec-reweigh-1"></a>
+
+### PICK-SPEC-REWEIGH-1
+
+*kind: item-story*
+
+kind: capability (CI infra). `d3d0446`'s shard report measured pick-heavy
+specs at ~1.3x their calibrated weight after `9404cb1`'s 3-frame seat-confirm
+stamp landed (pick-affordance 382->642s, hole 309->419s, pick-mark-seat
+212->336s) but re-entered only the specs `9404cb1` itself edited, not a full
+re-measurement pass — the ratio held under load at manifest time, worth
+confirming quiet.
+
+<a id="item-ladder-provenance-weigh-1"></a>
+
+### LADDER-PROVENANCE-WEIGH-1
+
+*kind: item-story*
+
+kind: measurement gap (kernel). `8077ede`'s checkpoint weight function
+(`Detachable.weigh()`) includes every face `FaceProvenanceRecorder` keeps
+alive via its history-lineage memo, alongside the state shapes and the
+published/GLB bytes — all summed together. No measurement isolates what
+share of a real checkpoint's weight the provenance memo alone contributes,
+so it is unknown whether memo-trimming would be a worthwhile separate lever.
 
 <a id="item-fillet-gauge-fps-floor-1"></a>
 
@@ -821,6 +970,16 @@ kind: defect (tooling — the scan's own docstring already admits residual error
 *kind: item-story*
 
 kind: capability (CI infra). `7c9ff95` (groom pass 27) fixed the shard-4 timeout by re-measuring the duration manifest, but the resulting spread's headroom is 1.3x — down from a documented 2.1x a month ago, as the suite grew 145→180 spec files — and `.github/workflows/e2e.yml`'s own header states "by the rule above that is the point to weigh N=5 or 6" once T/N approaches the cap.
+
+**CLOSED groom pass 29 (`d3d0446`).** Matrix raised 4->6; re-entered
+`pick-proxy-collision` (new) plus 16 specs edited since the last manifest
+(`9404cb1`'s 3-frame seat-confirm made pick-heavy specs ~1.3x costlier —
+excluded from the calibration ruler so they cannot bend the ratio they are
+divided by). Predicted 22.6 CI-min/shard at N=6 (1.77x headroom), checked
+against the d0604c5 CI run at rms 2.4 (was rms 5.9 on the stale manifest).
+`e2e-shard-audit.py` gained `--expect-shards`/`--workflow` cross-checks.
+Confirmed on a real run: `55df4d3` read `d3d0446`'s `e2e` at 8 total jobs
+(6 shards + complete + dist-bundle), 0 failed.
 
 <a id="item-viewbar-dry-1"></a>
 
@@ -1913,6 +2072,12 @@ kind: polish. Surfaced by A11Y-TOOLBTN-1's blast-radius enumeration, from Chrome
 ## Done — archive
 
 One line per item once its phase has closed (id, one clause, commit/evidence); full narrative lives in the commit message and, where noted, `docs/CHANGELOG.md`.
+
+### Groom pass 29 (2026-09-24, backlog-groomer — PICK-PROXY-COLLIDE-1, CONTRACT-PARITY-TEST-1, PERF-REAL-2, E2E-SHARD-COUNT-1, QA-CUBE-YIELD-SETTLE-1/FB-7 all closed; CI green through d3d0446)
+
+- **PICK-PROXY-COLLIDE-1** (`9404cb1`+`b9d2a78`) — pick marks publish real seats, buried marks draw dashed, gauges keep out the marks they'd cover; census 0 lies (was 7 live-but-buried on Fillet alone). - **CONTRACT-PARITY-TEST-1** (`647f939`) — expected set now derived from the OpenAPI doc directly, 0 mismatches over 86 ops; `part.py:317` confirmed already fixed by `43c03a1`, not deliberate. - **PERF-REAL-2** (`09416c6`+`4fcb108`+`560eab1`+`8e9e5c8`+`8077ede`+`83e3c67`) — checkpoint ladder, edit #249 34.1s->1.85s (18.5x, QA-measured); both rebuild caches now byte-bounded (ladder 64 MiB, frontier 128 MiB + one oversize checkpoint held alone); early-edit floor refiled as PERF-REAL-2B. - **E2E-SHARD-COUNT-1** (`d3d0446`) — 6 shards, ~22.6 predicted CI-min/shard, confirmed on a real run by `55df4d3` (8 jobs, 0 failed). - **QA-CUBE-YIELD-SETTLE-1 / FB-7 flake** (`d0604c5`+`856e3c0`) — shared root cause (sketch-exit fit reading the restore ease's in-flight direction) fixed; rest elevation now 23.11 deg, 0.00 deg off. - **`9b1e45f`** — one shared `waitForCameraStill` in `invariants.ts`, also fixed a live defect (pick-proxy-collision never installed the camera probe it read).
+
+Filed: GAUGE-READOUT-TAG-1, FACE-HOVER-BORE-FLAKE-1, PERF-REAL-2B, FRONTIER-OVERSIZE-SIDESLOT-1, PICK-SPEC-REWEIGH-1, LADDER-PROVENANCE-WEIGH-1 (see Ready/Later).
 
 ### Groom pass 27 (2026-09-23, backlog-groomer — known e2e failures fixed, F-6 closed, gauge-lag closed)
 

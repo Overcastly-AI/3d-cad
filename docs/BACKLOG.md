@@ -207,41 +207,39 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
-- **Groom pass 26 (2026-09-23, backlog-groomer) — 29-commit debt reconciled
-  (largest batch yet); `e2e` is RED on the tip and is now the stated gate
-  ahead of new feature dispatch.** `543aad9`'s `e2e` run failed 9 cases
-  across shards 2 and 4 (`ci`/`deploy-path` green); an agent is already on
-  the root cause. **CRAFT-12, VEC3-DEDUP-1 and CSP-1 CLOSED** (`7a15bea`,
-  `4549da8`, `ed8c3d7`); **adjacency tier 3** (`bf05482`) closed the audit's
-  `SUBSHAPE_UNRESOLVED` collapse for straight edges under a dimension edit,
-  with curved neighbours (bore rims, fillet boundaries) recorded as an
-  explicit residual. **VISION.md re-scored twice** (`ecb9df8`, `0fbfe81`):
-  no capability row above parity, Performance ➖→❌. Filed 5 new items from
-  the 2026-09-16 product audit and this pass's own e2e hardening, one of
-  which closed the same day it was filed: **CRAFT-12-READPROPOSAL-1**
-  (filed AND closed via `5274bea` — a released gauge lurched the camera on
-  resting sketch ink; `readProposal` now skips tagged annotation roots),
-  **PICK-PROXY-COLLIDE-1** (F-4: 48 of 110 Measure proxies unreachable at
-  their own centre, plus systematic Fillet/Hole/Shell collisions),
-  **MEASURE-LABEL-PITCH-1** (F-7: a 25 mm hole pitch reads `DISTANCE 17 mm`
-  with no centre-to-centre option or label), **EDGE-RESOLVE-WARN-1** (no
-  warning channel exists for a best-effort/silently-mis-resolved edge
-  reference, sharper now that tier 3 is live), **INSTANCEOF-THREE-1** (15
-  `instanceof` sites against three.js classes, correct in the shipped app,
-  latent-broken for any future Viewport unit test). Updated the existing
-  CI-numbers ticket with an orchestrator-read figure: the geometry job ran
-  **21m57s** on a real CI run against the 30-min ceiling, confirming rather
-  than superseding the local 21m20s estimate. **Board queue length: 201 →
-  201 open items** (`grep -c '\[ \]'`) — closed 4 (CRAFT-12, VEC3-DEDUP-1,
-  CSP-1, CRAFT-12-READPROPOSAL-1), filed 4 that remain open, net flat, which
-  understates the pass: this is the largest reconciliation batch yet by
-  commit count. Pruned groom passes 22-23's full Scorecard-gaps narrative
-  into `docs/CHANGELOG.md`. ROADMAP "Current focus" reconciled to match.
+- **Groom pass 29 (2026-09-24, backlog-groomer) — the e2e root-causing batch
+  is CI-confirmed green through `d3d0446` (8 jobs, 0 failed); PICK-PROXY-COLLIDE-1,
+  CONTRACT-PARITY-TEST-1, PERF-REAL-2, E2E-SHARD-COUNT-1 and
+  QA-CUBE-YIELD-SETTLE-1/FB-7 all CLOSED.** `9404cb1` fixed pick-mark seat
+  publishing, buried-mark drawing and gauge/proxy occlusion (census: 0 lies,
+  up from 7 live-but-buried on Fillet alone); `647f939` closed the
+  contract-parity gate's own blind spot (expected set now derived from the
+  OpenAPI doc directly, 0 mismatches over 86 ops) and confirmed
+  `part.py:317` was already fixed by `43c03a1`, not deliberate.
+  `09416c6`+`4fcb108`+`560eab1`+`8e9e5c8`+`8077ede`+`83e3c67` shipped
+  PERF-REAL-2's checkpoint ladder (edit #249 34.1s→1.85s, 18.5x, QA-measured)
+  with both caches now bounded in heap bytes (ladder 64 MiB, frontier 128
+  MiB + one live oversize checkpoint held alone) — the early-edit floor
+  (editing near the tree's start) is UNCHANGED and refiled as PERF-REAL-2B,
+  needing a dependency-aware evaluator, not a bigger cache. `d3d0446` raised
+  the e2e shard matrix to 6 (~22.6 predicted CI-min/shard, 1.77x headroom),
+  confirmed on a real run by `55df4d3`. `d0604c5`+`856e3c0` root-caused the
+  shared camera-rest-elevation nondeterminism behind both the FB-7 CI flake
+  and QA-CUBE-YIELD-SETTLE-1: a sketch-exit fit reading the restore ease's
+  in-flight direction instead of its committed destination (27-34°
+  depending on load); rest elevation is now 23.11°, 0.00° off, in all 9
+  CPU×latency combinations tried. Filed 6 items (GAUGE-READOUT-TAG-1,
+  FACE-HOVER-BORE-FLAKE-1, PERF-REAL-2B, FRONTIER-OVERSIZE-SIDESLOT-1,
+  PICK-SPEC-REWEIGH-1, LADDER-PROVENANCE-WEIGH-1) — see Ready/Later. `e2e`
+  runs for `8077ede`/`83e3c67` still in flight at write time. No scorecard
+  row flips this pass (correctness/perf hardening, not new capability).
 
-- Passes 19-25: full narrative moved to
+- Passes 19-27: full narrative moved to
   docs/BACKLOG-ARCHIVE.md#scorecard-gaps-history-25-19 (2026-09-23 structural
-  prune). Headline: Phase 5 flagship (SCRIPT-1) and the gauntlet
-  volume/determinism P0s (F1/F2) shipped; CRAFT-13 closed; Wave 3 closed.
+  prune, extended pass 29). Headline: Phase 5 flagship (SCRIPT-1) and the
+  gauntlet volume/determinism P0s (F1/F2) shipped; CRAFT-13 closed; Wave 3
+  closed; adjacency tier 3 shipped; the e2e known-failure batch (pass 27)
+  root-caused and fixed.
 - **Prior passes (8-18):** reconciled in `docs/CHANGELOG.md` / Done archive.
   Still true and still open: `docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` are
   stale against the last nine batches — dispatch `geometry-qa` and
@@ -249,18 +247,17 @@ duplication. **Pass 8-19 detail moved to `docs/CHANGELOG.md` / Done archive.**
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 27 (2026-09-23) — every known e2e failure on this
-branch (pass-26's 9 cases + the `f9fcce6`/`5444fa8` regression) is now
-diagnosed and fixed LOCALLY (see ROADMAP "Current focus"); CI verification is
-owed before new feature work resumes.** Once CI confirms the branch clean:
-PERF-REAL-1 (now PARTLY addressed, see below — re-measure before re-ranking
-it), PERF-REAL-2, and the new product-audit findings (PICK-PROXY-COLLIDE-1,
-EDGE-RESOLVE-WARN-1, MEASURE-LABEL-PITCH-1) lead — correctness/interaction-
-cost risk still outranks craft polish. Ranked, disjoint,
-parallel-dispatchable; MINIO-LICENSE-REVIEW-1 and CUBE-SKETCH-OCCLUDE-1 are
-both decisions before they are build tasks — the first to the licensing
-custodian/founder, the second may need founder/vision-steward input on the
-options before a builder picks one:
+**Dispatch order, groom pass 29 (2026-09-24) — CI is green through `d3d0446`
+(8 jobs, 0 failed, orchestrator-confirmed `55df4d3`); the `e2e` runs for
+`8077ede` and `83e3c67` are still in flight.** PICK-PROXY-COLLIDE-1,
+CONTRACT-PARITY-TEST-1, PERF-REAL-2 and E2E-SHARD-COUNT-1 CLOSED this pass —
+see Done archive. PERF-REAL-1 (re-measure before re-ranking) and the
+remaining product-audit findings (EDGE-RESOLVE-WARN-1, MEASURE-LABEL-PITCH-1)
+lead — correctness/interaction-cost risk still outranks craft polish. Ranked,
+disjoint, parallel-dispatchable; MINIO-LICENSE-REVIEW-1 and
+CUBE-SKETCH-OCCLUDE-1 are both decisions before they are build tasks — the
+first to the licensing custodian/founder, the second may need
+founder/vision-steward input on the options before a builder picks one:
 
 - [ ] (P1, M) **PERF-REAL-1 — 55-73s to select one face, 12.6-14.7s to open a
       real imported part.** ACCEPTANCE, updated: re-measure `just gauntlet` on
@@ -273,28 +270,6 @@ options before a builder picks one:
       pass 26] TERRITORY: `apps/web/src/viewport/**` (face-pick overlay).
       agentType: frontend-builder. (history:
       docs/BACKLOG-ARCHIVE.md#item-perf-real-1)
-
-- [ ] (P1, M) **PERF-REAL-2 — an incremental edit anywhere in a long feature
-      tree costs a full rebuild.** ACCEPTANCE: a checkpoint ladder
-      (intermediate cached states at more than just the cache's current
-      frontier) measurably reduces edit cost for an edit near either end of a
-      250-feature tree, with the new number and the old number both stated. Do
-      not regress `repeat`/`append`'s existing near-zero cost. [src:
-      geometry-qa gauntlet, `docs/GEOMETRY-QA.md` 2026-09-15] TERRITORY:
-      `services/geometry/src/geometry/kernel/rebuild_cache.py`. agentType:
-      kernel-architect. (history: docs/BACKLOG-ARCHIVE.md#item-perf-real-2)
-
-- [ ] (P1, S) **CONTRACT-PARITY-TEST-1** ACCEPTANCE: ~25 lines of `ast` in
-      `test_contract_parity.py`, with a count floor (`len(sites) >= 16`) so it
-      cannot pass by walking nothing; mutation-verified to redden when a call
-      site's model is swapped for a wrong-but-compatible one. Also confirm
-      with the author whether `part.py:317`'s `call_none` on a DELETE that
-      declares a `response_model` (discarding the fresh tree, then issuing a
-      second `refresh()`) is deliberate. [src: code review P1-3,
-      `docs/CODE-REVIEW.md`, `451245c`] TERRITORY:
-      `packages/loft-script/tests/test_contract_parity.py`. agentType:
-      backend-builder. (history:
-      docs/BACKLOG-ARCHIVE.md#item-contract-parity-test-1)
 
 - [ ] (P1, S) **MINIO-LICENSE-REVIEW-1** ACCEPTANCE: a licensing-custodian
       pass (or founder decision) records a verdict in `docs/LICENSING.md` —
@@ -397,19 +372,19 @@ options before a builder picks one:
       still fires (550.5 mm travel). 5 new unit cases, each verified to redden
       under a mutant. (history: docs/BACKLOG-ARCHIVE.md#item-craft-9)
 
-- [ ] (P1, M) **PICK-PROXY-COLLIDE-1 — pick proxies collide with each other
-      and with the gauge; the collisions are systematic, not random.**
-      ACCEPTANCE: a documented minimum separation between simultaneously-drawn
-      proxy centres (or a "select other" cycle for coincident candidates,
-      matching PICKMARK-OCCLUDE-1's precedent for edges), verified on the same
-      fixture class (a part dense enough to produce >=40 proxies at once); the
-      gauge/proxy overlap on Fillet is a P0-shaped sub-case (a picked edge
-      becomes un-unpickable) and should be fixed first if the full census is
-      too large for one slice. [src: AUDIT-PRODUCT.md F-4, 2026-09-16 pass]
-      TERRITORY:
-      `apps/web/src/viewport/{EdgePickOverlay,FacePickOverlay, ShellFaceOverlay,HolePointOverlay,PickMark,MeasureOverlay}.tsx`.
-      agentType: frontend-builder. (history:
-      docs/BACKLOG-ARCHIVE.md#item-pick-proxy-collide-1)
+- [ ] (P2, XS) **GAUGE-READOUT-TAG-1 — the gauge readout has no `data-gauge`
+      of its own, so `GaugeKeepOuts` finds it by string-matching the bare
+      `<id>-readout` testid instead of one selector.** ACCEPTANCE: tag
+      `GaugeTag` in `ParametricGauge.tsx` with `data-gauge={gaugeId}` (or an
+      equivalent marker) so the keep-out pass is one `[data-gauge]` query, not
+      a grip/sleeve query plus a same-id testid lookup; no change in which
+      elements are kept out (same reach numbers on `pick-proxy-collision.spec.ts`
+      before/after). [src: `9404cb1` report (PICK-PROXY-COLLIDE-1 follow-up),
+      filed by backlog-groomer pass 29] TERRITORY:
+      `apps/web/src/viewport/ParametricGauge.tsx`,
+      `apps/web/src/viewport/useEdgeMarkAnchors.ts`,
+      `apps/web/src/viewport/useSurfaceMarkBurial.ts`. agentType:
+      frontend-builder. (history: docs/BACKLOG-ARCHIVE.md#item-gauge-readout-tag-1)
 
 - [ ] (P1, S) **MEASURE-LABEL-PITCH-1 — Measure gives a number an engineer
       will act on and get wrong.** ACCEPTANCE: picking two circular edges
@@ -454,16 +429,16 @@ options before a builder picks one:
       agentType: frontend-builder. (history:
       docs/BACKLOG-ARCHIVE.md#item-instanceof-three-1)
 
-- [ ] (P2, XS) **QA-CUBE-YIELD-SETTLE-1 — the sibling of `36360ae`'s fix, same
-      file, same unfixed pattern.** ACCEPTANCE: apply the same settle-stamp
-      poll (`onSettle` writes `data-view` when THIS click's ease lands); if it
-      reddens under load first and passes after, that confirms the same class
-      as `:253`; if it does NOT reproduce under load at all, say so and close
-      as environment-only. [src: reported by three agents under load, filed by
-      backlog-groomer pass 27; see CRAFT-INTERMITTENT-1 for the `:253`
-      sibling's closure] TERRITORY: `apps/web/e2e/qa-cross-wave-0913.spec.ts`.
-      agentType: qa-tester. (history:
-      docs/BACKLOG-ARCHIVE.md#item-qa-cube-yield-settle-1)
+- [ ] (P2, S) **FACE-HOVER-BORE-FLAKE-1 — `face-hover.spec.ts:463` ("the
+      addressed BORE wall, small laptop") is intermittent, not a pick-mark
+      regression.** ACCEPTANCE: root-cause the 2/6 failure rate (reproduced on
+      source predating `9404cb1`, so PICK-PROXY-COLLIDE-1's fix is not
+      involved) with the same settle-stamp discipline as `36360ae`/`d0604c5`;
+      if it reddens under load and passes after a named settle fix, close
+      with that evidence, otherwise state why it is environment-only. [src:
+      found while verifying `9404cb1`, filed by backlog-groomer pass 29]
+      TERRITORY: `apps/web/e2e/face-hover.spec.ts`. agentType: qa-tester.
+      (history: docs/BACKLOG-ARCHIVE.md#item-face-hover-bore-flake-1)
 
 - [ ] (P2, S) **FILLET-GAUGE-FPS-FLOOR-1 — the ">10 frames sampled after
       release" floor assumes ~6.7fps, which headless software GL misses under
@@ -720,21 +695,6 @@ not yet dispatched this batch.
 
 **Filed groom pass 27 (2026-09-23) — sketch-Fit follow-ups + a DRY/infra
 pair:**
-
-- [ ] (P2, S) **E2E-SHARD-COUNT-1 — e2e shards run ~31.3 CI-min each against
-      the 40-min step cap (1.3x headroom), and the workflow's own header
-      already says to weigh N=5/6.** ACCEPTANCE: raise the shard matrix to 5
-      or 6 (per the workflow's stated rule: N=6 puts T/N near 12.6 min per the
-      documented arithmetic), re-run `e2e-shard-plan.py --self-test` and a
-      real CI run to confirm the new spread and headroom, and state both
-      numbers in the workflow header (the file already tracks this history
-      inline — extend it, don't replace it). Related but distinct from
-      SHARD-MANIFEST-CI-1 (that ticket is about the manifest's SOURCE — local
-      vs CI-measured costs — not the shard COUNT). [src: `7c9ff95` header
-      note, filed by backlog-groomer pass 27] TERRITORY:
-      `.github/workflows/e2e.yml`, `scripts/e2e-shard-plan.py`. agentType:
-      platform-builder. (history:
-      docs/BACKLOG-ARCHIVE.md#item-e2e-shard-count-1)
 
 - [ ] (P2, S) **VIEWBAR-DRY-1 — the sketch Fit bar duplicates the part view
       bar's instrument-shell styling in `Viewport.tsx` instead of sharing
@@ -1691,6 +1651,63 @@ measurement in docs/QA-REVIEW.md CI-4]
 
 ## Later (P3)
 
+**Filed groom pass 29 (2026-09-24) — perf/QA residue from the PERF-REAL-2
+and E2E-SHARD-COUNT-1 closures:**
+
+- [ ] (P2, M) **PERF-REAL-2B — an edit near the START of a long feature tree
+      is still a full cold rebuild; no checkpoint ladder can beat it.**
+      ACCEPTANCE: a dependency-aware evaluator (only features that actually
+      reference the edited one's outputs re-run) measurably improves an early
+      edit (e.g. #3 of 250) below the ladder's own floor — measured today at
+      34.0-37.1s either way, i.e. no change, matching a cold rebuild's
+      36.1-37.1s. State the new number against both this floor and a cold
+      rebuild. Sequenced P2 despite the P3 section (a bigger, riskier slice
+      than its neighbours here). [src: `09416c6`/`560eab1` measurement
+      (PERF-REAL-2, CLOSED), filed by backlog-groomer pass 29] TERRITORY:
+      `services/geometry/src/geometry/kernel/rebuild_cache.py`,
+      `services/geometry/src/geometry/kernel/evaluator.py`. agentType:
+      kernel-architect. (history: docs/BACKLOG-ARCHIVE.md#item-perf-real-2b)
+
+- [ ] (P3, S) **FRONTIER-OVERSIZE-SIDESLOT-1 — a live oversize checkpoint
+      (>128 MiB) is held alone, evicting every other lineage's frontier entry
+      on that worker while it is being worked.** ACCEPTANCE: measure whether
+      this causes real contention under concurrent multi-user load (today it
+      is a single-worker, single-lineage trade the commit accepts
+      deliberately — repeats stay hits rather than paying a full rebuild); if
+      contention is real, a dedicated side slot for the oversize checkpoint
+      (outside the shared 128 MiB budget, still capped at one) is one option
+      to evaluate. Revisit only if multi-user large-part contention shows up.
+      [src: `83e3c67`, filed by backlog-groomer pass 29] TERRITORY:
+      `services/geometry/src/geometry/kernel/rebuild_cache.py`. agentType:
+      kernel-architect. (history:
+      docs/BACKLOG-ARCHIVE.md#item-frontier-oversize-sideslot-1)
+
+- [ ] (P3, XS) **PICK-SPEC-REWEIGH-1 — pick-heavy e2e specs are now ~1.3x
+      heavier than the shard-duration manifest's calibration ruler assumes**
+      (pick-affordance 382→642s, hole 309→419s, pick-mark-seat 212→336s,
+      per `9404cb1`'s 3-frame seat-confirm cost). ACCEPTANCE: re-measure with
+      `--emit-durations` in a quiet window (no other load on the box) and
+      fold the corrected weights into the manifest so shard balance reflects
+      the real cost, not the pre-`9404cb1` one. [src: `d3d0446` shard report,
+      filed by backlog-groomer pass 29] TERRITORY:
+      `scripts/e2e-shard-plan.py`, its duration manifest. agentType:
+      platform-builder. (history:
+      docs/BACKLOG-ARCHIVE.md#item-pick-spec-reweigh-1)
+
+- [ ] (P3, XS) **LADDER-PROVENANCE-WEIGH-1 — a checkpoint's weight includes
+      the faces the history-lineage provenance memo keeps alive, but that
+      share of the total was never isolated.** ACCEPTANCE: measure what
+      fraction of a checkpoint's estimated bytes comes from
+      `FaceProvenanceRecorder.retained_faces()` alone on a representative
+      part (the tray and the 24-lobe NURBS fixture both work), and state
+      whether it is worth memo-trimming separately from the shape weight. Not
+      a known problem today — a measurement gap, not a defect. [src:
+      `8077ede`, filed by backlog-groomer pass 29] TERRITORY:
+      `services/geometry/src/geometry/kernel/fork.py`,
+      `services/geometry/src/geometry/kernel/provenance.py`. agentType:
+      kernel-architect / geometry-qa. (history:
+      docs/BACKLOG-ARCHIVE.md#item-ladder-provenance-weigh-1)
+
 **Filed groom pass 27 (2026-09-23) — small, independently-shippable cleanup
 found while reconciling `f9fcce6`/`bc53e7d`:**
 
@@ -2386,17 +2403,16 @@ Moved verbatim to `docs/BACKLOG-ARCHIVE.md#done-archive` in the 2026-09-23 struc
 
 ## Changelog
 
+- 2026-09-24 — **Groom pass 29 (backlog-groomer):** PICK-PROXY-COLLIDE-1,
+  CONTRACT-PARITY-TEST-1, PERF-REAL-2, E2E-SHARD-COUNT-1,
+  QA-CUBE-YIELD-SETTLE-1/FB-7 all CLOSED; CI green through `d3d0446`;
+  6 items filed. See "Scorecard gaps" above and BACKLOG-ARCHIVE Done archive.
 - 2026-09-23 — **Groom pass 27 (backlog-groomer):** e2e known-failures +
-  shard-4 timeout root-caused and fixed (6+1 commits, CI verification
-  owed); F-6 and the gauge/panel lag CLOSED; 11 items filed. See "Scorecard
-  gaps" above and BACKLOG Done archive for full detail.
+  shard-4 timeout root-caused and fixed (6+1 commits); F-6 and the
+  gauge/panel lag CLOSED; 11 items filed. See "Scorecard gaps" above.
 - 2026-09-23 — **Groom pass 26:** CRAFT-12/VEC3-DEDUP-1/CSP-1 CLOSED;
   adjacency tier 3 shipped; VISION re-scored twice; 5 items filed. See
   "Scorecard gaps" above for full detail.
-- 2026-09-15 — **Groom pass 25 (backlog-groomer):** SCRIPT-1 (public Python
-  scripting API), F1+F2 (gauntlet volume/determinism defects) and CRAFT-13
-  CLOSED; 16 items filed (perf/gauntlet, code-review P1s, Assemblies wave).
-  See "Scorecard gaps" above for full detail.
-- Passes 7-24: full reachability programme, CI hardening, SOLVE/PBT/SEL-2/
-  ARC-BRANCH-1 clusters, Wave 3 close-out, frontend-redesign wave-log
-  reconciliation. Full detail: `docs/CHANGELOG.md`.
+- Passes 7-25: full reachability programme, CI hardening, SOLVE/PBT/SEL-2/
+  ARC-BRANCH-1 clusters, Wave 3 close-out, Phase 5 flagship (SCRIPT-1),
+  gauntlet F1/F2, CRAFT-13. Full detail: `docs/CHANGELOG.md`.
