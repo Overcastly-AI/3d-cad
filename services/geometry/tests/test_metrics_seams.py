@@ -15,8 +15,10 @@ here drive the seams directly — no OCCT — so they stay fast and stay honest 
 what they cover: the wiring, not the kernel.
 """
 
+import gc
 import signal
 import sys
+from collections.abc import Iterator
 
 import pytest
 from geometry.kernel._step_parse_worker import EXIT_TOO_MANY_PRODUCTS
@@ -27,6 +29,7 @@ from geometry.kernel.imports import (
     run_bounded_parse_worker,
 )
 from geometry.rebuild_cache import PrefixCache
+from geometry.warm import warm_scheduler
 from py_kit.metrics import REGISTRY
 
 
@@ -59,6 +62,40 @@ class _Checkpoint:
         return _Checkpoint(f"{self.name}'")
 
 
+class _CyclicOwner:
+    """An evaluation-shaped owner that only a GC pass can free (it is a cycle)."""
+
+    def __init__(self) -> None:
+        self.me = self
+
+
+@pytest.fixture
+def quiet_cache_metrics() -> Iterator[None]:
+    """Make the process-global cache counters move ONLY for this test's cache.
+
+    The ``loft_rebuild_cache_*`` counters are per PROCESS, and two things outside
+    a test can move them mid-measurement: (1) ``PrefixCache.store_on_release``
+    stores an earlier test's checkpoint from a ``weakref.finalize`` when its
+    evaluation dies, and an evaluation held in a reference cycle (an exception's
+    traceback frame is enough) dies at whatever allocation next trips the
+    garbage collector — inside this test's window as easily as anywhere; (2) the
+    process-global warm scheduler's daemon thread takes and stores on its own
+    clock. CI saw (1)'s shape once: ``stores_total`` one above ``before + 3``.
+
+    So: let any in-flight warm finish, flush pending cyclic garbage NOW (its
+    finalizer stores land before the test's "before" read), and keep the
+    collector off for the window so none can land inside it. Nothing is
+    loosened — the equalities stay exact; only foreign events are excluded.
+    """
+    assert warm_scheduler().wait_idle(60.0), "a warm is still running after 60 s"
+    gc.collect()
+    gc.disable()
+    try:
+        yield
+    finally:
+        gc.enable()
+
+
 def _keys(count: int, *, lineage: str) -> list[str]:
     """A key chain shaped like :func:`geometry.rebuild_cache.prefix_keys` output:
     ``count + 1`` entries, index ``k`` addressing the first ``k`` features."""
@@ -70,6 +107,7 @@ def _keys(count: int, *, lineage: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("quiet_cache_metrics")
 def test_a_cold_lookup_counts_a_miss_and_the_features_it_will_evaluate() -> None:
     misses_before = _value("loft_rebuild_cache_misses_total")
     evaluated_before = _value("loft_rebuild_features_evaluated_total")
@@ -82,6 +120,7 @@ def test_a_cold_lookup_counts_a_miss_and_the_features_it_will_evaluate() -> None
     assert _value("loft_rebuild_features_evaluated_total") == evaluated_before + 30
 
 
+@pytest.mark.usefixtures("quiet_cache_metrics")
 def test_an_append_counts_a_hit_and_splits_resumed_from_evaluated() -> None:
     """The product's headline saving, as an operator sees it: 29 of 30 features
     served from the cached prefix, 1 actually evaluated."""
@@ -101,6 +140,7 @@ def test_an_append_counts_a_hit_and_splits_resumed_from_evaluated() -> None:
     assert _value("loft_rebuild_features_resumed_total") == resumed_before + 29
 
 
+@pytest.mark.usefixtures("quiet_cache_metrics")
 def test_storing_and_evicting_are_counted_separately() -> None:
     """Evictions are the signal that the working set exceeds the per-process
     LRU — the reading that tells a self-hoster their worker count is fighting
@@ -114,6 +154,34 @@ def test_storing_and_evicting_are_counted_separately() -> None:
 
     assert _value("loft_rebuild_cache_stores_total") == stores_before + 3
     assert _value("loft_rebuild_cache_evictions_total") == evictions_before + 1
+
+
+@pytest.mark.usefixtures("quiet_cache_metrics")
+def test_a_finalizer_store_cannot_land_inside_a_measured_window() -> None:
+    """The flake, injected deterministically: an earlier evaluation's release
+    store is pending on cyclic garbage and the collector is primed to run at the
+    very next allocation — which is inside the window. Without
+    ``quiet_cache_metrics`` the stores delta reads 4, not 3 (the CI failure)."""
+    other: PrefixCache[_Checkpoint] = PrefixCache(8)
+    stores_before = _value("loft_rebuild_cache_stores_total")
+
+    owner = _CyclicOwner()
+    other.store_on_release(owner, "an-earlier-test", _Checkpoint("pending"))
+    del owner
+    threshold = gc.get_threshold()
+    gc.set_threshold(1)
+    try:
+        cache: PrefixCache[_Checkpoint] = PrefixCache(2)
+        for index in range(3):
+            cache.store(f"inject:{index}", _Checkpoint(f"cp-{index}"))
+        delta = _value("loft_rebuild_cache_stores_total") - stores_before
+    finally:
+        gc.set_threshold(*threshold)
+
+    assert delta == 3
+    # ...and the pending store is not lost, only kept out of the window.
+    gc.collect()
+    assert _value("loft_rebuild_cache_stores_total") == stores_before + 4
 
 
 def test_recording_does_not_change_what_the_cache_returns() -> None:
