@@ -25,8 +25,13 @@ import math
 from collections.abc import Sequence
 
 from loft_wire.materials import mass_g
+from OCP.BRep import BRep_Builder
+from OCP.BRepAdaptor import BRepAdaptor_Surface
+from OCP.BRepBuilderAPI import BRepBuilderAPI_NurbsConvert
 from OCP.BRepGProp import BRepGProp
+from OCP.GeomAbs import GeomAbs_SurfaceType
 from OCP.GProp import GProp_GProps
+from OCP.TopoDS import TopoDS_Compound
 
 from geometry.kernel.types import BodyShape
 from geometry.schemas import BoundingBox, ShapeProperties, TopologyCounts, Vec3
@@ -102,6 +107,58 @@ from geometry.schemas import BoundingBox, ShapeProperties, TopologyCounts, Vec3
 VOLUME_EPS = 1e-10
 
 
+#: Surface kinds the adaptive VOLUME integrator does not converge on
+#: (:func:`_volume_integrand`). Found by geometry QA (docs/GEOMETRY-QA.md
+#: 2026-09-24, F1). The flanks of a PLAIN extrude of a sketch-spline profile are
+#: ``Geom_SurfaceOfLinearExtrusion`` over a B-spline. On the gear's spur twin
+#: (24 such gaps cut from a disc) the adaptive reading WANDERS with eps:
+#: +5.35 / -0.34 mm^3 at 1e-10 / 1e-12 against the section-area truth, and
+#: +8.52 / +21.97 / -24.62 at 1e-10 / 1e-12 / 1e-14 on the spline-slot golden.
+#: A revolved spline is ``Geom_SurfaceOfRevolution``, the same family, so it
+#: is routed the same way.
+_SWEPT_SURFACE_KINDS = frozenset(
+    {
+        GeomAbs_SurfaceType.GeomAbs_SurfaceOfExtrusion,
+        GeomAbs_SurfaceType.GeomAbs_SurfaceOfRevolution,
+    }
+)
+
+
+def _volume_integrand(shape: BodyShape) -> object:
+    """The ``TopoDS_Shape`` whose volume integral is the body's volume.
+
+    With no swept face (:data:`_SWEPT_SURFACE_KINDS`) this is the body itself,
+    so every such body is measured byte-for-byte as before. Otherwise it is a
+    COMPOUND of the body's faces in which each swept face is replaced by its
+    ``BRepBuilderAPI_NurbsConvert`` twin, orientation kept. That conversion is
+    exact (an extrusion or revolution of a B-spline IS a B-spline surface), and
+    GProp sums a volume face by face (divergence theorem), so the compound
+    integrates to the body's volume. Only the offending faces change
+    representation.
+
+    Measured on the spline-slot golden: -1.8e-12 mm^3 from its Green's-theorem
+    truth, against +1.3e-4 when the WHOLE body is converted (planes and
+    cylinders re-expressed as NURBS then integrate adaptively, less well) and
+    +8.52 mm^3 with nothing converted. The body is never modified.
+    """
+    faces = shape.faces()
+    if not any(
+        BRepAdaptor_Surface(face.wrapped).GetType() in _SWEPT_SURFACE_KINDS
+        for face in faces
+    ):
+        return shape.wrapped
+    compound = TopoDS_Compound()
+    builder = BRep_Builder()
+    builder.MakeCompound(compound)
+    for face in faces:
+        if BRepAdaptor_Surface(face.wrapped).GetType() in _SWEPT_SURFACE_KINDS:
+            twin = BRepBuilderAPI_NurbsConvert(face.wrapped, True).Shape()
+            builder.Add(compound, twin)
+        else:
+            builder.Add(compound, face.wrapped)
+    return compound
+
+
 def measure_shape(
     shape: BodyShape, *, density_kg_m3: float | None = None
 ) -> ShapeProperties:
@@ -136,7 +193,11 @@ def measure_shape(
     # error it reached; it is not consulted, because the sweep that chose
     # VOLUME_EPS measured the achieved accuracy against hand-derived analytic
     # values rather than against the integrator's opinion of itself.
-    BRepGProp.VolumeProperties_s(shape.wrapped, volume_props, VOLUME_EPS, False, False)
+    # Swept (extrusion/revolution) faces are integrated as their exact NURBS
+    # twins, which the adaptive rule does converge on (:func:`_volume_integrand`).
+    BRepGProp.VolumeProperties_s(
+        _volume_integrand(shape), volume_props, VOLUME_EPS, False, False
+    )
     surface_props = GProp_GProps()
     BRepGProp.SurfaceProperties_s(shape.wrapped, surface_props)
 

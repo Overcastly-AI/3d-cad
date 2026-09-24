@@ -1,0 +1,31 @@
+{
+  "description": "FIRST GOLDEN WITH EXTRUSION-OVER-SPLINE FACES AFTER A BOOLEAN (geometry-QA F1, docs/GEOMETRY-QA.md 2026-09-24). A r20 disc extruded 10 mm; ONE slot between r = 7 and r = 17 whose two long sides are wavy 6-point sketch SPLINES, extrude-CUT through; then a features-scope circular pattern x6 of that cut. The slot walls are Geom_SurfaceOfLinearExtrusion over B-splines, the face kind OCCT's adaptive volume integrator does NOT converge on: with nothing converted it read +8.52 / +21.97 / -24.62 mm^3 off the truth at eps 1e-10 / 1e-12 / 1e-14. That is the same defect that put the gear's spur twin +5.37 mm^3 high. Locks the fix in geometry.kernel.properties._volume_integrand (each swept face integrated as its exact NURBS twin) and, through the parametrized gates, byte determinism in-process and across an interpreter restart, and the STEP round trip.",
+  "derivation": [
+    "VOLUME and CENTROID are ANALYTIC and computed WITHOUT GProp. Green's theorem gives the slot's area as A = 1/2 closed-integral (x dy - y dx) around its boundary: the two sketch lines, plus the two B-splines OCCT interpolates through the sketch fit points (Edge.make_spline = GeomAPI_Interpolate, the very curves the kernel models). It is integrated by 24-point Gauss-Legendre on every knot span. On a cubic span x*y' is a polynomial of degree 5, so this is exact to float. A = 34.71912945283664 mm^2; 8-, 16- and 24-point rules agree to 2e-14.",
+    "",
+    "volume = pi R^2 h - 6 A h = pi*400*10 - 6*34.71912945283664*10 = 10483.222847188976 mm^3. The slots lie wholly inside the disc (r 7..17 < 20) and are 60 deg apart without overlap, so nothing is clipped. Independent cross-check: the adaptive area of the body's planar top face x 10 = truth - 5.5e-12. Measured through the harness after the fix: -1.8e-12 mm^3. Before the fix, the shipped integrator read +8.518 mm^3 (seen red: this golden fails by 4e7 x its tolerance with _volume_integrand returning the raw body). Converting the WHOLE body instead of only the swept faces reads +1.3e-4, which is why the fix converts per face.",
+    "",
+    "centroid = (0, 0, 5): the six slots are a 6-fold rotationally symmetric removal from a disc centred on the axis, and the extrusion spans z 0..10. Measured <= 3.5e-15 mm.",
+    "",
+    "bounding_box = [-20, -20, 0] .. [20, 20, 10]: the disc's extent; every slot is interior. Measured: every bound padded outward by 1.0e-7, the optimal-AABB modelling-tolerance padding the loft goldens document.",
+    "",
+    "SURFACE AREA IS THE FIXED-ORDER READING, DELIBERATELY, AND IT IS KNOWN TO BE 0.264 mm^2 HIGH. The analytic area is 2(pi R^2 - 6A) + 2 pi R h + 6 P h = 5035.375044230724 mm^2, where P = 28.034890222616863 mm is the slot perimeter (24-point Gauss of |c'| per span). The shipped fixed-order reading is 5035.639405633832 (+0.264, 5.2e-5 relative). The bias comes from BOTH the swept walls and the spline-bounded planar caps; adaptive integration of the NURBS-converted body reads 1.8e-8. Surface area stays on the fixed order by the 2026-09-15 decision (properties.VOLUME_EPS docstring; adaptive area did not converge on a 4123-face import), and changing that is a separate reviewed call. This golden is therefore the standing record of that limit on a spline part: if area integration is fixed, THIS value moves, and the replacement is 5035.375044230724. The loft-spline golden set the same pin on purpose.",
+    "",
+    "topology, hand-derived: the disc is 3 faces (top, bottom, cylinder). Each slot adds 4 walls (2 extrusion-over-spline + 2 planar), so 6 x 4 = 24 walls: 27 faces; 1 closed shell. Edges: 3 disc edges (2 circles + 1 seam) + 6 slots x 12 (4 on top, 4 on bottom, 4 vertical) = 75.",
+    "",
+    "MESH counts are recorded, not derived, as in every golden: an exact-match determinism/regression tripwire on the 0.1 mm linear-deflection tessellation."
+  ],
+  "tolerance": 2e-7,
+  "tolerance_rationale": "AABB-PADDING-limited, the same bound and reason as loft-pyramid-sq20-h30 and loft-spline-sections-nurbs-h30 (measured first, then set). Every optimal-AABB bound is padded outward by 1.0e-7, so 1e-7 would sit exactly on the threshold and 2e-7 gives a factor of two. The mass properties it also governs are far inside it: volume -1.8e-12 mm^3, centroid <= 3.5e-15 mm, and the pinned area is by construction the measured reading. The failure this golden exists to catch misses by eight orders of magnitude: the unconverted integrator's +8.52 mm^3. Loosening it requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 10483.222847188976,
+    "surface_area": 5035.639405633832,
+    "centroid": { "x": 0.0, "y": 0.0, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": -20.0, "y": -20.0, "z": 0.0 },
+      "max": { "x": 20.0, "y": 20.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 27, "edges": 75, "shells": 1 },
+  "mesh": { "vertices": 11656, "triangles": 17812 }
+}
