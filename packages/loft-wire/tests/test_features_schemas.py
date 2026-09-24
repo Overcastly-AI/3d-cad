@@ -715,6 +715,7 @@ def test_feature_result_data_round_trips() -> None:
         "status": "ok",
         "error": None,
         "data": _solved_sketch_data(),
+        "subshape_resolution": None,
     }
     result = FeatureResult.model_validate(wire)
     assert isinstance(result.data, SolvedSketchData)
@@ -730,6 +731,44 @@ def test_feature_result_data_defaults_to_none() -> None:
     )
     assert result.data is None
     assert result.model_dump(mode="json")["data"] is None
+    # Same posture for EDGE-RESOLVE-WARN-1: a payload from before the tier
+    # summary existed validates, and reads as "nothing to warn about".
+    assert result.subshape_resolution is None
+
+
+def test_feature_result_subshape_resolution_round_trips() -> None:
+    wire = {
+        "feature_id": str(SKETCH_ID),
+        "status": "ok",
+        "error": None,
+        "data": None,
+        "subshape_resolution": {
+            "worst_tier": "adjacent",
+            "exact": 2,
+            "durable": 0,
+            "adjacent": 2,
+        },
+    }
+    result = FeatureResult.model_validate(wire)
+    assert result.subshape_resolution is not None
+    assert result.subshape_resolution.worst_tier == "adjacent"
+    assert result.model_dump(mode="json") == wire
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"worst_tier": "guessed", "exact": 1, "durable": 0, "adjacent": 0},
+        {"worst_tier": "exact", "exact": -1, "durable": 0, "adjacent": 0},
+    ],
+)
+def test_feature_result_subshape_resolution_rejects_an_unknown_tier_or_count(
+    bad: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        FeatureResult.model_validate(
+            {"feature_id": str(SKETCH_ID), "status": "ok", "subshape_resolution": bad}
+        )
 
 
 def test_feature_result_data_kind_tag_is_enforced() -> None:

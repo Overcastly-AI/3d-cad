@@ -5074,6 +5074,17 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "subshape_resolution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubshapeResolutionSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For an ok feature that names picked edges/faces: which tier re-found them on this rebuild. Null when the feature has no picked subshape reference (or did not evaluate ok). A worst_tier other than 'exact' means the feature rebuilt on a best-effort re-match - worth a dismissable warning, never a refusal."
           }
         },
         "required": [
@@ -10614,6 +10625,47 @@
           "selector"
         ],
         "title": "SubshapeRef",
+        "type": "object"
+      },
+      "SubshapeResolutionSummary": {
+        "description": "How one feature's picked subshape references resolved on THIS rebuild.\n\nA WARNING channel, never a refusal (\u00a77.3): a feature that rebuilt on a\n``durable`` or ``adjacent`` match is ``ok`` and its body is built, but the\nstage-1 matchers behind those tiers are best-effort and can, rarely, re-find\nthe WRONG subshape without erroring. ``worst_tier != \"exact\"`` is the signal\na client shows (the counterpart of the ``subshape_unresolved`` /\n``subshape_ambiguous`` errors, for the references that DID resolve).\nOne count per picked reference, in the tier that resolved it.",
+        "properties": {
+          "adjacent": {
+            "description": "Edge references re-found as the edge shared by their two stored neighbouring faces (\u00a714).",
+            "minimum": 0.0,
+            "title": "Adjacent",
+            "type": "integer"
+          },
+          "durable": {
+            "description": "References re-found on a rebuild invariant after the subshape moved or changed shape.",
+            "minimum": 0.0,
+            "title": "Durable",
+            "type": "integer"
+          },
+          "exact": {
+            "description": "References whose stored signature matched verbatim.",
+            "minimum": 0.0,
+            "title": "Exact",
+            "type": "integer"
+          },
+          "worst_tier": {
+            "description": "The least certain tier any reference of this feature resolved at: 'exact' < 'durable' < 'adjacent'.",
+            "enum": [
+              "exact",
+              "durable",
+              "adjacent"
+            ],
+            "title": "Worst Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "worst_tier",
+          "exact",
+          "durable",
+          "adjacent"
+        ],
+        "title": "SubshapeResolutionSummary",
         "type": "object"
       },
       "SweepFeature": {

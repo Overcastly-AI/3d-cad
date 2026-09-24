@@ -4285,6 +4285,56 @@ class SolvedSketchData(SolvedSketch):
 FeatureData = SolvedSketchData
 
 
+#: Which tier of the stage-1 matcher re-found a picked subshape reference on a
+#: rebuild (docs/design/topological-naming.md §13/§14), best to worst:
+#: ``exact`` - the stored signature matched verbatim, the subshape is where the
+#: user left it; ``durable`` - it moved or changed shape and was re-found on a
+#: rebuild invariant (an edge's supporting line or circle station; a face's
+#: plane, area/in-plane centroid or outer boundary); ``adjacent`` - an EDGE that
+#: left every coordinate it was stored at, re-found as the one edge its two
+#: stored neighbouring faces still share. The first two words are the drawings
+#: vocabulary (:data:`~loft_wire.drawings.DimensionAnchorTier`).
+SubshapeResolutionTier = Literal["exact", "durable", "adjacent"]
+
+#: :data:`SubshapeResolutionTier` ordered BEST to WORST - the one ordering a
+#: "worst tier" is taken over, kept beside the alias it ranks.
+SUBSHAPE_RESOLUTION_TIERS: tuple[SubshapeResolutionTier, ...] = (
+    "exact",
+    "durable",
+    "adjacent",
+)
+
+
+class SubshapeResolutionSummary(BaseModel):
+    """How one feature's picked subshape references resolved on THIS rebuild.
+
+    A WARNING channel, never a refusal (§7.3): a feature that rebuilt on a
+    ``durable`` or ``adjacent`` match is ``ok`` and its body is built, but the
+    stage-1 matchers behind those tiers are best-effort and can, rarely, re-find
+    the WRONG subshape without erroring. ``worst_tier != "exact"`` is the signal
+    a client shows (the counterpart of the ``subshape_unresolved`` /
+    ``subshape_ambiguous`` errors, for the references that DID resolve).
+    One count per picked reference, in the tier that resolved it."""
+
+    worst_tier: SubshapeResolutionTier = Field(
+        description="The least certain tier any reference of this feature "
+        "resolved at: 'exact' < 'durable' < 'adjacent'."
+    )
+    exact: int = Field(
+        ge=0, description="References whose stored signature matched verbatim."
+    )
+    durable: int = Field(
+        ge=0,
+        description="References re-found on a rebuild invariant after the "
+        "subshape moved or changed shape.",
+    )
+    adjacent: int = Field(
+        ge=0,
+        description="Edge references re-found as the edge shared by their two "
+        "stored neighbouring faces (§14).",
+    )
+
+
 class FeatureResult(BaseModel):
     """Per-feature evaluation status. Strict-prefix rule (§4.3): the first
     failure is ``error``, every subsequent feature ``skipped``. A feature marked
@@ -4300,6 +4350,14 @@ class FeatureResult(BaseModel):
         description="Typed per-feature payload for ok features that produce "
         "one (§7.10): solved sketch geometry today; future feature types add "
         "kind-tagged variants additively.",
+    )
+    subshape_resolution: SubshapeResolutionSummary | None = Field(
+        default=None,
+        description="For an ok feature that names picked edges/faces: which "
+        "tier re-found them on this rebuild. Null when the feature has no "
+        "picked subshape reference (or did not evaluate ok). A worst_tier other "
+        "than 'exact' means the feature rebuilt on a best-effort re-match - "
+        "worth a dismissable warning, never a refusal.",
     )
 
 

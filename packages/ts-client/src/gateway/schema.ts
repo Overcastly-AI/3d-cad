@@ -5489,6 +5489,8 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "error" | "skipped" | "suppressed";
+            /** @description For an ok feature that names picked edges/faces: which tier re-found them on this rebuild. Null when the feature has no picked subshape reference (or did not evaluate ok). A worst_tier other than 'exact' means the feature rebuilt on a best-effort re-match - worth a dismissable warning, never a refusal. */
+            subshape_resolution?: components["schemas"]["SubshapeResolutionSummary"] | null;
         };
         /**
          * FeatureSuppressRequest
@@ -9415,6 +9417,41 @@ export interface components {
              * @constant
              */
             subshape_type: "face";
+        };
+        /**
+         * SubshapeResolutionSummary
+         * @description How one feature's picked subshape references resolved on THIS rebuild.
+         *
+         *     A WARNING channel, never a refusal (§7.3): a feature that rebuilt on a
+         *     ``durable`` or ``adjacent`` match is ``ok`` and its body is built, but the
+         *     stage-1 matchers behind those tiers are best-effort and can, rarely, re-find
+         *     the WRONG subshape without erroring. ``worst_tier != "exact"`` is the signal
+         *     a client shows (the counterpart of the ``subshape_unresolved`` /
+         *     ``subshape_ambiguous`` errors, for the references that DID resolve).
+         *     One count per picked reference, in the tier that resolved it.
+         */
+        SubshapeResolutionSummary: {
+            /**
+             * Adjacent
+             * @description Edge references re-found as the edge shared by their two stored neighbouring faces (§14).
+             */
+            adjacent: number;
+            /**
+             * Durable
+             * @description References re-found on a rebuild invariant after the subshape moved or changed shape.
+             */
+            durable: number;
+            /**
+             * Exact
+             * @description References whose stored signature matched verbatim.
+             */
+            exact: number;
+            /**
+             * Worst Tier
+             * @description The least certain tier any reference of this feature resolved at: 'exact' < 'durable' < 'adjacent'.
+             * @enum {string}
+             */
+            worst_tier: "exact" | "durable" | "adjacent";
         };
         /**
          * SweepFeature

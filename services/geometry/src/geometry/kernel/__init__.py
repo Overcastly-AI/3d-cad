@@ -138,6 +138,7 @@ from geometry.kernel.provenance import (
     attribute_faces,
 )
 from geometry.kernel.removal import removal_reaches_body
+from geometry.kernel.resolution import ResolutionTally
 from geometry.kernel.revolve import (
     AxisIntersectsProfileError,
     AxisNotInSketchPlaneError,
@@ -240,6 +241,7 @@ __all__ = [
     "ProfileNotClosedError",
     "ProfileUnsupportedError",
     "ReadProduct",
+    "ResolutionTally",
     "ResolvedEdge",
     "ResolvedRevolveAxis",
     "ResolvedThread",

@@ -935,11 +935,17 @@ _SHARED_IMMUTABLE_FIELDS = frozenset(
         "tool_scope_ids",
     }
 )
+#: Scratch owned by ONE feature's dispatch and replaced before the next
+#: (``_dispatch_one`` installs a fresh object), so a fork may share it: no
+#: feature evaluated after a rung ever sees the one the rung holds.
+_PER_FEATURE_SCRATCH_FIELDS = frozenset({"subshape_tally"})
 
 
 def test_every_state_field_is_classified_for_the_fork() -> None:
     names = {item.name for item in dataclasses.fields(EvaluationState)}
-    assert names == _FORKED_FIELDS | _SHARED_IMMUTABLE_FIELDS, (
+    assert names == (
+        _FORKED_FIELDS | _SHARED_IMMUTABLE_FIELDS | _PER_FEATURE_SCRATCH_FIELDS
+    ), (
         "EvaluationState gained or lost a field: classify it for "
         "EvaluationState.fork (and EvaluationState.shape_slots if it holds a shape)"
     )

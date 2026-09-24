@@ -224,6 +224,7 @@ from geometry.kernel.fork import fork_shapes, weigh_shapes
 from geometry.kernel.healing import body_is_valid, new_geometry_is_valid
 from geometry.kernel.lumps import lump_count
 from geometry.kernel.provenance import FaceProvenance, FaceProvenanceRecorder
+from geometry.kernel.resolution import ResolutionTally
 from geometry.kernel.tolerances import KERNEL_LINEAR_TOL_MM
 from geometry.kernel.types import BodyShape
 from geometry.mesh_store import store_mesh_glb
@@ -491,6 +492,15 @@ class EvaluationState:
     scoped_feature_types: dict[uuid.UUID, str] = field(
         default_factory=dict[uuid.UUID, str]
     )
+    #: Which tier resolved each picked subshape reference of the feature BEING
+    #: evaluated (EDGE-RESOLVE-WARN-1, :mod:`geometry.kernel.resolution`). PER-
+    #: FEATURE SCRATCH, not tree state: :func:`_dispatch_one` installs a fresh
+    #: tally before every dispatch and reads it into that feature's
+    #: ``FeatureResult.subshape_resolution`` straight after, so no count can leak
+    #: from one feature into the next, and a fork (which shares it) never reaches a
+    #: later feature holding the old one. Handlers pass it as ``tally=`` to every
+    #: resolver of a picked reference.
+    subshape_tally: ResolutionTally = field(default_factory=ResolutionTally)
 
     def record_cut_tools(self, feature_id: uuid.UUID, tools: list[Solid]) -> None:
         """Record the removal tool(s) an ok CUT feature just subtracted.
@@ -932,7 +942,9 @@ def _resolve_face_datum_plane(
             upstream_feature_id=face.feature_id,
         )
     try:
-        return resolve_face_plane(active, face.selector.signature, offset_mm)
+        return resolve_face_plane(
+            active, face.selector.signature, offset_mm, tally=state.subshape_tally
+        )
     except SubshapeUnresolvedError as exc:
         return FeatureError(
             code="subshape_unresolved",
@@ -1379,7 +1391,9 @@ def _fold_flange_off_edge(
         )
 
     try:
-        edge = resolve_edge_durable(active, edge_ref.selector.signature).edge
+        edge = resolve_edge_durable(
+            active, edge_ref.selector.signature, tally=state.subshape_tally
+        ).edge
     except SubshapeUnresolvedError as exc:
         return FeatureError(code="subshape_unresolved", message=str(exc))
     except SubshapeAmbiguousError as exc:
@@ -1435,6 +1449,9 @@ def _fold_flange_off_edge(
         state.sheet_metal_unfold_body = result.body
     else:
         try:
+            # NOT tallied: this is the SAME picked reference the live resolve
+            # above already reported, re-found on the un-notched twin of the body
+            # purely to keep the unfold's bend provenance. The user picked once.
             clean_edge = resolve_edge_durable(
                 prior_clean, edge_ref.selector.signature
             ).edge
@@ -2006,7 +2023,7 @@ def _evaluate_fillet(
         )
 
     try:
-        edges = select_edges(active, params.edges)
+        edges = select_edges(active, params.edges, tally=state.subshape_tally)
     except NoEdgesSelectedError as exc:
         return FeatureError(code="no_fillet_edges", message=str(exc))
     except SubshapeUnresolvedError as exc:
@@ -2048,7 +2065,7 @@ def _evaluate_chamfer(
         )
 
     try:
-        edges = select_edges(active, params.edges)
+        edges = select_edges(active, params.edges, tally=state.subshape_tally)
     except NoEdgesSelectedError as exc:
         return FeatureError(code="no_chamfer_edges", message=str(exc))
     except SubshapeUnresolvedError as exc:
@@ -2097,7 +2114,9 @@ def _evaluate_shell(
 
     try:
         faces = resolve_faces(
-            active, [ref.selector.signature for ref in params.faces.refs]
+            active,
+            [ref.selector.signature for ref in params.faces.refs],
+            tally=state.subshape_tally,
         )
     except SubshapeUnresolvedError as exc:
         return FeatureError(code="subshape_unresolved", message=str(exc))
@@ -2148,7 +2167,9 @@ def _evaluate_draft(
 
     try:
         faces = resolve_faces(
-            active, [ref.selector.signature for ref in params.faces.refs]
+            active,
+            [ref.selector.signature for ref in params.faces.refs],
+            tally=state.subshape_tally,
         )
     except SubshapeUnresolvedError as exc:
         return FeatureError(code="subshape_unresolved", message=str(exc))
@@ -3736,6 +3757,11 @@ def _dispatch_one(
             FeatureResult(feature_id=item.id, status="error", error=ref_error)
         )
         return
+    # A FRESH tally per feature (EDGE-RESOLVE-WARN-1): whatever the handler's
+    # resolvers note lands on THIS feature's result and nowhere else. Read only on
+    # success — a feature that failed has no body built on its references, and its
+    # error already says so.
+    state.subshape_tally = ResolutionTally()
     error = _dispatch(item, state)
     if error is None:
         results.append(
@@ -3743,6 +3769,7 @@ def _dispatch_one(
                 feature_id=item.id,
                 status="ok",
                 data=_feature_data(item.id, state),
+                subshape_resolution=state.subshape_tally.summary(),
             )
         )
         # Remember the TYPE of every captured feature, in evaluation order: a

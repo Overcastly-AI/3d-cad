@@ -76,7 +76,6 @@ function, so the selected set and its order are a pure function of the body.
 
 import math
 from dataclasses import dataclass
-from typing import Literal
 
 from build123d import Edge, Face, GeomType, Vector
 from loft_wire.features import (
@@ -86,6 +85,7 @@ from loft_wire.features import (
     EdgeSignature,
     PickedEdgesSelector,
     PlanarFaceSignature,
+    SubshapeResolutionTier,
 )
 from loft_wire.geometry import Vec3
 from OCP.BRepAdaptor import BRepAdaptor_Curve
@@ -103,6 +103,7 @@ from geometry.kernel.faces import (
     match_face_records,
     planar_faces,
 )
+from geometry.kernel.resolution import ResolutionTally
 
 # The two subshape-resolution errors are generic (defined alongside the face
 # resolver); edge resolution reuses them rather than minting a parallel taxonomy.
@@ -475,9 +476,10 @@ _UNRESOLVED_MESSAGE = (
 #: about a match is "it is where you left it" vs "it moved and I followed it".
 #: ``adjacent`` is the §14 third tier — "the edge itself moved off every
 #: coordinate I stored, and I found it again as the intersection of the two faces
-#: it bounds". It stays KERNEL-SIDE (this is not the wire alias) because no
-#: persisted DTO reports it yet.
-EdgeMatchTier = Literal["exact", "durable", "adjacent"]
+#: it bounds". Since EDGE-RESOLVE-WARN-1 a DTO reports it, so this IS the wire
+#: alias (:data:`~loft_wire.features.SubshapeResolutionTier`) — one vocabulary,
+#: re-exported under its kernel name.
+EdgeMatchTier = SubshapeResolutionTier
 
 
 @dataclass(frozen=True)
@@ -827,13 +829,19 @@ def _ambiguous(count: int, *, tier: EdgeMatchTier) -> SubshapeAmbiguousError:
     )
 
 
-def resolve_edge_durable(body: BodyShape, target: EdgeSignature) -> ResolvedEdge:
+def resolve_edge_durable(
+    body: BodyShape,
+    target: EdgeSignature,
+    *,
+    tally: ResolutionTally | None = None,
+) -> ResolvedEdge:
     """Resolve a picked-edge reference against *body* — strict, then durable.
 
     THE feature-tree entry point (fillet / chamfer via
     :func:`_resolve_picked_edges`, sheet-metal edge flange + hem via the feature
     layer). Requires EXACTLY ONE match at whichever tier fires (§7.2 — refuse to
-    guess) and returns the edge, its CURRENT signature, and the tier.
+    guess) and returns the edge, its CURRENT signature, and the tier. *tally*,
+    when given, is told that tier too (:mod:`geometry.kernel.resolution`).
 
     Raises:
         SubshapeUnresolvedError: neither tier found the edge — it genuinely no
@@ -845,11 +853,15 @@ def resolve_edge_durable(body: BodyShape, target: EdgeSignature) -> ResolvedEdge
         raise SubshapeUnresolvedError(_UNRESOLVED_MESSAGE)
     if len(matches) > 1:
         raise _ambiguous(len(matches), tier=tier)
+    if tally is not None:
+        tally.note(tier)
     record = matches[0]
     return ResolvedEdge(edge=record.edge, signature=record.signature, tier=tier)
 
 
-def _resolve_picked_edges(body: BodyShape, selector: PickedEdgesSelector) -> list[Edge]:
+def _resolve_picked_edges(
+    body: BodyShape, selector: PickedEdgesSelector, tally: ResolutionTally | None
+) -> list[Edge]:
     """Resolve each picked edge ref to its edge; dedupe; return in body order.
 
     Every ref must resolve to exactly one edge through the SAME two-tier match
@@ -858,10 +870,10 @@ def _resolve_picked_edges(body: BodyShape, selector: PickedEdgesSelector) -> lis
     (idempotent). Returned in ``body.edges()`` order so the fillet/chamfer input is
     deterministic regardless of pick order (RESEARCH §9).
 
-    The tier is not surfaced here: this resolver returns the kernel :class:`Edge`
-    itself, not a derived POSITION, so a durable match needs no re-anchoring —
-    exactly the reasoning :func:`geometry.kernel.faces.resolve_faces` records for
-    its own ignored flag.
+    This resolver returns the kernel :class:`Edge` itself, not a derived
+    POSITION, so a durable match needs no re-anchoring — exactly the reasoning
+    :func:`geometry.kernel.faces.resolve_faces` records for its own flag. The
+    tier is still REPORTED to *tally*, once per ref (EDGE-RESOLVE-WARN-1).
     """
     records = enumerate_edges(body)
     chosen: dict[int, Edge] = {}
@@ -871,6 +883,8 @@ def _resolve_picked_edges(body: BodyShape, selector: PickedEdgesSelector) -> lis
             raise SubshapeUnresolvedError(_UNRESOLVED_MESSAGE)
         if len(matches) > 1:
             raise _ambiguous(len(matches), tier=tier)
+        if tally is not None:
+            tally.note(tier)
         chosen[matches[0].index] = matches[0].edge
     return [chosen[index] for index in sorted(chosen)]
 
@@ -890,13 +904,19 @@ def _is_axis_parallel(edge: Edge, axis: Vector) -> bool:
     return tangent.cross(axis).length <= _EDGE_DIRECTION_TOLERANCE
 
 
-def select_edges(body: BodyShape, selector: EdgeSelector) -> list[Edge]:
+def select_edges(
+    body: BodyShape,
+    selector: EdgeSelector,
+    *,
+    tally: ResolutionTally | None = None,
+) -> list[Edge]:
     """Resolve an edge selector against *body* (design §2.4/§10).
 
     Deterministic: a PREDICATE selector filters ``body.edges()`` (OCCT's
     deterministic order) by a pure predicate; a PICKED selector matches each
     stage-1 signature against that same enumeration, exactly one or an honest
-    error.
+    error. Only a PICKED ref is a reference, so only those are reported to
+    *tally* — a predicate re-selects by rule and has no tier to report.
 
     Raises:
         NoEdgesSelectedError: a predicate matched no edge (nothing to modify).
@@ -914,7 +934,7 @@ def select_edges(body: BodyShape, selector: EdgeSelector) -> list[Edge]:
             # picked signature that no longer resolves is not the same outcome as
             # a predicate matching nothing); refs are >= 1, each resolving to one
             # edge, so the result is never empty.
-            return _resolve_picked_edges(body, selector)
+            return _resolve_picked_edges(body, selector, tally)
 
     if not edges:
         raise NoEdgesSelectedError(
