@@ -142,7 +142,16 @@ test.describe("the extrude gauge is grabbable where it is drawn", () => {
     await page.goto(`/parts/${part.id}`);
     await openExtrude(page);
 
-    const leader = page.getByTestId("gauge-tag-leader");
+    // SCOPED TO THE DEPTH TAG. An extrude carries two instruments since the
+    // twist arc (helical-gear gap G1), each with its own tied tag, so a
+    // page-wide `gauge-tag-leader` is two lines; this case is about the one
+    // that carries `D`. The tag's root holds its leader and its placed strip
+    // as siblings, so it is found through the strip it carries.
+    const depthTag = page.locator(
+      'div:has(> [data-gauge-tag-side] [data-testid="extrude-depth-readout"])',
+    );
+    await expect(depthTag).toHaveCount(1);
+    const leader = depthTag.getByTestId("gauge-tag-leader");
     await expect(leader).toHaveCount(1);
 
     // The leader's anchor is ON the grip and its far end is ON the strip, which
@@ -194,7 +203,7 @@ test.describe("the extrude gauge is grabbable where it is drawn", () => {
     // The side is STAMPED, which is the only externally checkable evidence a
     // flip can ever happen — a placement test that only asserts "inside the
     // frame" passes just as well when the tag is clamped onto the grip.
-    await expect(page.locator("[data-gauge-tag-side]")).toHaveCount(1);
+    await expect(depthTag.locator("[data-gauge-tag-side]")).toHaveCount(1);
   });
 
   test("the sleeve exists only while the command is open", async ({ page }) => {

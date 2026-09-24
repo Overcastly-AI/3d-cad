@@ -67,6 +67,8 @@ import {
   type Vec3,
 } from "@loft/design";
 
+import { MAX_TWIST_DEG } from "../features/extrude";
+
 /**
  * The shortest sweep the revolve gauge will pull to, degrees.
  *
@@ -299,6 +301,69 @@ export function draftGaugeTrack(seat: ArcSeat, sign: 1 | -1): GaugeTrack {
     ...base,
     stops: (value, unitsPerPixel) =>
       angularStops(value, seat.arcRadiusMm, unitsPerPixel),
+  };
+}
+
+/**
+ * THE EXTRUDE TWIST GAUGE — the same instrument a third time, seated on the far
+ * cap about the twist axis (helical-gear gap G1; the seat is `twistArcSeat`).
+ *
+ * A twist is the one angle here that is SIGNED, CROSSES ZERO, and runs to TEN
+ * TURNS, so it meets both of the gaps the header names and cannot take the
+ * draft's way round the first:
+ *
+ *  · **The sign cannot ride on the axis.** Zero is a valid twist (none), and
+ *    dragging through it from right-hand to left-hand is one gesture, so the
+ *    track's value IS the signed angle. The ladder is drawn on the side the
+ *    value is on: {@link angularStops} is asked for the magnitude and its rungs
+ *    are mirrored for a negative sweep.
+ *
+ *  · **`valueAt` must not wrap.** The drag reads `grab + (at - atGrab)`, so a
+ *    pointer answer that jumps from 359 to 0 as it passes the reference jumps
+ *    the twist by a whole turn. The wrapper UNWRAPS: each answer is the
+ *    equivalent of the raw angle nearest the previous answer, so a pointer
+ *    circling the axis twice reads 720. That is state on a pure object, and it
+ *    is deliberate: the track is memoised per seat, the seat does not move
+ *    while you drag its twist, and the only failure is a pointer that crosses
+ *    half a turn between two `pointermove` events, which no hand does.
+ *
+ * The bounds are the contract's (`MAX_TWIST_DEG` either way): a drag can
+ * reach everything the kernel takes and nothing it refuses.
+ */
+export function twistGaugeTrack(seat: ArcSeat): GaugeTrack {
+  const base = angularTrack(gaugeSeat(seat), {
+    min: -MAX_TWIST_DEG,
+    max: MAX_TWIST_DEG,
+    radius: seat.arcRadiusMm,
+    snap: ANGLE_SNAP_DEG,
+    keyStep: ANGLE_KEY_STEP_DEG,
+    coarseFactor: ANGLE_COARSE_FACTOR,
+    epsilon: ANGLE_EPSILON_DEG,
+    format: (value, opts) => formatAngle(value, opts ?? {}),
+  });
+  let last: number | null = null;
+  return {
+    ...base,
+    valueAt: (rayOrigin, rayDirection) => {
+      const wrapped = base.valueAt(rayOrigin, rayDirection);
+      if (wrapped === null) return null;
+      last =
+        last === null
+          ? wrapped > 180
+            ? wrapped - 360
+            : wrapped
+          : wrapped + Math.round((last - wrapped) / 360) * 360;
+      return last;
+    },
+    stops: (value, unitsPerPixel) => {
+      const stops = angularStops(value, seat.arcRadiusMm, unitsPerPixel);
+      if (value >= 0 || stops === NO_STOPS) return stops;
+      return {
+        ...stops,
+        major: stops.major.map((d) => -d),
+        minor: stops.minor.map((d) => -d),
+      };
+    },
   };
 }
 

@@ -18,8 +18,9 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { LADDER_MIN_RUNGS, MAX_RUNGS } from "@loft/design";
+import { LADDER_MIN_RUNGS, MAX_RUNGS, type Vec3 } from "@loft/design";
 
+import { MAX_TWIST_DEG } from "../features/extrude";
 import {
   ANGLE_KEY_STEP_DEG,
   angularStops,
@@ -32,6 +33,7 @@ import {
   revolveGaugeTrack,
   revolveSweepLines,
   rotateAboutAxis,
+  twistGaugeTrack,
   type ArcSeat,
 } from "./axisAnchorGauge";
 
@@ -274,6 +276,74 @@ describe("draftGaugeTrack — the sign rides on the axis, not on the value", () 
   it("rules the same ladder as the revolve gauge", () => {
     expect(positive.stops(30, perPixelForDegree(1, 9)).pitch).toBe(1);
     expect(negative.stops(30, perPixelForDegree(1, 9)).pitch).toBe(1);
+  });
+});
+
+describe("twistGaugeTrack — signed, through zero, and past a whole turn", () => {
+  /** The pointer ray straight down onto SEAT's arc at `deg` (perp is -Z). */
+  function rayAt(deg: number): [Vec3, Vec3] {
+    const r = (deg * Math.PI) / 180;
+    return [
+      [20 * Math.cos(r), 10, -20 * Math.sin(r)],
+      [0, -1, 0],
+    ];
+  }
+
+  it("reads a pointer just short of the reference as a small NEGATIVE twist", () => {
+    // The package answers 350 here, which the drag would read as +350: a
+    // left-hand nudge turning the part almost a full turn right-hand.
+    const track = twistGaugeTrack(SEAT);
+    expect(track.valueAt(...rayAt(-10))).toBeCloseTo(-10, 6);
+  });
+
+  it("UNWRAPS: a pointer circling the axis keeps counting past 360", () => {
+    // The drag reads grab + (at - atGrab), so a wrapped answer would snap a
+    // twist of 370 back to 10 as the pointer crossed the reference.
+    const track = twistGaugeTrack(SEAT);
+    const seen: number[] = [];
+    for (let deg = 0; deg <= 740; deg += 20) {
+      seen.push(track.valueAt(...rayAt(deg)) ?? Number.NaN);
+    }
+    expect(seen[seen.length - 1]).toBeCloseTo(740, 6);
+    for (let i = 1; i < seen.length; i += 1) {
+      expect((seen[i] as number) - (seen[i - 1] as number)).toBeCloseTo(20, 6);
+    }
+    // and back down through zero into a left-hand twist.
+    let value = 0;
+    for (let deg = 740; deg >= -400; deg -= 20) {
+      value = track.valueAt(...rayAt(deg)) ?? Number.NaN;
+    }
+    expect(value).toBeCloseTo(-400, 6);
+  });
+
+  it("spans exactly the contract's range, zero included", () => {
+    const track = twistGaugeTrack(SEAT);
+    expect(track.clamp(0)).toBe(0);
+    expect(track.clamp(-5000)).toBe(-MAX_TWIST_DEG);
+    expect(track.clamp(5000)).toBe(MAX_TWIST_DEG);
+    expect(track.quantize(-12.4, false)).toBe(-10);
+    expect(track.nudge(0, "ArrowDown", false)).toBe(-1);
+  });
+
+  it("rules its ladder on the side the twist is on", () => {
+    const track = twistGaugeTrack(SEAT);
+    const upp = perPixelForDegree(1, 2);
+    const right = track.stops(90, upp);
+    const left = track.stops(-90, upp);
+    expect(right.major).toEqual([15, 30, 45, 60, 75]);
+    expect(left.major).toEqual([-15, -30, -45, -60, -75]);
+    expect(left.pitch).toBe(right.pitch);
+    // The drawn rungs of a left-hand sweep sit on the left-hand arc.
+    const drawn = track.draw(-90, left);
+    const firstRung = drawn.rungs[0] as readonly [Vec3, Vec3];
+    const mid = (firstRung[0][2] + firstRung[1][2]) / 2;
+    expect(mid).toBeGreaterThan(0);
+  });
+
+  it("speaks the signed angle", () => {
+    const track = twistGaugeTrack(SEAT);
+    expect(track.format(-30)).toBe("-30°");
+    expect(track.format(720)).toBe("720°");
   });
 });
 

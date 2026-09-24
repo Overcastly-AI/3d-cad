@@ -407,6 +407,106 @@ test.describe("extrude drag handle", () => {
     await expect(grip).toHaveAttribute("aria-valuetext", "15 mm");
   });
 
+  test("the twist arc: typed and dragged are one value, past a whole turn, to the saved row", async ({
+    page,
+  }) => {
+    // Helical-gear gap G1. The arc on the ghost's far cap is the Twist field's
+    // drag handle (contract beta): the field moves the grip, the grip writes the
+    // field, the ghost follows the field, and Save sends that number.
+    test.setTimeout(120_000);
+    await installSceneProbe(page);
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Twisted boss");
+    await page.goto(`/parts/${part.id}`);
+    await openExtrude(page);
+
+    await page.getByTestId("view-top").click();
+    await waitForCameraRest(page);
+
+    const grip = page.getByRole("slider", { name: "Extrude twist" });
+    const field = page.getByTestId("extrude-twist");
+    const stamp = page.getByTestId("extrude-preview-active");
+    await expect(grip).toHaveAttribute("data-testid", "extrude-twist-handle");
+    await expect(grip).toHaveAttribute("aria-valuenow", "0");
+    const centreOf = async (): Promise<{ x: number; y: number }> => {
+      const box = await grip.boundingBox();
+      if (box === null) throw new Error("the twist handle has no box");
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    };
+
+    // FIELD -> GRIP. From the TOP the camera looks straight down the travel, so
+    // the arc projects as a circle. The grip rides the arrowhead's TIP, a fixed
+    // tangent length past the arc once there is a sweep, so the grips at 90 and
+    // 270 are a diameter of one slightly larger circle about the same axis:
+    // their midpoint is the axis on screen. The one at 90 also gives the sense
+    // a positive twist turns on screen.
+    const at0 = await centreOf();
+    await field.fill("90");
+    await expect(grip).toHaveAttribute("aria-valuenow", "90");
+    await expect(stamp).toHaveAttribute("data-twist-deg", "90");
+    const at90 = await centreOf();
+    await field.fill("270");
+    await expect(grip).toHaveAttribute("aria-valuenow", "270");
+    const at270 = await centreOf();
+    const c = { x: (at90.x + at270.x) / 2, y: (at90.y + at270.y) / 2 };
+    const r = Math.hypot(at0.x - c.x, at0.y - c.y);
+    expect(r, "the grip must travel round the arc").toBeGreaterThan(20);
+    const a0 = Math.atan2(at0.y - c.y, at0.x - c.x);
+    const a90 = Math.atan2(at90.y - c.y, at90.x - c.x);
+    const sense = Math.sin(a90 - a0) > 0 ? 1 : -1;
+    await field.fill("");
+    await expect(grip).toHaveAttribute("aria-valuenow", "0");
+
+    // GRIP -> FIELD, the real gesture: round the axis a turn and 45 degrees.
+    // A pointer answer that wrapped at the reference would leave 45 here.
+    // (15-degree moves: each costs ~0.4 s of software GL in this suite, and
+    // the unwrap only needs every move to be under half a turn.)
+    await page.mouse.move(at0.x, at0.y);
+    await page.mouse.down();
+    for (let deg = 15; deg <= 405; deg += 15) {
+      const a = a0 + (sense * deg * Math.PI) / 180;
+      await page.mouse.move(c.x + r * Math.cos(a), c.y + r * Math.sin(a));
+    }
+    await page.mouse.up();
+    await expect
+      .poll(async () => Number.parseFloat(await field.inputValue()))
+      .toBeGreaterThan(360);
+    const dragged = Number.parseFloat(await field.inputValue());
+    console.log(
+      `twist arc: dragged 405 deg round the axis -> field ${dragged}`,
+    );
+    expect(Math.abs(dragged - 405)).toBeLessThanOrEqual(15);
+    await expect(stamp).toHaveAttribute("data-twist-deg", String(dragged));
+    await expect(grip).toHaveAttribute("aria-valuenow", String(dragged));
+
+    // The grip is a slider: a key press lands on the degree grid.
+    await grip.focus();
+    await grip.press("ArrowDown");
+    await expect(field).toHaveValue(String(dragged - 1));
+
+    // ...and the number reaches the saved row, exactly. Saved 100 mm deep:
+    // a turn over 10 mm is minutes of kernel MESHING (twisted-extrude.md §6.1,
+    // 14.8 s at 720 deg / 10 mm against 0.8 s over 100 mm), and the claim here
+    // is about the number, not about that cost.
+    await page.getByTestId("extrude-distance").fill("100");
+    await expect(field).toHaveValue(String(dragged - 1));
+    await field.press("Enter");
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 60_000,
+    });
+    const response = await page.request.get(
+      `/api/v1/parts/${part.id}/features`,
+      { headers: { Authorization: `Bearer ${account.token}` } },
+    );
+    const body = (await response.json()) as {
+      features: {
+        feature: { type: string; params: Record<string, unknown> };
+      }[];
+    };
+    const extrude = body.features.find((f) => f.feature.type === "extrude");
+    expect(extrude?.feature.params["twist_angle_deg"]).toBe(dragged - 1);
+  });
+
   test("founder screenshot: the gauge on a live extrude (desktop)", async ({
     page,
   }) => {

@@ -1737,6 +1737,9 @@ export function PartPage() {
    */
   const [extrudeDepthOverride, extrudeDepthGauge] = useGaugeOverride("mm");
   const handleExtrudeDrag = extrudeDepthGauge.set;
+  // The twist arc on the ghost's far cap (helical-gear gap G1): the same
+  // contract, in degrees, into the editor's Twist field.
+  const [extrudeTwistOverride, extrudeTwistGauge] = useGaugeOverride("deg");
 
   // The fillet/chamfer gauges (CRAFT-9a), carrying the same contract: the live
   // value the editor holds (so the viewport can draw the round or the bevel at
@@ -1812,6 +1815,7 @@ export function PartPage() {
    */
   const endGaugeSession = useCallback(() => {
     extrudeDepthGauge.reset();
+    extrudeTwistGauge.reset();
     filletRadiusGauge.reset();
     chamferDistanceGauge.reset();
     shellThicknessGauge.reset();
@@ -1826,6 +1830,7 @@ export function PartPage() {
     holeDepthGauge.reset();
   }, [
     extrudeDepthGauge,
+    extrudeTwistGauge,
     filletRadiusGauge,
     chamferDistanceGauge,
     shellThicknessGauge,
@@ -5382,6 +5387,7 @@ export function PartPage() {
                       data-distance-mm={extrudePreview.distanceMm}
                       data-direction={extrudePreview.direction}
                       data-operation={extrudePreview.operation}
+                      data-twist-deg={extrudePreview.twistDeg}
                     />
                   ) : null}
                   {isEmptyPart ? (
@@ -5413,6 +5419,7 @@ export function PartPage() {
                         error={editorError}
                         onPreviewChange={setExtrudePreview}
                         depthOverride={extrudeDepthOverride}
+                        twistOverride={extrudeTwistOverride}
                         profileCentroid={profileCentroid}
                       />
                     ) : editor.kind === "revolve" ? (
@@ -5828,6 +5835,9 @@ export function PartPage() {
                   direction={extrudePreview.direction}
                   operation={extrudePreview.operation}
                   onDepthChange={handleExtrudeDrag}
+                  twistDeg={extrudePreview.twistDeg}
+                  twistCentre={extrudePreview.twistCentre}
+                  onTwistChange={extrudeTwistGauge.set}
                 />
               ) : null}
               {/* ANCHOR D (CRAFT-10) — THE ANGULAR GAUGES.

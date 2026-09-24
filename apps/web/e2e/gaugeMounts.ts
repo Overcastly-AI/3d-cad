@@ -1,11 +1,12 @@
 /**
- * THE ELEVEN GAUGE MOUNTS, AND HOW TO GET EACH ONE ON SCREEN.
+ * THE TWELVE GAUGE MOUNTS, AND HOW TO GET EACH ONE ON SCREEN.
  *
- * `ParametricGauge` is mounted eleven times across the app — nine components,
+ * `ParametricGauge` is mounted twelve times across the app — ten components,
  * two of which (`PatternGaugeLayer`, `HoleGauge`) mount two instruments on one
- * feature:
+ * feature, and the extrude carries two from two (`ExtrudeDragHandle`'s depth
+ * arrow and `ExtrudePreview`'s twist arc):
  *
- *   extrude-depth · fillet-radius · chamfer-distance · shell-thickness
+ *   extrude-depth · extrude-twist · fillet-radius · chamfer-distance · shell-thickness
  *   revolve-angle · draft-angle · datum-offset
  *   pattern-count-gauge · pattern-spacing-gauge
  *   hole-diameter-gauge · hole-depth-gauge
@@ -38,6 +39,7 @@ import { createPartViaApi, seedSession } from "./support";
 /** Every gauge id in the app, in the order this pass reports them. */
 export const GAUGE_IDS = [
   "extrude-depth",
+  "extrude-twist",
   "fillet-radius",
   "chamfer-distance",
   "shell-thickness",
@@ -178,6 +180,32 @@ export const MOUNTS: readonly Mount[] = [
       await page.getByTestId("new-extrude").click();
       await expect(page.getByTestId("extrude-editor")).toBeVisible();
       await page.getByTestId("extrude-distance").fill("30");
+      await iso(page);
+    },
+  },
+  {
+    // The twist arc on the same ghost's far cap (helical-gear gap G1). Opened
+    // at 90, MID-RANGE for the revolve's reason: a drag either way must move
+    // it, and 0 would sit the grip on the reference with no sweep to press.
+    id: "extrude-twist",
+    tag: "leader",
+    field: "extrude-twist",
+    open: async (page) => {
+      const { partId, token } = await openPart(page, "Touch twist");
+      await createFeature(page, token, partId, {
+        name: "Sketch1",
+        feature: { type: "sketch", version: 1, params: SQUARE_20 },
+        expected_tree_version: 0,
+      });
+      await page.goto(`/parts/${partId}`);
+      await dismissNavCue(page);
+      await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+        timeout: 60_000,
+      });
+      await page.getByTestId("new-extrude").click();
+      await expect(page.getByTestId("extrude-editor")).toBeVisible();
+      await page.getByTestId("extrude-distance").fill("30");
+      await page.getByTestId("extrude-twist").fill("90");
       await iso(page);
     },
   },

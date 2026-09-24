@@ -21,11 +21,16 @@ import {
   sceneOriginBasis,
   type PlanarFaceSignature,
 } from "../sketch/plane";
+import { twistGaugeTrack } from "./axisAnchorGauge";
 import {
   extrudeGhostAppearance,
   extrudeGhostPose,
+  twistArcSeat,
+  twistGhostSteps,
+  twistPositionsInPlace,
   type ExtrudeGhostPose,
 } from "./extrudeGhost";
+import type { ProfileRegion } from "./profileLoops";
 
 /** Relative luminance of a `#rrggbb` token — "is this ink dark or bright?". */
 function luminance(hex: string): number {
@@ -145,4 +150,198 @@ describe("extrudeGhostPose — the ghost sits ON the plane it was drawn on", () 
     const pose = extrudeGhostPose(sceneOriginBasis("YZ"));
     expect(place(pose, [0, 0, 0])).toEqual([0, 0, 0]);
   });
+});
+
+/**
+ * THE GHOST TWISTS (helical-gear gap G1). A 90 degree twist used to preview as
+ * a straight prism standing over the twisted body Save made. The kernel's
+ * rule, which the mesh must restate: every slice is the profile turned rigidly
+ * about the twist axis by the fraction of the distance travelled, RIGHT-HANDED
+ * ABOUT THE TRAVEL (so a reverse extrude turns the other way about +normal).
+ */
+describe("twistPositionsInPlace", () => {
+  function twisted(
+    points: number[][],
+    twist: number,
+    centre: { x: number; y: number } | null,
+    reverse: boolean,
+  ): number[][] {
+    const buffer = new Float32Array(points.flat());
+    twistPositionsInPlace(buffer, 20, twist, centre, reverse);
+    const out: number[][] = [];
+    for (let i = 0; i < buffer.length; i += 3) {
+      out.push([buffer[i], buffer[i + 1], buffer[i + 2]] as number[]);
+    }
+    return out;
+  }
+
+  it("leaves the sketch end alone and turns the far end by the whole twist", () => {
+    const [base, mid, top] = twisted(
+      [
+        [10, 0, 0],
+        [10, 0, 10],
+        [10, 0, 20],
+      ],
+      90,
+      null,
+      false,
+    ) as number[][];
+    expect(base).toEqual([10, 0, 0]);
+    // Anticlockwise seen from +normal: the kernel's "positive on XY, normal".
+    expect(top?.[0]).toBeCloseTo(0, 5);
+    expect(top?.[1]).toBeCloseTo(10, 5);
+    // Uniform: half the travel, half the turn.
+    expect(mid?.[0]).toBeCloseTo(10 * Math.SQRT1_2, 5);
+    expect(mid?.[1]).toBeCloseTo(10 * Math.SQRT1_2, 5);
+  });
+
+  it("is right-handed about the TRAVEL: a reverse extrude turns the other way", () => {
+    const [top] = twisted([[10, 0, -20]], 90, null, true) as number[][];
+    expect(top?.[0]).toBeCloseTo(0, 5);
+    expect(top?.[1]).toBeCloseTo(-10, 5);
+  });
+
+  it("turns about the chosen centre, not the origin", () => {
+    const [top, onAxis] = twisted(
+      [
+        [20, 10, 20],
+        [10, 10, 20],
+      ],
+      90,
+      { x: 10, y: 10 },
+      false,
+    ) as number[][];
+    expect(top?.[0]).toBeCloseTo(10, 5);
+    expect(top?.[1]).toBeCloseTo(20, 5);
+    expect(onAxis).toEqual([10, 10, 20]);
+  });
+
+  for (const reverse of [false, true]) {
+    it(`twists a wall normal to the twisted SURFACE's normal (reverse: ${reverse})`, () => {
+      // The wall x = 10 of a prism, normal +x, twisted 120 degrees over 20 mm
+      // about (2, 1). Recomputing normals from the folded triangles striped the
+      // ghost; the analytic one must be perpendicular to the surface itself,
+      // which finite differences of the SAME transform measure independently.
+      const centre = { x: 2, y: 1 };
+      const sign = reverse ? -1 : 1;
+      const surface = (y: number, z: number): Vector3 => {
+        const b = new Float32Array([10, y, z]);
+        twistPositionsInPlace(b, 20, 120, centre, reverse);
+        return new Vector3(b[0], b[1], b[2]);
+      };
+      const y = 5;
+      const z = 8 * sign;
+      const h = 1e-2;
+      const alongWall = surface(y + h, z).sub(surface(y - h, z));
+      const alongTravel = surface(y, z + h).sub(surface(y, z - h));
+      const normals = new Float32Array([1, 0, 0]);
+      twistPositionsInPlace(
+        new Float32Array([10, y, z]),
+        20,
+        120,
+        centre,
+        reverse,
+        normals,
+      );
+      const n = new Vector3(normals[0], normals[1], normals[2]);
+      expect(n.length()).toBeCloseTo(1, 6);
+      expect(Math.abs(n.dot(alongWall.normalize()))).toBeLessThan(1e-3);
+      expect(Math.abs(n.dot(alongTravel.normalize()))).toBeLessThan(1e-3);
+      // Not trivially satisfied: the twist TILTS the wall normal.
+      expect(Math.abs(n.z)).toBeGreaterThan(0.1);
+    });
+  }
+
+  it("keeps a cap flat and a cylinder about its own axis radial", () => {
+    const normals = new Float32Array([0, 0, 1, 0.6, 0.8, 0]);
+    twistPositionsInPlace(
+      new Float32Array([3, 4, 20, 6, 8, 10]),
+      20,
+      90,
+      null,
+      false,
+      normals,
+    );
+    expect([normals[0], normals[1], normals[2]]).toEqual([0, 0, 1]);
+    // (6, 8) turned 45 degrees is still radial: its normal follows, untilted.
+    expect(normals[5]).toBeCloseTo(0, 6);
+    expect(normals[3]).toBeCloseTo(0.6 * Math.SQRT1_2 - 0.8 * Math.SQRT1_2, 6);
+  });
+
+  it("does nothing at all for no twist", () => {
+    expect(twisted([[3, 4, 20]], 0, null, false)).toEqual([[3, 4, 20]]);
+  });
+
+  it("cuts the walls into enough rings to read as a helix", () => {
+    expect(twistGhostSteps(0)).toBe(1);
+    expect(twistGhostSteps(1)).toBe(8);
+    expect(twistGhostSteps(-90)).toBe(18);
+    expect(twistGhostSteps(3600)).toBe(360);
+  });
+});
+
+describe("twistArcSeat — the arc and the ghost agree about which way it turns", () => {
+  const SQUARE: ProfileRegion[] = [
+    {
+      outer: [
+        { x: 0, y: 0 },
+        { x: 20, y: 0 },
+        { x: 20, y: 20 },
+        { x: 0, y: 20 },
+      ],
+      holes: [],
+    },
+  ];
+  const basis = sceneOriginBasis("XY");
+
+  it("stands on the FAR cap, about the travel, clear of the profile", () => {
+    const seat = twistArcSeat(basis, SQUARE, null, 30, "normal");
+    expect(seat?.centre).toEqual([0, 30, 0]);
+    expect(seat?.axis).toEqual([0, 1, 0]);
+    expect(seat?.arcRadiusMm).toBeCloseTo(Math.hypot(20, 20) * 1.2, 9);
+    const reverse = twistArcSeat(basis, SQUARE, null, 30, "reverse");
+    expect(reverse?.centre).toEqual([0, -30, 0]);
+    // (+ 0 folds the -0 a negated zero component carries.)
+    expect(reverse?.axis.map((v) => v + 0)).toEqual([0, -1, 0]);
+  });
+
+  it("is null when there is nothing to twist", () => {
+    expect(twistArcSeat(basis, [], null, 30, "normal")).toBeNull();
+  });
+
+  for (const direction of ["normal", "reverse"] as const) {
+    for (const twist of [90, -45, 400]) {
+      it(`puts the grip beside the far corner the ghost turned (${direction}, ${twist}°)`, () => {
+        // The one property that decides whether the arc is an instrument or a
+        // decoration: drag it, and the grip travels WITH the corner of the top
+        // it dimensions. Ghost and gauge derive the turn separately, so this
+        // catches either one getting the sense wrong.
+        const depth = 30;
+        const seat = twistArcSeat(basis, SQUARE, null, depth, direction);
+        if (seat === null) throw new Error("no seat");
+        const grip = twistGaugeTrack(seat).pointAt(twist);
+        const z = direction === "reverse" ? -depth : depth;
+        const corner = new Float32Array([20, 20, z]);
+        twistPositionsInPlace(
+          corner,
+          depth,
+          twist,
+          null,
+          direction === "reverse",
+        );
+        const pose = extrudeGhostPose(basis);
+        const onScene = place(pose, [
+          corner[0] as number,
+          corner[1] as number,
+          corner[2] as number,
+        ]);
+        const toGrip = new Vector3(...grip).sub(new Vector3(...seat.centre));
+        const toCorner = new Vector3(...onScene).sub(
+          new Vector3(...seat.centre),
+        );
+        expect(toGrip.angleTo(toCorner)).toBeLessThan(1e-4);
+        expect(toGrip.length()).toBeGreaterThan(toCorner.length());
+      });
+    }
+  }
 });
