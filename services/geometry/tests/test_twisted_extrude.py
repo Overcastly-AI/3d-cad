@@ -264,6 +264,51 @@ def test_twist_axis_goes_through_twist_center() -> None:
     assert orbit.centroid.y == pytest.approx(20.0 * sin_mean, abs=CENTROID_TOL)
 
 
+@pytest.mark.parametrize(
+    ("plane", "centre_world", "normal"),
+    [
+        # RESEARCH §12: XZ is x_dir +X, y_dir +Z, z_dir -Y; YZ is +Y, +Z, +X.
+        ("XZ", (20.0, 0.0, 5.0), (0.0, -1.0, 0.0)),
+        ("YZ", (0.0, 20.0, 5.0), (1.0, 0.0, 0.0)),
+    ],
+)
+def test_twist_center_is_sketch_local_not_world(
+    plane: str, centre_world: tuple[float, float, float], normal: tuple[float, ...]
+) -> None:
+    """``twist_center`` is in the SKETCH's (u, v), mapped through the plane.
+
+    A 20 mm square at u in [10, 30], v in [-5, 15] twisted about its own centre
+    (u, v) = (20, 5) spins in place, so the solid's centroid is that centre's
+    WORLD position plus half the extrusion along the plane normal - on XZ and
+    YZ, where sketch (u, v) and world (x, y) disagree. Treating the centre as
+    world (x, y, 0) puts the axis 5 mm off the square's centre, so the section
+    orbits and the centroid moves (review of d823af9: that mutation passed the
+    whole suite, because every other twist test sketches on XY about the
+    origin)."""
+    square = _rect("s", 10.0, -5.0, 30.0, 15.0)
+    sketch = _sketch(SKETCH_ID, square)
+    sketch["feature"]["params"]["plane"] = {"kind": "datum_plane", "plane": plane}
+    props = _ok_properties(
+        _evaluate(
+            [
+                sketch,
+                _extrude(
+                    EXTRUDE_ID,
+                    SKETCH_ID,
+                    30.0,
+                    twist_angle_deg=30.0,
+                    twist_center={"x": 20.0, "y": 5.0},
+                ),
+            ]
+        )
+    )
+    expected = [c + 15.0 * n for c, n in zip(centre_world, normal, strict=True)]
+    assert props.volume == pytest.approx(400.0 * 30.0, abs=TWIST_TOL)
+    assert props.centroid.x == pytest.approx(expected[0], abs=CENTROID_TOL)
+    assert props.centroid.y == pytest.approx(expected[1], abs=CENTROID_TOL)
+    assert props.centroid.z == pytest.approx(expected[2], abs=CENTROID_TOL)
+
+
 def test_twisted_extrude_starts_a_second_body_with_merge_false() -> None:
     """`merge: false` composes with a twist: the twisted prism is a NEW body."""
     result = _evaluate(
