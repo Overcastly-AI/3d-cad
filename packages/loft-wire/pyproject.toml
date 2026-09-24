@@ -9,8 +9,12 @@ license = "MIT"
 # module's imports and fails on anything that is not stdlib or named here, with
 # a count floor so a walk that finds nothing cannot pass vacuously.
 dependencies = [
-    # MIT.
-    "pydantic>=2.9",
+    # MIT. >=2.12 because ``Field(exclude_if=...)`` arrived in 2.12: the
+    # twisted-extrude fields rely on it to stay OUT of an untwisted extrude's
+    # dump (docs/design/twisted-extrude.md §5). Measured on 2.11.9: the keyword
+    # is silently ignored and both fields dump as null, which changes every
+    # stored extrude row and its rebuild-cache key.
+    "pydantic>=2.12",
     # ``EmailStr`` on the auth DTOs (loft_wire.auth). Unlicense/CC0 + its one
     # dependency dnspython is ISC — no copyleft (RESEARCH §8). It is the ONE
     # non-pydantic runtime dependency, and it is here rather than in py-kit
