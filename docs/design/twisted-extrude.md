@@ -294,6 +294,59 @@ poles either way. Accuracy per second still favours the twist heavily. A
 5-section loft builds in 13.9 s and an 11-section loft in 33.5 s (report), and
 both are less accurate than the twisted build.
 
+### 6.1 High twists: the MESH is the cost (geometry QA F4, measured, OPEN)
+
+QA found that twists inside the accepted ±3600° tie up a worker for minutes. A
+20 mm square over 30 mm took 59 s at 1800° and 415 s at -3600°, and the gateway
+gives up at 90 s while the worker keeps meshing. Re-measured here, sweeping
+then tessellating at the production 0.1 mm linear / 0.1 rad angular
+deflection:
+
+| Profile, distance, twist         | Sweep  | Mesh    | Triangles |
+| -------------------------------- | ------ | ------- | --------- |
+| square 20, 30 mm, 360°           | 0.04 s | 0.98 s  | 121 732   |
+| square 20, 30 mm, 720°           | 0.09 s | 4.22 s  | 373 838   |
+| square 20, 30 mm, 1080°          | 0.11 s | 20.35 s | 673 812   |
+| square 20, 10 mm, 720°           | 0.07 s | 14.79 s | 597 810   |
+| square 20, 100 mm, 720°          | 0.06 s | 0.82 s  | 107 048   |
+| square 20, 300 mm, 3600°         | 0.43 s | 28.89 s | 956 480   |
+| square 2 at r = 10, 20 mm, 3600° | —      | 22.23 s | 696 792   |
+| slot 0.2 × 20 at r 10..30, 3600° | —      | 1.47 s  | 69 924    |
+
+The two findings that decide the fix:
+
+1. **The angular deflection drives it, not the fit or the linear
+   deflection.** On the 720° square, BRepMesh gives 367 774 triangles in
+   10.1 s at 0.1 mm / 0.1 rad. At 0.1 mm / 0.5 rad it gives 12 900 in
+   0.16 s, and at 1.0 mm / 0.1 rad still 320 000. A ruled helicoid's normal
+   turns along BOTH parameters, so the interior angle criterion subdivides it
+   far past what the 0.1 mm chordal bound needs. The pipe-shell fit tolerance
+   does not matter (QA: 1e-4 and 1e-7 mesh equally slowly).
+2. **The cost is not a function of the twist alone, or of any simple profile
+   measure.** It depends on each edge's offset from the axis. A thin RADIAL
+   slot at 10 turns meshes in 1.5 s, while a 2 mm square at r = 10 over the
+   same 10 turns takes 22 s. It also depends on turns and on lead angle
+   (distance), and those do not collapse to one metric: 1 turn over 10 mm
+   takes 2.9 s, and 3 turns over 30 mm, the same lead angle, take 20 s. A
+   flat bound small enough to guarantee "a few seconds" (below 720°: the
+   short square already takes 15 s there) refuses useful geometry that
+   meshes in well under a second. A profile-aware predictor would be a
+   hand-fitted model of BRepMesh.
+
+**Therefore the recommended fix is bounded tessellation, not a tighter twist
+bound.** Mesh the twisted flanks with a relaxed INTERIOR angular deflection,
+keeping the linear (chordal) deflection. That gives about 28× fewer
+triangles at 720°, with the mesh still within 0.1 mm of the surface. It
+needs the tessellator to know which faces are helicoidal flanks: provenance
+already attributes faces to features, or `IMeshTools_Parameters.AngleInterior`
+could be applied body-wide. The body-wide option changes the mesh of every
+curved golden, so it is a reviewed decision of its own. **Not done in this
+batch**: the review asked for F1 and F3 first, and this touches the
+tessellation contract of every body. Until it lands, twists of more than
+about two turns on a profile wide relative to its distance can occupy a
+worker for tens of seconds or more. The ±3600° request bound stands only as
+a sanity bound.
+
 ## 7. Not done here
 
 - The web UI (twist field plus a gauge on the extrude editor): a separate
@@ -301,5 +354,7 @@ both are less accurate than the twisted build.
 - A twist on the SWEEP feature (`SweepParamsV1` still says "NO twist") and a 3D
   helix path. The twisted extrude covers the gear. A sweep twist would reuse
   this module's auxiliary-helix idea along a non-straight spine.
+- Bounded tessellation for high twists (§6.1, geometry QA F4): measured and
+  designed, not implemented.
 - The pattern boolean cost (§6) is OCCT's. The lever, if it matters, is running
   the tool fusion in parallel, which needs its own determinism evidence first.
