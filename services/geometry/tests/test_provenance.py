@@ -20,17 +20,20 @@ import struct
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from build123d import Compound, Face, GeomType, Solid
 from fastapi.testclient import TestClient
+from geometry.features import evaluate as evaluate_module
 from geometry.features import evaluate_tree
-from geometry.features.evaluate import reset_rebuild_cache
+from geometry.features.evaluate import rebuild_cache_stats, reset_rebuild_cache
 from geometry.kernel import FaceProvenance, attribute_faces, provenance
 from geometry.kernel.provenance import FaceFingerprint
 from geometry.kernel.types import BodyShape
 from geometry.main import app
+from geometry.overlay import evaluate_overlay
+from geometry.rebuild_cache import REBUILD_CACHE_CAPACITY, RUNG_SPACING, PrefixCache
 from loft_wire.features import EvaluateTreeRequest
 from loft_wire.overlay import OverlayRequest, OverlayResult
 
@@ -276,12 +279,16 @@ def test_the_overlay_carries_attribution_and_evaluate_does_not() -> None:
 _BUILDERS_PATH = Path(__file__).resolve().parent / "_big_part_builders.py"
 
 
-def _tray_tree() -> EvaluateTreeRequest:
+def _housing(n: int) -> dict[str, Any]:
     spec = importlib.util.spec_from_file_location("_big_part_builders", _BUILDERS_PATH)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return EvaluateTreeRequest.model_validate(module.housing_tree(10))
+    return cast(dict[str, Any], module.housing_tree(n))
+
+
+def _tray_tree() -> EvaluateTreeRequest:
+    return EvaluateTreeRequest.model_validate(_housing(10))
 
 
 def _counting_fingerprint(
@@ -388,6 +395,118 @@ def test_the_memo_changes_what_is_computed_never_what_is_answered(
     assert attribute_faces(evaluation.body, replayed) == attribute_faces(
         evaluation.body, evaluation.face_provenance
     )
+
+
+# --- PERF-REAL-3 follow-up: fingerprints are LAZY, and a pick pays for them once --
+
+
+def test_an_evaluation_nobody_picks_from_spends_no_fingerprints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every evaluation RECORDS its history (one cache lineage, PERF-REAL-3), and
+    recording eagerly cost 5.6-11.4 % of a cold rebuild. So recording only notes
+    which faces each snapshot holds; the GProps wait for the first reader. An
+    ``/evaluate``, ``/tessellate`` or export that never reads provenance must spend
+    ZERO fingerprints (this tree is shorter than a ladder rung, so no fork forces
+    any), and the first read must then spend them — or this would pass on a tree
+    that simply had no history."""
+    count = _counting_fingerprint(monkeypatch)
+    evaluation = evaluate_tree(
+        EvaluateTreeRequest.model_validate(_block_and_hole_tree())
+    )
+    assert count() == 0, (
+        f"an evaluation nobody read provenance from spent {count()} fingerprints — "
+        "recording is eager again"
+    )
+    history = evaluation.face_provenance
+    assert len(history.snapshots) == 2
+    assert count() > 0, "the first read materialises the fingerprints"
+
+
+def test_a_pick_materialises_once_and_the_next_pick_is_free(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The first ``/overlay`` of a checkpoint fingerprints its distinct faces and
+    leaves them ON the checkpoint; the next pick of the same tree (a frontier hit)
+    must spend nothing — neither on the history nor on the final body, whose faces
+    ARE the last snapshot's (``face_owners`` reads them from the recorder rather
+    than re-running a GProp per final face, the ~0.43 s a gearbox hit used to pay).
+    """
+    request = OverlayRequest.model_validate({"tree": _tray_tree().model_dump()})
+    evaluate_tree(request.tree)  # the open: records, fingerprints nothing
+    count = _counting_fingerprint(monkeypatch)
+
+    first = evaluate_overlay(request)
+    spent = count()
+    assert spent > 0, "the first pick is the one that materialises"
+    assert all(face.feature_id is not None for face in first.faces)
+
+    second = evaluate_overlay(request)
+    assert count() == spent, (
+        f"the second pick of the same checkpoint spent {count() - spent} "
+        "fingerprints — the materialised history was not kept on it"
+    )
+    assert second == first
+
+
+def test_a_ladder_rung_does_not_refingerprint_the_live_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rung forks every shape, so after it no face has the identity it was
+    recorded under. Without re-anchoring, the next snapshot would fingerprint the
+    whole body again as strangers — 5 946 GProps on the N=200 tray, most of them
+    the same faces. The fork re-anchors each live face on its copy, so a tree that
+    passes several rungs spends EXACTLY what the same tree spends with no ladder at
+    all: one GProp per distinct face, and the same answer."""
+    request = EvaluateTreeRequest.model_validate(_housing(3 * RUNG_SPACING + 2))
+
+    def spend() -> tuple[int, FaceProvenance]:
+        count = _counting_fingerprint(monkeypatch)
+        evaluation = evaluate_tree(request)
+        history = evaluation.face_provenance
+        spent = count()
+        monkeypatch.undo()
+        return spent, history
+
+    laddered, with_ladder = spend()
+    reset_rebuild_cache()
+    ladderless: PrefixCache[Any] = PrefixCache(
+        REBUILD_CACHE_CAPACITY, rung_spacing=10**6
+    )
+    monkeypatch.setattr(evaluate_module, "_REBUILD_CACHE", ladderless)
+    flat, without_ladder = spend()
+
+    assert flat > 0
+    assert laddered == flat, (
+        f"{laddered} fingerprints through 3 rungs against {flat} with no ladder — "
+        "a fork is re-fingerprinting faces it should have re-anchored"
+    )
+    assert with_ladder == without_ladder
+
+
+def test_the_materialised_history_counts_in_the_byte_budget() -> None:
+    """A pick grows the checkpoint (it now carries every fingerprint), and the
+    rebuild cache's byte budget has to see that growth — the checkpoint is
+    re-weighed on every store, and the delta is exactly the recorder's own
+    estimate of what it materialised."""
+    tree = _tray_tree()
+    evaluation = evaluate_tree(tree)
+    recorded = evaluation.provenance_recorder
+    assert recorded is not None
+    before_nbytes = recorded.nbytes()
+    del evaluation, recorded
+    before = rebuild_cache_stats().entry_bytes
+
+    evaluation = evaluate_tree(tree)  # a frontier hit: the same checkpoint
+    assert all(owner is not None for owner in evaluation.face_owners())
+    recorder = evaluation.provenance_recorder
+    assert recorder is not None
+    grown = recorder.nbytes() - before_nbytes
+    del evaluation, recorder
+    after = rebuild_cache_stats().entry_bytes
+
+    assert grown >= provenance.HEAP_BYTES_PER_FINGERPRINT
+    assert after - before == grown
 
 
 def test_an_over_budget_tree_spends_no_fingerprints_at_all(

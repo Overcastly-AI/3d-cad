@@ -16,7 +16,7 @@ from loft_wire.overlay import OverlayRequest, OverlayResult
 
 from geometry.faults import unexpected_query_failure
 from geometry.features import evaluate_tree, tree_no_body_error
-from geometry.kernel import attribute_faces, selection_overlay
+from geometry.kernel import selection_overlay
 
 
 def evaluate_overlay(request: OverlayRequest) -> OverlayResult:
@@ -47,7 +47,9 @@ def evaluate_overlay(request: OverlayRequest) -> OverlayResult:
         # edges/signatures path is unchanged. Bounded by MAX_PROVENANCE_FACES
         # (audit H4): past it every feature_id is null and the client falls back to
         # whole-body selection — the picking/measure overlay itself still works.
-        face_features = attribute_faces(evaluation.body, evaluation.face_provenance)
+        # The fingerprints are materialised HERE, on the first pick of this
+        # checkpoint, and kept on it for the next (PERF-REAL-3 follow-up).
+        face_features = evaluation.face_owners()
         return selection_overlay(
             evaluation.body, request.tree.linear_deflection, face_features
         )

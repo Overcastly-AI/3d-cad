@@ -70,13 +70,14 @@ over-approximation (a snapshot with two disjoint patches of one plane spans the
 gap between them), deliberately: it is one comparison, not a containment test per
 patch.
 
-Mechanism: evaluation FINGERPRINTS the whole body set after each ok
+Mechanism: evaluation RECORDS the whole body set's faces after each ok
 body-affecting feature (:class:`FaceProvenanceRecorder`, held by
 :attr:`geometry.features.evaluate.EvaluationState.provenance`) — on every
 evaluation, so the cache checkpoint an ``/evaluate`` leaves can serve the face
-pick that follows it (PERF-REAL-3) — in evaluation order. Each face of the
-final body then resolves against TWO indices built from those snapshots, and
-takes the EARLIER of what they say (see :func:`attribute_faces`):
+pick that follows it (PERF-REAL-3) — in evaluation order, and FINGERPRINTS them
+on the first read (the first pick), keeping the result on the checkpoint.
+Each face of the final body then resolves against TWO indices built from those
+snapshots, and takes the EARLIER of what they say (see :func:`attribute_faces`):
 
 * a :class:`SurfaceKey` dict — the canonical descriptor of the face's supporting
   surface → the earliest snapshot that already had that surface. This is the rule
@@ -130,10 +131,11 @@ to pyright; the directives scope that relaxation to this file only, and the type
 
 import math
 import uuid
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import NamedTuple
 
-from build123d import CenterOf, Face, GeomType
+from build123d import Face, GeomType
 
 # The documented work bound of ONE attribution pass (audit H4) — declared with the
 # overlay DTO it governs, exactly like the G2 per-request bounds.
@@ -141,7 +143,9 @@ from loft_wire.overlay import MAX_PROVENANCE_FACES
 from OCP.Bnd import Bnd_Box
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.BRepBndLib import BRepBndLib
+from OCP.BRepGProp import BRepGProp
 from OCP.GeomAbs import GeomAbs_SurfaceType
+from OCP.GProp import GProp_GProps
 from OCP.TopAbs import TopAbs_ShapeEnum
 from OCP.TopExp import TopExp_Explorer
 from OCP.TopoDS import TopoDS, TopoDS_Shape
@@ -381,17 +385,22 @@ def _fingerprint(face: Face) -> FaceFingerprint:
     """Fingerprint *face* from its exact B-rep (GProp area/centroid, the analytic
     descriptor of its supporting surface, and its extent — never mesh).
 
-    ~186 us (134-237 measured, docs/PERF.md 2026-07-31b) for the GProp half — the
-    whole reason the recorder below memoises rather than repeating it per snapshot
-    — plus ~10 us for :func:`_surface_key` and ~3.5 us for :func:`_extent`, and the
-    latter two only when the surface is analytic.
+    ONE ``BRepGProp.SurfaceProperties`` integration gives both the area and the
+    area centroid. It used to be two — ``face.area`` and
+    ``face.center(CenterOf.MASS)`` each run the identical integration and keep half
+    of it — so this is the same two numbers, bit for bit, at half the price
+    (PERF-REAL-3: ~186 us per face measured before, docs/PERF.md 2026-07-31b).
+    Plus ~10 us for :func:`_surface_key` and ~3.5 us for :func:`_extent`, the
+    latter only when the surface is analytic.
     """
-    centroid = face.center(CenterOf.MASS)
+    properties = GProp_GProps()
+    BRepGProp.SurfaceProperties_s(face.wrapped, properties)
+    centroid = properties.CentreOfMass()
     surface_key = _surface_key(face)
     return FaceFingerprint(
         surface=face.geom_type,
-        area=float(face.area),
-        centroid=(float(centroid.X), float(centroid.Y), float(centroid.Z)),
+        area=float(properties.Mass()),
+        centroid=(float(centroid.X()), float(centroid.Y()), float(centroid.Z())),
         surface_key=surface_key,
         extent=None if surface_key is None else _extent(face),
     )
@@ -511,15 +520,45 @@ class FaceProvenance:
         return recorder.freeze()
 
 
+#: Estimated heap one materialised :class:`FaceFingerprint` occupies (the frozen
+#: dataclass, its centroid and extent tuples, and its :class:`SurfaceKey` with
+#: three inner tuples) — the term :meth:`FaceProvenanceRecorder.nbytes` charges
+#: the rebuild cache for every fingerprint a checkpoint carries. MEASURED
+#: 2026-09-24 with ``tracemalloc`` over the gearbox-11752 import's 1 018 faces:
+#: 829 B per fingerprint for its 990 analytic faces, 293 B for its 28 free-form
+#: ones (no key, no extent). Rounded UP from the analytic figure (+24 %), so the
+#: estimate errs towards holding less, like every other weight in the cache.
+HEAP_BYTES_PER_FINGERPRINT = 1024
+
+#: Estimated heap per face REFERENCE in a snapshot (a pointer in a tuple), charged
+#: once for the recorded index tuples and once for the materialised fingerprint
+#: tuples :meth:`FaceProvenanceRecorder.freeze` builds from them.
+HEAP_BYTES_PER_SNAPSHOT_FACE = 8
+
+
 class FaceProvenanceRecorder:
-    """Accumulates each snapshot's face fingerprints AS evaluation produces them.
+    """Accumulates each snapshot's faces AS evaluation produces them, and
+    fingerprints them only when somebody asks.
 
     One per :class:`~geometry.features.evaluate.EvaluationState`, fed by the
-    dispatcher after every ok body-affecting feature (on every evaluation since
-    PERF-REAL-3; it was opt-in under audit H4). Replaces retaining the snapshot
-    B-reps themselves (PERF-5b): the pass that reads this is then
+    dispatcher after every ok body-affecting feature on EVERY evaluation (one cache
+    lineage since PERF-REAL-3; it was opt-in under audit H4). Replaces retaining the
+    snapshot B-reps themselves (PERF-5b): the pass that reads this is then
     ``O(final faces)`` instead of ``O(features x faces)``, and the intermediate
     bodies die as before provenance existed.
+
+    **Recording is cheap and fingerprinting is LAZY (PERF-REAL-3 follow-up).**
+    :meth:`record` walks the snapshot's faces and resolves each to a DISTINCT-face
+    index through the identity memo below — no GProp, no surface read. The
+    fingerprints (and the surface index built from them) are computed by
+    :meth:`freeze`, i.e. by the first caller that reads
+    :attr:`~geometry.features.evaluate.TreeEvaluation.face_provenance` — in
+    production only ``/overlay`` — and are then kept on this recorder, which lives
+    in the evaluator state the rebuild cache checkpoints. So an ``/evaluate``,
+    ``/tessellate`` or export never pays for provenance at all; the first face pick
+    pays for the distinct faces once; and every later pick or re-open of the same
+    checkpoint pays nothing. Measured: recording every evaluation eagerly cost 5.6 %
+    (gearbox) to 11.4 % (housing tray N=100) of a cold rebuild.
 
     **The memo, and why it is exact.** A boolean shares the ``TShape`` of every
     face it did not touch, so consecutive snapshots overlap heavily — 1 765 of
@@ -527,25 +566,31 @@ class FaceProvenanceRecorder:
     only 165 distinct faces are ever created. The memo is keyed on OCCT's own
     shape identity (``hash`` is ``TShape`` + ``Location``, confirmed by
     ``IsSame`` — orientation-insensitive, which is right because area and centroid
-    are too), so a hit returns the fingerprint of the IDENTICAL geometry: a GProp
-    over the same ``TShape`` at the same location is the same three numbers. It is
-    a pure accelerator in the sense this module already uses for the spatial index
-    — it changes what is COMPUTED, never what is ANSWERED — and ``memoize=False``
+    are too), so every occurrence of one face shares one fingerprint: a GProp over
+    the same ``TShape`` at the same location is the same three numbers. It is a
+    pure accelerator in the sense this module already uses for the spatial index —
+    it changes what is COMPUTED, never what is ANSWERED — and ``memoize=False``
     exists so a gate can assert exactly that rather than take it on faith.
     Retaining the face keeps its ``TShape`` alive, which is what makes the pointer
-    identity meaningful (a freed ``TShape``'s address could be reused); that
-    retention is bounded by the number of distinct faces the tree creates and is
-    strictly less than the snapshot bodies it replaces.
+    identity meaningful (a freed ``TShape``'s address could be reused).
 
-    **The face walk is raw OCCT, and it has to be.** Once the GProps are memoised
-    the residual per-snapshot cost is ENUMERATING the faces, and
-    ``build123d.Shape.faces()`` builds a wrapper object per face: measured at 229 ms
-    for 61 walks of the 219-face N=100 tray body against 21.6 ms for the raw
-    ``TopExp_Explorer`` — 10x, and it is paid ``features x faces`` times, so it
-    would have left most of the quadratic in place. :func:`_explore_faces` is
-    build123d's own ``_topods_entities`` (explorer order, deduplicated on the same
-    ``hash``) with the wrapping deferred to the memo MISSES that actually need a
-    ``Face``.
+    **A ladder fork carries the memo across (:meth:`fork`).** A rung copies every
+    shape of the state, so after it no face has the identity it was recorded
+    under. The fork is told which copy each body's faces became (the copy keeps
+    the explorer order face for face), so a face that is still LIVE keeps its index
+    and its (possibly still pending) fingerprint, now held through the copy; only a
+    face that is no longer in any body — which the copy cannot map — is
+    fingerprinted there and then, and released. Before this, every rung dropped the
+    memo and the next snapshot re-fingerprinted the whole body: 5 946 GProps on the
+    N=200 tray for a few hundred genuinely new faces.
+
+    **The face walk is raw OCCT, and it has to be.** The residual per-snapshot
+    cost is ENUMERATING the faces, and ``build123d.Shape.faces()`` builds a wrapper
+    object per face: measured at 229 ms for 61 walks of the 219-face N=100 tray
+    body against 21.6 ms for the raw ``TopExp_Explorer`` — 10x, and it is paid
+    ``features x faces`` times. :func:`_explore_faces` is build123d's own
+    ``_topods_entities`` (explorer order, deduplicated on the same ``hash``) with
+    the wrapping deferred to the faces that are actually fingerprinted.
 
     **The budget is charged BEFORE the work.** :func:`attribute_faces` refuses a
     tree whose ``len(final faces) + face_count`` exceeds
@@ -559,10 +604,21 @@ class FaceProvenanceRecorder:
     it is fractionally stricter only for a tree whose body COLLAPSES in face count
     after a huge snapshot, which then degrades to whole-body selection exactly as
     an over-budget tree always has.
+
+    **Deterministic.** :meth:`freeze` folds snapshots in recording order, faces in
+    explorer order, and each fingerprint is a pure function of the face's exact
+    B-rep — so the frozen value is independent of WHEN it is frozen, and a cold
+    evaluation and a cache resume (which run the same forks at the same rungs)
+    freeze to equal values, which ``tests/test_rebuild_cache.py`` asserts.
     """
 
     __slots__ = (
         "_face_count",
+        "_faces",
+        "_fingerprints",
+        "_folded",
+        "_frozen",
+        "_frozen_snapshots",
         "_memo",
         "_memoize",
         "_refused",
@@ -571,41 +627,192 @@ class FaceProvenanceRecorder:
     )
 
     def __init__(self, *, memoize: bool = True) -> None:
-        self._snapshots: list[tuple[uuid.UUID, tuple[FaceFingerprint, ...]]] = []
+        self._memoize = memoize
         self._face_count = 0
         self._refused = False
-        self._memoize = memoize
-        # OCCT shape hash -> the faces seen under it, each with its fingerprint.
-        # A list because ``hash`` is not injective; ``IsSame`` decides.
-        self._memo: dict[int, list[tuple[TopoDS_Shape, FaceFingerprint]]] = {}
-        # Supporting surface -> the snapshot orders at which its extent CHANGED.
-        # Insertion-ordered by first sighting, so freeze() is deterministic.
+        # Distinct faces in first-sighting order, and their fingerprints once
+        # computed. A face is dropped (None) only after its fingerprint exists and
+        # a fork found it in no body, so it can never be looked up again.
+        self._faces: list[TopoDS_Shape | None] = []
+        self._fingerprints: list[FaceFingerprint | None] = []
+        # OCCT shape hash -> indices into ``_faces``. A list because ``hash`` is
+        # not injective; ``IsSame`` decides.
+        self._memo: dict[int, list[int]] = {}
+        # What each snapshot recorded: its feature and its faces as indices.
+        self._snapshots: list[tuple[uuid.UUID, tuple[int, ...]]] = []
+        # The materialised half, built by freeze() and extended incrementally:
+        # how many snapshots are folded in, their fingerprint tuples, the surface
+        # index (supporting surface -> the snapshot orders at which its extent
+        # CHANGED, insertion-ordered by first sighting), and the last frozen value.
+        self._folded = 0
+        self._frozen_snapshots: list[tuple[uuid.UUID, tuple[FaceFingerprint, ...]]] = []
         self._surfaces: dict[SurfaceKey, list[tuple[int, _Extent]]] = {}
+        self._frozen: FaceProvenance | None = None
 
     def record(self, feature_id: uuid.UUID, shape: BodyShape) -> None:
-        """Fingerprint *shape*'s faces as the snapshot after *feature_id*."""
+        """Record *shape*'s faces as the snapshot after *feature_id* (no GProp)."""
         if self._refused:
             return
         faces = _explore_faces(shape)
         count = len(faces)
         if self._face_count + 2 * count > MAX_PROVENANCE_FACES:
             # Certain to be refused if the tree ends here (see the class docstring)
-            # — so stop, and drop what was fingerprinted rather than carry memory
-            # for an answer that will be all-``None``.
+            # — so stop, and drop what was recorded rather than carry memory for an
+            # answer that will be all-``None``.
             self._refused = True
-            self._snapshots.clear()
+            self._faces.clear()
+            self._fingerprints.clear()
             self._memo.clear()
+            self._snapshots.clear()
+            self._folded = 0
+            self._frozen_snapshots.clear()
             self._surfaces.clear()
+            self._frozen = None
             return
         self._face_count += count
-        order = len(self._snapshots)
-        fingerprints: list[FaceFingerprint] = []
+        self._snapshots.append((feature_id, tuple(self._index(face) for face in faces)))
+        self._frozen = None
+
+    def freeze(self) -> FaceProvenance:
+        """The recorded history, FINGERPRINTED — computed on first call, memoised.
+
+        Only the snapshots recorded since the last call are folded in, and only
+        faces never fingerprinted before cost a GProp, so a resume that appended
+        features pays for what it added. The returned value is immutable: its
+        tuples are copies of lists this recorder may later append to.
+        """
+        if self._frozen is not None:
+            return self._frozen
+        for order in range(self._folded, len(self._snapshots)):
+            feature_id, indices = self._snapshots[order]
+            fingerprints = tuple(self._fingerprint_at(index) for index in indices)
+            self._fold(order, fingerprints)
+            self._frozen_snapshots.append((feature_id, fingerprints))
+        self._folded = len(self._snapshots)
+        self._frozen = FaceProvenance(
+            snapshots=tuple(self._frozen_snapshots),
+            face_count=self._face_count,
+            refused=self._refused,
+            surfaces=tuple(
+                (key, tuple(entries)) for key, entries in self._surfaces.items()
+            ),
+        )
+        return self._frozen
+
+    def fingerprint_of(self, face: Face) -> FaceFingerprint:
+        """*face*'s fingerprint, from the memo when it is a face this recorder has
+        seen (no GProp — the memo's own exactness argument), computed otherwise.
+
+        What :func:`attribute_faces` uses for the FINAL body's faces: the final
+        body is the last snapshot, so on a face pick every final face is a memo hit
+        and attribution costs no OCCT at all beyond the identity look-ups.
+        """
+        index = self._lookup(face.wrapped) if self._memoize else None
+        if index is None:
+            return _fingerprint(face)
+        return self._fingerprint_at(index)
+
+    def retained_faces(self) -> list[object]:
+        """Every face the memo keeps alive (its keys are ``TShape`` identity, so
+        it must hold them). Only a rebuild-cache checkpoint's weight reads this:
+        these can outlive the body that made them (they are intermediate faces),
+        so they are memory the checkpoint pins."""
+        return [face for face in self._faces if face is not None]
+
+    def nbytes(self) -> int:
+        """Estimated heap of the recorded history beyond the faces themselves:
+        the index tuples, every fingerprint materialised so far, and the frozen
+        fingerprint tuples. Counted by the rebuild cache's byte budget, and it
+        grows when a pick materialises the fingerprints — so a checkpoint is
+        re-weighed on every store rather than trusting an earlier weight."""
+        materialised = sum(1 for fp in self._fingerprints if fp is not None)
+        folded_faces = sum(len(fps) for _fid, fps in self._frozen_snapshots)
+        return (
+            HEAP_BYTES_PER_FINGERPRINT * materialised
+            + HEAP_BYTES_PER_SNAPSHOT_FACE * (self._face_count + folded_faces)
+        )
+
+    def fork(
+        self, bodies: Sequence[tuple[BodyShape, BodyShape]] = ()
+    ) -> "FaceProvenanceRecorder":
+        """An independent recorder with the same history, re-anchored on a copy.
+
+        For a rebuild-cache ladder rung (:mod:`geometry.rebuild_cache`), which
+        forks the evaluator state — shapes included — at fixed positions. *bodies*
+        pairs each body with its copy: ``BRepBuilderAPI_Copy`` rebuilds a shape
+        sub-shape by sub-shape in the original's order, so the two explorer walks
+        align face for face, and each face of the original that this recorder has
+        seen is re-anchored on its copy (same index, same fingerprint, pending or
+        not). A body whose copy walks to a different face count is not trusted and
+        is simply not re-anchored. A seen face that no body still holds cannot be
+        re-anchored at all: it is fingerprinted NOW, on the original — the one
+        moment it is still certain to be the face that was recorded — and then
+        released, so the fork never pins a dead original. Everything appended to in
+        place is copied; fingerprints and snapshot tuples are immutable and shared.
+        """
+        anchors: dict[int, TopoDS_Shape] = {}
+        if self._memoize:
+            for original, copy in bodies:
+                seen = _explore_faces(original)
+                copied = _explore_faces(copy)
+                if len(seen) != len(copied):
+                    continue
+                for face, twin_face in zip(seen, copied, strict=True):
+                    index = self._lookup(face)
+                    if index is not None:
+                        anchors[index] = twin_face
+        for index, face in enumerate(self._faces):
+            if face is not None and index not in anchors:
+                self._fingerprint_at(index)
+
+        twin = FaceProvenanceRecorder(memoize=self._memoize)
+        twin._face_count = self._face_count
+        twin._refused = self._refused
+        twin._fingerprints = list(self._fingerprints)
+        twin._faces = [anchors.get(index) for index in range(len(self._faces))]
+        for index, face in enumerate(twin._faces):
+            if face is not None:
+                twin._memo.setdefault(hash(face), []).append(index)
+        twin._snapshots = list(self._snapshots)
+        twin._folded = self._folded
+        twin._frozen_snapshots = list(self._frozen_snapshots)
+        twin._surfaces = {key: list(entries) for key, entries in self._surfaces.items()}
+        twin._frozen = self._frozen
+        return twin
+
+    def _index(self, face: TopoDS_Shape) -> int:
+        """The distinct-face index of *face*, adding it if it is new."""
+        index = self._lookup(face) if self._memoize else None
+        if index is None:
+            index = len(self._faces)
+            self._faces.append(face)
+            self._fingerprints.append(None)
+            if self._memoize:
+                self._memo.setdefault(hash(face), []).append(index)
+        return index
+
+    def _lookup(self, face: TopoDS_Shape) -> int | None:
+        for index in self._memo.get(hash(face), ()):
+            seen = self._faces[index]
+            if seen is not None and face.IsSame(seen):
+                return index
+        return None
+
+    def _fingerprint_at(self, index: int) -> FaceFingerprint:
+        fingerprint = self._fingerprints[index]
+        if fingerprint is None:
+            face = self._faces[index]
+            assert face is not None, "a face is only released once fingerprinted"
+            fingerprint = _fingerprint(Face(TopoDS.Face_s(face)))
+            self._fingerprints[index] = fingerprint
+        return fingerprint
+
+    def _fold(self, order: int, fingerprints: tuple[FaceFingerprint, ...]) -> None:
+        """Fold snapshot *order* into the surface index (only extent CHANGES)."""
         # This snapshot's extent per surface: every face on one surface collapses
         # into a single box before it is compared with what earlier snapshots had.
         spanned: dict[SurfaceKey, _Extent] = {}
-        for face in faces:
-            fingerprint = self._fingerprint(face)
-            fingerprints.append(fingerprint)
+        for fingerprint in fingerprints:
             key, extent = fingerprint.surface_key, fingerprint.extent
             if key is None or extent is None:
                 continue
@@ -624,66 +831,12 @@ class FaceProvenanceRecorder:
             # the EARLIEST order anyway.
             if not entries or entries[-1][1] != extent:
                 entries.append((order, extent))
-        self._snapshots.append((feature_id, tuple(fingerprints)))
-
-    def retained_faces(self) -> list[object]:
-        """Every face the memo keeps alive (its keys are ``TShape`` identity, so
-        it must hold them). Only a rebuild-cache checkpoint's weight reads this:
-        these can outlive the body that made them (they are intermediate faces),
-        so they are memory the checkpoint pins."""
-        return [face for bucket in self._memo.values() for face, _ in bucket]
-
-    def fork(self) -> "FaceProvenanceRecorder":
-        """An independent recorder with the same history and an EMPTY memo.
-
-        For a rebuild-cache ladder rung (:mod:`geometry.rebuild_cache`), which
-        forks the evaluator state — shapes included — at fixed positions. The
-        memo is keyed on ``TShape`` identity, and a forked body has none of the
-        original's ``TShape``s, so a carried-over memo could never hit; it would
-        only pin dead faces. Dropping it changes what is COMPUTED, never what is
-        answered (the class docstring's own rule). Everything that is appended to
-        in place is copied; the fingerprint tuples are immutable and shared.
-        """
-        twin = FaceProvenanceRecorder(memoize=self._memoize)
-        twin._snapshots = list(self._snapshots)
-        twin._face_count = self._face_count
-        twin._refused = self._refused
-        twin._surfaces = {key: list(entries) for key, entries in self._surfaces.items()}
-        return twin
-
-    def freeze(self) -> FaceProvenance:
-        """An immutable snapshot for the :class:`TreeEvaluation` being published.
-
-        The tuples are shared, not copied: they are immutable, and a resuming
-        rebuild only APPENDS to the recorder (rebuild-cache ownership transfer), so
-        an already-published :class:`FaceProvenance` can never be mutated behind
-        its reader. The surface index is the one thing COPIED here (into tuples),
-        because a later ``record`` appends to its per-surface lists in place.
-        """
-        return FaceProvenance(
-            snapshots=tuple(self._snapshots),
-            face_count=self._face_count,
-            refused=self._refused,
-            surfaces=tuple(
-                (key, tuple(entries)) for key, entries in self._surfaces.items()
-            ),
-        )
-
-    def _fingerprint(self, face: TopoDS_Shape) -> FaceFingerprint:
-        if not self._memoize:
-            return _fingerprint(Face(TopoDS.Face_s(face)))
-        bucket = self._memo.setdefault(hash(face), [])
-        for seen, fingerprint in bucket:
-            if face.IsSame(seen):
-                return fingerprint
-        fingerprint = _fingerprint(Face(TopoDS.Face_s(face)))
-        bucket.append((face, fingerprint))
-        return fingerprint
 
 
 def attribute_faces(
     final_body: BodyShape,
     provenance: FaceProvenance,
+    fingerprint_of: Callable[[Face], FaceFingerprint] | None = None,
 ) -> list[uuid.UUID | None]:
     """Feature id owning each face of *final_body*, in ``final_body.faces()`` order.
 
@@ -719,9 +872,14 @@ def attribute_faces(
 
     NO OCCT BEYOND THE FINAL BODY (PERF-5b, 2026-08-01). The snapshot fingerprints
     arrive precomputed, so this pass costs ``len(final faces)`` GProps plus a
-    pure-Python index build over tuples. It used to fingerprint every snapshot on
-    the way past — ``O(features x faces)`` GProps at ~186 us each, a steady 11-16 %
-    of every ``/overlay`` request and quadratic in tree length. See
+    pure-Python index build over tuples — and NONE when *fingerprint_of* is the
+    evaluation's own recorder (:meth:`FaceProvenanceRecorder.fingerprint_of`,
+    PERF-REAL-3), because the final body is the last snapshot and every one of its
+    faces is already fingerprinted there. Without it each final face is
+    fingerprinted afresh, which is the same answer (the memo's exactness
+    argument). It used to fingerprint every snapshot on the way past —
+    ``O(features x faces)`` GProps at ~186 us each, a steady 11-16 % of every
+    ``/overlay`` request and quadratic in tree length. See
     :class:`FaceProvenanceRecorder` for where that work went and why the memo there
     makes it linear rather than merely relocated.
 
@@ -758,10 +916,11 @@ def attribute_faces(
             index.setdefault(_cell(fingerprint), []).append((order, fingerprint))
     surfaces = dict(provenance.surfaces)
 
+    fingerprint_face = _fingerprint if fingerprint_of is None else fingerprint_of
     feature_ids = [feature_id for feature_id, _fps in provenance.snapshots]
     owners: list[uuid.UUID | None] = []
     for face in final_faces:
-        fingerprint = _fingerprint(face)
+        fingerprint = fingerprint_face(face)
         earliest: int | None = None
         if fingerprint.surface_key is not None and fingerprint.extent is not None:
             # The EARLIEST snapshot whose extent on this surface already contained

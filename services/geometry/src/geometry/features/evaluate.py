@@ -168,6 +168,7 @@ from geometry.kernel import (
     SweepError,
     ThreadBoreMismatchError,
     ThreadUnsupportedError,
+    attribute_faces,
     boolean_bodies,
     bore_hole,
     bore_tool,
@@ -697,7 +698,6 @@ class EvaluationState:
             sketch_planes=dict(self.sketch_planes),
             datum_planes=dict(self.datum_planes),
             bodies=dict(self.bodies),
-            provenance=self.provenance.fork(),
             sheet_metal_defaults=dict(self.sheet_metal_defaults),
             bend_provenance=dict(self.bend_provenance),
             corner_reliefs=dict(self.corner_reliefs),
@@ -722,6 +722,12 @@ class EvaluationState:
         forked = fork_shapes([shape for shape, _ in slots], weigh=weigh)
         for (_, put), copy in zip(slots, forked.shapes, strict=True):
             put(copy)
+        # The provenance recorder is re-anchored on the copied bodies, so a face
+        # still live keeps its (possibly not yet computed) fingerprint instead of
+        # being fingerprinted again as a stranger (PERF-REAL-3 follow-up).
+        twin.provenance = self.provenance.fork(
+            [(body, twin.bodies[body_id]) for body_id, body in self.bodies.items()]
+        )
         return twin, forked.nbytes
 
     def adopt(self, other: "EvaluationState") -> None:
@@ -3312,16 +3318,38 @@ class TreeEvaluation:
     #: resolves it here — the SAME plane the sketch/extrude path resolved during this
     #: evaluation, never a re-resolution. Empty for a part with no datum feature.
     datum_planes: dict[uuid.UUID, Plane] = field(default_factory=dict[uuid.UUID, Plane])
-    #: Face FINGERPRINTS of the body set after each ok body-affecting feature
-    #: (evaluation order). Per-face feature provenance (FINDINGS #9) — the overlay
-    #: service threads :func:`geometry.kernel.attribute_faces` over ``(body,
-    #: face_provenance)`` onto ``OverlayFace.feature_id`` for feature-localized
-    #: selection. Recorded on every evaluation (one cache lineage, PERF-REAL-3);
-    #: EMPTY for a body-less tree and for one past
-    #: :data:`~loft_wire.overlay.MAX_PROVENANCE_FACES`. Carries no kernel shape, so
-    #: holding a :class:`TreeEvaluation` no longer pins an intermediate B-rep per
-    #: feature (PERF-5b).
-    face_provenance: FaceProvenance = field(default_factory=FaceProvenance)
+    #: The evaluation's per-face provenance RECORDER (FINDINGS #9), the same object
+    #: the evaluator state — and so the rebuild-cache checkpoint — holds. Read it
+    #: through :attr:`face_provenance` / :meth:`face_owners`: the fingerprints are
+    #: computed on first read and kept on the recorder (PERF-REAL-3 follow-up), so
+    #: an evaluation nobody picks from never pays for them, and a checkpoint that
+    #: served one pick serves the next with nothing to compute. ``None`` for a
+    #: hand-built evaluation (tests), which reads as an empty history.
+    provenance_recorder: FaceProvenanceRecorder | None = None
+
+    @property
+    def face_provenance(self) -> FaceProvenance:
+        """Face FINGERPRINTS of the body set after each ok body-affecting feature
+        (evaluation order), fingerprinted on first read and memoised. EMPTY for a
+        body-less tree and for one past
+        :data:`~loft_wire.overlay.MAX_PROVENANCE_FACES`. Carries no kernel shape."""
+        recorder = self.provenance_recorder
+        return FaceProvenance() if recorder is None else recorder.freeze()
+
+    def face_owners(self) -> list[uuid.UUID | None]:
+        """The feature owning each face of :attr:`body`, in ``body.faces()``
+        order — :func:`geometry.kernel.attribute_faces` over this evaluation's
+        history, with the final faces' fingerprints read from the recorder (the
+        final body is its last snapshot) rather than recomputed. ``[]`` without a
+        body."""
+        if self.body is None:
+            return []
+        recorder = self.provenance_recorder
+        return attribute_faces(
+            self.body,
+            self.face_provenance,
+            None if recorder is None else recorder.fingerprint_of,
+        )
 
 
 def tree_no_body_error(
@@ -3461,7 +3489,8 @@ class _Checkpoint:
     last_good_feature_id: uuid.UUID | None
     suppressed_ids: frozenset[uuid.UUID]
     artifacts: _PublishedArtifacts | None
-    #: The :meth:`weigh` memo — ``None`` until the cache first weighs it.
+    #: The :meth:`weigh` memo of the SHAPES and GLB — ``None`` until the cache
+    #: first weighs it (the provenance term is added live on every weigh).
     nbytes: int | None = None
 
     def detach(self) -> None:
@@ -3486,10 +3515,13 @@ class _Checkpoint:
         the provenance memo keeps alive, and the published shape, serialised
         together so shared subshapes count once
         (:func:`~geometry.kernel.fork.weigh_shapes`), plus the memoised GLB's exact
-        length. Memoised on the checkpoint, and carried across a REPEAT (which
-        re-stores the same state and artifacts) by :func:`_evaluate_tree`, so the
-        ``/measure`` / ``/tessellate`` / ``/export`` calls that follow an
-        ``/evaluate`` do not pay to re-weigh an unchanged checkpoint.
+        length. That part is memoised on the checkpoint, and carried across a
+        REPEAT (which re-stores the same state and artifacts) by
+        :func:`_evaluate_tree`, so the ``/measure`` / ``/tessellate`` /
+        ``/export`` calls that follow an ``/evaluate`` do not pay to re-weigh an
+        unchanged checkpoint. The provenance history's own heap
+        (:meth:`~geometry.kernel.FaceProvenanceRecorder.nbytes`) is added on
+        EVERY weigh, because a face pick grows it without changing anything else.
         """
         if self.nbytes is None:
             shapes: list[object] = [s.wrapped for s, _ in self.state.shape_slots()]
@@ -3499,7 +3531,10 @@ class _Checkpoint:
                 shapes.append(cast(object, self.artifacts.shape.wrapped))
                 glb = len(self.artifacts.glb)
             self.nbytes = weigh_shapes(shapes) + glb
-        return self.nbytes
+        # NOT memoised: a face pick materialises fingerprints on the recorder
+        # while it owns the checkpoint, so the history weighs more at its next
+        # store than at the last one (PERF-REAL-3 follow-up).
+        return self.nbytes + self.state.provenance.nbytes()
 
     def fork(self) -> "_Checkpoint":
         """An independent copy for the caller of a LADDER rung (PERF-REAL-2).
@@ -3622,7 +3657,7 @@ def _climb_rung(
             suppressed_ids=frozenset(suppressed_ids),
             artifacts=None,
         ),
-        nbytes=nbytes,
+        nbytes=nbytes + stored.provenance.nbytes(),
         speculative=ladder.speculative,
     )
 
@@ -3724,7 +3759,7 @@ def _dispatch_one(
         # advances to the pattern itself.
         if item.feature.type in BODY_AFFECTING_TYPES:
             state.prev_body_feature_id = item.id
-            # FINGERPRINT the body set for per-face feature provenance
+            # RECORD the body set for per-face feature provenance
             # (FINDINGS #9): each final face is attributed to the earliest
             # feature after which it exists in its final form. Taken HERE, not
             # from a retained snapshot at attribution time (PERF-5b) — see
@@ -3732,7 +3767,8 @@ def _dispatch_one(
             # (see :func:`evaluate_tree`, "ONE LINEAGE"): a state that has not
             # recorded cannot serve a face pick, so recording only for the pick
             # made every pick after an open or an edit a full rebuild. The
-            # intermediate body still dies as before; only fingerprints stay.
+            # intermediate body still dies as before; the recorder keeps its
+            # faces and fingerprints them only when somebody reads provenance.
             if state.bodies:
                 state.provenance.record(item.id, _snapshot_shape(state.bodies))
     else:
@@ -3989,10 +4025,11 @@ def _evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
     suppressed one is a typed ``references_suppressed`` error
     (:func:`_suppressed_reference_error`), never a raise.
 
-    Every evaluation FINGERPRINTS the body set after each body-affecting feature
-    (:class:`~geometry.kernel.FaceProvenanceRecorder`), which is what per-face
-    provenance (:attr:`TreeEvaluation.face_provenance`) is attributed from. It
-    reads geometry and never writes it, so it changes NOTHING about what is built.
+    Every evaluation RECORDS the body set's faces after each body-affecting
+    feature (:class:`~geometry.kernel.FaceProvenanceRecorder`), which is what
+    per-face provenance (:attr:`TreeEvaluation.face_provenance`) is attributed
+    from. It reads geometry and never writes it, so it changes NOTHING about what
+    is built; the fingerprints themselves are computed on first read.
 
     ONE LINEAGE (PERF-REAL-3, 2026-09-24). Recording used to be opt-in (audit H4:
     only ``/overlay`` reads it, so the other callers should not pay for it), and
@@ -4001,18 +4038,15 @@ def _evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
     an open or an edit was ALWAYS a miss**, on a lineage of its own, and re-ran the
     whole tree. That is the product's core loop — edit, then click a face — and on
     the gauntlet's imported ``gearbox-11752`` (1 018 faces) the pick re-spent
-    7.9 s of an 8.5 s cold evaluate in process (15.3 s through the browser). What
-    H4 protected against had meanwhile shrunk: since PERF-5b recording is a
-    TShape-memoised fingerprint of each DISTINCT face. Its price, measured as time
-    inside ``record()`` on cold rebuilds: 403 ms of 6.2 s on the gearbox, 115 ms /
-    399 ms / 1 477 ms of 1.6 / 5.9 / 25.0 s on the housing tray at N=50/100/200 —
-    ~6-8 % of a cold rebuild (and of the re-run tail of an edit), paid to delete a
-    whole second rebuild from every pick. Removing even that is possible by
-    deferring the GProps to the first attribution (the memo already keys the
-    faces); it is not done here. Recording
-    is still bounded by :data:`~loft_wire.overlay.MAX_PROVENANCE_FACES` (a 20 000-face
-    import costs one face count, then stops), and one lineage per modeler instead
-    of two halves what the cache must hold per user.
+    7.9 s of an 8.5 s cold evaluate in process (15.3 s through the browser). So
+    every evaluation records, and one key serves every route. Recording eagerly
+    cost ~6-8 % of a cold rebuild (1 477 ms of 25.0 s on the N=200 tray); the
+    recorder now defers the GProps to the first reader and re-anchors its memo
+    across ladder forks, which leaves ~1.6 % (390 ms at N=200, 4 ms on the
+    gearbox) — measured in docs/PERF.md, "PERF-REAL-3". Recording is still bounded
+    by :data:`~loft_wire.overlay.MAX_PROVENANCE_FACES` (a 20 000-face import costs
+    one face count, then stops), and one lineage per modeler instead of two halves
+    what the cache must hold per user.
 
     Deterministic: same request → identical statuses, identical solved
     positions, byte-identical GLB and therefore identical ``mesh_glb_id``
@@ -4205,7 +4239,7 @@ def _evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
         corner_reliefs=list(state.corner_reliefs.values()),
         unfold_body=state.sheet_metal_unfold_body,
         datum_planes=dict(state.datum_planes),
-        face_provenance=state.provenance.freeze(),
+        provenance_recorder=state.provenance,
     )
 
     # Offer this prefix as a resume point — but only once *evaluation* is dead,

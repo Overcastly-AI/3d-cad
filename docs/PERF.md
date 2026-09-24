@@ -856,7 +856,7 @@ state after *k* features genuinely depends on the suffix — found by measuremen
 a prefix evaluated without it turns the later mirror into
 `reference_unresolved`); `record_history` (a prefix with no snapshots cannot
 serve per-face provenance, and two keys let the evaluate and overlay lineages
-BOTH stay cached instead of ping-ponging); a version salt.
+BOTH stay cached instead of ping-ponging); a version salt. *(Superseded 2026-09-24: `record_history` is no longer in the key; one lineage per part. See PERF-REAL-3 at the end of this file.)*
 
 Out, under one rule — *a checkpoint stores only evaluator state, and every
 artifact is re-derived on every call, so anything consulted after the dispatch
@@ -963,7 +963,7 @@ tree the worker has not seen** (a page load, a cold worker, a document opened by
 another user) still costs the full 27 s, and **a mid-tree edit** — change feature
 #39 of 200 — still misses, because only frontier checkpoints exist. Face picks
 alternate on their own lineage, so the first pick after an edit is cold and every
-pick after that is warm.
+pick after that is warm. *(Superseded 2026-09-24: `record_history` is no longer in the key; one lineage per part. See PERF-REAL-3 at the end of this file.)*
 
 ### Memory
 
@@ -998,7 +998,7 @@ APPEND and a REPEAT and nothing else. Two things stayed cold, and both are the
 ones a modeller feels: a **mid-tree edit** (nothing exists for the prefix before
 the edited feature) and the **first face pick after an edit** (picks carry
 `record_history` in the key, so they are their own lineage; repeat picks were
-warm, the first was not). This wires the seam PERF-1 left behind
+warm, the first was not). *(Superseded 2026-09-24: `record_history` is no longer in the key; one lineage per part. See PERF-REAL-3 at the end of this file.)* This wires the seam PERF-1 left behind
 (`warm_rebuild_cache`, which returns an `int` and therefore cannot publish) to
 the only two events in the product that are genuine declarations of intent.
 
@@ -1198,7 +1198,8 @@ only in the sense that more cores let you run more *processes*.
 
 `REBUILD_CACHE_CAPACITY = 8`, and a working modeler occupies **two** lineages
 (the evaluate lineage and the `record_history` overlay lineage). So four users
-fit exactly, and the fifth evicts somebody:
+fit exactly, and the fifth evicts somebody. *(Superseded 2026-09-24: `record_history` is no longer in the key; one lineage per part. See PERF-REAL-3 at the end of this file.)*
+
 
 | users on one worker | cache hit rate | measure p50 (a warm repeat) |
 | ---: | ---: | ---: |
@@ -1671,7 +1672,8 @@ than enforced.
 Eight entries was exactly four modelers, because a working modeler holds two
 lineages (the plain one an edit rebuilds, and the `record_history` one a face
 pick uses), and the fifth user cost everyone 79x on `/measure` (244 ms → 19 189
-ms). The new number is derived, not chosen:
+ms). The new number is derived, not chosen. *(Superseded 2026-09-24: `record_history` is no longer in the key; one lineage per part. See PERF-REAL-3 at the end of this file.)* The capacity stays 32; the factor of 2 below is now headroom for a modeler flipping between two parts.
+
 
 | input | value | source |
 | --- | ---: | --- |
@@ -1698,7 +1700,7 @@ genuinely live.
   statement: at any dwell a human produces, the prefetch is a no-op there.
 * **The 30 s warm budget at N=200.** It covers the commit lineage (28.9 CPU s)
   and never reaches the provenance one, so the first face pick after a deep edit
-  on a 200-feature part is cold whatever the user does. Raising it trades a
+  on a 200-feature part is cold whatever the user does. *(Superseded 2026-09-24: `record_history` is no longer in the key; one lineage per part, so the commit's warm now serves the pick too. See PERF-REAL-3 at the end of this file.)* Raising it trades a
   bigger DoS surface for a case the dwell table says nobody reaches anyway.
 * **Multi-worker dilution.** The cache and the scheduler are per-process, so
   `--scale geometry=N` still divides the hit rate N ways (CONC-1's affinity is
@@ -2183,3 +2185,139 @@ Going materially below ~200 ms at 96 lines therefore needs a cheaper ORACLE
 parameters, but the planegcs binding does not expose them: `DiagnosisResult`
 carries only `dof`, `conflicting`, `redundant`, `partially_redundant`), or a
 policy that does not need one. Both are design-doc work, not a patch.
+
+---
+
+## 2026-09-24 — PERF-REAL-3: one cache lineage, and face fingerprints on demand
+
+**Why this run exists.** PERF-REAL-1 measured, in a real browser on the
+gauntlet's imported `gearbox-11752` (1 018 faces, one 1.58 MB inline-STEP
+feature), **15.3 s in `/geometry/overlay` to arm a face pick** and ~6 s to open
+the part. With the rebuild cache (PERF-1, PERF-REAL-2), a pick right after an
+open of the same tree should have been a frontier hit.
+
+### Root cause (`496d275`)
+
+`/overlay` evaluated with `record_history=True`, and `record_history` was part of
+the prefix key. So the pick after every open or edit was a guaranteed MISS on a
+lineage of its own, and it re-ran the whole tree: tessellation, mass properties
+and both validity checks, none of which the overlay reads. The other suspects
+were measured and ruled out. The STEP parse was already cached per worker
+(`step_cache`, 0 ms on the pick). The gateway routes `/parts/{id}/evaluate` and
+`/geometry/overlay` by user id, so both reach the same worker. Nothing was
+evicted: the checkpoint is 14.6 MB against a 128 MiB budget.
+
+The fix: every evaluation records the history a pick needs, and the key no
+longer carries the flag (`CACHE_KEY_VERSION` 3). Every route now shares **one
+lineage per part**. Warm tickets still name `evaluate`/`provenance`, but both
+address the one key and the warm runs once. This supersedes the "two lineages
+per modeler" statements marked above.
+
+Through the real gateway (native stack, one sample each, load avg ~2.5-3.7):
+
+| step | `ac568b7` | `496d275` |
+| --- | ---: | ---: |
+| open (`POST /parts/{id}/evaluate`) | 9 824 ms, miss | 10 302 ms, miss |
+| **arm face pick (`/geometry/overlay`)** | **8 754 ms, MISS** | **2 609 ms, HIT** |
+| pick again | 2 472 ms, hit | 2 654 ms, hit |
+
+Cold open in process, 8.5 s: STEP parse 2.0 s (24 %), mass properties 2.5 s,
+tessellation 2.5 s, validity 1.0 s. The import does not dominate. A
+cross-worker import cache would save ~2 s once per part per cold worker, so it
+was not built.
+
+### The price, and the follow-up that removes it
+
+Recording on every evaluation cost the cold path. Measured as time inside
+`FaceProvenanceRecorder.record` at `496d275`: **403 ms of 6.2 s** (gearbox),
+**399 ms of 5.9 s** (housing tray N=100) and **1 477 ms of 25.0 s** (N=200).
+That is ~6-8 % of a cold rebuild, and one wall-clock run read +11.4 % at N=100.
+Two findings made most of it removable.
+
+* **80 % of it was GProps, and most of those were re-fingerprinting copies.**
+  N=200 spent 1 169 ms on 5 946 fingerprints. A ladder rung forks every shape,
+  so after it no face keeps the identity it was recorded under. The memo was
+  dropped, and the next snapshot fingerprinted the whole body again as
+  strangers: ~25 rungs x a few hundred faces. The fork now RE-ANCHORS each
+  recorded face on its copy. `BRepBuilderAPI_Copy` keeps the explorer order,
+  and a body whose copy walks to a different face count is not trusted. A face
+  that no body still holds is fingerprinted at the fork, on the original, then
+  released, so a rung never pins a dead original.
+* **The rest is paid by the first reader, not by every evaluation.** `record`
+  now only resolves each snapshot face to a distinct-face index (a `hash` plus
+  `IsSame`). The fingerprints and the surface index are built by `freeze()` on
+  the first read of `TreeEvaluation.face_provenance`, which in production is
+  only `/overlay`. They stay on the recorder, which lives in the checkpointed
+  state, so the next pick or re-open of that checkpoint computes nothing.
+  `face_owners()` also reads the FINAL body's fingerprints from the recorder,
+  because the final body is the last snapshot. That deletes the ~0.43 s of
+  per-final-face GProps a gearbox hit used to pay.
+* **One GProp per fingerprint, not two.** `face.area` and
+  `face.center(CenterOf.MASS)` each ran the identical
+  `BRepGProp::SurfaceProperties` and kept half of it. One call now gives both
+  numbers, bit for bit.
+
+Provenance work inside a cold evaluation (record + fork re-anchoring +
+dead-face fingerprints), measured per call:
+
+| part | `496d275` | now | share of the cold rebuild |
+| --- | ---: | ---: | ---: |
+| gearbox-11752 (one import) | 403 ms | **4 ms** | 0.06 % |
+| housing tray N=100 | 399 ms | **90 ms** (30 record, 60 fork, 88 GProps) | ~1.6 % |
+| housing tray N=200 | 1 477 ms | **390 ms** (132 record, 258 fork, 177 GProps) | ~1.6 % |
+
+Wall-clock, recorder on vs a no-op recorder, alternating arms on a cold cache.
+Five samples each; the machine was shared with sibling agents (load avg 3-4):
+
+| part | no-op recorder | recorder | delta |
+| --- | ---: | ---: | ---: |
+| gearbox-11752 | 6 654 ms | 6 999 ms | +5.2 % (noise: 4 ms of provenance work; samples span 5.8-7.3 s) |
+| housing N=100 | 5 856 ms | 5 833 ms | -0.4 % |
+| housing N=200 | 24 548 ms | 24 482 ms | -0.3 % |
+
+An earlier 3-sample run of the same code read -0.8 % / +4.9 % / +3.0 %. At this
+load, run-to-run spread (±5 %) swamps a 1-2 % effect, which is why the
+per-call accounting above is the number to trust.
+
+The face pick after an evaluate, in process, gearbox, two back-to-back runs per
+build:
+
+| call | `496d275` | now |
+| --- | ---: | ---: |
+| overlay after evaluate (HIT) | 2 271 / 2 192 ms (attribution 400 / 412) | **2 160 / 2 061 ms** (freeze 296 / 214, attribution 57 / 25) |
+| pick again (HIT) | 2 490 / 2 458 ms (attribution 475 / 454) | **2 154 / 1 997 ms** (freeze 0, attribution 28 / 30) |
+| cold open | 10 306 / 10 287 ms | 9 793 / 9 906 ms |
+
+The first pick now carries the fingerprinting the open used to pay, and it is
+cheaper than the attribution it replaces (one GProp per face, not two). The
+remaining cost of a hit is overlay EXTRACTION (1.3-1.6 s: face signatures,
+edge adjacency, polylines for 2 161 edges) and the publish-time validity
+re-check (~0.5 s). The re-check guards a body mutated in place before the cache
+took it back (CM-6b), so it was left alone.
+
+### Gates
+
+* `tests/test_overlay_after_evaluate.py`: the real `/evaluate` (documents wire
+  shape), then `/overlay` (web wire shape). Asserts the cache COUNTERS: +1 hit,
+  +0 misses, all N features resumed, no rung. Red before `496d275` (misses +1).
+* `tests/test_provenance.py`. Each case below was seen red under the mutation
+  named, then restored:
+  * an evaluation nobody reads from spends **zero** fingerprints (red under
+    eager recording);
+  * the second pick of a checkpoint spends **zero** (red when `face_owners`
+    re-fingerprints the final body, or under eager recording);
+  * a tree through three rungs spends **exactly** what it spends with the
+    ladder disabled, and freezes to the same history (red without
+    re-anchoring);
+  * the materialised history's growth is exactly what the frontier byte
+    budget gains on the next store (red when `weigh` drops the provenance
+    term);
+  * skipping the lazy path entirely (an empty history) reddens 13 cases,
+    including both "cached overlay equals cold overlay, every face attributed"
+    cases;
+  * the memo-free replay (`test_the_memo_changes_what_is_computed_never_what_is_answered`)
+    now also checks re-anchoring: its snapshots include post-fork copies, whose
+    fingerprints must equal a fresh GProp on the copy.
+
+Reproduce: the scratch probes are one-off. The operation-count gates above are
+the durable form, and `just gauntlet` re-measures the gearbox leg.
