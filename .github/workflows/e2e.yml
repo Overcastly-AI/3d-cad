@@ -174,6 +174,24 @@
 # manifest was re-measured). By the rule above that is the point
 # to weigh N=5 or 6. Raising `timeout-minutes` instead is headroom, not a fix.
 #
+# ── 2026-09-24: N=6 ─────────────────────────────────────────────────────────
+#
+# It came a day later: `d0604c5`'s shards ran 32.0 / 28.8 / 33.9 / 40.0 min and
+# shard 4 was killed at 40:01 with Playwright green (230 passed, 39.5m). Mean
+# 33.7, max/mean 1.19 — pick-proxy-collision was new and eight specs had been
+# edited, and 9404cb1 made every seat settle wait 3 more frames, which moved
+# the pick-heavy specs ~1.3x against the rest. The manifest was patched with
+# `--merge --update` and now reproduces that run at 33.8 / 29.7 / 32.5 / 38.8
+# (rms 2.4 min). At N=4 it predicts 33.7 min per shard, 1.19x headroom, which
+# is why the matrix is now SIX: predicted 22.6 min per shard (CI minutes =
+# 0.549 x manifest minutes + 0.5, both fitted on `d0604c5`), 1.77x under the
+# 40-minute step cap, with the largest single file (gauge-touch) at ~6 min so
+# the packing floor is not near. N=5 gave 27.1 (1.48x), short of the 1.5x
+# target. Cost: 2 more jobs per push (8 in this workflow) and ~2 x 4 min more
+# runner setup. The count is written in three places — the matrix, every
+# `${{ matrix.shard }}/N`, and the audit's `--expect-shards` — and the audit's
+# `--workflow` check refuses if they disagree.
+#
 # The property that must survive is GATE-1's — a spec nobody named still runs.
 # It survives because the planner iterates the DISCOVERED set and looks the
 # manifest up per file, so an unmeasured file is still placed (and assumed to be
@@ -200,8 +218,9 @@
 #
 # Raising the shard count also multiplies CONCURRENT jobs, which matters
 # because pushes get per-SHA concurrency groups (see below) and four agents
-# push in parallel — at N=4 a single push already occupies 5 of this
-# workflow's jobs on top of ci.yml's 6 and deploy-path's 2.
+# push in parallel — at N=6 a single push occupies 8 of this workflow's jobs
+# (6 shards, `e2e complete`, `dist-bundle`) on top of ci.yml's and
+# deploy-path's.
 
 name: e2e
 
@@ -232,7 +251,7 @@ concurrency:
 
 jobs:
   playwright:
-    name: playwright (shard ${{ matrix.shard }}/4)
+    name: playwright (shard ${{ matrix.shard }}/6)
     runs-on: ubuntu-latest
     # A real `--shard=2/4` measured 12.7 min of specs here (777 s wall with
     # preflight + stack boot), plus ~4 min of CI setup; 45 is headroom, not a
@@ -250,7 +269,7 @@ jobs:
       # "these specs are covered by nobody", and `cancelled` is not a pass.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -292,7 +311,7 @@ jobs:
       # UPDATE_SCREENSHOTS is deliberately NOT set: the fixtures gate the
       # docs/screenshots writes behind it, so the render still happens and the
       # committed founder PNGs are left alone. The tree check below proves it.
-      - name: Playwright shard ${{ matrix.shard }}/4
+      - name: Playwright shard ${{ matrix.shard }}/6
         # 40 < the job's 45 ON PURPOSE — see the headroom note at the top: a
         # step timeout is a `failure` that keeps the artifacts, a job timeout is
         # a `cancelled` that destroys them and looks like an eviction.
@@ -349,7 +368,7 @@ jobs:
         # check — and the red now names the shard holding the offender.
         run: >-
           scripts/e2e.sh --web-only --
-          --balanced-shard=${{ matrix.shard }}/4
+          --balanced-shard=${{ matrix.shard }}/6
           --forbid-only
       # A CI job that dirties the working tree is a defect in its own right,
       # and the specific thing being guarded is the ~90 committed founder
@@ -434,7 +453,7 @@ jobs:
 
   # ── THE BUILT-BUNDLE LEG ────────────────────────────────────────────────
   #
-  # The four shards above drive the Vite DEV server. So does every other spec in
+  # The six shards above drive the Vite DEV server. So does every other spec in
   # this repo, which left two things that only ship to users completely
   # untested:
   #
@@ -472,11 +491,12 @@ jobs:
   # nginx locations against the REAL container in deploy-path's compose-smoke,
   # and it has a stub self-test with four CSP defect scenarios.
   #
-  # NOTE FOR WHOEVER READS THIS WORKFLOW'S JOB COUNT: `e2e` now has SIX jobs
-  # (4 shards + `e2e complete` + this), not five. CLAUDE.md's `total_jobs`
-  # discriminator for a COMPLETE e2e run has to move with it. This job is
+  # NOTE FOR WHOEVER READS THIS WORKFLOW'S JOB COUNT: `e2e` has EIGHT jobs
+  # (6 shards + `e2e complete` + this) since 2026-09-24; it was six with four
+  # shards. The `total_jobs` discriminator for a COMPLETE e2e run in
+  # .claude/ORCHESTRATOR.md has to move with it. This job is
   # independent of the shards and is deliberately NOT in `reconcile`'s `needs`:
-  # reconcile proves the four shards covered `apps/web/e2e/`, and these specs
+  # reconcile proves the six shards covered `apps/web/e2e/`, and these specs
   # live in `apps/web/e2e-dist/` behind their own config, so folding them in
   # would make that count disagree with `playwright test --list`.
   dist-bundle:
@@ -680,6 +700,8 @@ jobs:
             --discovered discovered.json \
             --fail-on-flaky \
             --timeline \
+            --expect-shards 6 \
+            --workflow .github/workflows/e2e.yml \
             shard-reports/playwright-shard-*.json
       # REPORTS, never votes — same contract as `--timeline`, and for the same
       # reason: the e2e gate's pass/fail contract is COVERAGE, and a timing

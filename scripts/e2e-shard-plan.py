@@ -80,6 +80,8 @@ Usage:
         ADD only the files the manifest lacks, calibrated onto its scale by the
         files measured on both sides (>= MIN_CALIBRATION_FILES). Never drops or
         rescales an existing entry. The cheap refresh after adding a spec.
+        --update FILE ... also re-enters those (edited) specs, which are then
+        excluded from the calibration set.
     e2e-shard-plan.py --check-manifest [REPORT.json ...] [--list-json FILE]
         Refuse when more than MAX_GUESSED_SHARE of the plan's weight is
         unmeasured. With reports, print the missing entries ready to paste.
@@ -674,6 +676,12 @@ def _merge(args: argparse.Namespace, totals: dict[str, float]) -> int:
     the manifest — the partial-refresh guard's concern cannot arise), and every
     added number is divided by the ratio measured on the overlap, so a loaded
     box or a CI runner lands in the manifest's own seconds.
+
+    `--update FILE ...` is the one deliberate exception: an EDITED spec whose
+    cost moved. Each named file is re-entered from these reports and is taken
+    OUT of the calibration set — a file cannot be both the ruler and the thing
+    measured, or its own change would bend the ratio it is divided by. Only
+    files named here are rewritten; everything else in the reports calibrates.
     """
     existing = load_manifest(args.out)
     if not existing:
@@ -683,8 +691,21 @@ def _merge(args: argparse.Namespace, totals: dict[str, float]) -> int:
             file=sys.stderr,
         )
         return 1
-    ratio, common = calibration_ratio(totals, existing)
-    added = {f: v / ratio for f, v in totals.items() if f not in existing}
+    update = set(args.update or [])
+    absent = sorted(update - set(totals))
+    if absent:
+        print(
+            f"e2e-shard-plan: --update names {len(absent)} file(s) these reports "
+            f"never ran: {', '.join(absent)} — refusing rather than keeping a "
+            "stale entry you asked to replace.",
+            file=sys.stderr,
+        )
+        return 1
+    ruler = {f: v for f, v in totals.items() if f not in update}
+    ratio, common = calibration_ratio(ruler, existing)
+    added = {
+        f: v / ratio for f, v in totals.items() if f not in existing or f in update
+    }
     if not added:
         print(
             f"nothing to merge: every file in these reports is already in "
@@ -700,7 +721,8 @@ def _merge(args: argparse.Namespace, totals: dict[str, float]) -> int:
         f"{' …' if len(common) > 5 else ''})"
     )
     for f in sorted(added):
-        print(f"  {totals[f]:7.1f} s here -> {added[f]:7.1f} s  {f}")
+        was = f"  (was {existing[f]:.1f})" if f in existing else "  (new)"
+        print(f"  {totals[f]:7.1f} s here -> {added[f]:7.1f} s  {f}{was}")
     return 0
 
 
@@ -907,6 +929,13 @@ def build_parser() -> argparse.ArgumentParser:
         "divided by a calibration ratio measured on the files both sides have",
     )
     parser.add_argument(
+        "--update",
+        nargs="+",
+        metavar="FILE",
+        help="with --merge: also REPLACE these existing entries (edited specs); "
+        "they are excluded from the calibration set",
+    )
+    parser.add_argument(
         "--summary-out",
         type=Path,
         help="with --check-manifest: also write the report here (for a verdict "
@@ -969,7 +998,7 @@ def main(argv: list[str] | None = None) -> int:
 
 #: See e2e-shard-audit.py — `all([])` is True, so a lost `checks.append` would
 #: remove coverage while the self-test still printed success.
-EXPECTED_CHECKS = 32
+EXPECTED_CHECKS = 34
 
 
 def self_test() -> int:
@@ -1286,6 +1315,60 @@ def self_test() -> int:
         ok(
             partial == 1 and load_manifest(manifest) == merged,
             "…and the same reports WITHOUT --merge are still refused as partial",
+        )
+        # --update: an EDITED spec is re-entered, and is NOT part of the ruler.
+        # light-00 moves 30 -> 300 s here; the three calibration files are 3x in
+        # sum, so the right entry is 100.0. Had light-00 calibrated itself the
+        # ratio would be (1080 + 300) / (360 + 30) = 3.54 and the entry 84.7.
+        run2 = root / "run2.json"
+        run2.write_text(
+            json.dumps(
+                report_of(
+                    {
+                        "light-02.spec.ts": 60.0,
+                        "light-03.spec.ts": 120.0,
+                        "qa-heavy-1.spec.ts": 900.0,
+                        "light-00.spec.ts": 300.0,
+                    }
+                )
+            )
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            code_u = main(
+                [
+                    "--emit-durations",
+                    str(run2),
+                    "--out",
+                    str(manifest),
+                    "--merge",
+                    "--update",
+                    "light-00.spec.ts",
+                ]
+            )
+        updated = load_manifest(manifest)
+        ok(
+            code_u == 0
+            and updated["light-00.spec.ts"] == 100.0
+            and {k: v for k, v in updated.items() if k != "light-00.spec.ts"}
+            == {k: v for k, v in merged.items() if k != "light-00.spec.ts"},
+            "--merge --update re-enters ONLY the named edited spec, calibrated "
+            "WITHOUT it in the ruler (300 s -> 100.0, not 84.7)",
+        )
+        with contextlib.redirect_stderr(io.StringIO()):
+            code_a = main(
+                [
+                    "--emit-durations",
+                    str(run2),
+                    "--out",
+                    str(manifest),
+                    "--merge",
+                    "--update",
+                    "never-ran.spec.ts",
+                ]
+            )
+        ok(
+            code_a == 1 and load_manifest(manifest) == updated,
+            "…and --update naming a file the reports never ran is REFUSED",
         )
 
     for good, label in checks:

@@ -27,6 +27,10 @@ pass/fail contract above is the one thing this script must not blur.
 
 Usage:
     e2e-shard-audit.py --discovered LIST.json REPORT.json [REPORT.json ...]
+        [--expect-shards N [--workflow .github/workflows/e2e.yml]]
+        --expect-shards names a shard 1..N that handed in no report (coverage
+        alone reports its tests, not the shard); --workflow also requires the
+        matrix and every `matrix.shard }}/N` in the workflow to say N.
     e2e-shard-audit.py --self-test
 
 Both inputs are Playwright JSON reports (`--reporter=json`); `--discovered`
@@ -38,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -171,6 +176,71 @@ def print_timeline(per_shard: dict[str, dict[str, Spec]]) -> None:
             print(f"  {duration_ms / 1000:6.1f}s  {name}  {spec}")
 
 
+def shard_count_problems(expected: int, reports: list[Path]) -> list[str]:
+    """Every shard 1..N handed in a report, and no shard beyond N did.
+
+    The coverage check below already catches a missing shard INDIRECTLY — its
+    tests show up as "run by NO shard" — but that names 40 tests and not the
+    cause. This names the shard. It also catches the case coverage cannot: a
+    report from a shard index the matrix no longer has, i.e. a matrix that
+    shrank while something still produced the old shard's report.
+    """
+    seen: dict[int, Path] = {}
+    problems: list[str] = []
+    for report in reports:
+        match = re.fullmatch(r"playwright-shard-(\d+)\.json", report.name)
+        if match and report.exists():
+            seen[int(match.group(1))] = report
+    for index in range(1, expected + 1):
+        if index not in seen:
+            problems.append(
+                f"shard {index}/{expected} handed in NO report — it never ran, "
+                "or died before Playwright wrote one"
+            )
+    for index in sorted(i for i in seen if i > expected):
+        problems.append(
+            f"a report for shard {index} exists but only {expected} are expected "
+            "— the matrix and --expect-shards disagree"
+        )
+    return problems
+
+
+def workflow_shard_problems(expected: int, text: str) -> list[str]:
+    """The shard count is written in THREE places in e2e.yml; all must agree.
+
+    The matrix list, the `/N` that every `${{ matrix.shard }}/N` carries (job
+    name, step name, and the `--balanced-shard` argument that decides what each
+    shard RUNS), and the `--expect-shards` this audit is given. Changing one and
+    not the others is silent in one direction: a matrix of 6 planning `/4`
+    makes shards 5 and 6 refuse, but a matrix of 4 planning `/6` runs two
+    thirds of the suite and leaves the rest to nobody.
+    """
+    problems: list[str] = []
+    lists = re.findall(r"^\s*shard:\s*\[([\d,\s]+)\]\s*$", text, re.MULTILINE)
+    if len(lists) != 1:
+        problems.append(
+            f"expected exactly one `shard: [...]` matrix in the workflow, found "
+            f"{len(lists)} — this check has nothing to compare"
+        )
+    else:
+        matrix = [int(x) for x in lists[0].replace(" ", "").split(",") if x]
+        if matrix != list(range(1, expected + 1)):
+            problems.append(f"the matrix lists shards {matrix}, not 1..{expected}")
+    denominators = re.findall(r"matrix\.shard\s*}}/(\d+)", text)
+    if not denominators:
+        problems.append(
+            "no `${{ matrix.shard }}/N` found in the workflow — this check has "
+            "nothing to compare"
+        )
+    wrong = sorted({int(d) for d in denominators} - {expected})
+    if wrong:
+        problems.append(
+            f"`${{{{ matrix.shard }}}}/N` is written with N={wrong} somewhere, "
+            f"not {expected} — a shard would plan against the wrong count"
+        )
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -202,9 +272,26 @@ def main(argv: list[str] | None = None) -> int:
             "the shard, plus the slowest 10. Never changes the verdict."
         ),
     )
+    parser.add_argument(
+        "--expect-shards",
+        type=int,
+        help="the matrix size: every shard 1..N must hand in a report",
+    )
+    parser.add_argument(
+        "--workflow",
+        type=Path,
+        help="with --expect-shards: also require the workflow's matrix and "
+        "every `matrix.shard }}/N` to say the same N",
+    )
     args = parser.parse_args(argv)
 
     problems: list[str] = []
+    if args.expect_shards is not None:
+        problems.extend(shard_count_problems(args.expect_shards, args.reports))
+        if args.workflow is not None:
+            problems.extend(
+                workflow_shard_problems(args.expect_shards, args.workflow.read_text())
+            )
 
     discovered = read_report(args.discovered)
     if not discovered:
@@ -311,7 +398,7 @@ def main(argv: list[str] | None = None) -> int:
 #: a `checks.append` lost to a refactor removes coverage silently and the
 #: self-test still prints "the gate can fail". `<`, not `!=`, so ADDING checks
 #: needs no edit here — only losing them is an error.
-EXPECTED_CHECKS = 14
+EXPECTED_CHECKS = 22
 
 
 def _spec(
@@ -417,6 +504,84 @@ def self_test() -> int:
         checks.append(("::warning::flaky" in out_f, "…but always warned about"))
         code_ff, _ = run([*flaky_args, "--fail-on-flaky"])
         checks.append((code_ff == 1, "flaky with --fail-on-flaky -> exit 1"))
+
+        # The shard COUNT, named. Two reports handed in where three are
+        # expected: coverage would also fail (c is run by nobody) but only this
+        # says which shard. Asserted on the reason, so a deleted check cannot
+        # hide behind the coverage failure.
+        code_n, out_n = run(
+            ["--discovered", good[0], good[1], good[2], "--expect-shards", "3"]
+        )
+        checks.append(
+            (
+                code_n == 1 and "shard 3/3 handed in NO report" in out_n,
+                "--expect-shards names the shard that handed in no report",
+            )
+        )
+        code_n2, _ = run(["--discovered", *good, "--expect-shards", "2"])
+        checks.append((code_n2 == 0, "…and passes when every shard reported"))
+        code_n3, out_n3 = run(
+            ["--discovered", *good, str(duplicate), "--expect-shards", "2"]
+        )
+        checks.append(
+            (
+                code_n3 == 1 and "only 2 are expected" in out_n3,
+                "…and names a report from a shard beyond the matrix",
+            )
+        )
+        # The three places e2e.yml writes N must agree, in both directions.
+        yml = (
+            "    name: playwright (shard ${{ matrix.shard }}/6)\n"
+            "      matrix:\n        shard: [1, 2, 3, 4, 5, 6]\n"
+            "          --balanced-shard=${{ matrix.shard }}/6\n"
+        )
+        checks.append(
+            (workflow_shard_problems(6, yml) == [], "a consistent workflow passes")
+        )
+        checks.append(
+            (
+                any(
+                    "N=[4]" in p
+                    for p in workflow_shard_problems(
+                        6,
+                        yml.replace(
+                            "--balanced-shard=${{ matrix.shard }}/6",
+                            "--balanced-shard=${{ matrix.shard }}/4",
+                        ),
+                    )
+                ),
+                "a --balanced-shard planning against a stale N is REFUSED",
+            )
+        )
+        checks.append(
+            (
+                any(
+                    "not 1..6" in p
+                    for p in workflow_shard_problems(
+                        6, yml.replace("[1, 2, 3, 4, 5, 6]", "[1, 2, 3, 4]")
+                    )
+                ),
+                "a matrix that lost shards is REFUSED",
+            )
+        )
+        checks.append(
+            (
+                any("nothing to compare" in p for p in workflow_shard_problems(6, "")),
+                "a workflow with no matrix is REFUSED, not vacuously passed",
+            )
+        )
+        # Matrix present, no `/N` anywhere: the denominator check must not pass
+        # by finding nothing (the matrix alone would satisfy the check above).
+        matrix_only = "      matrix:\n        shard: [1, 2, 3, 4, 5, 6]\n"
+        checks.append(
+            (
+                any(
+                    "no `${{ matrix.shard }}/N`" in p
+                    for p in workflow_shard_problems(6, matrix_only)
+                ),
+                "a workflow with no `matrix.shard }}/N` is REFUSED, not passed",
+            )
+        )
 
         # An empty listing is the vacuous pass this script exists to prevent.
         empty = _report(root / "empty.json", [])
