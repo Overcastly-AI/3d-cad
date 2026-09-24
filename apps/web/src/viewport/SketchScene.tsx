@@ -49,9 +49,10 @@ import {
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 import { isTypingTarget } from "../lib/isTypingTarget";
+import { useGlobalKeys } from "../lib/modalGate";
 import { useReducedMotion } from "../lib/useReducedMotion";
 import { useDocumentLengthUnit } from "../units/documentUnit";
-import { parsePositiveLengthMm } from "../units/length";
+import { parsePositiveLengthMm, parseSignedLengthMm } from "../units/length";
 import {
   definingPointPositions,
   entitySegmentPositions,
@@ -104,6 +105,7 @@ import {
   type SketchPick,
 } from "../sketch/pick";
 import { pickMark, type PickMarkKind } from "../sketch/pickMark";
+import { pointEntryOpening } from "../sketch/pointEntry";
 import {
   DATUM_PLANES,
   sceneOriginBasis,
@@ -1270,6 +1272,7 @@ interface TagState {
  */
 function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
   const draft = useSketchStore((state) => state.drawDimension);
+  const typingPoint = useSketchStore((state) => state.pointEntry !== null);
   const tool = useSketchStore((state) => state.tool);
   const pending = useSketchStore((state) => state.pending);
   const cursor = useSketchStore((state) => state.cursor);
@@ -1291,6 +1294,9 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
         armed: true,
       };
     }
+    // Typed X / Y cells own the next point (G2): the live size of a rubber
+    // band that is about to be REPLACED by a typed point is not news.
+    if (typingPoint) return null;
     const shape = drawShapeOf(tool);
     const from = pending[0];
     if (shape === null || from === undefined || cursor === null) return null;
@@ -1299,7 +1305,7 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
     // Nothing to say about a zero-size rubber band.
     if (fields.every((field) => field.measuredMm === 0)) return null;
     return { from, to: cursor, fields, armed: false };
-  }, [draft, tool, pending, cursor]);
+  }, [draft, typingPoint, tool, pending, cursor]);
 
   const armed = state?.armed === true;
   // One identity per drawn shape: it re-keys the cells, so a new rectangle
@@ -1525,6 +1531,196 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
                 : "Type a size · Enter applies"}
             </p>
           ) : null}
+        </div>
+      </div>
+    </Html>
+  );
+}
+
+/**
+ * The keys that open a typed coordinate: a digit, a sign, a decimal point.
+ * NOT `0`: at rest that key is the sketcher's Fit (F-11) and stays so. A
+ * coordinate that starts with zero is typed ".5" or "-0.5"; once the cells
+ * are open every key is theirs.
+ */
+const OPENS_A_COORDINATE = /^[1-9.-]$/;
+
+/**
+ * TYPE WHERE THE POINT GOES (helical-gear gap G2).
+ *
+ * The gear test placed 24 involute fit points by reading the DRO at
+ * 0.024 mm/px: there was no way to say "this point is at (21.5705, 5.8494)".
+ * In the FB-16 idiom (a dimension is typed where it forms, not recovered
+ * later), a digit typed while a point-placing tool is live opens X / Y cells
+ * at the cursor: the first key lands in X, Tab moves to Y, Enter places the
+ * point exactly there, Escape abandons it. An empty cell keeps the aimed
+ * value, so "12 Enter" pins X and takes Y from the pointer. With exactly one
+ * point selected, the same keys move THAT point. `pointEntryOpening` says
+ * which placements take a typed point.
+ *
+ * The cells are uncontrolled, and the keys typed before they exist are
+ * buffered and replayed from the ref callback, for the reasons
+ * `DrawDimensionTag` documents (FLOW-A1): the first keystrokes arrive before
+ * React has rendered anything to type into.
+ */
+function PointEntry({ basis }: { basis: PlaneBasis }) {
+  const entry = useSketchStore((state) => state.pointEntry);
+  const open = useSketchStore((state) => state.openPointEntry);
+  const close = useSketchStore((state) => state.closePointEntry);
+  const commit = useSketchStore((state) => state.commitPointEntry);
+  const unit = useDocumentLengthUnit();
+  const invalidate = useThree((state) => state.invalidate);
+  const inputs = useRef<[HTMLInputElement | null, HTMLInputElement | null]>([
+    null,
+    null,
+  ]);
+  /** Keys typed before the cells existed, waiting for them to attach. */
+  const buffered = useRef<DrawKeyBuffer | null>(null);
+  const [invalid, setInvalid] = useState(false);
+
+  useGlobalKeys("sketch point entry", (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    const state = useSketchStore.getState();
+    if (state.mode !== "draw") return;
+    if (state.pointEntry === null) {
+      if (!OPENS_A_COORDINATE.test(event.key)) return;
+      const opening = pointEntryOpening(state);
+      if (opening === null) return;
+      event.preventDefault();
+      const outcome = bufferDrawKey(null, event.key, {
+        draftId: "point",
+        fieldCount: 2,
+        signed: true,
+      });
+      buffered.current = outcome.kind === "buffered" ? outcome.buffer : null;
+      setInvalid(false);
+      open(opening.anchor, opening.target);
+      invalidate();
+      return;
+    }
+    // Open, but the cells are not in the DOM yet: hold the keys for them.
+    if (inputs.current[0] !== null) return;
+    const outcome = bufferDrawKey(buffered.current, event.key, {
+      draftId: "point",
+      fieldCount: 2,
+      shiftKey: event.shiftKey,
+      signed: true,
+    });
+    if (outcome.kind === "ignored") return;
+    event.preventDefault();
+    buffered.current = outcome.buffer;
+  });
+
+  if (entry === null) return null;
+
+  const apply = () => {
+    const read = (cell: HTMLInputElement | null, fallback: number) =>
+      cell === null || cell.value.trim() === ""
+        ? fallback
+        : parseSignedLengthMm(cell.value, unit);
+    const x = read(inputs.current[0], entry.anchor.x);
+    const y = read(inputs.current[1], entry.anchor.y);
+    if (x === null || y === null) {
+      setInvalid(true);
+      return;
+    }
+    buffered.current = null;
+    commit({ x, y });
+    invalidate();
+  };
+
+  /**
+   * Register a cell and replay what was typed before it existed. React calls
+   * an inline ref again on every render, so everything here happens only while
+   * a replay is pending: a later render must never pull focus back to X while
+   * the user is typing Y.
+   */
+  const register = (index: 0 | 1, node: HTMLInputElement | null) => {
+    inputs.current[index] = node;
+    const pending = buffered.current;
+    if (node === null || pending === null) return;
+    const text = bufferedText(pending, index);
+    if (text !== "") node.value = text;
+    if (index === pending.index) {
+      node.focus();
+      node.setSelectionRange(node.value.length, node.value.length);
+    }
+    if (index === 1) {
+      buffered.current = null;
+      if (pending.apply) apply();
+    }
+  };
+
+  const onKeyDown = (
+    event: ReactKeyboardEvent<HTMLInputElement>,
+    index: 0 | 1,
+  ) => {
+    if (event.key === "Escape") {
+      // The cells' own Escape: abandon the typing, keep the tool armed.
+      event.stopPropagation();
+      event.preventDefault();
+      buffered.current = null;
+      close();
+      invalidate();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      apply();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    // A coordinate pair is a loop, like the size cells.
+    event.preventDefault();
+    inputs.current[index === 0 ? 1 : 0]?.focus();
+  };
+
+  const cells = [
+    { index: 0, axis: "x", label: "X" },
+    { index: 1, axis: "y", label: "Y" },
+  ] as const;
+  return (
+    <Html
+      position={planeToWorld(basis, entry.anchor)}
+      zIndexRange={DIMENSION_TAG_Z_RANGE}
+      style={{ pointerEvents: "none" }}
+    >
+      {/* Down and right of the point: the snap mark's word and the size rail
+          hang up and right of the cursor, so this never sits on either. */}
+      <div style={{ transform: "translate(12px, 12px)" }}>
+        <div
+          key={entry.nonce}
+          role="group"
+          aria-label={
+            entry.target === null
+              ? "Coordinates of the next point"
+              : "Move the selected point to"
+          }
+          data-testid="point-entry"
+          style={{ pointerEvents: "auto" }}
+        >
+          <DimensionTag unit={lengthUnitLabel(unit)}>
+            {cells.map(({ index, axis, label }) => (
+              <DimensionTagCell
+                key={axis}
+                label={label}
+                width={9}
+                placeholder={sizeText(entry.anchor[axis], unit)}
+                aria-label={`${label} in ${lengthUnitLabel(unit)}`}
+                aria-invalid={invalid || undefined}
+                data-testid={`point-entry-${axis}`}
+                ref={(node: HTMLInputElement | null) => register(index, node)}
+                onKeyDown={(event) => onKeyDown(event, index)}
+              />
+            ))}
+          </DimensionTag>
+          <p className="mt-1 font-body text-2xs text-gauge">
+            {invalid
+              ? "Type a number in each cell · Enter places"
+              : entry.target === null
+                ? "Tab switches · Enter places · Esc cancels"
+                : "Tab switches · Enter moves · Esc cancels"}
+          </p>
         </div>
       </div>
     </Html>
@@ -2092,6 +2288,7 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
           on the same pixels. */}
       <PickMarker basis={basis} />
       <DrawDimensionTag basis={basis} />
+      <PointEntry basis={basis} />
       <ConstraintGlyphs basis={basis} />
     </group>
   );

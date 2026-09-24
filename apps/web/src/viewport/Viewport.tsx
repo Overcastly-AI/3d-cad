@@ -1146,7 +1146,11 @@ function useSketchFitHotkey(onFit: (() => void) | null): void {
           if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)
             return;
           if (event.key !== FIT_KEY) return;
-          if (useSketchStore.getState().drawDimension !== null) return;
+          // A digit being TYPED (a size, or a coordinate, G2) is not a Fit.
+          const typing = useSketchStore.getState();
+          if (typing.drawDimension !== null || typing.pointEntry !== null) {
+            return;
+          }
           event.preventDefault();
           onFit();
         }

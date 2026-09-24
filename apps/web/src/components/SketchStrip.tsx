@@ -49,6 +49,7 @@ import {
   Flyout,
   type FlyoutItem,
   HorizontalIcon,
+  InlineSelect,
   Kbd,
   LineIcon,
   MidpointIcon,
@@ -89,6 +90,7 @@ import {
   type ConstraintAction,
 } from "../sketch/constraints";
 import { withoutDatums } from "../sketch/datum";
+import { gridStepOptions } from "../sketch/pointEntry";
 import {
   buildOffsetParams,
   datumSubmitBlocker,
@@ -906,6 +908,10 @@ export function SketchStrip({
     (state) => state.toggleConstruction,
   );
   const deleteSelection = useSketchStore((state) => state.deleteSelection);
+  const snapStepMm = useSketchStore((state) => state.snapStepMm);
+  const setSnapStep = useSketchStore((state) => state.setSnapStep);
+  const lengthUnit = useDocumentLengthUnit();
+  const gridSteps = gridStepOptions(lengthUnit, snapStepMm);
   const hint = useSketchStore((state) => state.hint);
   const editNote = useSketchStore((state) => state.editNote);
   const mirror = useSketchStore((state) => state.mirror);
@@ -1264,6 +1270,24 @@ export function SketchStrip({
                 onClick={toggleConstruction}
               />
             </ToolGroup>
+
+            {/* THE GRID STEP (helical-gear gap G2). The store has always had a
+                configurable step and nothing ever set it, so every sketch
+                snapped to 1 mm. Offered in the document's unit; the DRO's
+                SNAP cell reports the step in use. */}
+            <div className="flex shrink-0 items-center px-2">
+              <InlineSelect
+                eyebrow="Grid"
+                aria-label="Grid snap step"
+                data-testid="sketch-grid-step"
+                options={gridSteps.map((step) => ({
+                  value: String(step.mm),
+                  label: step.label,
+                }))}
+                value={String(snapStepMm)}
+                onChange={(event) => setSnapStep(Number(event.target.value))}
+              />
+            </div>
 
             {/* NO Esc chip here — finishing is a CLICK. History, because this
                 caption has been wrong twice in opposite directions. Until

@@ -44,6 +44,7 @@ import {
   toggleConstruction,
   type ConstraintAction,
   type DimensionCommit,
+  type EntityPointRef,
   type DimensionEditorTarget,
   type SketchConstraint,
   type SolvedAngle,
@@ -74,6 +75,7 @@ import {
 } from "./drawDimensions";
 import { mirrorAxisFor, toggleMirrorTarget, type MirrorAxis } from "./mirror";
 import { originIdentity } from "./origin";
+import { withNamedPointAt } from "./pointEntry";
 import type { DatumPlaneName, Point2D, SketchPlaneSpec } from "./plane";
 import {
   applyPick,
@@ -247,6 +249,7 @@ const CLEARED_BY_HISTORY = {
   dimensionEdit: null,
   dimensionPick: null,
   drawDimension: null,
+  pointEntry: null,
   drawDimensionFocus: null,
   offsetDraft: null,
   hint: null,
@@ -374,6 +377,17 @@ export interface SketchState {
    * the drawing gesture (a new placement, a tool change, Escape, exit).
    */
   drawDimension: DrawDimensionDraft | null;
+  /**
+   * The typed X / Y cells (helical-gear gap G2), or null. `anchor` is where
+   * they hang and the value an empty cell keeps; `target` is the point they
+   * move, or null for the tool's next point. `nonce` re-keys the cells so one
+   * entry's typing never shows in the next.
+   */
+  pointEntry: {
+    anchor: Point2D;
+    target: EntityPointRef | null;
+    nonce: number;
+  } | null;
   /**
    * Which draw-time cell has focus — the scene draws that dimension's witness
    * callout, so the number being typed always names its own edge.
@@ -630,6 +644,16 @@ export interface SketchState {
   commitDrawDimensions: (values: DrawDimensionValues) => void;
   /** Dismiss the draw-time size cells, keeping the shape undimensioned. */
   dismissDrawDimensions: () => void;
+  /** Open the typed X / Y cells (see `pointEntry` and `pointEntryOpening`). */
+  openPointEntry: (anchor: Point2D, target: EntityPointRef | null) => void;
+  /** Close them, typing abandoned. */
+  closePointEntry: () => void;
+  /**
+   * Enter in the cells: place the tool's next point EXACTLY at `at` (no snap,
+   * no axis lock: a typed coordinate is the intent), or move the target point
+   * there. Closes the cells.
+   */
+  commitPointEntry: (at: Point2D) => void;
   /** Report which draw-time cell has focus (null = none). */
   focusDrawDimension: (key: DrawDimensionKey | null) => void;
   /** Open the editor for an existing dimension constraint (glyph click). */
@@ -713,6 +737,7 @@ const INITIAL = {
   dimensionEdit: null,
   dimensionPick: null,
   drawDimension: null,
+  pointEntry: null,
   drawDimensionFocus: null,
   featureId: null,
   revision: 0,
@@ -946,6 +971,7 @@ const createSketchState = (
       // way it abandons a mirror or corner draft.
       dimensionPick: null,
       drawDimension: null,
+      pointEntry: null,
       drawDimensionFocus: null,
       offsetDraft: null,
       // Arming Mirror opens its target-collection phase; any other tool clears
@@ -1191,6 +1217,40 @@ const createSketchState = (
 
   dismissDrawDimensions: () =>
     set({ drawDimension: null, drawDimensionFocus: null }),
+
+  openPointEntry: (anchor, target) =>
+    set({ pointEntry: { anchor, target, nonce: nextRequestNonce() } }),
+
+  closePointEntry: () => set({ pointEntry: null }),
+
+  commitPointEntry: (at) => {
+    const { pointEntry, snapSuppressed, axisLock } = get();
+    if (pointEntry === null) return;
+    set({ pointEntry: null });
+    const target = pointEntry.target;
+    if (target === null) {
+      // Through the ONE placement path a click takes (`aim` then `placeAt`),
+      // with every snap held off: the aim resolves to exactly `at`, carries no
+      // snap intent to cash in as a coincident, and infers no axis. The held-
+      // off state is the aim's own bookkeeping, not the user's modifier, so it
+      // is handed back the moment the point is placed.
+      const point = get().aim(at, 0, { suppressed: true, axisLock: false });
+      get().placeAt(point);
+      set({ snapSuppressed, axisLock });
+      return;
+    }
+    const { entities, revision } = get();
+    let moved = false;
+    const next = entities.map((entity) => {
+      if (entity.id !== target.entity) return entity;
+      const updated = withNamedPointAt(entity, target.point, at);
+      if (updated === null) return entity;
+      moved = true;
+      return updated;
+    });
+    if (!moved) return;
+    set({ entities: next, revision: revision + 1, hint: null });
+  },
 
   focusDrawDimension: (drawDimensionFocus) => set({ drawDimensionFocus }),
 
@@ -1885,6 +1945,14 @@ const createSketchState = (
     // undimensioned. Escape *inside* a cell is the field's own — it abandons
     // the typing and hands the canvas back with the tool still armed (handled
     // in the scene, which stops that key from ever reaching here).
+    //
+    // Typed X / Y cells that are open but not yet focused (the keys that opened
+    // them are still being replayed) are the most local thing there is: this
+    // Escape abandons the typing and nothing else.
+    if (get().pointEntry !== null) {
+      set({ pointEntry: null });
+      return;
+    }
     if (get().drawDimension !== null) {
       set({ drawDimension: null, drawDimensionFocus: null });
     }
