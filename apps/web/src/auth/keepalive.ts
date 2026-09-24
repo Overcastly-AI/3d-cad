@@ -12,6 +12,13 @@
  * timers are throttled to once a minute: so the app also checks on
  * `visibilitychange` ({@link Keepalive.wake}), and the 401 path covers whatever
  * both miss.
+ *
+ * ONE CLOCK PER QUANTITY. `iat`/`exp` are the SERVER's clock and `Date.now()`
+ * is this machine's; they are never compared. A laptop whose clock is two
+ * hours fast used to see every fresh token as long expired and renew in a
+ * zero-delay loop (review S2). The plan uses only the token's LIFETIME
+ * (`exp - iat`, one clock) measured from when this client RECEIVED it (the
+ * other clock), so skew cancels out.
  */
 import { tokenTimes, type RefreshOutcome } from "./refresh";
 
@@ -31,8 +38,13 @@ export interface KeepaliveDeps {
 }
 
 export interface Keepalive {
-  /** Plan the next renewal for *token* (null: signed out, plan nothing). */
-  schedule(token: string | null): void;
+  /**
+   * Plan the next renewal for *token* (null: signed out, plan nothing).
+   * *receivedAt* is this client's `Date.now()` when the token arrived; unknown
+   * (a session stored before it was recorded) counts as "just now", and the
+   * 401 path covers the case where that guess is too kind.
+   */
+  schedule(token: string | null, receivedAt?: number | null): void;
   /** The page is visible again: renew now if the plan is already overdue. */
   wake(): void;
   stop(): void;
@@ -42,8 +54,6 @@ export function createKeepalive(deps: KeepaliveDeps): Keepalive {
   let timer: unknown = null;
   let current: string | null = null;
   let dueAt: number | null = null;
-  /** `exp` of the token the last plan was made for (see `schedule`). */
-  let plannedExpiry: number | null = null;
 
   const cancel = () => {
     if (timer !== null) deps.clearTimer(timer);
@@ -71,25 +81,24 @@ export function createKeepalive(deps: KeepaliveDeps): Keepalive {
   }
 
   return {
-    schedule(token) {
+    schedule(token, receivedAt) {
       if (token !== null && token === current && timer !== null) return;
       cancel();
       dueAt = null;
       current = token;
-      if (token === null) {
-        plannedExpiry = null;
-        return;
-      }
+      if (token === null) return;
       const times = tokenTimes(token);
       if (times === null) return; // unreadable: the 401 path alone applies
-      // A renewal that did not move `exp` means the session has reached its
-      // absolute bound (the gateway caps every token there). Planning another
-      // renewal would only spin in the last second; the 401 path ends it.
-      const previous = plannedExpiry;
-      plannedExpiry = times.expiresAt;
-      if (previous !== null && times.expiresAt <= previous) return;
-      const lead = refreshLeadMs(times.issuedAt, times.expiresAt);
-      arm(times.expiresAt - lead - deps.now());
+      const lifetime = times.expiresAt - times.issuedAt; // server clock only
+      const renewAfter =
+        lifetime - refreshLeadMs(times.issuedAt, times.expiresAt);
+      // A token too short-lived to renew AHEAD of (the gateway caps every
+      // token at the session's absolute bound, so the last ones shrink):
+      // plan nothing, and let the 401 path end the session. Planning anyway
+      // would spin in the final second.
+      if (renewAfter <= 0) return;
+      const received = receivedAt ?? deps.now(); // client clock only
+      arm(received + renewAfter - deps.now());
     },
     wake() {
       if (current !== null && dueAt !== null && deps.now() >= dueAt) {
@@ -101,7 +110,6 @@ export function createKeepalive(deps: KeepaliveDeps): Keepalive {
       cancel();
       current = null;
       dueAt = null;
-      plannedExpiry = null;
     },
   };
 }

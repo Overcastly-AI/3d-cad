@@ -74,23 +74,85 @@ describe("createKeepalive", () => {
     expect(h.refreshes).toEqual([3_540_000]); // 60 s before exp
   });
 
-  it("a renewed token plans the next renewal from ITS expiry", async () => {
+  it("a renewed token plans the next renewal from when IT arrived", async () => {
     const h = harness([]);
-    h.keepalive.schedule(token(0, 20));
-    h.keepalive.schedule(token(16, 20)); // what a refresh at 16 s stores
+    h.keepalive.schedule(token(0, 20), 0);
+    h.setNow(16_000);
+    h.keepalive.schedule(token(16, 20), 16_000); // what a refresh at 16 s stores
     await h.advance(31_999);
     expect(h.refreshes).toEqual([]);
     await h.advance(32_000);
     expect(h.refreshes).toEqual([32_000]);
   });
 
-  it("an already-expired token (a reopened tab) renews at once", async () => {
+  it("a token received long ago (a reopened tab) renews at once", async () => {
     const h = harness([]);
     h.setNow(10_000_000);
-    h.keepalive.schedule(token(0, 3600));
+    h.keepalive.schedule(token(0, 3600), 0); // received 10 000 s ago
     await h.advance(10_000_000);
     expect(h.refreshes).toEqual([10_000_000]);
   });
+
+  it("a token of unknown age (stored before receipt was recorded) counts as fresh", async () => {
+    const h = harness([]);
+    h.setNow(10_000_000);
+    h.keepalive.schedule(token(0, 3600), null);
+    await h.advance(10_000_000 + 3_539_999);
+    expect(h.refreshes).toEqual([]);
+    await h.advance(10_000_000 + 3_540_000);
+    expect(h.refreshes).toEqual([10_000_000 + 3_540_000]);
+  });
+
+  // Review S2: the server's `iat`/`exp` and this machine's clock are never
+  // compared. The reviewer's probe: a client clock 2 h fast, tokens minted by
+  // the server with a 1000 ms or a sub-second round trip. It used to renew in a
+  // zero-delay loop, or stop planning for good.
+  it.each([1_000, 200])(
+    "a client clock 2 h fast (round trip %i ms) renews once per token lifetime",
+    async (roundTripMs) => {
+      const skewMs = 2 * 3600 * 1000;
+      let serverNow = 1_700_000_000_000;
+      const mint = () => {
+        const iat = Math.floor(serverNow / 1000);
+        return fakeJwt({ iat, exp: iat + 3600 });
+      };
+      let clientNow = serverNow + skewMs;
+      const timers: { at: number; callback: () => void }[] = [];
+      const refreshes: number[] = [];
+      const keepalive = createKeepalive({
+        now: () => clientNow,
+        setTimer: (callback, delayMs) => {
+          timers.push({ at: clientNow + delayMs, callback });
+          return timers.length;
+        },
+        clearTimer: () => undefined,
+        refresh: async () => {
+          refreshes.push(clientNow);
+          serverNow += roundTripMs;
+          clientNow += roundTripMs;
+          keepalive.schedule(mint(), clientNow); // as the store subscription does
+          return { kind: "refreshed", token: "unused", user: {} as never };
+        },
+      });
+      keepalive.schedule(mint(), clientNow);
+      const start = clientNow;
+      // Run three hours of the client's timeline.
+      while (timers.length > 0) {
+        timers.sort((a, b) => a.at - b.at);
+        const next = timers.shift();
+        if (next === undefined || next.at > start + 3 * 3600 * 1000) break;
+        const advance = next.at - clientNow;
+        clientNow = next.at;
+        serverNow += advance;
+        next.callback();
+        await Promise.resolve();
+        await Promise.resolve();
+      }
+      expect(refreshes).toHaveLength(3);
+      expect(refreshes[0]! - start).toBe(3_540_000); // 60 s before the end
+      expect(refreshes[1]! - refreshes[0]!).toBe(3_540_000 + roundTripMs);
+    },
+  );
 
   it("an unreachable gateway is retried, not taken as the end", async () => {
     const h = harness([{ kind: "unavailable" }, { kind: "unavailable" }]);
@@ -135,11 +197,11 @@ describe("createKeepalive", () => {
     expect(h.refreshes).toEqual([30_000]);
   });
 
-  it("at the session's absolute bound (exp no longer moves) it stops planning", async () => {
+  it("at the session's absolute bound (a token too short to renew ahead) it stops planning", async () => {
     const h = harness([]);
-    h.keepalive.schedule(token(0, 20)); // exp 20 s
-    h.keepalive.schedule(fakeJwt({ iat: 19, exp: 20 })); // capped: same exp
+    h.keepalive.schedule(fakeJwt({ iat: 19, exp: 20 }), 0); // capped: 1 s left
     await h.advance(1_000_000);
     expect(h.refreshes).toEqual([]);
+    expect(h.pending()).toBe(0);
   });
 });

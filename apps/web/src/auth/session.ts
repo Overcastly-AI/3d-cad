@@ -94,11 +94,18 @@ export function safeReturnPath(path: string | null | undefined): string | null {
 interface PersistedSession {
   token: string;
   user: SessionUser;
+  /** This client's `Date.now()` when the token arrived (keepalive.ts). */
+  receivedAt?: number;
 }
 
 export interface SessionState {
   /** Bearer token, or null when signed out. */
   token: string | null;
+  /**
+   * When this client received `token`, by ITS clock (never compared with the
+   * token's own server-clock claims — see keepalive.ts). Null when unknown.
+   */
+  receivedAt: number | null;
   user: SessionUser | null;
   /** True after a global invalid-token catch — the quiet sign-in notice. */
   expired: boolean;
@@ -160,7 +167,11 @@ function loadPersisted(storage: SessionStorageLike): PersistedSession | null {
     if (typeof parsed !== "object" || parsed === null) return null;
     const o = parsed as Record<string, unknown>;
     if (typeof o.token !== "string" || !isSessionUser(o.user)) return null;
-    return { token: o.token, user: o.user };
+    const receivedAt =
+      typeof o.receivedAt === "number" && Number.isFinite(o.receivedAt)
+        ? o.receivedAt
+        : undefined;
+    return { token: o.token, user: o.user, receivedAt };
   } catch {
     // Corrupt JSON or a storage that throws — treat as signed out.
     return null;
@@ -247,6 +258,7 @@ export function createSessionStore(
   let returnOwner: string | null = null;
   return create<SessionState>()((set, get) => ({
     token: initial?.token ?? null,
+    receivedAt: initial?.receivedAt ?? null,
     user: initial?.user ?? null,
     expired: false,
     returnTo: null,
@@ -254,10 +266,12 @@ export function createSessionStore(
     persistError: null,
     dismissPersistError: () => set({ persistError: null }),
     signIn: (token, user) => {
-      const persistError = persist(storage, { token, user });
+      const receivedAt = Date.now();
+      const persistError = persist(storage, { token, user, receivedAt });
       const keepReturn = returnOwner === null || returnOwner === user.id;
       set({
         token,
+        receivedAt,
         user,
         expired: false,
         persistError,

@@ -189,9 +189,11 @@ export function installAuthTransport(): void {
     clearTimer: (handle) =>
       globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
   });
-  keepalive.schedule(store.getState().token);
+  keepalive.schedule(store.getState().token, store.getState().receivedAt);
   store.subscribe((state, previous) => {
-    if (state.token !== previous.token) keepalive.schedule(state.token);
+    if (state.token !== previous.token) {
+      keepalive.schedule(state.token, state.receivedAt);
+    }
     if (previous.token !== null && state.token === null && !state.expired) {
       void revokeOnServer(previous.token);
     }

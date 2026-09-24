@@ -92,10 +92,18 @@ describe("createSessionStore", () => {
     store.getState().signIn("tok-2", USER);
     expect(store.getState().token).toBe("tok-2");
     expect(store.getState().user).toEqual(USER);
-    expect(JSON.parse(map.get(SESSION_STORAGE_KEY) ?? "")).toEqual({
-      token: "tok-2",
-      user: USER,
-    });
+    const stored = JSON.parse(map.get(SESSION_STORAGE_KEY) ?? "") as Record<
+      string,
+      unknown
+    >;
+    expect(stored).toMatchObject({ token: "tok-2", user: USER });
+    // When THIS client received the token, by its own clock (keepalive.ts).
+    expect(typeof stored.receivedAt).toBe("number");
+    expect(store.getState().receivedAt).toBe(stored.receivedAt);
+    // ...and it survives a reload.
+    expect(createSessionStore(storage).getState().receivedAt).toBe(
+      stored.receivedAt,
+    );
   });
 
   it("signOut clears the session and storage without the expired notice", () => {
