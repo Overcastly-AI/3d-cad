@@ -29,6 +29,7 @@ from gateway.affinity import parse_worker_urls
 from gateway.assemblies import router as assemblies_router
 from gateway.auth import auth_router, resolve_auth_config
 from gateway.auth.security import (
+    DEFAULT_AUTH_RATE_LIMIT_REQUESTS,
     DEFAULT_SESSION_IDLE_TTL_S,
     DEFAULT_SESSION_MAX_AGE_S,
 )
@@ -91,6 +92,12 @@ class GatewaySettings(BaseServiceSettings):
     session_idle_ttl_s: int = DEFAULT_SESSION_IDLE_TTL_S  # env: SESSION_IDLE_TTL_S
     #: Absolute session bound, seconds (>= SESSION_IDLE_TTL_S, enforced).
     session_max_age_s: int = DEFAULT_SESSION_MAX_AGE_S  # env: SESSION_MAX_AGE_S
+    #: Budget of register/login/refresh per client address per
+    #: RATE_LIMIT_WINDOW_S; separate from the per-user compute budget
+    #: (RATE_LIMIT_REQUESTS). See gateway.auth.security.
+    auth_rate_limit_requests: int = (
+        DEFAULT_AUTH_RATE_LIMIT_REQUESTS  # env: AUTH_RATE_LIMIT_REQUESTS
+    )
 
 
 def build_app(
@@ -123,6 +130,7 @@ def build_app(
         token_ttl_s=settings.jwt_ttl_s,
         session_idle_ttl_s=settings.session_idle_ttl_s,
         session_max_age_s=settings.session_max_age_s,
+        rate_limit_requests=settings.auth_rate_limit_requests,
     )
     database = DatabaseState()
 

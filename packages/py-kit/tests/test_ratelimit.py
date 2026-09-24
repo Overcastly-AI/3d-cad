@@ -216,6 +216,30 @@ def test_scopes_are_isolated() -> None:
     run(scenario())
 
 
+def test_per_call_limit_overrides_the_budget_for_that_scope() -> None:
+    async def scenario() -> None:
+        limiter = make_limiter(FakeRedis(), Clock(), limit=1)
+        for _ in range(3):
+            await limiter.check("10.0.0.1", scope="auth", limit=3)
+        with pytest.raises(RateLimitExceededError) as excinfo:
+            await limiter.check("10.0.0.1", scope="auth", limit=3)
+        # The refusal reports the budget that refused it.
+        assert excinfo.value.details == {
+            "limit": 3,
+            "window_s": 60,
+            "retry_after_s": 60,
+        }
+        # The limiter's own budget still governs calls without an override.
+        await limiter.check("user-a")
+        with pytest.raises(RateLimitExceededError):
+            await limiter.check("user-a")
+        # A non-positive override disables the check, like a non-positive limit.
+        for _ in range(5):
+            await limiter.check("user-a", scope="auth", limit=0)
+
+    run(scenario())
+
+
 def test_non_positive_limit_disables() -> None:
     async def scenario() -> None:
         limiter = make_limiter(FakeRedis(), Clock(), limit=0)

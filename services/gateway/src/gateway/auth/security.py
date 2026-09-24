@@ -122,6 +122,19 @@ DEFAULT_SESSION_IDLE_TTL_S = 24 * 3600
 DEFAULT_SESSION_MAX_AGE_S = 7 * 24 * 3600
 
 
+#: Default budget of the unauthenticated auth routes (register, login,
+#: refresh), requests per client address per ``RATE_LIMIT_WINDOW_S``. Its own
+#: number, not the compute budget: that one counts per USER, this one per
+#: ADDRESS, and behind a reverse proxy one address is every client at once.
+#: 120 is py-kit's default compute budget, which is what login and refresh
+#: had while they shared it. A deployment that set ``RATE_LIMIT_REQUESTS``
+#: (including 0, which used to switch auth limiting off too) no longer moves
+#: the auth budget with it. Tighten the auth budget with
+#: ``AUTH_RATE_LIMIT_REQUESTS`` where clients are not proxied; turn it off with
+#: 0, or all limiting with ``RATE_LIMIT_ENABLED=false``.
+DEFAULT_AUTH_RATE_LIMIT_REQUESTS = 120
+
+
 @dataclass(frozen=True)
 class AuthConfig:
     """Resolved auth runtime config (secret validated, lifetimes in seconds)."""
@@ -130,6 +143,8 @@ class AuthConfig:
     token_ttl_s: int
     session_idle_ttl_s: int = DEFAULT_SESSION_IDLE_TTL_S
     session_max_age_s: int = DEFAULT_SESSION_MAX_AGE_S
+    #: Per-address budget of the auth routes; non-positive disables it.
+    rate_limit_requests: int = DEFAULT_AUTH_RATE_LIMIT_REQUESTS
 
 
 def _check_lifetimes(
@@ -164,6 +179,7 @@ def resolve_auth_config(
     token_ttl_s: int,
     session_idle_ttl_s: int = DEFAULT_SESSION_IDLE_TTL_S,
     session_max_age_s: int = DEFAULT_SESSION_MAX_AGE_S,
+    rate_limit_requests: int = DEFAULT_AUTH_RATE_LIMIT_REQUESTS,
 ) -> AuthConfig:
     """Validate the JWT secret posture; raise rather than boot weak.
 
@@ -179,6 +195,7 @@ def resolve_auth_config(
             token_ttl_s=token_ttl_s,
             session_idle_ttl_s=session_idle_ttl_s,
             session_max_age_s=session_max_age_s,
+            rate_limit_requests=rate_limit_requests,
         )
 
     # ""/whitespace (e.g. `JWT_SECRET=` in compose, a stray newline) == unset;

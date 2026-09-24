@@ -39,7 +39,7 @@ from gateway.auth.security import (
     refresh_expiry,
     resolve_auth_config,
 )
-from gateway.db import AuthSession, Base, RefreshToken
+from gateway.db import AuthSession, Base, RefreshToken, User
 from gateway.main import GatewaySettings, build_app
 from py_kit import RateLimitExceededError
 from py_kit.db import async_dsn
@@ -587,23 +587,25 @@ class _CountingLimiter(RateLimiter):
 
     def __init__(self, allow: int) -> None:  # no Redis behind it
         self.allow = allow
-        self.calls: list[tuple[str, str]] = []
+        self.calls: list[tuple[str, str, int | None]] = []
 
-    async def check(self, identity: str, *, scope: str = "compute") -> None:
-        self.calls.append((identity, scope))
+    async def check(
+        self, identity: str, *, scope: str = "compute", limit: int | None = None
+    ) -> None:
+        self.calls.append((identity, scope, limit))
         if len(self.calls) > self.allow:
             raise RateLimitExceededError("Slow down.", retry_after_s=7)
 
 
-def test_login_and_refresh_are_rate_limited(db_url: str) -> None:
-    limiter = _CountingLimiter(allow=2)
-    app = build_app(_settings(db_url), rate_limiter=limiter)
+def test_register_login_and_refresh_are_rate_limited(db_url: str) -> None:
+    limiter = _CountingLimiter(allow=3)
+    settings = _settings(db_url).model_copy(update={"auth_rate_limit_requests": 17})
+    app = build_app(settings, rate_limiter=limiter)
     with TestClient(app, base_url="https://testserver") as limited_client:
-        _, cookie = _sign_in(limited_client)  # register: not limited here
-        assert limiter.calls == []
-        cookie = _cookie_value(_refresh(limited_client, cookie))  # 1
-        _sign_in(limited_client, register=False)  # 2: login
-        refused = _refresh(limited_client, cookie)  # 3: over budget
+        _, cookie = _sign_in(limited_client)  # 1: register
+        cookie = _cookie_value(_refresh(limited_client, cookie))  # 2
+        _sign_in(limited_client, register=False)  # 3: login
+        refused = _refresh(limited_client, cookie)  # 4: over budget
         assert refused.status_code == 429
         assert refused.headers["Retry-After"] == "7"
         # Refused BEFORE the handler ran: nothing spent, nothing cleared, so
@@ -611,7 +613,28 @@ def test_login_and_refresh_are_rate_limited(db_url: str) -> None:
         assert _refresh_cookie_headers(refused) == []
         limiter.allow = 10
         assert _refresh(limited_client, cookie).status_code == 200
-    assert limiter.calls == [("testclient", "auth")] * 4
+    # Every check is in the auth scope, per address, with the AUTH budget
+    # (AUTH_RATE_LIMIT_REQUESTS), not the limiter's own compute budget.
+    assert limiter.calls == [("testclient", "auth", 17)] * 5
+
+
+def test_a_burst_of_registrations_is_refused_before_any_account_is_made(
+    db_url: str,
+) -> None:
+    limiter = _CountingLimiter(allow=2)
+    app = build_app(_settings(db_url), rate_limiter=limiter)
+    with TestClient(app, base_url="https://testserver") as limited_client:
+        for index in range(2):
+            _sign_in(limited_client, email=f"burst-{index}@example.com")
+        refused = limited_client.post(
+            "/api/v1/auth/register",
+            json={"email": "burst-2@example.com", "password": PASSWORD},
+        )
+    assert refused.status_code == 429
+    assert refused.json()["error"]["code"] == "rate_limited"
+    assert _refresh_cookie_headers(refused) == []
+    # The refused registration never reached the handler: no third user.
+    assert _scalar(db_url, sa.select(sa.func.count()).select_from(User)) == 2
 
 
 def test_refresh_prunes_tokens_spent_longer_ago_than_the_idle_window(

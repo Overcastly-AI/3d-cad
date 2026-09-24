@@ -395,15 +395,17 @@ async def _revoke(session: AsyncSession, auth_session: AuthSession) -> None:
 # --- routes -------------------------------------------------------------------
 
 
-async def limit_auth_attempts(request: Request) -> None:
+async def limit_auth_attempts(request: Request, config: AuthConfigDep) -> None:
     """Rate-limit the unauthenticated auth routes per client address.
 
-    The same py-kit limiter (and budget) as the compute routes, in its own
-    ``auth`` scope. It cannot be keyed on a user, because there is none yet;
-    it is keyed on the connecting address. Behind a reverse proxy that is the
-    proxy's, so all clients share one bucket: conservative (it cannot be
-    spoofed with a header), and a 429 on refresh is "try again", never a
-    sign-out (apps/web/src/auth/refresh.ts). No-op when rate limiting is off.
+    The same py-kit limiter as the compute routes, in its own ``auth`` scope
+    and with its own budget (``AUTH_RATE_LIMIT_REQUESTS``, see
+    :data:`gateway.auth.security.DEFAULT_AUTH_RATE_LIMIT_REQUESTS`). It
+    cannot be keyed on a user, because there is none yet; it is keyed on the
+    connecting address. Behind a reverse proxy that is the proxy's, so all
+    clients share one bucket: conservative (it cannot be spoofed with a
+    header), and a 429 on refresh is "try again", never a sign-out
+    (apps/web/src/auth/refresh.ts). No-op when rate limiting is off.
 
     The limiter is read from ``app.state`` directly rather than through
     ``gateway.ratelimit.get_rate_limiter``: that module imports
@@ -414,13 +416,15 @@ async def limit_auth_attempts(request: Request) -> None:
     if limiter is None:
         return
     client = request.client.host if request.client is not None else "unknown"
-    await limiter.check(client, scope="auth")
+    await limiter.check(client, scope="auth", limit=config.rate_limit_requests)
 
 
 AUTH_RATE_LIMIT = Depends(limit_auth_attempts)
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register", status_code=status.HTTP_201_CREATED, dependencies=[AUTH_RATE_LIMIT]
+)
 async def register(
     request: RegisterRequest,
     config: AuthConfigDep,

@@ -40,14 +40,19 @@ Handler = Callable[[httpx.Request], httpx.Response]
 
 
 class _BlockingLimiter(RateLimiter):
-    """A limiter whose every ``check`` denies — proves the route RUNS the
-    ``COMPUTE_RATE_LIMIT`` dependency (a route without it never calls ``check``,
-    so the request would 200 through instead of 429)."""
+    """A limiter whose every ``compute`` check denies — proves the route RUNS
+    the ``COMPUTE_RATE_LIMIT`` dependency (a route without it never calls
+    ``check``, so the request would 200 through instead of 429). The ``auth``
+    scope (register, which sets the test up) is let through."""
 
     def __init__(self) -> None:
         super().__init__(cast(RedisClient, None), limit=1, window_s=60)
 
-    async def check(self, identity: str, *, scope: str = "compute") -> None:
+    async def check(
+        self, identity: str, *, scope: str = "compute", limit: int | None = None
+    ) -> None:
+        if scope != "compute":
+            return
         raise RateLimitExceededError(
             "Rate limit exceeded.",
             retry_after_s=60,
