@@ -37,6 +37,7 @@ from OCP.BRepAdaptor import BRepAdaptor_Curve
 from OCP.BRepBuilderAPI import BRepBuilderAPI_Copy
 from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepGProp import BRepGProp
+from OCP.BRepLib import BRepLib
 from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell
 from OCP.GeomAbs import GeomAbs_CurveType
 from OCP.GeomAdaptor import GeomAdaptor_Curve
@@ -82,9 +83,10 @@ TWIST_AUX_HELIX_RADIUS_MM = 1.0
 #: bound is refused (:class:`TwistError`), never shipped. Healthy residuals
 #: measured <= 1.7e-10 (the gear's tooth gap at 12.4 deg and at ten turns; a
 #: 20 mm square over 30 mm up to 3000 deg), so this is ~6000x clear of them.
-#: The failure it exists for — a twist so tight that OCCT returns an INVERTED
-#: solid, volume ~ -A*d, which ``BRepCheck`` still calls valid (that square at
-#: 3600 deg) — misses by 2.0.
+#: The failure it was built for, an INVERTED solid (volume ~ -A*d) that
+#: ``BRepCheck`` still calls valid, misses by 2.0. Such exact-but-inside-out
+#: sweeps are now re-oriented first (:func:`orient_closed_solid`, geometry QA
+#: F3), so the guard is the net for whatever else a sweep gets wrong.
 TWIST_VOLUME_REL_TOL = 1e-6
 
 
@@ -123,9 +125,9 @@ class TwistError(RuntimeError):
 
     Raised when OCCT's pipe-shell sweep fails outright, when a profile with
     holes does not leave one solid, or when the swept tool fails the Cavalieri
-    invariant (:data:`TWIST_VOLUME_REL_TOL`) — in practice a twist too tight for
-    the profile's distance from the axis. The feature layer reports it as
-    ``twist_failed``; the fix is a smaller twist or a longer extrusion.
+    invariant (:data:`TWIST_VOLUME_REL_TOL`). The feature layer reports it as
+    ``twist_failed``; the suggested fix is a smaller twist or a longer
+    extrusion.
     """
 
 
@@ -157,7 +159,23 @@ def _sweep_wire(wire: Wire, spine: Wire, aux_helix: Wire) -> Solid:
         raise TwistError(
             f"The twisted extrusion could not be closed into a solid; {_TOO_TIGHT}."
         )
-    return Solid(builder.Shape())
+    return orient_closed_solid(Solid(builder.Shape()))
+
+
+def orient_closed_solid(solid: Solid) -> Solid:
+    """Turn an INSIDE-OUT closed solid right side out, in place.
+
+    Some sweeps come back with every face reversed, volume -A*d, while the
+    geometry is exact (geometry QA F3, 2026-09-24: a 20 mm square over 30 mm at
+    -3000, +3100 and +3600 deg; its turned vertices sit on the boundary to
+    1.2e-8 mm). ``BRepLib::OrientClosedSolid`` orients the shell by
+    classification and restores +A*d, so the Cavalieri guard judges the
+    GEOMETRY and refuses only a sweep that is actually wrong. A shell that is
+    not closed is left alone, and the guard still catches it. Module-level so a
+    test can take it away to exercise the guard.
+    """
+    BRepLib.OrientClosedSolid_s(TopoDS.Solid_s(solid.wrapped))
+    return solid
 
 
 def _adaptive_area(face: Face) -> float:
@@ -341,8 +359,7 @@ def twisted_extrude_face(
             twist belongs on ``extrude_face``, byte-identically).
         TwistError: the twist is too small for its distance to sweep
             (:data:`MAX_AUX_HELIX_PITCH_MM`), the sweep failed, did not leave
-            one solid, or failed the invariant (a twist too tight for the
-            profile).
+            one solid, or failed the Cavalieri invariant.
     """
     if distance_mm <= 0:
         raise ValueError(f"distance_mm must be > 0, got {distance_mm}")
@@ -399,7 +416,7 @@ def twisted_extrude_face(
     swept = _adaptive_volume(tool)
     if not abs(swept - expected) <= TWIST_VOLUME_REL_TOL * expected:
         raise TwistError(
-            f"A {twist_angle_deg:g} deg twist over {distance_mm:g} mm is too tight "
-            f"for this profile to sweep cleanly; {_TOO_TIGHT}."
+            f"A {twist_angle_deg:g} deg twist over {distance_mm:g} mm did not sweep "
+            f"cleanly (its volume is not profile area x distance); {_TOO_TIGHT}."
         )
     return tool

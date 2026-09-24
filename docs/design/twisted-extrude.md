@@ -139,22 +139,31 @@ round-trip loss, and the probe now reads the volume adaptively.
   process under a 120 s timeout. With the kernel guard mutated out it fails
   on `TimeoutExpired`. With the normalisation mutated out, the 5e-324
   response differs from the untwisted one.
-- **The geometric limit depends on the profile.** How tight a twist can be swept
-  depends on the profile's distance from the axis relative to the distance
-  travelled. Measured: a 20 mm square over 30 mm sweeps cleanly up to 3000°
-  (Cavalieri residual ≤ 1.7e-10). At 3600° OCCT returns an **inverted solid**
-  (volume −A·d) that `BRepCheck` calls VALID. Without a guard that body reaches
-  the user as `ok` (seen: `test_a_twist_too_tight_for_the_profile_is_twist_failed`
-  goes green-shaped, all four features `ok`, with the guard mutated out).
-- **The Cavalieri guard.** Every slice of a twisted extrusion is a rigid
-  rotation of the profile, so the swept tool's volume must equal profile
-  area × distance exactly, for any twist. The kernel measures both adaptively
-  (the inspector's own `VOLUME_EPS`) and refuses a departure above
-  `TWIST_VOLUME_REL_TOL = 1e-6` relative as the feature error **`twist_failed`**
-  ("…reduce the twist angle or lengthen the extrusion"). Healthy residuals are
-  ≤ 1.7e-10, so the guard is about 6000× clear of them, and the inverted
-  failure misses by 2.0. Sweep failures and holed profiles that do not leave
-  one solid are also reported as `twist_failed`.
+- **Inside-out sweeps are re-oriented, not refused (geometry QA F3).** At
+  some twists OCCT returns the swept solid **inside-out**: every face
+  reversed, volume -A·d, and `BRepCheck` calls it VALID. Examples are a 20 mm
+  square over 30 mm at -3000°, +3100° and +3600°, and a 40 mm square at
+  -3250°. The geometry is exact (the turned vertices sit on the boundary to
+  1.2e-8 mm); only the orientation is wrong. As first shipped, the guard below
+  refused these as "too tight", which told the user something false and left
+  holes in the accepted range. `twist.orient_closed_solid`
+  (`BRepLib::OrientClosedSolid`) now runs on every swept solid, before the
+  guard. Measured afterwards: squares of half-width 5, 10, 20 and 50 mm over
+  30, 5 and 1 mm, at -3600, -3000, 1800, 3100 and 3600°, ALL sweep, with a
+  Cavalieri residual of at most 9e-8 relative. The sweep is scale-invariant,
+  and no tested input reaches the guard any more. What does limit a high
+  twist is the cost of meshing it (§6).
+- **The Cavalieri guard stays, as the net under the sweep.** Every slice of a
+  twisted extrusion is a rigid rotation of the profile, so the swept tool's
+  volume must equal profile area × distance exactly, for any twist. The kernel
+  measures both adaptively (the inspector's own `VOLUME_EPS`) and refuses a
+  departure above `TWIST_VOLUME_REL_TOL = 1e-6` relative as the feature error
+  **`twist_failed`** ("…did not sweep cleanly (its volume is not profile area x
+  distance)…"). Without it, an inverted tool reached the user as `ok`: seen at
+  `d823af9`, and again now with the guard mutated out of
+  `test_a_sweep_that_comes_back_wrong_is_twist_failed`. That test takes the
+  re-orientation away on purpose to produce a malformed tool. Sweep failures,
+  and holed profiles that do not leave one solid, are also `twist_failed`.
 
 ## 5. Contract
 

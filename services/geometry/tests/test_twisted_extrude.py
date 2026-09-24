@@ -18,8 +18,8 @@ trip). This module covers what one golden cannot:
   for a blank that is a solid of revolution about the twist axis (every slice
   of the tool is a rotated copy of the profile, and the blank's slice is
   rotation-invariant), with the removal visibly rotated;
-* **a twist too tight for its profile is a named refusal** (``twist_failed``),
-  never the inverted, ``BRepCheck``-valid solid OCCT returns for it.
+* **a malformed sweep is a named refusal** (``twist_failed``), never the
+  inverted, ``BRepCheck``-valid solid OCCT can return.
 
 Every expected number is analytic; the two tolerances below were measured
 first, then set, and say so.
@@ -33,11 +33,14 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import geometry.kernel.twist as twist_kernel
 import pytest
+from build123d import Solid
 from fastapi.testclient import TestClient
 from geometry.assembly.protocol import ResolvedAxis
 from geometry.assembly.resolve import resolve_mate_geometry
 from geometry.features import evaluate_tree
+from geometry.features.evaluate import reset_rebuild_cache
 from geometry.kernel.edges import enumerate_edges
 from geometry.main import app
 from loft_wire.assemblies import MateAxisRef
@@ -539,22 +542,39 @@ def test_a_vanishing_twist_cannot_hang_a_worker() -> None:
     )
 
 
-def test_a_twist_too_tight_for_the_profile_is_twist_failed() -> None:
-    """Ten turns in 30 mm on a 20 mm square: OCCT's sweep returns an INVERTED
-    solid (volume ~ -A*d) that BRepCheck calls valid. The Cavalieri guard
-    refuses it by name and the last good body survives."""
-    result = _evaluate(
-        [
-            *_blank(),
-            _sketch(SKETCH2_ID, SQUARE),
-            _extrude(EXTRUDE2_ID, SKETCH2_ID, 30.0, twist_angle_deg=3600.0),
-        ]
-    )
+def test_a_sweep_that_comes_back_wrong_is_twist_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Cavalieri guard refuses a malformed sweep by name; the last good
+    body survives.
+
+    Ten turns in 30 mm on a 20 mm square is swept INSIDE-OUT by OCCT (volume
+    -A*d). Since geometry QA F3 the kernel re-orients that exact solid, so no
+    known input still reaches the guard, which is why the test takes the
+    re-orientation away to produce a malformed tool on purpose. Without the
+    guard, the inverted tool shipped as ``ok`` (seen at d823af9).
+    """
+
+    def keep_inside_out(solid: Solid) -> Solid:
+        return solid
+
+    monkeypatch.setattr(twist_kernel, "orient_closed_solid", keep_inside_out)
+    reset_rebuild_cache()
+    try:
+        result = _evaluate(
+            [
+                *_blank(),
+                _sketch(SKETCH2_ID, SQUARE),
+                _extrude(EXTRUDE2_ID, SKETCH2_ID, 30.0, twist_angle_deg=3600.0),
+            ]
+        )
+    finally:
+        reset_rebuild_cache()
     assert [r.status for r in result.features] == ["ok", "ok", "ok", "error"]
     error = result.features[3].error
     assert error is not None
     assert error.code == "twist_failed"
-    assert "reduce the twist angle" in error.message
+    assert "did not sweep cleanly" in error.message
     assert result.properties is not None
     assert result.properties.volume == pytest.approx(
         math.pi * BLANK_R**2 * BLANK_H, abs=TWIST_TOL

@@ -60,7 +60,7 @@ from fastapi.testclient import TestClient
 from geometry.features import evaluate_tree
 from geometry.kernel import measure_shape
 from geometry.kernel.healing import body_is_valid
-from geometry.kernel.twist import TwistError, twisted_extrude_face
+from geometry.kernel.twist import twisted_extrude_face
 from geometry.main import app
 from geometry.schemas import ShapeProperties
 from loft_wire.features import EvaluateTreeRequest
@@ -437,15 +437,10 @@ def _square_face(half: float) -> Face:
     return Face(Wire([Edge.make_line(pts[i], pts[(i + 1) % 4]) for i in range(4)]))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=TwistError,
-    reason="OPEN DEFECT (docs/GEOMETRY-QA.md 2026-09-24): at +3600 deg the pipe-shell "
-    "sweep of this square is geometrically exact (turned vertices on the boundary to "
-    "1.2e-8 mm) but comes back with its faces REVERSED (volume -12000); "
-    "BRepLib.OrientClosedSolid restores +12000. The guard refuses it as 'too tight', "
-    "while -3600 deg of the same square is accepted.",
-)
+# FIXED (was a strict xfail pinning QA finding F3): at +3600 deg the pipe-shell
+# sweep of this square is geometrically exact but comes back with its faces
+# REVERSED (volume -12000). twist._sweep_wire now runs BRepLib.OrientClosedSolid,
+# which restores +12000, so the Cavalieri guard accepts it like -3600 deg.
 def test_an_inside_out_sweep_is_reoriented_not_refused() -> None:
     solid = twisted_extrude_face(
         _square_face(10.0), Plane.XY, 30.0, False, 3600.0, Point2D(x=0.0, y=0.0)
