@@ -119,6 +119,91 @@ describe("MeasureReadout", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("between two points the kernel reading is simply the Distance", () => {
+    armed();
+    renderReadout();
+    const group = screen.getByRole("group", { name: "Distance" });
+    expect(group).toContainElement(
+      screen.getByTestId("measure-readout-distance"),
+    );
+    expect(
+      screen.queryByTestId("measure-readout-centre"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("two holes read their PITCH as the hero, the minimum labelled beside it (F-7)", () => {
+    // Two O8 holes 25 mm apart (24, 7): the kernel reads 17 rim to rim.
+    const circle = (cx: number, cy: number) => {
+      const seam = { x: cx + 4, y: cy, z: 6 };
+      return {
+        kind: "circle" as const,
+        start: seam,
+        end: seam,
+        polyline: [seam, { x: cx - 4, y: cy, z: 6 }, seam],
+        signature: {
+          subshape_type: "edge" as const,
+          curve: "circle" as const,
+          end_a: seam,
+          end_b: seam,
+          midpoint: { x: cx - 4, y: cy, z: 6 },
+          length_mm: 8 * Math.PI,
+        },
+      };
+    };
+    useMeasureStore.setState({
+      active: true,
+      overlay: {
+        vertices: [],
+        faces: [],
+        edges: [circle(-12, -3.5), circle(12, 3.5)],
+      },
+      picks: [
+        { kind: "edge", index: 0 },
+        { kind: "edge", index: 1 },
+      ],
+      result: {
+        kind: "edge_edge",
+        distance: 17,
+        delta: { x: 16.32, y: 4.76, z: 0 },
+        angle_deg: null,
+        point_on_a: { x: -8.16, y: -2.38, z: 6 },
+        point_on_b: { x: 8.16, y: 2.38, z: 6 },
+      },
+      overlayError: null,
+      measureError: null,
+    });
+    renderReadout();
+
+    const centre = screen.getByRole("group", { name: "Centre to centre" });
+    expect(centre).toContainElement(
+      screen.getByTestId("measure-readout-centre"),
+    );
+    expect(screen.getByTestId("measure-readout-centre")).toHaveTextContent(
+      "25 mm",
+    );
+    // The deltas beside the hero are the CENTRE offsets, not the rim ones.
+    expect(screen.getByTestId("measure-readout-dx")).toHaveTextContent("24 mm");
+    expect(screen.getByTestId("measure-readout-dy")).toHaveTextContent("7 mm");
+
+    const minimum = screen.getByRole("group", { name: "Min distance" });
+    expect(minimum).toContainElement(
+      screen.getByTestId("measure-readout-distance"),
+    );
+    expect(screen.getByTestId("measure-readout-distance")).toHaveTextContent(
+      "17 mm",
+    );
+    expect(
+      screen.queryByRole("group", { name: "Distance" }),
+    ).not.toBeInTheDocument();
+
+    expect(screen.getByTestId("measure-target-a")).toHaveTextContent(
+      "Edge 1 · Ø8 circle, centre -12, -3.5, 6 mm",
+    );
+    expect(screen.getByTestId("measure-target-b")).toHaveTextContent(
+      "Edge 2 · Ø8 circle, centre 12, 3.5, 6 mm",
+    );
+  });
+
   it("surfaces a failed measurement as an alert, not silence", () => {
     useMeasureStore.setState({
       active: true,

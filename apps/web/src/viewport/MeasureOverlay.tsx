@@ -23,10 +23,13 @@ import { BufferGeometry, Float32BufferAttribute } from "three";
 
 import type { Vec3 } from "../api/measure";
 import {
+  centreReading,
   formatVec3Mm,
+  measureEdgeLabel,
   occtToScene,
   polylineMidpoint,
   polylineSegments,
+  type MeasurePick,
 } from "../measure/geometry";
 import { useMeasureStore } from "../measure/store";
 import { BuriedMark } from "./BuriedMark";
@@ -195,6 +198,27 @@ export function MeasureOverlay() {
     return out;
   }, [result]);
 
+  /**
+   * The CENTRE dimension (MEASURE-LABEL-PITCH-1): when a pick is a circle the
+   * readout's hero is the centre reading, so the viewport draws the line that
+   * number measures — centre to centre, with a witness at each centre — beside
+   * the kernel's nearest-point line. Two holes on a plate read as one ruled
+   * line through both centres with the rim-to-rim span inside it.
+   */
+  const centrePositions = useMemo(() => {
+    if (result === null || picks.length !== 2) return new Float32Array(0);
+    const reading = centreReading(
+      picks[0] as MeasurePick,
+      picks[1] as MeasurePick,
+      overlay,
+    );
+    if (reading === null) return new Float32Array(0);
+    const out = new Float32Array(6);
+    out.set(occtToScene(reading.from), 0);
+    out.set(occtToScene(reading.to), 3);
+    return out;
+  }, [result, picks, overlay]);
+
   if (!active || overlay === null) return null;
 
   return (
@@ -260,7 +284,9 @@ export function MeasureOverlay() {
               selected={selectedEdges.has(index)}
               data-testid={`measure-edge-${index}`}
               data-buried={hidden ? "true" : "false"}
-              aria-label={`Edge ${index + 1}, ${edge.kind}`}
+              // IDENTITY in the name (F-7): a circle says its diameter and
+              // centre, any other edge where its mid-span is.
+              aria-label={measureEdgeLabel(index, edge)}
               onClick={() => pickEdge(index)}
               onPointerOver={() => setHoverEdge(index)}
               onPointerOut={() => setHoverEdge(null)}
@@ -305,6 +331,18 @@ export function MeasureOverlay() {
       />
       <Marks
         positions={dimensionPositions}
+        color={measure.dimension}
+        sizePx={measure.witnessSizePx}
+        renderOrder={1000}
+      />
+      <Segments
+        positions={centrePositions}
+        color={measure.dimension}
+        depthTest={false}
+        renderOrder={999}
+      />
+      <Marks
+        positions={centrePositions}
         color={measure.dimension}
         sizePx={measure.witnessSizePx}
         renderOrder={1000}

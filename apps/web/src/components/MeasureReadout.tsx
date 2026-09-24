@@ -1,14 +1,32 @@
 /**
  * The measurement readout — a title-block instrument seated in the viewport's
- * bottom-centre HUD lane, above the view rail, while the Measure tool is armed. The measured distance is the
- * hero numeral (Fragment Mono, brass — the parametric-handle accent), with the
- * signed component deltas and, for two straight edges, the angle. Before both
- * targets are picked it is a quiet prompt; a failed measurement or overlay
- * surfaces its server message legibly. Chrome stays out of the model's way.
+ * bottom-centre HUD lane, above the view rail, while the Measure tool is armed.
+ * The measured distance is the hero numeral (Fragment Mono, brass — the
+ * parametric-handle accent), with the signed component deltas and, for two
+ * straight edges, the angle. Before both targets are picked it is a quiet
+ * prompt; a failed measurement or overlay surfaces its server message legibly.
+ * Chrome stays out of the model's way.
+ *
+ * WHICH NUMBER IS WHICH (MEASURE-LABEL-PITCH-1). The kernel reading is the
+ * MINIMUM distance, and it says so whenever an edge is involved. When a pick is
+ * a circle the hero becomes the CENTRE reading instead — two holes read their
+ * pitch, the number an engineer came for — with its deltas beside it and the
+ * minimum kept at the end of the row, labelled, never silently swapped. The
+ * from/to lines name each target by what it IS (diameter and centre), not by an
+ * ordinal. They are set in the body face on purpose: the data face slashes its
+ * zero, so "Ø8" read as "08" there.
  */
 import { CloseIcon, formatLength, MeasureIcon, Panel } from "@loft/design";
+import { useId } from "react";
 
-import { describePick, formatAngleDeg } from "../measure/geometry";
+import {
+  centreReading,
+  centreReadingLabel,
+  describePick,
+  formatAngleDeg,
+  minimumReadingLabel,
+  type MeasurePick,
+} from "../measure/geometry";
 import { useMeasureStore } from "../measure/store";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 
@@ -41,9 +59,19 @@ function Cell({
       : tone === "gauge"
         ? "text-gauge"
         : "text-mist";
+  // The eyebrow NAMES the value (a group labelled by its caption), so "which
+  // number is the minimum?" has an answer a screen reader and a spec can ask.
+  const eyebrowId = useId();
   return (
-    <div className={`px-3 py-2 ${wide ? "min-w-[7rem]" : "min-w-[5rem]"}`}>
-      <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+    <div
+      role="group"
+      aria-labelledby={eyebrowId}
+      className={`px-3 py-2 ${wide ? "min-w-[7rem]" : "min-w-[5rem]"}`}
+    >
+      <span
+        id={eyebrowId}
+        className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge"
+      >
         {eyebrow}
       </span>
       <span
@@ -63,6 +91,7 @@ export function MeasureReadout() {
   // the eyebrow stays a bare caption. The angle is always degrees.
   const len = (mm: number) => formatLength(mm, unit, { unitSuffix: true });
   const active = useMeasureStore((s) => s.active);
+  const overlay = useMeasureStore((s) => s.overlay);
   const picks = useMeasureStore((s) => s.picks);
   const result = useMeasureStore((s) => s.result);
   const overlayError = useMeasureStore((s) => s.overlayError);
@@ -127,6 +156,20 @@ export function MeasureReadout() {
 
   // Resolved measurement — the title-block reading.
   if (result !== null && picks.length === 2) {
+    const [a, b] = picks as [MeasurePick, MeasurePick];
+    const centre = centreReading(a, b, overlay);
+    const minimum = (
+      <Cell
+        eyebrow={minimumReadingLabel(result.kind)}
+        value={len(result.distance)}
+        tone={centre === null ? "brass" : "mist"}
+        testid="measure-readout-distance"
+        wide
+      />
+    );
+    // The deltas belong to the HERO reading and sit beside it: the centre
+    // offsets when there is a centre reading, else the kernel's own.
+    const delta = centre?.delta ?? result.delta;
     return (
       <Panel
         aria-label="Measurement"
@@ -134,35 +177,44 @@ export function MeasureReadout() {
         className={SEAT}
       >
         {header}
-        <p
-          className="px-3 pb-1 pt-1.5 font-body text-2xs text-gauge"
+        <dl
+          className="grid grid-cols-[auto_1fr] items-baseline gap-x-2 px-3 pb-1 pt-1.5"
           data-testid="measure-targets"
         >
-          {describePick(picks[0]!)} → {describePick(picks[1]!)}
-        </p>
-        <div className="grid grid-flow-col auto-cols-auto divide-x divide-hairline">
-          <Cell
-            eyebrow="Distance"
-            value={len(result.distance)}
-            tone="brass"
-            testid="measure-readout-distance"
-            wide
-          />
-          <Cell
-            eyebrow="Δx"
-            value={len(result.delta.x)}
-            testid="measure-readout-dx"
-          />
-          <Cell
-            eyebrow="Δy"
-            value={len(result.delta.y)}
-            testid="measure-readout-dy"
-          />
-          <Cell
-            eyebrow="Δz"
-            value={len(result.delta.z)}
-            testid="measure-readout-dz"
-          />
+          <dt className="font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+            From
+          </dt>
+          <dd
+            className="font-body text-2xs tabular-nums text-mist"
+            data-testid="measure-target-a"
+          >
+            {describePick(a, overlay, unit)}
+          </dd>
+          <dt className="font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+            To
+          </dt>
+          <dd
+            className="font-body text-2xs tabular-nums text-mist"
+            data-testid="measure-target-b"
+          >
+            {describePick(b, overlay, unit)}
+          </dd>
+        </dl>
+        <div className="grid grid-flow-col auto-cols-auto divide-x divide-hairline border-t border-hairline">
+          {centre !== null ? (
+            <Cell
+              eyebrow={centreReadingLabel(centre)}
+              value={len(centre.distance)}
+              tone="brass"
+              testid="measure-readout-centre"
+              wide
+            />
+          ) : (
+            minimum
+          )}
+          <Cell eyebrow="Δx" value={len(delta.x)} testid="measure-readout-dx" />
+          <Cell eyebrow="Δy" value={len(delta.y)} testid="measure-readout-dy" />
+          <Cell eyebrow="Δz" value={len(delta.z)} testid="measure-readout-dz" />
           {result.angle_deg !== null && result.angle_deg !== undefined ? (
             <Cell
               eyebrow="Angle"
@@ -170,6 +222,7 @@ export function MeasureReadout() {
               testid="measure-readout-angle"
             />
           ) : null}
+          {centre !== null ? minimum : null}
         </div>
       </Panel>
     );
@@ -190,8 +243,8 @@ export function MeasureReadout() {
             : "Pick the second point or edge"}
         </span>
         {picks.length === 1 ? (
-          <span className="mt-0.5 block font-data text-2xs text-gauge">
-            {describePick(picks[0]!)}
+          <span className="mt-0.5 block font-body text-2xs text-gauge">
+            {describePick(picks[0]!, overlay, unit)}
           </span>
         ) : null}
       </div>
