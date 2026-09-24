@@ -8704,7 +8704,7 @@
         "description": "Ask the geometry worker to speculatively cache a feature-tree prefix.\n\n**This request cannot produce an artifact** (docs/PERF.md PERF-1b): the only\nthing it can do is make a LATER, ordinary evaluate cheaper by leaving an\nevaluator checkpoint in the per-worker rebuild cache, addressed by the same\ncontent hash that evaluate probes. There is deliberately no \"prefetched\nresult\" to fetch \u2014 see :class:`WarmTreeResult`.\n\nIt is issued on a genuine declaration of intent, and only those two:\n\n* an **open feature editor** \u2014 editing feature ``k`` declares ``0..k-1``\n  settled for as long as the dialog is open, so ``tree`` is the current tree\n  and ``prefix_length`` is ``k``;\n* a **travel stop** on the timeline \u2014 that is a shorter tree in its own\n  right, so ``tree`` IS the shorter tree and ``prefix_length`` is omitted.",
         "properties": {
           "lineages": {
-            "description": "Which cache lineages to warm, in priority order, under ONE shared budget \u2014 so a truncated warm always got the first one done. An open editor asks for both: the commit reads `evaluate`, the face pick that follows it reads `provenance`.",
+            "description": "Which rebuilds to warm. Both names address the SAME rebuild-cache entry (every evaluation records per-face provenance), so the worker warms it once, under one budget, whether one name or both is listed; an empty list warms nothing. An open editor sends both: the commit (`evaluate`) and the face pick that follows it (`provenance`) resume from that one entry.",
             "items": {
               "enum": [
                 "evaluate",

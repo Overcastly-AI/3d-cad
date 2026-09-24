@@ -3953,19 +3953,23 @@ class EvaluateTreeRequest(BaseModel):
     )
 
 
-#: Which cached lineage a warm should build. They are separate cache lineages,
-#: not variations of one (``record_history`` is part of the prefix key): a
-#: history-recording evaluation retains an intermediate body per body-affecting
-#: feature and a plain one retains none, so a plain prefix cannot serve per-face
-#: provenance. Named for what the user is about to do, not for the flag:
+#: Which rebuild a warm is for, named for what the user is about to do. Both
+#: names address the SAME rebuild-cache checkpoint: every evaluation records
+#: per-face provenance and ``record_history`` is no longer in the prefix key
+#: (PERF-REAL-3), so ``/evaluate``, ``/overlay``, ``/measure`` and the rest
+#: resume from one entry per part. The worker collapses the list and warms that
+#: entry once (``geometry.warm``). The two names remain because they are wire
+#: contract, and the web client still sends both:
 #:
 #: * ``evaluate`` — the rebuild behind committing the edit;
 #: * ``provenance`` — the rebuild behind the FIRST FACE PICK after that commit,
-#:   which is the visible one (docs/PERF.md measures 29 s at 200 features).
+#:   which was the visible one while it had an entry of its own (docs/PERF.md
+#:   measured 29 s at 200 features).
 WarmLineage = Literal["evaluate", "provenance"]
 
-#: Cap on how many lineages one warm may chain. Two exist; the bound is here so
-#: a caller cannot turn one declaration of intent into unbounded speculation.
+#: Cap on how many names one warm may list: one per ``WarmLineage`` value. Both
+#: address one checkpoint, so listing both costs no more than listing one; the
+#: bound only keeps a request from carrying an unbounded list.
 MAX_WARM_LINEAGES = 2
 
 
@@ -4022,10 +4026,12 @@ class WarmTreeRequest(BaseModel):
     lineages: list[WarmLineage] = Field(
         default_factory=lambda: ["evaluate"],
         max_length=MAX_WARM_LINEAGES,
-        description="Which cache lineages to warm, in priority order, under ONE "
-        "shared budget — so a truncated warm always got the first one done. An "
-        "open editor asks for both: the commit reads `evaluate`, the face pick "
-        "that follows it reads `provenance`.",
+        description="Which rebuilds to warm. Both names address the SAME "
+        "rebuild-cache entry (every evaluation records per-face provenance), so "
+        "the worker warms it once, under one budget, whether one name or both "
+        "is listed; an empty list warms nothing. An open editor sends both: the "
+        "commit (`evaluate`) and the face pick that follows it (`provenance`) "
+        "resume from that one entry.",
     )
 
 

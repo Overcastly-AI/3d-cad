@@ -7548,7 +7548,7 @@ export interface components {
         WarmTreeRequest: {
             /**
              * Lineages
-             * @description Which cache lineages to warm, in priority order, under ONE shared budget — so a truncated warm always got the first one done. An open editor asks for both: the commit reads `evaluate`, the face pick that follows it reads `provenance`.
+             * @description Which rebuilds to warm. Both names address the SAME rebuild-cache entry (every evaluation records per-face provenance), so the worker warms it once, under one budget, whether one name or both is listed; an empty list warms nothing. An open editor sends both: the commit (`evaluate`) and the face pick that follows it (`provenance`) resume from that one entry.
              */
             lineages?: ("evaluate" | "provenance")[];
             /**
