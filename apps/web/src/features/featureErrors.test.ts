@@ -59,6 +59,21 @@ describe("friendlyFeatureError", () => {
     );
   });
 
+  it("humanises the twisted-extrude refusal, naming the controls that fix it", () => {
+    // The kernel's message carries the numbers and the invariant it broke;
+    // the copy drops the jargon and names the two controls that cure it.
+    const copy = friendlyFeatureError(
+      "twist_failed",
+      "A 3600 deg twist over 30 mm did not sweep cleanly (its volume is not profile area x distance); reduce the twist angle or lengthen the extrusion.",
+      "extrude",
+    );
+    expect(copy).not.toMatch(/deg twist over|profile area x distance/);
+    expect(copy).toMatch(/reduce the twist/i);
+    expect(copy).toMatch(/lengthen the distance/i);
+    // The server's message is the fallback only for codes with no copy.
+    expect(friendlyFeatureError("twist_failed", "raw")).toBe(copy);
+  });
+
   it("keys profile_not_closed copy on the feature type (FINDINGS #13)", () => {
     // An open-profile EXTRUDE must not read revolve axis advice.
     const extrude = friendlyFeatureError(
