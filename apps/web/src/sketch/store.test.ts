@@ -1302,7 +1302,11 @@ describe("trim/extend edit + constraint reconciliation", () => {
     rectangleAt();
     const store = useSketchStore.getState;
     store().requestEdit("trim", "e1", { x: 20, y: 0 });
-    expect(store().edit).toMatchObject({ op: "trim", target: "e1", nonce: 1 });
+    expect(store().edit).toMatchObject({
+      op: "trim",
+      target: "e1",
+      nonce: expect.any(Number),
+    });
     expect(store().editBusy).toBe(true);
     // A second arm while busy is ignored (one edit in flight at a time).
     store().requestEdit("trim", "e2", { x: 40, y: 12 });
@@ -1351,7 +1355,9 @@ describe("trim/extend edit + constraint reconciliation", () => {
     expect(store().editNote).toMatch(/trimmed\. 4 constraints removed/i);
   });
 
-  it("a clean extend notes the verb without a removed count", () => {
+  it("an extend drops the corner join its moved end had, and says so", () => {
+    // G7: the join at the corner the start left would pull it straight back
+    // on the next solve, undoing the extend. Everything else survives.
     rectangleAt();
     const store = useSketchStore.getState;
     store().requestEdit("extend", "e1", { x: 0, y: 0 });
@@ -1361,10 +1367,56 @@ describe("trim/extend edit + constraint reconciliation", () => {
         : e,
     );
     store().applyEditResult("extend", grown);
-    expect(store().editNote).toBe("Extended.");
-    expect(authored()).toEqual([]);
+    expect(store().editNote).toBe("Extended. 1 constraint removed.");
+    expect(
+      store().constraints.some(
+        (c) =>
+          c.kind === "coincident" &&
+          [c.a, c.b].some((r) => r.entity === "e1" && r.point === "start"),
+      ),
+    ).toBe(false);
+    expect(store().constraints).toContainEqual({
+      kind: "horizontal",
+      entity: "e1",
+    });
     const e1 = store().entities.find((e) => e.id === "e1");
     expect(e1?.kind === "line" ? e1.start : null).toEqual({ x: -10, y: 0 });
+  });
+
+  it("an edit that grows the far end only keeps every constraint", () => {
+    // A lone line: nothing is joined to the end that moves, so nothing goes.
+    const store = useSketchStore.getState;
+    store().begin();
+    store().choosePlane("XY");
+    store().setTool("line");
+    store().placeAt({ x: 0, y: 0 });
+    store().placeAt({ x: 10, y: 5 });
+    store().setTool("select");
+    const before = store().constraints;
+    store().requestEdit("extend", "e1", { x: 10, y: 5 });
+    const grown = store().entities.map((e) =>
+      e.id === "e1" && e.kind === "line" ? { ...e, end: { x: 20, y: 10 } } : e,
+    );
+    store().applyEditResult("extend", grown);
+    expect(store().editNote).toBe("Extended.");
+    expect(store().constraints).toEqual(before);
+  });
+
+  it("the SECOND geometry edit of a session is served too (G12)", () => {
+    // Every success clears the request to null. The nonce used to restart at
+    // 1 from there, equal to the one PartPage had just served, so the second
+    // trim was dropped and `editBusy` stuck: "Finishing the last edit…".
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().requestEdit("trim", "e1", { x: 20, y: 0 });
+    const first = store().edit?.nonce;
+    store().applyEditResult("trim", store().entities);
+    expect(store().edit).toBeNull();
+    store().requestEdit("trim", "e2", { x: 40, y: 12 });
+    const second = store().edit?.nonce;
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    expect(second).not.toBe(first);
   });
 
   it("switching tools clears the edit note", () => {
@@ -1403,7 +1455,7 @@ describe("offset — appends a parallel copy, no reconciliation", () => {
     expect(store().offset).toMatchObject({
       target: "e1",
       distance: -3,
-      nonce: 1,
+      nonce: expect.any(Number),
     });
     expect(store().offsetDraft).toBeNull();
     expect(store().editBusy).toBe(true);
@@ -1516,7 +1568,7 @@ describe("mirror — two-phase pick, appends reflected copies", () => {
     expect(store().mirrorRequest).toMatchObject({
       targets: ["e1"],
       axis: { kind: "entity", entity: "e2" },
-      nonce: 1,
+      nonce: expect.any(Number),
     });
     expect(store().editBusy).toBe(true);
   });
@@ -1636,7 +1688,7 @@ describe("fillet/chamfer — two-line pick, rewrites in place", () => {
       a: "e1",
       b: "e2",
       value: 2,
-      nonce: 1,
+      nonce: expect.any(Number),
     });
     expect(store().editBusy).toBe(true);
   });

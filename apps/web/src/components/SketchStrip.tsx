@@ -76,9 +76,11 @@ import { type ReactNode, useEffect, useState } from "react";
 import type { DatumOffsetParams } from "../api/parts";
 import { HistoryGroup } from "./HistoryGroup";
 import { isTypingTarget } from "../lib/isTypingTarget";
+import { useGlobalKeys } from "../lib/modalGate";
 import { undoRedoStep } from "../lib/undoRedoShortcut";
 import {
   authoredConstraintCount,
+  deleteSelectedEntities,
   describeSelection,
   selectionAllConstruction,
   selectionVerbHints,
@@ -686,6 +688,41 @@ function StatusCell({
 }
 
 /**
+ * One cap on the offer rail: a stamped keycap and a plain verb, a real button
+ * so the same affordance serves the keyboard (press the key) and the pointer
+ * (click the cap). The label sheds with the band's measured label tier.
+ */
+function OfferCap({
+  testId,
+  keyCap,
+  keyName,
+  label,
+  onClick,
+}: {
+  testId: string;
+  /** What the cap reads ("D", "Del"). */
+  keyCap: string;
+  /** The key's spoken name, for the accessible name and tooltip. */
+  keyName: string;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      aria-label={`${label} — press ${keyName}`}
+      title={`${label} (${keyName})`}
+      onClick={onClick}
+      className="flex items-center gap-1 rounded-sm hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass motion-safe:transition-colors"
+    >
+      <Kbd>{keyCap}</Kbd>
+      <span className="[[data-labels=off]_&]:hidden">{label}</span>
+    </button>
+  );
+}
+
+/**
  * The Mirror tool's two-phase guide, hung from the band into the viewport.
  * Targets phase: a live count and the "Choose axis" step (Enter also advances).
  * Axis phase: the instruction to click a line, with the reflection ghost doing
@@ -868,6 +905,7 @@ export function SketchStrip({
   const toggleConstruction = useSketchStore(
     (state) => state.toggleConstruction,
   );
+  const deleteSelection = useSketchStore((state) => state.deleteSelection);
   const hint = useSketchStore((state) => state.hint);
   const editNote = useSketchStore((state) => state.editNote);
   const mirror = useSketchStore((state) => state.mirror);
@@ -911,6 +949,38 @@ export function SketchStrip({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mode, undo, redo]);
 
+  /*
+   * Delete / Backspace on selected ENTITIES (helical-gear gap G7). The part
+   * page's sketch key handler owns the same keys for a selected CONSTRAINT
+   * glyph and marks the event handled (`preventDefault`) when it removes one,
+   * so one keypress can never delete a constraint AND the geometry. The
+   * binding lives here, beside the offer-rail cap that shows it, for the
+   * reason the undo binding above does. (`useGlobalKeys` already refuses a
+   * key another handler cancelled and a key typed into a field.)
+   */
+  useGlobalKeys(
+    "sketch-delete-entities",
+    mode === "draw"
+      ? (event) => {
+          if (event.key !== "Delete" && event.key !== "Backspace") return;
+          if (event.metaKey || event.ctrlKey || event.altKey) return;
+          const state = useSketchStore.getState();
+          if (state.selectedConstraint !== null) return;
+          if (
+            deleteSelectedEntities(
+              state.selection,
+              state.entities,
+              state.constraints,
+            ) === null
+          ) {
+            return;
+          }
+          event.preventDefault();
+          deleteSelection();
+        }
+      : null,
+  );
+
   // Exit-with-unsaved-work confirm (F1). Derived rather than trusted: the prompt
   // only renders while it is still TRUE that discarding would destroy something,
   // so saving or deleting the last entity behind an armed confirm dismisses it
@@ -923,6 +993,10 @@ export function SketchStrip({
   // promise (`selectionVerbHints`).
   const verbHints =
     mode === "draw" ? selectionVerbHints(selection, entities, constraints) : [];
+  // ...and whether it can be deleted, offered as the rail's last cap (G7).
+  const deletable =
+    mode === "draw" &&
+    deleteSelectedEntities(selection, entities, constraints) !== null;
 
   if (mode === "off") return null;
 
@@ -957,7 +1031,7 @@ export function SketchStrip({
                   as instrument guidance and not a banner. Each cap is a real
                   button, so the same affordance serves the keyboard and the
                   pointer — press the letter, or click the letter. */}
-              {verbHints.length > 0 ? (
+              {verbHints.length > 0 || deletable ? (
                 <>
                   <span aria-hidden className="text-etch">
                     ·
@@ -980,21 +1054,24 @@ export function SketchStrip({
                     className="flex items-center gap-2 text-gauge"
                   >
                     {verbHints.map((verb) => (
-                      <button
+                      <OfferCap
                         key={verb.action}
-                        type="button"
-                        data-testid={`verb-hint-${verb.action}`}
-                        aria-label={`${verb.label} — press ${verb.key}`}
-                        title={`${verb.label} (${verb.key})`}
+                        testId={`verb-hint-${verb.action}`}
+                        keyCap={verb.key}
+                        keyName={verb.key}
+                        label={verb.label}
                         onClick={() => applyConstraint(verb.action)}
-                        className="flex items-center gap-1 rounded-sm hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass motion-safe:transition-colors"
-                      >
-                        <Kbd>{verb.key}</Kbd>
-                        <span className="[[data-labels=off]_&]:hidden">
-                          {verb.label}
-                        </span>
-                      </button>
+                      />
                     ))}
+                    {deletable ? (
+                      <OfferCap
+                        testId="sketch-delete"
+                        keyCap="Del"
+                        keyName="Delete"
+                        label="Delete"
+                        onClick={deleteSelection}
+                      />
+                    ) : null}
                   </span>
                 </>
               ) : null}

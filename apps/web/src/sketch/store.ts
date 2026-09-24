@@ -37,8 +37,10 @@ import { create, type StateCreator } from "zustand";
 import {
   applyConstraintAction,
   constraintEntityRefs,
+  deleteSelectedEntities,
   dimensionEditorTarget,
   reconcileConstraints,
+  reconcileEditedConstraints,
   toggleConstruction,
   type ConstraintAction,
   type DimensionCommit,
@@ -556,6 +558,12 @@ export interface SketchState {
   /** Toggle the selected entities between profile and construction (N). */
   toggleConstruction: () => void;
   /**
+   * Delete the selected entities and the constraints that named them
+   * (Delete / Backspace with entities selected; see `deleteSelectedEntities`).
+   * A user edit like any other, so it is one undo step.
+   */
+  deleteSelection: () => void;
+  /**
    * Arm a trim/extend on the target under the pick (raw plane mm). `target`
    * null means the click missed every curve — a hint, no request.
    */
@@ -872,6 +880,25 @@ const withArmedPrompt =
       if (after.dimensionPick === null || after.hint !== null) return;
       set({ hint: DIMENSION_PICK_HINT[after.dimensionPick] });
     }, get);
+
+/**
+ * The nonce every network request the store arms carries (trim/extend, offset,
+ * mirror, fillet/chamfer). PartPage's effects fire once per NEW nonce and
+ * remember the last one they served.
+ *
+ * ONE SEQUENCE FOR THE LIFE OF THE PAGE, NEVER DERIVED FROM THE LAST REQUEST
+ * (helical-gear gaps G7 and G12). Each request used to be `previous.nonce + 1`,
+ * and every success clears the request to null, so the next one started again
+ * at 1: equal to the nonce the effect had just served, so it was dropped, and
+ * `editBusy` stayed set with nothing in flight. The gear test's keyway saw it
+ * as "Trim cut the circle top, then did nothing" and an Undo stuck on
+ * "Finishing the last edit…": every second geometry edit of a session was lost.
+ */
+let requestNonce = 0;
+const nextRequestNonce = (): number => {
+  requestNonce += 1;
+  return requestNonce;
+};
 
 /** Every action, over the recording `set` (never the raw one). */
 const createSketchState = (
@@ -1386,15 +1413,42 @@ const createSketchState = (
     set({ entities: next, revision: revision + 1, selection: [], hint: null });
   },
 
+  deleteSelection: () => {
+    const { selection, entities, constraints, revision, editBusy } = get();
+    // A trim/offset/mirror in flight will land on the CURRENT entity set; the
+    // same hold undo takes (see `undo`).
+    if (editBusy) return;
+    const result = deleteSelectedEntities(selection, entities, constraints);
+    if (result === null) {
+      set({ hint: "Select a line, arc, circle, spline or point to delete." });
+      return;
+    }
+    const what = `${result.deleted} ${result.deleted === 1 ? "entity" : "entities"}`;
+    set({
+      entities: result.entities,
+      constraints: result.constraints,
+      revision: revision + 1,
+      selection: [],
+      hoverPick: null,
+      selectedConstraint: null,
+      dimensionEdit: null,
+      hint: null,
+      editNote:
+        result.removedConstraints > 0
+          ? `Deleted ${what}. ${result.removedConstraints} ${result.removedConstraints === 1 ? "constraint" : "constraints"} removed.`
+          : `Deleted ${what}.`,
+    });
+  },
+
   requestEdit: (op, target, pick) => {
-    const { editBusy, edit } = get();
+    const { editBusy } = get();
     if (editBusy) return;
     if (target === null) {
       set({ hint: `Aim at a curve to ${op}.` });
       return;
     }
     set({
-      edit: { op, target, pick, nonce: (edit?.nonce ?? 0) + 1 },
+      edit: { op, target, pick, nonce: nextRequestNonce() },
       editBusy: true,
       selection: [],
       hoverPick: null,
@@ -1405,15 +1459,18 @@ const createSketchState = (
   },
 
   applyEditResult: (op, entities) => {
-    const { edit, constraints, revision } = get();
+    const { edit, constraints, revision, entities: before } = get();
     if (edit === null) return;
     // Reconcile: the stateless edit rewrote geometry only, so a delete/split
-    // can strand constraints on ids that no longer exist. Drop the danglers
-    // BEFORE the revision bump re-triggers the solve — an unreconciled trim
-    // that leaves a dangling constraint would throw on the next evaluate.
-    const { constraints: kept, removed } = reconcileConstraints(
+    // can strand constraints on ids that no longer exist, and the curve that
+    // survives carries constraints on its OLD shape that would pull it back on
+    // the next solve (G7: a trimmed line re-stretched to its typed length).
+    // Both BEFORE the revision bump re-triggers the solve.
+    const { constraints: kept, removed } = reconcileEditedConstraints(
       constraints,
+      before,
       entities,
+      edit.target,
     );
     const verb = op === "trim" ? "Trimmed" : "Extended";
     const note =
@@ -1452,7 +1509,7 @@ const createSketchState = (
   },
 
   armOffset: (distanceMm) => {
-    const { offsetDraft, offset } = get();
+    const { offsetDraft } = get();
     // Guard the sign convention at the store edge too: zero collapses the
     // request to the backend's `sketch_offset_zero_distance` — reject it here.
     if (
@@ -1466,7 +1523,7 @@ const createSketchState = (
       offset: {
         target: offsetDraft.target,
         distance: distanceMm,
-        nonce: (offset?.nonce ?? 0) + 1,
+        nonce: nextRequestNonce(),
       },
       offsetDraft: null,
       editBusy: true,
@@ -1525,8 +1582,7 @@ const createSketchState = (
   },
 
   pickMirrorAxis: (id) => {
-    const { mirror, entities, editBusy, mirrorRequest, datumFrameHalfMm } =
-      get();
+    const { mirror, entities, editBusy, datumFrameHalfMm } = get();
     if (mirror === null || mirror.phase !== "axis" || editBusy) return;
     if (id === null) {
       set({ hint: "Aim at a line to mirror about." });
@@ -1548,7 +1604,7 @@ const createSketchState = (
       mirrorRequest: {
         targets: mirror.targets,
         axis,
-        nonce: (mirrorRequest?.nonce ?? 0) + 1,
+        nonce: nextRequestNonce(),
       },
       editBusy: true,
       hint: null,
@@ -1605,7 +1661,7 @@ const createSketchState = (
   },
 
   armCorner: (valueMm) => {
-    const { corner, cornerRequest } = get();
+    const { corner } = get();
     if (corner === null || corner.picks.length !== 2) return;
     // Guard the strictly-positive contract at the store edge (the backend's
     // `radius`/`distance` are > 0); a non-positive value never leaves the UI.
@@ -1618,7 +1674,7 @@ const createSketchState = (
         a,
         b,
         value: valueMm,
-        nonce: (cornerRequest?.nonce ?? 0) + 1,
+        nonce: nextRequestNonce(),
       },
       editBusy: true,
       hint: null,
