@@ -25,6 +25,15 @@ for MCAD), truck (Rust, immature), writing our own (a decade of work).
 **Licensing:** OCCT is LGPL-2.1 *with exception* — safe to depend on from an
 MIT app. build123d and OCP are Apache-2.0.
 
+**Helical construction (2026-09-24):** a twisted extrude is
+`BRepOffsetAPI_MakePipeShell` along a straight spine, in auxiliary-spine mode
+with a helix about that spine. That is an exact screw motion of the profile,
+with only the swept faces fitted (1e-7 mm). A ruled loft through rotated
+sections and a sweep along a helix path were rejected. Every twisted tool is
+checked against the Cavalieri identity (volume = area × distance), because OCCT
+can return an inverted solid that `BRepCheck` still accepts. Rationale and
+measurements: `docs/design/twisted-extrude.md`.
+
 ## 2. Sketch constraint solver — planegcs (spike verdict 2026-07-10: adopted)
 
 **Decision:** FreeCAD's planar geometric constraint solver via the

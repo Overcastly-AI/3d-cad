@@ -177,6 +177,7 @@ from geometry.kernel.threads import (
     format_designation,
     resolve_iso_metric_thread,
 )
+from geometry.kernel.twist import TwistError, twisted_extrude_face
 from geometry.kernel.types import BodyShape
 from geometry.schemas import (
     BoxParams,
@@ -255,6 +256,7 @@ __all__ = [
     "ThreadBoreMismatchError",
     "ThreadError",
     "ThreadUnsupportedError",
+    "TwistError",
     "ZeroWidthSlit",
     "attribute_faces",
     "boolean_bodies",
@@ -341,6 +343,7 @@ __all__ = [
     "solid_to_brep_bytes",
     "sweep_profile",
     "tessellate_glb",
+    "twisted_extrude_face",
 ]
 
 

@@ -121,7 +121,7 @@ from loft_wire.materials import (
     density_kg_m3,
     resolve_body_material,
 )
-from loft_wire.sketch import classify_overconstraint
+from loft_wire.sketch import Point2D, classify_overconstraint
 from py_kit.errors import ValidationApiError
 
 from geometry.kernel import (
@@ -168,6 +168,7 @@ from geometry.kernel import (
     SweepError,
     ThreadBoreMismatchError,
     ThreadUnsupportedError,
+    TwistError,
     attribute_faces,
     boolean_bodies,
     bore_hole,
@@ -219,6 +220,7 @@ from geometry.kernel import (
     shell_body,
     sweep_profile,
     tessellate_glb,
+    twisted_extrude_face,
 )
 from geometry.kernel.fork import fork_shapes, weigh_shapes
 from geometry.kernel.healing import body_is_valid, new_geometry_is_valid
@@ -1219,8 +1221,38 @@ def _evaluate_extrude(
         return resolved
     face, plane, _ = resolved
 
-    tool = extrude_face(face, plane, params.distance_mm, reverse)
+    tool = _extrude_tool(face, plane, params, reverse)
+    if isinstance(tool, FeatureError):
+        return tool
     return _add_body(item, state, tool, merge=params.merge)
+
+
+def _extrude_tool(
+    face: Face, plane: Plane, params: ExtrudeParamsV1, reverse: bool
+) -> Solid | FeatureError:
+    """The solid one profile region sweeps to: a prism, or a twisted prism.
+
+    THE single branch point between the straight and the twisted extrude, shared
+    by the ADD and CUT paths so they can never disagree on it. No twist (the
+    field absent, or ``0``) takes :func:`extrude_face` exactly as before, so an
+    untwisted extrude is byte-identical to one built before the twist existed.
+    A nonzero twist takes :func:`twisted_extrude_face`
+    (docs/design/twisted-extrude.md); its refusal is ``twist_failed``.
+    """
+    if not params.is_twisted:
+        return extrude_face(face, plane, params.distance_mm, reverse)
+    assert params.twist_angle_deg is not None  # is_twisted implies a value
+    try:
+        return twisted_extrude_face(
+            face,
+            plane,
+            params.distance_mm,
+            reverse,
+            params.twist_angle_deg,
+            params.twist_center or Point2D(x=0.0, y=0.0),
+        )
+    except TwistError as exc:
+        return FeatureError(code="twist_failed", message=str(exc))
 
 
 def _evaluate_extrude_cut(
@@ -1263,7 +1295,12 @@ def _evaluate_extrude_cut(
             ),
         )
 
-    tools = [extrude_face(face, plane, params.distance_mm, reverse) for face in faces]
+    tools: list[Solid] = []
+    for face in faces:
+        tool = _extrude_tool(face, plane, params, reverse)
+        if isinstance(tool, FeatureError):
+            return tool
+        tools.append(tool)
     try:
         for tool in tools:
             body = combine_body(body, tool, "cut")

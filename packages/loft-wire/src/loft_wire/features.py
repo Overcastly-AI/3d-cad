@@ -14,6 +14,7 @@ millimetres, encoded in field names (``distance_mm``) exactly as
 :mod:`loft_wire.geometry` does.
 """
 
+import math
 import re
 import uuid
 from collections.abc import Callable, Iterator, Mapping
@@ -44,6 +45,7 @@ from loft_wire.instrument import notify_feature_error
 from loft_wire.materials import MaterialAssignment, MaterialKey
 from loft_wire.sketch import (
     EntityId,
+    Point2D,
     SketchConstraintDiagnosis,
     SketchDefinition,
     SolvedSketch,
@@ -828,8 +830,39 @@ MERGE_FIELD = Field(
 )
 
 
+#: Largest |twist| a twisted extrude accepts (degrees over the whole distance):
+#: ten full turns. A request-validation sanity bound, not the geometric limit —
+#: how tight a twist the kernel can sweep depends on the profile's radius from
+#: the axis and on the distance, so a twist that is inside this bound and still
+#: too tight for its profile is refused at rebuild as ``twist_failed``
+#: (docs/design/twisted-extrude.md §4).
+MAX_TWIST_ANGLE_DEG = 3600.0
+
+
+def _is_none(value: object) -> bool:
+    """``exclude_if`` predicate: an absent optional field is not serialized.
+
+    Used by additive fields whose absence must leave a dumped envelope EXACTLY
+    as it was before the field existed — the stored row, the response bytes and
+    the rebuild-cache key of every untwisted extrude
+    (:attr:`ExtrudeParamsV1.twist_angle_deg`).
+    """
+    return value is None
+
+
 class ExtrudeParamsV1(BaseModel):
-    """Linear extrusion of an earlier sketch feature's profile."""
+    """Linear extrusion of an earlier sketch feature's profile.
+
+    With a nonzero ``twist_angle_deg`` it is a TWISTED extrusion: the profile
+    rotates uniformly about an axis parallel to the extrusion direction while it
+    travels, so every point of it traces a true helix and the far-end section is
+    the profile rotated by the full twist (a helical gear, a twisted column;
+    docs/design/twisted-extrude.md). Both twist fields are additive-optional,
+    null by default and OMITTED from a dump while null, so an extrude with no
+    twist serializes byte-for-byte as it did before they existed (stored row,
+    response, rebuild-cache key) and rebuilds on the unchanged prism path — no
+    ``param_version`` bump.
+    """
 
     profile: FeatureRef = Field(
         description="Must resolve to an EARLIER sketch feature (design §2.2)"
@@ -838,6 +871,47 @@ class ExtrudeParamsV1(BaseModel):
     operation: Literal["add", "cut"]
     direction: Literal["normal", "reverse"] = "normal"
     merge: bool = MERGE_FIELD
+    twist_angle_deg: float | None = Field(
+        default=None,
+        exclude_if=_is_none,
+        ge=-MAX_TWIST_ANGLE_DEG,
+        le=MAX_TWIST_ANGLE_DEG,
+        allow_inf_nan=False,
+        description=(
+            "Twist over the whole extrusion distance (degrees). The profile "
+            "rotates uniformly about the twist axis as it travels, a true helical "
+            "sweep. Positive is RIGHT-HANDED about the extrusion direction (a "
+            "right-hand helix whichever way `direction` points); negative is "
+            "left-handed. None (the default) or 0 is a plain straight prism, "
+            "byte-identical to an extrude with no twist. A twist too tight for "
+            "the profile is a `twist_failed` rebuild error."
+        ),
+    )
+    twist_center: Point2D | None = Field(
+        default=None,
+        exclude_if=_is_none,
+        description=(
+            "Where the twist axis pierces the sketch plane, in the profile "
+            "sketch's own (x, y) mm. The axis runs parallel to the extrusion "
+            "direction through this point. None (the default) is the sketch "
+            "origin. Ignored when there is no twist."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _finite_twist_center(self) -> Self:
+        """A twist axis through a non-finite point is no axis at all (422)."""
+        centre = self.twist_center
+        if centre is not None and not (
+            math.isfinite(centre.x) and math.isfinite(centre.y)
+        ):
+            raise ValueError("twist_center must have finite x and y (mm)")
+        return self
+
+    @property
+    def is_twisted(self) -> bool:
+        """Whether this extrude takes the twisted-sweep path (nonzero twist)."""
+        return bool(self.twist_angle_deg)
 
 
 class SketchLineAxis(BaseModel):

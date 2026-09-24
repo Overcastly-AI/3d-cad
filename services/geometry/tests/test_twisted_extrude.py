@@ -1,0 +1,422 @@
+"""Twisted extrude — the extrude feature's ``twist_angle_deg`` (helical-gear gap #1).
+
+docs/design/twisted-extrude.md. The golden
+``extrude-twist-square20-hole-r3-h30-30deg`` runs every parametrized gate in
+``test_goldens.py`` / ``test_step_roundtrip.py`` (analytic mass properties,
+exact topology, in-process + cross-interpreter byte determinism, STEP round
+trip). This module covers what one golden cannot:
+
+* **no twist is the old extrude, byte for byte** — ``twist_angle_deg`` absent,
+  ``null`` and ``0`` all produce the identical evaluate response (mesh id
+  included) that the committed extrude golden produces;
+* **handedness is about the direction of travel** — a positive twist is a
+  right-hand helix for ``direction: normal`` AND ``reverse``;
+* **the twist axis** goes through ``twist_center``, defaulting to the sketch
+  origin;
+* **cut mode** (the helical gear's tooth gap), including a holed profile and
+  disjoint regions, removes exactly ``area(profile ∩ blank section) x depth``
+  for a blank that is a solid of revolution about the twist axis (every slice
+  of the tool is a rotated copy of the profile, and the blank's slice is
+  rotation-invariant), with the removal visibly rotated;
+* **a twist too tight for its profile is a named refusal** (``twist_failed``),
+  never the inverted, ``BRepCheck``-valid solid OCCT returns for it.
+
+Every expected number is analytic; the two tolerances below were measured
+first, then set, and say so.
+"""
+
+import json
+import math
+import uuid
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+from geometry.main import app
+from loft_wire.features import EvaluateTreeResult
+
+client = TestClient(app)
+
+GOLDENS = Path(__file__).resolve().parent.parent / "goldens"
+EXTRUDE_GOLDEN = GOLDENS / "sketch-extrude-40x25x10" / "model.json"
+
+#: Absolute bound (mm^3, and mm on AABB bounds) for this module's twisted
+#: bodies, MEASURED FIRST, THEN SET (2026-09-24, pipe-shell fit 1e-7 mm): the
+#: worst volume residual against the analytic value is +2.44e-6 mm^3 (the holed
+#: disjoint-region cut, 1e-10 relative, five B-spline flank families), then
+#: +3.9e-7 (helical slot) and +2.7e-7 (holed prism, = the golden's residual);
+#: AABB bounds carry the 1.0e-7 modelling-tolerance padding. 2e-5 is 8x the
+#: worst case. The golden keeps its own, tighter, per-model bound (2e-6).
+TWIST_TOL = 2e-5
+
+#: Absolute bound (mm) on centroids here, measured the same way: worst
+#: residual 4.2e-10 (the orbiting square), 12x inside this. A handedness error
+#: moves centroid.y by >= 0.15 mm, eight orders of magnitude outside it.
+CENTROID_TOL = 5e-9
+
+PART_ID = uuid.UUID("00000000-0000-0000-0000-00000000077a")
+SKETCH_ID = uuid.UUID("00000000-0000-0000-0000-0000000077a1")
+EXTRUDE_ID = uuid.UUID("00000000-0000-0000-0000-0000000077b1")
+SKETCH2_ID = uuid.UUID("00000000-0000-0000-0000-0000000077a2")
+EXTRUDE2_ID = uuid.UUID("00000000-0000-0000-0000-0000000077b2")
+XY_PLANE: dict[str, Any] = {"kind": "datum_plane", "plane": "XY"}
+
+
+def _line(eid: str, a: tuple[float, float], b: tuple[float, float]) -> dict[str, Any]:
+    return {
+        "id": eid,
+        "kind": "line",
+        "start": {"x": a[0], "y": a[1]},
+        "end": {"x": b[0], "y": b[1]},
+    }
+
+
+def _circle(eid: str, c: tuple[float, float], r: float) -> dict[str, Any]:
+    return {"id": eid, "kind": "circle", "center": {"x": c[0], "y": c[1]}, "radius": r}
+
+
+def _rect(prefix: str, x0: float, y0: float, x1: float, y1: float) -> list[Any]:
+    return [
+        _line(f"{prefix}1", (x0, y0), (x1, y0)),
+        _line(f"{prefix}2", (x1, y0), (x1, y1)),
+        _line(f"{prefix}3", (x1, y1), (x0, y1)),
+        _line(f"{prefix}4", (x0, y1), (x0, y0)),
+    ]
+
+
+def _sketch(feature_id: uuid.UUID, entities: list[Any]) -> dict[str, Any]:
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "sketch",
+            "version": 1,
+            "params": {
+                "plane": dict(XY_PLANE),
+                "entities": entities,
+                "constraints": [],
+            },
+        },
+    }
+
+
+def _extrude(
+    feature_id: uuid.UUID,
+    profile_id: uuid.UUID,
+    distance_mm: float,
+    **extra: Any,
+) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "profile": {"kind": "feature", "feature_id": str(profile_id)},
+        "distance_mm": distance_mm,
+        "operation": "add",
+        "direction": "normal",
+    }
+    params.update(extra)
+    return {
+        "id": str(feature_id),
+        "feature": {"type": "extrude", "version": 1, "params": params},
+    }
+
+
+def _evaluate(features: list[dict[str, Any]]) -> EvaluateTreeResult:
+    response = client.post(
+        "/api/v1/evaluate",
+        json={"part_id": str(PART_ID), "tree_version": 1, "features": features},
+    )
+    assert response.status_code == 200, response.text
+    return EvaluateTreeResult.model_validate(response.json())
+
+
+def _ok_properties(result: EvaluateTreeResult) -> Any:
+    assert [r.status for r in result.features] == ["ok"] * len(result.features), [
+        (r.status, r.error) for r in result.features
+    ]
+    assert result.properties is not None
+    return result.properties
+
+
+def _mean_rotation(theta: float) -> tuple[float, float]:
+    """Mean over z of (cos, sin) of a section turned uniformly from 0 to theta."""
+    return math.sin(theta) / theta, (1.0 - math.cos(theta)) / theta
+
+
+# --- No twist is the old extrude, byte for byte ----------------------------------
+
+
+@pytest.mark.parametrize("twist", ["absent", None, 0.0, -0.0])
+def test_no_twist_is_byte_identical_to_the_plain_extrude(twist: object) -> None:
+    """The committed extrude golden, with the twist field absent / null / 0 / -0:
+    the WHOLE response is identical, mesh id included, because a zero twist
+    never leaves the prism path (the `_extrude_tool` branch point)."""
+    baseline: dict[str, Any] = json.loads(EXTRUDE_GOLDEN.read_text())
+    variant: dict[str, Any] = json.loads(EXTRUDE_GOLDEN.read_text())
+    if twist != "absent":
+        variant["features"][1]["feature"]["params"]["twist_angle_deg"] = twist
+        variant["features"][1]["feature"]["params"]["twist_center"] = {
+            "x": 7.0,
+            "y": -3.0,
+        }
+    first = client.post("/api/v1/evaluate", json=baseline)
+    second = client.post("/api/v1/evaluate", json=variant)
+    assert first.status_code == second.status_code == 200
+    assert first.content == second.content
+
+
+# --- The twisted prism: volume, handedness, axis ---------------------------------
+
+SQUARE = _rect("s", -10.0, -10.0, 10.0, 10.0)
+#: An OFF-AXIS hole makes the handedness observable in the centroid: a centred
+#: square is symmetric under the twist, a mirrored helix would pass it.
+SQUARE_WITH_HOLE = [*SQUARE, _circle("h1", (4.0, 0.0), 3.0)]
+HOLED_AREA = 400.0 - 9.0 * math.pi
+HOLED_CENTROID_X0 = -(9.0 * math.pi) * 4.0 / HOLED_AREA  # slice centroid at z=0
+
+
+@pytest.mark.parametrize(
+    ("direction", "twist", "sense"),
+    [
+        ("normal", 30.0, 1.0),  # right-hand about +Z: CCW seen from +Z
+        ("normal", -30.0, -1.0),  # left-hand
+        ("reverse", 30.0, -1.0),  # right-hand about -Z: CW seen from +Z
+        ("reverse", -30.0, 1.0),
+    ],
+)
+def test_twist_is_right_handed_about_the_direction_of_travel(
+    direction: str, twist: float, sense: float
+) -> None:
+    """Every slice is the profile turned by `sense * theta(z)` about +Z, so the
+    volume is area x depth (Cavalieri) and the centroid is the slice centroid
+    rotated by the MEAN turn — whose y sign is the handedness."""
+    props = _ok_properties(
+        _evaluate(
+            [
+                _sketch(SKETCH_ID, SQUARE_WITH_HOLE),
+                _extrude(
+                    EXTRUDE_ID,
+                    SKETCH_ID,
+                    30.0,
+                    direction=direction,
+                    twist_angle_deg=twist,
+                ),
+            ]
+        )
+    )
+    cos_mean, sin_mean = _mean_rotation(math.radians(30.0))
+    z_mid = 15.0 if direction == "normal" else -15.0
+    assert props.volume == pytest.approx(HOLED_AREA * 30.0, abs=TWIST_TOL)
+    assert props.centroid.x == pytest.approx(
+        HOLED_CENTROID_X0 * cos_mean, abs=CENTROID_TOL
+    )
+    assert props.centroid.y == pytest.approx(
+        sense * HOLED_CENTROID_X0 * sin_mean, abs=CENTROID_TOL
+    )
+    assert props.centroid.z == pytest.approx(z_mid, abs=CENTROID_TOL)
+    assert props.topology.faces == 7  # 4 helicoidal flanks + hole tube + 2 caps
+
+
+def test_twist_axis_goes_through_twist_center() -> None:
+    """A 20 mm square at (10..30, -10..10): about its OWN centre it spins in
+    place (centroid on the axis, AABB half-width a(cos t + sin t)); about the
+    default sketch origin it orbits (centroid swings off (20, 0))."""
+    square = _rect("s", 10.0, -10.0, 30.0, 10.0)
+    spun = _ok_properties(
+        _evaluate(
+            [
+                _sketch(SKETCH_ID, square),
+                _extrude(
+                    EXTRUDE_ID,
+                    SKETCH_ID,
+                    30.0,
+                    twist_angle_deg=30.0,
+                    twist_center={"x": 20.0, "y": 0.0},
+                ),
+            ]
+        )
+    )
+    half = 10.0 * (math.cos(math.radians(30.0)) + math.sin(math.radians(30.0)))
+    assert spun.volume == pytest.approx(400.0 * 30.0, abs=TWIST_TOL)
+    assert spun.centroid.x == pytest.approx(20.0, abs=CENTROID_TOL)
+    assert spun.centroid.y == pytest.approx(0.0, abs=CENTROID_TOL)
+    # optimal AABB is padded ~1e-7 by the modelling tolerance (golden rationale)
+    assert spun.bounding_box.max.x == pytest.approx(20.0 + half, abs=TWIST_TOL)
+    assert spun.bounding_box.min.y == pytest.approx(-half, abs=TWIST_TOL)
+
+    orbit = _ok_properties(
+        _evaluate(
+            [
+                _sketch(SKETCH_ID, square),
+                _extrude(EXTRUDE_ID, SKETCH_ID, 30.0, twist_angle_deg=30.0),
+            ]
+        )
+    )
+    cos_mean, sin_mean = _mean_rotation(math.radians(30.0))
+    assert orbit.volume == pytest.approx(400.0 * 30.0, abs=TWIST_TOL)
+    assert orbit.centroid.x == pytest.approx(20.0 * cos_mean, abs=CENTROID_TOL)
+    assert orbit.centroid.y == pytest.approx(20.0 * sin_mean, abs=CENTROID_TOL)
+
+
+def test_twisted_extrude_starts_a_second_body_with_merge_false() -> None:
+    """`merge: false` composes with a twist: the twisted prism is a NEW body."""
+    result = _evaluate(
+        [
+            _sketch(SKETCH_ID, _rect("s", -50.0, -5.0, -40.0, 5.0)),
+            _extrude(EXTRUDE_ID, SKETCH_ID, 10.0),
+            _sketch(SKETCH2_ID, SQUARE),
+            _extrude(EXTRUDE2_ID, SKETCH2_ID, 30.0, twist_angle_deg=45.0, merge=False),
+        ]
+    )
+    props = _ok_properties(result)
+    assert len(result.bodies) == 2
+    assert props.volume == pytest.approx(1000.0 + 400.0 * 30.0, abs=TWIST_TOL)
+
+
+# --- Cut mode: the helical gear's tooth gap ----------------------------------------
+
+BLANK_R = 20.0
+BLANK_H = 20.0
+#: A slot x in [15, 25], |y| <= 2 crossing the blank's rim: the part inside the
+#: disc is { 15 <= x <= sqrt(400 - y^2), |y| <= 2 }.
+SLOT_AREA = 2.0 * math.sqrt(396.0) + 400.0 * math.asin(0.1) - 60.0
+SLOT_MOMENT_X = (175.0 * 4.0 - 16.0 / 3.0) / 2.0  # integral of x dA over it
+POCKET_DEPTH = 10.0
+
+
+def _blank() -> list[dict[str, Any]]:
+    return [
+        _sketch(SKETCH_ID, [_circle("c1", (0.0, 0.0), BLANK_R)]),
+        _extrude(EXTRUDE_ID, SKETCH_ID, BLANK_H),
+    ]
+
+
+def test_twisted_cut_removes_the_helical_slot() -> None:
+    """The gear's route: a twisted CUT through a round blank. The blank's slice
+    is rotation-invariant, so the removal is exactly slot-area x depth, and the
+    removed slice centroid (x_r, 0) turns with height, so the body's centroid
+    carries the mean turn — a straight cut would leave centroid.y at 0."""
+    theta = math.radians(40.0)
+    props = _ok_properties(
+        _evaluate(
+            [
+                *_blank(),
+                _sketch(SKETCH2_ID, _rect("k", 15.0, -2.0, 25.0, 2.0)),
+                _extrude(
+                    EXTRUDE2_ID,
+                    SKETCH2_ID,
+                    BLANK_H,
+                    operation="cut",
+                    twist_angle_deg=40.0,
+                ),
+            ]
+        )
+    )
+    blank_volume = math.pi * BLANK_R**2 * BLANK_H
+    removed = SLOT_AREA * BLANK_H
+    cos_mean, sin_mean = _mean_rotation(theta)
+    lever = -(SLOT_MOMENT_X * BLANK_H) / (blank_volume - removed)
+    assert props.volume == pytest.approx(blank_volume - removed, abs=TWIST_TOL)
+    assert props.centroid.x == pytest.approx(lever * cos_mean, abs=CENTROID_TOL)
+    assert props.centroid.y == pytest.approx(lever * sin_mean, abs=CENTROID_TOL)
+
+
+def test_twisted_cut_of_disjoint_regions_and_a_holed_region() -> None:
+    """Cut mode keeps extrude's multi-region rule under a twist: two disjoint
+    loops are two tools, and a loop with a hole leaves the hole's material (a
+    helical rod standing in the pocket — hence a blind pocket, so the rod stays
+    attached to the material above it)."""
+    ring = [
+        *_rect("a", 5.0, -3.0, 11.0, 3.0),
+        _circle("ah", (8.0, 0.0), 1.0),  # hole INSIDE region a: material kept
+        *_rect("b", -11.0, -3.0, -5.0, 3.0),
+    ]
+    props = _ok_properties(
+        _evaluate(
+            [
+                *_blank(),
+                _sketch(SKETCH2_ID, ring),
+                _extrude(
+                    EXTRUDE2_ID,
+                    SKETCH2_ID,
+                    POCKET_DEPTH,
+                    operation="cut",
+                    twist_angle_deg=-25.0,
+                ),
+            ]
+        )
+    )
+    removed = (36.0 - math.pi + 36.0) * POCKET_DEPTH
+    assert props.volume == pytest.approx(
+        math.pi * BLANK_R**2 * BLANK_H - removed, abs=TWIST_TOL
+    )
+
+
+# --- Refusals ---------------------------------------------------------------------
+
+
+def test_a_twist_too_tight_for_the_profile_is_twist_failed() -> None:
+    """Ten turns in 30 mm on a 20 mm square: OCCT's sweep returns an INVERTED
+    solid (volume ~ -A*d) that BRepCheck calls valid. The Cavalieri guard
+    refuses it by name and the last good body survives."""
+    result = _evaluate(
+        [
+            *_blank(),
+            _sketch(SKETCH2_ID, SQUARE),
+            _extrude(EXTRUDE2_ID, SKETCH2_ID, 30.0, twist_angle_deg=3600.0),
+        ]
+    )
+    assert [r.status for r in result.features] == ["ok", "ok", "ok", "error"]
+    error = result.features[3].error
+    assert error is not None
+    assert error.code == "twist_failed"
+    assert "reduce the twist angle" in error.message
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(
+        math.pi * BLANK_R**2 * BLANK_H, abs=TWIST_TOL
+    )
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"twist_angle_deg": 3600.5},
+        {"twist_angle_deg": -3601.0},
+        {"twist_angle_deg": "NaN"},
+        {"twist_angle_deg": 10.0, "twist_center": {"x": "Infinity", "y": 0.0}},
+    ],
+)
+def test_out_of_range_twist_is_refused_at_validation(extra: dict[str, Any]) -> None:
+    response = client.post(
+        "/api/v1/evaluate",
+        json={
+            "part_id": str(PART_ID),
+            "tree_version": 1,
+            "features": [
+                _sketch(SKETCH_ID, SQUARE),
+                _extrude(EXTRUDE_ID, SKETCH_ID, 30.0, **extra),
+            ],
+        },
+    )
+    assert response.status_code == 422, response.text
+
+
+# --- Determinism --------------------------------------------------------------------
+
+
+def test_twisted_cut_response_is_byte_deterministic() -> None:
+    """RESEARCH §9 on the twisted path: same tree, identical response bytes,
+    mesh id included. (Cross-interpreter determinism: the golden's gate.)"""
+    payload = {
+        "part_id": str(PART_ID),
+        "tree_version": 1,
+        "features": [
+            *_blank(),
+            _sketch(SKETCH2_ID, _rect("k", 15.0, -2.0, 25.0, 2.0)),
+            _extrude(
+                EXTRUDE2_ID, SKETCH2_ID, BLANK_H, operation="cut", twist_angle_deg=40.0
+            ),
+        ],
+    }
+    first = client.post("/api/v1/evaluate", json=payload)
+    second = client.post("/api/v1/evaluate", json=payload)
+    assert first.status_code == second.status_code == 200
+    assert first.content == second.content

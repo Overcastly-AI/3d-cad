@@ -122,6 +122,8 @@ EXTRUDE_PARAMS: dict[str, Any] = {
     # defaults True — a dumped envelope carries it, so the verbatim round-trip
     # must include it.
     "merge": True,
+    # NB no twist keys: the twisted-extrude fields are omitted from a dump while
+    # null, so an untwisted envelope round-trips exactly as it did before them.
 }
 
 #: Fillet params — round the vertical (Z-parallel) edges at r=5 (the golden
@@ -567,6 +569,76 @@ def test_extrude_direction_defaults_to_normal() -> None:
     )
     assert isinstance(envelope, ExtrudeFeature)
     assert envelope.params.direction == "normal"
+
+
+def test_extrude_twist_is_absent_by_default_and_legacy_rows_read_untwisted() -> None:
+    """A row persisted before the twist existed has neither field: it validates
+    and reads as the plain prism (the additive, no-``param_version`` rule)."""
+    envelope = FEATURE_ADAPTER.validate_python(
+        {"type": "extrude", "version": 1, "params": EXTRUDE_PARAMS}
+    )
+    assert isinstance(envelope, ExtrudeFeature)
+    assert envelope.params.twist_angle_deg is None
+    assert envelope.params.twist_center is None
+    assert envelope.params.is_twisted is False
+
+
+def test_a_twisted_extrude_dumps_its_twist_and_an_untwisted_one_does_not() -> None:
+    """Null twist fields are OMITTED (byte-identical legacy envelope); set ones
+    round-trip, including an explicit 0."""
+    for extra, expected in (
+        ({}, {}),
+        ({"twist_angle_deg": None, "twist_center": None}, {}),
+        ({"twist_angle_deg": 0.0}, {"twist_angle_deg": 0.0}),
+        (
+            {"twist_angle_deg": 12.5, "twist_center": {"x": 1.0, "y": -2.0}},
+            {"twist_angle_deg": 12.5, "twist_center": {"x": 1.0, "y": -2.0}},
+        ),
+    ):
+        envelope = FEATURE_ADAPTER.validate_python(
+            {"type": "extrude", "version": 1, "params": {**EXTRUDE_PARAMS, **extra}}
+        )
+        assert envelope.model_dump(mode="json")["params"] == {
+            **EXTRUDE_PARAMS,
+            **expected,
+        }
+
+
+@pytest.mark.parametrize(
+    ("twist", "twisted"), [(0.0, False), (-0.0, False), (12.36, True), (-3600.0, True)]
+)
+def test_extrude_is_twisted_only_for_a_nonzero_twist(
+    twist: float, twisted: bool
+) -> None:
+    envelope = FEATURE_ADAPTER.validate_python(
+        {
+            "type": "extrude",
+            "version": 1,
+            "params": {**EXTRUDE_PARAMS, "twist_angle_deg": twist},
+        }
+    )
+    assert isinstance(envelope, ExtrudeFeature)
+    assert envelope.params.is_twisted is twisted
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"twist_angle_deg": 3600.001},
+        {"twist_angle_deg": -3600.001},
+        {"twist_angle_deg": float("nan")},
+        {"twist_angle_deg": float("inf")},
+        {"twist_angle_deg": 5.0, "twist_center": {"x": float("nan"), "y": 0.0}},
+        {"twist_angle_deg": 5.0, "twist_center": {"x": 0.0, "y": float("-inf")}},
+    ],
+)
+def test_extrude_twist_out_of_range_or_non_finite_is_rejected(
+    bad: dict[str, Any],
+) -> None:
+    with pytest.raises(ValidationError):
+        FEATURE_ADAPTER.validate_python(
+            {"type": "extrude", "version": 1, "params": {**EXTRUDE_PARAMS, **bad}}
+        )
 
 
 def test_geom_ref_discriminates_on_kind() -> None:

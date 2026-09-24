@@ -5253,6 +5253,16 @@ export interface components {
         /**
          * ExtrudeParamsV1
          * @description Linear extrusion of an earlier sketch feature's profile.
+         *
+         *     With a nonzero ``twist_angle_deg`` it is a TWISTED extrusion: the profile
+         *     rotates uniformly about an axis parallel to the extrusion direction while it
+         *     travels, so every point of it traces a true helix and the far-end section is
+         *     the profile rotated by the full twist (a helical gear, a twisted column;
+         *     docs/design/twisted-extrude.md). Both twist fields are additive-optional,
+         *     null by default and OMITTED from a dump while null, so an extrude with no
+         *     twist serializes byte-for-byte as it did before they existed (stored row,
+         *     response, rebuild-cache key) and rebuilds on the unchanged prism path — no
+         *     ``param_version`` bump.
          */
         ExtrudeParamsV1: {
             /**
@@ -5279,6 +5289,13 @@ export interface components {
             operation: "add" | "cut";
             /** @description Must resolve to an EARLIER sketch feature (design §2.2) */
             profile: components["schemas"]["FeatureRef"];
+            /**
+             * Twist Angle Deg
+             * @description Twist over the whole extrusion distance (degrees). The profile rotates uniformly about the twist axis as it travels, a true helical sweep. Positive is RIGHT-HANDED about the extrusion direction (a right-hand helix whichever way `direction` points); negative is left-handed. None (the default) or 0 is a plain straight prism, byte-identical to an extrude with no twist. A twist too tight for the profile is a `twist_failed` rebuild error.
+             */
+            twist_angle_deg?: number | null;
+            /** @description Where the twist axis pierces the sketch plane, in the profile sketch's own (x, y) mm. The axis runs parallel to the extrusion direction through this point. None (the default) is the sketch origin. Ignored when there is no twist. */
+            twist_center?: components["schemas"]["Point2D"] | null;
         };
         /**
          * FaceSelector

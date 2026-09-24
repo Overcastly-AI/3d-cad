@@ -143,6 +143,59 @@ def test_re_parametrizing_the_extrude_rebuilds_the_body(stack: Stack) -> None:
     )
 
 
+#: A twisted prism's flanks are B-spline fits of screw surfaces (fit tolerance
+#: 1e-7 mm, docs/design/twisted-extrude.md), so its volume is not float-exact
+#: like the box's. Measured first, then set: residual +2.5e-7 mm^3 on this part
+#: (2026-09-24, 2.5e-11 relative); 5e-6 is 20x clear of it.
+TWIST_VOLUME_TOLERANCE_MM3 = 5e-6
+#: Centroids of the same part, measured the same way: residual <= 3.8e-10 mm;
+#: 1e-8 is 26x clear. A mirrored twist moves centroid.y by 10.2 mm.
+TWIST_CENTROID_TOLERANCE_MM = 1e-8
+
+
+def test_a_twisted_extrude_reaches_the_kernel_and_can_be_straightened(
+    stack: Stack,
+) -> None:
+    """``twist_angle_deg`` through the script path, asserted on the GEOMETRY.
+
+    A misspelled or dropped field would validate and silently extrude straight
+    (params models ignore extras), so the assertion is the centroid: the
+    40 x 25 rectangle turns 30 deg about the sketch origin over 10 mm, so its
+    centre (20, 12.5) sweeps an arc and the solid's centroid is that centre
+    turned by the MEAN angle — counter-clockwise, because a positive twist is
+    right-handed about +Z. Every slice is congruent, so the volume stays
+    10 000 mm^3 (Cavalieri). Straightening it restores the box exactly.
+    """
+    theta = math.radians(30.0)
+    cos_mean = math.sin(theta) / theta
+    sin_mean = (1.0 - math.cos(theta)) / theta
+    with _session(stack) as session:
+        part = session.new_part("Twisted")
+        sketch = part.sketch(on="XY")
+        sketch.rect(WIDTH_MM, HEIGHT_MM)
+        sketch.solve()
+        feature = part.extrude(sketch, DEPTH_MM, twist_angle_deg=30.0)
+        twisted = part.mass_properties()
+        part.set_extrude_twist(feature.id, None)
+        straight = part.mass_properties()
+
+    cx, cy = WIDTH_MM / 2, HEIGHT_MM / 2
+    assert twisted.volume == pytest.approx(
+        EXPECTED_VOLUME_MM3, abs=TWIST_VOLUME_TOLERANCE_MM3
+    )
+    assert twisted.centroid.x == pytest.approx(
+        cx * cos_mean - cy * sin_mean, abs=TWIST_CENTROID_TOLERANCE_MM
+    )
+    assert twisted.centroid.y == pytest.approx(
+        cx * sin_mean + cy * cos_mean, abs=TWIST_CENTROID_TOLERANCE_MM
+    )
+    assert straight.volume == pytest.approx(
+        EXPECTED_VOLUME_MM3, abs=VOLUME_TOLERANCE_MM3
+    )
+    assert straight.centroid.x == pytest.approx(cx, abs=VOLUME_TOLERANCE_MM3)
+    assert straight.centroid.y == pytest.approx(cy, abs=VOLUME_TOLERANCE_MM3)
+
+
 # --- export -----------------------------------------------------------------
 
 

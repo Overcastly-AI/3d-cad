@@ -8,28 +8,37 @@ cannot" from "the UI cannot reach it".
 Part: normal module 2, 24 teeth, normal pressure angle 20 deg, helix 15 deg
 right hand, face width 20 mm, bore 10 mm with a DIN 6885 keyway (3 x 1.4).
 
-Route (Loft has no helix, no twisted extrude, no equation curve, no gear
-generator - see the report):
+Two routes (Loft has no equation curve and no gear generator - see the report):
+
+**Loft route** (the default; the only route when the report was written):
 
 1. blank: tip-circle disc, extruded 20 mm;
 2. ONE tooth gap, exact involute flanks as fit-point splines, sketched on XY
    and again on offset datum planes, each copy rotated by the helix twist at
    that height (``z * tan(beta) / r``);
-3. a RULED loft cut through those sections (the only non-prismatic tool that
-   can twist), then a feature-scope circular pattern x ``z``;
+3. a RULED loft cut through those sections, then a feature-scope circular
+   pattern x ``z``;
 4. bore + keyway as one closed profile, extrude-cut;
 5. independent checks: mass properties against an analytic estimate, STEP
    export re-read by OCCT outside the app, twist measured on that STEP.
+
+**Twisted route** (``--twisted``; helical-gear gap #1): steps 2-3 become ONE
+tooth-gap sketch on XY and ONE extrude CUT with ``twist_angle_deg`` = the helix
+twist over the face width - a true helical sweep, not a ruled approximation
+(docs/design/twisted-extrude.md) - then the same pattern, bore and checks.
 
 Run against a live gateway::
 
     uv run python docs/qa/helical-gear.py --url http://127.0.0.1:8000
     uv run python docs/qa/helical-gear.py --url ... --sections 5 --edit
+    uv run python docs/qa/helical-gear.py --url ... --twisted --edit
 
 ``--sections N`` is the number of loft sections (2 = bottom + top only). A
 ruled loft joins matching points by STRAIGHT lines, so between sections the
 flank sags inside the true helicoid; more sections shrink that error by ~N^2.
-``--edit`` then re-drives the part to beta = 20 deg and times the rebuild.
+``--twisted`` has no sections and no sag: its expected volume IS the true
+helical one. ``--edit`` then re-drives the part to beta = 20 deg and times the
+rebuild.
 
 The STEP check imports build123d, which only a QA probe may do (the product
 path never does). It is skipped with a note when build123d is absent.
@@ -328,6 +337,69 @@ def build(
     return ids
 
 
+def build_twisted(
+    part: Part, g: Gear, fit_points: int, timer: Timer
+) -> dict[str, uuid.UUID]:
+    """The twisted route: one gap sketch, one twisted extrude cut, one pattern."""
+    ids: dict[str, uuid.UUID] = {}
+
+    t0 = time.perf_counter()
+    blank = part.sketch(on="XY", name="Blank (tip circle)")
+    blank.circle((0, 0), diameter=2 * g.ra)
+    part.extrude(blank, g.face_width, name="Blank")
+    ids["blank"] = blank.id
+    timer.step("blank: tip-circle sketch + extrude", t0)
+
+    t0 = time.perf_counter()
+    sk = part.sketch(on="XY", name="Tooth gap")
+    draw_gap(sk, g, 0.0, fit_points)
+    sk.save()
+    ids["section0"] = sk.id
+    twist = math.degrees(g.twist_at(g.face_width))
+    cut = part.extrude(
+        sk,
+        g.face_width,
+        operation="cut",
+        twist_angle_deg=twist,
+        name="Tooth gap (twisted cut)",
+    )
+    ids["cut"] = cut.id
+    part.evaluate(strict=True)
+    timer.step(f"gap sketch + twisted extrude cut ({twist:.3f} deg) + evaluate", t0)
+
+    t0 = time.perf_counter()
+    pattern = part.create_feature(
+        "Gap pattern",
+        PatternFeature(
+            type="pattern",
+            version=1,
+            params=PatternParamsV1(
+                pattern=CircularPatternParamsV1(
+                    axis_point=Vec3(x=0.0, y=0.0, z=0.0),
+                    axis_direction=Vec3(x=0.0, y=0.0, z=1.0),
+                    angle_deg=360.0,
+                    count=g.z,
+                ),
+                scope=PatternFeaturesScope(
+                    kind="features",
+                    features=[FeatureRef(kind="feature", feature_id=cut.id)],
+                ),
+            ),
+        ),
+    )
+    ids["pattern"] = pattern.feature.id
+    part.evaluate(strict=True)
+    timer.step(f"circular pattern x{g.z} (feature scope) + evaluate", t0)
+
+    t0 = time.perf_counter()
+    bore = part.sketch(on="XY", name="Bore + keyway")
+    draw_bore_keyway(bore, g)
+    part.extrude(bore, g.face_width, operation="cut", name="Bore + keyway cut")
+    part.evaluate(strict=True)
+    timer.step("bore + keyway extrude-cut + evaluate", t0)
+    return ids
+
+
 def verify_step(path: Path, g: Gear) -> None:
     """Re-read the exported STEP with OCCT outside the app and measure it.
 
@@ -339,16 +411,23 @@ def verify_step(path: Path, g: Gear) -> None:
         from OCP.BRepClass3d import (
             BRepClass3d_SolidClassifier,  # type: ignore[import-untyped]
         )
+        from OCP.BRepGProp import BRepGProp  # type: ignore[import-untyped]
         from OCP.gp import gp_Pnt  # type: ignore[import-untyped]
+        from OCP.GProp import GProp_GProps  # type: ignore[import-untyped]
         from OCP.TopAbs import TopAbs_IN  # type: ignore[import-untyped]
     except ImportError:  # pragma: no cover - QA-only dependency
         print("  (build123d not importable here: STEP re-read skipped)")
         return
     shape = import_step(str(path))
     solids = shape.solids()
+    # ADAPTIVE integration, the app's own (geometry.kernel.properties.VOLUME_EPS):
+    # build123d's `.volume` is fixed-order Gauss, which is 1.7e-5 low on the
+    # helicoidal flanks and would read as a round-trip loss that is not there.
+    props = GProp_GProps()
+    BRepGProp.VolumeProperties_s(shape.wrapped, props, 1e-10, False, False)
     print(
         f"  STEP re-read: {len(solids)} solid(s), valid={shape.is_valid}, "
-        f"volume={shape.volume:.3f} mm^3"
+        f"volume={props.Mass():.3f} mm^3 (adaptive)"
     )
     classifier = BRepClass3d_SolidClassifier(solids[0].wrapped)
 
@@ -398,7 +477,7 @@ def verify_step(path: Path, g: Gear) -> None:
     print(
         f"  twist z={heights[0]}..{heights[-1]}: {twist:.4f} deg (expected "
         f"{expected:.4f}); worst angular deviation from the true helix along "
-        f"the face: {worst:+.4f} deg"
+        f"the face: {worst:+.5f} deg"
     )
 
     # Where a ruled loft departs from a helicoid: mid-face, between sections.
@@ -420,10 +499,12 @@ def verify_step(path: Path, g: Gear) -> None:
     roots = [root_radius(h, t) for h, t in zip(heights, track, strict=True)]
     pitch_t = 2 * math.pi / g.z
     thin = min(range(len(widths)), key=lambda i: -widths[i])
+    mid = min(range(len(heights)), key=lambda i: abs(heights[i] - g.face_width / 2))
     print(
         f"  transverse tooth thickness on the pitch circle: z=0 "
-        f"{g.r * (pitch_t - widths[0]):.4f} mm, thinnest z={heights[thin]:g} "
-        f"{g.r * (pitch_t - widths[thin]):.4f} mm (true: {g.r * pitch_t / 2:.4f})"
+        f"{g.r * (pitch_t - widths[0]):.5f} mm, mid-face z={heights[mid]:g} "
+        f"{g.r * (pitch_t - widths[mid]):.5f} mm, thinnest z={heights[thin]:g} "
+        f"{g.r * (pitch_t - widths[thin]):.5f} mm (true: {g.r * pitch_t / 2:.5f})"
     )
     print(
         f"  root radius: z=0 {roots[0]:.4f} mm, deepest {min(roots):.4f} mm "
@@ -439,6 +520,11 @@ def main() -> int:
     ap.add_argument("--sections", type=int, default=2)
     ap.add_argument("--fit-points", type=int, default=12)
     ap.add_argument(
+        "--twisted",
+        action="store_true",
+        help="one gap sketch + a TWISTED extrude cut instead of the ruled loft",
+    )
+    ap.add_argument(
         "--edit", action="store_true", help="re-drive to beta=20 and time it"
     )
     args = ap.parse_args()
@@ -451,18 +537,28 @@ def main() -> int:
         f"twist over b = {twist_b:.3f} deg"
     )
     exact, ruled = expected_volume(g, args.sections)
-    print(
-        f"expected volume: true helical {exact:.1f} mm^3, this "
-        f"{args.sections}-section ruled loft {ruled:.1f} mm^3"
-    )
+    if args.twisted:
+        # A twisted extrude is the helicoid itself: its expected volume is the
+        # true helical one, so "vs ruled" below compares against the same value.
+        ruled = exact
+        print(f"expected volume: true helical {exact:.1f} mm^3 (twisted cut)")
+    else:
+        print(
+            f"expected volume: true helical {exact:.1f} mm^3, this "
+            f"{args.sections}-section ruled loft {ruled:.1f} mm^3"
+        )
 
     timer = Timer()
     email = f"gear-script-{uuid.uuid4().hex[:8]}@example.com"
     with loft.register(args.url, email=email, password="gear-script-pw-123") as session:
-        part = session.new_part(f"Helical gear (script, {args.sections} sections)")
+        route = "twisted cut" if args.twisted else f"{args.sections} sections"
+        part = session.new_part(f"Helical gear (script, {route})")
         t_all = time.perf_counter()
         try:
-            ids = build(part, g, args.sections, args.fit_points, timer)
+            if args.twisted:
+                ids = build_twisted(part, g, args.fit_points, timer)
+            else:
+                ids = build(part, g, args.sections, args.fit_points, timer)
         except loft.LoftError as exc:
             print(f"FAILED: {exc.as_dict()}")
             return 1
@@ -476,7 +572,8 @@ def main() -> int:
         vs_exact = 100 * (props.volume / exact - 1)
         print(
             f"app: volume {props.volume:.3f} mm^3 (vs ruled {ruled:.3f}: "
-            f"{vs_ruled:+.3f}%, vs true helical {exact:.3f}: {vs_exact:+.3f}%)"
+            f"{vs_ruled:+.3f}%, vs true helical {exact:.3f}: {vs_exact:+.5f}%, "
+            f"{props.volume - exact:+.3f} mm^3)"
         )
         topo = props.topology
         print(
@@ -499,21 +596,23 @@ def main() -> int:
             blank.entities, blank.constraints = [], []
             blank.circle((0, 0), diameter=2 * g2.ra)
             part.update_feature(blank.id, feature=blank.feature())
-            for i in range(args.sections):
+            sections = 1 if args.twisted else args.sections
+            for i in range(sections):
                 sk = part.sketch_by_id(ids[f"section{i}"])
                 sk.entities = []
-                draw_gap(
-                    sk,
-                    g2,
-                    g2.twist_at(g2.face_width * i / (args.sections - 1)),
-                    args.fit_points,
-                )
+                height = 0.0 if args.twisted else g2.face_width * i / (sections - 1)
+                draw_gap(sk, g2, g2.twist_at(height), args.fit_points)
                 sk.part.update_feature(sk.id, feature=sk.feature())
-            timer.step("re-drive blank + every section sketch to beta=20 (writes)", t0)
+            if args.twisted:
+                part.set_extrude_twist(
+                    ids["cut"], math.degrees(g2.twist_at(g2.face_width))
+                )
+            timer.step("re-drive blank + gap sketch(es) (+ twist) to beta=20", t0)
             t0 = time.perf_counter()
             props2 = part.mass_properties()
             timer.step("rebuild after helix edit (evaluate)", t0)
-            expected2 = expected_volume(g2, args.sections)[1]
+            exact2, ruled2 = expected_volume(g2, args.sections)
+            expected2 = exact2 if args.twisted else ruled2
             print(f"after edit: volume {props2.volume:.3f} (expected {expected2:.3f})")
         print(f"part id: {part.id}")
     return 0

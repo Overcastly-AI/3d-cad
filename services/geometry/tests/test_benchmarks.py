@@ -351,6 +351,16 @@ CASES: list[BenchCase] = [
     BenchCase(
         "tree", "fillet-top-edge", _L, _tree_eval_factory("fillet-top-edge-40x25x10-r5")
     ),
+    # Twisted extrude (docs/design/twisted-extrude.md): two pipe-shell sweeps
+    # (outer + hole), the hole cut, the Cavalieri guard's two adaptive
+    # integrals, then B-spline tessellation. Measured ~0.16-0.2 s whole-tree,
+    # so the HEAVY bucket.
+    BenchCase(
+        "tree",
+        "twisted-extrude-holed",
+        _H,
+        _tree_eval_factory("extrude-twist-square20-hole-r3-h30-30deg"),
+    ),
     # The v2 `features`-scope mirror: k selected features cost k exact reflections
     # + k booleans (docs/design/mirror-semantics.md §9 asks for a rebuild-time
     # assertion on the new goldens rather than a claim in prose). This golden is the

@@ -76,7 +76,7 @@ _ORIGIN_PLANES: dict[str, DatumPlaneRef] = {"XY": XY, "XZ": XZ, "YZ": YZ}
 SOLVED_STATUSES = frozenset({"converged", "underconstrained", "overconstrained"})
 
 
-def _point(value: PointLike) -> Point2D:
+def as_point(value: PointLike) -> Point2D:
     """Accept either a tuple or a DTO, store the DTO."""
     if isinstance(value, Point2D):
         return value
@@ -187,7 +187,7 @@ class Sketch:
             SketchPoint(
                 id=self._new_id(),
                 kind="point",
-                position=_point(at),
+                position=as_point(at),
                 construction=construction,
             )
         )
@@ -200,8 +200,8 @@ class Sketch:
             SketchLine(
                 id=self._new_id(),
                 kind="line",
-                start=_point(start),
-                end=_point(end),
+                start=as_point(start),
+                end=as_point(end),
                 construction=construction,
             )
         )
@@ -233,7 +233,7 @@ class Sketch:
             SketchCircle(
                 id=self._new_id(),
                 kind="circle",
-                center=_point(center),
+                center=as_point(center),
                 radius=value,
                 construction=construction,
             )
@@ -251,9 +251,9 @@ class Sketch:
             SketchArc(
                 id=self._new_id(),
                 kind="arc",
-                center=_point(center),
-                start=_point(start),
-                end=_point(end),
+                center=as_point(center),
+                start=as_point(start),
+                end=as_point(end),
             )
         )
 
@@ -289,7 +289,7 @@ class Sketch:
         floats, and reports ``underconstrained``. Pass ``ground=False`` when the
         rectangle is to be located by constraints of your own.
         """
-        origin = _point(at)
+        origin = as_point(at)
         x0 = origin.x - width / 2.0 if center else origin.x
         y0 = origin.y - height / 2.0 if center else origin.y
         x1, y1 = x0 + width, y0 + height

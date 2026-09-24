@@ -47,7 +47,7 @@ from loft_wire.units import LengthUnit
 
 from loft import _operations as ops
 from loft.errors import FeatureFailed, NoBody, StaleDocument
-from loft.sketch import Sketch, resolve_plane
+from loft.sketch import PointLike, Sketch, as_point, resolve_plane
 
 if TYPE_CHECKING:  # pragma: no cover
     from loft.session import Session
@@ -395,9 +395,11 @@ class Part:
         operation: Literal["add", "cut"] = "add",
         direction: Literal["normal", "reverse"] = "normal",
         merge: bool = True,
+        twist_angle_deg: float | None = None,
+        twist_center: PointLike | None = None,
         name: str = "Extrude",
     ) -> FeatureResponse:
-        """Extrude an earlier sketch's profile.
+        """Extrude an earlier sketch's profile, optionally TWISTED.
 
         ``profile`` takes whichever handle the caller has: the
         :class:`~loft.sketch.Sketch` object (saved and solved if it is not
@@ -405,9 +407,18 @@ class Part:
         round-trips back, so this reaches the same state by the same route), a
         ``FeatureRef``, or a bare feature id for the agent that holds only that.
 
-        Refusals are the server's: a non-positive ``distance_mm`` is a 422 from
-        the same validator the browser's request hits, and an open profile is a
-        ``profile_not_closed`` feature error raised by :meth:`evaluate`.
+        ``twist_angle_deg`` turns the profile uniformly by that many degrees
+        over the whole distance — a true helical sweep, e.g. a helical gear's
+        tooth gap cut with ``operation="cut"``. Positive is right-handed about
+        the extrusion direction. The axis runs parallel to the extrusion
+        through ``twist_center`` (sketch-local mm), defaulting to the sketch
+        origin. ``None`` or ``0`` is the plain prism.
+
+        Refusals are the server's: a non-positive ``distance_mm`` or a twist
+        beyond ten turns is a 422 from the same validator the browser's request
+        hits; an open profile is a ``profile_not_closed`` and a twist too tight
+        for the profile a ``twist_failed`` feature error, raised by
+        :meth:`evaluate`.
         """
         if isinstance(profile, Sketch):
             if profile.solved is None:
@@ -429,6 +440,10 @@ class Part:
                     operation=operation,
                     direction=direction,
                     merge=merge,
+                    twist_angle_deg=twist_angle_deg,
+                    twist_center=(
+                        None if twist_center is None else as_point(twist_center)
+                    ),
                 ),
             ),
         )
@@ -443,13 +458,30 @@ class Part:
         keeping every other parameter as stored (a PATCH that dropped
         ``operation`` would silently turn a cut into an add).
         """
+        return self._update_extrude(feature_id, distance_mm=distance_mm)
+
+    def set_extrude_twist(
+        self, feature_id: uuid.UUID, twist_angle_deg: float | None
+    ) -> FeatureResponse:
+        """Change an existing extrude's twist (``None``/``0`` straightens it).
+
+        Same whole-envelope replacement as :meth:`set_extrude_distance`, so the
+        operation, direction and twist axis stay as stored.
+        """
+        return self._update_extrude(feature_id, twist_angle_deg=twist_angle_deg)
+
+    def _update_extrude(
+        self, feature_id: uuid.UUID, **changes: object
+    ) -> FeatureResponse:
         record = self.feature(feature_id)
         stored = record.feature
         if not isinstance(stored, ExtrudeFeature):
             raise TypeError(
                 f"feature {feature_id} is a {stored.type!r}, not an extrude"
             )
-        params = stored.params.model_copy(update={"distance_mm": distance_mm})
+        # model_copy does not validate, deliberately: refusals are the
+        # server's, so an out-of-range value is the same 422 the browser gets.
+        params = stored.params.model_copy(update=changes)
         updated = self.update_feature(
             feature_id,
             feature=ExtrudeFeature(type="extrude", version=1, params=params),

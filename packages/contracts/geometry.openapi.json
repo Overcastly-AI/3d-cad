@@ -3809,7 +3809,7 @@
         "type": "object"
       },
       "ExtrudeParamsV1": {
-        "description": "Linear extrusion of an earlier sketch feature's profile.",
+        "description": "Linear extrusion of an earlier sketch feature's profile.\n\nWith a nonzero ``twist_angle_deg`` it is a TWISTED extrusion: the profile\nrotates uniformly about an axis parallel to the extrusion direction while it\ntravels, so every point of it traces a true helix and the far-end section is\nthe profile rotated by the full twist (a helical gear, a twisted column;\ndocs/design/twisted-extrude.md). Both twist fields are additive-optional,\nnull by default and OMITTED from a dump while null, so an extrude with no\ntwist serializes byte-for-byte as it did before they existed (stored row,\nresponse, rebuild-cache key) and rebuilds on the unchanged prism path \u2014 no\n``param_version`` bump.",
         "properties": {
           "direction": {
             "default": "normal",
@@ -3843,6 +3843,31 @@
           "profile": {
             "$ref": "#/components/schemas/FeatureRef",
             "description": "Must resolve to an EARLIER sketch feature (design \u00a72.2)"
+          },
+          "twist_angle_deg": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": -3600.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Twist over the whole extrusion distance (degrees). The profile rotates uniformly about the twist axis as it travels, a true helical sweep. Positive is RIGHT-HANDED about the extrusion direction (a right-hand helix whichever way `direction` points); negative is left-handed. None (the default) or 0 is a plain straight prism, byte-identical to an extrude with no twist. A twist too tight for the profile is a `twist_failed` rebuild error.",
+            "title": "Twist Angle Deg"
+          },
+          "twist_center": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Point2D"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the twist axis pierces the sketch plane, in the profile sketch's own (x, y) mm. The axis runs parallel to the extrusion direction through this point. None (the default) is the sketch origin. Ignored when there is no twist."
           }
         },
         "required": [
