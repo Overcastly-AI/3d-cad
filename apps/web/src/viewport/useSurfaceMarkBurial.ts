@@ -70,6 +70,7 @@ import type { Intersection, Mesh } from "three";
 
 import type { Vec3 } from "../api/measure";
 import { occtToScene } from "../measure/geometry";
+import { measuredFrameSeconds } from "./frameDelta";
 import { GaugeKeepOuts, SEAT_CONFIRM_FRAMES } from "./useEdgeMarkAnchors";
 
 /**
@@ -101,9 +102,15 @@ export const SURFACE_SEAT_FRAME_BUDGET = 24;
  * machine where a frame of a 400 000-triangle part costs seconds (software GL,
  * which is where CI and the gauntlet run): there, 6 ms slices spread ~70 ms of
  * work over a dozen multi-second frames. A third of the frame keeps the pass's
- * share of the frame the same everywhere. The ceiling bounds the one case
- * where `delta` is not a frame cost — the first frame after an idle spell,
- * whose delta is the idle time.
+ * share of the frame the same everywhere.
+ *
+ * ONLY WHEN `delta` IS A FRAME. The first frame after an idle spell carries the
+ * idle time as its `delta` (`frameDelta.ts`), so a pass that starts there —
+ * the first frame of an orbit — takes the floor, not a slice sized from the
+ * idle span. Before the review of PERF-REAL-1 caught it, that frame took the
+ * 250 ms ceiling: a visible hitch at the start of every orbit on a big part,
+ * spent on seats the orbit's next frame threw away. The ceiling still bounds a
+ * continuing frame that is merely very slow.
  */
 export const SURFACE_SEAT_FRAME_MS = 6;
 
@@ -111,16 +118,17 @@ export const SURFACE_SEAT_FRAME_MS = 6;
 export const SURFACE_SEAT_MAX_SLICE_MS = 250;
 
 /**
- * The slice the pass may spend in a frame whose predecessor took
- * `frameSeconds` (r3f's `delta`): a third of it, clamped to
- * [`SURFACE_SEAT_FRAME_MS`, `SURFACE_SEAT_MAX_SLICE_MS`].
+ * The slice the pass may spend this frame, given r3f's `delta` and whether the
+ * previous rendered frame was also a pass frame (`continuing`): a third of a
+ * measured frame, clamped to [`SURFACE_SEAT_FRAME_MS`,
+ * `SURFACE_SEAT_MAX_SLICE_MS`], or the floor when `delta` is not a frame.
  */
-export function seatSliceMs(frameSeconds: number): number {
-  const third = (frameSeconds * 1000) / 3;
-  if (!Number.isFinite(third)) return SURFACE_SEAT_FRAME_MS;
+export function seatSliceMs(delta: number, continuing: boolean): number {
+  const frame = measuredFrameSeconds(delta, continuing);
+  if (frame === null) return SURFACE_SEAT_FRAME_MS;
   return Math.min(
     SURFACE_SEAT_MAX_SLICE_MS,
-    Math.max(SURFACE_SEAT_FRAME_MS, third),
+    Math.max(SURFACE_SEAT_FRAME_MS, (frame * 1000) / 3),
   );
 }
 
@@ -283,6 +291,12 @@ export function useSurfaceMarkBurial(
   const oracle = useRef<Mesh | null>(null);
   /** Round-robin cursor, deliberately NOT reset when the camera moves. */
   const cursor = useRef(0);
+  /**
+   * Did the previous invocation of the frame callback ask for THIS frame? Only
+   * then is `delta` a frame duration rather than an idle span — see
+   * `frameDelta.ts`, and `seatSliceMs`, which is what reads it.
+   */
+  const requestedThisFrame = useRef(false);
   /** The gauges on screen — shared implementation with the edge pass. */
   const keepOuts = useMemo(() => new GaugeKeepOuts(), []);
 
@@ -301,6 +315,8 @@ export function useSurfaceMarkBurial(
   }, [canvas]);
 
   useFrame((_state, delta) => {
+    const continuing = requestedThisFrame.current;
+    requestedThisFrame.current = false;
     // THE WORKING ARRAY MUST NEVER BE THE PUBLISHED ONE (board item #76).
     //
     // `working` and `published` were both initialised with the SAME `fallback`
@@ -353,6 +369,7 @@ export function useSurfaceMarkBurial(
         confirmed.current =
           committed.current === published.current ? confirmed.current + 1 : 0;
         stampSeats("pending");
+        requestedThisFrame.current = true;
         invalidate();
         return;
       }
@@ -385,7 +402,7 @@ export function useSurfaceMarkBurial(
     };
 
     let spent = 0;
-    const deadline = performance.now() + seatSliceMs(delta);
+    const deadline = performance.now() + seatSliceMs(delta, continuing);
     while (
       owed.current > 0 &&
       (spent < SURFACE_SEAT_FRAME_BUDGET || performance.now() < deadline)
@@ -421,6 +438,7 @@ export function useSurfaceMarkBurial(
     // Ask for one more frame: the budget carries work across frames and
     // `frameloop="demand"` will not schedule the finishing one otherwise. The
     // loop converges because the guard above returns once nothing is owed.
+    requestedThisFrame.current = true;
     invalidate();
   });
 

@@ -38,17 +38,20 @@
 import type { BufferGeometry, Intersection, Mesh, Raycaster } from "three";
 
 import { faceOrdinalOfTriangle } from "./glbGeometry";
-import { bvhRaycastAll, bvhRaycastFirst } from "./pickBvh";
+import {
+  bvhRaycastAll,
+  bvhRaycastFirst,
+  type HiddenTriangleTest,
+} from "./pickBvh";
 
-/**
- * Is the triangle a hit struck part of a body that is NOT drawn?
- *
- * Takes the raw `faceIndex` an intersection carries rather than a resolved
- * ordinal, so the whole triangle → body decision stays in one place.
- */
-export type HiddenTriangleTest = (
-  faceIndex: number | null | undefined,
-) => boolean;
+// `HiddenTriangleTest`, `DepthSortedHit` and `nearestDrawnHit` live in
+// `pickBvh.ts`, whose nearest-hit query is DEFINED as `nearestDrawnHit` over
+// what it finds; they are re-exported here, where their callers import them.
+export {
+  nearestDrawnHit,
+  type DepthSortedHit,
+  type HiddenTriangleTest,
+} from "./pickBvh";
 
 /** Nothing is hidden — a stable identity, so "one visible body" costs nothing. */
 const NOTHING_HIDDEN: HiddenTriangleTest = () => false;
@@ -74,33 +77,6 @@ export function hiddenTriangleTest(
     const ordinal = faceOrdinalOfTriangle(geometry, faceIndex);
     return ordinal !== null && hidden.has(ordinal);
   };
-}
-
-/** As much of an `Intersection` as the nearest-drawn scan reads. */
-export interface DepthSortedHit {
-  /** Ray origin → hit, in scene mm. */
-  distance: number;
-  /** The struck triangle, as `Mesh.raycast` reports it. */
-  faceIndex?: number | null;
-}
-
-/**
- * The nearest hit whose triangle is DRAWN, or null when every hit is hidden.
- *
- * Strict minimum, so the FIRST of equally-near hits wins — three emits
- * triangles in index-buffer order, which makes the tie deterministic and
- * matches what `Raycaster.intersectObject`'s own stable sort would keep.
- */
-export function nearestDrawnHit<T extends DepthSortedHit>(
-  hits: readonly T[],
-  isHidden: HiddenTriangleTest,
-): T | null {
-  let nearest: T | null = null;
-  for (const hit of hits) {
-    if (isHidden(hit.faceIndex)) continue;
-    if (nearest === null || hit.distance < nearest.distance) nearest = hit;
-  }
-  return nearest;
 }
 
 /**
@@ -133,11 +109,7 @@ export function drawnSurfaceRaycast(
     // `nearestDrawnHit` over every struck triangle, answered by the
     // hierarchy walking near to far instead of by testing the whole part
     // (PERF-REAL-1, `pickBvh.ts`). Same hit, same tie-break.
-    const nearest = bvhRaycastFirst(
-      this,
-      raycaster,
-      (faceIndex) => !isHidden(faceIndex),
-    );
+    const nearest = bvhRaycastFirst(this, raycaster, isHidden);
     if (nearest !== null) intersects.push(nearest);
   };
 }

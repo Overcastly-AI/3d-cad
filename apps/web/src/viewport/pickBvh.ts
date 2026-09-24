@@ -33,8 +33,14 @@
  * material's `side`, the near/far clamp and the same intersection record
  * (point, distance, face, faceIndex, barycoord, uv, uv1, normal). Where
  * several triangles tie on distance, the one earliest in the index buffer wins,
- * which is the order three would have reported them in. `pickBvh.test.ts`
- * holds that equivalence against the brute-force raycast on thousands of rays.
+ * which is the order three reports them in — for a single material, or for a
+ * material array whose draw groups are sorted by start and do not overlap.
+ * Any other group layout makes three's report order differ from index order
+ * (it walks the groups in array order, and a triangle two groups cover is
+ * reported twice), so such a mesh is handed back to `Mesh.raycast`; see
+ * `accelerable`. `pickBvh.test.ts` holds the equivalence — every field of every
+ * hit — against the brute-force raycast on thousands of rays, including rays
+ * aimed exactly at vertices and edges, and geometry far from the origin.
  * Checked once on the real gearbox mesh as well (1 200 rays, both sides, from
  * the plane-pick vantage): nearest hit and full hit list identical on every
  * ray, at ~22 ms a ray brute force against ~0.2 ms here, and ~0.25 s to build.
@@ -66,6 +72,49 @@ import type {
 
 /** Triangles per leaf. Small enough to prune well, large enough to stay shallow. */
 const LEAF_SIZE = 8;
+
+/**
+ * Is the triangle a hit struck part of a body that is NOT drawn?
+ *
+ * Takes the raw `faceIndex` an intersection carries rather than a resolved
+ * ordinal, so the whole triangle → body decision stays in one place
+ * (`pickRaycast.ts`'s `hiddenTriangleTest` builds them).
+ */
+export type HiddenTriangleTest = (
+  faceIndex: number | null | undefined,
+) => boolean;
+
+/** As much of an `Intersection` as the nearest-drawn scan reads. */
+export interface DepthSortedHit {
+  /** Ray origin → hit, in scene mm. */
+  distance: number;
+  /** The struck triangle, as `Mesh.raycast` reports it. */
+  faceIndex?: number | null;
+}
+
+/**
+ * The nearest hit whose triangle is DRAWN, or null when every hit is hidden.
+ *
+ * Strict minimum, so the FIRST of equally-near hits wins — three emits
+ * triangles in index-buffer order, which makes the tie deterministic and
+ * matches what `Raycaster.intersectObject`'s own stable sort would keep.
+ *
+ * It lives here, not in `pickRaycast.ts`, because it is also the DEFINITION
+ * `bvhRaycastFirst` answers to: the hierarchy's nearest hit is this function
+ * applied to the hits it found, in index order. One strict minimum, not two
+ * that could drift apart.
+ */
+export function nearestDrawnHit<T extends DepthSortedHit>(
+  hits: readonly T[],
+  isHidden: HiddenTriangleTest,
+): T | null {
+  let nearest: T | null = null;
+  for (const hit of hits) {
+    if (isHidden(hit.faceIndex)) continue;
+    if (nearest === null || hit.distance < nearest.distance) nearest = hit;
+  }
+  return nearest;
+}
 
 /**
  * A flattened hierarchy. Node `n` owns `bounds[6n .. 6n+5]` (min xyz, max xyz,
@@ -106,58 +155,137 @@ function triangleCount(geometry: BufferGeometry): number {
   return position === undefined ? 0 : Math.floor(position.count / 3);
 }
 
-/** Build a hierarchy over every triangle of `geometry`. Exported for tests. */
+/**
+ * Can the per-triangle working bounds be held in FLOAT32 without rounding?
+ * Yes when every coordinate already IS a float32 — a plain, non-normalized
+ * `Float32Array` position buffer, which is what every GLB here parses to. A
+ * rounded bound could shrink a box past its own triangle, so anything else
+ * (a normalized or integer or float64 buffer) keeps a Float64 working set.
+ */
+function float32Exact(position: PositionAttribute): boolean {
+  return position.array instanceof Float32Array && position.normalized !== true;
+}
+
+/** Node storage that grows by doubling, so the build never reserves 2 x T. */
+class NodeArrays {
+  bounds: Float64Array;
+  left: Int32Array;
+  right: Int32Array;
+  start: Uint32Array;
+  count: Uint32Array;
+  size = 0;
+
+  constructor(capacity: number) {
+    this.bounds = new Float64Array(capacity * 6);
+    this.left = new Int32Array(capacity);
+    this.right = new Int32Array(capacity);
+    this.start = new Uint32Array(capacity);
+    this.count = new Uint32Array(capacity);
+  }
+
+  /** Reserve one node; returns its index. */
+  push(): number {
+    if (this.size === this.left.length) {
+      const capacity = this.left.length * 2;
+      const grow = <A extends Float64Array | Int32Array | Uint32Array>(
+        from: A,
+        make: (n: number) => A,
+        width: number,
+      ): A => {
+        const to = make(capacity * width);
+        to.set(from);
+        return to;
+      };
+      this.bounds = grow(this.bounds, (n) => new Float64Array(n), 6);
+      this.left = grow(this.left, (n) => new Int32Array(n), 1);
+      this.right = grow(this.right, (n) => new Int32Array(n), 1);
+      this.start = grow(this.start, (n) => new Uint32Array(n), 1);
+      this.count = grow(this.count, (n) => new Uint32Array(n), 1);
+    }
+    const n = this.size;
+    this.size += 1;
+    this.left[n] = -1;
+    this.right[n] = -1;
+    return n;
+  }
+}
+
+/**
+ * Build a hierarchy over every triangle of `geometry`. Exported for tests.
+ *
+ * MEMORY. The working set is 9 numbers per triangle (bounds and centroid),
+ * held in Float32 whenever that is exact (`float32Exact`), and the node
+ * arrays grow by doubling from a quarter of the triangle count instead of
+ * reserving the worst case (2 x T nodes) up front — on the gearbox's 399 478
+ * triangles that reservation alone was ~51 MB of a ~90 MB peak; counted the
+ * same way the peak is now ~44 MB (138 231 nodes, one doubling). The finished
+ * tree keeps only what a query reads: ~10 MB there.
+ */
 export function buildTriangleBvh(geometry: BufferGeometry): TriangleBvh {
   const position = geometry.getAttribute("position") as PositionAttribute;
   const index = geometry.index;
   const triangles = triangleCount(geometry);
 
-  // Per-triangle bounds and centroid, read once.
-  const triMin = new Float64Array(triangles * 3);
-  const triMax = new Float64Array(triangles * 3);
-  const centroid = new Float64Array(triangles * 3);
+  // Per-triangle bounds and centroid, read once. The centroid only steers the
+  // split, so it is always Float32; the bounds only when that is exact.
+  const Work = float32Exact(position) ? Float32Array : Float64Array;
+  const triMin = new Work(triangles * 3);
+  const triMax = new Work(triangles * 3);
+  const centroid = new Float32Array(triangles * 3);
   for (let t = 0; t < triangles; t += 1) {
-    for (let axis = 0; axis < 3; axis += 1) {
-      triMin[t * 3 + axis] = Infinity;
-      triMax[t * 3 + axis] = -Infinity;
-    }
+    const o = t * 3;
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let z0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    let z1 = -Infinity;
     for (let corner = 0; corner < 3; corner += 1) {
-      const slot = t * 3 + corner;
+      const slot = o + corner;
       const vertex = index !== null ? index.getX(slot) : slot;
       const x = position.getX(vertex);
       const y = position.getY(vertex);
       const z = position.getZ(vertex);
-      const o = t * 3;
-      if (x < (triMin[o] as number)) triMin[o] = x;
-      if (x > (triMax[o] as number)) triMax[o] = x;
-      if (y < (triMin[o + 1] as number)) triMin[o + 1] = y;
-      if (y > (triMax[o + 1] as number)) triMax[o + 1] = y;
-      if (z < (triMin[o + 2] as number)) triMin[o + 2] = z;
-      if (z > (triMax[o + 2] as number)) triMax[o + 2] = z;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+      if (z < z0) z0 = z;
+      if (z > z1) z1 = z;
     }
-    for (let axis = 0; axis < 3; axis += 1) {
-      const o = t * 3 + axis;
-      centroid[o] = ((triMin[o] as number) + (triMax[o] as number)) / 2;
-    }
+    triMin[o] = x0;
+    triMin[o + 1] = y0;
+    triMin[o + 2] = z0;
+    triMax[o] = x1;
+    triMax[o + 1] = y1;
+    triMax[o + 2] = z1;
+    centroid[o] = (x0 + x1) / 2;
+    centroid[o + 1] = (y0 + y1) / 2;
+    centroid[o + 2] = (z0 + z1) / 2;
   }
 
   const order = new Uint32Array(triangles);
   for (let t = 0; t < triangles; t += 1) order[t] = t;
 
-  // Upper bound on node count for a binary tree with >= 1 triangle per leaf.
-  const capacity = Math.max(1, 2 * triangles);
-  const bounds = new Float64Array(capacity * 6);
-  const left = new Int32Array(capacity).fill(-1);
-  const right = new Int32Array(capacity).fill(-1);
-  const start = new Uint32Array(capacity);
-  const count = new Uint32Array(capacity);
-  let nodes = 0;
+  if (triangles === 0) {
+    return {
+      bounds: new Float64Array(0),
+      left: new Int32Array(0),
+      right: new Int32Array(0),
+      start: new Uint32Array(0),
+      count: new Uint32Array(0),
+      order,
+      nodes: 0,
+      triangles: 0,
+    };
+  }
+
+  const nodes = new NodeArrays(Math.max(16, Math.ceil(triangles / 4)));
 
   const makeNode = (from: number, to: number): number => {
-    const n = nodes;
-    nodes += 1;
-    start[n] = from;
-    count[n] = to - from;
+    const n = nodes.push();
+    nodes.start[n] = from;
+    nodes.count[n] = to - from;
     let x0 = Infinity;
     let y0 = Infinity;
     let z0 = Infinity;
@@ -180,6 +308,7 @@ export function buildTriangleBvh(geometry: BufferGeometry): TriangleBvh {
     // a box that is slightly too big costs one extra leaf test, never a miss.
     const pad = Math.max(x1 - x0, y1 - y0, z1 - z0, 1) * 1e-6;
     const b = n * 6;
+    const bounds = nodes.bounds;
     bounds[b] = x0 - pad;
     bounds[b + 1] = y0 - pad;
     bounds[b + 2] = z0 - pad;
@@ -189,27 +318,14 @@ export function buildTriangleBvh(geometry: BufferGeometry): TriangleBvh {
     return n;
   };
 
-  if (triangles === 0) {
-    return {
-      bounds: new Float64Array(0),
-      left: new Int32Array(0),
-      right: new Int32Array(0),
-      start: new Uint32Array(0),
-      count: new Uint32Array(0),
-      order,
-      nodes: 0,
-      triangles: 0,
-    };
-  }
-
   // Iterative top-down build: split each node at the midpoint of its
   // centroids' longest axis, falling back to an even split when every centroid
   // lands on one side (coincident centroids — a fan of slivers).
   const stack: number[] = [makeNode(0, triangles)];
   while (stack.length > 0) {
     const n = stack.pop() as number;
-    const from = start[n] as number;
-    const to = from + (count[n] as number);
+    const from = nodes.start[n] as number;
+    const to = from + (nodes.count[n] as number);
     if (to - from <= LEAF_SIZE) continue;
 
     let c0x = Infinity;
@@ -255,19 +371,22 @@ export function buildTriangleBvh(geometry: BufferGeometry): TriangleBvh {
     }
     if (mid === from || mid === to) mid = (from + to) >> 1;
 
-    left[n] = makeNode(from, mid);
-    right[n] = makeNode(mid, to);
-    stack.push(left[n] as number, right[n] as number);
+    const l = makeNode(from, mid);
+    const r = makeNode(mid, to);
+    nodes.left[n] = l;
+    nodes.right[n] = r;
+    stack.push(l, r);
   }
 
+  const size = nodes.size;
   return {
-    bounds: bounds.slice(0, nodes * 6),
-    left: left.slice(0, nodes),
-    right: right.slice(0, nodes),
-    start: start.slice(0, nodes),
-    count: count.slice(0, nodes),
+    bounds: nodes.bounds.slice(0, size * 6),
+    left: nodes.left.slice(0, size),
+    right: nodes.right.slice(0, size),
+    start: nodes.start.slice(0, size),
+    count: nodes.count.slice(0, size),
     order,
-    nodes,
+    nodes: size,
     triangles,
   };
 }
@@ -292,6 +411,7 @@ export function triangleBvhOf(geometry: BufferGeometry): TriangleBvh {
     return held.bvh;
   }
   const bvh = buildTriangleBvh(geometry);
+  if (held === undefined) releaseOnDispose(geometry);
   cache.set(geometry, {
     bvh,
     position,
@@ -308,6 +428,20 @@ function versionOf(attribute: PositionAttribute): number {
     attribute.isInterleavedBufferAttribute === true
     ? attribute.data.version
     : (attribute as BufferAttribute).version;
+}
+
+/**
+ * Drop the tree the moment its geometry is disposed, rather than whenever the
+ * collector gets round to the geometry. Three lets a disposed geometry be
+ * drawn (and raycast) again, so the next raycast simply rebuilds — and
+ * re-arms this — exactly as it did the first time.
+ */
+function releaseOnDispose(geometry: BufferGeometry): void {
+  const onDispose = (): void => {
+    cache.delete(geometry);
+    geometry.removeEventListener("dispose", onDispose);
+  };
+  geometry.addEventListener("dispose", onDispose);
 }
 
 /** Test seam: has a hierarchy been built for this geometry yet? */
@@ -351,8 +485,19 @@ function accelerable(mesh: Mesh): boolean {
   // does it — every draw group is cut at a face boundary.
   if (geometry.drawRange.start % 3 !== 0) return false;
   if (Array.isArray(mesh.material)) {
+    // With a material ARRAY three walks the groups in ARRAY order and reports
+    // a triangle once per group that covers it. Index order — which is what
+    // the hierarchy reports in and breaks ties by — is that order only when
+    // the groups are sorted by start and disjoint; the review's counterexample
+    // was groups [3..6) then [0..3) over two coplanar triangles, where three
+    // answers faceIndex 1 and index order answers 0. Every group layout this
+    // app builds (`setFaceMaterials`' runs, `mergeGeometries`) qualifies;
+    // anything else keeps three's own walk.
+    let end = 0;
     for (const group of geometry.groups) {
       if (group.start % 3 !== 0) return false;
+      if (group.start < end) return false;
+      end = group.start + group.count;
     }
   }
   return true;
@@ -540,7 +685,7 @@ function testTriangle(
   raycaster: Raycaster,
   triangle: number,
   out: Intersection[],
-  accept: ((faceIndex: number) => boolean) | null,
+  isHidden: HiddenTriangleTest | null,
 ): number {
   const geometry = mesh.geometry;
   const index = geometry.index;
@@ -553,7 +698,7 @@ function testTriangle(
   const a = index !== null ? index.getX(slot) : slot;
   const b = index !== null ? index.getX(slot + 1) : slot + 1;
   const c = index !== null ? index.getX(slot + 2) : slot + 2;
-  if (accept !== null && !accept(triangle)) return Infinity;
+  if (isHidden !== null && isHidden(triangle)) return Infinity;
 
   const material = mesh.material;
   if (!Array.isArray(material)) {
@@ -641,43 +786,30 @@ export function bvhRaycastAll(
 }
 
 /**
- * The NEAREST hit that `accept` admits, or null — what `Mesh.raycast` followed
- * by a strict-minimum scan over its hits returns, earliest triangle winning a
- * tie. Walks near to far and stops once no box can hold a nearer hit.
+ * The nearest hit whose triangle is DRAWN, or null: by definition
+ * `nearestDrawnHit` over the hits `Mesh.raycast` would report, in the order it
+ * would report them. Walks near to far and stops once no box can hold a nearer
+ * hit, then applies that very function to what it found, in index order — so
+ * the tie rule is the definition's, not a second copy of it.
  */
 export function bvhRaycastFirst(
   mesh: Mesh,
   raycaster: Raycaster,
-  accept: (faceIndex: number) => boolean,
+  isHidden: HiddenTriangleTest,
 ): Intersection | null {
   if (!accelerable(mesh)) {
     const all: Intersection[] = [];
     Mesh.prototype.raycast.call(mesh, raycaster, all);
-    let best: Intersection | null = null;
-    for (const hit of all) {
-      if (!accept(hit.faceIndex ?? -1)) continue;
-      if (best === null || hit.distance < best.distance) best = hit;
-    }
-    return best;
+    return nearestDrawnHit(all, isHidden);
   }
   if (mesh.material === undefined) return null;
   if (!prepareLocalRay(mesh, raycaster)) return null;
   const bvh = triangleBvhOf(mesh.geometry);
   if (bvh.nodes === 0) return null;
   const found: Intersection[] = [];
-  walk(bvh, mesh, raycaster, found, accept, true);
-  let best: Intersection | null = null;
-  for (const hit of found) {
-    if (
-      best === null ||
-      hit.distance < best.distance ||
-      (hit.distance === best.distance &&
-        (hit.faceIndex ?? 0) < (best.faceIndex ?? 0))
-    ) {
-      best = hit;
-    }
-  }
-  return best;
+  walk(bvh, mesh, raycaster, found, isHidden, true);
+  found.sort((p, q) => (p.faceIndex ?? 0) - (q.faceIndex ?? 0));
+  return nearestDrawnHit(found, isHidden);
 }
 
 /**
@@ -690,7 +822,7 @@ function walk(
   mesh: Mesh,
   raycaster: Raycaster,
   out: Intersection[],
-  accept: ((faceIndex: number) => boolean) | null,
+  isHidden: HiddenTriangleTest | null,
   nearestOnly: boolean,
 ): void {
   const ox = _ray.origin.x;
@@ -724,7 +856,7 @@ function walk(
           raycaster,
           order[i] as number,
           out,
-          accept,
+          isHidden,
         );
         if (local < best) best = local;
       }

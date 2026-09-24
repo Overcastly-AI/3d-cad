@@ -18,16 +18,18 @@
  *
  * Two consequences of using it are load-bearing and easy to get wrong:
  *
- *  * The band must actually RENDER. `LineSegments2.raycast` reads
- *    `material.resolution` (drei sets it from the viewport size) and three's
- *    raycaster skips invisible objects, so `visible={false}` would silently
- *    kill every hit. `colorWrite={false}` + `depthWrite={false}` is how it
- *    draws nothing while staying live, and drei's `Line` already forwards
- *    material props here (`ModelMesh` passes `toneMapped`/`depthWrite`/
- *    `polygonOffset*` through it). `PickSurface` used the same trick until
- *    PERF-REAL-1, which read three's `Raycaster` and found it tests `layers`
- *    only, so the surface now skips its draw with `material.visible = false`;
- *    the band has not been re-examined against that reading.
+ *  * The band stays DRAWN, writing nothing (`colorWrite={false}` +
+ *    `depthWrite={false}`; drei's `Line` forwards material props here, as
+ *    `ModelMesh` relies on for `toneMapped`/`depthWrite`/`polygonOffset*`).
+ *    Not because the raycaster would skip it otherwise: read in
+ *    `three@0.185.1`, `Raycaster` tests `layers` only and never `visible`,
+ *    which is why `PickSurface` skips its draw with `material.visible = false`
+ *    (PERF-REAL-1). The band's own raycast is screen-space and reads
+ *    `material.resolution`, returning nothing while that is zero. drei sets it
+ *    from the canvas size, and the line's `onBeforeRender` refreshes it from
+ *    the renderer viewport, and only a DRAWN line gets `onBeforeRender`.
+ *    Whether drei's value alone would be enough has not been measured, so the
+ *    band keeps the draw.
  *
  *  * r3f dedupes to ONE hit per OBJECT, so the band resolves nearest-in-DEPTH
  *    rather than nearest-in-screen. See `resolveBandEdge` for why that is the

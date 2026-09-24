@@ -18,6 +18,8 @@ import {
   bvhRaycastAll,
   bvhRaycastFirst,
   hasTriangleBvh,
+  nearestDrawnHit,
+  type HiddenTriangleTest,
 } from "./pickBvh";
 import { drawnSurfaceRaycast, hiddenTriangleTest } from "./pickRaycast";
 
@@ -28,7 +30,8 @@ import { drawnSurfaceRaycast, hiddenTriangleTest } from "./pickRaycast";
  * same mesh and the same ray — the brute force the hierarchy replaces. A
  * cheaper hit-test that disagrees with the pointer's is itself the defect the
  * burial oracle's docblock warns about, so "close" is not the bar: the same
- * triangles, in the same order, at the same distance.
+ * triangles, in the same order, with every field of the record equal —
+ * distance, point, face, the interpolated normal, uv, uv1 and barycoord.
  */
 
 /** A deterministic PRNG, so a failing ray can be reproduced by its index. */
@@ -40,12 +43,17 @@ function rng(seed: number): () => number {
   };
 }
 
-/** A dense closed surface with real self-occlusion: a torus knot. */
-function knotMesh(side: Side = FrontSide): Mesh {
-  const mesh = new Mesh(
-    new TorusKnotGeometry(10, 3, 200, 32),
-    new MeshBasicMaterial({ side }),
-  );
+/**
+ * A dense closed surface with real self-occlusion: a torus knot, carrying
+ * normals, uv AND uv1 so every interpolated field of a hit is exercised, and
+ * optionally translated `offset` along each axis (far-from-origin geometry is
+ * where float rounding in a box test would first show).
+ */
+function knotMesh(side: Side = FrontSide, offset = 0): Mesh {
+  const geometry = new TorusKnotGeometry(10, 3, 200, 32);
+  geometry.setAttribute("uv1", geometry.getAttribute("uv").clone());
+  if (offset !== 0) geometry.translate(offset, -offset, offset);
+  const mesh = new Mesh(geometry, new MeshBasicMaterial({ side }));
   mesh.updateMatrixWorld(true);
   return mesh;
 }
@@ -84,7 +92,40 @@ function rays(count: number, seed: number, radius = 40): Raycaster[] {
   return out;
 }
 
-/** The facts a pick reads off a hit, in a comparable shape. */
+/**
+ * Rays aimed EXACTLY at vertices and edge midpoints of the mesh — where a hit
+ * lands on a triangle's boundary, a box face is grazed, and two triangles can
+ * tie — from a random direction, a third of them axis-aligned.
+ */
+function vertexRays(mesh: Mesh, count: number, seed: number): Raycaster[] {
+  const random = rng(seed);
+  const position = mesh.geometry.getAttribute("position") as BufferAttribute;
+  mesh.geometry.computeBoundingSphere();
+  const reach = (mesh.geometry.boundingSphere?.radius ?? 1) * 3;
+  const out: Raycaster[] = [];
+  const vertex = () =>
+    new Vector3()
+      .fromBufferAttribute(position, Math.floor(random() * position.count))
+      .applyMatrix4(mesh.matrixWorld);
+  for (let i = 0; i < count; i += 1) {
+    const aim = vertex();
+    if (random() < 0.3) aim.lerp(vertex(), 0.5);
+    const direction = new Vector3(
+      random() - 0.5,
+      random() - 0.5,
+      random() - 0.5,
+    ).normalize();
+    if (random() < 0.3) {
+      direction.set(0, 0, 0);
+      direction.setComponent(Math.floor(random() * 3), random() < 0.5 ? 1 : -1);
+    }
+    const origin = aim.clone().addScaledVector(direction, -reach);
+    out.push(new Raycaster(origin, direction, 0, Infinity));
+  }
+  return out;
+}
+
+/** Every field of a hit record, in a comparable shape. */
 function facts(hits: readonly Intersection[]) {
   return hits.map((hit) => ({
     faceIndex: hit.faceIndex,
@@ -93,7 +134,11 @@ function facts(hits: readonly Intersection[]) {
     face: hit.face
       ? [hit.face.a, hit.face.b, hit.face.c, hit.face.materialIndex]
       : null,
-    normal: hit.face?.normal.toArray() ?? null,
+    faceNormal: hit.face?.normal.toArray() ?? null,
+    normal: hit.normal?.toArray() ?? null,
+    uv: hit.uv?.toArray() ?? null,
+    uv1: hit.uv1?.toArray() ?? null,
+    barycoord: hit.barycoord?.toArray() ?? null,
     object: hit.object,
   }));
 }
@@ -110,18 +155,31 @@ function bvhAll(mesh: Mesh, raycaster: Raycaster): Intersection[] {
   return out;
 }
 
-/** Three's full list, reduced the way `nearestDrawnHit` reduces it. */
+/** Three's full list, reduced by the ONE strict minimum the product uses. */
 function bruteFirst(
   mesh: Mesh,
   raycaster: Raycaster,
-  accept: (faceIndex: number) => boolean,
+  isHidden: HiddenTriangleTest,
 ): Intersection | null {
-  let best: Intersection | null = null;
-  for (const hit of bruteAll(mesh, raycaster)) {
-    if (!accept(hit.faceIndex ?? -1)) continue;
-    if (best === null || hit.distance < best.distance) best = hit;
-  }
-  return best;
+  return nearestDrawnHit(bruteAll(mesh, raycaster), isHidden);
+}
+
+const NOTHING_HIDDEN: HiddenTriangleTest = () => false;
+
+/** Both queries against three for one ray; returns how many hits it had. */
+function expectSameAnswer(
+  mesh: Mesh,
+  raycaster: Raycaster,
+  isHidden: HiddenTriangleTest = NOTHING_HIDDEN,
+): number {
+  const expected = bruteAll(mesh, raycaster);
+  expect(facts(bvhAll(mesh, raycaster))).toEqual(facts(expected));
+  const nearest = bruteFirst(mesh, raycaster, isHidden);
+  const got = bvhRaycastFirst(mesh, raycaster, isHidden);
+  expect(got === null ? null : facts([got])).toEqual(
+    nearest === null ? null : facts([nearest]),
+  );
+  return expected.length;
 }
 
 describe("buildTriangleBvh", () => {
@@ -193,16 +251,17 @@ describe("bvhRaycastAll is Mesh.raycast", () => {
     expect(struck).toBeGreaterThan(50);
   });
 
-  /** Three groups, one per side, over the knot; `offset` shifts the last. */
-  function groupedKnot(offset: number): Mesh {
+  /**
+   * Three groups, one per side, over the knot. `offset` shifts the last one's
+   * start, and `overlap` makes the second reach back into the first.
+   */
+  function groupedKnot(offset: number, overlap = 0): Mesh {
     const mesh = knotMesh();
     const geometry = mesh.geometry;
     const total = geometry.index?.count ?? 0;
     const third = Math.floor(total / 9) * 3;
     geometry.addGroup(0, third, 0);
-    // Overlapping the first group on purpose: three reports a triangle once
-    // PER GROUP that covers it, and so must the hierarchy.
-    geometry.addGroup(third - 6, third + 6, 1);
+    geometry.addGroup(third - overlap, third + overlap, 1);
     geometry.addGroup(2 * third + offset, total - 2 * third - offset, 2);
     geometry.setDrawRange(3, total - 9);
     mesh.material = [
@@ -223,6 +282,44 @@ describe("bvhRaycastAll is Mesh.raycast", () => {
     }
     expect(struck).toBeGreaterThan(300);
     expect(hasTriangleBvh(mesh.geometry), "the hierarchy was used").toBe(true);
+  });
+
+  it("hands OVERLAPPING groups back to three — it reports a triangle per group", () => {
+    const mesh = groupedKnot(0, 6);
+    let struck = 0;
+    for (const raycaster of rays(200, 41)) {
+      struck += expectSameAnswer(mesh, raycaster);
+    }
+    expect(struck).toBeGreaterThan(200);
+    expect(hasTriangleBvh(mesh.geometry)).toBe(false);
+  });
+
+  it("hands OUT-OF-ORDER groups back to three — the review's tie counterexample", () => {
+    // Groups [3..6) then [0..3) over two coplanar triangles: three walks the
+    // groups in array order, lists triangle 1 first and keeps it on the tie;
+    // index order would keep triangle 0.
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new BufferAttribute(
+        new Float32Array([
+          -1, -1, 0, 1, -1, 0, -1, 1, 0, -2, -2, 0, 2, -2, 0, -2, 2, 0,
+        ]),
+        3,
+      ),
+    );
+    geometry.addGroup(3, 3, 0);
+    geometry.addGroup(0, 3, 0);
+    const mesh = new Mesh(geometry, [new MeshBasicMaterial()]);
+    mesh.updateMatrixWorld(true);
+    const raycaster = new Raycaster(
+      new Vector3(-0.5, -0.5, 5),
+      new Vector3(0, 0, -1),
+    );
+    expect(bruteFirst(mesh, raycaster, NOTHING_HIDDEN)?.faceIndex).toBe(1);
+    expect(bvhRaycastFirst(mesh, raycaster, NOTHING_HIDDEN)?.faceIndex).toBe(1);
+    expectSameAnswer(mesh, raycaster);
+    expect(hasTriangleBvh(geometry)).toBe(false);
   });
 
   it("hands a group that starts OFF a triangle boundary back to three", () => {
@@ -271,9 +368,9 @@ describe("bvhRaycastFirst is the strict minimum over Mesh.raycast", () => {
     const mesh = knotMesh();
     let struck = 0;
     for (const raycaster of rays(300, 23)) {
-      const expected = bruteFirst(mesh, raycaster, () => true);
+      const expected = bruteFirst(mesh, raycaster, NOTHING_HIDDEN);
       if (expected !== null) struck += 1;
-      const got = bvhRaycastFirst(mesh, raycaster, () => true);
+      const got = bvhRaycastFirst(mesh, raycaster, NOTHING_HIDDEN);
       expect(got === null ? null : facts([got])).toEqual(
         expected === null ? null : facts([expected]),
       );
@@ -283,13 +380,14 @@ describe("bvhRaycastFirst is the strict minimum over Mesh.raycast", () => {
 
   it("SEEING PAST filtered triangles to the nearest admitted one", () => {
     const mesh = knotMesh(DoubleSide);
-    // Refuse two thirds of the part — the SEL-6 hidden-body shape, at scale.
-    const accept = (faceIndex: number) => faceIndex % 3 === 0;
+    // Hide two thirds of the part — the SEL-6 hidden-body shape, at scale.
+    const isHidden: HiddenTriangleTest = (faceIndex) =>
+      (faceIndex ?? 0) % 3 !== 0;
     let struck = 0;
     for (const raycaster of rays(300, 29)) {
-      const expected = bruteFirst(mesh, raycaster, accept);
+      const expected = bruteFirst(mesh, raycaster, isHidden);
       if (expected !== null) struck += 1;
-      const got = bvhRaycastFirst(mesh, raycaster, accept);
+      const got = bvhRaycastFirst(mesh, raycaster, isHidden);
       expect(got === null ? null : facts([got])).toEqual(
         expected === null ? null : facts([expected]),
       );
@@ -326,8 +424,73 @@ describe("bvhRaycastFirst is the strict minimum over Mesh.raycast", () => {
     const all = bruteAll(mesh, raycaster);
     expect(all.map((hit) => hit.faceIndex)).toEqual([0, 1]);
     expect(all[0]?.distance).toBe(all[1]?.distance);
-    expect(bruteFirst(mesh, raycaster, () => true)?.faceIndex).toBe(0);
-    expect(bvhRaycastFirst(mesh, raycaster, () => true)?.faceIndex).toBe(0);
+    expect(bruteFirst(mesh, raycaster, NOTHING_HIDDEN)?.faceIndex).toBe(0);
+    expect(bvhRaycastFirst(mesh, raycaster, NOTHING_HIDDEN)?.faceIndex).toBe(0);
+  });
+});
+
+describe("exact vertices, exact edges, and far from the origin", () => {
+  for (const [label, offset] of [
+    ["at the origin", 0],
+    ["1e5 mm out", 1e5],
+  ] as const) {
+    for (const [sideLabel, side] of [
+      ["FrontSide", FrontSide],
+      ["DoubleSide", DoubleSide],
+      ["BackSide", BackSide],
+    ] as const) {
+      it(`every field matches three on vertex/edge rays (${label}, ${sideLabel})`, () => {
+        const mesh = knotMesh(side, offset);
+        const isHidden: HiddenTriangleTest = (faceIndex) =>
+          (faceIndex ?? 0) % 2 === 1;
+        let struck = 0;
+        for (const raycaster of vertexRays(mesh, 250, 43)) {
+          struck += expectSameAnswer(mesh, raycaster, isHidden);
+        }
+        expect(struck).toBeGreaterThan(250);
+      });
+    }
+  }
+
+  it("from INSIDE the part, with near and far both set", () => {
+    const mesh = knotMesh(DoubleSide, 1e5);
+    mesh.geometry.computeBoundingSphere();
+    const centre = (
+      mesh.geometry.boundingSphere?.center ?? new Vector3()
+    ).clone();
+    const random = rng(47);
+    let struck = 0;
+    for (let i = 0; i < 200; i += 1) {
+      const direction = new Vector3(
+        random() - 0.5,
+        random() - 0.5,
+        random() - 0.5,
+      ).normalize();
+      struck += expectSameAnswer(
+        mesh,
+        new Raycaster(centre, direction, random() * 2, 2 + random() * 8),
+      );
+    }
+    expect(struck).toBeGreaterThan(0);
+  });
+});
+
+describe("the cache", () => {
+  it("frees a geometry's tree the moment the geometry is disposed", () => {
+    const mesh = knotMesh();
+    const raycaster = rays(1, 3)[0] as Raycaster;
+    bvhAll(mesh, raycaster);
+    expect(hasTriangleBvh(mesh.geometry)).toBe(true);
+    mesh.geometry.dispose();
+    expect(hasTriangleBvh(mesh.geometry)).toBe(false);
+    // A disposed geometry may be drawn again; the next raycast rebuilds, and
+    // a second dispose frees that tree too.
+    expect(facts(bvhAll(mesh, raycaster))).toEqual(
+      facts(bruteAll(mesh, raycaster)),
+    );
+    expect(hasTriangleBvh(mesh.geometry)).toBe(true);
+    mesh.geometry.dispose();
+    expect(hasTriangleBvh(mesh.geometry)).toBe(false);
   });
 });
 
