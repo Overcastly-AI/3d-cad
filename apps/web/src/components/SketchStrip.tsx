@@ -90,6 +90,7 @@ import {
   type ConstraintAction,
 } from "../sketch/constraints";
 import { withoutDatums } from "../sketch/datum";
+import { describeOpenEnds } from "../sketch/openEnds";
 import { gridStepOptions } from "../sketch/pointEntry";
 import {
   buildOffsetParams,
@@ -999,6 +1000,8 @@ export function SketchStrip({
   // promise (`selectionVerbHints`).
   const verbHints =
     mode === "draw" ? selectionVerbHints(selection, entities, constraints) : [];
+  // The profile's open ends, counted and measured (G8).
+  const openEndReport = mode === "draw" ? describeOpenEnds(entities) : null;
   // ...and whether it can be deleted, offered as the rail's last cap (G7).
   const deletable =
     mode === "draw" &&
@@ -1031,6 +1034,27 @@ export function SketchStrip({
                 {describeSelection(selection)}
                 {constraintCount > 0 ? ` · ${constraintCount} applied` : ""}
               </span>
+              {/* OPEN ENDS (helical-gear gap G8): the profile's unjoined ends,
+                  counted here and ringed in the viewport, so a loop open by
+                  microns is known BEFORE the extrude or loft that needs it
+                  closed. Flag ink only when one is a near miss: an invisible
+                  gap is the dangerous kind. The tooltip names the gap. */}
+              {openEndReport !== null ? (
+                <>
+                  <span aria-hidden className="text-etch">
+                    ·
+                  </span>
+                  <span
+                    data-testid="open-ends"
+                    title={openEndReport.title}
+                    className={
+                      openEndReport.nearMiss ? "text-flag" : "text-gauge"
+                    }
+                  >
+                    {openEndReport.label}
+                  </span>
+                </>
+              ) : null}
               {/* THE OFFER RAIL — the selection's next moves, keyboard-first.
                   Quiet by construction: stamped keycaps and plain verbs, brass
                   only on the cap, sitting in the readout's own row so it reads

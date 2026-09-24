@@ -105,6 +105,7 @@ import {
   type SketchPick,
 } from "../sketch/pick";
 import { pickMark, type PickMarkKind } from "../sketch/pickMark";
+import { NEAR_MISS_MM, openEnds } from "../sketch/openEnds";
 import { pointEntryOpening } from "../sketch/pointEntry";
 import {
   DATUM_PLANES,
@@ -1537,6 +1538,58 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
   );
 }
 
+/** Open-end marks sit with the glyphs, under the HUD strips. */
+const OPEN_END_Z_RANGE: [number, number] = [19, 0];
+
+/**
+ * OPEN PROFILE ENDS, MARKED WHERE THEY ARE (helical-gear gap G8).
+ *
+ * The gear test's loft failed on two gaps of 0.285 um and 6.998 um that
+ * nothing on screen showed: two ends drawn onto one another look joined at any
+ * zoom a person works at. Every profile end no other end meets (`openEnds`,
+ * which builds ends the way the kernel will) gets a ring. A NEAR MISS, closer
+ * than `NEAR_MISS_MM` and so invisible, is the dangerous kind and the only one
+ * in flag ink; an end that is plainly loose (a line still being drawn) gets a
+ * quiet ring, because it is not news.
+ *
+ * DOM rings rather than scene geometry, for the reason the glyphs are: one
+ * screen size at every zoom, crisp, nothing to dispose. Pointer-inert, so a
+ * ring never eats the click that closes the gap it marks.
+ */
+function OpenEndMarks({ basis }: { basis: PlaneBasis }) {
+  const entities = useSketchStore((state) => state.entities);
+  const open = useMemo(() => openEnds(entities), [entities]);
+  return (
+    <>
+      {open.map((end) => {
+        const nearMiss = end.gapMm !== null && end.gapMm < NEAR_MISS_MM;
+        return (
+          <Html
+            key={`${end.entity}.${end.point}`}
+            position={planeToWorld(basis, end.at)}
+            center
+            zIndexRange={OPEN_END_Z_RANGE}
+            style={{ pointerEvents: "none" }}
+          >
+            <span
+              aria-hidden
+              data-testid="open-end"
+              data-entity={end.entity}
+              data-point={end.point}
+              data-near-miss={nearMiss || undefined}
+              className={
+                nearMiss
+                  ? "block h-3 w-3 rounded-full border-2 border-flag"
+                  : "block h-2 w-2 rounded-full border border-gauge"
+              }
+            />
+          </Html>
+        );
+      })}
+    </>
+  );
+}
+
 /**
  * The keys that open a typed coordinate: a digit, a sign, a decimal point.
  * NOT `0`: at rest that key is the sketcher's Fit (F-11) and stays so. A
@@ -2290,6 +2343,7 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
       <DrawDimensionTag basis={basis} />
       <PointEntry basis={basis} />
       <ConstraintGlyphs basis={basis} />
+      <OpenEndMarks basis={basis} />
     </group>
   );
 }

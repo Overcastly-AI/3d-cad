@@ -1,7 +1,12 @@
 import { expect, test, type Page } from "./fixtures";
 
 import { createFeature, SQUARE_20 } from "./partSeed";
-import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
+import {
+  createPartViaApi,
+  SCREENSHOT_DIR,
+  seedSession,
+  waitForFrames,
+} from "./support";
 
 /**
  * SKETCH-1 — A SAVED SKETCH RE-OPENS, AND THE RE-SAVE IS AN UPDATE.
@@ -192,5 +197,105 @@ test.describe("SKETCH-1 — re-opening a saved sketch", () => {
     await expect
       .poll(() => bodyVolume(page), { timeout: 30_000 })
       .toBeCloseTo(12_000, 1);
+  });
+});
+
+/**
+ * Helical-gear gap G8 — AN OPEN PROFILE SAYS WHERE IT IS OPEN.
+ *
+ * The product test's loft failed PROFILE_NOT_CLOSED because two arc ends missed
+ * their neighbours by 0.285 um and 6.998 um. The sketch read "OK", nothing on
+ * screen marked either gap, and finding them took a read-only API call.
+ *
+ * The fixture is the same defect on a square: one corner's two ends are
+ * 0.0003 mm apart (wider than the kernel's 1e-4 mm wire tolerance, so the
+ * kernel will not close it; invisible at any zoom), and nothing joins them.
+ * Re-opened, the sketcher marks both ends of THAT corner and only those, and
+ * the strip counts them and names the gap. The closed square beside it is the
+ * negative control: no mark at all.
+ */
+function squareWithGap(gapMm: number) {
+  const line = (id: string, a: [number, number], b: [number, number]) => ({
+    id,
+    kind: "line",
+    start: { x: a[0], y: a[1] },
+    end: { x: b[0], y: b[1] },
+  });
+  return {
+    plane: { kind: "datum_plane", plane: "XY" },
+    entities: [
+      line("e1", [0, 0], [20, 0]),
+      line("e2", [20 + gapMm, 0], [20, 20]),
+      line("e3", [20, 20], [0, 20]),
+      line("e4", [0, 20], [0, 0]),
+    ],
+    constraints: [],
+  };
+}
+
+async function reopenFirstSketch(page: Page, partId: string): Promise<void> {
+  await page.goto(`/parts/${partId}`);
+  await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+    timeout: 30_000,
+  });
+  await page.getByTestId("feature-row").first().click({ button: "right" });
+  await page.getByTestId("tree-ctx-edit").click();
+  await expect(page.getByTestId("sketch-step")).toHaveText("On XY");
+}
+
+test.describe("helical-gear G8: open profile ends are marked", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("a 0.3 um corner gap is marked at that corner, counted and measured; a closed square is not", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const { token } = await seedSession(page);
+    const open = await createPartViaApi(page, token, "Open corner");
+    await createFeature(page, token, open.id, {
+      name: "Sketch1",
+      feature: { type: "sketch", version: 1, params: squareWithGap(0.0003) },
+      expected_tree_version: 0,
+    });
+    const closed = await createPartViaApi(page, token, "Closed square");
+    await createFeature(page, token, closed.id, {
+      name: "Sketch1",
+      feature: { type: "sketch", version: 1, params: squareWithGap(0) },
+      expected_tree_version: 0,
+    });
+
+    await reopenFirstSketch(page, open.id);
+    // Founder pair (UPDATE_SCREENSHOTS only), taken before any assertion so
+    // the pre-fix tree produces its half: the pointer parked off the sketch,
+    // then a named settle of painted frames for the overlay to place.
+    await page.mouse.move(1200, 700);
+    await waitForFrames(page, 10);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/sketch-gear-fix-g8-after.png`,
+    });
+    const marks = page.getByTestId("open-end");
+    await expect(marks).toHaveCount(2);
+    const marked = await marks.evaluateAll((nodes) =>
+      nodes
+        .map(
+          (n) =>
+            `${n.getAttribute("data-entity")}.${n.getAttribute("data-point")}`,
+        )
+        .sort(),
+    );
+    expect(marked, "exactly the two ends of the open corner").toEqual([
+      "e1.end",
+      "e2.start",
+    ]);
+    const readout = page.getByTestId("open-ends");
+    await expect(readout).toHaveText("2 open ends");
+    await expect(readout).toHaveAttribute("title", /0\.00030 mm/);
+
+    // The negative control: the same square, closed. No mark, no readout.
+    await page.getByTestId("sketch-save").click();
+    await expect(page.getByTestId("sketch-strip")).toHaveCount(0);
+    await reopenFirstSketch(page, closed.id);
+    await expect(page.getByTestId("open-end")).toHaveCount(0);
+    await expect(page.getByTestId("open-ends")).toHaveCount(0);
   });
 });
