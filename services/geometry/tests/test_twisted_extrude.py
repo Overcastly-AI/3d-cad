@@ -35,13 +35,19 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from geometry.assembly.protocol import ResolvedAxis
+from geometry.assembly.resolve import resolve_mate_geometry
+from geometry.features import evaluate_tree
+from geometry.kernel.edges import enumerate_edges
 from geometry.main import app
-from loft_wire.features import EvaluateTreeResult
+from loft_wire.assemblies import MateAxisRef
+from loft_wire.features import EvaluateTreeRequest, EvaluateTreeResult
 
 client = TestClient(app)
 
 GOLDENS = Path(__file__).resolve().parent.parent / "goldens"
 EXTRUDE_GOLDEN = GOLDENS / "sketch-extrude-40x25x10" / "model.json"
+TWIST_GOLDEN = GOLDENS / "extrude-twist-square20-hole-r3-h30-30deg"
 
 #: Absolute bound (mm^3, and mm on AABB bounds) for this module's twisted
 #: bodies, MEASURED FIRST, THEN SET (2026-09-24, pipe-shell fit 1e-7 mm): the
@@ -271,6 +277,54 @@ def test_twisted_extrude_starts_a_second_body_with_merge_false() -> None:
     props = _ok_properties(result)
     assert len(result.bodies) == 2
     assert props.volume == pytest.approx(1000.0 + 400.0 * 30.0, abs=TWIST_TOL)
+
+
+# --- Cap edges are analytic again ---------------------------------------------------
+
+
+def _golden_body() -> Any:
+    request = EvaluateTreeRequest.model_validate_json(
+        (TWIST_GOLDEN / "model.json").read_text()
+    )
+    evaluation = evaluate_tree(request)
+    assert evaluation.body is not None
+    return evaluation.body
+
+
+def test_cap_edges_are_lines_and_circles_and_a_rim_is_a_mate_axis() -> None:
+    """A pipe shell rebuilds even the end sections as B-spline fits, so before
+    the restoration a twisted body had NO line or circle edge, and everything
+    keyed on edge type missed its rims (review of d823af9: mate axis, measure
+    direction, drawings, edge re-match). Census of the golden: the 8 square
+    sides and 2 hole rims on the two caps are LINE / CIRCLE, and only the 5
+    genuinely helical edges (4 corners + the tube seam) are B-splines. The far
+    rim then resolves as an assembly axis: centre = the hole centre (4, 0)
+    turned 30 deg, direction +/-Z."""
+    body = _golden_body()
+    census: dict[tuple[str, str], int] = {}
+    for record in enumerate_edges(body):
+        edge = record.edge
+        heights = [edge.start_point().Z, edge.end_point().Z, edge.position_at(0.5).Z]
+        on_cap = any(all(abs(z - cap) < 1e-6 for z in heights) for cap in (0.0, 30.0))
+        key = ("cap" if on_cap else "side", record.signature.curve)
+        census[key] = census.get(key, 0) + 1
+    assert census == {("cap", "line"): 8, ("cap", "circle"): 2, ("side", "other"): 5}
+
+    rim = next(
+        record
+        for record in enumerate_edges(body)
+        if record.signature.curve == "circle"
+        and abs(record.edge.position_at(0.0).Z - 30.0) < 1e-6
+    )
+    axis = resolve_mate_geometry(
+        body, MateAxisRef(instance_id=PART_ID, signature=rim.signature)
+    )
+    assert isinstance(axis, ResolvedAxis)
+    turn = math.radians(30.0)
+    assert axis.point.x == pytest.approx(4.0 * math.cos(turn), abs=CENTROID_TOL)
+    assert axis.point.y == pytest.approx(4.0 * math.sin(turn), abs=CENTROID_TOL)
+    assert axis.point.z == pytest.approx(30.0, abs=CENTROID_TOL)
+    assert abs(axis.direction.z) == pytest.approx(1.0, abs=CENTROID_TOL)
 
 
 # --- Cut mode: the helical gear's tooth gap ----------------------------------------

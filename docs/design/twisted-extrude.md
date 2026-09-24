@@ -210,6 +210,50 @@ downstream fillet or chamfer that named a lateral face of a formerly-straight
 extrude will see a non-planar face after a twist is added, and resolves or
 reports it as it would any changed face.
 
+**Edge geometry: the caps are analytic again (review of `d823af9`).** A pipe
+shell rebuilds even its start and end sections as B-spline fits. As first
+shipped, a twisted body therefore had no LINE or CIRCLE edge at all, and
+everything that keys on edge type missed its rims:
+
+- the assembly mate axis (`assembly/resolve.py`, circle only), so a bore in a
+  twisted body could not be a mate axis;
+- the measure direction (`kernel/measure.py`, line only);
+- drawings (`drawings/project.py`, `anchor.py`);
+- the durable edge re-match (`kernel/edges.py`, line/circle only).
+
+`twist._restore_cap_edges` now gives every edge lying in the start or end
+plane back its exact analytic curve. The candidate is OCCT's
+`GeomConvert_CurveToAnaCurve`, accepted only if the edge stays within 1e-6 mm
+of it at 16 points. The edge's pcurves are then RE-PROJECTED onto its faces
+(`ShapeFix_Edge::FixAddPCurve`), which is what a STEP reader does.
+Re-parametrising the old pcurves with `BRepLib::SameParameter` was tried
+first. It left the in-memory golden 1.0e-7 mm³ from its own STEP re-import, and
+the round-trip gate caught it. Re-projection holds the round trip to 4e-9,
+the same as the unconverted body. The work is done on a copy, which is
+discarded if `BRepCheck` or the volume disagrees.
+
+Effect on the golden: 8 cap LINES, 2 cap CIRCLES, and 5 B-spline edges (the 4
+helical corners and the tube seam). The topology did not move, and the mass
+properties moved by less than 1e-8 (the area by 6e-9). The mesh counts moved
+(3751/6874 → 3557/6554), because a line is
+discretised with fewer nodes than its fit.
+`test_cap_edges_are_lines_and_circles_and_a_rim_is_a_mate_axis` asserts that
+census and resolves the far rim as a mate axis at (4 cos 30°, 4 sin 30°, 30),
+direction ±Z. With the restoration mutated out, the census reads 15 B-splines.
+
+What stays B-spline, as a documented limit:
+
+- The helical lateral EDGES and FACES. They genuinely are not lines, planes or
+  cylinders, with one exception: a circle centred exactly on the twist axis
+  sweeps a true cylinder, which is still returned as a B-spline surface, so a
+  face-based cylinder query would miss it. Every consumer listed above is
+  edge-based, so the rim circles cover them.
+- Edges a later BOOLEAN computes where a twisted body meets other material
+  part-way along its length. Example: a twisted boss entering a plate at
+  z = 5, where helicoid ∩ plane is computed by OCCT as a B-spline even when it
+  is geometrically a line or circle. The twisted body's own end caps, where the
+  rims of a hole drawn in the profile and a boss's top edges live, are analytic.
+
 ## 6. Cost
 
 **Caveat:** every timing here was taken on a shared 4-core container at load

@@ -13,9 +13,9 @@
     "",
     "bounding_box: the hole never reaches the outline (its farthest point is 7 mm from the axis, inside the 10 mm inscribed circle), so the extent is the square's. A square of half-width a turned by t in [0, 45 deg] reaches a(cos t + sin t), increasing in t, so over t in [0, 30 deg] the widest slice is the TOP one: x and y both span +-a(cos 30 + sin 30) = +-13.660254037844386; z spans [0, 30]. Measured: every bound padded outward by 1.0e-7, the optimal-AABB modelling-tolerance padding the loft goldens document.",
     "",
-    "topology, hand-derived: 4 flank faces (one per square side) + 1 hole tube + 2 planar caps = 7 faces; edges = 4 bottom + 4 top + 4 helical corner edges + 2 hole circles + 1 tube seam = 15; 1 closed shell. Same counts as the untwisted holed prism - a twist changes the surfaces, never the topology.",
+    "topology, hand-derived: 4 flank faces (one per square side) + 1 hole tube + 2 planar caps = 7 faces; edges = 4 bottom + 4 top + 4 helical corner edges + 2 hole circles + 1 tube seam = 15; 1 closed shell. Same counts as the untwisted holed prism - a twist changes the surfaces, never the topology. EDGE GEOMETRY (since the review of d823af9): the 8 cap sides are exact LINES and the 2 hole rims exact CIRCLES - the pipe shell rebuilds them as B-spline fits and the kernel restores their analytic curves (twist._restore_cap_edges); only the 5 helical edges are B-splines. test_twisted_extrude asserts that census.",
     "",
-    "MESH counts are recorded, not derived, as in every golden: an exact-match determinism/regression tripwire on the 0.1 mm linear-deflection tessellation of the B-spline flanks."
+    "MESH counts are recorded, not derived, as in every golden: an exact-match determinism/regression tripwire on the 0.1 mm linear-deflection tessellation of the B-spline flanks. Re-recorded 3751/6874 -> 3557/6554 when the cap edges became analytic lines and circles again (a line edge is discretised with fewer nodes than its B-spline fit); the topology was unchanged and the mass properties moved by less than 1e-8 (volume residual +2.741e-7 before and after, area 6e-9, STEP round-trip drift 4e-9)."
   ],
   "tolerance": 2e-6,
   "tolerance_rationale": "Measured first, then set (geometry-gates skill). The largest measured deviation from the analytic values is the VOLUME, +2.74e-7 mm^3 - the pipe-shell B-spline fit of the screw-swept flanks, which saturates at the 1e-7 mm fit tolerance the kernel uses (1e-8 gives the identical body; 1e-5 and 1e-6 give +2.70e-4, which is why the kernel does not use OCCT's 1e-4 default). Next is the AABB's modelling-tolerance padding, 1.0e-7 on all six bounds, then the area (4.3e-8) and the centroid (<= 5.7e-12). 2e-6 is 7.3x the worst case and 20x the AABB padding, while being ~1e-10 relative on the volume: a fit that loosened to the OCCT default (2.7e-4) fails this golden by two orders of magnitude, and so does ANY handedness error (centroid.y moves by 0.156 mm). Loosening it requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
@@ -33,5 +33,5 @@
     }
   },
   "topology": { "faces": 7, "edges": 15, "shells": 1 },
-  "mesh": { "vertices": 3751, "triangles": 6874 }
+  "mesh": { "vertices": 3557, "triangles": 6554 }
 }
