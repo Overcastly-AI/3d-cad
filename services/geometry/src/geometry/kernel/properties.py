@@ -162,15 +162,25 @@ def _volume_integrand(shape: BodyShape) -> object:
     truth, against +1.3e-4 when the WHOLE body is converted (planes and
     cylinders re-expressed as NURBS then integrate adaptively, less well) and
     +8.52 mm^3 with nothing converted. The body is never modified.
+
+    COST (review S2, 2026-09-25, measured): building the integrand is about
+    1.5 ms per converted face plus the face walk. A disc with 48 spline-slot
+    walls of 99 faces: 71 ms to build, then 51-66 ms to integrate against 37 ms
+    raw. The 4 123-face KUKA import (38 converted faces): 289-465 ms to build
+    against an 11.1-11.7 s volume integral, about 3 %. Not cached: a per-body
+    cache would save that 3 % at the price of a keyed store in the one
+    measurement every rebuild trusts.
     """
     faces = shape.faces()
-    if not any(_sweeps_a_spline(face) for face in faces):
+    # Classified ONCE per face (review N4): each check builds a surface adaptor.
+    converts = [_sweeps_a_spline(face) for face in faces]
+    if not any(converts):
         return shape.wrapped
     compound = TopoDS_Compound()
     builder = BRep_Builder()
     builder.MakeCompound(compound)
-    for face in faces:
-        if _sweeps_a_spline(face):
+    for face, convert in zip(faces, converts, strict=True):
+        if convert:
             twin = BRepBuilderAPI_NurbsConvert(face.wrapped, True).Shape()
             builder.Add(compound, twin)
         else:

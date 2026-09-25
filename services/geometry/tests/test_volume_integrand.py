@@ -13,6 +13,7 @@ routing on both sides.
 import math
 from collections.abc import Callable
 
+import geometry.kernel.properties as properties_module
 import pytest
 from build123d import Axis, Edge, Face, Plane, Solid, Wire, extrude, revolve
 from geometry.kernel.properties import _volume_integrand, measure_shape
@@ -58,3 +59,19 @@ def test_a_swept_conic_is_integrated_as_itself(
 def test_a_swept_spline_is_integrated_as_its_nurbs_twin() -> None:
     solid = _spline_prism()
     assert _volume_integrand(solid) is not solid.wrapped
+
+
+def test_each_face_is_classified_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review N4: the routing builds a surface adaptor per check, so each face
+    is classified exactly once, even when the body is converted."""
+    solid = _spline_prism()
+    seen: list[object] = []
+    classify = properties_module._sweeps_a_spline
+
+    def counting(face: Face) -> bool:
+        seen.append(face)
+        return classify(face)
+
+    monkeypatch.setattr(properties_module, "_sweeps_a_spline", counting)
+    assert _volume_integrand(solid) is not solid.wrapped
+    assert len(seen) == len(solid.faces())
