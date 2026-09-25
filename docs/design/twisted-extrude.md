@@ -6,7 +6,10 @@ Status: **IMPLEMENTED** (kernel 2026-09-24; high-twist cost bound 2026-09-25,
 `aa2e108` (the `twist_failed` copy). Scope: the extrude
 feature's `twist_angle_deg` / `twist_center` parameters, the OCCT mechanism
 behind them, and how they compose with the other extrude options. Closes the
-kernel side of helical-gear gap #1 (`docs/qa/helical-gear-2026-09-24.md`, G1).
+kernel side of helical-gear gap #1 (G1 of the 2026-09-24 reference-part run,
+`git show 5b6fd28:docs/qa/helical-gear-2026-09-24.md`). **Next:** twist moves
+from Extrude to Sweep (`docs/BACKLOG.md` TWIST-TO-SWEEP); this note is deleted
+once that ships.
 
 Related: RESEARCH §1 (OCCT via OCP + build123d; no new dependency) and §9
 (goldens, determinism, STEP round trip); `feature-tree.md` §1.4 (an additive

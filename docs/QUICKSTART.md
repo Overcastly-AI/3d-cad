@@ -291,8 +291,8 @@ here, not a rounding complaint.
 ### Expectations before you scale up
 
 Parts up to ~50 features feel fine, ~100 is painful cold, and a first rebuild
-of a 200-feature tree takes ~26 s. [`docs/PERF.md`](./PERF.md) has the measured
-tables and says plainly where the wall is.
+of a 200-feature tree takes ~26 s. [`docs/OPERATIONS.md`](./OPERATIONS.md) §6
+has the sizing tables.
 
 ---
 

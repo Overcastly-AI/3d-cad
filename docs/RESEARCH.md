@@ -1,1213 +1,226 @@
-# Research & Architecture Decisions
-
-Decision record for the foundational choices. Each entry: decision, rationale,
-alternatives considered. Changing any of these requires updating this file and
-`docs/ARCHITECTURE.md` in the same commit.
-
-## 1. Geometry kernel — OCCT via OCP, build123d as the modeling layer
-
-**Decision:** Open CASCADE Technology (OCCT 7.x) through the **OCP** Python
-bindings, with **build123d** as the high-level modeling API inside the
-geometry service. All kernel access is confined to `services/geometry` — no
-other service imports OCP.
-
-**Rationale:** OCCT is the only mature open-source B-rep kernel: full
-parametric solids, fillets/chamfers, booleans, STEP/IGES read+write, meshing.
-OCP gives complete Python bindings (the same ones CadQuery/build123d ship on);
-build123d adds an ergonomic, well-tested modeling layer so we don't rewrite
-topology plumbing. Python backend was a product requirement.
-
-**Alternatives considered:** FreeCAD (an application, not an embeddable
-kernel; LGPL app coupling), SolveSpace kernel (NURBS-limited, no STEP write of
-comparable quality), libfive/SDF kernels (not B-rep, no STEP — wrong category
-for MCAD), truck (Rust, immature), writing our own (a decade of work).
-
-**Licensing:** OCCT is LGPL-2.1 *with exception* — safe to depend on from an
-MIT app. build123d and OCP are Apache-2.0.
-
-**Helical construction (2026-09-24):** a twisted extrude is
-`BRepOffsetAPI_MakePipeShell` along a straight spine, in auxiliary-spine mode
-with a helix about that spine. That is an exact screw motion of the profile,
-with only the swept faces fitted (1e-7 mm). A ruled loft through rotated
-sections and a sweep along a helix path were rejected. Every twisted tool is
-checked against the Cavalieri identity (volume = area × distance), because OCCT
-can return an inverted solid that `BRepCheck` still accepts. Rationale and
-measurements: `docs/design/twisted-extrude.md`.
-
-**High-twist cost (2026-09-25):** in a tree with a twisted extrude only, the
-helicoidal flanks are meshed with BRepMesh's surface-deflection refinement
-off (`ControlSurfaceDeflection = False`; the linear and angular deflection
-still set the grid), and a twist whose pre-sweep cost estimate exceeds 4.5 s
-is refused as `twist_failed`. 3MF of a dense twisted body is refused
-(`export_mesh_too_dense`) because lib3mf re-meshes a copy at full cost. Every
-other body tessellates exactly as before. Design twisted-extrude.md §6.1.
-
-## 2. Sketch constraint solver — planegcs (spike verdict 2026-07-10: adopted)
-
-**Decision:** FreeCAD's planar geometric constraint solver via the
-**`planegcs`** PyPI package (0.8.0), behind the `SketchSolver` protocol in
-`services/geometry/src/geometry/sketch/`. The spike verdict is **adopted as
-the real module** — the scipy least-squares fallback was not needed and was
-not implemented; it remains the named fallback should planegcs packaging ever
-break.
-
-**Packaging evidence (spike, 2026-07-10):** `planegcs` on PyPI
-(github.com/spookylukey/planegcs) extracts PlaneGCS from FreeCAD's Sketcher
-and wraps it with a typed Python API (`py.typed` + `.pyi` stubs —
-pyright-strict clean). Actively released (0.1.0 → 0.8.0 over 2026), cp312 +
-cp313 manylinux/Windows wheels; sdist builds need eigen3 + boost headers,
-which we don't rely on. The cp312 manylinux wheel installs and runs in this
-container via `uv add --package loft-geometry planegcs`.
-
-**License evidence (blocking check, passed):** wheel METADATA declares
-`License: LGPL-2.1-or-later`; the bundled `dist-info/licenses/LICENSE` is
-LGPL-2.1 and credits the FreeCAD PlaneGCS origin. LGPL as a
-dynamically-loaded extension module is allowed (§8), same posture as OCCT.
-Rejected candidates found during the spike: `py-slvs` and
-`python-solvespace` (SolveSpace bindings — **GPLv3, forbidden**, never
-installed), `pyGCS` (unrelated grid-convergence tool).
-
-**Benchmark evidence (spike, asserted forever by
-`services/geometry/tests/test_sketch_solver.py`):** the reference rectangle
-(4 lines, coincident corners, horizontal/vertical, driving dimensions
-40 × 25 mm, one corner anchored — the feature-tree §6 worked example plus an
-anchor) solves DOF 0 with **0.0 observed deviation** from the analytic
-corners; solutions are **bitwise deterministic** across runs and fresh solver
-instances (RESEARCH §9 gate), and — fully constrained — insensitive to a
-displaced starting guess. Diagnosis is first-class: remaining DOF count,
-conflicting and redundant constraints reported as indices into the input
-constraint list (planegcs constraint tags mapped back). No iteration count is
-exposed; the default DogLeg algorithm is used with no random restarts.
-
-**An UNDER-CONSTRAINED solve HOLDS the input geometry — the free degrees of
-freedom belong to the author, not to the optimiser** (SOLVE-1, 2026-08-22;
-supersedes this section's earlier "stays *near* the input positions, guess-
-dependent by design"). "Near" was the defect, not a caveat. DogLeg started from
-the current positions is not the same thing as leaving the free DOF alone: it
-walks a trajectory, so a dimension edit that merely adds slack spends it moving
-geometry the edit never named, and the answer becomes a function of solve
-HISTORY rather than of the constraint set. Measured on the product audit's
-flanged-coupling profile (`docs/AUDIT-PRODUCT.md` R-5/R-5b/R-5c — six consistent
-driving dims, DOF 6): editing one dimension `8 -> 12` slid the whole profile to
-`y[-3.0795, 30]` (a solid 3.08 mm below its own origin plane), and typing `8`
-back landed **2.162 mm** from where it started, leaving a flange at Ø69.81 under
-dimensions that still read Ø70. So `PlanegcsSketchSolver` **settles**: after an
-under-constrained, non-conflicting solve converges, every input coordinate and
-circle radius the constraints still admit is pinned back to the author's value
-and the system re-solved, keeping a hold only when the re-solve converges AND
-every caller constraint stays within `SATISFIED_TOL_MM` (1e-7). The same edit
-then moves exactly one corner and the retype returns to **6.4e-14 mm**.
-Determinism is unaffected: the passes run in input entity order, and the whole
-sequence is asserted bitwise (§9). Fully-constrained sketches are untouched
-(nothing is free) and remain guess-independent.
-
-**A settle must REFINE the plain solve, never re-orient it** (SETTLE-2,
-2026-08-22; corrects SOLVE-1's claim above that a satisfied-constraint check
-alone means settling "can never return worse geometry than the plain solve" — it
-does not). A sketch with free DOF generally has several disconnected branches of
-solution, and every one satisfies every constraint exactly, so a settle that
-lands on a different branch passes a residual check with a clean conscience.
-Measured on the SKETCH-2 datum walk (`sketch-datum-flow.spec.ts`) — a rigid
-rectangle at y ∈ [8, 24] made symmetric about the X axis: the plain solve
-translates it to y ∈ [-8, 8], and settling instead REFLECTED it, holding the two
-bottom corners at their submitted y and sending the top pair past them. Same
-rectangle in space, opposite traversal — which flips the face normals every
-downstream feature is built on and makes a stored reference to "the top edge"
-resolve to the bottom one (§9, topological naming). The guard is one dot product
-per entity over the finished settle: if any line or arc runs backwards relative
-to the plain solve, the plain solve is returned instead. Two things it is
-deliberately NOT, both built and measured first: (a) **not a distance
-threshold** — no displacement statistic separates the reflection from the R-5b
-correction it must keep (sum of squares, worst point, points moved and sum of
-displacements all rank the two fixtures the same way, because a least-squares
-solve is already near the minimum-norm correction while what SOLVE-1 wants is
-the SPARSE correction, and a reflection is sparse too); and (b) **not per-hold**
-— refusing only the reflecting holds leaves the ones pinning the top corners at
-y = 24 and symmetry then drives the bottom pair to -24, a rectangle stretched
-from 16 mm to 48 mm. Holding a SUBSET of a rigid body's points distorts the
-body, so the choice is all of them or none.
-
-**Every CONSTRAINT is verified against the geometry before the payload ships.**
-A converged optimiser is not evidence that the constraints hold — the same
-posture the assembly solver already took with its `SATISFIED_TOL`. A solve whose
-geometry violates a constraint is reclassified as the `conflicting` it is,
-returns the input entities untouched, and reaches the caller through the one
-existing typed `SketchConstraintDiagnosis` (`sketch_conflicting`, offending
-indices, `suggested_fix`) rather than a second diagnosis written for value
-edits. The invariant: **nothing in a payload disagrees with the entities shipped
-beside it by more than `SATISFIED_TOL_MM`** — reporting the request unchecked is
-how the service came to claim a 12 mm dimension on an 8 mm line with nothing in
-the payload contradicting it.
-
-This began (SOLVE-1) as a check on DRIVING DIMENSIONS only, and **the narrowness
-was the defect, not the reasoning** (SETTLE-3, 2026-08-22): a relational
-constraint is no less load-bearing for having no readout. planegcs's own verdict
-does not close the gap, which is the finding that forced the widening — on a
-sketch carrying both `parallel` and `perpendicular` between the same two lines,
-flatly unsatisfiable, `diagnose()` returns `conflicting=[]` and `solve()` returns
-`SolveStatus.Success`, and the service shipped `underconstrained` with the two
-lines 67° apart. Found by a randomised sweep over 400 generated sketches; **7 of
-the 155 solvable ones shipped a violated constraint the same way.** The solver's
-STATUS is a self-report exactly as its residual is, and neither is evidence.
-
-**The settle's safety net has a SECOND, independently-derived opinion**
-(SETTLE-3). `_constraints_satisfied` was the only thing between a settle and
-wrong geometry and it asked one witness — planegcs's `constraint_error(tag)`,
-read off the parameter array the solver had just produced — while accepting
-`SolveStatus.Converged`, which in FreeCAD's DogLeg means the iteration STOPPED
-rather than that it found a root. It is also scoped to the CALLER's tags, which
-correctly excludes planegcs's internal arc rules (tag `0`, error `nan`) and
-thereby leaves *nothing at all* asking whether the arc about to be shipped is
-still an arc: `read_back` reads an arc's `start`/`end` points, which are solver
-parameters distinct from its `center`/`radius` and tied to them only by those
-unasked rules. `geometry.sketch.residual` re-derives every residual from the DTO
-entities, and both opinions must hold. It is deliberately never the STRICTER
-witness: both are required, so an over-strict residual does not catch more, it
-silently refuses correct settles and reverts the product to its pre-SOLVE-1
-behaviour with every gate green. Two bugs of exactly that shape were caught
-before shipping by comparing the two AWAY from a solution — comparing them after
-a converged solve compares `0.0` against `0.0` and proves nothing.
-
-**A settle sacrifices the COARSEST hold the constraints still admit, entity by
-entity** (SETTLE-3; supersedes the separate radius pass SOLVE-1 shipped). When
-the author's values cannot all be kept, something must give, and a pass ORDER is
-not a policy. Measured on `constraints.spec.ts`'s tangent case — an r10 circle at
-the origin, a vertical line 20 mm away, made tangent: radii pinned LAST grew the
-circle to **r20** and never moved the line; radii pinned FIRST kept r10 and
-pivoted the line about its start corner, so a line drawn vertical came back
-slanted. Both sacrifice a quantity the author DREW to keep one the solver exists
-to DERIVE. The ladder — whole entity, then its SHAPE alone (a circle's radius, a
-line's end-to-end vector, an arc's centre-to-endpoint vectors), then single
-points, then single coordinates — is SETTLE-2's finding that *holding a subset of
-a rigid body's points distorts the body* applied to the single entity, and it
-gives the answer a modelling tool gives: the circle keeps r10 at the origin, the
-line keeps its length and direction, and it slides to x = 10. **"Shape before
-placement" as a GLOBAL precedence was tried and is falsified by R-5b**, whose six
-free DOF *are* the corner angles: pinning six directions against a closure the
-edit has changed cascades, and `e4` — an edge the edit never named — moves
-10.285 mm. Hence per-entity, and hence the shape rung fires only where it costs
-no other entity anything (SOLVE-1's principle turned on the settle itself).
-
-**And the ladder is BOUNDED, by a work budget that is a function of the sketch —
-never of the clock** (SETTLE-PERF-1, 2026-08-25). The three decisions above are
-stated as policies and were shipped without a cost model, and the model turned
-out to be cubic: the ladder puts one yes/no question to the solver per entity,
-per point and per coordinate, and each of those solves is itself quadratic in
-entity count. Measured (`docs/PERF.md` 2026-08-25, and
-`docs/AUDIT-ENGINEERING.md` N11): a 48-line rectilinear outline spent **12 944
-ms** answering one dimension edit — 1 560x the pre-SOLVE-1 solver, for the same
-answer — and a 96-line one **196 s**, against a gateway that gives up at 90 s
-and deliberately does not cancel the upstream, which made the sketcher's
-commonest interaction an authenticated resource-exhaustion route. Profiling put
-**96.8 %** of that inside planegcs and **85 %** of it in trials that were
-REFUSED and then undone, so most of the fix is refusing without solving — a pin
-already satisfied is accepted with no solve, a demand already refused is refused
-again for free (keyed on the point's coincidence class; pins only accumulate, so
-what was infeasible stays infeasible), and holding EVERYTHING is refused from the
-input residual, which is a question about the DTOs. What is left runs on
-`SETTLE_WORK_UNITS // entities**2` trial solves. **The budget deliberately is
-not the wall-clock deadline the audit proposed: a settle CHOOSES GEOMETRY, so a
-deadline would make the shipped shape a function of machine load, which §9's
-determinism gate forbids.** Running out removes QUESTIONS, not CHECKS — both
-final guarantees still run — so the settle degrades toward the plain solve
-rather than off a cliff. Result: 96 lines from 196 s to **0.22 s**, bitwise
-identical answers up to 24 entities, all 207 SOLVE-1/SETTLE-2/SETTLE-3 tests
-green, and a `sketch_solve` benchmark group at 48 and 96 lines because the
-correctness corpus tops out at twelve — which is why nobody saw this.
-
-**planegcs's radius is a SIGNED parameter and the DTO's is a magnitude, and
-conflating the two produced an untyped 500 on 0.6 % of authorable sketches**
-(SOLVE-CRASH-1, 2026-08-29). `SketchCircle.radius` is `gt=0`; nothing constrains
-planegcs to keep its radius parameter positive; `read_back()` therefore built a
-DTO the DTO refuses and a `pydantic.ValidationError` escaped the feature
-evaluator. Measured by the PBT-1 sweep at **12 of 2000** generated sketches —
-tangent + concentric + equal on two circles is enough. **The twelve are two
-defects wanting opposite answers, and one rule for all of them would have been
-wrong either way.** Three had a NEGATIVE radius of real magnitude, which is not
-a degenerate circle at all: planegcs reads the sign as a choice of tangency
-branch (`tangent_circle_circle` is `d - (r1 + r2)`, so `r2 < 0` is the INTERNAL
-tangency of a circle of radius `|r2|`), and with `abs` applied all three come
-back as ordinary solves with a worst residual of **1.8e-13 mm** — a
-positive-radius solution existed and the solver had found it, so refusing those
-would have made legal models unbuildable with nothing telling the user why. The
-other nine were annihilated, nearly all one shape: a `tangent` between a line
-and a circle whose centre another constraint puts ON that line, where `r = 0` is
-the unique solution and there is no positive-radius answer to find. So `abs` is
-applied as a de-parameterisation (not a correction), and a radius the solve has
-annihilated returns the author's
-own value from `read_back` — geometry that then fails its own tangency residual
-by the whole radius, which the EXISTING payload gate reclassifies as the
-conflict it is, with the offending constraint NAMED in
-`conflicting_constraints`. Nothing new decides the outcome: a solve outcome
-belongs in `status` (the `SketchSolver` contract reserves exceptions for
-malformed input), and `conflicting` already means "your constraints cannot be
-satisfied", already returns the input untouched, and keeps the sketch editable
-instead of dead-ending on a 500.
-
-**The threshold is a MAGNITUDE test (`DEGENERATE_RADIUS_MM = 1e-9`, the same
-number and role as `sketch/edit.py`'s collapsed-radius test behind
-`sketch_degenerate_result`), NOT the DTO's own `> 0` — because the crash was
-only the loud half.** The nine annihilated circles straddle zero by float noise
-(seven at exactly `0.0`, two at `1.5e-15` / `1.9e-15` mm), and two MORE were
-already shipping under `status="underconstrained"` with an empty conflict list
-at `2.7e-15` and `8.9e-16` mm, purely because the last DogLeg iterate landed on
-the positive side; every property in the sweep agreed with them, since the
-residual of a tangency to a point-sized circle centred on the line is exactly
-zero. Deferring to `gt=0` stops the crash and ships `radius=2.27e-16` (measured on the
-annihilated-circle fixture) — the crash traded for a lie. Net over the corpus:
-crashes 12 -> **0**, solvable 1327 -> 1328, conflicting 276 -> 287, violated
-still 0.
-
-**The same collapse on an ARC had no loud half at all, shipped 27 payloads of
-absent geometry, and needed a WIDER floor than the circle's**
-(ARC-DEGENERATE-1, 2026-08-29). A `SketchArc` carries `center`/`start`/`end` and
-DERIVES its radius, so there is no `gt=0` field to refuse an annihilated one: the
-DTO is valid, and — the reason no gate saw it — the residual is **zero**, because
-a constraint satisfied by putting a point on a point is satisfied exactly. The
-same PBT-1 corpus shipped **27 arcs collapsed onto their own centre**, 25 under
-`overconstrained` and 2 under `underconstrained`, all at 4e-14 mm or less. What
-pointed at it was an ASYMMETRY, not a failure: `_add_entity` refuses that exact
-shape on INPUT, so the solver refused to accept what it would happily emit. The
-prior question SOLVE-CRASH-1 turned on was re-asked and measured — pin a radius
-any real solution could reach, and re-solve from eight pushed configurations —
-and here the answer is **26 forced, 1 branch**: sixteen of the 26 minimise to a
-SINGLE `coincident` between an arc's own centre and its own endpoint, which is
-literally the refused input shape authored as a constraint. The fix is the
-circle's, with no new machinery: `_shippable_arc_points` returns the author's own
-arc translated to the solved centre, which fails the very constraint that
-annihilated it, and the existing payload gate reclassifies it as
-`sketch_conflicting` with that constraint NAMED.
-
-**The arc's floor is `SATISFIED_TOL_MM` (1e-7 mm), NOT the circle's 1e-9, and the
-reason generalises past this ticket.** A circle's radius is the solver's own
-PARAMETER — a constraint annihilating it sets it to `0.0`. An arc's is a DERIVED
-distance between two independently-solved points, so it carries DogLeg's
-convergence residue rather than float noise. Every arc in the corpus sat at or
-below 4e-14 mm, so 1e-9 looked like five orders of headroom; it was not, because
-**the fix itself moved the population**: with the substitution in place the
-settle correctly stops holding anything on such a sketch, and the settle had been
-what drove trial 458's arc from the raw solve's **4.5e-9 mm** down to `0.0`. Set
-at 1e-9 the fix therefore shipped one case it had created. The rule to carry: **a
-tolerance measured from a population the fix perturbs must be re-measured AFTER
-the fix.** Headroom is unaffected — the smallest real arc in the corpus is
-0.71 mm and the kernel's own linear tolerance is 1e-4 mm, so nothing legitimate
-lives in the band. Net over the corpus: annihilated arcs 27 -> **0**, conflicting
-287 -> 314, overconstrained 282 -> 257, solvable 1328 -> 1326, violated still 0.
-**One recorded live limit remained and was deliberate:** trial 1906's tangency
-admits `r2 = 2*r1` as well as `r2 = 0`, so that sketch is SOLVABLE and got
-`conflicting` — wrong, but less wrong than shipping a void, and choosing the
-branch is a solver change (ARC-BRANCH-1), not a payload gate. That limit is now
-LIFTED — see below.
-
-**A collapse the constraints do not FORCE is a bad starting guess, not a verdict,
-and the solver may re-ask from a different one exactly once** (ARC-BRANCH-1,
-2026-09-04). Geometry a solve has annihilated never reaches a payload — since
-SOLVE-CRASH-1 and ARC-DEGENERATE-1 `read_back` substitutes the author's own
-radius or arc and the payload gate reclassifies the result as `conflicting` — so
-such a solve is not an answer the author is being offered at all. Where a
-non-degenerate solution exists, refusing it is simply wrong. `plain_solve`
-therefore re-solves ONCE, and prefers the second answer only when it clears the
-bar the first could not (converged, nothing annihilated, no violated constraint).
-Measured over PBT-1's corpus: **38 solves annihilate an entity; 36 are FORCED and
-keep their `conflicting` unchanged, 2 are not.** Net: solvable 1326 -> **1328**,
-conflicting 314 -> **312**, violated still 0, reversed still 0, annihilated still
-0, and no other trial's payload changed by a bit.
-
-**The restart start pose is the AUTHOR's own sketch with only the collapsed
-entity relocated to the solved position — and the cheaper-looking alternative was
-built first and is measurably worse.** Restarting from the whole solved answer
-with the collapse undone also finds the branch, and inherits everything else the
-first solve did wrong: on trial 1906 it drags `e1` (an arc no constraint sizes)
-from the author's r = 14.618 to 8.242 and reverses its chord, so the baseline that
-SETTLE-2's `_turns_geometry_inside_out` judges against is itself reversed relative
-to the author, and the settle's correct recovery of `e1` is discarded — shipping
-`r1 = 10.029` where the author's pose ships **`r1 = 14.618, r2 = 29.236`**. Stated
-generally: SETTLE-2's guard rests on the premise that *the plain solve is itself a
-walk from the author's own values*, and a restart seeded from a solved answer is
-the one thing that breaks it. Seeded from the author's pose the premise holds.
-
-**This does NOT breach SETTLE-2, and the distinction is what the ticket turned
-on.** SETTLE-2 governs the settle's relationship to the plain solve it is handed,
-and that is untouched: the guard still runs, unchanged, over whatever
-`plain_solve` returns. The restart runs one layer up and only where the plain
-solve produced NO shippable answer, so the choice is between an answer and no
-answer rather than between two answers — the one case where re-asking cannot cost
-the author a solution they were already being shown. Determinism (§9) is
-preserved by construction: one restart, no loop, and a start pose that is a pure
-function of the sketch — no seed, no clock, no search. Verified by running the
-2000-sketch sweep twice in one process (identical census, and all 2000 payloads
-bitwise identical).
-
-**The mechanism is not arc-only, and the generality found a second defect.** The
-restart asks its question of any annihilated entity, because the collapse is one
-defect wearing two DTOs. The second of the two rescued trials is a CIRCLE (trial
-1593) minimising to the same two constraints as 1906 — `coincident` from one
-curve's centre to the other's endpoint, plus `tangent` — which SOLVE-CRASH-1 had
-counted among the annihilated circles it called forced. ARC-DEGENERATE-1's own
-asymmetry, one layer up.
-
-**Spline FIT POINTS are constrainable (v1.1, 2026-07-15); the spline CURVE is
-not.** planegcs still has no spline primitive, so the curve carries no
-tangent/curvature constraints. What v1.1 adds is that each fit point is
-addressable as a solver point via `EntityPointRef{entity, point:"fitN"}`
-(`SplineFitPointName`, zero-based): a constraint may name a spline's Nth fit
-point exactly as it names a line endpoint, and the solver adds THAT fit point to
-the constraint system so it takes the point-level constraints (coincident,
-fixed, symmetric — and, via a coincident-linked line, distance/horizontal/
-vertical). After the solve the spline is **rebuilt through the solved fit-point
-positions** (the interpolating curve is re-fitted downstream by the kernel), so
-it reshapes to satisfy its constraints. A fit point contributes DOF **only when
-constrained** — a fit point no constraint references is left out of the system
-entirely, so an unconstrained spline still solves as fixed geometry (zero added
-DOF, fit points preserved bitwise) exactly as in v1. An out-of-range `"fitN"`
-resolves to no point → a clean malformed-definition error. **Spline tangency
-stays DEFERRED** behind the `SketchSolver` protocol (it needs a native spline
-primitive) — only fit-point *position* constraints are offered; a future solver
-(or a planegcs spline extension) can add tangency/curvature without changing the
-DTO or callers.
-
-**Guardrail (standing):** SolveSpace's solver is GPLv3 — **do not** introduce
-it or any GPL dependency into this MIT codebase. LGPL dynamic deps are fine.
-The solver stays behind the `SketchSolver` protocol
-(`geometry.sketch.solver`); callers import the interface package, never
-`planegcs`. The sketch DTOs are pure pydantic (no kernel, no solver types)
-and migrate to `loft_wire` when the sketch API lands.
-
-## 3. Architecture — monorepo of microservices, contract-first, DRY
-
-**Decision:** One monorepo, multiple small services, one source of truth for
-every type.
-
-```
-apps/
-  web/            # React SPA (viewport + UI)
-services/
-  gateway/        # FastAPI: auth (JWT), REST aggregation, WebSocket fan-out
-  geometry/       # OCCT workers: feature evaluation, tessellation, export.
-                  # Stateless, CPU-bound, scaled horizontally, fed by a job queue.
-  documents/      # Parts/assemblies as parametric feature trees; versioning. Postgres.
-packages/
-  loft-wire/      # The WIRE TYPES (`loft_wire`): the pydantic models that cross a
-                  # service boundary. Depends on pydantic and NOTHING else — see §3b.
-  py-kit/         # Shared Python services kit: errors, logging, health, metrics,
-                  # queue client, service bootstrap. Every SERVICE builds on it.
-  loft-script/    # PUBLIC Python scripting API (`import loft`). A CLIENT of the
-                  # gateway, exactly like apps/web — see §3a.
-  ts-client/      # TypeScript API client GENERATED from the OpenAPI specs.
-  contracts/      # Exported OpenAPI schemas (generated from pydantic, committed).
-  design/         # Design system: tokens (Tailwind preset + TS constants),
-                  # UI primitives, fonts. Source-only workspace pkg (§5).
-deploy/           # Dockerfiles context, later Helm/Kustomize
-docs/             # This direction layer
-.claude/          # Agent org: agents, skills, workflows
-```
-
-**The DRY rule (non-negotiable):** pydantic models in `loft-wire`/service DTOs
-are the single source of truth. OpenAPI is generated from them; the TS client
-is generated from the OpenAPI; the frontend imports only `@loft/ts-client`
-types. Hand-written duplicate types in TS or between services are a defect.
-Cross-service boilerplate (logging, health endpoints, queue plumbing, error
-envelopes) lives once in `py-kit`, never copy-pasted.
-
-**Service boundaries:** geometry never talks to the DB; documents never
-imports the kernel; the web app talks only to the gateway. Boundaries are
-enforced in review.
-
-Feature-tree persistence (documents-side parametric history: schema, param
-envelope, references, rollback, evaluation contract) is specified in
-[`docs/design/feature-tree.md`](./design/feature-tree.md).
-
-## 3a. The scripting API is a gateway CLIENT — decision record (2026-09-15)
-
-**Decision:** `packages/loft-script` (the public Python API, `import loft`) is
-another client of the gateway, on exactly the footing `apps/web` has. It
-imports no kernel, opens no database connection, and calls no route the browser
-cannot call. The MCP server (Phase 5) will be a thin adapter over it, not a
-second path beside it.
-
-**Why, and what the alternative costs.** The tempting design is a library that
-drives the geometry service directly, or writes feature rows into Postgres —
-fewer hops, no auth, and an afternoon's work. It is also a SECOND PRODUCT: it
-would drift from the UI, grow its own bugs, and make every feature after it
-something the team ships twice. The roadmap's Phase 5 phrase for this is "same
-code path as the UI", and the existing service boundaries (§3) already express
-it; this entry records that the scripting surface is bound by them rather than
-being an exception to them.
-
-**How it is enforced, rather than asserted.** Four mechanisms, because a
-boundary that only lives in a review comment is one distracted review from
-gone:
-
-1. Every call names an `Operation` from a GENERATED table
-   (`loft/_operations.py`, produced by `scripts/gen-py-operations.py` from the
-   committed `packages/contracts/gateway.openapi.json`, diffed by
-   `just gen-check`). Only the gateway contract is read — adding `documents` or
-   `geometry` to that generator is the one-line change that would break this
-   decision, and it is therefore the line to guard in review.
-2. The transport REFUSES a request the contract does not declare, on all three
-   axes the contract carries: the body model (`request_model`), the path
-   parameters (`path_params`, strict both ways in `Operation.url`) and the
-   required query parameters (`required_query`). All three raise
-   `ContractMismatch` before anything reaches the network, so the library
-   cannot grow a private request shape the browser never sends.
-
-   **The query axis was added 2026-09-15 and its absence had already cost a
-   whole public method.** `required_query` was generated for all 86 operations
-   and read by NOTHING, so `Part.delete_feature` omitted the
-   `expected_tree_version` its route declares as required and returned 422 on
-   every call, for every input, from the day it shipped. Note the general shape,
-   because it is the reusable part: a guarantee that covers two of three axes
-   reads as a total one, and the untrue third is invisible precisely because the
-   sentence describing it sounds complete. Generated data that nothing reads is
-   the same defect wearing a different hat — a field emitted for a check that
-   was never written.
-3. `packages/loft-script/tests/test_modelling.py` drives a real three-service
-   stack, records every call the modelling flow makes, and asserts that parity
-   over the calls that actually happened — with a count floor, so an empty
-   recording cannot make it vacuously true.
-4. `tests/test_contract_parity.py` walks the library's own source with `ast` and
-   checks every `transport.call*` site against its generated row — response
-   model, body model, required query and path parameters — with a floor of 16
-   sites. STATIC, and that is the point: the runtime checks in (2) only fire on
-   a call that actually happens, which is exactly why an untested method could
-   ship 422-ing. This walk sees a call site whether or not any test exercises
-   it, and it is what `Transport.call`'s docstring had been claiming existed
-   since the library landed.
-
-**Types are IMPORTED, not generated — the asymmetry with `packages/ts-client`
-is deliberate.** `loft_wire.*` holds the pydantic models the services
-serve, and the Python client imports those classes. TypeScript cannot read a
-pydantic model, which is the *only* reason `ts-client` re-materialises the wire
-types; Python has no such constraint, so deriving a second set of Python DTOs
-from an OpenAPI document that was itself derived from those classes would be a
-round trip that loses information (validators, cross-field model validators,
-shared derivations such as `is_stale_for_tree`) and adds a drift surface for
-nothing. The DRY rule rejects duplicate API types whether a human or a
-generator writes them. What a Python client genuinely cannot import is the
-ROUTING — method, URL template, and the component schema each operation
-declares — because that lives in FastAPI decorators; that, and only that, is
-generated.
-
-**Consequence for py-kit.** The auth DTOs moved from `gateway.auth.schemas` to
-the shared DTO package when this landed. They were gateway-local with an
-explicit note to extract on the second real use; the scripting client is that
-use, and a CLIENT importing the SERVICE package to speak its own contract would
-invert the dependency (pulling FastAPI, SQLAlchemy, asyncpg and argon2 into a
-library whose whole point is that it is just an HTTP caller). The gateway
-remains the auth service (§3); only the shapes moved, and the regenerated
-OpenAPI is byte-identical, which is the proof the move was wire-neutral.
-
-That reasoning was right and its DESTINATION was not: `py_kit.schemas` avoided
-argon2 and asyncpg and did not avoid FastAPI, uvicorn, SQLAlchemy, arq or redis.
-§3b is the correction.
-
-## 3b. The wire types are their own distribution — decision record (2026-09-15)
-
-**Decision:** the pydantic models that cross a Loft service boundary live in
-`packages/loft-wire` (`import loft_wire`), a distribution whose dependencies are
-`pydantic` and `email-validator` and nothing else. `loft-py-kit` depends on it;
-`loft-script` depends on it; the arrow never points back.
-
-**The defect it fixes.** §3a moved the auth DTOs into `py_kit.schemas` so the
-scripting client would not have to import the gateway, and the paragraph above
-names exactly why: a client importing a service package "would invert the
-dependency (pulling FastAPI, SQLAlchemy, asyncpg and argon2 into a library whose
-whole point is that it is just an HTTP caller)". The destination had the same
-disease in a milder form. Every module under `py_kit.schemas` imported nothing
-but pydantic and the standard library — but `loft-py-kit` the DISTRIBUTION
-declares FastAPI, uvicorn, SQLAlchemy, alembic, arq, redis and
-prometheus-client, because the rest of `py_kit` is a service kit and genuinely
-needs them. **A dependency is a property of the distribution, not of the
-module**, so the clean modules did not help: measured, `pip install loft-script`
-resolved **33 distributions**, including a web server, an async ORM, a task
-queue and a Redis client, into what is meant to sit next to numpy in a
-modelling script's venv. After the split: **15** — nineteen distributions gone
-(`fastapi`, `uvicorn`, `starlette`, `sqlalchemy`, `greenlet`, `alembic`, `mako`,
-`markupsafe`, `arq`, `redis`, `hiredis`, `pyjwt`, `click`, `structlog`,
-`prometheus-client`, `pydantic-settings`, `python-dotenv`, `annotated-doc`,
-`loft-py-kit`) and one added (`loft-wire`).
-
-That number matters beyond tidiness: the MCP server (Phase 5) is built on this
-library and would have inherited the weight, and a modelling API that
-installs uvicorn undercuts the product's own claim that "the modeling API *is*
-Python" rather than a bolted-on macro language.
-
-**Why a distribution rather than an extra.** The cheaper shape is
-`loft-py-kit[server]`: bare install is schemas-only, the services depend on the
-extra. It was rejected because it leaves a package whose bare install cannot
-import its own top-level module — `pip install loft-py-kit && python -c "import
-py_kit"` would raise — and because nothing in the metadata would then be TRUE:
-the declared dependencies of the bare distribution would not cover what its own
-modules import, so no tool and no gate could tell a correct state from a broken
-one. The split costs one distribution and a mechanical import rename; it buys
-metadata that is honest in both directions, which is the property a gate can
-stand on.
-
-**Where the boundary is enforced.** Both halves, each with a count floor,
-because a walk that finds nothing makes "all of them are fine" vacuously true:
-
-- `packages/loft-wire/tests/test_wire_dependency_closure.py` — AST-walks every
-  module under `loft_wire` and fails on any import that is not stdlib or a
-  declared dependency, with `py_kit`, `fastapi`, `sqlalchemy`, `starlette`,
-  `OCP` and `build123d` named individually so a failure says which boundary
-  broke. Read from SOURCE, not from `sys.modules`: an import-based check sees
-  only what the test process happened to load, and this defect class is
-  precisely a dependency present for reasons unrelated to the module.
-- `packages/loft-script/tests/test_install_weight.py` — walks the DECLARED
-  first-party closure and fails if any server distribution is reachable from
-  `loft-script`. This is the layer the original defect lived in, and it is
-  invisible to an AST walk: a transitive dependency changes no import line.
-
-**The one edge that had to be inverted.** `FeatureError.model_post_init` counts
-every feature failure, and the counter is a Prometheus metric in
-`py_kit.metrics` — a wire type importing the service kit, the only such edge in
-the subtree. It is now an observer registry (`loft_wire.instrument`): the wire
-publishes, `py_kit.metrics` registers `record_feature_error` at import time, and
-a process that imports only `loft_wire` gets a no-op list. The inversion creates
-its own hazard and that module's docstring names it — an unregistered observer
-is a FLAT LINE, which reads as "nothing is failing" rather than "nothing is
-counting", the same defect the instrumentation existed to prevent, moved one
-step. Two things hold it down: `py_kit/__init__.py` imports `py_kit.metrics`, so
-any process that touches py-kit at all has wired it before it can build a DTO;
-and `packages/py-kit/tests/test_metrics.py` asserts the counter moves when a
-`FeatureError` is CONSTRUCTED, which is a test of the WIRING, not of the
-recorder.
-
-**Wire-neutrality, verified rather than assumed.** FastAPI names a component
-after the model CLASS, so moving classes between modules is wire-neutral only if
-the class objects are the same ones — which a rename makes true and which is
-still worth measuring. With every `description` stripped, the three regenerated
-OpenAPI documents are **identical** to their committed predecessors: same paths,
-same operationIds, same component names, same field names, types, enums and
-required sets, and `loft/_operations.py` regenerates byte-identical. 59
-`description` strings did change, in all three documents, and every one is
-exactly the `py_kit.schemas` -> `loft_wire` substitution — docstring
-cross-references that would otherwise name a module that no longer exists. The
-set of description keys is unchanged, so none appeared or disappeared.
-
-## 4. Data & messaging
-
-- **PostgreSQL 16** — documents, users, feature trees (JSONB feature params +
-  relational tree structure).
-- **Redis 7 + arq** — job queue for geometry evaluation (async, simple,
-  Python-native). Geometry results (meshes, exports) go to **S3-compatible
-  object storage** (MinIO in dev).
-- **WebSocket via gateway** — document-change events to clients.
-
-## 5. Frontend — React + Vite SPA, react-three-fiber viewport
-
-**Decision:** React 19 + **Vite** + TypeScript SPA. TanStack Router + TanStack
-Query, Tailwind CSS + shadcn/ui for the shell, **three.js via
-react-three-fiber (+drei)** for the viewport, zustand for viewport/editor
-state.
-
-**Rationale:** a CAD app is a long-lived stateful client — SSR (Next.js) buys
-nothing and complicates the WebGL lifecycle. Vite SPA keeps the deploy a
-static bundle behind nginx: cloud-native friendly and simple.
-
-**Geometry transport:** server-side tessellation → **glTF/GLB** buffers to
-the viewport (Draco compression later). The client never runs the kernel.
-
-**Content-addressed mesh artifacts — standing security constraint (code
-reviewer, 2026-07-11):** evaluated bodies are served by `sha256:` content
-address (`GET /api/v1/geometry/meshes/{id}`), auth-gated but **not**
-tenant-scoped: any authenticated user holding the hash can fetch those
-bytes. This is safe *because* the id is a content hash — knowing it requires
-having produced identical geometry (no enumeration, no oracle), and
-content-addressing is the dedup contract. **Do not reuse this pattern for any
-artifact whose existence or bytes are tenant-sensitive** without adding
-per-owner scoping. The object-storage successor (section 7.8 of the feature-tree
-design) inherits the same rule.
-
-**Design system (`packages/design`) — decided 2026-07-09 (founder):** design
-tokens, UI primitives, and fonts live in a **source-only pnpm workspace
-package**, not inside `apps/web`. Rationale: (a) the UI spans two renderers —
-DOM and WebGL — and the r3f viewport needs raw token values (selection/hover
-highlights, grid, background) that must exactly match the DOM theme; a tokens
-package consumed by both the Tailwind preset and the three.js scene makes
-"one palette, two renderers" structural. (b) The package boundary makes the
-CLAUDE.md design mandate greppable/enforceable in review. (c) Near-certain
-second consumers (docs site, landing page) get brand cohesion for free.
-Deliberately cheap: no build step, no publishing, no Storybook until the
-primitive count earns it (Phase 1+, via backlog item).
-
-## 6. Monorepo tooling
-
-- **Python:** uv workspaces; ruff (lint+format), pyright, pytest.
-- **TypeScript:** pnpm workspaces; eslint + prettier, vitest, Playwright.
-- **Task runner:** `justfile` at the root (`just dev`, `just test`, `just gen`
-  for contract/client generation).
-- **CI:** GitHub Actions — lint, typecheck, unit tests per package (path
-  filtered), contract-generation drift check, e2e + geometry golden suite,
-  Docker image builds.
+# Architecture decisions
+
+The live decisions, each with its reason. Change one only by updating this
+file in the same commit. Section numbers are stable, because code comments cite
+them. The full history of each decision, and the design notes for shipped
+features that code comments cite (`docs/design/*.md`), are in git:
+`git show 5b6fd28:docs/RESEARCH.md` and `git show 5b6fd28:docs/design/<name>.md`.
+
+## 1. Geometry kernel: OCCT via OCP, with build123d
+
+**Decision.** OCCT 7.x through the OCP bindings, with build123d as the
+modelling layer, used only inside `services/geometry`.
+
+**Why.** OCCT is the only mature open-source B-rep kernel (solids, fillets,
+booleans, STEP, meshing). OCP is complete, and build123d saves us writing the
+topology plumbing. FreeCAD is an application rather than an embeddable kernel,
+SolveSpace is GPL and limited, SDF kernels are not B-rep, and truck is
+immature.
+
+**Licence.** OCCT is LGPL-2.1 with an exception; OCP and build123d are
+Apache-2.0.
+
+**Helical construction.** Twist is `BRepOffsetAPI_MakePipeShell` along a
+straight spine, in auxiliary-spine mode with a helix about that spine: an
+exact screw motion. It is checked against the Cavalieri identity
+(volume = area x distance), because OCCT can return an inverted solid that
+`BRepCheck` accepts. The flanks are meshed with surface-deflection refinement
+off, and a twist whose estimated cost exceeds 4.5 s is refused
+(`twist_failed`). See `docs/design/twisted-extrude.md`. Twist moves to Sweep
+next (BACKLOG TWIST-TO-SWEEP).
+
+## 2. Sketch solver: planegcs
+
+**Decision.** FreeCAD's PlaneGCS via the `planegcs` PyPI package (LGPL-2.1+),
+behind the `SketchSolver` protocol (`geometry.sketch.solver`). Callers never
+import `planegcs`. SolveSpace (`py-slvs`, `python-solvespace`) is GPLv3 and
+forbidden.
+
+Rules the solver keeps:
+
+- **Deterministic.** Same sketch and constraints give a bitwise-identical
+  result, asserted over a sequence of solves.
+- **An under-constrained solve holds the author's geometry.** After the solve
+  converges, it pins every free coordinate and radius back to the author's
+  value and re-solves (the "settle"), so a dimension edit moves only what it
+  names.
+- **A settle refines the plain solve and never re-orients it.** If any entity
+  would run backwards relative to the plain solve, the plain solve is used.
+- **Every constraint is verified against the shipped geometry** by an
+  independent residual (`geometry.sketch.residual`). planegcs's own status is
+  not evidence. A violated constraint is reported as `sketch_conflicting` and
+  the input is returned untouched.
+- **A collapse (zero radius or length) that the constraints do not force is
+  retried** from the author's pose; one the constraints do force is refused.
+- Spline fit points can take point constraints; spline tangency is deferred
+  until there is a native spline primitive.
+
+## 3. Monorepo of services, contract-first
+
+**Decision.** One monorepo: `apps/web`; `services/{gateway,geometry,documents}`;
+`packages/{loft-wire,py-kit,loft-script,contracts,ts-client,design}`.
+
+- **One source of truth for types.** Pydantic models (`loft-wire` and service
+  DTOs) generate OpenAPI (`packages/contracts`), which generates the TS client.
+  Hand-written duplicates are defects. Cross-service boilerplate lives once in
+  `py-kit`.
+- **Service boundaries.** Geometry never touches the database, documents
+  never imports the kernel, and the web app talks only to the gateway.
+
+## 3a. The scripting API is a gateway client
+
+`packages/loft-script` (`import loft`) calls only gateway routes the browser
+can call, and imports no kernel or database. The MCP server will be a thin
+adapter over it. It is enforced by a generated operation table
+(`loft/_operations.py`, from the gateway contract only), a transport that
+refuses undeclared request shapes, and a static parity test over every call
+site (`tests/test_contract_parity.py`). Python imports the wire types directly;
+only the routing is generated.
+
+## 3b. Wire types are their own distribution
+
+`packages/loft-wire` depends only on `pydantic` and `email-validator`, so
+`pip install loft-script` does not pull in a web server, ORM or queue.
+`py-kit` and `loft-script` depend on it, never the reverse. This is enforced by
+`test_wire_dependency_closure.py` and `test_install_weight.py`. Metrics are
+wired through an observer registry (`loft_wire.instrument`).
+
+## 4. Data and messaging
+
+PostgreSQL 16 holds users, documents and feature trees. Redis 7 + arq is used
+for rate limiting and the job queue. Meshes and exports go to S3-compatible
+object storage, content-addressed. Without `S3_URL` the geometry service uses
+an in-process LRU.
+
+## 5. Frontend
+
+React 19 + Vite + TypeScript SPA; TanStack Router and Query; Tailwind; three.js
+through react-three-fiber and drei; zustand for editor state. There is no SSR,
+because a CAD client is long-lived and stateful. Meshes arrive as GLB from the
+server, and the client never runs the kernel.
+
+- **Content-addressed meshes** are auth-gated but not scoped to an owner. This
+  is safe only because the id is a content hash. Do not reuse the pattern for
+  any artifact that is sensitive to its owner.
+- **Design system** (`packages/design`): tokens, primitives and fonts in a
+  source-only package, consumed by both the Tailwind preset and the WebGL
+  scene, so there is one palette for two renderers.
+
+## 6. Tooling
+
+uv workspaces (ruff, pyright strict, pytest); pnpm workspaces (eslint,
+prettier, vitest, Playwright); a root `justfile`; GitHub Actions (`ci`, `e2e`,
+`deploy-path`).
 
 ## 7. Cloud-native posture
 
-12-factor from day one: config via env, one Dockerfile per service, health
-(`/healthz`) + readiness (`/readyz`) endpoints from `py-kit`, structured JSON
-logs, stateless services (state in Postgres/Redis/S3 only). **Docker Compose
-is the dev and small-self-host path**; Helm/Kustomize for Kubernetes lands in
-a later phase (see ROADMAP). OpenTelemetry hooks reserved in `py-kit`.
+Twelve-factor: config via env, one Dockerfile per service, `/healthz` and
+`/readyz` from `py-kit`, JSON logs, stateless services. Docker Compose is the
+dev and small self-host path; Helm comes later.
 
 ## 8. Licensing
 
-- App: **MIT** (Overcastly AI).
-- Allowed deps: MIT/BSD/Apache, LGPL (dynamic), OCCT's LGPL-with-exception.
-- **Forbidden:** GPL/AGPL dependencies. Reviewers enforce this.
+The app is MIT. MIT, BSD, Apache and LGPL (dynamically linked) dependencies
+are allowed, as is OCCT's LGPL with its exception. **GPL and AGPL are
+forbidden.** Two points follow; details are in `docs/LICENSING.md`:
 
-**Amended 2026-07-31 — the allow-list stands; two things it did not say.**
-Full analysis in `docs/LICENSING.md`; the short version, because both bit us:
+1. Shipping images makes us a distributor. LGPL §6 then requires the licence
+   text, notice and an offer of corresponding source (§6(d)).
+2. Package metadata lies. The OCP wheel declares Apache-2.0 but vendored GPL
+   jbigkit. The licence gate (`scripts/check-licences.py`, in `just lint`)
+   reads the binaries, and jbigkit is stripped from our images.
 
-1. **"LGPL (dynamic) ok" is right, but dynamic linking is not the reason it
-   is ok.** LGPL-2.1 §6(b) — the "shared library mechanism" route people mean
-   when they say this — requires the library be **"already present on the
-   user's computer system."** That clause **fails for a container image**,
-   where we ship the library ourselves. Dynamic linking only gets us §6(b)(2)
-   (a user can substitute a modified build). Publishing images therefore
-   carries real §6 duties: convey the licence text, give prominent notice
-   (the OCCT exception *requires* it), and offer corresponding source — we
-   rely on §6(d). Consuming a dep via `uv sync` carries none of this;
-   `docker push` is what makes us a distributor.
-2. **"Forbidden: GPL/AGPL" cannot be enforced by reading dependency
-   metadata.** `cadquery-ocp-novtk` declares `License: Apache-2.0` and vendors
-   68 LGPL OCCT libraries plus **jbigkit (GPL-2.0)**, hard-linked via
-   `libTKService → libfreeimage → libtiff → libjbig` and mapped into every
-   process that imports the kernel. A metadata scan reports that tree as fully
-   permissive. **Licence review must read the bundled binaries** (`readelf -d`,
-   the wheel's `RECORD`), not just wheel metadata. jbigkit is stripped from
-   Loft images (BACKLOG LIC-1); Loft does no TIFF/JBIG I/O.
+## 9. Geometry QA strategy
 
-## 9. Geometry QA strategy (unique to CAD)
+The correctness gates, run in CI and by `geometry-qa`:
 
-Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
+- **Golden models** (`services/geometry/goldens*/`): rebuild from the feature
+  tree. Mass properties must match within the golden's documented tolerance,
+  and topology and mesh counts must match exactly. A part with no material
+  reports no mass: null, never 0.
+- **Determinism:** two in-process rebuilds and one in a fresh interpreter give
+  byte-identical GLB and metadata. Where a feature names a set of features,
+  they are applied in tree order, never request order.
+- **STEP round-trip:** export, re-import and compare, within `ROUNDTRIP_TOL`
+  (1e-7) unless a golden records a measured override. A body is made
+  conformal before export, but only when `BRepCheck` rejects it, and never if
+  the heal moves the volume.
+- **Export byte-determinism** in every format, in-process and across
+  restarts: the STEP timestamp is pinned, writer counters are canonicalised,
+  and 3MF UUIDs are derived. We drive OCCT's STEP writer ourselves for correct
+  names and provenance. Each format declares its own units (`EXPORT_UNITS`):
+  STEP, STL and 3MF are in mm; glTF is in metres, Y-up.
+- **Volume integration** lives in one place (`properties.volume_properties`).
+  Spline-swept faces are integrated through exact NURBS twins, and offset
+  faces through our own Gauss-Legendre per knot span.
+- **Refuse, do not heal, missing material:** zero-width slits
+  (`find_zero_width_slits`) and degenerate parameters become typed feature
+  errors.
+- **A simplification may not change material:** `clean_shape` discards any
+  `clean()` that moves the volume. `BRepCheck` validity is checked when a body
+  is admitted and again at publish time, and an invalid body is never
+  measured, meshed or exported.
+- **An assembly STEP instances its parts** (solid count equals unique part
+  count).
+- **Artifacts for a machine are checked against the part**, not against
+  themselves. For example, each flat-pattern DXF is checked for isometry,
+  handedness and one cut per through hole.
+- **Performance budgets:** wall-clock tripwires run in `just test`, and the
+  detail is in `just bench`.
 
-- **Golden-model suite:** reference parts rebuilt from their feature trees;
-  assert mass properties (volume, area, centroid — and mass + the mass-weighted
-  centre of mass when the model assigns a material, §9a) within tolerance and
-  topology counts (faces/edges/shells) exactly. A model that assigns NO material
-  asserts the other half of that contract: mass comes back **absent**, never
-  `0` and never a defaulted density (docs/design/materials.md §6/§8).
-- **Round-trip fidelity:** model → STEP export → re-import → compare mass
-  properties and topology. Runs at two levels: kernel (build123d I/O) and
-  endpoint (`POST /api/v1/export` over HTTP). **A body must be conformal
-  BEFORE it is exported** — an OCCT op can return the right material in a
-  `BRepCheck`-invalid solid (a T-junction where two offsets coincide), and the
-  STEP reader then heals it on import, so topology counts drift while the
-  geometry does not (finding CM-4). `geometry.kernel.healing.conform_solid`
-  runs `ShapeFix_Shape` on such a body — only when `BRepCheck` already rejects
-  it, so valid bodies keep their exact topology and byte-identical exports —
-  and refuses any heal that moves the volume (decision + evidence in
-  docs/GEOMETRY-QA.md 2026-07-25).
-  The round trip is held to `ROUNDTRIP_TOL` (1e-7) except for goldens listed
-  in `test_goldens.ROUNDTRIP_TOLERANCE_OVERRIDES`, each with a measured
-  `roundtrip_tolerance` and its rationale in expected.json. An override
-  loosens the volume and area only; the centroid and bounds keep 1e-7
-  (GEOMETRY-QA 2026-09-25 F5). The list is empty today.
-- **A shell's offset walls get exact rim edges.** `BRepOffsetAPI_MakeThickSolid`
-  fits the edges where an offset spline wall meets its planar neighbours
-  loosely (1e-5 to 2.2e-3 mm). On the open rim the rim face follows that fit,
-  so the volume read up to 0.023 mm^3 low and a STEP re-import moved it by as
-  much (GEOMETRY-QA 2026-09-25 F1). `kernel.offset_edges` rebuilds each rim
-  edge, and any other edge looser than the kernel's 1e-4 mm, on the wall's
-  exact isoline (3D curve fitted to 1e-9 mm). It leaves cavity-floor edges
-  inside 1e-4 alone, because re-fitting them moved the floor's area by
-  3.4e-6 mm^2. That retired the only round-trip override
-  (`shell-spline-prism-30x10-t1`, 1e-6).
-- **Volume integration:** `properties.volume_properties` is the one place a
-  volume is integrated. The rule is the adaptive one at `VOLUME_EPS`, with
-  spline-swept faces as their exact NURBS twins. A body with a
-  `Geom_OffsetSurface` face is integrated face by face instead
-  (OFFSET-SURFACE-VOLUME-1): an offset of a polynomial surface is not
-  polynomial, so a NURBS twin would be an approximation, and OCCT's adaptive
-  rule does not converge on the offset itself. Each offset face bounded by
-  isolines is integrated by our own Gauss-Legendre per knot span, in the field
-  OCCT's per-face integrator uses. Any other offset face falls back to its
-  NURBS twin (bounded time; about 1e-5 mm^3 on the golden). OCCT's
-  Gauss-Kronrod rule is accurate there too, but took 43-196 s on shelled spline
-  parts (GEOMETRY-QA 2026-09-25 F2), so it is not used.
-- **Degeneracy is REFUSED, not healed, when the body is missing material.** The
-  companion rule to the one above, and the line between them: a **zero-width
-  slit** (two coincident faces of one lump with no material between them, e.g. a
-  `shell` whose thickness is exactly half an internal wall) is not a topology
-  error, so no repair pass removes it — `ShapeFix`, `UnifySameDomain` and a
-  self-fuse were all measured leaving it in place. The op therefore DETECTS it
-  with the one shared predicate
-  `geometry.kernel.degenerate.find_zero_width_slits` and degrades to a typed
-  feature error naming the fix, rather than shipping a cracked body or inventing
-  a warning channel the wire does not model (finding SH-1, decision + evidence
-  in docs/GEOMETRY-QA.md 2026-07-30). Same posture as
-  `removal_reaches_body`: one predicate, asked by every verb that can produce
-  the condition, never re-implemented per verb.
-  **And a verb whose own PARAMETERS determine the degeneracy refuses it in
-  advance rather than detecting it afterwards** (HEM-1, 2026-08-28). The
-  sheet-metal hem is the first case: its fold puts the two layers exactly
-  `2 * bend_radius` apart, so a sub-tolerance gap is arithmetic on an input, not
-  a discovery about an output. It used to be neither — the fold path did not ask
-  the predicate at all, so `bend_radius_mm = 1e-6` shipped a BRepCheck-VALID
-  solid carrying 300 mm² of coincident face with `status: ok` (recorded as a live
-  limit in `test_degenerate.py`, now promoted to the guard it documented). The
-  hem now refuses it as a typed `hem_gap_degenerate` before the fuse. The
-  predicate remains the one shared *definition* of the condition — the arithmetic
-  check is that definition applied to a case where the answer is knowable early,
-  not a second implementation of it.
-- **A SIMPLIFICATION may not change material, and no body reaches the user
-  unchecked.** The third posture in the same family, and the one that closes it
-  (finding CM-6 / QA-1, decision + evidence in docs/GEOMETRY-QA.md 2026-07-30).
-  Every kernel op ends its boolean with `Shape.clean()`; on a body with a tangent
-  knife edge that simplification WELDED A VOID SHUT — a mirrored plate came back
-  3.48 % heavy and `BRepCheck`-invalid with every feature reporting `ok`. So (a)
-  `geometry.kernel.healing.clean_shape` is the ONE call site of `clean()`: it keeps
-  the pre-simplification shape and discards a simplification that moves the volume
-  (bound `CLEAN_VOLUME_REL_TOL`, relative because `clean()` re-partitions the faces
-  GProp integrates over; measured noise over 3050 suite calls is 1.6e-16 relative).
-  Discarding is always safe — an un-simplified body carries a redundant seam and
-  nothing worse. And (b) `BRepCheck` validity is asked ONCE per body-affecting
-  feature at the three `EvaluationState` methods that are the only way a shape
-  becomes the part's body, surfacing as a typed `invalid_body`, and again at
-  publish time — because OCCT's boolean can invalidate an ARGUMENT in place, so a
-  body that was valid when admitted can be corrupted afterwards by a later
-  feature. A body that fails either check is never measured, meshed or exported;
-  the artifacts are withheld. Same posture as `removal_reaches_body` and
-  `find_zero_width_slits`: one predicate, asked by every path that can produce the
-  condition, never re-implemented per verb.
-- **An assembly STEP INSTANCES its parts; it never duplicates them.** N
-  occurrences of one part write ONE `MANIFOLD_SOLID_BREP` and N placed
-  `NEXT_ASSEMBLY_USAGE_OCCURRENCE`s (AP214 product structure — OCCT's XCAF writer
-  emits that, not `MAPPED_ITEM`; both encode instancing, only the former is what
-  MCAD exchange uses). The gate is **solid count == unique part count**, asserted
-  on the emitted bytes, because a duplicating writer is a file-size multiplier AND
-  a semantic loss: downstream CAD cannot tell the instances are the same part. The
-  enabling constraint is kernel-level and non-obvious — the occurrences must SHARE
-  a `TopoDS_TShape`, and `build123d.Shape.located` is a deep `BRepBuilderAPI_Copy`,
-  so the STEP composer places with `Moved` while `place_body` keeps copying for the
-  interference/STL paths (a boolean can invalidate its argument in place). A file's
-  PRODUCT names the PART and its occurrence names the INSTANCE; the reader takes
-  the occurrence name first (finding N8, evidence in docs/GEOMETRY-QA.md
-  2026-07-31).
-- **A file outlives the screen that explained it.** Anything a user downloads is
-  named after its DOCUMENT — filename and, where the format has one, the product
-  name inside — through one slug rule (`loft_wire.features.document_slug`),
-  falling back to an id so an unnamed export still cannot collide. The name rides
-  the EXPORT request only, never an evaluate request: a name must not be an input
-  to geometry (finding N4).
-- **Export byte-determinism:** identical requests → byte-identical files in
-  every format, **in one process as well as across a worker restart** — the
-  same-process case being the one that matters here, since every counter below
-  resets at an interpreter boundary and a fresh-process comparison would pass
-  while the property is false. STEP's `FILE_NAME` creation timestamp is pinned
-  kernel-side (`geometry.kernel.export.STEP_EXPORT_TIMESTAMP`; decision +
-  evidence in docs/GEOMETRY-QA.md 2026-07-10). It is **not** the only such byte
-  range, and this bullet said it was until STEPDET-1 (2026-08-29): the ASSEMBLY
-  writer additionally fills two labels from PROCESS-GLOBAL counters — the
-  `NEXT_ASSEMBLY_USAGE_OCCURRENCE` id, and the PRODUCT id/name of the extra
-  assembly level OCCT interposes around a MULTI-BODY component
-  (`'Open CASCADE STEP translator <ver> N.M.K'`). `_canonicalise_writer_counters`
-  renumbers both to appearance order; both are arbitrary labels, since STEP
-  cross-references use `#N` entity ids. The second went a month unnoticed because
-  every assembly golden was a single-`Solid` part, so no fixture reached the code
-  path and the determinism gates could not fail — the fixture, not the fix, is
-  what makes the guarantee checkable (`goldens-assembly/assembly-two-multibody-
-  brackets`; evidence in docs/GEOMETRY-QA.md 2026-08-29).
-  **3MF** (added EXPORT-2, 2026-08-17) is the same shape of problem with a
-  different clock: lib3mf stamps a fresh random
-  production-extension UUID on every object, component, build item and the build
-  itself — five per write, which also shifts the compressed length — so
-  `_canonicalise_3mf_ids` derives them from `THREE_MF_UUID_NAMESPACE` instead. A
-  3MF package is self-contained (we emit no cross-package references), so this
-  costs nothing a consumer can observe. **GLB** needs no pinning at all: it is
-  the tessellation payload verbatim, whose determinism is already gated.
-- **We drive OCCT's STEP writer ourselves, and ONE writer serves both the part
-  and the assembly path** (`geometry.kernel.export._write_step_document`;
-  STEPNAME-1 2026-08-29, STEPNAME-2 2026-09-04). build123d's `export_step` is a
-  thin, opinionated wrapper: it hardcodes `SetOriginatingSystem("build123d")`
-  with no parameter, and it builds every XDE label through
-  `TCollection_ExtendedString(str)` — the `isMultiByte=False` overload, which
-  reads UTF-8 bytes one at a time as characters, so every non-ASCII name reached
-  the file double-encoded. Neither is reachable from a caller. A STEP file is
-  what a user hands to a machinist, so its provenance and its names are a
-  user-facing surface, and "almost right" and "wrong" are the same outcome there.
-  The assembly path had already left the wrapper (it needs to name the shared
-  part label itself); leaving the SINGLE-BODY path behind meant the **more
-  common** export — downloading one part — was the defective one.
-  **Unifying was a decision about file SHAPE, and the answer is measured, not
-  argued:** `_single_body_xde_document` rebuilds exactly the document
-  `build123d.exporters3d._create_xde` builds for a shape with no children
-  (`AddShape(..., makeAssembly=False)`, auto-naming ON), and the emitted DATA
-  section is BYTE-IDENTICAL to build123d's for a named solid, an unnamed solid
-  and a multi-body `Compound` both ways (`test_step_names_part`). So a part STEP
-  gains no assembly level, no extra `PRODUCT` and no occurrence, no golden's
-  digest moves for a structural reason, and the only bytes that changed are the
-  two that were wrong. This is also why the counters in the bullet above stay an
-  assembly-only concern: a single-body export interposes no extra level, so it
-  emits neither. The negative control is direct — flipping that one flag to
-  `makeAssembly=True` adds two occurrences and two `PRODUCT('SOLID')` to a
-  multi-body part AND breaks its in-process byte determinism.
-  Mesh exports (STL/3MF/GLB) still go through build123d/lib3mf; only STEP is ours.
-- **Each export format declares its OWN length unit, and `EXPORT_UNITS` is the
-  single place that says which** (`loft_wire.geometry`; EXPORT-2). STEP,
-  STL and 3MF are millimetres and Z-up; **glTF/GLB is metres and Y-up by
-  specification**, so its payload is the mm geometry / 1000 with a node
-  transform doing the axis change. The gate is not "the file parses" but **the
-  extents of the RE-READ file, converted through that table, equal the source
-  solid's bounding box**, asserted over the whole golden inventory for both new
-  formats (`services/geometry/tests/test_export_mesh_formats.py`). A file that
-  opens cleanly, declares millimetres and is half-size is the defect class this
-  exists to catch.
-- **3MF REFUSES a body whose triangulation is non-manifold; it does not repair
-  it or ship it anyway.** Same posture as `find_zero_width_slits` and
-  `removal_reaches_body` above — detect, then degrade to a typed error naming
-  the fix (`export_mesh_not_manifold`, a 422, never a 500). Found by the
-  EXPORT-2 sweep rather than predicted: one golden of 51
-  (`mirror-revolve-groove-tangent-wall`) has exactly ONE non-manifold edge, the
-  segment on the revolve axis where the two mirrored lobes meet — the solid
-  genuinely touches itself along a line. The 3MF core spec requires a
-  model-type object to be manifold; STL accepts such a mesh only because STL has
-  no topology at all, which is the failure class 3MF exists to remove, so
-  emitting a spec-violating package would discard the reason to support the
-  format. STEP, STL and GLB still export that body.
-- **A FABRICATION artifact is gated against the PART, not against itself.** The
-  flat-pattern suite asserted the blank's outline, its area and its byte-identity —
-  every one of them a statement about the blank — and a bracket with four Ø5.5 through
-  holes still exported six entities and zero CIRCLEs for weeks (DXF-4, audit
-  2026-08-21 S-10/S-13). Nothing was inconsistent: the unfold developed the boundary,
-  the DXF wrote what the unfold produced, and the on-screen view read the same object,
-  so the two renderers agreed perfectly on a blank that was missing every hole. The
-  gate that catches this compares the artifact to the FEATURE TREE — one developed cut
-  loop per `through_all` hole, at the drilled radius — and checks the development is an
-  ISOMETRY of the part (developed spacing == 3D spacing on each flat region) with the
-  part's HANDEDNESS (a cross-product sign; a mirrored blank keeps every distance and
-  folds into the part's reflection, which is scrap). Both are frame-free, so they say
-  nothing about how the blank is nested and everything about whether it is the part.
-  Generalises past sheet metal: for any file we hand a machine, at least one assertion
-  must originate outside the pipeline that wrote it. Interior cuts a layout cannot
-  place are a typed refusal (`UnfoldCutoutError` → `flat_pattern_failed`), same posture
-  as `find_zero_width_slits` — detect, degrade, name the fix; decision + scope in
-  docs/design/sheet-metal.md §6.1.
-- **Solver determinism:** same sketch + constraints → identical solution
-  across runs. Asserted bitwise over a *sequence* of solves, not one, since
-  SOLVE-1 (§2): the sketcher feeds each solve's output back in as the next
-  solve's input, so a per-solve assertion would miss drift that only accumulates
-  across an edit history. The settling passes run in input entity order for
-  exactly this reason.
-- **Feature-set determinism:** where a feature names a SET of other features,
-  it applies them in **tree order, never request-array order** — an array order
-  is UI-incidental (which item the user ctrl-clicked first) and honouring it
-  would make identical models tessellate to different bytes. First instance: the
-  v2 `features`-scope mirror (decision + rationale in
-  `docs/design/mirror-semantics.md` §8.1, which also records why the mirror's
-  v1 implicit "mirror the body so far" semantic is retained verbatim rather than
-  re-expressed through the new mechanism — byte-identity of the shipped mirror
-  goldens is structural on the unchanged path, not a hoped-for equality).
-- **Performance budgets:** wall-clock ceilings for reference rebuilds and
-  tessellation; regressions fail the gate.
+## 9a. Materials and mass
 
-## 9a. Materials, density, and mass — decision record (2026-07-30)
+A body has a material with a density. Mass is derived in the kernel, in
+grams, and is null when there is no material. Materials ride
+`EvaluateTreeRequest.materials`, and a change bumps `tree_version`. A roll-up
+(multi-body or assembly) is null unless every contributor has a material. The
+library is served (`GET /api/v1/materials`), not duplicated in the client.
 
-**Decision:** bodies carry a **material with a density**, mass is **derived**
-from it in the kernel (`mass = volume x density`, computed beside the volume it
-comes from), and a body with **no material reports NO mass — null, never 0 g
-and never a defaulted steel**. Assignment is a per-document default plus
-per-body overrides keyed by the body's §MB-0 base feature id. Full design +
-rationale: `docs/design/materials.md`; the library (7 handbook densities) lives
-in `loft_wire.materials` and is SERVED (`GET /api/v1/materials`) rather
-than duplicated client-side.
+## 10. Assemblies
 
-**Why it is an architecture decision, not a field:** it is the first input to
-evaluation that is not pure geometry intent. Length units are presentation
-metadata the kernel never sees (§units.md); material must reach the kernel,
-because mass is derived from it — so it rides `EvaluateTreeRequest.materials`,
-a material change bumps `tree_version` AND marks the last-evaluate record
-stale, and canonical mass is **grams** (what `mm^3 x kg/m^3` yields), mirroring
-canonical mm. Display units (g/kg/lb) stay in `packages/design` with the length
-factors — one units seam, not two.
+An assembly is its own document type in `services/documents`: instances plus
+mates, referencing parts by id. It resolves to the part's tip until part
+versioning exists (`ref_pinned_version` is already in the schema). **The mate
+solver is our own**: rigid bodies (translation and a unit quaternion), with
+damped Gauss-Newton or LM seeded from the authored placements, no random
+restarts, and a closed-form fast path for trees. It is deterministic and sits
+behind an `AssemblySolver` protocol. SolveSpace is GPL; OndselSolver is a
+possible future spike. Mates reference geometry through the same face and edge
+signatures features use. Geometry evaluates each unique part once and returns
+a shared mesh plus a solved transform for each instance.
 
-**Consequence for the roll-ups:** the multi-body and assembly composers now
-report a genuinely MASS-weighted `center_of_mass` alongside the (always
-volume-weighted) `centroid`; the pre-materials code called its volume weighting
-"mass-weighted", which is true only when every body shares one density. A
-roll-up is null unless EVERY contributor has a material — a partial sum would
-under-report while looking complete.
+## 11. Drawings
 
-## 10. Assemblies — document model, mates, and the 3D mate solver
+A drawing is its own document type that references parts and assemblies by
+id. Projection is OCCT **exact HLR** (`HLRBRep_Algo`), with a canonical edge
+sort for determinism, a per-view budget and a typed `view_projection_failed`.
+Polygonal HLR is the lower-fidelity fallback. **Dimensions reference model
+edges** through the topological-naming signatures, never projected 2D edges,
+so a part edit gives an honest `subshape_unresolved` rather than a wrong
+number. Geometry composes SVG, PDF (reportlab, BSD) and DXF (ezdxf, MIT) as
+content-addressed artifacts. The neutral `ViewGeometry` DTO drives the
+client-side sheet editor.
 
-**Status:** decision record backing the full design in
-[`docs/design/assemblies.md`](./design/assemblies.md) (kernel-architect,
-2026-07-15; `code-reviewer`-gated before implementation). Assemblies are the
-product audit's #1 pillar (`docs/AUDIT-PRODUCT.md`, 2026-07-15): the product
-answers "model a real part" *yes* but "model a real project" *no* the instant
-there are two parts that bolt together. This section records the load-bearing
-decisions; the design doc carries the schema, residual math, and phasing.
+## 12. Datum-plane conventions (scripting trap)
 
-**Decision — document model:** an **assembly is a new first-class document
-type** in `services/documents` (its own `assemblies`/`instances`/`mates`
-tables), **not** an extension of the part feature tree. An assembly is a graph
-of instances + mates, not an ordered single-body history, so the part model's
-strict-backward / single-body-chain / strict-prefix invariants do not apply.
-It **reuses the part model's patterns** (owner-scoped auth, uniform-404,
-optimistic-concurrency `version` counter, alembic-only DDL, and the
-pydantic→OpenAPI→ts-client DRY flow via a new `loft_wire.assemblies`
-sibling of `schemas.features`) but not its tables. Instances reference a part
-or sub-assembly document **by id**; sub-assemblies nest and are **rigid** in v1.
+| Datum | x_dir | y_dir | normal (extrude direction) |
+| ----- | ----- | ----- | -------------------------- |
+| `XY`  | +X    | +Y    | +Z                         |
+| `XZ`  | +X    | +Z    | **-Y**                     |
+| `YZ`  | +Y    | +Z    | +X                         |
 
-**Decision — version pinning:** the schema carries `ref_pinned_version`
-(pin-ready), but **v1 resolves to the referenced document's TIP** because
-immutable part versioning does not yet exist (`Part.tree_version` is a mutable
-fencing counter, not a snapshot — feature-tree §7.7; real versioning is a
-separate Phase 3 item). Pinning is the correct long-term *default*
-(determinism-across-time, no spooky-action-at-a-distance) and becomes an
-**additive** flip (tip→pinned) the moment the versioning item lands. Within any
-single evaluation the result is already a deterministic pure function.
+`y_dir = z_dir x x_dir` always. An offset datum slides along its parent's own
+normal (off `XZ` by +5 lands at y = -5); `flip` negates the normal and keeps
+`x_dir`. An on-face datum sits at the face's area centroid with the outward
+normal, and `x_dir = deterministic_x_dir(normal)`, which is the world axis
+least aligned with the normal. A midplane between parallel sides takes side
+A's normal. Scripts should read the resolved plane back rather than guess a
+sign.
 
-**Decision — the 3D constraint solver (the crux/risk): BUILD OUR OWN**, a
-minimal deterministic **rigid-body mate solver** in `services/geometry` behind
-an `AssemblySolver` protocol that mirrors `SketchSolver` (§2). **Not** a
-library — the survey found none both mature-in-Python and license-clean:
-SolveSpace / `py-slvs` / `python-solvespace` are **GPLv3 (forbidden, §8**, the
-same rejection as §2's sketch spike); FreeCAD's **OndselSolver** is LGPL-2.1
-(license-OK) but C++, unpackaged on PyPI, and a heavyweight MBD engine — a
-*future spike*, not a v1 dependency; planegcs is **2D-only**. Each free instance
-is a rigid transform (translation + **unit quaternion**, 6 DOF); grounded
-instances are fixed; mates become residual equations solved by a deterministic
-damped Gauss-Newton / Levenberg-Marquardt (numpy/scipy core, no kernel type in
-the numeric solver), seeded from authored placements, **no random restarts** —
-so same assembly in ⇒ **bitwise-identical transforms** out (§9 determinism
-gate, extended to 3D). A **closed-form tree fast path** (transforms propagate
-from a grounded root) handles the common bolt-two-parts case without iteration.
-Building it keeps determinism in our hands and avoids GPL; the risk is the
-general N-body solve, mitigated by a narrow mate set + rigid sub-assemblies +
-the fast path.
+## 13. Sessions and tokens
 
-**Decision — v1 mate set:** `lock`, `coincident` (planar face-face),
-`concentric` (axis from a **circular edge**, reusing `EdgeSignature` — no
-cylindrical-face signature needed in v1) — the trio that fully locates a
-bolted/pinned joint. `distance`/`angle` are the immediate fast-follow (same
-solver, offset residual). A mate **references part geometry** via the existing
-stage-1 `PlanarFaceSignature`/`EdgeSignature` machinery (topological-naming
-§9/§10), keyed by `instance_id`, resolved **inside geometry** against each
-instance's evaluated part body (nearest-within-tolerance, exactly-one-or-honest-
-error). Under/over/conflicting-constrained diagnosis **mirrors the sketch
-solver's `SketchConstraintDiagnosis` vocabulary** (remaining-DOF from Jacobian
-rank; redundant-vs-conflicting; offending mate ids; suggested fix) — under-
-constrained solves and renders at best-fit (not an error), conflicting is the
-per-mate error.
-
-**Decision — service boundaries:** **documents** owns the assembly document +
-cross-document integrity/acyclicity (kernel-free, all pydantic). **geometry**
-resolves mate geometry references, evaluates each unique part body once
-(dedup + shared cached mesh), **runs the mate solver** (its residuals need
-resolved kernel geometry — documents cannot), tessellates, and later does
-interference (OCCT boolean-common) + STEP-assembly export (OCCT XCAF).
-**No kernel type crosses the boundary** — instances cross as feature lists +
-`Placement` (quaternion) DTOs in, and per-instance content-addressed mesh refs +
-solved `Placement` + `ShapeProperties` out (the §5 mesh-store contract). The
-assembly render output is **per-instance {shared mesh + solved transform}**, not
-a baked GLB — instances of one part share one cached mesh (perf), combined mass
-properties are an **analytic roll-up** (no re-mesh, no boolean). `apps/web`
-talks only to the gateway.
-
-**Deferred (design doc §5):** interference, exploded views, BOM export
-formatting (the flat BOM data is a free documents-side roll-up), STEP-assembly
-IO, flexible sub-assemblies, part-version pinning-as-default, mate-driven
-motion. Smallest useful v1 = instances + placement + the three mates + the
-solver + shared-mesh assembly tessellation in the viewport.
-
-## 11. Drawings — 2D projection, the drawing document, dimensioning, export
-
-**Status:** decision record backing the full design in
-[`docs/design/drawings.md`](./design/drawings.md) (kernel-architect, 2026-07-15;
-`code-reviewer`-gated before implementation). Drawings are the product audit's
-headline ❌ #2 (`docs/AUDIT-PRODUCT.md`, 2026-07-15): a finished part can leave
-only as STEP/STL — there is no dimensioned print to hand a machinist. This section
-records the load-bearing decisions; the design doc carries the schema, the HLR
-pipeline, and the phasing.
-
-**Decision — 2D projection / hidden-line removal (the crux): OCCT exact HLR
-(`HLRBRep_Algo`).** Hidden-line removal from a B-rep is in-kernel already —
-`OCP.HLRBRep` (`HLRBRep_Algo`, `HLRBRep_HLRToShape`, and the polygonal
-`HLRBRep_PolyAlgo`), `OCP.HLRAlgo.HLRAlgo_Projector`, `OCP.gp.gp_Ax2` all import
-in this repo's geometry env — **no new dependency**. v1 uses **exact HLR**
-(`HLRBRep_Algo`), not poly-HLR: a dimensioned print needs true geometry (a hole
-projects to a real **circle** a diameter reads off of, not a facet fan), it reuses
-the exact bodies `evaluate_tree`/`evaluate_assembly` already produce, and analytic
-edges canonicalise cleanly for determinism. Poly-HLR (`HLRBRep_PolyAlgo`) is the
-**deferred perf/robustness escape hatch** (a marked lower-fidelity *preview* only),
-mirroring the assembly solver's fast-path/general-solver split. A view projects a
-**part** (one evaluated body → HLR) or an **assembly** (per-instance bodies at
-solved transforms composed into a `TopoDS_Compound` → HLR the compound, so
-inter-part occlusion is one kernel pass — reusing the §10 assembly evaluation).
-Output is visible (`VCompound`+`OutLineVCompound`, drawn **solid**) + hidden
-(`HCompound`+`OutLineHCompound`, drawn **dashed**) 2D edges. **This is the pillar's
-genuine risk** (design §1.5), stated as plainly as the mate solver was: exact HLR
-is **slow and occasionally fragile on complex parts**, and its edge enumeration
-order is construction-dependent (the `TopExp_Explorer`/topological-naming §1.1
-hazard). Mitigations: a **canonical edge sort** (the §9 byte-determinism gate
-applied to HLR — lexicographic on a 2D signature tuple, fixed decimal formatter),
-per-view caching, a per-view wall-clock budget, the poly fallback, and an honest
-`view_projection_failed` per-view error (never a 500). Section/detail/broken/
-auxiliary views are **deferred** (section needs a cutting-plane boolean before
-HLR).
-
-**Decision — drawing document model:** a **drawing is a new first-class document
-type** in `services/documents` (its own `drawings`/`sheets`/`views`/`dimensions`/
-`annotations` tables), sibling of part and assembly, **not** a part feature or an
-assembly. A drawing is a *layout* (sheets of views + dimensions + annotations that
-reference a part/assembly **by id**), so it reuses the assembly patterns
-(owner-scoped auth, uniform-404, OCC `version`, alembic-only DDL, the
-pydantic→OpenAPI→ts-client DRY flow via a new `loft_wire.drawings` sibling of
-`schemas.assemblies`) but not its tables. It is a pure **leaf consumer** — nothing
-references a drawing, so no acyclicity walk is needed. **Version pinning** carries
-the *identical honest constraint* as assemblies (§10 / assemblies §1.3):
-`views.ref_pinned_version` is pin-ready but **v1 resolves to the referenced
-document's TIP** because immutable part versioning does not exist yet; the
-tip→pinned flip is additive and lands with the Phase 3 versioning item —
-drawings and assemblies flip together.
-
-**Decision — dimensioning references model geometry, NOT projected 2D geometry.**
-v1 dimension set: **`linear`** (an edge's length, or point-to-point via two edge
-**endpoints**), **`diameter`** / **`radius`** (a circular edge), **`angular`**
-(two straight edges) — all **manually placed** (auto-dimension is out of scope).
-Critically, a dimension names a **model subshape** via the **shipped
-`EdgeSignature`/`SubshapeRef` topological-naming machinery** (topo-naming §10) —
-the SAME fingerprints a fillet and a `concentric` mate use — **not** a projected
-2D edge index (which would be the silent-retarget failure, topo-naming §1.3, one
-boundary removed). The projection carries a **model-edge→projected-2D-edge map** so
-a dimension traces its named model edge to the drawn geometry at generation time; a
-part edit that removes the edge is an honest `subshape_unresolved` on that
-dimension, never a wrong number. Point-to-point uses an **edge + canonical
-endpoint** (`end_a`/`end_b`, already in `EdgeSignature`), so **no vertex signature
-is needed** (those stay unshipped — topo-naming Open Q 10). v1 measures
-**projected** length (true for standard views) and surfaces a **`foreshortened`
-flag** when an edge is not parallel to the view plane; true-length + auxiliary
-views are deferred.
-
-**Decision — export: SVG in v1** (PDF + DXF fast-follow). SVG is trivial from 2D
-edges, **browser-native** (it is *both* the interactive render and the artifact),
-and fully byte-controllable for the determinism gate — and needs **no
-dependency**. PDF (shop-standard) via **reportlab** (BSD) and DXF (CAD-interchange)
-via **ezdxf** (MIT) are the fast-follow writers behind the same composition seam;
-**all three libs are permissive — no GPL/AGPL** (§8). **Geometry composes the
-artifact** (not a new concern): it already owns projection + dimension resolution +
-the content-addressed artifact-to-object-storage machinery (STEP/STL, `mesh_store`),
-so a composed SVG/PDF/DXF is one more artifact-by-reference; documents owns the
-drawing *document* (intent) and never composes vectors.
-
-**Decision — service boundaries + crossing representation:** **documents** owns the
-drawing document + cross-doc integrity (delete-a-referenced-part 409, extending the
-assembly dependency machinery) — kernel-free, all pydantic. **geometry** evaluates
-the referenced part/assembly, runs HLR, resolves each dimension's `EdgeSignature`
-+ measures its value, and composes the artifact. **gateway** aggregates; **web**
-talks only to the gateway. **No kernel type crosses** — the two neutral out-forms
-are (1) a **`ViewGeometry` DTO** (projected edges as typed 2D primitives
-`Line2D|Arc2D|Circle2D|Polyline2D` with `visible:bool`, + resolved dimension
-geometry + the edge→signature map for pick) — a neutral polyline/primitive DTO, the
-drawings analogue of the mesh, **no `TopoDS`/`gp_`/HLR handle**; and (2) the
-**composed artifact by content-addressed reference** (`svg_id = sha256:…`, served
-from the reused mesh-store-style store, exactly as `mesh_glb_id`).
-
-**Frontend (noted, designed later):** a **client-side 2D sheet editor over the
-neutral `ViewGeometry` DTO** (place views, drag dimensions, pick/snap locally) with
-geometry as the projection/resolution/composition engine and the **exported
-artifact server-composed**; render-only-server-SVG is the honest fallback if the
-editor proves too heavy. Designed under the standing design mandate later.
-
-**Deferred (design §7):** PDF/DXF export (fast-follow), assembly drawings + BOM
-tables/balloons, detail/broken/auxiliary views, auto-dimensioning, GD&T +
-surface finish + hole callouts, sheet templates, poly-HLR preview wiring,
-true-length/drawing-driven dimensions, part-version pinning-as-default.
-~~Section views~~ **shipped 2026-07-23** (planar full section + composed hatch,
-kernel `137a929`, web authoring `06fc019` — a P0 wrong-half sign defect an
-independent geometry-QA audit caught was root-caused and fixed same-day at
-`57dca7a`; VISION.md Drawings row, corrected 2026-07-24). **Smallest
-useful v1 = one part → auto-laid-out 3 orthographic + 1 iso views (exact HLR) → a
-few manual linear/diameter/radius/angular dimensions referencing `EdgeSignature`
-→ byte-deterministic SVG export**, with a new golden in the same commit.
-
-## 12. Datum-plane coordinate conventions (scripting/MCP trap)
-
-**Status:** documented 2026-07-24 in response to FINDINGS.md P3 #24 — the
-on-face and offset-datum coordinate conventions were undocumented traps for
-the future scripting/MCP surface. Every claim below is read directly off the
-current kernel source (`geometry/kernel/datum.py`, `geometry/kernel/faces.py`,
-`loft_wire/features.py`'s `DatumOffsetParams`/`DatumOnFaceParams`), not
-inferred — including two live checks against the installed `build123d` to
-pin exact signs.
-
-**Origin datum planes** (`DATUM_PLANES` in `kernel/datum.py`, from
-build123d's `Plane.XY`/`Plane.XZ`/`Plane.YZ`) — verified live, not assumed:
-
-| Datum | x_dir | y_dir | z_dir (sketch normal / extrude direction) |
-|---|---|---|---|
-| `XY` | +X | +Y | **+Z** |
-| `XZ` | +X | +Z | **−Y** (not +Y — a common wrong guess) |
-| `YZ` | +Y | +Z | **+X** |
-
-`y_dir` is always `z_dir × x_dir` (right-handed frame, OCCT `gp_Ax3`
-convention inside `build123d.Plane.__init__`) — never independently settable.
-A scripting caller sketching on the `XZ` origin datum and extruding by a
-positive distance extrudes toward **−Y**, not +Y.
-
-**Offset datum** (`offset_plane` in `kernel/datum.py`, backing
-`DatumOffsetParams`): slides the parent plane `offset_mm` along the
-**parent's own** `z_dir` (`Plane.offset`: `origin += z_dir * offset_mm`,
-`x_dir`/`z_dir` unchanged) — **not** a fixed world axis. Concretely: an
-`offset` datum off the `XZ` origin plane (`z_dir = −Y`) with `offset_mm = 5`
-lands at world `y = −5`, not `y = +5`. `flip = True` then negates `z_dir`
-and **keeps `x_dir`** — sketch +u (x_dir) is unchanged by flip, only +v
-(`y_dir = z_dir × x_dir`) flips sign. A chained `offset_from` datum applies
-the identical rule against its parent's already-**resolved** (possibly
-already-flipped) plane, hop by hop, so a chain off a flipped parent offsets
-along the flipped normal, not the origin datum's raw one.
-
-**On-face datum** (`resolve_face_plane` in `kernel/faces.py`, backing
-`DatumOnFaceParams` and every midplane face-side): origin = the picked
-face's exact-B-rep area centroid (`Face.center(CenterOf.MASS)`, never
-tessellated), shifted `offset_mm` along the face's **outward** normal
-(`Face.normal_at(centroid)`, orientation-aware). `z_dir` = that outward
-normal, so **positive `offset_mm` moves the datum AWAY from the solid
-(outward); negative moves it INTO the solid**. `x_dir` =
-`deterministic_x_dir(normal)` in `kernel/faces.py`: the world axis (X, Y, Z
-— ties broken X<Y<Z) **least** aligned with the face normal, with its
-component along the normal projected out and renormalized — e.g. a box's
-top face (normal +Z) gets `x_dir = +X`. This rule is **sign-symmetric**
-(`deterministic_x_dir(-n) == deterministic_x_dir(n)`), the same property
-that lets `flip` on an offset datum keep `x_dir` while `y_dir` flips.
-`DatumOnFaceParams` has **no `flip` field** — `z_dir` is always the picked
-face's outward normal, non-negotiable; to get the opposite normal, pick the
-opposite face.
-
-**Midplane datum** (`midplane_between` in `kernel/datum.py`): parallel
-sides → origin = midpoint of the two resolved origins, normal = **side A's**
-normal (order-dependent — swap the two sides in the request and the
-midplane's `z_dir` flips). Non-parallel sides → the angular-bisector plane
-through the intersection line, normal = `normalize(n_a + n_b)`, origin = the
-point on the intersection line nearest the world origin. `x_dir` uses the
-same `deterministic_x_dir` rule as on-face.
-
-**Net for a scripting/MCP caller:** `x_dir` is always a pure, deterministic
-function of `z_dir` alone (never independently settable), and `flip` always
-means "keep `x_dir`, negate `z_dir`" — consistent across offset/on-face
-(where it's absent, since the face normal already pins it)/midplane. But
-`z_dir`'s absolute world direction is **not guessable from the datum's name
-or kind** (`XZ`'s normal is −Y, an offset chain inherits its parent's
-already-resolved sign, on-face always follows the picked face) — a script
-must read the resolved plane back from the evaluated feature tree, or
-replicate `DATUM_PLANES`/`deterministic_x_dir` verbatim, rather than assume
-a sign.
-
-## 13. Session and token design — short-lived JWT + rotating refresh cookie
-
-**Decision:** Access tokens are short-lived HS256 JWTs (default 1 h) carrying
-`sub` (user ID) and `sid` (session ID). Refresh tokens are cryptographic
-random 256-bit values, issued to the browser as `HttpOnly; Secure; SameSite=Strict`
-cookies scoped to `/api/v1/auth`, never exposed to script. On refresh, the
-server rotates the token and verifies the new request does not replay a
-`used_at` token: reuse means two parties hold it (token copied), so the whole
-session is revoked (OAuth 2.0 Security BCP). Sessions idle-timeout at 24 h
-(sliding: refresh restarts the window) but never past 7 d absolute. Tokens
-without `sid` (pre-deployment systems) are rejected on every access—one
-sign-in cost per user. The `Secure` flag requires TLS; plain-HTTP
-non-localhost deployments fall back to 1 h hard limit.
-
-**Alternatives considered:** Long-lived JWT (no revocation without server
-blacklist), refresh-cookie-only sessions (opaque IDs need a shared store), bearer
-refresh tokens (script-exposed if a flag is missed).
+Access tokens are HS256 JWTs (1 h) carrying `sub` and `sid`. Refresh tokens
+are random 256-bit values in an `HttpOnly; Secure; SameSite=Strict` cookie
+scoped to `/api/v1/auth`. They rotate on use, and reusing an old one revokes
+the whole session. Sessions time out after 24 h idle (sliding) and 7 days
+absolute. Without TLS on a host other than localhost, the limit is a hard 1 h.

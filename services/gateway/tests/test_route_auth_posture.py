@@ -77,7 +77,7 @@ PROBE_EXEMPTIONS: dict[Operation, str] = {
     ("GET", "/healthz"): "liveness probe — must answer before anything works",
     ("GET", "/readyz"): "readiness probe — same, and read by compose/k8s",
     ("GET", "/metrics"): (
-        "Prometheus scrape — network-scoped, not user-scoped; see docs/OBSERVABILITY.md"
+        "Prometheus scrape — network-scoped, not user-scoped; see docs/OPERATIONS.md §9"
     ),
 }
 
