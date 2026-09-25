@@ -14,9 +14,10 @@
  * PartPage — not the pixels.
  */
 import { fireEvent, render, screen } from "@testing-library/react";
+import { Profiler } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ExtrudeParams } from "../api/parts";
+import type { ExtrudeParams, SketchEntity } from "../api/parts";
 import {
   defaultExtrudeForm,
   describeExtrudeDirection,
@@ -24,6 +25,7 @@ import {
   type ExtrudeForm,
   type ExtrudeOperation,
   type ExtrudePreviewState,
+  formFromParams,
   type PlaneProvenance,
   type ProfileOption,
 } from "../features/extrude";
@@ -50,6 +52,8 @@ function renderEditor(
     error?: string | null;
     profiles?: ProfileOption[];
     initial?: ExtrudeForm;
+    profileCentroid?: (id: string) => { x: number; y: number } | null;
+    profileEntities?: (id: string) => readonly SketchEntity[] | null;
   } = {},
 ) {
   const onPreviewChange = overrides.onPreviewChange ?? vi.fn();
@@ -66,6 +70,12 @@ function renderEditor(
         saving={false}
         error={overrides.error ?? null}
         onPreviewChange={onPreviewChange}
+        {...(overrides.profileCentroid !== undefined
+          ? { profileCentroid: overrides.profileCentroid }
+          : {})}
+        {...(overrides.profileEntities !== undefined
+          ? { profileEntities: overrides.profileEntities }
+          : {})}
       />
     </DocumentUnitProvider>,
   );
@@ -93,6 +103,8 @@ describe("ExtrudeEditor preview projection", () => {
       distanceMm: 10,
       direction: "normal",
       operation: "add",
+      twistDeg: 0,
+      twistCentre: null,
     });
   });
 
@@ -159,6 +171,29 @@ describe("ExtrudeEditor form", () => {
     const params = onSubmit.mock.calls[0]?.[0] as ExtrudeParams;
     expect(params.distance_mm).toBeCloseTo(25.4, 9);
     expect(params.profile).toEqual({ kind: "feature", feature_id: "sk1" });
+  });
+
+  it("keeps a stored twist when only the depth is edited (loft-script helical gear)", () => {
+    // d823af9 added `twist_angle_deg` / `twist_center`; this editor shows
+    // neither. Opening a loft-script gear and changing its depth used to PATCH
+    // a fresh five-field envelope, and the twist was gone.
+    const stored: ExtrudeParams = {
+      profile: { kind: "feature", feature_id: "sk1" },
+      distance_mm: 20,
+      operation: "add",
+      direction: "normal",
+      merge: true,
+      twist_angle_deg: 12.358,
+      twist_center: { x: 1.5, y: -2 },
+    };
+    const onSubmit = vi.fn();
+    renderEditor({ onSubmit, initial: formFromParams(stored, "mm") });
+    fireEvent.change(screen.getByTestId("extrude-distance"), {
+      target: { value: "25" },
+    });
+    fireEvent.click(screen.getByTestId("extrude-submit"));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]?.[0]).toEqual({ ...stored, distance_mm: 25 });
   });
 
   it("sends the neutral merge flag on a cut, whatever the stale toggle said", () => {
@@ -360,5 +395,239 @@ describe("ExtrudeEditor server errors", () => {
     renderEditor({ error: "The profile is not a closed region." });
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("The profile is not a closed region.");
+  });
+});
+
+describe("ExtrudeEditor — the gauge writes the field in the SAME commit", () => {
+  /**
+   * Mounts the editor under a `<Profiler>` whose `onRender` reads the field
+   * straight off the DOM at every commit. That is the property under test:
+   * not "the field ends up right" (an effect gets there too, one commit late)
+   * but "no commit ever shows the field behind the override it was handed" —
+   * the one-commit lag that let the rod and the field disagree after a release.
+   */
+  function mountTracked(initial: ExtrudeForm) {
+    const commits: string[] = [];
+    const readField = () =>
+      screen.queryByTestId<HTMLInputElement>("extrude-distance")?.value ??
+      "<none>";
+    let props: {
+      initial: ExtrudeForm;
+      depthOverride: { mm: number } | null;
+      unit: LengthUnit;
+    } = { initial, depthOverride: null, unit: "mm" };
+    const tree = () => (
+      <Profiler id="extrude" onRender={() => commits.push(readField())}>
+        <DocumentUnitProvider unit={props.unit}>
+          <ExtrudeEditor
+            mode="create"
+            profiles={PROFILES}
+            initial={props.initial}
+            onSubmit={vi.fn()}
+            onCancel={vi.fn()}
+            saving={false}
+            error={null}
+            depthOverride={props.depthOverride}
+          />
+        </DocumentUnitProvider>
+      </Profiler>
+    );
+    const view = render(tree());
+    return {
+      commits,
+      rerender: (next: Partial<typeof props>) => {
+        props = { ...props, ...next };
+        commits.length = 0;
+        view.rerender(tree());
+      },
+    };
+  }
+
+  const field = () => screen.getByTestId("extrude-distance");
+
+  it("the dragged value is in the field on the commit that carries it", () => {
+    const t = mountTracked(defaultExtrudeForm("sk1"));
+    t.rerender({ depthOverride: { mm: 26 } });
+    // One commit, already reading 26. The effect this replaced produced
+    // ["10", "26"]: a commit in which the field was a drag step behind.
+    expect(t.commits).toEqual(["26"]);
+  });
+
+  it("a typed edit after a drag is not overwritten by the next render", () => {
+    // The in-render write must run once per NEW override, never per render —
+    // otherwise the field could not be typed into while an override stands.
+    const t = mountTracked(defaultExtrudeForm("sk1"));
+    const override = { mm: 26 };
+    t.rerender({ depthOverride: override });
+    fireEvent.change(field(), { target: { value: "33" } });
+    t.rerender({ depthOverride: override });
+    expect(field()).toHaveValue("33");
+  });
+
+  it("dragging back to the same number still arrives (the box is new)", () => {
+    const t = mountTracked(defaultExtrudeForm("sk1"));
+    t.rerender({ depthOverride: { mm: 26 } });
+    fireEvent.change(field(), { target: { value: "33" } });
+    t.rerender({ depthOverride: { mm: 26 } });
+    expect(field()).toHaveValue("26");
+  });
+
+  it("a retarget re-seeds the field, and a drag in the same render lands on top", () => {
+    const t = mountTracked(defaultExtrudeForm("sk1"));
+    t.rerender({ depthOverride: { mm: 26 } });
+    t.rerender({
+      initial: { ...defaultExtrudeForm("sk1"), distanceInput: "40" },
+    });
+    expect(field()).toHaveValue("40");
+    t.rerender({
+      initial: { ...defaultExtrudeForm("sk1"), distanceInput: "50" },
+      depthOverride: { mm: 12 },
+    });
+    expect(field()).toHaveValue("12");
+  });
+
+  it("a unit change re-writes a standing override in the new unit", () => {
+    const t = mountTracked(defaultExtrudeForm("sk1"));
+    t.rerender({ depthOverride: { mm: 25.4 } });
+    t.rerender({ unit: "in" });
+    expect(field()).toHaveValue("1");
+  });
+});
+
+describe("ExtrudeEditor — a no-op Save sends the stored params back", () => {
+  // The editor's OWN Save path (Enter in the distance field), in an inch
+  // document, with a distance that has no inch text multiplying back to it:
+  // only "an untouched field means the stored value" can carry it.
+  for (const unit of ["mm", "in"] as const) {
+    it(`byte-identical in a ${unit} document`, () => {
+      const stored: ExtrudeParams = {
+        profile: { kind: "feature", feature_id: "sk1" },
+        distance_mm: 7.123456789012,
+        operation: "add",
+        direction: "normal",
+        merge: true,
+        twist_angle_deg: 31.280937437761875,
+      };
+      const onSubmit = vi.fn();
+      renderEditor({ unit, onSubmit, initial: formFromParams(stored, unit) });
+      fireEvent.keyDown(screen.getByTestId("extrude-distance"), {
+        key: "Enter",
+      });
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+      expect(onSubmit.mock.calls[0]?.[0]).toEqual(stored);
+    });
+  }
+});
+
+describe("ExtrudeEditor — the twist axis says what Save will send", () => {
+  it("shows ORIGIN, and says why, when a chosen centroid is unavailable (review S2)", () => {
+    // A form that asked for the centroid of a profile with none: Save sends no
+    // centre (the sketch origin), so the control must show Origin, not nothing.
+    const onSubmit = vi.fn();
+    renderEditor({
+      onSubmit,
+      initial: {
+        ...defaultExtrudeForm("sk1"),
+        twistInput: "30",
+        twistCentre: { kind: "centroid" },
+      },
+      profileCentroid: () => null,
+    });
+    expect(screen.getByTestId("extrude-twist-centre-origin")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("extrude-twist-hint")).toHaveTextContent(
+      /no centroid.*sketch origin/i,
+    );
+    fireEvent.keyDown(screen.getByTestId("extrude-twist"), { key: "Enter" });
+    const sent = onSubmit.mock.calls[0]?.[0] as ExtrudeParams;
+    expect(sent.twist_angle_deg).toBe(30);
+    expect(Object.keys(sent)).not.toContain("twist_center");
+  });
+
+  it("asks for a keyboard that can type a minus sign (review N4)", () => {
+    // `decimal` is the NumberField default, and iOS's decimal pad has no minus:
+    // a left-hand twist could not be typed on a tablet. The parse is the gate.
+    renderEditor();
+    expect(screen.getByTestId("extrude-twist")).toHaveAttribute(
+      "inputmode",
+      "text",
+    );
+  });
+
+  it("says, quietly, when this many turns on THIS profile may be refused (review S9)", () => {
+    // A hexagon: the kernel's published upper bound passes its 4.5 s limit at
+    // about 8.2 turns (design note §6.1), so 8 turns is quiet and 8.5 is not.
+    // (A square never reaches it inside the +/-3600 the field accepts.)
+    const hexagon: SketchEntity[] = Array.from({ length: 6 }, (_, i) => {
+      const a = (i / 6) * 2 * Math.PI;
+      const b = ((i + 1) / 6) * 2 * Math.PI;
+      return {
+        id: `l${i}`,
+        kind: "line" as const,
+        start: { x: 10 * Math.cos(a), y: 10 * Math.sin(a) },
+        end: { x: 10 * Math.cos(b), y: 10 * Math.sin(b) },
+        construction: false,
+      };
+    });
+    renderEditor({ profileEntities: () => hexagon });
+    const twist = screen.getByTestId("extrude-twist");
+    fireEvent.change(twist, { target: { value: "2880" } });
+    expect(screen.queryByTestId("extrude-twist-slow")).toBeNull();
+    fireEvent.change(twist, { target: { value: "-3060" } });
+    expect(screen.getByTestId("extrude-twist-slow")).toHaveTextContent(
+      /may be slow to build, or refused/i,
+    );
+  });
+
+  it("says nothing when it cannot count the profile's edges", () => {
+    renderEditor();
+    fireEvent.change(screen.getByTestId("extrude-twist"), {
+      target: { value: "3600" },
+    });
+    expect(screen.queryByTestId("extrude-twist-slow")).toBeNull();
+  });
+
+  /** A saved extrude whose twist axis is a point a script placed. */
+  const KEPT: ExtrudeParams = {
+    profile: { kind: "feature", feature_id: "sk1" },
+    distance_mm: 20,
+    operation: "add",
+    direction: "normal",
+    merge: true,
+    twist_angle_deg: 30,
+    twist_center: { x: 25.400000000000002, y: 12.7 },
+  };
+
+  it("offers the stored point as KEPT, pre-selected, in the document's unit (review S3)", () => {
+    renderEditor({ unit: "in", initial: formFromParams(KEPT, "in") });
+    expect(screen.getByTestId("extrude-twist-centre-kept")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    // Origin is still one click away: a saved centre is not a dead end.
+    expect(screen.getByTestId("extrude-twist-centre-origin")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    // Through the unit formatter, never the raw float (25.400000000000002 mm).
+    expect(screen.getByTestId("extrude-twist-centre-point")).toHaveTextContent(
+      "(1, 0.5) in",
+    );
+  });
+
+  it("can move a stored axis to the origin, and back to exactly the stored point", () => {
+    const onSubmit = vi.fn();
+    renderEditor({ onSubmit, initial: formFromParams(KEPT, "mm") });
+    fireEvent.click(screen.getByTestId("extrude-twist-centre-origin"));
+    fireEvent.keyDown(screen.getByTestId("extrude-twist"), { key: "Enter" });
+    const toOrigin = onSubmit.mock.calls[0]?.[0] as ExtrudeParams;
+    expect(Object.keys(toOrigin)).not.toContain("twist_center");
+
+    fireEvent.click(screen.getByTestId("extrude-twist-centre-kept"));
+    fireEvent.keyDown(screen.getByTestId("extrude-twist"), { key: "Enter" });
+    const kept = onSubmit.mock.calls[1]?.[0] as ExtrudeParams;
+    expect(kept.twist_center).toEqual(KEPT.twist_center);
   });
 });

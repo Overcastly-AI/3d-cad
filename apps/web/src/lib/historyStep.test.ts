@@ -1,4 +1,9 @@
+import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
+
+import { clearQueriesOnUserChange } from "../auth/queryCache";
+import { createSessionStore, type SessionUser } from "../auth/session";
+import { nullStorage } from "../auth/storage";
 
 import {
   executeHistoryStep,
@@ -20,6 +25,7 @@ function ports(overrides: Partial<HistoryStepPorts<Doc>> = {}) {
     onRestored: vi.fn(),
     isStale: () => false,
     resync: vi.fn(),
+    owner: () => "alice",
   };
   return { ...base, ...overrides };
 }
@@ -103,5 +109,104 @@ describe("executeHistoryStep", () => {
       kind: "failed",
       message: "refresh failed",
     });
+  });
+});
+
+/**
+ * A STEP THAT RESOLVES FOR SOMEONE ELSE WRITES NOTHING
+ * (UNDO-REDO-USER-SWITCH-RACE-1).
+ *
+ * `clearQueriesOnUserChange` empties the cache the moment the signed-in user
+ * changes (`f0c2bbc`). An undo that was already in flight resolved after that,
+ * and its no-op path put the PREVIOUS user's tree back into the cache the next
+ * user now reads from. The step belongs to whoever started it; when that is no
+ * longer who is signed in, its result is dropped: no adopt, no restore, no
+ * resync.
+ */
+describe("a step that outlives its user", () => {
+  const ALICE: SessionUser = {
+    id: "6f2f0e6a-9c1e-4be5-9d3e-6a1c76a3c001",
+    email: "alice@example.com",
+    created_at: "2026-07-10T12:00:00Z",
+  };
+  const BOB: SessionUser = {
+    id: "0b0b0b0b-9c1e-4be5-9d3e-6a1c76a3c002",
+    email: "bob@example.com",
+    created_at: "2026-07-11T12:00:00Z",
+  };
+  const KEY = ["features", "p-1"];
+
+  /** The real session store and cache, wired as the app wires them. */
+  function signedInAsAlice() {
+    const store = createSessionStore(nullStorage);
+    const queryClient = new QueryClient();
+    clearQueriesOnUserChange(store, queryClient);
+    store.getState().signIn("token-a", ALICE);
+    let resolve: (doc: Doc) => void = () => {};
+    const run = vi.fn(
+      () =>
+        new Promise<Doc>((r) => {
+          resolve = r;
+        }),
+    );
+    const p = ports({
+      run,
+      owner: () => store.getState().user?.id ?? null,
+      adoptNoOp: vi.fn((doc: Doc) => queryClient.setQueryData(KEY, doc)),
+    });
+    return { store, queryClient, p, resolve: (doc: Doc) => resolve(doc) };
+  }
+
+  it("drops a no-op that resolves after the user changed", async () => {
+    const { store, queryClient, p, resolve } = signedInAsAlice();
+    const pending = executeHistoryStep("undo", p);
+    await vi.waitFor(() => expect(p.run).toHaveBeenCalled());
+    store.getState().signIn("token-b", BOB);
+    resolve({ version: 4 });
+    await expect(pending).resolves.toEqual({ kind: "abandoned" });
+    expect(p.adoptNoOp).not.toHaveBeenCalled();
+    expect(queryClient.getQueryData(KEY)).toBeUndefined();
+  });
+
+  it("drops a restore, and its resync, the same way", async () => {
+    const { store, p, resolve } = signedInAsAlice();
+    const pending = executeHistoryStep("redo", p);
+    await vi.waitFor(() => expect(p.run).toHaveBeenCalled());
+    store.getState().signOut();
+    resolve({ version: 5 });
+    await expect(pending).resolves.toEqual({ kind: "abandoned" });
+    expect(p.onRestored).not.toHaveBeenCalled();
+    expect(p.resync).not.toHaveBeenCalled();
+  });
+
+  it("never sends the step when the user changed while the version was read", async () => {
+    // Review N2 on 5acb08e: the part page's version read can be a refetch.
+    // A switch that lands during it must not POST the old user's undo with
+    // the new user's token.
+    const { store, p } = signedInAsAlice();
+    let release: (version: number) => void = () => {};
+    const slow = {
+      ...p,
+      version: () =>
+        new Promise<number>((r) => {
+          release = r;
+        }),
+    };
+    const pending = executeHistoryStep("undo", slow);
+    store.getState().signIn("token-b", BOB);
+    release(4);
+    await expect(pending).resolves.toEqual({ kind: "abandoned" });
+    expect(p.run).not.toHaveBeenCalled();
+  });
+
+  it("adopts as before while the same user is signed in", async () => {
+    // The negative control: a renewal keeps the id, and so keeps the step.
+    const { store, queryClient, p, resolve } = signedInAsAlice();
+    const pending = executeHistoryStep("undo", p);
+    await vi.waitFor(() => expect(p.run).toHaveBeenCalled());
+    store.getState().signIn("token-a2", ALICE);
+    resolve({ version: 4 });
+    await expect(pending).resolves.toEqual({ kind: "noop" });
+    expect(queryClient.getQueryData(KEY)).toEqual({ version: 4 });
   });
 });

@@ -189,7 +189,30 @@ export function ModelMesh({
   const bodyFaceState = useMemo(() => {
     const ghosted = new Set<number>();
     const hiddenFaces = new Set<number>();
-    if (perBodyFaces === null) return { ghosted, hidden: hiddenFaces };
+    if (perBodyFaces === null) {
+      // NO PER-BODY SPLIT (two bodies welded at a shared corner, a solid with
+      // an inner void — see `bodyPartition.ts`). The per-body stops cannot be
+      // honoured, and that is right: an eye that hides the wrong solid is worse
+      // than none. But GHOST-1's open-sketch default is not per-body in the
+      // first place — it ghosts EVERY untouched body — so it survives the
+      // missing split intact: ghost the whole mesh. Returning before this is
+      // what left such a part drawn OPAQUE over the sketch being edited, while
+      // the Bodies rows (which read `bodyView`) said GHOST.
+      //
+      // Only when NO body carries a stop of its own. A stored stop is the
+      // modeler's word for one body; without a split we cannot apply it to that
+      // body alone, and applying the default to the rest would ghost the solid
+      // they asked to keep. So a stored stop leaves the mesh exactly as it was.
+      const untouched = partBodies.every(
+        (body) => partView[body.key] === undefined,
+      );
+      if (sketchOpen && untouched) {
+        for (let ordinal = 0; ordinal < totalFaces; ordinal += 1) {
+          ghosted.add(ordinal);
+        }
+      }
+      return { ghosted, hidden: hiddenFaces };
+    }
     partBodies.forEach((body, index) => {
       const faces = perBodyFaces[index];
       if (faces === undefined) return;
@@ -198,7 +221,7 @@ export function ModelMesh({
       else if (stop.ghost) for (const face of faces) ghosted.add(face);
     });
     return { ghosted, hidden: hiddenFaces };
-  }, [perBodyFaces, partBodies, partView, sketchOpen]);
+  }, [perBodyFaces, partBodies, partView, sketchOpen, totalFaces]);
   /** Any face not drawn at full opacity — the mesh needs the four-way split. */
   const bodyStatesActive =
     bodyFaceState.ghosted.size > 0 || bodyFaceState.hidden.size > 0;

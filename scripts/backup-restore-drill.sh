@@ -62,7 +62,15 @@ done
 
 SERVICES=(db redis minio gateway documents geometry)
 
-step() { printf '\n== %s ==\n' "$*"; }
+# THE STEP CURRENTLY RUNNING, so the verdict can name it. This drill DESTROYS
+# the volumes at step 4 and reboots at step 5, so "which step" is the single
+# most useful fact about a failure here: the same missing row means opposite
+# things before and after the restore.
+CURRENT_STEP="startup (credential posture checks)"
+step() {
+  CURRENT_STEP="$*"
+  printf '\n== %s ==\n' "$*"
+}
 
 dump_logs() {
   echo
@@ -72,9 +80,25 @@ dump_logs() {
   docker compose logs --no-color --tail 200 >&2 || true
 }
 
+# See scripts/compose-verdict.sh. Same block as compose-smoke.sh, from one
+# source, for the same reason: this job's ~150-line failure dump buries its own
+# diagnosis, and the job log is the only channel out of CI.
+VERDICT_LABEL="backup-restore-drill"
+# Same path the workflow's Verdict step reads, and same reason it is derived
+# here from RUNNER_TEMP rather than handed in by a job-level `env:`.
+VERDICT_FILE="${DRILL_VERDICT:-${RUNNER_TEMP:+$RUNNER_TEMP/drill-verdict.txt}}"
+# shellcheck source=scripts/compose-verdict.sh
+. "$(dirname "$0")/compose-verdict.sh"
+
 teardown() {
   local status=$?
   if ((status != 0)); then dump_logs; fi
+
+  # BEFORE teardown: `docker compose down` removes the containers this reads.
+  local verdict
+  verdict="$(mktemp)"
+  build_verdict "$status" "$verdict" || true
+
   if [[ "$KEEP_STACK" == "1" ]]; then
     echo "drill: KEEP_STACK=1 — leaving the stack up and $WORK in place."
   else
@@ -82,6 +106,8 @@ teardown() {
     docker compose down -v --remove-orphans || true
     rm -rf "$WORK"
   fi
+
+  emit_verdict "$verdict"
   exit "$status"
 }
 trap teardown EXIT

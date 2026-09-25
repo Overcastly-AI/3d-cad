@@ -7,7 +7,7 @@ allowance, direction) that feed the shop's bend table.
 
 **Spike scope (why these are plain dataclasses, not pydantic):** the design
 doc (§6) specifies the *shipped* output reuses the neutral 2D-edge type drawing
-views already emit (``py_kit.schemas.drawings.ProjectedViewEdge``, widened by an
+views already emit (``loft_wire.drawings.ProjectedViewEdge``, widened by an
 additive ``edge_role`` field). This spike deliberately does NOT wire that DTO —
 the feature slice owns the py-kit schema change (SPIKE 0's brief: no wire type
 yet). ``FlatEdge2D``/``BendLine``/``FlatPattern`` are in-module dataclasses that
@@ -61,7 +61,7 @@ class FlatCutEdge2D:
     the outline, never the ``BEND`` layer.
 
     ``kind`` mirrors the neutral drawing primitives so the translation to
-    :class:`~py_kit.schemas.drawings.ProjectedViewEdge` is a field copy: a ``circle``
+    :class:`~loft_wire.drawings.ProjectedViewEdge` is a field copy: a ``circle``
     is a closed circular loop (``cx``/``cy``/``r``, the common through hole), an
     ``arc`` a circular segment (a slot end), a ``line`` a straight segment.
     ``xm``/``ym`` is a point ON the edge — the drawing DTO's ``midpoint``, which is

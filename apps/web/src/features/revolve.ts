@@ -56,6 +56,7 @@ import {
   profileOptions,
   type ProfileOption,
 } from "./extrude";
+import { storedNumber, storedNumberInput } from "./storedNumber";
 import { fieldBlocker } from "./submitBlocker";
 
 export { defaultProfileId, profileOptions };
@@ -92,6 +93,8 @@ export interface RevolveForm {
   direction: RevolveDirection;
   /** "Merge result" (multi-body §MB-1) — see `ExtrudeForm.merge`. */
   merge: boolean;
+  /** The params as STORED, when editing (a no-op Save sends them back). */
+  stored?: RevolveParams;
 }
 
 /** One choosable axis of revolution — a sketch line, or a world origin axis. */
@@ -189,10 +192,37 @@ export function formFromRevolveParams(params: RevolveParams): RevolveForm {
       params.axis.kind === "sketch_line"
         ? params.axis.entity
         : originAxisId(params.axis.axis),
-    angleInput: formatAngleInput(params.angle_deg),
+    angleInput: storedNumberInput(params.angle_deg),
     operation: params.operation,
     direction: params.direction,
     merge: params.merge,
+    stored: params,
+  };
+}
+
+/**
+ * The params Save sends for this form and its resolved `axis`, or null while
+ * the angle or profile is incomplete. An untouched angle is the STORED one,
+ * exactly (`storedNumber.ts`).
+ */
+export function revolveParamsFromForm(
+  form: RevolveForm,
+  axis: RevolveAxisRef,
+): RevolveParams | null {
+  const angle = storedNumber(
+    form.angleInput,
+    form.stored?.angle_deg,
+    parseAngleDeg,
+  );
+  if (angle === null || form.profileFeatureId === "") return null;
+  return {
+    profile: { kind: "feature", feature_id: form.profileFeatureId },
+    axis,
+    angle_deg: angle,
+    operation: form.operation,
+    direction: form.direction,
+    // Merge is an ADD choice only (see ExtrudeEditor); a cut sends `true`.
+    merge: form.operation === "add" ? form.merge : true,
   };
 }
 

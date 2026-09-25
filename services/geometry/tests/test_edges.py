@@ -16,18 +16,23 @@ a monkeypatched enumeration.
 Tolerances are the documented kernel bound, never ad-hoc epsilons: a box is
 line-exact in OCCT, so deviation from analytic is round-off only.
 """
+# The OCP wheel ships no type stubs, so raw build123d shape calls (``.is_same``,
+# ``.cut``) are opaque to pyright; the directive scopes that relaxation to this
+# file, exactly as the kernel modules and the other builder-using suites do.
+# pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
 
 import math
 from typing import Any
 
 import pytest
-from build123d import GeomType, Solid
+from build123d import GeomType, Location, Solid
 from geometry.kernel import (
     EdgeRecord,
     SubshapeAmbiguousError,
     SubshapeUnresolvedError,
     edge_signature_dto,
     enumerate_edges,
+    enumerate_edges_with_adjacency,
     resolve_edge,
     resolve_edge_durable,
     select_edges,
@@ -36,15 +41,16 @@ from geometry.kernel import (
 from geometry.kernel.edges import (
     edge_signatures_match,
 )
+from geometry.kernel.faces import match_face_records, planar_faces
 from geometry.kernel.types import BodyShape
-from py_kit.schemas.features import (
+from loft_wire.features import (
     AllEdgesSelector,
     EdgeSelectorV1,
     EdgeSignature,
     EdgeSubshapeRef,
     PickedEdgesSelector,
 )
-from py_kit.schemas.geometry import Vec3
+from loft_wire.geometry import Vec3
 
 #: Kernel linear tolerance (CLAUDE.md 1e-7) — a ceiling, not a fit.
 TOL = 1e-7
@@ -231,16 +237,38 @@ def test_select_edges_predicate_all_edges_still_works() -> None:
 
 
 def test_overlay_edges_match_the_resolver_enumeration() -> None:
-    """The HEADLINE gate: the overlay's edge signatures are byte-for-byte the
-    resolver's ``enumerate_edges`` enumeration, in the same order — a picked
-    signature resolves to the SAME edge (the measurement/faces order-equality
-    lesson, applied to edges)."""
+    """The HEADLINE gate: a signature the overlay hands a client resolves back to
+    the SAME edge, at the SAME index, through the STRICT tier (the
+    measurement/faces order-equality lesson, applied to edges).
+
+    STRENGTHENED when §14 adjacency landed, and the strengthening is the point.
+    This gate used to assert the two enumerations were byte-equal, as a PROXY for
+    the property its own docstring names. The pick side now carries strictly more
+    than the resolve side — the ``adjacent_faces`` annotation, which the resolve
+    side deliberately does not compute (it is not read from a CANDIDATE) and tier
+    1 deliberately does not compare — so byte-equality became false while the
+    property stayed true, and "make the fixture agree" would have deleted the
+    gate. It asserts the property directly instead, plus the byte-equality of
+    everything the two sides DO share so the fields cannot drift apart:
+
+    1. overlay signature MINUS adjacency == ``enumerate_edges`` signature, in order;
+    2. every overlay signature resolves to its own index at tier ``exact`` — the
+       claim the proxy was standing in for, and the one that would catch an
+       adjacency annotation that perturbed strict matching.
+    """
     box = _box()
     overlay = selection_overlay(box, 0.1)
     records = enumerate_edges(box)
 
-    assert [e.signature for e in overlay.edges] == [r.signature for r in records]
     assert len(overlay.edges) == 12
+    assert [
+        e.signature.model_copy(update={"adjacent_faces": None}) for e in overlay.edges
+    ] == [r.signature for r in records]
+
+    for index, overlay_edge in enumerate(overlay.edges):
+        resolved = resolve_edge_durable(box, overlay_edge.signature)
+        assert resolved.tier == "exact"
+        assert resolved.edge.is_same(records[index].edge)
 
 
 def test_a_picked_overlay_signature_resolves_back_to_its_edge() -> None:
@@ -455,3 +483,253 @@ def test_resolve_edge_stays_STRICT_for_drawings_and_mates() -> None:
     dimension silently reports itself as exact."""
     with pytest.raises(SubshapeUnresolvedError):
         resolve_edge(_grown_box(), _front_top_edge_signature())
+
+
+# --- TIER 3: the ADJACENCY re-anchor (§14, product audit 2026-09-16) -------------
+#
+# THE DEFECT these gates exist for, reproduced at the feature-tree level in
+# test_edges_adjacency_revision.py and at the kernel level here: every field of an
+# EdgeSignature is an ABSOLUTE WORLD COORDINATE, so an edit that RESIZES the part
+# translates the picked edge off all of them — and tier 2 cannot help, because it
+# re-matches a straight edge on its own SUPPORTING LINE and a translation leaves
+# that line behind. Not a tolerance question: ``collinear_overlapping_match``
+# returns False for every candidate, at any epsilon.
+
+
+def _upright_box(width_mm: float) -> Solid:
+    """The audit's part in miniature: a ``width x 80 x 40`` block whose WIDTH is
+    the dimension the engineer retypes. Its four vertical edges are the fillet
+    targets and are congruent in every respect except position."""
+    return Solid.make_box(width_mm, 80.0, 40.0)
+
+
+def _picked_vertical_edge(body: Solid, at_x: float, at_y: float) -> EdgeSignature:
+    """The PICK-side signature of the vertical edge at (*at_x*, *at_y*) — built
+    through :func:`enumerate_edges_with_adjacency`, which is what the selection
+    overlay hands a client, so these gates test the signature the PRODUCT stores
+    rather than one the test invented."""
+    return next(
+        record.signature
+        for record in enumerate_edges_with_adjacency(body)
+        if record.signature.curve == "line"
+        and record.signature.end_a == Vec3(x=at_x, y=at_y, z=0.0)
+        and record.signature.length_mm == pytest.approx(40.0, abs=TOL)
+    )
+
+
+def test_the_pick_side_stamps_adjacency_and_the_resolve_side_does_not() -> None:
+    """The asymmetry is deliberate and is the reason the resolve path stays cheap:
+    tier 3 re-resolves the TARGET's stored faces against the body, so it never
+    reads a CANDIDATE's adjacency. Making ``enumerate_edges`` compute it would buy
+    nothing and cost an outer-wire region per face on every rebuild."""
+    box = _upright_box(120.0)
+    assert all(r.signature.adjacent_faces is None for r in enumerate_edges(box))
+    stamped = enumerate_edges_with_adjacency(box)
+    assert all(r.signature.adjacent_faces is not None for r in stamped)
+    assert all(len(r.signature.adjacent_faces or []) == 2 for r in stamped)
+
+
+def test_adjacency_is_deterministic_and_canonically_ordered() -> None:
+    """RESEARCH §9. The pair is persisted and hashed, so its ORDER is part of the
+    stored identity: sorting by (normal, centroid) makes it a pure function of the
+    geometry rather than of OCCT's ancestor-list order."""
+    first = _picked_vertical_edge(_upright_box(120.0), 120.0, 0.0)
+    second = _picked_vertical_edge(_upright_box(120.0), 120.0, 0.0)
+    assert first.adjacent_faces == second.adjacent_faces
+    pair = first.adjacent_faces or []
+    assert [(f.normal.x, f.normal.y, f.normal.z) for f in pair] == sorted(
+        (f.normal.x, f.normal.y, f.normal.z) for f in pair
+    )
+
+
+def test_THE_DEFECT_the_edge_leaves_its_supporting_line_and_tiers_1_and_2_MISS() -> (
+    None
+):
+    """THE REPRODUCTION, stated as the mechanism rather than as a symptom. With
+    the adjacency annotation STRIPPED — i.e. exactly a selector persisted before
+    §14, and exactly the state of every picked edge before this commit — widening
+    the block 120 -> 150 is ``subshape_unresolved``. This is the NEGATIVE CONTROL
+    for every gate below it: they are only meaningful because this one fails."""
+    stored = _picked_vertical_edge(_upright_box(120.0), 120.0, 0.0)
+    legacy = stored.model_copy(update={"adjacent_faces": None})
+    with pytest.raises(SubshapeUnresolvedError):
+        resolve_edge_durable(_upright_box(150.0), legacy)
+
+
+def test_adjacency_carries_the_picked_edge_through_a_WIDTH_edit() -> None:
+    """THE FIX. The same signature, with its two planar neighbours attached,
+    resolves 120 -> 150 — and resolves to the RIGHT edge, which is the claim that
+    matters: (150, 0) is the picked corner carried to its new place, not one of
+    the three other vertical edges, all of which are congruent to it."""
+    stored = _picked_vertical_edge(_upright_box(120.0), 120.0, 0.0)
+    resolved = resolve_edge_durable(_upright_box(150.0), stored)
+    assert resolved.tier == "adjacent"
+    assert _mid(resolved.edge) == pytest.approx((150.0, 0.0, 20.0), abs=TOL)
+
+
+def test_it_lands_on_the_picked_corner_and_not_on_its_three_congruent_twins() -> None:
+    """The discrimination claim, asserted over ALL FOUR corners rather than the
+    one that happens to work. A width edit leaves two of the four vertical edges
+    exactly where they were, so tiers 1/2 answer for those; adjacency must answer
+    for the two that moved, and must answer DIFFERENTLY for each."""
+    original, widened = _upright_box(120.0), _upright_box(150.0)
+    for at_x, at_y, expected_x in (
+        (0.0, 0.0, 0.0),
+        (0.0, 80.0, 0.0),
+        (120.0, 0.0, 150.0),
+        (120.0, 80.0, 150.0),
+    ):
+        stored = _picked_vertical_edge(original, at_x, at_y)
+        resolved = resolve_edge_durable(widened, stored)
+        expected = (expected_x, at_y, 20.0)
+        assert _mid(resolved.edge) == pytest.approx(expected, abs=TOL), (
+            f"edge picked at ({at_x}, {at_y}) landed wrong"
+        )
+
+
+def test_the_edit_is_reversible_and_repeatable_from_ONE_stored_signature() -> None:
+    """The S-24b shape for tier 3: the signature is authored ONCE, at 120, and
+    every subsequent edit resolves for the same reason the first did — the faces
+    are re-resolved from scratch each time, so nothing accumulates. 150 -> 130 was
+    the audit's own second edit."""
+    stored = _picked_vertical_edge(_upright_box(120.0), 120.0, 0.0)
+    for width in (150.0, 130.0, 95.0, 400.0, 120.0):
+        resolved = resolve_edge_durable(_upright_box(width), stored)
+        assert _mid(resolved.edge) == pytest.approx((width, 0.0, 20.0), abs=TOL)
+
+
+def test_tier_ORDER_is_the_safety_property_an_exact_match_still_wins() -> None:
+    """Tier 3 runs ONLY on an empty tier-2 result and ``edge_signatures_match``
+    deliberately ignores ``adjacent_faces``, so adding the field cannot re-target
+    a reference that already resolves. Asserted on the body it was picked from:
+    the tier must still read ``exact``, not ``adjacent``."""
+    box = _upright_box(120.0)
+    resolved = resolve_edge_durable(box, _picked_vertical_edge(box, 120.0, 0.0))
+    assert resolved.tier == "exact"
+
+
+def test_tier_2_still_wins_over_tier_3_when_the_edge_merely_GREW() -> None:
+    """The other half of the ordering: an edge that stayed on its own supporting
+    line is still answered by the cheaper, tighter tier — adjacency does not
+    shoulder in ahead of it."""
+    grown_signature = next(
+        r.signature
+        for r in enumerate_edges_with_adjacency(_box())
+        if r.signature.midpoint == Vec3(x=20.0, y=0.0, z=10.0)
+    )
+    assert resolve_edge_durable(_grown_box(), grown_signature).tier == "durable"
+
+
+# --- tier 3 REFUSES TO GUESS (§7.2) ---------------------------------------------
+
+
+def _notched_slab(front_y: float) -> BodyShape:
+    """A 40 x 10 slab whose FRONT face sits at *front_y*, with a relief notch
+    bitten out of the MIDDLE of its bottom-front edge.
+
+    The point of the shape: the bottom face (z=0) and the front face then meet
+    along TWO collinear runs instead of one, so a reference to either run names a
+    pair of faces that cannot distinguish them. Retyping *front_y* MOVES their
+    line of intersection, which is what puts tiers 1 and 2 out of the picture and
+    hands the question to tier 3. The notch travels with the front face, as a
+    parametric relief actually would.
+    """
+    slab = Solid.make_box(40.0, 25.0 - front_y, 10.0).locate(
+        Location((0.0, front_y, 0.0))
+    )
+    notch = Solid.make_box(12.0, 6.0, 4.0).locate(Location((14.0, front_y - 1.0, -1.0)))
+    return slab.cut(notch)
+
+
+def _bottom_front_run(body: BodyShape) -> EdgeSignature:
+    """The LEFT of the two collinear runs of the slab's bottom-front line."""
+    runs = sorted(
+        (
+            r.signature
+            for r in enumerate_edges_with_adjacency(body)
+            if r.signature.curve == "line"
+            and r.signature.midpoint.z == pytest.approx(0.0, abs=TOL)
+            and r.signature.midpoint.y == pytest.approx(0.0, abs=TOL)
+        ),
+        key=lambda s: s.end_a.x,
+    )
+    assert len(runs) == 2, "the fixture must present exactly two collinear runs"
+    return runs[0]
+
+
+def test_two_edges_shared_by_the_SAME_face_pair_are_an_honest_ambiguity() -> None:
+    """THE GATE THAT KEEPS THE FIX FROM BEING A REGRESSION IN A FIX'S CLOTHES. A
+    durability tier that merely became greedier would resolve this; there are two
+    genuinely equally valid re-anchors, and §7.2 says refuse. Both stored faces
+    resolve UNIQUELY here — measured, so the refusal is the tie itself and not a
+    knock-on of a face that failed — and the message names tier 3's own reason
+    rather than borrowing the strict tier's wording."""
+    stored = _bottom_front_run(_notched_slab(0.0))
+    assert stored.adjacent_faces is not None
+    moved = _notched_slab(-7.0)
+    records = planar_faces(moved)
+    for face in stored.adjacent_faces:
+        assert len(match_face_records(records, face)[0]) == 1
+
+    with pytest.raises(SubshapeAmbiguousError, match="shared by BOTH faces"):
+        resolve_edge_durable(moved, stored)
+
+
+def test_a_neighbour_that_no_longer_resolves_leaves_the_edge_unresolved() -> None:
+    """A pair we cannot pin cannot pin an edge. A stored neighbour that names
+    nothing on the rebuilt body must fail honestly, never fall back to "the other
+    face's edges" and guess among them."""
+    stored = _picked_vertical_edge(_upright_box(120.0), 120.0, 0.0)
+    pair = list(stored.adjacent_faces or [])
+    pair[0] = pair[0].model_copy(
+        update={
+            "normal": Vec3(x=0.0, y=0.0, z=1.0),
+            "centroid": Vec3(x=5.0, y=5.0, z=999.0),
+            "area_mm2": 7.0,
+            "outer_area_mm2": 7.0,
+            "outer_centroid": Vec3(x=5.0, y=5.0, z=999.0),
+            "outer_perimeter_mm": 11.0,
+        }
+    )
+    with pytest.raises(SubshapeUnresolvedError):
+        resolve_edge_durable(
+            _upright_box(150.0), stored.model_copy(update={"adjacent_faces": pair})
+        )
+
+
+def test_an_edge_bounded_by_a_CURVED_face_carries_no_adjacency() -> None:
+    """The stated honest limit of §14, gated rather than assumed.
+    ``PlanarFaceSignature`` describes planes, so a bore's rim — bounded by the top
+    plane and a CYLINDER — gets no adjacency at all rather than a partial one, and
+    tier 3 simply does not fire for it. Minting a curved sibling signature is a
+    second schema, not this commit."""
+    rims = [
+        r
+        for r in enumerate_edges_with_adjacency(_bored_plate(6.0))
+        if r.signature.curve == "circle"
+    ]
+    assert rims, "the fixture must present circular rims"
+    assert all(r.signature.adjacent_faces is None for r in rims)
+
+
+def test_a_seam_edge_with_ONE_face_on_both_sides_carries_no_adjacency() -> None:
+    """The other absence: a cylinder's seam names the SAME face twice, so there is
+    no pair to intersect. Absent, never half-filled."""
+    records = enumerate_edges_with_adjacency(Solid.make_cylinder(5.0, 20.0))
+    seams = [
+        r
+        for r in records
+        if r.signature.curve == "line"
+        and r.signature.length_mm == pytest.approx(20.0, abs=TOL)
+    ]
+    assert seams, "the fixture must present a seam edge"
+    assert all(r.signature.adjacent_faces is None for r in seams)
+
+
+def test_select_edges_picks_up_tier_3_for_fillet_and_chamfer() -> None:
+    """The selector plumbing every picked-edge feature shares reaches tier 3, so
+    the fix lands in the product path and not only in the resolver."""
+    stored = _picked_vertical_edge(_upright_box(120.0), 120.0, 0.0)
+    edges = select_edges(_upright_box(150.0), _picked(stored))
+    assert len(edges) == 1
+    assert _mid(edges[0]) == pytest.approx((150.0, 0.0, 20.0), abs=TOL)

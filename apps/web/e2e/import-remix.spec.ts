@@ -96,13 +96,30 @@ async function faceCensus(
   };
 }
 
-/** Click the planar pick node whose accessible name reports the lowest z. */
-async function clickLowestFace(page: Page): Promise<void> {
+/**
+ * Pick the planar face whose accessible name reports the lowest z — the plate's
+ * BACK face — the way a user reaches a face that is BEHIND the body.
+ *
+ * From the default view the back face faces away from the camera. Board #76
+ * made its mark say so: `data-buried="true"`, drawn as a dashed hidden line,
+ * no pointer, still on the tab route. Before that, this helper clicked the
+ * mark with the mouse and it worked only because the mark was drawn live over
+ * the FRONT face, answering for a face the user could not see. So the helper
+ * now (a) waits out the face-seat pass by its own stamp, (b) asserts the back
+ * face really is buried in this view — the property that changed — and (c)
+ * reaches it by the route that still exists: keyboard focus and Enter.
+ */
+async function pickLowestFaceByKeyboard(page: Page): Promise<void> {
   const nodes = page.locator('[data-testid^="plane-pick-face-"]');
-  await expect(nodes.first()).toBeVisible({ timeout: 20_000 });
+  await expect(nodes.first()).toBeAttached({ timeout: 20_000 });
+  await expect(page.getByTestId("viewport")).toHaveAttribute(
+    "data-face-mark-seats",
+    "settled",
+    { timeout: 90_000 },
+  );
   const count = await nodes.count();
   let bestZ = Number.POSITIVE_INFINITY;
-  let bestIndex = 0;
+  let bestIndex = -1;
   for (let i = 0; i < count; i += 1) {
     const label = (await nodes.nth(i).getAttribute("aria-label")) ?? "";
     const nums = label.match(/-?\d+(?:\.\d+)?/g) ?? [];
@@ -112,7 +129,15 @@ async function clickLowestFace(page: Page): Promise<void> {
       bestIndex = i;
     }
   }
-  await nodes.nth(bestIndex).click();
+  expect(bestIndex, "a face mark names its centroid").toBeGreaterThan(-1);
+  const back = nodes.nth(bestIndex);
+  await expect(
+    back,
+    "the back face faces away from the camera, and its mark must say so",
+  ).toHaveAttribute("data-buried", "true");
+  await back.focus();
+  await expect(back).toBeFocused();
+  await page.keyboard.press("Enter");
 }
 
 /**
@@ -138,7 +163,7 @@ async function openHoleOnBackFace(page: Page, partId: string): Promise<void> {
   await expect(page.locator('[data-testid^="plane-pick-face-"]')).toHaveCount(
     11,
   );
-  await clickLowestFace(page);
+  await pickLowestFaceByKeyboard(page);
   await expect(page.getByTestId("hole-face")).toBeVisible();
 }
 

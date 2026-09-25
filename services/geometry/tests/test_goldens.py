@@ -119,6 +119,13 @@ class GoldenExpectation(BaseModel):
     )
     tolerance: float = Field(gt=0)
     tolerance_rationale: str
+    roundtrip_tolerance: float | None = Field(
+        default=None,
+        gt=0,
+        description="Reviewed STEP round-trip bound replacing ROUNDTRIP_TOL for "
+        "this golden only (conftest.roundtrip_tolerance_for); needs a rationale.",
+    )
+    roundtrip_tolerance_rationale: str | None = None
     properties: ExpectedMassProperties
     topology: TopologyCounts
     mesh: ExpectedMesh
@@ -160,6 +167,26 @@ each_golden = pytest.mark.parametrize(
 def test_golden_inventory_is_nonempty() -> None:
     """Discovery breakage must fail the suite, never silently pass it."""
     assert GOLDEN_CASES, f"no goldens discovered under {GOLDENS_DIR}"
+
+
+#: Goldens whose STEP round trip is held to a reviewed bound of their own
+#: (``roundtrip_tolerance`` in expected.json) instead of ROUNDTRIP_TOL. Listed
+#: here, not discovered, so an override cannot appear unreviewed. Empty since
+#: GEOMETRY-QA 2026-09-25 F1: shell-spline-prism-30x10-t1's 1e-6 was retired
+#: when its round trip met ROUNDTRIP_TOL.
+ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset()
+
+
+def test_roundtrip_overrides_are_the_reviewed_ones() -> None:
+    declared = {
+        case.name
+        for case in GOLDEN_CASES
+        if case.expected.roundtrip_tolerance is not None
+    }
+    assert declared == ROUNDTRIP_TOLERANCE_OVERRIDES
+    for case in GOLDEN_CASES:
+        if case.name in declared:
+            assert case.expected.roundtrip_tolerance_rationale, case.name
 
 
 def test_every_golden_dir_is_complete() -> None:

@@ -133,7 +133,7 @@ export interface PartBuildInput {
 /**
  * THE staleness comparison, once, on this side of the wire.
  *
- * The rule and its wording come from `py_kit.schemas.parts.is_stale_for_tree`,
+ * The rule and its wording come from `loft_wire.parts.is_stale_for_tree`,
  * which `derive_part_eval_state` folds through server-side; this is that same
  * comparison applied to the two numbers the API hands the browser
  * (`EvaluateTreeResult.tree_version` against `PartResponse.tree_version`), so a

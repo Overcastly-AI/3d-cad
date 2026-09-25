@@ -24,7 +24,8 @@ Both end at the same place: a browser at a modeling viewport with a part in it.
 - ~6 GB of disk. The geometry image carries the OCCT kernel (~95 MB of shared
   libraries before Python), so the first build is slow. Later builds cache on
   `uv.lock`.
-- No host Python or Node needed. Migrations run from inside the images.
+- No host Python or Node needed. The web app is compiled inside its own image
+  and migrations run from inside the service images.
 
 ### Bring it up
 
@@ -56,26 +57,51 @@ The gateway and documents services own separate databases (`loft_gateway`,
 `loft_documents`), created on the volume's first boot. They must stay separate:
 both alembic trees start at revision `0001`.
 
+### Open it
+
+**<http://localhost:8080>** — that is the app. Skip to
+[Your first part](#your-first-part).
+
+Two ports are published, and they are different things:
+
+| port | what it is |
+| --- | --- |
+| `8080` (`WEB_PORT`) | **the app.** nginx serving the built SPA, and proxying `/api` to the gateway on the compose network — the same path Vite's dev proxy takes in Option B, so the browser only ever talks to one origin. |
+| `8000` (`GATEWAY_PORT`) | the REST API, for scripts and CI. A browser does not need it. |
+
+`documents` and `geometry` are reachable only from inside the compose network,
+on purpose — the smoke test asserts they are *not* reachable from the host.
+There is no API explorer on either published port: `/docs` and `/redoc` are
+disabled because their HTML loads JavaScript from `cdn.jsdelivr.net`, which
+would break an air-gapped install. `/openapi.json` is served as usual and is
+generated in-process, so point a local explorer at it.
+
+> **Sliding sessions need HTTPS (or `localhost`).** This default setup is
+> plain HTTP, and the refresh cookie is `Secure`-flagged, so a non-localhost
+> address (e.g. `http://nas.local:8080`) drops it and sessions hard-expire
+> after `JWT_TTL_S` (1 h by default) instead of the normal 24 h sliding
+> window. Put TLS in front for real self-host use — see
+> [`docs/OPERATIONS.md`](./OPERATIONS.md) §7.
+
 ### Check it
 
 ```bash
 curl -fsS http://127.0.0.1:8000/healthz    # gateway
 curl -fsS http://127.0.0.1:8000/readyz     # gateway + its upstreams
+curl -fsS http://127.0.0.1:8080/healthz    # the web service itself
 ```
 
-Only the gateway is published (`:8000`). `documents` and `geometry` are
-reachable only from inside the compose network, on purpose — the smoke test
-asserts they are *not* reachable from the host.
-
-For the full proof — build, boot, migrate, and a real modeling round-trip over
-the published port — run:
+For the full proof — build, boot, migrate, a real modeling round-trip over the
+published port, and the assertion that the app actually comes back from
+`:8080` — run:
 
 ```bash
 just compose-smoke
 ```
 
 That is the same script CI runs on every push
-([`deploy-path.yml`](../.github/workflows/deploy-path.yml)).
+([`deploy-path.yml`](../.github/workflows/deploy-path.yml)). Its last step is
+`just web-smoke`, which you can run on its own against any live stack.
 
 ### Tear down
 
@@ -188,6 +214,12 @@ pnpm --filter @loft/web dev
 Open **<http://localhost:5173>**. Vite proxies `/api` to the gateway on
 `:8000` (override with `GATEWAY_ORIGIN`).
 
+> The port differs from Option A's `8080` on purpose: this Vite runs on your
+> host, Option A's web service runs in a container, and the two are meant to be
+> able to coexist. `just dev` — the containerised dev stack, with hot reload for
+> the services *and* the web app — uses `8080` like Option A, so its URL never
+> changes either.
+
 > **Running a second stack on other ports? Do not write `--`.**
 > pnpm 10 **silently discards** the npm-idiomatic `--` separator, so
 > `pnpm --filter @loft/web dev -- --port 5199` starts Vite on **5173**, not
@@ -259,8 +291,8 @@ here, not a rounding complaint.
 ### Expectations before you scale up
 
 Parts up to ~50 features feel fine, ~100 is painful cold, and a first rebuild
-of a 200-feature tree takes ~26 s. [`docs/PERF.md`](./PERF.md) has the measured
-tables and says plainly where the wall is.
+of a 200-feature tree takes ~26 s. [`docs/OPERATIONS.md`](./OPERATIONS.md) §6
+has the sizing tables.
 
 ---
 
@@ -301,6 +333,25 @@ gateway. `ps -eo pid,args | grep vite/bin/vite`, kill it, re-run.
 **The first `docker compose up --build` takes forever.**
 The geometry image installs the OCCT wheel. Subsequent builds cache on
 `uv.lock`.
+
+**`http://localhost:8080` refuses the connection (Option A).**
+The `web` service is not up, and `docker compose ps web` tells you which of two
+very different things happened. `Exited (1)` means the container started and
+nginx refused to run — `docker compose logs web` then carries nginx's own
+`[emerg]` line, which names the exact file or port it could not use. No
+container, or a port-bind error, means something else on your machine already
+holds 8080: set `WEB_PORT` in `.env` and bring the stack back up.
+
+**The app loads but every request returns `502` (Option A).**
+nginx reached the app but not the gateway. This is normal for a few seconds
+after `up` — nginx resolves the gateway per request rather than caching it at
+startup, so it recovers on its own once the gateway is healthy. If it
+persists, `docker compose ps gateway`: the gateway waits on `db`, `documents`
+and `geometry` all being healthy.
+
+**The app loads and `/api` returns `404` (Option A).**
+That is nginx answering rather than the gateway — the `/api` proxy is not in
+effect. `just web-smoke` names which of the two it is.
 
 ---
 

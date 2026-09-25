@@ -72,11 +72,40 @@ describe("AxisGrip", () => {
         valueText="10 mm"
       />,
     );
-    // At rest the drawn arrow underneath is the affordance, so the collar is a
-    // hint rather than a second ring competing with it.
-    expect(collarOf(resting).className).toContain("border-brass/40");
+    // CRAFT-7: at rest the collar carries NO INK. The drawn arrow underneath is
+    // the affordance and the whole of it is now the target, so a faint second
+    // ring at the same point was an accessory repeating what the arrow already
+    // said — and it was the quieter of the two, which is the wrong way round.
+    expect(collarOf(resting).className).toContain("border-transparent");
+    expect(collarOf(resting).className).not.toContain("border-brass/40");
+    // …but the element and its 24 px target are still there, so nothing about
+    // where you can press changed. That is what makes removing the ink safe.
     expect(collarOf(resting).className).toContain(
       "group-hover/grip:border-brass",
+    );
+    expect(resting.querySelector('[role="slider"]')).toHaveAttribute(
+      "data-addressed",
+      "false",
+    );
+
+    // ADDRESSED by the instrument — the pointer is on the sleeve halfway down
+    // the shaft, not on this element, so `:hover` here would be false and the
+    // collar must still come forward.
+    const { container: near } = render(
+      <AxisGrip
+        aria-label="Extrude depth"
+        value={10}
+        min={0}
+        max={100}
+        valueText="10 mm"
+        addressed
+      />,
+    );
+    expect(collarOf(near).className).toContain("border-brass");
+    expect(collarOf(near).className).not.toContain("border-transparent");
+    expect(near.querySelector('[role="slider"]')).toHaveAttribute(
+      "data-addressed",
+      "true",
     );
 
     const { container: held } = render(
@@ -93,7 +122,7 @@ describe("AxisGrip", () => {
     // addressed WITHOUT the target moving or resizing.
     expect(collarOf(held).className).toContain("border-brass-hover");
     expect(collarOf(held).className).toContain("bg-brass-hover/30");
-    expect(collarOf(held).className).not.toContain("border-brass/40");
+    expect(collarOf(held).className).not.toContain("border-transparent");
   });
 
   it("says which state it is in, to the pointer and to a test", () => {

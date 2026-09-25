@@ -6,6 +6,8 @@ import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
+import { clearQueriesOnUserChange } from "./auth/queryCache";
+import { useSessionStore } from "./auth/session";
 import { installAuthTransport } from "./auth/transport";
 import { router } from "./router";
 
@@ -13,6 +15,8 @@ import { router } from "./router";
 installAuthTransport();
 
 const queryClient = new QueryClient();
+// Cached data is one user's; a different user (or none) starts empty.
+clearQueriesOnUserChange(useSessionStore, queryClient);
 
 const container = document.getElementById("root");
 if (!container) {

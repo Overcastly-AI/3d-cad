@@ -16,6 +16,7 @@
  */
 import {
   cx,
+  type LengthUnit,
   NumberField,
   Panel,
   PanelActionCell,
@@ -23,17 +24,13 @@ import {
   type SegmentOption,
   SelectField,
 } from "@loft/design";
-import {
-  type KeyboardEvent,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type KeyboardEvent, useCallback, useEffect, useRef } from "react";
 
 import { useCommandBridge } from "../features/commandActions";
 import { useDocumentLengthUnit } from "../units/documentUnit";
+import { lengthInputValue } from "../units/length";
 import type { DatumParams } from "../api/parts";
+import type { DatumGaugeSeed } from "../viewport/faceAnchor";
 import {
   applyFacePick,
   buildDatumParams,
@@ -51,10 +48,12 @@ import {
   faceReadout,
   midplaneSideOptions,
   offsetError,
+  parseOffsetMm,
   refMidplaneSide,
 } from "../features/datum";
 import type { DatumPlaneName } from "../sketch/plane";
 import { EditorCard } from "./EditorCard";
+import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
 export interface DatumEditorProps {
   mode: "create" | "edit";
@@ -79,6 +78,56 @@ export interface DatumEditorProps {
   facePick: DatumFacePick | null;
   /** Why a face can't be picked right now (no body / no anchor), or null. */
   facePickError: string | null;
+  /**
+   * An offset asserted by the viewport gauge (CRAFT-9b), in canonical mm and
+   * SIGNED as the form holds it.
+   *
+   * Boxed (`{ mm }`) so dragging back to a number the field already holds still
+   * arrives — a bare number compares equal and the update is swallowed.
+   */
+  offsetOverride?: { mm: number } | null;
+  /**
+   * WHICH PLANE this datum is offset from, and by how much — published on every
+   * form change so the viewport can seat a gauge on it and draw the sheet at
+   * the current distance.
+   *
+   * Deliberately the QUESTION ("offset from what?") rather than a resolved
+   * basis: the page owns the datum-resolution table and already walks it for
+   * every other datum on screen, so resolving here would be a second copy of
+   * that walk which could disagree with the first. Null for a midplane (no
+   * offset to pull) and while a reference or a face is still unchosen.
+   */
+  onPlaneChange?: (seed: DatumGaugeSeed | null) => void;
+}
+
+/**
+ * The form's plane + distance, as the viewport gauge needs it — or null when
+ * there is nothing to stand on.
+ *
+ * A midplane has no offset at all (it is defined by its two sides), so it is
+ * the one kind that never grows a gauge. That is a statement about the feature
+ * rather than a gap: pulling a midplane would have to move one of its
+ * references, which is a different gesture with a different meaning.
+ */
+function datumGaugeSeed(
+  form: DatumForm,
+  unit: LengthUnit,
+): DatumGaugeSeed | null {
+  if (form.kind === "midplane") return null;
+  const offsetMm = parseOffsetMm(form.offsetInput, unit);
+  if (offsetMm === null) return null;
+  switch (form.kind) {
+    case "offset":
+      return { plane: "origin", base: form.base, offsetMm };
+    case "offset_from":
+      return form.baseFeatureId === ""
+        ? null
+        : { plane: "datum", baseFeatureId: form.baseFeatureId, offsetMm };
+    case "on_face":
+      return form.face === null
+        ? null
+        : { plane: "face", signature: form.face.signature, offsetMm };
+  }
 }
 
 const KIND_OPTIONS: ReadonlyArray<{ value: DatumKind; label: string }> = [
@@ -276,11 +325,36 @@ export function DatumEditor({
   onToggleFacePick,
   facePick,
   facePickError,
+  offsetOverride = null,
+  onPlaneChange,
 }: DatumEditorProps) {
   const unit = useDocumentLengthUnit();
-  const [form, setForm] = useState<DatumForm>(initial);
-  // Re-seed when the editor is retargeted at a different feature.
-  useEffect(() => setForm(initial), [initial]);
+  // THE ECHO (direction contract β). Without it the arrow springs back to its
+  // pre-drag length on pointer-up while the panel shows the number you dragged
+  // to — a defect that fires AFTER every screenshot anyone would take. The
+  // gauge drives a distance and the anchor carries the side, so the sign the
+  // form already holds is untouched here; a midplane has no offset field and
+  // never receives one. Re-seeded when the editor is retargeted at a different
+  // feature; both writes land during render (`useGaugeFedForm`), so the field
+  // commits WITH the override that carries it, never a commit behind the gauge.
+  const [form, setForm] = useGaugeFedForm(
+    initial,
+    gaugeWrite(
+      offsetOverride,
+      (f: DatumForm, o) =>
+        f.kind === "midplane"
+          ? f
+          : { ...f, offsetInput: lengthInputValue(o.mm, unit) },
+      unit,
+    ),
+  );
+
+  // Feed the gauge + the drawn sheet; the cleanup clears them, so closing the
+  // editor (unmount) never leaves a plane floating in the scene.
+  useEffect(() => {
+    onPlaneChange?.(datumGaugeSeed(form, unit));
+    return () => onPlaneChange?.(null);
+  }, [form, unit, onPlaneChange]);
 
   // Fold each delivered viewport face pick into its slot exactly once — the
   // nonce guards against a re-render re-applying the same pick.

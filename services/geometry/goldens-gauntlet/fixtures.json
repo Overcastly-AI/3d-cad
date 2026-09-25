@@ -1,0 +1,84 @@
+{
+  "_comment": [
+    "Real-part gauntlet fixtures (docs/GEOMETRY-QA.md, 'The gauntlet').",
+    "",
+    "NOTHING HERE IS COMMITTED TO THIS REPOSITORY AND NOTHING HERE IS",
+    "REDISTRIBUTED. Each entry is a URL plus the sha256 of the bytes that URL",
+    "served when the entry was written; scripts/gauntlet.py fetches into a",
+    "gitignored cache, verifies the digest, measures, and throws the bytes away.",
+    "",
+    "That is a deliberate licence decision, not an accident of convenience. The",
+    "provenance below was read out of each file's own ISO-10303-21 HEADER",
+    "section -- objective evidence, not a guess about the hosting repo -- and it",
+    "says plainly that the two largest parts are a manufacturer's CAD download",
+    "and a named individual's GrabCAD upload. Neither may be redistributed by an",
+    "MIT project. Measuring a file is not redistributing it; committing one is.",
+    "",
+    "The hosting repository (tpaviot/pythonocc-demos) ships NO LICENSE file, so",
+    "its contents are all-rights-reserved by default. Do not add a fixture here",
+    "on the assumption that a permissive repo licence covers its data files --",
+    "read the STEP header and record what it actually says."
+  ],
+  "fixtures": [
+    {
+      "name": "as1-oc-214",
+      "url": "https://raw.githubusercontent.com/tpaviot/pythonocc-demos/master/assets/models/as1-oc-214.stp",
+      "sha256": "038be659c54b16c9f3da8d7b2da7b63e3fd8879d3abe5b7826108336a7c0bae9",
+      "bytes": 441968,
+      "schema": "AP214 (AUTOMOTIVE_DESIGN)",
+      "what": "AS1 aerospace test assembly -- the canonical STEP conformance part (plate, rod, brackets, bolts, nuts) as re-exported by Open CASCADE.",
+      "header_originating_system": "Open CASCADE 6.1 via '--- Datakit Converter ---', 2008-07-24",
+      "licence": "Not declared. Derived from the long-circulated AS1 STEP conformance assembly; the hosting repo states no licence.",
+      "redistributable": false,
+      "ci_eligible": false
+    },
+    {
+      "name": "ventilator",
+      "url": "https://raw.githubusercontent.com/tpaviot/pythonocc-demos/master/assets/models/Ventilator.stp",
+      "sha256": "19a11c6949aff4d003a4750d0d9f7e4ee21ab12401dfb07bd97350777266e4d5",
+      "bytes": 2257591,
+      "schema": "AP214",
+      "what": "Ventilator housing -- single-solid moulded part.",
+      "header_originating_system": "see file header",
+      "licence": "Not declared (hosting repo has no LICENSE file).",
+      "redistributable": false,
+      "ci_eligible": false
+    },
+    {
+      "name": "gearbox-11752",
+      "url": "https://raw.githubusercontent.com/tpaviot/pythonocc-demos/master/assets/models/11752.stp",
+      "sha256": "c2748324a36018ff1d88cfb0a80946636f29431417b9f1052a0dfc13576b0d41",
+      "bytes": 1579363,
+      "schema": "AP214",
+      "what": "Single-solid machined casting with INTERNAL VOIDS -- 1 solid / 3 shells. The only fixture in this project that exercises a solid whose boundary is more than one shell.",
+      "header_originating_system": "see file header",
+      "licence": "Not declared (hosting repo has no LICENSE file).",
+      "redistributable": false,
+      "ci_eligible": false
+    },
+    {
+      "name": "kuka-kr600",
+      "url": "https://raw.githubusercontent.com/tpaviot/pythonocc-demos/master/assets/models/KR600_R2830-4.stp",
+      "sha256": "8beb257cb915240f7012474c2dcfb55a820a343abde082faadeacfdbe93823ce",
+      "bytes": 12587505,
+      "schema": "AP214",
+      "what": "KUKA KR600 R2830 industrial robot arm -- 61-solid manufacturer assembly.",
+      "header_originating_system": "SIEMENS PLM Software NX 7.5 via ST-DEVELOPER v11, 2014-02-06; author and organization fields EMPTY",
+      "licence": "Manufacturer CAD download. Not redistributable.",
+      "redistributable": false,
+      "ci_eligible": false
+    },
+    {
+      "name": "rc-buggy-suspension",
+      "url": "https://raw.githubusercontent.com/tpaviot/pythonocc-demos/master/assets/models/RC_Buggy_2_front_suspension.stp",
+      "sha256": "7640da77c19d10c3373b15cbbf40c39755ab4047166aca6d5293cb3efb79ed8b",
+      "bytes": 15257496,
+      "schema": "AP214",
+      "what": "XRAY XB8 RC buggy front suspension -- 211-solid assembly. The largest real part measured here and the one that breaks the shipped import budget.",
+      "header_originating_system": "Autodesk Inventor 2018 via ST-DEVELOPER v16.13, 2017-12-16; author 'Nagy Imre'; source path names GrabCAD",
+      "licence": "Third-party GrabCAD upload by a named author. Not redistributable.",
+      "redistributable": false,
+      "ci_eligible": false
+    }
+  ]
+}

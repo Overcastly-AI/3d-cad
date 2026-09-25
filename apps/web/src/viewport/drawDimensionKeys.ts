@@ -42,6 +42,9 @@
 /** Characters that open a value — the same set the mounted strip accepts. */
 const VALUE_CHARACTER = /^[0-9.]$/;
 
+/** ...and a coordinate, which can be negative (typed X / Y, G2). */
+const SIGNED_VALUE_CHARACTER = /^[-0-9.]$/;
+
 /** Typing captured before the size cells existed, addressed by cell index. */
 export interface DrawKeyBuffer {
   /**
@@ -101,9 +104,15 @@ function withText(
 export function bufferDrawKey(
   buffer: DrawKeyBuffer | null,
   key: string,
-  options: { draftId: string; fieldCount: number; shiftKey?: boolean },
+  options: {
+    draftId: string;
+    fieldCount: number;
+    shiftKey?: boolean;
+    /** The cells take a signed value (a coordinate), so a minus is ours. */
+    signed?: boolean;
+  },
 ): DrawKeyOutcome {
-  const { draftId, fieldCount, shiftKey = false } = options;
+  const { draftId, fieldCount, shiftKey = false, signed = false } = options;
   if (fieldCount < 1) return IGNORED;
   const current = buffer !== null && buffer.draftId === draftId ? buffer : null;
   if (current !== null && current.apply) return IGNORED;
@@ -138,7 +147,9 @@ export function bufferDrawKey(
     };
   }
 
-  if (!VALUE_CHARACTER.test(key)) return IGNORED;
+  if (!(signed ? SIGNED_VALUE_CHARACTER : VALUE_CHARACTER).test(key)) {
+    return IGNORED;
+  }
   const base = current ?? empty(draftId, fieldCount);
   const text = base.text[base.index] ?? "";
   return { kind: "buffered", buffer: withText(base, base.index, text + key) };

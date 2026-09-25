@@ -62,7 +62,7 @@ from geometry.kernel._step_parse_worker import (
 from geometry.kernel.export import export_step_bytes
 from geometry.kernel.imports import import_step_solid
 from geometry.kernel.types import BodyShape
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 _HERE = Path(__file__).resolve().parent
 

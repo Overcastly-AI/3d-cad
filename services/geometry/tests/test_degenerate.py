@@ -39,7 +39,7 @@ from geometry.kernel.degenerate import (
 from geometry.kernel.healing import conform_solid
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.shell import shell_body
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 #: The CM-4 / SH-1 layout, kernel-level: 40x40x10 plate, [4,12]x[10,30]
 #: through-pocket, r3 on every Z-parallel edge. The rib between the outer wall and

@@ -125,9 +125,16 @@ async function waitForCube(page: Page): Promise<void> {
 }
 
 /**
- * Click the shell face-pick node at the extreme z of the cube — the TOP face
- * (centroid z = 20) or the BOTTOM face (z = 0), chosen from the accessible name
- * so the pick is deterministic (no reliance on screen projection or index).
+ * Click the shell face-pick node at the extreme z of the cube, chosen from the
+ * accessible name so the pick is deterministic (no reliance on index).
+ *
+ * ONLY AMONG FACES THE POINTER CAN REACH (board #76). From the default view
+ * the cube's underside is behind the body; its mark now says so — a dashed
+ * hidden line, `data-buried="true"`, no pointer — instead of being drawn on
+ * the front wall and answering for a face the user cannot see. "Bottom" is
+ * therefore the LOWEST REACHABLE face, and "top" the highest. The seat pass is
+ * waited out by its own stamp, the click is a real `page.mouse.click`, and
+ * `elementFromPoint` proves the mark is what a pointer hits there first.
  */
 async function clickExtremeFace(
   page: Page,
@@ -135,11 +142,23 @@ async function clickExtremeFace(
 ): Promise<void> {
   const nodes = page.locator('[data-testid^="shell-face-"]');
   await expect(nodes.first()).toBeVisible({ timeout: 20_000 });
-  const count = await nodes.count();
+  await expect(page.getByTestId("viewport")).toHaveAttribute(
+    "data-face-mark-seats",
+    "settled",
+    { timeout: 90_000 },
+  );
+  const live = page.locator(
+    '[data-testid^="shell-face-"][data-buried="false"]',
+  );
+  const count = await live.count();
+  expect(
+    count,
+    "at least one face must be in front of the body and reachable",
+  ).toBeGreaterThan(0);
   let bestZ = which === "top" ? -Infinity : Infinity;
-  let bestIndex = 0;
+  let bestIndex = -1;
   for (let i = 0; i < count; i += 1) {
-    const label = (await nodes.nth(i).getAttribute("aria-label")) ?? "";
+    const label = (await live.nth(i).getAttribute("aria-label")) ?? "";
     const nums = label.match(/-?\d+(?:\.\d+)?/g) ?? [];
     const z = Number.parseFloat(nums[nums.length - 1] as string);
     if (!Number.isFinite(z)) continue;
@@ -148,7 +167,23 @@ async function clickExtremeFace(
       bestIndex = i;
     }
   }
-  await nodes.nth(bestIndex).click();
+  expect(bestIndex, "a live face mark names its centroid").toBeGreaterThan(-1);
+  const mark = live.nth(bestIndex);
+  const id = (await mark.getAttribute("data-testid")) ?? "?";
+  const box = await mark.boundingBox();
+  if (box === null) throw new Error(`${id} has no box`);
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  const hit = await page.evaluate(
+    ({ x, y }) =>
+      document
+        .elementFromPoint(x, y)
+        ?.closest("[data-testid]")
+        ?.getAttribute("data-testid") ?? null,
+    { x, y },
+  );
+  expect(hit, `a real pointer at ${id}'s centre must reach ${id}`).toBe(id);
+  await page.mouse.click(x, y);
 }
 
 test.describe("shell — hollow a body", () => {
@@ -255,8 +290,9 @@ test.describe("shell — hollow a body", () => {
 
       await page.getByTestId("new-shell").click();
       await page.getByTestId("shell-thickness").fill("2");
-      // A bottom face projects low in the viewport, clear of the top-left editor
-      // and the top HUD strips — the reliable target on the tight laptop width.
+      // The LOWEST REACHABLE face projects low in the viewport, clear of the
+      // editor and the top HUD strips — the reliable target on the tight
+      // laptop width. (The true underside is behind the body from this view.)
       await clickExtremeFace(page, "bottom");
       await expect(page.getByTestId("shell-open-count")).toHaveText(
         "1 face open",

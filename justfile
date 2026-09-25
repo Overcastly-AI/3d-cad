@@ -5,8 +5,10 @@ default:
     @just --list
 
 # Full dev stack via docker compose — needs a running docker daemon.
-# db/redis/minio + gateway/documents/geometry with hot reload (web joins the
-# stack with the web-shell backlog item). Foreground; Ctrl-C then `just dev-down`.
+# db/redis/minio + gateway/documents/geometry + the web app, all with hot
+# reload (the Python services via uvicorn --reload, the web app via the Vite
+# dev server). The app is at http://localhost:${WEB_PORT:-8080}; the gateway's
+# REST API is at :8000. Foreground; Ctrl-C then `just dev-down`.
 dev:
     docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 
@@ -27,6 +29,20 @@ smoke base_port="8000":
 # (the `deploy-path` workflow). Tears the stack down; KEEP_STACK=1 to keep it.
 compose-smoke:
     scripts/compose-smoke.sh
+
+# What a BROWSER sees on the two published ports, against a stack that is
+# ALREADY running (compose or `just dev`): the SPA entry document, the hashed
+# bundle it names, a missing asset 404ing, a client-side route falling back,
+# /api transparent to the gateway, and no CDN-loading /docs explorer. This is
+# the last step of `just compose-smoke`; run it alone to check a live stack.
+web-smoke:
+    scripts/web-smoke.sh
+
+# Prove those assertions can FAIL, with no Docker at all: stub servers that
+# reproduce the serving rules, then one per defect. ~11s. Run it when editing
+# web-smoke.sh — its only other exercise is CI, twenty minutes at a time.
+web-smoke-selftest:
+    scripts/web-smoke.sh --self-test
 
 # Back up a RUNNING stack: pg_dump -Fc of both databases + a manifest carrying
 # each one's alembic revision, exact per-table row counts and dump checksums.
@@ -64,11 +80,27 @@ lint:
     # GPL code fails at the moment somebody adds it — the OCP wheel proved that
     # "reviewers enforce the no-GPL rule" cannot work when the metadata lies.
     python3 scripts/check-licences.py --profile source-env
-    # ~10ms, same reasoning: a COPY source excluded by .dockerignore resolves to
+    # ~50ms, same reasoning: a COPY source excluded by .dockerignore resolves to
     # nothing and fails the image build, and the blocked registry puts that
     # failure out of local reach entirely — it surfaced only in `deploy-path`,
     # the slowest signal we have (2026-08-01, scripts/corresponding_source.py).
+    # It now also asks the question the first check cannot: is every uv
+    # workspace member in a service's dependency closure COPYed AT ALL? Adding
+    # a package and wiring it into py-kit touches no Dockerfile, so nothing in
+    # that diff suggests the image needs a line — `loft-wire` broke all three
+    # images exactly that way on 2026-09-15, and layer 1 resolves happily
+    # without it, so the obvious probe says everything is fine.
+    python3 scripts/check-build-context.py --self-test
     python3 scripts/check-build-context.py
+    # ~0.1s, no daemon. compose-verdict.sh is the last thing deploy-path says
+    # and the job log is the only channel out of CI, so a verdict that inspects
+    # NOTHING — SERVICES empty — printing "PASS, every step of this proof
+    # completed" is the walks-nothing shape in the one file whose whole purpose
+    # is legibility. It cannot turn a red job green, which is why it would never
+    # be noticed. Unlike `web-smoke-selftest` this is cheap enough to live here,
+    # and its docker stub means the branches are reachable despite the blocked
+    # registry — otherwise nothing about this file is verifiable outside CI.
+    bash scripts/compose-verdict.sh --self-test
     # ~60ms (mostly the PyYAML cross-check), same class of problem: a
     # concurrency expression cannot be exercised locally and only misbehaves
     # when two pushes land close together, so deploy-path.yml sat ref-keyed for
@@ -77,6 +109,31 @@ lint:
     # on the per-SHA push / per-ref PR shape.
     python3 scripts/check-workflow-concurrency.py --self-test
     python3 scripts/check-workflow-concurrency.py
+    # ~40ms, and the same class again one level deeper: a context used where it
+    # is not AVAILABLE is rejected by GitHub at run-creation, so the run exists
+    # with `total_jobs: 0` and zero duration and the WHOLE FILE never executes.
+    # A `runner.temp` expression in a job-level `env:` did exactly that to
+    # deploy-path.yml on 2026-09-15 — taking down the jobs that were about to
+    # prove an unrelated container fix — and it is invisible to every other
+    # gate: valid YAML, no duplicate keys, correct job/step structure.
+    # (NB the braces are spelled out in prose here on purpose: `just`
+    # interpolates a doubled curly brace even inside a recipe comment.)
+    python3 scripts/check-workflow-contexts.py --self-test
+    python3 scripts/check-workflow-contexts.py
+    # ~30ms, no browser and no daemon. Two questions nothing else can answer
+    # cheaply. (a) Does deploy/docker/web/nginx.conf still have the shape
+    # `scripts/dist-leg.sh` can serve natively? That leg is the ONLY thing that
+    # ever loads the production bundle, and the registry block means the image
+    # it imitates cannot be built here at all — so a config reshaped past the
+    # renderer would silently take the browser gate offline. (b) Do the FOUR
+    # separately-written copies of the Content-Security-Policy still agree?
+    # They are transcribed rather than shared on purpose (a check that reads
+    # the value out of the thing under test proves only that it equals itself),
+    # and the price of that is drift, which this refuses — including the case
+    # where an extraction finds NOTHING, since four empty copies agree
+    # perfectly.
+    python3 scripts/render-web-nginx.py --self-test
+    python3 scripts/render-web-nginx.py --check-only
     # ~900ms for both, over 877 tracked source files. Closes the class that put
     # a stopped agent's mutation-test constant into product code on 2026-08-14:
     # a `// <marker>: always 0` in apps/web/e2e/diagnostics.ts survived lint,
@@ -99,33 +156,17 @@ lint:
     # which that guard's literal regex cannot match at all.
     python3 scripts/check-tailwind-scale.py --self-test
     python3 scripts/check-tailwind-scale.py
-    # ~150ms. stage-doc-hunks.py is the control EVERY agent uses on the shared
-    # docs, and it had no test until it silently relocated an author's own entry
-    # to the end of BACKLOG.md while printing success (2026-08-01, found by the
-    # dogfooding pass). A tool that guards commits needs its own guard.
-    python3 scripts/stage-doc-hunks.py --self-test
-    # ~1s. DOCTICK-GATE: CLAUDE.md's "every commit that lands a feature/fix
-    # ticks ROADMAP/BACKLOG in the same commit" was NON-NEGOTIABLE in prose and
-    # unchecked in fact, which three audit passes measured as 22 of the last 24
-    # commits missing the tick. Locally it can only ever be ADVISORY — the
-    # commit you are about to write does not exist yet — so it reports on the
-    # commits you have not pushed and never fails your lint. CI's `doc-tick`
-    # job enforces it over the pushed range, where a real commit exists to
-    # judge. The self-test IS a hard gate here, same as its four neighbours
-    # above: it builds the failing case and demands a failure.
-    python3 scripts/check-doc-tick.py --self-test
-    python3 scripts/check-doc-tick.py --warn-only
-    # ~100ms. A workflow script is the one kind of code here that nobody runs
-    # before it runs for real, and "for real" costs several agent-hours plus a
-    # wave of builder time — the most expensive unverified code we write. This
-    # stubs agent() and exercises the redesign loop's WIRING: phase order,
-    # one-builder-per-subtree, the design-system item serialising ahead of the
-    # rest, and what the wave CLAIMS it did. It found two defects on its first
-    # run, both invisible in production because the run still looks successful:
-    # an item deferred for colliding on packages/design was reported as shipped,
-    # and counted in the "built N/M" denominator. It proves nothing about the
-    # prompts, which is where the judgement lives.
-    node scripts/dryrun-redesign-workflow.mjs
+    # ~2.3s over 147 backend + 314 web source files. "The whole stack can run
+    # air-gapped" (README.md) is a load-bearing sales claim that NOTHING graded
+    # until AIRGAP-1 measured it false: every service's `/docs` sourced
+    # swagger-ui from cdn.jsdelivr.net and `/redoc` pulled fonts.googleapis.com,
+    # on the ONE port a self-hoster publishes. No test could have caught it —
+    # the URLs live inside the fastapi package, so only a structural check on
+    # our FastAPI(...) call can see them. Six surfaces, each with a count floor,
+    # because a gate that examines nothing passes vacuously (the lesson
+    # check-build-context.py's "0 COPY source(s)" taught).
+    python3 scripts/check-air-gap.py --self-test
+    python3 scripts/check-air-gap.py
     # ~150ms. check-flow-cost.py reads the e2e suite as a transcript of real
     # gestures and is what the redesign loop steers by, so a silent zero in it
     # would aim a whole wave at the wrong surface. Its self-test found three
@@ -167,11 +208,34 @@ test:
 bench:
     uv run pytest services/geometry/tests/test_benchmarks.py -m benchmark -s -p no:cacheprovider
 
+# The REAL-PART GAUNTLET (docs/GEOMETRY-QA.md) — the bar this project is graded
+# against, as opposed to the bar it sets itself. Two legs that fail differently:
+# a genuinely foreign STEP part (import / tessellation / round-trip / mass
+# properties at 160–10 665 faces) and a deep parametric tree (rebuild depth,
+# incremental edit) that an imported B-rep with no history cannot test at all.
+#
+# NOT a CI gate and must not become one. It is ~25 min, it needs egress to fetch
+# its fixtures, and a timing gate on a shared runner is a false-red machine
+# (docs/PERF.md's standing rule). `--json` makes it adoptable by a nightly job.
+# The fixtures are FETCHED, never committed: every one of them is third-party
+# CAD this MIT repo may not redistribute — see goldens-gauntlet/fixtures.json.
+gauntlet:
+    uv run python scripts/gauntlet.py
+
 # Regenerate OpenAPI contracts (pydantic → packages/contracts) + typed TS
-# client (packages/ts-client). Both are committed; CI fails on drift.
+# client (packages/ts-client) + the Python client's gateway operation table
+# (packages/loft-script/src/loft/_operations.py). All three are committed; CI
+# fails on drift.
+#
+# The Python step emits ROUTES ONLY, not types — see the header of
+# scripts/gen-py-operations.py for why generating Python DTOs out of an OpenAPI
+# document generated out of Python DTOs would be a lossy round trip. Step 2 and
+# step 3 both read the contracts step 1 wrote, so one `just gen` cannot leave
+# the three layers describing different source.
 gen:
     uv run scripts/gen-contracts.py
     node scripts/gen-ts-client.mjs
+    uv run scripts/gen-py-operations.py
 
 # Drift check (CI calls this): regenerate into a tempdir and diff against the
 # committed output — non-zero on drift, never dirties the working tree.
@@ -233,3 +297,17 @@ e2e:
 # with a file: `just e2e-web e2e/measure.spec.ts`.
 e2e-web *args:
     scripts/e2e.sh --web-only -- {{args}}
+
+# THE BUILT-BUNDLE LEG — `vite build` output served through the REAL production
+# nginx config, in a real browser. Everything above drives the Vite DEV server,
+# which means two things that only ship to users had never been exercised: the
+# Content-Security-Policy (the dev server emits none, and a policy that blocks
+# a worker, a blob: URL or an inlined font is a total failure that ships green),
+# and rollup's module graph (three@0.185.1 ships a dual ESM/CJS build, so
+# `instanceof PerspectiveCamera` is false for a real camera whenever both
+# records reach one graph — already true under vitest).
+#
+# Needs nginx on PATH: apt-get install -y --no-install-recommends nginx-light.
+# ~15s to build plus ~20s of browser. Runs in CI as e2e.yml's `dist-bundle`.
+dist-leg *args:
+    scripts/dist-leg.sh {{args}}

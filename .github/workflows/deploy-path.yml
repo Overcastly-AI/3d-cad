@@ -21,6 +21,11 @@
 # a hosted runner, first green run 2026-07-25 — far cheaper than the OCP wheel
 # suggests, so `timeout-minutes: 45` below is deliberate headroom, not a
 # prediction. Do not tighten it into a flake source.
+# Since 2026-09-24 each job also compiles MinIO + mc from pinned source
+# (deploy/docker/minio.Dockerfile; 274 s cold on 4 cores, measured locally)
+# because upstream withdrew its prebuilt images from Docker Hub and then quay.io.
+# Expect the main step to run several minutes longer than the ~2 min it took
+# with pulled images — that is the build, not a hang.
 #
 # Why it exists at all: a rendered-config check cannot catch a wrong RUNTIME.
 # The audit-G1 bug (geometry handed S3_URL but no credentials → every mesh
@@ -120,6 +125,30 @@ jobs:
       # `docker compose ps`, `df -h`, and `docker compose logs` on failure.
       - name: Compose stack end-to-end (build, boot, migrate, round-trip)
         run: scripts/compose-smoke.sh
+      # AIRGAP-1, second half. `check-air-gap.py` grades our SOURCE; this
+      # grades what the build EMITTED, which is the only artifact a
+      # self-hoster's browser ever loads. It matters because the two can
+      # disagree: a dependency that inlines a CDN <link>, a font that stops
+      # being bundled, an asset rewritten to an absolute URL — none of those
+      # appear in apps/web/src at all, and this is the only place the built
+      # bundle exists (nothing local can build this image; the Docker registry
+      # is policy-denied in the dev container).
+      #
+      # The image is found by its OWN label rather than by compose's naming
+      # convention, so it cannot silently inspect the wrong thing — and the
+      # `test -n` refuses rather than passing when the label matches nothing,
+      # which is the vacuity failure this repo keeps paying for.
+      - name: Air-gap posture of the BUILT web bundle
+        run: |
+          set -euo pipefail
+          img=$(docker images --filter 'label=org.opencontainers.image.title=loft-web' --format '{{.ID}}' | head -1)
+          test -n "$img" || { echo "no image carries the loft-web title label"; exit 1; }
+          cid=$(docker create "$img")
+          rm -rf /tmp/loft-dist && mkdir -p /tmp/loft-dist
+          docker cp "$cid:/usr/share/nginx/html/." /tmp/loft-dist
+          docker rm -f "$cid" >/dev/null
+          find /tmp/loft-dist -maxdepth 1 | head -20
+          python3 scripts/check-air-gap.py --dist /tmp/loft-dist
       # LIC-1 — assert the licence posture of the BUILT ARTIFACT, not of the
       # source tree. The Dockerfile already fails the build if jbigkit survives
       # the strip, if the OCI licence label disagrees with the contents, or if
@@ -150,6 +179,57 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v --remove-orphans
+      # THE VERDICT, LAST. The script cannot be the last thing the JOB says —
+      # the steps above run after it exits — and the job log is the only
+      # channel out of CI (artifact download is policy-denied, CONNECT 403).
+      # Without this, reading a failure here costs escalating `tail_lines`
+      # pulls against ~150 lines of service logs plus teardown chatter; with
+      # it, one small fixed tail gets the whole answer. Same treatment e2e.yml
+      # got in 2874f0a.
+      #
+      # `$RUNNER_TEMP`, NOT `${{ runner.temp }}`, and NOT a job-level `env:`.
+      # The first version of this block hoisted the path into `jobs.<id>.env`
+      # so it would be written once — and `runner` is NOT AVAILABLE in a
+      # job-level env (GitHub's own workflow-parser schema lists github,
+      # inputs, vars, needs, strategy, matrix, secrets there; `runner` appears
+      # only at step level). GitHub rejects such a workflow at RUN-CREATION:
+      # the run exists with `total_jobs: 0` and zero duration, so the whole
+      # file becomes unrunnable and NOTHING is evaluated — a far worse failure
+      # than the red job it was meant to explain. scripts/check-workflow-
+      # contexts.py now gates exactly this.
+      #
+      # Inside a `run:` shell RUNNER_TEMP is an ordinary environment variable,
+      # so this needs no expression at all and cannot fail that way. The
+      # filename is repeated in compose-smoke.sh's default; that duplication is
+      # safe because the missing-file branch below is LOUD, which is what the
+      # original "one literal" argument was actually protecting against.
+      #
+      # When the file is missing this SAYS SO LOUDLY and still exits 0. Both
+      # halves are deliberate, and the word matters: "refuse" elsewhere in this
+      # repo means a non-zero exit (check-air-gap prints REFUSED and exits 2),
+      # and this step does not do that. An absent verdict means the script died
+      # before its EXIT trap (OOM, job timeout, a `docker` that would not
+      # start) — a real and otherwise invisible outcome, and a verdict step
+      # that prints nothing when something went wrong is worse than no verdict
+      # step at all. But the JOB's status already carries that failure from the
+      # step that actually died, so making this one exit non-zero would add no
+      # signal and would manufacture a spurious failure on a CANCELLED job,
+      # where `if: always()` still runs it. This step explains; it does not
+      # judge.
+      - name: Verdict
+        if: always()
+        run: |
+          verdict="$RUNNER_TEMP/compose-smoke-verdict.txt"
+          if [ -f "$verdict" ]; then
+            cat "$verdict"
+          else
+            echo "== compose-smoke verdict =="
+            echo "NO VERDICT WAS WRITTEN — compose-smoke.sh did not reach its EXIT"
+            echo "trap. The stack state was never summarised, so read the step log"
+            echo "above rather than trusting this block. Usual causes: the runner"
+            echo "killed the job (timeout/OOM), or the docker daemon never came up."
+            echo "== end compose-smoke verdict =="
+          fi
 
   # A backup nobody has restored is not a backup. This job is the only thing
   # entitled to call ours one: it seeds REAL data through the API (a user, a
@@ -178,3 +258,17 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v --remove-orphans
+      # Same reasoning as the compose job's verdict step above, including why
+      # this is `$RUNNER_TEMP` in a run: shell rather than a job-level env.
+      - name: Verdict
+        if: always()
+        run: |
+          verdict="$RUNNER_TEMP/drill-verdict.txt"
+          if [ -f "$verdict" ]; then
+            cat "$verdict"
+          else
+            echo "== backup-restore-drill verdict =="
+            echo "NO VERDICT WAS WRITTEN — backup-restore-drill.sh did not reach its"
+            echo "EXIT trap. Read the step log above rather than trusting this block."
+            echo "== end backup-restore-drill verdict =="
+          fi

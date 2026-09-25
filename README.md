@@ -28,7 +28,12 @@ they can't match** (the full thesis is in [`docs/VISION.md`](./docs/VISION.md)):
 1. **Free & unlimited.** Runs on your hardware; the marginal seat is $0. No
    hostage documents, no export limits, no feature gates.
 2. **Your data, your files, your compute.** Open document format, direct DB
-   access, STEP-first interop. The whole stack can run air-gapped.
+   access, STEP-first interop. The whole stack can run air-gapped — graded on
+   every push by `scripts/check-air-gap.py` (seven surfaces, each with a count
+   floor so a collapsed walk refuses rather than passes) plus a scan of the
+   BUILT web bundle, because a claim nothing measures is how this one came to
+   be false for a while. You still mirror the base images once, at install
+   time; the gate prints the list.
 3. **Open & extensible.** MIT license. Python is the modeling API, not a
    bolted-on macro language — the same code path the UI uses.
 4. **AI-native & agent-native.** Designed for an MCP server that lets coding
@@ -82,8 +87,9 @@ of truth for what phase we're in.
   service kit (`packages/py-kit`: config, JSON logging, health/readiness,
   error envelope, metrics, rate limiting, response compression, queue client),
   backed by Postgres 16 + Redis 7 + MinIO/S3.
-- **Auth** — registration, login, JWT-bearer sessions; internal services are
-  not reachable from the host in the compose topology.
+- **Auth** — registration, login, sliding sessions (short-lived JWT + rotating
+  refresh cookie); internal services are not reachable from the host in the
+  compose topology.
 - **Web app** — React 19 + Vite + TypeScript, an r3f modeling viewport
   (ViewCube, studio shading, feature tree, timeline with a draggable travel
   stop, mass-properties inspector, settings surface) over a token-driven
@@ -103,49 +109,20 @@ of truth for what phase we're in.
   because a correct behaviour change once shipped with a red spec while
   five straight CI runs reported green, and nothing before this workflow
   drove a browser at all.
-- **Compose stack** — Postgres 16 + Redis 7 + MinIO + the three services,
-  **proven end to end in CI**: every push builds the images, boots the stack,
-  migrates both schemas, and drives a real modeling round-trip (register →
-  part → sketch → extrude → evaluate → fetch mesh → export STEP) through the
-  published gateway port ([`deploy-path.yml`](./.github/workflows/deploy-path.yml),
+- **Compose stack** — Postgres 16 + Redis 7 + MinIO + the three services **and
+  the web app**, **proven end to end in CI**: every push builds the images,
+  boots the stack, migrates both schemas, drives a real modeling round-trip
+  (register → part → sketch → extrude → evaluate → fetch mesh → export STEP)
+  through the published gateway port, and then asserts that the app itself
+  comes back from the published web port — the entry document, the hashed
+  bundle it names, the client-side-routing fallback, and `/api` transparently
+  reaching the gateway ([`deploy-path.yml`](./.github/workflows/deploy-path.yml),
   i.e. `just compose-smoke`).
 
-**Known correctness gaps, filed and not yet fixed.** The
-[daily-driver scorecard](./docs/VISION.md#daily-driver-scorecard) is the
-source of truth for pillar-by-pillar status; these are the specific defects
-holding rows below ✅ as of this commit:
-
-- **Part modeling (➖)** — a feature reference into a body (e.g. a hole placed
-  on a face) does not reliably survive a *second* parameter edit to its own
-  generating sketch: the first edit re-anchors correctly, the second compares
-  against geometry that is already one edit stale and can orphan the
-  reference (`SUBSHAPE_UNRESOLVED`). The UI's advertised repair, "Re-pick
-  face," is currently inert on a tip that failed to build — there is no body
-  left to pick against. Tracked as `PICK-2` / `NAME-2` (both P0). Note the
-  sketch solver itself is **not** the gap here: an under-constrained solve
-  now holds the input geometry and a conflicting dimension edit is refused
-  (`SOLVE-1`, closed), which is why Sketching & constraints already rates ✅.
-- **Assemblies (❌)** — mate authoring can hit a face that is structurally
-  unreachable in the viewport: an ordinary bracket-to-plate mate was
-  unpickable across 11 camera orbits and 10 zoom levels because a same-size
-  proxy for a *different* face sits on top with no z-order tiebreak. Mate
-  solving itself is not the gap — 5 mate types, interference detection, and
-  assembly STEP round-trip all measure correct — the entry point is. Tracked
-  as `MATE-1` (P0).
-- **Sheet metal (❌)** — flat-pattern DXF export can ship **zero holes** for
-  a part that visibly has them (a bracket's 4 through-holes vanish in both
-  the on-screen flat-pattern view and the exported file) — a cut file that
-  silently omits every through-feature, not merely an incomplete one.
-  Separately, every exported DXF's `$INSUNITS` header declares **metres**,
-  not millimetres — a 1000x error for CAM/nesting software that honours the
-  field, and not limited to sheet metal: it hits the general Drawings DXF
-  export too. **Do not send an as-shipped DXF from this build to a
-  fabricator without manually verifying hole count and units.** Tracked as
-  `DXF-4` / `DXF-5` (both P0).
-
-Measured reproductions for all of the above are in
-[`docs/AUDIT-PRODUCT.md`](./docs/AUDIT-PRODUCT.md); live status and territory
-in [`docs/BACKLOG.md`](./docs/BACKLOG.md).
+**Known gaps.** The
+[daily-driver scorecard](./docs/VISION.md#daily-driver-scorecard) rates each
+area against Fusion 360, SolidWorks and Onshape, and
+[`docs/BACKLOG.md`](./docs/BACKLOG.md) lists what is being fixed next.
 
 ![The Loft viewport showing a bearing hub: a three-feature tree — sketch,
 revolve, fillet — and a turned flanged part with a through
@@ -174,9 +151,9 @@ _The constraint-solved sketcher, snapping to a line/rectangle intersection._
 
 ### Performance — where the wall is
 
-Measured, not estimated. Full method, tables and machine spec in
-[`docs/PERF.md`](./docs/PERF.md); every number below is from a 4-core
-container and carries ±8% run-to-run spread.
+Measured, not estimated: every number below is from a 4-core container and
+carries ±8% run-to-run spread (sizing advice:
+[`docs/OPERATIONS.md`](./docs/OPERATIONS.md)).
 
 A real machined bracket is 40–80 features; a real housing is 150–400.
 **Loft handles the bracket. It does not hold the housing.**
@@ -220,11 +197,16 @@ docker compose run --rm gateway   alembic -c /app/migrations/alembic.ini upgrade
 docker compose run --rm documents alembic -c /app/migrations/alembic.ini upgrade head
 ```
 
-Only the gateway is published (`:8000`); documents and geometry stay internal
-to the compose network on purpose. `just compose-smoke` proves the whole path
-— build, boot, migrate, then a real modeling round-trip over the published
-port — and **CI runs that same script on every push**, so this path is
-verified rather than assumed.
+Then open **<http://localhost:8080>**. That is the whole install: the stack
+builds the web app into its own image and serves it, proxying `/api` to the
+gateway on the compose network, so a browser only ever talks to one origin.
+
+Two ports are published — `8080` is the app, `8000` is the REST API for
+scripts. `documents` and `geometry` stay internal to the compose network on
+purpose. `just compose-smoke` proves the whole path — build, boot, migrate, a
+real modeling round-trip over the published port, and that the app itself comes
+back from `:8080` rather than a 404 — and **CI runs that same script on every
+push**, so this path is verified rather than assumed.
 
 For development without Docker (SQLite + an in-process mesh store, no
 datastores required), see
@@ -244,8 +226,8 @@ packages/py-kit     Shared service kit: config, logging, probes, errors, queue
 packages/contracts  Generated OpenAPI schemas (committed; CI fails on drift)
 packages/ts-client  Generated TypeScript client (never hand-edited)
 packages/design     Design tokens + primitives + fonts — one palette, two renderers
-deploy/             Dockerfile + compose assets (Helm later)
-docs/               VISION, RESEARCH, ROADMAP, BACKLOG, PERF, QA reports
+deploy/             Dockerfiles (the three services + the web app) + compose assets
+docs/               VISION, ROADMAP, BACKLOG, RESEARCH, QUICKSTART, OPERATIONS
 .claude/            The AI agent team: agents, skills, workflows
 ```
 
@@ -259,9 +241,9 @@ This project is developed by a team of specialized Claude Code agents —
 builders, independent reviewers and QA (including geometry-correctness QA with
 golden models), and direction roles — working off the repo's own roadmap and
 backlog, a workflow inherited from
-[Next-Lane](https://github.com/Overcastly-AI/Next-Lane). The org chart is in
-[`.claude/README.md`](./.claude/README.md) and the loop design in
-[`docs/AUTONOMOUS-LOOP.md`](./docs/AUTONOMOUS-LOOP.md).
+[Next-Lane](https://github.com/Overcastly-AI/Next-Lane). The team and its rules
+are in [`.claude/README.md`](./.claude/README.md) and
+[`CLAUDE.md`](./CLAUDE.md).
 
 Human contributions are welcome — see
 [`CONTRIBUTING.md`](./CONTRIBUTING.md).

@@ -37,11 +37,14 @@ import { create, type StateCreator } from "zustand";
 import {
   applyConstraintAction,
   constraintEntityRefs,
+  deleteSelectedEntities,
   dimensionEditorTarget,
   reconcileConstraints,
+  reconcileEditedConstraints,
   toggleConstruction,
   type ConstraintAction,
   type DimensionCommit,
+  type EntityPointRef,
   type DimensionEditorTarget,
   type SketchConstraint,
   type SolvedAngle,
@@ -72,6 +75,7 @@ import {
 } from "./drawDimensions";
 import { mirrorAxisFor, toggleMirrorTarget, type MirrorAxis } from "./mirror";
 import { originIdentity } from "./origin";
+import { withNamedPointAt } from "./pointEntry";
 import type { DatumPlaneName, Point2D, SketchPlaneSpec } from "./plane";
 import {
   applyPick,
@@ -150,7 +154,7 @@ const axisInferenceHint = (
         ? "Horizontal"
         : "Vertical"
       : "Horizontal and vertical";
-  return `${named} inferred from the line you drew — select the glyph and press Delete to drop it, or hold Ctrl/Cmd while drawing to place freehand.`;
+  return `${named} inferred from the line you drew — press Esc for Select, click the glyph and press Delete to drop it, or hold Ctrl/Cmd while drawing to place freehand.`;
 };
 
 /** How a picked entity is named back to the user ("That is a circle."). */
@@ -245,6 +249,7 @@ const CLEARED_BY_HISTORY = {
   dimensionEdit: null,
   dimensionPick: null,
   drawDimension: null,
+  pointEntry: null,
   drawDimensionFocus: null,
   offsetDraft: null,
   hint: null,
@@ -372,6 +377,17 @@ export interface SketchState {
    * the drawing gesture (a new placement, a tool change, Escape, exit).
    */
   drawDimension: DrawDimensionDraft | null;
+  /**
+   * The typed X / Y cells (helical-gear gap G2), or null. `anchor` is where
+   * they hang and the value an empty cell keeps; `target` is the point they
+   * move, or null for the tool's next point. `nonce` re-keys the cells so one
+   * entry's typing never shows in the next.
+   */
+  pointEntry: {
+    anchor: Point2D;
+    target: EntityPointRef | null;
+    nonce: number;
+  } | null;
   /**
    * Which draw-time cell has focus — the scene draws that dimension's witness
    * callout, so the number being typed always names its own edge.
@@ -556,6 +572,12 @@ export interface SketchState {
   /** Toggle the selected entities between profile and construction (N). */
   toggleConstruction: () => void;
   /**
+   * Delete the selected entities and the constraints that named them
+   * (Delete / Backspace with entities selected; see `deleteSelectedEntities`).
+   * A user edit like any other, so it is one undo step.
+   */
+  deleteSelection: () => void;
+  /**
    * Arm a trim/extend on the target under the pick (raw plane mm). `target`
    * null means the click missed every curve — a hint, no request.
    */
@@ -622,6 +644,16 @@ export interface SketchState {
   commitDrawDimensions: (values: DrawDimensionValues) => void;
   /** Dismiss the draw-time size cells, keeping the shape undimensioned. */
   dismissDrawDimensions: () => void;
+  /** Open the typed X / Y cells (see `pointEntry` and `pointEntryOpening`). */
+  openPointEntry: (anchor: Point2D, target: EntityPointRef | null) => void;
+  /** Close them, typing abandoned. */
+  closePointEntry: () => void;
+  /**
+   * Enter in the cells: place the tool's next point EXACTLY at `at` (no snap,
+   * no axis lock: a typed coordinate is the intent), or move the target point
+   * there. Closes the cells.
+   */
+  commitPointEntry: (at: Point2D) => void;
   /** Report which draw-time cell has focus (null = none). */
   focusDrawDimension: (key: DrawDimensionKey | null) => void;
   /** Open the editor for an existing dimension constraint (glyph click). */
@@ -705,6 +737,7 @@ const INITIAL = {
   dimensionEdit: null,
   dimensionPick: null,
   drawDimension: null,
+  pointEntry: null,
   drawDimensionFocus: null,
   featureId: null,
   revision: 0,
@@ -873,6 +906,25 @@ const withArmedPrompt =
       set({ hint: DIMENSION_PICK_HINT[after.dimensionPick] });
     }, get);
 
+/**
+ * The nonce every network request the store arms carries (trim/extend, offset,
+ * mirror, fillet/chamfer). PartPage's effects fire once per NEW nonce and
+ * remember the last one they served.
+ *
+ * ONE SEQUENCE FOR THE LIFE OF THE PAGE, NEVER DERIVED FROM THE LAST REQUEST
+ * (helical-gear gaps G7 and G12). Each request used to be `previous.nonce + 1`,
+ * and every success clears the request to null, so the next one started again
+ * at 1: equal to the nonce the effect had just served, so it was dropped, and
+ * `editBusy` stayed set with nothing in flight. The gear test's keyway saw it
+ * as "Trim cut the circle top, then did nothing" and an Undo stuck on
+ * "Finishing the last edit…": every second geometry edit of a session was lost.
+ */
+let requestNonce = 0;
+const nextRequestNonce = (): number => {
+  requestNonce += 1;
+  return requestNonce;
+};
+
 /** Every action, over the recording `set` (never the raw one). */
 const createSketchState = (
   set: SketchSet,
@@ -919,6 +971,7 @@ const createSketchState = (
       // way it abandons a mirror or corner draft.
       dimensionPick: null,
       drawDimension: null,
+      pointEntry: null,
       drawDimensionFocus: null,
       offsetDraft: null,
       // Arming Mirror opens its target-collection phase; any other tool clears
@@ -1165,6 +1218,40 @@ const createSketchState = (
   dismissDrawDimensions: () =>
     set({ drawDimension: null, drawDimensionFocus: null }),
 
+  openPointEntry: (anchor, target) =>
+    set({ pointEntry: { anchor, target, nonce: nextRequestNonce() } }),
+
+  closePointEntry: () => set({ pointEntry: null }),
+
+  commitPointEntry: (at) => {
+    const { pointEntry, snapSuppressed, axisLock } = get();
+    if (pointEntry === null) return;
+    set({ pointEntry: null });
+    const target = pointEntry.target;
+    if (target === null) {
+      // Through the ONE placement path a click takes (`aim` then `placeAt`),
+      // with every snap held off: the aim resolves to exactly `at`, carries no
+      // snap intent to cash in as a coincident, and infers no axis. The held-
+      // off state is the aim's own bookkeeping, not the user's modifier, so it
+      // is handed back the moment the point is placed.
+      const point = get().aim(at, 0, { suppressed: true, axisLock: false });
+      get().placeAt(point);
+      set({ snapSuppressed, axisLock });
+      return;
+    }
+    const { entities, revision } = get();
+    let moved = false;
+    const next = entities.map((entity) => {
+      if (entity.id !== target.entity) return entity;
+      const updated = withNamedPointAt(entity, target.point, at);
+      if (updated === null) return entity;
+      moved = true;
+      return updated;
+    });
+    if (!moved) return;
+    set({ entities: next, revision: revision + 1, hint: null });
+  },
+
   focusDrawDimension: (drawDimensionFocus) => set({ drawDimensionFocus }),
 
   finishPlacement: () => {
@@ -1386,15 +1473,42 @@ const createSketchState = (
     set({ entities: next, revision: revision + 1, selection: [], hint: null });
   },
 
+  deleteSelection: () => {
+    const { selection, entities, constraints, revision, editBusy } = get();
+    // A trim/offset/mirror in flight will land on the CURRENT entity set; the
+    // same hold undo takes (see `undo`).
+    if (editBusy) return;
+    const result = deleteSelectedEntities(selection, entities, constraints);
+    if (result === null) {
+      set({ hint: "Select a line, arc, circle, spline or point to delete." });
+      return;
+    }
+    const what = `${result.deleted} ${result.deleted === 1 ? "entity" : "entities"}`;
+    set({
+      entities: result.entities,
+      constraints: result.constraints,
+      revision: revision + 1,
+      selection: [],
+      hoverPick: null,
+      selectedConstraint: null,
+      dimensionEdit: null,
+      hint: null,
+      editNote:
+        result.removedConstraints > 0
+          ? `Deleted ${what}. ${result.removedConstraints} ${result.removedConstraints === 1 ? "constraint" : "constraints"} removed.`
+          : `Deleted ${what}.`,
+    });
+  },
+
   requestEdit: (op, target, pick) => {
-    const { editBusy, edit } = get();
+    const { editBusy } = get();
     if (editBusy) return;
     if (target === null) {
       set({ hint: `Aim at a curve to ${op}.` });
       return;
     }
     set({
-      edit: { op, target, pick, nonce: (edit?.nonce ?? 0) + 1 },
+      edit: { op, target, pick, nonce: nextRequestNonce() },
       editBusy: true,
       selection: [],
       hoverPick: null,
@@ -1405,15 +1519,18 @@ const createSketchState = (
   },
 
   applyEditResult: (op, entities) => {
-    const { edit, constraints, revision } = get();
+    const { edit, constraints, revision, entities: before } = get();
     if (edit === null) return;
     // Reconcile: the stateless edit rewrote geometry only, so a delete/split
-    // can strand constraints on ids that no longer exist. Drop the danglers
-    // BEFORE the revision bump re-triggers the solve — an unreconciled trim
-    // that leaves a dangling constraint would throw on the next evaluate.
-    const { constraints: kept, removed } = reconcileConstraints(
+    // can strand constraints on ids that no longer exist, and the curve that
+    // survives carries constraints on its OLD shape that would pull it back on
+    // the next solve (G7: a trimmed line re-stretched to its typed length).
+    // Both BEFORE the revision bump re-triggers the solve.
+    const { constraints: kept, removed } = reconcileEditedConstraints(
       constraints,
+      before,
       entities,
+      edit.target,
     );
     const verb = op === "trim" ? "Trimmed" : "Extended";
     const note =
@@ -1452,7 +1569,7 @@ const createSketchState = (
   },
 
   armOffset: (distanceMm) => {
-    const { offsetDraft, offset } = get();
+    const { offsetDraft } = get();
     // Guard the sign convention at the store edge too: zero collapses the
     // request to the backend's `sketch_offset_zero_distance` — reject it here.
     if (
@@ -1466,7 +1583,7 @@ const createSketchState = (
       offset: {
         target: offsetDraft.target,
         distance: distanceMm,
-        nonce: (offset?.nonce ?? 0) + 1,
+        nonce: nextRequestNonce(),
       },
       offsetDraft: null,
       editBusy: true,
@@ -1525,8 +1642,7 @@ const createSketchState = (
   },
 
   pickMirrorAxis: (id) => {
-    const { mirror, entities, editBusy, mirrorRequest, datumFrameHalfMm } =
-      get();
+    const { mirror, entities, editBusy, datumFrameHalfMm } = get();
     if (mirror === null || mirror.phase !== "axis" || editBusy) return;
     if (id === null) {
       set({ hint: "Aim at a line to mirror about." });
@@ -1548,7 +1664,7 @@ const createSketchState = (
       mirrorRequest: {
         targets: mirror.targets,
         axis,
-        nonce: (mirrorRequest?.nonce ?? 0) + 1,
+        nonce: nextRequestNonce(),
       },
       editBusy: true,
       hint: null,
@@ -1605,7 +1721,7 @@ const createSketchState = (
   },
 
   armCorner: (valueMm) => {
-    const { corner, cornerRequest } = get();
+    const { corner } = get();
     if (corner === null || corner.picks.length !== 2) return;
     // Guard the strictly-positive contract at the store edge (the backend's
     // `radius`/`distance` are > 0); a non-positive value never leaves the UI.
@@ -1618,7 +1734,7 @@ const createSketchState = (
         a,
         b,
         value: valueMm,
-        nonce: (cornerRequest?.nonce ?? 0) + 1,
+        nonce: nextRequestNonce(),
       },
       editBusy: true,
       hint: null,
@@ -1829,6 +1945,14 @@ const createSketchState = (
     // undimensioned. Escape *inside* a cell is the field's own — it abandons
     // the typing and hands the canvas back with the tool still armed (handled
     // in the scene, which stops that key from ever reaching here).
+    //
+    // Typed X / Y cells that are open but not yet focused (the keys that opened
+    // them are still being replayed) are the most local thing there is: this
+    // Escape abandons the typing and nothing else.
+    if (get().pointEntry !== null) {
+      set({ pointEntry: null });
+      return;
+    }
     if (get().drawDimension !== null) {
       set({ drawDimension: null, drawDimensionFocus: null });
     }

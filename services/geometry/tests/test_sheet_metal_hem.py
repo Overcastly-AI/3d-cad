@@ -54,7 +54,7 @@ from geometry.sheet_metal import (
     FlatPattern,
     unfold_sheet_metal,
 )
-from py_kit.schemas.features import (
+from loft_wire.features import (
     BODY_AFFECTING_FEATURE_TYPES,
     FEATURE_REGISTRY,
     HEM_CLOSED_MAX_RADIUS_RATIO,
@@ -348,7 +348,7 @@ from pathlib import Path
 
 from geometry.features.evaluate import evaluate_tree
 from geometry.sheet_metal import unfold_sheet_metal
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 request = EvaluateTreeRequest.model_validate_json(Path(sys.argv[1]).read_text("utf-8"))
 ev = evaluate_tree(request)

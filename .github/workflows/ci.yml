@@ -14,11 +14,8 @@
 #               key their push concurrency group per COMMIT — CI-2) and
 #               scripts/check-mutation-markers.py (no mutation/ablation/debug
 #               marker labels committed source — docs/RETRO.md §4b)
-#   doc-tick  — scripts/check-doc-tick.py over the pushed commit range: a commit
-#               that lands product code under a feat/fix/perf subject must tick
-#               docs/ROADMAP.md or docs/BACKLOG.md, or declare the deferral with
-#               a `Doc-tick:` trailer (DOCTICK-GATE). Own job: it is the only
-#               gate that needs history, hence fetch-depth 50.
+#   (doc-tick was removed 2026-09-25 with the same-commit ROADMAP/BACKLOG
+#   tick convention it enforced; see CLAUDE.md.)
 #   licences  — scripts/check-licences.py over the shared objects in the synced
 #               environment (LIC-3), plus a self-test that PROVES the gate
 #               fails on the GPL library the OCP wheel vendors
@@ -183,18 +180,6 @@ jobs:
         run: pnpm -r --if-present run typecheck
       - name: Unit tests
         run: pnpm -r --if-present run test
-      # A workflow script is the one kind of code here that nobody runs before it
-      # runs for real, and "for real" costs several agent-hours plus a wave of
-      # builder time. This stubs agent() and exercises the redesign loop's
-      # wiring — phase order, one builder per subtree, the design-system item
-      # serialising ahead of the rest, and what the wave CLAIMS it shipped. It
-      # earned itself on its first run: an item deferred for colliding on
-      # packages/design was still reported as shipped and counted in the
-      # "built N/M" denominator, so the orchestrator would have hunted for a
-      # commit that does not exist. It lives in this job because it is the only
-      # one with node already set up, and it needs no dependencies at all.
-      - name: Redesign workflow wiring (+ prove the harness can fail)
-        run: node scripts/dryrun-redesign-workflow.mjs
 
   contracts:
     runs-on: ubuntu-latest
@@ -234,11 +219,14 @@ jobs:
       # `docker compose config` — no daemon, no image pulls, no Python deps.
       - name: Compose invariants (audit G1/G3 guard)
         run: python3 scripts/check-compose.py
-      # Every Dockerfile COPY source survives .dockerignore. Stdlib, no daemon,
-      # ~10ms — and it is the ONLY place this class can be caught before the
-      # image build, which the blocked registry puts out of local reach: LIC-2's
-      # scripts/corresponding_source.py had no negation and failed all three
-      # image builds for two commits, visible only in `deploy-path`.
+      # Every Dockerfile COPY source survives .dockerignore, AND every uv
+      # workspace member a service depends on is COPYed at all. Stdlib, no
+      # daemon, ~50ms — and it is the ONLY place either class can be caught
+      # before the image build, which the blocked registry puts out of local
+      # reach: LIC-2's scripts/corresponding_source.py had no negation and
+      # failed all three image builds for two commits, visible only in
+      # `deploy-path`, and `loft-wire` did the same on 2026-09-15 by being a
+      # transitive dependency nobody added a COPY for.
       - name: Build-context reachability (+ prove the gate can fail)
         run: |
           python3 scripts/check-build-context.py --self-test
@@ -254,6 +242,16 @@ jobs:
         run: |
           python3 scripts/check-workflow-concurrency.py --self-test
           python3 scripts/check-workflow-concurrency.py
+      # A context used where it is NOT AVAILABLE is rejected by GitHub at
+      # run-creation: the run is created with `total_jobs: 0` and zero
+      # duration, and the entire file never executes. `${{ runner.temp }}` in a
+      # job-level `env:` did that to deploy-path.yml on 2026-09-15, taking its
+      # jobs down with it. Valid YAML, no duplicate keys, correct structure —
+      # nothing else we run can see it. Stdlib + PyYAML, ~40ms.
+      - name: Workflow context availability (+ prove the gate can fail)
+        run: |
+          python3 scripts/check-workflow-contexts.py --self-test
+          python3 scripts/check-workflow-contexts.py
       # No mutation/ablation/debug marker survives into committed source.
       # Mutation testing is mandatory here, so an agent stopped mid-mutation
       # leaves a defect that is by construction invisible to every gate except
@@ -290,54 +288,43 @@ jobs:
       # reasoning as its neighbours for living here: stdlib only, ~150ms.
       - name: Journey gesture cost (+ prove the gate can fail)
         run: python3 scripts/check-flow-cost.py --self-test
-
-  doc-tick:
-    # DOCTICK-GATE — CLAUDE.md calls it NON-NEGOTIABLE that "every commit that
-    # lands a feature/fix MUST, in the same commit, update docs/ROADMAP.md and
-    # docs/BACKLOG.md". Nothing checked it, so it was a preference, and three
-    # independent audit passes measured the same collapse: pass 7 found ZERO of
-    # 11 feature/fix commits touched either doc, pass 9 found 22 of the last 24.
-    #
-    # It is its OWN job rather than a step in `compose` because it is the only
-    # gate here that reads a COMMIT RANGE, and that needs a deeper checkout
-    # than every other job wants to pay for.
-    #
-    # The escape hatch is the load-bearing design decision, not a compromise:
-    # parallel builders are deliberately told NOT to tick the board (one writer
-    # per batch — the backlog-groomer — because two classes of writer on those
-    # two files is what the whole stage-doc-hunks.py apparatus exists to
-    # mitigate). A gate with no sanctioned way to say "the groomer owns this
-    # one" would fail nearly every builder commit and be deleted within a day.
-    # So a commit may instead carry `Doc-tick: groomer` or
-    # `Doc-tick: none — <reason>` in its message. Both are COUNTED and the
-    # ratio is printed on every run, which is the point: a deferral anyone can
-    # grep is a decision, an omission nobody records is a leak.
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # NOT the default fetch-depth: 1. This gate reads a range, and with a
-          # depth-1 checkout $BEFORE does not resolve, so the range collapses
-          # to nothing and the job goes green forever while measuring zero
-          # commits — the exact vacuous-green shape this repo has shipped four
-          # times. The script ALSO refuses an empty range (count floor), so
-          # this is belt and braces; 50 covers any realistic push and the
-          # script announces it in the log if it has to fall back.
-          fetch-depth: 50
-      - name: Doc-tick over the pushed range (+ prove the gate can fail)
-        env:
-          # Right end is HEAD in both cases because it always resolves: on a PR
-          # the checkout is the merge commit (itself exempt), on a push it is
-          # github.sha. A left end that does not resolve degrades to "the head
-          # commit alone", loudly, rather than to silence.
-          RANGE: >-
-            ${{ github.event_name == 'pull_request'
-                && format('{0}..HEAD', github.event.pull_request.base.sha)
-                || format('{0}..HEAD', github.event.before) }}
+      # AIRGAP-1. README.md sells "the whole stack can run air-gapped" and
+      # docs/VISION.md builds two of four structural advantages on it; nothing
+      # graded the claim, and it was FALSE — every service boots through
+      # py_kit.create_app, whose FastAPI(...) left docs_url/redoc_url at their
+      # defaults, so /docs on the gateway's published port sourced swagger-ui
+      # from cdn.jsdelivr.net and /redoc pulled fonts.googleapis.com. Those
+      # URLs live inside the fastapi package, never in our tree, so no grep of
+      # our own strings could ever have found them — only a structural check on
+      # the construction call. Six surfaces (python string literals, the
+      # FastAPI call, web source + markup, fonts, compose, Dockerfile runtime
+      # directives), each with a count floor so a collapsed walk REFUSES
+      # instead of passing. Belongs in this job for the same reason as its
+      # neighbours: stdlib only, no daemon, no uv environment, ~2.3s.
+      - name: Air-gap — nothing the running product needs is on the internet
         run: |
-          python3 scripts/check-doc-tick.py --self-test
-          python3 scripts/check-doc-tick.py --range "$RANGE" --verbose
+          python3 scripts/check-air-gap.py --self-test
+          python3 scripts/check-air-gap.py
+      # scripts/web-smoke.sh asserts the compose stack ENDS AT THE APP — the
+      # entry document, the hashed bundle it names, the SPA fallback, a
+      # transparent /api proxy, and no CDN-loading FastAPI explorer. Those
+      # assertions only run inside `deploy-path`, which needs a Docker daemon
+      # and takes ~20 minutes, so a bash typo in them would be discovered one
+      # slow round trip at a time. This runs the checker against stub servers
+      # that reproduce the serving rules, and then against one stub per defect
+      # (a greedy fallback, an HTML bundle, a 13-byte bundle, a missing proxy,
+      # a 502 proxy, a directory listing, a live /docs, a gateway that 404s
+      # everything), demanding a failure each time — so every assertion in that
+      # script has been watched failing before it is trusted on a runner. It
+      # found a real defect on its first run: `set -o pipefail` made a grep
+      # that matched nothing abort the whole script with an EMPTY stderr.
+      #
+      # ~11s, and it is here rather than in `just lint` deliberately: that is
+      # ten seconds on every agent's every lint to guard a file that changes
+      # rarely, and this job gives the same verdict on every push. Run it by
+      # hand with `just web-smoke-selftest` when editing the script.
+      - name: Browser-path assertions (prove the deploy-path gate can fail)
+        run: scripts/web-smoke.sh --self-test
 
   licences:
     # LIC-3 — the no-GPL rule, enforced by reading the BINARIES we ship.
@@ -425,7 +412,11 @@ jobs:
       - name: Generate an ephemeral MinIO credential
         run: |
           echo "MINIO_ROOT_PASSWORD=minio-$(od -An -tx1 -N18 /dev/urandom | tr -d ' \n')" >> "$GITHUB_ENV"
-      - name: Boot MinIO
+      # MinIO is BUILT FROM SOURCE here (deploy/docker/minio.Dockerfile, ~4-5
+      # min cold): upstream withdrew its prebuilt images from Docker Hub and
+      # then from quay.io, so there is no registry image left to pull. `up`
+      # builds the missing image; minio-init below reuses the same build.
+      - name: Build + boot MinIO (from pinned source)
         run: docker compose up -d --wait minio
       - name: Provision the mesh bucket
         run: docker compose run --rm minio-init

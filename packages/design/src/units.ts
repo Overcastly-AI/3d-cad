@@ -185,6 +185,50 @@ export function formatLength(
   return unitSuffix ? `${text} ${unit}` : text;
 }
 
+/** Options for {@link formatAngle}. */
+export interface FormatAngleOptions {
+  /** Max digits after the decimal point before trailing zeros are trimmed. */
+  maxFractionDigits?: number;
+  /** Append the degree sign (`"45°"`); false yields the bare number (`"45"`). */
+  unitSuffix?: boolean;
+}
+
+/**
+ * Degrees → a display string, trailing-zero trimmed, with the degree sign by
+ * default (`formatAngle(45) === "45°"`).
+ *
+ * IT LIVES HERE BECAUSE THERE WERE ALREADY THREE OF IT AND NONE OF THEM HERE
+ * (W3 direction §1.9): `measure/geometry.ts: formatAngleDeg` (`toFixed(1)` + the
+ * sign, `"—"` for null), `features/revolve.ts: formatAngleInput`
+ * (`String(angleDeg)`), `features/hole.ts: formatAngle` (integer, else
+ * `toFixed(2)`, no suffix). An angular gauge written against any of them makes
+ * a FOURTH, in the one place — a manipulator the user drags — where the number
+ * under the pointer and the number in the rail disagreeing is most visible.
+ * `formatLength` is the shape this follows exactly, down to the `unitSuffix`
+ * option, so the tag cell that prints a length bare and the one that prints an
+ * angle bare are one habit rather than two.
+ *
+ * THE THREE EXISTING CALL SITES ARE DELIBERATELY NOT MIGRATED HERE. Each has
+ * its own rounding and its own null handling, so folding them in is a
+ * behaviour change in three features at once; that is a DRY item of its own,
+ * and doing it inside the wave's foundation commit would put three unrelated
+ * regressions behind one pixel-match gate.
+ *
+ * A DEGREE IS NOT A `LengthUnit`, and that is why there is no unit argument:
+ * angles have exactly one display unit in this product. The kernel, the wire
+ * and the forms are all degrees, so there is nothing to convert and nothing to
+ * remember — unlike a length, where the canonical mm and the document's own
+ * unit genuinely differ.
+ */
+export function formatAngle(
+  deg: number,
+  opts: FormatAngleOptions = {},
+): string {
+  const { maxFractionDigits = 4, unitSuffix = true } = opts;
+  const text = trimDecimal(deg, maxFractionDigits);
+  return unitSuffix ? `${text}°` : text;
+}
+
 /**
  * The mass units a readout may use (docs/design/materials.md §5).
  *

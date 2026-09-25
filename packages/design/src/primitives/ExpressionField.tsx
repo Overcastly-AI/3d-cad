@@ -56,7 +56,10 @@ export function ExpressionField({
       </label>
       <div
         className={cx(
-          "flex items-baseline gap-1 rounded-sm border bg-carbide px-2 py-1",
+          // No vertical padding HERE: it is on the input, the one thing a click
+          // focuses, so the input spans the cell's height instead of sitting
+          // 21 px tall inside it (NumberField's fix, 2c24a2d; review S7).
+          "flex items-baseline gap-1 rounded-sm border bg-carbide px-2",
           "focus-within:outline focus-within:outline-2 focus-within:outline-offset-1",
           invalid
             ? "border-flag focus-within:outline-flag"
@@ -73,7 +76,7 @@ export function ExpressionField({
           spellCheck={false}
           aria-invalid={invalid || undefined}
           aria-describedby={invalid ? errorId : undefined}
-          className="w-full min-w-0 bg-transparent font-data text-md text-mist outline-none placeholder:text-gauge"
+          className="w-full min-w-0 bg-transparent py-1 font-data text-md text-mist outline-none placeholder:text-gauge"
           {...rest}
         />
         {unit ? (

@@ -20,6 +20,15 @@
 # This overlay ADDS geometry-2/3/4; the base file's `geometry` is worker 1, so
 # nothing is left running idle and the base `depends_on` still holds.
 #
+# THE `web` SERVICE IS DELIBERATELY ABSENT HERE. This file exists for ONE
+# bottleneck — the OCCT workers, which are CPU-bound and cannot share a process
+# because OCP holds the GIL. nginx serving a 2 MB bundle and proxying JSON is
+# not that bottleneck by any measurement, and a second web replica would need a
+# load balancer in front of it to mean anything, which is a Kubernetes concern
+# (RESEARCH §7), not a compose one. The base file's single `web` composes into
+# this stack unchanged and talks to the same gateway, which is doing the
+# rendezvous-hash fan-out described below.
+#
 # SIZING: one worker per core, ~1 GiB RAM each, one concurrent modeler per
 # worker. Four workers wants a 4-core / 8-16 GiB host. Four workers on two cores
 # is worse than two workers on two cores. See docs/OPERATIONS.md §6.

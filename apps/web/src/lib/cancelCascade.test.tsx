@@ -205,3 +205,86 @@ describe("the cancel cascade", () => {
     older.unmount();
   });
 });
+
+/**
+ * A RUNG THAT DECLINES PASSES THE KEY ON.
+ *
+ * A rung is armed from render state, and render state lags. The measured case
+ * is the gauge's drag rung straight after a release. `pointerup` has ended the
+ * grab, but the rung is still armed until the gauge re-renders, one Scheduler
+ * task later. An Escape inside that task reached a handler with nothing to
+ * revert. The cascade took the key anyway, and the command stayed open
+ * (`craft9b-gauges.spec.ts`, "a reopened command..."). The handler now says so
+ * by returning `false`, and these cases hold the cascade to it.
+ */
+describe("a declining rung", () => {
+  /** Stand on `rung` with a handler that has nothing to back out of. */
+  function standIdle(rung: CancelRung): {
+    asked: ReturnType<typeof vi.fn>;
+    unmount: () => void;
+  } {
+    const asked = vi.fn(() => false);
+    const hook = renderHook(() => useCancelKey(rung, asked));
+    return { asked, unmount: () => act(() => hook.unmount()) };
+  }
+
+  it("hands the key to the next live rung", () => {
+    const drag = standIdle("drag");
+    const offer = standOn("offer");
+    const event = escape();
+    expect(drag.asked).toHaveBeenCalledTimes(1);
+    expect(offer.ran).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBe(true);
+    offer.unmount();
+    drag.unmount();
+  });
+
+  it("leaves the key to the workspace when no rung takes it", () => {
+    // The craft9b case exactly: the stale drag rung is the only one standing,
+    // and the command's own cancel, a plain window listener, must get the key.
+    const workspace = vi.fn();
+    window.addEventListener("keydown", workspace);
+    const drag = standIdle("drag");
+    const event = escape();
+    expect(drag.asked).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBe(false);
+    expect(workspace).toHaveBeenCalledTimes(1);
+    window.removeEventListener("keydown", workspace);
+    drag.unmount();
+  });
+
+  it("still owns the key outright when it does take it", () => {
+    // Declining must not weaken taking: a handler that returns nothing (every
+    // rung but the gauge's) keeps the key, and nothing behind it hears it.
+    const behind = vi.fn();
+    window.addEventListener("keydown", behind);
+    const drag = standOn("drag");
+    expect(escape().defaultPrevented).toBe(true);
+    expect(behind).not.toHaveBeenCalled();
+    window.removeEventListener("keydown", behind);
+    drag.unmount();
+  });
+
+  it("still owns the key when its handler throws", () => {
+    // Review N3 on 3478273: run-first-stop-second meant a throwing handler
+    // skipped the stop, and the editor's cancel behind it ALSO ran — the
+    // two-steps-from-one-key defect the cascade exists to end.
+    const behind = vi.fn();
+    window.addEventListener("keydown", behind);
+    const hook = renderHook(() =>
+      useCancelKey("drag", () => {
+        throw new Error("handler failed");
+      }),
+    );
+    // jsdom reports a listener's throw as a window `error` event rather than
+    // rethrowing it from dispatchEvent; claim it so the run stays clean.
+    const swallow = (event: ErrorEvent) => event.preventDefault();
+    window.addEventListener("error", swallow);
+    const event = escape();
+    window.removeEventListener("error", swallow);
+    expect(event.defaultPrevented).toBe(true);
+    expect(behind).not.toHaveBeenCalled();
+    window.removeEventListener("keydown", behind);
+    act(() => hook.unmount());
+  });
+});

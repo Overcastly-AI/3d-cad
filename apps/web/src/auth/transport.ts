@@ -2,61 +2,220 @@
  * Auth transport — wires the session into the ONE gateway client:
  *
  * - every request carries `Authorization: Bearer <token>` while signed in;
- * - every 401 whose envelope code is `invalid_token` (expired, tampered, or
- *   ghost-user token — the gateway is deliberately uniform) clears the
- *   session globally and flags the quiet "session expired" notice. Tokens
- *   live 1 h with no refresh, so this is THE expiry story: no silent
- *   failures, no assumed-persistent sessions. Login's `invalid_credentials`
- *   401 is NOT a session defect and passes through untouched.
+ * - a 401 whose envelope code is `invalid_token` (expired, tampered, revoked,
+ *   or ghost-user token — the gateway is deliberately uniform) no longer ends
+ *   the session on the spot. The session is renewed from the refresh cookie
+ *   and the request is sent ONCE more with the new token; the caller sees the
+ *   retried response and never learns there was a gap. Only when the renewal
+ *   itself is refused does the session end (the quiet "session expired"
+ *   notice, and sign-in returns the user to where they were).
+ * - Login's `invalid_credentials` 401 is NOT a session defect and passes
+ *   through untouched, as does every 401 from the session routes themselves.
+ *
+ * Tokens are renewed BEFORE they expire too (`keepalive.ts`); the path here is
+ * the safety net for a sleeping laptop, a throttled tab, or a token the
+ * gateway revoked.
  */
+import type { paths } from "@loft/ts-client/gateway";
 import type { Middleware } from "openapi-fetch";
 
 import { envelopeCode } from "../api/envelope";
 import { gatewayClient } from "../api/client";
+import { createKeepalive } from "./keepalive";
+import {
+  createRefresher,
+  requestRefresh,
+  webLock,
+  type RefreshOutcome,
+} from "./refresh";
 import { useSessionStore } from "./session";
 
 /** What the middleware needs from the session (injectable for tests). */
 export interface SessionTransport {
   getToken(): string | null;
+  /** Who this tab is signed in as — requests are only ever resent as them. */
+  getUserId(): string | null;
+  /** Renew the session (single flight; see `refresh.ts`). */
+  refresh(): Promise<RefreshOutcome>;
+  /** The session cannot continue: clear it and send the user to sign in. */
   expire(): void;
 }
 
-export function createAuthMiddleware(session: SessionTransport): Middleware {
+/**
+ * The session routes. Their 401s are answers ABOUT the session (bad password,
+ * spent cookie) and must never trigger a renewal, or a failed refresh would
+ * try to refresh itself.
+ */
+export const SESSION_ROUTES: ReadonlySet<keyof paths> = new Set<keyof paths>([
+  "/api/v1/auth/login",
+  "/api/v1/auth/register",
+  "/api/v1/auth/refresh",
+  "/api/v1/auth/logout",
+]);
+
+/** `schemaPath` is typed `string` by openapi-fetch; the set's keys are routes. */
+function isSessionRoute(schemaPath: string): boolean {
+  return (SESSION_ROUTES as ReadonlySet<string>).has(schemaPath);
+}
+
+async function isInvalidToken(response: Response): Promise<boolean> {
+  if (response.status !== 401) return false;
+  try {
+    return envelopeCode(await response.clone().json()) === "invalid_token";
+  } catch {
+    return false; // Non-JSON 401 — not ours to interpret.
+  }
+}
+
+function bearerOf(request: Request): string | null {
+  const header = request.headers.get("Authorization");
+  return header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : null;
+}
+
+export function createAuthMiddleware(
+  session: SessionTransport,
+  fetchImpl?: (request: Request) => Promise<Response>,
+): Middleware {
+  // A body can be read once and `fetch` has read it, so a request that might
+  // need a resend keeps its body as BYTES, read once before the first send.
+  // Both sends are built from those same bytes. It is NOT a `request.clone()`:
+  // a clone tees the body into a stream, Chromium then uploads it as a
+  // stream, and nothing observing the page (DevTools, Playwright's
+  // postData()) can see the body any more. That silently broke 15 e2e specs
+  // that read the payload the app sent (3c18833). Keyed on the Request that
+  // is actually sent, so the bytes go when the request does: small for JSON,
+  // one buffer for a STEP upload.
+  const replays = new WeakMap<Request, ArrayBuffer>();
+  // The user each request was SENT as. A resend goes out only as that same
+  // user: never replay one person's write under another person's token.
+  const sentAs = new WeakMap<Request, string | null>();
   return {
-    async onRequest({ request }) {
+    async onRequest({ request, schemaPath }) {
       const token = session.getToken();
       if (token !== null) {
         request.headers.set("Authorization", `Bearer ${token}`);
       }
-      return request;
-    },
-    async onResponse({ response }) {
-      if (response.status === 401) {
-        let body: unknown = null;
-        try {
-          body = await response.clone().json();
-        } catch {
-          body = null; // Non-JSON 401 — not ours to interpret.
-        }
-        if (envelopeCode(body) === "invalid_token") {
-          session.expire();
-        }
+      let sendable = request;
+      if (!isSessionRoute(schemaPath) && request.body !== null) {
+        const bytes = await request.arrayBuffer();
+        sendable = new Request(request, { body: bytes });
+        replays.set(sendable, bytes);
       }
-      return response;
+      sentAs.set(sendable, session.getUserId());
+      return sendable;
+    },
+    async onResponse({ request, response, schemaPath, options }) {
+      if (isSessionRoute(schemaPath)) return response;
+      if (!(await isInvalidToken(response))) return response;
+
+      // Another request may already have renewed the session while this one
+      // was in flight: then there is nothing to renew, only to resend.
+      const sent = bearerOf(request);
+      const held = session.getToken();
+      let token: string | null = held !== null && held !== sent ? held : null;
+      if (token === null) {
+        const outcome = await session.refresh();
+        // "rejected" has already ended the session (see installAuthTransport);
+        // "unavailable" keeps it — this call fails like any network blip, and
+        // the keepalive tries again.
+        if (outcome.kind !== "refreshed") return response;
+        token = outcome.token;
+      }
+      const owner = sentAs.get(request) ?? null;
+      if (owner === null || session.getUserId() !== owner) return response;
+
+      const bytes = replays.get(request);
+      replays.delete(request);
+      const replay =
+        bytes === undefined
+          ? new Request(request)
+          : new Request(request, { body: bytes });
+      replay.headers.set("Authorization", `Bearer ${token}`);
+      // Detached on purpose: `options.fetch(...)` would call the browser's
+      // fetch with `this` = the options object, and Chromium throws "Illegal
+      // invocation". Node's fetch does not check its receiver; the scripted
+      // fetch in transport.test.ts does, so the unit suite catches it too.
+      const clientFetch = options.fetch;
+      const send = fetchImpl ?? clientFetch;
+      const retried = await send(replay);
+      // Retried once, with a token minted this instant: a second invalid_token
+      // is not an expiry to ride out, it is a session that cannot work.
+      if (await isInvalidToken(retried)) session.expire();
+      return retried;
     },
   };
 }
 
+/** Where the user is now — what sign-in should return them to. */
+function currentPath(): string | null {
+  const location = globalThis.location as Location | undefined;
+  if (location === undefined) return null;
+  return `${location.pathname}${location.search}${location.hash}`;
+}
+
+/** Revoke the session server-side (fire and forget; sign-out already happened). */
+async function revokeOnServer(token: string): Promise<void> {
+  try {
+    await gatewayClient.POST("/api/v1/auth/logout", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    // Offline: the server-side session then lives on until its idle bound
+    // (the next sign-in replaces the cookie). Nothing the user can act on.
+  }
+}
+
 let installed = false;
 
-/** Install the auth middleware on the app's gateway client (idempotent). */
+/**
+ * Install the auth middleware and the keepalive on the app's gateway client
+ * (idempotent). Also: a deliberate sign-out revokes the session server-side,
+ * so the refresh cookie and every access token of it stop working at once.
+ */
 export function installAuthTransport(): void {
   if (installed) return;
   installed = true;
+  const store = useSessionStore;
+  const expire = () => {
+    if (store.getState().token !== null) store.getState().expire(currentPath());
+  };
+  const refresher = createRefresher({
+    request: () => requestRefresh(gatewayClient),
+    lock: webLock(),
+    onRefreshed: (token, user) => {
+      // A sign-out while the refresh was in flight wins: do not sign back in.
+      if (store.getState().token !== null) store.getState().signIn(token, user);
+    },
+    onRejected: expire,
+    currentUserId: () => store.getState().user?.id ?? null,
+    onSwitched: () => store.getState().abandon(),
+  });
   gatewayClient.use(
     createAuthMiddleware({
-      getToken: () => useSessionStore.getState().token,
-      expire: () => useSessionStore.getState().expire(),
+      getToken: () => store.getState().token,
+      getUserId: () => store.getState().user?.id ?? null,
+      refresh: () => refresher.refresh(),
+      expire,
     }),
   );
+
+  const keepalive = createKeepalive({
+    refresh: () => refresher.refresh(),
+    now: () => Date.now(),
+    setTimer: (callback, delayMs) => globalThis.setTimeout(callback, delayMs),
+    clearTimer: (handle) =>
+      globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
+  });
+  keepalive.schedule(store.getState().token, store.getState().receivedAt);
+  store.subscribe((state, previous) => {
+    if (state.token !== previous.token) {
+      keepalive.schedule(state.token, state.receivedAt);
+    }
+    if (previous.token !== null && state.token === null && !state.expired) {
+      void revokeOnServer(previous.token);
+    }
+  });
+  globalThis.document?.addEventListener("visibilitychange", () => {
+    if (globalThis.document.visibilityState === "visible") keepalive.wake();
+  });
 }

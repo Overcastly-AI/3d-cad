@@ -20,6 +20,7 @@ import {
   Stamp,
   SuppressIcon,
   TextField,
+  Truncated,
 } from "@loft/design";
 import {
   useCallback,
@@ -66,6 +67,8 @@ import {
   solveSummary,
 } from "../features/partBuild";
 import { barSlotIndex } from "../features/rollback";
+import { movedEdgeWarning } from "../features/subshapeResolution";
+import { MovedEdgeNotice } from "./MovedEdgeNotice";
 import {
   entityIsDrawn,
   ORIGIN_AXES,
@@ -112,6 +115,16 @@ export interface FeatureTreePanelProps {
    * selection for this feature so the user can re-attach the lost reference.
    * Absent = no repair offered (e.g. the assembly reuse). */
   onRepickFace?: (feature: FeatureResponse) => void;
+  /**
+   * Re-pick a feature's MOVED edges (EDGE-RESOLVE-WARN-1): open its editor
+   * with the picks the body no longer has dropped and picking armed. Absent =
+   * no "Edge moved" notice at all (e.g. the assembly reuse, which cannot edit).
+   */
+  onRepickEdges?: (feature: FeatureResponse) => void;
+  /** "Edge moved" notices the user dismissed, by `MovedEdgeWarning.key`. */
+  dismissedWarnings?: ReadonlySet<string>;
+  /** Dismiss one "Edge moved" notice (remembered against its key). */
+  onDismissWarning?: (key: string) => void;
   /** Toggle a feature's suppress flag (feature-tree.md §4.3a): a suppressed
    * feature is skipped at rebuild but stays in the tree (reversible). */
   onToggleSuppress: (feature: FeatureResponse) => void;
@@ -206,6 +219,9 @@ export function FeatureTreePanel({
   onKeepAsOneBody,
   recoveringDisjoint = false,
   onRepickFace,
+  onRepickEdges,
+  dismissedWarnings,
+  onDismissWarning,
   onToggleSuppress,
   suppressingId = null,
   onRowContextMenu,
@@ -511,12 +527,22 @@ export function FeatureTreePanel({
                   status === "suppressed";
                 const suppressBusy = feature.id === suppressingId;
                 const renaming = feature.id === renamingId;
+                const badge = featureBadge(feature.feature, features);
                 // This row was never attempted — and the cause is a DIFFERENT
                 // feature, so the row has to name it.
                 const blockedBy =
                   status === "skipped" && !suppressed && !rolledBack
                     ? (build.failure?.id ?? null)
                     : null;
+                // A picked edge the kernel re-found only by adjacency. The row
+                // stays OK (it built); the notice under it asks for a look.
+                const moved =
+                  onRepickEdges !== undefined && !rolledBack
+                    ? movedEdgeWarning(feature, features, result)
+                    : null;
+                const showMoved =
+                  moved !== null &&
+                  !(dismissedWarnings?.has(moved.key) ?? false);
                 return (
                   <FeatureRowGroup key={feature.id}>
                     {/* THE SEAT. A 2px scribe line where the dragged row would
@@ -618,7 +644,7 @@ export function FeatureTreePanel({
                         }
                       />
                       {renaming ? (
-                        <div className="flex grow items-baseline gap-2">
+                        <div className="flex min-w-0 grow items-baseline gap-2">
                           <TextField
                             label={`Rename ${feature.name}`}
                             hideLabel
@@ -645,7 +671,7 @@ export function FeatureTreePanel({
                             }
                           />
                           <span className="shrink-0 font-body text-xs text-gauge">
-                            {featureBadge(feature.feature, features)}
+                            {badge}
                           </span>
                         </div>
                       ) : (
@@ -655,19 +681,26 @@ export function FeatureTreePanel({
                           aria-pressed={selected}
                           aria-label={`Select ${feature.name}`}
                           data-testid={`feature-select-${index}`}
-                          className="flex min-h-target-dense grow items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+                          // `min-w-0` IS the fix for GEOMETRY-QA F6. A flex
+                          // item's automatic minimum width is its content, so
+                          // without it this button would not shrink below the
+                          // whole name. The row ran past the panel and the
+                          // status column was what got clipped: "Tooth gap
+                          // (twisted cut)" showed its OK cut to one glyph.
+                          className="flex min-h-target-dense min-w-0 grow items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
                         >
-                          <span
-                            className={`grow truncate font-data text-sm ${
+                          {/* The NAME is what gives way: `Truncated`
+                              ellipsises and keeps the whole name on `title`. */}
+                          <Truncated
+                            text={feature.name}
+                            className={`grow font-data text-sm ${
                               suppressed
                                 ? "text-gauge line-through decoration-etch"
                                 : rolledBack
                                   ? "text-gauge"
                                   : "text-mist"
                             }`}
-                          >
-                            {feature.name}
-                          </span>
+                          />
                           {/* The SCOPE stamp — the same word the command band
                               uses for the same fact, so the two surfaces teach
                               one vocabulary rather than two. It takes the badge
@@ -683,8 +716,16 @@ export function FeatureTreePanel({
                               Scope
                             </Stamp>
                           ) : (
-                            <span className="shrink-0 font-body text-xs text-gauge">
-                              {featureBadge(feature.feature, features)}
+                            // Capped, so a pattern's badge naming a long
+                            // source ("pattern · Tooth gap (twisted cut)")
+                            // cannot take the row the name gave up either.
+                            // (Not `Truncated`: its own `max-w-full` would
+                            // race this cap in the stylesheet's order.)
+                            <span
+                              title={badge}
+                              className="min-w-0 max-w-[60%] shrink-0 truncate font-body text-xs text-gauge"
+                            >
+                              {badge}
                             </span>
                           )}
                         </button>
@@ -792,6 +833,20 @@ export function FeatureTreePanel({
                             {REPICK_FACE_ACTION}
                           </Button>
                         ) : null}
+                      </li>
+                    ) : null}
+                    {showMoved && moved !== null && onRepickEdges ? (
+                      <li className="py-1 pr-3 pl-[26px]">
+                        <MovedEdgeNotice
+                          warning={moved}
+                          onRepick={() => onRepickEdges(feature)}
+                          {...(onDismissWarning !== undefined
+                            ? { onDismiss: () => onDismissWarning(moved.key) }
+                            : {})}
+                          data-testid={`feature-resolution-${index}`}
+                          repickTestId={`feature-repick-edges-${index}`}
+                          dismissTestId={`feature-resolution-dismiss-${index}`}
+                        />
                       </li>
                     ) : null}
                     {/* The casualty list, stated ONCE where the build stopped:

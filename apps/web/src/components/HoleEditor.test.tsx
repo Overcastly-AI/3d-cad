@@ -24,7 +24,7 @@ import {
   type HolePickTarget,
 } from "../features/hole";
 import { DocumentUnitProvider } from "../units/documentUnit";
-import { HoleEditor } from "./HoleEditor";
+import { HoleEditor, type HoleGaugeState } from "./HoleEditor";
 import type { LengthUnit } from "@loft/design";
 import { expectGated } from "../test/gated";
 
@@ -54,6 +54,9 @@ function renderEditor(
     edges?: readonly OverlayEdge[] | null;
     canPickFace?: boolean;
     pickBlockedReason?: string | null;
+    diameterOverride?: { mm: number } | null;
+    depthOverride?: { mm: number } | null;
+    onGaugeChange?: (state: HoleGaugeState | null) => void;
   } = {},
 ) {
   const onSubmit = vi.fn<(params: HoleParams) => void>();
@@ -62,6 +65,11 @@ function renderEditor(
       <HoleEditor
         mode="create"
         initial={overrides.initial ?? placed()}
+        diameterOverride={overrides.diameterOverride ?? null}
+        depthOverride={overrides.depthOverride ?? null}
+        {...(overrides.onGaugeChange === undefined
+          ? {}
+          : { onGaugeChange: overrides.onGaugeChange })}
         onSubmit={onSubmit}
         onCancel={vi.fn()}
         saving={false}
@@ -612,6 +620,34 @@ describe("HoleEditor — dialling the position in (QA3-1)", () => {
     expect(frame).toHaveAccessibleName(/part origin projected onto it/);
   });
 
+  it("names the fields' zero ABOVE them, not after them (F-6)", () => {
+    // The audit read `POINT Centre of face (60, 0, 20 mm)` directly above X and
+    // Y, typed -45 meaning "45 mm left of that centre", and got a point 45 mm
+    // off the face: the fields are measured from the FRAME origin, and the row
+    // that said so sat underneath them, labelled "Frame".
+    renderEditor({ initial: placed() });
+    const frame = screen.getByTestId("hole-frame");
+    const point = screen.getByTestId("hole-position");
+    // Document order is reading order in this card: POINT, then the zero, then
+    // the fields the zero governs.
+    expect(
+      point.compareDocumentPosition(frame) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      frame.compareDocumentPosition(x()) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // The row's own label says what it is to the fields beneath it.
+    expect(frame.previousElementSibling).toHaveTextContent(/^From$/);
+    // …and each field's accessible name carries the same zero and direction,
+    // so a screen reader is never handed a bare "X" either.
+    expect(x()).toHaveAccessibleName(
+      "Drill X on the face, mm, measured from 0, 0, 10 along +X",
+    );
+    expect(y()).toHaveAccessibleName(
+      "Drill Y on the face, mm, measured from 0, 0, 10 along +Y",
+    );
+  });
+
   it("reads a keystroke in progress as PENDING, never as a mistake", () => {
     const { onSubmit } = renderEditor({ initial: placed() });
     fireEvent.change(x(), { target: { value: "-" } });
@@ -649,9 +685,9 @@ describe("HoleEditor — dialling the position in (QA3-1)", () => {
   });
 
   it("WARNS about a bad point without blocking the write", () => {
-    // Deliberate: the kernel's typed `hole_off_body` is the authority and the
-    // control that stops a bad hole shipping silently. A client-side refusal
-    // would substitute a coplanarity approximation for it — and hide it.
+    // `opening` cannot tell a bore mouth from a boss rim — a point inside a
+    // fitted in-plane circle may be on solid material — and the kernel's typed
+    // `hole_off_body` is the authority either way.
     const { onSubmit } = renderEditor({ initial: placed(), edges: FACE_EDGES });
     expect(screen.getByTestId("hole-position-check")).toHaveAttribute(
       "data-verdict",
@@ -659,6 +695,64 @@ describe("HoleEditor — dialling the position in (QA3-1)", () => {
     );
     expect(submit()).not.toHaveAttribute("aria-disabled");
     expect(submitted(onSubmit).position).toEqual({ x: 5, y: 5, z: 10 });
+  });
+
+  it("SAYS off-the-face at the commit control, and still lets the kernel decide (F-6)", () => {
+    // The audit's complaint: the placement line read "Off the face outline"
+    // while CREATE carried a bare "Enter" — the panel knew, the button did not
+    // say. The button now says it, in words and as its description; it stays a
+    // live control, because the verdict cannot be trusted to veto (below).
+    const { onSubmit } = renderEditor({ initial: placed(), edges: FACE_EDGES });
+    fireEvent.change(x(), { target: { value: "50" } });
+    const check = screen.getByTestId("hole-position-check");
+    expect(check).toHaveAttribute("data-verdict", "outside");
+
+    const cell = submit();
+    expect(cell).toHaveTextContent("Enter · off the face");
+    expect(cell).toHaveAccessibleDescription(/Off the face outline/);
+    expect(cell).not.toHaveAttribute("aria-disabled");
+    expect(submitted(onSubmit).position).toEqual({ x: 50, y: 5, z: 10 });
+  });
+
+  it("drops the warning from the button once the point is back on material", () => {
+    renderEditor({ initial: placed(), edges: FACE_EDGES });
+    fireEvent.change(x(), { target: { value: "50" } });
+    expect(submit()).toHaveTextContent("off the face");
+    fireEvent.change(x(), { target: { value: "2" } });
+    fireEvent.change(y(), { target: { value: "2" } });
+    expect(screen.getByTestId("hole-position-check")).toHaveAttribute(
+      "data-verdict",
+      "material",
+    );
+    expect(submit()).not.toHaveTextContent("off the face");
+    expect(submit()).not.toHaveAccessibleDescription(/Off the face/);
+  });
+
+  it("can call a point ON the face `outside` — which is why the verdict never vetoes", () => {
+    // The mechanism, pinned: the outline is read as the overlay edges within
+    // 1e-3 mm of the face plane. Lift ONE outline edge 2 microns — what a file
+    // sewn to a looser tolerance does — and it is dropped, the loop opens, and
+    // a point on solid material reads `outside`. The client cannot know an
+    // imported file's tolerance; the kernel can. Had CREATE refused on this
+    // verdict (as `503473c` briefly did), this legal hole would be a dead end.
+    const lifted = FACE_EDGES.map((edge, index) =>
+      index === 1
+        ? {
+            ...edge,
+            polyline: edge.polyline.map((pt) => ({ ...pt, z: pt.z + 0.002 })),
+          }
+        : edge,
+    );
+    const { onSubmit } = renderEditor({ initial: placed(), edges: lifted });
+    fireEvent.change(x(), { target: { value: "2" } });
+    fireEvent.change(y(), { target: { value: "2" } });
+    expect(screen.getByTestId("hole-position-check")).toHaveAttribute(
+      "data-verdict",
+      "outside",
+    );
+    // …and the write is still the user's to make.
+    expect(submit()).not.toHaveAttribute("aria-disabled");
+    expect(submitted(onSubmit).position).toEqual({ x: 2, y: 2, z: 10 });
   });
 });
 
@@ -720,5 +814,112 @@ describe("hole face pick — nothing to pick", () => {
     expect(pick).not.toHaveAttribute("aria-disabled");
     fireEvent.click(pick);
     expect(onTogglePick).toHaveBeenCalledWith("face");
+  });
+});
+
+/**
+ * CRAFT-9c — the hole's two gauges, seen from the editor's side of contract β.
+ *
+ * The viewport half (drag, reach, the per-frame agreement) is
+ * `craft9c-hole-gauge.spec.ts`; what is here is the half a browser run would
+ * only show as "the arrow sprang back": the editor must PUBLISH the two numbers
+ * the gauges stand on, and must ECHO each gauge's override into its own field
+ * and nothing else.
+ */
+describe("HoleEditor — the Ø and depth gauges (CRAFT-9c)", () => {
+  const blind = (): HoleForm => ({
+    ...placed(),
+    depthMode: "blind",
+    depthInput: "12",
+  });
+  const depth = () =>
+    screen.getByTestId("hole-blind-depth") as HTMLInputElement;
+  const last = (fn: ReturnType<typeof vi.fn>): HoleGaugeState | null =>
+    (fn.mock.calls[fn.mock.calls.length - 1]?.[0] ??
+      null) as HoleGaugeState | null;
+
+  it("publishes the bore and NO depth for a through-all hole", () => {
+    const onGaugeChange = vi.fn();
+    renderEditor({ onGaugeChange });
+    expect(last(onGaugeChange)).toEqual({ diameterMm: 6, depthMm: null });
+  });
+
+  it("publishes the blind depth, in canonical mm", () => {
+    const onGaugeChange = vi.fn();
+    renderEditor({ initial: blind(), onGaugeChange });
+    expect(last(onGaugeChange)).toEqual({ diameterMm: 6, depthMm: 12 });
+    fireEvent.change(depth(), { target: { value: "20" } });
+    expect(last(onGaugeChange)).toEqual({ diameterMm: 6, depthMm: 20 });
+  });
+
+  it("publishes no bore while the field does not parse", () => {
+    // There is no honest picture of a `6q` hole.
+    const onGaugeChange = vi.fn();
+    renderEditor({ onGaugeChange });
+    fireEvent.change(diameter(), { target: { value: "6q" } });
+    expect(last(onGaugeChange)?.diameterMm).toBeNull();
+  });
+
+  it("clears the gauges on unmount, so no instrument outlives its editor", () => {
+    const onGaugeChange = vi.fn();
+    const view = renderEditor({ onGaugeChange });
+    view.unmount();
+    expect(onGaugeChange.mock.calls.at(-1)?.[0]).toBeNull();
+  });
+
+  it("echoes a Ø override into the diameter field and nothing else", () => {
+    renderEditor({ initial: blind(), diameterOverride: { mm: 9.5 } });
+    expect(diameter().value).toBe("9.5");
+    expect(depth().value).toBe("12");
+  });
+
+  it("echoes a depth override into the depth field only — the mode is untouched", () => {
+    renderEditor({ initial: blind(), depthOverride: { mm: 17 } });
+    expect(depth().value).toBe("17");
+    expect(diameter().value).toBe("6");
+    expect(screen.getByTestId("hole-depth-blind")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("writes the override in the DOCUMENT unit, as a typed value would read", () => {
+    renderEditor({ unit: "in", diameterOverride: { mm: 25.4 } });
+    expect(diameter().value).toBe("1");
+  });
+
+  it("a NEW box carrying the same number still lands after a typed edit", () => {
+    // Boxed so that dragging back to a number the field already had arrives.
+    const onGaugeChange = vi.fn();
+    const view = renderEditor({ diameterOverride: { mm: 9 }, onGaugeChange });
+    fireEvent.change(diameter(), { target: { value: "7" } });
+    expect(diameter().value).toBe("7");
+    view.rerender(
+      <DocumentUnitProvider unit="mm">
+        <HoleEditor
+          mode="create"
+          initial={placed()}
+          diameterOverride={{ mm: 9 }}
+          depthOverride={null}
+          onGaugeChange={onGaugeChange}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          saving={false}
+          error={null}
+          canPickFace
+          activePick={null}
+          onTogglePick={vi.fn()}
+          facePick={null}
+          pointPick={null}
+          pickError={null}
+          pickBlockedReason={null}
+          placementHidden={false}
+          edges={null}
+          onPreviewChange={vi.fn()}
+        />
+      </DocumentUnitProvider>,
+    );
+    expect(diameter().value).toBe("9");
+    expect(last(onGaugeChange)?.diameterMm).toBe(9);
   });
 });

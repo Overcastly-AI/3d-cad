@@ -18,7 +18,7 @@ identical requests (RESEARCH §9); the geometry export gate asserts it:
   as the GLB tessellation path (``Shape.mesh``: relative linear deflection,
   parallel flag), so a given ``linear_deflection`` / ``angular_deflection``
   pair means the same facets in the viewport and in the exported file.
-  Defaults come from :mod:`py_kit.schemas.geometry`
+  Defaults come from :mod:`loft_wire.geometry`
   (``DEFAULT_LINEAR_DEFLECTION`` = 0.1 mm, ``DEFAULT_ANGULAR_DEFLECTION`` =
   0.1 rad — the viewport-quality tessellation settings).
 * **3MF:** an OPC (zip) container whose ``3D/3dmodel.model`` XML declares
@@ -38,7 +38,7 @@ identical requests (RESEARCH §9); the geometry export gate asserts it:
   is byte-identical to the mesh their screen is drawing, and its determinism is
   the tessellation path's determinism, already gated. **It is in METRES and
   Y-up**, per the glTF 2.0 spec, unlike every other format here, which are
-  millimetres and Z-up; ``py_kit.schemas.geometry.EXPORT_UNITS`` is the single
+  millimetres and Z-up; ``loft_wire.geometry.EXPORT_UNITS`` is the single
   place that says so and the export gate asserts the extents against it. That
   asymmetry is the format's, not ours: a GLB written in mm renders 1000x too
   large in every conformant viewer.
@@ -201,7 +201,8 @@ from OCP.XCAFApp import XCAFApp_Application
 from OCP.XCAFDoc import XCAFDoc_DocumentTool, XCAFDoc_ShapeTool
 from OCP.XSControl import XSControl_WorkSession
 
-from geometry.kernel.tessellate import tessellate_glb
+from geometry.kernel.tessellate import ANGULAR_DEFLECTION, tessellate_glb
+from geometry.kernel.twist import check_3mf_twist_budget, mesh_helicoidal_faces
 from geometry.kernel.types import BodyShape
 
 #: Pinned STEP creation timestamp (determinism decision, GEOMETRY-QA gap #4).
@@ -563,15 +564,21 @@ class AssemblyComponent:
 
     ``body`` is a resolved part :data:`BodyShape` in its LOCAL frame;
     ``translation`` / ``quaternion`` (the latter ``(x, y, z, w)``, matching
-    :class:`py_kit.schemas.assemblies.Quat`) are its SOLVED world placement; the
+    :class:`loft_wire.assemblies.Quat`) are its SOLVED world placement; the
     exporter positions the body by ``world = R(q)·local + t``. ``name`` becomes
     the STEP PRODUCT / occurrence name (traceability back to the instance).
+    ``twisted`` marks a part whose tree has a twisted extrude: the mesh
+    exports mesh its helicoidal flanks with the bounded mesher and refuse a
+    3MF too dense for that, exactly as the single-part export does
+    (:func:`_placed_mesh_body`; design twisted-extrude.md §6.1). ``False``, the
+    default, changes nothing.
     """
 
     name: str
     body: BodyShape
     translation: tuple[float, float, float]
     quaternion: tuple[float, float, float, float]
+    twisted: bool = False
 
 
 def placement_trsf(
@@ -585,7 +592,7 @@ def placement_trsf(
     the interference check (:mod:`geometry.kernel.interference`) all position a
     solved instance through here, so no path reinvents it (rotation order
     geometry-QA-verified to 1e-14). ``quaternion`` is ``(x, y, z, w)``, matching
-    :class:`py_kit.schemas.assemblies.Quat`. Deterministic: a fixed sequence of
+    :class:`loft_wire.assemblies.Quat`. Deterministic: a fixed sequence of
     OCCT ops on the numeric pose.
     """
     qx, qy, qz, qw = quaternion
@@ -621,6 +628,23 @@ def place_body(
 def _placed_body(component: AssemblyComponent) -> BodyShape:
     """Copy *component*'s body to its world placement (see :func:`place_body`)."""
     return place_body(component.body, component.translation, component.quaternion)
+
+
+def _placed_mesh_body(
+    component: AssemblyComponent, linear_deflection: float, angular_deflection: float
+) -> BodyShape:
+    """*component*'s placed body, ready for a mesh export (STL / GLB).
+
+    A twisted part's helicoidal flanks are pre-meshed with the bounded mesher
+    AFTER placement, because :func:`place_body` is a deep copy that carries no
+    triangulation (TWIST-ASSEMBLY-MESH-COST-1). The compound the caller builds
+    shares these faces, so the writer keeps those triangulations. Every other
+    component is placed exactly as before.
+    """
+    placed = _placed_body(component)
+    if component.twisted:
+        mesh_helicoidal_faces(placed, linear_deflection, angular_deflection)
+    return placed
 
 
 def _instanced_shape(component: AssemblyComponent) -> TopoDS_Shape:
@@ -976,7 +1000,12 @@ def export_stl_assembly_bytes(
     """
     if not components:
         raise ValueError("assembly STL export requires at least one placed body")
-    compound = Compound([_placed_body(component) for component in components])
+    compound = Compound(
+        [
+            _placed_mesh_body(component, linear_deflection, angular_deflection)
+            for component in components
+        ]
+    )
     return export_stl_bytes(compound, linear_deflection, angular_deflection)
 
 
@@ -1016,9 +1045,12 @@ def export_3mf_assembly_bytes(
     mesher = Mesher(unit=Unit.MM)
     for component in components:
         first = len(mesher.meshes)
-        _add_shape_or_refuse(
-            mesher, _placed_body(component), linear_deflection, angular_deflection
-        )
+        placed = _placed_body(component)
+        if component.twisted:
+            # lib3mf re-meshes a copy at full cost, so a twisted instance too
+            # dense for that refuses the export, as the single-part 3MF does.
+            check_3mf_twist_budget(placed, angular_deflection)
+        _add_shape_or_refuse(mesher, placed, linear_deflection, angular_deflection)
         _name_new_meshes(mesher, first, component.name)
     return _write_3mf(mesher)
 
@@ -1042,5 +1074,10 @@ def export_glb_assembly_bytes(
     """
     if not components:
         raise ValueError("assembly GLB export requires at least one placed body")
-    compound = Compound([_placed_body(component) for component in components])
+    compound = Compound(
+        [
+            _placed_mesh_body(component, linear_deflection, ANGULAR_DEFLECTION)
+            for component in components
+        ]
+    )
     return export_glb_bytes(compound, linear_deflection)

@@ -27,8 +27,8 @@ from fastapi.testclient import TestClient
 from geometry.kernel import DraftError, draft_body, resolve_faces
 from geometry.kernel.faces import planar_face_signature
 from geometry.main import app
-from py_kit.schemas.features import EvaluateTreeResult, PlanarFaceSignature
-from py_kit.schemas.geometry import Vec3
+from loft_wire.features import EvaluateTreeResult, PlanarFaceSignature
+from loft_wire.geometry import Vec3
 
 client = TestClient(app)
 

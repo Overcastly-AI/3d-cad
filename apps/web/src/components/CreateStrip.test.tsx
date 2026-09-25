@@ -10,11 +10,11 @@
  * tool in this band — it must hold with the ONE honest lock reason while a
  * command is open, so no click can discard an in-progress selection.
  */
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { partVerbKey } from "../shortcuts/registry";
-import { CreateStrip } from "./CreateStrip";
+import { CreateStrip, NEXT_STEP_ANNOUNCE_MS } from "./CreateStrip";
 
 function renderStrip(props: Partial<Parameters<typeof CreateStrip>[0]> = {}) {
   return render(
@@ -215,6 +215,18 @@ describe("CreateStrip — the next-step accent", () => {
     expect(accented()).toHaveLength(0);
   });
 
+  it("prints the offer's words from the tool itself and the proposal", () => {
+    renderStrip({ canModify: true, onHole: vi.fn(), nextStep: proposal });
+    const offer = within(screen.getByTestId("new-hole")).getByTestId(
+      "next-step-label",
+    );
+    // NEXT + the name the tool already wears + the proposal's own caption —
+    // no second copy of either string anywhere in the band.
+    expect(offer).toHaveTextContent("Next");
+    expect(offer).toHaveTextContent("Hole");
+    expect(offer).toHaveTextContent("Another hole on this body");
+  });
+
   it("prints the five new letters the registry now owns", () => {
     // Read from the registry, never typed here: a band that hardcodes a key is
     // correct the day it is written and silently lying afterwards.
@@ -239,5 +251,141 @@ describe("CreateStrip — the next-step accent", () => {
         testId,
       ).toBeVisible();
     }
+  });
+});
+
+/**
+ * The once-per-step REVEAL: the offer said out loud when a new step lands,
+ * then settled back to the bare dot. What counts as a new step is a new
+ * `featureId` — see `useNextStepAnnouncement` for why it is the build and not
+ * the verb.
+ */
+describe("CreateStrip — the next-step announcement", () => {
+  const base = {
+    treeReady: true,
+    onNewSketch: vi.fn(),
+    canExtrude: false,
+    onNewExtrude: vi.fn(),
+    canRevolve: false,
+    onNewRevolve: vi.fn(),
+    canSweep: false,
+    onNewSweep: vi.fn(),
+    canLoft: false,
+    onNewLoft: vi.fn(),
+    canModify: true,
+    onHole: vi.fn(),
+  };
+  const first = {
+    featureId: "h1",
+    tool: "new-hole" as const,
+    caption: "Another hole on this body",
+  };
+  /** Is the hole's offer being said right now? null when not drawn at all. */
+  const said = () =>
+    document
+      .querySelector("[data-testid='new-hole'] [data-testid='next-step-label']")
+      ?.getAttribute("data-announced") ?? null;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("says a new step's offer unprompted, then settles after the hold", () => {
+    render(<CreateStrip {...base} nextStep={first} />);
+    expect(said()).toBe("true");
+
+    act(() => vi.advanceTimersByTime(NEXT_STEP_ANNOUNCE_MS - 1));
+    expect(said()).toBe("true");
+    act(() => vi.advanceTimersByTime(1));
+    // Settled to the resting dot — NOT retired: the dot and the note stay.
+    expect(said()).toBe("false");
+    expect(
+      screen
+        .getByTestId("new-hole")
+        .querySelector("[data-testid='next-step-dot']"),
+    ).not.toBeNull();
+  });
+
+  it("settles on the user's next action, without consuming it", () => {
+    render(<CreateStrip {...base} nextStep={first} />);
+    expect(said()).toBe("true");
+    // `fireEvent` returns false when a listener called preventDefault — the
+    // press must still be the user's.
+    let untouched = false;
+    act(() => {
+      untouched = fireEvent.pointerDown(window);
+    });
+    expect(untouched).toBe(true);
+    expect(said()).toBe("false");
+  });
+
+  it("does not take Enter while it is being said", () => {
+    render(<CreateStrip {...base} nextStep={first} />);
+    expect(said()).toBe("true");
+    let untouched = false;
+    act(() => {
+      untouched = fireEvent.keyDown(window, { key: "Enter" });
+    });
+    expect(untouched).toBe(true);
+  });
+
+  it("never says the SAME step twice, even when its proposal comes back", () => {
+    const { rerender } = render(<CreateStrip {...base} nextStep={first} />);
+    act(() => vi.advanceTimersByTime(NEXT_STEP_ANNOUNCE_MS));
+    expect(said()).toBe("false");
+
+    // The proposal drops (e.g. the feature is suppressed) and returns for the
+    // same feature: it comes back as the bare dot.
+    rerender(<CreateStrip {...base} nextStep={null} />);
+    expect(said()).toBeNull();
+    rerender(<CreateStrip {...base} nextStep={first} />);
+    expect(said()).toBe("false");
+  });
+
+  it("says a DIFFERENT step, even in the same words", () => {
+    const { rerender } = render(<CreateStrip {...base} nextStep={first} />);
+    act(() => vi.advanceTimersByTime(NEXT_STEP_ANNOUNCE_MS));
+    expect(said()).toBe("false");
+
+    // A second hole: same verb, same caption, a new build.
+    rerender(
+      <CreateStrip {...base} nextStep={{ ...first, featureId: "h2" }} />,
+    );
+    expect(said()).toBe("true");
+  });
+
+  it("waits out an open command rather than speaking behind it", () => {
+    // A feature lands while its own command is still open: nothing is drawn,
+    // so nothing may be spent.
+    const { rerender } = render(
+      <CreateStrip {...base} nextStep={first} activeCommand="Hole" />,
+    );
+    expect(said()).toBeNull();
+    rerender(<CreateStrip {...base} nextStep={first} activeCommand={null} />);
+    // The lock retired h1 (the user answered it by opening a command) — so the
+    // NEXT build is the one that speaks, the moment the band is back.
+    expect(said()).toBeNull();
+    // The user opens the next command; h2 lands while it is STILL open, which
+    // is the real order (a feature arrives before its editor closes).
+    rerender(<CreateStrip {...base} nextStep={first} activeCommand="Hole" />);
+    rerender(
+      <CreateStrip
+        {...base}
+        nextStep={{ ...first, featureId: "h2" }}
+        activeCommand="Hole"
+      />,
+    );
+    expect(said()).toBeNull();
+    rerender(
+      <CreateStrip
+        {...base}
+        nextStep={{ ...first, featureId: "h2" }}
+        activeCommand={null}
+      />,
+    );
+    expect(said()).toBe("true");
   });
 });

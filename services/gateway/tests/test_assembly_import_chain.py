@@ -68,9 +68,9 @@ from geometry.kernel.export import (
 )
 from geometry.main import GeometrySettings
 from geometry.main import build_app as build_geometry_app
+from loft_wire.features import EvaluateTreeResult
+from loft_wire.step_import import ImportAssemblyRequest
 from py_kit.db import async_dsn
-from py_kit.schemas.features import EvaluateTreeResult
-from py_kit.schemas.step_import import ImportAssemblyRequest
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 

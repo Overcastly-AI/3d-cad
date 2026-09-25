@@ -11,6 +11,7 @@
  */
 import {
   CircularPatternIcon,
+  type LengthUnit,
   LinearPatternIcon,
   NumberField,
   Panel,
@@ -19,7 +20,7 @@ import {
   type SegmentOption,
   SelectField,
 } from "@loft/design";
-import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect } from "react";
 
 import { useCommandBridge } from "../features/commandActions";
 import { useDocumentLengthUnit } from "../units/documentUnit";
@@ -28,15 +29,41 @@ import {
   AXIS_PRESETS,
   angleError,
   buildPatternParams,
+  parseCount,
+  parseSpacingMm,
   patternSubmitBlocker,
   coordError,
   countError,
+  presetVec,
   type PatternForm,
   type PatternKind,
   spacingError,
 } from "../features/pattern";
+import { lengthInputValue } from "../units/length";
+import type { PatternPreviewState } from "../viewport/patternGhost";
 import { EditorCard } from "./EditorCard";
 import { ScopeRow } from "./ScopeRow";
+import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
+
+/**
+ * The row the viewport should draw for this form, or `null` when the form is
+ * not a row it can draw.
+ *
+ * Null for a CIRCULAR pattern as well as for a half-typed number: a ring has no
+ * spacing and no direction, so a linear row's instruments cannot describe it
+ * (see `PatternGaugeLayer`'s note). Returning the ring's count anyway would put
+ * a gauge on screen that means something other than what it shows.
+ */
+function patternPreviewState(
+  form: PatternForm,
+  unit: LengthUnit,
+): PatternPreviewState | null {
+  if (form.kind !== "linear") return null;
+  const count = parseCount(form.countInput);
+  const spacingMm = parseSpacingMm(form.spacingInput, unit);
+  if (count === null || spacingMm === null) return null;
+  return { count, spacingMm, direction: presetVec(form.direction) };
+}
 
 export interface PatternEditorProps {
   mode: "create" | "edit";
@@ -49,6 +76,27 @@ export interface PatternEditorProps {
   saving: boolean;
   /** Server-side failure envelope message, or null. */
   error: string | null;
+  /**
+   * Project the live row for the viewport's ghosts and gauges — every
+   * keystroke, and `null` on unmount so closing the editor leaves nothing
+   * drawn. The editor stays the one owner of the form; the viewport never
+   * parses a field.
+   */
+  onPreviewChange?: (preview: PatternPreviewState | null) => void;
+  /**
+   * CONTRACT β, the count half. The viewport's count gauge reports a number and
+   * this is where it lands; the gauge's own `value` then comes back from the
+   * form through `onPreviewChange`.
+   *
+   * Without this echo the gauge springs back to its starting count the instant
+   * the pointer is released — the drag is smooth and correct for its whole
+   * duration and the defect fires on `pointerup`, after every screenshot
+   * anyone would take. Boxed (`{ n }`) so dragging out and back to a count you
+   * already had still reaches the form instead of being dropped as equal.
+   */
+  countOverride?: { n: number } | null;
+  /** CONTRACT β, the spacing half — canonical mm, boxed for the same reason. */
+  spacingOverride?: { mm: number } | null;
 }
 
 const KINDS: ReadonlyArray<SegmentOption<PatternKind>> = [
@@ -77,11 +125,40 @@ export function PatternEditor({
   onCancel,
   saving,
   error,
+  onPreviewChange,
+  countOverride = null,
+  spacingOverride = null,
 }: PatternEditorProps) {
   const unit = useDocumentLengthUnit();
-  const [form, setForm] = useState<PatternForm>(initial);
-  // Re-seed when the editor is retargeted at a different feature.
-  useEffect(() => setForm(initial), [initial]);
+  // The viewport's gauges write the fields. A count is a plain integer; a
+  // spacing is written in the DOCUMENT unit through the same formatter the seed
+  // uses, so a dragged spacing and a typed one are indistinguishable afterwards
+  // — including on an inch part, where the stored millimetres are not what the
+  // field shows. Re-seeded when the editor is retargeted at a different
+  // feature; every write lands during render (`useGaugeFedForm`), in this
+  // order, so a field commits WITH the override that carries it.
+  const [form, setForm] = useGaugeFedForm(
+    initial,
+    gaugeWrite(countOverride, (f: PatternForm, o) => ({
+      ...f,
+      countInput: String(Math.round(o.n)),
+    })),
+    gaugeWrite(
+      spacingOverride,
+      (f: PatternForm, o) => ({
+        ...f,
+        spacingInput: lengthInputValue(o.mm, unit),
+      }),
+      unit,
+    ),
+  );
+
+  // Feed the live ghosts and gauges: every form/unit change re-projects the
+  // row; the cleanup clears it so closing the editor never leaves copies drawn.
+  useEffect(() => {
+    onPreviewChange?.(patternPreviewState(form, unit));
+    return () => onPreviewChange?.(null);
+  }, [form, unit, onPreviewChange]);
 
   const submit = useCallback(() => {
     const params = buildPatternParams(form, unit);

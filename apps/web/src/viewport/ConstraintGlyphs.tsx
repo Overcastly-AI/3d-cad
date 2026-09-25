@@ -33,6 +33,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type CSSProperties,
   type FormEvent,
   type KeyboardEvent,
   type RefObject,
@@ -59,6 +60,19 @@ import { useSketchStore } from "../sketch/store";
 
 /** Keep annotation overlays under the HUD strips (Viewport hud sits at z-40). */
 const GLYPH_Z_RANGE: [number, number] = [20, 0];
+
+/**
+ * A glyph that is ANNOTATION, not a target: the pointer passes through it to
+ * the canvas beneath (helical-gear gap G4). Glyphs sit on snap points by
+ * construction (an "H" on an edge midpoint; a width label one glyph offset off
+ * an edge, which on a rectangle about the origin is the origin), so while any
+ * tool but Select is live, a click on one is aimed at the geometry under it.
+ * `pointer-events` inherits, so this one style on drei's wrapper covers the
+ * button inside it. The glyph stays a real button in the tab order, so it is
+ * still reachable from the keyboard while a tool is live, and it is a click
+ * target again the moment Select is.
+ */
+const PASS_THROUGH: CSSProperties = { pointerEvents: "none" };
 
 /**
  * THE solve readout the annotation layer reads — linear and angular merged by
@@ -780,6 +794,9 @@ export function ConstraintGlyphs({ basis }: { basis: PlaneBasis }) {
   const editing = useSketchStore(
     (state) => state.dimensionEdit?.constraintIndex ?? null,
   );
+  // Only the Select tool addresses glyphs; every other tool addresses the
+  // geometry under them (see PASS_THROUGH).
+  const passThrough = useSketchStore((state) => state.tool !== "select");
 
   const glyphs = useMemo(
     () =>
@@ -814,6 +831,7 @@ export function ConstraintGlyphs({ basis }: { basis: PlaneBasis }) {
             position={planeToWorld(basis, glyph.anchor)}
             center
             zIndexRange={GLYPH_Z_RANGE}
+            style={passThrough ? PASS_THROUGH : undefined}
           >
             <SketchGlyph
               tone={tone}

@@ -19,6 +19,7 @@ import type {
 } from "react";
 
 import { cx } from "../cx";
+import { color } from "../tokens";
 
 /** A shortcut chip — a small stamped key, brass on the carbide ground. */
 export function Kbd({ className, ...rest }: HTMLAttributes<HTMLElement>) {
@@ -88,6 +89,191 @@ export function ToolStamp({
   );
 }
 
+/**
+ * How a band tool wears the NEXT-STEP OFFER (FLOW-B3), or undefined when it is
+ * not the proposed tool.
+ *
+ *  - `"resting"` — the anchor dot alone. The full offer (leader + stamp) comes
+ *    up on hover and on keyboard focus, exactly where the plain tooltip would.
+ *  - `"announced"` — the full offer is up UNPROMPTED. The caller decides when
+ *    a proposal is new enough to say out loud and for how long; this primitive
+ *    only knows how it looks.
+ */
+export type ToolProposal = "resting" | "announced";
+
+/**
+ * Band-density geometry of the offer, in CSS px. Explicit numbers rather than
+ * spacing utilities for the same reason the dot always was raw SVG: the
+ * theme's spacing scale is CLOSED, Tailwind emits nothing at all for a step it
+ * cannot generate, and this repo has shipped three zero-area marks that way.
+ * Everything is derived from the dot, so the leader cannot drift off it.
+ */
+const OFFER = {
+  /** The dot's box and its inset from the tool's top-right corner. */
+  dot: 6,
+  dotInset: 4,
+  /** The leader: a two-tone hairline, carbide casing under a brass core. */
+  casing: 3,
+  core: 1,
+  /** Gap between the tool's bottom edge and the stamp — the tooltip's `mt-1.5`. */
+  drop: 6,
+} as const;
+/** The dot's centre, measured in from the tool's top and right edges. */
+const DOT_CENTRE = OFFER.dotInset + OFFER.dot / 2;
+/**
+ * The leader's brass core occupies the whole-pixel column whose LEFT edge is
+ * `DOT_CENTRE` in from the tool's right edge — within half a pixel of the
+ * dot's centre, and never on a half pixel (a fractional 1px line is smeared
+ * across two device pixels at half strength, and reads as a smudge). The casing
+ * straddles the core by a pixel either side, and the stamp's left border sits
+ * on the same column, so the line runs unbroken from dot to chip corner.
+ */
+const CASING_RIGHT = DOT_CENTRE - OFFER.core - (OFFER.casing - OFFER.core) / 2;
+
+/**
+ * THE BAND'S NEXT-STEP OFFER — `viewport/ProposalNote`'s one-mark grammar
+ * (anchor dot, leader, stamped chip) at the band's density, rather than a
+ * second look for the same idea.
+ *
+ * At rest only the ANCHOR is drawn: the 6px brass dot at the tool's top-right
+ * corner, zero width, and deliberately not the active scribe (`aria-pressed`
+ * + bottom line already mean "this tool is ON", and a proposal is not a
+ * state). On hover, on keyboard focus, and while `announced`, the rest of the
+ * note comes up: a leader drops from the dot past the tool's bottom edge and
+ * lands on the near corner of a stamp that names the offer — `NEXT` + the
+ * tool's own name + its key — over the proposal's caption.
+ *
+ * It REPLACES the tool's ordinary tooltip rather than stacking beside it: two
+ * stamps hanging from one tool would be the "three dialects" failure drawn on
+ * screen. Same box semantics as `ToolStamp` (`data-tooltip`, always mounted,
+ * hidden by opacity, the caption node carries `captionId`), so every consumer
+ * of the tooltip contract — `aria-describedby`, the z-order probes — keeps
+ * working on the proposed tool too.
+ *
+ * WHY IT CANNOT STEAL A CLICK OR A KEY. Every node is `pointer-events: none`
+ * and `aria-hidden`, and nothing here binds a key: the offer names the button,
+ * it does not accept on its behalf. A click at the tool lands on the tool, and
+ * `Enter` belongs to whatever holds focus (W2 review — a proposal note once
+ * took `Enter` from the focused control, and this one has no handler to do
+ * it with). Every node is ABSOLUTE, so the band's self-measurement, which sheds
+ * labels by reading its row's width at 1280x800, never sees it.
+ *
+ * No motion beyond the tooltip's own opacity fade, and that only under
+ * `motion-safe`: under `prefers-reduced-motion` the offer simply appears.
+ */
+export function ToolOffer({
+  label,
+  shortcut,
+  caption,
+  captionId,
+  announced,
+}: {
+  label: ReactNode;
+  shortcut?: string | undefined;
+  caption?: ReactNode | undefined;
+  captionId?: string | undefined;
+  announced: boolean;
+}) {
+  // One visibility rule for the leader and the stamp, so the two halves of the
+  // note can never be on screen without each other. The two branches are
+  // exclusive rather than layered: `opacity-0` and `opacity-100` on one node
+  // would leave the outcome to the order two utilities happen to occupy in the
+  // generated stylesheet.
+  const shown = announced
+    ? "opacity-100"
+    : "opacity-0 group-hover/tt:opacity-100 group-focus-visible/tt:opacity-100";
+  const fade = "motion-safe:transition-opacity motion-safe:duration-fast";
+  return (
+    <>
+      {/* THE ANCHOR — the resting mark, and the only part drawn at rest. The
+          fill is the `color` token so DOM and WebGL keep one palette. */}
+      <svg
+        aria-hidden="true"
+        data-testid="next-step-dot"
+        width={OFFER.dot}
+        height={OFFER.dot}
+        viewBox="0 0 6 6"
+        className="pointer-events-none absolute"
+        style={{ top: OFFER.dotInset, right: OFFER.dotInset }}
+      >
+        <circle cx={3} cy={3} r={2.5} fill={color.brass} />
+      </svg>
+
+      {/* THE LEADER — from the dot's centre down past the tool's bottom edge to
+          the stamp's near corner. TWO-TONE exactly as the viewport's leader,
+          so the one mark is drawn the same way at both densities; the carbide
+          casing also keeps the core distinct from the hovered cell's own
+          carbide ground. Spans, not SVG — the tool's glyph is its only other
+          SVG, and specs identify it as such. */}
+      <span
+        aria-hidden
+        data-next-step-leader
+        className={cx("pointer-events-none absolute z-30", shown, fade)}
+        style={{
+          top: DOT_CENTRE,
+          bottom: -OFFER.drop,
+          right: CASING_RIGHT,
+          width: OFFER.casing,
+          // The viewport casing's 0.55 opacity, carried in the colour's alpha
+          // (0x8C) so it cannot fight the visibility rule for `opacity`.
+          backgroundColor: `${color.carbide}8C`,
+        }}
+      >
+        <span
+          className="absolute inset-y-0"
+          style={{
+            left: (OFFER.casing - OFFER.core) / 2,
+            width: OFFER.core,
+            backgroundColor: color.brass,
+          }}
+        />
+      </span>
+
+      {/* THE STAMP — the viewport chip's material (anvil, hairline, float
+          shadow), carrying words instead of being a control. The leader lands
+          on its top-left corner, the corner nearest the anchor.
+
+          OPAQUE, deliberately without the chip's `backdrop-blur`: this node is
+          ALWAYS MOUNTED on the proposed tool (hidden by opacity, like every
+          tooltip, so `aria-describedby` can resolve), so a backdrop filter
+          here would sit over the WebGL canvas for as long as the proposal
+          stands, on a node that is invisible nearly all of that time. The
+          viewport chip is mounted only while it is on screen, so it pays for
+          its blur only then; this node takes the tooltip's opaque ground
+          instead. Not measured to cost a frame — simply not a risk worth
+          taking for a 90 % tint. */}
+      <span
+        aria-hidden
+        data-tooltip
+        data-testid="next-step-label"
+        data-announced={announced ? "true" : "false"}
+        className={cx(
+          "pointer-events-none absolute z-30 top-full",
+          "flex flex-col gap-0.5 whitespace-nowrap border border-hairline",
+          "bg-anvil px-2 py-1 shadow-float",
+          shown,
+          fade,
+        )}
+        style={{
+          marginTop: OFFER.drop,
+          left: `calc(100% - ${DOT_CENTRE}px)`,
+        }}
+      >
+        <span className="flex items-center gap-1.5 font-display text-2xs uppercase tracking-[0.16em]">
+          <span className="text-gauge">Next</span>
+          <span className="text-brass">{label}</span>
+          {shortcut ? <Kbd>{shortcut}</Kbd> : null}
+        </span>
+        {caption ? (
+          <span id={captionId} className="font-data text-2xs text-mist">
+            {caption}
+          </span>
+        ) : null}
+      </span>
+    </>
+  );
+}
+
 export interface ToolButtonProps extends Omit<
   ButtonHTMLAttributes<HTMLButtonElement>,
   "aria-label"
@@ -126,6 +312,14 @@ export interface ToolButtonProps extends Omit<
    * window edge never clips it.
    */
   tooltipSide?: "bottom" | "top";
+  /**
+   * This tool is the band's NEXT-STEP OFFER (see {@link ToolOffer}): it wears
+   * the anchor dot, and its tooltip becomes the offer's leader note. Undefined
+   * for every other tool. Additive to `caption`, never instead of it — the
+   * proposal's words ride `caption` exactly as before, so the accessible
+   * description is the same sentence whether or not the note is on screen.
+   */
+  proposal?: ToolProposal | undefined;
   /** Override the computed accessible name (label + shortcut otherwise). */
   "aria-label"?: string;
 }
@@ -178,6 +372,7 @@ export function ToolButton({
   showLabel,
   caption,
   tooltipSide = "bottom",
+  proposal,
   className,
   type,
   disabled,
@@ -272,13 +467,23 @@ export function ToolButton({
           LOCAL to the enclosing stacking context; page-level ordering (band
           above panels, so this stamp never hides behind the feature tree)
           comes from the `zLayer` scale on the band itself. */}
-      <ToolStamp
-        label={label}
-        shortcut={shortcut}
-        caption={caption}
-        captionId={captionId}
-        side={tooltipSide}
-      />
+      {proposal === undefined ? (
+        <ToolStamp
+          label={label}
+          shortcut={shortcut}
+          caption={caption}
+          captionId={captionId}
+          side={tooltipSide}
+        />
+      ) : (
+        <ToolOffer
+          label={label}
+          shortcut={shortcut}
+          caption={caption}
+          captionId={captionId}
+          announced={proposal === "announced"}
+        />
+      )}
     </button>
   );
 }

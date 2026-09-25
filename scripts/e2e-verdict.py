@@ -43,7 +43,7 @@ import argparse
 import json
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 # `tests[].status` is Playwright's OWN RECONCILED VERDICT, and it is the only
@@ -188,6 +188,142 @@ def _titles(node: dict[str, Any], ancestors: list[str]) -> list[str]:
     return [*ancestors, title] if title else list(ancestors)
 
 
+# How much of a failure's reason fits on the verdict's one line per failure.
+# Deliberately small: the lesson this block was born from (CLAUDE.md, 2874f0a)
+# is that a diagnostic dump which outweighs the diagnosis is worse than no dump.
+REASON_CAP = 220
+
+
+def _assertion_site(error: dict[str, Any], spec_file: str, spec_line: object) -> str:
+    """WHERE the assertion that failed actually lives — not where the test does.
+
+    THE GAP THIS CLOSES, measured 2026-09-14 on run 34887783075. The verdict
+    named `full-flow.spec.ts:324`, which is the `test()` declaration; the
+    assertion that failed was inside `runFullFlow`, a helper THREE tests share,
+    and that file holds three `toHaveCount(0)` calls whose failure messages are
+    byte-identical (`Expected: 0 | Received: 1`). One of them means a constraint
+    verb stopped refusing, one means the sketch never closed, one would mean the
+    STEP export errored — three different owners and three different severities,
+    and the verdict could not tell them apart. Diagnosing it cost a full QA pass
+    that began by ELIMINATING two candidates, because the log is the only
+    channel (artifact download is policy-denied).
+
+    Playwright puts the assertion's own file/line in `error.location`, so this
+    is free. Rendered as a SUFFIX on the existing `file:line`, ~10 characters:
+
+        FAIL  full-flow.spec.ts:324 assert@212 <SEP> Phase 1 exit gate <SEP> …
+
+    Rules, in the order they matter:
+      * nothing at all when the location is absent or unusable — a test that
+        timed out has no assertion to name, and an empty suffix simply reads
+        as the line did before;
+      * nothing when the assertion IS the test's own line, because repeating
+        it is noise (`:324 assert@324`);
+      * the BASENAME when the assertion is in another file (a shared helper
+        like `e2e/gaugeProbe.ts`), because the report's paths are absolute on
+        the runner and a full runner path would swamp the line.
+    """
+    location = _obj(error.get("location"))
+    line = location.get("line")
+    if not isinstance(line, int) or line <= 0:
+        return ""
+    file = _text(location.get("file"))
+    # `spec.file` is repo-relative in the report; `error.location.file` is the
+    # runner's absolute path. Comparing basenames is the only comparison that
+    # can be true, and a false "different file" here would merely print a
+    # redundant name rather than a wrong one.
+    same_file = bool(file) and PurePosixPath(file).name == PurePosixPath(spec_file).name
+    if same_file:
+        if isinstance(spec_line, int) and spec_line == line:
+            return ""
+        return f"assert@{line}"
+    if not file:
+        return ""
+    return f"assert@{PurePosixPath(file).name}:{line}"
+
+
+def _failure_evidence(
+    tests: list[dict[str, Any]], spec_file: str, spec_line: object
+) -> tuple[str, str]:
+    """WHERE the failing assertion is, and WHY it failed — from the SAME error.
+
+    Returned as a pair deliberately: the site and the reason are two readings
+    of one `error` object, and computing them in separate walks is how they
+    come to describe different errors on a result that carries several.
+
+    THE GAP THIS CLOSES. The verdict block is the ONLY channel into a red shard
+    — artifact download is policy-denied and a fixed `tail_lines` cannot reach
+    Playwright's own summary past the trailing service logs — and until now it
+    named the failing test and stopped there. So a red shard answered "which
+    test" and never "what did it see", and the reader's only next move was to
+    re-run the whole ~20 minute shard locally and hope it reproduces. For an
+    INTERMITTENT that is not a cost, it is a dead end: `rect-rigidity.spec.ts`
+    went red on two of four consecutive CI runs in September 2026 and neither
+    run yielded a single fact about the failure, because every one of them was
+    dropped here.
+
+    What gets kept is the assertion line plus Playwright's own `Expected:` /
+    `Received:` pair, which between them identify the assertion AND its values —
+    the difference between "a count assertion timed out" and "it wanted 10 and
+    the page had 9", i.e. between a re-run and a diagnosis.
+
+    Never raises and never returns a partial ANSI escape: an unreadable error is
+    an empty reason, and the line simply reads as it did before.
+    """
+    for test in tests:
+        for raw_result in _arr(test.get("results")):
+            result = _obj(raw_result)
+            if _text(result.get("status")) not in FAILED_RESULT_STATUSES:
+                continue
+            errors = [
+                _obj(result.get("error")),
+                *(_obj(e) for e in _arr(result.get("errors"))),
+            ]
+            for error in errors:
+                message = _text(error.get("message"))
+                if not message:
+                    continue
+                lines = [
+                    line.strip()
+                    for line in ANSI.sub("", message).splitlines()
+                    if line.strip()
+                ]
+                if not lines:
+                    continue
+                # The head names the assertion; `Expected:`/`Received:` carry
+                # the values; a later `Error:` line carries the CAUSE, which for
+                # `toBeVisible` is the whole diagnosis ("element(s) not found"
+                # reads very differently from a hidden element). Everything else
+                # — Locator, Timeout, Call log, the stack — is bulk, and bulk is
+                # what made the log tail unreadable in the first place.
+                kept = [lines[0]]
+                kept += [
+                    line
+                    for line in lines[1:]
+                    if line.startswith(("Expected", "Received", "Error:"))
+                ][:3]
+                reason = " | ".join(kept)
+                if len(reason) > REASON_CAP:
+                    reason = reason[: REASON_CAP - 1] + "\u2026"
+                return _assertion_site(error, spec_file, spec_line), reason
+    # No usable message anywhere. The SITE may still be known (a result can
+    # carry `error.location` with a message this parser cannot read), and a
+    # bare "which line" is worth more than nothing.
+    for test in tests:
+        for raw_result in _arr(test.get("results")):
+            result = _obj(raw_result)
+            if _text(result.get("status")) not in FAILED_RESULT_STATUSES:
+                continue
+            for error in (
+                _obj(result.get("error")),
+                *(_obj(e) for e in _arr(result.get("errors"))),
+            ):
+                site = _assertion_site(error, spec_file, spec_line)
+                if site:
+                    return site, ""
+    return "", ""
+
+
 def _walk(suite: dict[str, Any], ancestors: list[str], parsed: Parsed) -> None:
     here = _titles(suite, ancestors)
     for raw_spec in _arr(suite.get("specs")):
@@ -256,7 +392,10 @@ def _walk(suite: dict[str, Any], ancestors: list[str], parsed: Parsed) -> None:
                     )
                 )
             else:
-                parsed.findings.append(Finding("FAIL", where, title))
+                site, reason = _failure_evidence(tests, file, line)
+                parsed.findings.append(
+                    Finding("FAIL", f"{where} {site}" if site else where, title, reason)
+                )
         elif "flaky" in statuses:
             parsed.flaky += 1
             # No retries are configured (GATE-1a), so a flaky result can only
@@ -537,7 +676,11 @@ def _spec(
     result: str | None = None,
     expected_status: str = "passed",
     annotations: list[str] | None = None,
+    error: str | None = None,
 ) -> Any:
+    outcome: dict[str, Any] = {"status": result or status, "duration": 10}
+    if error is not None:
+        outcome["error"] = {"message": error}
     return {
         "title": title,
         "file": "e2e/synthetic.spec.ts",
@@ -549,7 +692,7 @@ def _spec(
                 "status": status,
                 "expectedStatus": expected_status,
                 "annotations": [{"type": a} for a in annotations or []],
-                "results": [{"status": result or status, "duration": 10}],
+                "results": [outcome],
             }
         ],
     }
@@ -640,6 +783,96 @@ REAL_ANNOTATED_SPECS: list[Any] = [
 REAL_ANNOTATED_STATS = {"expected": 2, "skipped": 2, "unexpected": 2, "flaky": 0}
 
 
+# VERBATIM from a real Playwright 1.56 red report (captured 2026-09-14 by
+# running two deliberately-losing assertions through this repo's own
+# playwright). A hand-written approximation of this format is a gate that
+# cannot fail for the reason it exists, so the self-test uses the real bytes.
+REAL_COUNT_FAILURE = (
+    "Error: \x1b[2mexpect(\x1b[22m\x1b[31mlocator\x1b[39m\x1b[2m).\x1b["
+    "22mtoHaveCount\x1b[2m(\x1b[22m\x1b[32mexpected\x1b[39m\x1b[2m)\x1b"
+    "[22m failed\n\nLocator:  locator('[data-testid^=\"glyph-\"]')\nExp"
+    "ected: \x1b[32m10\x1b[39m\nReceived: \x1b[31m1\x1b[39m\nTimeout:  "
+    '1500ms\n\nCall log:\n\x1b[2m  - Expect "toHaveCount" with timeou'
+    "t 1500ms\x1b[22m\n\x1b[2m  - waiting for locator('[data-testid^=\""
+    "glyph-\"]')\x1b[22m\n\x1b[2m    5 \u00d7 locator resolved to 1 ele"
+    'ment\x1b[22m\n\x1b[2m      - unexpected value "1"\x1b[22m\n'
+)
+REAL_VISIBLE_FAILURE = (
+    "Error: \x1b[2mexpect(\x1b[22m\x1b[31mlocator\x1b[39m\x1b[2m).\x1b["
+    "22mtoBeVisible\x1b[2m(\x1b[22m\x1b[2m)\x1b[22m failed\n\nLocator: "
+    "getByTestId('dimension-input')\nExpected: visible\nTimeout: 1500ms"
+    '\nError: element(s) not found\n\nCall log:\n\x1b[2m  - Expect "to'
+    'BeVisible" with timeout 1500ms\x1b[22m\n\x1b[2m  - waiting for ge'
+    "tByTestId('dimension-input')\x1b[22m\n"
+)
+
+
+# VERBATIM from a real Playwright 1.56 red report captured 2026-09-14 — a spec
+# with TWO tests calling ONE helper, each failing at a DIFFERENT line inside it,
+# which is exactly the `full-flow.spec.ts` shape that made run 34887783075
+# undiagnosable from the log. `line` on the spec is the `test()` declaration
+# (15 / 19); `error.location.line` is the assertion (8 / 11); `location.file` is
+# the runner's ABSOLUTE path while `spec.file` is relative, which is why the
+# renderer compares basenames. A hand-written approximation of this shape is a
+# fixture that cannot fail for the reason it exists, so these are the bytes the
+# browser produced. (Reproduce: two tests, one async helper with an assertion
+# per branch; `playwright test --reporter=json`.)
+REAL_HELPER_SPEC_LINES = (15, 19)
+REAL_HELPER_ASSERT_LINES = (8, 11)
+REAL_HELPER_LOCATION_FILE = (
+    "/tmp/claude-0/-home-user-3d-cad/bf0a0e7f-8511-5dae-8281-551ab382dd10"
+    "/scratchpad/qa-fullflow/probe/probe.spec.ts"
+)
+REAL_HELPER_COUNT_FAILURE = (
+    "Error: \x1b[2mexpect(\x1b[22m\x1b[31mlocator\x1b[39m\x1b[2m).\x1b["
+    "22mtoHaveCount\x1b[2m(\x1b[22m\x1b[32mexpected\x1b[39m\x1b[2m)\x1b"
+    "[22m failed\n\nLocator:  getByTestId('a')\nExpected: \x1b[32m0\x1b"
+    "[39m\nReceived: \x1b[31m1\x1b[39m\nTimeout:  500ms\n\nCall log:\n"
+    '\x1b[2m  - Expect "toHaveCount" with timeout 500ms\x1b[22m\n\x1b[2m'
+    "  - waiting for getByTestId('a')\x1b[22m\n\x1b[2m    4 \u00d7 locat"
+    'or resolved to 1 element\x1b[22m\n\x1b[2m      - unexpected value "'
+    '1"\x1b[22m\n'
+)
+
+
+def _helper_spec(index: int, title: str, message: str, located: bool) -> Any:
+    """One of the two REAL helper failures, with its location optionally
+    removed — the negative control. Dropping `error.location` is an INPUT
+    mutation, so the self-test's site assertions are demonstrably coupled to
+    the field they read rather than to a constant."""
+    error: dict[str, Any] = {"message": message}
+    if located:
+        error["location"] = {
+            "file": REAL_HELPER_LOCATION_FILE,
+            "column": 41,
+            "line": REAL_HELPER_ASSERT_LINES[index],
+        }
+    return {
+        "title": title,
+        "file": "probe.spec.ts",
+        "line": REAL_HELPER_SPEC_LINES[index],
+        "tests": [
+            {
+                "expectedStatus": "passed",
+                "status": "unexpected",
+                "annotations": [],
+                "results": [{"status": "failed", "error": error}],
+            }
+        ],
+    }
+
+
+def _helper_specs(located: bool) -> list[Any]:
+    return [
+        _helper_spec(
+            0, "helper fails at the count line", REAL_HELPER_COUNT_FAILURE, located
+        ),
+        _helper_spec(
+            1, "helper fails at the visible line", REAL_VISIBLE_FAILURE, located
+        ),
+    ]
+
+
 def _write(
     path: Path,
     specs: list[Any],
@@ -696,7 +929,213 @@ def self_test() -> int:
             and f"e2e/synthetic.spec.ts:30 {SEP} a group {SEP} times out" in text,
             text,
         )
+
+        # THE REASON, not just the name. Until Sept 2026 a FAIL line stopped at
+        # the title, so the only channel into a red shard could say which test
+        # failed and never what it saw — which is a dead end for an
+        # intermittent, where re-running locally is exactly what does not
+        # reproduce. The message below is the shape Playwright 1.56 emits for a
+        # count assertion, ANSI and trailing call log included.
+        reasoned = _write(
+            root / "reasoned.json",
+            [
+                _spec(
+                    "a count that lost a race",
+                    50,
+                    "unexpected",
+                    "failed",
+                    error=REAL_COUNT_FAILURE,
+                ),
+                _spec(
+                    "an input that never appeared",
+                    55,
+                    "unexpected",
+                    "failed",
+                    error=REAL_VISIBLE_FAILURE,
+                ),
+                _spec("no error object at all", 60, "unexpected", "failed"),
+            ],
+        )
+        reason_text = "\n".join(build_block(1, reasoned, None, "shard 2/4", 25)[0])
+        check(
+            "reason: the verdict carries Expected AND Received",
+            "Expected: 10" in reason_text and "Received: 1" in reason_text,
+            reason_text,
+        )
+        check(
+            "reason: it names the assertion, not just the timeout",
+            "toHaveCount" in reason_text,
+            reason_text,
+        )
+        check(
+            "reason: a visibility failure keeps its CAUSE, not the bare Expected",
+            "element(s) not found" in reason_text,
+            reason_text,
+        )
+        check(
+            "reason: ANSI escapes are stripped",
+            "\x1b[" not in reason_text,
+            reason_text,
+        )
+        check(
+            "reason: the call log is NOT dragged in (the diagnosis, not a dump)",
+            "Call log" not in reason_text and "waiting for locator" not in reason_text,
+            reason_text,
+        )
+        check(
+            "reason: one line per failure, still",
+            all(
+                len(line) < 320
+                for line in reason_text.splitlines()
+                if "synthetic.spec.ts:50" in line
+            ),
+            reason_text,
+        )
+        check(
+            "reason: a failure with no error message renders no empty bracket",
+            f"e2e/synthetic.spec.ts:60 {SEP} a group {SEP} no error object at all"
+            in reason_text
+            and "at all  []" not in reason_text,
+            reason_text,
+        )
         check("red: fits in a 40-line tail", len(block) <= 40, str(len(block)))
+
+        # ── THE ASSERTION'S OWN LINE ─────────────────────────────────────────
+        # Run 34887783075 named `full-flow.spec.ts:324`, which is the `test()`
+        # declaration. The assertion lived in a helper THREE tests share, and
+        # the file holds three `toHaveCount(0)` calls whose failure messages are
+        # byte-identical — so the verdict could not say which of three defects,
+        # with three different owners, had fired.
+        helper = _write(root / "helper.json", _helper_specs(located=True))
+        helper_text = "\n".join(build_block(1, helper, None, "shard 3/4", 25)[0])
+        check(
+            "site: the FAIL line carries the ASSERTION's line, not only the test's",
+            "probe.spec.ts:15 assert@8" in helper_text
+            and "probe.spec.ts:19 assert@11" in helper_text,
+            helper_text,
+        )
+        check(
+            "site: two tests sharing one helper are told apart",
+            helper_text.count("assert@") == 2
+            and len(
+                {
+                    ln.split("assert@")[1].split()[0]
+                    for ln in helper_text.splitlines()
+                    if "assert@" in ln
+                }
+            )
+            == 2,
+            helper_text,
+        )
+        check(
+            "site: the runner's absolute path is NOT dragged into the line",
+            "/tmp/claude-0" not in helper_text and "scratchpad" not in helper_text,
+            helper_text,
+        )
+        check(
+            "site: still one line per failure, still inside the tail budget",
+            all(
+                len(line) < 320
+                for line in helper_text.splitlines()
+                if "assert@" in line
+            ),
+            helper_text,
+        )
+        # NEGATIVE CONTROL — an INPUT mutation, not a second assertion about the
+        # same bytes: strip `error.location` and the suffix must vanish while the
+        # rest of the line is unchanged. Without this, every check above would
+        # pass just as happily against a renderer that hard-coded the string.
+        unlocated = _write(root / "unlocated.json", _helper_specs(located=False))
+        unlocated_text = "\n".join(build_block(1, unlocated, None, "shard 3/4", 25)[0])
+        check(
+            "site (negative control): no location in the report -> no suffix",
+            "assert@" not in unlocated_text,
+            unlocated_text,
+        )
+        check(
+            "site (negative control): the line still names the test and the reason",
+            "probe.spec.ts:15" in unlocated_text
+            and "Received: 1" in unlocated_text
+            and "element(s) not found" in unlocated_text,
+            unlocated_text,
+        )
+        # A location that IS the test's own line is noise (`:20 assert@20`).
+        same_line = _write(
+            root / "same-line.json",
+            [
+                {
+                    "title": "the assertion is in the test body",
+                    "file": "probe.spec.ts",
+                    "line": 20,
+                    "tests": [
+                        {
+                            "expectedStatus": "passed",
+                            "status": "unexpected",
+                            "annotations": [],
+                            "results": [
+                                {
+                                    "status": "failed",
+                                    "error": {
+                                        "message": REAL_HELPER_COUNT_FAILURE,
+                                        "location": {
+                                            "file": "/runner/e2e/probe.spec.ts",
+                                            "column": 5,
+                                            "line": 20,
+                                        },
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        )
+        same_text = "\n".join(build_block(1, same_line, None, "shard 1/4", 25)[0])
+        check(
+            "site: an assertion on the test's own line adds no redundant suffix",
+            "assert@" not in same_text and "probe.spec.ts:20" in same_text,
+            same_text,
+        )
+        # A helper in ANOTHER file (e2e/gaugeProbe.ts is shared by six specs)
+        # needs its name, or `assert@88` points at the wrong file.
+        other_file = _write(
+            root / "other-file.json",
+            [
+                {
+                    "title": "fails inside a shared helper module",
+                    "file": "craft9b-gauges.spec.ts",
+                    "line": 40,
+                    "tests": [
+                        {
+                            "expectedStatus": "passed",
+                            "status": "unexpected",
+                            "annotations": [],
+                            "results": [
+                                {
+                                    "status": "failed",
+                                    "error": {
+                                        "message": REAL_HELPER_COUNT_FAILURE,
+                                        "location": {
+                                            "file": (
+                                                "/runner/apps/web/e2e/gaugeProbe.ts"
+                                            ),
+                                            "column": 5,
+                                            "line": 88,
+                                        },
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        )
+        other_text = "\n".join(build_block(1, other_file, None, "shard 1/4", 25)[0])
+        check(
+            "site: a cross-file helper is named, not silently renumbered",
+            "assert@gaugeProbe.ts:88" in other_text,
+            other_text,
+        )
 
         # ── ANNOTATED CASES, against the real report's own field values ──────
         # This is the defect that shipped: classifying from results[] made a

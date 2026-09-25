@@ -23,8 +23,8 @@ import pytest
 from documents.db import Base
 from documents.main import DocumentsSettings, build_app
 from fastapi.testclient import TestClient
+from loft_wire.parts import PRINCIPAL_HEADER
 from py_kit.db import async_dsn
-from py_kit.schemas.parts import PRINCIPAL_HEADER
 from sqlalchemy.ext.asyncio import create_async_engine
 
 OWNER = "6f3f6b64-0000-4000-8000-00000000000a"

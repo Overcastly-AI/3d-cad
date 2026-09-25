@@ -2,7 +2,7 @@
 value FROM THE MODEL (design §3.1/§3.2/§3.3).
 
 A drawing dimension names MODEL geometry with the shipped
-:class:`~py_kit.schemas.features.EdgeSignature` (the SAME fingerprint a
+:class:`~loft_wire.features.EdgeSignature` (the SAME fingerprint a
 ``concentric`` mate and a picked-edge fillet use — design §3.3). This module
 resolves that ref against the view's evaluated body with the shipped
 :func:`geometry.kernel.edges.resolve_edge` (exactly one or an honest error) and
@@ -23,7 +23,7 @@ resolver first, then, ONLY when that finds nothing, a re-match on the rebuild
 invariant of the edge's curve kind (a straight edge's supporting line + overlapping
 span, a circular edge's centre + angular station). So widening a plate 100 → 120
 re-measures its overall-length dimension instead of destroying it. The result carries
-the :class:`~py_kit.schemas.drawings.DimensionAnchor` — the CURRENT signature(s) the
+the :class:`~loft_wire.drawings.DimensionAnchor` — the CURRENT signature(s) the
 dimension now names plus which tier matched — which is also what the composer matches
 against the projected edges (a re-measured dimension whose ANNOTATION still looked up
 the stale signature would still vanish from the sheet).
@@ -38,7 +38,7 @@ parallel — so no perpendicular distance EXISTS — is a
 :class:`DimensionNotParallelError` (FB-10): a wrong number on a print a shop will
 cut from is worse than no number, so this one refuses rather than measures.
 :func:`measure_dimension_dto` maps all four onto the neutral
-:class:`~py_kit.schemas.drawings.MeasuredDimension` error channel — never a 500.
+:class:`~loft_wire.drawings.MeasuredDimension` error channel — never a 500.
 
 Determinism (RESEARCH §9): resolution + measurement are pure functions of the body
 and the ref; the same body + dimension yields the same value, in-process and
@@ -59,7 +59,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from build123d import Edge, GeomType
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     AngularDimensionParams,
     DiameterDimensionParams,
     DimensionAnchor,
@@ -74,8 +74,8 @@ from py_kit.schemas.drawings import (
     RadiusDimensionParams,
     ViewProjection,
 )
-from py_kit.schemas.features import EdgeSignature, FeatureError
-from py_kit.schemas.geometry import Vec3
+from loft_wire.features import EdgeSignature, FeatureError
+from loft_wire.geometry import Vec3
 
 from geometry.drawings.anchor import (
     ANCHOR_DIRECTION_SIN_TOL,

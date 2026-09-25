@@ -42,12 +42,12 @@ BLAS-pinned solve yields an identical clash list across interpreter restarts.
 
 from __future__ import annotations
 
-from py_kit import get_logger
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     ClashPair,
     EvaluateAssemblyRequest,
     InterferenceResult,
 )
+from py_kit import get_logger
 
 from geometry.assembly.evaluate import PlacedInstance, solve_assembly
 from geometry.assembly.transform import Pose

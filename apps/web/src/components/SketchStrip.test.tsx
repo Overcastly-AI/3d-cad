@@ -16,7 +16,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { expectGated } from "../test/gated";
+import { expectGated, expectNotGated } from "../test/gated";
 import { DATUM_ORIGIN_ID, DATUM_PICKS } from "../sketch/datum";
 import { useSketchStore } from "../sketch/store";
 import { SketchStrip } from "./SketchStrip";
@@ -508,5 +508,157 @@ describe("the constraint catalogue lists the whole vocabulary", () => {
     expect(
       screen.getByTestId("constraint-symmetric").getAttribute("aria-label"),
     ).toMatch(/two lines about a selected centerline/i);
+  });
+});
+
+/**
+ * THE FINISH GROUP DURING AN AUTOSAVE — the ~280 ms window in which the one
+ * control that ends a sketch did nothing at all.
+ *
+ * `sketch-save` read `disabled={saving || …}`, and `saving` is `syncPending`,
+ * which the debounced autosave raises for the length of a write. QA measured
+ * the button going `aria-disabled="true"` 208/236/244 ms after an edit settles
+ * and clearing at 481/513/526 ms (three runs); a real `page.mouse.click` at the
+ * button's own centre inside that window resolved to `sketch-save` — the event
+ * reached the button, nothing was on top of it — and the strip was still
+ * mounted thirty seconds later. `ToolButton` swallows a click on an
+ * `aria-disabled` control, so there was no queue, no re-arm, and no feedback.
+ *
+ * These cases are the cheap half of the gate. They can see that the control is
+ * REACHABLE while a save is in flight and that a refusal, where one survives,
+ * carries its reason — they cannot see that the click lands, because that is a
+ * property of the page, not of this component. `apps/web/e2e/full-flow.spec.ts`
+ * owns that half, clicking inside the real busy window against the real stack.
+ */
+describe("a save in flight is reported, not used as a refusal", () => {
+  it("keeps SAVE reachable while an autosave is writing", () => {
+    drawUnsavedRectangle();
+    render(<SketchStrip onSave={vi.fn()} saving={true} saveError={null} />);
+
+    expectNotGated(screen.getByTestId("sketch-save"));
+  });
+
+  it("delivers the click — the intent is never dropped on the floor", () => {
+    drawUnsavedRectangle();
+    const onSave = vi.fn();
+    render(<SketchStrip onSave={onSave} saving={true} saveError={null} />);
+
+    fireEvent.click(screen.getByTestId("sketch-save"));
+
+    // The whole defect in one assertion: this was 0.
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("still SAYS a save is running — busy is a report, not a gate", () => {
+    drawUnsavedRectangle();
+    render(<SketchStrip onSave={vi.fn()} saving={true} saveError={null} />);
+
+    const save = screen.getByTestId("sketch-save");
+    expect(save).toHaveAttribute("aria-busy", "true");
+    expect(save.textContent).toContain("Saving…");
+  });
+
+  it("keeps EXIT reachable too — it is not the destructive step", () => {
+    drawUnsavedRectangle();
+    render(<SketchStrip onSave={vi.fn()} saving={true} saveError={null} />);
+
+    expectNotGated(screen.getByTestId("sketch-exit"));
+  });
+
+  it("refuses the DISCARD confirm and says why, where the user is looking", () => {
+    drawUnsavedRectangle();
+    const { rerender } = render(
+      <SketchStrip onSave={vi.fn()} saving={false} saveError={null} />,
+    );
+    // Arm the confirm first: it only exists once Exit has asked.
+    fireEvent.click(screen.getByTestId("sketch-exit"));
+    rerender(<SketchStrip onSave={vi.fn()} saving={true} saveError={null} />);
+
+    const discard = screen.getByTestId("sketch-discard-confirm");
+    // This one refusal is REAL — a discard cannot call back a create already on
+    // the wire — so it stays gated, and gated the way this product gates:
+    // `aria-disabled`, still hoverable and focusable, so the reason is readable.
+    expectGated(discard);
+    expect(discard.textContent).toContain("wait — a save is landing");
+  });
+
+  it("still refuses an EMPTY sketch, and the caption names the reason", () => {
+    const store = () => useSketchStore.getState();
+    store().begin();
+    store().choosePlane("XY");
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
+
+    const save = screen.getByTestId("sketch-save");
+    expectGated(save);
+    expect(save.textContent).toContain("nothing drawn yet");
+  });
+});
+
+describe("the offset-plane panel explains a grey Sketch here (REASON-GATE)", () => {
+  /*
+   * The panel's commit used the native `disabled` attribute and no sentence:
+   * clear the distance and "Sketch here" went grey, dropped out of the
+   * accessibility tree, could not be hovered or focused, and said nothing. The
+   * product rule every feature editor follows is "the action is enabled iff
+   * there is no blocker sentence, and the sentence is shown" — one
+   * computation, two readings (`submitBlocker.ts`).
+   */
+  function openOffsetPanel(onAuthor = vi.fn()) {
+    useSketchStore.getState().begin();
+    render(
+      <SketchStrip
+        onSave={vi.fn()}
+        saving={false}
+        saveError={null}
+        onAuthorOffsetPlane={onAuthor}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("datum-offset-plane"));
+    return {
+      field: screen.getByTestId("offset-plane-offset"),
+      confirm: screen.getByTestId("offset-plane-confirm"),
+      onAuthor,
+    };
+  }
+
+  /** The text the confirm's accessible description resolves to. */
+  function description(el: HTMLElement): string {
+    const ids = (el.getAttribute("aria-describedby") ?? "").split(" ");
+    return ids
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ")
+      .trim();
+  }
+
+  it("an empty distance gates the action AND names the way out", () => {
+    const { field, confirm, onAuthor } = openOffsetPanel();
+    fireEvent.change(field, { target: { value: "" } });
+    expectGated(confirm);
+    expect(confirm.textContent).toContain("Enter the offset.");
+    // The same sentence reaches a screen reader, not a parallel one.
+    expect(description(confirm)).toBe("Enter the offset.");
+    fireEvent.click(confirm);
+    expect(onAuthor).not.toHaveBeenCalled();
+  });
+
+  it("an unparseable distance says CHECK, not ENTER", () => {
+    const { field, confirm } = openOffsetPanel();
+    fireEvent.change(field, { target: { value: "abc" } });
+    expectGated(confirm);
+    expect(confirm.textContent).toContain("Check the offset.");
+  });
+
+  it("a valid distance carries no gate and no sentence, and commits", () => {
+    const { field, confirm, onAuthor } = openOffsetPanel();
+    fireEvent.change(field, { target: { value: "-12.5" } });
+    expectNotGated(confirm);
+    expect(confirm.querySelector("[data-disabled-reason]")).toBeNull();
+    fireEvent.click(confirm);
+    expect(onAuthor).toHaveBeenCalledWith({
+      kind: "offset",
+      base: "XY",
+      offset_mm: -12.5,
+      flip: false,
+    });
   });
 });

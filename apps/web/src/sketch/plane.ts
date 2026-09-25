@@ -47,6 +47,7 @@
  *
  * Pure math, no three.js imports — unit-testable in node.
  */
+import { formatLength } from "@loft/design";
 import type { components } from "@loft/ts-client/gateway";
 
 export type DatumPlaneName = components["schemas"]["DatumPlaneRef"]["plane"];
@@ -543,19 +544,25 @@ export function planeRefFromSpec(spec: SketchPlaneSpec): SketchPlaneRef {
     : { kind: "feature", feature_id: spec.datumFeatureId };
 }
 
-/** A short human label for the chosen plane — the DRO / strip readout. */
+/**
+ * A short human label for the chosen plane — the DRO / strip readout.
+ *
+ * The offset is in mm, like the DRO's X/Y, through the design system's length
+ * formatter (4 fraction digits, trailing zeros trimmed): a datum at 1/3 in read
+ * "XY +8.466666666666667". The flip mark LEADS, because the DRO's PLANE cell
+ * truncates and the tail is what it cuts (review S2 on `e3bd6aa`).
+ */
 export function describePlane(spec: SketchPlaneSpec | null): string {
   if (spec === null) return "—";
   if (spec.kind === "origin") return spec.base;
   if (spec.kind === "datum") return spec.label;
+  const signed = (mm: number): string =>
+    `${mm >= 0 ? "+" : "−"}${formatLength(Math.abs(mm), "mm", { unitSuffix: false })}`;
   if (spec.kind === "on_face") {
     if (spec.offsetMm === 0) return "Face";
-    const sign = spec.offsetMm >= 0 ? "+" : "−";
-    return `Face ${sign}${Math.abs(spec.offsetMm)}`;
+    return `Face ${signed(spec.offsetMm)}`;
   }
-  const sign = spec.offsetMm >= 0 ? "+" : "−";
-  const mag = Math.abs(spec.offsetMm);
-  return `${spec.base} ${sign}${mag}${spec.flip ? " ⟲" : ""}`;
+  return `${spec.flip ? "⟲ " : ""}${spec.base} ${signed(spec.offsetMm)}`;
 }
 
 /** An on-face plane spec from a persisted on_face datum's face signature. */

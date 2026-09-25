@@ -51,7 +51,7 @@ from geometry.drawings import (
     serialize_flat_pattern_dxf,
 )
 from geometry.drawings import compose as compose_module
-from py_kit.schemas.drawings import ComposedSheet
+from loft_wire.drawings import ComposedSheet
 
 _GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens-sheet-metal"
 

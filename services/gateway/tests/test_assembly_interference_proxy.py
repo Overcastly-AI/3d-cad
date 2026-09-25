@@ -21,17 +21,17 @@ import pytest
 from fastapi.testclient import TestClient
 from gateway.db import Base
 from gateway.main import GatewaySettings, build_app
-from py_kit import REQUEST_ID_HEADER
-from py_kit.db import async_dsn
-from py_kit.errors import RateLimitExceededError
-from py_kit.ratelimit import RateLimiter, RedisClient
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     ClashPair,
     EvaluateAssemblyRequest,
     EvaluatedInstance,
     InterferenceResult,
 )
-from py_kit.schemas.parts import PRINCIPAL_HEADER
+from loft_wire.parts import PRINCIPAL_HEADER
+from py_kit import REQUEST_ID_HEADER
+from py_kit.db import async_dsn
+from py_kit.errors import RateLimitExceededError
+from py_kit.ratelimit import RateLimiter, RedisClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
 TEST_JWT_SECRET = "unit-test-jwt-secret-0123456789abcdef"
@@ -44,14 +44,19 @@ INSTANCE_B = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
 
 
 class _BlockingLimiter(RateLimiter):
-    """A limiter whose every ``check`` denies — proves the route RUNS the
-    ``COMPUTE_RATE_LIMIT`` dependency (a route without it never calls ``check``,
-    so the request would 200 through instead of 429)."""
+    """A limiter whose every ``compute`` check denies — proves the route RUNS
+    the ``COMPUTE_RATE_LIMIT`` dependency (a route without it never calls
+    ``check``, so the request would 200 through instead of 429). The ``auth``
+    scope (register, which sets the test up) is let through."""
 
     def __init__(self) -> None:
         super().__init__(cast(RedisClient, None), limit=1, window_s=60)
 
-    async def check(self, identity: str, *, scope: str = "compute") -> None:
+    async def check(
+        self, identity: str, *, scope: str = "compute", limit: int | None = None
+    ) -> None:
+        if scope != "compute":
+            return
         raise RateLimitExceededError(
             "Rate limit exceeded.",
             retry_after_s=60,

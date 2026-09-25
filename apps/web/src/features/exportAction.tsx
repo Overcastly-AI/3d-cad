@@ -18,6 +18,7 @@ import { useCallback, useState } from "react";
 
 import {
   downloadBlob,
+  ExportRefusedError,
   type ExportedFile,
   type ExportFormat,
 } from "../api/exportPart";
@@ -88,8 +89,65 @@ export interface ExportAction {
   readonly busy: ExportFormat | null;
   /** The format whose last attempt failed, or null. */
   readonly failed: ExportFormat | null;
+  /** What the last failure SAYS, or null when the last attempt did not fail. */
+  readonly failure: ExportFailureCopy | null;
   /** Fetch the file and hand it to the browser as a named download. */
   readonly run: (format: ExportFormat) => Promise<void>;
+}
+
+/** What a failed export tells the user, on both export surfaces. */
+export interface ExportFailureCopy {
+  /** The cell's caption: a few words, in the band's width. */
+  readonly caption: string;
+  /** The full sentence: what went wrong, and what to do instead. */
+  readonly sentence: string;
+}
+
+/**
+ * THE COPY FOR A FAILED EXPORT, keyed on the server's refusal code.
+ *
+ * A refusal that names a cure gets the cure. The two mesh refusals are the
+ * ones a user can act on: the body is fine and another format writes it.
+ * Anything else, including a transport failure with no envelope at all, keeps
+ * the generic line. It is the only honest thing to say when the reason is
+ * unknown.
+ *
+ * `export_mesh_too_dense` (MESH-TOO-DENSE-COPY-1): a 3MF of a many-turn twist.
+ * lib3mf re-meshes a copy of the body at full cost, so the geometry service
+ * refuses it rather than spend minutes. STL, STEP and GLB of the same body
+ * work. `export_mesh_not_manifold` is the same kind of refusal, from a body
+ * whose surface touches itself along a line; 3MF requires a manifold mesh.
+ */
+export function exportFailureCopy(
+  format: ExportFormat,
+  code: string | null,
+): ExportFailureCopy {
+  const name = format.toUpperCase();
+  switch (code) {
+    case "export_mesh_too_dense":
+      return {
+        caption: "Too dense — use STL or STEP",
+        sentence:
+          `This twisted body is too dense to write as ${name} in reasonable ` +
+          "time. Export STL or STEP instead, or reduce the twist.",
+      };
+    case "export_mesh_not_manifold":
+      return {
+        caption: "Not manifold — use STL or STEP",
+        sentence:
+          "This body's surface touches itself along a line, so it cannot be " +
+          `written as the manifold mesh ${name} requires. Export STEP or STL ` +
+          "instead, or give the contact some width with a small fillet or " +
+          "clearance.",
+      };
+    default:
+      return {
+        caption: "Failed — check the gateway, then retry",
+        sentence:
+          `Export failed — the ${name} file could not be written. Check ` +
+          "that the gateway is running, then try again.",
+      };
+  }
 }
 
 /**
@@ -101,7 +159,10 @@ export function useExportAction(
   exporter: (format: ExportFormat) => Promise<ExportedFile>,
 ): ExportAction {
   const [busy, setBusy] = useState<ExportFormat | null>(null);
-  const [failed, setFailed] = useState<ExportFormat | null>(null);
+  const [failed, setFailed] = useState<{
+    format: ExportFormat;
+    copy: ExportFailureCopy;
+  } | null>(null);
 
   const run = useCallback(
     async (format: ExportFormat) => {
@@ -110,8 +171,9 @@ export function useExportAction(
       try {
         const { blob, filename } = await exporter(format);
         downloadBlob(blob, filename);
-      } catch {
-        setFailed(format);
+      } catch (error) {
+        const code = error instanceof ExportRefusedError ? error.code : null;
+        setFailed({ format, copy: exportFailureCopy(format, code) });
       } finally {
         setBusy(null);
       }
@@ -119,5 +181,10 @@ export function useExportAction(
     [exporter],
   );
 
-  return { busy, failed, run };
+  return {
+    busy,
+    failed: failed?.format ?? null,
+    failure: failed?.copy ?? null,
+    run,
+  };
 }

@@ -15,6 +15,13 @@ push without paying for an image build. Invariants:
    NOT host-published in the base file; the gateway (:8000) is. The dev
    overlay may publish them, but only loopback-bound (127.0.0.1).
 3. minio-init bootstraps the bucket with the same anchor-sourced credentials.
+3a. G5 — the stack SERVES THE APP. There is a ``web`` service, it is
+   host-published, and the dev overlay keeps it on exactly one host mapping.
+   This is an existence assertion rather than a safety one, and it is here
+   because its absence went unnoticed for months: every gate in this file
+   graded what the stack must NOT expose, none graded what it must, and
+   docs/QUICKSTART.md promised a browser at a modeling viewport while no
+   compose file defined a web service at all (2026-09-15).
 4. Gateway and documents point at DIFFERENT databases, each created by
    deploy/docker/postgres-init — both alembic trees start at revision "0001"
    in the default ``alembic_version`` table, so one shared database makes the
@@ -126,6 +133,30 @@ def main() -> int:
     check(not ports(base["geometry"]), "geometry has NO host port")
     check(bool(ports(base["gateway"])), "gateway is host-published")
 
+    # G5 — the stack must SERVE THE APP, not just an API. Everything else in
+    # this file is a "must not"; a stack can satisfy every one of them and
+    # still have no user interface, which is exactly what it did until
+    # 2026-09-15. An absence is invisible to a gate that only grades presence.
+    print("base: G5 — the app is served")
+    check("web" in base, "a `web` service exists in the base stack")
+    web = base.get("web", {})
+    check(bool(ports(web)), "web is host-published (this is the browser's port)")
+    # The web image is the SPA plus its /api proxy; if it ever stops being
+    # built from the repo it has become an opaque artifact nobody can audit.
+    check(
+        bool(web.get("build", {}).get("dockerfile")),
+        "web is BUILT from a Dockerfile in this repo",
+    )
+    # Exactly one mapping, because compose MERGES port lists across files
+    # rather than replacing them: a dev overlay that publishes its own mapping
+    # leaves the base one behind, pointing at a container port nothing listens
+    # on, and the failure is a connection refused on the documented URL.
+    check(
+        len(ports(dev["web"])) == 1,
+        "the dev overlay leaves web on ONE host mapping "
+        f"(found {len(ports(dev['web']))})",
+    )
+
     # G4 (engineering audit J4, 2026-07-30) — G3's reasoning, applied to the
     # DATASTORES, which it never covered. G3 named `documents` and `geometry` as
     # string literals, so db/redis/minio were simply outside the gate: the base
@@ -134,14 +165,24 @@ def main() -> int:
     # compose-smoke.sh calls "the DOCUMENTED SELF-HOST PATH". Default password
     # plus open port is materially worse than either alone.
     #
-    # The gateway is the ONE intended public surface, so it is exempt by name.
-    # Everything else must bind loopback (or not publish at all). `BIND_IP`
-    # exists as the deliberate opt-out for an operator who really does want a
-    # remote datastore — they set it explicitly, rather than getting it by
-    # default and never knowing.
+    # The gateway and the web app are the TWO intended public surfaces, so they
+    # are exempt by name. Everything else must bind loopback (or not publish at
+    # all). `BIND_IP` exists as the deliberate opt-out for an operator who
+    # really does want a remote datastore — they set it explicitly, rather than
+    # getting it by default and never knowing.
+    #
+    # `web` was added to that exemption on 2026-09-15 with the service itself,
+    # and the reasoning is the same one that exempts the gateway rather than a
+    # weakening of the rule: a self-hoster runs this on a box and opens it from
+    # a laptop, so a UI bound to 127.0.0.1 is not self-hosting — it is a UI
+    # visible only from the machine that does not have the screen. What made
+    # the datastores dangerous was an open port PLUS a repo-public default
+    # password; web holds no credential, stores nothing, and everything it
+    # proxies is authenticated by the gateway behind it.
+    PUBLIC_SURFACES = ("gateway", "web")
     print("base: G4 — datastores are not world-published")
     for name, service in sorted(base.items()):
-        if name == "gateway":
+        if name in PUBLIC_SURFACES:
             continue
         for mapping in ports(service):
             host_ip = mapping.get("host_ip")

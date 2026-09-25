@@ -29,7 +29,7 @@ in shape and error posture (a single part rather than an instance graph).
 from __future__ import annotations
 
 from build123d import Plane
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     DrawingViewResult,
     EvaluateDrawingViewsRequest,
     EvaluateDrawingViewsResult,
@@ -41,7 +41,7 @@ from py_kit.schemas.drawings import (
     ViewProjection,
     ViewScale,
 )
-from py_kit.schemas.features import (
+from loft_wire.features import (
     DatumPlaneRef,
     EdgeSignature,
     EvaluateTreeRequest,

@@ -18,7 +18,10 @@ That "does not repair" is about OUR code; OCCT's own transfer has always run a
 otherwise control. Exactly ONE operation of that pass is disabled, because it was
 super-quadratic in edges-per-wire and byte-identical in result — see
 :data:`~geometry.kernel._step_parse_worker.SHAPE_FIX_PARAMETERS` for the profile
-and the measured evidence.
+and the measured evidence. One step is ADDED after it: a solid that pass leaves
+enclosing negative volume is turned right side out (:func:`outward_solid`),
+because its orientation fix classifies by a ray cast that a many-turn helicoid
+defeats.
 
 **Hard parse bound — CPU-time + wall-clock backstop (design §6, BACKLOG P1).**
 A STEP file is untrusted external input and OCCT's transfer is not guaranteed
@@ -84,7 +87,9 @@ import time
 
 from build123d import Compound, Solid
 from OCP.BRep import BRep_Builder
+from OCP.BRepGProp import BRepGProp
 from OCP.BRepTools import BRepTools
+from OCP.GProp import GProp_GProps
 from OCP.TopAbs import TopAbs_COMPOUND, TopAbs_FACE, TopAbs_SHELL, TopAbs_SOLID
 from OCP.TopExp import TopExp_Explorer
 from OCP.TopoDS import TopoDS, TopoDS_Shape
@@ -187,7 +192,7 @@ class ImportTooManyProductsError(Exception):
     otherwise expand into a full per-product ``body_step`` — a multi-GB response
     the gateway buffers before its own count cap can reject it. The assembly parse
     worker aborts the XDE walk once the leaf-occurrence count exceeds
-    :data:`~py_kit.schemas.step_import.MAX_IMPORT_ASSEMBLY_PRODUCTS`, INSIDE the
+    :data:`~loft_wire.step_import.MAX_IMPORT_ASSEMBLY_PRODUCTS`, INSIDE the
     CPU-bounded child (so even the accumulation is bounded), and the parent maps
     that worker exit code here — a rejection BEFORE the per-occurrence product
     build, never a 500."""
@@ -203,7 +208,7 @@ class ImportResponseTooLargeError(Exception):
     result shape carries ``body_step`` once per occurrence. The service layer
     tracks the running total of emitted ``body_step`` bytes and rejects here before
     materialising a product past
-    :data:`~py_kit.schemas.step_import.MAX_IMPORT_RESPONSE_BYTES` — a clean 422,
+    :data:`~loft_wire.step_import.MAX_IMPORT_RESPONSE_BYTES` — a clean 422,
     never a 500, regardless of occurrence count or body repetition."""
 
 
@@ -215,6 +220,28 @@ def _count(shape: object, kind: object) -> int:
         total += 1
         explorer.Next()
     return total
+
+
+def outward_solid(shape: TopoDS_Shape) -> Solid:
+    """A transferred solid, turned right side out if it encloses NEGATIVE volume.
+
+    OCCT's reader runs ``ShapeFix_Solid`` inside its transfer, which orients a
+    solid by classifying a point at infinity with a ray cast. On a many-turn
+    helicoid that classification can come back IN, so the reader turns a
+    correct file INSIDE OUT (review B1 of da457ef, 2026-09-25: Loft's own STEP
+    of a 20 mm square twisted +3600 deg over 30 mm, whose file is identical
+    face for face to the -3600 one, re-imported at -12000 mm^3 while -3600
+    came back +12000). The sign of the enclosed volume is the definition of
+    "outward", and an integral does not miss a surface the way a ray can, so a
+    negative solid is reversed here. A positive one, which is every other
+    import, is returned exactly as transferred.
+    """
+    solid = Solid(TopoDS.Solid_s(shape))
+    props = GProp_GProps()
+    BRepGProp.VolumeProperties_s(solid.wrapped, props)
+    if props.Mass() < 0:
+        return Solid(TopoDS.Solid_s(solid.wrapped.Reversed()))
+    return solid
 
 
 def read_brep_shape(path: str) -> TopoDS_Shape:
@@ -240,11 +267,21 @@ def solid_to_brep_bytes(body: BodyShape) -> bytes:
     on an unchanged import. Triangulation and normals are written OFF so the
     cached bytes are a pure function of the geometry (never a mesh at some
     deflection); the format version is pinned so the round-trip is deterministic
-    across interpreter restarts (RESEARCH §9). Because a fresh solid is
-    round-tripped BEFORE any downstream op meshes it, and BREP write→read is
-    idempotent on an already-BREP-read shape (the parse worker already returns
-    one), the cached body tessellates byte-identically to the direct parse. A
-    multi-lump import body is a :class:`~build123d.Compound`; BREP write
+    across interpreter restarts (RESEARCH §9).
+
+    **BREP write→read is NOT idempotent, and this docstring used to claim it
+    was.** Measured on a 1 018-face imported gearbox (F2, docs/GEOMETRY-QA.md
+    2026-09-15): the worker's body, its round-trip, and its round-trip's
+    round-trip all tessellate to three DIFFERENT GLB byte strings, and the
+    written bytes differ at every iteration — the serializer is lossy at ULP
+    level, so there is no fixed point to reach. Determinism is therefore NOT a
+    property of this function; it is a property of
+    :func:`geometry.step_cache.import_step_solid_cached`, which sends the miss
+    path and the hit path through the SAME cached byte string so neither can
+    observe the difference. Do not reintroduce a shortcut that returns a body
+    which skipped this round-trip.
+
+    A multi-lump import body is a :class:`~build123d.Compound`; BREP write
     serializes its lump order verbatim, so a cache round-trip preserves the
     :func:`~geometry.kernel.lumps.assemble_lumps` sort (§MB-4).
     """
@@ -480,6 +517,6 @@ def import_step_solid(
     explorer = TopExp_Explorer(shape, TopAbs_SOLID)
     solids: list[Solid] = []
     while explorer.More():
-        solids.append(Solid(TopoDS.Solid_s(explorer.Current())))
+        solids.append(outward_solid(explorer.Current()))
         explorer.Next()
     return assemble_lumps(solids)

@@ -351,7 +351,7 @@
         "type": "object"
       },
       "BodyMaterialAssignment": {
-        "description": "A per-BODY material override, keyed by the body's \u00a7MB-0 identity.\n\n``base_feature_id`` is the id of the feature that CREATED the body \u2014 the\nsame key ``EvaluationState.bodies`` and\n:class:`~py_kit.schemas.features.BodyLumpInfo` use \u2014 so an override survives\nedits to other features the way any body reference does. An override naming\na body the tree no longer produces is inert (it matches nothing); it is not\nan error, because a rolled-back tree legitimately hides the body for a while.",
+        "description": "A per-BODY material override, keyed by the body's \u00a7MB-0 identity.\n\n``base_feature_id`` is the id of the feature that CREATED the body \u2014 the\nsame key ``EvaluationState.bodies`` and\n:class:`~loft_wire.features.BodyLumpInfo` use \u2014 so an override survives\nedits to other features the way any body reference does. An override naming\na body the tree no longer produces is inert (it matches nothing); it is not\nan error, because a rolled-back tree legitimately hides the body for a while.",
         "properties": {
           "base_feature_id": {
             "description": "Id of the feature that created the body (its MB-0 identity)",
@@ -722,7 +722,7 @@
         "type": "object"
       },
       "ComposeDrawingRequest": {
-        "description": "Compose a drawing into a placed sheet + serialized artifact (design \u00a74.2).\n\nExtends :class:`EvaluateDrawingViewsRequest` (the evaluate INPUTS \u2014 ``part_id``\n/ ``tree_version`` / ``features`` / ``views`` / ``scale`` / ``dimensions`` are\ninherited VERBATIM, so composition reuses ``evaluate_drawing_views`` as its\nsole geometry source, no re-projection) with the ``layout`` (sheet + placed\nviews) and the requested ``format``. The geometry service evaluates the part\nONCE, places the sheet (``place_sheet``), and serializes to the requested\nartifact \u2014 deterministic (RESEARCH \u00a79): same request \u21d2 byte-identical artifact.\n\n**Assembly source (design \u00a77, Drawings #4).** A view referencing an ASSEMBLY\n(not a single part) carries the resolved assembly graph in ``assembly`` \u2014 the\nreused :class:`~py_kit.schemas.assemblies.EvaluateAssemblyRequest` (instances +\nmates + version) documents resolves for the referenced assembly document. When\n``assembly`` is set the geometry service projects the SOLVED assembly compound\n(``evaluate_assembly_drawing_views`` \u2014 the ``/drawing/assembly/evaluate``\nmachinery) INSTEAD of a single part body, then folds the resulting per-view HLR\nedges into the sheet exactly as a part view (the SAME ``place_sheet``); the\ninherited part fields (``part_id`` / ``tree_version`` / ``features``) then carry\nthe assembly's echoed id/version + an empty feature list and are not evaluated.\n``None`` (the default) is a PART compose, byte-identical to the pre-assembly\ncontract \u2014 the additive posture the ``section_params`` / notes fields carry.",
+        "description": "Compose a drawing into a placed sheet + serialized artifact (design \u00a74.2).\n\nExtends :class:`EvaluateDrawingViewsRequest` (the evaluate INPUTS \u2014 ``part_id``\n/ ``tree_version`` / ``features`` / ``views`` / ``scale`` / ``dimensions`` are\ninherited VERBATIM, so composition reuses ``evaluate_drawing_views`` as its\nsole geometry source, no re-projection) with the ``layout`` (sheet + placed\nviews) and the requested ``format``. The geometry service evaluates the part\nONCE, places the sheet (``place_sheet``), and serializes to the requested\nartifact \u2014 deterministic (RESEARCH \u00a79): same request \u21d2 byte-identical artifact.\n\n**Assembly source (design \u00a77, Drawings #4).** A view referencing an ASSEMBLY\n(not a single part) carries the resolved assembly graph in ``assembly`` \u2014 the\nreused :class:`~loft_wire.assemblies.EvaluateAssemblyRequest` (instances +\nmates + version) documents resolves for the referenced assembly document. When\n``assembly`` is set the geometry service projects the SOLVED assembly compound\n(``evaluate_assembly_drawing_views`` \u2014 the ``/drawing/assembly/evaluate``\nmachinery) INSTEAD of a single part body, then folds the resulting per-view HLR\nedges into the sheet exactly as a part view (the SAME ``place_sheet``); the\ninherited part fields (``part_id`` / ``tree_version`` / ``features``) then carry\nthe assembly's echoed id/version + an empty feature list and are not evaluated.\n``None`` (the default) is a PART compose, byte-identical to the pre-assembly\ncontract \u2014 the additive posture the ``section_params`` / notes fields carry.",
         "properties": {
           "annotations": {
             "description": "Sheet annotations (v1: free-text notes) placed at their authored sheet positions; empty by default, bounded by MAX_DRAWING_ANNOTATIONS (work bound, audit G2). Composed onto the sheet + serialized in all three formats. Part of the content-addressed artifact cache key (DE-4), so a note edit misses the cache and recomposes.",
@@ -1636,7 +1636,7 @@
         "type": "object"
       },
       "ComposedView": {
-        "description": "One placed view on the sheet \u2014 its edges, dimensions, caption (design \u00a74.2).\n\n``failed`` marks a view with no projection (an HLR failure or an absent\nresult): the serializer stamps a \"VIEW FAILED\" placeholder at ``anchor`` and\n``edges``/``dimensions`` are empty. ``anchor`` is the view-centre in SVG space\n(the placeholder + caption reference it); ``label``/``label_pos`` are the\nstamped caption (\"FRONT\") and its position.\n\n``error`` carries the TYPED per-view failure through composition (FINDINGS #15):\nthe :class:`~py_kit.schemas.features.FeatureError` (code + human message) from the\nsource :class:`DrawingViewResult` \u2014 a ``view_projection_failed`` /\n``section_plane_not_principal`` / ``section_empty`` /\n``flat_pattern_not_sheet_metal`` / ``section_params_missing`` \u2014 so the sheet/print\ncan show WHY a view is empty instead of a bare \"VIEW FAILED\". Null on success and\non an ABSENT result (a requested view with no evaluation, ``failed`` set but no\ntyped reason to carry).",
+        "description": "One placed view on the sheet \u2014 its edges, dimensions, caption (design \u00a74.2).\n\n``failed`` marks a view with no projection (an HLR failure or an absent\nresult): the serializer stamps a \"VIEW FAILED\" placeholder at ``anchor`` and\n``edges``/``dimensions`` are empty. ``anchor`` is the view-centre in SVG space\n(the placeholder + caption reference it); ``label``/``label_pos`` are the\nstamped caption (\"FRONT\") and its position.\n\n``error`` carries the TYPED per-view failure through composition (FINDINGS #15):\nthe :class:`~loft_wire.features.FeatureError` (code + human message) from the\nsource :class:`DrawingViewResult` \u2014 a ``view_projection_failed`` /\n``section_plane_not_principal`` / ``section_empty`` /\n``flat_pattern_not_sheet_metal`` / ``section_params_missing`` \u2014 so the sheet/print\ncan show WHY a view is empty instead of a bare \"VIEW FAILED\". Null on success and\non an ABSENT result (a requested view with no evaluation, ``failed`` set but no\ntyped reason to carry).",
         "properties": {
           "anchor": {
             "$ref": "#/components/schemas/ComposedPoint",
@@ -2612,8 +2612,25 @@
         "type": "object"
       },
       "EdgeSignature": {
-        "description": "\u00a72b stage-1 geometric fingerprint of an EDGE \u2014 typed, kernel-free.\n\nFull-precision invariants (\u00a77.2 forbids quantizing the stored identity),\nchosen to distinguish the edges of a manifold solid: the ``curve`` family\n(line/circle/other \u2014 a straight edge and an arc of equal length never\ncollide), the two canonically-ordered endpoints ``end_a``/``end_b`` (sorted\nlexicographically so the signature is INDEPENDENT of the topological edge\norientation OCCT happens to assign), the ``midpoint`` (curve param 0.5 \u2014 it\nseparates two collinear edges that share an endpoint, and pins a full-circle\nseam edge whose endpoints coincide), and the ``length_mm``. Two DISTINCT\nedges of an authored part differ in at least one field (endpoints/midpoint\nby whole mm, or length, or curve kind) \u2014 including the mirror-congruent\nedges of a symmetric part, which have DISTINCT absolute positions and so do\nNOT tie. Only edges that truly coincide in space (a boolean seam, a\nnon-manifold duplicate) resolve to an honest ``subshape_ambiguous`` (\u00a75),\nnever a guess. Matching is nearest-within-tolerance at the documented\nsubshape tolerance (geometry.kernel.edges / docs/GEOMETRY-QA.md), never an\nad-hoc epsilon.",
+        "description": "\u00a72b stage-1 geometric fingerprint of an EDGE \u2014 typed, kernel-free.\n\nFull-precision invariants (\u00a77.2 forbids quantizing the stored identity),\nchosen to distinguish the edges of a manifold solid: the ``curve`` family\n(line/circle/other \u2014 a straight edge and an arc of equal length never\ncollide), the two canonically-ordered endpoints ``end_a``/``end_b`` (sorted\nlexicographically so the signature is INDEPENDENT of the topological edge\norientation OCCT happens to assign), the ``midpoint`` (curve param 0.5 \u2014 it\nseparates two collinear edges that share an endpoint, and pins a full-circle\nseam edge whose endpoints coincide), and the ``length_mm``. Two DISTINCT\nedges of an authored part differ in at least one field (endpoints/midpoint\nby whole mm, or length, or curve kind) \u2014 including the mirror-congruent\nedges of a symmetric part, which have DISTINCT absolute positions and so do\nNOT tie. Only edges that truly coincide in space (a boolean seam, a\nnon-manifold duplicate) resolve to an honest ``subshape_ambiguous`` (\u00a75),\nnever a guess. Matching is nearest-within-tolerance at the documented\nsubshape tolerance (geometry.kernel.edges / docs/GEOMETRY-QA.md), never an\nad-hoc epsilon.\n\nADJACENCY (\u00a714 \u2014 the ``adjacent_faces`` field). Every field above is an\nABSOLUTE WORLD COORDINATE, so a dimension edit that RESIZES the part \u2014 the\nsingle most ordinary thing anyone does to a model \u2014 translates the edge off\nevery one of them, and \u00a713's durable tier cannot help because it re-matches a\nstraight edge on its own SUPPORTING LINE, which a translation leaves behind.\n\u00a713 recorded the reason that looked unfixable: *\"a face's area and in-plane\ncentroid carry an identity that an edge's direction and length do not.\"* True\nof an edge's OWN geometry, and the escape is that an edge of a manifold solid\nis the intersection of exactly TWO FACES \u2014 and a face's identity survives,\nthrough four tiers, precisely because it has an area and an in-plane centroid.\nSo the identity an edge lacks in itself, it borrows from its neighbours: this\nfield stores the two adjacent planar faces' full\n:class:`PlanarFaceSignature`\\ s, canonically ordered, and the resolver's tier\n3 re-resolves THEM through the face matcher and takes the edge they share.\n\nOPTIONAL, for the same dual-read reason as the ``outer_*`` face fields: every\nedge selector persisted before this field existed must keep resolving, and it\ndoes \u2014 tiers 1 and 2 are untouched, and tier 3 simply does not fire for a\nsignature that carries no adjacency. Emitted by the pick side (the selection\noverlay) from 2026-09-18 on, and ONLY when the edge has exactly two DISTINCT\nPLANAR neighbours: a cylinder's seam (one face twice), a non-manifold edge, or\nany edge bounded by a curved face carries no adjacency and is honestly left\nwithout it rather than given a partial one.",
         "properties": {
+          "adjacent_faces": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PlanarFaceSignature"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The two PLANAR faces this edge bounds, canonically ordered by (normal, centroid) \u2014 the identity the edge's own absolute coordinates lose when a dimension edit RESIZES the part (topological-naming \u00a714). The resolver's tier 3 re-resolves both through the four-tier face matcher and takes the edge they share, requiring exactly one. Absent on selectors authored before 2026-09-18, and on any edge without exactly two distinct planar neighbours; tier 3 then does not fire and the older tiers are unchanged.",
+            "title": "Adjacent Faces"
+          },
           "curve": {
             "description": "Curve family \u2014 line | circle | other (spline/ellipse/\u2026)",
             "enum": [
@@ -2803,7 +2820,7 @@
         "type": "object"
       },
       "EvaluateAssemblyDrawingViewsRequest": {
-        "description": "Project a solved ASSEMBLY into its requested standard drawing views (\u00a77).\n\ndocuments sends INTENT \u2014 the assembly graph (via the reused\n:class:`~py_kit.schemas.assemblies.EvaluateAssemblyRequest`: each instance's\npart feature prefix + authored/grounded placement + the mate graph) plus the\nstandard views to project and the drawing scale. geometry is the sole evaluator:\nit solves the assembly ONCE (``solve_assembly`` \u2014 each unique part evaluated\nonce, the mate graph solved to per-instance world placements), places every\nbodied instance at its SOLVED world pose, composes them into one compound, and\nruns exact HLR (``project_view``) per requested view. No kernel/OCCT type crosses\nthe boundary \u2014 the response is the same pure-pydantic :class:`ProjectedViewEdge`\nlist a part view emits. Deterministic (RESEARCH \u00a79): the BLAS-pinned solve + the\ncanonical HLR edge order yield byte-identical projected edges for the same request,\nin-process AND across an interpreter restart.",
+        "description": "Project a solved ASSEMBLY into its requested standard drawing views (\u00a77).\n\ndocuments sends INTENT \u2014 the assembly graph (via the reused\n:class:`~loft_wire.assemblies.EvaluateAssemblyRequest`: each instance's\npart feature prefix + authored/grounded placement + the mate graph) plus the\nstandard views to project and the drawing scale. geometry is the sole evaluator:\nit solves the assembly ONCE (``solve_assembly`` \u2014 each unique part evaluated\nonce, the mate graph solved to per-instance world placements), places every\nbodied instance at its SOLVED world pose, composes them into one compound, and\nruns exact HLR (``project_view``) per requested view. No kernel/OCCT type crosses\nthe boundary \u2014 the response is the same pure-pydantic :class:`ProjectedViewEdge`\nlist a part view emits. Deterministic (RESEARCH \u00a79): the BLAS-pinned solve + the\ncanonical HLR edge order yield byte-identical projected edges for the same request,\nin-process AND across an interpreter restart.",
         "properties": {
           "assembly": {
             "$ref": "#/components/schemas/EvaluateAssemblyRequest",
@@ -3792,7 +3809,7 @@
         "type": "object"
       },
       "ExtrudeParamsV1": {
-        "description": "Linear extrusion of an earlier sketch feature's profile.",
+        "description": "Linear extrusion of an earlier sketch feature's profile.\n\nWith a nonzero ``twist_angle_deg`` it is a TWISTED extrusion: the profile\nrotates uniformly about an axis parallel to the extrusion direction while it\ntravels, so every point of it traces a true helix and the far-end section is\nthe profile rotated by the full twist (a helical gear, a twisted column;\ndocs/design/twisted-extrude.md). Both twist fields are additive-optional,\nnull by default and OMITTED from a dump while null, so an extrude with no\ntwist serializes byte-for-byte as it did before they existed (stored row,\nresponse, rebuild-cache key) and rebuilds on the unchanged prism path \u2014 no\n``param_version`` bump.",
         "properties": {
           "direction": {
             "default": "normal",
@@ -3826,6 +3843,31 @@
           "profile": {
             "$ref": "#/components/schemas/FeatureRef",
             "description": "Must resolve to an EARLIER sketch feature (design \u00a72.2)"
+          },
+          "twist_angle_deg": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": -3600.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Twist over the whole extrusion distance (degrees). The profile rotates uniformly about the twist axis as it travels, a true helical sweep. Positive is RIGHT-HANDED about the extrusion direction (a right-hand helix whichever way `direction` points); negative is left-handed. None (the default), 0, or any |twist| below 1e-9 deg is NO twist: it is normalised to absent, and the extrude is a plain prism, byte-identical to one with no twist. A twist too tight for the profile, or with too many turns for it to build in reasonable time, is a `twist_failed` rebuild error.",
+            "title": "Twist Angle Deg"
+          },
+          "twist_center": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Point2D"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the twist axis pierces the sketch plane, in the profile sketch's own (x, y) mm. The axis runs parallel to the extrusion direction through this point. None (the default) is the sketch origin. Dropped (normalised to absent) when there is no twist."
           }
         },
         "required": [
@@ -3964,6 +4006,17 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "subshape_resolution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubshapeResolutionSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For an ok feature that names picked edges/faces: which tier re-found them on this rebuild. Null when the feature has no picked subshape reference (or did not evaluate ok). A worst_tier other than 'exact' means the feature rebuilt on a best-effort re-match - worth a dismissable warning, never a refusal."
           }
         },
         "required": [
@@ -4063,7 +4116,7 @@
         "type": "object"
       },
       "FlatPatternDxfRequest": {
-        "description": "Export a sheet-metal part's flat pattern as a PROFILE-ONLY DXF.\n\nThe artifact a laser/turret/waterjet vendor asks for by name: the cut outline\nand the fold lines at 1:1 in millimetres, and nothing else \u2014 no sheet border,\nno title block, no bend table, no dimensions. Distinct from\n:class:`ComposeDrawingRequest`'s ``format=\"dxf\"``, which serializes a whole\nDRAWING SHEET; there the cut geometry is a handful of entities inside an A4\npage of furniture an operator has to delete by hand, every revision.\n\nTakes a PART's feature tree, not a drawing: a fabricator's flat pattern must be\nreachable from the part without authoring a drawing sheet first, which is how\nevery incumbent ships it. Extends :class:`EvaluateTreeRequest` VERBATIM (the same\nordered, rollback-applied prefix the evaluate/export routes take \u2014 one tree\ncontract) and adds only the download name, exactly as\n:class:`~py_kit.schemas.features.ExportTreeRequest` does.\n\nThere is deliberately NO scale field. A flat pattern is a cut path, not a\npicture, so 1:1 is not a default here \u2014 it is the only representable answer\n(AUDIT-PRODUCT F-1, where a 1:2 drawing sheet shipped a half-size blank).",
+        "description": "Export a sheet-metal part's flat pattern as a PROFILE-ONLY DXF.\n\nThe artifact a laser/turret/waterjet vendor asks for by name: the cut outline\nand the fold lines at 1:1 in millimetres, and nothing else \u2014 no sheet border,\nno title block, no bend table, no dimensions. Distinct from\n:class:`ComposeDrawingRequest`'s ``format=\"dxf\"``, which serializes a whole\nDRAWING SHEET; there the cut geometry is a handful of entities inside an A4\npage of furniture an operator has to delete by hand, every revision.\n\nTakes a PART's feature tree, not a drawing: a fabricator's flat pattern must be\nreachable from the part without authoring a drawing sheet first, which is how\nevery incumbent ships it. Extends :class:`EvaluateTreeRequest` VERBATIM (the same\nordered, rollback-applied prefix the evaluate/export routes take \u2014 one tree\ncontract) and adds only the download name, exactly as\n:class:`~loft_wire.features.ExportTreeRequest` does.\n\nThere is deliberately NO scale field. A flat pattern is a cut path, not a\npicture, so 1:1 is not a default here \u2014 it is the only representable answer\n(AUDIT-PRODUCT F-1, where a 1:2 drawing sheet shipped a half-size blank).",
         "properties": {
           "features": {
             "description": "Ordered prefix (rollback already applied), bounded by MAX_TREE_FEATURES (work bound, audit G2)",
@@ -4438,7 +4491,7 @@
         "type": "object"
       },
       "ImportedProduct": {
-        "description": "One product recovered from an assembly STEP \u2014 name + placement + body.\n\n``name`` is the STEP PRODUCT name (``None`` when the file names no product \u2014\nthe caller supplies a fallback instance name). ``placement`` is the\nproduct's WORLD pose (reusing :class:`~py_kit.schemas.assemblies.Placement` \u2014\nidentity for a flat single-body STEP), matched to the exported placement\nwithin the kernel round-trip tolerance.\n\nTwo body surfaces, both referenced by CONTENT ADDRESS and SHARED across\nrepeated occurrences of one part (the dedup contract, as slice 1 does for\nmeshes) \u2014 neither is inlined per occurrence:\n\n* ``body_step_id`` \u2014 the address (``sha256:<hex>``) of the product's editable\n  **LOCAL-frame B-rep**: a STEP AP214 part-21 fragment with the instance\n  placement STRIPPED (that is ``placement``, kept separate), stored ONCE under\n  this key in :attr:`StepAssemblyImportResult.bodies`. The text is exactly what\n  the single-body ``import`` feature ingests\n  (:class:`~py_kit.schemas.features.ImportParamsV1` ``data``), so the documents\n  service seeds each part with ``ImportParamsV1(data=<resolved body>)`` \u2014 ZERO\n  new ingest path. A mesh is not editable geometry; this is what lets 2b build\n  a REAL part per instance. ``None`` when the product produced no solid.\n  Because the id is EQUAL for two occurrences of one part, the caller groups\n  products by it to create ONE stored B-rep (one part) with N instances.\n* ``mesh_glb_id`` \u2014 a content-addressed presentation mesh for the viewport.\n\n``properties`` are the body's OWN (local-frame) mass properties for BOM /\ninspection.\n\n``body_step`` is a PRODUCER-SIDE construction convenience only: a producer may\npass the body text alongside the product and the parent result hoists it into\nits shared ``bodies`` map (so the geometry reader needs no separate bookkeeping),\nbut the field is NEVER serialized \u2014 the wire form carries each body once.\nConsumers MUST resolve through\n:meth:`StepAssemblyImportResult.body_step_for`.",
+        "description": "One product recovered from an assembly STEP \u2014 name + placement + body.\n\n``name`` is the STEP PRODUCT name (``None`` when the file names no product \u2014\nthe caller supplies a fallback instance name). ``placement`` is the\nproduct's WORLD pose (reusing :class:`~loft_wire.assemblies.Placement` \u2014\nidentity for a flat single-body STEP), matched to the exported placement\nwithin the kernel round-trip tolerance.\n\nTwo body surfaces, both referenced by CONTENT ADDRESS and SHARED across\nrepeated occurrences of one part (the dedup contract, as slice 1 does for\nmeshes) \u2014 neither is inlined per occurrence:\n\n* ``body_step_id`` \u2014 the address (``sha256:<hex>``) of the product's editable\n  **LOCAL-frame B-rep**: a STEP AP214 part-21 fragment with the instance\n  placement STRIPPED (that is ``placement``, kept separate), stored ONCE under\n  this key in :attr:`StepAssemblyImportResult.bodies`. The text is exactly what\n  the single-body ``import`` feature ingests\n  (:class:`~loft_wire.features.ImportParamsV1` ``data``), so the documents\n  service seeds each part with ``ImportParamsV1(data=<resolved body>)`` \u2014 ZERO\n  new ingest path. A mesh is not editable geometry; this is what lets 2b build\n  a REAL part per instance. ``None`` when the product produced no solid.\n  Because the id is EQUAL for two occurrences of one part, the caller groups\n  products by it to create ONE stored B-rep (one part) with N instances.\n* ``mesh_glb_id`` \u2014 a content-addressed presentation mesh for the viewport.\n\n``properties`` are the body's OWN (local-frame) mass properties for BOM /\ninspection.\n\n``body_step`` is a PRODUCER-SIDE construction convenience only: a producer may\npass the body text alongside the product and the parent result hoists it into\nits shared ``bodies`` map (so the geometry reader needs no separate bookkeeping),\nbut the field is NEVER serialized \u2014 the wire form carries each body once.\nConsumers MUST resolve through\n:meth:`StepAssemblyImportResult.body_step_for`.",
         "properties": {
           "body_step_id": {
             "anyOf": [
@@ -4836,7 +4889,7 @@
         "type": "object"
       },
       "MateAxisRef": {
-        "description": "An axis derived from a CIRCULAR edge of an instance's part body (\u00a72.1).\n\nv1 derives an axis from a circular edge (``curve == \"circle\"``) \u2014 reusing\n:class:`~py_kit.schemas.features.EdgeSignature`, whose seam-point centre and\nplane give the axis (design \u00a72.1). This deliberately avoids needing a\ncylindrical-face signature (a clean additive future member): a hole rim and\na shaft rim are both circular edges, enough for the canonical bolt joint.",
+        "description": "An axis derived from a CIRCULAR edge of an instance's part body (\u00a72.1).\n\nv1 derives an axis from a circular edge (``curve == \"circle\"``) \u2014 reusing\n:class:`~loft_wire.features.EdgeSignature`, whose seam-point centre and\nplane give the axis (design \u00a72.1). This deliberately avoids needing a\ncylindrical-face signature (a clean additive future member): a hole rim and\na shaft rim are both circular edges, enough for the canonical bolt joint.",
         "properties": {
           "instance_id": {
             "description": "The instance whose part body carries this axis edge",
@@ -4883,7 +4936,7 @@
         "type": "object"
       },
       "MateFaceRef": {
-        "description": "A planar face of an instance's part body (design \u00a71.5/\u00a72.1).\n\n``signature`` is the SAME :class:`~py_kit.schemas.features.PlanarFaceSignature`\nthe ``on_face`` datum resolves (topological-naming.md \u00a79) \u2014 reused verbatim,\nnot a parallel taxonomy. ``instance_id`` scopes the face to one instance's\nresolved part body (the geometry service resolves the signature against that\nbody in the part's local frame, \u00a74).",
+        "description": "A planar face of an instance's part body (design \u00a71.5/\u00a72.1).\n\n``signature`` is the SAME :class:`~loft_wire.features.PlanarFaceSignature`\nthe ``on_face`` datum resolves (topological-naming.md \u00a79) \u2014 reused verbatim,\nnot a parallel taxonomy. ``instance_id`` scopes the face to one instance's\nresolved part body (the geometry service resolves the signature against that\nbody in the part's local frame, \u00a74).",
         "properties": {
           "instance_id": {
             "description": "The instance whose part body carries this face",
@@ -5432,7 +5485,7 @@
         "type": "object"
       },
       "OverlayEdge": {
-        "description": "One pickable B-rep edge of the evaluated body (transient index).\n\nThe list position of this edge in :attr:`OverlayResult.edges` is its\ntransient 0-based index \u2014 the SAME ordinal ``body.edges()`` yields, so\npassing it as :class:`~py_kit.schemas.measure.EdgeTarget` ``index`` measures\nTHIS edge. The transient index is for MEASUREMENT; the STABLE, rebuild-\nsurviving reference is :attr:`signature` (topological naming) \u2014 echo it into\nan ``EdgeSubshapeRef`` to fillet/chamfer exactly this edge.",
+        "description": "One pickable B-rep edge of the evaluated body (transient index).\n\nThe list position of this edge in :attr:`OverlayResult.edges` is its\ntransient 0-based index \u2014 the SAME ordinal ``body.edges()`` yields, so\npassing it as :class:`~loft_wire.measure.EdgeTarget` ``index`` measures\nTHIS edge. The transient index is for MEASUREMENT; the STABLE, rebuild-\nsurviving reference is :attr:`signature` (topological naming) \u2014 echo it into\nan ``EdgeSubshapeRef`` to fillet/chamfer exactly this edge.",
         "properties": {
           "end": {
             "$ref": "#/components/schemas/Vec3",
@@ -5476,7 +5529,7 @@
         "type": "object"
       },
       "OverlayFace": {
-        "description": "One face of the evaluated body \u2014 pickable for a sketch datum-on-a-face.\n\nA PLANAR face carries a stage-1\n:class:`~py_kit.schemas.features.PlanarFaceSignature` \u2014 the SAME fingerprint\na datum-on-face ``SubshapeRef`` stores and the geometry resolver matches\nagainst (one enumeration: the pick side and the resolve side share\n``geometry.kernel.faces.planar_faces``; an order-equality gate proves it). To\nplace a sketch on a face, echo its ``signature`` into a ``SubshapeRef`` \u2014 the\nsame round-trip a vertex makes into a ``PointTarget``. A NON-planar face has\n``signature = null`` and is not sketchable in v1 (topological naming's face\nsignatures are planar-only until edge/curved-surface support lands).\n\n``index`` is TRANSIENT \u2014 the ``body.faces()`` position for THIS tree only,\nnot stable across edits (the persisted reference is the signature, never the\nindex \u2014 topological naming, feature-tree design \u00a72.4).",
+        "description": "One face of the evaluated body \u2014 pickable for a sketch datum-on-a-face.\n\nA PLANAR face carries a stage-1\n:class:`~loft_wire.features.PlanarFaceSignature` \u2014 the SAME fingerprint\na datum-on-face ``SubshapeRef`` stores and the geometry resolver matches\nagainst (one enumeration: the pick side and the resolve side share\n``geometry.kernel.faces.planar_faces``; an order-equality gate proves it). To\nplace a sketch on a face, echo its ``signature`` into a ``SubshapeRef`` \u2014 the\nsame round-trip a vertex makes into a ``PointTarget``. A NON-planar face has\n``signature = null`` and is not sketchable in v1 (topological naming's face\nsignatures are planar-only until edge/curved-surface support lands).\n\n``index`` is TRANSIENT \u2014 the ``body.faces()`` position for THIS tree only,\nnot stable across edits (the persisted reference is the signature, never the\nindex \u2014 topological naming, feature-tree design \u00a72.4).",
         "properties": {
           "feature_id": {
             "anyOf": [
@@ -6319,7 +6372,7 @@
         "type": "object"
       },
       "SectionViewParams": {
-        "description": "The cutting plane + half selection of a section view (drawings-section.md \u00a71).\n\nv1 specifies the section's cutting plane by DATUM REFERENCE, not a drawn cutting\nline (\u00a71): ``plane`` is the shipped :data:`~py_kit.schemas.features.GeomRef`\n(``DatumPlaneRef`` for one of the XY/XZ/YZ origin planes, or a ``FeatureRef`` to\nan axis-aligned offset / midplane datum FEATURE in the referenced part) \u2014 the\nEXACT union a sketch's plane reference uses, so no parallel plane taxonomy is\nintroduced (DRY). The geometry service resolves it, checks the v1 axis-aligned\nprecondition (a non-principal normal is a typed ``section_plane_not_principal``,\n\u00a77), cuts, and hatches. ``flip`` chooses which half is removed (\u00a74): ``false``\n(default) removes the eye-side material (the standard \"cut away what is between\nyou and the plane\"), ``true`` the far side.",
+        "description": "The cutting plane + half selection of a section view (drawings-section.md \u00a71).\n\nv1 specifies the section's cutting plane by DATUM REFERENCE, not a drawn cutting\nline (\u00a71): ``plane`` is the shipped :data:`~loft_wire.features.GeomRef`\n(``DatumPlaneRef`` for one of the XY/XZ/YZ origin planes, or a ``FeatureRef`` to\nan axis-aligned offset / midplane datum FEATURE in the referenced part) \u2014 the\nEXACT union a sketch's plane reference uses, so no parallel plane taxonomy is\nintroduced (DRY). The geometry service resolves it, checks the v1 axis-aligned\nprecondition (a non-principal normal is a typed ``section_plane_not_principal``,\n\u00a77), cuts, and hatches. ``flip`` chooses which half is removed (\u00a74): ``false``\n(default) removes the eye-side material (the standard \"cut away what is between\nyou and the plane\"), ``true`` the far side.",
         "properties": {
           "flip": {
             "default": false,
@@ -7122,7 +7175,7 @@
         "type": "object"
       },
       "SketchConstraintDiagnosis": {
-        "description": "Typed classification of an over-constrained sketch (BACKLOG #6).\n\nExposes the solver's already-computed redundant/conflicting constraint sets\n(:class:`SolvedSketch`) as a STRUCTURED diagnosis a caller reads by field \u2014\nnever a message string the frontend has to parse. It distinguishes the two\nover-constraint kinds a working engineer must tell apart (VISION.md\nSketching row): a REDUNDANT constraint is removable and the sketch still\nsolves, whereas a CONFLICTING constraint makes the sketch unsolvable until\none is relaxed. Built by :func:`classify_overconstraint`; carried on the\n:class:`py_kit.schemas.features.FeatureError` (the ``sketch_conflicting``\nerror path) and on the solved-sketch feature payload (the redundant-but-\nsolvable path), so BOTH cases surface the same typed shape.",
+        "description": "Typed classification of an over-constrained sketch (BACKLOG #6).\n\nExposes the solver's already-computed redundant/conflicting constraint sets\n(:class:`SolvedSketch`) as a STRUCTURED diagnosis a caller reads by field \u2014\nnever a message string the frontend has to parse. It distinguishes the two\nover-constraint kinds a working engineer must tell apart (VISION.md\nSketching row): a REDUNDANT constraint is removable and the sketch still\nsolves, whereas a CONFLICTING constraint makes the sketch unsolvable until\none is relaxed. Built by :func:`classify_overconstraint`; carried on the\n:class:`loft_wire.features.FeatureError` (the ``sketch_conflicting``\nerror path) and on the solved-sketch feature payload (the redundant-but-\nsolvable path), so BOTH cases surface the same typed shape.",
         "properties": {
           "classification": {
             "description": "Over-constraint kind: 'redundant' (removable, still solves) or 'conflicting' (contradictory, unsolvable until relaxed).",
@@ -7225,7 +7278,7 @@
         "type": "object"
       },
       "SketchEditRequest": {
-        "description": "Input for a sketch trim or extend edit (stateless, one-shot).\n\n``entities`` is the whole sketch's entity list (same shapes the solver\nconsumes \u2014 a construction entity is trimmed/extended like any other).\n``target`` names the entity being edited; it MUST be present in\n``entities`` (else a 422 ``sketch_target_not_found``). ``pick`` is the\n2D sketch-plane point the user clicked:\n\n* **trim** \u2014 ``pick`` selects WHICH segment of ``target`` to delete: the\n  target curve is cut at its nearest intersection(s) with the other\n  entities on each side of the pick, and the segment containing the pick\n  is removed (standard Onshape/Fusion \"cut at intersection\" gesture). With\n  no intersection bounding a side, that side runs to the curve's end; with\n  no intersection at all, the whole target is deleted. The pick must\n  project onto the target's drawn extent (else 422\n  ``sketch_pick_not_on_target``).\n* **extend** \u2014 ``pick`` selects WHICH END of ``target`` to lengthen (the\n  nearer endpoint): the curve grows along its own supporting line/circle\n  from that end to the nearest neighboring entity it meets in that\n  direction (else 422 ``sketch_extend_no_target``).\n\nUnits are millimetres (:mod:`py_kit.schemas.sketch` convention).",
+        "description": "Input for a sketch trim or extend edit (stateless, one-shot).\n\n``entities`` is the whole sketch's entity list (same shapes the solver\nconsumes \u2014 a construction entity is trimmed/extended like any other).\n``target`` names the entity being edited; it MUST be present in\n``entities`` (else a 422 ``sketch_target_not_found``). ``pick`` is the\n2D sketch-plane point the user clicked:\n\n* **trim** \u2014 ``pick`` selects WHICH segment of ``target`` to delete: the\n  target curve is cut at its nearest intersection(s) with the other\n  entities on each side of the pick, and the segment containing the pick\n  is removed (standard Onshape/Fusion \"cut at intersection\" gesture). With\n  no intersection bounding a side, that side runs to the curve's end; with\n  no intersection at all, the whole target is deleted. The pick must\n  project onto the target's drawn extent (else 422\n  ``sketch_pick_not_on_target``).\n* **extend** \u2014 ``pick`` selects WHICH END of ``target`` to lengthen (the\n  nearer endpoint): the curve grows along its own supporting line/circle\n  from that end to the nearest neighboring entity it meets in that\n  direction (else 422 ``sketch_extend_no_target``).\n\nUnits are millimetres (:mod:`loft_wire.sketch` convention).",
         "properties": {
           "entities": {
             "description": "The whole sketch's entities (the edit rewrites this set), bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).",
@@ -7480,7 +7533,7 @@
         "type": "object"
       },
       "SketchMirrorRequest": {
-        "description": "Input for a sketch mirror (stateless, one-shot).\n\n``entities`` is the whole sketch's entity list \u2014 passed so each new copy\ngets a fresh id that cannot collide with an existing one (and to resolve a\n:class:`MirrorAxisEntity` axis). ``targets`` names the entities to reflect;\neach MUST be present in ``entities`` (else ``sketch_target_not_found``) and\nat least one is required. ``axis`` is the mirror line (see :data:`MirrorAxis`).\n\nMirror **adds** geometry: the sources are untouched and the response carries\nonly the NEW reflected copies (see :class:`SketchMirrorResult`). Every entity\nkind is reflectable (point, line, circle, arc). Units are millimetres\n(:mod:`py_kit.schemas.sketch` convention).",
+        "description": "Input for a sketch mirror (stateless, one-shot).\n\n``entities`` is the whole sketch's entity list \u2014 passed so each new copy\ngets a fresh id that cannot collide with an existing one (and to resolve a\n:class:`MirrorAxisEntity` axis). ``targets`` names the entities to reflect;\neach MUST be present in ``entities`` (else ``sketch_target_not_found``) and\nat least one is required. ``axis`` is the mirror line (see :data:`MirrorAxis`).\n\nMirror **adds** geometry: the sources are untouched and the response carries\nonly the NEW reflected copies (see :class:`SketchMirrorResult`). Every entity\nkind is reflectable (point, line, circle, arc). Units are millimetres\n(:mod:`loft_wire.sketch` convention).",
         "properties": {
           "axis": {
             "description": "The mirror axis: a line entity id or two points (see MirrorAxis).",
@@ -7704,7 +7757,7 @@
         "type": "object"
       },
       "SketchParamsV1": {
-        "description": "Sketch on a plane \u2014 an origin datum, or a ``datum`` feature (design \u00a72.1).\n\n``plane`` is a :data:`GeomRef`: a :class:`DatumPlaneRef` names one of the\nthree origin datums (XY/XZ/YZ), or a :class:`FeatureRef` points at an earlier\n``datum`` feature (an offset/parallel plane \u2014 docs/design/datum-planes.md).\nThe ``FeatureRef`` variant is now accepted when it resolves to a ``datum``\nfeature (widened in :func:`feature_references` from no acceptable target to\n``{datum}``); the stored shape is unchanged, so this is purely additive \u2014 no\n``param_version`` bump.\n\nExtends :class:`py_kit.schemas.sketch.SketchDefinition` (typed\n``entities``/``constraints`` \u2014 the \u00a71.4 placeholder finalized by the\n\"Sketch model + solver API\" item), so a persisted sketch's params ARE\nvalid solver input: same validation (unique sketch-local entity ids per\ndesign \u00a72.4) on the documents write path and the geometry request path.",
+        "description": "Sketch on a plane \u2014 an origin datum, or a ``datum`` feature (design \u00a72.1).\n\n``plane`` is a :data:`GeomRef`: a :class:`DatumPlaneRef` names one of the\nthree origin datums (XY/XZ/YZ), or a :class:`FeatureRef` points at an earlier\n``datum`` feature (an offset/parallel plane \u2014 docs/design/datum-planes.md).\nThe ``FeatureRef`` variant is now accepted when it resolves to a ``datum``\nfeature (widened in :func:`feature_references` from no acceptable target to\n``{datum}``); the stored shape is unchanged, so this is purely additive \u2014 no\n``param_version`` bump.\n\nExtends :class:`loft_wire.sketch.SketchDefinition` (typed\n``entities``/``constraints`` \u2014 the \u00a71.4 placeholder finalized by the\n\"Sketch model + solver API\" item), so a persisted sketch's params ARE\nvalid solver input: same validation (unique sketch-local entity ids per\ndesign \u00a72.4) on the documents write path and the geometry request path.",
         "properties": {
           "constraints": {
             "description": "The sketch's constraints, bounded by MAX_SKETCH_CONSTRAINTS (work bound, audit G2)",
@@ -8144,7 +8197,7 @@
         "type": "object"
       },
       "StepAssemblyImportRequest": {
-        "description": "Read an assembly STEP into its structured product list (geometry-side).\n\n``data`` is the STEP AP214 part-21 TEXT inline, bounded/non-empty by\n:data:`~py_kit.schemas.features.MAX_INLINE_STEP_CHARS` (the SAME cap the\nsingle-body :class:`~py_kit.schemas.features.ImportParamsV1` uses) \u2014 an\noversize or empty payload is a request-validation 422 at the boundary, never\na per-request geometry error. ``linear_deflection`` is the presentation\ntessellation parameter for each product's shared mesh (never persisted).\nDeterministic (RESEARCH \u00a79): the geometry service pins the read unit to mm,\nso the same bytes yield an identical structured result and byte-identical\nper-product meshes across rebuilds and interpreter restarts.",
+        "description": "Read an assembly STEP into its structured product list (geometry-side).\n\n``data`` is the STEP AP214 part-21 TEXT inline, bounded/non-empty by\n:data:`~loft_wire.features.MAX_INLINE_STEP_CHARS` (the SAME cap the\nsingle-body :class:`~loft_wire.features.ImportParamsV1` uses) \u2014 an\noversize or empty payload is a request-validation 422 at the boundary, never\na per-request geometry error. ``linear_deflection`` is the presentation\ntessellation parameter for each product's shared mesh (never persisted).\nDeterministic (RESEARCH \u00a79): the geometry service pins the read unit to mm,\nso the same bytes yield an identical structured result and byte-identical\nper-product meshes across rebuilds and interpreter restarts.",
         "properties": {
           "data": {
             "description": "Assembly STEP AP214 part-21 file text (inline). Bounded / non-empty at parse time (422); parsed into positioned, named products by the geometry service (product structure when present, else one single-body product with has_assembly_structure=false).",
@@ -8228,6 +8281,47 @@
           "selector"
         ],
         "title": "SubshapeRef",
+        "type": "object"
+      },
+      "SubshapeResolutionSummary": {
+        "description": "How one feature's picked subshape references resolved on THIS rebuild.\n\nA WARNING channel, never a refusal (\u00a77.3): a feature that rebuilt on a\n``durable`` or ``adjacent`` match is ``ok`` and its body is built, but the\nstage-1 matchers behind those tiers are best-effort and can, rarely, re-find\nthe WRONG subshape without erroring. ``worst_tier != \"exact\"`` is the signal\na client shows (the counterpart of the ``subshape_unresolved`` /\n``subshape_ambiguous`` errors, for the references that DID resolve).\nOne count per picked reference, in the tier that resolved it.",
+        "properties": {
+          "adjacent": {
+            "description": "Edge references re-found as the edge shared by their two stored neighbouring faces (\u00a714).",
+            "minimum": 0.0,
+            "title": "Adjacent",
+            "type": "integer"
+          },
+          "durable": {
+            "description": "References re-found on a rebuild invariant after the subshape moved or changed shape.",
+            "minimum": 0.0,
+            "title": "Durable",
+            "type": "integer"
+          },
+          "exact": {
+            "description": "References whose stored signature matched verbatim.",
+            "minimum": 0.0,
+            "title": "Exact",
+            "type": "integer"
+          },
+          "worst_tier": {
+            "description": "The least certain tier any reference of this feature resolved at: 'exact' < 'durable' < 'adjacent'.",
+            "enum": [
+              "exact",
+              "durable",
+              "adjacent"
+            ],
+            "title": "Worst Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "worst_tier",
+          "exact",
+          "durable",
+          "adjacent"
+        ],
+        "title": "SubshapeResolutionSummary",
         "type": "object"
       },
       "SweepFeature": {
@@ -8687,7 +8781,7 @@
         "description": "Ask the geometry worker to speculatively cache a feature-tree prefix.\n\n**This request cannot produce an artifact** (docs/PERF.md PERF-1b): the only\nthing it can do is make a LATER, ordinary evaluate cheaper by leaving an\nevaluator checkpoint in the per-worker rebuild cache, addressed by the same\ncontent hash that evaluate probes. There is deliberately no \"prefetched\nresult\" to fetch \u2014 see :class:`WarmTreeResult`.\n\nIt is issued on a genuine declaration of intent, and only those two:\n\n* an **open feature editor** \u2014 editing feature ``k`` declares ``0..k-1``\n  settled for as long as the dialog is open, so ``tree`` is the current tree\n  and ``prefix_length`` is ``k``;\n* a **travel stop** on the timeline \u2014 that is a shorter tree in its own\n  right, so ``tree`` IS the shorter tree and ``prefix_length`` is omitted.",
         "properties": {
           "lineages": {
-            "description": "Which cache lineages to warm, in priority order, under ONE shared budget \u2014 so a truncated warm always got the first one done. An open editor asks for both: the commit reads `evaluate`, the face pick that follows it reads `provenance`.",
+            "description": "Which rebuilds to warm. Both names address the SAME rebuild-cache entry (every evaluation records per-face provenance), so the worker warms it once, under one budget, whether one name or both is listed; an empty list warms nothing. An open editor sends both: the commit (`evaluate`) and the face pick that follows it (`provenance`) resume from that one entry.",
             "items": {
               "enum": [
                 "evaluate",
@@ -8916,7 +9010,7 @@
     },
     "/api/v1/assembly/interference": {
       "post": {
-        "description": "Detect interfering instance pairs in a solved assembly (design \u00a74).\n\nStateless (CLAUDE.md): documents sends the SAME assembly graph the evaluate\nroute takes; geometry solves it through the identical pipeline\n(``solve_assembly`` \u2014 each unique part evaluated once, the mate graph solved\nto per-instance world placements), then runs a pairwise ``BRepAlgoAPI_Common``\nover the solved world-placed instance bodies. The response is the clash list\n``[{instance_a, instance_b, overlap_volume_mm3}]`` (each unordered pair once,\na merely-touching pair reported as NO clash) plus the solve's own status /\ndiagnosis / per-mate errors. A non-overlapping assembly is ``clashes: []``.\nO(N\u00b2) over bodied instances (accepted v1 bound; broad-phase AABB pre-filter is\nthe v2 follow-up).\n\n**Per-request work bound (audit G2):** because the scan is quadratic, this\nroute enforces a TIGHTER instance ceiling than the parse-time\n``MAX_ASSEMBLY_INSTANCES`` \u2014 ``MAX_INTERFERENCE_INSTANCES`` (~19,900\npairwise exact booleans at the cap; the constant's rationale comment in\n:mod:`py_kit.schemas.assemblies` documents the N\u00b2 math). Over the cap is a\ntyped 422 ``interference_too_many_instances``, never an unbounded scan.\nCross-field (route-specific, not a property of the shared request model),\nso it is a handler check rather than a Field constraint.\n\nA bad part / mate / solve is a **200 with a typed status / diagnosis and a\n(possibly empty) clash list** (mirroring ``/assembly/evaluate``'s never-500\nposture, \u00a74.3); the py-kit envelope stays reserved for transport/validation\nfailures of this call itself.",
+        "description": "Detect interfering instance pairs in a solved assembly (design \u00a74).\n\nStateless (CLAUDE.md): documents sends the SAME assembly graph the evaluate\nroute takes; geometry solves it through the identical pipeline\n(``solve_assembly`` \u2014 each unique part evaluated once, the mate graph solved\nto per-instance world placements), then runs a pairwise ``BRepAlgoAPI_Common``\nover the solved world-placed instance bodies. The response is the clash list\n``[{instance_a, instance_b, overlap_volume_mm3}]`` (each unordered pair once,\na merely-touching pair reported as NO clash) plus the solve's own status /\ndiagnosis / per-mate errors. A non-overlapping assembly is ``clashes: []``.\nO(N\u00b2) over bodied instances (accepted v1 bound; broad-phase AABB pre-filter is\nthe v2 follow-up).\n\n**Per-request work bound (audit G2):** because the scan is quadratic, this\nroute enforces a TIGHTER instance ceiling than the parse-time\n``MAX_ASSEMBLY_INSTANCES`` \u2014 ``MAX_INTERFERENCE_INSTANCES`` (~19,900\npairwise exact booleans at the cap; the constant's rationale comment in\n:mod:`loft_wire.assemblies` documents the N\u00b2 math). Over the cap is a\ntyped 422 ``interference_too_many_instances``, never an unbounded scan.\nCross-field (route-specific, not a property of the shared request model),\nso it is a handler check rather than a Field constraint.\n\nA bad part / mate / solve is a **200 with a typed status / diagnosis and a\n(possibly empty) clash list** (mirroring ``/assembly/evaluate``'s never-500\nposture, \u00a74.3); the py-kit envelope stays reserved for transport/validation\nfailures of this call itself.",
         "operationId": "assembly_interference_route_api_v1_assembly_interference_post",
         "requestBody": {
           "content": {
@@ -9355,7 +9449,7 @@
     },
     "/api/v1/measure": {
       "post": {
-        "description": "Exact nearest distance between two transient measurement targets.\n\n**Stateless** (CLAUDE.md): a one-shot query, nothing persisted. Each\ntarget is either a POINT (explicit world coordinates \u2014 a picked\nvertex/snap point, exact on its own) or an EDGE (a transient 0-based index\ninto the deterministic edge list of a body geometry recomputes from the\nsupplied ``tree``). Distances come from the exact B-rep via OCCT, so every\nsupported case \u2014 point-point, point-edge, edge-edge, straight OR curved \u2014\nis EXACT; nothing is read from the tessellation. The response carries the\nminimum distance, its (dx, dy, dz) components, the two witness points, and\n(for two straight edges) the acute angle between them. See\n:mod:`py_kit.schemas.measure` for the full contract + fidelity rationale.\n\nA tree that recomputes to no body is a clean 422 ``tree_measure_failed``\nenvelope; an out-of-range edge index is a 422 ``edge_index_out_of_range``.",
+        "description": "Exact nearest distance between two transient measurement targets.\n\n**Stateless** (CLAUDE.md): a one-shot query, nothing persisted. Each\ntarget is either a POINT (explicit world coordinates \u2014 a picked\nvertex/snap point, exact on its own) or an EDGE (a transient 0-based index\ninto the deterministic edge list of a body geometry recomputes from the\nsupplied ``tree``). Distances come from the exact B-rep via OCCT, so every\nsupported case \u2014 point-point, point-edge, edge-edge, straight OR curved \u2014\nis EXACT; nothing is read from the tessellation. The response carries the\nminimum distance, its (dx, dy, dz) components, the two witness points, and\n(for two straight edges) the acute angle between them. See\n:mod:`loft_wire.measure` for the full contract + fidelity rationale.\n\nA tree that recomputes to no body is a clean 422 ``tree_measure_failed``\nenvelope; an out-of-range edge index is a 422 ``edge_index_out_of_range``.",
         "operationId": "measure_api_v1_measure_post",
         "requestBody": {
           "content": {
@@ -9442,7 +9536,7 @@
     },
     "/api/v1/overlay": {
       "post": {
-        "description": "Pickable selection geometry of an evaluated feature tree's body (#6b).\n\n**Stateless** (CLAUDE.md): recomputes ``request.tree`` (the SAME ordered\ndispatch + strict-prefix rule as ``/evaluate`` and ``/measure``, reusing\n``evaluate_tree``) and returns the last-good body's EXACT pickable geometry:\n``vertices`` (world-mm snap points in ``body.vertices()`` order \u2014 echo one\nback as a measure ``PointTarget`` for an exact point measurement) and\n``edges`` in ``body.edges()`` order \u2014 the SAME enumeration ``/measure``\nresolves ``EdgeTarget.index`` against, so ``edges[i]`` IS the edge\n``EdgeTarget(index=i)`` measures. Each edge carries a kind tag, its two\nendpoint coordinates, and a polyline sampled at the tree's\n``linear_deflection`` (the SAME tolerance the mesh uses \u2014 no new epsilon).\n\nBoth index spaces are TRANSIENT \u2014 valid for this request/tree only, NOT\nstable across edits (stable named references are topological naming, Phase\n2). A tree that recomputes to no body is a clean 422 ``tree_overlay_failed``\nenvelope. See :mod:`py_kit.schemas.overlay` for the full contract.",
+        "description": "Pickable selection geometry of an evaluated feature tree's body (#6b).\n\n**Stateless** (CLAUDE.md): recomputes ``request.tree`` (the SAME ordered\ndispatch + strict-prefix rule as ``/evaluate`` and ``/measure``, reusing\n``evaluate_tree``) and returns the last-good body's EXACT pickable geometry:\n``vertices`` (world-mm snap points in ``body.vertices()`` order \u2014 echo one\nback as a measure ``PointTarget`` for an exact point measurement) and\n``edges`` in ``body.edges()`` order \u2014 the SAME enumeration ``/measure``\nresolves ``EdgeTarget.index`` against, so ``edges[i]`` IS the edge\n``EdgeTarget(index=i)`` measures. Each edge carries a kind tag, its two\nendpoint coordinates, and a polyline sampled at the tree's\n``linear_deflection`` (the SAME tolerance the mesh uses \u2014 no new epsilon).\n\nBoth index spaces are TRANSIENT \u2014 valid for this request/tree only, NOT\nstable across edits (stable named references are topological naming, Phase\n2). A tree that recomputes to no body is a clean 422 ``tree_overlay_failed``\nenvelope. See :mod:`loft_wire.overlay` for the full contract.",
         "operationId": "overlay_api_v1_overlay_post",
         "requestBody": {
           "content": {
@@ -9569,7 +9663,7 @@
     },
     "/api/v1/sketch/fillet": {
       "post": {
-        "description": "Round a sketch corner between two lines with a tangent arc (BACKLOG #5).\n\n**Stateless** (CLAUDE.md): a one-shot geometry edit, nothing persisted and no\nkernel type crosses the boundary. The corner between lines ``a`` and ``b`` is\nreplaced by a tangent arc of ``radius``: both lines are trimmed to their\ntangent points (ids preserved) and the arc is appended with a fresh\ndeterministic id ``f\"{a}.{n}\"`` (see\n:class:`py_kit.schemas.sketch.SketchCornerResult`). Exact closed-form and\ndeterministic (RESEARCH \u00a79). **v1 is line-line only.**\n\nErrors are 422s with legible codes, never 500s: ``sketch_target_not_found``\n(a target id absent), ``sketch_unsupported_entity`` (a non-line target \u2014 a\nline-arc/arc-arc corner is deferred), ``sketch_corner_not_found`` (the lines\nare parallel/collinear or the same entity \u2014 no isolated corner),\n``sketch_corner_too_large`` (radius exceeds a leg's available length),\n``sketch_degenerate_result`` (a zero-length result).",
+        "description": "Round a sketch corner between two lines with a tangent arc (BACKLOG #5).\n\n**Stateless** (CLAUDE.md): a one-shot geometry edit, nothing persisted and no\nkernel type crosses the boundary. The corner between lines ``a`` and ``b`` is\nreplaced by a tangent arc of ``radius``: both lines are trimmed to their\ntangent points (ids preserved) and the arc is appended with a fresh\ndeterministic id ``f\"{a}.{n}\"`` (see\n:class:`loft_wire.sketch.SketchCornerResult`). Exact closed-form and\ndeterministic (RESEARCH \u00a79). **v1 is line-line only.**\n\nErrors are 422s with legible codes, never 500s: ``sketch_target_not_found``\n(a target id absent), ``sketch_unsupported_entity`` (a non-line target \u2014 a\nline-arc/arc-arc corner is deferred), ``sketch_corner_not_found`` (the lines\nare parallel/collinear or the same entity \u2014 no isolated corner),\n``sketch_corner_too_large`` (radius exceeds a leg's available length),\n``sketch_degenerate_result`` (a zero-length result).",
         "operationId": "sketch_fillet_api_v1_sketch_fillet_post",
         "requestBody": {
           "content": {
@@ -9695,7 +9789,7 @@
     },
     "/api/v1/sketch/trim": {
       "post": {
-        "description": "Trim a sketch curve at the pick, returning the rewritten entity list.\n\n**Stateless** (CLAUDE.md): a one-shot geometry edit, nothing persisted and\nno kernel type crosses the boundary. The target curve is cut at its nearest\nintersection with the other entities on each side of ``pick`` and the picked\nsegment removed (Onshape/Fusion \"cut at intersection\"); an unbounded side\nruns to the curve end, and a curve with no intersection at all is deleted\nwhole. Splits may add a second entity with a fresh deterministic id (see\n:class:`py_kit.schemas.sketch.SketchEditResult`). Deterministic (RESEARCH\n\u00a79): identical input yields coordinate-identical output.\n\nErrors are 422s with legible codes, never 500s: ``sketch_target_not_found``\n(target id absent), ``sketch_unsupported_entity`` (a free-point target),\n``sketch_pick_not_on_target`` (pick projects off the curve's extent).",
+        "description": "Trim a sketch curve at the pick, returning the rewritten entity list.\n\n**Stateless** (CLAUDE.md): a one-shot geometry edit, nothing persisted and\nno kernel type crosses the boundary. The target curve is cut at its nearest\nintersection with the other entities on each side of ``pick`` and the picked\nsegment removed (Onshape/Fusion \"cut at intersection\"); an unbounded side\nruns to the curve end, and a curve with no intersection at all is deleted\nwhole. Splits may add a second entity with a fresh deterministic id (see\n:class:`loft_wire.sketch.SketchEditResult`). Deterministic (RESEARCH\n\u00a79): identical input yields coordinate-identical output.\n\nErrors are 422s with legible codes, never 500s: ``sketch_target_not_found``\n(target id absent), ``sketch_unsupported_entity`` (a free-point target),\n``sketch_pick_not_on_target`` (pick projects off the curve's extent).",
         "operationId": "sketch_trim_api_v1_sketch_trim_post",
         "requestBody": {
           "content": {

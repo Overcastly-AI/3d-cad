@@ -140,13 +140,23 @@ class RateLimiter:
             window_s=settings.rate_limit_window_s,
         )
 
-    async def check(self, identity: str, *, scope: str = "compute") -> None:
+    async def check(
+        self, identity: str, *, scope: str = "compute", limit: int | None = None
+    ) -> None:
         """Record a request for *identity*; raise 429 when over the budget.
+
+        *limit* overrides the limiter's own budget for this call. It exists for
+        a scope whose identity is a different KIND of thing: the gateway's
+        ``auth`` scope counts per client address, the compute scope per user,
+        and one number cannot be right for both. Each scope is its own key, so
+        per-scope budgets never mix. A non-positive budget disables the check,
+        as it does for the limiter's own.
 
         Raises :class:`RateLimitExceededError` (429 + ``Retry-After``) on
         exceed. Fails open — allows the request — on any Redis error.
         """
-        if self._limit <= 0:
+        budget = self._limit if limit is None else limit
+        if budget <= 0:
             return
         now_ms = int(self._clock() * 1000)
         window_ms = self._window_s * 1000
@@ -169,7 +179,7 @@ class RateLimiter:
             )
             return
         count = int(results[2])
-        if count <= self._limit:
+        if count <= budget:
             return
         # Over budget: drop the entry we optimistically added so a denied
         # request does not keep the window saturated against legit callers.
@@ -180,16 +190,15 @@ class RateLimiter:
         _logger.info(
             "rate_limit_exceeded",
             scope=scope,
-            limit=self._limit,
+            limit=budget,
             window_s=self._window_s,
             retry_after_s=retry_after_s,
         )
         raise RateLimitExceededError(
-            f"Rate limit exceeded: at most {self._limit} requests per "
-            f"{self._window_s}s.",
+            f"Rate limit exceeded: at most {budget} requests per {self._window_s}s.",
             retry_after_s=retry_after_s,
             details={
-                "limit": self._limit,
+                "limit": budget,
                 "window_s": self._window_s,
                 "retry_after_s": retry_after_s,
             },

@@ -33,10 +33,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from build123d import CenterOf, Edge, Face, GeomType, Vector
+from loft_wire.features import CylindricalFaceSignature, PlanarFaceSignature
+from loft_wire.geometry import Vec3
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.GeomAbs import GeomAbs_Cylinder
-from py_kit.schemas.features import CylindricalFaceSignature, PlanarFaceSignature
-from py_kit.schemas.geometry import Vec3
 
 from geometry.kernel.faces import (
     SubshapeAmbiguousError,

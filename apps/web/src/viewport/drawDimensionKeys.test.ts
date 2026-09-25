@@ -92,3 +92,18 @@ describe("bufferDrawKey", () => {
     );
   });
 });
+
+describe("signed values (typed coordinates, G2)", () => {
+  const SIGNED = { draftId: "point", fieldCount: 2, signed: true };
+
+  it("a minus starts a signed value and is kept", () => {
+    expect(type(["-", "3", ".", "2", "5"], SIGNED)?.text).toEqual([
+      "-3.25",
+      "",
+    ]);
+  });
+
+  it("a size is never signed: without the option a minus is not ours", () => {
+    expect(bufferDrawKey(null, "-", OPTIONS).kind).toBe("ignored");
+  });
+});

@@ -47,7 +47,7 @@ disjoint union or a cut that severs the body raises :class:`PatternDisjointError
 until multi-body parts land.
 
 All pattern value validation lives here (not as pydantic Field constraints —
-see the DTO note in :mod:`py_kit.schemas.features`): the typed exceptions below
+see the DTO note in :mod:`loft_wire.features`): the typed exceptions below
 carry **sanitized messages**, which the feature layer maps 1:1 onto per-feature
 ``pattern_*`` error codes so geometry outcomes stay values at the boundary.
 
@@ -60,7 +60,7 @@ import math
 from collections.abc import Sequence
 
 from build123d import Axis, Solid, Vector
-from py_kit.schemas.features import MAX_PATTERN_COUNT
+from loft_wire.features import MAX_PATTERN_COUNT
 
 from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps
@@ -75,7 +75,7 @@ MIN_DIRECTION_MAGNITUDE = 1e-9
 
 class PatternCountError(ValueError):
     """The instance count is below 1 (a pattern has at least the seed) or above
-    the :data:`~py_kit.schemas.features.MAX_PATTERN_COUNT` work bound (audit
+    the :data:`~loft_wire.features.MAX_PATTERN_COUNT` work bound (audit
     G2 — an unbounded count loops the kernel building bodies + booleans)."""
 
 

@@ -15,6 +15,8 @@ from typing import Any
 import pytest
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
+from loft_wire.features import FeatureError
+from loft_wire.instrument import feature_error_observers
 from py_kit.app import create_app
 from py_kit.config import BaseServiceSettings
 from py_kit.metrics import (
@@ -30,7 +32,6 @@ from py_kit.metrics import (
     record_rebuild_cache_miss,
     record_rebuild_cache_store,
 )
-from py_kit.schemas.features import FeatureError
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -330,6 +331,24 @@ def test_rebuild_cache_counters_move() -> None:
 # ---------------------------------------------------------------------------
 # feature errors
 # ---------------------------------------------------------------------------
+
+
+def test_the_feature_error_observer_is_registered_by_importing_py_kit() -> None:
+    """The WIRING, asserted by name — not just its effect.
+
+    ``FeatureError`` lives in ``loft_wire``, a pydantic-only distribution that
+    cannot import a Prometheus client, so it notifies an observer registry
+    instead (:mod:`loft_wire.instrument`) and ``py_kit.metrics`` registers into
+    it at import. The hazard that creates is an UNREGISTERED observer: the
+    counter would sit at a flat line, which an operator reads as "nothing is
+    failing" rather than "nothing is counting" — the exact defect the DTO seam
+    was built to prevent, one step removed.
+
+    The two tests below would also fail if the registration were lost, but they
+    would fail saying "the counter did not move", which sends a reader looking
+    at Prometheus. This one names the line that broke.
+    """
+    assert record_feature_error in feature_error_observers()
 
 
 def test_constructing_a_feature_error_counts_it_by_code() -> None:

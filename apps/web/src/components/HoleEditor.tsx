@@ -45,6 +45,7 @@ import {
   type KeyboardEvent,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -52,6 +53,7 @@ import {
 
 import { useCommandBridge } from "../features/commandActions";
 import { EditorCard } from "./EditorCard";
+import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { HoleParams } from "../api/parts";
 import type { OverlayEdge } from "../api/measure";
@@ -61,7 +63,11 @@ import {
   facePlacement,
   type PlacementCheck,
 } from "../features/facePlacement";
-import { parseSignedLengthMm } from "../units/length";
+import {
+  lengthInputValue,
+  parsePositiveLengthMm,
+  parseSignedLengthMm,
+} from "../units/length";
 import {
   applyHoleCoordinate,
   applyHoleFace,
@@ -199,6 +205,39 @@ export interface HoleEditorProps {
   edges: readonly OverlayEdge[] | null;
   /** Mirror the live face + position up so the parent can draw the point overlay. */
   onPreviewChange: (preview: HolePreview | null) => void;
+  /**
+   * A bore diameter asserted by the viewport's Ø gauge (CRAFT-9c), canonical
+   * mm. Boxed (`{ mm }`) so dragging back to a number the field already holds
+   * still arrives — a bare number would compare equal and React would swallow
+   * it, which is the difference between "drag out to 12 and back to 8" leaving
+   * the field at 8 and leaving it at whatever it was before the gesture.
+   */
+  diameterOverride?: { mm: number } | null;
+  /** A blind depth asserted by the viewport's depth gauge, boxed the same way. */
+  depthOverride?: { mm: number } | null;
+  /**
+   * The live bore and depth in canonical mm, published on every keystroke so
+   * the viewport can stand its gauges and draw the bore before Save. Null on
+   * unmount. The FIELDS ARE NOT REPLACED by the gauges and must not be: the
+   * panel's numbers are the exact path, the gauges the fast one, and they are
+   * one value read twice.
+   */
+  onGaugeChange?: (state: HoleGaugeState | null) => void;
+}
+
+/**
+ * The editor's two pullable numbers, projected up for the viewport's gauges
+ * (the hole twin of `DraftGaugeState` / `RevolveGaugeState`).
+ */
+export interface HoleGaugeState {
+  /** The bore, canonical mm — null while the field does not parse. */
+  diameterMm: number | null;
+  /**
+   * The blind depth, canonical mm — null for a THROUGH-ALL hole, and while a
+   * blind depth field does not parse. Either way there is no bottom to pull,
+   * so the viewport mounts no depth gauge and draws no depth plane.
+   */
+  depthMm: number | null;
 }
 
 /**
@@ -358,15 +397,51 @@ export function HoleEditor({
   placementHidden,
   edges,
   onPreviewChange,
+  diameterOverride = null,
+  depthOverride = null,
+  onGaugeChange,
 }: HoleEditorProps) {
   const unit = useDocumentLengthUnit();
-  const [form, setForm] = useState<HoleForm>(initial);
+  // THE ECHO (direction contract β). Each field must take the number its gauge
+  // asked for, and the gauge's `value` is then fed from that field, so the
+  // instrument and the panel end every gesture on ONE number. Measured with
+  // the echo broken (`craft9c-hole-gauge.spec.ts`): an ask that never reaches
+  // this form leaves the arrow at 16 and the field at 8; an echo that lands a
+  // DIFFERENT number springs the arrow back to it on release. Written in the
+  // DOCUMENT unit through the seed's own formatter, so a dragged value and a
+  // typed one are indistinguishable afterwards, and written DURING RENDER
+  // (`useGaugeFedForm`) so each field commits WITH the override that carries
+  // it, never a commit behind the drawn arrow. Re-seeded on retarget.
+  //
+  // The depth write does not touch `depthMode`: the depth gauge only exists
+  // while the hole is blind, so a depth that arrives here is always a blind
+  // one, and a write that silently flipped the mode would give one gesture a
+  // second meaning.
+  const [form, setForm] = useGaugeFedForm(
+    initial,
+    gaugeWrite(
+      diameterOverride,
+      (f: HoleForm, o) => ({
+        ...f,
+        diameterInput: lengthInputValue(o.mm, unit),
+      }),
+      unit,
+    ),
+    gaugeWrite(
+      depthOverride,
+      (f: HoleForm, o) => ({
+        ...f,
+        depthInput: lengthInputValue(o.mm, unit),
+      }),
+      unit,
+    ),
+  );
   // The thread block is disclosed, not deleted: an already-tapped hole opens
   // with it showing (its content is load-bearing there), a fresh hole does not.
   const [threadOpen, setThreadOpen] = useState(initial.tapped);
-  // Re-seed when the editor is retargeted at a different feature.
+  // Re-seed the disclosure when the editor is retargeted at another feature
+  // (the form itself re-seeds inside `useGaugeFedForm`).
   useEffect(() => {
-    setForm(initial);
     setThreadOpen(initial.tapped);
   }, [initial]);
 
@@ -397,6 +472,19 @@ export function HoleEditor({
   }, [form.face, form.position, onPreviewChange]);
   useEffect(() => () => onPreviewChange(null), [onPreviewChange]);
 
+  // Feed the gauges the two numbers they pull, in canonical mm. The cleanup
+  // clears them, so closing the editor never leaves an instrument standing on
+  // the model.
+  const liveDiameterMm = parsePositiveLengthMm(form.diameterInput, unit);
+  const liveDepthMm =
+    form.depthMode === "blind"
+      ? parsePositiveLengthMm(form.depthInput, unit)
+      : null;
+  useEffect(() => {
+    onGaugeChange?.({ diameterMm: liveDiameterMm, depthMm: liveDepthMm });
+    return () => onGaugeChange?.(null);
+  }, [liveDiameterMm, liveDepthMm, onGaugeChange]);
+
   const submit = useCallback(() => {
     const params = buildHoleParams(form, unit);
     if (params === null) return;
@@ -418,10 +506,89 @@ export function HoleEditor({
     [saving, submit],
   );
 
-  const canSubmit = canSubmitHole(form, unit) && !saving;
-  useCommandBridge(submit, canSubmit);
+  // --- Placement: the frame, and the live material check -------------------
+  // Computed HERE, above the submit gate, because the gate reads it. QA3-1:
+  // the point used to be a read-only readout offering the face centroid and
+  // its corners, which on a vendor plate whose centre IS the shaft bore means
+  // the hole cannot be placed at all. Coordinates fix that, and the frame row
+  // is what keeps them honest — an X/Y entry that does not say where its zero
+  // is, is how QA3-2's 0.065 mm eccentric ring happened.
+  const frame = holeFaceFrame(form);
+  const placement = useMemo(
+    () =>
+      form.face === null ? null : facePlacement(form.face.signature, edges),
+    [form.face, edges],
+  );
+  const xMsg = coordinateError(form.xInput, unit, "X");
+  const yMsg = coordinateError(form.yInput, unit, "Y");
+  const typedX = parseSignedLengthMm(form.xInput, unit);
+  const typedY = parseSignedLengthMm(form.yInput, unit);
+  const check: PlacementCheck | null =
+    placement === null || typedX === null || typedY === null
+      ? null
+      : checkPlacement(placement, { x: typedX, y: typedY });
+
+  /**
+   * OFF THE FACE: SAID AT THE BUTTON, NEVER A VETO (F-6, second decision).
+   *
+   * The audit drilled `X = -45` on a face spanning X 0..120: the placement line
+   * read "Off the face outline — move it onto the face", CREATE carried a bare
+   * "Enter", and the click bought 5.6 s of evaluation and `HOLE_OFF_BODY`. The
+   * defect is that the COMMIT CONTROL said nothing while the panel above it
+   * knew — so the button now says it too, and a screen reader hears the
+   * placement line as the button's description.
+   *
+   * It does NOT refuse the write, and that was tried (`503473c`) and reverted
+   * on evidence, because the check cannot be trusted to veto:
+   *
+   *  · It reads the face's outline as the overlay edges lying within
+   *    `PLANE_TOL_MM` (1e-3 mm) of the face plane. An imported file sewn to a
+   *    looser tolerance — routine from other CAD — can put one outline edge a
+   *    few microns off-plane; that edge is DROPPED, the loop opens, and the
+   *    even-odd parity flips for every point whose ray crosses it. A point on
+   *    solid material then reads `outside`. `HoleEditor.test.tsx` pins exactly
+   *    that: a 2 µm lift on one edge makes a centred, legal point read
+   *    `outside`. The client cannot know the file's tolerance; the kernel can.
+   *  · The costs are not symmetric. A wrong ACCEPT is recoverable — the kernel
+   *    answers with a typed, named `hole_off_body` on the row and the last-good
+   *    body is untouched (`import-remix.spec.ts`, `repick-face.spec.ts`). A
+   *    wrong REFUSAL is a dead end: a legal hole the UI will not let you make,
+   *    with no way past it but moving a point you believe is right.
+   *
+   * Measured before deciding, so the call is not a guess about the common
+   * case: on the imported NEMA 17 plate's back face a 625-point sweep scored
+   * 420 material / 9 opening / 196 outside against the analytic outline with
+   * ZERO disagreements. The check is right where the file is clean — which is
+   * why it is worth saying at the button — and unprovable where it is not,
+   * which is why it must not decide.
+   */
+  const offFace = check?.verdict === "outside";
+  /** The placement line's id, so the commit cell can be described BY it. */
+  const checkId = useId();
 
   const hasFace = form.face !== null;
+  /**
+   * ONE COMPUTATION, TWO READINGS — the REASON-GATE-1 shape, which this editor
+   * was one of two not to use. `canSubmit` is DEFINED as "nothing is blocking",
+   * so a grey Create with no sentence beside it is unreachable rather than
+   * merely absent, and a later rung cannot be added to the gate and forgotten
+   * in the copy (or the reverse, which is how the panel came to disagree with
+   * its own button in the first place).
+   *
+   * Order is cheapest-to-fix first: the face, then the coordinates, then the
+   * fields, which are already red with their own rules and need only be
+   * pointed at. (Off-the-face is deliberately NOT a rung — see `offFace`.)
+   */
+  const submitBlocker: string | null = !hasFace
+    ? "Click a face in the viewport to place the hole."
+    : !coordinatesComplete(form, unit)
+      ? "Finish the X and Y position."
+      : !canSubmitHole(form, unit)
+        ? "Check the highlighted fields."
+        : null;
+
+  const canSubmit = submitBlocker === null && !saving;
+  useCommandBridge(submit, canSubmit);
   /**
    * What each reference row SAYS. An empty required reference under an armed
    * pick is not "empty" — it is an instruction, so it reads as one and takes
@@ -459,47 +626,26 @@ export function HoleEditor({
       ? "Click a point"
       : positionReadout(form);
   /**
-   * WHY the footer action is gated, said in the footer itself. The gate is
-   * `buildHoleParams(...) !== null`, i.e. "a face and every field valid", and
-   * until 2026-07-30 the greyed cell could not even be hovered, so a user had to
-   * hunt for the missing piece (UI-REVIEW 2026-07-30 P2). Cheapest honest
-   * version: name the ONE thing that is missing, face first because it is the
-   * only one the fields cannot show inline.
+   * WHY the footer action is gated, said in the footer itself — until
+   * 2026-07-30 the greyed cell could not even be hovered, so a user had to hunt
+   * for the missing piece (UI-REVIEW 2026-07-30 P2). The sentence IS the gate
+   * (see `submitBlocker`); null while saving, because the label already says so
+   * and a second sentence repeating it is the one accessory to remove.
    */
-  const submitReason = !canSubmit
-    ? saving
-      ? undefined
-      : !hasFace
-        ? "Click a face in the viewport to place the hole."
-        : !coordinatesComplete(form, unit)
-          ? "Finish the X and Y position."
-          : "Check the highlighted fields."
-    : undefined;
-  // --- Placement: the frame, the cells, and the live material check --------
-  // QA3-1: the point used to be a read-only readout offering the face centroid
-  // and its corners, which on a vendor plate whose centre IS the shaft bore
-  // means the hole cannot be placed at all. Coordinates fix that, and the frame
-  // row is what keeps them honest — an X/Y entry that does not say where its
-  // zero is, is how QA3-2's 0.065 mm eccentric ring happened.
-  const frame = holeFaceFrame(form);
-  const placement = useMemo(
-    () =>
-      form.face === null ? null : facePlacement(form.face.signature, edges),
-    [form.face, edges],
-  );
-  const xMsg = coordinateError(form.xInput, unit, "X");
-  const yMsg = coordinateError(form.yInput, unit, "Y");
-  const typedX = parseSignedLengthMm(form.xInput, unit);
-  const typedY = parseSignedLengthMm(form.yInput, unit);
-  const check: PlacementCheck | null =
-    placement === null || typedX === null || typedY === null
-      ? null
-      : checkPlacement(placement, { x: typedX, y: typedY });
+  const submitReason = saving ? undefined : (submitBlocker ?? undefined);
   const round = (n: number) => (Object.is(n, -0) ? 0 : Math.round(n * 10) / 10);
   const frameValue =
     frame === null
       ? ""
       : `${round(frame.origin.x)}, ${round(frame.origin.y)}, ${round(frame.origin.z)} mm · X→${describeDirection(frame.u)} · Y→${describeDirection(frame.v)}`;
+  /**
+   * Each field's accessible name carries its zero, the same statement the FROM
+   * row makes to the eye — "X" alone is the ambiguity F-6 measured.
+   */
+  const axisAria = (axis: "X" | "Y"): string =>
+    frame === null
+      ? `Drill ${axis} on the face, ${unit}`
+      : `Drill ${axis} on the face, ${unit}, measured from ${round(frame.origin.x)}, ${round(frame.origin.y)}, ${round(frame.origin.z)} along ${describeDirection(axis === "X" ? frame.u : frame.v)}`;
   const frameTitle =
     frame === null
       ? ""
@@ -680,44 +826,23 @@ export function HoleEditor({
                 className="flex flex-col gap-1 pb-1 pt-1"
                 data-testid="hole-placement"
               >
-                <div className="flex gap-2">
-                  <NumberField
-                    className="flex-1"
-                    label="X"
-                    unit={unit}
-                    data-testid="hole-position-x"
-                    aria-label={`Drill X on the face, ${unit}`}
-                    value={form.xInput}
-                    error={xMsg}
-                    onChange={(e) =>
-                      setForm((f) =>
-                        applyHoleCoordinate(f, "x", e.target.value, unit),
-                      )
-                    }
-                    onFocus={(e) => e.currentTarget.select()}
-                  />
-                  <NumberField
-                    className="flex-1"
-                    label="Y"
-                    unit={unit}
-                    data-testid="hole-position-y"
-                    aria-label={`Drill Y on the face, ${unit}`}
-                    value={form.yInput}
-                    error={yMsg}
-                    onChange={(e) =>
-                      setForm((f) =>
-                        applyHoleCoordinate(f, "y", e.target.value, unit),
-                      )
-                    }
-                    onFocus={(e) => e.currentTarget.select()}
-                  />
-                </div>
                 {/* WHERE zero is, and which way the axes run — the one thing
                     an X/Y entry must never leave the user to guess. The
-                    viewport draws the same frame on the face itself. */}
+                    viewport draws the same frame on the face itself.
+
+                    It sits ABOVE the two fields and reads "FROM", and both
+                    are the fix for the audit's F-6 contributing cause. The
+                    row used to be labelled "Frame" and sit UNDER the pair,
+                    so the line directly above X and Y was POINT — "Centre of
+                    face (60, 0, 20 mm)" — and "-45" read as 45 mm left of
+                    that centre when it meant 45 mm outside the face. A
+                    reference printed after the fields it governs is read, if
+                    at all, after the number has been typed.
+                    Now the card tells ONE story top to bottom, all in world
+                    millimetres: POINT = FROM + X along X→ + Y along Y→. */}
                 <div className="flex items-baseline gap-2">
                   <span className="w-10 shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-gauge">
-                    Frame
+                    From
                   </span>
                   <span
                     data-testid="hole-frame"
@@ -733,8 +858,41 @@ export function HoleEditor({
                     {frameValue}
                   </span>
                 </div>
+                <div className="flex gap-2">
+                  <NumberField
+                    className="flex-1"
+                    label="X"
+                    unit={unit}
+                    data-testid="hole-position-x"
+                    aria-label={axisAria("X")}
+                    value={form.xInput}
+                    error={xMsg}
+                    onChange={(e) =>
+                      setForm((f) =>
+                        applyHoleCoordinate(f, "x", e.target.value, unit),
+                      )
+                    }
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                  <NumberField
+                    className="flex-1"
+                    label="Y"
+                    unit={unit}
+                    data-testid="hole-position-y"
+                    aria-label={axisAria("Y")}
+                    value={form.yInput}
+                    error={yMsg}
+                    onChange={(e) =>
+                      setForm((f) =>
+                        applyHoleCoordinate(f, "y", e.target.value, unit),
+                      )
+                    }
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                </div>
                 {checkMessage !== null ? (
                   <p
+                    id={checkId}
                     data-testid="hole-position-check"
                     data-verdict={check?.verdict}
                     role="status"
@@ -793,7 +951,13 @@ export function HoleEditor({
             />
             <PanelActionCell
               label={saving ? "Saving…" : mode === "create" ? "Create" : "Save"}
-              caption="Enter"
+              // The commit control says what the placement line says, so the
+              // two can no longer be read as disagreeing — in words (the
+              // caption, which keeps the key) and to a screen reader (the
+              // line itself becomes the button's description). It stays a
+              // live control on purpose: see `offFace`.
+              caption={offFace ? "Enter · off the face" : "Enter"}
+              aria-describedby={offFace ? checkId : undefined}
               data-testid="hole-submit"
               aria-busy={saving}
               disabled={!canSubmit}

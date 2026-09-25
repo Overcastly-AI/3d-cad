@@ -19,7 +19,8 @@ import type {
   PlanarFaceSignature,
   ShellParams,
 } from "../api/parts";
-import { lengthInputValue, parsePositiveLengthMm } from "../units/length";
+import { parsePositiveLengthMm } from "../units/length";
+import { storedLengthInput, storedLengthMm } from "./storedNumber";
 import { faceSubshapeRef } from "./face";
 import { fieldBlocker } from "./submitBlocker";
 
@@ -30,6 +31,8 @@ import { fieldBlocker } from "./submitBlocker";
  */
 export interface ShellForm {
   thicknessInput: string;
+  /** The params as STORED, when editing (a no-op Save sends them back). */
+  stored?: ShellParams;
 }
 
 /**
@@ -54,7 +57,10 @@ export function formFromShellParams(
   params: ShellParams,
   unit: LengthUnit,
 ): ShellForm {
-  return { thicknessInput: lengthInputValue(params.thickness_mm, unit) };
+  return {
+    thicknessInput: storedLengthInput(params.thickness_mm, unit),
+    stored: params,
+  };
 }
 
 /** The picked-open face signatures of a persisted shell (empty = a sealed hollow). */
@@ -102,7 +108,12 @@ export function buildShellParams(
   bodyFeatureId: string | null,
   unit: LengthUnit,
 ): ShellParams | null {
-  const thickness = parseThicknessMm(form.thicknessInput, unit);
+  const thickness = storedLengthMm(
+    form.thicknessInput,
+    unit,
+    form.stored?.thickness_mm,
+    parseThicknessMm,
+  );
   if (thickness === null) return null;
   const faces = facesSelector(bodyFeatureId, pickedFaces);
   if (faces === null) return null;

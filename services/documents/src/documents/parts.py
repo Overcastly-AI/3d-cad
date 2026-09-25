@@ -17,18 +17,10 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, status
-from py_kit import (
-    ConflictError,
-    NotFoundError,
-    UnauthorizedError,
-    ValidationApiError,
-    get_logger,
-)
-from py_kit.db import SessionDep
-from py_kit.schemas.drawings import SectionViewParams
-from py_kit.schemas.features import FeatureRef
-from py_kit.schemas.materials import EMPTY_MATERIAL_ASSIGNMENT
-from py_kit.schemas.parts import (
+from loft_wire.drawings import SectionViewParams
+from loft_wire.features import FeatureRef
+from loft_wire.materials import EMPTY_MATERIAL_ASSIGNMENT
+from loft_wire.parts import (
     PRINCIPAL_HEADER,
     PartCreate,
     PartEvalScope,
@@ -37,7 +29,15 @@ from py_kit.schemas.parts import (
     PartResponse,
     PartUpdate,
 )
-from py_kit.schemas.workspace import DocumentDependent, DocumentDependents
+from loft_wire.workspace import DocumentDependent, DocumentDependents
+from py_kit import (
+    ConflictError,
+    NotFoundError,
+    UnauthorizedError,
+    ValidationApiError,
+    get_logger,
+)
+from py_kit.db import SessionDep
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -211,7 +211,7 @@ async def reject_if_instanced(
             .order_by(Drawing.name)
         )
     ).all()
-    # Built through the shared DTO (py_kit.schemas.workspace) rather than as a
+    # Built through the shared DTO (loft_wire.workspace) rather than as a
     # hand-shaped dict: the delete routes DOCUMENT that model as their 409
     # response, so the browser reads `details.dependents` as a generated type.
     # An ad-hoc dict here and a typed reader there is exactly how the two drift.
@@ -240,7 +240,7 @@ async def section_view_feature_refs(
     """Feature-level cross-document drawing dependencies of *part_id*.
 
     A section view specifies its cutting plane by DATUM REFERENCE
-    (:class:`~py_kit.schemas.drawings.SectionViewParams`); when that reference is
+    (:class:`~loft_wire.drawings.SectionViewParams`); when that reference is
     a ``FeatureRef`` it names a specific datum FEATURE of the referenced part, so
     the view breaks if that feature is deleted OR removed by an undo/redo restore
     (audit P2 #16). Returns ``(drawing_id, drawing_name, referenced_feature_id)``

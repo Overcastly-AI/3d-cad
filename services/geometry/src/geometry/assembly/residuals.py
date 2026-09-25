@@ -45,8 +45,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
-from numpy.typing import NDArray
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     AngleMate,
     CoincidentMate,
     ConcentricMate,
@@ -55,6 +54,7 @@ from py_kit.schemas.assemblies import (
     MateParams,
     mate_instance_ids,
 )
+from numpy.typing import NDArray
 
 from geometry.assembly.protocol import (
     AssemblyDefinitionError,

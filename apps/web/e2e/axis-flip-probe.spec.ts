@@ -15,11 +15,12 @@
  *
  * Three assertions, in the order they matter:
  *
- *   1. DIRECTION HOLDS across the first extrude (`expectCameraStable`) — the
- *      defect.
- *   2. POSITION MOVES across it — the WANTED half. Pre-extrude there are no
- *      bounds, so the fit sits at the empty-scene radius (200 × 1.75 = 350);
- *      post-extrude it is solved against the body's projected extents. A gate
+ *   1. DIRECTION HOLDS across the first extrude COMMAND — opening the editor
+ *      and committing it (`expectCameraStable`) — the defect.
+ *   2. POSITION MOVES across it — the WANTED half. Before the editor opens
+ *      there are no bounds, so the fit sits at the empty-scene radius
+ *      (200 × 1.75 = 350); after the body lands it is solved against the
+ *      body's projected extents. A gate
  *      that only forbade movement would pass just as happily on a camera that
  *      had stopped re-framing altogether.
  *   3. A FRESH SCENE STILL OPENS ISO (after `reload`) — because the cheap
@@ -44,6 +45,7 @@ import {
   expectCameraStable,
   installSceneProbe,
   waitForCameraRest,
+  waitForCameraStill,
 } from "./invariants";
 import { enterSketch } from "./planeMap";
 import { createPartViaApi, distinctCanvasColors, seedSession } from "./support";
@@ -154,23 +156,35 @@ test.describe("FB-20 — the FIRST extrude re-frames the body without stealing t
     await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
       timeout: 30_000,
     });
-    samples.push(await sample(page, "05-sketch-saved"));
-
-    await page.getByTestId("new-extrude").click();
-    await expect(page.getByTestId("extrude-editor")).toBeVisible();
-    const before = await sample(page, "06-extrude-editor-open");
+    // The pose BEFORE the command opens is the baseline, and it is read at a
+    // POSITION settle: the probe-lock check below compares the live camera
+    // against the settled stamp, so a sample taken mid-ease fails it for a
+    // reason that has nothing to do with which camera the probe latched onto
+    // (measured: `agreesWithStamp: false` at the old step-06 baseline, stamp
+    // `fit-proposal` already written, camera still sliding towards it).
+    await waitForCameraStill(page);
+    const before = await sample(page, "05-sketch-saved");
     samples.push(before);
     expect(
       before.agreesWithStamp,
       "probe locked onto the model camera, not the reference cube's HUD",
     ).toBe(true);
 
-    // THE GATE. `expectCameraStable` samples at REST either side (orbit damping
-    // and the settle ease both coast), so the comparison is between two static
-    // poses rather than between a moving camera and a still one.
+    // THE GATE, over the WHOLE command rather than only its commit. Since
+    // CRAFT-12 the camera can move at TWO moments of the first extrude: when the
+    // editor opens (the preview re-fit frames the ghost) and when the body lands
+    // (the auto-fit frames the body). The founder's complaint is about the view
+    // being TAKEN, and either move could take it, so the direction must hold
+    // across both. `expectCameraStable` samples at REST either side (orbit
+    // damping and the settle ease both coast), so the comparison is between two
+    // static poses rather than between a moving camera and a still one.
     const drift = await expectCameraStable(
       page,
       async () => {
+        await page.getByTestId("new-extrude").click();
+        await expect(page.getByTestId("extrude-editor")).toBeVisible();
+        await waitForCameraStill(page);
+        samples.push(await sample(page, "06-extrude-editor-open"));
         await page.getByTestId("extrude-distance").press("Enter");
         await expect(page.getByTestId("body-inspector")).toBeVisible({
           timeout: 30_000,
@@ -188,10 +202,22 @@ test.describe("FB-20 — the FIRST extrude re-frames the body without stealing t
     const after = await sample(page, "07-after-extrude");
     samples.push(after);
 
-    // THE WANTED HALF. Pre-extrude the fit had no bounds and parked at the
-    // empty-scene radius (200 × 1.75 = 350); post-extrude it is solved against
-    // the body. Re-framing is the whole reason the auto-fit exists, so a gate
-    // that only forbids motion is half a gate.
+    // THE WANTED HALF. Before the command opens there are no bounds, so the
+    // camera sits at the empty-scene radius (200 × 1.75 = 350); after the
+    // extrude it is solved against the body. Re-framing is the whole reason the
+    // auto-fit exists, so a gate that only forbids motion is half a gate.
+    //
+    // Measured from BEFORE THE EDITOR OPENED, not from the open editor, and
+    // that is a correction rather than a loosening. This used to read the
+    // baseline at step 06, which predates CRAFT-12: the preview re-fit now
+    // frames the extrude ghost as soon as it appears (stamp `fit-proposal`,
+    // range ~350 -> ~110), so by step 06 the body-to-be is ALREADY framed and
+    // the commit legitimately moves the camera only a few mm — CI read
+    // `57.9,52.1,76.5 -> 58.1,45.2,76.7`, 6.9, and called it "did not
+    // re-frame". The modeler seeing the result framed BEFORE committing is the
+    // better flow, so the product is right and the baseline was stale. The
+    // property is unchanged — the first extrude flow must end framed on the
+    // body — and it is still falsifiable: a camera nothing re-framed reads 0.
     const moved = distance(posOf(before), posOf(after));
     expect(
       moved,

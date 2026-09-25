@@ -39,7 +39,7 @@ from geometry.kernel import build_box, build_cylinder, combine_body
 from geometry.kernel.edges import EdgeRecord, edge_signature_dto
 from geometry.kernel.shell import shell_body
 from geometry.kernel.types import BodyShape
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     AngularDimensionParams,
     DiameterDimensionParams,
     DimensionAnchor,
@@ -50,8 +50,8 @@ from py_kit.schemas.drawings import (
     PointToPointMeasurement,
     RadiusDimensionParams,
 )
-from py_kit.schemas.features import EdgeSignature
-from py_kit.schemas.geometry import Vec3
+from loft_wire.features import EdgeSignature
+from loft_wire.geometry import Vec3
 
 # --- Documented per-model tolerances (design §8; docs/GEOMETRY-QA.md) ----------
 # Measurement reads the EXACT B-rep (arc length / GProp radius), so residuals are

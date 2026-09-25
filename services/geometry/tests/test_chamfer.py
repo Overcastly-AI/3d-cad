@@ -30,7 +30,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from geometry.main import app
-from py_kit.schemas.features import EvaluateTreeResult
+from loft_wire.features import EvaluateTreeResult
 
 client = TestClient(app)
 

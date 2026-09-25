@@ -282,8 +282,30 @@ export const viewport = {
     active: color.brassHover,
     /** Axis + arrow opacity. Solid enough to aim at, short of committed metal. */
     axisOpacity: 0.92,
-    /** Graduation opacity — present, never competing with the ink beneath. */
-    ladderOpacity: 0.5,
+    /**
+     * MINOR graduation opacity — present, never competing with the ink beneath.
+     *
+     * Named `ladderOpacity` for one commit, while its meaning had already
+     * narrowed to the minor half: an unqualified name beside an explicit
+     * `ladderMajorOpacity` reads as "the ladder's opacity", which is what it
+     * used to be and is not what it sets. Renamed while there was still
+     * exactly one consumer.
+     *
+     * This was the opacity of EVERY rung until CRAFT-7 split the ladder into
+     * two weights. At half strength on a cross whose arms the proportion clamp
+     * had just shortened to 0.8 of the pitch, the whole ladder read as stubble
+     * on the shaft rather than as a scale — the signature element, present in
+     * the buffer and absent from the picture, which is the failure the rung
+     * width was sized by screenshot to avoid in the first place.
+     */
+    ladderMinorOpacity: 0.5,
+    /**
+     * MAJOR graduation opacity. These are the marks a number is read off, so
+     * they carry nearly the arrow's own weight — the drafting convention, and
+     * what keeps the ladder legible once its arms are bounded by their pitch.
+     * The CONTRAST between the two weights is what says which cross matters.
+     */
+    ladderMajorOpacity: 0.85,
   },
 } as const;
 

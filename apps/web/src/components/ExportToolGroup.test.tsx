@@ -19,6 +19,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ExportRefusedError } from "../api/exportPart";
 import { EXPORT_FORMATS } from "../features/exportAction";
 
 import { ExportRow } from "./ExportRow";
@@ -122,7 +123,7 @@ describe("ExportToolGroup", () => {
 
     fireEvent.click(screen.getByTestId("assembly-export-band-step"));
     const alert = await screen.findByTestId("assembly-export-band-error");
-    expect(alert).toHaveTextContent(/STEP export failed/);
+    expect(alert).toHaveTextContent(/the STEP file could not be written/);
     expect(downloadBlob).not.toHaveBeenCalled();
   });
 
@@ -183,5 +184,67 @@ describe("ExportToolGroup", () => {
     // fold `ExportRow`'s `FORMATS` into `features/exportAction.EXPORT_FORMATS`
     // rather than copying the new entry across (see that module's note).
     expect(band).toEqual(row);
+  });
+});
+
+/**
+ * A REFUSAL THAT NAMES ITS CURE SAYS SO (MESH-TOO-DENSE-COPY-1).
+ *
+ * A 3MF of a many-turn twist is refused as `export_mesh_too_dense`, and both
+ * surfaces used to answer it with "check that the gateway is running". That is
+ * wrong twice over: the gateway is fine, and STL or STEP of the same body
+ * would work. These assert the SPECIFIC copy, not merely that an error shows.
+ */
+describe("a refused export", () => {
+  const refusing = (code: string | null) =>
+    vi.fn(async () => {
+      throw new ExportRefusedError("rejected", code);
+    });
+
+  it("names the format and the way out on the band", async () => {
+    render(
+      <ExportToolGroup
+        testIdPrefix="part-export-band"
+        exporter={refusing("export_mesh_too_dense")}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("part-export-band-3mf"));
+    const said = await screen.findByTestId("part-export-band-error");
+    expect(said).toHaveTextContent(
+      "This twisted body is too dense to write as 3MF in reasonable time. " +
+        "Export STL or STEP instead, or reduce the twist.",
+    );
+    expect(said).not.toHaveTextContent(/gateway/);
+    // The visible half: the cell's own caption.
+    expect(screen.getByTestId("part-export-band-3mf")).toHaveTextContent(
+      "Too dense — use STL or STEP",
+    );
+  });
+
+  it("names the format and the way out on the panel strip", async () => {
+    render(
+      <ExportRow
+        testIdPrefix="assembly-export"
+        exporter={refusing("export_mesh_too_dense")}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("assembly-export-3mf"));
+    const said = await screen.findByTestId("assembly-export-error");
+    expect(said).toHaveTextContent(
+      "This twisted body is too dense to write as 3MF in reasonable time. " +
+        "Export STL or STEP instead, or reduce the twist.",
+    );
+    expect(said).not.toHaveTextContent(/gateway/);
+  });
+
+  it("keeps the generic line for a failure it cannot explain", async () => {
+    // The negative control: a transport failure, with no envelope, must not
+    // borrow a cure that belongs to a different refusal.
+    render(<ExportRow testIdPrefix="part-export" exporter={refusing(null)} />);
+    fireEvent.click(screen.getByTestId("part-export-step"));
+    expect(await screen.findByTestId("part-export-error")).toHaveTextContent(
+      "Export failed — the STEP file could not be written. Check that the " +
+        "gateway is running, then try again.",
+    );
   });
 });

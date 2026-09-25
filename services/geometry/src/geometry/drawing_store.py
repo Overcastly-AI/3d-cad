@@ -12,7 +12,7 @@ config, and the same ``S3_URL``-unset in-memory fallback convention.
 its output GLB because tessellation always runs and the key exists only to fetch
 the result. Here the whole point is to SKIP composing on a repeat, so the key must
 be derivable BEFORE composing: it is the SHA-256 of the canonical JSON of the whole
-:class:`~py_kit.schemas.drawings.ComposeDrawingRequest`
+:class:`~loft_wire.drawings.ComposeDrawingRequest`
 (:func:`drawing_artifact_key`). That request carries EVERYTHING that changes the
 composed bytes — the part feature prefix, the views + scale, the dimensions, the
 sheet layout (size/orientation/title-block/placed views) AND the ``format`` — each
@@ -42,7 +42,7 @@ import threading
 from collections import OrderedDict
 from typing import Protocol
 
-from py_kit.schemas.drawings import ComposeDrawingRequest
+from loft_wire.drawings import ComposeDrawingRequest
 
 #: Max cached artifacts. Bounds worst-case memory at capacity x largest sheet;
 #: a working session touches a handful of drawings, and a miss just recomposes.

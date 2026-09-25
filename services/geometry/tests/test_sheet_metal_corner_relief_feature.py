@@ -31,7 +31,7 @@ from geometry.kernel.properties import measure_shape
 from geometry.kernel.types import BodyShape
 from geometry.sheet_metal import unfold_sheet_metal
 from geometry.sheet_metal.resolve import cylindrical_face_widths
-from py_kit.schemas.features import (
+from loft_wire.features import (
     EvaluateTreeRequest,
     EvaluateTreeResult,
     FeatureResult,
@@ -184,7 +184,7 @@ def test_flat_pattern_view_picks_up_the_relief() -> None:
     """The drawing-side flat_pattern view (the real user-facing surface) develops the
     RELIEVED blank end-to-end — relieved outline + a two-row bend table, no error."""
     from geometry.drawings.flat_pattern import flat_pattern_view_result
-    from py_kit.schemas.drawings import ViewScale
+    from loft_wire.drawings import ViewScale
 
     request, expected = _load()
     scale = ViewScale(numerator=1, denominator=1)

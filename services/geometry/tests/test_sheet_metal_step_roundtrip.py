@@ -36,7 +36,7 @@ from build123d import (
 from geometry.features.evaluate import evaluate_tree
 from geometry.kernel import measure_shape
 from geometry.schemas import ShapeProperties
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 _GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens-sheet-metal"
 

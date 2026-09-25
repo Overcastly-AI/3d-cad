@@ -64,7 +64,7 @@ from geometry.assembly.transform import Pose, as_vector
 from geometry.kernel import measure_shape
 from geometry.kernel.export import STEP_MAGIC, occt_default_product_name
 from geometry.main import app
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     EvaluateAssemblyRequest,
     EvaluatedInstance,
     ExportAssemblyRequest,
@@ -72,9 +72,9 @@ from py_kit.schemas.assemblies import (
     Quat,
     assembly_export_filename,
 )
-from py_kit.schemas.features import EvaluatedFeatureInput
-from py_kit.schemas.geometry import EXPORT_MEDIA_TYPES, ExportFormat, Vec3
-from py_kit.schemas.step_import import StepAssemblyImportRequest
+from loft_wire.features import EvaluatedFeatureInput
+from loft_wire.geometry import EXPORT_MEDIA_TYPES, ExportFormat, Vec3
+from loft_wire.step_import import StepAssemblyImportRequest
 
 client = TestClient(app)
 
@@ -429,7 +429,7 @@ import json
 import sys
 
 from geometry.assembly.export import export_assembly
-from py_kit.schemas.assemblies import ExportAssemblyRequest
+from loft_wire.assemblies import ExportAssemblyRequest
 
 base = json.loads(sys.stdin.read())
 for fmt in ("step", "stl", "3mf", "glb"):

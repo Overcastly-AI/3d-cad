@@ -33,17 +33,17 @@ from datetime import UTC, datetime
 from typing import Any
 
 import sqlalchemy as sa
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     ASSEMBLY_NAME_MAX_LENGTH,
     INSTANCE_NAME_MAX_LENGTH,
 )
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     DRAWING_NAME_MAX_LENGTH,
     SHEET_NAME_MAX_LENGTH,
 )
-from py_kit.schemas.features import FEATURE_NAME_MAX_LENGTH
-from py_kit.schemas.folders import FOLDER_NAME_MAX_LENGTH
-from py_kit.schemas.parts import (
+from loft_wire.features import FEATURE_NAME_MAX_LENGTH
+from loft_wire.folders import FOLDER_NAME_MAX_LENGTH
+from loft_wire.parts import (
     PART_NAME_MAX_LENGTH,
     PartEvalScope,
     PartEvalState,
@@ -68,7 +68,7 @@ class Base(DeclarativeBase):
 
 
 class Folder(Base):
-    """A filing folder in ONE drawer (#WS2 — :mod:`py_kit.schemas.folders`).
+    """A filing folder in ONE drawer (#WS2 — :mod:`loft_wire.folders`).
 
     Self-referencing (``parent_id``) so folders nest; ``kind`` pins the drawer,
     because the registers are per-kind surfaces and a folder that appeared in the
@@ -159,7 +159,7 @@ class Folder(Base):
 #:
 #: NULLABLE, and that null is load-bearing: it is "unfiled", the state every
 #: pre-folders row backfills to for free and the state the register's root view
-#: renders (:mod:`py_kit.schemas.folders`). ``ON DELETE RESTRICT`` because a
+#: renders (:mod:`loft_wire.folders`). ``ON DELETE RESTRICT`` because a
 #: folder delete must never take documents with it — the router refuses first
 #: with a 409 naming the contents, and this is the backstop if anything ever
 #: tries to go around it. Filing a document does NOT bump its concurrency
@@ -210,7 +210,7 @@ class Part(Base):
     """A part — the root of a (future) parametric feature tree.
 
     ``owner_id`` is the gateway-verified user id (see
-    :mod:`py_kit.schemas.parts` for the trust model); there is no FK to the
+    :mod:`loft_wire.parts` for the trust model); there is no FK to the
     gateway's ``users`` table because identity lives in a DIFFERENT service's
     schema (RESEARCH §3) — cross-service referential integrity is not a thing
     we pretend to have. ``(owner_id, name)`` is unique so the constraint —
@@ -236,7 +236,7 @@ class Part(Base):
         sa.String(8), nullable=False, default="mm", server_default=sa.text("'mm'")
     )
     #: What the part's bodies are made of (docs/design/materials.md §2): a
-    #: serialized :class:`~py_kit.schemas.materials.MaterialAssignment` — one
+    #: serialized :class:`~loft_wire.materials.MaterialAssignment` — one
     #: document default plus per-body overrides. NULL is the honest "nobody has
     #: said", which every pre-materials row backfills to and which reports NO
     #: mass (never 0 g, never a default steel). Unlike ``length_unit`` this is an
@@ -266,7 +266,7 @@ class Part(Base):
     #: gateway's post-evaluate bookkeeping and by nothing else. Evaluation
     #: RESULTS still are not stored (§4.4: they stay derivable and disposable);
     #: this is only the verdict a register needs, and it is version-stamped so
-    #: :func:`~py_kit.schemas.parts.derive_part_eval_state` can tell a current
+    #: :func:`~loft_wire.parts.derive_part_eval_state` can tell a current
     #: claim from a stale one instead of assuming.
     last_eval_status: Mapped[PartEvalStatus | None] = mapped_column(
         sa.String(16), nullable=True
@@ -282,7 +282,7 @@ class Part(Base):
     #: ``'rolled_back'``. Derived by DOCUMENTS at record time — it is the only
     #: service that knows the bar exists — from whether any feature sat past the
     #: travel stop. NULL on a row written before this column existed; that is
-    #: "unknown", never "whole" (see :func:`~py_kit.schemas.parts.
+    #: "unknown", never "whole" (see :func:`~loft_wire.parts.
     #: derive_part_eval_scope`), and the part's next evaluate rewrites it.
     last_eval_scope: Mapped[PartEvalScope | None] = mapped_column(
         sa.String(16), nullable=True
@@ -644,7 +644,7 @@ class Mate(Base):
     """One constraint edge of an assembly's mate graph (design §1.2/§2.1).
 
     ``type`` is promoted to a real column (indexable/filterable) exactly as a
-    :class:`Feature`'s is; ``params`` holds the full :data:`~py_kit.schemas.
+    :class:`Feature`'s is; ``params`` holds the full :data:`~loft_wire.
     assemblies.Mate` payload (including its ``type`` discriminator) as JSONB and
     is ALWAYS the output of a successful pydantic validation — py-kit models are
     the gate, never a JSON CHECK. The instances a mate constrains live INSIDE
@@ -894,7 +894,7 @@ class View(Base):
         sa.Boolean(), nullable=False, server_default=sa.text("true")
     )
     #: A ``section`` view's cutting plane + flip (drawings-section.md §1) as JSONB —
-    #: the validated :class:`~py_kit.schemas.drawings.SectionViewParams` payload; NULL
+    #: the validated :class:`~loft_wire.drawings.SectionViewParams` payload; NULL
     #: for every non-section view, so existing views are untouched (additive).
     section_params: Mapped[dict[str, Any] | None] = mapped_column(
         _JSON_VARIANT, nullable=True
@@ -941,7 +941,7 @@ class Dimension(Base):
 
     ``type`` is promoted to a real column (indexable/filterable) exactly as a
     :class:`Feature`/:class:`Mate` type is; ``params`` holds the full
-    :data:`~py_kit.schemas.drawings.Dimension` payload (including its geometry
+    :data:`~loft_wire.drawings.Dimension` payload (including its geometry
     signature refs) as JSONB and is ALWAYS the output of a successful pydantic
     validation — py-kit models are the gate, never a JSON CHECK. A dimension is
     pinned to its ``view_id`` (CASCADE — deleting a view removes its dimensions)
@@ -999,7 +999,7 @@ class Annotation(Base):
     """One annotation (v1: a note) on a sheet (design §2.2).
 
     ``type`` is promoted to a real column; ``params`` holds the full
-    :data:`~py_kit.schemas.drawings.Annotation` payload (text + position) as
+    :data:`~loft_wire.drawings.Annotation` payload (text + position) as
     JSONB, always the output of a successful pydantic validation. Ordered per
     SHEET (``uq_annotations_sheet_order``); plain UNIQUE, app renumbers
     collision-free on delete.

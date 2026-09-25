@@ -21,10 +21,10 @@ from build123d import GeomType, Solid
 from fastapi.testclient import TestClient
 from geometry.kernel import measure_targets, selection_overlay
 from geometry.main import app
+from loft_wire.geometry import Vec3
+from loft_wire.measure import EdgeTarget, PointTarget
+from loft_wire.overlay import OverlayRequest, OverlayResult
 from py_kit.errors import ValidationApiError
-from py_kit.schemas.geometry import Vec3
-from py_kit.schemas.measure import EdgeTarget, PointTarget
-from py_kit.schemas.overlay import OverlayRequest, OverlayResult
 
 client = TestClient(app)
 

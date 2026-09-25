@@ -15,7 +15,7 @@ Pipeline:
    ``has_assembly_structure`` flag (the mirror of the export's XCAF composer).
 2. Each UNIQUE product body is turned ONCE into (a) a LOCAL-frame STEP AP214
    fragment — ``body_step``, the exact input the single-body ``import`` feature
-   ingests (:class:`py_kit.schemas.features.ImportParamsV1`), so slice 2b seeds N
+   ingests (:class:`loft_wire.features.ImportParamsV1`), so slice 2b seeds N
    editable parts with ZERO new ingest path — plus its content address
    ``body_step_id``; (b) a content-addressed presentation mesh
    (:mod:`geometry.mesh_store`, reused); and (c) its mass properties. Repeated
@@ -40,9 +40,9 @@ from __future__ import annotations
 
 import hashlib
 
-from py_kit.schemas.assemblies import Placement, Quat
-from py_kit.schemas.geometry import ShapeProperties, Vec3
-from py_kit.schemas.step_import import (
+from loft_wire.assemblies import Placement, Quat
+from loft_wire.geometry import ShapeProperties, Vec3
+from loft_wire.step_import import (
     MAX_IMPORT_RESPONSE_BYTES,
     ImportedProduct,
     StepAssemblyImportRequest,
@@ -112,11 +112,11 @@ def import_step_assembly(
     Two response-amplification bounds keep an untrusted parse's OUTPUT bounded
     (slice-2b security review), both surfacing as typed 422s at the API layer:
     the reader rejects a file whose leaf-occurrence count exceeds
-    :data:`~py_kit.schemas.step_import.MAX_IMPORT_ASSEMBLY_PRODUCTS`
+    :data:`~loft_wire.step_import.MAX_IMPORT_ASSEMBLY_PRODUCTS`
     (:class:`~geometry.kernel.imports.ImportTooManyProductsError`, inside the
     CPU-bounded child), and this service rejects once the running total of emitted
     ``body_step`` bytes would exceed
-    :data:`~py_kit.schemas.step_import.MAX_IMPORT_RESPONSE_BYTES`
+    :data:`~loft_wire.step_import.MAX_IMPORT_RESPONSE_BYTES`
     (:class:`~geometry.kernel.imports.ImportResponseTooLargeError`), the absolute
     bound that also catches one large body instanced many times.
     """

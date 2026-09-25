@@ -46,7 +46,7 @@ from ezdxf import units as ezdxf_units
 from ezdxf.document import Drawing
 from ezdxf.enums import TextEntityAlignment
 from ezdxf.layouts import Modelspace
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     AngularDimensionParams,
     Annotation,
     BendTableRow,
@@ -90,7 +90,7 @@ from py_kit.schemas.drawings import (
     ViewProjection,
     ViewScale,
 )
-from py_kit.schemas.features import EdgeSignature
+from loft_wire.features import EdgeSignature
 from reportlab.lib.colors import Color, HexColor
 from reportlab.lib.units import mm as _MM
 from reportlab.pdfbase.pdfmetrics import getAscent, getDescent
@@ -996,7 +996,7 @@ def anchored_signature(
     signature no longer describes anything on the sheet, so looking the projected edge
     up by it fails and the dimension vanishes — even once the value itself re-measures
     (:mod:`geometry.drawings.anchor`). So placement uses the CURRENT signature the
-    measurement resolved to (:class:`~py_kit.schemas.drawings.DimensionAnchor`,
+    measurement resolved to (:class:`~loft_wire.drawings.DimensionAnchor`,
     ``primary``/``secondary``), falling back to the authored one when the caller
     supplies no anchor (a hand-built :class:`MeasuredDimension` in a unit test, an
     older client) — which keeps every previously-composed sheet byte-identical.

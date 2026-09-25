@@ -45,8 +45,8 @@ from geometry.sheet_metal.unfold import (
     UnfoldStarError,
     _rects_overlap,  # pyright: ignore[reportPrivateUsage]
 )
-from py_kit.schemas.features import CylindricalFaceSignature
-from py_kit.schemas.geometry import Vec3
+from loft_wire.features import CylindricalFaceSignature
+from loft_wire.geometry import Vec3
 from pydantic import BaseModel, ConfigDict
 
 _HERE = Path(__file__).resolve().parent

@@ -29,8 +29,8 @@ from geometry.drawings import flat_pattern_view_result
 from geometry.features.evaluate import TreeEvaluation, evaluate_tree
 from geometry.sheet_metal import FlatPattern, unfold_sheet_metal
 from geometry.sheet_metal.resolve import coaxial_cylindrical_face_widths
-from py_kit.schemas.drawings import ViewScale
-from py_kit.schemas.features import (
+from loft_wire.drawings import ViewScale
+from loft_wire.features import (
     EvaluateTreeRequest,
     SheetMetalEdgeFlangeParamsV1,
 )
@@ -265,7 +265,7 @@ from pathlib import Path
 
 from geometry.features.evaluate import evaluate_tree
 from geometry.sheet_metal import unfold_sheet_metal
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 request = EvaluateTreeRequest.model_validate_json(Path(sys.argv[1]).read_text("utf-8"))
 ev = evaluate_tree(request)

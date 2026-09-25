@@ -22,17 +22,20 @@ Compose DNS round-robin and a shared listening socket both give you the bottom
 row. This module gives you the top one.
 
 THE KEY IS THE USER, NOT THE PART, and that is a deliberate choice against the
-obvious alternative. A working modeler occupies **two** cache lineages — the
-evaluate lineage and the ``record_history`` lineage a face pick resumes from —
-and every route that reaches geometry already carries the verified principal,
-while only some carry a part id. Hashing on the user therefore (a) keeps a
-modeler's two lineages in the same process, which is the property the 0.40 hit
-rate is made of, (b) needs no DTO change and so cannot drift from the contract,
-and (c) is exactly the mapping the ``sticky`` row above measured. Hashing on
-part id would spread one person's two lineages across two workers on the routes
-that lack the id — the dilution this module exists to prevent, reintroduced at
-the seam. The key is a parameter, so a future part-level policy is a one-line
-change here and nowhere else.
+obvious alternative. A modeler's work on a part is **one** cache lineage: since
+PERF-REAL-3 ``record_history`` is no longer in the rebuild-cache key, so the
+``/evaluate`` behind an edit and the ``/overlay`` or ``/measure`` behind the
+face pick after it resume from the same checkpoint. That only pays if all of
+those calls reach the same process. Every route that reaches geometry already
+carries the verified principal, while only some carry a part id. Hashing on the
+user therefore (a) keeps every call on a modeler's lineage in the same process,
+which is the property the 0.40 hit rate is made of, (b) needs no DTO change and
+so cannot drift from the contract, and (c) is exactly the mapping the
+``sticky`` row above measured. Hashing on part id would send the calls that
+lack the id to a different worker from the ones that carry it, splitting one
+lineage across two processes. That is the dilution this module exists to
+prevent, reintroduced at the seam. The key is a parameter, so a future
+part-level policy is a one-line change here and nowhere else.
 
 RENDEZVOUS (HIGHEST-RANDOM-WEIGHT) HASHING, NOT MODULO. ``hash(user) % N``
 remaps *every* key when N changes; HRW remaps only the 1/N that belonged to the

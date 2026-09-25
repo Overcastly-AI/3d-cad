@@ -17,9 +17,9 @@ from build123d import Solid
 from fastapi.testclient import TestClient
 from geometry.kernel.pattern import PatternCountError, linear_pattern
 from geometry.main import app
-from py_kit.schemas.assemblies import MAX_INTERFERENCE_INSTANCES
-from py_kit.schemas.features import MAX_PATTERN_COUNT
-from py_kit.schemas.geometry import MIN_LINEAR_DEFLECTION
+from loft_wire.assemblies import MAX_INTERFERENCE_INSTANCES
+from loft_wire.features import MAX_PATTERN_COUNT
+from loft_wire.geometry import MIN_LINEAR_DEFLECTION
 
 client = TestClient(app)
 
@@ -131,7 +131,7 @@ def test_interference_cap_allows_at_cap_requests_past_the_guard() -> None:
 
 
 def test_assembly_evaluate_rejects_over_instance_parse_cap() -> None:
-    from py_kit.schemas.assemblies import MAX_ASSEMBLY_INSTANCES
+    from loft_wire.assemblies import MAX_ASSEMBLY_INSTANCES
 
     instances: list[dict[str, Any]] = [
         {

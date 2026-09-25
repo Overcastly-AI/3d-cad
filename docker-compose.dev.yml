@@ -6,6 +6,13 @@
 # Sources are bind-mounted over the baked-in wheels via PYTHONPATH (which
 # wins over site-packages), so edits on the host reload instantly without a
 # rebuild. Rebuild only when dependencies (uv.lock) change.
+#
+# The web service gets the same treatment at the bottom of this file, by a
+# different mechanism (the Vite dev server rather than uvicorn --reload).
+# Caveat worth knowing before you debug a stale UI: file watching over a bind
+# mount is inotify-based, which is reliable on Linux and needs polling on
+# Docker Desktop's VM — if edits do not hot-reload there, that is why, and the
+# container-free path in docs/QUICKSTART.md Option B is unaffected.
 
 x-dev-service: &dev-service
   environment:
@@ -46,3 +53,47 @@ services:
     volumes:
       - ./services/geometry/src:/app/dev/service:ro
       - ./packages/py-kit/src:/app/dev/py-kit:ro
+
+  # The web app, with hot reload: the Vite dev server instead of the nginx that
+  # serves the built bundle in the base file. Same host port
+  # (${WEB_PORT:-8080}) and the same container port, so the URL does not change
+  # between `docker compose up` and `just dev` — and so this file does not have
+  # to touch `ports` at all, which matters because compose MERGES port lists
+  # across files rather than replacing them (a second mapping here would leave
+  # a dead one behind).
+  #
+  # NOTE this is the CONTAINER dev loop. The project's day-to-day loop is the
+  # container-free one in docs/QUICKSTART.md Option B (a host Vite on :5173),
+  # which is unaffected by this service and does not collide with it.
+  web:
+    build:
+      target: dev
+    environment:
+      # apps/web/vite.config.ts reads GATEWAY_ORIGIN for its /api proxy target
+      # and defaults to 127.0.0.1:8000, which inside this container is the
+      # container itself. The compose service name is the correct target here,
+      # and it is the only thing that has to change between the host dev loop
+      # and this one.
+      GATEWAY_ORIGIN: http://gateway:8000
+    # SOURCE TREES ONLY, read-only, exactly as the Python services above mount
+    # their src/ directories — never the package roots. Mounting `./apps/web`
+    # whole would shadow the container's `node_modules` (the pnpm symlink farm
+    # the image installed) with the host's, which is both absent on a clean
+    # clone and the wrong platform's binaries when it is not. The usual
+    # workaround — an anonymous volume over each node_modules — silently goes
+    # stale after a dependency change, so it is avoided rather than documented.
+    #
+    # The config files are mounted individually because they live beside
+    # node_modules. A change to one needs the container restarted regardless:
+    # Vite reads vite.config.ts / the Tailwind preset ONCE at boot, and a
+    # running Vite serving a stale config renders a page that loads and lies
+    # (CLAUDE.md's environment recipes — the 300x150 canvas).
+    volumes:
+      - ./apps/web/src:/app/apps/web/src:ro
+      - ./apps/web/index.html:/app/apps/web/index.html:ro
+      - ./apps/web/vite.config.ts:/app/apps/web/vite.config.ts:ro
+      - ./apps/web/tailwind.config.ts:/app/apps/web/tailwind.config.ts:ro
+      - ./apps/web/postcss.config.js:/app/apps/web/postcss.config.js:ro
+      - ./apps/web/tsconfig.json:/app/apps/web/tsconfig.json:ro
+      - ./packages/design/src:/app/packages/design/src:ro
+      - ./packages/ts-client/src:/app/packages/ts-client/src:ro

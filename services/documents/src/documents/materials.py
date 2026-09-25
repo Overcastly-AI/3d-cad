@@ -1,6 +1,6 @@
 """``/api/v1/materials`` — the built-in material library, served not hardcoded.
 
-One table of densities exists (``py_kit.schemas.materials.MATERIALS``) and this
+One table of densities exists (``loft_wire.materials.MATERIALS``) and this
 route hands it out, so the material picker and the mass readout read the SAME
 numbers the kernel multiplies by (CLAUDE.md DRY: a second copy in TS would drift
 silently, and a drifted density is a wrong mass nobody notices).
@@ -12,7 +12,7 @@ document property; the density it resolves to is what geometry consumes.
 """
 
 from fastapi import APIRouter
-from py_kit.schemas.materials import MATERIALS, MaterialLibraryResponse
+from loft_wire.materials import MATERIALS, MaterialLibraryResponse
 
 router = APIRouter(prefix="/api/v1/materials", tags=["materials"])
 

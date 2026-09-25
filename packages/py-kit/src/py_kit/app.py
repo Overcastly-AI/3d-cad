@@ -70,7 +70,31 @@ def create_app(
     startup/shutdown resources (e.g. the gateway's upstream HTTP client).
     """
     configure_logging(settings)
-    app = FastAPI(title=title, version=version, lifespan=lifespan)
+    # docs_url/redoc_url OFF — AIRGAP-1, and this is the whole reason
+    # scripts/check-air-gap.py exists. FastAPI's built-in explorer pages are
+    # HTML that loads its JavaScript from the PUBLIC INTERNET: measured on
+    # fastapi 0.139.0, `/docs` references cdn.jsdelivr.net (swagger-ui-bundle.js
+    # + swagger-ui.css) and fastapi.tiangolo.com (favicon), and `/redoc` adds
+    # fonts.googleapis.com. Every Loft service boots through this factory and
+    # the gateway publishes :8000, so until now the ONE port a self-hoster
+    # exposes served a page that is blank in an air-gapped shop — which
+    # falsifies README.md's "the whole stack can run air-gapped" on the first
+    # URL anyone tries. Nothing in the repo consumed these pages (measured: no
+    # spec, script or doc references /docs or /redoc as a route).
+    #
+    # `/openapi.json` stays ON and is unaffected: it is generated in-process,
+    # is the input to `packages/contracts` + the generated TS client, and is
+    # what a self-hoster points their OWN local explorer at. Restoring an
+    # interactive explorer means VENDORING the assets and passing
+    # swagger_js_url/swagger_css_url at local paths — filed, not done here,
+    # because a ~3 MB vendored bundle is not a one-line change.
+    app = FastAPI(
+        title=title,
+        version=version,
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+    )
     install_error_handlers(app)
 
     # The admission gate lives on app.state for every service, and costs two

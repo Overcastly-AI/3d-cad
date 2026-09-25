@@ -28,15 +28,15 @@ from geometry.assembly import check_interference
 from geometry.assembly.transform import Pose
 from geometry.kernel.interference import CLASH_VOLUME_FLOOR_MM3
 from geometry.main import app
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     EvaluateAssemblyRequest,
     EvaluatedInstance,
     InterferenceResult,
     Placement,
     Quat,
 )
-from py_kit.schemas.features import EvaluatedFeatureInput, EvaluateTreeRequest
-from py_kit.schemas.geometry import Vec3
+from loft_wire.features import EvaluatedFeatureInput, EvaluateTreeRequest
+from loft_wire.geometry import Vec3
 
 client = TestClient(app)
 
@@ -488,4 +488,14 @@ def test_probe_overlap_tri_state_resolved_vs_forced_failure(
     failed = probe_overlap(a, b)
     assert failed.boolean_failed is True
     assert failed.unresolved is True
-    assert failed.volume_mm3 >= resolved.volume_mm3  # AABB hint bounds from above
+    # The AABB hint bounds the TRUE overlap from above — the safe direction for a
+    # collision check. Asserted against the ANALYTIC 2500.0, not against
+    # ``resolved.volume_mm3``: the hint is exact box arithmetic while the resolved
+    # value is a GProp integration, so a bare ``>=`` between them was comparing two
+    # different derivations at ULP resolution and held only by luck of rounding. It
+    # broke the day volume moved to adaptive integration (2026-09-15) — resolved
+    # read 2500.0000000000005 against a hint of exactly 2500.0, a 2-ULP "violation"
+    # of a geometric invariant that was never actually violated. The two claims are
+    # now made separately, each against something that cannot drift under it.
+    assert failed.volume_mm3 >= 2500.0
+    assert failed.volume_mm3 == pytest.approx(resolved.volume_mm3, rel=OVERLAP_REL_TOL)

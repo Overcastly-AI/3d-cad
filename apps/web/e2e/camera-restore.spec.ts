@@ -4,6 +4,7 @@ import {
   angleBetween,
   installSceneProbe,
   waitForCameraRest,
+  waitForCameraStill,
   type CameraPose,
 } from "./invariants";
 import {
@@ -42,6 +43,14 @@ import {
 
 /** Direction agreement good enough to call it the same viewpoint. */
 const SAME_VIEW_DEG = 1;
+
+/**
+ * The rest direction after a sketch exit may sit this far from the view the
+ * modeller left. Measured 0.00 deg with the committed-attitude fit; the old
+ * mid-ease adoption was 0.74-4.53 deg off here, so this separates them at
+ * every speed measured without leaning on float noise.
+ */
+const COMMITTED_VIEW_DEG = 0.1;
 
 /** The camera has plainly been taken somewhere else. */
 const DIFFERENT_VIEW_DEG = 10;
@@ -103,10 +112,15 @@ async function bodyPixels(page: Page): Promise<number> {
 }
 
 /** Sketch a rectangle on XY and extrude it 10 mm — the part every case starts from. */
-async function buildPlate(page: Page): Promise<void> {
-  await page.getByTestId("new-sketch").click();
-  await page.getByTestId("plane-XY").click();
-  await expect(page.getByTestId("sketch-step")).toHaveText("On XY");
+async function buildPlate(
+  page: Page,
+  { enter = true }: { enter?: boolean } = {},
+): Promise<void> {
+  if (enter) {
+    await page.getByTestId("new-sketch").click();
+    await page.getByTestId("plane-XY").click();
+    await expect(page.getByTestId("sketch-step")).toHaveText("On XY");
+  }
   await page.keyboard.press("r");
   await expect(page.getByTestId("tool-rect")).toHaveAttribute(
     "aria-pressed",
@@ -337,6 +351,58 @@ test.describe("CAMRESTORE-1 — leaving a sketch gives the view back", () => {
     // would satisfy the angle and lose the model.
     expect(await bodyPixels(page)).toBeGreaterThan(2_000);
   });
+
+  /**
+   * The rest view after a sketch exit is DETERMINISTIC: it is the view the
+   * modeller left, not wherever the restore ease happened to be when the next
+   * fit arrived.
+   *
+   * Leaving a sketch starts the restore ease, and the sketch strip unmounting
+   * announces a chrome change a few frames later; the fit that requests used
+   * to adopt the restore's MID-EASE attitude. So the landing depended on frame
+   * timing. Measured on this flow (pre-sketch elevation 23.11 deg) before the
+   * fix: 26.98-27.63 deg unthrottled, 25.22-25.58 at 4x CPU, 23.85-25.13 at
+   * 6x, i.e. 0.74-4.53 deg off, with CI landing further up still. After it:
+   * 23.11 deg, 0.00 off, in all nine CPU x latency combinations tried.
+   *
+   * The FIRST sketch of an EMPTY part is the case that exposes it: the chrome
+   * change is certain (the tree and inspector columns appear), and no body
+   * exists yet whose own auto-fit could re-anchor the direction. Run at native
+   * speed and at a CI-like 4x CPU throttle, because the defect's size is a
+   * function of frame timing and a single speed only samples one point of it.
+   */
+  for (const cpuRate of [1, 4]) {
+    test(`the first sketch lands exactly on the view it left (CPU x${cpuRate})`, async ({
+      page,
+    }) => {
+      await installSceneProbe(page);
+      if (cpuRate > 1) {
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("Emulation.setCPUThrottlingRate", { rate: cpuRate });
+      }
+      const account = await seedSession(page);
+      const part = await createPartViaApi(page, account.token, "Exit view");
+      await page.goto(`/parts/${part.id}`);
+      await expect(page.getByTestId("new-sketch")).toBeEnabled();
+      const before = await waitForCameraStill(page);
+
+      const parked = await enterSketchOnXy(page);
+      // THE PREMISE: the sketcher really moved the camera, so a restore is
+      // owed; without it a rig that did nothing would pass.
+      expect(angleBetween(before.direction, parked.direction)).toBeGreaterThan(
+        DIFFERENT_VIEW_DEG,
+      );
+
+      await buildPlate(page, { enter: false });
+      const after = await waitForCameraStill(page, { timeoutMs: 60_000 });
+      expect(
+        angleBetween(before.direction, after.direction),
+        `rest view after the first sketch: ${before.direction.join(",")} -> ` +
+          `${after.direction.join(",")} (view stamp ` +
+          `${await page.getByTestId("viewport").getAttribute("data-view")})`,
+      ).toBeLessThanOrEqual(COMMITTED_VIEW_DEG);
+    });
+  }
 });
 
 /**

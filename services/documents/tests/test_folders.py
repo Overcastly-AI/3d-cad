@@ -8,7 +8,7 @@ Postgres-only and this suite would have been asserting a different constraint
 from the one that ships. The "two unfiled documents may not share a name" test
 below is the one that would have caught that.
 
-Each test is aimed at a decision stated in :mod:`py_kit.schemas.folders`, not at
+Each test is aimed at a decision stated in :mod:`loft_wire.folders`, not at
 the happy path: contents survive a refused delete, a folder cannot swallow its
 own parent, a move reports where the server actually put the document, and
 filing does not pretend to be an edit.
@@ -24,9 +24,9 @@ import pytest
 from documents.db import Base
 from documents.main import DocumentsSettings, build_app
 from fastapi.testclient import TestClient
+from loft_wire.folders import MAX_FOLDER_DEPTH
+from loft_wire.parts import PRINCIPAL_HEADER
 from py_kit.db import async_dsn
-from py_kit.schemas.folders import MAX_FOLDER_DEPTH
-from py_kit.schemas.parts import PRINCIPAL_HEADER
 from sqlalchemy.ext.asyncio import create_async_engine
 
 OWNER = "6f3f6b64-0000-4000-8000-0000000000c1"

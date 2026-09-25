@@ -2,8 +2,8 @@
 
 Thanks for your interest! A heads-up before anything else: this repo is
 **primarily built by an autonomous team of AI agents** (see
-[`.claude/README.md`](./.claude/README.md) and
-[`docs/AUTONOMOUS-LOOP.md`](./docs/AUTONOMOUS-LOOP.md)) working off
+[`.claude/README.md`](./.claude/README.md) and [`CLAUDE.md`](./CLAUDE.md))
+working off
 [`docs/ROADMAP.md`](./docs/ROADMAP.md) and [`docs/BACKLOG.md`](./docs/BACKLOG.md).
 Human PRs and issues are welcome — the same quality gates apply to everyone,
 human or agent.
@@ -106,11 +106,10 @@ command.
 
 - **Conventional commits** (`feat(geometry): …`, `fix(web): …`,
   `docs: …`), one logical change per commit.
-- **Keep the docs honest — non-negotiable.** A PR that ships a feature or
-  fix must update `docs/ROADMAP.md` and `docs/BACKLOG.md` in the same
-  change; stale docs are treated as a defect.
-- UI changes include before/after screenshots (desktop + 1280×800) and
-  preserve test hooks (`data-testid`, roles, accessible names).
+- **Keep the docs honest.** If your change makes a sentence in the docs
+  untrue, fix the sentence in the same PR.
+- Visible UI changes include before/after screenshots and preserve test
+  hooks (`data-testid`, roles, accessible names).
 - Never dismiss a failing test or wrong geometry as "pre-existing" or
   "tolerance noise" — root-cause it or say plainly that you couldn't.
 - Fill in the PR template checklist truthfully; it mirrors the project's

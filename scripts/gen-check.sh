@@ -62,6 +62,8 @@ fi
 
 (cd "$src" && uv run scripts/gen-contracts.py --out "$tmp/contracts") >/dev/null
 node scripts/gen-ts-client.mjs --contracts "$tmp/contracts" --out "$tmp/ts-client-src" >/dev/null
+(cd "$src" && uv run scripts/gen-py-operations.py --contracts "$tmp/contracts" \
+  --out "$tmp/loft-operations.py") >/dev/null
 
 fail=0
 # Hand-written plumbing (package.json/README) lives beside the generated JSON.
@@ -70,6 +72,12 @@ if ! diff -ru --exclude=package.json --exclude=README.md \
   fail=1
 fi
 if ! diff -ru "$src/packages/ts-client/src" "$tmp/ts-client-src"; then
+  fail=1
+fi
+# The Python client's gateway operation table (routes only — the DTOs are
+# imported from loft_wire, never regenerated; see gen-py-operations.py).
+if ! diff -u "$src/packages/loft-script/src/loft/_operations.py" \
+    "$tmp/loft-operations.py"; then
   fail=1
 fi
 

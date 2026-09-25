@@ -1,9 +1,6 @@
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
 
+import { readRepoSource } from "../test/wireSource";
 import {
   boreFitsThread,
   coarsePitchFor,
@@ -17,14 +14,30 @@ import {
 } from "./thread";
 
 /**
- * The kernel module the client table mirrors. The path is deliberate: if the
- * kernel module moves, this test fails loudly rather than silently stopping
- * guarding anything.
+ * The kernel module the client table mirrors.
+ *
+ * The read is LAZY — see {@link readRepoSource} — and that is the whole of the
+ * claim this comment is allowed to make. It previously read the file in the
+ * `describe` body and asserted it would "fail loudly rather than silently stop
+ * guarding anything", which was false as written: a describe-body read throws
+ * at COLLECTION, so moving `threads.py` took all 14 tests in this file down
+ * before any of them ran — including the 11 (`tapDrillMm`, `boreFitsThread`,
+ * `formatDesignation`, …) that never touch Python — and reported it as
+ * "N passing, exit 1" with no assertion naming the cause.
+ *
+ * Read lazily, a move costs exactly the 3 tests that read the file, and each
+ * one fails with a sentence naming the path, the fix site and what stopped
+ * being guarded.
  */
-const KERNEL_THREADS = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../../../services/geometry/src/geometry/kernel/threads.py",
-);
+const KERNEL_THREADS = "services/geometry/src/geometry/kernel/threads.py";
+
+const kernelSource = (): string =>
+  readRepoSource(KERNEL_THREADS, {
+    declaredIn: "KERNEL_THREADS in apps/web/src/features/thread.test.ts",
+    guards:
+      "the kernel's ISO metric pitch table and minor-diameter expression, " +
+      "which no generated type carries",
+  });
 
 /** Parse `ISO_METRIC_PITCHES` out of the kernel module — the source of truth. */
 function kernelTable(source: string): Record<string, number[]> {
@@ -50,10 +63,8 @@ function kernelTable(source: string): Record<string, number[]> {
 }
 
 describe("ISO_METRIC_PITCHES mirrors the kernel table", () => {
-  const source = readFileSync(KERNEL_THREADS, "utf8");
-
   it("is identical to geometry.kernel.threads.ISO_METRIC_PITCHES", () => {
-    const kernel = kernelTable(source);
+    const kernel = kernelTable(kernelSource());
     // A non-empty parse is part of the assertion: a regex that silently matched
     // nothing would make the equality below vacuously true.
     expect(Object.keys(kernel).length).toBeGreaterThan(20);
@@ -63,12 +74,12 @@ describe("ISO_METRIC_PITCHES mirrors the kernel table", () => {
   it("derives the minor diameter from the kernel's own expression", () => {
     // The accepted-bore band's floor. If the kernel ever rounds this to 1.0825
     // (or changes it), the client band would silently disagree with the server.
-    expect(source).toContain("1.25 * math.sqrt(3.0) / 2.0");
+    expect(kernelSource()).toContain("1.25 * math.sqrt(3.0) / 2.0");
     expect(minorDiameterMm(10, 1.5)).toBeCloseTo(10 - 1.0825 * 1.5, 4);
   });
 
   it("uses the kernel's designation tolerance", () => {
-    expect(source).toContain("_DESIGNATION_TOL = 1e-9");
+    expect(kernelSource()).toContain("_DESIGNATION_TOL = 1e-9");
   });
 });
 

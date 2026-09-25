@@ -391,7 +391,7 @@
         "type": "object"
       },
       "AssemblyResponse": {
-        "description": "An assembly as stored \u2014 identity, ownership, and its concurrency token.\n\nMirrors :class:`~py_kit.schemas.parts.PartResponse` plus the ``doc_version``\nOCC counter. The full instance/mate graph rides :class:`AssemblyGraphResponse`.",
+        "description": "An assembly as stored \u2014 identity, ownership, and its concurrency token.\n\nMirrors :class:`~loft_wire.parts.PartResponse` plus the ``doc_version``\nOCC counter. The full instance/mate graph rides :class:`AssemblyGraphResponse`.",
         "properties": {
           "created_at": {
             "format": "date-time",
@@ -413,7 +413,7 @@
                 "type": "null"
               }
             ],
-            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
+            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see loft_wire.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
             "title": "Folder Id"
           },
           "id": {
@@ -462,7 +462,7 @@
         "type": "object"
       },
       "AssemblyUndoRedoRequest": {
-        "description": "Restore the adjacent assembly history snapshot (undo-redo.md UR3).\n\nThe assembly sibling of the part's\n:class:`~py_kit.schemas.features.UndoRedoRequest`: undo/redo ARE document\nedits \u2014 each bumps ``doc_version`` under the same optimistic-concurrency\nguard as every other assembly write (stale \u2192 422,\n``stale_assembly_version``), and the response is the restored graph\n(instance/mate ids preserved VERBATIM \u2014 the load-bearing snapshot\ndecision). At a boundary \u2014 undo at the ring's floor, redo at its top \u2014\nthe op is a CLEAN no-op, not an error: 200 with the current graph,\nversion unchanged. ``can_undo``/``can_redo`` on\n:class:`AssemblyGraphResponse` let the UI disable the controls, so a\nclick racing that state is harmless.",
+        "description": "Restore the adjacent assembly history snapshot (undo-redo.md UR3).\n\nThe assembly sibling of the part's\n:class:`~loft_wire.features.UndoRedoRequest`: undo/redo ARE document\nedits \u2014 each bumps ``doc_version`` under the same optimistic-concurrency\nguard as every other assembly write (stale \u2192 422,\n``stale_assembly_version``), and the response is the restored graph\n(instance/mate ids preserved VERBATIM \u2014 the load-bearing snapshot\ndecision). At a boundary \u2014 undo at the ring's floor, redo at its top \u2014\nthe op is a CLEAN no-op, not an error: 200 with the current graph,\nversion unchanged. ``can_undo``/``can_redo`` on\n:class:`AssemblyGraphResponse` let the UI disable the controls, so a\nclick racing that state is harmless.",
         "properties": {
           "expected_version": {
             "description": "Optimistic-concurrency guard (design \u00a71.2)",
@@ -552,7 +552,7 @@
         "type": "object"
       },
       "BodyMaterialAssignment": {
-        "description": "A per-BODY material override, keyed by the body's \u00a7MB-0 identity.\n\n``base_feature_id`` is the id of the feature that CREATED the body \u2014 the\nsame key ``EvaluationState.bodies`` and\n:class:`~py_kit.schemas.features.BodyLumpInfo` use \u2014 so an override survives\nedits to other features the way any body reference does. An override naming\na body the tree no longer produces is inert (it matches nothing); it is not\nan error, because a rolled-back tree legitimately hides the body for a while.",
+        "description": "A per-BODY material override, keyed by the body's \u00a7MB-0 identity.\n\n``base_feature_id`` is the id of the feature that CREATED the body \u2014 the\nsame key ``EvaluationState.bodies`` and\n:class:`~loft_wire.features.BodyLumpInfo` use \u2014 so an override survives\nedits to other features the way any body reference does. An override naming\na body the tree no longer produces is inert (it matches nothing); it is not\nan error, because a rolled-back tree legitimately hides the body for a while.",
         "properties": {
           "base_feature_id": {
             "description": "Id of the feature that created the body (its MB-0 identity)",
@@ -1298,7 +1298,7 @@
         "type": "object"
       },
       "DimensionCreate": {
-        "description": "Add a dimension to a view (append at the tip; design \u00a73).\n\n``dimension`` is the discriminated :data:`Dimension` union; its geometry\nreferences (via :class:`~py_kit.schemas.features.EdgeSignature`) resolve\nagainst the view's referenced body geometry-side. ``order_index`` is stable\nper sheet, appended at the tip.",
+        "description": "Add a dimension to a view (append at the tip; design \u00a73).\n\n``dimension`` is the discriminated :data:`Dimension` union; its geometry\nreferences (via :class:`~loft_wire.features.EdgeSignature`) resolve\nagainst the view's referenced body geometry-side. ``order_index`` is stable\nper sheet, appended at the tip.",
         "properties": {
           "dimension": {
             "description": "The dimension (discriminated on `type`)",
@@ -1685,7 +1685,7 @@
         "type": "object"
       },
       "DrawingBomLine": {
-        "description": "One NUMBERED line of a drawing's bill of materials (design \u00a77 BOM).\n\nThe shipped assembly :class:`~py_kit.schemas.assemblies.BomLine` (group key +\nresolved name + `missing` + quantity, reused VERBATIM \u2014 no parallel taxonomy)\nplus the one thing a *drawing* adds: the ``item_number`` a balloon stamps.\n\n``item_number`` is **derived**, not authored: lines are numbered 1..n in the\norder each referenced document FIRST appears in the assembly's stable instance\n``order_index``. It is therefore a pure function of the assembly graph \u2014 two\nreads of an unchanged assembly number identically, and a part RENAME (which\nre-sorts the name-ordered assembly BOM) leaves every number untouched.",
+        "description": "One NUMBERED line of a drawing's bill of materials (design \u00a77 BOM).\n\nThe shipped assembly :class:`~loft_wire.assemblies.BomLine` (group key +\nresolved name + `missing` + quantity, reused VERBATIM \u2014 no parallel taxonomy)\nplus the one thing a *drawing* adds: the ``item_number`` a balloon stamps.\n\n``item_number`` is **derived**, not authored: lines are numbered 1..n in the\norder each referenced document FIRST appears in the assembly's stable instance\n``order_index``. It is therefore a pure function of the assembly graph \u2014 two\nreads of an unchanged assembly number identically, and a part RENAME (which\nre-sorts the name-ordered assembly BOM) leaves every number untouched.",
         "properties": {
           "item_number": {
             "description": "1-based item number, DERIVED from the assembly's stable instance order (first appearance of this referenced document) \u2014 never stored on the drawing, so it can never drift from the assembly",
@@ -1864,7 +1864,7 @@
                 "type": "null"
               }
             ],
-            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
+            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see loft_wire.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
             "title": "Folder Id"
           },
           "id": {
@@ -1992,8 +1992,25 @@
         "type": "object"
       },
       "EdgeSignature": {
-        "description": "\u00a72b stage-1 geometric fingerprint of an EDGE \u2014 typed, kernel-free.\n\nFull-precision invariants (\u00a77.2 forbids quantizing the stored identity),\nchosen to distinguish the edges of a manifold solid: the ``curve`` family\n(line/circle/other \u2014 a straight edge and an arc of equal length never\ncollide), the two canonically-ordered endpoints ``end_a``/``end_b`` (sorted\nlexicographically so the signature is INDEPENDENT of the topological edge\norientation OCCT happens to assign), the ``midpoint`` (curve param 0.5 \u2014 it\nseparates two collinear edges that share an endpoint, and pins a full-circle\nseam edge whose endpoints coincide), and the ``length_mm``. Two DISTINCT\nedges of an authored part differ in at least one field (endpoints/midpoint\nby whole mm, or length, or curve kind) \u2014 including the mirror-congruent\nedges of a symmetric part, which have DISTINCT absolute positions and so do\nNOT tie. Only edges that truly coincide in space (a boolean seam, a\nnon-manifold duplicate) resolve to an honest ``subshape_ambiguous`` (\u00a75),\nnever a guess. Matching is nearest-within-tolerance at the documented\nsubshape tolerance (geometry.kernel.edges / docs/GEOMETRY-QA.md), never an\nad-hoc epsilon.",
+        "description": "\u00a72b stage-1 geometric fingerprint of an EDGE \u2014 typed, kernel-free.\n\nFull-precision invariants (\u00a77.2 forbids quantizing the stored identity),\nchosen to distinguish the edges of a manifold solid: the ``curve`` family\n(line/circle/other \u2014 a straight edge and an arc of equal length never\ncollide), the two canonically-ordered endpoints ``end_a``/``end_b`` (sorted\nlexicographically so the signature is INDEPENDENT of the topological edge\norientation OCCT happens to assign), the ``midpoint`` (curve param 0.5 \u2014 it\nseparates two collinear edges that share an endpoint, and pins a full-circle\nseam edge whose endpoints coincide), and the ``length_mm``. Two DISTINCT\nedges of an authored part differ in at least one field (endpoints/midpoint\nby whole mm, or length, or curve kind) \u2014 including the mirror-congruent\nedges of a symmetric part, which have DISTINCT absolute positions and so do\nNOT tie. Only edges that truly coincide in space (a boolean seam, a\nnon-manifold duplicate) resolve to an honest ``subshape_ambiguous`` (\u00a75),\nnever a guess. Matching is nearest-within-tolerance at the documented\nsubshape tolerance (geometry.kernel.edges / docs/GEOMETRY-QA.md), never an\nad-hoc epsilon.\n\nADJACENCY (\u00a714 \u2014 the ``adjacent_faces`` field). Every field above is an\nABSOLUTE WORLD COORDINATE, so a dimension edit that RESIZES the part \u2014 the\nsingle most ordinary thing anyone does to a model \u2014 translates the edge off\nevery one of them, and \u00a713's durable tier cannot help because it re-matches a\nstraight edge on its own SUPPORTING LINE, which a translation leaves behind.\n\u00a713 recorded the reason that looked unfixable: *\"a face's area and in-plane\ncentroid carry an identity that an edge's direction and length do not.\"* True\nof an edge's OWN geometry, and the escape is that an edge of a manifold solid\nis the intersection of exactly TWO FACES \u2014 and a face's identity survives,\nthrough four tiers, precisely because it has an area and an in-plane centroid.\nSo the identity an edge lacks in itself, it borrows from its neighbours: this\nfield stores the two adjacent planar faces' full\n:class:`PlanarFaceSignature`\\ s, canonically ordered, and the resolver's tier\n3 re-resolves THEM through the face matcher and takes the edge they share.\n\nOPTIONAL, for the same dual-read reason as the ``outer_*`` face fields: every\nedge selector persisted before this field existed must keep resolving, and it\ndoes \u2014 tiers 1 and 2 are untouched, and tier 3 simply does not fire for a\nsignature that carries no adjacency. Emitted by the pick side (the selection\noverlay) from 2026-09-18 on, and ONLY when the edge has exactly two DISTINCT\nPLANAR neighbours: a cylinder's seam (one face twice), a non-manifold edge, or\nany edge bounded by a curved face carries no adjacency and is honestly left\nwithout it rather than given a partial one.",
         "properties": {
+          "adjacent_faces": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PlanarFaceSignature"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The two PLANAR faces this edge bounds, canonically ordered by (normal, centroid) \u2014 the identity the edge's own absolute coordinates lose when a dimension edit RESIZES the part (topological-naming \u00a714). The resolver's tier 3 re-resolves both through the four-tier face matcher and takes the edge they share, requiring exactly one. Absent on selectors authored before 2026-09-18, and on any edge without exactly two distinct planar neighbours; tier 3 then does not fire and the older tiers are unchanged.",
+            "title": "Adjacent Faces"
+          },
           "curve": {
             "description": "Curve family \u2014 line | circle | other (spline/ellipse/\u2026)",
             "enum": [
@@ -2526,7 +2543,7 @@
         "type": "object"
       },
       "ExtrudeParamsV1": {
-        "description": "Linear extrusion of an earlier sketch feature's profile.",
+        "description": "Linear extrusion of an earlier sketch feature's profile.\n\nWith a nonzero ``twist_angle_deg`` it is a TWISTED extrusion: the profile\nrotates uniformly about an axis parallel to the extrusion direction while it\ntravels, so every point of it traces a true helix and the far-end section is\nthe profile rotated by the full twist (a helical gear, a twisted column;\ndocs/design/twisted-extrude.md). Both twist fields are additive-optional,\nnull by default and OMITTED from a dump while null, so an extrude with no\ntwist serializes byte-for-byte as it did before they existed (stored row,\nresponse, rebuild-cache key) and rebuilds on the unchanged prism path \u2014 no\n``param_version`` bump.",
         "properties": {
           "direction": {
             "default": "normal",
@@ -2560,6 +2577,31 @@
           "profile": {
             "$ref": "#/components/schemas/FeatureRef",
             "description": "Must resolve to an EARLIER sketch feature (design \u00a72.2)"
+          },
+          "twist_angle_deg": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": -3600.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Twist over the whole extrusion distance (degrees). The profile rotates uniformly about the twist axis as it travels, a true helical sweep. Positive is RIGHT-HANDED about the extrusion direction (a right-hand helix whichever way `direction` points); negative is left-handed. None (the default), 0, or any |twist| below 1e-9 deg is NO twist: it is normalised to absent, and the extrude is a plain prism, byte-identical to one with no twist. A twist too tight for the profile, or with too many turns for it to build in reasonable time, is a `twist_failed` rebuild error.",
+            "title": "Twist Angle Deg"
+          },
+          "twist_center": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Point2D"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the twist axis pierces the sketch plane, in the profile sketch's own (x, y) mm. The axis runs parallel to the extrusion direction through this point. None (the default) is the sketch origin. Dropped (normalised to absent) when there is no twist."
           }
         },
         "required": [
@@ -2706,7 +2748,7 @@
         "type": "object"
       },
       "FeatureDependent": {
-        "description": "One thing that breaks if a feature is deleted.\n\n``name`` rides beside the id for the same reason it does on\n:class:`~py_kit.schemas.workspace.DocumentDependent`: the reader is a person\nwho named these things, and \"referenced by 2 other document(s)\" \u2014 which is\nwhat this refusal used to say \u2014 ends the conversation instead of starting\nthe next action.",
+        "description": "One thing that breaks if a feature is deleted.\n\n``name`` rides beside the id for the same reason it does on\n:class:`~loft_wire.workspace.DocumentDependent`: the reader is a person\nwho named these things, and \"referenced by 2 other document(s)\" \u2014 which is\nwhat this refusal used to say \u2014 ends the conversation instead of starting\nthe next action.",
         "properties": {
           "id": {
             "description": "The REFERENCING feature's or drawing's id",
@@ -3671,7 +3713,7 @@
         "type": "object"
       },
       "ImportAssemblyRequest": {
-        "description": "documents-side request: materialise a geometry read into Loft documents.\n\n``result`` is the geometry service's structured read (forwarded verbatim by\nthe gateway); ``name`` is the caller-chosen name for the created document \u2014\nthe assembly name (``has_assembly_structure=True``) or the single part's name\n(the MB-4b fallback). Each product's editable body \u2014 resolved from the read's\nshared ``bodies`` map by ``body_step_id`` \u2014 seeds a part's ``import`` feature\n(:class:`~py_kit.schemas.features.ImportParamsV1` \u2014 ZERO new ingest path),\nproducts sharing a ``body_step_id`` collapse to ONE part with N instances, and\nthe whole graph is created atomically (all-or-nothing \u2014 a failure leaves no\norphan docs).",
+        "description": "documents-side request: materialise a geometry read into Loft documents.\n\n``result`` is the geometry service's structured read (forwarded verbatim by\nthe gateway); ``name`` is the caller-chosen name for the created document \u2014\nthe assembly name (``has_assembly_structure=True``) or the single part's name\n(the MB-4b fallback). Each product's editable body \u2014 resolved from the read's\nshared ``bodies`` map by ``body_step_id`` \u2014 seeds a part's ``import`` feature\n(:class:`~loft_wire.features.ImportParamsV1` \u2014 ZERO new ingest path),\nproducts sharing a ``body_step_id`` collapse to ONE part with N instances, and\nthe whole graph is created atomically (all-or-nothing \u2014 a failure leaves no\norphan docs).",
         "properties": {
           "name": {
             "description": "Name for the created document \u2014 the assembly's name (product structure present) or the single part's name (single-body fallback)",
@@ -3752,7 +3794,7 @@
         "type": "object"
       },
       "ImportedProduct": {
-        "description": "One product recovered from an assembly STEP \u2014 name + placement + body.\n\n``name`` is the STEP PRODUCT name (``None`` when the file names no product \u2014\nthe caller supplies a fallback instance name). ``placement`` is the\nproduct's WORLD pose (reusing :class:`~py_kit.schemas.assemblies.Placement` \u2014\nidentity for a flat single-body STEP), matched to the exported placement\nwithin the kernel round-trip tolerance.\n\nTwo body surfaces, both referenced by CONTENT ADDRESS and SHARED across\nrepeated occurrences of one part (the dedup contract, as slice 1 does for\nmeshes) \u2014 neither is inlined per occurrence:\n\n* ``body_step_id`` \u2014 the address (``sha256:<hex>``) of the product's editable\n  **LOCAL-frame B-rep**: a STEP AP214 part-21 fragment with the instance\n  placement STRIPPED (that is ``placement``, kept separate), stored ONCE under\n  this key in :attr:`StepAssemblyImportResult.bodies`. The text is exactly what\n  the single-body ``import`` feature ingests\n  (:class:`~py_kit.schemas.features.ImportParamsV1` ``data``), so the documents\n  service seeds each part with ``ImportParamsV1(data=<resolved body>)`` \u2014 ZERO\n  new ingest path. A mesh is not editable geometry; this is what lets 2b build\n  a REAL part per instance. ``None`` when the product produced no solid.\n  Because the id is EQUAL for two occurrences of one part, the caller groups\n  products by it to create ONE stored B-rep (one part) with N instances.\n* ``mesh_glb_id`` \u2014 a content-addressed presentation mesh for the viewport.\n\n``properties`` are the body's OWN (local-frame) mass properties for BOM /\ninspection.\n\n``body_step`` is a PRODUCER-SIDE construction convenience only: a producer may\npass the body text alongside the product and the parent result hoists it into\nits shared ``bodies`` map (so the geometry reader needs no separate bookkeeping),\nbut the field is NEVER serialized \u2014 the wire form carries each body once.\nConsumers MUST resolve through\n:meth:`StepAssemblyImportResult.body_step_for`.",
+        "description": "One product recovered from an assembly STEP \u2014 name + placement + body.\n\n``name`` is the STEP PRODUCT name (``None`` when the file names no product \u2014\nthe caller supplies a fallback instance name). ``placement`` is the\nproduct's WORLD pose (reusing :class:`~loft_wire.assemblies.Placement` \u2014\nidentity for a flat single-body STEP), matched to the exported placement\nwithin the kernel round-trip tolerance.\n\nTwo body surfaces, both referenced by CONTENT ADDRESS and SHARED across\nrepeated occurrences of one part (the dedup contract, as slice 1 does for\nmeshes) \u2014 neither is inlined per occurrence:\n\n* ``body_step_id`` \u2014 the address (``sha256:<hex>``) of the product's editable\n  **LOCAL-frame B-rep**: a STEP AP214 part-21 fragment with the instance\n  placement STRIPPED (that is ``placement``, kept separate), stored ONCE under\n  this key in :attr:`StepAssemblyImportResult.bodies`. The text is exactly what\n  the single-body ``import`` feature ingests\n  (:class:`~loft_wire.features.ImportParamsV1` ``data``), so the documents\n  service seeds each part with ``ImportParamsV1(data=<resolved body>)`` \u2014 ZERO\n  new ingest path. A mesh is not editable geometry; this is what lets 2b build\n  a REAL part per instance. ``None`` when the product produced no solid.\n  Because the id is EQUAL for two occurrences of one part, the caller groups\n  products by it to create ONE stored B-rep (one part) with N instances.\n* ``mesh_glb_id`` \u2014 a content-addressed presentation mesh for the viewport.\n\n``properties`` are the body's OWN (local-frame) mass properties for BOM /\ninspection.\n\n``body_step`` is a PRODUCER-SIDE construction convenience only: a producer may\npass the body text alongside the product and the parent result hoists it into\nits shared ``bodies`` map (so the geometry reader needs no separate bookkeeping),\nbut the field is NEVER serialized \u2014 the wire form carries each body once.\nConsumers MUST resolve through\n:meth:`StepAssemblyImportResult.body_step_for`.",
         "properties": {
           "body_step": {
             "anyOf": [
@@ -4252,7 +4294,7 @@
         "type": "object"
       },
       "MateAxisRef": {
-        "description": "An axis derived from a CIRCULAR edge of an instance's part body (\u00a72.1).\n\nv1 derives an axis from a circular edge (``curve == \"circle\"``) \u2014 reusing\n:class:`~py_kit.schemas.features.EdgeSignature`, whose seam-point centre and\nplane give the axis (design \u00a72.1). This deliberately avoids needing a\ncylindrical-face signature (a clean additive future member): a hole rim and\na shaft rim are both circular edges, enough for the canonical bolt joint.",
+        "description": "An axis derived from a CIRCULAR edge of an instance's part body (\u00a72.1).\n\nv1 derives an axis from a circular edge (``curve == \"circle\"``) \u2014 reusing\n:class:`~loft_wire.features.EdgeSignature`, whose seam-point centre and\nplane give the axis (design \u00a72.1). This deliberately avoids needing a\ncylindrical-face signature (a clean additive future member): a hole rim and\na shaft rim are both circular edges, enough for the canonical bolt joint.",
         "properties": {
           "instance_id": {
             "description": "The instance whose part body carries this axis edge",
@@ -4327,7 +4369,7 @@
         "type": "object"
       },
       "MateFaceRef": {
-        "description": "A planar face of an instance's part body (design \u00a71.5/\u00a72.1).\n\n``signature`` is the SAME :class:`~py_kit.schemas.features.PlanarFaceSignature`\nthe ``on_face`` datum resolves (topological-naming.md \u00a79) \u2014 reused verbatim,\nnot a parallel taxonomy. ``instance_id`` scopes the face to one instance's\nresolved part body (the geometry service resolves the signature against that\nbody in the part's local frame, \u00a74).",
+        "description": "A planar face of an instance's part body (design \u00a71.5/\u00a72.1).\n\n``signature`` is the SAME :class:`~loft_wire.features.PlanarFaceSignature`\nthe ``on_face`` datum resolves (topological-naming.md \u00a79) \u2014 reused verbatim,\nnot a parallel taxonomy. ``instance_id`` scopes the face to one instance's\nresolved part body (the geometry service resolves the signature against that\nbody in the part's local frame, \u00a74).",
         "properties": {
           "instance_id": {
             "description": "The instance whose part body carries this face",
@@ -4788,7 +4830,7 @@
         "type": "object"
       },
       "PartEvaluationRecord": {
-        "description": "Record the outcome of an evaluate onto the part row (\u00a74.4a bookkeeping).\n\nWritten by the GATEWAY \u2014 the only place that holds both the verified\nprincipal and geometry's actual answer \u2014 after a real evaluate returned, so\nthe value on a register can never be a browser's claim about its own health.\nThe client never supplies a timestamp: documents stamps ``last_eval_at``\nfrom its own clock, so one clock orders every record.\n\n``tree_version`` is the version of the tree the result BELONGS to (echoed\nthrough :class:`~py_kit.schemas.features.EvaluateTreeResult`), which is what\nmakes staleness derivable instead of assumed. Recording is monotonic in it:\na late-arriving write for an older version is a no-op, never a resurrection\nof a superseded claim.\n\nThe recorded SCOPE (:data:`PartEvalScope`) is deliberately NOT a field here.\nThe gateway cannot know it \u2014 documents applies the rollback bar before the\nevaluate request ever leaves (feature-tree.md \u00a73), and geometry is never\ntold rollback exists \u2014 so documents derives it from its own tree at record\ntime. One less thing a caller could get wrong, and one less claim a browser\ncould make about how much of its part was looked at.",
+        "description": "Record the outcome of an evaluate onto the part row (\u00a74.4a bookkeeping).\n\nWritten by the GATEWAY \u2014 the only place that holds both the verified\nprincipal and geometry's actual answer \u2014 after a real evaluate returned, so\nthe value on a register can never be a browser's claim about its own health.\nThe client never supplies a timestamp: documents stamps ``last_eval_at``\nfrom its own clock, so one clock orders every record.\n\n``tree_version`` is the version of the tree the result BELONGS to (echoed\nthrough :class:`~loft_wire.features.EvaluateTreeResult`), which is what\nmakes staleness derivable instead of assumed. Recording is monotonic in it:\na late-arriving write for an older version is a no-op, never a resurrection\nof a superseded claim.\n\nThe recorded SCOPE (:data:`PartEvalScope`) is deliberately NOT a field here.\nThe gateway cannot know it \u2014 documents applies the rollback bar before the\nevaluate request ever leaves (feature-tree.md \u00a73), and geometry is never\ntold rollback exists \u2014 so documents derives it from its own tree at record\ntime. One less thing a caller could get wrong, and one less claim a browser\ncould make about how much of its part was looked at.",
         "properties": {
           "status": {
             "description": "'failed' when any evaluated feature returned an error, else 'ok' (feature-tree.md \u00a74.3 strict-prefix rule)",
@@ -4875,7 +4917,7 @@
                 "type": "null"
               }
             ],
-            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
+            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see loft_wire.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
             "title": "Folder Id"
           },
           "id": {
@@ -5605,7 +5647,7 @@
         "type": "object"
       },
       "SectionViewParams": {
-        "description": "The cutting plane + half selection of a section view (drawings-section.md \u00a71).\n\nv1 specifies the section's cutting plane by DATUM REFERENCE, not a drawn cutting\nline (\u00a71): ``plane`` is the shipped :data:`~py_kit.schemas.features.GeomRef`\n(``DatumPlaneRef`` for one of the XY/XZ/YZ origin planes, or a ``FeatureRef`` to\nan axis-aligned offset / midplane datum FEATURE in the referenced part) \u2014 the\nEXACT union a sketch's plane reference uses, so no parallel plane taxonomy is\nintroduced (DRY). The geometry service resolves it, checks the v1 axis-aligned\nprecondition (a non-principal normal is a typed ``section_plane_not_principal``,\n\u00a77), cuts, and hatches. ``flip`` chooses which half is removed (\u00a74): ``false``\n(default) removes the eye-side material (the standard \"cut away what is between\nyou and the plane\"), ``true`` the far side.",
+        "description": "The cutting plane + half selection of a section view (drawings-section.md \u00a71).\n\nv1 specifies the section's cutting plane by DATUM REFERENCE, not a drawn cutting\nline (\u00a71): ``plane`` is the shipped :data:`~loft_wire.features.GeomRef`\n(``DatumPlaneRef`` for one of the XY/XZ/YZ origin planes, or a ``FeatureRef`` to\nan axis-aligned offset / midplane datum FEATURE in the referenced part) \u2014 the\nEXACT union a sketch's plane reference uses, so no parallel plane taxonomy is\nintroduced (DRY). The geometry service resolves it, checks the v1 axis-aligned\nprecondition (a non-principal normal is a typed ``section_plane_not_principal``,\n\u00a77), cuts, and hatches. ``flip`` chooses which half is removed (\u00a74): ``false``\n(default) removes the eye-side material (the standard \"cut away what is between\nyou and the plane\"), ``true`` the far side.",
         "properties": {
           "flip": {
             "default": false,
@@ -6647,7 +6689,7 @@
         "type": "object"
       },
       "SketchParamsV1": {
-        "description": "Sketch on a plane \u2014 an origin datum, or a ``datum`` feature (design \u00a72.1).\n\n``plane`` is a :data:`GeomRef`: a :class:`DatumPlaneRef` names one of the\nthree origin datums (XY/XZ/YZ), or a :class:`FeatureRef` points at an earlier\n``datum`` feature (an offset/parallel plane \u2014 docs/design/datum-planes.md).\nThe ``FeatureRef`` variant is now accepted when it resolves to a ``datum``\nfeature (widened in :func:`feature_references` from no acceptable target to\n``{datum}``); the stored shape is unchanged, so this is purely additive \u2014 no\n``param_version`` bump.\n\nExtends :class:`py_kit.schemas.sketch.SketchDefinition` (typed\n``entities``/``constraints`` \u2014 the \u00a71.4 placeholder finalized by the\n\"Sketch model + solver API\" item), so a persisted sketch's params ARE\nvalid solver input: same validation (unique sketch-local entity ids per\ndesign \u00a72.4) on the documents write path and the geometry request path.",
+        "description": "Sketch on a plane \u2014 an origin datum, or a ``datum`` feature (design \u00a72.1).\n\n``plane`` is a :data:`GeomRef`: a :class:`DatumPlaneRef` names one of the\nthree origin datums (XY/XZ/YZ), or a :class:`FeatureRef` points at an earlier\n``datum`` feature (an offset/parallel plane \u2014 docs/design/datum-planes.md).\nThe ``FeatureRef`` variant is now accepted when it resolves to a ``datum``\nfeature (widened in :func:`feature_references` from no acceptable target to\n``{datum}``); the stored shape is unchanged, so this is purely additive \u2014 no\n``param_version`` bump.\n\nExtends :class:`loft_wire.sketch.SketchDefinition` (typed\n``entities``/``constraints`` \u2014 the \u00a71.4 placeholder finalized by the\n\"Sketch model + solver API\" item), so a persisted sketch's params ARE\nvalid solver input: same validation (unique sketch-local entity ids per\ndesign \u00a72.4) on the documents write path and the geometry request path.",
         "properties": {
           "constraints": {
             "description": "The sketch's constraints, bounded by MAX_SKETCH_CONSTRAINTS (work bound, audit G2)",
@@ -10116,7 +10158,7 @@
     },
     "/api/v1/folders/{folder_id}": {
       "delete": {
-        "description": "Delete an EMPTY folder (204); 409 naming its contents when it is not.\n\nNot a cascade and not an orphan-to-root: see\n:mod:`py_kit.schemas.folders` for why refusal is the only one of the three\nthat neither destroys work the user never named nor moves it somewhere they\nwere not told about. The refusal lists what is inside, because the caller's\nnext action is to move those things out and a count would not tell them\nwhich.",
+        "description": "Delete an EMPTY folder (204); 409 naming its contents when it is not.\n\nNot a cascade and not an orphan-to-root: see\n:mod:`loft_wire.folders` for why refusal is the only one of the three\nthat neither destroys work the user never named nor moves it somewhere they\nwere not told about. The refusal lists what is inside, because the caller's\nnext action is to move those things out and a count would not tell them\nwhich.",
         "operationId": "delete_folder_api_v1_folders__folder_id__delete",
         "parameters": [
           {
@@ -10169,7 +10211,7 @@
         ]
       },
       "patch": {
-        "description": "Rename a folder (200; 404 unknown/foreign; 409 duplicate sibling name).\n\nRenaming cannot move \u2014 see :class:`~py_kit.schemas.folders.FolderRename`.",
+        "description": "Rename a folder (200; 404 unknown/foreign; 409 duplicate sibling name).\n\nRenaming cannot move \u2014 see :class:`~loft_wire.folders.FolderRename`.",
         "operationId": "rename_folder_api_v1_folders__folder_id__patch",
         "parameters": [
           {

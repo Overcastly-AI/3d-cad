@@ -68,8 +68,8 @@ from geometry.assembly.resolve import resolve_mate_geometry
 from geometry.kernel.faces import planar_faces
 from geometry.kernel.overlay import selection_overlay
 from geometry.kernel.types import BodyShape
-from py_kit.schemas.assemblies import MateFaceRef
-from py_kit.schemas.overlay import OverlayFace
+from loft_wire.assemblies import MateFaceRef
+from loft_wire.overlay import OverlayFace
 
 _HERE = Path(__file__).resolve().parent
 _BUILDER_PATH = _HERE / "_l_bracket_builder.py"

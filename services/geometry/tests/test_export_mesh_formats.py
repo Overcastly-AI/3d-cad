@@ -10,7 +10,7 @@ defect as the flat-pattern DXF's half-size blank: a file that opens cleanly,
 declares millimetres, and is wrong.
 
 The two formats declare DIFFERENT units, which is exactly why the table is a
-constant (``py_kit.schemas.geometry.EXPORT_UNITS``) rather than a literal here:
+constant (``loft_wire.geometry.EXPORT_UNITS``) rather than a literal here:
 
 * **3MF** writes millimetres and SAYS SO — ``<model unit="millimeter">`` in
   ``3D/3dmodel.model``. Asserted on the emitted XML, then re-read through
@@ -70,7 +70,7 @@ from geometry.kernel.export import (
 from geometry.kernel.tessellate import tessellate_glb
 from geometry.kernel.types import BodyShape
 from geometry.schemas import ExportFormat, ShapeProperties
-from py_kit.schemas.geometry import (
+from loft_wire.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
     EXPORT_MEDIA_TYPES,
@@ -570,7 +570,7 @@ def test_non_manifold_3mf_is_a_typed_envelope_not_a_500() -> None:
     """Through the real route: a 422 with the code, never an unhandled 500."""
     from fastapi.testclient import TestClient
     from geometry.main import app
-    from py_kit.schemas.features import EvaluateTreeRequest, ExportTreeRequest
+    from loft_wire.features import EvaluateTreeRequest, ExportTreeRequest
 
     (name,) = NON_MANIFOLD_MESH_GOLDENS
     path = GOLDENS_DIR / name / "model.json"

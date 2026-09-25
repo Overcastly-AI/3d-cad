@@ -30,9 +30,11 @@ from geometry.kernel import (
     ImportParseError,
     export_step_bytes,
     import_step_solid,
+    solid_from_brep_bytes,
+    solid_to_brep_bytes,
 )
 from geometry.kernel.types import BodyShape
-from py_kit.schemas.features import EvaluateTreeRequest, EvaluateTreeResult
+from loft_wire.features import EvaluateTreeRequest, EvaluateTreeResult
 
 PART_ID = uuid.UUID("00000000-0000-0000-0000-0000000000fc")
 IMPORT_ID = uuid.UUID("00000000-0000-0000-0000-00000000d001")
@@ -118,6 +120,18 @@ def test_hit_is_byte_identical_to_miss(monkeypatch: pytest.MonkeyPatch) -> None:
 
     This is the determinism guard: if a hit perturbed the body the goldens
     would drift, so the re-read body must tessellate byte-identically.
+
+    **AND IT CANNOT FAIL FOR THE REASON F2 ACTUALLY BROKE — read
+    :func:`test_the_miss_path_and_the_hit_path_share_one_deserialization`
+    below before trusting it.** This case passed throughout the entire life of
+    the F2 defect (docs/GEOMETRY-QA.md 2026-09-15), because its fixture is a
+    6-face box whose BREP round-trip happens to be byte-idempotent, while the
+    defect needed a body large enough for the serializer's ULP loss to change a
+    tessellation. Measured on seven of our own fixtures — box, imported box,
+    cylinder, fillet plate, revolved pulley, spline extrude, and the NURBS loft
+    golden — write->read is idempotent on ALL of them, 0 differing bytes; on a
+    1 018-face imported gearbox it is not. So this assertion is kept for what it
+    does cover and is explicitly NOT the F2 gate.
     """
     _spy_parse(monkeypatch)
     data = _box_step_text()
@@ -127,6 +141,68 @@ def test_hit_is_byte_identical_to_miss(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert hit.mesh_glb_id == miss.mesh_glb_id
     assert hit.properties == miss.properties
+
+
+def test_the_miss_path_and_the_hit_path_share_one_deserialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every imported body is the deserialization of the SAME cached bytes (F2).
+
+    This is a STRUCTURAL gate standing in for a behavioural one we cannot build,
+    and the substitution is deliberate rather than lazy. The behavioural symptom
+    — ``mesh_glb_id`` differing between a cold worker and a warm one — is only
+    observable on a body whose BREP round-trip is lossy, and **no fixture this
+    repository can legally commit reproduces it**: the gauntlet exported twelve
+    existing goldens to STEP and re-imported them (all deterministic), and the
+    NURBS loft golden added in this same commit does not reproduce it either.
+    It needs foreign B-rep at ~1 000+ faces, and every real part we have measured
+    is unredistributable (services/geometry/goldens-gauntlet/fixtures.json).
+
+    So instead of asserting the symptom, this asserts the INVARIANT the fix
+    establishes, which is fixture-independent: both paths hand out
+    ``solid_from_brep_bytes(brep)`` for one fixed ``brep``, so they cannot
+    differ whatever OCCT's serializer does. It reddens on the pre-fix code,
+    where a miss returned the worker's shape directly and the deserialization
+    count on a miss was ZERO.
+
+    It drives :func:`~geometry.step_cache.import_step_solid_cached` directly
+    rather than ``evaluate_tree``: a second evaluation of the same tree is
+    served by the REBUILD cache and never reaches this module at all, so the
+    obvious two-``_evaluate`` shape would assert nothing about the second leg.
+    """
+    seen: list[bytes] = []
+    # Bound from geometry.kernel, not from step_cache's namespace: it is a
+    # re-import there, not a public export (pyright reportPrivateImportUsage).
+    real = solid_from_brep_bytes
+
+    def counted(data: bytes) -> BodyShape:
+        seen.append(data)
+        return real(data)
+
+    monkeypatch.setattr(step_cache, "solid_from_brep_bytes", counted)
+    parses = _spy_parse(monkeypatch)
+    data = _box_step_text()
+
+    miss = step_cache.import_step_solid_cached(
+        data, cpu_timeout_s=30.0, wall_timeout_s=60.0
+    )
+    assert parses() == 1
+    # The MISS round-tripped: the body it returned did not skip the cache bytes.
+    assert len(seen) == 1, (
+        "a cache MISS handed out a body that never went through the cached "
+        "BREP bytes; cold and warm workers can then disagree on mesh_glb_id"
+    )
+
+    hit = step_cache.import_step_solid_cached(
+        data, cpu_timeout_s=30.0, wall_timeout_s=60.0
+    )
+    assert parses() == 1  # genuinely a hit, not a second parse
+    assert len(seen) == 2
+    # ...and it is literally the same byte string both times, which is what
+    # makes cold-vs-warm indistinguishable rather than merely usually equal.
+    assert seen[0] == seen[1]
+    # Belt and braces on a fixture that CAN show it: same bodies out.
+    assert solid_to_brep_bytes(miss) == solid_to_brep_bytes(hit)
 
 
 def test_hit_yields_the_correct_measured_solid(

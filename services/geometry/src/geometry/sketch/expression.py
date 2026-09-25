@@ -37,7 +37,7 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from py_kit.schemas.sketch import (
+from loft_wire.sketch import (
     AngleConstraint,
     DiameterConstraint,
     DimensionConstraint,
@@ -327,7 +327,7 @@ def _check_value(
     beyond is the parallel degeneracy the ``parallel`` constraint owns, and the
     unsigned authored value cannot say which side of the first line the second
     sits on there. The literal case is already refused by the field bounds on
-    :class:`~py_kit.schemas.sketch.AngleConstraint`; this is the EXPRESSION case,
+    :class:`~loft_wire.sketch.AngleConstraint`; this is the EXPRESSION case,
     which those bounds cannot see (``expression="base*4"`` is a valid string
     holding an invalid angle) — without it the out-of-range value would reach
     planegcs and come back as a silently reinterpreted, wrapped angle.

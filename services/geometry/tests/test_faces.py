@@ -37,8 +37,8 @@ from geometry.kernel.faces import (
 )
 from geometry.kernel.hole import bore_hole
 from geometry.kernel.types import BodyShape
-from py_kit.schemas.features import PlanarFaceSignature
-from py_kit.schemas.geometry import Vec3
+from loft_wire.features import PlanarFaceSignature
+from loft_wire.geometry import Vec3
 
 #: Kernel linear tolerance (CLAUDE.md 1e-7) — a ceiling, not a fit.
 TOL = 1e-7

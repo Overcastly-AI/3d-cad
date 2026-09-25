@@ -20,9 +20,61 @@
  * must be a scene-frame one (`sceneOriginBasis` / `resolveSpecBasis` /
  * `faceBasis`); a kernel-frame basis puts the handle 90 degrees off the body it
  * is supposed to pull, which is FB-9 wearing a different hat.
+ *
+ * ## WHAT IS SHIPPED HERE AND WHAT IS ONLY TEST SURFACE — read before editing
+ *
+ * The gauge was extracted in CRAFT-8 and the arithmetic MOVED to
+ * `@loft/design`'s `gauge.ts`. The app now reaches it by ONE path:
+ *
+ *     handleAxis -> extrudeTrack -> linearTrack -> track.*
+ *
+ * and `ExtrudeDragHandle.tsx` — the only importer of this module outside its
+ * own test — takes exactly four names: {@link handleAxis},
+ * {@link extrudeTrack}, {@link MIN_DEPTH_MM}, {@link MAX_DEPTH_MM}.
+ *
+ * **Everything else exported here has no caller but the test file.**
+ * {@link tipPoint}, {@link depthAlongAxis}, {@link screenDragDepth},
+ * {@link quantizeDepth}, {@link clampDepth}, {@link nudgeDepth},
+ * {@link ladderTicks}, {@link arrowLength}, {@link sameDepth},
+ * {@link keyStepMm}, {@link perspectiveMmPerPixel} and
+ * {@link orthographicMmPerPixel} are thin delegations kept so the suite written
+ * before the move could stay untouched and witness that the move was faithful.
+ * That was their whole job and they have done it.
+ *
+ * Two consequences, because the first cost us a false claim already. (a) THOSE
+ * CASES DO NOT COVER THE SHIPPED SEAM: seven mutations to `extrudeTrack`'s
+ * options object all survived the 36 cases that were credited as this
+ * refactor's evidence, because none of them runs the constructor. The
+ * `extrudeTrack` block at the end of the test file is what covers the wiring;
+ * keep it in step with the options object, one case per option. (b) If a change
+ * in `gauge.ts` moves SHIPPED behaviour, these wrappers will happily keep
+ * describing the old one — a green suite about a function nobody calls. When
+ * that happens, delete the wrapper and its cases rather than "fixing" them, and
+ * make sure the behaviour it described is asserted through `extrudeTrack`.
  */
 import { Vector3 } from "three";
 
+import {
+  ARROW_LENGTH_FRAC as GAUGE_ARROW_LENGTH_FRAC,
+  ARROW_RADIUS_FRAC as GAUGE_ARROW_RADIUS_FRAC,
+  arrowLength as gaugeArrowLength,
+  AXIS_SHALLOW as GAUGE_AXIS_SHALLOW,
+  axisValueAt,
+  clampTo,
+  formatLength,
+  LADDER_HALF_WIDTH_FRAC as GAUGE_LADDER_HALF_WIDTH_FRAC,
+  LADDER_MAX as GAUGE_LADDER_MAX,
+  ladderStops,
+  linearTrack,
+  nudgeIntent,
+  orthographicUnitsPerPixel,
+  perspectiveUnitsPerPixel,
+  quantize,
+  screenValue,
+  steppedValue,
+  type GaugeTrack,
+  type Vec3,
+} from "@loft/design";
 import type { LengthUnit } from "@loft/design";
 import type { ExtrudeDirection } from "../features/extrude";
 import type { PlaneBasis } from "../sketch/plane";
@@ -87,6 +139,11 @@ export const DEPTH_EPSILON_MM = 1e-4;
 /** True when two depths are the same length to within {@link DEPTH_EPSILON_MM}. */
 export function sameDepth(a: number, b: number): boolean {
   return Math.abs(a - b) <= DEPTH_EPSILON_MM;
+}
+
+/** `HandleAxis`'s three-vector, as the plain tuple `@loft/design` works in. */
+function tuple(v: Vector3): Vec3 {
+  return [v.x, v.y, v.z];
 }
 
 /** Where the gauge is anchored and which way it pulls, in scene mm. */
@@ -160,14 +217,12 @@ export function depthAlongAxis(
   rayOrigin: Vector3,
   rayDirection: Vector3,
 ): number | null {
-  const rd = rayDirection.clone().normalize();
-  const w0 = axis.base.clone().sub(rayOrigin);
-  const b = axis.dir.dot(rd);
-  const denom = 1 - b * b;
-  if (Math.abs(denom) < AXIS_SHALLOW) return null;
-  const d = axis.dir.dot(w0);
-  const e = rd.dot(w0);
-  return (b * e - d) / denom;
+  return axisValueAt(
+    tuple(axis.base),
+    tuple(axis.dir),
+    tuple(rayOrigin),
+    tuple(rayDirection),
+  );
 }
 
 /**
@@ -188,7 +243,7 @@ export function depthAlongAxis(
  * ordinary thing in the product: sketch, then extrude. Below this threshold the
  * handle switches to {@link screenDragDepth} instead of going dead.
  */
-export const AXIS_SHALLOW = 0.05;
+export const AXIS_SHALLOW = GAUGE_AXIS_SHALLOW;
 
 /**
  * The fallback drag, for when the pull axis points at the eye: vertical pointer
@@ -206,7 +261,7 @@ export function screenDragDepth(
   dyPx: number,
   mmPerPixel: number,
 ): number {
-  return grabDepthMm + dyPx * mmPerPixel;
+  return screenValue(grabDepthMm, dyPx, mmPerPixel);
 }
 
 /**
@@ -220,10 +275,7 @@ export function perspectiveMmPerPixel(
   distance: number,
   viewportHeightPx: number,
 ): number {
-  if (viewportHeightPx <= 0) return 0;
-  return (
-    (2 * Math.tan((fovDeg * Math.PI) / 180 / 2) * distance) / viewportHeightPx
-  );
+  return perspectiveUnitsPerPixel(fovDeg, distance, viewportHeightPx);
 }
 
 /**
@@ -240,12 +292,12 @@ export function perspectiveMmPerPixel(
  * rather than to infinity.
  */
 export function orthographicMmPerPixel(zoom: number): number {
-  return zoom > 0 ? 1 / zoom : 0;
+  return orthographicUnitsPerPixel(zoom);
 }
 
 /** Clamp a depth into the range the form can actually submit. */
 export function clampDepth(mm: number): number {
-  return Math.min(MAX_DEPTH_MM, Math.max(MIN_DEPTH_MM, mm));
+  return clampTo(mm, MIN_DEPTH_MM, MAX_DEPTH_MM);
 }
 
 /**
@@ -264,17 +316,8 @@ export function quantizeDepth(
   unit: LengthUnit,
   free: boolean,
 ): number {
-  const step = SNAP_MM[unit];
-  if (free || step <= 0) return clampDepth(Math.round(mm * 1e4) / 1e4);
-  return clampDepth(Math.round(mm / step) * step);
+  return quantize(mm, SNAP_MM[unit], free, MIN_DEPTH_MM, MAX_DEPTH_MM);
 }
-
-/**
- * How near a multiple of the step counts as ON it — a relative epsilon, applied
- * to the step COUNT rather than to the length, because that is the quantity
- * {@link steppedDepth} floors.
- */
-const GRID_EPSILON = 1e-9;
 
 /**
  * One press of `step`, from wherever you are: THE NEXT MULTIPLE OF `step` IN
@@ -313,21 +356,7 @@ export function steppedDepth(
   step: number,
   sign: 1 | -1,
 ): number {
-  if (!Number.isFinite(step) || step <= 0) {
-    return clampDepth(current + sign * step);
-  }
-  const count = current / step;
-  const nearest = Math.round(count);
-  const already = Math.abs(count - nearest) <= GRID_EPSILON;
-  const landing = already
-    ? nearest + sign
-    : sign > 0
-      ? Math.floor(count) + 1
-      : Math.ceil(count) - 1;
-  // ONE multiply, so the answer is the float nearest to a multiple of the step
-  // and carries no addition dust — which matters for the imperial steps (1/32
-  // in is 0.79375 mm) that {@link quantizeDepth} deliberately declines to round.
-  return clampDepth(landing * step);
+  return steppedValue(current, step, sign, MIN_DEPTH_MM, MAX_DEPTH_MM);
 }
 
 /**
@@ -360,21 +389,10 @@ export function nudgeDepth(
   unit: LengthUnit,
   shift: boolean,
 ): number | null {
-  const step = keyStepMm(unit) * (shift ? COARSE_STEP_FACTOR : 1);
-  switch (key) {
-    case "ArrowUp":
-    case "ArrowRight":
-      return steppedDepth(current, step, 1);
-    case "ArrowDown":
-    case "ArrowLeft":
-      return steppedDepth(current, step, -1);
-    case "PageUp":
-      return steppedDepth(current, step * COARSE_STEP_FACTOR, 1);
-    case "PageDown":
-      return steppedDepth(current, step * COARSE_STEP_FACTOR, -1);
-    default:
-      return null;
-  }
+  const intent = nudgeIntent(key, shift);
+  if (intent === null) return null;
+  const step = keyStepMm(unit) * Math.pow(COARSE_STEP_FACTOR, intent.grids);
+  return steppedDepth(current, step, intent.sign);
 }
 
 /**
@@ -395,24 +413,16 @@ export function nudgeDepth(
  * collide with the grip).
  */
 export function ladderTicks(depthMm: number): number[] {
-  if (!(depthMm > 0)) return [];
-  const decade = Math.pow(10, Math.floor(Math.log10(depthMm / LADDER_MAX)));
-  let step = decade;
-  // The last factor always satisfies the ceiling (10*decade >= depth/12 by
-  // construction), so this loop is total — no fallback branch is reachable.
-  for (const factor of [1, 2, 5, 10]) {
-    step = decade * factor;
-    if (depthMm / step <= LADDER_MAX) break;
-  }
-  const ticks: number[] = [];
-  for (let at = step; at < depthMm - step * 0.5; at += step) {
-    ticks.push(Math.round(at * 1e6) / 1e6);
-  }
-  return ticks;
+  // EVERY graduation, whatever its weight. `ladderStops` split major from minor
+  // in CRAFT-7 so the ladder could be drawn to the drafting convention, and a
+  // delegate that reported only the majors would be quietly describing a
+  // shorter ladder than the one on screen.
+  const { major, minor } = ladderStops(depthMm);
+  return [...major, ...minor].sort((a, b) => a - b);
 }
 
 /** Most graduations a ladder is allowed to show. */
-export const LADDER_MAX = 12;
+export const LADDER_MAX = GAUGE_LADDER_MAX;
 
 /**
  * Half-width of a graduation, as a fraction of the profile radius. The ladder
@@ -423,13 +433,13 @@ export const LADDER_MAX = 12;
  * millimetres on a 66 mm profile and were invisible in the founder capture —
  * present in the buffer, absent from the picture, which is the worst of both.
  */
-export const LADDER_HALF_WIDTH_FRAC = 0.18;
+export const LADDER_HALF_WIDTH_FRAC = GAUGE_LADDER_HALF_WIDTH_FRAC;
 
 /** Arrow-head length, as a fraction of the profile radius. */
-export const ARROW_LENGTH_FRAC = 0.25;
+export const ARROW_LENGTH_FRAC = GAUGE_ARROW_LENGTH_FRAC;
 
 /** Arrow-head radius, as a fraction of its own length. */
-export const ARROW_RADIUS_FRAC = 0.42;
+export const ARROW_RADIUS_FRAC = GAUGE_ARROW_RADIUS_FRAC;
 
 /**
  * The arrow is sized from the PROFILE, never from the depth, so it holds still
@@ -438,5 +448,43 @@ export const ARROW_RADIUS_FRAC = 0.42;
  * does not get a traffic cone.
  */
 export function arrowLength(radius: number): number {
-  return Math.min(18, Math.max(2, radius * ARROW_LENGTH_FRAC));
+  return gaugeArrowLength(radius);
+}
+
+/**
+ * THE EXTRUDE'S GAUGE TRACK — everything above, handed to `<ParametricGauge>`
+ * as one object.
+ *
+ * This is the seam the whole wave stands on. The shell owns the state and the
+ * correctness (the ask-queue, pointer capture, key handling, the grip and the
+ * tag); the track owns the arithmetic, and the shell never asks what KIND of
+ * track it has. Extrude's is a {@link linearTrack} over the profile's seat,
+ * carrying the document unit's snap, its key step and its formatter — which is
+ * the whole of what makes this an EXTRUDE gauge rather than a generic slider.
+ *
+ * `arms` are the sketch plane's own `u`/`v`, so a graduation cross is drawn in
+ * the plane the profile lives in rather than on an arbitrary derived frame.
+ */
+export function extrudeTrack(
+  axis: HandleAxis,
+  basis: PlaneBasis,
+  unit: LengthUnit,
+): GaugeTrack {
+  return linearTrack(
+    {
+      base: tuple(axis.base),
+      dir: tuple(axis.dir),
+      radius: axis.radius,
+      arms: [basis.u, basis.v],
+    },
+    {
+      min: MIN_DEPTH_MM,
+      max: MAX_DEPTH_MM,
+      snap: SNAP_MM[unit],
+      keyStep: keyStepMm(unit),
+      coarseFactor: COARSE_STEP_FACTOR,
+      epsilon: DEPTH_EPSILON_MM,
+      format: (mm, opts) => formatLength(mm, unit, opts ?? {}),
+    },
+  );
 }

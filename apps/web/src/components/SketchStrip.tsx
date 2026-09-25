@@ -56,6 +56,7 @@ import {
   NumberField,
   OffsetIcon,
   Panel,
+  PanelActionCell,
   ParallelIcon,
   PerpendicularIcon,
   RadiusIcon,
@@ -75,9 +76,11 @@ import { type ReactNode, useEffect, useState } from "react";
 import type { DatumOffsetParams } from "../api/parts";
 import { HistoryGroup } from "./HistoryGroup";
 import { isTypingTarget } from "../lib/isTypingTarget";
+import { useGlobalKeys } from "../lib/modalGate";
 import { undoRedoStep } from "../lib/undoRedoShortcut";
 import {
   authoredConstraintCount,
+  deleteSelectedEntities,
   describeSelection,
   selectionAllConstruction,
   selectionVerbHints,
@@ -86,9 +89,10 @@ import {
   type ConstraintAction,
 } from "../sketch/constraints";
 import { withoutDatums } from "../sketch/datum";
+import { describeOpenEnds } from "../sketch/openEnds";
 import {
   buildOffsetParams,
-  canSubmitOffset,
+  datumSubmitBlocker,
   DATUM_BASES,
   defaultOffsetForm,
   type OffsetForm,
@@ -495,7 +499,15 @@ function OffsetPlanePanel({
 }) {
   const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<OffsetForm>(defaultOffsetForm());
-  const canSubmit = canSubmitOffset(form, unit) && !busy;
+  // ONE computation, two readings (REASON-GATE-1, `submitBlocker.ts`): the
+  // action is enabled iff there is no blocker sentence, and the sentence is
+  // shown. The offset form IS the datum editor's `offset` kind, so it asks the
+  // same function that editor asks rather than a second copy of the rule.
+  // Null while creating: the label already says so.
+  const blocker = busy
+    ? null
+    : datumSubmitBlocker({ kind: "offset", ...form }, unit);
+  const canSubmit = blocker === null && !busy;
 
   const author = () => {
     const params = buildOffsetParams(form, unit);
@@ -528,7 +540,9 @@ function OffsetPlanePanel({
             onChange={(base) => setForm((f) => ({ ...f, base }))}
           />
           <NumberField
-            label="Distance"
+            // "Offset", the word the blocker sentence uses ("Enter the
+            // offset.") and the datum editor labels the same field with.
+            label="Offset"
             unit={unit}
             data-testid="offset-plane-offset"
             autoFocus
@@ -546,26 +560,28 @@ function OffsetPlanePanel({
             options={OFFSET_FLIP_OPTIONS}
             onChange={(v) => setForm((f) => ({ ...f, flip: v === "flip" }))}
           />
-          <div className="mt-1 flex items-center justify-between gap-2">
-            <button
-              type="button"
-              className="font-display text-2xs uppercase tracking-[0.14em] text-gauge hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
-              data-testid="offset-plane-cancel"
-              onClick={onClose}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="font-display text-2xs uppercase tracking-[0.14em] text-brass hover:text-brass-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass disabled:opacity-40"
-              data-testid="offset-plane-confirm"
-              aria-busy={busy}
-              disabled={!canSubmit}
-              onClick={author}
-            >
-              {busy ? "Creating…" : "Sketch here"}
-            </button>
-          </div>
+        </div>
+        {/* The editors' action row (`PanelActionCell`), not two restyled raw
+            buttons: a gated cell stays hoverable, focusable and in the
+            accessibility tree, and says WHY in the caption's line and in its
+            accessible description. The native `disabled` it replaces made a
+            grey "Sketch here" that could explain nothing to anyone. */}
+        <div className="grid grid-cols-2 divide-x divide-hairline border-t border-hairline">
+          <PanelActionCell
+            label="Cancel"
+            caption="Esc"
+            data-testid="offset-plane-cancel"
+            onClick={onClose}
+          />
+          <PanelActionCell
+            label={busy ? "Creating…" : "Sketch here"}
+            caption="Enter"
+            data-testid="offset-plane-confirm"
+            aria-busy={busy}
+            disabled={!canSubmit}
+            disabledReason={blocker ?? undefined}
+            onClick={author}
+          />
         </div>
       </Panel>
       {error ? (
@@ -669,6 +685,41 @@ function StatusCell({
         {children}
       </div>
     </div>
+  );
+}
+
+/**
+ * One cap on the offer rail: a stamped keycap and a plain verb, a real button
+ * so the same affordance serves the keyboard (press the key) and the pointer
+ * (click the cap). The label sheds with the band's measured label tier.
+ */
+function OfferCap({
+  testId,
+  keyCap,
+  keyName,
+  label,
+  onClick,
+}: {
+  testId: string;
+  /** What the cap reads ("D", "Del"). */
+  keyCap: string;
+  /** The key's spoken name, for the accessible name and tooltip. */
+  keyName: string;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      aria-label={`${label} — press ${keyName}`}
+      title={`${label} (${keyName})`}
+      onClick={onClick}
+      className="flex items-center gap-1 rounded-sm hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass motion-safe:transition-colors"
+    >
+      <Kbd>{keyCap}</Kbd>
+      <span className="[[data-labels=off]_&]:hidden">{label}</span>
+    </button>
   );
 }
 
@@ -855,6 +906,7 @@ export function SketchStrip({
   const toggleConstruction = useSketchStore(
     (state) => state.toggleConstruction,
   );
+  const deleteSelection = useSketchStore((state) => state.deleteSelection);
   const hint = useSketchStore((state) => state.hint);
   const editNote = useSketchStore((state) => state.editNote);
   const mirror = useSketchStore((state) => state.mirror);
@@ -898,6 +950,38 @@ export function SketchStrip({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mode, undo, redo]);
 
+  /*
+   * Delete / Backspace on selected ENTITIES (helical-gear gap G7). The part
+   * page's sketch key handler owns the same keys for a selected CONSTRAINT
+   * glyph and marks the event handled (`preventDefault`) when it removes one,
+   * so one keypress can never delete a constraint AND the geometry. The
+   * binding lives here, beside the offer-rail cap that shows it, for the
+   * reason the undo binding above does. (`useGlobalKeys` already refuses a
+   * key another handler cancelled and a key typed into a field.)
+   */
+  useGlobalKeys(
+    "sketch-delete-entities",
+    mode === "draw"
+      ? (event) => {
+          if (event.key !== "Delete" && event.key !== "Backspace") return;
+          if (event.metaKey || event.ctrlKey || event.altKey) return;
+          const state = useSketchStore.getState();
+          if (state.selectedConstraint !== null) return;
+          if (
+            deleteSelectedEntities(
+              state.selection,
+              state.entities,
+              state.constraints,
+            ) === null
+          ) {
+            return;
+          }
+          event.preventDefault();
+          deleteSelection();
+        }
+      : null,
+  );
+
   // Exit-with-unsaved-work confirm (F1). Derived rather than trusted: the prompt
   // only renders while it is still TRUE that discarding would destroy something,
   // so saving or deleting the last entity behind an armed confirm dismisses it
@@ -910,6 +994,12 @@ export function SketchStrip({
   // promise (`selectionVerbHints`).
   const verbHints =
     mode === "draw" ? selectionVerbHints(selection, entities, constraints) : [];
+  // The profile's open ends, counted and measured (G8).
+  const openEndReport = mode === "draw" ? describeOpenEnds(entities) : null;
+  // ...and whether it can be deleted, offered as the rail's last cap (G7).
+  const deletable =
+    mode === "draw" &&
+    deleteSelectedEntities(selection, entities, constraints) !== null;
 
   if (mode === "off") return null;
 
@@ -938,13 +1028,34 @@ export function SketchStrip({
                 {describeSelection(selection)}
                 {constraintCount > 0 ? ` · ${constraintCount} applied` : ""}
               </span>
+              {/* OPEN ENDS (helical-gear gap G8): the profile's unjoined ends,
+                  counted here and ringed in the viewport, so a loop open by
+                  microns is known BEFORE the extrude or loft that needs it
+                  closed. Flag ink only when one is a near miss: an invisible
+                  gap is the dangerous kind. The tooltip names the gap. */}
+              {openEndReport !== null ? (
+                <>
+                  <span aria-hidden className="text-etch">
+                    ·
+                  </span>
+                  <span
+                    data-testid="open-ends"
+                    title={openEndReport.title}
+                    className={
+                      openEndReport.nearMiss ? "text-flag" : "text-gauge"
+                    }
+                  >
+                    {openEndReport.label}
+                  </span>
+                </>
+              ) : null}
               {/* THE OFFER RAIL — the selection's next moves, keyboard-first.
                   Quiet by construction: stamped keycaps and plain verbs, brass
                   only on the cap, sitting in the readout's own row so it reads
                   as instrument guidance and not a banner. Each cap is a real
                   button, so the same affordance serves the keyboard and the
                   pointer — press the letter, or click the letter. */}
-              {verbHints.length > 0 ? (
+              {verbHints.length > 0 || deletable ? (
                 <>
                   <span aria-hidden className="text-etch">
                     ·
@@ -967,21 +1078,24 @@ export function SketchStrip({
                     className="flex items-center gap-2 text-gauge"
                   >
                     {verbHints.map((verb) => (
-                      <button
+                      <OfferCap
                         key={verb.action}
-                        type="button"
-                        data-testid={`verb-hint-${verb.action}`}
-                        aria-label={`${verb.label} — press ${verb.key}`}
-                        title={`${verb.label} (${verb.key})`}
+                        testId={`verb-hint-${verb.action}`}
+                        keyCap={verb.key}
+                        keyName={verb.key}
+                        label={verb.label}
                         onClick={() => applyConstraint(verb.action)}
-                        className="flex items-center gap-1 rounded-sm hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass motion-safe:transition-colors"
-                      >
-                        <Kbd>{verb.key}</Kbd>
-                        <span className="[[data-labels=off]_&]:hidden">
-                          {verb.label}
-                        </span>
-                      </button>
+                      />
                     ))}
+                    {deletable ? (
+                      <OfferCap
+                        testId="sketch-delete"
+                        keyCap="Del"
+                        keyName="Delete"
+                        label="Delete"
+                        onClick={deleteSelection}
+                      />
+                    ) : null}
                   </span>
                 </>
               ) : null}
@@ -1187,6 +1301,43 @@ export function SketchStrip({
                 would restore exactly the caption-vs-binding disagreement F1
                 exists to prevent. */}
             <ToolGroup eyebrow="Finish" aria-label="Finish sketch">
+              {/* SAVE IS NOT GATED ON `saving`, AND THAT IS THE WHOLE FIX.
+                  It used to read `disabled={saving || …}`, which opened a
+                  ~280ms hole in the middle of the one control that ends the
+                  sketch: QA measured the button going `aria-disabled="true"`
+                  at 208/236/244ms after an edit settles and clearing at
+                  481/513/526ms (three runs), and a real `page.mouse.click` at
+                  the button's own centre inside that window resolved to
+                  `sketch-save` — no overlay, the event reached the button —
+                  and did NOTHING. The strip was still mounted 30s later.
+                  `ToolButton` implements `disabled` as `aria-disabled` plus a
+                  handler that returns early, so there was no queue, no re-arm
+                  and no feedback: the click was dropped on the floor.
+
+                  THE QUEUE ALREADY EXISTED ONE LAYER DOWN; the disable is what
+                  made it unreachable. `persistBuffer` has carried
+                  `pendingExitRef` since the duplicate-"Sketch1" fix — a finish
+                  requested while a create is in flight is REMEMBERED and lands
+                  the moment the feature binds. For a bound sketch the writes
+                  are a serialized chain, so a finish during an in-flight PATCH
+                  simply enqueues behind it with the FRESHER payload and exits
+                  on completion. Both paths were already correct; the only
+                  thing standing between the user and them was this flag. So
+                  this is the affordance/hit-target family again (CLAUDE.md):
+                  the capability was there and unreachable.
+
+                  `saving` still does the two jobs it can honestly do — it says
+                  "Saving…" and sets `aria-busy` — because a save in flight is
+                  worth REPORTING and is not worth REFUSING for. A debounce is
+                  an implementation detail the user cannot see, cannot predict
+                  and must not have to model; gating a control on one makes a
+                  Save that works most of the time and silently does nothing the
+                  rest, which is the "no dead ends, no ambiguous exits" defect
+                  the design mandate names by name.
+
+                  What remains disabled is a REAL refusal with a REAL reason:
+                  an empty sketch has nothing to put in the part, and the
+                  caption says so where the user is looking. */}
               <ToolButton
                 icon={<CheckIcon />}
                 label={
@@ -1195,7 +1346,9 @@ export function SketchStrip({
                 caption={
                   bound
                     ? "edits save live"
-                    : `${entityCount} ${entityCount === 1 ? "entity" : "entities"}`
+                    : entityCount === 0
+                      ? "nothing drawn yet"
+                      : `${entityCount} ${entityCount === 1 ? "entity" : "entities"}`
                 }
                 data-testid="sketch-save"
                 aria-label={
@@ -1204,17 +1357,33 @@ export function SketchStrip({
                     : "Save sketch"
                 }
                 aria-busy={saving}
-                disabled={saving || (!bound && entityCount === 0)}
+                disabled={!bound && entityCount === 0}
                 onClick={onSave}
               />
               {discardArmed ? (
                 <>
+                  {/* The ONE control on this strip that keeps its `saving`
+                      gate, because here the refusal is real rather than
+                      incidental: a discard cannot call back a create that is
+                      already on the wire, so exiting mid-save would clear the
+                      buffer and let the feature land anyway — the user would
+                      watch the thing they just discarded appear in the tree.
+                      The gate stays; what changes is that it now SAYS SO.
+                      `ToolButton` keeps an `aria-disabled` control hoverable
+                      and focusable precisely so its caption can carry the
+                      reason, and that caption is the button's accessible
+                      description, so the refusal reaches a screen reader too.
+                      A silent refusal is the one option that is definitely
+                      wrong. */}
                   <ToolButton
                     icon={<CloseIcon />}
                     label={`Discard ${entityCount}`}
-                    caption="cannot be undone"
+                    caption={
+                      saving ? "wait — a save is landing" : "cannot be undone"
+                    }
                     data-testid="sketch-discard-confirm"
                     aria-label={`Discard ${entityCount} unsaved ${entityCount === 1 ? "entity" : "entities"} — this cannot be undone`}
+                    aria-busy={saving}
                     disabled={saving}
                     onClick={() => {
                       setConfirmingDiscard(false);
@@ -1242,6 +1411,14 @@ export function SketchStrip({
                         ? `discards ${entityCount}`
                         : "nothing to discard"
                   }
+                  // Not gated on `saving` either, for the same reason as Save
+                  // and one of its own: Exit is NOT the destructive step. On a
+                  // bound sketch it leaves edits that are already saving; on an
+                  // unbound one with work in it, it only ARMS the confirm above
+                  // — which is where the real refusal lives and says why. The
+                  // old `disabled={saving}` bought no safety (the user simply
+                  // clicked again 300ms later and got the identical outcome)
+                  // and cost the same silent dead end Save had.
                   data-testid="sketch-exit"
                   aria-label={
                     bound
@@ -1250,7 +1427,6 @@ export function SketchStrip({
                         ? `Exit sketch and discard ${entityCount} unsaved ${entityCount === 1 ? "entity" : "entities"} — asks first`
                         : "Exit sketch (nothing drawn yet)"
                   }
-                  disabled={saving}
                   onClick={() => {
                     // Unpersisted entities have no undo path — the history stack
                     // has nothing to restore — so this is the one exit that must

@@ -1,0 +1,39 @@
+{
+  "description": "Loft between two DIFFERENT closed B-spline sections, 30 mm apart on XY and an offset datum. THE ONLY GOLDEN IN THIS REPOSITORY WITH A GENUINE NURBS FACE: its side wall is a Geom_BSplineSurface of degree 3 x 1 with 17 x 2 poles (surface type read out of the B-rep, not assumed), and it exists because OCCT's DEFAULT fixed-order Gauss volume integration is EXACT for planes and quadrics and WRONG on trimmed NURBS - so before this golden, no fixture here could fail for that reason. See docs/GEOMETRY-QA.md 2026-09-15 (F1).",
+  "derivation": [
+    "THIS GOLDEN'S VOLUME IS NOT HAND-DERIVED, AND THAT IS STATED HERE RATHER THAN GLOSSED. A lofted B-spline wall between two dissimilar sections has no closed form, so the geometry-gates rule's OTHER branch applies: the expectation is INDEPENDENTLY CROSS-CHECKED. The two roles are separate and both are needed - the cross-check decides WHICH value is right; the tolerance then locks it against drift.",
+    "",
+    "THE DEFECT THIS FIXTURE EXISTS TO CATCH. Fixed-order Gauss (OCCT's two-argument BRepGProp::VolumeProperties) reports 19697.693324300275 mm^3 on this body. Adaptive integration reports 19738.9233068826. The gap is 41.230 mm^3 = 2.0888e-03 relative - roughly 4.1e+08 times this golden's tolerance, so a regression to the fixed order fails this golden by eight orders of magnitude rather than marginally. The adaptive reading is stable to 7.3e-12 absolute (3.7e-16 relative) across eps 1e-6 through 1e-14, i.e. it is converged and not merely a different number.",
+    "",
+    "THE INDEPENDENT CROSS-CHECK, which is what makes recording the adaptive value legitimate instead of enshrining whichever integrator we happened to pick. Volume was re-derived by the DIVERGENCE THEOREM over a tessellation - V = (1/6) * sum over outward triangles of p0 . (p1 x p2) - which shares no code path with GProp: it reads triangles, not surfaces. That oracle converges from BELOW at h^2, so its bias was characterised FIRST on a TORUS CONTROL with a known closed form (2*pi^2*R*r^2): relative error -8.286e-04, -2.072e-04, -5.201e-05 at successively halved deflection/angular settings - ratios 4.00 and 3.98, i.e. clean second order, which is what licenses the Richardson step.",
+    "",
+    "Applied to THIS body at the same four settings (2 906 / 14 506 / 75 986 / 416 058 triangles): V = 19682.275644, 19723.283525, 19734.229557, 19737.611260, Richardson-extrapolating to 19738.738494. That is 9.363e-06 from the adaptive reading recorded below and 2.079e-03 from the fixed-order reading - the oracle sits 222x closer to the adaptive value, in the direction its own control says it should approach from. The fixed-order value is the wrong one; this is measured, not assumed.",
+    "",
+    "The same run corroborates the AREA limit described below without being asked to: the oracle's extrapolated area, 4201.743601, is 1.342e-06 from the adaptive area and 5.709e-06 from the fixed-order area recorded here - 4x closer to the adaptive one. So the area bias is real and this golden pins a value we know to be slightly off, deliberately and visibly (next paragraph), rather than silently.",
+    "",
+    "SURFACE AREA IS THE FIXED-ORDER READING, DELIBERATELY, AND IT CARRIES A KNOWN SMALL BIAS. SurfaceProperties_s has the same defect class: on this body the adaptive area is 4201.737963288 mm^2 against the 4201.767587256546 recorded here, a 7.05e-06 relative gap. Area was NOT switched to the adaptive integrator because on a real 4 123-face import the adaptive area does not converge - it moves 1.7e-05 to 2.9e-05 between eps 1e-8 and 1e-10, by the size of the signal itself - so the swap would trade a known small bias for an unconverged number at double the cost. This golden is therefore the STANDING RECORD of that open limit: if area integration is ever fixed, THIS value moves, and the replacement is 4201.737963288. That is an intentional, documented pin, not an accident.",
+    "",
+    "TOPOLOGY, hand-derived: a loft between two closed single-curve sections is 1 lateral BSpline face + 2 planar caps = 3 faces; 1 seam edge on the wall + 2 section edges = 3 edges; 1 closed shell.",
+    "",
+    "BOUNDS. z = 0 and z = 30 are ANALYTIC - the two sketch planes (XY and an offset datum at 30 mm). max.x = 20.0 is analytic too: the base spline interpolates (20, 0) and that is its rightmost point. The other three x/y bounds are NOT analytic - an interpolating spline overshoots its control points, so min.x = -20.0481479, min.y = -18.0374598 and max.y = 18.0286792 are recorded extents (each cross-checked against the tessellated hull). All six are reported by bounding_box(optimal=True) padded outward by ~1e-7; see the tolerance rationale.",
+    "",
+    "MESH counts are recorded, as in every golden: they are asserted EXACTLY as a determinism/regression tripwire on the 0.1 mm linear-deflection tessellation, not claimed to be analytically derivable."
+  ],
+  "tolerance": 2e-7,
+  "tolerance_rationale": "AABB-PADDING-limited, the same bound and the same reason as loft-pyramid-sq20-h30 (measured first, then set - never copied blindly). The body is built by OCCT's BRepOffsetAPI_ThruSections, whose faces carry the kernel modeling tolerance (~Precision::Confusion = 1e-7 mm), so the OPTIMAL AABB is padded outward by ~1e-7 on every bound: measured min.z = -1e-07 against the analytic 0.0 and max.z = 30.0000001 against the analytic 30.0. A 1e-7 bound would therefore sit EXACTLY on the failure threshold for the two analytic z bounds; 2e-7 gives it a factor of two, exactly as the existing loft golden does. This is an AABB bound, not a mass-property bound - the volume it also governs is reproducible to 7.3e-12 absolute across six orders of integration tolerance, i.e. ~27000x inside this number, so nothing here is fitted to make the volume pass. Loosening it requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 19738.9233068826,
+    "surface_area": 4201.767587256546,
+    "centroid": {
+      "x": -0.08405544919656534,
+      "y": 0.015813859866285338,
+      "z": 12.248782024415219
+    },
+    "bounding_box": {
+      "min": { "x": -20.0481479, "y": -18.0374598, "z": 0.0 },
+      "max": { "x": 20.0, "y": 18.0286792, "z": 30.0 }
+    }
+  },
+  "topology": { "faces": 3, "edges": 3, "shells": 1 },
+  "mesh": { "vertices": 1588, "triangles": 2554 }
+}

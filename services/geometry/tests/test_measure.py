@@ -21,14 +21,14 @@ from build123d import Solid
 from fastapi.testclient import TestClient
 from geometry.kernel import EdgeIndexError, measure_targets
 from geometry.main import app
-from py_kit.errors import ValidationApiError
-from py_kit.schemas.geometry import Vec3
-from py_kit.schemas.measure import (
+from loft_wire.geometry import Vec3
+from loft_wire.measure import (
     EdgeTarget,
     MeasureRequest,
     MeasureResult,
     PointTarget,
 )
+from py_kit.errors import ValidationApiError
 
 client = TestClient(app)
 

@@ -2,7 +2,7 @@
 
 The kernel half of the extrude feature (feature-tree design §4.3): the
 feature layer hands in *solved* sketch entities (pydantic DTOs from
-:mod:`py_kit.schemas.sketch` — positions already through the solver) plus the
+:mod:`loft_wire.sketch` — positions already through the solver) plus the
 datum plane and scalar parameters; this module owns every OCCT/build123d
 call. Failures raise the typed exceptions below with **sanitized messages**
 (no kernel internals) — the feature layer maps them 1:1 onto ``FeatureError``
@@ -39,7 +39,7 @@ from collections.abc import Sequence
 from typing import Literal
 
 from build123d import Edge, Face, Plane, Solid, Vector, Wire
-from py_kit.schemas.sketch import (
+from loft_wire.sketch import (
     Point2D,
     SketchArc,
     SketchCircle,
@@ -114,7 +114,7 @@ def plane_point_to_local(plane: Plane, point: Vector) -> tuple[float, float, flo
     public entry (CLAUDE.md DRY rule): ``(x_dir, y_dir, z_dir)`` is an
     orthonormal frame, so projecting ``point - origin`` onto each axis undoes
     ``origin + x_dir * u + y_dir * v`` exactly. ``u``/``v`` are the sketch-plane
-    coordinates a :class:`~py_kit.schemas.sketch.Point2D` carries and ``w`` is
+    coordinates a :class:`~loft_wire.sketch.Point2D` carries and ``w`` is
     the signed distance OUT of the plane along its normal — so ``w == 0`` is
     precisely "this world point lies in the sketch plane", the test a revolve
     axis that is not a sketch entity has to pass

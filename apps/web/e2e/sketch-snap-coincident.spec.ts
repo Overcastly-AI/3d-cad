@@ -262,26 +262,18 @@ async function solvedSketch(
 }
 
 /**
- * Finish the sketch, retrying the click: `sketch-save` disables itself while a
- * save is in flight, so a click that passes actionability can still land in the
- * window where it has just gone disabled (measured at ~2 in 10 under load —
- * `sketch-origin-constraint.spec.ts` carries the same guard and the reasoning).
+ * Finish the sketch in ONE click. This was a retry loop because `sketch-save`
+ * disabled itself while a save was in flight (~2 in 10 under load); SAVE-CLICK
+ * removed that gate, so retrying would now conceal the regression it was named
+ * for. `sketch-origin-constraint.spec.ts` carries the same helper and the full
+ * reasoning.
  */
 async function finishSketch(page: Page): Promise<void> {
-  await expect
-    .poll(
-      async () => {
-        if ((await page.getByTestId("sketch-strip").count()) === 0) return 0;
-        await page.getByTestId("sketch-save").click({ timeout: 5_000 });
-        await page
-          .getByTestId("sketch-strip")
-          .waitFor({ state: "detached", timeout: 5_000 })
-          .catch(() => undefined);
-        return page.getByTestId("sketch-strip").count();
-      },
-      { timeout: 60_000 },
-    )
-    .toBe(0);
+  if ((await page.getByTestId("sketch-strip").count()) === 0) return;
+  await page.getByTestId("sketch-save").click();
+  await expect(page.getByTestId("sketch-strip")).toHaveCount(0, {
+    timeout: 30_000,
+  });
 }
 
 /** Select the line under `pt` and drive its length to `mm` through the inline editor. */

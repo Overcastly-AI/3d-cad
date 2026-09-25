@@ -34,7 +34,7 @@ from geometry.drawings.compose import (
     serialize_pdf,
     serialize_svg,
 )
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     ComposedDimensionError,
     ComposedMeasuredDimension,
     ComposeDrawingRequest,

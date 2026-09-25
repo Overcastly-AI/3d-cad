@@ -15,7 +15,7 @@ entry points cannot drift from each other (CLAUDE.md DRY rule).
 
 import json
 
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 from geometry.features import evaluate_tree
 from geometry.kernel import build_shape, evaluate_tessellation

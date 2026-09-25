@@ -30,7 +30,7 @@ from typing import Any
 import pytest
 from build123d import Solid
 from geometry.features import evaluate_tree
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 
 def _iid(tag: str) -> str:

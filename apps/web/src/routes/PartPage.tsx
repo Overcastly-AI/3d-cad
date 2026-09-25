@@ -46,6 +46,7 @@ import { useMeasureStore } from "../measure/store";
 import { MeasureReadout } from "../components/MeasureReadout";
 import { AuthoringViewCube } from "../components/AuthoringViewCube";
 import { MeasureOverlay } from "../viewport/MeasureOverlay";
+import { profileRegions, regionsCentroid } from "../viewport/profileLoops";
 import {
   type BooleanParams,
   booleanFeatureCreate,
@@ -65,6 +66,7 @@ import {
   renameFeature,
   type EdgeSignature,
   evaluatePart,
+  type EvaluateTreeResult,
   type ExtrudeParams,
   extrudeFeatureCreate,
   extrudeFeatureUpdate,
@@ -146,9 +148,9 @@ import {
 } from "../components/ChromeRail";
 import { FloatingPanel } from "../components/FloatingPanel";
 import { DatumEditor } from "../components/DatumEditor";
-import { DraftEditor } from "../components/DraftEditor";
+import { DraftEditor, type DraftGaugeState } from "../components/DraftEditor";
 import { ExtrudeEditor } from "../components/ExtrudeEditor";
-import { HoleEditor } from "../components/HoleEditor";
+import { HoleEditor, type HoleGaugeState } from "../components/HoleEditor";
 import { BaseFlangeEditor } from "../components/BaseFlangeEditor";
 import { EdgeFlangeEditor } from "../components/EdgeFlangeEditor";
 import { HemEditor } from "../components/HemEditor";
@@ -163,7 +165,10 @@ import { LoftEditor } from "../components/LoftEditor";
 import { MirrorEditor } from "../components/MirrorEditor";
 import { PartExportControls } from "../components/PartExportControls";
 import { PatternEditor } from "../components/PatternEditor";
-import { RevolveEditor } from "../components/RevolveEditor";
+import {
+  RevolveEditor,
+  type RevolveGaugeState,
+} from "../components/RevolveEditor";
 import { ShellEditor } from "../components/ShellEditor";
 import { SweepEditor } from "../components/SweepEditor";
 import {
@@ -217,7 +222,8 @@ import {
   formFromLoftParams,
   type LoftForm,
 } from "../features/loft";
-import { computeBodies } from "../features/bodies";
+import { partBodies } from "../features/bodies";
+import { movedEdgeWarning } from "../features/subshapeResolution";
 import {
   bodyMaterialRows,
   withBodyMaterial,
@@ -329,9 +335,10 @@ import {
 } from "../features/face";
 import { useIsHiddenFaceOrdinal } from "../viewport/hiddenPicks";
 import { isTypingTarget } from "../lib/isTypingTarget";
-import { executeHistoryStep } from "../lib/historyStep";
+import { executeHistoryStep, signedInUserId } from "../lib/historyStep";
 import {
   HistoryErrorAlert,
+  historyResyncNotice,
   type HistoryStepError,
 } from "../components/HistoryErrorAlert";
 import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
@@ -363,7 +370,30 @@ import {
 } from "../api/drawings";
 import { sheetDimensions, sheetHeaderForNewSheet } from "../drawing/layout";
 import { SketchScene, type SolvedSketchLayer } from "../viewport/SketchScene";
+import { DraftGauge } from "../viewport/DraftGauge";
 import { ExtrudePreview } from "../viewport/ExtrudePreview";
+import { ChamferGauge } from "../viewport/ChamferGauge";
+import { FilletGauge } from "../viewport/FilletGauge";
+import { RevolveGauge } from "../viewport/RevolveGauge";
+import { useEdgeGaugeAnchors } from "../viewport/edgeAnchorSource";
+import { DatumGauge } from "../viewport/DatumGauge";
+import {
+  datumAnchor,
+  shellAnchor,
+  type DatumGaugeSeed,
+} from "../viewport/faceAnchor";
+import { ShellGauge } from "../viewport/ShellGauge";
+import { HoleGauge } from "../viewport/HoleGauge";
+import { holeAnchor } from "../viewport/holeAnchor";
+import { PatternGaugeLayer } from "../viewport/PatternGaugeLayer";
+import {
+  patternAnchor,
+  sceneDirection,
+  type PatternAnchor,
+} from "../viewport/patternAnchor";
+import type { PatternPreviewState } from "../viewport/patternGhost";
+import { usePartViewStore } from "../viewport/partView";
+import { useGaugeOverride } from "../viewport/useGaugeOverride";
 import { useViewCommandStore } from "../viewport/viewCommands";
 import { Viewport } from "../viewport/Viewport";
 
@@ -515,6 +545,9 @@ const COMMAND_LABEL: Record<OpenEditor["kind"], string> = {
  * a feature; every edit after that debounce-saves, re-evaluates, and the
  * solved positions are adopted back into the buffer.
  */
+/** An evaluate result with no `bodies` list: one stable empty list. */
+const NO_BODIES: NonNullable<EvaluateTreeResult["bodies"]> = [];
+
 export function PartPage() {
   const { partId } = partRoute.useParams();
   const queryClient = useQueryClient();
@@ -1294,6 +1327,30 @@ export function PartPage() {
     return layers;
   }, [tree.data, evaluation.data, mode, featureId, datumById, datumBasisById]);
 
+  /**
+   * Each solved profile's area centroid, for the extrude's "Centroid" twist
+   * axis (helical-gear gap G1). One map per solve, so the object the editor
+   * receives for a profile is STABLE until its geometry changes.
+   */
+  const profileCentroids = useMemo(() => {
+    const map = new Map<string, { x: number; y: number }>();
+    for (const layer of solved) {
+      const c = regionsCentroid(profileRegions(layer.entities));
+      if (c !== null) map.set(layer.featureId, c);
+    }
+    return map;
+  }, [solved]);
+  const profileCentroid = useCallback(
+    (id: string) => profileCentroids.get(id) ?? null,
+    [profileCentroids],
+  );
+  /** Each solved profile's entities, for the twist-cost note (review S9). */
+  const profileEntities = useCallback(
+    (id: string) =>
+      solved.find((layer) => layer.featureId === id)?.entities ?? null,
+    [solved],
+  );
+
   // Keyboard-first: Escape cascade always; tools, snap, constraint verbs and
   // Delete while drawing. One keyboard, two vocabularies — selection
   // presence decides whether letters draw or constrain.
@@ -1540,10 +1597,44 @@ export function PartPage() {
    * list of verbs that propose NOTHING — is `components/nextStep.ts`.
    */
   const nextStep = useNextStepAfterBuild(tree.data?.features);
-  // The part's body set, replayed from the tree (multi-body §MB-1) — drives the
-  // Bodies panel and the Combine tool's target/tool pickers. One body is the
-  // common case; a `merge: false` add (or an import) starts a second.
-  const bodies = useMemo(() => computeBodies(features), [features]);
+  // The part's body set (multi-body §MB-1) — drives the Bodies panel and the
+  // Combine tool's target/tool pickers. One body is the common case; a
+  // `merge: false` add (or an import) starts a second.
+  //
+  // The evaluate result decides WHICH bodies exist (FAILED-EXTRUDE-BODIES-
+  // GHOST-1): a failed extrude is not a body, and Export, which writes the same
+  // last-good state, already said so. The tree only names them.
+  //
+  // HELD ACROSS A PENDING EVALUATE (review S1 on c001220). The evaluate query
+  // is keyed on the tree version, so after every edit, undo or redo there is
+  // no result until the new one lands, and falling back to the tree replay
+  // then put the failed feature's ghost row back for the length of a rebuild.
+  // The last result for THIS part stands in; the replay is used only before
+  // any result for it has ever arrived. Held in state, set during render (the
+  // documented "adjust state when a prop changes" pattern), so the panel
+  // never renders a frame without it.
+  const [heldBodies, setHeldBodies] = useState<{
+    partId: string;
+    bodies: NonNullable<EvaluateTreeResult["bodies"]>;
+  } | null>(null);
+  // `NO_BODIES` rather than a fresh `[]`: a new array every render would
+  // never equal the held one, and the set-during-render below would loop.
+  const liveBodies =
+    evaluation.data === undefined
+      ? undefined
+      : (evaluation.data.bodies ?? NO_BODIES);
+  if (
+    liveBodies !== undefined &&
+    (heldBodies?.partId !== partId || heldBodies.bodies !== liveBodies)
+  ) {
+    setHeldBodies({ partId, bodies: liveBodies });
+  }
+  const evaluatedBodies =
+    liveBodies ?? (heldBodies?.partId === partId ? heldBodies.bodies : null);
+  const bodies = useMemo(
+    () => partBodies(features, evaluatedBodies),
+    [features, evaluatedBodies],
+  );
   // Per-body lump count from the evaluate wire (§MB-4c): a disjoint-union /
   // multi-solid-import body reports `lumps > 1`, which the Bodies panel flags.
   // Keyed by the body's base feature id (its §MB-0 identity) so a row maps to its
@@ -1629,7 +1720,12 @@ export function PartPage() {
   // The authoring seat holds one editor at a time — an extrude OR a revolve —
   // so they share the saving/error state and the viewport top-left anchor.
   // (The union lives in `OpenEditor` above, which also keys COMMAND_LABEL.)
-  const [editor, setEditor] = useState<OpenEditor | null>(null);
+  // `setEditorState` is deliberately NOT used directly anywhere below — every
+  // call site goes through the `setEditor` wrapper defined beside the gauge
+  // channels, which ends the outgoing command's gauge session first. See the
+  // note there; the split exists so a gauge override cannot outlive the command
+  // that produced it.
+  const [editor, setEditorState] = useState<OpenEditor | null>(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(
     null,
   );
@@ -1677,16 +1773,146 @@ export function PartPage() {
    * takes it, and the ghost redraws from that form — one value, two ways in
    * (drag and type), never two states to keep in step.
    *
-   * Boxed rather than a bare number so dragging back to a value you already
-   * had still reaches the editor: the identity changes even when the number
-   * does not.
+   * `useGaugeOverride` carries both halves of that contract in one call — the
+   * echoed state AND the reset — because the reset is the line everyone
+   * forgets, and forgetting it seeds the NEXT open of the command from the last
+   * drag. Every verb that grows a gauge adds one of these, one prop on its own
+   * editor, and one mount; see that hook's note for the two silent broken
+   * states this shape exists to prevent.
    */
-  const [extrudeDragDepth, setExtrudeDragDepth] = useState<{
-    mm: number;
-  } | null>(null);
-  const handleExtrudeDrag = useCallback(
-    (mm: number) => setExtrudeDragDepth({ mm }),
-    [],
+  const [extrudeDepthOverride, extrudeDepthGauge] = useGaugeOverride("mm");
+  const handleExtrudeDrag = extrudeDepthGauge.set;
+  // The twist arc on the ghost's far cap (helical-gear gap G1): the same
+  // contract, in degrees, into the editor's Twist field.
+  const [extrudeTwistOverride, extrudeTwistGauge] = useGaugeOverride("deg");
+
+  // The fillet/chamfer gauges (CRAFT-9a), carrying the same contract: the live
+  // value the editor holds (so the viewport can draw the round or the bevel at
+  // it) and the override channel a drag writes back through. The ANCHORS are
+  // seated here and passed DOWN as a prop rather than read inside the gauges —
+  // CRAFT-12 moves where a selection lives, and a component that reached into
+  // this pick session would be rewritten then instead of re-wired (§11).
+  const [filletRadiusMm, setFilletRadiusMm] = useState<number | null>(null);
+  const [chamferDistanceMm, setChamferDistanceMm] = useState<number | null>(
+    null,
+  );
+  const [filletRadiusOverride, filletRadiusGauge] = useGaugeOverride("mm");
+  const [chamferDistanceOverride, chamferDistanceGauge] =
+    useGaugeOverride("mm");
+  const edgeGaugeAnchors = useEdgeGaugeAnchors();
+
+  // The same two halves, once per verb that grew a gauge in CRAFT-9b. The
+  // `…Mm` / `…Seed` state beside each override is the editor's LIVE form
+  // projected up here (the ghost's direction), so the viewport can seat the
+  // instrument and draw its preview before Save; the override is the value
+  // coming back the other way. One value, two ways in.
+  const [shellThicknessOverride, shellThicknessGauge] = useGaugeOverride("mm");
+  const [shellThicknessMm, setShellThicknessMm] = useState<number | null>(null);
+  const [datumOffsetOverride, datumOffsetGauge] = useGaugeOverride("mm");
+  const [datumGaugeSeed, setDatumGaugeSeed] = useState<DatumGaugeSeed | null>(
+    null,
+  );
+
+  // ANCHOR A (CRAFT-10) — the two ANGULAR gauges. Same contract as the depth
+  // gauge above and the same three insertions: this hook, one prop on the
+  // editor, one mount in the viewport. `"deg"` rather than `"mm"` is the whole
+  // point of the box being named for its quantity — an editor that read a bare
+  // `value` off an untyped box could be handed millimetres for degrees and
+  // nothing but a founder would catch it.
+  const [revolveAngleOverride, revolveAngleGauge] = useGaugeOverride("deg");
+  const handleRevolveDrag = revolveAngleGauge.set;
+  const [draftAngleOverride, draftAngleGauge] = useGaugeOverride("deg");
+  const handleDraftDrag = draftAngleGauge.set;
+  // The open form, projected by the editor for the viewport to place its arc on
+  // (the revolve/draft twin of `extrudePreview`). Cleared when the editor closes.
+  const [revolveGauge, setRevolveGauge] = useState<RevolveGaugeState | null>(
+    null,
+  );
+  const [draftGauge, setDraftGauge] = useState<DraftGaugeState | null>(null);
+  // ANCHOR A, pattern (CRAFT-11). TWO of them, because a pattern mounts the
+  // gauge TWICE — a stepped count along the row and a linear spacing across the
+  // first gap — and two instruments driving one box could not hold one number
+  // steady while the other moves, which is the whole reason §5.3 split them.
+  const [patternCountOverride, patternCountGauge] = useGaugeOverride("n");
+  const [patternSpacingOverride, patternSpacingGauge] = useGaugeOverride("mm");
+  // The open pattern editor's live row, projected for the viewport (the pattern
+  // twin of `extrudePreview`). Cleared the moment the editor closes.
+  const [patternPreview, setPatternPreview] =
+    useState<PatternPreviewState | null>(null);
+  // ANCHOR A, hole (CRAFT-9c). Two channels, one per instrument — Ø and blind
+  // depth — for the pattern's reason: two gauges driving one box could not hold
+  // one number steady while the other moves. `holeGauge` is the editor's live
+  // pair projected up (the hole twin of `draftGauge`); cleared on close.
+  const [holeDiameterOverride, holeDiameterGauge] = useGaugeOverride("mm");
+  const [holeDepthOverride, holeDepthGauge] = useGaugeOverride("mm");
+  const [holeGauge, setHoleGauge] = useState<HoleGaugeState | null>(null);
+
+  /**
+   * End the gauge session — every override box back to null (ANCHOR B).
+   *
+   * A gauge override is SESSION state: it is the value a viewport instrument is
+   * asking the open editor for, and it means nothing once that editor is gone.
+   * Leaving one behind is not a stale readout, it is a WRONG NUMBER IN A FIELD
+   * THAT LOOKS AUTHORITATIVE — the next editor to mount applies the box over
+   * its own seed on its first effect pass, so a feature stored at 8 mm re-opens
+   * pre-filled at whatever the last drag reached, one Enter from a silent
+   * change the user never asked for (product audit 2026-09-16, F-9).
+   */
+  const endGaugeSession = useCallback(() => {
+    extrudeDepthGauge.reset();
+    extrudeTwistGauge.reset();
+    filletRadiusGauge.reset();
+    chamferDistanceGauge.reset();
+    shellThicknessGauge.reset();
+    datumOffsetGauge.reset();
+    revolveAngleGauge.reset();
+    draftAngleGauge.reset();
+    // Both of the pattern's, because it mounts the gauge TWICE.
+    patternCountGauge.reset();
+    patternSpacingGauge.reset();
+    // Both of the hole's, for the same reason.
+    holeDiameterGauge.reset();
+    holeDepthGauge.reset();
+  }, [
+    extrudeDepthGauge,
+    extrudeTwistGauge,
+    filletRadiusGauge,
+    chamferDistanceGauge,
+    shellThicknessGauge,
+    datumOffsetGauge,
+    revolveAngleGauge,
+    draftAngleGauge,
+    patternCountGauge,
+    patternSpacingGauge,
+    holeDiameterGauge,
+    holeDepthGauge,
+  ]);
+
+  /**
+   * OPEN / REPLACE / CLOSE THE AUTHORING SEAT — the ONLY way `editor` moves.
+   *
+   * The reset used to live in `closeEditor` alone, described in
+   * `useGaugeOverride` as "the line everyone forgets". It was worse than
+   * forgettable: `closeEditor` is one of SEVEN ways an editor stops being the
+   * open one. A successful save calls `setEditor(null)` straight from the write
+   * handler, `selectFeature` REPLACES the open editor with another feature's,
+   * and entering the sketcher / arming Measure / importing a STEP each drop it
+   * on the floor. None of those ran the reset, so the box survived — and the
+   * audit's fillet re-opened at the drag value rather than at `radius_mm: 8`.
+   *
+   * Binding the reset to the TRANSITION rather than to one of its callers is
+   * what makes it structural: a later verb adds its channel to
+   * `endGaugeSession` and cannot get this wrong at any of the seven sites,
+   * because there are no longer seven sites. The reset is synchronous and runs
+   * BEFORE the state update on purpose — an effect would land after the newly
+   * mounted editor's own effects, i.e. after the clobber it exists to prevent.
+   */
+  const setEditor = useCallback(
+    (next: OpenEditor | null) => {
+      endGaugeSession();
+      setEditorState(next);
+    },
+    [endGaugeSession],
   );
 
   // Earlier datum features offered to the datum editor as references (the
@@ -1908,10 +2134,23 @@ export function PartPage() {
   const setEdgeOverlay = useEdgePickStore((s) => s.setOverlay);
   const setEdgeOverlayError = useEdgePickStore((s) => s.setOverlayError);
 
+  // WHICH BODY THE EDGES COME FROM. Creating, it is the tip (the shared overlay
+  // entry). EDITING, it is the body the feature under edit is BUILT ON, the
+  // same body its picked edges resolve against. The tip is wrong there: it
+  // already carries this feature, so the edge a fillet rounds is not in it,
+  // and a re-pick of a moved edge (EDGE-RESOLVE-WARN-1) had nothing to click.
   const edgeOverlayQuery = useQuery({
-    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryKey:
+      editingFeatureId === null
+        ? ["overlay", partId, treeVersion, meshGlbId]
+        : ["overlay-before", partId, treeVersion, editingFeatureId],
     queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+      fetchOverlay(
+        buildEvaluateTree(
+          tree.data as FeatureTreeResponse,
+          editingFeatureId ?? undefined,
+        ),
+      ),
     enabled: edgePicking && tree.data !== undefined && meshGlbId !== null,
     staleTime: Infinity,
     retry: false,
@@ -3090,12 +3329,67 @@ export function PartPage() {
     [selectFeature, holePickRefusal],
   );
 
+  // "EDGE MOVED" (EDGE-RESOLVE-WARN-1). A feature whose picked edge the kernel
+  // re-found only by adjacency carries a notice in the tree and in its editor
+  // (`features/subshapeResolution`). Re-picking opens the feature's editor
+  // with the moved picks dropped and picking armed, on the body the feature is
+  // built on (see the edge overlay query). The session effect above does the
+  // dropping once it has seeded the picks, so the pending id is handed to it.
+  const pendingRepick = useRef<string | null>(null);
+  const repickEdges = useCallback(
+    (feature: FeatureResponse) => {
+      if (
+        editor !== null &&
+        editor.mode === "edit" &&
+        editor.featureId === feature.id
+      ) {
+        useEdgePickStore.getState().repickMoved();
+        return;
+      }
+      pendingRepick.current = feature.id;
+      selectFeature(feature);
+    },
+    [editor, selectFeature],
+  );
+  // The OPEN editor's notice: the same derivation the tree row uses, for the
+  // feature under edit. Not dismissable there: the editor is the answer.
+  const editorMovedEdge = useMemo(() => {
+    if (editor === null || editor.mode !== "edit" || !editor.featureId) {
+      return null;
+    }
+    const feature = features.find((f) => f.id === editor.featureId);
+    if (feature === undefined) return null;
+    const result = evaluation.data?.features.find(
+      (r) => r.feature_id === feature.id,
+    );
+    return movedEdgeWarning(feature, features, result);
+  }, [editor, features, evaluation.data]);
+  // Dismissed notices, by `MovedEdgeWarning.key`: session state, remembered
+  // until an EARLIER feature changes (a new re-match brings it back).
+  const [dismissedMovedEdges, setDismissedMovedEdges] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const dismissMovedEdge = useCallback((key: string) => {
+    setDismissedMovedEdges((previous) => new Set(previous).add(key));
+  }, []);
+
   const closeEditor = useCallback(() => {
     setEditor(null);
     setEditorError(null);
     setExtrudePreview(null);
-    setExtrudeDragDepth(null);
-  }, []);
+    // The gauge OVERRIDES are reset by `setEditor` itself, for every transition
+    // and not just this one — see its note. What is left here is the other
+    // half: the editors' PROJECTIONS (the live value the viewport draws its
+    // preview from). Those are nulled by each editor's own unmount, and a close
+    // that does not unmount one — a retarget — would otherwise leave an arc or
+    // a row drawn on the feature you just left.
+    setFilletRadiusMm(null);
+    setChamferDistanceMm(null);
+    setRevolveGauge(null);
+    setDraftGauge(null);
+    setPatternPreview(null);
+    setHoleGauge(null);
+  }, [setEditor]);
 
   // Global cancel for an open feature editor (FINDINGS #11). The command band
   // advertises "CANCEL ESC", so Escape MUST disarm the editor from any focus —
@@ -3126,6 +3420,14 @@ export function PartPage() {
   // never churns mid-edit. The overlay fetch + render gate on the store.
   useEffect(() => {
     const store = useEdgePickStore.getState();
+    // A re-pick asked for from the tree ("Edge moved") opened THIS editor: it
+    // drops the moved picks once the session has been seeded (below).
+    const repick =
+      editor !== null &&
+      editor.mode === "edit" &&
+      editor.featureId !== undefined &&
+      editor.featureId === pendingRepick.current;
+    pendingRepick.current = null;
     if (
       editor !== null &&
       (editor.kind === "fillet" || editor.kind === "chamfer")
@@ -3140,7 +3442,9 @@ export function PartPage() {
       store.open(editor.initialPicked, true, true);
     } else {
       store.close();
+      return;
     }
+    if (repick) store.repickMoved();
   }, [editor]);
   // Leaving the workspace tears the edge-pick session down.
   useEffect(() => () => useEdgePickStore.getState().close(), []);
@@ -3217,6 +3521,37 @@ export function PartPage() {
   // ---------------------------------------------------------------------
   const shellPickedFaces = useFacePickStore((s) => s.picked);
   const shellSessionOpen = useFacePickStore((s) => s.active);
+  const shellPickOverlay = useFacePickStore((s) => s.overlay);
+
+  /**
+   * Where each CRAFT-9b gauge stands. Resolved HERE and handed down as a value:
+   * the gauges never read a pick store, so W4's persistent selection store
+   * (CRAFT-12) re-wires these two lines rather than rewriting two components.
+   * The datum seat also needs the datum-resolution table, which this page
+   * already owns — one walk, not a second copy of it inside the viewport.
+   */
+  const shellGaugeAnchor = useMemo(
+    () => shellAnchor(shellPickOverlay, shellPickedFaces),
+    [shellPickOverlay, shellPickedFaces],
+  );
+  const datumGaugeAnchor = useMemo(
+    () =>
+      datumAnchor(
+        datumGaugeSeed,
+        (featureId) => datumBasisById.get(featureId) ?? null,
+      ),
+    [datumGaugeSeed, datumBasisById],
+  );
+  // The hole instruments stand on the editor's live face + drill point — the
+  // SAME mirror the placement overlay draws from, so the bore is drawn exactly
+  // where the crosshair says the drill goes.
+  const holeGaugeAnchor = useMemo(
+    () =>
+      holePreview?.signature == null || holePreview.position === null
+        ? null
+        : holeAnchor(holePreview.signature, holePreview.position),
+    [holePreview],
+  );
   useEffect(() => {
     if (!shellSessionOpen || bodyFeatureId === null) return;
     usePreselectStore.getState().rememberFaces(
@@ -4407,11 +4742,24 @@ export function PartPage() {
             // Someone else moved the tree: the design doc's soft reload —
             // resync quietly; the user re-issues against what they now see.
             resync: () => refreshTreeAndBody(),
+            // A step that resolves after a sign-in as someone else is dropped,
+            // never adopted into the cache that was cleared for them
+            // (UNDO-REDO-USER-SWITCH-RACE-1).
+            owner: signedInUserId,
           });
           if (outcome.kind === "failed") {
             // The tree is unchanged server-side — say so through the HUD (the
             // import-error affordance), never a silent busy flash.
             setHistoryError({ step, message: outcome.message });
+          } else if (outcome.kind === "stale") {
+            // The step never ran: the tree moved in another window and the
+            // resync above put the CURRENT one on screen. Saying nothing here
+            // is the worse of the two silences — the user pressed a key, the
+            // model changed by an amount they did not ask for (the other
+            // window's edit arriving), and nothing distinguishes that from
+            // their own undo landing. Measured with two windows on one part:
+            // feature rows 3 -> 2 on a click that undid nothing.
+            setHistoryError(historyResyncNotice(step, "part"));
           }
         } finally {
           historyInFlight.current = false;
@@ -4656,6 +5004,41 @@ export function PartPage() {
     editor?.kind === "extrude" &&
     extrudePreview !== null &&
     extrudeGhostLayer !== null;
+  // The solved sketch the open revolve turns — resolved from the full `solved`
+  // set, like the extrude ghost's layer and for the same reason: the gauge must
+  // stand on the profile whether or not a body already exists (CRAFT-10).
+  const revolveGaugeLayer = useMemo<SolvedSketchLayer | null>(() => {
+    if (revolveGauge === null) return null;
+    return (
+      solved.find((l) => l.featureId === revolveGauge.profileFeatureId) ?? null
+    );
+  }, [revolveGauge, solved]);
+  // The face the taper gauge stands on: the FIRST picked, because pick order is
+  // preserved and a draft of six faces by one angle wants one instrument.
+  const draftGaugeFace = shellPickedFaces[0];
+  /**
+   * The seed body the pattern gauges stand on, and where they stand (CRAFT-11).
+   *
+   * The drawn mesh is read HERE, at the integration point, and handed to
+   * `PatternGaugeLayer` as props — the gauge component reaches into no store,
+   * so W4's persistent selection re-sources these two expressions and leaves
+   * the instrument alone. `pickGeometry` is `null` for "no mesh", never for
+   * "not loaded yet" (`ModelMesh` publishes null before disposing), so a null
+   * here is a row with no ghosts rather than a row to wait for.
+   */
+  const patternBodyGeometry = usePartViewStore((state) => state.pickGeometry);
+  const patternGaugeAnchor = useMemo<PatternAnchor | null>(() => {
+    if (patternPreview === null) return null;
+    const box = patternBodyGeometry?.boundingBox ?? null;
+    if (box === null) return null;
+    return patternAnchor(
+      {
+        min: [box.min.x, box.min.y, box.min.z],
+        max: [box.max.x, box.max.y, box.max.z],
+      },
+      sceneDirection(patternPreview.direction),
+    );
+  }, [patternPreview, patternBodyGeometry]);
   // THE ONE SET OF FACTS about the body on screen. The feature tree's SOLVE
   // cell, the inspector's STATUS cell, the EXPORT gate, the SKIP rows and the
   // partial-body notice below all read this object — they used to compute three
@@ -5064,6 +5447,7 @@ export function PartPage() {
               rotateEnabled={mode !== "draw"}
               groundGrid={mode !== "draw"}
               viewNav={mode === "off"}
+              sketchNav={mode === "draw"}
               bodyInteractive={
                 mode === "off" && editor === null && !measureActive
               }
@@ -5119,6 +5503,7 @@ export function PartPage() {
                       data-distance-mm={extrudePreview.distanceMm}
                       data-direction={extrudePreview.direction}
                       data-operation={extrudePreview.operation}
+                      data-twist-deg={extrudePreview.twistDeg}
                     />
                   ) : null}
                   {isEmptyPart ? (
@@ -5149,7 +5534,10 @@ export function PartPage() {
                         saving={editorSaving}
                         error={editorError}
                         onPreviewChange={setExtrudePreview}
-                        depthOverride={extrudeDragDepth}
+                        depthOverride={extrudeDepthOverride}
+                        twistOverride={extrudeTwistOverride}
+                        profileCentroid={profileCentroid}
+                        profileEntities={profileEntities}
                       />
                     ) : editor.kind === "revolve" ? (
                       <RevolveEditor
@@ -5161,6 +5549,8 @@ export function PartPage() {
                         onCancel={closeEditor}
                         saving={editorSaving}
                         error={editorError}
+                        onGaugeChange={setRevolveGauge}
+                        angleOverride={revolveAngleOverride}
                       />
                     ) : editor.kind === "sweep" ? (
                       <SweepEditor
@@ -5191,26 +5581,39 @@ export function PartPage() {
                         onCancel={closeEditor}
                         saving={editorSaving}
                         error={editorError}
+                        // ANCHOR C — contract β's echo, both halves. The
+                        // gauges ask, the form takes it, the form projects the
+                        // row back out through `onPreviewChange`, and the
+                        // gauges redraw from THAT. One value each, two ways in.
+                        onPreviewChange={setPatternPreview}
+                        countOverride={patternCountOverride}
+                        spacingOverride={patternSpacingOverride}
                       />
                     ) : editor.kind === "fillet" ? (
                       <FilletEditor
                         mode={editor.mode}
+                        movedEdge={editorMovedEdge}
                         initial={editor.initial}
                         bodyFeatureId={pickAnchorFeatureId}
                         onSubmit={submitFillet}
                         onCancel={closeEditor}
                         saving={editorSaving}
                         error={editorError}
+                        radiusOverride={filletRadiusOverride}
+                        onPreviewChange={setFilletRadiusMm}
                       />
                     ) : editor.kind === "chamfer" ? (
                       <ChamferEditor
                         mode={editor.mode}
+                        movedEdge={editorMovedEdge}
                         initial={editor.initial}
                         bodyFeatureId={pickAnchorFeatureId}
                         onSubmit={submitChamfer}
                         onCancel={closeEditor}
                         saving={editorSaving}
                         error={editorError}
+                        distanceOverride={chamferDistanceOverride}
+                        onPreviewChange={setChamferDistanceMm}
                       />
                     ) : editor.kind === "shell" ? (
                       <ShellEditor
@@ -5221,6 +5624,8 @@ export function PartPage() {
                         onCancel={closeEditor}
                         saving={editorSaving}
                         error={editorError}
+                        onThicknessChange={setShellThicknessMm}
+                        thicknessOverride={shellThicknessOverride}
                       />
                     ) : editor.kind === "draft" ? (
                       <DraftEditor
@@ -5231,6 +5636,8 @@ export function PartPage() {
                         onCancel={closeEditor}
                         saving={editorSaving}
                         error={editorError}
+                        onGaugeChange={setDraftGauge}
+                        angleOverride={draftAngleOverride}
                       />
                     ) : editor.kind === "hole" ? (
                       <HoleEditor
@@ -5253,6 +5660,9 @@ export function PartPage() {
                         placementHidden={holePlacementHidden}
                         edges={holeOverlayEdges}
                         onPreviewChange={onHolePreviewChange}
+                        onGaugeChange={setHoleGauge}
+                        diameterOverride={holeDiameterOverride}
+                        depthOverride={holeDepthOverride}
                       />
                     ) : editor.kind === "baseFlange" ? (
                       <BaseFlangeEditor
@@ -5267,6 +5677,7 @@ export function PartPage() {
                     ) : editor.kind === "edgeFlange" ? (
                       <EdgeFlangeEditor
                         mode={editor.mode}
+                        movedEdge={editorMovedEdge}
                         initial={editor.initial}
                         bodyFeatureId={pickAnchorFeatureId}
                         defaults={smDefaults}
@@ -5279,6 +5690,7 @@ export function PartPage() {
                     ) : editor.kind === "hem" ? (
                       <HemEditor
                         mode={editor.mode}
+                        movedEdge={editorMovedEdge}
                         initial={editor.initial}
                         bodyFeatureId={pickAnchorFeatureId}
                         defaults={smDefaults}
@@ -5326,6 +5738,8 @@ export function PartPage() {
                         }
                         onToggleFacePick={toggleDatumFacePick}
                         facePick={datumFacePicked}
+                        onPlaneChange={setDatumGaugeSeed}
+                        offsetOverride={datumOffsetOverride}
                         // …and the standing refusal is stated on the editor's
                         // own (ungated) pick-error line rather than nowhere.
                         facePickError={datumFacePickError ?? datumPickRefusal}
@@ -5516,6 +5930,23 @@ export function PartPage() {
               }
             >
               <SketchScene solved={solved} facePicking={facePicking} />
+              {/* ANCHOR D, pattern (CRAFT-11) — two mounts and a ghost. The
+                  anchor is computed HERE and handed down, so CRAFT-12's
+                  selection store re-wires this one expression rather than the
+                  gauge component. */}
+              {mode === "off" &&
+              editor?.kind === "pattern" &&
+              patternPreview !== null &&
+              patternGaugeAnchor !== null ? (
+                <PatternGaugeLayer
+                  anchor={patternGaugeAnchor}
+                  count={patternPreview.count}
+                  spacingMm={patternPreview.spacingMm}
+                  onCountChange={patternCountGauge.set}
+                  onSpacingChange={patternSpacingGauge.set}
+                  bodyGeometry={patternBodyGeometry}
+                />
+              ) : null}
               {showExtrudeGhost &&
               extrudeGhostLayer !== null &&
               extrudePreview ? (
@@ -5525,10 +5956,79 @@ export function PartPage() {
                   direction={extrudePreview.direction}
                   operation={extrudePreview.operation}
                   onDepthChange={handleExtrudeDrag}
+                  twistDeg={extrudePreview.twistDeg}
+                  twistCentre={extrudePreview.twistCentre}
+                  onTwistChange={extrudeTwistGauge.set}
+                />
+              ) : null}
+              {/* ANCHOR D (CRAFT-10) — THE ANGULAR GAUGES.
+                  The revolve arc stands on its own axis, which this item draws
+                  for the first time: before it, the axis was a dropdown and the
+                  scene showed nothing, so an arc would have been an arc around
+                  nothing. The layer is resolved from the full `solved` set (not
+                  from whatever the browser is showing) for the same reason the
+                  extrude ghost is: the gauge must appear whether or not a body
+                  already exists. */}
+              {mode === "off" &&
+              editor?.kind === "revolve" &&
+              revolveGauge !== null &&
+              revolveGaugeLayer !== null ? (
+                <RevolveGauge
+                  basis={revolveGaugeLayer.basis}
+                  entities={revolveGaugeLayer.entities}
+                  axis={revolveGauge.axis}
+                  angleDeg={revolveGauge.angleDeg}
+                  onAngleChange={handleRevolveDrag}
+                />
+              ) : null}
+              {/* The taper gauge stands on the FIRST picked face — pick order is
+                  preserved by the store, so "the one you picked first" is a
+                  stable answer, and a draft that tapers six faces by one angle
+                  needs one instrument, not six. The face is passed DOWN as a
+                  prop; `DraftGauge` reads no store, so W4's selection store is a
+                  change to this line rather than to that component. */}
+              {mode === "off" &&
+              editor?.kind === "draft" &&
+              draftGauge !== null &&
+              draftGaugeFace !== undefined ? (
+                <DraftGauge
+                  face={draftGaugeFace}
+                  neutral={{
+                    base: draftGauge.base,
+                    offsetMm: draftGauge.offsetMm,
+                    flip: draftGauge.flip,
+                  }}
+                  angleDeg={draftGauge.angleDeg}
+                  onAngleChange={handleDraftDrag}
                 />
               ) : null}
               <MeasureOverlay />
               {mode === "off" && edgePicking ? <EdgePickOverlay /> : null}
+              {/* The fillet/chamfer gauges stand on the picked edges and draw
+                  the RESULT at the live value — route (b) of direction §8.4,
+                  line-work rather than a ghost: the rolling ball's tangency
+                  and the bevel band, both computed from the number the arrow
+                  reports, so the drag moves the model and not only the field. */}
+              {mode === "off" &&
+              editor?.kind === "fillet" &&
+              filletRadiusMm !== null ? (
+                <FilletGauge
+                  anchors={edgeGaugeAnchors}
+                  radiusMm={filletRadiusMm}
+                  unit={lengthUnit}
+                  onRadiusChange={filletRadiusGauge.set}
+                />
+              ) : null}
+              {mode === "off" &&
+              editor?.kind === "chamfer" &&
+              chamferDistanceMm !== null ? (
+                <ChamferGauge
+                  anchors={edgeGaugeAnchors}
+                  distanceMm={chamferDistanceMm}
+                  unit={lengthUnit}
+                  onDistanceChange={chamferDistanceGauge.set}
+                />
+              ) : null}
               {mode === "off" && reliefBendHighlights.length > 0 ? (
                 <BendHighlightOverlay bends={reliefBendHighlights} />
               ) : null}
@@ -5545,6 +6045,29 @@ export function PartPage() {
                   testIdPrefix={
                     editor?.kind === "draft" ? "draft-face" : "shell-face"
                   }
+                />
+              ) : null}
+              {/* THE SHELL GAUGE stands on the face you last opened — so it
+                  appears with the pick rather than before it, and the editor's
+                  own field is still the exact path (CRAFT-9b). */}
+              {mode === "off" &&
+              editor?.kind === "shell" &&
+              shellGaugeAnchor !== null &&
+              shellThicknessMm !== null ? (
+                <ShellGauge
+                  anchor={shellGaugeAnchor}
+                  thicknessMm={shellThicknessMm}
+                  onChange={shellThicknessGauge.set}
+                />
+              ) : null}
+              {mode === "off" &&
+              editor?.kind === "datum" &&
+              datumGaugeAnchor !== null &&
+              datumGaugeSeed !== null ? (
+                <DatumGauge
+                  anchor={datumGaugeAnchor}
+                  offsetMm={datumGaugeSeed.offsetMm}
+                  onChange={datumOffsetGauge.set}
                 />
               ) : null}
               {mode === "plane" && facePicking ? (
@@ -5570,6 +6093,28 @@ export function PartPage() {
                   faces={holePickableFaces}
                   onPick={pickHoleFace}
                   pendingIndex={null}
+                />
+              ) : null}
+              {/* ANCHOR D, hole (CRAFT-9c) — Ø and depth, with the bore circle
+                  and the depth plane. Stood down while a PICK is armed: a pick
+                  in progress is a different gesture on the same face, and a
+                  hit sleeve lying across the drill point would take the very
+                  click the point pick is waiting for. It comes back the moment
+                  the pick lands. Withheld with the placement overlay when the
+                  face's body is hidden (SEL-7), for that overlay's reason. */}
+              {mode === "off" &&
+              editor?.kind === "hole" &&
+              holePick === null &&
+              !holePlacementHidden &&
+              holeGaugeAnchor !== null &&
+              holeGauge !== null &&
+              holeGauge.diameterMm !== null ? (
+                <HoleGauge
+                  anchor={holeGaugeAnchor}
+                  diameterMm={holeGauge.diameterMm}
+                  depthMm={holeGauge.depthMm}
+                  onDiameterChange={holeDiameterGauge.set}
+                  onDepthChange={holeDepthGauge.set}
                 />
               ) : null}
               {/* The placement overlay shows from the moment a face exists, not
@@ -5607,6 +6152,9 @@ export function PartPage() {
                     onKeepAsOneBody={keepAsOneBody}
                     recoveringDisjoint={disjointRecovering}
                     onRepickFace={repickFace}
+                    onRepickEdges={repickEdges}
+                    dismissedWarnings={dismissedMovedEdges}
+                    onDismissWarning={dismissMovedEdge}
                     onToggleSuppress={toggleSuppress}
                     suppressingId={suppressingId}
                     onRowContextMenu={openTreeMenu}

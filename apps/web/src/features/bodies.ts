@@ -3,9 +3,10 @@
  * body's identity IS its base (creating) feature id — the same eval-time
  * partition the geometry service keys on (design §Decisions-1), replayed here
  * from the tree so the Bodies panel + the Combine tool can name and pick bodies
- * without a second source of truth. The evaluate payload carries only the
- * last-good MESH (all bodies fused into one GLB), never a per-body list, so the
- * partition rule lives here — kept deliberately parallel to the kernel's:
+ * without a second source of truth. This replay is the FALLBACK: once an
+ * evaluate result exists, its per-body list is the truth ({@link partBodies}).
+ * Before one does, the partition rule lives here — kept deliberately parallel
+ * to the kernel's:
  *
  *   - `import` always starts a new body.
  *   - an ADD extrude/revolve/sweep/loft starts a NEW body when `merge` is false
@@ -97,6 +98,49 @@ export function computeBodies(
   }
 
   return bodies.map((b, i) => ({ ...b, ordinal: i + 1 }));
+}
+
+/**
+ * THE BODIES THE PART ACTUALLY HAS: the evaluate result's, named from the tree
+ * (FAILED-EXTRUDE-BODIES-GHOST-1).
+ *
+ * {@link computeBodies} replays the partition from the tree, and the tree does
+ * not know what FAILED. A first extrude that did not build was still listed as
+ * "Body 1", offered to hide, to recolour and to Combine, while Export said
+ * there was nothing to write. The two surfaces disagreed about what exists.
+ * The evaluate result's `bodies` is the kernel's own last-good body set,
+ * tree-ordered. It is the state the exported file is written from, so it is
+ * the one both surfaces must read. A filter over the tree's list would not do:
+ * the tree applies a union whether or not it built, so a failed Combine would
+ * drop a tool body the file still contains.
+ *
+ * `evaluated` is the newest evaluate result's list for this part. While a
+ * newer result is pending (every edit re-keys the evaluate on the tree
+ * version), the caller passes the LAST one, not null, so a pending rebuild
+ * never brings the tree replay's ghost rows back. Null means no result has
+ * arrived for this part at all; then the tree is all there is, and the replay
+ * is the honest guess. A body whose feature is no longer in the tree (a result
+ * from before a delete) has no row to name it and is skipped until the next
+ * result.
+ */
+export function partBodies(
+  features: readonly FeatureResponse[],
+  evaluated: readonly { base_feature_id: string }[] | null,
+): BodyInfo[] {
+  if (evaluated === null) return computeBodies(features);
+  const byId = new Map(features.map((f) => [f.id, f]));
+  const bodies: BodyInfo[] = [];
+  for (const { base_feature_id: id } of evaluated) {
+    const feature = byId.get(id);
+    if (feature === undefined) continue;
+    bodies.push({
+      baseFeatureId: id,
+      name: feature.name,
+      featureType: feature.feature.type,
+      ordinal: bodies.length + 1,
+    });
+  }
+  return bodies;
 }
 
 /**

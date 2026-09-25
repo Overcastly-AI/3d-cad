@@ -20,6 +20,7 @@ import { useEffect, useMemo } from "react";
 
 import type { EdgeFlangeSpanPreview } from "../features/sheetMetal";
 import { occtToScene, polylineSegments } from "../measure/geometry";
+import { ANNOTATION_LAYER } from "./instruments";
 import { Segments } from "./overlaySegments";
 
 /** The width caption sits in the annotation band, under the HUD strips. */
@@ -55,7 +56,7 @@ export function FlangeSpanOverlay({ span, label }: FlangeSpanOverlayProps) {
   );
 
   return (
-    <group>
+    <group userData={ANNOTATION_LAYER}>
       {/* The span — brass, the app's one selection color (DOM + WebGL). Drawn
           without depth test so it reads on top of the edge it traces. */}
       <Segments

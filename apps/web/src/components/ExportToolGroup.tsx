@@ -69,7 +69,7 @@ export function ExportToolGroup({
   state,
   labelPriority,
 }: ExportToolGroupProps) {
-  const { busy, failed, run } = useExportAction(exporter);
+  const { busy, failed, failure, run } = useExportAction(exporter);
   const blocked = disabledReason !== undefined;
   /** The clause every cell carries: why it is inert, or what the file will be. */
   const qualifier =
@@ -103,8 +103,8 @@ export function ExportToolGroup({
             busy === format
               ? "Writing…"
               : (disabledReason ??
-                (failed === format
-                  ? "Failed — check the gateway, then retry"
+                (failed === format && failure !== null
+                  ? failure.caption
                   : partial && qualifier !== undefined
                     ? `${caption} · ${qualifier}`
                     : caption))
@@ -113,7 +113,7 @@ export function ExportToolGroup({
           onClick={() => void run(format)}
         />
       ))}
-      {failed !== null ? (
+      {failure !== null ? (
         // The band has no room for the strip's ruled alert, and a failure the
         // user only discovers by hovering is a failure they do not discover.
         // The visible half is the cell's own caption above; this is the half a
@@ -123,8 +123,7 @@ export function ExportToolGroup({
           className="sr-only"
           data-testid={`${testIdPrefix}-error`}
         >
-          {failed.toUpperCase()} export failed — the file could not be written.
-          Check that the gateway is running, then try again.
+          {failure.sentence}
         </span>
       ) : null}
     </ToolGroup>

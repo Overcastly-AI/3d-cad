@@ -1,12 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createSessionStore,
+  probeSessionPersistence,
+  safeReturnPath,
+  SESSION_NOT_PERSISTED_MESSAGE,
   SESSION_STORAGE_KEY,
+  SIGN_IN_WILL_NOT_PERSIST_MESSAGE,
   type SessionStorageLike,
   type SessionUser,
 } from "./session";
-import { SKETCH_DRAFT_KEY_PREFIX } from "../routes/sketchDraft";
+import {
+  DRAFT_MAX_AGE_MS,
+  SKETCH_DRAFT_KEY_PREFIX,
+} from "../routes/sketchDraft";
 
 const USER: SessionUser = {
   id: "6f2f0e6a-9c1e-4be5-9d3e-6a1c76a3c001",
@@ -14,11 +21,25 @@ const USER: SessionUser = {
   created_at: "2026-07-10T12:00:00Z",
 };
 
-function fakeStorage(initial: Record<string, string> = {}) {
+function fakeStorage(
+  initial: Record<string, string> = {},
+  quotaChars = Number.POSITIVE_INFINITY,
+) {
   const map = new Map(Object.entries(initial));
+  const used = () =>
+    [...map].reduce((sum, [key, value]) => sum + key.length + value.length, 0);
   const storage: SessionStorageLike = {
     getItem: (key) => map.get(key) ?? null,
-    setItem: (key, value) => void map.set(key, value),
+    // Metered like the real thing: key + value code units against a quota,
+    // and a write that would cross it throws the browser's own error NAME.
+    setItem: (key, value) => {
+      const after =
+        used() - (map.get(key)?.length ?? -key.length) + value.length;
+      if (after > quotaChars) {
+        throw new DOMException("quota", "QuotaExceededError");
+      }
+      map.set(key, value);
+    },
     removeItem: (key) => void map.delete(key),
     // Enumerable, like the real `Storage`: the sign-out purge below has to find
     // keys whose names it does not know.
@@ -71,10 +92,18 @@ describe("createSessionStore", () => {
     store.getState().signIn("tok-2", USER);
     expect(store.getState().token).toBe("tok-2");
     expect(store.getState().user).toEqual(USER);
-    expect(JSON.parse(map.get(SESSION_STORAGE_KEY) ?? "")).toEqual({
-      token: "tok-2",
-      user: USER,
-    });
+    const stored = JSON.parse(map.get(SESSION_STORAGE_KEY) ?? "") as Record<
+      string,
+      unknown
+    >;
+    expect(stored).toMatchObject({ token: "tok-2", user: USER });
+    // When THIS client received the token, by its own clock (keepalive.ts).
+    expect(typeof stored.receivedAt).toBe("number");
+    expect(store.getState().receivedAt).toBe(stored.receivedAt);
+    // ...and it survives a reload.
+    expect(createSessionStore(storage).getState().receivedAt).toBe(
+      stored.receivedAt,
+    );
   });
 
   it("signOut clears the session and storage without the expired notice", () => {
@@ -128,6 +157,149 @@ describe("createSessionStore", () => {
     expect(map.has(draftKeyFor("part-c"))).toBe(false);
   });
 
+  it("expire remembers where the user was; sign-out forgets it", () => {
+    const { storage } = fakeStorage();
+    const store = createSessionStore(storage);
+    store.getState().signIn("tok-9", USER);
+    store.getState().expire("/parts/abc?tab=tree#f3");
+    expect(store.getState().returnTo).toBe("/parts/abc?tab=tree#f3");
+    // A silent refresh (or the sign-in itself) must not drop it: the sign-in
+    // page reads it AFTER the token lands.
+    store.getState().signIn("tok-10", USER);
+    expect(store.getState().returnTo).toBe("/parts/abc?tab=tree#f3");
+    store.getState().clearReturnTo();
+    expect(store.getState().returnTo).toBeNull();
+
+    store.getState().expire("/parts/xyz");
+    store.getState().signOut();
+    expect(store.getState().returnTo).toBeNull();
+  });
+
+  it("abandon (the cookie is another user's) drops this tab's session and touches no storage", () => {
+    const { storage, map } = fakeStorage();
+    const store = createSessionStore(storage);
+    store.getState().signIn("tok-x", USER);
+    // Another tab signs in as Y: the storage now holds Y's session + drafts.
+    map.set(SESSION_STORAGE_KEY, '{"token":"tok-y"}');
+    map.set(draftKeyFor("part-y"), '{"version":1}');
+    store.getState().abandon();
+    expect(store.getState().token).toBeNull();
+    expect(store.getState().expired).toBe(true);
+    expect(store.getState().returnTo).toBeNull();
+    expect(map.get(SESSION_STORAGE_KEY)).toBe('{"token":"tok-y"}');
+    expect(map.has(draftKeyFor("part-y"))).toBe(true);
+  });
+
+  it("a return path is only honoured for the user it belongs to", () => {
+    const { storage } = fakeStorage();
+    const store = createSessionStore(storage);
+    store.getState().signIn("tok-x", USER);
+    store.getState().expire("/parts/x-part");
+    store.getState().signIn("tok-y", { ...USER, id: "user-y" });
+    expect(store.getState().returnTo).toBeNull(); // not X's part for Y
+
+    store.getState().signIn("tok-x", USER);
+    store.getState().expire("/parts/x-part");
+    store.getState().signIn("tok-x2", USER);
+    expect(store.getState().returnTo).toBe("/parts/x-part");
+  });
+
+  it("a first signed-out visit is remembered for whoever signs in (DEEPLINK-SIGNIN-RETURN-1)", () => {
+    const { storage } = fakeStorage();
+    const store = createSessionStore(storage);
+    store.getState().rememberDeepLink("/parts/p-1?view=iso#f3");
+    expect(store.getState().returnTo).toBe("/parts/p-1?view=iso#f3");
+    expect(store.getState().expired).toBe(false); // no "session expired" copy
+    store.getState().signIn("tok-y", { ...USER, id: "user-y" });
+    expect(store.getState().returnTo).toBe("/parts/p-1?view=iso#f3");
+
+    // Hostile paths go through the same gate as an expiry's.
+    const fresh = createSessionStore(fakeStorage().storage);
+    fresh.getState().rememberDeepLink("//evil.example/parts");
+    expect(fresh.getState().returnTo).toBeNull();
+  });
+
+  it("a deep link is not remembered once a session in this page has ended", () => {
+    const { storage } = fakeStorage();
+
+    // Signed in: nothing to remember.
+    const signedIn = createSessionStore(storage);
+    signedIn.getState().signIn("tok-x", USER);
+    signedIn.getState().rememberDeepLink("/parts/p-1");
+    expect(signedIn.getState().returnTo).toBeNull();
+
+    // Deliberate sign-out: the next sign-in goes home, as it always did.
+    signedIn.getState().signOut();
+    signedIn.getState().rememberDeepLink("/parts/p-1");
+    expect(signedIn.getState().returnTo).toBeNull();
+
+    // Expiry recorded X's path and its owner; the redirect must not replace
+    // it with an ownerless one that Y would inherit.
+    const expired = createSessionStore(storage);
+    expired.getState().signIn("tok-x", USER);
+    expired.getState().expire("/parts/x-part");
+    expired.getState().rememberDeepLink("/parts/x-part");
+    expired.getState().signIn("tok-y", { ...USER, id: "user-y" });
+    expect(expired.getState().returnTo).toBeNull();
+
+    // Abandon: the page belongs to someone else's session.
+    const abandoned = createSessionStore(storage);
+    abandoned.getState().signIn("tok-x", USER);
+    abandoned.getState().abandon();
+    abandoned.getState().rememberDeepLink("/parts/x-part");
+    expect(abandoned.getState().returnTo).toBeNull();
+  });
+
+  it("safeReturnPath keeps in-app paths and refuses everything else", () => {
+    expect(safeReturnPath("/parts/abc")).toBe("/parts/abc");
+    expect(safeReturnPath("/drawings/d1?source=p1")).toBe(
+      "/drawings/d1?source=p1",
+    );
+    for (const hostile of [
+      "https://evil.example/parts",
+      "//evil.example/parts",
+      "/\\evil.example",
+      "javascript:alert(1)",
+      "parts/abc",
+      "",
+      "/sign-in",
+      "/sign-in?next=/x",
+      null,
+      undefined,
+    ]) {
+      expect(safeReturnPath(hostile)).toBeNull();
+    }
+  });
+
+  it("safeReturnPath decides like the URL parser does (review N3)", () => {
+    const origin = "https://loft.example";
+    const resolvesHome = (path: string) =>
+      new URL(path, origin).origin === origin &&
+      !path.startsWith("//") &&
+      path.startsWith("/");
+    for (const hostile of [
+      "/\t/evil.com", // the parser strips the tab: "//evil.com"
+      "/\n/evil.com",
+      "/\\evil.com", // backslash reads as a slash
+      "/..//evil.com", // normalises to the path "//evil.com"
+      "/./\\evil.com",
+      "/sign-in/../sign-in",
+    ]) {
+      expect(
+        safeReturnPath(hostile, origin),
+        JSON.stringify(hostile),
+      ).toBeNull();
+    }
+    // Encoded slashes are a literal path segment: kept, and still on-origin.
+    const encoded = safeReturnPath("/%2F%2Fevil.com", origin);
+    expect(encoded).toBe("/%2F%2Fevil.com");
+    expect(resolvesHome(encoded ?? "")).toBe(true);
+    // What comes back is the parser's serialisation, not the input.
+    expect(safeReturnPath("/parts/./abc/../xyz?tab=1#f2", origin)).toBe(
+      "/parts/xyz?tab=1#f2",
+    );
+  });
+
   it("a later signIn clears the expired notice", () => {
     const { storage } = fakeStorage();
     const store = createSessionStore(storage);
@@ -153,7 +325,163 @@ describe("createSessionStore", () => {
     expect(store.getState().token).toBeNull();
     store.getState().signIn("tok-6", USER); // must not throw
     expect(store.getState().token).toBe("tok-6");
+    // ...but not silently: the reload that loses it is announced now.
+    expect(store.getState().persistError).toBe(SESSION_NOT_PERSISTED_MESSAGE);
     store.getState().signOut(); // must not throw
     expect(store.getState().token).toBeNull();
+    expect(store.getState().persistError).toBeNull();
+  });
+});
+
+/**
+ * W0REV-3 — a quota full of sketch drafts made the session write fail, the
+ * failure was swallowed, and the user met it as "logged out on reload" with
+ * nothing pointing here.
+ */
+describe("session persistence under a full storage (W0REV-3)", () => {
+  const NOW = 1_800_000_000_000;
+  /** A readable draft, *chars* long, written *ageMs* before NOW. */
+  const draft = (chars: number, ageMs: number) =>
+    JSON.stringify({
+      version: 1,
+      savedAt: NOW - ageMs,
+      plane: { kind: "origin", base: "XY" },
+      entities: [{ kind: "point", id: "x".repeat(chars) }],
+      constraints: [],
+      featureId: null,
+      nextIdIndex: 2,
+      revision: 1,
+      userConstrained: false,
+    });
+
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    errorSpy.mockRestore();
+  });
+
+  it("QuotaExceededError on the session write evicts drafts, oldest first, and the session survives a reload", () => {
+    const { storage, map } = fakeStorage({}, 12_000);
+    const store = createSessionStore(storage, NOW);
+    // The storage fills AFTER app start (the start-up sweep only trims to the
+    // budget; it never guarantees room) — three fresh drafts and a neighbour.
+    map.set(draftKeyFor("oldest"), draft(3_900, 3_000));
+    map.set(draftKeyFor("middle"), draft(3_900, 2_000));
+    map.set(draftKeyFor("newest"), draft(3_900, 1_000));
+    map.set("loft.preferences.v1", '{"unit":"mm"}');
+
+    store.getState().signIn("tok-q", USER);
+
+    // The reload: a fresh store over the same storage is still signed in.
+    const reloaded = createSessionStore(storage, NOW);
+    expect(reloaded.getState().token).toBe("tok-q");
+    expect(reloaded.getState().user).toEqual(USER);
+    expect(store.getState().persistError).toBeNull();
+    // Only as much as it needed, and oldest first.
+    expect(map.has(draftKeyFor("oldest"))).toBe(false);
+    expect(map.has(draftKeyFor("newest"))).toBe(true);
+    expect(map.get("loft.preferences.v1")).toBe('{"unit":"mm"}');
+  });
+
+  it("a write that STILL fails is surfaced, never swallowed, and touches nothing it does not own", () => {
+    // Full of someone else's data: evicting every draft cannot make room.
+    const { storage, map } = fakeStorage(
+      { "another-app": "y".repeat(9_900) },
+      10_000,
+    );
+    const store = createSessionStore(storage, NOW);
+    store.getState().signIn("tok-r", USER);
+
+    expect(store.getState().token).toBe("tok-r"); // works until reload
+    expect(store.getState().persistError).toBe(SESSION_NOT_PERSISTED_MESSAGE);
+    expect(errorSpy).toHaveBeenCalled();
+    expect(map.has(SESSION_STORAGE_KEY)).toBe(false);
+    expect(map.get("another-app")).toBe("y".repeat(9_900));
+  });
+
+  it("the notice is dismissible, and a later successful sign-in clears it too", () => {
+    const { storage, map } = fakeStorage(
+      { "another-app": "y".repeat(9_900) },
+      10_000,
+    );
+    const store = createSessionStore(storage, NOW);
+    store.getState().signIn("tok-d", USER);
+    expect(store.getState().persistError).toBe(SESSION_NOT_PERSISTED_MESSAGE);
+    store.getState().dismissPersistError();
+    expect(store.getState().persistError).toBeNull();
+    expect(store.getState().token).toBe("tok-d"); // dismissing is not signing out
+
+    store.getState().signIn("tok-e", USER);
+    expect(store.getState().persistError).toBe(SESSION_NOT_PERSISTED_MESSAGE);
+    map.delete("another-app"); // the user freed some storage
+    store.getState().signIn("tok-f", USER);
+    expect(store.getState().persistError).toBeNull();
+  });
+
+  it("the sign-in probe answers the way sign-in will, and leaves no trace", () => {
+    // Full of someone else's data: no amount of draft eviction helps.
+    const full = fakeStorage({ "another-app": "y".repeat(9_900) }, 10_000);
+    expect(probeSessionPersistence(full.storage)).toBe(
+      SIGN_IN_WILL_NOT_PERSIST_MESSAGE,
+    );
+    expect([...full.map.keys()]).toEqual(["another-app"]);
+
+    // Full of drafts: the probe makes the room sign-in would have made.
+    const drafts = fakeStorage({}, 9_000);
+    drafts.map.set(draftKeyFor("old"), draft(4_000, 2_000));
+    drafts.map.set(draftKeyFor("new"), draft(4_000, 1_000));
+    expect(probeSessionPersistence(drafts.storage)).toBeNull();
+    expect(drafts.map.has(draftKeyFor("old"))).toBe(false);
+    expect(drafts.map.has(draftKeyFor("new"))).toBe(true);
+    expect([...drafts.map.keys()].some((key) => key.endsWith(".probe"))).toBe(
+      false,
+    );
+
+    // Private mode / blocked storage: a warning, never an exception.
+    const blocked: SessionStorageLike = {
+      getItem: () => null,
+      setItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+      removeItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+    };
+    expect(probeSessionPersistence(blocked)).toBe(
+      SIGN_IN_WILL_NOT_PERSIST_MESSAGE,
+    );
+  });
+
+  it("a non-quota refusal (storage switched off) evicts no drafts", () => {
+    const { storage, map } = fakeStorage();
+    map.set(draftKeyFor("keep-me"), draft(10, 0));
+    const blocked: SessionStorageLike = {
+      ...storage,
+      get length() {
+        return storage.length;
+      },
+      key: storage.key,
+      setItem: () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+    };
+    const store = createSessionStore(blocked, NOW);
+    store.getState().signIn("tok-s", USER);
+    expect(store.getState().persistError).toBe(SESSION_NOT_PERSISTED_MESSAGE);
+    expect(map.has(draftKeyFor("keep-me"))).toBe(true);
+  });
+
+  it("app start sweeps expired drafts before anything needs the room", () => {
+    const { storage, map } = fakeStorage({
+      [draftKeyFor("stale")]: draft(10, DRAFT_MAX_AGE_MS + 1),
+      [draftKeyFor("fresh")]: draft(10, 1_000),
+      "loft.preferences.v1": '{"unit":"mm"}',
+    });
+    createSessionStore(storage, NOW);
+    expect(map.has(draftKeyFor("stale"))).toBe(false);
+    expect(map.has(draftKeyFor("fresh"))).toBe(true);
+    expect(map.get("loft.preferences.v1")).toBe('{"unit":"mm"}');
   });
 });

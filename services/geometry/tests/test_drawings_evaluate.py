@@ -31,7 +31,7 @@ from geometry.drawings.project import ViewProjectionError, project_view
 from geometry.features import evaluate_tree
 from geometry.kernel.edges import edge_signature_dto
 from geometry.main import app
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     DiameterDimensionParams,
     DrawingDimensionInput,
     EdgeLengthMeasurement,
@@ -41,13 +41,13 @@ from py_kit.schemas.drawings import (
     ViewProjection,
     ViewScale,
 )
-from py_kit.schemas.features import (
+from loft_wire.features import (
     EdgeSignature,
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
     SketchFeature,
 )
-from py_kit.schemas.geometry import Vec3
+from loft_wire.geometry import Vec3
 
 #: Documented per-model tolerance (mm) — the projected coordinates come straight
 #: off the exact B-rep through OCCT HLR with no tessellation, so residuals are

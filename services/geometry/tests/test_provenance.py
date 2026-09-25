@@ -20,18 +20,22 @@ import struct
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from build123d import Compound, Face, GeomType, Solid
 from fastapi.testclient import TestClient
+from geometry.features import evaluate as evaluate_module
 from geometry.features import evaluate_tree
+from geometry.features.evaluate import rebuild_cache_stats, reset_rebuild_cache
 from geometry.kernel import FaceProvenance, attribute_faces, provenance
 from geometry.kernel.provenance import FaceFingerprint
 from geometry.kernel.types import BodyShape
 from geometry.main import app
-from py_kit.schemas.features import EvaluateTreeRequest
-from py_kit.schemas.overlay import OverlayRequest, OverlayResult
+from geometry.overlay import evaluate_overlay
+from geometry.rebuild_cache import REBUILD_CACHE_CAPACITY, RUNG_SPACING, PrefixCache
+from loft_wire.features import EvaluateTreeRequest
+from loft_wire.overlay import OverlayRequest, OverlayResult
 
 client = TestClient(app)
 
@@ -158,7 +162,6 @@ def test_hole_wall_attributes_to_hole_base_faces_to_extrude() -> None:
     plate top. Fusion and SolidWorks light the bore wall; so does this now."""
     evaluation = evaluate_tree(
         EvaluateTreeRequest.model_validate(_block_and_hole_tree()),
-        record_history=True,
     )
     assert evaluation.body is not None
     # Two body-affecting features → two snapshots, earliest first.
@@ -192,8 +195,8 @@ def test_hole_wall_attributes_to_hole_base_faces_to_extrude() -> None:
 def test_attribution_is_deterministic() -> None:
     """Same tree → identical attribution (RESEARCH §9)."""
     tree = EvaluateTreeRequest.model_validate(_block_and_hole_tree())
-    first = evaluate_tree(tree, record_history=True)
-    second = evaluate_tree(tree, record_history=True)
+    first = evaluate_tree(tree)
+    second = evaluate_tree(tree)
     assert first.body is not None and second.body is not None
     assert attribute_faces(first.body, first.face_provenance) == attribute_faces(
         second.body, second.face_provenance
@@ -214,38 +217,45 @@ def test_glb_has_one_primitive_per_brep_face() -> None:
     assert face_count == evaluation.result.properties.topology.faces
 
 
-# --- Cost: opt-in history, indexed matching, bounded work (audit H4) -------------
+# --- Cost: recorded everywhere, indexed matching, bounded work (audit H4) --------
 
 
-def test_only_an_opted_in_caller_records_face_provenance() -> None:
-    """AUDIT H4(a): recording face provenance is OPT-IN, so the eight non-overlay
-    `evaluate_tree` call sites (tessellate, export, measure, drawing compose,
-    per-instance assembly evaluation, the golden harness) stop paying a GProp area
-    + centroid per face per body-affecting feature they never read.
-
-    The evaluated GEOMETRY must be identical either way — the flag governs what is
-    KEPT, never what is built — so this asserts the default keeps nothing while the
-    mesh id (a content hash of the deterministic GLB) and mass properties match the
-    recording run byte for byte."""
+def test_recording_face_provenance_changes_nothing_that_is_built(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every evaluation records face provenance since PERF-REAL-3 (one cache
+    lineage, so a face pick resumes the checkpoint an ``/evaluate`` left). That
+    puts the recorder on EVERY rebuild path — tessellate, export, measure,
+    drawings, assemblies, the goldens — so it must only READ geometry: the same
+    tree with the recorder disabled has to produce the identical mesh (bytes and
+    content-addressed id) and mass properties. And the default must really record,
+    or this equality would hold vacuously."""
     tree = EvaluateTreeRequest.model_validate(_block_and_hole_tree())
-    plain = evaluate_tree(tree)
-    recording = evaluate_tree(tree, record_history=True)
-
-    assert plain.face_provenance.snapshots == ()  # nothing recorded on the hot path
+    recording = evaluate_tree(tree)
     assert [fid for fid, _fps in recording.face_provenance.snapshots] == [
         EXTRUDE_ID,
         HOLE_ID,
     ]
-    # Same geometry: same content-addressed mesh, same mass properties.
-    assert plain.result.mesh_glb_id == recording.result.mesh_glb_id
-    assert plain.result.properties == recording.result.properties
-    assert plain.glb == recording.glb
+
+    def record_nothing(
+        _recorder: provenance.FaceProvenanceRecorder,
+        _feature_id: uuid.UUID,
+        _shape: BodyShape,
+    ) -> None:
+        return None
+
+    reset_rebuild_cache()
+    monkeypatch.setattr(provenance.FaceProvenanceRecorder, "record", record_nothing)
+    silent = evaluate_tree(tree)
+    assert silent.face_provenance.snapshots == ()
+    assert silent.result.mesh_glb_id == recording.result.mesh_glb_id
+    assert silent.result.properties == recording.result.properties
+    assert silent.glb == recording.glb
 
 
-def test_the_overlay_endpoint_is_the_only_route_that_pays_for_history() -> None:
-    """The flag's wiring: `/api/v1/overlay` still returns full attribution (so the
-    opt-in did not silently disable the feature), while `/api/v1/evaluate` — the
-    tessellate hot path — is unaffected."""
+def test_the_overlay_carries_attribution_and_evaluate_does_not() -> None:
+    """The wiring: `/api/v1/overlay` returns full attribution, while the
+    `/api/v1/evaluate` response shape is unchanged (it never carried provenance)."""
     tree = _block_and_hole_tree()
     payload = OverlayRequest.model_validate({"tree": tree}).model_dump(mode="json")
     overlay = OverlayResult.model_validate(
@@ -269,12 +279,16 @@ def test_the_overlay_endpoint_is_the_only_route_that_pays_for_history() -> None:
 _BUILDERS_PATH = Path(__file__).resolve().parent / "_big_part_builders.py"
 
 
-def _tray_tree() -> EvaluateTreeRequest:
+def _housing(n: int) -> dict[str, Any]:
     spec = importlib.util.spec_from_file_location("_big_part_builders", _BUILDERS_PATH)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return EvaluateTreeRequest.model_validate(module.housing_tree(10))
+    return cast(dict[str, Any], module.housing_tree(n))
+
+
+def _tray_tree() -> EvaluateTreeRequest:
+    return EvaluateTreeRequest.model_validate(_housing(10))
 
 
 def _counting_fingerprint(
@@ -308,7 +322,7 @@ def test_the_attribution_pass_fingerprints_only_the_final_body(
     The fingerprints now arrive from evaluation, so the pass touches OCCT exactly
     once per face of the final body and never for a snapshot. Asserted as an
     equality, not a bound: one snapshot fingerprint here is the whole regression."""
-    evaluation = evaluate_tree(_tray_tree(), record_history=True)
+    evaluation = evaluate_tree(_tray_tree())
     assert evaluation.body is not None
     faces = len(evaluation.body.faces())
     recorded = evaluation.face_provenance.face_count
@@ -338,7 +352,7 @@ def test_the_recorder_memoises_the_faces_a_boolean_did_not_touch(
     into. Without the memo, recording would cost exactly the ``face_count`` the old
     pass cost — the same quadratic in a different place."""
     count = _counting_fingerprint(monkeypatch)
-    evaluation = evaluate_tree(_tray_tree(), record_history=True)
+    evaluation = evaluate_tree(_tray_tree())
     recorded = evaluation.face_provenance.face_count
 
     assert count() < recorded // 2, (
@@ -368,7 +382,7 @@ def test_the_memo_changes_what_is_computed_never_what_is_answered(
         real_record(self, feature_id, shape)
 
     monkeypatch.setattr(provenance.FaceProvenanceRecorder, "record", stashing)
-    evaluation = evaluate_tree(_tray_tree(), record_history=True)
+    evaluation = evaluate_tree(_tray_tree())
     assert evaluation.body is not None
     monkeypatch.undo()
 
@@ -381,6 +395,118 @@ def test_the_memo_changes_what_is_computed_never_what_is_answered(
     assert attribute_faces(evaluation.body, replayed) == attribute_faces(
         evaluation.body, evaluation.face_provenance
     )
+
+
+# --- PERF-REAL-3 follow-up: fingerprints are LAZY, and a pick pays for them once --
+
+
+def test_an_evaluation_nobody_picks_from_spends_no_fingerprints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every evaluation RECORDS its history (one cache lineage, PERF-REAL-3), and
+    recording eagerly cost 5.6-11.4 % of a cold rebuild. So recording only notes
+    which faces each snapshot holds; the GProps wait for the first reader. An
+    ``/evaluate``, ``/tessellate`` or export that never reads provenance must spend
+    ZERO fingerprints (this tree is shorter than a ladder rung, so no fork forces
+    any), and the first read must then spend them — or this would pass on a tree
+    that simply had no history."""
+    count = _counting_fingerprint(monkeypatch)
+    evaluation = evaluate_tree(
+        EvaluateTreeRequest.model_validate(_block_and_hole_tree())
+    )
+    assert count() == 0, (
+        f"an evaluation nobody read provenance from spent {count()} fingerprints — "
+        "recording is eager again"
+    )
+    history = evaluation.face_provenance
+    assert len(history.snapshots) == 2
+    assert count() > 0, "the first read materialises the fingerprints"
+
+
+def test_a_pick_materialises_once_and_the_next_pick_is_free(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The first ``/overlay`` of a checkpoint fingerprints its distinct faces and
+    leaves them ON the checkpoint; the next pick of the same tree (a frontier hit)
+    must spend nothing — neither on the history nor on the final body, whose faces
+    ARE the last snapshot's (``face_owners`` reads them from the recorder rather
+    than re-running a GProp per final face, the ~0.43 s a gearbox hit used to pay).
+    """
+    request = OverlayRequest.model_validate({"tree": _tray_tree().model_dump()})
+    evaluate_tree(request.tree)  # the open: records, fingerprints nothing
+    count = _counting_fingerprint(monkeypatch)
+
+    first = evaluate_overlay(request)
+    spent = count()
+    assert spent > 0, "the first pick is the one that materialises"
+    assert all(face.feature_id is not None for face in first.faces)
+
+    second = evaluate_overlay(request)
+    assert count() == spent, (
+        f"the second pick of the same checkpoint spent {count() - spent} "
+        "fingerprints — the materialised history was not kept on it"
+    )
+    assert second == first
+
+
+def test_a_ladder_rung_does_not_refingerprint_the_live_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rung forks every shape, so after it no face has the identity it was
+    recorded under. Without re-anchoring, the next snapshot would fingerprint the
+    whole body again as strangers — 5 946 GProps on the N=200 tray, most of them
+    the same faces. The fork re-anchors each live face on its copy, so a tree that
+    passes several rungs spends EXACTLY what the same tree spends with no ladder at
+    all: one GProp per distinct face, and the same answer."""
+    request = EvaluateTreeRequest.model_validate(_housing(3 * RUNG_SPACING + 2))
+
+    def spend() -> tuple[int, FaceProvenance]:
+        count = _counting_fingerprint(monkeypatch)
+        evaluation = evaluate_tree(request)
+        history = evaluation.face_provenance
+        spent = count()
+        monkeypatch.undo()
+        return spent, history
+
+    laddered, with_ladder = spend()
+    reset_rebuild_cache()
+    ladderless: PrefixCache[Any] = PrefixCache(
+        REBUILD_CACHE_CAPACITY, rung_spacing=10**6
+    )
+    monkeypatch.setattr(evaluate_module, "_REBUILD_CACHE", ladderless)
+    flat, without_ladder = spend()
+
+    assert flat > 0
+    assert laddered == flat, (
+        f"{laddered} fingerprints through 3 rungs against {flat} with no ladder — "
+        "a fork is re-fingerprinting faces it should have re-anchored"
+    )
+    assert with_ladder == without_ladder
+
+
+def test_the_materialised_history_counts_in_the_byte_budget() -> None:
+    """A pick grows the checkpoint (it now carries every fingerprint), and the
+    rebuild cache's byte budget has to see that growth — the checkpoint is
+    re-weighed on every store, and the delta is exactly the recorder's own
+    estimate of what it materialised."""
+    tree = _tray_tree()
+    evaluation = evaluate_tree(tree)
+    recorded = evaluation.provenance_recorder
+    assert recorded is not None
+    before_nbytes = recorded.nbytes()
+    del evaluation, recorded
+    before = rebuild_cache_stats().entry_bytes
+
+    evaluation = evaluate_tree(tree)  # a frontier hit: the same checkpoint
+    assert all(owner is not None for owner in evaluation.face_owners())
+    recorder = evaluation.provenance_recorder
+    assert recorder is not None
+    grown = recorder.nbytes() - before_nbytes
+    del evaluation, recorder
+    after = rebuild_cache_stats().entry_bytes
+
+    assert grown >= provenance.HEAP_BYTES_PER_FINGERPRINT
+    assert after - before == grown
 
 
 def test_an_over_budget_tree_spends_no_fingerprints_at_all(

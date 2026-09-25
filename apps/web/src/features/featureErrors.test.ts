@@ -59,6 +59,32 @@ describe("friendlyFeatureError", () => {
     );
   });
 
+  it("humanises the twisted-extrude refusal, naming the controls that fix it", () => {
+    // The kernel's message carries the numbers and the invariant it broke;
+    // the copy drops the jargon and names the two controls that cure it.
+    const copy = friendlyFeatureError(
+      "twist_failed",
+      "A 3600 deg twist over 30 mm did not sweep cleanly (its volume is not profile area x distance); reduce the twist angle or lengthen the extrusion.",
+      "extrude",
+    );
+    expect(copy).not.toMatch(/deg twist over|profile area x distance/);
+    expect(copy).toMatch(/reduce the twist/i);
+    // The server's message is the fallback only for codes with no copy.
+    expect(friendlyFeatureError("twist_failed", "raw")).toBe(copy);
+  });
+
+  it("advises what cures the kernel's cost refusal: fewer turns or fewer edges (F4)", () => {
+    // Since 4c49218 the commonest twist_failed is the pre-sweep cost guard
+    // ("...too many turns for this profile to build in reasonable time...;
+    // reduce the twist angle or give the profile fewer edges"). Its cost is in
+    // turns and edges and "distance barely moves the cost" (design note §6.1),
+    // so the copy must not send the user to lengthen the extrude.
+    const copy = friendlyFeatureError("twist_failed", "raw", "extrude");
+    expect(copy).toMatch(/fewer edges/i);
+    expect(copy).toMatch(/too many turns/i);
+    expect(copy).not.toMatch(/lengthen/i);
+  });
+
   it("keys profile_not_closed copy on the feature type (FINDINGS #13)", () => {
     // An open-profile EXTRUDE must not read revolve axis advice.
     const extrude = friendlyFeatureError(

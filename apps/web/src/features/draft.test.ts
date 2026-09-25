@@ -178,6 +178,8 @@ describe("formFromDraftParams / pickedFacesFromDraftParams", () => {
     expect(formFromDraftParams(params, "mm")).toEqual({
       angleInput: "-7.5",
       neutral: { base: "YZ", offsetInput: "12", flip: true },
+      // Carried so a no-op Save sends every stored number back exactly.
+      stored: params,
     });
   });
 

@@ -35,7 +35,7 @@ from fastapi.testclient import TestClient
 from geometry.drawings import evaluate_drawing_views, place_sheet
 from geometry.drawings.compose import STANDARD_VIEWS
 from geometry.main import app
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     ComposedDimensionError,
     ComposedMeasuredDimension,
     ComposeDrawingRequest,

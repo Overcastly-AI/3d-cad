@@ -14,7 +14,7 @@
  * WHY THIS IS NOT A SECOND SOURCE OF TRUTH (CLAUDE.md DRY rule). The server's
  * reorder check reads `feature_dependencies` — the edges documents materialises
  * from `feature_references()`. That function is itself *self-checked against*
- * py-kit's generic `iter_feature_refs` walk ("if a schema gains a ref-bearing
+ * loft_wire's generic `iter_feature_refs` walk ("if a schema gains a ref-bearing
  * field this mapping misses, the mismatch raises"), and every ref kind
  * (`FeatureRef` / `SubshapeRef` / `EdgeSubshapeRef`) joins the graph by exactly
  * one field: `feature_id`. So the edge SET is, by the server's own invariant,

@@ -553,28 +553,65 @@ test.describe("hole — founder screenshots", () => {
    * the right rail; it used to sit at the left editor inset). The founder shot
    * only needs a populated face chip, not a specific face, so the reliable rule
    * is "whichever pick node the panel is not sitting on".
+   *
+   * ONLY AMONG MARKS THE POINTER CAN REACH (board #76). A face behind the
+   * body — the box's left wall or its underside in this view — now says so:
+   * its mark is drawn as a dashed hidden line, carries `data-buried="true"`
+   * and takes no pointer. "Furthest from the card" used to land on exactly
+   * such a face (the far-left wall), and the old click succeeded only because
+   * the mark lied about where its face was. So the seat pass is waited out
+   * by its own stamp, the candidates are the LIVE marks, and the click is a
+   * real `page.mouse.click` at the mark's centre after `elementFromPoint`
+   * has proved the mark is what a user's pointer would hit there.
    */
   async function clickUnoccludedFace(page: Page): Promise<void> {
     const nodes = page.locator('[data-testid^="plane-pick-face-"]');
     await expect(nodes.first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("viewport")).toHaveAttribute(
+      "data-face-mark-seats",
+      "settled",
+      { timeout: 90_000 },
+    );
+    const live = page.locator(
+      '[data-testid^="plane-pick-face-"][data-buried="false"]',
+    );
+    const liveCount = await live.count();
+    expect(
+      liveCount,
+      "at least one face must be in front of the body and reachable",
+    ).toBeGreaterThan(0);
     const card = await page.getByTestId("hole-editor-shell").boundingBox();
     const cardCentre =
       card === null
         ? { x: 0, y: 0 }
         : { x: card.x + card.width / 2, y: card.y + card.height / 2 };
-    const count = await nodes.count();
+    let best: { id: string; x: number; y: number } | null = null;
     let bestScore = -Infinity;
-    let bestIndex = 0;
-    for (let i = 0; i < count; i += 1) {
-      const box = await nodes.nth(i).boundingBox();
+    for (let i = 0; i < liveCount; i += 1) {
+      const box = await live.nth(i).boundingBox();
       if (box === null) continue;
       const score = Math.hypot(box.x - cardCentre.x, box.y - cardCentre.y);
       if (score > bestScore) {
         bestScore = score;
-        bestIndex = i;
+        best = {
+          id: (await live.nth(i).getAttribute("data-testid")) ?? "?",
+          x: box.x + box.width / 2,
+          y: box.y + box.height / 2,
+        };
       }
     }
-    await nodes.nth(bestIndex).click();
+    if (best === null) throw new Error("no live face mark has a box");
+    const { id, x, y } = best;
+    const hit = await page.evaluate(
+      ({ x, y }) =>
+        document
+          .elementFromPoint(x, y)
+          ?.closest("[data-testid]")
+          ?.getAttribute("data-testid") ?? null,
+      { x, y },
+    );
+    expect(hit, `a real pointer at ${id}'s centre must reach ${id}`).toBe(id);
+    await page.mouse.click(x, y);
   }
 
   test("hole authoring (desktop 1440×900)", async ({ page }) => {

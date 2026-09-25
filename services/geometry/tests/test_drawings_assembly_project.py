@@ -34,7 +34,7 @@ from typing import Any
 
 import pytest
 from geometry.drawings import evaluate_assembly_drawing_views, evaluate_drawing_views
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     EvaluateAssemblyDrawingViewsRequest,
     EvaluateDrawingViewsRequest,
     ProjectedViewEdge,
@@ -721,7 +721,7 @@ def test_two_flush_boxes_share_one_edge_no_doubling() -> None:
 _RESTART_PROBE = """
 import sys, uuid
 from geometry.drawings import evaluate_assembly_drawing_views
-from py_kit.schemas.drawings import EvaluateAssemblyDrawingViewsRequest
+from loft_wire.drawings import EvaluateAssemblyDrawingViewsRequest
 def U(n):
     return str(uuid.UUID(int=n))
 def L(i, a, b):

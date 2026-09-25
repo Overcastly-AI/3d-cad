@@ -26,21 +26,28 @@
 import { useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  BufferGeometry,
-  EdgesGeometry,
-  ExtrudeGeometry,
+  type BufferGeometry,
   LineBasicMaterial,
   MeshMatcapMaterial,
-  Path,
-  Shape,
-  Vector2,
 } from "three";
 
-import type { ExtrudeDirection, ExtrudeOperation } from "../features/extrude";
+import {
+  MAX_TWIST_DEG,
+  type ExtrudeDirection,
+  type ExtrudeOperation,
+} from "../features/extrude";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { SolvedSketchLayer } from "./SketchScene";
+import { twistGaugeTrack } from "./axisAnchorGauge";
 import { ExtrudeDragHandle } from "./ExtrudeDragHandle";
-import { extrudeGhostAppearance, extrudeGhostPose } from "./extrudeGhost";
+import {
+  buildGhostRegion,
+  extrudeGhostAppearance,
+  extrudeGhostPose,
+  twistArcSeat,
+} from "./extrudeGhost";
+import { ANNOTATION_LAYER } from "./instruments";
+import { ParametricGauge } from "./ParametricGauge";
 import { profileRegions } from "./profileLoops";
 import { studioMatcap } from "./studioMatcap";
 
@@ -63,6 +70,19 @@ export interface ExtrudePreviewProps {
    * which is what every caller had before and what a read-only preview wants.
    */
   onDepthChange?: (mm: number) => void;
+  /**
+   * Signed twist over the whole distance, degrees (helical-gear gap G1); 0 or
+   * absent is a straight prism. The ghost turns the way Save will: right-handed
+   * about the direction of travel, about `twistCentre`.
+   */
+  twistDeg?: number;
+  /** The twist axis's sketch point; null or absent is the sketch origin. */
+  twistCentre?: { x: number; y: number } | null;
+  /**
+   * Set the twist by DIRECT MANIPULATION: an arc on the far cap, the Twist
+   * field's drag handle (contract β, like `onDepthChange`). Absent = no arc.
+   */
+  onTwistChange?: (deg: number) => void;
 }
 
 /** Rebuild the ghost mesh at most this often while the distance changes. */
@@ -104,45 +124,75 @@ export function ExtrudePreview({
   direction,
   operation,
   onDepthChange,
+  twistDeg = 0,
+  twistCentre = null,
+  onTwistChange,
 }: ExtrudePreviewProps) {
   const invalidate = useThree((state) => state.invalidate);
   const unit = useDocumentLengthUnit();
   const depth = useThrottled(distanceMm, PREVIEW_REBUILD_MS);
+  // Throttled like the depth, for the depth's reason: the twist arc is dragged.
+  const twist = useThrottled(twistDeg, PREVIEW_REBUILD_MS);
+  const centreX = twistCentre?.x ?? 0;
+  const centreY = twistCentre?.y ?? 0;
 
   // The profile → solid regions depend only on the geometry, not the depth.
   const regions = useMemo(() => profileRegions(layer.entities), [layer]);
 
-  // One extruded BufferGeometry per region, in local plane (u,v,+normal) space.
-  const geometries = useMemo<BufferGeometry[]>(() => {
-    if (depth <= 0) return [];
-    const reverse = direction === "reverse";
-    return regions.map((region) => {
-      const shape = new Shape(region.outer.map((p) => new Vector2(p.x, p.y)));
-      shape.holes = region.holes.map(
-        (hole) => new Path(hole.map((p) => new Vector2(p.x, p.y))),
-      );
-      const geometry = new ExtrudeGeometry(shape, {
-        depth,
-        bevelEnabled: false,
-        steps: 1,
-      });
-      // ExtrudeGeometry sweeps toward local +Z (the plane normal). A reverse
-      // extrude sweeps toward −normal, so slide the solid back by its depth.
-      if (reverse) geometry.translate(0, 0, -depth);
-      return geometry;
-    });
-  }, [regions, depth, direction]);
+  // One extruded BufferGeometry per region, in local plane (u,v,+normal) space,
+  // and the ink over each.
+  const { geometries, edges } = useMemo<{
+    geometries: BufferGeometry[];
+    edges: BufferGeometry[];
+  }>(() => {
+    if (depth <= 0) return { geometries: [], edges: [] };
+    // The build (rings, a vertex budget, ink found on a one-step prism, the
+    // twist) is the pure seam in `extrudeGhost`, so its cost is a node test.
+    const built = regions.map((region) =>
+      buildGhostRegion(region, depth, direction, twist, {
+        x: centreX,
+        y: centreY,
+      }),
+    );
+    return {
+      geometries: built.map((b) => b.mesh),
+      edges: built.map((b) => b.edges),
+    };
+  }, [regions, depth, direction, twist, centreX, centreY]);
+
+  // The twist arc's seat and track, from the LIVE depth (the depth gauge's
+  // reason: the arc stays on the cap under the pointer, not a frame behind).
+  const twistSeat = useMemo(
+    () =>
+      onTwistChange === undefined
+        ? null
+        : twistArcSeat(
+            layer.basis,
+            regions,
+            { x: centreX, y: centreY },
+            distanceMm,
+            direction,
+          ),
+    [
+      onTwistChange,
+      layer.basis,
+      regions,
+      centreX,
+      centreY,
+      distanceMm,
+      direction,
+    ],
+  );
+  const twistTrack = useMemo(
+    () => (twistSeat === null ? null : twistGaugeTrack(twistSeat)),
+    [twistSeat],
+  );
 
   // How this operation is shaded — the pure seam below the renderer, so "a cut
   // never reads as added metal" is unit-testable without a GPU.
   const appearance = useMemo(
     () => extrudeGhostAppearance(operation),
     [operation],
-  );
-
-  const edges = useMemo(
-    () => geometries.map((geometry) => new EdgesGeometry(geometry, 25)),
-    [geometries],
   );
 
   // Orient local plane space onto the sketch basis — the pure seam beside the
@@ -231,6 +281,28 @@ export function ExtrudePreview({
           unit={unit}
           onDepthChange={onDepthChange}
         />
+      ) : null}
+      {onTwistChange !== undefined && twistTrack !== null ? (
+        // An ANNOTATION to the proposal, not part of it. The arc stands a fifth
+        // outside the profile's reach from the twist axis, so counted in the
+        // proposal box it grew the box past the body on every open extrude,
+        // even at twist 0, and CRAFT-12's keep-in-frame watch re-fitted the
+        // camera ("fit-proposal") when nothing had been proposed
+        // (viewport-makeover:129). The ghost it turns IS the proposal, and it
+        // is already in the box.
+        <group userData={ANNOTATION_LAYER}>
+          <ParametricGauge
+            label="Extrude twist"
+            tagLabel="T"
+            gaugeId="extrude-twist"
+            value={twistDeg}
+            onChange={onTwistChange}
+            track={twistTrack}
+            min={-MAX_TWIST_DEG}
+            max={MAX_TWIST_DEG}
+            // No `tagUnit`: the angle wears its degree sign (`formatAngle`).
+          />
+        </group>
       ) : null}
     </>
   );

@@ -29,9 +29,8 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, Request, status
-from py_kit import ValidationApiError
-from py_kit.schemas.assemblies import ASSEMBLY_NAME_MAX_LENGTH
-from py_kit.schemas.features import (
+from loft_wire.assemblies import ASSEMBLY_NAME_MAX_LENGTH
+from loft_wire.features import (
     FEATURE_NAME_MAX_LENGTH,
     MAX_INLINE_STEP_CHARS,
     FeatureCreate,
@@ -39,13 +38,14 @@ from py_kit.schemas.features import (
     ImportFeature,
     ImportParamsV1,
 )
-from py_kit.schemas.step_import import (
+from loft_wire.step_import import (
     MAX_IMPORT_ASSEMBLY_PRODUCTS,
     ImportAssemblyRequest,
     StepAssemblyImportRequest,
     StepAssemblyImportResult,
     StepImportResponse,
 )
+from py_kit import ValidationApiError
 from pydantic import TypeAdapter
 
 from gateway.affinity import forward_geometry

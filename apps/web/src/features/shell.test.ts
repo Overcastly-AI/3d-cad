@@ -143,8 +143,15 @@ describe("formFromShellParams / pickedFacesFromShellParams", () => {
   };
 
   it("seeds the form thickness as trimmed text", () => {
-    expect(formFromShellParams(sealed, "mm")).toEqual({ thicknessInput: "3" });
-    expect(formFromShellParams(open, "mm")).toEqual({ thicknessInput: "2.5" });
+    // `stored` is carried so a no-op Save sends every stored number back.
+    expect(formFromShellParams(sealed, "mm")).toEqual({
+      thicknessInput: "3",
+      stored: sealed,
+    });
+    expect(formFromShellParams(open, "mm")).toEqual({
+      thicknessInput: "2.5",
+      stored: open,
+    });
   });
 
   it("seeds no picked faces from a sealed shell", () => {

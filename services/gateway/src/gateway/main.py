@@ -28,6 +28,11 @@ from py_kit.ratelimit import RateLimiter
 from gateway.affinity import parse_worker_urls
 from gateway.assemblies import router as assemblies_router
 from gateway.auth import auth_router, resolve_auth_config
+from gateway.auth.security import (
+    DEFAULT_AUTH_RATE_LIMIT_REQUESTS,
+    DEFAULT_SESSION_IDLE_TTL_S,
+    DEFAULT_SESSION_MAX_AGE_S,
+)
 from gateway.drawings import router as drawings_router
 from gateway.features import router as features_router
 from gateway.folders import assemblies_router as folder_assemblies_router
@@ -48,7 +53,9 @@ VERSION = "0.1.0"
 #: Readiness-probe budget — a quick "is geometry there?" ping, not a real call.
 READINESS_PROBE_TIMEOUT_S = 2.0
 
-#: Default access-token lifetime (1 h) — overridable via ``JWT_TTL_S``.
+#: Default access-token lifetime (1 h) — overridable via ``JWT_TTL_S``. The
+#: SESSION lives far longer: the browser renews this token from its refresh
+#: cookie (``/api/v1/auth/refresh``), see :mod:`gateway.auth.security`.
 DEFAULT_TOKEN_TTL_S = 3600
 
 
@@ -81,6 +88,16 @@ class GatewaySettings(BaseServiceSettings):
     # repo-public dev constant.
     jwt_secret: str | None = None  # env: JWT_SECRET (>= 32 chars when set)
     jwt_ttl_s: int = DEFAULT_TOKEN_TTL_S  # env: JWT_TTL_S
+    #: Sliding window of a refresh token, seconds (>= JWT_TTL_S, enforced).
+    session_idle_ttl_s: int = DEFAULT_SESSION_IDLE_TTL_S  # env: SESSION_IDLE_TTL_S
+    #: Absolute session bound, seconds (>= SESSION_IDLE_TTL_S, enforced).
+    session_max_age_s: int = DEFAULT_SESSION_MAX_AGE_S  # env: SESSION_MAX_AGE_S
+    #: Budget of register/login/refresh per client address per
+    #: RATE_LIMIT_WINDOW_S; separate from the per-user compute budget
+    #: (RATE_LIMIT_REQUESTS). See gateway.auth.security.
+    auth_rate_limit_requests: int = (
+        DEFAULT_AUTH_RATE_LIMIT_REQUESTS  # env: AUTH_RATE_LIMIT_REQUESTS
+    )
 
 
 def build_app(
@@ -111,6 +128,9 @@ def build_app(
         loft_env=settings.loft_env,
         jwt_secret=settings.jwt_secret,
         token_ttl_s=settings.jwt_ttl_s,
+        session_idle_ttl_s=settings.session_idle_ttl_s,
+        session_max_age_s=settings.session_max_age_s,
+        rate_limit_requests=settings.auth_rate_limit_requests,
     )
     database = DatabaseState()
 

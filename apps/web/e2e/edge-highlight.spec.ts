@@ -40,6 +40,7 @@ import { seedShaftCoupling } from "./partSeed";
 import {
   createPartViaApi,
   distinctCanvasColors,
+  expectSeatsSettled,
   seedSession,
   waitForFrames,
 } from "./support";
@@ -381,6 +382,16 @@ test.describe("SEL-8 — the hovered edge is drawn, not just recorded", () => {
     // The junction's ordinal, read while the fillet marks still carry the
     // coordinates in their names — the measure marks are named "Edge N, circle"
     // with no coordinates, so it cannot be looked up over there.
+    //
+    // Both mark readings below are taken with the SEAT PASS SETTLED, named out
+    // loud: each overlay seats its marks over a rotating per-frame budget, and
+    // a mark read mid-pass sits wherever the pass had got to — so without the
+    // settle this comparison is two readings in two unknown states. (Board
+    // #76 measured this line doing its real job: the seat stamp read
+    // `settled` while the measure mark for this ordinal was still drawn at its
+    // mid-span fallback, 93 px from the seat already published — the stamp
+    // now waits for the seats to reach the screen, `SEAT_CONFIRM_FRAMES`.)
+    await expectSeatsSettled(page, "fillet marks");
     const junction = await junctionEdgeIndex(page);
     const filletMark = (await markBoxes(page, "edge-pick-")).find(
       (b) => b.id === `edge-pick-${junction}`,
@@ -403,6 +414,7 @@ test.describe("SEL-8 — the hovered edge is drawn, not just recorded", () => {
     // its mark in the same place; if that ever stops being true this test is
     // pointing at a different edge and should say so instead of measuring the
     // wrong one quietly.
+    await expectSeatsSettled(page, "measure marks");
     const measureMark = (await markBoxes(page, "measure-edge-")).find(
       (b) => b.id === `measure-edge-${junction}`,
     );

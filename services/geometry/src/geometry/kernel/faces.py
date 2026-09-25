@@ -52,7 +52,7 @@ of an authored part never collide, and loose enough to absorb kernel jitter.
 
 The OCP wheel ships no type stubs, so the raw build123d/OCCT geometry calls are
 opaque to pyright; the directives scope that relaxation to this file only, and
-the fully-typed :class:`~py_kit.schemas.features.PlanarFaceSignature` DTO keeps
+the fully-typed :class:`~loft_wire.features.PlanarFaceSignature` DTO keeps
 the boundary honest.
 """
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
@@ -63,9 +63,10 @@ import math
 from dataclasses import dataclass
 
 from build123d import CenterOf, Face, GeomType, Plane, Vector, Wire
-from py_kit.schemas.features import PlanarFaceSignature
-from py_kit.schemas.geometry import Vec3
+from loft_wire.features import PlanarFaceSignature
+from loft_wire.geometry import Vec3
 
+from geometry.kernel.resolution import ResolutionTally, face_tier
 from geometry.kernel.types import BodyShape
 
 #: The intended face is bit-for-bit identical on a clean rebuild, so a match is
@@ -727,7 +728,7 @@ def inferred_enclosing_match(
     return region.is_inside(projected, tolerance=_CENTROID_TOL_MM)
 
 
-def _match_face_records(
+def match_face_records(
     records: list[PlanarFaceRecord], target: PlanarFaceSignature
 ) -> tuple[list[PlanarFaceRecord], bool]:
     """The four-tier planar-face match shared by both resolvers (CLAUDE.md DRY).
@@ -768,7 +769,9 @@ def _match_face_records(
     (:func:`resolve_face_plane`, whose plane origin is the centroid) must re-anchor
     rather than adopt it — otherwise the resilience would silently TRANSLATE every
     sketch seated on that face (audit regression A). Consumers that only need the
-    :class:`Face` itself (:func:`resolve_faces`) ignore it.
+    :class:`Face` itself (:func:`resolve_faces`) need not re-anchor, but both
+    resolvers REPORT it to a :class:`~geometry.kernel.resolution.ResolutionTally`
+    (EDGE-RESOLVE-WARN-1), because a resilient match is a best-effort one.
 
     ORDER IS THE SAFETY PROPERTY. Each tier runs ONLY on an empty result from the one
     above, so adding a tier can only turn an ``unresolved`` into a resolution or an
@@ -824,12 +827,16 @@ def _anchored_plane(plane: Plane, target: PlanarFaceSignature) -> Plane:
 
 
 def resolve_face_plane(
-    body: BodyShape, target: PlanarFaceSignature, offset_mm: float
+    body: BodyShape,
+    target: PlanarFaceSignature,
+    offset_mm: float,
+    *,
+    tally: ResolutionTally | None = None,
 ) -> Plane:
     """Resolve a stage-1 face signature to its planar face's sketch plane.
 
     Matches *target* against the planar faces of *body* (:func:`planar_faces`) via
-    the four-tier :func:`_match_face_records` (strict signature, then a resilient
+    the four-tier :func:`match_face_records` (strict signature, then a resilient
     coplanar re-match — FINDINGS #3, then a translated re-match — QA-2, then an
     enclosing-face re-match on the outer boundary — GEOM-2/M17 §12a), requires
     EXACTLY ONE match (§7.2 — refuse to guess), and returns that face's deterministic
@@ -850,8 +857,11 @@ def resolve_face_plane(
             no longer exists after the rebuild).
         SubshapeAmbiguousError: two or more within tolerance (a congruent twin) —
             an honest error, never a coin flip (determinism, RESEARCH §9).
+
+    *tally*, when given, is told which tier resolved the face
+    (:mod:`geometry.kernel.resolution`) - only once it has resolved uniquely.
     """
-    matches, resilient = _match_face_records(planar_faces(body), target)
+    matches, resilient = match_face_records(planar_faces(body), target)
     if not matches:
         raise SubshapeUnresolvedError(
             "No planar face of the current body matches the stored face "
@@ -865,6 +875,8 @@ def resolve_face_plane(
             "tolerance; the reference is ambiguous (a congruent/symmetric face). "
             "Refusing to guess — pick a face without a congruent twin."
         )
+    if tally is not None:
+        tally.note(face_tier(resilient))
     plane = matches[0].plane
     if resilient:
         plane = _anchored_plane(plane, target)
@@ -877,7 +889,12 @@ def resolve_face_plane(
     )
 
 
-def resolve_faces(body: BodyShape, targets: list[PlanarFaceSignature]) -> list[Face]:
+def resolve_faces(
+    body: BodyShape,
+    targets: list[PlanarFaceSignature],
+    *,
+    tally: ResolutionTally | None = None,
+) -> list[Face]:
     """Resolve stage-1 face signatures to their planar :class:`Face`s.
 
     The picked-FACE sibling of :func:`geometry.kernel.edges._resolve_picked_edges`
@@ -894,14 +911,18 @@ def resolve_faces(body: BodyShape, targets: list[PlanarFaceSignature]) -> list[F
             referenced face no longer exists after the rebuild).
         SubshapeAmbiguousError: a target matches two or more within tolerance (a
             congruent twin) — an honest error, never a coin flip (RESEARCH §9).
+
+    *tally*, when given, is told which tier resolved each target
+    (:mod:`geometry.kernel.resolution`).
     """
     records = planar_faces(body)
     chosen: dict[int, Face] = {}
     for target in targets:
-        # The tier flag is irrelevant here: this resolver returns the kernel
-        # :class:`Face` itself, not a derived POSITION, so there is no origin to
-        # re-anchor (contrast :func:`resolve_face_plane`).
-        matches, _resilient = _match_face_records(records, target)
+        # The tier flag needs no re-anchoring here: this resolver returns the
+        # kernel :class:`Face` itself, not a derived POSITION, so there is no
+        # origin to move (contrast :func:`resolve_face_plane`). It is still
+        # REPORTED, because a resilient match is a best-effort one (§7.3).
+        matches, resilient = match_face_records(records, target)
         if not matches:
             raise SubshapeUnresolvedError(
                 "No planar face of the current body matches a picked face "
@@ -916,5 +937,7 @@ def resolve_faces(body: BodyShape, targets: list[PlanarFaceSignature]) -> list[F
                 "symmetric face). Refusing to guess — pick a face without a "
                 "congruent twin."
             )
+        if tally is not None:
+            tally.note(face_tier(resilient))
         chosen[matches[0].index] = matches[0].face
     return [chosen[index] for index in sorted(chosen)]

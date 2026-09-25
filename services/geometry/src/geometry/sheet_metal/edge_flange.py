@@ -10,7 +10,7 @@ quarter/partial annulus + the flange rectangle) in the plane perpendicular to th
 picked edge and sweeps it along the edge (``Solid.extrude`` along the straight
 bend axis — the same primitive :mod:`geometry.kernel.sweep` /
 :mod:`geometry.kernel.extrude` use), giving EXACT analytic cylindrical bend faces
-the :class:`~py_kit.schemas.features.CylindricalFaceSignature` matches to ulp
+the :class:`~loft_wire.features.CylindricalFaceSignature` matches to ulp
 scale. Sweeping the (thickness x width) profile along a curved OCCT spine was
 considered and rejected: build123d's relative-path sweep orientation is fragile
 and unnecessary when the exact cross-section is known in closed form, and a clean
@@ -38,7 +38,7 @@ import math
 from dataclasses import dataclass
 
 from build123d import CenterOf, Edge, Face, GeomType, Solid, Vector, Wire
-from py_kit.schemas.features import CylindricalFaceSignature, PlanarFaceSignature
+from loft_wire.features import CylindricalFaceSignature, PlanarFaceSignature
 
 from geometry.kernel.edges import edge_signature_dto
 from geometry.kernel.faces import face_signature_dto

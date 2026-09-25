@@ -20,10 +20,10 @@ from documents import db
 from documents.assemblies import create_instance
 from documents.main import DocumentsSettings, build_app
 from fastapi.testclient import TestClient
+from loft_wire.assemblies import InstanceCreate
+from loft_wire.parts import PRINCIPAL_HEADER
 from py_kit import ValidationApiError
 from py_kit.db import async_dsn, enable_sqlite_foreign_keys
-from py_kit.schemas.assemblies import InstanceCreate
-from py_kit.schemas.parts import PRINCIPAL_HEADER
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 OWNER = "6f3f6b64-0000-4000-8000-00000000000a"

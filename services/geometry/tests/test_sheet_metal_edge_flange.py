@@ -38,7 +38,7 @@ from geometry.sheet_metal import (
     SheetMetalDefaults,
     unfold_sheet_metal,
 )
-from py_kit.schemas.features import (
+from loft_wire.features import (
     BODY_AFFECTING_FEATURE_TYPES,
     FEATURE_REGISTRY,
     EvaluateTreeRequest,
@@ -217,7 +217,7 @@ from pathlib import Path
 
 from geometry.features.evaluate import evaluate_tree
 from geometry.sheet_metal import unfold_sheet_metal
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 request = EvaluateTreeRequest.model_validate_json(Path(sys.argv[1]).read_text("utf-8"))
 ev = evaluate_tree(request)
@@ -628,8 +628,8 @@ def test_split_base_moving_no_base_match_is_unfold_star_error() -> None:
         UnfoldStarError,
         _split_base_moving,  # pyright: ignore[reportPrivateUsage]
     )
-    from py_kit.schemas.features import PlanarFaceSignature
-    from py_kit.schemas.geometry import Vec3
+    from loft_wire.features import PlanarFaceSignature
+    from loft_wire.geometry import Vec3
 
     face = Box(1.0, 1.0, 1.0).faces()[0]  # a real (placeholder) planar Face
 

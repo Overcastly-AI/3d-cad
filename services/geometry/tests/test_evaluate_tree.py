@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 from geometry.features import FEATURE_HANDLERS, evaluate_tree
 from geometry.main import app
 from geometry.sketch import SketchEntity, SketchLine
-from py_kit.schemas.features import EvaluateTreeRequest, EvaluateTreeResult
+from loft_wire.features import EvaluateTreeRequest, EvaluateTreeResult
 
 client = TestClient(app)
 

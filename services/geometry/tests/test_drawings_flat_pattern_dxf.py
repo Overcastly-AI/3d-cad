@@ -38,12 +38,12 @@ from geometry.drawings import (
     serialize_flat_pattern_dxf,
 )
 from geometry.main import app
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     ComposedSheet,
     FlatPatternDxfRequest,
     flat_pattern_filename,
 )
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 _GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens-sheet-metal"
 

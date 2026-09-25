@@ -34,7 +34,7 @@ from typing import Any, cast
 import pytest
 from geometry.features import evaluate_tree
 from geometry.features.evaluate import reset_rebuild_cache
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 _BUILDERS_PATH = Path(__file__).resolve().parent / "_big_part_builders.py"
 

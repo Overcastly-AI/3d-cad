@@ -1,8 +1,6 @@
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
+
+import { readWireModule } from "../test/wireSource";
 
 import type {
   EdgeSignature,
@@ -458,40 +456,36 @@ describe("part sheet-metal state", () => {
   });
 });
 
-/**
- * The py-kit module the client's hem rule mirrors. Named by path deliberately:
- * if the schema module moves, this fails loudly instead of quietly guarding
- * nothing (the `thread.test.ts` idiom).
- */
-const PY_KIT_FEATURES = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../../../packages/py-kit/src/py_kit/schemas/features.py",
-);
-
-/** Read a module-level `NAME = <float>` constant out of the py-kit source. */
+/** Read a module-level `NAME = <float>` constant out of the wire source. */
 function pyConstant(source: string, name: string): number {
   const match = new RegExp(`^${name} = ([\\d.]+)$`, "m").exec(source);
-  expect(match, `py-kit constant ${name} not found`).not.toBe(null);
+  expect(match, `loft_wire constant ${name} not found`).not.toBe(null);
   return Number((match as RegExpExecArray)[1]);
 }
 
-describe("the hem radius rule mirrors py-kit", () => {
+describe("the hem radius rule mirrors loft_wire", () => {
   // HEM-1C's whole cause was a SECOND, drifted copy of this rule: the editor
   // hinted 0.5 x gauge for a closed hem — the OPEN ratio, and the one value the
   // evaluator refuses by name. The ratios are module constants behind
   // `resolve_hem_bend_radius_mm`, not schema fields, so the generated client
   // carries no wire value to read; this pin is what keeps the copy honest.
-  const source = readFileSync(PY_KIT_FEATURES, "utf8");
+  //
+  // LAZY, deliberately (2026-09-15). The read used to sit here in the describe
+  // body, so when `14f6e14` moved the schemas out of py-kit it threw at
+  // COLLECTION and this whole file stopped loading — the suite reported 2516
+  // passing AND exit 1, with nothing naming the cause. `src/test/wireSource.ts`
+  // owns the path now and reports a moved module as one legible failure.
+  const source = (): string => readWireModule("features");
 
-  it("uses py_kit's own ratios, not a hand-kept second opinion", () => {
+  it("uses loft_wire's own ratios, not a hand-kept second opinion", () => {
     expect(HEM_CLOSED_RADIUS_RATIO).toBe(
-      pyConstant(source, "HEM_CLOSED_RADIUS_RATIO"),
+      pyConstant(source(), "HEM_CLOSED_RADIUS_RATIO"),
     );
     expect(HEM_CLOSED_MAX_RADIUS_RATIO).toBe(
-      pyConstant(source, "HEM_CLOSED_MAX_RADIUS_RATIO"),
+      pyConstant(source(), "HEM_CLOSED_MAX_RADIUS_RATIO"),
     );
     expect(HEM_OPEN_RADIUS_RATIO).toBe(
-      pyConstant(source, "HEM_OPEN_RADIUS_RATIO"),
+      pyConstant(source(), "HEM_OPEN_RADIUS_RATIO"),
     );
   });
 
@@ -499,9 +493,10 @@ describe("the hem radius rule mirrors py-kit", () => {
     // The client says this BEFORE the rebuild, so it has to be the same rule:
     // a closed hem refuses a radius ABOVE the boundary, an open one BELOW it,
     // and the boundary itself belongs to both (the bands partition the line).
-    expect(source).toContain("if override_mm > boundary:");
-    expect(source).toContain("if override_mm < boundary:");
-    expect(source).toContain("boundary = HEM_CLOSED_MAX_RADIUS_RATIO");
+    const text = source();
+    expect(text).toContain("if override_mm > boundary:");
+    expect(text).toContain("if override_mm < boundary:");
+    expect(text).toContain("boundary = HEM_CLOSED_MAX_RADIUS_RATIO");
   });
 });
 

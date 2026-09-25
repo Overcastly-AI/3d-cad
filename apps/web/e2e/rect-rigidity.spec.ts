@@ -298,7 +298,28 @@ test.describe("RECT-1 — a rectangle drawn without a typed size is still a rect
     await clickPlane(page, at, { x: 20, y: 0 });
     await page.keyboard.press("d");
     const input = page.getByTestId("dimension-input");
-    await expect(input).toBeVisible();
+    // "element(s) not found" is TRUE of three different causes here, and they
+    // have three different fixes: the pick landed on NOTHING (D then arms the
+    // verb for the next click instead of opening a cell), it landed on the
+    // sketch FRAME (D refuses a datum target by name — `selectionTouchesDatum`),
+    // or the cell opened and closed again. The verdict block is the only
+    // channel into a red shard, and none of those states can be recovered after
+    // the run, so the discriminator is attached HERE. On the failure path only:
+    // a green run does not pay a round trip for it.
+    try {
+      await expect(input).toBeVisible();
+    } catch (failure) {
+      const selection = (
+        await page
+          .getByTestId("selection-readout")
+          .innerText()
+          .catch(() => "<absent>")
+      ).replace(/\s+/g, " ");
+      throw new Error(
+        `D opened no cell; selection was ${JSON.stringify(selection)}\n` +
+          (failure instanceof Error ? failure.message : String(failure)),
+      );
+    }
     await input.fill("40");
     await input.press("Enter");
     // Exactly ONE more than the draw left behind — the dimension just typed,

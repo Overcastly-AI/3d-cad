@@ -24,18 +24,17 @@ import pytest
 from fastapi.testclient import TestClient
 from gateway.db import Base
 from gateway.main import GatewaySettings, build_app
-from py_kit.db import async_dsn
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     AssemblyGraphResponse,
     AssemblyResponse,
     InstanceResponse,
     Placement,
     Quat,
 )
-from py_kit.schemas.geometry import Vec3
-from py_kit.schemas.materials import EMPTY_MATERIAL_ASSIGNMENT
-from py_kit.schemas.parts import PRINCIPAL_HEADER, PartResponse
-from py_kit.schemas.step_import import (
+from loft_wire.geometry import Vec3
+from loft_wire.materials import EMPTY_MATERIAL_ASSIGNMENT
+from loft_wire.parts import PRINCIPAL_HEADER, PartResponse
+from loft_wire.step_import import (
     MAX_IMPORT_ASSEMBLY_PRODUCTS,
     AssemblyImportResult,
     ImportAssemblyRequest,
@@ -44,6 +43,7 @@ from py_kit.schemas.step_import import (
     StepAssemblyImportRequest,
     StepAssemblyImportResult,
 )
+from py_kit.db import async_dsn
 from sqlalchemy.ext.asyncio import create_async_engine
 
 TEST_JWT_SECRET = "unit-test-jwt-secret-0123456789abcdef"

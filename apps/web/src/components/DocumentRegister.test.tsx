@@ -318,7 +318,7 @@ describe("DocumentRegister — what it reports", () => {
     // `updated_at` is 20 min old while the record is 3 days old: a client that
     // compared stamps would call this stale. The SERVER already folded the tree
     // versions and said `ok`, and that is what the register reports — the whole
-    // reason `eval_state` is derived server-side (py-kit `derive_part_eval_state`).
+    // reason `eval_state` is derived server-side (loft_wire `derive_part_eval_state`).
     renderRegister([
       {
         ...worked,

@@ -1,14 +1,10 @@
 import { PanelActionCell } from "@loft/design";
-import { useState } from "react";
 
-import {
-  downloadBlob,
-  type ExportedFile,
-  type ExportFormat,
-} from "../api/exportPart";
+import { type ExportedFile, type ExportFormat } from "../api/exportPart";
 import {
   EXPORT_FORMATS,
   type ExportFormatEntry,
+  useExportAction,
 } from "../features/exportAction";
 
 /** The catalogue in rows of two — the strip's 2x2 block (see the layout note). */
@@ -81,22 +77,10 @@ export function ExportRow({
   notice = null,
   state,
 }: ExportRowProps) {
-  const [busy, setBusy] = useState<ExportFormat | null>(null);
-  const [failed, setFailed] = useState<ExportFormat | null>(null);
+  // The band's state machine, not a copy of it: one download path and one
+  // table of failure copy for both export surfaces (MESH-TOO-DENSE-COPY-1).
+  const { busy, failed, failure, run } = useExportAction(exporter);
   const disabled = disabledReason !== undefined;
-
-  const handleExport = async (format: ExportFormat) => {
-    setBusy(format);
-    setFailed(null);
-    try {
-      const { blob, filename } = await exporter(format);
-      downloadBlob(blob, filename);
-    } catch {
-      setFailed(format);
-    } finally {
-      setBusy(null);
-    }
-  };
 
   const status = disabled
     ? disabledReason
@@ -152,19 +136,18 @@ export function ExportRow({
               // 2026-07-30 P2).
               disabledReason={disabledReason}
               data-testid={`${testIdPrefix}-${format}`}
-              onClick={() => void handleExport(format)}
+              onClick={() => void run(format)}
             />
           ))}
         </div>
       ))}
-      {failed ? (
+      {failure !== null ? (
         <p
           role="alert"
           className="border-t border-hairline px-3 py-2 font-body text-xs text-flag"
           data-testid={`${testIdPrefix}-error`}
         >
-          Export failed — the {failed.toUpperCase()} file could not be written.
-          Check that the gateway is running, then try again.
+          {failure.sentence}
         </p>
       ) : notice ? (
         // What the file WOULD be, stated before the click rather than after the

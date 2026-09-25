@@ -31,12 +31,12 @@ import pytest
 from geometry.drawings import evaluate_drawing_views, flat_pattern_view_result
 from geometry.features.evaluate import evaluate_tree
 from geometry.sheet_metal import unfold_sheet_metal
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     DrawingViewResult,
     EvaluateDrawingViewsRequest,
     ViewScale,
 )
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 from pydantic import BaseModel, ConfigDict, Field
 
 _HERE = Path(__file__).resolve().parent
@@ -228,8 +228,8 @@ from pathlib import Path
 
 from geometry.drawings import flat_pattern_view_result
 from geometry.features.evaluate import evaluate_tree
-from py_kit.schemas.drawings import ViewScale
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.drawings import ViewScale
+from loft_wire.features import EvaluateTreeRequest
 
 request = EvaluateTreeRequest.model_validate_json(Path(sys.argv[1]).read_text("utf-8"))
 result = flat_pattern_view_result(

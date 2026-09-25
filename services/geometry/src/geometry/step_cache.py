@@ -34,9 +34,33 @@ shape would be a determinism/thread-safety hazard: tessellation stores its
 triangulation INTO the shape and the FastAPI threadpool could evaluate two
 trees concurrently, racing on one shared body. A fresh per-hit shape has none
 of that shared mutable state, and BREP re-read is in-process and cheap versus
-re-spawning the parse worker. Because BREP write→read is idempotent on the
-already-BREP-read body the worker returns, a hit tessellates byte-identically
-to the direct parse (the ``import-step-box-10x20x30`` golden stays byte-exact).
+re-spawning the parse worker.
+
+**THE MISS PATH RETURNS THE ROUND-TRIPPED BODY TOO, AND THAT IS THE WHOLE
+DETERMINISM ARGUMENT (F2, docs/GEOMETRY-QA.md 2026-09-15).** This module used
+to return the worker's shape directly on a miss and the deserialized one on a
+hit, justified by the claim that "BREP write→read is idempotent on an
+already-BREP-read body". **That claim is false, and it is false in a way no
+fixture here could see.** Measured on a 1 018-face imported gearbox: the
+worker's body and its own BREP round-trip tessellate to DIFFERENT GLB bytes
+(43 differing bytes of 10 412 360 — ULP noise in the vertex buffer, volume
+bit-identical), and a second round-trip differs again, so the operation is not
+idempotent at ANY iteration count. The user-visible consequence was that
+``mesh_glb_id`` — a CONTENT address used for mesh dedup — took one value on a
+cold worker and another on every cache hit, so a browser re-downloaded a 10 MB
+mesh for no reason and any cross-restart determinism assertion was unsound.
+Both import goldens are 6-face boxes, small enough that the round-trip happens
+to be exact, which is why the suite agreed with the false claim for as long as
+it existed.
+
+The fix is structural rather than a tighter serialization: **every consumer of
+an imported body receives the deserialization of ONE fixed byte string**, so
+cold and warm cannot differ — not because the round-trip is faithful, but
+because both paths take it exactly once. It costs one extra in-process BREP
+read on a path that just spent seconds in a subprocess parse. Note the cache is
+therefore mildly LOSSY with respect to the parse (the stored bytes are what
+every downstream op sees), and that is now a stated property instead of an
+accidental one.
 """
 
 import hashlib
@@ -136,6 +160,13 @@ def import_step_solid_cached(
     is never cached, so a rejected input re-enforces every bound on the next
     attempt.
 
+    **A miss returns the body re-read from the bytes it just cached, NOT the
+    worker's shape** — the one line that makes ``mesh_glb_id`` independent of
+    cache state (F2; see the module docstring for the measurement that forced
+    it). Both paths below end at ``solid_from_brep_bytes`` of the same ``brep``,
+    which is what makes the two indistinguishable by construction rather than by
+    an assumption about OCCT's serializer.
+
     Raises exactly what :func:`import_step_solid` raises on a miss; a hit cannot
     raise those (only cleanly-parsed bodies are ever cached).
     """
@@ -146,5 +177,6 @@ def import_step_solid_cached(
     body = import_step_solid(
         step_text, cpu_timeout_s=cpu_timeout_s, wall_timeout_s=wall_timeout_s
     )
-    _cache.put(key, solid_to_brep_bytes(body))
-    return body
+    brep = solid_to_brep_bytes(body)
+    _cache.put(key, brep)
+    return solid_from_brep_bytes(brep)

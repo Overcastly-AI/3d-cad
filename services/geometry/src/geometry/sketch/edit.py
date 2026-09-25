@@ -476,7 +476,7 @@ def trim_sketch(
 
     The target is cut at its nearest intersection with the other entities on
     each side of the pick and the picked segment removed; the result replaces
-    the target in place (see :class:`py_kit.schemas.sketch.SketchEditResult`).
+    the target in place (see :class:`loft_wire.sketch.SketchEditResult`).
     """
     target = _find_target(entities, target_id)
     existing_ids = {e.id for e in entities}
@@ -624,7 +624,7 @@ def extend_sketch(
 # fresh deterministic id and inherits the source's construction flag.
 #
 # v1 = single-entity offset; chain offset (connected runs + miter/arc joins) is
-# deferred (see py_kit.schemas.sketch module comment).
+# deferred (see loft_wire.sketch module comment).
 
 
 def _offset_line(entity: SketchLine, distance: float, ident: str) -> SketchLine:
@@ -744,7 +744,7 @@ def offset_sketch(
 # the centre reflects in place. A line has no orientation invariant, so its
 # endpoints reflect in place.
 #
-# Mirror is the OP, not the ``symmetric`` CONSTRAINT (see the py_kit.schemas
+# Mirror is the OP, not the ``symmetric`` CONSTRAINT (see the loft_wire
 # .sketch module comment): v1 is geometry-only and does NOT auto-add symmetric
 # constraints between a source and its copy.
 
@@ -1077,7 +1077,7 @@ def fillet_sketch(
     Returns the whole rewritten entity list: the two lines trimmed in place to
     their tangent points (ids preserved) plus the tangent arc appended with a
     fresh deterministic id ``f"{a}.{n}"`` (see
-    :class:`py_kit.schemas.sketch.SketchCornerResult`). v1 is line-line only.
+    :class:`loft_wire.sketch.SketchCornerResult`). v1 is line-line only.
     """
     return _corner_edit(entities, a_id, b_id, radius, fillet=True)
 

@@ -110,10 +110,15 @@ export function SegmentedControl<T extends string>({
               disabled={disabled}
               onClick={() => onChange(option.value)}
               className={cx(
-                "relative flex flex-1 items-center justify-center",
+                "relative flex items-center justify-center",
+                // A dense segment starts from its WORD's width and shares the
+                // slack evenly (`flex-auto`), rather than splitting the row into
+                // equal thirds: in the extrude twist axis (ORIGIN · CENTROID ·
+                // KEPT in 188 px) equal thirds cut the longest word to
+                // "CENTRO…" while KEPT sat in 40 px of air.
                 dense
-                  ? "min-h-target-dense min-w-0 gap-1 px-1.5"
-                  : "gap-1.5 px-3 py-1.5",
+                  ? "min-h-target-dense min-w-0 flex-auto gap-1 px-1.5"
+                  : "flex-1 gap-1.5 px-3 py-1.5",
                 "transition-colors duration-fast hover:bg-carbide",
                 "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
                 "disabled:opacity-40 disabled:pointer-events-none",

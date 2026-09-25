@@ -3,7 +3,7 @@
 Runs the SAME application code against SQLite (always) and a real scratch
 PostgreSQL with the actual migrations applied — see conftest.py for the dialect
 split. Exercises the SLICE-2b documents contract (docs/design/step-import.md):
-turning a :class:`~py_kit.schemas.step_import.StepAssemblyImportResult` into a
+turning a :class:`~loft_wire.step_import.StepAssemblyImportResult` into a
 real Loft graph — an assembly with deduped parts + named instances at their
 placements, or the single-body MB-4b fallback — atomically (a rejected import
 leaves no orphan documents).
@@ -21,10 +21,10 @@ from typing import Any
 import pytest
 from documents.main import DocumentsSettings, build_app
 from fastapi.testclient import TestClient
-from py_kit.schemas.assemblies import Placement, Quat
-from py_kit.schemas.geometry import Vec3
-from py_kit.schemas.parts import PRINCIPAL_HEADER
-from py_kit.schemas.step_import import (
+from loft_wire.assemblies import Placement, Quat
+from loft_wire.geometry import Vec3
+from loft_wire.parts import PRINCIPAL_HEADER
+from loft_wire.step_import import (
     MAX_IMPORT_ASSEMBLY_PRODUCTS,
     ImportAssemblyRequest,
     ImportedProduct,

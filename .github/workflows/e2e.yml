@@ -153,6 +153,45 @@
 # when T/N approaches the cap (N=6 -> 12.6 min) and not before; N=6 also means 7
 # concurrent jobs per push from this workflow alone on top of ci.yml's 6.
 #
+# ── 2026-09-23: the balance decayed because the manifest did ────────────────
+#
+# `36360ae`'s shards ran 33m53 / 26m50 / 21m45 / 40m10 and shard 4 was killed
+# by the 40-minute step timeout with 0 of 233 tests failing. Cause: 31 of 175
+# spec files had been added since the manifest was measured, each packed at the
+# heaviest known weight, so 65 % of the weight the planner balanced was a guess.
+# Re-measured, that same partition predicts 1.04 / 0.84 / 0.82 / 1.31 of its
+# mean against the observed 1.11 / 0.88 / 0.71 / 1.31 — the guesses, not the
+# runner, made the imbalance. Fixed at the cause: the manifest was re-measured
+# in full, and `e2e complete` now REFUSES when more than 10 % of the plan is
+# guessed (see the step "The shard plan must rest on measurements").
+#
+# What balance cannot fix, stated so nobody mistakes it for headroom: the four
+# steps of that run sum to ~123 min, i.e. ~31 min per shard when balanced,
+# against the 40-minute step cap — 1.3x, down from the 2.1x recorded above,
+# as the suite went from 145 to 180 spec files in a month (and the older files
+# moved unevenly too: 1.3x to 5.3x between the two measurements against a
+# median of 2.2x, so a merge onto the old numbers was not enough and the whole
+# manifest was re-measured). By the rule above that is the point
+# to weigh N=5 or 6. Raising `timeout-minutes` instead is headroom, not a fix.
+#
+# ── 2026-09-24: N=6 ─────────────────────────────────────────────────────────
+#
+# It came a day later: `d0604c5`'s shards ran 32.0 / 28.8 / 33.9 / 40.0 min and
+# shard 4 was killed at 40:01 with Playwright green (230 passed, 39.5m). Mean
+# 33.7, max/mean 1.19 — pick-proxy-collision was new and eight specs had been
+# edited, and 9404cb1 made every seat settle wait 3 more frames, which moved
+# the pick-heavy specs ~1.3x against the rest. The manifest was patched with
+# `--merge --update` and now reproduces that run at 33.8 / 29.7 / 32.5 / 38.8
+# (rms 2.4 min). At N=4 it predicts 33.7 min per shard, 1.19x headroom, which
+# is why the matrix is now SIX: predicted 22.6 min per shard (CI minutes =
+# 0.549 x manifest minutes + 0.5, both fitted on `d0604c5`), 1.77x under the
+# 40-minute step cap, with the largest single file (gauge-touch) at ~6 min so
+# the packing floor is not near. N=5 gave 27.1 (1.48x), short of the 1.5x
+# target. Cost: 2 more jobs per push (8 in this workflow) and ~2 x 4 min more
+# runner setup. The count is written in three places — the matrix, every
+# `${{ matrix.shard }}/N`, and the audit's `--expect-shards` — and the audit's
+# `--workflow` check refuses if they disagree.
+#
 # The property that must survive is GATE-1's — a spec nobody named still runs.
 # It survives because the planner iterates the DISCOVERED set and looks the
 # manifest up per file, so an unmeasured file is still placed (and assumed to be
@@ -179,8 +218,9 @@
 #
 # Raising the shard count also multiplies CONCURRENT jobs, which matters
 # because pushes get per-SHA concurrency groups (see below) and four agents
-# push in parallel — at N=4 a single push already occupies 5 of this
-# workflow's jobs on top of ci.yml's 6 and deploy-path's 2.
+# push in parallel — at N=6 a single push occupies 9 of this workflow's jobs
+# (6 shards, `e2e complete`, `dist-bundle`, `auth-short-ttl`) on top of ci.yml's and
+# deploy-path's.
 
 name: e2e
 
@@ -211,7 +251,7 @@ concurrency:
 
 jobs:
   playwright:
-    name: playwright (shard ${{ matrix.shard }}/4)
+    name: playwright (shard ${{ matrix.shard }}/6)
     runs-on: ubuntu-latest
     # A real `--shard=2/4` measured 12.7 min of specs here (777 s wall with
     # preflight + stack boot), plus ~4 min of CI setup; 45 is headroom, not a
@@ -229,7 +269,7 @@ jobs:
       # "these specs are covered by nobody", and `cancelled` is not a pass.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -271,7 +311,7 @@ jobs:
       # UPDATE_SCREENSHOTS is deliberately NOT set: the fixtures gate the
       # docs/screenshots writes behind it, so the render still happens and the
       # committed founder PNGs are left alone. The tree check below proves it.
-      - name: Playwright shard ${{ matrix.shard }}/4
+      - name: Playwright shard ${{ matrix.shard }}/6
         # 40 < the job's 45 ON PURPOSE — see the headroom note at the top: a
         # step timeout is a `failure` that keeps the artifacts, a job timeout is
         # a `cancelled` that destroys them and looks like an eviction.
@@ -328,7 +368,7 @@ jobs:
         # check — and the red now names the shard holding the offender.
         run: >-
           scripts/e2e.sh --web-only --
-          --balanced-shard=${{ matrix.shard }}/4
+          --balanced-shard=${{ matrix.shard }}/6
           --forbid-only
       # A CI job that dirties the working tree is a defect in its own right,
       # and the specific thing being guarded is the ~90 committed founder
@@ -410,6 +450,286 @@ jobs:
           # Saying which is worth more than an empty tail.
           echo "::error::no verdict file at $verdict — scripts/e2e.sh never reached its summary, so this shard died BEFORE or DURING setup (uv sync / pnpm install / browser install / Vite preflight), or hit the 40-minute step timeout. Its reason is in the 'Playwright shard' step above, not here."
           ls -la "${{ runner.temp }}/e2e-logs-shard-${{ matrix.shard }}" || true
+
+  # ── THE BUILT-BUNDLE LEG ────────────────────────────────────────────────
+  #
+  # The six shards above drive the Vite DEV server. So does every other spec in
+  # this repo, which left two things that only ship to users completely
+  # untested:
+  #
+  #   1. THE CONTENT-SECURITY-POLICY. deploy/docker/web/nginx.conf serves one;
+  #      the dev server serves nothing of the kind. A CSP that blocks a worker,
+  #      a blob: URL or an inlined font is a TOTAL failure that ships GREEN —
+  #      the page still mounts, every status code is 200, and every assertion
+  #      the suite owns still holds. This job listens for the event the browser
+  #      actually fires and fails on the first one. Measured on the leg's first
+  #      run: the policy that config file's own comment proposed produced EIGHT
+  #      font-src violations, because Vite inlines eight @fontsource faces as
+  #      `data:font/woff` URLs — a defect that shipped a legible page in the
+  #      wrong typeface and would have been found by nobody.
+  #   2. ROLLUP'S MODULE GRAPH, which is not Vite's dev graph. `three@0.185.1`
+  #      ships a dual ESM/CJS build, so `instanceof PerspectiveCamera` is false
+  #      for a real camera whenever both records reach one graph — already
+  #      measured TRUE under vitest. `apps/web/src` has 15 such sites.
+  #
+  # WHY IT IS HERE AND NOT IN deploy-path.yml, where the real IMAGE is built.
+  # deploy-path has the container and no browser; this workflow has the browser
+  # (pnpm, the cached Chromium, the uv environment the services need) and no
+  # container. Duplicating the browser plumbing into deploy-path would have cost
+  # a second Chromium install per push and put the leg behind a three-image
+  # build — for a question that is about the BUNDLE and the CONFIG, neither of
+  # which the image changes.
+  #
+  # THE FIDELITY GAP, NAMED RATHER THAN IMPLIED. This job serves the real
+  # `apps/web/dist` through the real `deploy/docker/web/nginx.conf`
+  # (scripts/render-web-nginx.py rewrites exactly four container-specific
+  # directives — listen, root, resolver, upstream — and REFUSES if it has to
+  # touch an add_header line). What it does NOT use is the real image or the
+  # nginx build inside it: this is Ubuntu's nginx, and the backend is the same
+  # native SQLite boot the shards use. The image half is gated where it is
+  # observable — scripts/web-smoke.sh asserts the SERVED policy on all three
+  # nginx locations against the REAL container in deploy-path's compose-smoke,
+  # and it has a stub self-test with four CSP defect scenarios.
+  #
+  # NOTE FOR WHOEVER READS THIS WORKFLOW'S JOB COUNT: `e2e` has NINE jobs
+  # (6 shards + `e2e complete` + this + `auth-short-ttl`, below) since
+  # 2026-09-24; it was eight before auth-short-ttl and six with four shards.
+  # The `total_jobs` discriminator for a COMPLETE e2e run in
+  # .claude/ORCHESTRATOR.md has to move with it. This job is
+  # independent of the shards and is deliberately NOT in `reconcile`'s `needs`:
+  # reconcile proves the six shards covered `apps/web/e2e/`, and these specs
+  # live in `apps/web/e2e-dist/` behind their own config, so folding them in
+  # would make that count disagree with `playwright test --list`.
+  dist-bundle:
+    name: dist bundle (production CSP + rollup graph)
+    runs-on: ubuntu-latest
+    # Measured on this container: 15 s build + 14 s of browser. 25 is headroom
+    # for a cold runner, not a prediction — and guessing LOW is much worse than
+    # guessing high, because a job killed by timeout-minutes reports
+    # `cancelled`, the same word GitHub uses for a concurrency eviction.
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      # The geometry service imports OCP, so this needs the full Python
+      # environment exactly as the shards do — the body in the viewport is a
+      # real OCCT solid, which is the whole reason the GLB/blob: path is
+      # exercised at all.
+      - name: Sync uv environment (locked)
+        run: uv sync --locked
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Resolve the pinned Playwright version
+        id: pw
+        run: |
+          version=$(node -p "require('./apps/web/node_modules/@playwright/test/package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Playwright $version"
+      # The SAME cache key the shards use, so this job is a cache hit rather
+      # than a fifth download of the browser.
+      - name: Cache the browser binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - name: Install Chromium
+        run: pnpm --filter @loft/web exec playwright install --with-deps chromium
+      # nginx, because `vite preview` would leave the CSP half untested — it
+      # serves no such header, and the header is half of what this job exists
+      # for. `nginx-light` is the smallest package that has the http core;
+      # nothing here needs a module beyond it.
+      - name: Install nginx
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends nginx-light
+          nginx -v
+      - name: Built bundle through the production nginx config
+        timeout-minutes: 20
+        env:
+          # Kept past the run, under runner.temp so the tree-clean check below
+          # still means what it says. `runner` is a STEP-level context — it is
+          # NOT available in a job-level `env:`, and putting it there is a
+          # schema rejection that makes the WHOLE FILE unrunnable (zero jobs,
+          # zero duration). The shards above use it at step level, green, eight
+          # times; this matches them.
+          E2E_LOG_DIR: ${{ runner.temp }}/dist-leg-logs
+          E2E_JSON_REPORT: ${{ runner.temp }}/dist-leg-report.json
+        run: scripts/dist-leg.sh
+      - name: The run must not have dirtied the tree
+        if: always()
+        run: |
+          # `apps/web/dist` is gitignored, so a build does not dirty the tree —
+          # asserting it anyway is what would catch that changing.
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "::error::the dist leg modified the working tree:"
+            git status --porcelain
+            git diff --stat
+            exit 1
+          fi
+          echo "tree clean after the run"
+      - name: Upload traces/screenshots from a failing run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-bundle-artifacts
+          path: |
+            apps/web/test-results
+            apps/web/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload the service logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-bundle-diagnostics
+          path: ${{ runner.temp }}/dist-leg-logs
+          if-no-files-found: warn
+          retention-days: 7
+      # LAST, for the same reason the shards' verdict is last: `get_job_logs`
+      # returns the TAIL of the job log and artifact download is policy-denied
+      # from the dev container, so whatever this job writes last is its only
+      # interface. The upload steps above run after the script exits, which is
+      # why the script cannot be the thing that ends the job.
+      - name: Verdict (kept last so a tail of the job log finds it)
+        if: always()
+        run: |
+          verdict="$RUNNER_TEMP/dist-leg-logs/verdict.txt"
+          if [[ -s "$verdict" ]]; then
+            cat "$verdict"
+            exit 0
+          fi
+          # No verdict file means scripts/e2e.sh never reached its last line, so
+          # the run died BEFORE the browser — in the build, in the nginx render
+          # (a config reshaped past scripts/render-web-nginx.py), in nginx's own
+          # start, or in the service boot. Those have different fixes and the
+          # step log above says which; this block's job is to stop a reader
+          # concluding "the specs failed".
+          echo "::error::no verdict file at $verdict — the leg never reached the browser. Read the 'Built bundle through the production nginx config' step: it fails separately for a bad build, a config scripts/render-web-nginx.py refuses, an nginx that would not start (it prints the 127.0.0.1 / [::1] probe and the error log), and a service that would not become ready."
+          ls -la "$RUNNER_TEMP/dist-leg-logs" || true
+
+  # ── THE SHORT-TTL AUTH LEG (AUTH-SHORT-TTL-E2E-1) ─────────────────────────
+  #
+  # Two specs in apps/web/e2e/auth.spec.ts need an access token that expires
+  # DURING the test: a command in flight across the expiry, and the keepalive
+  # renewing ahead of it. The shards run the default 1 h TTL, where both SKIP,
+  # so sliding sessions had no browser coverage of their own edge cases. This
+  # job boots the same native stack with JWT_TTL_S=20 and runs auth.spec.ts
+  # only, the whole file: the rest of auth.spec also runs here with a renewal
+  # every ~20 s. SESSION_IDLE_TTL_S keeps its 24 h default, which already
+  # satisfies the gateway's boot check (idle >= JWT_TTL_S).
+  #
+  # E2E_REQUIRE_SHORT_TTL=1 turns the two skips into FAILURES here. Without it,
+  # a stack that somehow issued long tokens would skip both specs and this job
+  # would go green having examined nothing.
+  #
+  # Deliberately NOT in `reconcile`'s `needs`, and its report is not named
+  # `playwright-json-shard-*`: reconcile proves the six shards executed every
+  # discovered test exactly once, and this job's second run of auth.spec would
+  # read there as duplicates. The shard plan and scripts/e2e-durations.json are
+  # untouched too; auth.spec stays in whichever shard it is in, with its two
+  # skips.
+  auth-short-ttl:
+    name: auth.spec on a short-TTL stack
+    runs-on: ubuntu-latest
+    # auth.spec ran in 2.2-2.6 min on the dev container at JWT_TTL_S=20 (12
+    # tests, this exact command included), and the
+    # keepalive spec alone waits 2.5 token lifetimes. 25 is headroom for a cold
+    # runner plus ~4 min of setup, not a prediction (see the shards' note on
+    # why guessing low is worse).
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Sync uv environment (locked)
+        run: uv sync --locked
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Resolve the pinned Playwright version
+        id: pw
+        run: |
+          version=$(node -p "require('./apps/web/node_modules/@playwright/test/package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Playwright $version"
+      # The SAME cache key the shards use.
+      - name: Cache the browser binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - name: Install Chromium
+        run: pnpm --filter @loft/web exec playwright install --with-deps chromium
+      # scripts/e2e.sh boots the three services, and they inherit this step's
+      # env, so JWT_TTL_S reaches the gateway. The file is a positional filter,
+      # so Playwright loads auth.spec.ts alone.
+      - name: auth.spec with 20 s access tokens
+        timeout-minutes: 20
+        env:
+          JWT_TTL_S: "20"
+          E2E_REQUIRE_SHORT_TTL: "1"
+          E2E_LOG_DIR: ${{ runner.temp }}/e2e-logs-short-ttl
+          E2E_JSON_REPORT: ${{ runner.temp }}/playwright-short-ttl.json
+        run: >-
+          scripts/e2e.sh --web-only --
+          e2e/auth.spec.ts
+          --forbid-only
+      - name: The run must not have dirtied the tree
+        if: always()
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "::error::the short-TTL leg modified the working tree:"
+            git status --porcelain
+            git diff --stat
+            exit 1
+          fi
+          echo "tree clean after the run"
+      - name: Upload traces/screenshots from a failing run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auth-short-ttl-artifacts
+          path: |
+            apps/web/test-results
+            apps/web/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload the service logs and the JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auth-short-ttl-diagnostics
+          path: |
+            ${{ runner.temp }}/e2e-logs-short-ttl
+            ${{ runner.temp }}/playwright-short-ttl.json
+          if-no-files-found: warn
+          retention-days: 7
+      # LAST, for the same reason as the shards' verdict: a tail of the job
+      # log is the only channel into a red run from the dev container.
+      - name: Verdict (kept last so a tail of the job log finds it)
+        if: always()
+        run: |
+          verdict="$RUNNER_TEMP/e2e-logs-short-ttl/verdict.txt"
+          if [[ -s "$verdict" ]]; then
+            cat "$verdict"
+            exit 0
+          fi
+          echo "::error::no verdict file at $verdict — scripts/e2e.sh never reached its summary, so this leg died BEFORE or DURING setup (uv sync / pnpm install / browser install / service boot, e.g. a gateway that refused JWT_TTL_S), or hit the 20-minute step timeout. Its reason is in the 'auth.spec with 20 s access tokens' step above."
+          ls -la "$RUNNER_TEMP/e2e-logs-short-ttl" || true
 
   # The control that keeps the sharding honest, and the single job to read.
   #
@@ -497,6 +817,8 @@ jobs:
             --discovered discovered.json \
             --fail-on-flaky \
             --timeline \
+            --expect-shards 6 \
+            --workflow .github/workflows/e2e.yml \
             shard-reports/playwright-shard-*.json
       # REPORTS, never votes — same contract as `--timeline`, and for the same
       # reason: the e2e gate's pass/fail contract is COVERAGE, and a timing
@@ -509,6 +831,31 @@ jobs:
         continue-on-error: true
         run: |
           python3 scripts/e2e-shard-plan.py --drift shard-reports/playwright-shard-*.json
+      # VOTES, unlike the drift report above — and the difference is the lesson
+      # of `36360ae` (2026-09-23). Unmeasured files were ALWAYS reported, here
+      # and in every shard's log, and nobody acted for 3.5 weeks: by then 31 of
+      # 175 spec files had no duration, 65 % of the weight the planner balanced
+      # was a guess, every shard predicted 53.7 min, and the real steps ran
+      # 33m53 / 26m50 / 21m45 / 40m10 — shard 4 killed by its 40-minute timeout
+      # with 0 of 233 tests failing. A report that has been ignored once has
+      # been measured as ignorable.
+      #
+      # It is DETERMINISTIC, which is why it may vote where the drift report
+      # may not: it compares the discovered file set with the committed
+      # manifest, and reads no timing to decide. Timings are used only to PRINT
+      # the fix — the missing entries, calibrated from these very shard reports
+      # onto the manifest's scale, ready to paste (the Verdict step re-prints
+      # them last, because the log tail is the only channel into this job).
+      # Budget: MAX_GUESSED_SHARE in scripts/e2e-shard-plan.py (10 % of the
+      # packed weight: two unmeasured specs pass with a warning, a third refuses).
+      - name: The shard plan must rest on measurements
+        id: manifest
+        continue-on-error: true
+        run: |
+          python3 scripts/e2e-shard-plan.py \
+            --check-manifest shard-reports/playwright-shard-*.json \
+            --list-json discovered.json \
+            --summary-out "$RUNNER_TEMP/manifest-check.txt"
       - name: Verdict
         run: |
           set -euo pipefail
@@ -633,8 +980,10 @@ jobs:
           echo "posture: no retries, $flag intact ($flagged/$invocations audit invocation(s))"
           shards='${{ needs.playwright.result }}'
           audit='${{ steps.audit.outcome }}'
+          manifest='${{ steps.manifest.outcome }}'
           echo "playwright shards: $shards"
           echo "coverage audit:    $audit"
+          echo "duration manifest: $manifest"
           failed=0
           if [[ "$shards" != "success" ]]; then
             echo "::error::playwright shards concluded '$shards' — see the shard logs"
@@ -642,6 +991,13 @@ jobs:
           fi
           if [[ "$audit" != "success" ]]; then
             echo "::error::the shards did not cover the suite — see the audit step"
+            failed=1
+          fi
+          # Last, so a tail of this job's log carries the entries to paste.
+          if [[ "$manifest" != "success" ]]; then
+            echo "::error::too much of the shard plan is guessed — add these to scripts/e2e-durations.json:"
+            cat "$RUNNER_TEMP/manifest-check.txt" 2>/dev/null ||
+              echo "(no summary written — the check died before it; read its step)"
             failed=1
           fi
           exit "$failed"

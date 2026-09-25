@@ -194,3 +194,42 @@ export function profileRegions(
 
   return regions.filter((r) => r.outer.length >= 3);
 }
+
+/**
+ * The AREA centroid of the regions (holes subtracted), in plane mm, or null
+ * when they enclose no area. The shoelace moments, not the vertex average: a
+ * polyline arc crowds its vertices on one side, and a twist axis that drifted
+ * toward a tessellated fillet would not be the centroid the user chose.
+ */
+export function regionsCentroid(
+  regions: readonly ProfileRegion[],
+): Point2D | null {
+  let area = 0;
+  let mx = 0;
+  let my = 0;
+  const add = (loop: readonly Point2D[], sign: 1 | -1) => {
+    let a = 0;
+    let cx = 0;
+    let cy = 0;
+    for (let i = 0; i < loop.length; i += 1) {
+      const p = loop[i] as Point2D;
+      const q = loop[(i + 1) % loop.length] as Point2D;
+      const cross = p.x * q.y - q.x * p.y;
+      a += cross;
+      cx += (p.x + q.x) * cross;
+      cy += (p.y + q.y) * cross;
+    }
+    // Orientation-free: a loop's contribution takes its role's sign, whatever
+    // way round it was stitched.
+    const s = a < 0 ? -sign : sign;
+    area += (s * a) / 2;
+    mx += (s * cx) / 6;
+    my += (s * cy) / 6;
+  };
+  for (const region of regions) {
+    add(region.outer, 1);
+    for (const hole of region.holes) add(hole, -1);
+  }
+  if (Math.abs(area) < 1e-12) return null;
+  return { x: mx / area, y: my / area };
+}

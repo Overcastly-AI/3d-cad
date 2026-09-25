@@ -101,7 +101,7 @@ import { RegisterFolderRow } from "./RegisterFolderRow";
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * FOLDERS (#WS2, 2026-08-01) — now backed by a real documents-side tree
- * (`py_kit/schemas/folders.py` states the four decisions; the register is a
+ * (`loft_wire/folders.py` states the four decisions; the register is a
  * client of them). What the surface does, and what it refuses to do:
  *
  *   - A FOLDER IS A DIVIDER, not a sidebar. The register is a log book, and the

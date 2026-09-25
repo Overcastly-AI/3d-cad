@@ -1,68 +1,20 @@
 # Claude Code tooling for Loft
 
-The agent org that builds this project: **agents** (the team), **skills**
-(how-to playbooks), **workflows** (orchestration recipes). Modeled on the
-system that built Next-Lane (see `docs/AUTONOMOUS-LOOP.md`), tailored to a
-Python-microservices CAD platform.
+Loft is built by a small team of Claude Code agents. `CLAUDE.md` holds the
+rules every agent follows, and `ORCHESTRATOR.md` is the main session's loop.
 
-## Agents (`agents/`)
+| Agent              | Owns                                                            |
+| ------------------ | --------------------------------------------------------------- |
+| `kernel-architect` | `services/geometry` (OCCT kernel, solver, tessellation, export) |
+| `backend-builder`  | gateway, documents, `py-kit`, `loft-wire`, `loft-script`        |
+| `frontend-builder` | `apps/web`, `packages/design`                                   |
+| `platform-builder` | CI, Docker/compose, `justfile`, `scripts/`                      |
+| `code-reviewer`    | one independent review per change; subsystem audits on request  |
+| `geometry-qa`      | goldens, STEP round-trip, determinism: is the geometry right?   |
+| `qa-tester`        | the real app in a real browser; reference parts end to end      |
+| `product-manager`  | `docs/VISION.md`, `docs/ROADMAP.md`, `docs/BACKLOG.md`          |
+| `tech-writer`      | README, CONTRIBUTING, QUICKSTART, ARCHITECTURE, OPERATIONS      |
 
-| Agent | Role |
-|-------|------|
-| `kernel-architect` | Geometry service: OCCT/OCP/build123d, features, tessellation, export, sketch solver. Only agent allowed to touch kernel code |
-| `backend-builder` | Gateway + documents services, `py-kit`, contracts regeneration |
-| `frontend-builder` | React SPA + react-three-fiber viewport |
-| `platform-builder` | Compose/Docker/CI/justfile, contract pipeline, per-instance dev envs, Helm later |
-| `code-reviewer` | Independent diff review: correctness, DRY, boundaries, licenses (read-only) |
-| `qa-tester` | Independent functional QA on the real stack — Playwright, desktop + touch |
-| `geometry-qa` | Golden models, STEP round-trips, determinism, perf budgets → `docs/GEOMETRY-QA.md` |
-| `frontend-qa` | Design-system/a11y/responsive/viewport-UX audit → `docs/UI-REVIEW.md` (read-only) |
-| `product-auditor` | Independent daily-driver audit → `docs/AUDIT-PRODUCT.md` (doesn't coordinate with engineering-auditor) |
-| `engineering-auditor` | Independent code-health/security/license audit → `docs/AUDIT-ENGINEERING.md` |
-| `backlog-groomer` | Reconciles ROADMAP vs git log; maintains `docs/BACKLOG.md` Ready queue |
-| `vision-steward` | Founder ideas → VISION/ROADMAP/BACKLOG; owns the daily-driver scorecard |
-| `doc-syncer` | Cheap-model doc reconciler (ARCHITECTURE/README/CHANGELOG), every iteration |
-| `oss-curator` | README + community surface; truth-only claims |
-
-## Skills (`skills/`)
-
-| Skill | Trigger |
-|-------|---------|
-| `run-stack` | Bring the stack up (single, per-agent instance, or full compose artifact) and verify it |
-| `geometry-gates` | Run/extend golden models, round-trips, determinism, budgets — mandatory for kernel-adjacent work |
-| `add-microservice` | Add a new service the DRY way (and challenge whether you should) |
-| `frontend-design` | **Mandatory for ANY UI work** (CLAUDE.md design mandate) — distinctive, intentional visual design; vendored Anthropic skill (Apache-2.0, see its `LICENSE.txt`) |
-
-Recommended additions from the Superpowers plugin (`/plugin marketplace add
-obra/superpowers`): TDD, systematic-debugging, writing-plans,
-verification-before-completion, using-git-worktrees. Next-Lane vendored these;
-we use the plugin (network policy permitting) or vendor them later.
-
-## Workflows (`workflows/`)
-
-Executable workflows are the `.js` files; the `.md` files are the recipes they
-implement. The table was missing `loft-dev-loop` and `loft-frontend-loop`
-entirely until 2026-09-11 — a workflow absent from here is one nobody reaches
-for, which is the same failure mode as a subtree missing from a loop's own list.
-
-| Workflow | Purpose |
-|----------|---------|
-| `loft-dev-loop.js` | **The org loop.** Discover → audit → groom → build a batch in parallel worktrees → review → verify → integrate. One batch per invocation; chains on completion. No cron, no watchdog |
-| `loft-frontend-loop.js` | **Reachability.** "The backend has this and the UI does not" — parity from the committed contract → flow → build in disjoint `apps/web` subtrees → design review → QA |
-| `loft-frontend-redesign-loop.js` | **Cost and feel.** "The capability is there and reaching it costs too much." Gesture cost → one fixed design direction → design-system change first and alone → build → design review → QA → re-measure |
-| `autonomous-dev-loop` | The recipe `loft-dev-loop.js` implements |
-| `build-vertical-slice` | One HANDED-IN ticket: build (in a worktree) → review → QA. Pick and Plan were removed 2026-08-14 |
-| `nightly-build-loop` | Work down the Ready queue unattended; retry-once-then-park |
-
-**Which frontend loop?** They answer different questions and the wrong one is a
-wasted wave. `loft-frontend-loop` asks *can the user reach this at all* and is
-right when a shipped capability has no UI path. `loft-frontend-redesign-loop`
-asks *what does this cost the user's hand* and is right when the path exists and
-is too long, or the surface does not feel like a modeling tool. `check-ui-parity.py`
-is blind to the second by construction — it says so itself — because a
-capability that takes eleven gestures is still AUTHORABLE.
-
-The loop's survival rules (never barrier builds on planning,
-retry-then-skip, write-early, always arm the next iteration) are documented
-in `docs/AUTONOMOUS-LOOP.md` §1.4 — inherited from Next-Lane's retro so we
-don't relearn them the hard way.
+The skills (`skills/`) are `run-stack` (boot and verify a stack),
+`geometry-gates` (goldens and round-trips), `frontend-design` (visual design
+direction) and `add-microservice`.

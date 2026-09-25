@@ -17,16 +17,16 @@ import pytest
 from fastapi.testclient import TestClient
 from gateway.db import Base
 from gateway.main import GatewaySettings, build_app
-from py_kit import REQUEST_ID_HEADER
-from py_kit.db import async_dsn
-from py_kit.schemas.materials import EMPTY_MATERIAL_ASSIGNMENT
-from py_kit.schemas.parts import (
+from loft_wire.materials import EMPTY_MATERIAL_ASSIGNMENT
+from loft_wire.parts import (
     PRINCIPAL_HEADER,
     PartCreate,
     PartListResponse,
     PartResponse,
     PartUpdate,
 )
+from py_kit import REQUEST_ID_HEADER
+from py_kit.db import async_dsn
 from sqlalchemy.ext.asyncio import create_async_engine
 
 TEST_JWT_SECRET = "unit-test-jwt-secret-0123456789abcdef"

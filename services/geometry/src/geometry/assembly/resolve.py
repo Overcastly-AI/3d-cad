@@ -8,13 +8,13 @@ so the ``(point, normal)`` / ``(point, direction)`` pairs handed to
 not a test fixture. It reuses — never reimplements — the stage-1 signature
 resolvers topological naming already ships:
 
-- a :class:`~py_kit.schemas.assemblies.MateFaceRef` resolves through
+- a :class:`~loft_wire.assemblies.MateFaceRef` resolves through
   :func:`geometry.kernel.faces.resolve_face_plane` (the SAME machinery an
   ``on_face`` datum uses): the matched planar face's area centroid is a point ON
   the face and its deterministic plane's ``z_dir`` is the OUTWARD unit normal —
   the sign convention the solver's ``coincident`` residual expects (``flush`` ⇒
   ``n_a + n_b = 0``, the two outward normals anti-parallel, design §2.3).
-- a :class:`~py_kit.schemas.assemblies.MateAxisRef` (``curve == "circle"``)
+- a :class:`~loft_wire.assemblies.MateAxisRef` (``curve == "circle"``)
   resolves through :func:`geometry.kernel.edges.resolve_edge`, then the circle's
   centre and axis direction come from the exact B-rep (``BRepAdaptor_Curve`` →
   ``gp_Circ``) — a hole rim or a shaft rim. The centre lies ON the axis line and
@@ -58,8 +58,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from build123d import GeomType, Vector
-from OCP.BRepAdaptor import BRepAdaptor_Curve
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     LockMate,
     MateAxisRef,
     MateFaceRef,
@@ -68,7 +67,8 @@ from py_kit.schemas.assemblies import (
     Placement,
     mate_instance_ids,
 )
-from py_kit.schemas.geometry import Vec3
+from loft_wire.geometry import Vec3
+from OCP.BRepAdaptor import BRepAdaptor_Curve
 
 from geometry.assembly.protocol import (
     AssemblyDefinitionError,

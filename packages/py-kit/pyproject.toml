@@ -5,6 +5,12 @@ description = "Shared Python service kit for Loft services (config, logging, hea
 requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
+    # The wire DTOs this kit's services serve, split out into their own
+    # distribution so a CLIENT of those services (packages/loft-script, and the
+    # MCP server after it) can depend on the MODELS without depending on the web
+    # server, ORM, task queue and Redis client listed below. The arrow is one-way:
+    # nothing under loft_wire may import py_kit, and a test enforces it.
+    "loft-wire",
     "fastapi>=0.115",
     "pydantic-settings>=2.7",
     "structlog>=24.4",
@@ -19,6 +25,9 @@ dependencies = [
     "alembic>=1.14",
     "prometheus-client>=0.21",
 ]
+
+[tool.uv.sources]
+loft-wire = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

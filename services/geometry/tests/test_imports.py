@@ -36,7 +36,7 @@ from geometry.kernel import (
 )
 from geometry.kernel.lumps import lump_sort_key
 from geometry.main import app
-from py_kit.schemas.features import EvaluateTreeRequest, EvaluateTreeResult
+from loft_wire.features import EvaluateTreeRequest, EvaluateTreeResult
 
 client = TestClient(app)
 
@@ -395,7 +395,7 @@ def test_second_import_starts_a_new_body() -> None:
 
 def test_import_size_bound_is_a_422_not_a_rebuild_error() -> None:
     """An oversize inline payload is rejected at request validation (§6)."""
-    from py_kit.schemas.features import MAX_INLINE_STEP_CHARS
+    from loft_wire.features import MAX_INLINE_STEP_CHARS
 
     payload = _request(
         [

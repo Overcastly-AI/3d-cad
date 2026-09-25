@@ -49,7 +49,7 @@ from geometry.kernel.threads import (
 )
 from geometry.kernel.types import BodyShape
 from geometry.main import app
-from py_kit.schemas.features import (
+from loft_wire.features import (
     FEATURE_REGISTRY,
     EvaluateTreeResult,
     HoleFeature,

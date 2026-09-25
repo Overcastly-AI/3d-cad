@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   areaUnitLabel,
+  formatAngle,
   formatLength,
   formatMass,
   fromGrams,
@@ -306,5 +307,38 @@ describe("isPartialLength", () => {
       expect(parseLength(wrong, "mm")).toBeNull();
       expect(isPartialLength(wrong)).toBe(false);
     }
+  });
+});
+
+describe("formatAngle", () => {
+  it("writes degrees with the sign, trailing zeros trimmed", () => {
+    expect(formatAngle(45)).toBe("45\u00b0");
+    expect(formatAngle(45.0)).toBe("45\u00b0");
+    expect(formatAngle(22.5)).toBe("22.5\u00b0");
+  });
+
+  it("writes the bare number for a tag cell, exactly as formatLength does", () => {
+    // The tag strip carries the sign once, at its end, so the cell must not
+    // repeat it. The option is named the same as formatLength's on purpose:
+    // one habit for both, rather than two rules to remember.
+    expect(formatAngle(45, { unitSuffix: false })).toBe("45");
+    expect(formatLength(45, "mm", { unitSuffix: false })).toBe("45");
+  });
+
+  it("normalises -0 rather than printing it", () => {
+    expect(formatAngle(-0)).toBe("0\u00b0");
+  });
+
+  it("trims to four fraction digits by default, and to fewer on request", () => {
+    expect(formatAngle(30.123456)).toBe("30.1235\u00b0");
+    expect(formatAngle(30.123456, { maxFractionDigits: 1 })).toBe("30.1\u00b0");
+  });
+
+  it("takes NO unit argument, and that is the point", () => {
+    // Angles have exactly one display unit in this product: the kernel, the
+    // wire and the forms are all degrees. A length genuinely converts (canonical
+    // mm to the document's unit) and an angle does not, so a unit parameter here
+    // would be a conversion nobody can perform and a chance to get it wrong.
+    expect(formatAngle(90)).toBe("90\u00b0");
   });
 });

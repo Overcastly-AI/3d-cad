@@ -5,6 +5,7 @@ import {
   pointInLoop,
   profileLoops,
   profileRegions,
+  regionsCentroid,
   signedArea,
 } from "./profileLoops";
 
@@ -126,5 +127,26 @@ describe("profileRegions", () => {
     ]);
     expect(regions).toHaveLength(2);
     expect(regions.every((r) => r.holes.length === 0)).toBe(true);
+  });
+});
+
+describe("regionsCentroid", () => {
+  it("is the area centroid of a rectangle, whichever way it winds", () => {
+    const c = regionsCentroid(profileRegions(rectLines(10, 0, 30, 10)));
+    expect(c?.x).toBeCloseTo(20, 9);
+    expect(c?.y).toBeCloseTo(5, 9);
+  });
+
+  it("subtracts a hole: an off-centre bore pushes the centroid away from it", () => {
+    const plate = rectLines(0, 0, 40, 20, "p");
+    const bore = rectLines(30, 5, 38, 15, "h");
+    const c = regionsCentroid(profileRegions([...plate, ...bore]));
+    // Plate 800 at x=20, bore 80 at x=34: (800*20 - 80*34) / 720.
+    expect(c?.x).toBeCloseTo((800 * 20 - 80 * 34) / 720, 9);
+    expect(c?.y).toBeCloseTo(10, 9);
+  });
+
+  it("is null for no enclosed area", () => {
+    expect(regionsCentroid([])).toBeNull();
   });
 });

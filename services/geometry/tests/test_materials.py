@@ -24,14 +24,14 @@ from build123d import Box, Location, Pos
 from geometry.assembly.evaluate import evaluate_assembly
 from geometry.features import evaluate_tree
 from geometry.kernel import combine_properties, measure_shape
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     EvaluateAssemblyRequest,
     EvaluatedInstance,
     Placement,
 )
-from py_kit.schemas.features import EvaluatedFeatureInput, EvaluateTreeRequest
-from py_kit.schemas.geometry import Vec3
-from py_kit.schemas.materials import (
+from loft_wire.features import EvaluatedFeatureInput, EvaluateTreeRequest
+from loft_wire.geometry import Vec3
+from loft_wire.materials import (
     MATERIALS,
     MATERIALS_BY_KEY,
     BodyMaterialAssignment,

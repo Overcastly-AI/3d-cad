@@ -15,7 +15,14 @@
  * cannot cover — an offer only appears once you already hold the right
  * selection, so it can propose a verb but can never teach you to reach one.
  */
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { cx } from "../cx";
 import { CaretDownIcon } from "./icons";
@@ -92,6 +99,18 @@ export function Flyout({
   "data-testid": testid,
 }: FlyoutProps) {
   const [open, setOpen] = useState(false);
+  /**
+   * Which edge of the trigger the menu hangs from. `start` (its left) unless
+   * that would run the menu past the frame's right edge, then `end`.
+   *
+   * A trigger near the right of the band (the sketch strip's CONSTRAIN group
+   * at 1366 px) opened its menu 10 px off-frame: the DIMENSIONAL rows ended at
+   * 1375.7. The band's width is not the menu's to assume, because the band
+   * sheds labels by MEASUREMENT, so where a trigger lands moves with every
+   * readout in the strip. Measured before paint, so the flip never flashes.
+   */
+  const [align, setAlign] = useState<"start" | "end">("start");
+  const menuRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -101,6 +120,27 @@ export function Flyout({
     setOpen(false);
     if (focusTrigger) triggerRef.current?.focus();
   }, []);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setAlign("start");
+      return;
+    }
+    const menu = menuRef.current;
+    const root = rootRef.current;
+    if (menu === null || root === null) return;
+    const frame = document.documentElement.clientWidth || window.innerWidth;
+    const width = menu.getBoundingClientRect().width;
+    const trigger = root.getBoundingClientRect();
+    // Hang from the right edge only when the left one overflows AND the right
+    // one fits: a menu wider than the room on both sides keeps the start
+    // edge, where its rows' labels begin.
+    setAlign(
+      trigger.left + width > frame && trigger.right - width >= 0
+        ? "end"
+        : "start",
+    );
+  }, [open]);
 
   // Focus the first enabled row when the menu opens.
   useEffect(() => {
@@ -221,15 +261,20 @@ export function Flyout({
 
       {open ? (
         <div
+          ref={menuRef}
           id={menuId}
           role="menu"
           aria-label={label}
           onKeyDown={onMenuKeyDown}
+          data-align={align}
           // 15rem, not 13: a row that declares what it `requires` carries a
           // second line, and at 13rem the commonest shapes ("a circle/arc",
           // "2 non-parallel lines") wrapped — a menu of ragged two-line rows
           // reads as prose, which is the opposite of the instrument this is.
-          className="absolute left-0 top-full z-40 mt-1 min-w-[15rem] border border-hairline bg-anvil py-1 shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
+          className={cx(
+            "absolute top-full z-40 mt-1 min-w-[15rem] border border-hairline bg-anvil py-1 shadow-[0_8px_24px_rgba(0,0,0,0.5)]",
+            align === "end" ? "right-0" : "left-0",
+          )}
         >
           {eyebrow ? (
             <div className="border-b border-hairline px-3 pb-1.5 pt-1 font-display text-2xs uppercase tracking-[0.16em] text-gauge">

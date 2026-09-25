@@ -7,7 +7,7 @@ the UNION of every instance's body at its SOLVED world placement:
 1. **Solve the assembly ONCE** via :func:`geometry.assembly.evaluate.solve_assembly`
    (reused VERBATIM — the SAME solve the ``/assembly/evaluate`` / interference /
    export paths call): each unique part evaluated once, the mate graph solved to a
-   per-instance world :class:`~py_kit.schemas.assemblies.Placement`, each bodied
+   per-instance world :class:`~loft_wire.assemblies.Placement`, each bodied
    instance paired with its resolved kernel body (``solved.placed``).
 2. **Place every bodied instance** at its solved world pose through the shared
    :func:`geometry.kernel.export.place_body` transform (NOT reinvented — the SAME
@@ -21,7 +21,7 @@ the UNION of every instance's body at its SOLVED world placement:
 
 Error posture (design §4/§7, mirroring the part path + ``evaluate_assembly``): the
 whole function is TOTAL — never raises for an evaluation outcome. A bodyless instance
-is a typed :class:`~py_kit.schemas.assemblies.InstanceEvaluationError` (dropped from
+is a typed :class:`~loft_wire.assemblies.InstanceEvaluationError` (dropped from
 the projection, the rest still project); an unresolvable mate a typed
 ``MateEvaluationError`` (from the reused solve); an HLR failure on one view that view's
 typed ``view_projection_failed`` (the others still project); a flat_pattern / section
@@ -39,15 +39,15 @@ from __future__ import annotations
 from typing import cast
 
 from build123d import Compound
-from py_kit.schemas.assemblies import InstanceEvaluationError
-from py_kit.schemas.drawings import (
+from loft_wire.assemblies import InstanceEvaluationError
+from loft_wire.drawings import (
     ComposeDrawingRequest,
     DrawingViewResult,
     EvaluateAssemblyDrawingViewsRequest,
     EvaluateAssemblyDrawingViewsResult,
     EvaluateDrawingViewsResult,
 )
-from py_kit.schemas.features import FeatureError
+from loft_wire.features import FeatureError
 
 from geometry.assembly.evaluate import PlacedInstance, solve_assembly
 from geometry.assembly.transform import Pose

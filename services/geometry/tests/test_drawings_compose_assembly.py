@@ -41,7 +41,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from geometry.main import app
-from py_kit.schemas.drawings import ComposedLineEdge, ComposedSheet
+from loft_wire.drawings import ComposedLineEdge, ComposedSheet
 
 COORD_TOL_MM = 1e-7
 

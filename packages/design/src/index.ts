@@ -1,6 +1,8 @@
 export * from "./tokens";
 export {
   areaUnitLabel,
+  formatAngle,
+  type FormatAngleOptions,
   formatLength,
   formatMass,
   fromGrams,
@@ -37,13 +39,16 @@ export type {
   PanelActionCellProps,
 } from "./primitives/Panel";
 export { Stamp, type StampProps, type StampTone } from "./primitives/Stamp";
+export { Notice, type NoticeProps } from "./primitives/Notice";
 export { Toolbar, Chip } from "./primitives/Toolbar";
 export {
   ToolButton,
   ToolGroup,
+  ToolOffer,
   Kbd,
   type ToolButtonProps,
   type ToolGroupProps,
+  type ToolProposal,
 } from "./primitives/ToolButton";
 export {
   CommandBand,
@@ -101,6 +106,70 @@ export {
   DimensionTagCell,
   type DimensionTagCellProps,
 } from "./primitives/DimensionTag";
+export { GaugeTag, type GaugeTagProps } from "./primitives/GaugeTag";
+export {
+  acknowledgeAsk,
+  angularTrack,
+  type AngularTrackOptions,
+  ARROW_LENGTH_FRAC,
+  ARROW_RADIUS_FRAC,
+  ARROW_SHAFT_FRAC,
+  arrowLength,
+  type AskQueue,
+  AXIS_SHALLOW,
+  axisValueAt,
+  clampTo,
+  crossArms,
+  type GaugeSeat,
+  type GaugeStops,
+  type GaugeTagPlacement,
+  type GaugeTagSide,
+  type GaugeTagSize,
+  type GaugeTrack,
+  holdAsks,
+  LADDER_HALF_WIDTH_FRAC,
+  LADDER_MAX,
+  LADDER_MIN_HALF_WIDTH,
+  LADDER_MIN_MAJOR_PX,
+  LADDER_MIN_PITCH_PX,
+  LADDER_MIN_RUNGS,
+  LADDER_PITCH_HALF_WIDTH_FRAC,
+  ladderStops,
+  linearTrack,
+  type LinearTrackOptions,
+  MAX_RUNGS,
+  MINOR_RUNG_FRAC,
+  NO_STOPS,
+  nudgeIntent,
+  orthographicUnitsPerPixel,
+  perspectiveUnitsPerPixel,
+  placeGaugeTag,
+  quantize,
+  recordAsk,
+  releaseAsks,
+  rungHalfWidth,
+  screenValue,
+  seedAsks,
+  SHAFT_RADIUS_FRAC,
+  steppedTrack,
+  type SteppedTrackOptions,
+  steppedValue,
+  type TrackDrawing,
+} from "./gauge";
+export {
+  add,
+  addScaled,
+  cross,
+  dot,
+  length,
+  negate,
+  reject,
+  scale,
+  sub,
+  unit,
+  VEC3_UNIT_FLOOR,
+  type Vec3,
+} from "./vec3";
 export { TextField, type TextFieldProps } from "./primitives/TextField";
 export { Checkbox, type CheckboxProps } from "./primitives/Checkbox";
 export { Disclosure, type DisclosureProps } from "./primitives/Disclosure";

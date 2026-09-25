@@ -3,7 +3,7 @@
 Engineering audit J6 (2026-07-30): geometry re-declares the body-affecting
 feature types as a hand-written frozenset
 (:data:`geometry.features.evaluate.BODY_AFFECTING_TYPES`) while py-kit already
-owns :data:`py_kit.schemas.features.BODY_AFFECTING_FEATURE_TYPES`. Both listed
+owns :data:`loft_wire.features.BODY_AFFECTING_FEATURE_TYPES`. Both listed
 the same 17 members and nothing checked that they still did.
 
 Why a GATE and not a merge. The two constants answer different questions:
@@ -30,7 +30,7 @@ after a hand-listed axis silently stopped covering (CM-5).
 """
 
 from geometry.features.evaluate import BODY_AFFECTING_TYPES
-from py_kit.schemas.features import (
+from loft_wire.features import (
     BASE_BODY_AFFECTING_FEATURE_TYPES,
     BODY_AFFECTING_FEATURE_TYPES,
     FEATURE_REGISTRY,
@@ -52,7 +52,7 @@ def test_geometry_and_py_kit_agree_on_body_affecting_types() -> None:
         "geometry's BODY_AFFECTING_TYPES has drifted from py-kit's "
         "BODY_AFFECTING_FEATURE_TYPES. Only geometry.features.evaluate:"
         f"{sorted(BODY_AFFECTING_TYPES - BODY_AFFECTING_FEATURE_TYPES)}; "
-        "only py_kit.schemas.features: "
+        "only loft_wire.features: "
         f"{sorted(BODY_AFFECTING_FEATURE_TYPES - BODY_AFFECTING_TYPES)}. If the "
         "divergence is deliberate, name the member here and say why."
     )

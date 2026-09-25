@@ -27,10 +27,10 @@ import sqlalchemy as sa
 from documents.db import Part
 from documents.main import DocumentsSettings, build_app
 from fastapi.testclient import TestClient
+from loft_wire.assemblies import EvaluateAssemblyRequest, LockMate
+from loft_wire.features import SketchFeature
+from loft_wire.parts import PRINCIPAL_HEADER
 from py_kit.db import async_dsn
-from py_kit.schemas.assemblies import EvaluateAssemblyRequest, LockMate
-from py_kit.schemas.features import SketchFeature
-from py_kit.schemas.parts import PRINCIPAL_HEADER
 from sqlalchemy.ext.asyncio import create_async_engine
 
 OWNER = "6f3f6b64-0000-4000-8000-00000000000a"

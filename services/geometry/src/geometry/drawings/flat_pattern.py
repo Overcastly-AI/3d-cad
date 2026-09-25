@@ -3,9 +3,9 @@
 docs/design/sheet-metal.md §6/§7 + drawings.md §7. A ``flat_pattern`` view SKIPS
 HLR: a :class:`~geometry.sheet_metal.FlatPattern` is already 2D, so this module
 feeds the unfold's ``edge_role``-tagged outline straight into the shipped neutral
-:class:`~py_kit.schemas.drawings.ProjectedViewEdge` / :class:`DrawingViewResult`
+:class:`~loft_wire.drawings.ProjectedViewEdge` / :class:`DrawingViewResult`
 shape every standard view already produces (never a new projection frame, never a
-new crossing type), plus a per-bend :class:`~py_kit.schemas.drawings.BendTableRow`
+new crossing type), plus a per-bend :class:`~loft_wire.drawings.BendTableRow`
 table. It REUSES :func:`geometry.features.evaluate_tree`'s body + bend provenance
 (via the :class:`TreeEvaluation`) and :func:`geometry.sheet_metal.unfold_sheet_metal`
 — the only new work is the pure DTO translation below.
@@ -25,14 +25,14 @@ identical edges + rows, in-process and across an interpreter restart.
 
 from __future__ import annotations
 
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     BendTableRow,
     DrawingViewResult,
     ProjectedPoint,
     ProjectedViewEdge,
     ViewScale,
 )
-from py_kit.schemas.features import FeatureError
+from loft_wire.features import FeatureError
 
 from geometry.features import TreeEvaluation
 from geometry.kernel.faces import SubshapeAmbiguousError, SubshapeUnresolvedError
@@ -42,7 +42,7 @@ from geometry.sheet_metal import (
     unfold_sheet_metal,
 )
 
-#: The one non-standard :data:`~py_kit.schemas.drawings.ViewProjection` this module
+#: The one non-standard :data:`~loft_wire.drawings.ViewProjection` this module
 #: owns (the others go through exact HLR, :func:`geometry.drawings.project_view`).
 FLAT_PATTERN_VIEW = "flat_pattern"
 

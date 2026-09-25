@@ -18,6 +18,7 @@ import { useEffect, useMemo } from "react";
 
 import type { CornerReliefBendHighlight } from "../features/sheetMetal";
 import { occtToScene, polylineSegments } from "../measure/geometry";
+import { ANNOTATION_LAYER } from "./instruments";
 import { concatPositions, Segments } from "./overlaySegments";
 
 /** Callouts sit in the annotation band, under the HUD strips (edge-mark band). */
@@ -55,7 +56,7 @@ export function BendHighlightOverlay({ bends }: BendHighlightOverlayProps) {
   if (bends.length === 0) return null;
 
   return (
-    <group>
+    <group userData={ANNOTATION_LAYER}>
       {/* The bend lines — brass, the app's one selection color (DOM + WebGL).
           Drawn through the body (the fold tangent sits INSIDE the bend arc, so
           a depth-tested line would be swallowed) — the dimension-line idiom. */}

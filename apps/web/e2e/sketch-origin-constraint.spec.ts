@@ -290,33 +290,28 @@ async function seedFloatingRect(
 }
 
 /**
- * Finish the sketch, retrying the click.
+ * Finish the sketch. ONE click, which is the whole point.
  *
- * `sketch-save` carries `disabled={saving || …}`, and a bound sketch saves
- * live, so a click that passes Playwright's actionability check can still land
- * in a window where the button has just gone disabled — the click is swallowed
- * and the strip never closes. Independent QA measured it at ~2 in 10 attempts
- * under load, always with the sketch at `DOF 0 · CONVERGED`, which is exactly
- * the state this fixture now reaches (it was dof 2 while it was deforming — so
- * fixing the fixture raised this spec's exposure to a defect that was already
- * there). Filed for the product; the spec should not be the thing that reports
- * it, so it retries rather than asserting once.
+ * This used to be a retry loop, and the comment on it said why: `sketch-save`
+ * carried `disabled={saving || …}`, a bound sketch saves live, so a click that
+ * passed Playwright's actionability check could still land in the window where
+ * the button had just gone `aria-disabled` — swallowed by `ToolButton`, strip
+ * never closes. QA measured ~2 in 10 under load. The defect was filed rather
+ * than papered over, and the loop was here so this spec would not be the thing
+ * reporting it.
+ *
+ * SAVE-CLICK removed the gate (a debounce is not a reason to refuse the one
+ * control that ends a sketch), so the retry is now a lie: it would hide a
+ * regression of exactly the defect it was named for. A single click is the
+ * assertion. `apps/web/e2e/sketch-save-busy-window.spec.ts` owns the window
+ * deliberately.
  */
 async function finishSketch(page: Page): Promise<void> {
-  await expect
-    .poll(
-      async () => {
-        if ((await page.getByTestId("sketch-strip").count()) === 0) return 0;
-        await page.getByTestId("sketch-save").click({ timeout: 5_000 });
-        await page
-          .getByTestId("sketch-strip")
-          .waitFor({ state: "detached", timeout: 5_000 })
-          .catch(() => undefined);
-        return page.getByTestId("sketch-strip").count();
-      },
-      { timeout: 60_000 },
-    )
-    .toBe(0);
+  if ((await page.getByTestId("sketch-strip").count()) === 0) return;
+  await page.getByTestId("sketch-save").click();
+  await expect(page.getByTestId("sketch-strip")).toHaveCount(0, {
+    timeout: 30_000,
+  });
 }
 
 async function reopenSketch(page: Page): Promise<void> {

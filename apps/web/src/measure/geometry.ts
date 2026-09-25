@@ -3,16 +3,20 @@
  * PartPage share, kept out of the components so they can be unit-tested without
  * a DOM or a WebGL context. Types come from the generated client (DRY rule).
  */
+import { formatLength, type LengthUnit } from "@loft/design";
+
 import type { FeatureTreeResponse } from "../api/parts";
 import type {
   EvaluateTreeRequest,
   MeasureRequest,
+  MeasureResult,
   MeasureTarget,
+  OverlayEdge,
   OverlayResult,
   Vec3,
 } from "../api/measure";
 import { MESH_LINEAR_DEFLECTION_MM } from "../api/client";
-import { formatDroMm } from "../lib/format";
+import { formatDro, formatVec3 } from "../lib/format";
 import { occtToSceneTuple } from "../sketch/plane";
 
 /** A resolved measurement pick, ready to become a `MeasureTarget`. */
@@ -28,14 +32,24 @@ export type MeasurePick =
  */
 export function buildEvaluateTree(
   tree: FeatureTreeResponse,
+  /**
+   * Stop BEFORE this feature: the body it is built on, which is the body its
+   * picked references resolve against. An edge a fillet rounds is not an edge
+   * of the tip, so an edge re-pick while editing has to come from here
+   * (EDGE-RESOLVE-WARN-1). An id not in the tree stops nowhere.
+   */
+  beforeFeatureId?: string,
 ): EvaluateTreeRequest {
+  const live = tree.features.filter((feature) => !feature.rolled_back);
+  const stop = live.findIndex((feature) => feature.id === beforeFeatureId);
   return {
     part_id: tree.part_id,
     tree_version: tree.tree_version,
     linear_deflection: MESH_LINEAR_DEFLECTION_MM,
-    features: tree.features
-      .filter((feature) => !feature.rolled_back)
-      .map((feature) => ({ id: feature.id, feature: feature.feature })),
+    features: (stop < 0 ? live : live.slice(0, stop)).map((feature) => ({
+      id: feature.id,
+      feature: feature.feature,
+    })),
   };
 }
 
@@ -186,7 +200,7 @@ export function formatDistanceMm(distance: number): string {
 
 /** Signed component delta, machine-readout style ("+10.00"). */
 export function formatDeltaMm(value: number): string {
-  return formatDroMm(value);
+  return formatDro(value, "mm");
 }
 
 /** The measured angle in degrees, or "—" when there is no single direction. */
@@ -194,9 +208,244 @@ export function formatAngleDeg(angle: number | null | undefined): string {
   return angle === null || angle === undefined ? "—" : `${angle.toFixed(1)}°`;
 }
 
-/** Human name for a resolved pick — the readout's "from / to" descriptor. */
-export function describePick(pick: MeasurePick): string {
-  return pick.kind === "vertex"
-    ? `Vertex ${formatVec3Mm(pick.position)}`
-    : `Edge ${pick.index + 1}`;
+// ---------------------------------------------------------------------------
+// CIRCLES — centre-to-centre (MEASURE-LABEL-PITCH-1)
+// ---------------------------------------------------------------------------
+
+/**
+ * The kernel's own "same point" tolerance for edge signature points (mm) —
+ * `geometry.kernel.edges._EDGE_POINT_TOL_MM`. A full circle stores its seam
+ * twice, so `end_a` and `end_b` coincide within THIS, not an ad-hoc epsilon.
+ */
+const EDGE_POINT_TOL_MM = 1e-6;
+
+/** The circle a circular edge lies on, and whether the edge is all of it. */
+export interface EdgeCircle {
+  /** World-mm centre (OCCT Z-up). */
+  centre: Vec3;
+  radius: number;
+  /** A full circle (seam stored twice) rather than an arc. */
+  closed: boolean;
+}
+
+const sub = (a: Vec3, b: Vec3): Vec3 => ({
+  x: a.x - b.x,
+  y: a.y - b.y,
+  z: a.z - b.z,
+});
+const dot = (a: Vec3, b: Vec3): number => a.x * b.x + a.y * b.y + a.z * b.z;
+const cross = (a: Vec3, b: Vec3): Vec3 => ({
+  x: a.y * b.z - a.z * b.y,
+  y: a.z * b.x - a.x * b.z,
+  z: a.x * b.y - a.y * b.x,
+});
+const norm = (a: Vec3): number => Math.hypot(a.x, a.y, a.z);
+
+/**
+ * The circle of a circular edge, read off its stage-1 SIGNATURE — three exact
+ * points on the B-rep curve the kernel already sends (`end_a`, `end_b`, and
+ * `midpoint` at curve parameter 0.5). Not a fit to the tessellated polyline:
+ * these are kernel-evaluated points ON the exact circle, so the centre is exact
+ * to floating-point round-off, far inside the kernel's 1e-7 m tolerance.
+ *
+ * The SAME derivation the kernel's durable edge resolver uses
+ * (`geometry.kernel.edges._circle_centre`): a FULL circle stores its seam twice
+ * with `midpoint` diametrically opposite, so the centre is their midpoint; an
+ * ARC's centre is the circumcentre of its three points
+ * (`a + ((|u|^2 v - |v|^2 u) x (u x v)) / (2 |u x v|^2)`, `u = m - a`,
+ * `v = b - a`). `null` for anything that is not a circle, or for three
+ * collinear points — never a divide-by-zero.
+ */
+export function edgeCircle(edge: OverlayEdge): EdgeCircle | null {
+  const sig = edge.signature;
+  if (sig.curve !== "circle") return null;
+  const a = sig.end_a;
+  const b = sig.end_b;
+  const m = sig.midpoint;
+  let centre: Vec3;
+  let closed = false;
+  if (norm(sub(a, b)) <= EDGE_POINT_TOL_MM) {
+    closed = true;
+    centre = { x: (a.x + m.x) / 2, y: (a.y + m.y) / 2, z: (a.z + m.z) / 2 };
+  } else {
+    const u = sub(m, a);
+    const v = sub(b, a);
+    const normal = cross(u, v);
+    const denominator = 2 * dot(normal, normal);
+    if (!(denominator > 0)) return null;
+    const uu = dot(u, u);
+    const vv = dot(v, v);
+    const weighted = {
+      x: v.x * uu - u.x * vv,
+      y: v.y * uu - u.y * vv,
+      z: v.z * uu - u.z * vv,
+    };
+    const offset = cross(weighted, normal);
+    centre = {
+      x: a.x + offset.x / denominator,
+      y: a.y + offset.y / denominator,
+      z: a.z + offset.z / denominator,
+    };
+  }
+  const radius = norm(sub(a, centre));
+  if (!(radius > 0)) return null;
+  return { centre, radius, closed };
+}
+
+/** The overlay edge a pick names, or null (a vertex, or no overlay). */
+function pickedEdge(
+  pick: MeasurePick,
+  overlay: OverlayResult | null,
+): OverlayEdge | null {
+  if (pick.kind !== "edge" || overlay === null) return null;
+  return overlay.edges[pick.index] ?? null;
+}
+
+/** The circle a pick lies on, or null when the pick is not a circular edge. */
+export function pickCircle(
+  pick: MeasurePick,
+  overlay: OverlayResult | null,
+): EdgeCircle | null {
+  const edge = pickedEdge(pick, overlay);
+  return edge === null ? null : edgeCircle(edge);
+}
+
+/**
+ * A reading taken between CENTRES rather than between nearest points — what an
+ * engineer means by the distance between two holes (their pitch).
+ * `centre_centre`: both picks are circular edges. `centre_point`: one circular
+ * edge and one vertex. `from`/`to` keep the pick order and
+ * `delta = to - from`, the same B - A convention as `MeasureResult.delta`.
+ */
+export interface CentreReading {
+  kind: "centre_centre" | "centre_point";
+  /** Pick A is the circle — decides "Centre to point" vs "Point to centre". */
+  centreFirst: boolean;
+  from: Vec3;
+  to: Vec3;
+  delta: Vec3;
+  distance: number;
+}
+
+/**
+ * The centre-based reading for a pick pair, or null when neither pick is a
+ * circle — or one is and the other is a non-circular edge, which has no single
+ * point to measure to. Pure arithmetic on kernel-exact points; the MINIMUM
+ * distance still comes from the kernel's `/measure`.
+ */
+export function centreReading(
+  a: MeasurePick,
+  b: MeasurePick,
+  overlay: OverlayResult | null,
+): CentreReading | null {
+  const circleA = pickCircle(a, overlay);
+  const circleB = pickCircle(b, overlay);
+  if (circleA === null && circleB === null) return null;
+  const anchor = (pick: MeasurePick, circle: EdgeCircle | null): Vec3 | null =>
+    circle !== null
+      ? circle.centre
+      : pick.kind === "vertex"
+        ? pick.position
+        : null;
+  const from = anchor(a, circleA);
+  const to = anchor(b, circleB);
+  if (from === null || to === null) return null;
+  const delta = sub(to, from);
+  return {
+    kind:
+      circleA !== null && circleB !== null ? "centre_centre" : "centre_point",
+    centreFirst: circleA !== null,
+    from,
+    to,
+    delta,
+    distance: norm(delta),
+  };
+}
+
+/** The readout eyebrow that names a centre reading. */
+export function centreReadingLabel(reading: CentreReading): string {
+  if (reading.kind === "centre_centre") return "Centre to centre";
+  return reading.centreFirst ? "Centre to point" : "Point to centre";
+}
+
+/**
+ * The eyebrow for the KERNEL's reading. It is always the minimum distance
+ * between the two targets. Between two points that is simply "the distance";
+ * wherever an edge is involved it must say "minimum", because two picked holes
+ * on a 25 mm pitch read 17 mm rim to rim (F-7).
+ */
+export function minimumReadingLabel(kind: MeasureResult["kind"]): string {
+  return kind === "point_point" ? "Distance" : "Min distance";
+}
+
+/**
+ * A coordinate triple for a LABEL, in the document unit at readout precision.
+ * Sub-tolerance round-off (a centre computed as -1e-15) reads 0, never "-0".
+ */
+function labelVec3(v: Vec3, unit: LengthUnit): string {
+  const clean = (n: number) => (Math.abs(n) < EDGE_POINT_TOL_MM ? 0 : n);
+  return formatVec3({ x: clean(v.x), y: clean(v.y), z: clean(v.z) }, unit);
+}
+
+/** A bare length for a label ("8", "0.315"), document unit, no suffix. */
+function labelLength(mm: number, unit: LengthUnit): string {
+  return formatLength(mm, unit, { unitSuffix: false });
+}
+
+/**
+ * Human name for a resolved pick — the readout's "from / to" descriptor.
+ *
+ * It carries IDENTITY, not just an ordinal (F-7: `Edge 5 -> Edge 6` could not
+ * say which two holes had been measured). A circle names its diameter and
+ * centre, an arc its radius and centre, a line its length and mid-span,
+ * anything else its mid-span, all in the document unit. The `Edge N` ordinal
+ * stays as the prefix: it is the name the viewport mark carries.
+ */
+export function describePick(
+  pick: MeasurePick,
+  overlay: OverlayResult | null = null,
+  unit: LengthUnit = "mm",
+): string {
+  if (pick.kind === "vertex") {
+    return `Vertex ${labelVec3(pick.position, unit)} ${unit}`;
+  }
+  const name = `Edge ${pick.index + 1}`;
+  const edge = pickedEdge(pick, overlay);
+  if (edge === null) return name;
+  const circle = edgeCircle(edge);
+  if (circle !== null) {
+    const size = circle.closed
+      ? `Ø${labelLength(circle.radius * 2, unit)} circle`
+      : `R${labelLength(circle.radius, unit)} arc`;
+    return `${name} · ${size}, centre ${labelVec3(circle.centre, unit)} ${unit}`;
+  }
+  const mid = labelVec3(edge.signature.midpoint, unit);
+  if (edge.signature.curve === "line") {
+    const length = labelLength(edge.signature.length_mm, unit);
+    return `${name} · ${length} ${unit} line, mid ${mid} ${unit}`;
+  }
+  return `${name} · curve, mid ${mid} ${unit}`;
+}
+
+/**
+ * The accessible name of an edge's measure mark: WHICH edge, in words a screen
+ * reader speaks ("diameter", not "Ø"). A circle is located by its centre and
+ * size; any other edge by its mid-span, in the grammar the other pick layers
+ * use (`centred at x, y, z millimetres`).
+ */
+export function measureEdgeLabel(index: number, edge: OverlayEdge): string {
+  const name = `Edge ${index + 1}, ${edge.kind}`;
+  const round = (n: number) => {
+    const r = Math.round(n * 100) / 100;
+    return Object.is(r, -0) ? 0 : r;
+  };
+  const at = (v: Vec3) => `${round(v.x)}, ${round(v.y)}, ${round(v.z)}`;
+  const circle = edgeCircle(edge);
+  if (circle !== null) {
+    const size = circle.closed
+      ? `diameter ${round(circle.radius * 2)}`
+      : `radius ${round(circle.radius)}`;
+    return `${name}, ${size}, centre at ${at(circle.centre)} millimetres`;
+  }
+  return `${name}, centred at ${at(polylineMidpoint(edge.polyline))} millimetres`;
 }

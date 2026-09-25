@@ -35,20 +35,23 @@
  * three's raycaster needs no DOM, so the fix is asserted against REAL three
  * geometry rather than against a mock of it.
  */
-import { Mesh } from "three";
-import type { BufferGeometry, Intersection, Raycaster } from "three";
+import type { BufferGeometry, Intersection, Mesh, Raycaster } from "three";
 
 import { faceOrdinalOfTriangle } from "./glbGeometry";
+import {
+  bvhRaycastAll,
+  bvhRaycastFirst,
+  type HiddenTriangleTest,
+} from "./pickBvh";
 
-/**
- * Is the triangle a hit struck part of a body that is NOT drawn?
- *
- * Takes the raw `faceIndex` an intersection carries rather than a resolved
- * ordinal, so the whole triangle → body decision stays in one place.
- */
-export type HiddenTriangleTest = (
-  faceIndex: number | null | undefined,
-) => boolean;
+// `HiddenTriangleTest`, `DepthSortedHit` and `nearestDrawnHit` live in
+// `pickBvh.ts`, whose nearest-hit query is DEFINED as `nearestDrawnHit` over
+// what it finds; they are re-exported here, where their callers import them.
+export {
+  nearestDrawnHit,
+  type DepthSortedHit,
+  type HiddenTriangleTest,
+} from "./pickBvh";
 
 /** Nothing is hidden — a stable identity, so "one visible body" costs nothing. */
 const NOTHING_HIDDEN: HiddenTriangleTest = () => false;
@@ -76,33 +79,6 @@ export function hiddenTriangleTest(
   };
 }
 
-/** As much of an `Intersection` as the nearest-drawn scan reads. */
-export interface DepthSortedHit {
-  /** Ray origin → hit, in scene mm. */
-  distance: number;
-  /** The struck triangle, as `Mesh.raycast` reports it. */
-  faceIndex?: number | null;
-}
-
-/**
- * The nearest hit whose triangle is DRAWN, or null when every hit is hidden.
- *
- * Strict minimum, so the FIRST of equally-near hits wins — three emits
- * triangles in index-buffer order, which makes the tie deterministic and
- * matches what `Raycaster.intersectObject`'s own stable sort would keep.
- */
-export function nearestDrawnHit<T extends DepthSortedHit>(
-  hits: readonly T[],
-  isHidden: HiddenTriangleTest,
-): T | null {
-  let nearest: T | null = null;
-  for (const hit of hits) {
-    if (isHidden(hit.faceIndex)) continue;
-    if (nearest === null || hit.distance < nearest.distance) nearest = hit;
-  }
-  return nearest;
-}
-
 /**
  * A drop-in `Object3D.raycast` that reports the nearest DRAWN triangle of the
  * mesh instead of the nearest triangle.
@@ -114,9 +90,13 @@ export function nearestDrawnHit<T extends DepthSortedHit>(
  * It pushes ONE intersection rather than every surviving one. That is
  * equivalent, not a shortcut — `Raycaster.intersectObject` sorts by distance
  * and r3f then dedupes to the nearest hit per object, so every other survivor
- * would be discarded a moment later. And it is not a new cost: `Mesh.raycast`
- * already allocated one intersection per struck triangle and r3f already sorted
- * them; the only addition here is one scratch array per raycast.
+ * would be discarded a moment later.
+ *
+ * The triangles are not tested one by one: `bvhRaycastFirst` walks a
+ * hierarchy over them near to far and stops once no nearer drawn hit is
+ * possible (PERF-REAL-1). It is the same answer `nearestDrawnHit` gives over
+ * `Mesh.raycast`'s full list — `pickBvh.test.ts` holds the two equal — at a
+ * cost that no longer grows with the part.
  */
 export function drawnSurfaceRaycast(
   isHidden: HiddenTriangleTest,
@@ -126,9 +106,10 @@ export function drawnSurfaceRaycast(
     raycaster: Raycaster,
     intersects: Intersection[],
   ): void {
-    const struck: Intersection[] = [];
-    Mesh.prototype.raycast.call(this, raycaster, struck);
-    const nearest = nearestDrawnHit(struck, isHidden);
+    // `nearestDrawnHit` over every struck triangle, answered by the
+    // hierarchy walking near to far instead of by testing the whole part
+    // (PERF-REAL-1, `pickBvh.ts`). Same hit, same tie-break.
+    const nearest = bvhRaycastFirst(this, raycaster, isHidden);
     if (nearest !== null) intersects.push(nearest);
   };
 }
@@ -176,7 +157,7 @@ export function faceColumnRaycast(
     intersects: Intersection[],
   ): void {
     const struck: Intersection[] = [];
-    Mesh.prototype.raycast.call(this, raycaster, struck);
+    bvhRaycastAll(this, raycaster, struck);
     struck.sort((a, b) => a.distance - b.distance);
     const seen = new Set<number>();
     for (const hit of struck) {

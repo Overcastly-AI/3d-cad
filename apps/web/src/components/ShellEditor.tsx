@@ -13,19 +13,22 @@
  * the overlay); this editor reads its count and builds the params on submit.
  */
 import { NumberField, Panel, PanelActionCell } from "@loft/design";
-import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect } from "react";
 
 import type { ShellParams } from "../api/parts";
 import { useCommandBridge } from "../features/commandActions";
 import { useFacePickStore } from "../features/facePickStore";
 import { useDocumentLengthUnit } from "../units/documentUnit";
+import { lengthInputValue } from "../units/length";
 import {
   buildShellParams,
+  parseThicknessMm,
   shellSubmitBlocker,
   type ShellForm,
   thicknessError,
 } from "../features/shell";
 import { EditorCard } from "./EditorCard";
+import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
 
 export interface ShellEditorProps {
   mode: "create" | "edit";
@@ -40,6 +43,27 @@ export interface ShellEditorProps {
   saving: boolean;
   /** Server-side failure envelope message, or null. */
   error: string | null;
+  /**
+   * A thickness asserted by the viewport gauge (CRAFT-9b).
+   *
+   * Boxed (`{ mm }`) so dragging back to a number the field already holds still
+   * arrives — a bare number would compare equal and React would swallow the
+   * update, which is the difference between "drag out to 8 and back to 2"
+   * leaving the field at 2 and leaving it at whatever it was before the
+   * gesture.
+   */
+  thicknessOverride?: { mm: number } | null;
+  /**
+   * The live thickness in canonical mm, published on every keystroke so the
+   * viewport can seat its gauge and draw the wall the shell will leave. Null
+   * while the field is empty or unparseable — there is no honest preview of
+   * "2q".
+   *
+   * The FIELD IS NOT REPLACED by the gauge and must not be: the panel's number
+   * is the exact path, the gauge is the fast one, and they are one value read
+   * twice.
+   */
+  onThicknessChange?: (mm: number | null) => void;
 }
 
 /** The live open-count line — names the sealed-vs-open default honestly. */
@@ -57,10 +81,41 @@ export function ShellEditor({
   onCancel,
   saving,
   error,
+  thicknessOverride = null,
+  onThicknessChange,
 }: ShellEditorProps) {
   const unit = useDocumentLengthUnit();
-  const [form, setForm] = useState<ShellForm>(initial);
-  useEffect(() => setForm(initial), [initial]);
+  // THE ECHO (direction contract β). The gauge renders `live ?? value` and drops
+  // `live` on pointer-up, so unless this field is fed back into the gauge's
+  // `value` the arrow springs to its old length the instant you let go — while
+  // the panel shows the number you dragged to. The drag is correct for its
+  // whole duration and the defect fires after every screenshot anyone would
+  // take, which is why it has its own named contract.
+  //
+  // Written in the DOCUMENT unit through the formatter the seed uses, so a
+  // dragged value and a typed one are indistinguishable afterwards — including
+  // on an inch part, where the stored millimetres are not what the field shows.
+  // Re-seeded on retarget, and both writes land during render
+  // (`useGaugeFedForm`), so the field commits WITH the override that carries
+  // it — never a commit behind the drawn gauge.
+  const [form, setForm] = useGaugeFedForm(
+    initial,
+    gaugeWrite(
+      thicknessOverride,
+      (f: ShellForm, o) => ({
+        ...f,
+        thicknessInput: lengthInputValue(o.mm, unit),
+      }),
+      unit,
+    ),
+  );
+
+  // Feed the gauge and its preview; the cleanup clears them, so closing the
+  // editor (unmount) never leaves an instrument standing on the model.
+  useEffect(() => {
+    onThicknessChange?.(parseThicknessMm(form.thicknessInput, unit));
+    return () => onThicknessChange?.(null);
+  }, [form.thicknessInput, unit, onThicknessChange]);
 
   const picked = useFacePickStore((s) => s.picked);
   const overlayError = useFacePickStore((s) => s.overlayError);

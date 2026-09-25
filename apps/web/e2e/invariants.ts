@@ -416,6 +416,84 @@ export async function waitForCameraRest(
 }
 
 /**
+ * Wait until the camera stops moving in POSITION as well as direction, then
+ * return its pose.
+ *
+ * {@link waitForCameraRest} compares directions only, which is right for an
+ * orbit and blind to a RE-FRAME: every fit this rig performs (view-fit, the
+ * chrome re-fit, CRAFT-12's proposal re-fit) keeps the direction and moves only
+ * the standoff and target, so a direction-only settle returns mid-slide and
+ * every screen coordinate read after it measures the camera, not the product.
+ *
+ * Measured on the FB-7 case (founder-picking.spec.ts), 2026-09-23: opening the
+ * extrude editor from a 32 deg elevation fires the proposal re-fit and the
+ * camera dollies 57.2 -> 58.4 mm over ~500 ms at a constant direction, moving
+ * the body's silhouette bottom 849 -> 869 px. CI read the silhouette on both
+ * sides of that slide and failed at "Expected <= 850/862, Received 869/870".
+ *
+ * The same class, earlier, in revolve-gauge.spec.ts (the CRAFT-12 re-fit,
+ * `7a15bea`): growing the sweep to 120 deg moved the proposal, and the camera
+ * travelled (157.14, 128.99, 178.98) -> (160.79, 130.84, 180.22) BETWEEN the
+ * frame that projected the gauge track and the frame that hit-tested a point
+ * off it. The press point was computed in one pose and used in another, so
+ * `elementFromPoint` found nothing (`held === null`) on shard 3/4 for six
+ * consecutive commits. Locally the latency of two CDP round trips had been an
+ * accidental settle; two extra `page.evaluate` calls reproduced it 3 of 3.
+ *
+ * ONE copy, here. Five specs used to carry their own, with four different
+ * criteria, and one of them (pick-proxy-collision) read `__loftCameras`
+ * without ever installing the probe, so it saw [0,0,0] every sample and
+ * "settled" immediately. This one reads through {@link cameraPose}, which
+ * refuses to answer about a camera the probe never saw.
+ *
+ * The condition is the camera's own: `stillSamples` consecutive samples, each
+ * `framesPerSample` painted frames apart, that agree to within `epsilonMm` of
+ * position and `epsilonDeg` of direction. Not a `waitForTimeout` guess at how
+ * long an ease takes. Needs {@link installSceneProbe} before `page.goto`.
+ */
+export async function waitForCameraStill(
+  page: Page,
+  options: {
+    epsilonMm?: number;
+    epsilonDeg?: number;
+    stillSamples?: number;
+    framesPerSample?: number;
+    timeoutMs?: number;
+  } = {},
+): Promise<CameraPose> {
+  const {
+    epsilonMm = 0.01,
+    epsilonDeg = 0.05,
+    stillSamples = 3,
+    framesPerSample = 4,
+    timeoutMs = 20_000,
+  } = options;
+  const deadline = Date.now() + timeoutMs;
+  let previous = await cameraPose(page);
+  let still = 0;
+  for (;;) {
+    await waitForFrames(page, framesPerSample);
+    const current = await cameraPose(page);
+    const moved = Math.hypot(
+      current.position[0] - previous.position[0],
+      current.position[1] - previous.position[1],
+      current.position[2] - previous.position[2],
+    );
+    const turned = angleBetween(previous.direction, current.direction);
+    still = moved <= epsilonMm && turned <= epsilonDeg ? still + 1 : 0;
+    if (still >= stillSamples) return current;
+    previous = current;
+    if (Date.now() > deadline) {
+      throw new Error(
+        `waitForCameraStill: camera still moving after ${timeoutMs}ms ` +
+          `(last step ${moved.toFixed(3)} mm / ${turned.toFixed(3)} deg, ` +
+          `position ${current.position.map((v) => v.toFixed(2)).join(",")})`,
+      );
+    }
+  }
+}
+
+/**
  * Run `action` and assert the camera is still pointing where it was.
  *
  * DIRECTION, deliberately, not position: re-framing distance and target when a

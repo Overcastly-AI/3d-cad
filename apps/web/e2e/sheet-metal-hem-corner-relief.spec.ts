@@ -471,8 +471,22 @@ test("repairing an orphaned hem never meets a silent disabled Save (HEM-1B)", as
     timeout: 30_000,
   });
 
-  // THE UNRELATED EDIT: the blank grows 50 → 60 mm. The hemmed edge moves, so
-  // the hem's stored signature stops resolving and the feature fails.
+  // THE UNRELATED EDIT: the blank grows 50x30 → 60x40 mm. The hemmed edge
+  // moves AND its end face changes size, so the hem's stored signature stops
+  // resolving and the feature fails.
+  //
+  // It used to be 50 → 60 in ONE dimension, and that stopped orphaning
+  // anything on `bf05482` (adjacency tier 3), which re-finds a picked edge as
+  // the intersection of its two neighbour faces precisely so that a width
+  // edit no longer breaks it — the product got better and this setup quietly
+  // stopped producing its precondition; CI then timed out waiting for a
+  // "Failed" that was never coming. Measured one fresh part per edit
+  // (2026-09-23): 60x30 Solved (re-found); 60x40 Failed subshape_unresolved;
+  // slanted end Failed subshape_unresolved; notched end Failed
+  // subshape_ambiguous; stepped end Solved. 60x40 is the smallest edit that
+  // still orphans, keeps the repair below on the same 60 mm blank, and is
+  // still a plain resize the modeler did not aim at the hem. This case is
+  // about the REPAIR FORM, so the orphan is its precondition, not its subject.
   const listed = await page.request.get(`/api/v1/parts/${partId}/features`, {
     headers,
   });
@@ -482,7 +496,7 @@ test("repairing an orphaned hem never meets a silent disabled Save (HEM-1B)", as
     `/api/v1/parts/${partId}/features/${sketchRow.id}`,
     {
       data: {
-        feature: (rectangleSketch(60, 30) as { feature: unknown }).feature,
+        feature: (rectangleSketch(60, 40) as { feature: unknown }).feature,
         expected_tree_version: tree.tree_version,
       },
       headers,

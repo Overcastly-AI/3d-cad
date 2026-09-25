@@ -14,8 +14,8 @@ the move endpoint would have refused to put it.
 
 import uuid
 
+from loft_wire.folders import FolderKind
 from py_kit import NotFoundError, ValidationApiError
-from py_kit.schemas.folders import FolderKind
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents.db import Folder

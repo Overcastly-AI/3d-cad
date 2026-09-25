@@ -12,7 +12,7 @@ value that would be true of a part nobody evaluated.
 claim about a tree that has since moved — the "confidently wrong" failure mode
 stored BOM item numbers were rejected for (docs/design/drawings.md §8a.1) — so
 the version the result belongs to is stored beside it and
-``py_kit.schemas.parts.derive_part_eval_state`` folds the pair against the
+``loft_wire.parts.derive_part_eval_state`` folds the pair against the
 part's CURRENT ``tree_version`` into ``never``/``ok``/``failed``/``stale``.
 Nothing is stored that could go stale unnoticed: staleness is derived.
 

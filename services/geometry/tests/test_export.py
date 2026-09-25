@@ -71,12 +71,12 @@ from geometry.schemas import (
     ShapeProperties,
     TessellateRequest,
 )
-from py_kit.schemas.features import (
+from loft_wire.features import (
     EvaluateTreeRequest,
     ExportTreeRequest,
     export_tree_filename,
 )
-from py_kit.schemas.geometry import EXPORT_MEDIA_TYPES, export_filename
+from loft_wire.geometry import EXPORT_MEDIA_TYPES, export_filename
 
 client = TestClient(app)
 
@@ -577,7 +577,7 @@ import sys
 
 from geometry.features import evaluate_tree
 from geometry.kernel import export_solid
-from py_kit.schemas.features import EvaluateTreeRequest, ExportTreeRequest
+from loft_wire.features import EvaluateTreeRequest, ExportTreeRequest
 
 request = ExportTreeRequest.model_validate_json(sys.stdin.read())
 body = evaluate_tree(EvaluateTreeRequest.model_validate(request.model_dump())).body

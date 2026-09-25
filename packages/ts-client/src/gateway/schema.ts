@@ -358,8 +358,41 @@ export interface paths {
         /**
          * Login
          * @description Exchange email + password for an access token (uniform 401 on failure).
+         *
+         *     Also sets the refresh cookie that ``/auth/refresh`` renews the session
+         *     with; a client that ignores cookies (loft-script) simply signs in again
+         *     when its access token expires.
          */
         post: operations["login_api_v1_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Logout
+         * @description End the session: revoke it server-side and clear the refresh cookie.
+         *
+         *     The session is found from the bearer token (signature verified, expiry
+         *     not required: an expired token still names its own session), from the
+         *     refresh cookie, or both. Revocation ends the refresh chain AND every
+         *     access token minted from it (see :func:`get_current_user`). When the
+         *     bearer and the cookie belong to DIFFERENT users, only the bearer's session
+         *     ends and the cookie is left alone — it is someone else's sign-in. Always
+         *     204 — idempotent, and it says nothing about whether the credentials were
+         *     any good.
+         */
+        post: operations["logout_api_v1_auth_logout_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -380,6 +413,33 @@ export interface paths {
         get: operations["me_api_v1_auth_me_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh
+         * @description Rotate the refresh cookie and mint a fresh access token.
+         *
+         *     The presented refresh token is spent (single use) and a successor is set
+         *     in its place. Every failure is the same generic 401 ``invalid_token`` and
+         *     clears the cookie: a missing or unknown token, an expired one, a session
+         *     that was revoked or has reached its absolute bound — and REUSE, a token
+         *     that was already spent, which additionally revokes the whole session
+         *     because two parties holding one token means it was copied.
+         */
+        post: operations["refresh_api_v1_auth_refresh_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2134,7 +2194,7 @@ export interface components {
          * AssemblyResponse
          * @description An assembly as stored — identity, ownership, and its concurrency token.
          *
-         *     Mirrors :class:`~py_kit.schemas.parts.PartResponse` plus the ``doc_version``
+         *     Mirrors :class:`~loft_wire.parts.PartResponse` plus the ``doc_version``
          *     OCC counter. The full instance/mate graph rides :class:`AssemblyGraphResponse`.
          */
         AssemblyResponse: {
@@ -2150,7 +2210,7 @@ export interface components {
             doc_version: number;
             /**
              * Folder Id
-             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
+             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see loft_wire.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
              */
             folder_id?: string | null;
             /**
@@ -2230,7 +2290,7 @@ export interface components {
          * @description Restore the adjacent assembly history snapshot (undo-redo.md UR3).
          *
          *     The assembly sibling of the part's
-         *     :class:`~py_kit.schemas.features.UndoRedoRequest`: undo/redo ARE document
+         *     :class:`~loft_wire.features.UndoRedoRequest`: undo/redo ARE document
          *     edits — each bumps ``doc_version`` under the same optimistic-concurrency
          *     guard as every other assembly write (stale → 422,
          *     ``stale_assembly_version``), and the response is the restored graph
@@ -2407,7 +2467,7 @@ export interface components {
          *
          *     ``base_feature_id`` is the id of the feature that CREATED the body — the
          *     same key ``EvaluationState.bodies`` and
-         *     :class:`~py_kit.schemas.features.BodyLumpInfo` use — so an override survives
+         *     :class:`~loft_wire.features.BodyLumpInfo` use — so an override survives
          *     edits to other features the way any body reference does. An override naming
          *     a body the tree no longer produces is inert (it matches nothing); it is not
          *     an error, because a rolled-back tree legitimately hides the body for a while.
@@ -3382,7 +3442,7 @@ export interface components {
          *     stamped caption ("FRONT") and its position.
          *
          *     ``error`` carries the TYPED per-view failure through composition (FINDINGS #15):
-         *     the :class:`~py_kit.schemas.features.FeatureError` (code + human message) from the
+         *     the :class:`~loft_wire.features.FeatureError` (code + human message) from the
          *     source :class:`DrawingViewResult` — a ``view_projection_failed`` /
          *     ``section_plane_not_principal`` / ``section_empty`` /
          *     ``flat_pattern_not_sheet_metal`` / ``section_params_missing`` — so the sheet/print
@@ -3860,7 +3920,7 @@ export interface components {
          * @description Add a dimension to a view (append at the tip; design §3).
          *
          *     ``dimension`` is the discriminated :data:`Dimension` union; its geometry
-         *     references (via :class:`~py_kit.schemas.features.EdgeSignature`) resolve
+         *     references (via :class:`~loft_wire.features.EdgeSignature`) resolve
          *     against the view's referenced body geometry-side. ``order_index`` is stable
          *     per sheet, appended at the tip.
          */
@@ -4191,7 +4251,7 @@ export interface components {
          * DrawingBomLine
          * @description One NUMBERED line of a drawing's bill of materials (design §7 BOM).
          *
-         *     The shipped assembly :class:`~py_kit.schemas.assemblies.BomLine` (group key +
+         *     The shipped assembly :class:`~loft_wire.assemblies.BomLine` (group key +
          *     resolved name + `missing` + quantity, reused VERBATIM — no parallel taxonomy)
          *     plus the one thing a *drawing* adds: the ``item_number`` a balloon stamps.
          *
@@ -4365,7 +4425,7 @@ export interface components {
             doc_version: number;
             /**
              * Folder Id
-             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
+             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see loft_wire.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
              */
             folder_id?: string | null;
             /**
@@ -4524,8 +4584,37 @@ export interface components {
          *     never a guess. Matching is nearest-within-tolerance at the documented
          *     subshape tolerance (geometry.kernel.edges / docs/GEOMETRY-QA.md), never an
          *     ad-hoc epsilon.
+         *
+         *     ADJACENCY (§14 — the ``adjacent_faces`` field). Every field above is an
+         *     ABSOLUTE WORLD COORDINATE, so a dimension edit that RESIZES the part — the
+         *     single most ordinary thing anyone does to a model — translates the edge off
+         *     every one of them, and §13's durable tier cannot help because it re-matches a
+         *     straight edge on its own SUPPORTING LINE, which a translation leaves behind.
+         *     §13 recorded the reason that looked unfixable: *"a face's area and in-plane
+         *     centroid carry an identity that an edge's direction and length do not."* True
+         *     of an edge's OWN geometry, and the escape is that an edge of a manifold solid
+         *     is the intersection of exactly TWO FACES — and a face's identity survives,
+         *     through four tiers, precisely because it has an area and an in-plane centroid.
+         *     So the identity an edge lacks in itself, it borrows from its neighbours: this
+         *     field stores the two adjacent planar faces' full
+         *     :class:`PlanarFaceSignature`\ s, canonically ordered, and the resolver's tier
+         *     3 re-resolves THEM through the face matcher and takes the edge they share.
+         *
+         *     OPTIONAL, for the same dual-read reason as the ``outer_*`` face fields: every
+         *     edge selector persisted before this field existed must keep resolving, and it
+         *     does — tiers 1 and 2 are untouched, and tier 3 simply does not fire for a
+         *     signature that carries no adjacency. Emitted by the pick side (the selection
+         *     overlay) from 2026-09-18 on, and ONLY when the edge has exactly two DISTINCT
+         *     PLANAR neighbours: a cylinder's seam (one face twice), a non-manifold edge, or
+         *     any edge bounded by a curved face carries no adjacency and is honestly left
+         *     without it rather than given a partial one.
          */
         EdgeSignature: {
+            /**
+             * Adjacent Faces
+             * @description The two PLANAR faces this edge bounds, canonically ordered by (normal, centroid) — the identity the edge's own absolute coordinates lose when a dimension edit RESIZES the part (topological-naming §14). The resolver's tier 3 re-resolves both through the four-tier face matcher and takes the edge they share, requiring exactly one. Absent on selectors authored before 2026-09-18, and on any edge without exactly two distinct planar neighbours; tier 3 then does not fire and the older tiers are unchanged.
+             */
+            adjacent_faces?: components["schemas"]["PlanarFaceSignature"][] | null;
             /**
              * Curve
              * @description Curve family — line | circle | other (spline/ellipse/…)
@@ -5168,6 +5257,16 @@ export interface components {
         /**
          * ExtrudeParamsV1
          * @description Linear extrusion of an earlier sketch feature's profile.
+         *
+         *     With a nonzero ``twist_angle_deg`` it is a TWISTED extrusion: the profile
+         *     rotates uniformly about an axis parallel to the extrusion direction while it
+         *     travels, so every point of it traces a true helix and the far-end section is
+         *     the profile rotated by the full twist (a helical gear, a twisted column;
+         *     docs/design/twisted-extrude.md). Both twist fields are additive-optional,
+         *     null by default and OMITTED from a dump while null, so an extrude with no
+         *     twist serializes byte-for-byte as it did before they existed (stored row,
+         *     response, rebuild-cache key) and rebuilds on the unchanged prism path — no
+         *     ``param_version`` bump.
          */
         ExtrudeParamsV1: {
             /**
@@ -5194,6 +5293,13 @@ export interface components {
             operation: "add" | "cut";
             /** @description Must resolve to an EARLIER sketch feature (design §2.2) */
             profile: components["schemas"]["FeatureRef"];
+            /**
+             * Twist Angle Deg
+             * @description Twist over the whole extrusion distance (degrees). The profile rotates uniformly about the twist axis as it travels, a true helical sweep. Positive is RIGHT-HANDED about the extrusion direction (a right-hand helix whichever way `direction` points); negative is left-handed. None (the default), 0, or any |twist| below 1e-9 deg is NO twist: it is normalised to absent, and the extrude is a plain prism, byte-identical to one with no twist. A twist too tight for the profile, or with too many turns for it to build in reasonable time, is a `twist_failed` rebuild error.
+             */
+            twist_angle_deg?: number | null;
+            /** @description Where the twist axis pierces the sketch plane, in the profile sketch's own (x, y) mm. The axis runs parallel to the extrusion direction through this point. None (the default) is the sketch origin. Dropped (normalised to absent) when there is no twist. */
+            twist_center?: components["schemas"]["Point2D"] | null;
         };
         /**
          * FaceSelector
@@ -5272,7 +5378,7 @@ export interface components {
          * @description One thing that breaks if a feature is deleted.
          *
          *     ``name`` rides beside the id for the same reason it does on
-         *     :class:`~py_kit.schemas.workspace.DocumentDependent`: the reader is a person
+         *     :class:`~loft_wire.workspace.DocumentDependent`: the reader is a person
          *     who named these things, and "referenced by 2 other document(s)" — which is
          *     what this refusal used to say — ends the conversation instead of starting
          *     the next action.
@@ -5460,6 +5566,8 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "error" | "skipped" | "suppressed";
+            /** @description For an ok feature that names picked edges/faces: which tier re-found them on this rebuild. Null when the feature has no picked subshape reference (or did not evaluate ok). A worst_tier other than 'exact' means the feature rebuilt on a best-effort re-match - worth a dismissable warning, never a refusal. */
+            subshape_resolution?: components["schemas"]["SubshapeResolutionSummary"] | null;
         };
         /**
          * FeatureSuppressRequest
@@ -5645,7 +5753,7 @@ export interface components {
          * FolderMember
          * @description One thing inside a folder whose delete was refused.
          *
-         *     Deliberately NOT reusing :class:`~py_kit.schemas.workspace.DocumentDependent`:
+         *     Deliberately NOT reusing :class:`~loft_wire.workspace.DocumentDependent`:
          *     that model means "something REFERENCES you" and its ``kind`` documents why a
          *     part can never appear in it. Membership is the opposite relation, and a part
          *     is its commonest member. Two relations, two models; one shared refusal
@@ -6520,7 +6628,7 @@ export interface components {
          * @description An axis derived from a CIRCULAR edge of an instance's part body (§2.1).
          *
          *     v1 derives an axis from a circular edge (``curve == "circle"``) — reusing
-         *     :class:`~py_kit.schemas.features.EdgeSignature`, whose seam-point centre and
+         *     :class:`~loft_wire.features.EdgeSignature`, whose seam-point centre and
          *     plane give the axis (design §2.1). This deliberately avoids needing a
          *     cylindrical-face signature (a clean additive future member): a hole rim and
          *     a shaft rim are both circular edges, enough for the canonical bolt joint.
@@ -6587,7 +6695,7 @@ export interface components {
          * MateFaceRef
          * @description A planar face of an instance's part body (design §1.5/§2.1).
          *
-         *     ``signature`` is the SAME :class:`~py_kit.schemas.features.PlanarFaceSignature`
+         *     ``signature`` is the SAME :class:`~loft_wire.features.PlanarFaceSignature`
          *     the ``on_face`` datum resolves (topological-naming.md §9) — reused verbatim,
          *     not a parallel taxonomy. ``instance_id`` scopes the face to one instance's
          *     resolved part body (the geometry service resolves the signature against that
@@ -7103,7 +7211,7 @@ export interface components {
          *
          *     The list position of this edge in :attr:`OverlayResult.edges` is its
          *     transient 0-based index — the SAME ordinal ``body.edges()`` yields, so
-         *     passing it as :class:`~py_kit.schemas.measure.EdgeTarget` ``index`` measures
+         *     passing it as :class:`~loft_wire.measure.EdgeTarget` ``index`` measures
          *     THIS edge. The transient index is for MEASUREMENT; the STABLE, rebuild-
          *     surviving reference is :attr:`signature` (topological naming) — echo it into
          *     an ``EdgeSubshapeRef`` to fillet/chamfer exactly this edge.
@@ -7132,7 +7240,7 @@ export interface components {
          * @description One face of the evaluated body — pickable for a sketch datum-on-a-face.
          *
          *     A PLANAR face carries a stage-1
-         *     :class:`~py_kit.schemas.features.PlanarFaceSignature` — the SAME fingerprint
+         *     :class:`~loft_wire.features.PlanarFaceSignature` — the SAME fingerprint
          *     a datum-on-face ``SubshapeRef`` stores and the geometry resolver matches
          *     against (one enumeration: the pick side and the resolve side share
          *     ``geometry.kernel.faces.planar_faces``; an order-equality gate proves it). To
@@ -7290,7 +7398,7 @@ export interface components {
             eval_state: "never" | "ok" | "failed" | "stale";
             /**
              * Folder Id
-             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
+             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see loft_wire.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
              */
             folder_id?: string | null;
             /**
@@ -8010,7 +8118,7 @@ export interface components {
          * @description The cutting plane + half selection of a section view (drawings-section.md §1).
          *
          *     v1 specifies the section's cutting plane by DATUM REFERENCE, not a drawn cutting
-         *     line (§1): ``plane`` is the shipped :data:`~py_kit.schemas.features.GeomRef`
+         *     line (§1): ``plane`` is the shipped :data:`~loft_wire.features.GeomRef`
          *     (``DatumPlaneRef`` for one of the XY/XZ/YZ origin planes, or a ``FeatureRef`` to
          *     an axis-aligned offset / midplane datum FEATURE in the referenced part) — the
          *     EXACT union a sketch's plane reference uses, so no parallel plane taxonomy is
@@ -8766,7 +8874,7 @@ export interface components {
          *     Sketching row): a REDUNDANT constraint is removable and the sketch still
          *     solves, whereas a CONFLICTING constraint makes the sketch unsolvable until
          *     one is relaxed. Built by :func:`classify_overconstraint`; carried on the
-         *     :class:`py_kit.schemas.features.FeatureError` (the ``sketch_conflicting``
+         *     :class:`loft_wire.features.FeatureError` (the ``sketch_conflicting``
          *     error path) and on the solved-sketch feature payload (the redundant-but-
          *     solvable path), so BOTH cases surface the same typed shape.
          */
@@ -8849,7 +8957,7 @@ export interface components {
          *       from that end to the nearest neighboring entity it meets in that
          *       direction (else 422 ``sketch_extend_no_target``).
          *
-         *     Units are millimetres (:mod:`py_kit.schemas.sketch` convention).
+         *     Units are millimetres (:mod:`loft_wire.sketch` convention).
          */
         SketchEditRequest: {
             /**
@@ -9018,7 +9126,7 @@ export interface components {
          *     Mirror **adds** geometry: the sources are untouched and the response carries
          *     only the NEW reflected copies (see :class:`SketchMirrorResult`). Every entity
          *     kind is reflectable (point, line, circle, arc). Units are millimetres
-         *     (:mod:`py_kit.schemas.sketch` convention).
+         *     (:mod:`loft_wire.sketch` convention).
          */
         SketchMirrorRequest: {
             /**
@@ -9121,7 +9229,7 @@ export interface components {
          *     ``{datum}``); the stored shape is unchanged, so this is purely additive — no
          *     ``param_version`` bump.
          *
-         *     Extends :class:`py_kit.schemas.sketch.SketchDefinition` (typed
+         *     Extends :class:`loft_wire.sketch.SketchDefinition` (typed
          *     ``entities``/``constraints`` — the §1.4 placeholder finalized by the
          *     "Sketch model + solver API" item), so a persisted sketch's params ARE
          *     valid solver input: same validation (unique sketch-local entity ids per
@@ -9386,6 +9494,41 @@ export interface components {
              * @constant
              */
             subshape_type: "face";
+        };
+        /**
+         * SubshapeResolutionSummary
+         * @description How one feature's picked subshape references resolved on THIS rebuild.
+         *
+         *     A WARNING channel, never a refusal (§7.3): a feature that rebuilt on a
+         *     ``durable`` or ``adjacent`` match is ``ok`` and its body is built, but the
+         *     stage-1 matchers behind those tiers are best-effort and can, rarely, re-find
+         *     the WRONG subshape without erroring. ``worst_tier != "exact"`` is the signal
+         *     a client shows (the counterpart of the ``subshape_unresolved`` /
+         *     ``subshape_ambiguous`` errors, for the references that DID resolve).
+         *     One count per picked reference, in the tier that resolved it.
+         */
+        SubshapeResolutionSummary: {
+            /**
+             * Adjacent
+             * @description Edge references re-found as the edge shared by their two stored neighbouring faces (§14).
+             */
+            adjacent: number;
+            /**
+             * Durable
+             * @description References re-found on a rebuild invariant after the subshape moved or changed shape.
+             */
+            durable: number;
+            /**
+             * Exact
+             * @description References whose stored signature matched verbatim.
+             */
+            exact: number;
+            /**
+             * Worst Tier
+             * @description The least certain tier any reference of this feature resolved at: 'exact' < 'durable' < 'adjacent'.
+             * @enum {string}
+             */
+            worst_tier: "exact" | "durable" | "adjacent";
         };
         /**
          * SweepFeature
@@ -10561,6 +10704,36 @@ export interface operations {
             };
         };
     };
+    logout_api_v1_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                /** @description Refresh token, set by register/login/refresh as an HttpOnly, Secure, SameSite=Strict cookie. Browsers send it automatically; it is never readable by script and never appears in a body. */
+                loft_refresh?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     me_api_v1_auth_me_get: {
         parameters: {
             query?: never;
@@ -10577,6 +10750,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+        };
+    };
+    refresh_api_v1_auth_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                /** @description Refresh token, set by register/login/refresh as an HttpOnly, Secure, SameSite=Strict cookie. Browsers send it automatically; it is never readable by script and never appears in a body. */
+                loft_refresh?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthTokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

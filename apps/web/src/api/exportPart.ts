@@ -9,6 +9,7 @@ import {
   MESH_ANGULAR_DEFLECTION_RAD,
   MESH_LINEAR_DEFLECTION_MM,
 } from "./client";
+import { envelopeCode } from "./envelope";
 import type { BoxParams } from "./tessellate";
 
 export type ExportRequest = components["schemas"]["ExportRequest"];
@@ -19,6 +20,27 @@ export interface ExportedFile {
   blob: Blob;
   /** Download filename from Content-Disposition (server is authoritative). */
   filename: string;
+}
+
+/**
+ * AN EXPORT THE SERVER REFUSED, with the refusal's `code` kept.
+ *
+ * Every export used to throw a bare `Error`, so the one fact the UI needed to
+ * say something useful was gone before it got there. A 3MF of a many-turn
+ * twist is refused as `export_mesh_too_dense`, and a body that touches itself
+ * along a line as `export_mesh_not_manifold`. Both said "check that the
+ * gateway is running", which is wrong on both counts: the gateway is fine, and
+ * a different FORMAT would work. `features/exportAction.exportFailureCopy`
+ * reads the code. `null` means the response carried no envelope.
+ */
+export class ExportRefusedError extends Error {
+  readonly code: string | null;
+
+  constructor(message: string, code: string | null) {
+    super(message);
+    this.name = "ExportRefusedError";
+    this.code = code;
+  }
 }
 
 /**
@@ -63,8 +85,9 @@ export async function exportBox(
     },
   );
   if (error !== undefined) {
-    throw new Error(
+    throw new ExportRefusedError(
       `The geometry service rejected the ${format.toUpperCase()} export`,
+      envelopeCode(error),
     );
   }
   if (data === undefined) {
@@ -116,8 +139,9 @@ export async function exportPartTree(
     },
   );
   if (error !== undefined) {
-    throw new Error(
+    throw new ExportRefusedError(
       `The geometry service rejected the ${format.toUpperCase()} export`,
+      envelopeCode(error),
     );
   }
   if (data === undefined) {

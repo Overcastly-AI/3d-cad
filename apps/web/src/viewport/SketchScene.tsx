@@ -42,15 +42,17 @@ import {
   OrthographicCamera,
   Quaternion,
   Vector3,
+  type Box3,
   type Camera,
   type LineSegments,
 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 import { isTypingTarget } from "../lib/isTypingTarget";
+import { useGlobalKeys } from "../lib/modalGate";
 import { useReducedMotion } from "../lib/useReducedMotion";
 import { useDocumentLengthUnit } from "../units/documentUnit";
-import { parsePositiveLengthMm } from "../units/length";
+import { parsePositiveLengthMm, parseSignedLengthMm } from "../units/length";
 import {
   definingPointPositions,
   entitySegmentPositions,
@@ -103,6 +105,8 @@ import {
   type SketchPick,
 } from "../sketch/pick";
 import { pickMark, type PickMarkKind } from "../sketch/pickMark";
+import { NEAR_MISS_MM, openEnds } from "../sketch/openEnds";
+import { pointEntryOpening } from "../sketch/pointEntry";
 import {
   DATUM_PLANES,
   sceneOriginBasis,
@@ -132,9 +136,17 @@ import {
 } from "../sketch/tools";
 import { AdaptiveGrid } from "./AdaptiveGrid";
 import { bluingRadiusMm, bluingWash } from "./bluingWash";
+import { cameraEaseStep } from "./cameraEase";
 import { ConstraintGlyphs } from "./ConstraintGlyphs";
+import { ANNOTATION_LAYER } from "./instruments";
 import { sketchIsDrawn, usePartViewStore } from "./partView";
 import { SolveProposalAnchor } from "./SolveProposalAnchor";
+import {
+  apparentSizeMm,
+  framingOf,
+  planePickDistanceMm,
+  type PlanePickStandoff,
+} from "./standoff";
 
 /**
  * DEPTH POLICY OF THE SKETCHER (founder defect, 2026-08-01: *"I had an
@@ -200,14 +212,93 @@ const COPLANAR_DECAL = {
   polygonOffsetUnits: -2,
 } as const;
 
-/** Datum sheet half-extent feels like stock on the table (mm). */
+/**
+ * Datum sheet size at the plane-pick FLOOR (mm) — stock on the table.
+ *
+ * It is the size at the floor, not the size: a subject too big for the floor
+ * pushes the camera back (`standoff.ts`) and the sheets grow with it, so they
+ * keep the apparent size this number was composed for. See
+ * `standoff.apparentSizeMm` for the measurement that made that necessary —
+ * unscaled, the most foreshortened sheet fell to ~29 px on a 1280 mm part.
+ *
+ * The one place the sheet's size is written down, for both the pick sheets and
+ * the offset hint sheet (board item #43).
+ */
 const PLANE_SIZE_MM = 90;
 /* Normal-on authoring distance (mm) — an A6-ish sheet fills the view. It lives
    in `sketch/origin.ts` with the fov and the frame fractions that scale off it,
    because `sketch/datum.ts` derives the frame's PICK region from the same
    framing and cannot import this file. */
-/** Plane-pick vantage: the studio iso the shell opens with, re-centred. */
-const PICK_CAMERA_DISTANCE_MM = 230;
+/**
+ * Plane-pick vantage DIRECTION: the studio iso the shell opens with, re-centred.
+ * The DISTANCE is solved per subject (`standoff.ts`) with
+ * `PICK_CAMERA_DISTANCE_MM` as its floor — a fixed 230 mm parks the camera
+ * inside any part bigger than the fixtures this repo grades itself on.
+ */
+const PICK_CAMERA_DIR = new Vector3(1, 0.68, 1.35).normalize();
+
+/**
+ * The plane-pick camera basis, resolved from {@link PICK_CAMERA_DIR}.
+ *
+ * Extracted because the standoff now has TWO readers — the rig that poses the
+ * camera and the sheets that have to stay the right size for wherever it went
+ * — and a basis built twice is a basis that can be built differently. Returns
+ * fresh vectors: the rig mutates `dir` into a position.
+ */
+function planePickBasis(): PlanePickStandoff {
+  const dir = PICK_CAMERA_DIR.clone();
+  const up = new Vector3(0, 1, 0);
+  const right = new Vector3().crossVectors(up, dir).normalize();
+  return {
+    right,
+    up: new Vector3().crossVectors(dir, right).normalize(),
+    dir,
+    target: new Vector3(0, 0, 0),
+  };
+}
+
+/**
+ * How far the plane-pick camera stands back for the body currently on screen —
+ * ONE derivation, read by the rig that moves the camera and by the sheets that
+ * must remain clickable once it has.
+ *
+ * Every input is either a store value or read live from the DOM, so this can be
+ * called from any component inside the canvas and cannot disagree with itself.
+ */
+function usePlanePickStandoffMm(): number {
+  const camera = useThree((state) => state.camera);
+  const gl = useThree((state) => state.gl);
+  const pickGeometry = usePartViewStore((state) => state.pickGeometry);
+  return planePickDistanceMm(
+    subjectBounds(pickGeometry),
+    planePickBasis(),
+    framingOf(gl.domElement.parentElement),
+    cameraFov(camera),
+  );
+}
+
+/**
+ * The four edges of a square sheet of `sizeMm`, on `basis`, as a positions
+ * buffer. Shared by the pick sheets and the offset hint sheet — the same eight
+ * lines were written out twice, which is how one of them ends up scaled and
+ * the other does not.
+ */
+function sheetEdgePositions(basis: PlaneBasis, sizeMm: number): Float32Array {
+  const s = sizeMm / 2;
+  const corners = [
+    { x: -s, y: -s },
+    { x: s, y: -s },
+    { x: s, y: s },
+    { x: -s, y: s },
+  ];
+  const positions = new Float32Array(4 * 6);
+  corners.forEach((corner, i) => {
+    const next = corners[(i + 1) % 4] ?? corner;
+    positions.set(planeToWorld(basis, corner), i * 6);
+    positions.set(planeToWorld(basis, next), i * 6 + 3);
+  });
+  return positions;
+}
 /**
  * Press timing for the click/drag discriminator. r3f's `e.delta` reports the
  * travel but not the duration, and duration is half of what separates a
@@ -417,8 +508,23 @@ function InkPoints({
   );
 }
 
-/** One selectable datum sheet (plane-pick step). */
-function DatumSheet({ plane }: { plane: DatumPlaneName }) {
+/**
+ * One selectable datum sheet (plane-pick step).
+ *
+ * `sizeMm` is the sheet's world size AT THE CURRENT STANDOFF, not a constant:
+ * the camera stands back for a big body, and a sheet that did not grow with it
+ * shrinks to a few dozen pixels — see `standoff.apparentSizeMm`. It is a prop
+ * rather than something this component solves, so all three sheets are
+ * guaranteed to be the same size as each other and as the camera that framed
+ * them.
+ */
+function DatumSheet({
+  plane,
+  sizeMm,
+}: {
+  plane: DatumPlaneName;
+  sizeMm: number;
+}) {
   const hoveredPlane = useSketchStore((state) => state.hoveredPlane);
   const setHoveredPlane = useSketchStore((state) => state.setHoveredPlane);
   const choosePlane = useSketchStore((state) => state.choosePlane);
@@ -429,22 +535,10 @@ function DatumSheet({ plane }: { plane: DatumPlaneName }) {
 
   const basis = useMemo(() => sceneOriginBasis(plane), [plane]);
   const quaternion = useMemo(() => planeQuaternion(basis), [basis]);
-  const edgePositions = useMemo(() => {
-    const s = PLANE_SIZE_MM / 2;
-    const corners = [
-      { x: -s, y: -s },
-      { x: s, y: -s },
-      { x: s, y: s },
-      { x: -s, y: s },
-    ];
-    const positions = new Float32Array(4 * 6);
-    corners.forEach((corner, i) => {
-      const next = corners[(i + 1) % 4] ?? corner;
-      positions.set(planeToWorld(basis, corner), i * 6);
-      positions.set(planeToWorld(basis, next), i * 6 + 3);
-    });
-    return positions;
-  }, [basis]);
+  const edgePositions = useMemo(
+    () => sheetEdgePositions(basis, sizeMm),
+    [basis, sizeMm],
+  );
   const edgeGeometry = usePositionsGeometry(edgePositions);
 
   // Hover state changes must draw a frame under frameloop="demand".
@@ -453,7 +547,12 @@ function DatumSheet({ plane }: { plane: DatumPlaneName }) {
   }, [hovered, invalidate]);
 
   return (
-    <group>
+    // NAMED as a test hook. The sheet is a raycast mesh, so it is invisible to
+    // `elementFromPoint` and there is no DOM node whose size a probe could
+    // read — the scene-graph name is the only way to ask "how big is the thing
+    // I have to click", which is the question this component's size defect was
+    // about.
+    <group name={`datum-sheet-${plane}`}>
       <mesh
         quaternion={quaternion}
         onPointerOver={(e) => {
@@ -473,7 +572,7 @@ function DatumSheet({ plane }: { plane: DatumPlaneName }) {
           if (isClick(gestureOf(e))) choosePlane(plane);
         }}
       >
-        <planeGeometry args={[PLANE_SIZE_MM, PLANE_SIZE_MM]} />
+        <planeGeometry args={[sizeMm, sizeMm]} />
         <meshBasicMaterial
           color={sketch.planeFill}
           transparent
@@ -549,6 +648,7 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
   const setHoverPick = useSketchStore((state) => state.setHoverPick);
   const invalidate = useThree((state) => state.invalidate);
   const camera = useThree((state) => state.camera);
+  const gl = useThree((state) => state.gl);
   const heightPx = useThree((state) => state.size.height);
   const quaternion = useMemo(() => planeQuaternion(basis), [basis]);
 
@@ -579,12 +679,29 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
     suppressed: e.nativeEvent.ctrlKey || e.nativeEvent.metaKey,
     axisLock: e.nativeEvent.shiftKey,
   });
+  /**
+   * DID THE POINTER EVENT HAPPEN ON THE CANVAS? (helical-gear gap G4.)
+   *
+   * r3f listens on the canvas's parent, and every drei `Html` overlay (glyphs,
+   * the inline editors, the proposal note) lives inside it, so an event on
+   * one of them bubbles into this raycast too. r3f reads the pointer from
+   * `offsetX/offsetY`, which are relative to the element that was HIT, so an
+   * event on a 20 px label raycasts as if it were 20 px from the canvas's
+   * top-left corner. The gear test drew three stray lines at (-42.2, 24.5) mm
+   * that way, clicking the origin through a width label. An event that did not
+   * land on the canvas has no plane point, so nothing is aimed, placed or
+   * picked from it. (Under a live tool the glyphs pass the pointer through to
+   * the canvas, so the click there is a canvas click; see ConstraintGlyphs.)
+   */
+  const onCanvas = (e: ThreeEvent<PointerEvent> | ThreeEvent<MouseEvent>) =>
+    e.nativeEvent.target === gl.domElement;
 
   return (
     <mesh
       position={[basis.origin[0], basis.origin[1], basis.origin[2]]}
       quaternion={quaternion}
       onPointerMove={(e) => {
+        if (!onCanvas(e)) return;
         const raw = rawPlanePoint(e);
         // ONE aim path (store.aim): it resolves the entity snap / axis lock /
         // grid AND records which one it took, so the mark the user reads and
@@ -659,6 +776,7 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
         invalidate();
       }}
       onPointerDown={(e) => {
+        if (!onCanvas(e)) return;
         notePressStart(e);
         strokeOpen.current = false;
         const store = useSketchStore.getState();
@@ -698,6 +816,7 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
         // sketcher's: it places nothing and picks nothing. `strokeOpen` is
         // cleared so a press that began un-modified and released under Alt
         // cannot leave a stale "a drag is in flight" flag for the next click.
+        if (!onCanvas(e)) return;
         if (e.nativeEvent.altKey) {
           strokeOpen.current = false;
           return;
@@ -798,6 +917,7 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
         // points). The two down-events already placed the trailing point (the
         // second is rejected as coincident), so committing the pending set is
         // exactly right.
+        if (!onCanvas(e)) return;
         if (useSketchStore.getState().tool !== "spline") return;
         e.stopPropagation();
         useSketchStore.getState().finishPlacement();
@@ -1153,6 +1273,7 @@ interface TagState {
  */
 function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
   const draft = useSketchStore((state) => state.drawDimension);
+  const typingPoint = useSketchStore((state) => state.pointEntry !== null);
   const tool = useSketchStore((state) => state.tool);
   const pending = useSketchStore((state) => state.pending);
   const cursor = useSketchStore((state) => state.cursor);
@@ -1174,6 +1295,9 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
         armed: true,
       };
     }
+    // Typed X / Y cells own the next point (G2): the live size of a rubber
+    // band that is about to be REPLACED by a typed point is not news.
+    if (typingPoint) return null;
     const shape = drawShapeOf(tool);
     const from = pending[0];
     if (shape === null || from === undefined || cursor === null) return null;
@@ -1182,7 +1306,7 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
     // Nothing to say about a zero-size rubber band.
     if (fields.every((field) => field.measuredMm === 0)) return null;
     return { from, to: cursor, fields, armed: false };
-  }, [draft, tool, pending, cursor]);
+  }, [draft, typingPoint, tool, pending, cursor]);
 
   const armed = state?.armed === true;
   // One identity per drawn shape: it re-keys the cells, so a new rectangle
@@ -1408,6 +1532,248 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
                 : "Type a size · Enter applies"}
             </p>
           ) : null}
+        </div>
+      </div>
+    </Html>
+  );
+}
+
+/** Open-end marks sit with the glyphs, under the HUD strips. */
+const OPEN_END_Z_RANGE: [number, number] = [19, 0];
+
+/**
+ * OPEN PROFILE ENDS, MARKED WHERE THEY ARE (helical-gear gap G8).
+ *
+ * The gear test's loft failed on two gaps of 0.285 um and 6.998 um that
+ * nothing on screen showed: two ends drawn onto one another look joined at any
+ * zoom a person works at. Every profile end no other end meets (`openEnds`,
+ * which builds ends the way the kernel will) gets a ring. A NEAR MISS, closer
+ * than `NEAR_MISS_MM` and so invisible, is the dangerous kind and the only one
+ * in flag ink; an end that is plainly loose (a line still being drawn) gets a
+ * quiet ring, because it is not news.
+ *
+ * DOM rings rather than scene geometry, for the reason the glyphs are: one
+ * screen size at every zoom, crisp, nothing to dispose. Pointer-inert, so a
+ * ring never eats the click that closes the gap it marks.
+ */
+function OpenEndMarks({ basis }: { basis: PlaneBasis }) {
+  const entities = useSketchStore((state) => state.entities);
+  const open = useMemo(() => openEnds(entities), [entities]);
+  return (
+    <>
+      {open.map((end) => {
+        const nearMiss = end.gapMm !== null && end.gapMm < NEAR_MISS_MM;
+        return (
+          <Html
+            key={`${end.entity}.${end.point}`}
+            position={planeToWorld(basis, end.at)}
+            center
+            zIndexRange={OPEN_END_Z_RANGE}
+            style={{ pointerEvents: "none" }}
+          >
+            <span
+              aria-hidden
+              data-testid="open-end"
+              data-entity={end.entity}
+              data-point={end.point}
+              data-near-miss={nearMiss || undefined}
+              className={
+                nearMiss
+                  ? "block h-3 w-3 rounded-full border-2 border-flag"
+                  : "block h-2 w-2 rounded-full border border-gauge"
+              }
+            />
+          </Html>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * The keys that open a typed coordinate: a digit, a sign, a decimal point.
+ * NOT `0`: at rest that key is the sketcher's Fit (F-11) and stays so. A
+ * coordinate that starts with zero is typed ".5" or "-0.5"; once the cells
+ * are open every key is theirs.
+ */
+const OPENS_A_COORDINATE = /^[1-9.-]$/;
+
+/**
+ * TYPE WHERE THE POINT GOES (helical-gear gap G2).
+ *
+ * The gear test placed 24 involute fit points by reading the DRO at
+ * 0.024 mm/px: there was no way to say "this point is at (21.5705, 5.8494)".
+ * In the FB-16 idiom (a dimension is typed where it forms, not recovered
+ * later), a digit typed while a point-placing tool is live opens X / Y cells
+ * at the cursor: the first key lands in X, Tab moves to Y, Enter places the
+ * point exactly there, Escape abandons it. An empty cell keeps the aimed
+ * value, so "12 Enter" pins X and takes Y from the pointer. With exactly one
+ * point selected, the same keys move THAT point. `pointEntryOpening` says
+ * which placements take a typed point.
+ *
+ * The cells are uncontrolled, and the keys typed before they exist are
+ * buffered and replayed from the ref callback, for the reasons
+ * `DrawDimensionTag` documents (FLOW-A1): the first keystrokes arrive before
+ * React has rendered anything to type into.
+ */
+function PointEntry({ basis }: { basis: PlaneBasis }) {
+  const entry = useSketchStore((state) => state.pointEntry);
+  const open = useSketchStore((state) => state.openPointEntry);
+  const close = useSketchStore((state) => state.closePointEntry);
+  const commit = useSketchStore((state) => state.commitPointEntry);
+  const unit = useDocumentLengthUnit();
+  const invalidate = useThree((state) => state.invalidate);
+  const inputs = useRef<[HTMLInputElement | null, HTMLInputElement | null]>([
+    null,
+    null,
+  ]);
+  /** Keys typed before the cells existed, waiting for them to attach. */
+  const buffered = useRef<DrawKeyBuffer | null>(null);
+  const [invalid, setInvalid] = useState(false);
+
+  useGlobalKeys("sketch point entry", (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    const state = useSketchStore.getState();
+    if (state.mode !== "draw") return;
+    if (state.pointEntry === null) {
+      if (!OPENS_A_COORDINATE.test(event.key)) return;
+      const opening = pointEntryOpening(state);
+      if (opening === null) return;
+      event.preventDefault();
+      const outcome = bufferDrawKey(null, event.key, {
+        draftId: "point",
+        fieldCount: 2,
+        signed: true,
+      });
+      buffered.current = outcome.kind === "buffered" ? outcome.buffer : null;
+      setInvalid(false);
+      open(opening.anchor, opening.target);
+      invalidate();
+      return;
+    }
+    // Open, but the cells are not in the DOM yet: hold the keys for them.
+    if (inputs.current[0] !== null) return;
+    const outcome = bufferDrawKey(buffered.current, event.key, {
+      draftId: "point",
+      fieldCount: 2,
+      shiftKey: event.shiftKey,
+      signed: true,
+    });
+    if (outcome.kind === "ignored") return;
+    event.preventDefault();
+    buffered.current = outcome.buffer;
+  });
+
+  if (entry === null) return null;
+
+  const apply = () => {
+    const read = (cell: HTMLInputElement | null, fallback: number) =>
+      cell === null || cell.value.trim() === ""
+        ? fallback
+        : parseSignedLengthMm(cell.value, unit);
+    const x = read(inputs.current[0], entry.anchor.x);
+    const y = read(inputs.current[1], entry.anchor.y);
+    if (x === null || y === null) {
+      setInvalid(true);
+      return;
+    }
+    buffered.current = null;
+    commit({ x, y });
+    invalidate();
+  };
+
+  /**
+   * Register a cell and replay what was typed before it existed. React calls
+   * an inline ref again on every render, so everything here happens only while
+   * a replay is pending: a later render must never pull focus back to X while
+   * the user is typing Y.
+   */
+  const register = (index: 0 | 1, node: HTMLInputElement | null) => {
+    inputs.current[index] = node;
+    const pending = buffered.current;
+    if (node === null || pending === null) return;
+    const text = bufferedText(pending, index);
+    if (text !== "") node.value = text;
+    if (index === pending.index) {
+      node.focus();
+      node.setSelectionRange(node.value.length, node.value.length);
+    }
+    if (index === 1) {
+      buffered.current = null;
+      if (pending.apply) apply();
+    }
+  };
+
+  const onKeyDown = (
+    event: ReactKeyboardEvent<HTMLInputElement>,
+    index: 0 | 1,
+  ) => {
+    if (event.key === "Escape") {
+      // The cells' own Escape: abandon the typing, keep the tool armed.
+      event.stopPropagation();
+      event.preventDefault();
+      buffered.current = null;
+      close();
+      invalidate();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      apply();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    // A coordinate pair is a loop, like the size cells.
+    event.preventDefault();
+    inputs.current[index === 0 ? 1 : 0]?.focus();
+  };
+
+  const cells = [
+    { index: 0, axis: "x", label: "X" },
+    { index: 1, axis: "y", label: "Y" },
+  ] as const;
+  return (
+    <Html
+      position={planeToWorld(basis, entry.anchor)}
+      zIndexRange={DIMENSION_TAG_Z_RANGE}
+      style={{ pointerEvents: "none" }}
+    >
+      {/* Down and right of the point: the snap mark's word and the size rail
+          hang up and right of the cursor, so this never sits on either. */}
+      <div style={{ transform: "translate(12px, 12px)" }}>
+        <div
+          key={entry.nonce}
+          role="group"
+          aria-label={
+            entry.target === null
+              ? "Coordinates of the next point"
+              : "Move the selected point to"
+          }
+          data-testid="point-entry"
+          style={{ pointerEvents: "auto" }}
+        >
+          <DimensionTag unit={lengthUnitLabel(unit)}>
+            {cells.map(({ index, axis, label }) => (
+              <DimensionTagCell
+                key={axis}
+                label={label}
+                width={9}
+                placeholder={sizeText(entry.anchor[axis], unit)}
+                aria-label={`${label} in ${lengthUnitLabel(unit)}`}
+                aria-invalid={invalid || undefined}
+                data-testid={`point-entry-${axis}`}
+                ref={(node: HTMLInputElement | null) => register(index, node)}
+                onKeyDown={(event) => onKeyDown(event, index)}
+              />
+            ))}
+          </DimensionTag>
+          <p className="mt-1 font-body text-2xs text-gauge">
+            {invalid
+              ? "Type a number in each cell · Enter places"
+              : entry.target === null
+                ? "Tab switches · Enter places · Esc cancels"
+                : "Tab switches · Enter moves · Esc cancels"}
+          </p>
         </div>
       </div>
     </Html>
@@ -1975,7 +2341,9 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
           on the same pixels. */}
       <PickMarker basis={basis} />
       <DrawDimensionTag basis={basis} />
+      <PointEntry basis={basis} />
       <ConstraintGlyphs basis={basis} />
+      <OpenEndMarks basis={basis} />
     </group>
   );
 }
@@ -1988,22 +2356,16 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
  */
 function DatumHintSheet({ basis }: { basis: PlaneBasis }) {
   const quaternion = useMemo(() => planeQuaternion(basis), [basis]);
-  const edgePositions = useMemo(() => {
-    const s = PLANE_SIZE_MM / 2;
-    const corners = [
-      { x: -s, y: -s },
-      { x: s, y: -s },
-      { x: s, y: s },
-      { x: -s, y: s },
-    ];
-    const positions = new Float32Array(4 * 6);
-    corners.forEach((corner, i) => {
-      const next = corners[(i + 1) % 4] ?? corner;
-      positions.set(planeToWorld(basis, corner), i * 6);
-      positions.set(planeToWorld(basis, next), i * 6 + 3);
-    });
-    return positions;
-  }, [basis]);
+  // DELIBERATELY NOT scaled by the plane-pick standoff, unlike `DatumSheet`.
+  // This one is drawn in the DRAW step, where the camera is posed normal-on by
+  // `sketchCameraDistanceMm` — a different rule entirely — so scaling it by a
+  // standoff it is not being viewed from would make it wrong rather than
+  // right. If the authoring vantage ever becomes subject-dependent too, this is
+  // the line to revisit, and it should scale by THAT distance.
+  const edgePositions = useMemo(
+    () => sheetEdgePositions(basis, PLANE_SIZE_MM),
+    [basis],
+  );
   const edgeGeometry = usePositionsGeometry(edgePositions);
   const position: [number, number, number] = [
     basis.origin[0],
@@ -2120,6 +2482,21 @@ function sketchFrameHalfHeightMm(
 }
 
 /**
+ * The drawn body's bounds in scene space, or null when nothing is drawn.
+ *
+ * `boundingBox` is computed by three on demand and the mesh normally has it
+ * already; computing it here rather than assuming it is present keeps this
+ * honest for a geometry that arrived by some other path — an absent box would
+ * otherwise read as "no subject" and silently restore the fixed vantage.
+ */
+function subjectBounds(geometry: BufferGeometry | null): Box3 | null {
+  if (geometry === null) return null;
+  if (geometry.boundingBox === null) geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  return box === null || box.isEmpty() ? null : box;
+}
+
+/**
  * Camera rig: eases to the plane-pick iso or the normal-on authoring pose
  * (instant under prefers-reduced-motion), releases the camera otherwise.
  *
@@ -2145,12 +2522,28 @@ function sketchFrameHalfHeightMm(
  * ease this rig is writing the camera every frame, so a drag in that window is
  * overwritten and the modeller sees no turn at all; treating it as a choice
  * would suppress the restore on the strength of a gesture that had no effect.
+ *
+ * THE DRAW PARK HAPPENS ONCE PER PLANE, NOT ONCE PER EFFECT RUN (helical-gear
+ * gap G3). The effect below re-runs whenever the drawn body changes, because
+ * the PLANE-PICK standoff is solved from it. It used to re-park the DRAW pose
+ * on every such run too, and an edit of a sketch that is already a feature
+ * re-evaluates the part, so a fresh mesh lands a few seconds after every
+ * coincident, typed size or trim. Each one flew the camera back to the entry
+ * framing: measured in the gear test as 0.0183 -> 0.1646 mm/px within 4 s,
+ * a ~30 s re-zoom per detail action. `parkedFor` records what the draw park
+ * was solved for (the plane the user picked, on this camera), and nothing
+ * else may re-park it. Only entering the sketch and an explicit Fit (`0`,
+ * served by the part rig) frame the view while drawing.
  */
 function SketchCameraRig() {
   const mode = useSketchStore((state) => state.mode);
   const plane = useSketchStore((state) => state.plane);
   const reducedMotion = useReducedMotion();
   const camera = useThree((state) => state.camera);
+  const gl = useThree((state) => state.gl);
+  // The DRAWN body, published by the mesh — the same geometry the pick surface
+  // raycasts, so the vantage is composed about exactly what can be picked.
+  const pickGeometry = usePartViewStore((state) => state.pickGeometry);
   const controls = useThree(
     (state) => state.controls,
   ) as OrbitControlsImpl | null;
@@ -2165,6 +2558,17 @@ function SketchCameraRig() {
   const parked = useRef<ViewPose | null>(null);
   /** Has the modeller moved the camera by hand since the park landed? */
   const tookTheCamera = useRef(false);
+  /** Did the previous rendered frame take an ease step? See `cameraEase.ts`. */
+  const easing = useRef(false);
+  /**
+   * The (plane, camera) the current DRAW park was solved for; null outside a
+   * draw park. A re-run of the park effect for anything else (a new mesh, a
+   * reduced-motion flip) must leave the modeller's zoom and pan alone.
+   */
+  const parkedFor = useRef<{
+    plane: SketchPlaneSpec;
+    camera: Camera;
+  } | null>(null);
 
   useEffect(() => {
     const onStart = () => {
@@ -2178,16 +2582,37 @@ function SketchCameraRig() {
   useEffect(() => {
     let pose: CameraPose | null = null;
     if (mode === "draw" && plane !== null) {
+      const last = parkedFor.current;
+      if (last !== null && last.plane === plane && last.camera === camera) {
+        return;
+      }
+      parkedFor.current = { plane, camera };
       pose = planeCameraPose(
         resolveSpecBasis(plane),
         sketchCameraDistanceMm(plane, camera),
       );
     } else if (mode === "plane") {
-      const direction = new Vector3(1, 0.68, 1.35)
-        .normalize()
-        .multiplyScalar(PICK_CAMERA_DISTANCE_MM);
+      parkedFor.current = null;
+      // STAND BACK FAR ENOUGH TO SEE THE SUBJECT. This used to be a fixed
+      // 230 mm from the world origin with no reference to the body — fine for a
+      // 10x20x30 box, and INSIDE a 1280 mm imported part. Measured on the
+      // gauntlet's gearbox: after this pose, 226 of its 452 face marks were
+      // behind the camera, 222 were off the left edge of the canvas, and
+      // `elementFromPoint` resolved ZERO of them. See `standoff.ts`.
+      //
+      // The target stays the world origin: that is the composition this vantage
+      // has always had, and changing it would move every fixture's pick
+      // coordinates for a defect none of them has.
+      const standoff = planePickBasis();
+      const distance = planePickDistanceMm(
+        subjectBounds(pickGeometry),
+        standoff,
+        framingOf(gl.domElement.parentElement),
+        cameraFov(camera),
+      );
+      const position = standoff.dir.multiplyScalar(distance);
       pose = {
-        position: [direction.x, direction.y, direction.z],
+        position: [position.x, position.y, position.z],
         up: [0, 1, 0],
         target: [0, 0, 0],
       };
@@ -2196,6 +2621,7 @@ function SketchCameraRig() {
       const remembered = parked.current;
       const chose = tookTheCamera.current;
       parked.current = null;
+      parkedFor.current = null;
       tookTheCamera.current = false;
       goal.current = null;
       camera.up.set(0, 1, 0);
@@ -2248,13 +2674,28 @@ function SketchCameraRig() {
       goal.current = next;
     }
     invalidate();
-  }, [mode, plane, reducedMotion, camera, controls, invalidate, requestPose]);
+  }, [
+    mode,
+    plane,
+    reducedMotion,
+    camera,
+    controls,
+    invalidate,
+    requestPose,
+    gl,
+    pickGeometry,
+  ]);
 
   useFrame((_, delta) => {
     const g = goal.current;
-    if (g === null) return;
-    // Exponential ease — frame-rate independent, allocation-free.
-    const k = 1 - Math.exp(-Math.min(delta, 0.1) * 10);
+    if (g === null) {
+      easing.current = false;
+      return;
+    }
+    // Exponential ease — frame-rate independent, allocation-free. Time-based
+    // down to 2 fps, not 10: see `cameraEase.ts` (PERF-REAL-1).
+    const k = cameraEaseStep(delta, easing.current);
+    easing.current = true;
     camera.position.lerp(g.position, k);
     camera.up.lerp(g.up, k).normalize();
     if (controls) {
@@ -2268,6 +2709,7 @@ function SketchCameraRig() {
       camera.up.copy(g.up);
       controls?.update();
       goal.current = null;
+      easing.current = false;
     }
     invalidate();
   });
@@ -2336,13 +2778,24 @@ export function SketchScene({ solved, facePicking = false }: SketchSceneProps) {
   // nothing on screen explaining why.
   useEffect(() => () => usePartViewStore.getState().setSketchOpen(false), []);
   useSnapModifiers(mode === "draw");
+  // The sheets are sized for wherever the plane-pick camera is standing, from
+  // the SAME solve the rig poses with — so a body big enough to push the camera
+  // back cannot shrink the affordance you click to start a sketch on it.
+  const sheetSizeMm = apparentSizeMm(PLANE_SIZE_MM, usePlanePickStandoffMm());
   return (
-    <group>
+    // ANNOTATION, not a proposal. Sketch ink is present from page load and can
+    // sit anywhere the modeler has drawn — a shown sketch 100 mm clear of the
+    // body used to fly the camera 297 mm on the first edge pick of a 2 mm
+    // fillet, shrinking the part from 532 px to 82 px. `instruments.ts` carries
+    // the measurement and why the tag lives on the annotation.
+    <group userData={ANNOTATION_LAYER}>
       {drawn.map((layer) => (
         <SolvedLayer key={layer.featureId} layer={layer} />
       ))}
       {mode === "plane" && !facePicking
-        ? DATUM_PLANES.map((name) => <DatumSheet key={name} plane={name} />)
+        ? DATUM_PLANES.map((name) => (
+            <DatumSheet key={name} plane={name} sizeMm={sheetSizeMm} />
+          ))
         : null}
       {mode === "draw" && plane !== null && basis !== null ? (
         <group>

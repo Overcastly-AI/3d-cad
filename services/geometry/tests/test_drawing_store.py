@@ -38,8 +38,8 @@ from geometry.drawing_store import (
 )
 from geometry.main import app
 from geometry.s3_store import S3DrawingArtifactStore
+from loft_wire.drawings import ComposeDrawingRequest, ViewScale
 from moto.server import ThreadedMotoServer
-from py_kit.schemas.drawings import ComposeDrawingRequest, ViewScale
 
 _GOLDEN_DIR = Path(__file__).resolve().parent / "compose_goldens"
 _ENDPOINT = "http://s3.local:9000"

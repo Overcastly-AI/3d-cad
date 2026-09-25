@@ -50,7 +50,7 @@ from geometry.assembly import (
     SolverMate,
 )
 from geometry.assembly.transform import Pose, as_vector, quat_from_rotvec
-from py_kit.schemas.assemblies import (
+from loft_wire.assemblies import (
     AngleMate,
     CoincidentMate,
     ConcentricMate,
@@ -58,8 +58,8 @@ from py_kit.schemas.assemblies import (
     MateAxisRef,
     MateFaceRef,
 )
-from py_kit.schemas.features import EdgeSignature, PlanarFaceSignature
-from py_kit.schemas.geometry import Vec3
+from loft_wire.features import EdgeSignature, PlanarFaceSignature
+from loft_wire.geometry import Vec3
 
 #: Per-model solve tolerance (mm for positions/gaps, dimensionless for
 #: normals/angles-as-cosines). The numeric LM converges well below this for a

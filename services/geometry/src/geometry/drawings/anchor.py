@@ -12,14 +12,14 @@ Why FEATURE references survived the same edit and dimensions did not
 — the strict stage-1 signature (normal + centroid + area) and, only when that finds
 nothing, a resilient re-match on the strongest INVARIANT alone (same-sense normal +
 coincident supporting plane), which survives any in-plane boundary change
-(``geometry.kernel.faces._match_face_records``, FINDINGS #3). Picked EDGES have only
+(``geometry.kernel.faces.match_face_records``, FINDINGS #3). Picked EDGES have only
 the strict tier: :func:`geometry.kernel.edges.resolve_edge` requires both endpoints,
 the midpoint AND the length to match within tolerance, so ANY change to the measured
 edge itself is fatal — while a dimension is, by definition, attached to the geometry
 the designer is about to change.
 
 This module adds the missing edge tier, reusing the SAME naming (the shipped
-:class:`~py_kit.schemas.features.EdgeSignature`, the SAME resolver, the SAME typed
+:class:`~loft_wire.features.EdgeSignature`, the SAME resolver, the SAME typed
 :class:`~geometry.kernel.faces.SubshapeUnresolvedError` /
 :class:`~geometry.kernel.faces.SubshapeAmbiguousError` taxonomy) rather than
 inventing a second scheme:
@@ -47,7 +47,7 @@ Still honest, never a guess (topological-naming §5/§7.3): zero tier-2 candidat
 ``subshape_unresolved``, two or more is ``subshape_ambiguous`` (two collinear
 segments overlapping the stored span, two coincident-centre circles at the same
 station — refuse to pick one), and the caller learns WHICH tier fired through
-:class:`~py_kit.schemas.drawings.DimensionAnchor`, so a re-anchored dimension is
+:class:`~loft_wire.drawings.DimensionAnchor`, so a re-anchored dimension is
 visible on the wire rather than silently assumed. The §7.3 residual is unchanged and
 NOT claimed away: an invariant-based match can still land on a different edge that
 moved into the stored slot while the intended one vanished — it is the same
@@ -68,9 +68,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from build123d import Edge
-from py_kit.schemas.drawings import DimensionAnchorTier
-from py_kit.schemas.features import EdgeSignature
-from py_kit.schemas.geometry import Vec3
+from loft_wire.drawings import DimensionAnchorTier
+from loft_wire.features import EdgeSignature
+from loft_wire.geometry import Vec3
 
 from geometry.kernel.edges import (
     circle_axis,
@@ -117,7 +117,7 @@ class ResolvedAnchor:
 
 
 #: A plain 3-tuple world point/vector in mm — the local arithmetic type (the boundary
-#: :class:`~py_kit.schemas.geometry.Vec3` stays the wire shape).
+#: :class:`~loft_wire.geometry.Vec3` stays the wire shape).
 _V = tuple[float, float, float]
 
 
@@ -437,7 +437,7 @@ def resolve_anchor_edge(
     Returns the edge, its CURRENT signature, and which tier matched. Both re-anchoring
     tiers report ``durable``: the wire distinction that matters to a client is exact
     vs re-anchored, and inventing a third value would break every consumer of
-    :class:`~py_kit.schemas.drawings.DimensionAnchorTier` for no gain in what it can
+    :class:`~loft_wire.drawings.DimensionAnchorTier` for no gain in what it can
     DO about it.
 
     Raises:

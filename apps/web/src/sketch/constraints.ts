@@ -9,7 +9,7 @@ import type { components } from "@loft/ts-client/gateway";
 
 import { isDatumId, isDatumPin, selectionTouchesDatum } from "./datum";
 import type { Point2D } from "./plane";
-import type { SketchPick } from "./pick";
+import { namedPoints, type SketchPick } from "./pick";
 import { TOOL_SHORTCUTS, type SketchEntity } from "./tools";
 
 export type SketchConstraint =
@@ -287,6 +287,111 @@ export function reconcileConstraints(
   return { constraints: kept, removed: constraints.length - kept.length };
 }
 
+/** Two sketch points the edit left where they were (1e-9 mm, below any tolerance). */
+const samePoint = (a: Point2D, b: Point2D): boolean =>
+  Math.abs(a.x - b.x) <= 1e-9 && Math.abs(a.y - b.y) <= 1e-9;
+
+/** A line's length, for "did the edit change it". Other kinds: no length rule. */
+const lineLength = (entity: SketchEntity): number | null =>
+  entity.kind === "line"
+    ? Math.hypot(entity.end.x - entity.start.x, entity.end.y - entity.start.y)
+    : null;
+
+/**
+ * Reconcile the constraints against a TRIM or EXTEND of `target` (helical-gear
+ * gap G7). `reconcileConstraints` drops what names a vanished id; that is not
+ * enough for the curve that SURVIVES the edit, because the edit changed its
+ * shape, and the constraints that described the old shape fight the new one.
+ * Measured in the gear test's keyway (and in `sketch-trim-extend.spec.ts`): a
+ * line trimmed back from its typed 40 mm solved straight back to 40, so the
+ * trim appeared to do nothing.
+ *
+ * On the surviving target:
+ *
+ *  - a constraint on an END that MOVED is re-attached when a new piece of the
+ *    split now owns that exact point (the far corner of a line cut in the
+ *    middle keeps its coincident), and dropped otherwise;
+ *  - a line whose LENGTH changed loses its length-dependent constraints: its
+ *    distance dimension, an equal-length pairing, and a midpoint relation (the
+ *    middle moved);
+ *  - everything still true is kept: orientation (horizontal, vertical,
+ *    parallel, perpendicular, collinear, angle), an arc's radius and centre
+ *    relations (a trimmed circle is still that circle), and every constraint on
+ *    an end that did not move.
+ *
+ * `removed` counts every dropped constraint, for the edit note.
+ */
+export function reconcileEditedConstraints(
+  constraints: readonly SketchConstraint[],
+  before: readonly SketchEntity[],
+  after: readonly SketchEntity[],
+  target: string,
+): ReconcileResult {
+  const base = reconcileConstraints(constraints, after);
+  const was = before.find((e) => e.id === target);
+  const now = after.find((e) => e.id === target);
+  if (was === undefined || now === undefined) return base;
+
+  const wasPoints = new Map(namedPoints(was).map((p) => [p.point, p.at]));
+  const nowPoints = new Map(namedPoints(now).map((p) => [p.point, p.at]));
+  const moved = new Set<string>();
+  for (const [name, at] of wasPoints) {
+    const next = nowPoints.get(name);
+    if (next === undefined || !samePoint(at, next)) moved.add(name);
+  }
+  const beforeIds = new Set(before.map((e) => e.id));
+  const pieces = after.filter((e) => !beforeIds.has(e.id));
+  const wasLength = lineLength(was);
+  const nowLength = lineLength(now);
+  const lengthChanged =
+    wasLength !== null &&
+    nowLength !== null &&
+    Math.abs(wasLength - nowLength) > 1e-9;
+
+  /** A ref that survives the edit: itself, re-homed onto a piece, or null. */
+  const follow = (ref: EntityPointRef): EntityPointRef | null => {
+    if (ref.entity !== target || !moved.has(ref.point)) return ref;
+    const at = wasPoints.get(ref.point);
+    if (at === undefined) return null;
+    for (const piece of pieces) {
+      const found = namedPoints(piece).find((p) => samePoint(p.at, at));
+      if (found !== undefined) return { entity: piece.id, point: found.point };
+    }
+    return null;
+  };
+  const reconcileOne = (c: SketchConstraint): SketchConstraint | null => {
+    switch (c.kind) {
+      case "coincident":
+      case "symmetric": {
+        const a = follow(c.a);
+        const b = follow(c.b);
+        return a === null || b === null ? null : { ...c, a, b };
+      }
+      case "fixed": {
+        const point = follow(c.point);
+        return point === null ? null : { ...c, point };
+      }
+      case "midpoint": {
+        if (c.line === target && lengthChanged) return null;
+        const point = follow(c.point);
+        return point === null ? null : { ...c, point };
+      }
+      case "distance":
+        return c.entity === target && lengthChanged ? null : c;
+      case "equal":
+        return (c.a === target || c.b === target) && lengthChanged ? null : c;
+      default:
+        return c;
+    }
+  };
+
+  const kept = base.constraints.flatMap((c) => {
+    const next = reconcileOne(c);
+    return next === null ? [] : [next];
+  });
+  return { constraints: kept, removed: constraints.length - kept.length };
+}
+
 /**
  * Toggle construction on the selection's entities (points address no curve,
  * so they are ignored). If every selected entity is already construction the
@@ -324,6 +429,54 @@ export function toggleConstruction(
   return entities.map((e) =>
     ids.has(e.id) ? { ...e, construction: target } : e,
   );
+}
+
+/**
+ * Delete the selected entities and every constraint that referenced them
+ * (helical-gear gap G7: Delete only ever removed a constraint, so a stray line
+ * could be undone or turned into construction but never removed).
+ *
+ * What a selection deletes: every picked curve (a whole-entity pick) and every
+ * picked standalone POINT entity. A point pick on a curve (a line's end, an
+ * arc's centre, a spline fit point) addresses a point OF that curve, not a
+ * thing on its own, so it deletes nothing. The sketch's own frame (origin and
+ * axes) is never deleted: it is the datum everything is constrained to.
+ *
+ * Constraints go by the same rule a trim uses (`reconcileConstraints`): any
+ * constraint that names a removed id is dropped, and the count is returned so
+ * the caller can say so. Returns null when the selection deletes nothing.
+ */
+export function deleteSelectedEntities(
+  selection: readonly SketchPick[],
+  entities: readonly SketchEntity[],
+  constraints: readonly SketchConstraint[],
+): {
+  entities: SketchEntity[];
+  constraints: SketchConstraint[];
+  deleted: number;
+  removedConstraints: number;
+} | null {
+  const standalonePoints = new Set(
+    entities.filter((e) => e.kind === "point").map((e) => e.id),
+  );
+  const ids = new Set(
+    selection.flatMap((pick) => {
+      if (pick.kind === "entity") return isDatumId(pick.id) ? [] : [pick.id];
+      return standalonePoints.has(pick.entity) && !isDatumId(pick.entity)
+        ? [pick.entity]
+        : [];
+    }),
+  );
+  const kept = entities.filter((e) => !ids.has(e.id));
+  const deleted = entities.length - kept.length;
+  if (deleted === 0) return null;
+  const reconciled = reconcileConstraints(constraints, kept);
+  return {
+    entities: kept,
+    constraints: reconciled.constraints,
+    deleted,
+    removedConstraints: reconciled.removed,
+  };
 }
 
 /**

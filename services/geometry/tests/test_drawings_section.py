@@ -35,7 +35,7 @@ from geometry.drawings.section import (
     resolve_section_frame,
     section_cut,
 )
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     ComposedHatchLine,
     ComposeDrawingRequest,
     DrawingViewResult,
@@ -49,7 +49,7 @@ from py_kit.schemas.drawings import (
     SheetViewPlacement,
     ViewScale,
 )
-from py_kit.schemas.features import (
+from loft_wire.features import (
     DatumPlaneRef,
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
@@ -214,7 +214,7 @@ _RESTART_PROBE = """
 import sys
 from pathlib import Path
 from geometry.drawings import evaluate_drawing_views, place_sheet, serialize_svg
-from py_kit.schemas.drawings import ComposeDrawingRequest
+from loft_wire.drawings import ComposeDrawingRequest
 golden = Path(sys.argv[1])
 request = ComposeDrawingRequest.model_validate_json(
     (golden / "request.json").read_text(encoding="utf-8")
@@ -422,7 +422,7 @@ def test_unwired_section_params_reproduces_the_dead_capability_e1_fixes() -> Non
 def _composed_view_box(view: object) -> tuple[float, float, float, float] | None:
     """A composed view's drawn extent in FINAL SVG mm (min_x, min_y, max_x, max_y),
     over its placed edges (+ hatch), or None when it drew nothing."""
-    from py_kit.schemas.drawings import (
+    from loft_wire.drawings import (
         ComposedCircleEdge,
         ComposedLineEdge,
         ComposedPolylineEdge,

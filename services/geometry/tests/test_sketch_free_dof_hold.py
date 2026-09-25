@@ -61,7 +61,7 @@ from geometry.sketch import (
     VerticalConstraint,
 )
 from geometry.sketch.planegcs_solver import SATISFIED_TOL_MM
-from py_kit.schemas.sketch import classify_overconstraint
+from loft_wire.sketch import classify_overconstraint
 
 SOLVER: SketchSolver = PlanegcsSketchSolver()
 

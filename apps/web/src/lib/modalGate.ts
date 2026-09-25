@@ -509,7 +509,9 @@ export function useGlobalKeys(
  * `defaultPrevented`. Registration order decided the outcome, and registration
  * order is mount order, which is not a design.
  *
- * So the order is DECLARED here, once, and the cascade runs exactly one rung:
+ * So the order is DECLARED here, once, and exactly one rung takes the key (a
+ * rung with nothing to back out of declines and passes it down; see
+ * `CancelHandler`):
  *
  *   0. a MODAL LAYER — above this list entirely, shielded at the top of this
  *      file, which is why the key card closes and nothing else moves.
@@ -533,7 +535,8 @@ export const CANCEL_ORDER = ["drag", "offer", "mark"] as const;
 export type CancelRung = (typeof CANCEL_ORDER)[number];
 
 interface CancelEntry {
-  run: () => void;
+  /** Back out one step. `false` means DECLINED: see {@link CancelHandler}. */
+  run: () => boolean;
   /**
    * Act even while a text control has focus. OFF by default — Escape in a
    * filter field belongs to the field — and ON for a gesture in flight, which
@@ -591,9 +594,23 @@ function runCancelCascade(event: KeyboardEvent): void {
       // because that listener never consulted the flag — the two-step defect
       // this cascade exists to end, re-created in a new pairing. The rung that
       // wins the key owns the key outright.
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      entry.run();
+      //
+      // ...unless it DECLINES. A rung that finds nothing to back out of passes
+      // the key on rather than spending it on a no-op (see `CancelHandler`).
+      // Run first and stop second: the stop is still inside this dispatch, so
+      // no listener behind this one has seen the key either way. In a
+      // `finally`, so a handler that THROWS still owns the key: otherwise the
+      // cancel behind it would run too, two steps from one key (review N3).
+      let took = true;
+      try {
+        took = entry.run();
+      } finally {
+        if (took) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      }
+      if (!took) continue;
       return;
     }
   }
@@ -610,6 +627,27 @@ if (typeof window !== "undefined") {
 }
 
 /**
+ * What a rung does with the key. Return `false` to DECLINE: the surface
+ * checked and had nothing to back out of, so the key goes to the next rung,
+ * and past the cascade when no rung takes it. Any other return takes the key.
+ *
+ * Declining exists because a rung is ARMED from render state, which lags the
+ * facts it summarises. The gauge's drag rung is the measured case. `pointerup`
+ * ends the grab synchronously (`grabRef`), but the rung is disarmed only when
+ * the gauge re-renders. The gauge lives in r3f's reconciler, whose host
+ * config does not set `supportsMicrotasks`, so even a discrete update renders
+ * in a later Scheduler task. A key can be dispatched before that task runs. So
+ * an Escape pressed straight after a release found the rung still armed, and
+ * its handler had nothing left to revert. It used to take the key anyway, so
+ * the command stayed open. `craft9b-gauges.spec.ts` failed 3 of 20 runs this
+ * way, and every failing run had `data-cancel-rungs="drag"` recorded at the
+ * key.
+ * A handler that reads its own synchronous state and declines closes that
+ * window without making the rung's arming any less honest.
+ */
+export type CancelHandler = () => boolean | void;
+
+/**
  * Put this surface on a rung of the cancel cascade for as long as it has
  * something to back out of. Pass `null` when it has not.
  *
@@ -618,7 +656,7 @@ if (typeof window !== "undefined") {
  */
 export function useCancelKey(
   rung: CancelRung,
-  onCancel: (() => void) | null,
+  onCancel: CancelHandler | null,
   options: { whileTyping?: boolean } = {},
 ): void {
   const { whileTyping = false } = options;
@@ -630,7 +668,13 @@ export function useCancelKey(
   useEffect(() => {
     if (!armed) return;
     const entry: CancelEntry = {
-      run: () => latest.current?.(),
+      // A null handler declines too. Layout effects null `latest` in the
+      // commit that disarms the rung, and this entry is removed only by that
+      // commit's PASSIVE cleanup, so for that gap the entry has no handler.
+      run: () => {
+        const handler = latest.current;
+        return handler !== null && handler() !== false;
+      },
       whileTyping,
     };
     const entries = cancelRungs.get(rung) ?? [];

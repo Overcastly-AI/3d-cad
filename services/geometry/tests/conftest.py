@@ -7,6 +7,7 @@ cross-suite constants and assertion helpers live here as fixtures instead
 """
 
 import io
+import json
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -18,7 +19,7 @@ from ezdxf.document import Drawing
 from geometry.drawings import evaluate_drawing_views, place_sheet
 from geometry.features.evaluate import reset_rebuild_cache
 from geometry.schemas import ShapeProperties
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     ComposeDrawingRequest,
     ComposedSheet,
     SheetLayout,
@@ -26,7 +27,7 @@ from py_kit.schemas.drawings import (
     SheetViewPlacement,
     ViewScale,
 )
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.features import EvaluateTreeRequest
 
 #: Round-trip tolerance for mass properties: the CLAUDE.md kernel linear
 #: tolerance (1e-7), NOT a fitted epsilon — the measured round-trip deviation
@@ -35,6 +36,27 @@ from py_kit.schemas.features import EvaluateTreeRequest
 #: endpoint-level (test_export) STEP round-trip gates. Loosening it is a
 #: reviewed decision recorded in docs/GEOMETRY-QA.md, never a quick fix.
 ROUNDTRIP_TOL = 1e-7
+
+GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens"
+
+
+def roundtrip_tolerance_for(name: str) -> float:
+    """The round-trip bound for *name*: ``ROUNDTRIP_TOL``, unless *name* is a
+    golden whose expected.json declares a reviewed ``roundtrip_tolerance``.
+
+    For geometry whose own B-rep is defined more loosely than 1e-7 (the first
+    was a shell's loosely fitted offset-wall edge, retired by GEOMETRY-QA
+    2026-09-25 F1). It applies to the volume and area only: the centroid and
+    bounds keep ROUNDTRIP_TOL (F5). Every such golden is listed in
+    test_goldens.ROUNDTRIP_TOLERANCE_OVERRIDES, so an override cannot appear
+    unreviewed; today there are none.
+    """
+    expected = GOLDENS_DIR / name / "expected.json"
+    if not expected.is_file():
+        return ROUNDTRIP_TOL
+    return float(
+        json.loads(expected.read_text()).get("roundtrip_tolerance", ROUNDTRIP_TOL)
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -98,10 +120,15 @@ def assert_roundtrip_preserved() -> Callable[
             ("bbox.max.y", reimported.bounding_box.max.y, original.bounding_box.max.y),
             ("bbox.max.z", reimported.bounding_box.max.z, original.bounding_box.max.z),
         ]
+        loosened = roundtrip_tolerance_for(name)
         for label, got, want in checks:
-            assert got == pytest.approx(want, abs=ROUNDTRIP_TOL), (
+            # An override loosens only the integrals it was measured on (F5).
+            tolerance = (
+                loosened if label in ("volume", "surface_area") else ROUNDTRIP_TOL
+            )
+            assert got == pytest.approx(want, abs=tolerance), (
                 f"{name}: round-trip {label} drifted — exported {want!r}, "
-                f"re-imported {got!r} (tol {ROUNDTRIP_TOL!r}). This is a defect "
+                f"re-imported {got!r} (tol {tolerance!r}). This is a defect "
                 f"to root-cause (export/import/kernel), not noise."
             )
 

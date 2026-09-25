@@ -32,7 +32,9 @@ from types import ModuleType
 from typing import Any, cast
 
 from geometry.features.evaluate import evaluate_tree, reset_rebuild_cache
-from py_kit.schemas.features import EvaluateTreeRequest
+from geometry.overlay import evaluate_overlay
+from loft_wire.features import EvaluateTreeRequest
+from loft_wire.overlay import OverlayRequest
 
 _BUILDERS_PATH = Path(__file__).resolve().parent / "_big_part_builders.py"
 
@@ -67,10 +69,10 @@ def _part(modeler: int) -> EvaluateTreeRequest:
 
 
 def _signature(
-    request: EvaluateTreeRequest, *, record_history: bool = False
+    request: EvaluateTreeRequest,
 ) -> tuple[str | None, float | None, tuple[str, ...]]:
     """What a crossed evaluation could not fake, plus the per-feature verdict."""
-    result = evaluate_tree(request, record_history=record_history).result
+    result = evaluate_tree(request).result
     return (
         result.mesh_glb_id,
         result.properties.volume if result.properties else None,
@@ -132,39 +134,48 @@ def test_four_modelers_on_four_parts_never_cross() -> None:
         )
 
 
-def test_interleaved_evaluate_and_overlay_lineages_never_cross() -> None:
-    """The two lineages of one part are keyed apart, under contention.
+def test_interleaved_evaluates_and_face_picks_share_one_lineage_safely() -> None:
+    """An edit-then-pick session, under contention, on ONE lineage.
 
-    ``record_history`` is part of the cache key because a prefix evaluated
-    without snapshots cannot serve per-face provenance. An edit-then-pick session
-    alternates between the two lineages of the SAME tree, so this is the pairing
-    most likely to hand one lineage's checkpoint to the other — and the answer
-    must be identical either way, since history only adds retained snapshots.
+    Since PERF-REAL-3 ``/evaluate`` and ``/overlay`` resume the SAME checkpoint
+    (every evaluation records per-face provenance, so the key no longer splits
+    them). That makes this the pairing most likely to hand a checkpoint to two
+    callers at once, so both answers must stay exactly their serial baselines:
+    the body's content hash and volume for the evaluate, and every vertex, edge,
+    face and per-face ``feature_id`` for the pick.
     """
     request = _part(0)
+    pick = OverlayRequest(tree=request)
     reset_rebuild_cache()
     plain = _signature(request)
     reset_rebuild_cache()
-    with_history = _signature(request, record_history=True)
-    assert plain == with_history, "recording history must not change the body"
+    picked = evaluate_overlay(pick).model_dump_json()
+    assert '"feature_id":null' not in picked, "non-vacuous: the pick is attributed"
 
     reset_rebuild_cache()
-    observed: list[tuple[str | None, float | None, tuple[str, ...]]] = []
+    observed: list[object] = []
+    expected: list[object] = []
     lock = threading.Lock()
 
-    def run(record_history: bool) -> None:
+    def run(kind: str) -> None:
         for _ in range(3):
-            signature = _signature(request, record_history=record_history)
+            answer: object = (
+                _signature(request)
+                if kind == "evaluate"
+                else evaluate_overlay(pick).model_dump_json()
+            )
             with lock:
-                observed.append(signature)
+                observed.append(answer)
+                expected.append(plain if kind == "evaluate" else picked)
 
     threads = [
-        threading.Thread(target=run, args=(record_history,))
-        for record_history in (False, True, False, True)
+        threading.Thread(target=run, args=(kind,))
+        for kind in ("evaluate", "overlay", "evaluate", "overlay")
     ]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join()
 
-    assert observed == [plain] * len(observed)
+    assert len(observed) == 12
+    assert observed == expected

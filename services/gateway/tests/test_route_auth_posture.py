@@ -49,6 +49,7 @@ from documents.main import build_app as build_documents_app
 from documents.parts import get_principal
 from fastapi import FastAPI
 from gateway.auth import get_current_user
+from gateway.auth.routes import limit_auth_attempts
 from gateway.main import build_app as build_gateway_app
 from geometry.main import build_app as build_geometry_app
 from py_kit.routes import Operation, sweep_routes
@@ -76,22 +77,33 @@ PROBE_EXEMPTIONS: dict[Operation, str] = {
     ("GET", "/healthz"): "liveness probe — must answer before anything works",
     ("GET", "/readyz"): "readiness probe — same, and read by compose/k8s",
     ("GET", "/metrics"): (
-        "Prometheus scrape — network-scoped, not user-scoped; see docs/OBSERVABILITY.md"
+        "Prometheus scrape — network-scoped, not user-scoped; see docs/OPERATIONS.md §9"
     ),
 }
 
 GATEWAY_EXEMPTIONS: dict[Operation, str] = {
     **PROBE_EXEMPTIONS,
     ("POST", "/api/v1/auth/register"): (
-        "creates the identity — cannot require one. Rate-limited and "
-        "password-policy guarded in gateway.auth.routes"
+        "creates the identity — cannot require one. Rate-limited per client "
+        "address (AUTH_RATE_LIMIT) and password-policy guarded in "
+        "gateway.auth.routes"
     ),
     ("POST", "/api/v1/auth/login"): (
         "exchanges credentials for the token every other route needs. Uniform "
         "401 and constant-cost argon2 on the miss path (anti-enumeration)"
     ),
+    ("POST", "/api/v1/auth/refresh"): (
+        "renews an EXPIRED access token, so it cannot require a valid one. "
+        "Authenticated by the HttpOnly/Secure/SameSite=Strict refresh cookie "
+        "instead: single-use, reuse revokes the session (gateway.auth.routes)"
+    ),
+    ("POST", "/api/v1/auth/logout"): (
+        "must work after the access token has expired. Revokes only the "
+        "session named by the caller's own refresh cookie or bearer token; "
+        "always 204, so it discloses nothing"
+    ),
 }
-EXPECTED_GATEWAY_EXEMPTIONS = 5
+EXPECTED_GATEWAY_EXEMPTIONS = 7
 
 DOCUMENTS_EXEMPTIONS: dict[Operation, str] = {
     **PROBE_EXEMPTIONS,
@@ -194,6 +206,43 @@ def test_gateway_routes_are_authenticated_or_exempt(
         "Add `user: CurrentUser` to the handler, or — if it is genuinely "
         "public — add it to GATEWAY_EXEMPTIONS with a reason and bump "
         "EXPECTED_GATEWAY_EXEMPTIONS."
+    )
+
+
+#: The routes that accept a credential from someone not yet signed in. Written
+#: out here, NOT derived from the exemption reasons: the reasons are what is
+#: being checked.
+CREDENTIAL_ROUTES: frozenset[Operation] = frozenset(
+    {
+        ("POST", "/api/v1/auth/register"),
+        ("POST", "/api/v1/auth/login"),
+        ("POST", "/api/v1/auth/refresh"),
+    }
+)
+
+
+def test_exemptions_that_claim_a_rate_limit_have_one() -> None:
+    """An exemption's reason is a claim, so check the claim.
+
+    AUTH-REGISTER-RATELIMIT-1: register's reason said "Rate-limited" while the
+    route carried no limiter at all, and this file read green over it.
+    """
+    limited = sweep_routes(
+        build_gateway_app(), markers=(limit_auth_attempts,)
+    ).protected
+    claimed = {
+        operation
+        for operation, reason in GATEWAY_EXEMPTIONS.items()
+        if "rate-limited" in reason.lower()
+    }
+    assert claimed, "no exemption claims a rate limit: this check examined nothing"
+    assert claimed <= limited, (
+        f"exempt as rate-limited but carrying no AUTH_RATE_LIMIT: "
+        f"{sorted(claimed - limited)}"
+    )
+    assert limited >= CREDENTIAL_ROUTES, (
+        f"credential routes without AUTH_RATE_LIMIT: "
+        f"{sorted(CREDENTIAL_ROUTES - limited)}"
     )
 
 

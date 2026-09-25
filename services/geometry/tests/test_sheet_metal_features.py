@@ -36,7 +36,7 @@ from geometry.features.evaluate import (
 from geometry.harness import evaluate_model, load_model_request
 from geometry.schemas import BoundingBox, TopologyCounts, Vec3
 from geometry.sheet_metal import SheetMetalDefaults
-from py_kit.schemas.features import (
+from loft_wire.features import (
     BASE_BODY_AFFECTING_FEATURE_TYPES,
     BODY_AFFECTING_FEATURE_TYPES,
     FEATURE_REGISTRY,

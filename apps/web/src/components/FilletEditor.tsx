@@ -20,21 +20,26 @@ import {
   SegmentedControl,
   SelectField,
 } from "@loft/design";
-import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect } from "react";
 
 import type { FilletParams } from "../api/parts";
 import { useCommandBridge } from "../features/commandActions";
 import { useEdgePickStore } from "../features/edgePickStore";
+import { lengthInputValue } from "../units/length";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import {
   buildFilletParams,
   filletSubmitBlocker,
   EDGE_SELECTORS,
   type FilletForm,
+  parseSizeMm,
   radiusError,
   type SelectionMode,
 } from "../features/modify";
 import { EditorCard } from "./EditorCard";
+import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
+import type { MovedEdgeWarning } from "../features/subshapeResolution";
+import { MovedEdgeNotice } from "./MovedEdgeNotice";
 
 export interface FilletEditorProps {
   mode: "create" | "edit";
@@ -49,9 +54,34 @@ export interface FilletEditorProps {
   saving: boolean;
   /** Server-side failure envelope message, or null. */
   error: string | null;
+  /**
+   * The radius the viewport gauge is asserting, canonical mm (CRAFT-9a).
+   *
+   * CONTRACT beta, and both halves of it are here for a reason: the gauge draws
+   * `live ?? value` and clears `live` on pointer-up, so an editor that takes
+   * the gauge's `onChange` WITHOUT echoing the result back through this prop
+   * leaves the arrow springing back to its starting length the instant you let
+   * go, while this field shows the number you dragged to. The drag looks
+   * perfect for its whole duration and breaks after every screenshot anybody
+   * would take.
+   */
+  radiusOverride?: { mm: number } | null;
+  /**
+   * The live radius this form is carrying, canonical mm, or null when the field
+   * does not parse. Feeds the viewport's rolling-ball preview — the same one
+   * value, flowing out to the scene as `onChange` flows in from it.
+   */
+  onPreviewChange?: (mm: number | null) => void;
+  /**
+   * "Edge moved" (EDGE-RESOLVE-WARN-1): this feature's picked edge was
+   * re-found only by adjacency on its last rebuild. Shown at the top of the
+   * card with the re-pick action; null (or absent) says nothing.
+   */
+  movedEdge?: MovedEdgeWarning | null;
 }
 
 export function FilletEditor({
+  movedEdge = null,
   mode,
   initial,
   bodyFeatureId,
@@ -59,10 +89,34 @@ export function FilletEditor({
   onCancel,
   saving,
   error,
+  radiusOverride = null,
+  onPreviewChange,
 }: FilletEditorProps) {
   const unit = useDocumentLengthUnit();
-  const [form, setForm] = useState<FilletForm>(initial);
-  useEffect(() => setForm(initial), [initial]);
+  // Re-seeded on retarget; the viewport gauge writes the field. Both writes
+  // land during render (`useGaugeFedForm`), so the field commits WITH the
+  // override that carries it, never a commit behind the drawn gauge. Written in
+  // the DOCUMENT unit through the same formatter the seed uses, so a dragged
+  // radius and a typed one are indistinguishable afterwards — including on an
+  // inch part, where the stored millimetres are not what the field shows.
+  const [form, setForm] = useGaugeFedForm(
+    initial,
+    gaugeWrite(
+      radiusOverride,
+      (f: FilletForm, o) => ({
+        ...f,
+        radiusInput: lengthInputValue(o.mm, unit),
+      }),
+      unit,
+    ),
+  );
+
+  // Feed the live preview; the cleanup clears it, so closing the editor
+  // (unmount) never leaves line-work drawn on a body nothing is about to round.
+  useEffect(() => {
+    onPreviewChange?.(parseSizeMm(form.radiusInput, unit));
+    return () => onPreviewChange?.(null);
+  }, [form.radiusInput, unit, onPreviewChange]);
 
   const picked = useEdgePickStore((s) => s.picked);
   const overlayError = useEdgePickStore((s) => s.overlayError);
@@ -159,6 +213,14 @@ export function FilletEditor({
       }
     >
       <Panel aria-label="Fillet" data-testid="fillet-editor">
+        {movedEdge !== null ? (
+          <MovedEdgeNotice
+            warning={movedEdge}
+            onRepick={() => useEdgePickStore.getState().repickMoved()}
+            data-testid="edge-resolution-notice"
+            repickTestId="edge-resolution-repick"
+          />
+        ) : null}
         <div>
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
             {mode === "create" ? "New fillet" : "Edit fillet"}

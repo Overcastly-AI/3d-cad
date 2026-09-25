@@ -36,7 +36,7 @@ from ezdxf.document import Drawing
 from fastapi.testclient import TestClient
 from geometry.drawings.compose import STANDARD_VIEWS
 from geometry.main import app
-from py_kit.schemas.drawings import ComposeDrawingRequest
+from loft_wire.drawings import ComposeDrawingRequest
 
 client = TestClient(app)
 

@@ -66,16 +66,16 @@ from geometry.kernel.tessellate import tessellate_glb
 from geometry.overlay import evaluate_overlay
 from geometry.schemas import DEFAULT_LINEAR_DEFLECTION
 from geometry.sketch import PlanegcsSketchSolver
-from py_kit.schemas.assemblies import EvaluateAssemblyRequest
-from py_kit.schemas.drawings import (
+from loft_wire.assemblies import EvaluateAssemblyRequest
+from loft_wire.drawings import (
     ComposeDrawingRequest,
     SheetLayout,
     SheetPoint,
     SheetViewPlacement,
     ViewScale,
 )
-from py_kit.schemas.features import EvaluateTreeRequest
-from py_kit.schemas.overlay import OverlayRequest
+from loft_wire.features import EvaluateTreeRequest
+from loft_wire.overlay import OverlayRequest
 
 _GEO_ROOT = Path(__file__).resolve().parent.parent
 _GOLDENS = _GEO_ROOT / "goldens"
@@ -350,6 +350,16 @@ CASES: list[BenchCase] = [
     ),
     BenchCase(
         "tree", "fillet-top-edge", _L, _tree_eval_factory("fillet-top-edge-40x25x10-r5")
+    ),
+    # Twisted extrude (docs/design/twisted-extrude.md): two pipe-shell sweeps
+    # (outer + hole), the hole cut, the Cavalieri guard's two adaptive
+    # integrals, then B-spline tessellation. Measured ~0.16-0.2 s whole-tree,
+    # so the HEAVY bucket.
+    BenchCase(
+        "tree",
+        "twisted-extrude-holed",
+        _H,
+        _tree_eval_factory("extrude-twist-square20-hole-r3-h30-30deg"),
     ),
     # The v2 `features`-scope mirror: k selected features cost k exact reflections
     # + k booleans (docs/design/mirror-semantics.md §9 asks for a rebuild-time

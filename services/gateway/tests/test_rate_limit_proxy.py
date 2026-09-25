@@ -144,7 +144,11 @@ def db_url(tmp_path: Path) -> str:
 
 
 def make_client(
-    db_url: str, handler: Handler, limiter: RateLimiter | None
+    db_url: str,
+    handler: Handler,
+    limiter: RateLimiter | None,
+    *,
+    auth_rate_limit_requests: int | None = None,
 ) -> TestClient:
     settings = GatewaySettings(
         geometry_url="http://geometry.internal:8002",
@@ -152,6 +156,10 @@ def make_client(
         loft_env="dev",
         jwt_secret=TEST_JWT_SECRET,
     )
+    if auth_rate_limit_requests is not None:
+        settings = settings.model_copy(
+            update={"auth_rate_limit_requests": auth_rate_limit_requests}
+        )
     app = build_app(
         settings,
         geometry_transport=httpx.MockTransport(handler),
@@ -246,6 +254,32 @@ def test_per_user_isolation(db_url: str) -> None:
         assert _tessellate(client, bob).status_code == 200
 
     assert len(seen) == 2
+
+
+def test_auth_routes_have_their_own_budget(db_url: str) -> None:
+    """Registration counts against AUTH_RATE_LIMIT_REQUESTS per address, and
+    never against the per-user compute budget, nor that against it: a compute
+    budget of 1 does not stop the suites above registering two users."""
+    seen: list[httpx.Request] = []
+    limiter = RateLimiter(FakeRedis(), limit=1, window_s=60, clock=Clock())
+
+    with make_client(
+        db_url, _ok_handler(seen), limiter, auth_rate_limit_requests=2
+    ) as client:
+        alice = _register(client, "alice@example.com")
+        _register(client, "bob@example.com")
+        refused = client.post(
+            "/api/v1/auth/register",
+            json={"email": "carol@example.com", "password": "hunter2-passphrase"},
+        )
+        assert _tessellate(client, alice).status_code == 200
+        compute_refused = _tessellate(client, alice)
+
+    assert refused.status_code == 429
+    assert _envelope(refused.json())["details"]["limit"] == 2
+    assert compute_refused.status_code == 429
+    assert _envelope(compute_refused.json())["details"]["limit"] == 1
+    assert len(seen) == 1
 
 
 def test_backend_outage_fails_open(db_url: str) -> None:

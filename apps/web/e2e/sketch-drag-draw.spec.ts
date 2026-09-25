@@ -1,6 +1,11 @@
 import { expect, test, type Page } from "./fixtures";
 
-import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
+import {
+  createPartViaApi,
+  expectSketchEntities,
+  SCREENSHOT_DIR,
+  seedSession,
+} from "./support";
 
 /**
  * FB-15 + FB-16 — one interaction, driven end to end against the real stack.
@@ -145,7 +150,7 @@ test.describe("FB-15 — press-drag-release draws, and two clicks still do", () 
     await expect(tag).toHaveAttribute("data-state", "live");
     await page.mouse.up();
 
-    await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
+    await expectSketchEntities(page, 4);
     // The same numbers, in the same place, now take typing.
     await expect(tag).toHaveAttribute("data-state", "armed");
     await expect(page.getByTestId("draw-dimension-width")).toBeVisible();
@@ -159,9 +164,14 @@ test.describe("FB-15 — press-drag-release draws, and two clicks still do", () 
     await armRect(page);
     await page.mouse.click(700, 420);
     // Nothing is committed after one click: the sequence is open, the size
-    // cells are a readout only.
-    await expect(page.getByTestId("sketch-save")).not.toContainText(
-      "4 entities",
+    // cells are a readout only. Asserted POSITIVELY — the buffer is empty, not
+    // merely "not four" — because a negative on a caption passes for every
+    // wrong reason as well as the right one, including the caption having
+    // moved or gone.
+    await expectSketchEntities(
+      page,
+      0,
+      "one click OPENS the click-then-click sequence; it must not commit it",
     );
     await page.mouse.move(1000, 640);
     await expect(page.getByTestId("draw-dimensions")).toHaveAttribute(
@@ -169,7 +179,7 @@ test.describe("FB-15 — press-drag-release draws, and two clicks still do", () 
       "live",
     );
     await page.mouse.click(1000, 640);
-    await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
+    await expectSketchEntities(page, 4);
     await expect(page.getByTestId("draw-dimensions")).toHaveAttribute(
       "data-state",
       "armed",
@@ -183,7 +193,7 @@ test.describe("FB-15 — press-drag-release draws, and two clicks still do", () 
     // Select is the resting tool; a long drag across the plane must not
     // produce geometry, or orbiting would scribble on every sketch.
     await dragDraw(page, [700, 420], [1000, 640]);
-    await expect(page.getByTestId("sketch-save")).toContainText("0 entities");
+    await expectSketchEntities(page, 0);
     await expect(page.getByTestId("draw-dimensions")).toHaveCount(0);
   });
 
@@ -198,7 +208,7 @@ test.describe("FB-15 — press-drag-release draws, and two clicks still do", () 
     await page.keyboard.press("Escape"); // the placement, one rung
     await page.mouse.up(); // …and the release must not resurrect it
 
-    await expect(page.getByTestId("sketch-save")).toContainText("0 entities");
+    await expectSketchEntities(page, 0);
     await expect(page.getByTestId("draw-dimensions")).toHaveCount(0);
     // Still sketching, still on the plane — Escape unwound one level.
     await expect(page.getByTestId("sketch-step")).toHaveText("On XY");
@@ -211,7 +221,7 @@ test.describe("FB-16 — the size is typed while you draw", () => {
     const evaluations = collectEvaluations(page, partId);
     await armRect(page);
     await dragDraw(page, [700, 420], [1000, 640]);
-    await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
+    await expectSketchEntities(page, 4);
 
     // No click into the cell first: typing a digit anywhere starts the width.
     await armedForTyping(page);
@@ -276,7 +286,7 @@ test.describe("FB-16 — the size is typed while you draw", () => {
     await page.keyboard.press("Escape");
 
     // The shape is kept — Escape ends the command, it is not an undo.
-    await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
+    await expectSketchEntities(page, 4);
     await expect(page.getByTestId("draw-dimensions")).toHaveCount(0);
     // RECT-1 — "undimensioned" is not "unconstrained". The draw authors the
     // rectangle's rigidity set (4 coincidences + 2 H + 2 V) whether or not a
@@ -304,7 +314,7 @@ test.describe("FB-16 — the size is typed while you draw", () => {
     const evaluations = collectEvaluations(page, partId);
     await page.keyboard.press("c");
     await dragDraw(page, [850, 520], [1000, 520]);
-    await expect(page.getByTestId("sketch-save")).toContainText("1 entity");
+    await expectSketchEntities(page, 1);
     await expect(page.getByTestId("draw-dimension-radius")).toBeVisible();
     // Visible is NOT armed — the radius cell renders as a readout during the
     // drag too, so its visibility says nothing about whether typing lands.

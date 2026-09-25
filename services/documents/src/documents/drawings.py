@@ -11,7 +11,7 @@ instances — the shared :func:`documents.parts.reject_if_instanced`), and
 dense-integer renumbering of the stable sheet/view/dimension/annotation order.
 
 This service never imports kernel code (CLAUDE.md service boundaries): a dimension
-names model geometry with pure-pydantic :class:`~py_kit.schemas.features.
+names model geometry with pure-pydantic :class:`~loft_wire.features.
 EdgeSignature` refs, never a kernel type. A drawing is a pure LEAF consumer
 (nothing references it — design §2.2), so — unlike assemblies — no acyclicity
 walk is needed; deleting a drawing simply cascades its whole layout.
@@ -21,10 +21,8 @@ import uuid
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Query, status
-from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
-from py_kit.db import SessionDep
-from py_kit.schemas.assemblies import RefDocumentKind
-from py_kit.schemas.drawings import (
+from loft_wire.assemblies import RefDocumentKind
+from loft_wire.drawings import (
     MAX_DRAWING_ANNOTATIONS,
     MAX_DRAWING_DIMENSIONS,
     MAX_DRAWING_SHEETS,
@@ -61,10 +59,12 @@ from py_kit.schemas.drawings import (
     ViewScale,
     ViewUpdate,
 )
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     SheetPoint as SheetPointDTO,
 )
-from py_kit.schemas.features import EdgeSignature
+from loft_wire.features import EdgeSignature
+from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
+from py_kit.db import SessionDep
 from pydantic import TypeAdapter
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError

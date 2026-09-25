@@ -67,7 +67,13 @@ export function NumberField({
       className={cx(
         "flex w-full items-baseline gap-1 rounded-sm border bg-carbide px-2",
         "focus-within:outline focus-within:outline-2 focus-within:outline-offset-1",
-        primary ? "min-h-target py-0.5" : "py-1",
+        // A default cell's vertical padding lives on the INPUT, not here: the
+        // input is the only thing a click focuses, and padded from outside it
+        // measured 21 px tall inside a 31 px cell, under the 24 px target
+        // floor (caught when the extrude editor grew its first default field,
+        // the Twist). Moved inside, the cell draws exactly as before (31 px)
+        // and the input spans its full height (29 px).
+        primary ? "min-h-target py-0.5" : null,
         invalid
           ? "border-flag focus-within:outline-flag"
           : primary
@@ -86,7 +92,7 @@ export function NumberField({
         aria-describedby={invalid ? errorId : undefined}
         className={cx(
           "w-full min-w-0 bg-transparent font-data outline-none placeholder:text-gauge",
-          primary ? "text-lg text-brass" : "text-md text-mist",
+          primary ? "text-lg text-brass" : "py-1 text-md text-mist",
         )}
         {...rest}
       />

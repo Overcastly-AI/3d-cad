@@ -44,6 +44,8 @@ import {
 } from "../features/sheetMetal";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import { EditorCard } from "./EditorCard";
+import type { MovedEdgeWarning } from "../features/subshapeResolution";
+import { MovedEdgeNotice } from "./MovedEdgeNotice";
 
 export interface EdgeFlangeEditorProps {
   mode: "create" | "edit";
@@ -63,6 +65,12 @@ export interface EdgeFlangeEditorProps {
    * Full / Centered / Offset choice (`FlangeSpanOverlay`).
    */
   onSpanChange?: (span: EdgeFlangeSpanPreview | null) => void;
+  /**
+   * "Edge moved" (EDGE-RESOLVE-WARN-1): this feature's picked edge was
+   * re-found only by adjacency on its last rebuild. Shown at the top of the
+   * card with the re-pick action; null (or absent) says nothing.
+   */
+  movedEdge?: MovedEdgeWarning | null;
 }
 
 /** The width-extent choices, in the SegmentedControl's order. */
@@ -85,6 +93,7 @@ const WIDTH_EXTENTS: readonly {
 ];
 
 export function EdgeFlangeEditor({
+  movedEdge = null,
   mode,
   initial,
   bodyFeatureId,
@@ -191,6 +200,14 @@ export function EdgeFlangeEditor({
       }
     >
       <Panel aria-label="Edge flange" data-testid="edge-flange-editor">
+        {movedEdge !== null ? (
+          <MovedEdgeNotice
+            warning={movedEdge}
+            onRepick={() => useEdgePickStore.getState().repickMoved()}
+            data-testid="edge-resolution-notice"
+            repickTestId="edge-resolution-repick"
+          />
+        ) : null}
         <div>
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
             {mode === "create" ? "New edge flange" : "Edit edge flange"}

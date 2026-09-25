@@ -46,14 +46,14 @@ from geometry.drawings import (
 )
 from geometry.features.evaluate import evaluate_tree
 from geometry.sheet_metal import UnfoldCutoutError, unfold_sheet_metal
-from py_kit.schemas.drawings import (
+from loft_wire.drawings import (
     ComposedCircleEdge,
     ComposedLineEdge,
     ComposedSheet,
     EvaluateDrawingViewsRequest,
     ViewScale,
 )
-from py_kit.schemas.features import HEM_CLOSED_RADIUS_RATIO, EvaluateTreeRequest
+from loft_wire.features import HEM_CLOSED_RADIUS_RATIO, EvaluateTreeRequest
 
 _GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens-sheet-metal"
 _GOLDEN = _GOLDENS_DIR / "holed-bracket-flat-pattern-view"

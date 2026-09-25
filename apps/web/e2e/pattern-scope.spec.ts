@@ -962,6 +962,26 @@ test.describe("REACH-2-FLOW-B — the tint follows the command, not the selectio
       timeout: 15_000,
     });
 
+    // CRAFT-11 PUT BRASS INSTRUMENTS ON THIS CANVAS, so the census below had to
+    // be re-pointed at what it names.
+    //
+    // While a LINEAR pattern editor is open the viewport now draws a count
+    // gauge, a spacing gauge and the outline of every ghost copy — all line
+    // work in the same working brass as the scope tint, because they are one
+    // pending edit. `tintedPixels` counts warm pixels over the WHOLE canvas, so
+    // it can no longer be zero while this editor is open: MEASURED at 4 634 px
+    // of instrument against ~600 px of actual face tint, i.e. the oracle had
+    // become 8 parts noise to 1 part signal. It was a valid stand-in for "is a
+    // face lit" only while the pattern command drew nothing at all.
+    //
+    // Emptying the spacing field withdraws the preview — `patternPreviewState`
+    // returns null without a spacing — and touches NOTHING about the scope,
+    // which is this test's subject. So the censuses below measure the face tint
+    // ALONE, more exactly than they did before rather than less, and the
+    // assertion stays the strong `toBe(0)` instead of degrading into a
+    // threshold that a partly-lit face could slip under.
+    await page.getByTestId("pattern-spacing").fill("");
+
     const total = Number(await viewport.getAttribute("data-total-faces"));
     const litScoped = Number(
       await viewport.getAttribute("data-selected-faces"),

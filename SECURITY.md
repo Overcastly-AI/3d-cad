@@ -28,10 +28,11 @@ images yet; only the latest state of the default branch is supported.
 
 ## Scope notes (honest)
 
-- **Authentication exists** (registration, login, JWT-bearer sessions), and
-  the compose topology publishes only the gateway — `documents` and
-  `geometry` are not reachable from the host. None of it has had a security
-  audit.
+- **Authentication exists** (registration, login, a short-lived JWT plus a
+  rotating single-use refresh cookie — reuse or logout revokes the session
+  immediately; see [`docs/RESEARCH.md`](./docs/RESEARCH.md) §13), and the
+  compose topology publishes only the gateway — `documents` and `geometry`
+  are not reachable from the host. None of it has had a security audit.
 - **Dev-only defaults are published in this repo.** The compose file's
   Postgres/MinIO passwords and the gateway's JWT fallback secret are all
   readable by anyone. Since 2026-07-30 they fail closed: unless `LOFT_ENV` is

@@ -4,7 +4,12 @@ import { expect, test, type Page } from "./fixtures";
 
 import { handClick } from "./hand";
 import { calibratePlane, enterSketch, type PlaneMapper } from "./planeMap";
-import { createPartViaApi, seedSession } from "./support";
+import {
+  createPartViaApi,
+  SCREENSHOT_DIR,
+  seedSession,
+  waitForFrames,
+} from "./support";
 
 /**
  * THE OTHER HALF OF THE FOUNDER'S SENTENCE — "I still cannot click dimension
@@ -493,5 +498,164 @@ test.describe("FOUNDER: a typed dimension reaches the solver", () => {
         latestLength(evaluations, "e1"),
       )} mm`,
     );
+  });
+});
+
+/**
+ * Helical-gear gap G2 — EXACT PLACEMENT.
+ *
+ * The product test placed 24 involute fit points by reading the DRO at
+ * 0.024 mm/px, because there was no way to type a coordinate and the snap grid
+ * was fixed at 1 mm (`setSnapStep` had no caller). The UI gear's pitch-circle
+ * tooth thickness came out 0.029 mm off.
+ *
+ * Now, in the FB-16 idiom (type where the intent forms): with a point-placing
+ * tool live, a digit (or a minus) opens X / Y cells at the cursor, Tab moves
+ * between them and Enter places the point exactly there. With one point
+ * selected, the same keys move that point. The grid step is a choice on the
+ * sketch band. Every assertion reads the PERSISTED sketch, typed key by key.
+ */
+interface PersistedLine {
+  id: string;
+  kind: string;
+  start?: { x: number; y: number };
+  end?: { x: number; y: number };
+}
+
+async function typeKeys(page: Page, keys: readonly string[]): Promise<void> {
+  for (const key of keys) await page.keyboard.press(key);
+}
+
+/** Finish the (new) sketch and return its persisted entities. */
+async function finishAndRead(
+  page: Page,
+  token: string,
+  partId: string,
+): Promise<PersistedLine[]> {
+  await page.getByTestId("sketch-save").click();
+  await expect(page.getByTestId("sketch-strip")).toHaveCount(0);
+  const response = await page.request.get(`/api/v1/parts/${partId}/features`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const body = (await response.json()) as {
+    features: Array<{ feature: { params: { entities: PersistedLine[] } } }>;
+  };
+  return body.features[0]?.feature.params.entities ?? [];
+}
+
+async function openSketchXY(page: Page, name: string) {
+  const { token } = await seedSession(page);
+  const part = await createPartViaApi(page, token, name);
+  await page.goto(`/parts/${part.id}`);
+  await enterSketch(page, "XY");
+  const at = await calibratePlane(
+    page,
+    { x: 700, y: 600 },
+    { x: 1000, y: 400 },
+  );
+  return { token, partId: part.id, at };
+}
+
+test.describe("helical-gear G2: exact placement", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("typed X / Y places a line's two points exactly, off every grid", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const { token, partId, at } = await openSketchXY(page, "Typed points");
+    await page.keyboard.press("l");
+    const somewhere = at({ x: 5, y: 5 });
+    await page.mouse.move(somewhere.x, somewhere.y);
+
+    // The first digit opens the cells at the cursor and lands in X. Typed at
+    // once, as a hand types a number it already knows.
+    await typeKeys(page, ["1", "2", ".", "5", "Tab", "-", "3", ".", "2", "5"]);
+    // Founder pair (UPDATE_SCREENSHOTS only), before any assertion so the
+    // pre-fix tree produces its half; a named settle of painted frames.
+    await waitForFrames(page, 6);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/sketch-gear-fix-g2-after.png`,
+    });
+    const x = page.getByTestId("point-entry-x");
+    const y = page.getByTestId("point-entry-y");
+    await expect(x).toHaveValue("12.5");
+    await expect(y).toHaveValue("-3.25");
+    await page.keyboard.press("Enter");
+    await expect(x).toHaveCount(0);
+
+    // The line's second point, typed the same way.
+    await typeKeys(page, ["4", "0", ".", "1", "2", "3", "Tab", "7"]);
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+
+    const entities = await finishAndRead(page, token, partId);
+    const lines = entities.filter((e) => e.kind === "line");
+    expect(lines, JSON.stringify(entities)).toHaveLength(1);
+    expect(lines[0]?.start).toEqual({ x: 12.5, y: -3.25 });
+    expect(lines[0]?.end).toEqual({ x: 40.123, y: 7 });
+  });
+
+  test("with one point selected, typed X / Y moves that point", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const { token, partId, at } = await openSketchXY(page, "Typed move");
+    // A slanted line, so nothing is inferred that would fight the move. Drawn
+    // with zero-drift clicks on purpose: this test is about WHERE the points
+    // land, and a hand's 6 px drift crosses a grid cell at this zoom (the
+    // gesture itself is click-drift.spec.ts's subject).
+    await page.keyboard.press("l");
+    const a = at({ x: 22, y: 11 });
+    const b = at({ x: 32, y: 16 });
+    await page.mouse.click(a.x, a.y);
+    await page.mouse.move(b.x, b.y);
+    await page.mouse.click(b.x, b.y);
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+
+    await handClick(page, b.x, b.y); // the END point
+    await expect(page.getByTestId("selection-readout")).toContainText("1 pt");
+    await typeKeys(page, ["4", "0", ".", "5", "Tab", "1", "9", ".", "7", "5"]);
+    await expect(page.getByTestId("point-entry-x")).toHaveValue("40.5");
+    await page.keyboard.press("Enter");
+
+    const entities = await finishAndRead(page, token, partId);
+    const line = entities.find((e) => e.kind === "line");
+    expect(line?.start).toEqual({ x: 22, y: 11 });
+    expect(line?.end).toEqual({ x: 40.5, y: 19.75 });
+  });
+
+  test("the grid step is a choice: 0.5 mm puts a click on the half millimetre", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const { token, partId, at } = await openSketchXY(page, "Grid step");
+    const step = page.getByTestId("sketch-grid-step");
+    await expect(step).toBeVisible();
+    await step.selectOption({ label: "0.5 mm" });
+    // The GRID cell states the pitch; the SNAP cell beside it no longer
+    // repeats it (it changed the DRO's width with every step).
+    await expect(step).toHaveValue("0.5");
+    await expect(page.getByTestId("dro-snap")).toHaveAccessibleName(
+      /grid 0\.5 mm is on/,
+    );
+
+    // (7.3, 4.2) is 0.3 mm from the 1 mm grid's (7, 4) and 0.2 mm from the
+    // half-millimetre grid's (7.5, 4): only a 0.5 mm step lands on 7.5.
+    await page.keyboard.press("l");
+    const a = at({ x: 7.3, y: 4.2 });
+    const b = at({ x: 21.3, y: 12.2 });
+    await page.mouse.click(a.x, a.y);
+    await page.mouse.move(b.x, b.y);
+    await page.mouse.click(b.x, b.y);
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+
+    const entities = await finishAndRead(page, token, partId);
+    const line = entities.find((e) => e.kind === "line");
+    expect(line?.start).toEqual({ x: 7.5, y: 4 });
+    expect(line?.end).toEqual({ x: 21.5, y: 12 });
   });
 });

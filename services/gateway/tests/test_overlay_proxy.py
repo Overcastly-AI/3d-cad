@@ -17,12 +17,12 @@ import pytest
 from fastapi.testclient import TestClient
 from gateway.db import Base
 from gateway.main import GatewaySettings, build_app
+from loft_wire.features import EdgeSignature
+from loft_wire.geometry import Vec3
+from loft_wire.overlay import OverlayEdge, OverlayRequest, OverlayResult
+from loft_wire.parts import PRINCIPAL_HEADER
 from py_kit import REQUEST_ID_HEADER
 from py_kit.db import async_dsn
-from py_kit.schemas.features import EdgeSignature
-from py_kit.schemas.geometry import Vec3
-from py_kit.schemas.overlay import OverlayEdge, OverlayRequest, OverlayResult
-from py_kit.schemas.parts import PRINCIPAL_HEADER
 from sqlalchemy.ext.asyncio import create_async_engine
 
 TEST_JWT_SECRET = "unit-test-jwt-secret-0123456789abcdef"

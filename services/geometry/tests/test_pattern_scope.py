@@ -62,7 +62,7 @@ from build123d import Vector
 from geometry.features import evaluate_tree
 from geometry.kernel import build_box, measure_shape
 from geometry.kernel.types import BodyShape
-from py_kit.schemas.features import (
+from loft_wire.features import (
     EvaluateTreeRequest,
     PatternBodyScope,
     PatternFeature,
@@ -916,7 +916,7 @@ def test_a_features_scope_pattern_materialises_feature_dependencies() -> None:
     """feature-tree §2.3 — each selection IS a dependency, so deleting a patterned
     feature is a 409-with-dependents and a reorder re-checks strict-backward. The
     `body` scope carries no refs; tree order remains its only dependency."""
-    from py_kit.schemas.features import feature_references
+    from loft_wire.features import feature_references
 
     scoped = PatternFeature.model_validate(
         {

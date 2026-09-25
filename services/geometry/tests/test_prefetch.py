@@ -7,7 +7,7 @@ here are, in order of how much they matter:
 
 1. **A warm cannot be published.** Not "is not published today" — cannot. The
    entry point returns an ``int``, the wire reply
-   (:class:`~py_kit.schemas.features.WarmTreeResult`) has no field that could
+   (:class:`~loft_wire.features.WarmTreeResult`) has no field that could
    carry geometry, and — the test that would catch a future regression in the
    evaluator rather than in the DTOs —
    :func:`test_a_warm_leaves_no_artifact_anybody_could_fetch` shows that after a
@@ -50,12 +50,14 @@ from geometry.main import app
 from geometry.mesh_store import configure_mesh_store, fetch_mesh_glb
 from geometry.rebuild_cache import (
     DEFAULT_WARM_BUDGET_S,
+    RUNG_SPACING,
     LiveWorkGate,
     PrefixCache,
     WarmScheduler,
+    prefix_keys,
 )
 from geometry.warm import warm_scheduler, warm_work
-from py_kit.schemas.features import (
+from loft_wire.features import (
     EvaluateTreeRequest,
     WarmCancelRequest,
     WarmTreeRequest,
@@ -108,8 +110,8 @@ class Answer:
     provenance: FaceProvenance
 
 
-def _answer(request: EvaluateTreeRequest, *, record_history: bool = False) -> Answer:
-    evaluation = evaluate_tree(request, record_history=record_history)
+def _answer(request: EvaluateTreeRequest) -> Answer:
+    evaluation = evaluate_tree(request)
     result = evaluation.result
     return Answer(
         statuses=tuple(feature.status for feature in result.features),
@@ -121,10 +123,10 @@ def _answer(request: EvaluateTreeRequest, *, record_history: bool = False) -> An
     )
 
 
-def _cold(request: EvaluateTreeRequest, *, record_history: bool = False) -> Answer:
+def _cold(request: EvaluateTreeRequest) -> Answer:
     """The answer with the cache emptied — the reference every gate compares to."""
     reset_rebuild_cache()
-    answer = _answer(request, record_history=record_history)
+    answer = _answer(request)
     reset_rebuild_cache()
     return answer
 
@@ -264,7 +266,11 @@ def test_a_warmed_prefix_is_never_served_for_a_different_tree() -> None:
 def test_a_warm_of_a_longer_prefix_cannot_answer_a_shorter_tree() -> None:
     """A checkpoint for 12 features is not an answer for the 9-feature tree that
     precedes it — the state has run past where the shorter tree ends. Rolling the
-    travel stop backwards is exactly this case."""
+    travel stop backwards is exactly this case.
+
+    What the shorter tree MAY use is a LADDER rung inside it (PERF-REAL-2): the
+    rung is the state after its own first k features and nothing more, so the
+    frontier must not be served, and the resume must stop short of the tree."""
     payload = _payload()
     shorter = _request(_payload(TREE_N - 3))
     cold = _cold(shorter)
@@ -273,7 +279,9 @@ def test_a_warm_of_a_longer_prefix_cannot_answer_a_shorter_tree() -> None:
     assert warm_rebuild_cache(_request(payload)) == TREE_N
     before = rebuild_cache_stats()
     assert _answer(shorter) == cold
-    assert rebuild_cache_stats().misses == before.misses + 1
+    after = rebuild_cache_stats()
+    assert after.hits - after.rung_hits == before.hits - before.rung_hits
+    assert after.resumed_features - before.resumed_features < len(shorter.features)
 
 
 def test_warming_the_prefix_of_an_open_editor_serves_the_commit() -> None:
@@ -294,36 +302,31 @@ def test_warming_the_prefix_of_an_open_editor_serves_the_commit() -> None:
     assert after.resumed_features == before.resumed_features + index
 
 
-def test_warming_the_provenance_lineage_serves_the_first_face_pick() -> None:
+def test_one_warm_serves_the_commit_and_the_first_face_pick() -> None:
     """The visible one (docs/PERF.md: 29 s for the first pick at N=200).
 
-    A face pick evaluates with ``record_history=True``, which is a SEPARATE cache
-    lineage — a plain prefix retains no intermediate bodies and so cannot answer
-    per-face provenance. Warming both lineages while the editor is open therefore
-    serves the commit AND the pick that follows it; warming only the plain one
-    leaves the pick exactly as cold as before.
+    A face pick needs per-face provenance, which every evaluation records since
+    PERF-REAL-3 — so there is ONE lineage, and one warm while the editor is open
+    serves the commit, whose checkpoint then serves the pick that follows it with
+    no rebuild at all. The history both carry must be the complete one a cold
+    evaluation builds.
     """
     payload = _payload()
     index = _first_editable_float_index(payload)
     edited = _request(_retype(payload, index))
-    cold = _cold(edited, record_history=True)
+    cold = _cold(edited)
     assert len(cold.provenance.snapshots) > 0
 
     reset_rebuild_cache()
-    warm_rebuild_cache(_request(payload), prefix_length=index)  # plain lineage only
+    warm_rebuild_cache(_request(payload), prefix_length=index)
     before = rebuild_cache_stats()
-    assert _answer(edited, record_history=True) == cold
-    assert rebuild_cache_stats().misses == before.misses + 1, (
-        "the plain lineage must not be able to serve a provenance rebuild"
-    )
-
-    reset_rebuild_cache()
-    warm_rebuild_cache(_request(payload), prefix_length=index, record_history=True)
-    before = rebuild_cache_stats()
-    assert _answer(edited, record_history=True) == cold
+    assert _answer(edited) == cold  # the commit resumes the warm prefix
+    assert _answer(edited) == cold  # the pick resumes the commit's frontier
     after = rebuild_cache_stats()
-    assert after.hits == before.hits + 1
-    assert after.resumed_features == before.resumed_features + index
+    assert (after.hits, after.misses) == (before.hits + 2, before.misses)
+    assert after.resumed_features == before.resumed_features + index + len(
+        edited.features
+    )
 
 
 def test_re_declaring_the_same_open_editor_keeps_the_checkpoint() -> None:
@@ -645,6 +648,64 @@ def test_a_warm_that_loses_its_checkpoint_to_a_real_request_stops() -> None:
     assert cached == 3, "the warm carried on after its reason had been served"
 
 
+def test_a_warm_paused_on_a_rung_does_not_redo_a_live_request_or_demote_it() -> None:
+    """The ladder's own trap for the reclaim (PERF-REAL-2 review, CONC-4/CONC-6).
+
+    When the warm pauses at a multiple of ``RUNG_SPACING`` there is also a LADDER
+    rung under the very key it banked. If a live request takes the banked prefix
+    during the pause, the reclaim must see "gone" — not fall through to the rung,
+    get a fork of the same length, and carry on. Doing that re-ran every feature
+    the live request had just computed on the one core it was using, and then
+    REPLACED the live frontier (with artifacts) by a speculative one (without).
+    Pausing at 3 never hit this; pausing at 8 did, which is why the case is here.
+    """
+    request = _request(_payload())
+    assert len(request.features) > RUNG_SPACING
+    keys = prefix_keys(
+        request,
+        capture_scope=evaluate_module._tool_scope_ids(request),  # pyright: ignore[reportPrivateUsage]
+    )
+
+    reset_rebuild_cache()
+    gate = _BusyOnce(after=RUNG_SPACING, on_wait=lambda: evaluate_tree(request))
+    cached = warm_rebuild_cache(request, budget_s=5.0, yield_to=gate)
+
+    assert cached == RUNG_SPACING, "the warm carried on after its reason was served"
+    frontier = evaluate_module._REBUILD_CACHE.take(keys)  # pyright: ignore[reportPrivateUsage]
+    assert frontier is not None and frontier.prefix_length == len(request.features)
+    assert not frontier.rung
+    assert frontier.speculative is False, "a warm demoted live work to a guess"
+    assert frontier.checkpoint.artifacts is not None, (
+        "the live frontier's artifacts were replaced by a warm's bare state"
+    )
+
+
+def test_a_speculative_store_never_replaces_a_live_entry() -> None:
+    """The same rule as eviction, for a key collision: a guess may not overwrite
+    live work under its own key, whatever path tried to put it there."""
+    cache: PrefixCache[Any] = PrefixCache(4)
+    live, guess = _Payload("live"), _Payload("guess")
+    assert cache.store("k", live)
+    assert not cache.store("k", guess, speculative=True)
+    taken = cache.take(["root", "k"])
+    assert taken is not None and taken.checkpoint is live and not taken.speculative
+    assert cache.stats.speculative_refused == 1
+
+
+class _Payload:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def detach(self) -> None:
+        pass
+
+    def weigh(self) -> int:
+        return 0
+
+    def fork(self) -> _Payload:
+        return _Payload(self.name + "'")
+
+
 def test_the_budget_bounds_a_warm_that_never_gets_the_core() -> None:
     """A worker with no spare cycles is the case where speculation is worth
     nothing, and it must cost nothing either: the budget expires while the warm
@@ -694,17 +755,18 @@ def test_the_default_budget_is_stated_and_bounded() -> None:
 # --- 4. The work one ticket represents ------------------------------------------
 
 
-def test_warm_work_warms_the_requested_lineages_in_order() -> None:
+def test_warm_work_warms_the_one_lineage_whatever_the_ticket_names() -> None:
     """`warm_work` is the whole translation from "a ticket was accepted" to
-    kernel work: lineages in priority order under one shared stop predicate, and
-    a stop between them so a cancelled ticket cannot start the second."""
+    kernel work. A ticket still names ``evaluate`` and ``provenance`` (the wire
+    contract predates PERF-REAL-3); both address the ONE lineage now, so the warm
+    runs once and stores ONE checkpoint, and the rebuild that follows resumes it."""
     payload = _payload()
     index = _first_editable_float_index(payload)
     edited = _request(_retype(payload, index))
-    plain_cold = _cold(edited)
-    history_cold = _cold(edited, record_history=True)
+    cold = _cold(edited)
 
     reset_rebuild_cache()
+    before_warm = rebuild_cache_stats()
     warm_work(
         WarmTreeRequest(
             ticket="t",
@@ -713,12 +775,13 @@ def test_warm_work_warms_the_requested_lineages_in_order() -> None:
             lineages=["evaluate", "provenance"],
         )
     )(lambda: False)
+    warmed = rebuild_cache_stats()
+    assert warmed.misses == before_warm.misses + 1, "one warm, not one per name"
 
-    before = rebuild_cache_stats()
-    assert _answer(edited) == plain_cold
-    assert _answer(edited, record_history=True) == history_cold
+    assert _answer(edited) == cold
     after = rebuild_cache_stats()
-    assert after.hits == before.hits + 2, "both lineages were warmed"
+    assert after.hits == warmed.hits + 1
+    assert after.resumed_features == warmed.resumed_features + index
 
 
 def test_an_already_stopped_ticket_does_no_work_at_all() -> None:

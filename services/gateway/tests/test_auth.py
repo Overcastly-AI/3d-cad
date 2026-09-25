@@ -104,6 +104,14 @@ def _bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _session_id(access_token: str) -> uuid.UUID:
+    """The ``sid`` claim of a token this gateway minted (read, not verified)."""
+    claims: dict[str, Any] = pyjwt.decode(  # pyright: ignore[reportUnknownMemberType]
+        access_token, options={"verify_signature": False}
+    )
+    return uuid.UUID(str(claims["sid"]))
+
+
 def _envelope(body: dict[str, Any]) -> dict[str, Any]:
     assert set(body) == {"error"}
     error: dict[str, Any] = body["error"]
@@ -259,9 +267,10 @@ def test_me_with_expired_token_401(client: TestClient) -> None:
     user_id = uuid.UUID(body["user"]["id"])
     expired = create_access_token(
         user_id,
+        _session_id(body["access_token"]),
         TEST_AUTH_CONFIG,
         now=datetime.now(UTC) - timedelta(seconds=TOKEN_TTL_S + 60),
-    )
+    ).token
     response = client.get("/api/v1/auth/me", headers=_bearer(expired))
     assert response.status_code == 401
     error = _envelope(response.json())
@@ -277,7 +286,9 @@ def test_me_with_tampered_signature_401(client: TestClient) -> None:
     attacker = AuthConfig(
         jwt_secret="attacker-controlled-secret-0123456789", token_ttl_s=3600
     )
-    forged = create_access_token(uuid.UUID(body["user"]["id"]), attacker)
+    forged = create_access_token(
+        uuid.UUID(body["user"]["id"]), _session_id(body["access_token"]), attacker
+    ).token
     assert forged != body["access_token"]
     response = client.get("/api/v1/auth/me", headers=_bearer(forged))
     assert response.status_code == 401
@@ -305,7 +316,7 @@ def test_me_with_token_for_deleted_user_401(client: TestClient) -> None:
     """A validly-signed token whose subject no longer exists is a 401, not a
     500 — the subject is re-checked against the store on every request."""
     _register(client)
-    ghost = create_access_token(uuid.uuid4(), TEST_AUTH_CONFIG)
+    ghost = create_access_token(uuid.uuid4(), uuid.uuid4(), TEST_AUTH_CONFIG).token
     response = client.get("/api/v1/auth/me", headers=_bearer(ghost))
     assert response.status_code == 401
     assert _envelope(response.json())["code"] == "invalid_token"

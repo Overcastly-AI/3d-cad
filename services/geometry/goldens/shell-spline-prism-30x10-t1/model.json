@@ -1,0 +1,150 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000000f4",
+  "tree_version": 3,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-0000000f4a01",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          },
+          "entities": [
+            {
+              "id": "e1",
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 30.0,
+                "y": 0.0
+              }
+            },
+            {
+              "id": "e2",
+              "kind": "line",
+              "start": {
+                "x": 30.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 30.0,
+                "y": 12.0
+              }
+            },
+            {
+              "id": "s1",
+              "kind": "spline",
+              "points": [
+                {
+                  "x": 30.0,
+                  "y": 12.0
+                },
+                {
+                  "x": 24.0,
+                  "y": 14.0
+                },
+                {
+                  "x": 18.0,
+                  "y": 12.5
+                },
+                {
+                  "x": 12.0,
+                  "y": 15.0
+                },
+                {
+                  "x": 6.0,
+                  "y": 13.0
+                },
+                {
+                  "x": 0.0,
+                  "y": 14.0
+                }
+              ]
+            },
+            {
+              "id": "e3",
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 14.0
+              },
+              "end": {
+                "x": 0.0,
+                "y": 0.0
+              }
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000f4a02",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000f4a01"
+          },
+          "distance_mm": 10.0,
+          "operation": "add",
+          "direction": "normal"
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000f4a03",
+      "feature": {
+        "type": "shell",
+        "version": 1,
+        "params": {
+          "thickness_mm": 1.0,
+          "faces": {
+            "kind": "faces",
+            "refs": [
+              {
+                "kind": "subshape",
+                "feature_id": "00000000-0000-0000-0000-0000000f4a02",
+                "subshape_type": "face",
+                "selector": {
+                  "selector_version": 1,
+                  "signature": {
+                    "subshape_type": "face",
+                    "surface": "plane",
+                    "normal": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "z": 1.0
+                    },
+                    "centroid": {
+                      "x": 15.010235674198986,
+                      "y": 6.787723715350136,
+                      "z": 10.0
+                    },
+                    "area_mm2": 405.9360749513623,
+                    "outer_area_mm2": 405.9360749513623,
+                    "outer_centroid": {
+                      "x": 15.010235674198986,
+                      "y": 6.787723715350136,
+                      "z": 10.0
+                    },
+                    "outer_perimeter_mm": 88.20904817385289
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

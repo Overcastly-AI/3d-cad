@@ -5,6 +5,7 @@ import {
   exportBox,
   exportPartFlatPatternDxf,
   exportPartTree,
+  ExportRefusedError,
   markFilenamePartial,
   parseContentDispositionFilename,
 } from "./exportPart";
@@ -184,6 +185,25 @@ describe("exportPartTree", () => {
     await expect(exportPartTree(PART_ID, "stl", client)).rejects.toThrow(
       /rejected the STL export/,
     );
+  });
+
+  it("keeps the refusal's code, so the band can name the cure (MESH-TOO-DENSE-COPY-1)", async () => {
+    const client = clientReturning(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "export_mesh_too_dense",
+            message: "This twisted body is too dense to export as 3MF.",
+          },
+        }),
+        { status: 422, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const error = await exportPartTree(PART_ID, "3mf", client).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(ExportRefusedError);
+    expect((error as ExportRefusedError).code).toBe("export_mesh_too_dense");
   });
 });
 

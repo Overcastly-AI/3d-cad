@@ -57,8 +57,8 @@ from geometry.kernel.export import (
 from geometry.kernel.step_assembly import StepAssemblyRead, read_step_assembly
 from geometry.kernel.types import BodyShape
 from geometry.main import app
-from py_kit.schemas.assemblies import Placement
-from py_kit.schemas.step_import import (
+from loft_wire.assemblies import Placement
+from loft_wire.step_import import (
     ImportedProduct,
     StepAssemblyImportRequest,
     StepAssemblyImportResult,
@@ -555,7 +555,7 @@ def test_route_roundtrips_over_http() -> None:
 
 
 def test_oversize_payload_is_422_at_validation() -> None:
-    from py_kit.schemas.features import MAX_INLINE_STEP_CHARS
+    from loft_wire.features import MAX_INLINE_STEP_CHARS
 
     response = client.post(
         "/api/v1/assembly/import", json={"data": "x" * (MAX_INLINE_STEP_CHARS + 1)}

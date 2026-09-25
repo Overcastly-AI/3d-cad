@@ -252,7 +252,7 @@ ALL_CONSTRAINT_KINDS = frozenset(
 ALL_ENTITY_KINDS = frozenset({"arc", "circle", "line", "point", "spline"})
 
 #: Statuses whose payload UNAMBIGUOUSLY carries solved geometry
-#: (:class:`~py_kit.schemas.sketch.SolvedSketch` — "positions are solved when
+#: (:class:`~loft_wire.sketch.SolvedSketch` — "positions are solved when
 #: the numeric solve succeeded"). ``overconstrained`` is deliberately absent:
 #: the same docstring says only *consistent* overconstrained cases carry solved
 #: positions, so a client cannot tell from the status alone which it has, and

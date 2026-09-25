@@ -30,8 +30,8 @@ from typing import Any
 import pytest
 from geometry.drawings import flat_pattern_view_result
 from geometry.features.evaluate import TreeEvaluation, evaluate_tree
-from py_kit.schemas.drawings import DrawingViewResult, ViewScale
-from py_kit.schemas.features import EvaluateTreeRequest
+from loft_wire.drawings import DrawingViewResult, ViewScale
+from loft_wire.features import EvaluateTreeRequest
 
 _UNIT_SCALE = ViewScale(numerator=1, denominator=1)
 

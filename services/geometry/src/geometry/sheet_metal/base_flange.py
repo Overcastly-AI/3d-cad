@@ -15,7 +15,7 @@ multi-body §MB-0). It crosses NO service boundary — it is a pure-Python recor
 the geometry service threads internally, exactly like the kernel bodies in
 ``EvaluationState.bodies`` (CLAUDE.md service boundaries). The wire-level source
 of truth for these values is
-``py_kit.schemas.features.SheetMetalBaseFlangeParamsV1``; this record is the
+``loft_wire.features.SheetMetalBaseFlangeParamsV1``; this record is the
 service-internal projection the unfold consumes.
 """
 

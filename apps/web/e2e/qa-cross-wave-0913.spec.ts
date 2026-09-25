@@ -256,6 +256,12 @@ test.describe("the proposal chip and the reference cube share one corner", () =>
     const cube = await chipOverTheCube(page);
     const view = page.getByTestId("viewport");
     const before = await view.getAttribute("data-camera-pos");
+    // The settle below waits for THIS stamp, so it must not already read it —
+    // otherwise the wait would be satisfied before the click was made.
+    expect(
+      await view.getAttribute("data-view"),
+      "no cube pick has happened yet, so no `direction` settle may be stamped",
+    ).not.toBe("direction");
 
     // A facet, not the seat's dead centre: the point of the case is that the
     // camera really moved, so the click has to be one the cube acts on.
@@ -266,7 +272,21 @@ test.describe("the proposal chip and the reference cube share one corner", () =>
       "the facet this case clicks must belong to the cube",
     ).toBe("view-cube");
     await page.mouse.click(fx, fy);
-    await page.waitForTimeout(800);
+
+    // THE NAMED SETTLE. A cube pick EASES the camera to a `direction` pose, and
+    // `data-view` / `data-camera-pos` are stamped only when that ease LANDS
+    // (`CameraRig.onSettle`). This used to be a fixed `waitForTimeout(800)`,
+    // which read the stamp mid-ease whenever the frame loop ran slow — the
+    // camera was moving, the stamp had not been written yet, and the case
+    // reported "the click did not steer" (~2 runs in 8; 7 of 8 under four
+    // CPU-burning processes). Waiting for the stamp the ease itself writes
+    // is the property; a clock was a guess at how long the ease takes.
+    await expect
+      .poll(() => view.getAttribute("data-view"), {
+        message: "the cube pick's camera ease never landed (no settle stamp)",
+        timeout: 20_000,
+      })
+      .toBe("direction");
 
     const after = await view.getAttribute("data-camera-pos");
     report("camera before -> after", `${before} -> ${after}`);
@@ -494,11 +514,29 @@ test.describe("the cube during a face pick (CRAFT-6)", () => {
       ),
     );
 
+    // A face BEHIND the body is not one "the user must pick" by pointer: board
+    // #76 draws its mark as a dashed hidden line that takes no pointer, so the
+    // pixel belongs to the face in front. Those marks are named in the report
+    // and excluded from the reach claim — and ONLY those: the seat pass is
+    // waited out by its own stamp first, so a mark still pending cannot hide
+    // in the buried set, and the live set must be non-empty.
+    await expect(page.getByTestId("viewport")).toHaveAttribute(
+      "data-face-mark-seats",
+      "settled",
+      { timeout: 90_000 },
+    );
+    const buried: string[] = [];
     const unreachable: string[] = [];
+    let live = 0;
     for (const mark of await marks.all()) {
       const id = (await mark.getAttribute("data-testid")) ?? "?";
       const box = await mark.boundingBox();
       if (box === null) continue;
+      if ((await mark.getAttribute("data-buried")) === "true") {
+        buried.push(id);
+        continue;
+      }
+      live += 1;
       const lands = await resolvesAt(
         page,
         box.x + box.width / 2,
@@ -508,8 +546,13 @@ test.describe("the cube during a face pick (CRAFT-6)", () => {
     }
     report(
       "face pick marks under the cube",
-      `${unreachable.length} of ${(await marks.all()).length} — ${unreachable.join("; ")}`,
+      `${unreachable.length} of ${live} live — ${unreachable.join("; ")}` +
+        ` (behind the body, drawn as hidden lines: ${buried.join(", ") || "none"})`,
     );
+    expect(
+      live,
+      "the reach claim must examine at least one face in front of the body",
+    ).toBeGreaterThan(0);
     await page.screenshot({ path: "test-results/qa-cross-face-pick.png" });
     expect(
       unreachable,
@@ -525,6 +568,7 @@ test.describe("the cube during a face pick (CRAFT-6)", () => {
     */
     let underCube: { id: string; x: number; y: number } | null = null;
     for (const mark of await marks.all()) {
+      if ((await mark.getAttribute("data-buried")) === "true") continue;
       const box = await mark.boundingBox();
       if (box === null) continue;
       const x = box.x + box.width / 2;

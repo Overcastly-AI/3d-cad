@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { ExtrudeParams, FeatureResponse } from "../api/parts";
+import type {
+  ExtrudeParams,
+  FeatureResponse,
+  SketchEntity,
+} from "../api/parts";
+import { readRepoSource } from "../test/wireSource";
 import {
   canSubmitExtrude,
   defaultExtrudeDirection,
@@ -8,6 +13,7 @@ import {
   defaultProfileId,
   describeExtrudeDirection,
   distanceError,
+  extrudeParamsFromForm,
   extrudePreviewState,
   formFromParams,
   optionProvenance,
@@ -18,7 +24,152 @@ import {
   withDirection,
   withOperation,
   withProfile,
+  extrudeSubmitBlocker,
+  MAX_TWIST_DEG,
+  MIN_TWIST_DEG,
+  parseTwistDeg,
+  TWIST_COST_LIMIT_S,
+  twistCostUpperS,
+  twistError,
+  twistHand,
 } from "./extrude";
+
+/**
+ * Review N1: MAX_TWIST_DEG / MIN_TWIST_DEG restate the wire model's bounds,
+ * which the generated TS client carries as types only (no `maximum`). The
+ * committed OpenAPI contract is generated from the same pydantic model and CI
+ * fails on its drift, so it is the source these constants are held to.
+ */
+describe("the twist bounds match the contract (review N1)", () => {
+  /** The contract's twist property, read LAZILY (see `wireSource.ts`). */
+  function contractTwist():
+    | {
+        anyOf?: { maximum?: number; minimum?: number }[];
+        description?: string;
+      }
+    | undefined {
+    const contract = JSON.parse(
+      readRepoSource("packages/contracts/gateway.openapi.json", {
+        declaredIn: "contractTwist in apps/web/src/features/extrude.test.ts",
+        guards: "the twisted extrude's wire bounds (MAX/MIN_TWIST_DEG)",
+      }),
+    ) as {
+      components: {
+        schemas: Record<
+          string,
+          {
+            properties?: Record<
+              string,
+              {
+                anyOf?: { maximum?: number; minimum?: number }[];
+                description?: string;
+              }
+            >;
+          }
+        >;
+      };
+    };
+    return contract.components.schemas["ExtrudeParamsV1"]?.properties?.[
+      "twist_angle_deg"
+    ];
+  }
+
+  it("MAX_TWIST_DEG is the schema's maximum and minus its minimum", () => {
+    const bounded = contractTwist()?.anyOf?.find(
+      (s) => s.maximum !== undefined,
+    );
+    expect(bounded?.maximum).toBe(MAX_TWIST_DEG);
+    expect(bounded?.minimum).toBe(-MAX_TWIST_DEG);
+  });
+
+  it("MIN_TWIST_DEG is the threshold the contract normalises to no twist", () => {
+    // Stated in prose on the wire model ("any |twist| below 1e-9 deg is NO
+    // twist"); held to the text so a changed threshold cannot drift silently.
+    expect(contractTwist()?.description).toContain(
+      `below ${MIN_TWIST_DEG.toExponential()} deg`,
+    );
+  });
+});
+
+/**
+ * Review S9, after the kernel's F4 cost guard (4c49218): the note keys on the
+ * upper bound design note §6.1 publishes for the UI. The EXPECTED crossings
+ * are the note's own "rough reach" figures, not recomputed from the formula.
+ */
+describe("twistCostUpperS (design note §6.1)", () => {
+  function polygon(n: number): SketchEntity[] {
+    return Array.from({ length: n }, (_, i) => {
+      const a = (i / n) * 2 * Math.PI;
+      const b = ((i + 1) / n) * 2 * Math.PI;
+      return {
+        id: `e${i}`,
+        kind: "line" as const,
+        start: { x: 10 * Math.cos(a), y: 10 * Math.sin(a) },
+        end: { x: 10 * Math.cos(b), y: 10 * Math.sin(b) },
+        construction: false,
+      };
+    });
+  }
+  const circle: SketchEntity[] = [
+    {
+      id: "c",
+      kind: "circle",
+      center: { x: 0, y: 0 },
+      radius: 10,
+      construction: false,
+    },
+  ];
+  const deg = (turns: number) => turns * 360;
+
+  it("passes the kernel's limit where the note says: square 10.2, hexagon 8.2, 12-gon 5.6, circle 9.0 turns", () => {
+    for (const [entities, below, above] of [
+      [polygon(4), 10.1, 10.3],
+      [polygon(6), 8.1, 8.3],
+      [polygon(12), 5.5, 5.7],
+      [circle, 8.9, 9.1],
+    ] as const) {
+      expect(twistCostUpperS(deg(below), entities)).toBeLessThan(
+        TWIST_COST_LIMIT_S,
+      );
+      expect(twistCostUpperS(deg(above), entities)).toBeGreaterThan(
+        TWIST_COST_LIMIT_S,
+      );
+    }
+  });
+
+  it("counts profile edges only, and is signed-twist symmetric", () => {
+    const withConstruction = [
+      ...polygon(4),
+      { ...polygon(1)[0]!, id: "k", construction: true },
+      {
+        id: "p",
+        kind: "point" as const,
+        at: { x: 0, y: 0 },
+        construction: false,
+      },
+    ] as SketchEntity[];
+    expect(twistCostUpperS(1800, withConstruction)).toBeCloseTo(
+      twistCostUpperS(1800, polygon(4)),
+      12,
+    );
+    expect(twistCostUpperS(-1800, polygon(4))).toBe(
+      twistCostUpperS(1800, polygon(4)),
+    );
+  });
+
+  it("TWIST_COST_LIMIT_S is the kernel's own limit", () => {
+    const source = readRepoSource(
+      "services/geometry/src/geometry/kernel/twist.py",
+      {
+        declaredIn:
+          "twistCostUpperS tests in apps/web/src/features/extrude.test.ts",
+        guards: "the kernel's twist cost limit (TWIST_COST_LIMIT_S)",
+      },
+    );
+    const match = /^TWIST_COST_LIMIT_S = ([\d.]+)/m.exec(source);
+    expect(Number(match?.[1])).toBe(TWIST_COST_LIMIT_S);
+  });
+});
 
 function sketch(id: string, name: string): FeatureResponse {
   return {
@@ -160,6 +311,8 @@ describe("defaultExtrudeForm", () => {
       direction: "normal",
       directionTouched: false,
       merge: true,
+      twistInput: "",
+      twistCentre: { kind: "origin" },
     });
   });
 
@@ -296,6 +449,54 @@ describe("formFromParams", () => {
       // operation switch in this session re-defaults it (FB-4).
       directionTouched: false,
       merge: true,
+      // The whole stored envelope rides along, for the fields the form does
+      // not show (see `extrudeParamsFromForm`).
+      twistInput: "",
+      twistCentre: { kind: "origin" },
+      stored: params,
+    });
+  });
+
+  it("round-trips a TWISTED extrude through the form unchanged", () => {
+    const params: ExtrudeParams = {
+      profile: { kind: "feature", feature_id: "sk" },
+      distance_mm: 20,
+      operation: "cut",
+      direction: "reverse",
+      merge: true,
+      twist_angle_deg: 12.358,
+      twist_center: { x: 0.25, y: -3 },
+    };
+    const form = formFromParams(params, "mm");
+    const distance = parseDistanceMm(form.distanceInput, "mm");
+    expect(distance).not.toBeNull();
+    expect(extrudeParamsFromForm(form, distance as number)).toEqual(params);
+  });
+
+  it("writes the edited fields OVER the stored twist, never instead of it", () => {
+    const params: ExtrudeParams = {
+      profile: { kind: "feature", feature_id: "sk" },
+      distance_mm: 20,
+      operation: "add",
+      direction: "normal",
+      merge: true,
+      twist_angle_deg: -30,
+    };
+    const edited = withDirection(formFromParams(params, "mm"), "reverse");
+    expect(extrudeParamsFromForm(edited, 35)).toEqual({
+      ...params,
+      distance_mm: 35,
+      direction: "reverse",
+    });
+  });
+
+  it("a new extrude carries no stored fields", () => {
+    expect(extrudeParamsFromForm(defaultExtrudeForm("sk"), 10)).toEqual({
+      profile: { kind: "feature", feature_id: "sk" },
+      distance_mm: 10,
+      operation: "add",
+      direction: "normal",
+      merge: true,
     });
   });
 
@@ -399,6 +600,8 @@ describe("extrudePreviewState", () => {
       distanceMm: 12,
       direction: "reverse",
       operation: "add",
+      twistDeg: 0,
+      twistCentre: null,
     });
   });
 
@@ -429,5 +632,108 @@ describe("extrudePreviewState", () => {
         "mm",
       ),
     ).toBeNull();
+  });
+});
+
+describe("twist (helical-gear gap G1)", () => {
+  const plain: ExtrudeParams = {
+    profile: { kind: "feature", feature_id: "sk" },
+    distance_mm: 20,
+    operation: "cut",
+    direction: "normal",
+    merge: true,
+  };
+
+  it("parses a signed twist; empty and vanishing are no twist; beyond ten turns is wrong", () => {
+    expect(parseTwistDeg("")).toBe(0);
+    expect(parseTwistDeg("  ")).toBe(0);
+    expect(parseTwistDeg("12.358")).toBe(12.358);
+    expect(parseTwistDeg("-30")).toBe(-30);
+    expect(parseTwistDeg("1e-12")).toBe(0);
+    expect(parseTwistDeg("3600")).toBe(3600);
+    expect(parseTwistDeg("3600.1")).toBeNull();
+    expect(parseTwistDeg("twelve")).toBeNull();
+    expect(twistError("-3600")).toBeNull();
+    expect(twistError("4000")).toMatch(/3600/);
+  });
+
+  it("names the hand the way an engineer says it", () => {
+    expect(twistHand(15)).toBe("Right-hand");
+    expect(twistHand(-15)).toBe("Left-hand");
+    expect(twistHand(0)).toBeNull();
+  });
+
+  it("NO twist sends NO twist fields: absent keys, not null or 0", () => {
+    for (const input of ["", "0", "-0", "1e-12"]) {
+      const form = { ...formFromParams(plain, "mm"), twistInput: input };
+      const params = extrudeParamsFromForm(form, 20);
+      expect(params).toEqual(plain);
+      expect(Object.keys(params)).not.toContain("twist_angle_deg");
+      expect(Object.keys(params)).not.toContain("twist_center");
+    }
+  });
+
+  it("a typed twist about the sketch origin sends the angle alone", () => {
+    const form = { ...defaultExtrudeForm("sk"), twistInput: "12.358" };
+    const params = extrudeParamsFromForm(form, 10);
+    expect(params.twist_angle_deg).toBe(12.358);
+    expect(Object.keys(params)).not.toContain("twist_center");
+  });
+
+  it("the centroid centre sends the point the caller measured", () => {
+    const form = {
+      ...defaultExtrudeForm("sk"),
+      twistInput: "-45",
+      twistCentre: { kind: "centroid" as const },
+    };
+    expect(extrudeParamsFromForm(form, 10, { x: 3, y: -4 })).toMatchObject({
+      twist_angle_deg: -45,
+      twist_center: { x: 3, y: -4 },
+    });
+  });
+
+  it("a no-op Save sends a stored twist back EXACTLY, at full precision", () => {
+    // Review B1: seeding the field through toPrecision(12) turned
+    // 31.280937437761875 into 31.2809374378, so opening a twisted feature and
+    // pressing Enter changed its helix and its rebuild cache key.
+    for (const angle of [31.280937437761875, -0.1 - 0.2, 12.358, 3600]) {
+      const stored: ExtrudeParams = {
+        ...plain,
+        twist_angle_deg: angle,
+        twist_center: { x: 10.000000000000002, y: -3.3333333333333335 },
+      };
+      const form = formFromParams(stored, "mm");
+      expect(extrudeParamsFromForm(form, 20)).toEqual(stored);
+    }
+  });
+
+  it("clearing a stored twist removes BOTH fields, centre included", () => {
+    const twisted: ExtrudeParams = {
+      ...plain,
+      twist_angle_deg: 30,
+      twist_center: { x: 1, y: 2 },
+    };
+    const form = { ...formFromParams(twisted, "mm"), twistInput: "" };
+    expect(extrudeParamsFromForm(form, 20)).toEqual(plain);
+  });
+
+  it("a wrong twist holds Save with a reason; an empty one does not", () => {
+    const form = defaultExtrudeForm("sk");
+    expect(extrudeSubmitBlocker({ ...form, twistInput: "" }, "mm")).toBeNull();
+    expect(extrudeSubmitBlocker({ ...form, twistInput: "abc" }, "mm")).toBe(
+      "Check the twist.",
+    );
+  });
+
+  it("the preview carries the twist and its resolved centre", () => {
+    const form = {
+      ...defaultExtrudeForm("sk"),
+      twistInput: "90",
+      twistCentre: { kind: "centroid" as const },
+    };
+    expect(extrudePreviewState(form, "mm", { x: 5, y: 5 })).toMatchObject({
+      twistDeg: 90,
+      twistCentre: { x: 5, y: 5 },
+    });
   });
 });
