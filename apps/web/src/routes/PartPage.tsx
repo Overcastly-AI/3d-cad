@@ -221,7 +221,7 @@ import {
   formFromLoftParams,
   type LoftForm,
 } from "../features/loft";
-import { computeBodies } from "../features/bodies";
+import { partBodies } from "../features/bodies";
 import {
   bodyMaterialRows,
   withBodyMaterial,
@@ -1592,10 +1592,20 @@ export function PartPage() {
    * list of verbs that propose NOTHING — is `components/nextStep.ts`.
    */
   const nextStep = useNextStepAfterBuild(tree.data?.features);
-  // The part's body set, replayed from the tree (multi-body §MB-1) — drives the
-  // Bodies panel and the Combine tool's target/tool pickers. One body is the
-  // common case; a `merge: false` add (or an import) starts a second.
-  const bodies = useMemo(() => computeBodies(features), [features]);
+  // The part's body set (multi-body §MB-1) — drives the Bodies panel and the
+  // Combine tool's target/tool pickers. One body is the common case; a
+  // `merge: false` add (or an import) starts a second.
+  //
+  // The evaluate result decides WHICH bodies exist (FAILED-EXTRUDE-BODIES-
+  // GHOST-1): a failed extrude is not a body, and Export, which writes the same
+  // last-good state, already said so. The tree only names them, and is the
+  // stand-in until the first result arrives.
+  const evaluatedBodies = evaluation.data?.bodies;
+  const hasEvaluation = evaluation.data !== undefined;
+  const bodies = useMemo(
+    () => partBodies(features, hasEvaluation ? (evaluatedBodies ?? []) : null),
+    [features, hasEvaluation, evaluatedBodies],
+  );
   // Per-body lump count from the evaluate wire (§MB-4c): a disjoint-union /
   // multi-solid-import body reports `lumps > 1`, which the Bodies panel flags.
   // Keyed by the body's base feature id (its §MB-0 identity) so a row maps to its
