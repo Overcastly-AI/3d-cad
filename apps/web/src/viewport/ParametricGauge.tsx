@@ -925,17 +925,27 @@ export function ParametricGauge({
    * `whileTyping` because the cell case is BY DEFINITION typing, and because a
    * drag can be started from a row that left focus in a text field.
    */
-  const revertInnermost = useCallback(() => {
+  const revertInnermost = useCallback((): boolean => {
     if (grabRef.current !== null) {
       const from = finishDrag();
       // Back to the value the grab STARTED from — Escape only ever discards,
       // and it discards exactly one level: the command stays open, and a second
       // press cancels it.
       if (from !== null) ask(track.clamp(from));
-      return;
+      return true;
     }
-    if (typing !== null) closeCell(true);
-  }, [ask, closeCell, finishDrag, track, typing]);
+    if (typingRef.current !== null) {
+      closeCell(true);
+      return true;
+    }
+    // NOTHING IN FLIGHT, so DECLINE and the key goes on to the command's own
+    // cancel. This is reachable, and it is why both checks above read REFS.
+    // The rung is armed from `grabbed`, which a release clears only when this
+    // component re-renders, one Scheduler task after `pointerup` (see
+    // `CancelHandler` in lib/modalGate.ts). An Escape pressed inside that task
+    // used to be spent here doing nothing, and the command stayed open.
+    return false;
+  }, [ask, closeCell, finishDrag, track]);
 
   useCancelKey("drag", grabbed || typing !== null ? revertInnermost : null, {
     whileTyping: true,
