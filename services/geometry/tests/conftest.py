@@ -7,6 +7,7 @@ cross-suite constants and assertion helpers live here as fixtures instead
 """
 
 import io
+import json
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -35,6 +36,28 @@ from loft_wire.features import EvaluateTreeRequest
 #: endpoint-level (test_export) STEP round-trip gates. Loosening it is a
 #: reviewed decision recorded in docs/GEOMETRY-QA.md, never a quick fix.
 ROUNDTRIP_TOL = 1e-7
+
+GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens"
+
+
+def roundtrip_tolerance_for(name: str) -> float:
+    """The round-trip bound for *name*: ``ROUNDTRIP_TOL``, unless *name* is a
+    golden whose expected.json declares a reviewed ``roundtrip_tolerance``.
+
+    That override exists for geometry whose own B-rep is defined more loosely
+    than 1e-7: a shell's OFFSET spline wall is bounded by edges OCCT's offset
+    algorithm fits to 1e-5 mm, and the STEP reader rebuilds those edges'
+    pcurves from their 3D curves, so the re-imported face encloses a volume
+    3.2e-7 mm^3 different (shell-spline-prism-30x10-t1). Every such golden is
+    listed in test_goldens.ROUNDTRIP_TOLERANCE_OVERRIDES, so an override cannot
+    appear unreviewed.
+    """
+    expected = GOLDENS_DIR / name / "expected.json"
+    if not expected.is_file():
+        return ROUNDTRIP_TOL
+    return float(
+        json.loads(expected.read_text()).get("roundtrip_tolerance", ROUNDTRIP_TOL)
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -98,10 +121,11 @@ def assert_roundtrip_preserved() -> Callable[
             ("bbox.max.y", reimported.bounding_box.max.y, original.bounding_box.max.y),
             ("bbox.max.z", reimported.bounding_box.max.z, original.bounding_box.max.z),
         ]
+        tolerance = roundtrip_tolerance_for(name)
         for label, got, want in checks:
-            assert got == pytest.approx(want, abs=ROUNDTRIP_TOL), (
+            assert got == pytest.approx(want, abs=tolerance), (
                 f"{name}: round-trip {label} drifted — exported {want!r}, "
-                f"re-imported {got!r} (tol {ROUNDTRIP_TOL!r}). This is a defect "
+                f"re-imported {got!r} (tol {tolerance!r}). This is a defect "
                 f"to root-cause (export/import/kernel), not noise."
             )
 

@@ -44,7 +44,7 @@ from geometry.features.evaluate import reset_rebuild_cache
 from geometry.kernel import export_step_bytes, measure_shape
 from geometry.kernel.edges import enumerate_edges
 from geometry.kernel.imports import import_step_solid
-from geometry.kernel.properties import volume_integrand
+from geometry.kernel.properties import VolumeReading, volume_properties
 from geometry.kernel.step_assembly import read_step_assembly
 from geometry.main import app
 from loft_wire.assemblies import MateAxisRef
@@ -591,20 +591,20 @@ def test_a_sweep_that_comes_back_wrong_is_twist_failed(
     )
 
 
-def test_the_cavalieri_guard_reads_the_reported_volume_integrand(
+def test_the_cavalieri_guard_reads_the_reported_volume_integral(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Review N1: the guard integrates the SAME shape the reported mass
-    properties do (properties.volume_integrand), so it cannot pass a body the
-    inspector reads differently."""
+    """Review N1: the guard integrates through the SAME function the reported
+    mass properties do (properties.volume_properties), so it cannot pass a body
+    the inspector reads differently."""
     seen: list[object] = []
-    real = volume_integrand
+    real = volume_properties
 
-    def spy(shape: Any) -> object:
+    def spy(shape: Any) -> VolumeReading:
         seen.append(shape)
         return real(shape)
 
-    monkeypatch.setattr(twist_kernel, "volume_integrand", spy)
+    monkeypatch.setattr(twist_kernel, "volume_properties", spy)
     square = Face(
         Wire.make_polygon(
             [(-10, -10, 0), (10, -10, 0), (10, 10, 0), (-10, 10, 0)], close=True

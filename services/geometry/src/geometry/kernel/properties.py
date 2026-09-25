@@ -23,6 +23,7 @@ fully-typed :class:`ShapeProperties` DTO keeps the boundary honest.
 
 import math
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from build123d import Face
 from loft_wire.materials import mass_g
@@ -145,6 +146,14 @@ def _sweeps_a_spline(face: Face) -> bool:
     return adaptor.BasisCurve().GetType() in _SPLINE_CURVE_KINDS
 
 
+def _is_offset(face: Face) -> bool:
+    """Whether *face* lies on a ``Geom_OffsetSurface`` (:func:`volume_properties`)."""
+    return (
+        BRepAdaptor_Surface(face.wrapped).GetType()
+        == GeomAbs_SurfaceType.GeomAbs_OffsetSurface
+    )
+
+
 def volume_integrand(shape: BodyShape) -> object:
     """The ``TopoDS_Shape`` whose volume integral is the body's volume.
 
@@ -188,6 +197,58 @@ def volume_integrand(shape: BodyShape) -> object:
     return compound
 
 
+@dataclass(frozen=True)
+class VolumeReading:
+    """A body's volume (mm^3) and volume centroid (mm), as reported."""
+
+    volume: float
+    centroid: tuple[float, float, float]
+
+
+def volume_properties(shape: BodyShape) -> VolumeReading:
+    """Volume and volume centroid of *shape*, as reported.
+
+    THE one place a body's volume is integrated: :func:`measure_shape` and the
+    twisted extrude's Cavalieri guard both read it, so they cannot disagree.
+    The integrand is :func:`volume_integrand` (spline-swept faces as their
+    exact NURBS twins). The rule is the adaptive one at :data:`VOLUME_EPS`,
+    EXCEPT for a body with a face on a ``Geom_OffsetSurface``, which is
+    integrated by adaptive Gauss-Kronrod (``VolumePropertiesGK``) at the same
+    eps instead (OFFSET-SURFACE-VOLUME-1).
+
+    Why offsets need their own route (a ``Geom_OffsetSurface`` is its own OCCT
+    surface type, not a sweep): a Shell of a spline extrude offsets the spline
+    wall, and the adaptive rule does not converge on that face. Measured on the
+    golden ``shell-spline-prism-30x10-t1`` against its Green's-theorem truth:
+    +1.61 / -8.31 / +5.90 mm^3 at eps 1e-10 / 1e-12 / 1e-14 (the centroid
+    0.03 mm off). The F1 fix does not carry over, because an offset of a
+    polynomial surface is not polynomial: ``BRepBuilderAPI_NurbsConvert``
+    APPROXIMATES it (1.7e-6 mm from the true surface there) and the volume then
+    settles on a biased +6.6e-6 mm^3. Gauss-Kronrod integrates the TRUE offset
+    surface and converges: +1.8e-7 mm^3 at 1e-10 and 1e-12, centroid within
+    1e-9 mm. It is not used everywhere because every other body reads
+    byte-for-byte as before on the rule the golden suite calibrated
+    (docs/GEOMETRY-QA.md, VOLUME_EPS); it costs about 5x the adaptive rule
+    (278 ms on that golden).
+    """
+    faces = shape.faces()
+    props = GProp_GProps()
+    if any(_is_offset(face) for face in faces):
+        # CGFlag=True: without it Gauss-Kronrod leaves the centre of mass unset.
+        BRepGProp.VolumePropertiesGK_s(
+            volume_integrand(shape), props, VOLUME_EPS, False, False, True, False, False
+        )
+    else:
+        BRepGProp.VolumeProperties_s(
+            volume_integrand(shape), props, VOLUME_EPS, False, False
+        )
+    centre = props.CentreOfMass()
+    return VolumeReading(
+        volume=float(props.Mass()),
+        centroid=(float(centre.X()), float(centre.Y()), float(centre.Z())),
+    )
+
+
 def measure_shape(
     shape: BodyShape, *, density_kg_m3: float | None = None
 ) -> ShapeProperties:
@@ -212,7 +273,6 @@ def measure_shape(
     if shape.wrapped is None:
         raise ValueError("Cannot measure an empty shape")
 
-    volume_props = GProp_GProps()
     # Adaptive integration (:data:`VOLUME_EPS`). ``OnlyClosed=False`` and
     # ``SkipShared=False`` reproduce the two-argument overload's defaults
     # EXACTLY, so the only behavioural change is the integration rule: passing
@@ -223,18 +283,18 @@ def measure_shape(
     # VOLUME_EPS measured the achieved accuracy against hand-derived analytic
     # values rather than against the integrator's opinion of itself.
     # Swept (extrusion/revolution) faces are integrated as their exact NURBS
-    # twins, which the adaptive rule does converge on (:func:`volume_integrand`).
-    BRepGProp.VolumeProperties_s(
-        volume_integrand(shape), volume_props, VOLUME_EPS, False, False
-    )
+    # twins, which the adaptive rule does converge on (:func:`volume_integrand`);
+    # a body with offset faces is integrated by Gauss-Kronrod
+    # (:func:`volume_properties`).
+    reading = volume_properties(shape)
     surface_props = GProp_GProps()
     BRepGProp.SurfaceProperties_s(shape.wrapped, surface_props)
 
-    centroid = volume_props.CentreOfMass()
     bbox = shape.bounding_box(optimal=True)
 
-    volume = float(volume_props.Mass())
-    centre = Vec3(x=float(centroid.X()), y=float(centroid.Y()), z=float(centroid.Z()))
+    volume = reading.volume
+    x, y, z = reading.centroid
+    centre = Vec3(x=x, y=y, z=z)
     mass = mass_g(volume, density_kg_m3)
 
     return ShapeProperties(

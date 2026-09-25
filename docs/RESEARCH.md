@@ -698,6 +698,18 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   it, so valid bodies keep their exact topology and byte-identical exports —
   and refuses any heal that moves the volume (decision + evidence in
   docs/GEOMETRY-QA.md 2026-07-25).
+  The round trip is held to `ROUNDTRIP_TOL` (1e-7) except for goldens listed
+  in `test_goldens.ROUNDTRIP_TOLERANCE_OVERRIDES`, each with a measured
+  `roundtrip_tolerance` and its rationale in expected.json. The first is
+  `shell-spline-prism-30x10-t1` (1e-6): its offset spline wall is bounded by
+  edges OCCT fits to 1e-5 mm, and the STEP reader re-derives their pcurves.
+- **Volume integration:** `properties.volume_properties` is the one place a
+  volume is integrated. The rule is the adaptive one at `VOLUME_EPS`, with
+  spline-swept faces as their exact NURBS twins. A body with a
+  `Geom_OffsetSurface` face is integrated by Gauss-Kronrod instead
+  (OFFSET-SURFACE-VOLUME-1): an offset of a polynomial surface is not
+  polynomial, so a NURBS twin would be an approximation, and the adaptive rule
+  does not converge on the offset itself.
 - **Degeneracy is REFUSED, not healed, when the body is missing material.** The
   companion rule to the one above, and the line between them: a **zero-width
   slit** (two coincident faces of one lump with no material between them, e.g. a

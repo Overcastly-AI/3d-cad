@@ -1,0 +1,54 @@
+{
+  "description": "FIRST GOLDEN WITH OFFSET-SURFACE FACES (OFFSET-SURFACE-VOLUME-1). A 30-wide profile, a bottom line, two vertical sides and a 6-point sketch SPLINE across the top, extruded 10 mm and SHELLED inward 1 mm with the top face open (picked by its stage-1 face signature). The shell offsets the spline wall into a Geom_OffsetSurface (basis: the B-spline MakeThickSolid made of the extrusion), a surface type OCCT's adaptive volume rule does not converge on: before the fix the shipped integrator read +1.61 / -8.31 / +5.90 mm^3 off the truth at eps 1e-10 / 1e-12 / 1e-14, with the centroid 0.03 mm off. Converting the offset face to NURBS does not help: an offset of a polynomial surface is not polynomial, so NurbsConvert APPROXIMATES it (1.7e-6 mm off the surface) and the volume settles on a biased +6.6e-6. properties.volume_properties integrates a body with offset faces by Gauss-Kronrod instead, on the TRUE surface: +1.8e-7 mm^3.",
+  "derivation": [
+    "EVERY MASS PROPERTY IS ANALYTIC and computed WITHOUT GProp by derive.py beside this file (re-run by tests/test_golden_derivations.py). The shell is the prism minus its cavity: the inner parallel region of the profile at distance t = 1, from z = t to z = H = 10. V = A H - A_in (H - t).",
+    "",
+    "A = 405.87527732549955 mm^2 by Green's theorem on the profile (the spline is the kernel's own Edge.make_spline through the fit points; Gauss per knot span, exact on its polynomial pieces). A_in = 322.03224721038634 mm^2 by Green's theorem on the cavity boundary: the offset lines y = t, x = t, x = W - t and the spline's EXACT inward offset C(s) + t n(s), with its derivative in closed form from C' and C'', trimmed where it meets the offset verticals (bisection). Four Gauss rules up to 32 points x 8 subdivisions agree to 6e-15 relative on the volume.",
+    "",
+    "volume = 405.87527732549955 x 10 - 322.03224721038634 x 9 = 1160.4625483615187 mm^3. The harness reads +1.77e-7 (the same at eps 1e-12: a plateau from the shell's fitted intersection edges, 1.5e-10 relative).",
+    "",
+    "centroid from the same boundary integrals (int x dA = closed-integral x^2/2 dy, int y dA = -closed-integral y^2/2 dx; z from the two slabs) = (14.887872661020253, 6.81276499005354, 3.75123491534232). Measured within 2.5e-9 mm.",
+    "",
+    "bounding_box = [0, 0, 0] .. [30, 15.018112198356267, 10]: max y is the spline's own peak (its y' = 0, by bisection). Measured: every bound padded outward by 1.0e-7, the optimal-AABB modelling-tolerance padding.",
+    "",
+    "SURFACE AREA IS THE FIXED-ORDER READING, DELIBERATELY, AND IT IS KNOWN TO BE 0.699 mm^2 LOW (-2.9e-4 relative). The analytic area 2 A + P H + P_in (H - t) = 2410.1897542566303 mm^2 (P, P_in the outer and cavity perimeters by the same quadrature); the shipped fixed-order reading is 2409.4906214278603, and the adaptive surface rule wanders (-18.3 / +7.85 / -0.25 at eps 1e-8 / 1e-10 / 1e-12), the offset face again. Area stays on the fixed order by the 2026-09-15 decision (properties.VOLUME_EPS docstring); if area integration is fixed, THIS value moves, and the replacement is 2410.1897542566303.",
+    "",
+    "topology, hand-derived: outside, the floor, three planar walls and the spline wall (5); the open rim (1); inside, the cavity floor, three planar walls and the OFFSET spline wall (5): 11 faces, 1 shell. Edges: 4 on the outer bottom loop, 4 on the rim's outer loop, 4 outer verticals, and the same 12 inside: 24.",
+    "",
+    "MESH counts are recorded, not derived, as in every golden: an exact-match determinism/regression tripwire on the 0.1 mm linear-deflection tessellation."
+  ],
+  "tolerance": 5e-7,
+  "tolerance_rationale": "Measured first, then set. The volume sits +1.77e-7 mm^3 off its analytic truth at eps 1e-10 and 1e-12 alike (the shell's fitted intersection edges, not integration), the centroid within 2.5e-9 mm, and every AABB bound is padded 1.0e-7 (the loft goldens' reason). 2e-7 would leave the volume a margin of 1.13x; 5e-7 gives 2.8x on the volume and 5x on the padding. The failure this golden exists to catch misses by seven orders of magnitude: the unrouted integrator's +1.61 mm^3. Loosening it requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "roundtrip_tolerance": 1e-6,
+  "roundtrip_tolerance_rationale": "Measured first, then set. A STEP round trip moves this body by -3.2e-7 mm^3 in volume and -1.8e-7 mm^2 in area, above the shared 1e-7 ROUNDTRIP_TOL, and the cause is the B-rep's own definition, not the exporter: the OFFSET spline wall is bounded by two edges OCCT's offset algorithm fits to 1.0e-5 mm (BRep_Tool tolerance 9.2e-6 and 1.0e-5; the hollow's tolerance argument, tried at 1e-4..1e-7, does not change them). The STEP reader rebuilds those edges' pcurves from their 3D curves, so the re-imported face's trimmed domain moves within that 1e-5 mm, and the enclosed volume with it. Both readings converge (Gauss-Kronrod, eps 1e-10..1e-13): exported +1.74e-7 and re-imported -1.44e-7 from the analytic truth, a real 3.2e-7 difference between two B-reps each correct to their tolerance. Topology still round-trips exactly. 1e-6 is 3x the measured drift; centroid and bounds also stay within it.",
+  "properties": {
+    "volume": 1160.4625483615187,
+    "surface_area": 2409.4906214278603,
+    "centroid": {
+      "x": 14.887872661020253,
+      "y": 6.81276499005354,
+      "z": 3.75123491534232
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 30.0,
+        "y": 15.018112198356267,
+        "z": 10.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 11,
+    "edges": 24,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 992,
+    "triangles": 1148
+  }
+}
