@@ -1,8 +1,7 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
 import type { ExtrudeParams, FeatureResponse } from "../api/parts";
+import { readRepoSource } from "../test/wireSource";
 import {
   canSubmitExtrude,
   defaultExtrudeDirection,
@@ -36,37 +35,43 @@ import {
  * fails on its drift, so it is the source these constants are held to.
  */
 describe("the twist bounds match the contract (review N1)", () => {
-  const contract = JSON.parse(
-    readFileSync(
-      new URL(
-        "../../../../packages/contracts/gateway.openapi.json",
-        import.meta.url,
-      ),
-      "utf8",
-    ),
-  ) as {
-    components: {
-      schemas: Record<
-        string,
-        {
-          properties?: Record<
-            string,
-            {
-              anyOf?: { maximum?: number; minimum?: number }[];
-              description?: string;
-            }
-          >;
-        }
-      >;
+  /** The contract's twist property, read LAZILY (see `wireSource.ts`). */
+  function contractTwist():
+    | {
+        anyOf?: { maximum?: number; minimum?: number }[];
+        description?: string;
+      }
+    | undefined {
+    const contract = JSON.parse(
+      readRepoSource("packages/contracts/gateway.openapi.json", {
+        declaredIn: "contractTwist in apps/web/src/features/extrude.test.ts",
+        guards: "the twisted extrude's wire bounds (MAX/MIN_TWIST_DEG)",
+      }),
+    ) as {
+      components: {
+        schemas: Record<
+          string,
+          {
+            properties?: Record<
+              string,
+              {
+                anyOf?: { maximum?: number; minimum?: number }[];
+                description?: string;
+              }
+            >;
+          }
+        >;
+      };
     };
-  };
-  const twist =
-    contract.components.schemas["ExtrudeParamsV1"]?.properties?.[
+    return contract.components.schemas["ExtrudeParamsV1"]?.properties?.[
       "twist_angle_deg"
     ];
+  }
 
   it("MAX_TWIST_DEG is the schema's maximum and minus its minimum", () => {
-    const bounded = twist?.anyOf?.find((s) => s.maximum !== undefined);
+    const bounded = contractTwist()?.anyOf?.find(
+      (s) => s.maximum !== undefined,
+    );
     expect(bounded?.maximum).toBe(MAX_TWIST_DEG);
     expect(bounded?.minimum).toBe(-MAX_TWIST_DEG);
   });
@@ -74,7 +79,7 @@ describe("the twist bounds match the contract (review N1)", () => {
   it("MIN_TWIST_DEG is the threshold the contract normalises to no twist", () => {
     // Stated in prose on the wire model ("any |twist| below 1e-9 deg is NO
     // twist"); held to the text so a changed threshold cannot drift silently.
-    expect(twist?.description).toContain(
+    expect(contractTwist()?.description).toContain(
       `below ${MIN_TWIST_DEG.toExponential()} deg`,
     );
   });
