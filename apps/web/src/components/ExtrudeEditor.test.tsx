@@ -517,6 +517,19 @@ describe("ExtrudeEditor — the twist axis says what Save will send", () => {
     expect(Object.keys(sent)).not.toContain("twist_center");
   });
 
+  it("says, quietly, that a twist past two turns can take a while (review S9)", () => {
+    renderEditor();
+    const twist = screen.getByTestId("extrude-twist");
+    fireEvent.change(twist, { target: { value: "720" } });
+    expect(screen.queryByTestId("extrude-twist-slow")).toBeNull();
+    fireEvent.change(twist, { target: { value: "721" } });
+    expect(screen.getByTestId("extrude-twist-slow")).toHaveTextContent(
+      /can take a while to build/i,
+    );
+    fireEvent.change(twist, { target: { value: "-800" } });
+    expect(screen.getByTestId("extrude-twist-slow")).toBeVisible();
+  });
+
   /** A saved extrude whose twist axis is a point a script placed. */
   const KEPT: ExtrudeParams = {
     profile: { kind: "feature", feature_id: "sk1" },

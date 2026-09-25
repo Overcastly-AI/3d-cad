@@ -112,6 +112,17 @@ export interface ExtrudeEditorProps {
   // effect's dependencies; PartPage memoises one map for the whole tree.)
 }
 
+/**
+ * Past this many degrees (two turns) the editor says a save may be slow
+ * (review S9). docs/design/twisted-extrude.md §6.1: until bounded tessellation
+ * lands, meshing a twist of more than about two turns on a profile wide
+ * relative to its distance can occupy a worker for tens of seconds (a 20 mm
+ * square over 10 mm at 720 degrees: 14.8 s). The cost is not a function of the
+ * twist alone, so the note is worded as "can", keyed on turns only, and
+ * blocks nothing. Revisit when the kernel's F4 fix lands.
+ */
+const SLOW_TWIST_DEG = 720;
+
 const TWIST_CENTRES: ReadonlyArray<SegmentOption<"origin" | "centroid">> = [
   {
     value: "origin",
@@ -420,6 +431,17 @@ export function ExtrudeEditor({
               }
               onFocus={(e) => e.currentTarget.select()}
             />
+            {Math.abs(twistDeg) > SLOW_TWIST_DEG ? (
+              // A heads-up, not a warning: quiet ink, no flag, nothing blocked.
+              // Set exactly as a FieldRow note is (px-3, gauge, xs), under the
+              // row it is about.
+              <p
+                className="px-3 font-body text-xs text-gauge"
+                data-testid="extrude-twist-slow"
+              >
+                Large twists over short distances can take a while to build.
+              </p>
+            ) : null}
             {twistDeg !== 0 ? (
               <FieldRow
                 label="Axis"
