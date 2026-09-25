@@ -234,6 +234,29 @@ async function clickPlane(
   pt: { x: number; y: number },
 ) {
   const px = at(pt);
+  // REFUSE A CLICK THAT CHROME WILL TAKE. The overlays (DRO, panels, tags)
+  // sit over the canvas, so a plane point under one is not clickable, and the
+  // miss is silent: the sketcher ignores a press that did not land on the
+  // canvas. The spec then fails several steps later, somewhere unrelated. That
+  // is how the size/shape showcase went intermittent. Its centerline started
+  // at (0, -55), in the band the DRO covers once it grows. The DRO grows when
+  // its SOLVE cell mounts on the first save, and it resizes as the status text
+  // changes ("SOLVING..." / "DOF 8 · UNDER-CONSTRAINED"). So whether that click
+  // reached the canvas depended on the solver's timing. It was measured
+  // landing on `dro-solve` at 1280 px, and at 1600 px on the DRO in one run and
+  // the canvas in the next. This check names the element instead.
+  const covering = await page.evaluate(({ x, y }) => {
+    const el = document.elementFromPoint(x, y);
+    if (el?.tagName === "CANVAS") return null;
+    const owner = el?.closest("[data-testid]")?.getAttribute("data-testid");
+    return `${el?.tagName.toLowerCase() ?? "nothing"}${owner ? ` in ${owner}` : ""}`;
+  }, px);
+  expect(
+    covering,
+    `plane point (${pt.x}, ${pt.y}) is at screen ` +
+      `(${Math.round(px.x)}, ${Math.round(px.y)}), under ${covering} ` +
+      "rather than the canvas, so a click there cannot reach the sketch",
+  ).toBeNull();
   await page.mouse.click(px.x, px.y);
 }
 
@@ -1069,18 +1092,21 @@ async function buildSizeShapeShowcase(
   await expect(page.locator('[data-kind="concentric"]')).toHaveText("◎");
 
   // Symmetric: a line whose ends mirror about a construction centerline.
+  // Everything stays above y = -40. At 1280 px the DRO covers the band below
+  // about y = -44 once its SOLVE cell has mounted. The centerline used to start
+  // at (0, -55), and that click was lost to the DRO (see `clickPlane`).
   await page.keyboard.press("l");
-  await clickPlane(page, at, { x: -20, y: -30 });
-  await clickPlane(page, at, { x: 30, y: -30 });
+  await clickPlane(page, at, { x: -20, y: -24 });
+  await clickPlane(page, at, { x: 30, y: -24 });
   await page.keyboard.press("l");
-  await clickPlane(page, at, { x: 0, y: -55 });
-  await clickPlane(page, at, { x: 0, y: -18 });
+  await clickPlane(page, at, { x: 0, y: -40 });
+  await clickPlane(page, at, { x: 0, y: -16 });
   await page.keyboard.press("Escape");
-  await clickPlane(page, at, { x: 0, y: -42 }); // centerline body
+  await clickPlane(page, at, { x: 0, y: -33 }); // centerline body
   await page.keyboard.press("n"); // construction
-  await clickPlane(page, at, { x: -20, y: -30 }); // e3 start
-  await addPlane(page, at, { x: 30, y: -30 }); // + e3 end
-  await addPlane(page, at, { x: 0, y: -42 }); // + centerline axis
+  await clickPlane(page, at, { x: -20, y: -24 }); // e3 start
+  await addPlane(page, at, { x: 30, y: -24 }); // + e3 end
+  await addPlane(page, at, { x: 0, y: -33 }); // + centerline axis
   await page.keyboard.press("s");
   await expect(page.locator('[data-kind="symmetric"]')).toHaveText("⟷");
 }
