@@ -21,8 +21,14 @@ import {
   installSceneProbe,
   namedWorldBox,
   waitForCameraRest,
+  waitForCameraStill,
 } from "./invariants";
-import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
+import {
+  createPartViaApi,
+  SCREENSHOT_DIR,
+  seedSession,
+  waitForFrames,
+} from "./support";
 
 /** Enter sketch mode on a datum plane. */
 async function enterSketch(page: Page, plane: "XY" | "XZ" | "YZ") {
@@ -421,17 +427,35 @@ test.describe("extrude drag handle", () => {
     await openExtrude(page);
 
     await page.getByTestId("view-top").click();
-    await waitForCameraRest(page);
+    // STILL, not merely at rest: the circle fit below reads three grip
+    // positions, and a camera still easing moves the circle between them.
+    await waitForCameraStill(page);
 
     const grip = page.getByRole("slider", { name: "Extrude twist" });
     const field = page.getByTestId("extrude-twist");
     const stamp = page.getByTestId("extrude-preview-active");
     await expect(grip).toHaveAttribute("data-testid", "extrude-twist-handle");
     await expect(grip).toHaveAttribute("aria-valuenow", "0");
-    const centreOf = async (): Promise<{ x: number; y: number }> => {
+    /**
+     * The grip's centre once it has SETTLED. drei `Html` writes the grip's
+     * transform in `useFrame`, so a box read right after the value changes can
+     * be the previous frame's: read, render two frames, read again, until two
+     * reads agree.
+     */
+    const readBox = async (): Promise<{ x: number; y: number }> => {
       const box = await grip.boundingBox();
       if (box === null) throw new Error("the twist handle has no box");
       return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    };
+    const centreOf = async (): Promise<{ x: number; y: number }> => {
+      let last = await readBox();
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await waitForFrames(page, 2);
+        const next = await readBox();
+        if (Math.hypot(next.x - last.x, next.y - last.y) < 0.5) return next;
+        last = next;
+      }
+      throw new Error("the twist grip never settled");
     };
 
     // FIELD -> GRIP. From the TOP the camera looks straight down the travel, so
@@ -456,6 +480,9 @@ test.describe("extrude drag handle", () => {
     const sense = Math.sin(a90 - a0) > 0 ? 1 : -1;
     await field.fill("");
     await expect(grip).toHaveAttribute("aria-valuenow", "0");
+    // Back at the reference, settled, before the press lands on it.
+    const start = await centreOf();
+    expect(Math.hypot(start.x - at0.x, start.y - at0.y)).toBeLessThan(1);
 
     // GRIP -> FIELD, the real gesture: round the axis a turn and 45 degrees.
     // A pointer answer that wrapped at the reference would leave 45 here.
