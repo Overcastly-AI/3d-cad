@@ -17,7 +17,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { Profiler } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ExtrudeParams } from "../api/parts";
+import type { ExtrudeParams, SketchEntity } from "../api/parts";
 import {
   defaultExtrudeForm,
   describeExtrudeDirection,
@@ -53,6 +53,7 @@ function renderEditor(
     profiles?: ProfileOption[];
     initial?: ExtrudeForm;
     profileCentroid?: (id: string) => { x: number; y: number } | null;
+    profileEntities?: (id: string) => readonly SketchEntity[] | null;
   } = {},
 ) {
   const onPreviewChange = overrides.onPreviewChange ?? vi.fn();
@@ -71,6 +72,9 @@ function renderEditor(
         onPreviewChange={onPreviewChange}
         {...(overrides.profileCentroid !== undefined
           ? { profileCentroid: overrides.profileCentroid }
+          : {})}
+        {...(overrides.profileEntities !== undefined
+          ? { profileEntities: overrides.profileEntities }
           : {})}
       />
     </DocumentUnitProvider>,
@@ -527,17 +531,37 @@ describe("ExtrudeEditor — the twist axis says what Save will send", () => {
     );
   });
 
-  it("says, quietly, that a twist past two turns can take a while (review S9)", () => {
-    renderEditor();
+  it("says, quietly, when this many turns on THIS profile may be refused (review S9)", () => {
+    // A hexagon: the kernel's published upper bound passes its 4.5 s limit at
+    // about 8.2 turns (design note §6.1), so 8 turns is quiet and 8.5 is not.
+    // (A square never reaches it inside the +/-3600 the field accepts.)
+    const hexagon: SketchEntity[] = Array.from({ length: 6 }, (_, i) => {
+      const a = (i / 6) * 2 * Math.PI;
+      const b = ((i + 1) / 6) * 2 * Math.PI;
+      return {
+        id: `l${i}`,
+        kind: "line" as const,
+        start: { x: 10 * Math.cos(a), y: 10 * Math.sin(a) },
+        end: { x: 10 * Math.cos(b), y: 10 * Math.sin(b) },
+        construction: false,
+      };
+    });
+    renderEditor({ profileEntities: () => hexagon });
     const twist = screen.getByTestId("extrude-twist");
-    fireEvent.change(twist, { target: { value: "720" } });
+    fireEvent.change(twist, { target: { value: "2880" } });
     expect(screen.queryByTestId("extrude-twist-slow")).toBeNull();
-    fireEvent.change(twist, { target: { value: "721" } });
+    fireEvent.change(twist, { target: { value: "-3060" } });
     expect(screen.getByTestId("extrude-twist-slow")).toHaveTextContent(
-      /can take a while to build/i,
+      /may be slow to build, or refused/i,
     );
-    fireEvent.change(twist, { target: { value: "-800" } });
-    expect(screen.getByTestId("extrude-twist-slow")).toBeVisible();
+  });
+
+  it("says nothing when it cannot count the profile's edges", () => {
+    renderEditor();
+    fireEvent.change(screen.getByTestId("extrude-twist"), {
+      target: { value: "3600" },
+    });
+    expect(screen.queryByTestId("extrude-twist-slow")).toBeNull();
   });
 
   /** A saved extrude whose twist axis is a point a script placed. */

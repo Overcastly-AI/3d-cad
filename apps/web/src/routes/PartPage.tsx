@@ -1339,6 +1339,12 @@ export function PartPage() {
     (id: string) => profileCentroids.get(id) ?? null,
     [profileCentroids],
   );
+  /** Each solved profile's entities, for the twist-cost note (review S9). */
+  const profileEntities = useCallback(
+    (id: string) =>
+      solved.find((layer) => layer.featureId === id)?.entities ?? null,
+    [solved],
+  );
 
   // Keyboard-first: Escape cascade always; tools, snap, constraint verbs and
   // Delete while drawing. One keyboard, two vocabularies — selection
@@ -5421,6 +5427,7 @@ export function PartPage() {
                         depthOverride={extrudeDepthOverride}
                         twistOverride={extrudeTwistOverride}
                         profileCentroid={profileCentroid}
+                        profileEntities={profileEntities}
                       />
                     ) : editor.kind === "revolve" ? (
                       <RevolveEditor

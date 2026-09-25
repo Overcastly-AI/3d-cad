@@ -6,7 +6,12 @@
  */
 import type { LengthUnit } from "@loft/design";
 
-import type { DatumParams, ExtrudeParams, FeatureResponse } from "../api/parts";
+import type {
+  DatumParams,
+  ExtrudeParams,
+  FeatureResponse,
+  SketchEntity,
+} from "../api/parts";
 import { lengthInputValue, parsePositiveLengthMm } from "../units/length";
 import { fieldBlocker } from "./submitBlocker";
 
@@ -99,6 +104,72 @@ export function formatTwistInput(twistDeg: number): string {
  */
 export function storedTwistInput(twistDeg: number): string {
   return String(twistDeg);
+}
+
+/**
+ * The kernel refuses a twist whose own cost estimate exceeds this, in seconds
+ * (`TWIST_COST_LIMIT_S` in services/geometry/.../kernel/twist.py; geometry QA
+ * F4, design note §6.1). Held to that source by a drift guard in the tests.
+ */
+export const TWIST_COST_LIMIT_S = 4.5;
+
+/**
+ * A conservative UPPER BOUND of the kernel's build-cost estimate for a twist
+ * of this profile, in seconds: the formula design note §6.1 publishes for the
+ * UI, from the profile's edge counts alone.
+ *
+ *     upper(T) = T (0.0136 L + 0.0165 C + 0.195 S)
+ *              + T^2 (0.0094 L + 0.0002 S + sum over arcs (0.0002 + 0.0086 theta))
+ *
+ * `T` is turns, `L`/`C`/`S` the line, circle-or-arc and spline edge counts,
+ * `theta` each circle's or arc's angle (2 pi for a circle). It never
+ * under-states the kernel's estimate on the kernel's stress set but can
+ * over-state it about 2x, so a caller may say "may be slow or refused", never
+ * predict the refusal: the kernel's own verdict is the authority.
+ * Construction geometry and points are not edges of the profile.
+ */
+export function twistCostUpperS(
+  twistDeg: number,
+  entities: readonly SketchEntity[],
+): number {
+  const turns = Math.abs(twistDeg) / 360;
+  let linear = 0;
+  let quadratic = 0;
+  for (const entity of entities) {
+    if (entity.construction) continue;
+    switch (entity.kind) {
+      case "point":
+        break;
+      case "line":
+        linear += 0.0136;
+        quadratic += 0.0094;
+        break;
+      case "circle":
+        linear += 0.0165;
+        quadratic += 0.0002 + 0.0086 * 2 * Math.PI;
+        break;
+      case "arc": {
+        const a0 = Math.atan2(
+          entity.start.y - entity.center.y,
+          entity.start.x - entity.center.x,
+        );
+        const a1 = Math.atan2(
+          entity.end.y - entity.center.y,
+          entity.end.x - entity.center.x,
+        );
+        // Counterclockwise from start to end (the wire's arc), in (0, 2 pi].
+        let theta = a1 - a0;
+        while (theta <= 0) theta += 2 * Math.PI;
+        linear += 0.0165;
+        quadratic += 0.0002 + 0.0086 * theta;
+        break;
+      }
+      default:
+        linear += 0.195;
+        quadratic += 0.0002;
+    }
+  }
+  return turns * linear + turns * turns * quadratic;
 }
 
 /**
