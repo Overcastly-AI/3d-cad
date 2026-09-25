@@ -371,7 +371,11 @@ def export_assembly_route(request: ExportAssemblyRequest) -> Response:
     """
     try:
         data = export_assembly(request)
-    except (AssemblyExportError, MeshExportNotManifoldError) as exc:
+    except (
+        AssemblyExportError,
+        MeshExportNotManifoldError,
+        MeshExportTooDenseError,
+    ) as exc:
         raise ValidationApiError(str(exc), code=exc.code) from exc
     return Response(
         content=data,

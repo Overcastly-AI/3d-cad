@@ -385,6 +385,23 @@ exports through exactly the calls it always did.
    give the profile fewer edges.") before anything is swept. The refusal
    returns in 0.01-0.2 s.
 
+**Assemblies (TWIST-ASSEMBLY-MESH-COST-1).** An assembly evaluates each part
+through the part path, so the cost guard and the bounded viewport mesh
+already applied there. The assembly MESH exports did not: they place each
+instance with a deep copy that carries no triangulation, and then meshed a
+twisted part at full cost. A 20 mm square twisted 720° over 30 mm, beside
+one plate, took 10.4 s (STL, GLB) and 15.0 s (3MF); at 1800° the STL took
+99 s. Now each `AssemblyComponent` carries `twisted` (its part's features
+have a twisted extrude, `evaluate.features_have_twist`). A twisted instance
+is pre-meshed with the bounded mesher AFTER placement for STL and GLB, and a
+3MF too dense for lib3mf's full-cost re-mesh is refused
+(`export_mesh_too_dense`, 422), as for one part. Measured: 720° 0.45 s STL
+and GLB. 1800° 1.66 s STL and 1.83 s GLB, against 1.70 s for the same part's
+own tree export. 3600° 6.0 s, against 5.8 s for the part alone. STEP is
+unchanged at 0.3 s. An assembly without a twisted part exports
+byte-for-byte what the plain placed composition produces
+(`test_twist_assembly_cost.py`).
+
 **The budget and what was measured.** Budget `TWIST_COST_BUDGET_S = 5` s end
 to end (sweep, guard, mass properties, mesh) on this 4-core box. The estimate
 is a hand-fitted model of that cost, which §6.1's first draft said it would

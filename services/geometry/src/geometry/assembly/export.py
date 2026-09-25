@@ -45,6 +45,7 @@ from loft_wire.assemblies import (
 
 from geometry.assembly.evaluate import PlacedInstance, solve_assembly
 from geometry.assembly.transform import Pose
+from geometry.features.evaluate import features_have_twist
 from geometry.kernel import (
     AssemblyComponent,
     export_3mf_assembly_bytes,
@@ -67,7 +68,7 @@ class AssemblyExportError(Exception):
         self.code = code
 
 
-def _component(placed: PlacedInstance) -> AssemblyComponent:
+def _component(placed: PlacedInstance, twisted_parts: set[str]) -> AssemblyComponent:
     """A solved instance as a kernel :class:`AssemblyComponent` (name + world pose).
 
     The instance's HUMAN-READABLE name (``PlacedInstance.name``) names the STEP
@@ -90,6 +91,7 @@ def _component(placed: PlacedInstance) -> AssemblyComponent:
             float(pose.q[2]),
             float(pose.q[3]),
         ),
+        twisted=placed.part_key in twisted_parts,
     )
 
 
@@ -111,7 +113,15 @@ def export_assembly(request: ExportAssemblyRequest) -> bytes:
             "No instance in the assembly produced a body; there is nothing to "
             "export. Check the parts' feature trees for errors."
         )
-    components = [_component(placed) for placed in solved.placed]
+    # Parts with a twisted extrude mesh their flanks with the bounded mesher
+    # in the mesh exports, as the single-part export does
+    # (TWIST-ASSEMBLY-MESH-COST-1; design twisted-extrude.md §6.1).
+    twisted_parts = {
+        instance.part_key
+        for instance in request.instances
+        if features_have_twist(instance.features)
+    }
+    components = [_component(placed, twisted_parts) for placed in solved.placed]
     match request.format:
         case "step":
             return export_step_assembly_bytes(

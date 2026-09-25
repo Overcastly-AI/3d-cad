@@ -4065,14 +4065,21 @@ def warm_rebuild_cache(
         suppressed = set(reclaimed.checkpoint.suppressed_ids)
 
 
-def tree_has_twist(request: EvaluateTreeRequest) -> bool:
-    """Whether any extrude in *request* is twisted (design twisted-extrude.md
-    §6.1). It gates the bounded helicoid mesher, so every tree WITHOUT a twist
-    tessellates and exports byte-for-byte as before, by construction."""
+def features_have_twist(features: Sequence[EvaluatedFeatureInput]) -> bool:
+    """Whether any extrude in *features* is twisted (design twisted-extrude.md
+    §6.1). It gates the bounded helicoid mesher, so every part WITHOUT a twist
+    tessellates and exports byte-for-byte as before, by construction. The part
+    path asks it of the tree (:func:`tree_has_twist`); the assembly export asks
+    it of each instance's part."""
     return any(
         isinstance(item.feature, ExtrudeFeature) and item.feature.params.is_twisted
-        for item in request.features
+        for item in features
     )
+
+
+def tree_has_twist(request: EvaluateTreeRequest) -> bool:
+    """Whether any extrude in *request* is twisted (:func:`features_have_twist`)."""
+    return features_have_twist(request.features)
 
 
 def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
