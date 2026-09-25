@@ -24,12 +24,13 @@ fully-typed :class:`ShapeProperties` DTO keeps the boundary honest.
 import math
 from collections.abc import Sequence
 
+from build123d import Face
 from loft_wire.materials import mass_g
 from OCP.BRep import BRep_Builder
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.BRepBuilderAPI import BRepBuilderAPI_NurbsConvert
 from OCP.BRepGProp import BRepGProp
-from OCP.GeomAbs import GeomAbs_SurfaceType
+from OCP.GeomAbs import GeomAbs_CurveType, GeomAbs_SurfaceType
 from OCP.GProp import GProp_GProps
 from OCP.TopoDS import TopoDS_Compound
 
@@ -107,15 +108,15 @@ from geometry.schemas import BoundingBox, ShapeProperties, TopologyCounts, Vec3
 VOLUME_EPS = 1e-10
 
 
-#: Surface kinds the adaptive VOLUME integrator does not converge on
-#: (:func:`_volume_integrand`). Found by geometry QA (docs/GEOMETRY-QA.md
-#: 2026-09-24, F1). The flanks of a PLAIN extrude of a sketch-spline profile are
-#: ``Geom_SurfaceOfLinearExtrusion`` over a B-spline. On the gear's spur twin
-#: (24 such gaps cut from a disc) the adaptive reading WANDERS with eps:
-#: +5.35 / -0.34 mm^3 at 1e-10 / 1e-12 against the section-area truth, and
-#: +8.52 / +21.97 / -24.62 at 1e-10 / 1e-12 / 1e-14 on the spline-slot golden.
-#: A revolved spline is ``Geom_SurfaceOfRevolution``, the same family, so it
-#: is routed the same way.
+#: Surface kinds the adaptive VOLUME integrator does not converge on when they
+#: sweep a spline (:func:`_volume_integrand`). Found by geometry QA
+#: (docs/GEOMETRY-QA.md 2026-09-24, F1). The flanks of a PLAIN extrude of a
+#: sketch-spline profile are ``Geom_SurfaceOfLinearExtrusion`` over a B-spline.
+#: On the gear's spur twin (24 such gaps cut from a disc) the adaptive reading
+#: WANDERS with eps: +5.35 / -0.34 mm^3 at 1e-10 / 1e-12 against the
+#: section-area truth, and +8.52 / +21.97 / -24.62 at 1e-10 / 1e-12 / 1e-14 on
+#: the spline-slot golden. A revolved spline is ``Geom_SurfaceOfRevolution``,
+#: the same family, so it is routed the same way.
 _SWEPT_SURFACE_KINDS = frozenset(
     {
         GeomAbs_SurfaceType.GeomAbs_SurfaceOfExtrusion,
@@ -123,13 +124,34 @@ _SWEPT_SURFACE_KINDS = frozenset(
     }
 )
 
+#: Basis curves whose swept surface IS converted (:func:`_volume_integrand`).
+#: Only a spline basis is: the extrusion or revolution of an ELLIPSE (or any
+#: other analytic conic) converges unconverted and comes out WORSE as a NURBS
+#: twin (review S3 of a0a70ec, measured: an ellipse prism 1.05e-5 -> 1.93e-5
+#: mm^3, an elliptic torus 1.05e-5 -> 4.85e-5), so it stays as it is.
+_SPLINE_CURVE_KINDS = frozenset(
+    {
+        GeomAbs_CurveType.GeomAbs_BSplineCurve,
+        GeomAbs_CurveType.GeomAbs_BezierCurve,
+    }
+)
+
+
+def _sweeps_a_spline(face: Face) -> bool:
+    """Whether *face* is an extrusion or revolution of a B-spline/Bezier curve."""
+    adaptor = BRepAdaptor_Surface(face.wrapped)
+    if adaptor.GetType() not in _SWEPT_SURFACE_KINDS:
+        return False
+    return adaptor.BasisCurve().GetType() in _SPLINE_CURVE_KINDS
+
 
 def _volume_integrand(shape: BodyShape) -> object:
     """The ``TopoDS_Shape`` whose volume integral is the body's volume.
 
-    With no swept face (:data:`_SWEPT_SURFACE_KINDS`) this is the body itself,
-    so every such body is measured byte-for-byte as before. Otherwise it is a
-    COMPOUND of the body's faces in which each swept face is replaced by its
+    With no face that sweeps a spline (:func:`_sweeps_a_spline`) this is the
+    body itself, so every such body, an extruded or revolved ellipse included,
+    is measured byte-for-byte as before. Otherwise it is a COMPOUND of the
+    body's faces in which each spline-sweeping face is replaced by its
     ``BRepBuilderAPI_NurbsConvert`` twin, orientation kept. That conversion is
     exact (an extrusion or revolution of a B-spline IS a B-spline surface), and
     GProp sums a volume face by face (divergence theorem), so the compound
@@ -142,16 +164,13 @@ def _volume_integrand(shape: BodyShape) -> object:
     +8.52 mm^3 with nothing converted. The body is never modified.
     """
     faces = shape.faces()
-    if not any(
-        BRepAdaptor_Surface(face.wrapped).GetType() in _SWEPT_SURFACE_KINDS
-        for face in faces
-    ):
+    if not any(_sweeps_a_spline(face) for face in faces):
         return shape.wrapped
     compound = TopoDS_Compound()
     builder = BRep_Builder()
     builder.MakeCompound(compound)
     for face in faces:
-        if BRepAdaptor_Surface(face.wrapped).GetType() in _SWEPT_SURFACE_KINDS:
+        if _sweeps_a_spline(face):
             twin = BRepBuilderAPI_NurbsConvert(face.wrapped, True).Shape()
             builder.Add(compound, twin)
         else:
