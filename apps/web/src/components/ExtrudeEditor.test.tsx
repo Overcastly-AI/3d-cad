@@ -494,6 +494,31 @@ describe("ExtrudeEditor — the gauge writes the field in the SAME commit", () =
   });
 });
 
+describe("ExtrudeEditor — a no-op Save sends the stored params back", () => {
+  // The editor's OWN Save path (Enter in the distance field), in an inch
+  // document, with a distance that has no inch text multiplying back to it:
+  // only "an untouched field means the stored value" can carry it.
+  for (const unit of ["mm", "in"] as const) {
+    it(`byte-identical in a ${unit} document`, () => {
+      const stored: ExtrudeParams = {
+        profile: { kind: "feature", feature_id: "sk1" },
+        distance_mm: 7.123456789012,
+        operation: "add",
+        direction: "normal",
+        merge: true,
+        twist_angle_deg: 31.280937437761875,
+      };
+      const onSubmit = vi.fn();
+      renderEditor({ unit, onSubmit, initial: formFromParams(stored, unit) });
+      fireEvent.keyDown(screen.getByTestId("extrude-distance"), {
+        key: "Enter",
+      });
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+      expect(onSubmit.mock.calls[0]?.[0]).toEqual(stored);
+    });
+  }
+});
+
 describe("ExtrudeEditor — the twist axis says what Save will send", () => {
   it("shows ORIGIN, and says why, when a chosen centroid is unavailable (review S2)", () => {
     // A form that asked for the centroid of a profile with none: Save sends no

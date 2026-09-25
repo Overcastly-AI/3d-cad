@@ -53,7 +53,7 @@ import {
   twistHand,
   extrudePreviewState,
   optionProvenance,
-  parseDistanceMm,
+  extrudeDistanceMm,
   type PlaneProvenance,
   type ProfileOption,
   withDirection,
@@ -252,7 +252,9 @@ export function ExtrudeEditor({
   }, [form, unit, onPreviewChange, centroid]);
 
   const submit = useCallback(() => {
-    const distance = parseDistanceMm(form.distanceInput, unit);
+    // The STORED distance, exactly, while the field is untouched (a no-op Save
+    // round-trips every stored number; `storedNumber.ts`).
+    const distance = extrudeDistanceMm(form, unit);
     if (distance === null || form.profileFeatureId === "") return;
     if (parseTwistDeg(form.twistInput) === null) return;
     // Over the STORED params, never instead of them: a field this editor does

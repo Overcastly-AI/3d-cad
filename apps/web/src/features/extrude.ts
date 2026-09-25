@@ -12,7 +12,8 @@ import type {
   FeatureResponse,
   SketchEntity,
 } from "../api/parts";
-import { lengthInputValue, parsePositiveLengthMm } from "../units/length";
+import { parsePositiveLengthMm } from "../units/length";
+import { storedLengthInput, storedLengthMm } from "./storedNumber";
 import { fieldBlocker } from "./submitBlocker";
 
 export type ExtrudeOperation = ExtrudeParams["operation"];
@@ -350,7 +351,7 @@ export function formFromParams(
 ): ExtrudeForm {
   return {
     profileFeatureId: params.profile.feature_id,
-    distanceInput: lengthInputValue(params.distance_mm, unit),
+    distanceInput: storedLengthInput(params.distance_mm, unit),
     operation: params.operation,
     direction: params.direction,
     directionTouched: false,
@@ -523,6 +524,22 @@ export function parseDistanceMm(
   unit: LengthUnit,
 ): number | null {
   return parsePositiveLengthMm(input, unit);
+}
+
+/**
+ * The distance Save sends: the STORED distance, exactly, while the field
+ * still reads its seed; otherwise the parsed field (see `storedNumber.ts`).
+ */
+export function extrudeDistanceMm(
+  form: ExtrudeForm,
+  unit: LengthUnit,
+): number | null {
+  return storedLengthMm(
+    form.distanceInput,
+    unit,
+    form.stored?.distance_mm,
+    parseDistanceMm,
+  );
 }
 
 /** Field-level validation message for the distance, or null when it is valid. */

@@ -39,6 +39,7 @@ import {
   formatAngleInput,
   parseAngleDeg,
   type ProfileOption,
+  revolveParamsFromForm,
   type RevolveAxisRef,
   type RevolveDirection,
   type RevolveForm,
@@ -178,20 +179,13 @@ export function RevolveEditor({
   const axes = axesByProfile[form.profileFeatureId] ?? [];
 
   const submit = useCallback(() => {
-    const angle = parseAngleDeg(form.angleInput);
     // The axis comes back from the option list, never rebuilt from the id: the
     // select can only ever send an axis it actually offered.
     const axis = axisRef(axes, form.axisId);
-    if (angle === null || form.profileFeatureId === "" || axis === null) return;
-    onSubmit({
-      profile: { kind: "feature", feature_id: form.profileFeatureId },
-      axis,
-      angle_deg: angle,
-      operation: form.operation,
-      direction: form.direction,
-      // Merge is an ADD choice only (see ExtrudeEditor); a cut sends `true`.
-      merge: form.operation === "add" ? form.merge : true,
-    });
+    if (axis === null) return;
+    const params = revolveParamsFromForm(form, axis);
+    if (params === null) return;
+    onSubmit(params);
   }, [axes, form, onSubmit]);
 
   const onKeyDown = useCallback(

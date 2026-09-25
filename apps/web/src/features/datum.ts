@@ -30,7 +30,8 @@ import type {
 } from "../api/parts";
 import { faceSubshapeRef, onFaceDatumParams } from "./face";
 import { fieldBlocker } from "./submitBlocker";
-import { lengthInputValue, parseSignedLengthMm } from "../units/length";
+import { parseSignedLengthMm } from "../units/length";
+import { storedLengthInput, storedLengthMm } from "./storedNumber";
 import type { DatumPlaneName } from "../sketch/plane";
 
 /** The three origin datums a plane can parallel, in a stable order. */
@@ -265,7 +266,7 @@ export function faceReadout(face: DatumFace): string {
 export type DatumKind = "offset" | "offset_from" | "midplane" | "on_face";
 
 /** The editable datum form — a discriminated union over {@link DatumKind}. */
-export type DatumForm =
+export type DatumForm = (
   | ({ kind: "offset" } & OffsetForm)
   | {
       kind: "offset_from";
@@ -288,7 +289,24 @@ export type DatumForm =
       face: DatumFace | null;
       /** Signed offset along the face normal (mm), as typed. 0 sits on it. */
       offsetInput: string;
-    };
+    }
+) & {
+  /** The params as STORED, when editing (a no-op Save sends them back). */
+  stored?: DatumParams;
+};
+
+/**
+ * The stored offset a field of THIS kind was seeded from, or undefined (a new
+ * datum, a switched kind, or a kind with no offset).
+ */
+function storedOffsetMm(form: DatumForm): number | undefined {
+  const stored = form.stored;
+  return stored !== undefined &&
+    stored.kind === form.kind &&
+    "offset_mm" in stored
+    ? stored.offset_mm
+    : undefined;
+}
 
 /**
  * The default new-datum form: 30 mm above XY (the everyday "sketch up" case).
@@ -361,15 +379,17 @@ export function formFromDatumParams(
       return {
         kind: "offset",
         base: params.base,
-        offsetInput: lengthInputValue(params.offset_mm, unit),
+        offsetInput: storedLengthInput(params.offset_mm, unit),
         flip: params.flip,
+        stored: params,
       };
     case "offset_from":
       return {
         kind: "offset_from",
         baseFeatureId: params.base.feature_id,
-        offsetInput: lengthInputValue(params.offset_mm, unit),
+        offsetInput: storedLengthInput(params.offset_mm, unit),
         flip: params.flip,
+        stored: params,
       };
     case "midplane":
       return {
@@ -377,6 +397,7 @@ export function formFromDatumParams(
         a: midplaneSideForm(params.a),
         b: midplaneSideForm(params.b),
         flip: params.flip,
+        stored: params,
       };
     case "on_face":
       return {
@@ -385,7 +406,8 @@ export function formFromDatumParams(
           signature: params.face.selector.signature,
           anchorId: params.face.feature_id,
         },
-        offsetInput: lengthInputValue(params.offset_mm, unit),
+        offsetInput: storedLengthInput(params.offset_mm, unit),
+        stored: params,
       };
   }
 }
@@ -401,7 +423,12 @@ export function buildDatumParams(
 ): DatumParams | null {
   switch (form.kind) {
     case "offset": {
-      const offset = parseOffsetMm(form.offsetInput, unit);
+      const offset = storedLengthMm(
+        form.offsetInput,
+        unit,
+        storedOffsetMm(form),
+        parseOffsetMm,
+      );
       if (offset === null) return null;
       return {
         kind: "offset",
@@ -412,7 +439,12 @@ export function buildDatumParams(
     }
     case "offset_from": {
       if (form.baseFeatureId === "") return null;
-      const offset = parseOffsetMm(form.offsetInput, unit);
+      const offset = storedLengthMm(
+        form.offsetInput,
+        unit,
+        storedOffsetMm(form),
+        parseOffsetMm,
+      );
       if (offset === null) return null;
       const params: DatumOffsetFromParams = {
         kind: "offset_from",
@@ -436,7 +468,12 @@ export function buildDatumParams(
     }
     case "on_face": {
       if (form.face === null) return null;
-      const offset = parseOffsetMm(form.offsetInput, unit);
+      const offset = storedLengthMm(
+        form.offsetInput,
+        unit,
+        storedOffsetMm(form),
+        parseOffsetMm,
+      );
       if (offset === null) return null;
       const params: DatumOnFaceParams = onFaceDatumParams(
         form.face.anchorId,

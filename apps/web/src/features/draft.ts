@@ -28,7 +28,7 @@ import type {
 } from "../api/parts";
 import type { LengthUnit } from "@loft/design";
 
-import { lengthInputValue } from "../units/length";
+import { storedLengthInput, storedLengthMm } from "./storedNumber";
 import type { DatumPlaneName } from "../sketch/plane";
 import { parseOffsetMm } from "./datum";
 import { faceSubshapeRef } from "./face";
@@ -63,6 +63,8 @@ export interface DraftForm {
   /** Signed draft angle in degrees, as typed (＋ inward toward pull). */
   angleInput: string;
   neutral: DraftNeutralForm;
+  /** The params as STORED, when editing (a no-op Save sends them back). */
+  stored?: DraftParams;
 }
 
 /** The exclusive bound the backend enforces: -90 < angle < 90 (open interval). */
@@ -88,7 +90,7 @@ function neutralFormFrom(
 ): DraftNeutralForm {
   return {
     base: plane.base,
-    offsetInput: lengthInputValue(plane.offset_mm, unit),
+    offsetInput: storedLengthInput(plane.offset_mm, unit),
     flip: plane.flip,
   };
 }
@@ -101,6 +103,7 @@ export function formFromDraftParams(
   return {
     angleInput: formatNumber(params.angle_deg),
     neutral: neutralFormFrom(params.neutral_plane, unit),
+    stored: params,
   };
 }
 
@@ -155,8 +158,15 @@ export function neutralOffsetError(
 export function buildNeutralPlane(
   form: DraftNeutralForm,
   unit: LengthUnit,
+  storedOffsetMm?: number,
 ): DraftNeutralPlane | null {
-  const offset = parseOffsetMm(form.offsetInput, unit);
+  // The STORED offset, exactly, while the field is untouched (`storedNumber.ts`).
+  const offset = storedLengthMm(
+    form.offsetInput,
+    unit,
+    storedOffsetMm,
+    parseOffsetMm,
+  );
   if (offset === null) return null;
   return {
     kind: "datum",
@@ -183,7 +193,11 @@ export function buildDraftParams(
   if (angle === null || angle === 0) return null;
   if (pickedFaces.length === 0) return null;
   if (bodyFeatureId === null) return null;
-  const neutral = buildNeutralPlane(form.neutral, unit);
+  const neutral = buildNeutralPlane(
+    form.neutral,
+    unit,
+    form.stored?.neutral_plane.offset_mm,
+  );
   if (neutral === null) return null;
   return {
     angle_deg: angle,

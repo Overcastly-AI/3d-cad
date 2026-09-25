@@ -17,11 +17,8 @@
 import type { LengthUnit } from "@loft/design";
 
 import type { FeatureResponse, PatternParams, Vec3 } from "../api/parts";
-import {
-  lengthInputValue,
-  parsePositiveLengthMm,
-  parseSignedLengthMm,
-} from "../units/length";
+import { parsePositiveLengthMm, parseSignedLengthMm } from "../units/length";
+import { storedLengthInput, storedLengthMm } from "./storedNumber";
 // WHAT a pattern repeats is its own decision, shared verbatim with the mirror.
 import {
   buildScope,
@@ -111,6 +108,8 @@ export interface PatternForm {
   axisPointYInput: string;
   axisPointZInput: string;
   angleInput: string;
+  /** The params as STORED, when editing (a no-op Save sends them back). */
+  stored?: PatternParams;
 }
 
 /**
@@ -155,6 +154,7 @@ export function formFromPatternParams(
   const scope = scopeFromParams(params.scope, features);
   base.scope = scope.mode;
   base.scopeFeatures = scope.features;
+  base.stored = params;
   const p = params.pattern;
   if (p.kind === "linear") {
     return {
@@ -162,7 +162,7 @@ export function formFromPatternParams(
       kind: "linear",
       countInput: String(p.count),
       direction: nearestPreset(p.direction),
-      spacingInput: lengthInputValue(p.spacing_mm, unit),
+      spacingInput: storedLengthInput(p.spacing_mm, unit),
     };
   }
   return {
@@ -170,9 +170,9 @@ export function formFromPatternParams(
     kind: "circular",
     countInput: String(p.count),
     axisDirection: nearestPreset(p.axis_direction),
-    axisPointXInput: lengthInputValue(p.axis_point.x, unit),
-    axisPointYInput: lengthInputValue(p.axis_point.y, unit),
-    axisPointZInput: lengthInputValue(p.axis_point.z, unit),
+    axisPointXInput: storedLengthInput(p.axis_point.x, unit),
+    axisPointYInput: storedLengthInput(p.axis_point.y, unit),
+    axisPointZInput: storedLengthInput(p.axis_point.z, unit),
     angleInput: formatDeg(p.angle_deg),
   };
 }
@@ -241,8 +241,16 @@ export function buildPatternParams(
   // wrong spelling would validate, evaluate and silently give the old reading.
   const scope = buildScope(form.scope, form.scopeFeatures);
   if (scope === null) return null;
+  // Every stored number goes back EXACTLY while its field is untouched
+  // (`storedNumber.ts`); only an edited field is parsed.
+  const stored = form.stored?.pattern;
   if (form.kind === "linear") {
-    const spacing = parseSpacingMm(form.spacingInput, unit);
+    const spacing = storedLengthMm(
+      form.spacingInput,
+      unit,
+      stored?.kind === "linear" ? stored.spacing_mm : undefined,
+      parseSpacingMm,
+    );
     if (spacing === null) return null;
     return {
       pattern: {
@@ -255,9 +263,10 @@ export function buildPatternParams(
     };
   }
   const angle = parseAngleDeg(form.angleInput);
-  const x = parseCoordMm(form.axisPointXInput, unit);
-  const y = parseCoordMm(form.axisPointYInput, unit);
-  const z = parseCoordMm(form.axisPointZInput, unit);
+  const point = stored?.kind === "circular" ? stored.axis_point : undefined;
+  const x = storedLengthMm(form.axisPointXInput, unit, point?.x, parseCoordMm);
+  const y = storedLengthMm(form.axisPointYInput, unit, point?.y, parseCoordMm);
+  const z = storedLengthMm(form.axisPointZInput, unit, point?.z, parseCoordMm);
   if (angle === null || x === null || y === null || z === null) return null;
   return {
     pattern: {

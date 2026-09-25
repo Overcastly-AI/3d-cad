@@ -33,6 +33,12 @@ import {
   parseSignedLengthMm,
 } from "../units/length";
 import {
+  storedLengthInput,
+  storedLengthMm,
+  storedNumber,
+  storedNumberInput,
+} from "./storedNumber";
+import {
   boreFitsThread,
   coarsePitchFor,
   DEFAULT_THREAD_NOMINAL_MM,
@@ -176,6 +182,8 @@ export interface HoleForm {
    * re-pick changes the ANCHOR and nothing else.
    */
   placementAuthored: boolean;
+  /** The params as STORED, when editing (a no-op Save sends them back). */
+  stored?: HoleParams;
 }
 
 /**
@@ -236,28 +244,28 @@ export function formFromHoleParams(
     position: params.position,
     xInput: lengthInputValue(point.x, unit),
     yInput: lengthInputValue(point.y, unit),
-    diameterInput: lengthInputValue(params.diameter_mm, unit),
+    diameterInput: storedLengthInput(params.diameter_mm, unit),
     depthMode: depth.kind === "blind" ? "blind" : "through_all",
     depthInput:
-      depth.kind === "blind" ? lengthInputValue(depth.depth_mm, unit) : "10",
+      depth.kind === "blind" ? storedLengthInput(depth.depth_mm, unit) : "10",
     // `type` is optional on the wire and DEFAULTS to simple — a slice-1 hole
     // with no `type` seeds a simple form (backward-compatible).
     typeKind: type?.kind ?? "simple",
     cboreDiameterInput:
       type?.kind === "counterbore"
-        ? lengthInputValue(type.cbore_diameter_mm, unit)
+        ? storedLengthInput(type.cbore_diameter_mm, unit)
         : base.cboreDiameterInput,
     cboreDepthInput:
       type?.kind === "counterbore"
-        ? lengthInputValue(type.cbore_depth_mm, unit)
+        ? storedLengthInput(type.cbore_depth_mm, unit)
         : base.cboreDepthInput,
     csinkDiameterInput:
       type?.kind === "countersink"
-        ? lengthInputValue(type.csink_diameter_mm, unit)
+        ? storedLengthInput(type.csink_diameter_mm, unit)
         : base.csinkDiameterInput,
     csinkAngleInput:
       type?.kind === "countersink"
-        ? formatAngle(type.csink_angle_deg)
+        ? storedNumberInput(type.csink_angle_deg)
         : base.csinkAngleInput,
     // `thread` is optional AND nullable on the wire; absent/null = untapped, so
     // an existing untapped hole seeds the default (unticked) M6x1 designation
@@ -271,12 +279,8 @@ export function formFromHoleParams(
     // A stored position IS the modeller's placement, whatever put it there, so
     // a later re-pick re-anchors it rather than re-seeding it (T-22).
     placementAuthored: true,
+    stored: params,
   };
-}
-
-/** A countersink angle rendered without a unit suffix (the cell shows `°`). */
-function formatAngle(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
 /**
@@ -626,12 +630,26 @@ export function buildHoleParams(
   // the viewport marker hold still (see `HoleForm.position`) — which makes THIS
   // the gate that refuses to drill at a point the cells no longer spell.
   if (!coordinatesComplete(form, unit)) return null;
-  const diameter = parsePositiveLengthMm(form.diameterInput, unit);
+  // Every stored number goes back EXACTLY while its field is untouched
+  // (`storedNumber.ts`); only an edited field is parsed.
+  const stored = form.stored;
+  const storedType = stored?.type;
+  const diameter = storedLengthMm(
+    form.diameterInput,
+    unit,
+    stored?.diameter_mm,
+    parsePositiveLengthMm,
+  );
   if (diameter === null) return null;
 
   let depth: HoleParams["depth"];
   if (form.depthMode === "blind") {
-    const depthMm = parsePositiveLengthMm(form.depthInput, unit);
+    const depthMm = storedLengthMm(
+      form.depthInput,
+      unit,
+      stored?.depth.kind === "blind" ? stored.depth.depth_mm : undefined,
+      parsePositiveLengthMm,
+    );
     if (depthMm === null) return null;
     depth = { kind: "blind", depth_mm: depthMm };
   } else {
@@ -643,8 +661,19 @@ export function buildHoleParams(
   // recess whose mouth doesn't exceed the bore fails the client guard (null).
   let type: HoleParams["type"] | undefined;
   if (form.typeKind === "counterbore") {
-    const cboreDia = parsePositiveLengthMm(form.cboreDiameterInput, unit);
-    const cboreDepth = parsePositiveLengthMm(form.cboreDepthInput, unit);
+    const cbore = storedType?.kind === "counterbore" ? storedType : undefined;
+    const cboreDia = storedLengthMm(
+      form.cboreDiameterInput,
+      unit,
+      cbore?.cbore_diameter_mm,
+      parsePositiveLengthMm,
+    );
+    const cboreDepth = storedLengthMm(
+      form.cboreDepthInput,
+      unit,
+      cbore?.cbore_depth_mm,
+      parsePositiveLengthMm,
+    );
     if (cboreDia === null || cboreDepth === null || cboreDia <= diameter) {
       return null;
     }
@@ -654,8 +683,18 @@ export function buildHoleParams(
       cbore_depth_mm: cboreDepth,
     };
   } else if (form.typeKind === "countersink") {
-    const csinkDia = parsePositiveLengthMm(form.csinkDiameterInput, unit);
-    const csinkAngle = parseCsinkAngleDeg(form.csinkAngleInput);
+    const csink = storedType?.kind === "countersink" ? storedType : undefined;
+    const csinkDia = storedLengthMm(
+      form.csinkDiameterInput,
+      unit,
+      csink?.csink_diameter_mm,
+      parsePositiveLengthMm,
+    );
+    const csinkAngle = storedNumber(
+      form.csinkAngleInput,
+      csink?.csink_angle_deg,
+      parseCsinkAngleDeg,
+    );
     if (csinkDia === null || csinkAngle === null || csinkDia <= diameter) {
       return null;
     }

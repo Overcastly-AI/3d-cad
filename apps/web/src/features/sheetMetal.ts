@@ -28,6 +28,7 @@ import {
   parseSignedLengthMm,
 } from "../units/length";
 import { edgeSubshapeRef } from "./edge";
+import { storedLengthInput, storedLengthMm } from "./storedNumber";
 import { fieldBlocker } from "./submitBlocker";
 
 /** The v1 pinned default neutral-axis fraction (air-bent mild steel, §1). */
@@ -49,6 +50,8 @@ export interface BaseFlangeForm {
   bendRadiusInput: string;
   kFactorInput: string;
   direction: FlangeDirection;
+  /** The params as STORED, when editing (a no-op Save sends them back). */
+  stored?: SheetMetalBaseFlangeParams;
 }
 
 /**
@@ -76,10 +79,11 @@ export function formFromBaseFlangeParams(
 ): BaseFlangeForm {
   return {
     profileFeatureId: params.profile.feature_id,
-    thicknessInput: lengthInputValue(params.thickness_mm, unit),
-    bendRadiusInput: lengthInputValue(params.bend_radius_mm, unit),
+    thicknessInput: storedLengthInput(params.thickness_mm, unit),
+    bendRadiusInput: storedLengthInput(params.bend_radius_mm, unit),
     kFactorInput: String(params.k_factor ?? SHEET_METAL_DEFAULT_K_FACTOR),
     direction: params.direction ?? "normal",
+    stored: params,
   };
 }
 
@@ -131,8 +135,20 @@ export function buildBaseFlangeParams(
   form: BaseFlangeForm,
   unit: LengthUnit,
 ): SheetMetalBaseFlangeParams | null {
-  const thickness = parsePositiveLengthMm(form.thicknessInput, unit);
-  const bendRadius = parsePositiveLengthMm(form.bendRadiusInput, unit);
+  // Every stored number goes back EXACTLY while its field is untouched
+  // (`storedNumber.ts`); only an edited field is parsed.
+  const thickness = storedLengthMm(
+    form.thicknessInput,
+    unit,
+    form.stored?.thickness_mm,
+    parsePositiveLengthMm,
+  );
+  const bendRadius = storedLengthMm(
+    form.bendRadiusInput,
+    unit,
+    form.stored?.bend_radius_mm,
+    parsePositiveLengthMm,
+  );
   const kFactor = parseKFactor(form.kFactorInput);
   if (thickness === null || bendRadius === null || kFactor === null) {
     return null;
@@ -207,6 +223,8 @@ export interface EdgeFlangeForm {
   bendRadiusInput: string;
   overrideKFactor: boolean;
   kFactorInput: string;
+  /** The params as STORED, when editing (a no-op Save sends them back). */
+  stored?: SheetMetalEdgeFlangeParams;
 }
 
 /**
@@ -252,21 +270,22 @@ export function formFromEdgeFlangeParams(
   const hasOffset = params.offset_mm !== null && params.offset_mm !== undefined;
   const widthExtent: WidthExtent = hasWidth || hasOffset ? "offset" : "full";
   return {
-    flangeLengthInput: lengthInputValue(params.flange_length_mm, unit),
+    flangeLengthInput: storedLengthInput(params.flange_length_mm, unit),
     bendAngleInput: String(params.bend_angle_deg),
     widthExtent,
     widthInput: hasWidth
-      ? lengthInputValue(params.width_mm as number, unit)
+      ? storedLengthInput(params.width_mm as number, unit)
       : "",
     offsetInput: hasOffset
-      ? lengthInputValue(params.offset_mm as number, unit)
+      ? storedLengthInput(params.offset_mm as number, unit)
       : "0",
     overrideBendRadius,
     bendRadiusInput: overrideBendRadius
-      ? lengthInputValue(params.bend_radius_mm as number, unit)
+      ? storedLengthInput(params.bend_radius_mm as number, unit)
       : "",
     overrideKFactor,
     kFactorInput: overrideKFactor ? String(params.k_factor) : "",
+    stored: params,
   };
 }
 
@@ -344,7 +363,13 @@ export function resolveEdgeFlangeExtent(
   unit: LengthUnit,
 ): { widthMm: number | null; offsetMm: number | null } | null {
   if (form.widthExtent === "full") return { widthMm: null, offsetMm: null };
-  const width = parsePositiveLengthMm(form.widthInput, unit);
+  // Stored numbers go back EXACTLY while untouched (`storedNumber.ts`).
+  const width = storedLengthMm(
+    form.widthInput,
+    unit,
+    form.stored?.width_mm,
+    parsePositiveLengthMm,
+  );
   if (width === null) return null;
   if (form.widthExtent === "centered") {
     const offset = (edgeLengthMm - width) / 2;
@@ -352,7 +377,12 @@ export function resolveEdgeFlangeExtent(
     return { widthMm: width, offsetMm: offset };
   }
   // offset extent: an explicit start offset from the canonical edge start.
-  const offset = parseSignedLengthMm(form.offsetInput, unit);
+  const offset = storedLengthMm(
+    form.offsetInput,
+    unit,
+    form.stored?.offset_mm,
+    parseSignedLengthMm,
+  );
   if (offset === null || offset < 0) return null;
   return { widthMm: width, offsetMm: offset };
 }
@@ -369,7 +399,12 @@ export function buildEdgeFlangeParams(
   bodyFeatureId: string | null,
   unit: LengthUnit,
 ): SheetMetalEdgeFlangeParams | null {
-  const flangeLength = parsePositiveLengthMm(form.flangeLengthInput, unit);
+  const flangeLength = storedLengthMm(
+    form.flangeLengthInput,
+    unit,
+    form.stored?.flange_length_mm,
+    parsePositiveLengthMm,
+  );
   const bendAngle = parseBendAngleDeg(form.bendAngleInput);
   if (flangeLength === null || bendAngle === null) return null;
   // Exactly ONE straight edge folds a flange; the wire `edge` is a single ref.
@@ -382,7 +417,12 @@ export function buildEdgeFlangeParams(
 
   let bendRadius: number | null = null;
   if (form.overrideBendRadius) {
-    bendRadius = parsePositiveLengthMm(form.bendRadiusInput, unit);
+    bendRadius = storedLengthMm(
+      form.bendRadiusInput,
+      unit,
+      form.stored?.bend_radius_mm,
+      parsePositiveLengthMm,
+    );
     if (bendRadius === null) return null;
   }
   let kFactor: number | null = null;
@@ -670,6 +710,8 @@ export interface HemForm {
   bendRadiusInput: string;
   overrideKFactor: boolean;
   kFactorInput: string;
+  /** The params as STORED, when editing (a no-op Save sends them back). */
+  stored?: SheetMetalHemParams;
 }
 
 /** The default new-hem form: a 6 mm folded-back return, closed, radius derived. */
@@ -694,16 +736,17 @@ export function formFromHemParams(
   const overrideKFactor =
     params.k_factor !== null && params.k_factor !== undefined;
   return {
-    lengthInput: lengthInputValue(params.length_mm, unit),
+    lengthInput: storedLengthInput(params.length_mm, unit),
     // Absent reads "closed" on the wire (the schema default); a feature stored
     // before `hem_type` shipped therefore round-trips as the closed hem it is.
     hemType: params.hem_type ?? "closed",
     overrideBendRadius,
     bendRadiusInput: overrideBendRadius
-      ? lengthInputValue(params.bend_radius_mm as number, unit)
+      ? storedLengthInput(params.bend_radius_mm as number, unit)
       : "",
     overrideKFactor,
     kFactorInput: overrideKFactor ? String(params.k_factor) : "",
+    stored: params,
   };
 }
 
@@ -740,7 +783,13 @@ export function buildHemParams(
   bodyFeatureId: string | null,
   unit: LengthUnit,
 ): SheetMetalHemParams | null {
-  const length = parsePositiveLengthMm(form.lengthInput, unit);
+  // Stored numbers go back EXACTLY while untouched (`storedNumber.ts`).
+  const length = storedLengthMm(
+    form.lengthInput,
+    unit,
+    form.stored?.length_mm,
+    parsePositiveLengthMm,
+  );
   if (length === null) return null;
   // Exactly ONE straight edge is hemmed; the wire `edge` is a single ref.
   if (picked.length !== 1 || bodyFeatureId === null) return null;
@@ -749,7 +798,12 @@ export function buildHemParams(
 
   let bendRadius: number | null = null;
   if (form.overrideBendRadius) {
-    bendRadius = parsePositiveLengthMm(form.bendRadiusInput, unit);
+    bendRadius = storedLengthMm(
+      form.bendRadiusInput,
+      unit,
+      form.stored?.bend_radius_mm,
+      parsePositiveLengthMm,
+    );
     if (bendRadius === null) return null;
   }
   let kFactor: number | null = null;
@@ -921,6 +975,8 @@ export interface CornerReliefForm {
   reliefRatioInput: string;
   overrideSize: boolean;
   sizeInput: string;
+  /** The params as STORED, when editing (a no-op Save sends them back). */
+  stored?: SheetMetalCornerReliefParams;
 }
 
 /** The v1 default relief ratio: one gauge thickness (the tear-safe default). */
@@ -952,8 +1008,9 @@ export function formFromCornerReliefParams(
     reliefRatioInput: String(params.relief_ratio),
     overrideSize,
     sizeInput: overrideSize
-      ? lengthInputValue(params.size_mm as number, unit)
+      ? storedLengthInput(params.size_mm as number, unit)
       : "",
+    stored: params,
   };
 }
 
@@ -1017,7 +1074,12 @@ export function buildCornerReliefParams(
   }
   let size: number | null = null;
   if (form.overrideSize) {
-    size = parsePositiveLengthMm(form.sizeInput, unit);
+    size = storedLengthMm(
+      form.sizeInput,
+      unit,
+      form.stored?.size_mm,
+      parsePositiveLengthMm,
+    );
     if (size === null) return null;
   }
   const params: SheetMetalCornerReliefParams = {

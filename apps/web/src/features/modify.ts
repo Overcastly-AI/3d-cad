@@ -21,8 +21,9 @@ import type {
   EdgeSignature,
   FilletParams,
 } from "../api/parts";
-import { lengthInputValue, parsePositiveLengthMm } from "../units/length";
+import { parsePositiveLengthMm } from "../units/length";
 import { pickedEdgesSelector } from "./edge";
+import { storedLengthInput, storedLengthMm } from "./storedNumber";
 import { fieldBlocker } from "./submitBlocker";
 
 /** How the fillet/chamfer chooses its edges: a predicate, or clicked edges. */
@@ -117,6 +118,8 @@ export interface FilletForm {
   radiusInput: string;
   mode: SelectionMode;
   edges: EdgeSelectorId;
+  /** The params as STORED, when editing (a no-op Save sends them back). */
+  stored?: FilletParams;
 }
 
 /** The default new-fillet form: a 2 mm round of every edge — the common break. */
@@ -130,9 +133,10 @@ export function formFromFilletParams(
   unit: LengthUnit,
 ): FilletForm {
   return {
-    radiusInput: lengthInputValue(params.radius_mm, unit),
+    radiusInput: storedLengthInput(params.radius_mm, unit),
     mode: params.edges.kind === "edges" ? "pick" : "rule",
     edges: edgeSelectorId(params.edges),
+    stored: params,
   };
 }
 
@@ -162,7 +166,12 @@ export function buildFilletParams(
   bodyFeatureId: string | null,
   unit: LengthUnit,
 ): FilletParams | null {
-  const radius = parseSizeMm(form.radiusInput, unit);
+  const radius = storedLengthMm(
+    form.radiusInput,
+    unit,
+    form.stored?.radius_mm,
+    parseSizeMm,
+  );
   if (radius === null) return null;
   const edges = buildEdgeSelector(form.mode, form.edges, picked, bodyFeatureId);
   if (edges === null) return null;
@@ -230,6 +239,8 @@ export interface ChamferForm {
   distanceInput: string;
   mode: SelectionMode;
   edges: EdgeSelectorId;
+  /** The params as STORED, when editing (a no-op Save sends them back). */
+  stored?: ChamferParams;
 }
 
 /** The default new-chamfer form: a 1 mm bevel of every edge. */
@@ -243,9 +254,10 @@ export function formFromChamferParams(
   unit: LengthUnit,
 ): ChamferForm {
   return {
-    distanceInput: lengthInputValue(params.distance_mm, unit),
+    distanceInput: storedLengthInput(params.distance_mm, unit),
     mode: params.edges.kind === "edges" ? "pick" : "rule",
     edges: edgeSelectorId(params.edges),
+    stored: params,
   };
 }
 
@@ -276,7 +288,12 @@ export function buildChamferParams(
   bodyFeatureId: string | null,
   unit: LengthUnit,
 ): ChamferParams | null {
-  const distance = parseSizeMm(form.distanceInput, unit);
+  const distance = storedLengthMm(
+    form.distanceInput,
+    unit,
+    form.stored?.distance_mm,
+    parseSizeMm,
+  );
   if (distance === null) return null;
   const edges = buildEdgeSelector(form.mode, form.edges, picked, bodyFeatureId);
   if (edges === null) return null;

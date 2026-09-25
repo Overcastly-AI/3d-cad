@@ -192,6 +192,8 @@ describe("formFromRevolveParams", () => {
       operation: "cut",
       direction: "reverse",
       merge: true,
+      // Carried so a no-op Save sends every stored number back exactly.
+      stored: half,
     });
   });
 

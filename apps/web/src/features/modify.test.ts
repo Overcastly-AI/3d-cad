@@ -188,6 +188,8 @@ describe("fillet form", () => {
       radiusInput: "3",
       mode: "rule",
       edges: "all_edges",
+      // Carried so a no-op Save sends every stored number back exactly.
+      stored: params,
     });
     expect(pickedFromFilletParams(params)).toEqual([]);
   });
@@ -299,6 +301,7 @@ describe("chamfer form", () => {
       distanceInput: "2",
       mode: "rule",
       edges: "axis_y",
+      stored: params,
     });
     expect(pickedFromChamferParams(params)).toEqual([]);
   });
