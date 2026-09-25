@@ -46,6 +46,7 @@ import {
   extrudeGhostPose,
   twistArcSeat,
 } from "./extrudeGhost";
+import { ANNOTATION_LAYER } from "./instruments";
 import { ParametricGauge } from "./ParametricGauge";
 import { profileRegions } from "./profileLoops";
 import { studioMatcap } from "./studioMatcap";
@@ -282,17 +283,26 @@ export function ExtrudePreview({
         />
       ) : null}
       {onTwistChange !== undefined && twistTrack !== null ? (
-        <ParametricGauge
-          label="Extrude twist"
-          tagLabel="T"
-          gaugeId="extrude-twist"
-          value={twistDeg}
-          onChange={onTwistChange}
-          track={twistTrack}
-          min={-MAX_TWIST_DEG}
-          max={MAX_TWIST_DEG}
-          // No `tagUnit`: the angle wears its degree sign (`formatAngle`).
-        />
+        // An ANNOTATION to the proposal, not part of it. The arc stands a fifth
+        // outside the profile's reach from the twist axis, so counted in the
+        // proposal box it grew the box past the body on every open extrude,
+        // even at twist 0, and CRAFT-12's keep-in-frame watch re-fitted the
+        // camera ("fit-proposal") when nothing had been proposed
+        // (viewport-makeover:129). The ghost it turns IS the proposal, and it
+        // is already in the box.
+        <group userData={ANNOTATION_LAYER}>
+          <ParametricGauge
+            label="Extrude twist"
+            tagLabel="T"
+            gaugeId="extrude-twist"
+            value={twistDeg}
+            onChange={onTwistChange}
+            track={twistTrack}
+            min={-MAX_TWIST_DEG}
+            max={MAX_TWIST_DEG}
+            // No `tagUnit`: the angle wears its degree sign (`formatAngle`).
+          />
+        </group>
       ) : null}
     </>
   );
