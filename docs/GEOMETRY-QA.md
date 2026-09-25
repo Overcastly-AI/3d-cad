@@ -175,7 +175,7 @@ within 1.2e-6 of the truth, so there the SHIPPED reading is the wrong one
 | introduced by   | `b29fa88` (kernel-architect); independently reviewed here                                                                                                                                                                                   |
 | measured need   | volume -3.18e-7, area -1.81e-7, centroid 1.3e-9 mm; topology exact                                                                                                                                                                          |
 | kernel-level justification | the shell (`BRepOffsetAPI_MakeThickSolid` via `hollow`) fits the offset wall's rim and floor edges with tolerances of 1.0e-5 / 9.2e-6. The STEP reader re-derives the rim's boundary from that loose edge, and the rim's converged area moves by 1.9e-7. Reader options do not change it. |
-| status          | **provisional**. Removable: tightening those edges in the kernel gives 5.2e-9 (prototype above). `test_offset_surface_qa.test_the_override_is_still_needed` goes red when the round trip meets 1e-7, and says to delete the override |
+| status          | **CLOSED at `bd6037d`** (override retired; round trip -1.30e-8; see Round 2). Was **provisional**. Removable: tightening those edges in the kernel gives 5.2e-9 (prototype above). `test_offset_surface_qa.test_the_override_is_still_needed` goes red when the round trip meets 1e-7, and says to delete the override |
 | scope guards    | `test_goldens.test_roundtrip_overrides_are_the_reviewed_ones` (set equality). `test_offset_surface_qa.test_the_override_is_exactly_the_reviewed_one` (set AND value, and 1e-7 for everything else, both seen red) |
 | known over-reach | the 1e-6 applies to the centroid and bbox checks too, which need only 1e-9 (P3)                                                                                                                                                            |
 
@@ -325,6 +325,258 @@ Mutations, each seen red and then reverted:
 - Shells of revolved, lofted and swept spline faces have no coverage (the two
   I tried were refused, above). That is a gap, filed with F1.
 - No other shipped capability changed in `b29fa88`.
+
+### Round 2: re-verification of `7139ec2` (F2) and `bd6037d` (F1, F5)
+
+Measured at `bd6037d`, with load 3-7 on 4 cores. I used the same truths as
+round 1: polygon truths for the prisms, which agree with 40-digit mpmath, and
+Pappus on the same polygons for the revolve. Every body was built through the
+kernel's `shell_body`.
+
+**Verdict.**
+
+- F1 and F2 are fixed on every body round 1 measured, and on the new variants.
+  Volumes are within 4.3e-7 of the truth, and times are 0.08-1.6 s where they
+  were 26-196 s.
+- The Gauss-Legendre route converges exponentially when the offset's basis
+  exposes its knots.
+- The new edge rebuild moves nothing it should not: vertices move at most
+  8.4e-9 mm, and no cavity-floor edge inside the kernel tolerance changes.
+- The 126 non-offset bodies still read bitwise as before.
+- Probing beyond the builder's cases found a determinism defect (R2-F1, P1,
+  present before these commits, UI default) and a residual of F1 that the fix
+  cannot reach by construction (R2-F2, P2).
+
+#### 1. Volume against the truth, and timing, as built and after a STEP re-import
+
+The re-import goes through `import_step_solid`.
+
+| body (shell_body)                          | shell  | V - truth, mm^3 | `volume_properties` | STEP dV   | re-import V - truth | re-import time | max edge tol |
+| ------------------------------------------ | ------ | --------------- | ------------------- | --------- | ------------------- | -------------- | ------------ |
+| golden (30 x 10, t 1)                      | 0.19 s | -1.39e-8        | 0.10 s              | -1.30e-8  | -2.69e-8            | 0.11 s         | 9.2e-6       |
+| golden spline, t 2                         | 0.20 s | -2.41e-8        | 0.08 s              | -1.39e-7  | -1.63e-7            | 0.09 s         | 8.3e-6       |
+| golden spline, t 3 (inward radius 3.381)   | -      | +1.39e-9        | 0.10 s              | +1.68e-7  | +1.69e-7            | -              | 1.4e-6       |
+| **case 2** (40 x 20, t 2)                  | 0.24 s | **+2.12e-7** (was -2.297e-2) | **0.11 s** (was 51.5 s) | +8.13e-7 (was +2.3e-2) | +1.02e-6 | 0.15 s | 3.6e-6 |
+| case-2 spline, t 1                         | 0.25 s | +2.21e-7 (was +1.44e-2) | 0.09 s (was 43.3 s) | -5.78e-7 | -3.58e-7   | 0.09 s         | 7.8e-6       |
+| case-2 spline, t 1.5                       | 0.24 s | -4.26e-7 (was +8.52e-2) | 0.10 s (was 55.4 s) | +2.83e-7 | -1.43e-7   | 0.10 s         | 8.2e-6       |
+| case-2 spline, H 10, t 2                   | 0.23 s | +7.94e-8        | 0.11 s (was 50.2 s) | +3.05e-7  | +3.84e-7            | 0.14 s         | 3.6e-6       |
+| spline-slot disc, shelled 1 mm             | 3.81 s | (no truth)      | **1.48 s** (was 148.3 s) | -1.55e-10 | -              | 1.48 s         | 2.7e-6       |
+| the disc STEP-imported, THEN shelled       | 3.95 s | (no truth)      | **1.59 s** (was 196.1 s) | -8.5e-10 | -               | 1.63 s         | 2.7e-6       |
+
+**The 196 s from round 1 was not a re-import of the shelled disc**, which is
+what the builder timed. It was a shell of the STEP-imported disc, the "shelled
+import" of the brief. Both routes now take 1.5-1.6 s. The two bodies agree to
+3.1e-8 mm^3.
+
+#### 2. The Gauss-Legendre route: exact where it applies. It never applies to a sealed hollow, and the fallback's accuracy depends on the part
+
+I set `_OFFSET_GAUSS_AGREEMENT` so that every order is accepted, which
+measures the rule itself. Volume minus truth, by Gauss order:
+
+| body (offset basis)                        | 2       | 4       | 6       | 8       | 12      | 16      | 24      | 32      | 48      |
+| ------------------------------------------ | ------- | ------- | ------- | ------- | ------- | ------- | ------- | ------- | ------- |
+| golden (B-spline, 8 x 2 knots)             | -6.4e-1 | +8.7e-4 | -2.5e-6 | -4.7e-7 | -1.4e-8 | -1.4e-8 | -1.4e-8 | -1.4e-8 | -1.4e-8 |
+| case 2 (B-spline, 8 x 2 knots)             | -3.7e1  | -7.9e-1 | +1.5e-1 | +9.5e-3 | -1.9e-5 | +1.6e-7 | +2.1e-7 | +2.1e-7 | +2.1e-7 |
+| sealed golden (**SurfaceOfExtrusion**, no knots) | -1.9e1 | +3.3e1 | +4.6 | -6.1  | -2.0    | +1.6    | -6.0e-1 | +1.2e-1 | -8.4e-2 |
+
+- With the knots exposed, the rule converges exponentially and plateaus at
+  the geometry. The shipped check order (24) is converged.
+- Order 16 on case 2 is still 5e-8 off, which the 1e-10 relative agreement
+  check tolerates.
+- The plateau is not integration. The centroid's y error on case 2 is
+  identical to three digits at orders 24, 48 and 64, and at `VOLUME_EPS` 1e-10,
+  1e-12 and 1e-13.
+
+**Bodies that fall to the NURBS fallback:**
+
+- **Every sealed hollow** (R2-F4). OCCT gives the sealed wall an extrusion
+  basis, so no knot breaks are found. Order 16 and order 24 disagree by 5.3e-3
+  relative, and the check sends the face to the fallback, correctly.
+- An **inclined open face** (R2-F2). The wall's top edge is not an isoline.
+- A **shelled revolve** (R2-F3).
+
+**Fallback accuracy against the truth:**
+
+| body                                  | fallback reading - truth, mm^3 |
+| ------------------------------------- | ------------------------------ |
+| sealed golden (shipped)               | +5.73e-6                       |
+| open golden (forced)                  | +6.45e-6                       |
+| case 2 (forced)                       | **+4.10e-5**                   |
+| inclined case, after STEP re-import   | +3.8e-6                        |
+
+The fallback's "about 1e-5 mm^3" is therefore per part, not a bound. It scales
+with the offset face (R2-F6).
+
+**The centroid on the new route is less accurate than Gauss-Kronrod's.**
+Measured against the truth:
+
+| body   | per-face route, centroid y error | whole-body Gauss-Kronrod on the same B-rep |
+| ------ | -------------------------------- | ------------------------------------------ |
+| golden | +1.65e-7 mm                      | 3e-11 mm                                   |
+| case 2 | **+1.21e-6 mm**                  | 4.0e-10 mm                                 |
+
+The bias does not depend on the Gauss order or on `VOLUME_EPS`, so it lies in
+how the per-face route sums the face moments. The golden records it
+(`tolerance_rationale` "1.65e-7"). On case 2 it is 2.4x the class's 5e-7
+bound (R2-F7).
+
+#### 3. Does `offset_edges` move geometry it should not?
+
+I compared the same shell with and without `tighten_offset_edges`, looking at
+every vertex, every edge tolerance and every converged face area.
+
+| body                  | edges rebuilt                                    | max vertex move | face areas that moved                                          | valid |
+| --------------------- | ------------------------------------------------ | --------------- | -------------------------------------------------------------- | ----- |
+| golden t 1            | rim (1.0e-5 -> 1e-7)                             | 3.1e-9 mm       | rim -1.2e-7 only; floor 0                                      | yes   |
+| golden spline, t 3    | rim (1.7e-4 -> 1e-7)                             | 8.4e-9 mm       | rim -6.2e-7; offset wall 5.7e-14                               | yes   |
+| golden spline, sealed | none (returns its input)                         | 0               | none                                                           | yes   |
+| case 2                | rim (2.2e-4 -> 1e-7)                             | 4.6e-9 mm       | rim +7.3e-3 (the fix); offset wall 4.5e-13                     | yes   |
+| case-2 spline, t 1.5  | rim (7.8e-4 -> 1e-7)                             | 2.9e-9 mm       | rim -2.7e-2 (the fix)                                          | yes   |
+| shelled disc          | 12 rim (1.8e-3..2.2e-3) + 6 floor (1.2e-4, above 1e-4) | 0         | 6 rims up to 2.3e-2; floor +6.9e-7; 6 offset walls +1.3e-3 each (their floor pcurves) | yes |
+
+- Cavity floors inside the tolerance are untouched. Against the truth:
+  golden t 3 -1.3e-9 mm^2, inclined +1.0e-8, sealed +3.9e-8.
+- Nothing off the rim moved except edges above 1e-4.
+- The rebuild is deterministic: 4/4 identical BREPs for the open golden and
+  for case 2.
+
+**Findings the rebuild does not cause, found while probing:**
+
+- **R2-F1: the sealed hollow is nondeterministic (see section 5).**
+- **R2-F2: an inclined open face.** The case is the golden's spline prism, cut
+  by z = 10 + 0.2 x and shelled 1 mm with the inclined face open. Its truth is
+  A_in and the first moments by the same polygons.
+  - The wall's rim edge is **1.15e-2 mm loose**, 115x the kernel tolerance.
+    It is not an isoline, so `offset_edges` leaves it.
+  - The volume reads **+1.281e-3 mm^3** (1408.99875 against 1409.00003).
+  - The STEP re-import reads +3.8e-6 from the truth, so F1's
+    shipped-is-the-wrong-reading pattern persists here.
+- **R2-F3: a shelled revolve with an oblique rim.** The body is a 360-degree
+  revolve of a spline meridian from (20,0) to (18,25), whose end tangent is
+  (-0.905, +0.425). It is shelled 1 mm with the top open.
+  - OCCT extends the offset wall past the spline's end to reach the rim plane.
+    The inner rim lands at r = 15.647, so the rim is **2.353 mm wide against a
+    1 mm wall**.
+  - For comparison, the true 1 mm erosion gives an inner rim at r = 17.0, and
+    a tangent extension about 16.06.
+  - The inner rim is 1.0e-3 mm out of round.
+  - The offset face falls to the fallback. `offset_edges` skips it, because
+    it is not an isoline rectangle.
+  - The outer solid's truth checks out: 2 pi Mr = 35734.76247 against
+    `volume_properties` 35734.76247. The cavity floor (r 19.7145) matches the
+    offset exactly. Only the extended rim region differs.
+  - This is not an integration error. The shell's specification is ambiguous
+    where the wall meets the open face obliquely, and it needs a decision.
+
+#### 4. Non-offset bodies: still bitwise
+
+I re-ran round 1's 128-body census at `bd6037d`: 63 goldens, 63 STEP
+re-imports and 2 fixtures. The 2 golden bodies were routed; the other
+**126 read bitwise** against the pre-`b29fa88` rule applied verbatim.
+`tighten_offset_edges` returns its input object for any body without a loose
+offset edge.
+
+Suites at `bd6037d`: `test_goldens`, `test_golden_derivations`,
+`test_step_roundtrip`, `test_offset_surface_qa`, `test_offset_volume_cost`,
+`test_twisted_extrude` and `test_export` gave **773 passed**. With the new file
+below, the three offset files give 28 passed and 5 xfailed.
+
+The builder converted round 1's two strict xfails to plain gates in
+`test_offset_surface_qa.py` and removed the sunset gate together with the
+override. That is the intended hand-off. The 1e-6 override no longer exists,
+`REVIEWED_OVERRIDE` is `{}`, and round 1's scope test still pins it. The
+golden's round trip is now -1.30e-8, within `ROUNDTRIP_TOL`, so **the
+tolerance-override entry above is CLOSED (retired by `bd6037d`)**.
+
+#### 5. Findings, ranked (round 2)
+
+**R2-F1: P1, open, present before `7139ec2`/`bd6037d`, feature-eval / shell
+(kernel-architect). A sealed hollow is not deterministic.**
+
+- **Where:** `shell_body` with no opened face. `ShellEditor` offers this as
+  its default ("No faces open - a sealed hollow").
+- **What varies:** the body's face order changes on every build, in-process
+  and across processes.
+  - Through `evaluate_model`, both the sealed shell-box and the sealed
+    shell-spline goldens gave **3 distinct GLBs in 3 cold rebuilds**, in each
+    of two processes.
+  - On spline walls the geometry varies too. The sealed golden spline's
+    volume spans 8e-8 to 1.1e-7 mm^3 over 4 builds, and sealed case 2 spans
+    **1.8e-5 mm^3**.
+- **Root cause, localised:** build123d's raw `hollow([], -t)`, which is
+  OCCT's `MakeThickSolid` with no removed face, returns the **cavity shell's
+  faces in a different order on each build**. The outer shell is stable.
+  The spread is identical with `offset_edges` disabled.
+- **Coverage:** no golden covers a sealed shell, so the determinism gate
+  cannot see this.
+- **Fix direction:** canonicalise the cavity shell's face order, rebuilding
+  it sorted by a geometric key. Then check whether the spline geometry noise
+  survives the ordering fix. Add a sealed-shell golden.
+- **Pinned by:** a strict xfail, 6 builds of a sealed box.
+
+**R2-F2: P2, open, the residual of F1 (kernel-architect). An inclined open
+face leaves the rim 1.15e-2 mm loose, and the volume reads +1.28e-3 mm^3.**
+
+- `offset_edges` handles isoline rims only, by design.
+- The volume error is below the Inspector's two decimals, but the edge is
+  115x the kernel tolerance.
+- Fix direction: rebuild a non-isoline rim edge as the exact intersection of
+  the offset surface with the open plane, fitted to 1e-9, the way round 1's
+  prototype did from the isoline.
+- Pinned by two strict xfails (volume, and edge tolerance), plus a guard that
+  keeps them failing for the right reason.
+
+**R2-F3: P2, design decision needed (kernel-architect plus product). When the
+open face meets the wall obliquely, the rim is up to 2.35x the wall
+thickness.** See section 3. I did not add a test: the right answer (erosion,
+tangent extension, or refusal) is a specification choice.
+
+**R2-F4: P3, open, properties. A sealed hollow's wall never takes the exact
+route.**
+
+- The extrusion basis exposes no knots, so every sealed spline shell reads
+  through the fallback (+5.7e-6 on the sealed golden).
+- Fix: take the knot breaks from the basis curve when the basis is an
+  extrusion or revolution.
+- Pinned by a strict xfail.
+
+**R2-F5: P3, open. Outside the golden, the class does not meet
+`ROUNDTRIP_TOL`.**
+
+- STEP dV is 1.4e-7 to 8.1e-7 on the variants in section 1. Their
+  cavity-floor edges (3.6e-6 to 8.3e-6) are left as fitted, deliberately.
+- The golden meets it (1.3e-8), so retiring the override was correct for it.
+- Pinned by a strict xfail on case 2.
+
+**R2-F6: P3, docs. The fallback's accuracy is per part** (+4.1e-5 on case 2,
+forced). `properties._offset_body_reading` and `RESEARCH.md` should state it
+as measured cases, not "about 1e-5".
+
+**R2-F7: P3, open, properties. The per-face route's centroid is biased by up
+to 1.21e-6 mm** (case 2), where Gauss-Kronrod on the same B-rep gets 4e-10.
+The bias does not depend on the Gauss order or on `VOLUME_EPS`. No gate
+covers it: case 2's centroid has no golden.
+
+#### 6. Gates added: `services/geometry/tests/test_offset_surface_qa_r2.py`
+
+The file has 4 passed and 5 strict xfails, in 5.8 s. Each xfail's failure was
+read with `--runxfail`, and each fails for its stated reason:
+
+| xfail           | failure read                                  |
+| --------------- | --------------------------------------------- |
+| R2-F1           | the face orders differ                        |
+| R2-F2, volume   | 1409.000026 vs 1408.998745                    |
+| R2-F2, tolerance | 1.147e-2 > 1e-4                              |
+| R2-F4           | `_checked_offset_moments` returned `None`     |
+| R2-F5           | 8.13e-7 > 1e-7                                |
+
+The plain gates, each seen red and then reverted:
+
+| gate                                                              | mutation                                              | result                                        |
+| ----------------------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------- |
+| case-2 spline t 1.5 and golden spline t 2 read their truth within 5e-7 | `offset_edges` disabled in `shell.py`            | both red: +8.85e-2, +1.24e-5                  |
+| the sealed hollow reads its truth through the fallback within 2e-5 | the fallback's NURBS conversion skipped             | red: 1483.784 vs 1482.495                     |
+| the inclined case's shell-identity guard                          | the case left unshelled                               | red: (6, 12) != (11, 24)                      |
 
 ---
 
@@ -5181,7 +5433,7 @@ consumes. `subshape_ambiguous` for faces is unreachable-but-guarded (above).
 | `shell-open-top-box-40x25x10-t2` | SHELL golden (hollow to a uniform wall, opening a picked face; the **third** `SubshapeRef` consumer): sketch→extrude→shell — the 40×25×10 box hollowed to a 2 mm inward wall with the +Z top face left open (resolved from a stage-1 face signature, the SAME machinery sketch-on-face uses) → an open-top box. `MakeThickSolid` inward offset; analytic V = 10000 − 6048 (cavity 36×21×8, the open face carries no wall) = 3952 mm³ | 1e-9 (all-planar, measured-then-set; vol/area EXACTLY 0.0, centroid.z 8.9e-16) | 11 / 24 / 1 | 48 / 28 |
 | `draft-frustum-box-40x40x20-5deg` | DRAFT golden (taper picked faces by an angle; the **fourth** `SubshapeRef` consumer): sketch→extrude→draft — the 40×40×20 box's four side faces drafted 5° inward about the XY base (`DraftNeutralPlaneV1`, pull +Z) → an analytic square frustum. `BRepOffsetAPI_DraftAngle` via build123d `Solid.draft`; the base stays 40×40 (on the neutral plane), the top shrinks to `40−2·h·tan5°`. Locks the picked-face resolver reuse + neutral-plane-from-datum + the sign convention (positive = inward) + the OCCT-raises-on-collapse finding (no silent-bad-body guard needed, unlike shell). Analytic V = h/3·(A_b+A_t+√(A_b·A_t)) = 29282.008 mm³ | 1e-9 (slanted-planar, measured-then-set; vol worst 7.3e-12, area 9.1e-13, centroid EXACTLY 0.0) | 6 / 12 / 1 | 24 / 12 |
 | `extrude-cut-spline-slots-6x-disc-r20-h10` | FIRST golden with EXTRUSION-OVER-SPLINE faces after a boolean (geometry QA F1, `a0a70ec`): an r20 disc extruded 10 mm, one slot between r = 7 and r = 17 whose long sides are 6-point sketch SPLINES cut through, then a circular pattern x6 of that cut. Locks the per-face NURBS conversion of extrusion/revolution-of-spline faces for the adaptive volume integral, which does not converge on them unconverted (the shipped integrator read +8.518 mm³, 4e7× this tolerance). Analytic V = πR²h − 6Ah = 10483.222847188976 mm³, with the slot area A = 34.71912945283664 mm² by Green's theorem (24-point Gauss per knot span on the interpolated splines, no GProp); centroid (0,0,5) by 6-fold symmetry | 2e-7 (AABB-padding-limited, as the loft goldens: every optimal-AABB bound is padded 1.0e-7, so 2e-7 is a factor of two; volume −1.8e-12, centroid ≤ 3.5e-15). **Surface area is pinned at the FIXED-ORDER reading 5035.639405633832, knowingly +0.264 mm² (5.2e-5) above the analytic 5035.375044230724** (area stays on the fixed-order integrator by the 2026-09-15 decision; if that changes, this value moves to the analytic one) | 27 / 75 / 1 | 11656 / 17812 |
-| `shell-spline-prism-30x10-t1` | FIRST golden with OFFSET-SURFACE faces (OFFSET-SURFACE-VOLUME-1, `b29fa88`): a 30-wide profile with a 6-point sketch-spline top, extruded 10, shelled 1 mm inward, top open; the shell's offset spline wall is a `Geom_OffsetSurface`, integrated by Gauss-Kronrod (`properties.volume_properties`). Analytic V = A H - A_in (H - t) = 1160.4625483615187 mm^3 by `derive.py` (Green's theorem on the profile and its exact inward offset); independently re-derived 2026-09-25 by 40-digit mpmath/tanh-sinh (+8.0e-13) and by Richardson-extrapolated shoelace polygons (2.5e-14 relative, `tests/test_offset_surface_qa.py`). **Surface area pinned at the FIXED-ORDER reading 2409.4906214278603, knowingly -0.699 mm^2 (-2.9e-4) below the analytic 2410.1897542566303** | 5e-7 (volume +1.77e-7 measured). **STEP round trip: reviewed override 1e-6** (measured -3.18e-7; provisional, sunset-gated, see 2026-09-25 tolerance-override entry) | 11 / 24 / 1 | 992 / 1148 |
+| `shell-spline-prism-30x10-t1` | FIRST golden with OFFSET-SURFACE faces (OFFSET-SURFACE-VOLUME-1, `b29fa88`; rim edge rebuilt by `offset_edges`, `bd6037d`): a 30-wide profile with a 6-point sketch-spline top, extruded 10, shelled 1 mm inward, top open; the shell's offset spline wall is a `Geom_OffsetSurface`, integrated per face by Gauss-Legendre on the true surface (`properties.volume_properties`, `7139ec2`). Analytic V = A H - A_in (H - t) = 1160.4625483615187 mm^3 by `derive.py`; independently re-derived 2026-09-25 by 40-digit mpmath/tanh-sinh (+8.0e-13) and by Richardson-extrapolated shoelace polygons (2.5e-14 relative, `tests/test_offset_surface_qa.py`). **Surface area pinned at the FIXED-ORDER reading 2409.5088756750556, knowingly -0.681 mm^2 below the analytic 2410.1897542566303** | 5e-7 (volume -1.39e-8, centroid 1.65e-7 measured at `bd6037d`). STEP round trip at the shared 1e-7 (measured -1.30e-8; the 1e-6 override was retired) | 11 / 24 / 1 | 994 / 1150 |
 
 Coverage audit vs. shipped modeling capabilities: `build_box`,
 `build_cylinder`, `measure_shape`, `tessellate_glb`/GLB stats, STEP/STL
