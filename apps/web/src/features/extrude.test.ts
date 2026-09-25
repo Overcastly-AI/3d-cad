@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import type { ExtrudeParams, FeatureResponse } from "../api/parts";
@@ -20,10 +22,63 @@ import {
   withOperation,
   withProfile,
   extrudeSubmitBlocker,
+  MAX_TWIST_DEG,
+  MIN_TWIST_DEG,
   parseTwistDeg,
   twistError,
   twistHand,
 } from "./extrude";
+
+/**
+ * Review N1: MAX_TWIST_DEG / MIN_TWIST_DEG restate the wire model's bounds,
+ * which the generated TS client carries as types only (no `maximum`). The
+ * committed OpenAPI contract is generated from the same pydantic model and CI
+ * fails on its drift, so it is the source these constants are held to.
+ */
+describe("the twist bounds match the contract (review N1)", () => {
+  const contract = JSON.parse(
+    readFileSync(
+      new URL(
+        "../../../../packages/contracts/gateway.openapi.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ) as {
+    components: {
+      schemas: Record<
+        string,
+        {
+          properties?: Record<
+            string,
+            {
+              anyOf?: { maximum?: number; minimum?: number }[];
+              description?: string;
+            }
+          >;
+        }
+      >;
+    };
+  };
+  const twist =
+    contract.components.schemas["ExtrudeParamsV1"]?.properties?.[
+      "twist_angle_deg"
+    ];
+
+  it("MAX_TWIST_DEG is the schema's maximum and minus its minimum", () => {
+    const bounded = twist?.anyOf?.find((s) => s.maximum !== undefined);
+    expect(bounded?.maximum).toBe(MAX_TWIST_DEG);
+    expect(bounded?.minimum).toBe(-MAX_TWIST_DEG);
+  });
+
+  it("MIN_TWIST_DEG is the threshold the contract normalises to no twist", () => {
+    // Stated in prose on the wire model ("any |twist| below 1e-9 deg is NO
+    // twist"); held to the text so a changed threshold cannot drift silently.
+    expect(twist?.description).toContain(
+      `below ${MIN_TWIST_DEG.toExponential()} deg`,
+    );
+  });
+});
 
 function sketch(id: string, name: string): FeatureResponse {
   return {
