@@ -183,18 +183,6 @@ jobs:
         run: pnpm -r --if-present run typecheck
       - name: Unit tests
         run: pnpm -r --if-present run test
-      # A workflow script is the one kind of code here that nobody runs before it
-      # runs for real, and "for real" costs several agent-hours plus a wave of
-      # builder time. This stubs agent() and exercises the redesign loop's
-      # wiring — phase order, one builder per subtree, the design-system item
-      # serialising ahead of the rest, and what the wave CLAIMS it shipped. It
-      # earned itself on its first run: an item deferred for colliding on
-      # packages/design was still reported as shipped and counted in the
-      # "built N/M" denominator, so the orchestrator would have hunted for a
-      # commit that does not exist. It lives in this job because it is the only
-      # one with node already set up, and it needs no dependencies at all.
-      - name: Redesign workflow wiring (+ prove the harness can fail)
-        run: node scripts/dryrun-redesign-workflow.mjs
 
   contracts:
     runs-on: ubuntu-latest

@@ -18,7 +18,7 @@ same commit.
    gives you config, JSON logging, `/healthz`, `/readyz`, and the error
    envelope for free. Do NOT hand-roll any of those.
 2. DTOs as pydantic models; routes under `/api/v1/...`. If other services
-   need the types, they live in `py-kit`, not copied.
+   need the types, they live in `packages/loft-wire`, not copied.
 3. Tests under `services/<name>/tests/` (pytest, pyright-clean).
 4. `deploy/docker/<name>.Dockerfile` (copy the standard multi-stage pattern —
    if you find yourself changing more than the service name, improve the
@@ -28,8 +28,8 @@ same commit.
    (contracts + ts-client regeneration).
 6. Boundaries check (CLAUDE.md): does it import the kernel? Only allowed in
    `services/geometry`. Does the web app need it? Route through the gateway.
-7. Update `docs/ARCHITECTURE.md` + Layout in `CLAUDE.md` + ROADMAP/BACKLOG in
-   the same commit.
+7. Update `docs/ARCHITECTURE.md` and the Layout in `CLAUDE.md` in the same
+   commit.
 
 ## Done when
 

@@ -1,50 +1,43 @@
 ---
 name: run-stack
-description: Bring the Loft stack up locally (or as an isolated per-agent instance) and verify it end-to-end. Use before any QA pass, after infra changes, or whenever a change needs to be seen working in the real app.
+description: Bring the Loft stack up (natively in the sandbox, or via compose where Docker works) on your own ports and verify it, so a change can be seen working in the real app. Use before QA, for screenshots, or to reproduce a user-facing bug.
 ---
 
 # Run the Loft stack
 
-## Default (single instance)
+Read `docs/ENVIRONMENT.md` first if you are in the Claude Code sandbox.
+
+## Just run e2e specs
+
+`scripts/e2e.sh` boots geometry, documents and gateway on SQLite, runs
+Playwright, and tears everything down:
 
 ```bash
-just dev          # db + redis + minio (compose) + services + web, hot reload
+GATEWAY_PORT=8300 DOCUMENTS_PORT=8301 GEOMETRY_PORT=8302 \
+  scripts/e2e.sh --web-only -- e2e/<spec>.ts
 ```
 
-Verify before declaring it up — never assume:
+Playwright starts Vite on :5173 and reuses anything already listening there,
+so check that port first.
+
+## A stack you can drive by hand
+
+Follow QUICKSTART Option B (container-free) with your own ports. Start each
+service with `setsid nohup ... < /dev/null &`, then poll until healthy:
 
 ```bash
-curl -sf localhost:8000/healthz   # gateway
-curl -sf localhost:8001/healthz   # documents
-curl -sf localhost:8002/healthz   # geometry worker health
-curl -sf localhost:5173           # web (dev server)
+scripts/smoke-healthz.sh <gateway_port>   # /healthz + /readyz on all three
 ```
 
-All four must pass. If a service is unhealthy, read its logs
-(`docker compose logs <svc>` or the foreground process output) and
-root-cause — do not restart-and-hope.
+Point Vite at your gateway with `GATEWAY_ORIGIN=http://127.0.0.1:<port>`.
 
-## Isolated instance (parallel agents)
+## Where Docker works
 
-Each parallel agent runs its own stack from its own worktree:
-
-```bash
-scripts/dev-instance.sh <N>   # compose project loft-<N>, ports offset by N*100
-```
-
-Never kill processes by name pattern — sibling agents' instances match too.
-Check `ps`/port ownership and kill by PID only, or just use your own instance.
-
-## Full-artifact mode (release-ish QA)
-
-```bash
-docker compose up -d --build
-```
-
-This is what a self-hoster gets; QA verdicts about "works for the user" must
-come from this mode, not the dev server, when the item is release-facing.
+`just dev` runs the full stack with hot reload, and `scripts/dev-instance.sh <N>`
+runs an isolated copy with ports offset by N*100. `just compose-smoke` proves
+the self-host path.
 
 ## Teardown
 
-`just dev-down` / `docker compose down` (add `-v` to wipe volumes — never in
-a shared instance you don't own).
+Stop only what you started, by port:
+`kill $(lsof -ti tcp:<port> -sTCP:LISTEN)`. Remove your own SQLite files.

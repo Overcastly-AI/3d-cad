@@ -1,44 +1,42 @@
 ---
 name: geometry-gates
-description: Run and extend Loft's geometric-correctness gates — golden models, STEP round-trips, determinism, performance budgets. Mandatory for any kernel-adjacent change; new modeling capability requires a new golden model in the same commit.
+description: Run and extend Loft's geometric-correctness gates — golden models, STEP round-trips, determinism, performance tripwires. Use for any kernel-adjacent change; a new modelling capability needs a new golden in the same commit.
 ---
 
 # Geometry gates
 
-The CAD-specific quality bar (RESEARCH §9). "Unit tests pass" does not clear
-it — these gates check that the geometry is *right*.
+These gates check that the geometry is right, not just that the code runs
+(RESEARCH §9).
 
 ## Running
 
 ```bash
-just geometry-gates            # full suite: goldens + round-trips + determinism
-pytest services/geometry/tests/goldens -k <model>   # one golden
+uv run pytest services/geometry/tests                      # everything, incl. goldens
+uv run pytest services/geometry/tests/test_goldens.py -k <name>
+scripts/e2e.sh --geometry-only                             # the e2e geometry leg
+just bench                                                 # detailed timings (not a gate)
 ```
 
-## Golden models (`services/geometry/goldens/`)
+## Adding a golden
 
-Each golden is: a feature-tree JSON + a committed expectations file
-(volume, surface area, centroid, face/edge/shell counts, tolerance, and the
-justification for that tolerance).
+Create `services/geometry/goldens/<name>/` (or `goldens-assembly/` or
+`goldens-sheet-metal/`) with:
 
-Adding one (required with every new feature type):
+- `model.json`: a serialized `TessellateRequest` or `EvaluateTreeRequest`;
+- `expected.json`: volume, area, centroid, bounds, topology and mesh counts,
+  the tolerance, and a description of what it locks and how the numbers were
+  derived.
 
-1. Build the reference part via the feature-tree API.
-2. Compute expectations with the harness (`just golden-record <name>`), then
-   **verify the numbers independently** — hand-calculate or cross-check in a
-   second tool. A golden recorded from buggy output enshrines the bug.
-3. Commit tree + expectations + a docstring stating what capability it locks.
+The runner discovers it without changes. **Derive the expected numbers
+independently** (by hand, analytically, or with a second tool). A golden
+recorded from the code's own output only locks in its bugs.
 
 ## Rules
 
-- **Never loosen a tolerance to go green.** Tolerance changes are reviewed
-  decisions with kernel-level justification, recorded in the expectations
-  file and `docs/GEOMETRY-QA.md`.
-- Topology counts are exact-match — a changed face count is a real change,
+- Never loosen a tolerance to go green. A tolerance change needs a
+  kernel-level reason, written into `expected.json`.
+- Topology counts must match exactly. A changed face count is a real change:
   explain it or fix it.
-- Round-trip failures (STEP export → import → mismatch) are defects, not
-  noise. Root-cause to export, import, or kernel before filing.
-- Determinism: same tree N times → identical metadata. Any flake here is a
-  P0, not a retry.
-- Budgets: rebuild/tessellation wall-clock ceilings live with the goldens; a
-  regression >10% gets filed even inside budget.
+- A round-trip mismatch is a defect. Trace it to the export, the import or
+  the kernel.
+- A determinism failure is blocking, never something to retry.
