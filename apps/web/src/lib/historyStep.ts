@@ -87,6 +87,9 @@ export async function executeHistoryStep<TDoc>(
   const outlived = () => ports.owner() !== owner;
   try {
     const expected = await ports.version();
+    // The version read can be a refetch: a switch that landed during it must
+    // not send the old user's step at all (review N2 on 5acb08e).
+    if (outlived()) return { kind: "abandoned" };
     const doc = await ports.run(step, expected);
     if (outlived()) return { kind: "abandoned" };
     if (ports.versionOf(doc) === expected) {

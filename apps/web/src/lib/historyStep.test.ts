@@ -179,6 +179,26 @@ describe("a step that outlives its user", () => {
     expect(p.resync).not.toHaveBeenCalled();
   });
 
+  it("never sends the step when the user changed while the version was read", async () => {
+    // Review N2 on 5acb08e: the part page's version read can be a refetch.
+    // A switch that lands during it must not POST the old user's undo with
+    // the new user's token.
+    const { store, p } = signedInAsAlice();
+    let release: (version: number) => void = () => {};
+    const slow = {
+      ...p,
+      version: () =>
+        new Promise<number>((r) => {
+          release = r;
+        }),
+    };
+    const pending = executeHistoryStep("undo", slow);
+    store.getState().signIn("token-b", BOB);
+    release(4);
+    await expect(pending).resolves.toEqual({ kind: "abandoned" });
+    expect(p.run).not.toHaveBeenCalled();
+  });
+
   it("adopts as before while the same user is signed in", async () => {
     // The negative control: a renewal keeps the id, and so keeps the step.
     const { store, queryClient, p, resolve } = signedInAsAlice();
