@@ -635,7 +635,12 @@ test.describe("helical-gear G2: exact placement", () => {
     const step = page.getByTestId("sketch-grid-step");
     await expect(step).toBeVisible();
     await step.selectOption({ label: "0.5 mm" });
-    await expect(page.getByTestId("dro-snap")).toContainText("0.5 mm");
+    // The GRID cell states the pitch; the SNAP cell beside it no longer
+    // repeats it (it changed the DRO's width with every step).
+    await expect(step).toHaveValue("0.5");
+    await expect(page.getByTestId("dro-snap")).toHaveAccessibleName(
+      /grid 0\.5 mm is on/,
+    );
 
     // (7.3, 4.2) is 0.3 mm from the 1 mm grid's (7, 4) and 0.2 mm from the
     // half-millimetre grid's (7.5, 4): only a 0.5 mm step lands on 7.5.
