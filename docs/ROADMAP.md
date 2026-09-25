@@ -6,8 +6,7 @@ Where we are and what comes next. The orchestrator keeps "Now" true; the
 ## Now (2026-09-25)
 
 Twist moves from Extrude to Sweep, as it is in Fusion 360 and SolidWorks.
-Also in flight: finishing the sealed-shell determinism fix, the sketch DRO
-unit label, and splitting CI into a fast per-commit lane and a nightly lane.
+Also in flight: finishing the sealed-shell determinism fix and splitting CI into a fast per-commit lane and a nightly lane.
 After that, re-run the reference parts on the tip and let their blockers set
 the next priorities.
 

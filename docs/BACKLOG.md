@@ -23,8 +23,7 @@ backlog this replaced (190 open items) is in git:
       default) rebuilds nondeterministically because of cavity face order.
       _Accept:_ identical topology and mass properties across repeated
       rebuilds and a worker restart; there is a golden for it.
-- [ ] **SKETCH-DRO-UNITS** (uncommitted in worktree
-      `agent-aaf5141090bf13f4f`): the sketch DRO labels X/Y "MM" in inch
+- [x] **SKETCH-DRO-UNITS** (87ff68d, green): the sketch DRO labels X/Y "MM" in inch
       documents. _Accept:_ the DRO shows the document's unit; an e2e test
       covers an inch document.
 - [ ] **CI-PY-SPLIT** (uncommitted in worktree `agent-a54dbd828a4a7419f`):
@@ -95,6 +94,7 @@ backlog this replaced (190 open items) is in git:
 
 One line each. The founder triages weekly; most are closed without work.
 
+- Measure panel deltas still read mm in an inch document (same class as SKETCH-DRO-UNITS).
 - A "Finish sketch" click during a live save is silently dropped (2 in 10
   under load).
 - Third-party OCCT readers (FreeCAD) may open our re-oriented twisted solids
