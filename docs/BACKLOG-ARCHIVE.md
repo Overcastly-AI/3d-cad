@@ -354,6 +354,86 @@ CLOSED groom pass 32 (`cd6baed`+`3c18833`, review fixes `9a780b4`/`2d0df47`/`3cb
 
 CLOSED groom pass 32 (`851d6ef`), same root cause as SKETCH-ENTITY-DELETE-1/G7: a stale request nonce (every geometry request took `previous.nonce + 1`, but success cleared the request to null, so the 2nd edit of a session restarted at 1 and never landed, leaving Undo stuck on "Finishing the last edit...").
 
+<a id="item-query-cache-user-switch-1"></a>
+
+### QUERY-CACHE-USER-SWITCH-1
+
+*kind: item-story*
+
+CLOSED groom pass 33 (`f0c2bbc`). `clearQueriesOnUserChange` (`auth/queryCache.ts`) subscribes to the session store and clears the query cache whenever `user.id` changes (switch, sign-out, expiry, session-mismatch abandon), synchronously before the new identity's first render; a same-person renewal keeps the cache. 6 new units + a two-tab e2e (Y's sign-in must not render X's cached part), each seen red with the clear removed.
+
+<a id="item-deeplink-signin-return-1"></a>
+
+### DEEPLINK-SIGNIN-RETURN-1
+
+*kind: item-story*
+
+CLOSED groom pass 33 (`bcce095`). `AuthedLayout`'s signed-out guard now remembers the current path (`rememberDeepLink`, gated the same as the existing expiry path) before redirecting to sign-in, so a first deep-link/bookmark visit returns to that exact route after sign-in, not `/` — the same assertion (`expectBackOnCubePart`) now covers both the first-visit and mid-session-expiry paths.
+
+<a id="item-auth-register-ratelimit-1"></a>
+
+### AUTH-REGISTER-RATELIMIT-1
+
+*kind: item-story*
+
+CLOSED groom pass 33 (`6e40bde`). `/auth/register` now carries `AUTH_RATE_LIMIT`, the same dependency `login`/`refresh` use, with its own budget (`AUTH_RATE_LIMIT_REQUESTS`, default 120/window) distinct from the per-user compute budget — an address-keyed auth bucket and a user-keyed compute bucket cannot share one number without an operator's compute tightening also throttling everyone's sign-in. The posture test now asserts any exemption claiming "rate-limited" actually carries the dependency.
+
+<a id="item-auth-short-ttl-e2e-1"></a>
+
+### AUTH-SHORT-TTL-E2E-1
+
+*kind: item-story*
+
+CLOSED groom pass 33 (`7af8e4e`). A new `auth-short-ttl` CI job boots the stack at `JWT_TTL_S=20` and runs the whole of `auth.spec.ts` (12 tests) with `E2E_REQUIRE_SHORT_TTL=1` turning the two previously-`test.skip()`'d mid-command-expiry/keepalive legs into real assertions instead of silent skips. Local run: 12 passed, 0 skipped; negative control on a 3600s stack fails both with the intended message. e2e now has 9 jobs (`221af30`). CI confirmation of the pushed job is still owed to the next orchestrator read.
+
+<a id="item-twist-volume-integrator-1"></a>
+
+### TWIST-VOLUME-INTEGRATOR-1
+
+*kind: item-story*
+
+CLOSED groom pass 33 (`a0a70ec`+`ad5f439`+`4655097`+`d3cb512`+`7474e8f`). `measure_shape` now integrates a spline-swept (`Geom_SurfaceOfLinearExtrusion`/`OfRevolution` with a B-spline/Bezier basis curve) face as its exact `BRepBuilderAPI_NurbsConvert` twin, converging where the raw adaptive integrator did not (the gear's spur twin: +5.35 -> 0.0 mm^3). Gated to spline-basis sweeps only after review found a conic sweep (ellipse prism/torus) converges unconverted and reads WORSE converted (`ad5f439`); the Cavalieri twist guard now reads the same integrand (`d3cb512`) so its own "reads volume identically" claim is true even once a twisted body carries such a face; a committed `derive.py` re-derives the new golden's expected volume from Green's theorem with no GProp (`7474e8f`). Per-face classification cost measured at ~1.5 ms/face, ~3% of a KUKA import's own volume integral (`4655097`).
+
+<a id="item-twist-orient-inside-out-1"></a>
+
+### TWIST-ORIENT-INSIDE-OUT-1
+
+*kind: item-story*
+
+CLOSED groom pass 33 (`da457ef`+`9ca5401`+`2e884e1`). `BRepLib::OrientClosedSolid` now runs on every swept twist solid before the Cavalieri guard, so an exact sweep OCCT happened to return inside-out (-3000/+3100/+3600 deg on a 20mm square) is turned right side out instead of refused as "too tight" — a false message that also punched holes in the accepted twist range. `9ca5401` found and fixed the matching STEP-READER bug: OCCT's `ShapeFix_Solid` point-at-infinity classification flips the SAME many-turn helicoids back inside-out on re-import (root cause is the reader, not the writer — the exported bytes are unchanged); both of our STEP readers now turn a transferred solid of negative enclosed volume right side out. `2e884e1` rebuilt the guard's negative control so it makes its own inverted tool rather than relying on OCCT's original inside-out bug to exercise the refusal path.
+
+<a id="item-twist-tessellation-perf-1"></a>
+
+### TWIST-TESSELLATION-PERF-1
+
+*kind: item-story*
+
+CLOSED groom pass 33 (`4c49218`). A twist-only tree now bounds mesh cost: B-spline flank faces estimated at >=500 cells mesh with `ControlSurfaceDeflection=False` first (20mm square: 373,838 -> 2,436 triangles at 720deg), 3MF of a dense twist is refused (`export_mesh_too_dense`, 422), and a pre-sweep cost estimate refuses `twist_failed` in <0.2s instead of meshing for minutes (measured 59s->415s before). Worst accepted case now 4.34-4.96s; design doc `twisted-extrude.md` §6.1 records the mechanism and a turns-based bound for a future UI warning.
+
+<a id="item-feature-tree-row-clip-1"></a>
+
+### FEATURE-TREE-ROW-CLIP-1
+
+*kind: item-story*
+
+CLOSED groom pass 33 (`82cd99e`+`0fc207d`). A long feature name now ellipsises through the design system's `Truncated` (with `title`) instead of pushing the status glyph/badge off the row (`min-w-0` on the row's select button lets the name give way, not the status column); `0fc207d` applied the same fix one panel down, to the Bodies panel's per-body source-feature label.
+
+<a id="item-twist-extrude-ui-1"></a>
+
+### TWIST-EXTRUDE-UI-1
+
+*kind: item-story*
+
+CLOSED groom pass 33 (`737137e` feat: Twist field + axis, `865a0d4` feat: twisting ghost + arc, `aa2e108` feat: `twist_failed` copy — plus 15 review-cycle fixes: `2c24a2d`/`5ee6787` NumberField/ExpressionField 24px target floor, `06d2972` vertex-budgeted ghost, `2f59771` no-centroid Centroid fallback, `5e9943c` Kept twist axis unit, `32ad188` settled e2e grips, `74f33f4` Centroid-approximation copy, `c2d404d`+`36bbb07` twist-bounds-to-contract, `2040c66`+`80349cf`+`3a3d9f5` cost-note/`twist_failed` copy tracking the kernel's published bound, `bcbb285` minus-sign keyboard, `be431eb` no-op-Save-exact twist, `0b9abc1` offer-rail/DRO sketch-pick fix, `45008d5` Flyout right-edge flip, `decbff1` twist arc no longer re-fits camera on open). The kernel's twisted extrude (`d823af9`) now has a full authoring surface: a Twist field with an angular gauge matching the revolve-sweep/draft-taper idiom, a live geometric twisting preview, and legible `twist_failed` copy. The Centroid reading states it is a polyline approximation (~1.5 um at r=10, exact value refiled as TWIST-CENTROID-KERNEL-1).
+
+<a id="item-save-noop-number-1"></a>
+
+### SAVE-NOOP-NUMBER-1
+
+*kind: item-story*
+
+Filed and CLOSED in the same commit, groom pass 33 (`5ed3758`). Every feature editor seeded its length/angle fields through a 4-decimal display formatter and re-parsed them on Save, so opening any feature and pressing Enter with no edit silently rewrote a stored high-precision number (e.g. `12.345678901234mm` -> `12.3457mm`) — new geometry by a hair and a new rebuild-cache key, on every editor with a length or angle field. One shared helper (`features/storedNumber.ts`) now seeds each field with a value that round-trips exactly (the readable seed if it parses back byte-identical, else the shortest exact-round-trip text) and resolves Save through the STORED value while the field is unedited. 30 new round-trip cases (mm and inch documents, a value with no exact inch text) were red before (28 mismatches) and green after; 75 e2e across every affected editor. One residual found in the same investigation and filed separately: base flange's no-op Save still rewrites its stored JSON's KEY SET, not just number formatting (BASEFLANGE-NOOP-SAVE-KEYS-1).
+
 <a id="scorecard-gaps-history-25-19"></a>
 
 ### Scorecard gaps — groom passes 19-31 narrative
@@ -2272,6 +2352,12 @@ kind: polish. Surfaced by A11Y-TOOLBTN-1's blast-radius enumeration, from Chrome
 ## Done — archive
 
 One line per item once its phase has closed (id, one clause, commit/evidence); full narrative lives in the commit message and, where noted, `docs/CHANGELOG.md`.
+
+### Groom pass 33 (2026-09-25, backlog-groomer — the four twist residuals + the auth/query-cache P1 pair all closed; 39 commits reconciled; CI confirmation owed)
+
+- **TWIST-VOLUME-INTEGRATOR-1** (`a0a70ec`+`ad5f439`+`4655097`+`d3cb512`+`7474e8f`) — spline-swept faces measure as exact NURBS twins, gated to spline basis only. - **TWIST-ORIENT-INSIDE-OUT-1** (`da457ef`+`9ca5401`+`2e884e1`) — inside-out sweeps re-oriented, not refused; the STEP-reader mirror bug fixed too. - **TWIST-TESSELLATION-PERF-1** (`4c49218`) — bounded flank mesh + pre-sweep cost guard, 59-415s -> <5s worst case. - **FEATURE-TREE-ROW-CLIP-1** (`82cd99e`+`0fc207d`) — long feature names ellipsis instead of clipping the status glyph, tree panel and Bodies panel both. - **TWIST-EXTRUDE-UI-1** (`737137e`+`865a0d4`+`aa2e108`+15 review fixes) — the twisted extrude gets a full authoring surface (Twist field, gauge, live preview, `twist_failed` copy). - **QUERY-CACHE-USER-SWITCH-1** (`f0c2bbc`) — the query cache clears on every user-id change. - **DEEPLINK-SIGNIN-RETURN-1** (`bcce095`) — a first deep-link visit while signed out now returns to that route after sign-in. - **AUTH-REGISTER-RATELIMIT-1** (`6e40bde`) — `/auth/register` carries the same rate limit as login/refresh, its own address-keyed budget. - **AUTH-SHORT-TTL-E2E-1** (`7af8e4e`) — a short-TTL CI job runs `auth.spec.ts`'s two previously-skipped expiry/keepalive legs for real. - **SAVE-NOOP-NUMBER-1** (`5ed3758`, filed and closed same commit) — a no-op Save round-trips every stored number exactly, in every feature editor.
+
+Filed: OFFSET-SURFACE-VOLUME-1 (Ready); RATE-LIMIT-PROXY-TRUST-1 (Ready, decision); STEP-HELICOID-INTEROP-1, TWIST-ASSEMBLY-MESH-COST-1 (Next P2); MESH-TOO-DENSE-COPY-1, FAILED-EXTRUDE-BODIES-GHOST-1, BASEFLANGE-NOOP-SAVE-KEYS-1, PATTERN-OBLIQUE-AXIS-SNAP-1, UNDO-REDO-USER-SWITCH-RACE-1, POSTURE-TEST-LITERAL-MATCH-1, TWIST-CENTROID-KERNEL-1 (Later P3).
 
 ### Groom pass 32 (2026-09-24, backlog-groomer — helical-gear kernel/UX gaps closed; geometry-QA verified the twisted extrude; 13 items filed)
 
