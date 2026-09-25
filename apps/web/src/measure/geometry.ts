@@ -16,7 +16,7 @@ import type {
   Vec3,
 } from "../api/measure";
 import { MESH_LINEAR_DEFLECTION_MM } from "../api/client";
-import { formatDroMm, formatVec3 } from "../lib/format";
+import { formatDro, formatVec3 } from "../lib/format";
 import { occtToSceneTuple } from "../sketch/plane";
 
 /** A resolved measurement pick, ready to become a `MeasureTarget`. */
@@ -200,7 +200,7 @@ export function formatDistanceMm(distance: number): string {
 
 /** Signed component delta, machine-readout style ("+10.00"). */
 export function formatDeltaMm(value: number): string {
-  return formatDroMm(value);
+  return formatDro(value, "mm");
 }
 
 /** The measured angle in degrees, or "—" when there is no single direction. */

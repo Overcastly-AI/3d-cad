@@ -333,6 +333,83 @@ test.describe("sketch entity snapping", () => {
     expect(diagonal?.end?.x).toBe(40);
     expect(diagonal?.end?.y).toBe(25);
   });
+
+  test("the DRO reads the snapped point in the document unit, and says which", async ({
+    page,
+  }) => {
+    // SKETCH-DRO-UNITS: the DRO's X and Y used to read canonical millimetres
+    // under every unit, headed "X · MM", in an inch document too. An endpoint
+    // snap puts an EXACT point under the cursor, so the conversion is
+    // asserted to the last digit: the (40, 25) mm corner is (1.5748, 0.9843)
+    // in, at the inch readout's fixed four decimals. `DRO_UNIT_SHOT=before`
+    // names the screenshot for a capture against the old tree; it is taken
+    // before the unit assertions, so a red run still leaves its picture.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "DRO units");
+    await page.goto(`/parts/${part.id}`);
+    await enterSketch(page, "XY");
+    // Both calibration points on the canvas at 1280, clear of the panels
+    // either side and of the DRO along the bottom edge.
+    const at = await calibratePlane(
+      page,
+      { x: 520, y: 560 },
+      { x: 800, y: 380 },
+    );
+    await drawFixture(page, at);
+    await page.keyboard.press("g");
+    await expect(page.getByTestId("dro-snap")).toContainText("no grid");
+    await page.keyboard.press("l");
+
+    const dro = page.getByTestId("sketch-dro");
+    await hoverPlane(page, at, { x: 40, y: 25 }, { x: -5, y: 4 });
+    await expect(marker(page)).toHaveAttribute("data-snap-kind", "endpoint");
+    await expect(page.getByTestId("dro-x")).toHaveText("+40.00");
+    await expect(page.getByTestId("dro-y")).toHaveText("+25.00");
+    await expect(dro).toContainText("x · mm");
+
+    for (const [unit, x, y] of [
+      ["in", "+1.5748", "+0.9843"],
+      ["ft", "+0.13123", "+0.08202"],
+      ["cm", "+4.000", "+2.500"],
+    ] as const) {
+      await page.getByTestId("document-unit-select").selectOption(unit);
+      await hoverPlane(page, at, { x: 40, y: 25 }, { x: -5, y: 4 });
+      await expect(marker(page)).toHaveAttribute("data-snap-kind", "endpoint");
+      if (unit === "in") {
+        await page.screenshot({
+          path: `${SCREENSHOT_DIR}/sketch-dro-units-1280-inch-${process.env["DRO_UNIT_SHOT"] ?? "after"}.png`,
+        });
+      }
+      await expect(page.getByTestId("dro-x")).toHaveText(x);
+      await expect(page.getByTestId("dro-y")).toHaveText(y);
+      await expect(dro).toContainText(`x · ${unit}`);
+      await expect(dro).toContainText(`y · ${unit}`);
+      await expect(dro).not.toContainText("· mm");
+      // The value fits its fixed column in every unit.
+      const spill = await page
+        .getByTestId("dro-x")
+        .evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(spill, `the X value overflows in ${unit}`).toBeLessThanOrEqual(0);
+      // The snap cell's accessible name states the grid step in this unit.
+      await expect(page.getByTestId("dro-snap")).toHaveAttribute(
+        "aria-label",
+        new RegExp(`grid [0-9.]+ ${unit} is`),
+      );
+    }
+
+    // The widest readout any unit prints for a 100 m reach is 10 characters
+    // (format.test.ts). A snapped corner cannot reach that far on this canvas,
+    // so write it into the cell and measure: the column must hold it.
+    const widest = await page.getByTestId("dro-x").evaluate((el) => {
+      const shown = el.textContent;
+      el.textContent = "-3937.0079";
+      const over = el.scrollWidth - el.clientWidth;
+      el.textContent = shown;
+      return over;
+    });
+    expect(widest, "a 10-character readout overflows X").toBeLessThanOrEqual(0);
+  });
 });
 
 /**

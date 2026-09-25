@@ -37,9 +37,10 @@ import {
   Panel,
   PanelActionCell,
   isMacPlatform,
+  lengthUnitLabel,
 } from "@loft/design";
 
-import { formatDroMm } from "../lib/format";
+import { formatDro } from "../lib/format";
 import { formatSolveCell } from "../sketch/constraints";
 import { describePlane } from "../sketch/plane";
 import { gridStepOptions } from "../sketch/pointEntry";
@@ -54,14 +55,18 @@ const SOLVE_TONE_CLASS = {
 } as const;
 
 /**
- * X, Y, SNAP, GRID. X and Y hold "-99999.99" (100 m) in the data face. SNAP
+ * X, Y, SNAP, GRID. X and Y hold a 100 m reach in any document unit, in the
+ * data face at that unit's readout precision: "-99999.99" mm is 9 characters,
+ * and "-3937.0079" in, "-328.08399" ft, "-100.00000" m and "-10000.000" cm are
+ * 10, so the columns are sized for 10 and do not change with the unit (10
+ * characters of the data face measure 87 px; 7rem less its padding is 88). SNAP
  * holds its longest caption, "points · no grid · G". GRID holds the longest
  * step label `gridStepOptions` can produce, 12 characters ("0.0000328 ft":
  * 0.01 mm listed in a foot document). A native select is as wide as its widest
  * option, and the panel does not clip, so a label that did not fit would spill
  * over the canvas while the DRO's own box stayed put.
  */
-const DRO_COLUMNS = "grid-cols-[6.25rem_6.25rem_11.5rem_12rem]";
+const DRO_COLUMNS = "grid-cols-[7rem_7rem_11.5rem_12rem]";
 
 /** The inline eyebrow of a bottom-tier cell. */
 const TIER_LABEL =
@@ -95,6 +100,12 @@ export function SketchDro({ solving }: SketchDroProps) {
   // grid's PITCH is not repeated here: the GRID cell beside it states it, and
   // saying it twice made this cell change width with every step.
   const primaryModifier = isMacPlatform() ? "⌘" : "Ctrl";
+  // The grid step, in the document unit: the SAME options the GRID select
+  // lists, so the snap cell's accessible name and the select never disagree.
+  const stepOptions = gridStepOptions(lengthUnit, snapStepMm);
+  const stepLabel =
+    stepOptions.find((step) => Math.abs(step.mm - snapStepMm) < 1e-9)?.label ??
+    `${snapStepMm} mm`;
   const snapCaption = snapSuppressed
     ? `held off · ${primaryModifier}`
     : snapEnabled
@@ -113,13 +124,13 @@ export function SketchDro({ solving }: SketchDroProps) {
           className={`min-w-0 px-3 py-2 ${axis === "y" ? "border-l border-hairline" : ""}`}
         >
           <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-            {axis} · mm
+            {axis} · {lengthUnitLabel(lengthUnit)}
           </span>
           <span
             className="block font-data text-md tabular-nums text-brass"
             data-testid={`dro-${axis}`}
           >
-            {formatDroMm(cursor?.[axis] ?? null)}
+            {formatDro(cursor?.[axis] ?? null, lengthUnit)}
           </span>
         </div>
       ))}
@@ -129,7 +140,7 @@ export function SketchDro({ solving }: SketchDroProps) {
           label="Snap"
           caption={snapCaption}
           selected={snapEnabled && !snapSuppressed}
-          aria-label={`Snap — endpoints, midpoints, centres and intersections always snap; grid ${snapStepMm} mm is ${snapEnabled ? "on" : "off"} (G to toggle); hold ${primaryModifier} to place freehand`}
+          aria-label={`Snap — endpoints, midpoints, centres and intersections always snap; grid ${stepLabel} is ${snapEnabled ? "on" : "off"} (G to toggle); hold ${primaryModifier} to place freehand`}
           data-testid="dro-snap"
           data-snap-suppressed={snapSuppressed || undefined}
           // Never wraps: a caption that wrapped would change the DRO's height.
@@ -150,7 +161,7 @@ export function SketchDro({ solving }: SketchDroProps) {
           eyebrow="Grid"
           aria-label="Grid snap step"
           data-testid="sketch-grid-step"
-          options={gridStepOptions(lengthUnit, snapStepMm).map((step) => ({
+          options={stepOptions.map((step) => ({
             value: String(step.mm),
             label: step.label,
           }))}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatArea,
+  formatDro,
   formatExtents,
   formatOverlapVolume,
   formatVec3,
@@ -101,5 +102,37 @@ describe("clash overlap volume", () => {
 
   it("leaves an exact zero alone", () => {
     expect(formatOverlapVolume(0, "in")).toBe("0");
+  });
+});
+
+/**
+ * The sketch DRO reads the cursor in the DOCUMENT unit, at that unit's fixed
+ * readout precision. It printed canonical mm under every unit (an inch
+ * document's X read "+25.40" for one inch).
+ */
+describe("the DRO readout", () => {
+  it("is a signed machine readout in millimetres, unchanged", () => {
+    expect(formatDro(12.5, "mm")).toBe("+12.50");
+    expect(formatDro(-3, "mm")).toBe("-3.00");
+    expect(formatDro(null, "mm")).toBe("—");
+  });
+
+  it("converts to the document unit, at fixed per-unit decimals", () => {
+    expect(formatDro(25.4, "in")).toBe("+1.0000");
+    expect(formatDro(-304.8, "ft")).toBe("-1.00000");
+    expect(formatDro(15, "cm")).toBe("+1.500");
+    expect(formatDro(2500, "m")).toBe("+2.50000");
+  });
+
+  it("never prints a negative zero", () => {
+    expect(formatDro(-0.001, "mm")).toBe("+0.00");
+    expect(formatDro(-0, "in")).toBe("+0.0000");
+  });
+
+  it("fits a 100 m reach in 10 characters in every unit", () => {
+    // SketchDro's fixed X/Y columns are sized for exactly this.
+    for (const unit of ["mm", "cm", "m", "in", "ft"] as const) {
+      expect(formatDro(-99999.99, unit).length).toBeLessThanOrEqual(10);
+    }
   });
 });

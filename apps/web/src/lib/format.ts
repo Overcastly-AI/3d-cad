@@ -96,13 +96,19 @@ export function formatExtents(
 }
 
 /**
- * DRO cell readout: explicit sign + fixed decimals, like a machine readout.
- * `12.5 → "+12.50"`, `-3 → "-3.00"`, null (pointer off-plane) → "—".
+ * DRO cell readout: explicit sign + FIXED decimals, like a machine readout,
+ * in the document unit at that unit's readout precision (mm 2, cm 3, in 4,
+ * m/ft 5 — the one rule above). A canonical-mm value, converted here:
+ * `formatDro(12.5, "mm") → "+12.50"`, `formatDro(25.4, "in") → "+1.0000"`,
+ * null (pointer off-plane) → "—". The label beside it names the unit.
  */
-export function formatDroMm(value: number | null): string {
-  if (value === null) return "—";
-  const sign = value < 0 ? "-" : "+";
-  return `${sign}${Math.abs(value).toFixed(2)}`;
+export function formatDro(valueMm: number | null, unit: LengthUnit): string {
+  if (valueMm === null) return "—";
+  const value = fromMm(valueMm, unit);
+  const text = Math.abs(value).toFixed(fractionDigits(unit));
+  // A value that rounds to zero reads "+0.00", never "-0.00".
+  const sign = value < 0 && Number(text) !== 0 ? "-" : "+";
+  return `${sign}${text}`;
 }
 
 /**
