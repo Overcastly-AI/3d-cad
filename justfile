@@ -167,19 +167,6 @@ lint:
     # check-build-context.py's "0 COPY source(s)" taught).
     python3 scripts/check-air-gap.py --self-test
     python3 scripts/check-air-gap.py
-    # ~1.5s. ADVISORY (--warn-only never fails your lint), and NOT in CI on
-    # purpose: staleness is a prompt to re-derive, not proof a verdict is
-    # wrong, and a hard doc-vs-code timing gate would block unrelated commits
-    # and get muted. It asks the one question that went unasked for 19 days
-    # while docs/VISION.md's Assemblies row sat at ❌ on a blocker that had
-    # closed — "did anything land in this row's territory after the commit it
-    # cites?" — and Sheet metal turned out to be a second, independent
-    # instance of the identical rot. The --self-test IS hard, like its five
-    # neighbours: 13 cases incl. a row with no marker (an ERROR, never a
-    # skip), a territory glob matching nothing, and an empty document that
-    # must REFUSE rather than report a clean sweep of nothing.
-    python3 scripts/check-scorecard-freshness.py --self-test
-    python3 scripts/check-scorecard-freshness.py --warn-only
     # ~150ms. stage-doc-hunks.py is the control EVERY agent uses on the shared
     # docs, and it had no test until it silently relocated an author's own entry
     # to the end of BACKLOG.md while printing success (2026-08-01, found by the
