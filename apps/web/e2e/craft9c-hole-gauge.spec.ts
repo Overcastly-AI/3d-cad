@@ -519,12 +519,23 @@ test.describe("CRAFT-9c — the companion cell", () => {
     // key loses the race. This check catches the rewind itself, one task after
     // each keystroke, whichever way the race goes: with the cell controlled it
     // failed 5/5 unthrottled.
+    //
+    // It watches THIS input node. If the cell remounted, the listener would
+    // sit on a detached node, hear nothing, and report no rewinds: a vacuous
+    // pass (review S3 on 4b18b93). So it also counts the input events it heard,
+    // and that count must be one per typed character before its silence means
+    // anything.
     await cells.first().evaluate((input: HTMLInputElement) => {
+      const w = window as unknown as {
+        __cellRewinds: string[];
+        __cellInputs: number;
+      };
       const rewinds: string[] = [];
-      (window as unknown as { __cellRewinds: string[] }).__cellRewinds =
-        rewinds;
+      w.__cellRewinds = rewinds;
+      w.__cellInputs = 0;
       let latest = input.value;
       input.addEventListener("input", () => {
+        w.__cellInputs += 1;
         latest = input.value;
         setTimeout(() => {
           if (input.value !== latest)
@@ -535,10 +546,19 @@ test.describe("CRAFT-9c — the companion cell", () => {
     await page.keyboard.press("Control+a");
     await page.keyboard.type("15");
     await expect.poll(() => depthField(page)).toBeCloseTo(15, 3);
+    const heard = await page.evaluate(() => {
+      const w = window as unknown as {
+        __cellRewinds: string[];
+        __cellInputs: number;
+      };
+      return { rewinds: w.__cellRewinds, inputs: w.__cellInputs };
+    });
     expect(
-      await page.evaluate(
-        () => (window as unknown as { __cellRewinds: string[] }).__cellRewinds,
-      ),
+      heard.inputs,
+      "the rewind watch heard one input event per typed character",
+    ).toBe(2);
+    expect(
+      heard.rewinds,
       "the D cell rewound to text older than the last keystroke",
     ).toEqual([]);
     await expect
