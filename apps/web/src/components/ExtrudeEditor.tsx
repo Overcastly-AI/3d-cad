@@ -22,6 +22,7 @@
 import {
   Checkbox,
   FieldRow,
+  formatLength,
   NumberField,
   Panel,
   PanelActionCell,
@@ -258,6 +259,17 @@ export function ExtrudeEditor({
   // (review S2: the segment used to keep "centroid" with nothing pressed).
   const centroidMissing =
     form.twistCentre.kind === "centroid" && centroid === null;
+  // The centre the feature was SAVED with, offered as "Kept" (review S3), and
+  // read in the document's unit, never as the raw float the row stores.
+  const keptCentre = form.stored?.twist_center ?? null;
+  const keptText =
+    keptCentre === null
+      ? ""
+      : `(${formatLength(keptCentre.x, unit, { unitSuffix: false })}, ${formatLength(
+          keptCentre.y,
+          unit,
+          { unitSuffix: false },
+        )}) ${unit}`;
   const twistNote =
     twistDeg === 0
       ? undefined
@@ -410,31 +422,61 @@ export function ExtrudeEditor({
                 noteLabel="About the twist"
                 noteTestId="extrude-twist-hint"
               >
-                {form.twistCentre.kind === "point" ? (
-                  // A centre a script placed is kept exactly as it was; it
-                  // is shown, not offered, so a Save cannot move it.
-                  <span
-                    className="font-data text-md text-mist"
-                    data-testid="extrude-twist-centre-point"
-                  >
-                    {`(${form.twistCentre.at.x}, ${form.twistCentre.at.y})`}
-                  </span>
-                ) : (
+                {/*
+                  Origin, Centroid, and KEPT when the feature was saved with a
+                  centre of its own (a script's point, or an earlier Centroid).
+                  Kept is pre-selected, so a no-op Save leaves the helix alone,
+                  but it is one segment of three, not a read-only label: the
+                  axis can always go back to the origin (review S3).
+                */}
+                <div className="flex min-w-0 grow flex-col gap-0.5">
                   <SegmentedControl
                     label="Twist axis"
                     hideLabel
                     size="dense"
-                    value={centroidMissing ? "origin" : form.twistCentre.kind}
-                    options={
-                      centroid === null
-                        ? TWIST_CENTRES.slice(0, 1)
-                        : TWIST_CENTRES
+                    value={
+                      form.twistCentre.kind === "point"
+                        ? "kept"
+                        : centroidMissing
+                          ? "origin"
+                          : form.twistCentre.kind
                     }
+                    options={[
+                      ...(centroid === null
+                        ? TWIST_CENTRES.slice(0, 1)
+                        : TWIST_CENTRES),
+                      ...(keptCentre === null
+                        ? []
+                        : [
+                            {
+                              value: "kept" as const,
+                              label: "Kept",
+                              "data-testid": "extrude-twist-centre-kept",
+                              "aria-label": `Twist axis: kept at ${keptText}`,
+                            },
+                          ]),
+                    ]}
                     onChange={(kind) =>
-                      setForm((f) => ({ ...f, twistCentre: { kind } }))
+                      setForm((f) => ({
+                        ...f,
+                        twistCentre:
+                          kind === "kept" && keptCentre !== null
+                            ? { kind: "point", at: keptCentre }
+                            : kind === "centroid"
+                              ? { kind: "centroid" }
+                              : { kind: "origin" },
+                      }))
                     }
                   />
-                )}
+                  {form.twistCentre.kind === "point" ? (
+                    <span
+                      className="font-data text-xs text-gauge"
+                      data-testid="extrude-twist-centre-point"
+                    >
+                      {keptText}
+                    </span>
+                  ) : null}
+                </div>
               </FieldRow>
             ) : null}
 

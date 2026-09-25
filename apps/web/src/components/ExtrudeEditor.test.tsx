@@ -516,4 +516,46 @@ describe("ExtrudeEditor — the twist axis says what Save will send", () => {
     expect(sent.twist_angle_deg).toBe(30);
     expect(Object.keys(sent)).not.toContain("twist_center");
   });
+
+  /** A saved extrude whose twist axis is a point a script placed. */
+  const KEPT: ExtrudeParams = {
+    profile: { kind: "feature", feature_id: "sk1" },
+    distance_mm: 20,
+    operation: "add",
+    direction: "normal",
+    merge: true,
+    twist_angle_deg: 30,
+    twist_center: { x: 25.400000000000002, y: 12.7 },
+  };
+
+  it("offers the stored point as KEPT, pre-selected, in the document's unit (review S3)", () => {
+    renderEditor({ unit: "in", initial: formFromParams(KEPT, "in") });
+    expect(screen.getByTestId("extrude-twist-centre-kept")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    // Origin is still one click away: a saved centre is not a dead end.
+    expect(screen.getByTestId("extrude-twist-centre-origin")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    // Through the unit formatter, never the raw float (25.400000000000002 mm).
+    expect(screen.getByTestId("extrude-twist-centre-point")).toHaveTextContent(
+      "(1, 0.5) in",
+    );
+  });
+
+  it("can move a stored axis to the origin, and back to exactly the stored point", () => {
+    const onSubmit = vi.fn();
+    renderEditor({ onSubmit, initial: formFromParams(KEPT, "mm") });
+    fireEvent.click(screen.getByTestId("extrude-twist-centre-origin"));
+    fireEvent.keyDown(screen.getByTestId("extrude-twist"), { key: "Enter" });
+    const toOrigin = onSubmit.mock.calls[0]?.[0] as ExtrudeParams;
+    expect(Object.keys(toOrigin)).not.toContain("twist_center");
+
+    fireEvent.click(screen.getByTestId("extrude-twist-centre-kept"));
+    fireEvent.keyDown(screen.getByTestId("extrude-twist"), { key: "Enter" });
+    const kept = onSubmit.mock.calls[1]?.[0] as ExtrudeParams;
+    expect(kept.twist_center).toEqual(KEPT.twist_center);
+  });
 });
