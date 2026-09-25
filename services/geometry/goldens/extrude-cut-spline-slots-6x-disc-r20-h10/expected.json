@@ -13,7 +13,9 @@
     "",
     "topology, hand-derived: the disc is 3 faces (top, bottom, cylinder). Each slot adds 4 walls (2 extrusion-over-spline + 2 planar), so 6 x 4 = 24 walls: 27 faces; 1 closed shell. Edges: 3 disc edges (2 circles + 1 seam) + 6 slots x 12 (4 on top, 4 on bottom, 4 vertical) = 75.",
     "",
-    "MESH counts are recorded, not derived, as in every golden: an exact-match determinism/regression tripwire on the 0.1 mm linear-deflection tessellation."
+    "MESH counts are recorded, not derived, as in every golden: an exact-match determinism/regression tripwire on the 0.1 mm linear-deflection tessellation.",
+    "",
+    "RE-DERIVE: derive.py beside this file recomputes A, P, the volume and the analytic area from model.json with no GProp; tests/test_golden_derivations.py checks the pinned volume against it."
   ],
   "tolerance": 2e-7,
   "tolerance_rationale": "AABB-PADDING-limited, the same bound and reason as loft-pyramid-sq20-h30 and loft-spline-sections-nurbs-h30 (measured first, then set). Every optimal-AABB bound is padded outward by 1.0e-7, so 1e-7 would sit exactly on the threshold and 2e-7 gives a factor of two. The mass properties it also governs are far inside it: volume -1.8e-12 mm^3, centroid <= 3.5e-15 mm, and the pinned area is by construction the measured reading. The failure this golden exists to catch misses by eight orders of magnitude: the unconverted integrator's +8.52 mm^3. Loosening it requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
