@@ -52,6 +52,7 @@ function renderEditor(
     error?: string | null;
     profiles?: ProfileOption[];
     initial?: ExtrudeForm;
+    profileCentroid?: (id: string) => { x: number; y: number } | null;
   } = {},
 ) {
   const onPreviewChange = overrides.onPreviewChange ?? vi.fn();
@@ -68,6 +69,9 @@ function renderEditor(
         saving={false}
         error={overrides.error ?? null}
         onPreviewChange={onPreviewChange}
+        {...(overrides.profileCentroid !== undefined
+          ? { profileCentroid: overrides.profileCentroid }
+          : {})}
       />
     </DocumentUnitProvider>,
   );
@@ -483,5 +487,33 @@ describe("ExtrudeEditor — the gauge writes the field in the SAME commit", () =
     t.rerender({ depthOverride: { mm: 25.4 } });
     t.rerender({ unit: "in" });
     expect(field()).toHaveValue("1");
+  });
+});
+
+describe("ExtrudeEditor — the twist axis says what Save will send", () => {
+  it("shows ORIGIN, and says why, when a chosen centroid is unavailable (review S2)", () => {
+    // A form that asked for the centroid of a profile with none: Save sends no
+    // centre (the sketch origin), so the control must show Origin, not nothing.
+    const onSubmit = vi.fn();
+    renderEditor({
+      onSubmit,
+      initial: {
+        ...defaultExtrudeForm("sk1"),
+        twistInput: "30",
+        twistCentre: { kind: "centroid" },
+      },
+      profileCentroid: () => null,
+    });
+    expect(screen.getByTestId("extrude-twist-centre-origin")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("extrude-twist-hint")).toHaveTextContent(
+      /no centroid.*sketch origin/i,
+    );
+    fireEvent.keyDown(screen.getByTestId("extrude-twist"), { key: "Enter" });
+    const sent = onSubmit.mock.calls[0]?.[0] as ExtrudeParams;
+    expect(sent.twist_angle_deg).toBe(30);
+    expect(Object.keys(sent)).not.toContain("twist_center");
   });
 });

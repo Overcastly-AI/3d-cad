@@ -252,12 +252,22 @@ export function ExtrudeEditor({
   const distanceMsg = distanceError(form.distanceInput, unit);
   const twistMsg = twistError(form.twistInput);
   const twistDeg = parseTwistDeg(form.twistInput) ?? 0;
+  // A chosen CENTROID of a profile that has none (no closed region yet) is
+  // sent as no centre, i.e. the sketch origin. The control shows exactly that,
+  // and the note says why, so the axis Save uses is never a silent surprise
+  // (review S2: the segment used to keep "centroid" with nothing pressed).
+  const centroidMissing =
+    form.twistCentre.kind === "centroid" && centroid === null;
   const twistNote =
     twistDeg === 0
       ? undefined
       : `${twistHand(twistDeg)}: the far end turns ${Math.abs(twistDeg)}° ${
           twistDeg > 0 ? "anticlockwise" : "clockwise"
-        } looking back along the extrude.`;
+        } looking back along the extrude.${
+          centroidMissing
+            ? " This profile has no centroid yet (no closed region), so the axis is the sketch origin."
+            : ""
+        }`;
   // ONE computation, two readings (REASON-GATE-1): `canSubmit` is DEFINED as
   // "nothing is blocking", so a grey Save with an empty reason line is
   // unreachable rather than merely absent. Null while saving — the label says
@@ -414,7 +424,7 @@ export function ExtrudeEditor({
                     label="Twist axis"
                     hideLabel
                     size="dense"
-                    value={form.twistCentre.kind}
+                    value={centroidMissing ? "origin" : form.twistCentre.kind}
                     options={
                       centroid === null
                         ? TWIST_CENTRES.slice(0, 1)
