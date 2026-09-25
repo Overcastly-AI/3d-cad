@@ -1209,11 +1209,37 @@ export function ParametricGauge({
     }
     return {
       label: cell.tagLabel,
-      value: typing.text,
+      // UNCONTROLLED: the BROWSER owns the text, and `typingRef` is the only
+      // copy code reads. There is deliberately no `value` prop here.
+      //
+      // A controlled cell inside a drei `Html` loses keystrokes, and this is
+      // the gauge's instance of DIM-1 (`ConstraintGlyphs.useTypedField` has
+      // the sketch's). React-dom restores a controlled input to its `value`
+      // PROP right after every `input` event. The new text lives in THIS
+      // component's state, which belongs to the r3f reconciler, not the `Html`
+      // root, so it reaches that root only through `Html`'s layout-effect
+      // `root.render`, at default priority, one macrotask later. Until then the
+      // cell holds the pre-keystroke text with the caret at the end.
+      // MEASURED on `craft9c-hole-gauge.spec.ts` at 4x CPU throttle: over a
+      // selected `12`, `1` gave `1`, the restore put `12` back, and `5` arrived
+      // inside that window, so the cell read `125` and the hole got 125 mm deep.
+      //
+      // The sync below runs on every commit of the cell (the ref callback is a
+      // new function each render). It writes the node only when `typingRef`
+      // differs from it, which happens on a seed or an append from the window
+      // listener, never after a keystroke the input handled itself. That is
+      // why a stale commit cannot rewind the text.
       "aria-label": `${label} value`,
       ref: (node: HTMLInputElement | null) => {
         cellRefs.current[i] = node;
-        if (node === null || !focusPending.current) return;
+        if (node === null) return;
+        const want = typingRef.current;
+        if (want !== null && want.cell === i && node.value !== want.text) {
+          node.value = want.text;
+          const end = want.text.length;
+          node.setSelectionRange(end, end);
+        }
+        if (!focusPending.current) return;
         focusPending.current = false;
         node.focus();
         // Caret AFTER what was typed, so the character that opened the cell is

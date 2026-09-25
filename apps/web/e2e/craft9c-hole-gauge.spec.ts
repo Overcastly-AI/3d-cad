@@ -509,9 +509,38 @@ test.describe("CRAFT-9c — the companion cell", () => {
     await page.keyboard.press("Tab");
     await expect(cells.first()).toBeFocused();
     await expect(cells.first()).toHaveValue("12");
+    // THE CELL MUST NEVER REWIND UNDER THE TYPIST (DIM-1, the gauge's instance).
+    // While the cell was controlled, react-dom put the pre-keystroke text back
+    // after every keystroke. The new text lived in r3f's reconciler and reached
+    // the `Html` root one macrotask later. Over a selected `12`, `1` was rewound
+    // to `12` on every run. A `5` that landed in that window gave `125` and a
+    // 125 mm hole: intermittent in CI, and one run in three here at 4x CPU
+    // throttle. The depth assertion below catches the lost key only when the
+    // key loses the race. This check catches the rewind itself, one task after
+    // each keystroke, whichever way the race goes: with the cell controlled it
+    // failed 5/5 unthrottled.
+    await cells.first().evaluate((input: HTMLInputElement) => {
+      const rewinds: string[] = [];
+      (window as unknown as { __cellRewinds: string[] }).__cellRewinds =
+        rewinds;
+      let latest = input.value;
+      input.addEventListener("input", () => {
+        latest = input.value;
+        setTimeout(() => {
+          if (input.value !== latest)
+            rewinds.push(`${latest} -> ${input.value}`);
+        }, 0);
+      });
+    });
     await page.keyboard.press("Control+a");
     await page.keyboard.type("15");
     await expect.poll(() => depthField(page)).toBeCloseTo(15, 3);
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { __cellRewinds: string[] }).__cellRewinds,
+      ),
+      "the D cell rewound to text older than the last keystroke",
+    ).toEqual([]);
     await expect
       .poll(() => viewportStamp(page, "hole-depth-plane-mm"))
       .toBeCloseTo(15, 2);
