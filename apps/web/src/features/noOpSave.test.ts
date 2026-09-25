@@ -24,8 +24,10 @@ import type {
   DraftParams,
   EdgeSignature,
   ExtrudeParams,
+  FeatureResponse,
   FilletParams,
   HoleParams,
+  LoftParams,
   PatternParams,
   PlanarFaceSignature,
   RevolveParams,
@@ -34,6 +36,7 @@ import type {
   SheetMetalEdgeFlangeParams,
   SheetMetalHemParams,
   ShellParams,
+  SweepParams,
 } from "../api/parts";
 import { buildDatumParams, formFromDatumParams } from "./datum";
 import { buildDraftParams, formFromDraftParams } from "./draft";
@@ -45,6 +48,7 @@ import {
 } from "./extrude";
 import { faceSubshapeRef, onFaceDatumParams } from "./face";
 import { buildHoleParams, formFromHoleParams } from "./hole";
+import { buildLoftParams, formFromLoftParams } from "./loft";
 import {
   buildChamferParams,
   buildFilletParams,
@@ -65,6 +69,8 @@ import {
   formFromHemParams,
 } from "./sheetMetal";
 import { buildShellParams, formFromShellParams } from "./shell";
+import { buildSweepParams, formFromSweepParams } from "./sweep";
+import { readRepoSource } from "../test/wireSource";
 
 /** Survives the shortest inch text. */
 const A = 12.345678901234;
@@ -88,6 +94,139 @@ function canonical(value: unknown): string {
 function expectUnchanged(saved: unknown, stored: unknown): void {
   expect(saved).not.toBeNull();
   expect(canonical(saved)).toBe(canonical(stored));
+}
+
+// --- OPTIONAL KEYS (BASEFLANGE-NOOP-SAVE-KEYS-1) ------------------------------
+//
+// WHAT CAN AND CANNOT CHANGE A STORED ROW. The documents service validates
+// every write and stores `model_dump`, and it re-validates on read. So a row
+// always reaches the editor with every optional key present: filled with its
+// default, or null. Whatever the editor sends back is filled the same way
+// before it is stored. Measured on the running stack: a base flange POSTed
+// without `merge`, `direction` and `k_factor` is stored and served with all
+// three. So an editor that leaves a default-valued key OUT changes nothing,
+// and one that puts it back changes nothing either. The server erases both.
+//
+// What the server cannot erase is a VALUE the editor did not keep. The base
+// flange editor wrote `merge: true` whatever the row said. A flange stored
+// with `merge: false` (a second sheet body) was re-saved as merged into the
+// first, so the part lost a body on a Save that changed nothing. The edge
+// flange dropped a stored `offset_mm: 0`, which the server then stored as
+// null. So the check below compares both sides AFTER the server's own
+// normalisation, and every fixture sets every optional key it can to a
+// NON-default value. A census derived from the contract, not from the
+// editors, fails by name if a fixture leaves one at its default.
+
+/** A JSON-Schema node, as much of one as these checks read. */
+interface SchemaNode {
+  $ref?: string;
+  type?: string;
+  properties?: Record<string, SchemaNode>;
+  required?: string[];
+  default?: unknown;
+  const?: unknown;
+  enum?: unknown[];
+  anyOf?: SchemaNode[];
+  oneOf?: SchemaNode[];
+  discriminator?: { propertyName: string; mapping?: Record<string, string> };
+}
+
+let schemas: Record<string, SchemaNode> | null = null;
+
+/** The documents service's wire schemas, read lazily (see `readRepoSource`). */
+function wireSchemas(): Record<string, SchemaNode> {
+  schemas ??= (
+    JSON.parse(
+      readRepoSource("packages/contracts/documents.openapi.json", {
+        declaredIn: "wireSchemas in apps/web/src/features/noOpSave.test.ts",
+        guards: "which param keys are optional, and their defaults",
+      }),
+    ) as { components: { schemas: Record<string, SchemaNode> } }
+  ).components.schemas;
+  return schemas;
+}
+
+function deref(node: SchemaNode): SchemaNode {
+  if (node.$ref === undefined) return node;
+  const name = node.$ref.replace("#/components/schemas/", "");
+  const target = wireSchemas()[name];
+  if (target === undefined) throw new Error(`no schema ${name}`);
+  return deref(target);
+}
+
+/** The object schema for `row` under `schema` ("Name" or "Name.property"). */
+function objectSchema(
+  schema: string,
+  row: Record<string, unknown>,
+): SchemaNode {
+  const [name, property] = schema.split(".") as [string, string | undefined];
+  let node = wireSchemas()[name];
+  if (node !== undefined && property !== undefined) {
+    node = deref(node).properties?.[property];
+  }
+  if (node === undefined) throw new Error(`no schema ${schema}`);
+  const resolved = deref(node);
+  const disc = resolved.discriminator;
+  if (disc?.mapping !== undefined) {
+    const ref = disc.mapping[String(row[disc.propertyName])];
+    if (ref === undefined) throw new Error(`${schema}: no branch for the row`);
+    return deref({ $ref: ref });
+  }
+  if (resolved.properties === undefined) {
+    throw new Error(`${schema}: not an object schema`);
+  }
+  return resolved;
+}
+
+/** An optional key that can hold more than one value (so it CAN be dropped). */
+function isChoice(prop: SchemaNode): boolean {
+  const p = deref(prop);
+  if (p.const !== undefined) return false;
+  return !(p.enum !== undefined && p.enum.length === 1);
+}
+
+/** The row as the server stores it: absent optional keys filled. */
+function serverSide(
+  row: Record<string, unknown>,
+  node: SchemaNode,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...row };
+  for (const [key, prop] of Object.entries(node.properties ?? {})) {
+    if (key in out || (node.required ?? []).includes(key)) continue;
+    out[key] = "default" in prop ? prop.default : null;
+  }
+  return out;
+}
+
+/**
+ * A no-op Save keeps every OPTIONAL key's value. `stored` must set each
+ * optional key that can hold more than one value to something other than its
+ * default (the census); the saved row, filled the way the server fills it,
+ * must then equal the stored row filled the same way.
+ */
+function expectOptionalKeysKept<T extends object>(
+  stored: T,
+  schema: string,
+  save: (row: T) => unknown,
+): void {
+  const row = stored as Record<string, unknown>;
+  const node = objectSchema(schema, row);
+  for (const [key, prop] of Object.entries(node.properties ?? {})) {
+    if ((node.required ?? []).includes(key) || !isChoice(prop)) continue;
+    const at = row[key];
+    expect(
+      at !== undefined &&
+        at !== null &&
+        canonical(at) !== canonical(deref(prop).default),
+      `${schema}.${key}: the fixture must set this optional key to a ` +
+        "non-default value, or a Save that drops it cannot be caught",
+    ).toBe(true);
+  }
+  const saved = save(stored);
+  expect(saved).not.toBeNull();
+  expect(canonical(serverSide(saved as Record<string, unknown>, node))).toBe(
+    canonical(serverSide(row, node)),
+  );
 }
 
 const FACE: PlanarFaceSignature = {
@@ -300,6 +439,227 @@ for (const unit of UNITS) {
       };
       const form = formFromCornerReliefParams(stored, unit);
       expectUnchanged(buildCornerReliefParams(form, unit), stored);
+    });
+  });
+}
+
+for (const unit of UNITS) {
+  describe(`a no-op Save keeps every optional key's value (${unit} document)`, () => {
+    it("extrude: direction and merge", () => {
+      const stored: ExtrudeParams = {
+        profile: { kind: "feature", feature_id: "sk" },
+        distance_mm: A,
+        operation: "add",
+        direction: "reverse",
+        merge: false,
+        twist_angle_deg: 30,
+        twist_center: { x: 1, y: 2 },
+      };
+      expectOptionalKeysKept(stored, "ExtrudeParamsV1", (row) => {
+        const form = formFromParams(row, unit);
+        return extrudeParamsFromForm(
+          form,
+          extrudeDistanceMm(form, unit) as number,
+        );
+      });
+    });
+
+    it("revolve: angle, direction and merge", () => {
+      const stored: RevolveParams = {
+        profile: { kind: "feature", feature_id: "sk" },
+        axis: { kind: "origin_axis", axis: "Z" },
+        angle_deg: 123.456789012345,
+        operation: "add",
+        direction: "reverse",
+        merge: false,
+      };
+      expectOptionalKeysKept(stored, "RevolveParamsV1", (row) =>
+        revolveParamsFromForm(formFromRevolveParams(row), row.axis),
+      );
+    });
+
+    it("sweep and loft: merge", () => {
+      const sweep: SweepParams = {
+        profile: { kind: "feature", feature_id: "sk" },
+        path: { kind: "feature", feature_id: "path" },
+        operation: "add",
+        merge: false,
+      };
+      expectOptionalKeysKept(sweep, "SweepParamsV1", (row) =>
+        buildSweepParams(formFromSweepParams(row)),
+      );
+      const loft: LoftParams = {
+        profiles: [
+          { kind: "feature", feature_id: "s1" },
+          { kind: "feature", feature_id: "s2" },
+        ],
+        operation: "add",
+        merge: false,
+      };
+      expectOptionalKeysKept(loft, "LoftParamsV1", (row) =>
+        buildLoftParams(formFromLoftParams(row)),
+      );
+    });
+
+    it("hole: type and thread", () => {
+      const stored: HoleParams = {
+        face: faceSubshapeRef(BODY, FACE),
+        position: { x: 1, y: 2, z: 20 },
+        diameter_mm: 8.5,
+        depth: { kind: "through_all" },
+        type: { kind: "counterbore", cbore_diameter_mm: 16, cbore_depth_mm: 6 },
+        thread: {
+          standard: "iso_metric",
+          nominal_diameter_mm: 10,
+          pitch_mm: 1.5,
+        },
+      };
+      expectOptionalKeysKept(stored, "HoleParamsV1", (row) =>
+        buildHoleParams(formFromHoleParams(row, unit), unit),
+      );
+    });
+
+    it("pattern: a features scope", () => {
+      const stored: PatternParams = {
+        pattern: {
+          kind: "linear",
+          direction: { x: 1, y: 0, z: 0 },
+          spacing_mm: B,
+          count: 4,
+        },
+        scope: {
+          kind: "features",
+          features: [{ kind: "feature", feature_id: "x1" }],
+        },
+      };
+      // The editor names a scope's features from the tree it is handed.
+      const tree = [
+        {
+          id: "x1",
+          name: "Extrude2",
+          part_id: "p",
+          order_index: 1,
+          created_at: "2026-09-25T00:00:00Z",
+          updated_at: "2026-09-25T00:00:00Z",
+          rolled_back: false,
+          feature: {
+            type: "extrude",
+            version: 1,
+            params: {
+              profile: { kind: "feature", feature_id: "sk" },
+              distance_mm: 5,
+              operation: "cut",
+            },
+          },
+        } as FeatureResponse,
+      ];
+      expectOptionalKeysKept(stored, "PatternParamsV1", (row) =>
+        buildPatternParams(formFromPatternParams(row, unit, tree), unit),
+      );
+    });
+
+    it("datum: flip, and an on-face offset", () => {
+      const save = (row: DatumParams) =>
+        buildDatumParams(formFromDatumParams(row, unit), unit);
+      const cases: DatumParams[] = [
+        { kind: "offset", base: "XY", offset_mm: -B, flip: true },
+        {
+          kind: "offset_from",
+          base: { kind: "feature", feature_id: "d1" },
+          offset_mm: A,
+          flip: true,
+        },
+        onFaceDatumParams(BODY, FACE, B),
+        {
+          kind: "midplane",
+          a: { kind: "datum_plane", plane: "XY" },
+          b: { kind: "feature", feature_id: "d1" },
+          flip: true,
+        },
+      ];
+      for (const stored of cases) {
+        expectOptionalKeysKept(stored, "DatumFeature.params", save);
+      }
+    });
+
+    it("draft: the neutral plane's flip and offset", () => {
+      const stored: DraftParams = {
+        angle_deg: -3.123456789,
+        faces: { kind: "faces", refs: [faceSubshapeRef(BODY, FACE)] },
+        neutral_plane: { kind: "datum", base: "XZ", offset_mm: B, flip: true },
+      };
+      const save = (row: DraftParams) =>
+        buildDraftParams(formFromDraftParams(row, unit), [FACE], BODY, unit);
+      expectOptionalKeysKept(
+        stored.neutral_plane,
+        "DraftNeutralPlaneV1",
+        (plane) => save({ ...stored, neutral_plane: plane })?.neutral_plane,
+      );
+    });
+
+    it("base flange: k-factor, direction and merge", () => {
+      // The reported case. `merge: false` is a SECOND sheet body; the editor
+      // wrote `merge: true` whatever the row said.
+      const stored: SheetMetalBaseFlangeParams = {
+        profile: { kind: "feature", feature_id: "sk" },
+        thickness_mm: B,
+        bend_radius_mm: A,
+        k_factor: 0.4123456789,
+        direction: "reverse",
+        merge: false,
+      };
+      expectOptionalKeysKept(stored, "SheetMetalBaseFlangeParamsV1", (row) =>
+        buildBaseFlangeParams(formFromBaseFlangeParams(row, unit), unit),
+      );
+    });
+
+    it("edge flange: width, offset, bend radius and k-factor", () => {
+      const stored: SheetMetalEdgeFlangeParams = {
+        edge: edgeSubshapeRef(BODY, EDGE),
+        flange_length_mm: A,
+        bend_angle_deg: 90,
+        width_mm: 20,
+        offset_mm: B,
+        bend_radius_mm: B,
+        k_factor: 0.4123456789,
+      };
+      const save = (row: SheetMetalEdgeFlangeParams) =>
+        buildEdgeFlangeParams(
+          formFromEdgeFlangeParams(row, unit),
+          [EDGE],
+          BODY,
+          unit,
+        );
+      expectOptionalKeysKept(stored, "SheetMetalEdgeFlangeParamsV1", save);
+      // A stored 0 offset is a value too: dropping it stores null.
+      const atZero = { ...stored, offset_mm: 0 };
+      expectUnchanged(save(atZero), atZero);
+    });
+
+    it("hem: type, bend radius and k-factor", () => {
+      const stored: SheetMetalHemParams = {
+        edge: edgeSubshapeRef(BODY, EDGE),
+        length_mm: B,
+        hem_type: "open",
+        bend_radius_mm: A,
+        k_factor: 0.4123456789,
+      };
+      expectOptionalKeysKept(stored, "SheetMetalHemParamsV1", (row) =>
+        buildHemParams(formFromHemParams(row, unit), [EDGE], BODY, unit),
+      );
+    });
+
+    it("corner relief: ratio and size", () => {
+      const stored: SheetMetalCornerReliefParams = {
+        bend_a: { kind: "feature", feature_id: "f1" },
+        bend_b: { kind: "feature", feature_id: "f2" },
+        relief_ratio: 1.123456789012,
+        relief_type: "rectangular",
+        size_mm: B,
+      };
+      expectOptionalKeysKept(stored, "SheetMetalCornerReliefParamsV1", (row) =>
+        buildCornerReliefParams(formFromCornerReliefParams(row, unit), unit),
+      );
     });
   });
 }

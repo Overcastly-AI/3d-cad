@@ -160,7 +160,11 @@ export function buildBaseFlangeParams(
     bend_radius_mm: bendRadius,
     k_factor: kFactor,
     direction: form.direction,
-    merge: true,
+    // No field edits `merge`, so it is whatever the row says: a flange stored
+    // with `merge: false` is a SECOND sheet body. This used to be a literal
+    // `true`, so opening that flange and pressing Save fused it into the first
+    // body (BASEFLANGE-NOOP-SAVE-KEYS-1). A new flange merges.
+    merge: form.stored?.merge ?? true,
   };
 }
 
@@ -439,7 +443,15 @@ export function buildEdgeFlangeParams(
   // Absent width/offset (Full width) fall through to the base flange's verbatim
   // legacy path; a 0 offset reads the same as absent so it stays off the wire.
   if (extent.widthMm !== null) params.width_mm = extent.widthMm;
-  if (extent.offsetMm !== null && extent.offsetMm > 0) {
+  // ...unless the row stored the 0 itself. Dropping it would store null in its
+  // place, a different row from a Save that changed nothing
+  // (BASEFLANGE-NOOP-SAVE-KEYS-1).
+  const storedOffset = form.stored?.offset_mm;
+  if (
+    extent.offsetMm !== null &&
+    (extent.offsetMm > 0 ||
+      (storedOffset !== null && storedOffset !== undefined))
+  ) {
     params.offset_mm = extent.offsetMm;
   }
   // Omit inherited defaults (null) so the wire falls back to the base flange's.
