@@ -83,7 +83,7 @@ import { placementToScene } from "../assembly/placement";
 import { buildEvaluateTree } from "../measure/geometry";
 import { deriveAssemblySolve } from "../features/assemblySolve";
 import { FloatingPanel } from "../components/FloatingPanel";
-import { executeHistoryStep } from "../lib/historyStep";
+import { executeHistoryStep, signedInUserId } from "../lib/historyStep";
 import { isTypingTarget } from "../lib/isTypingTarget";
 import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { useReducedMotion } from "../lib/useReducedMotion";
@@ -742,6 +742,10 @@ export function AssemblyPage() {
             // Someone else moved the graph: the design doc's soft reload —
             // resync quietly; the user re-issues against what they now see.
             resync: () => refreshGraph(),
+            // A step that resolves after a sign-in as someone else is dropped,
+            // never adopted into the cache that was cleared for them
+            // (UNDO-REDO-USER-SWITCH-RACE-1).
+            owner: signedInUserId,
           });
           if (outcome.kind === "failed") {
             setHistoryError({ step, message: outcome.message });

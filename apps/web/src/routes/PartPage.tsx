@@ -333,7 +333,7 @@ import {
 } from "../features/face";
 import { useIsHiddenFaceOrdinal } from "../viewport/hiddenPicks";
 import { isTypingTarget } from "../lib/isTypingTarget";
-import { executeHistoryStep } from "../lib/historyStep";
+import { executeHistoryStep, signedInUserId } from "../lib/historyStep";
 import {
   HistoryErrorAlert,
   historyResyncNotice,
@@ -4646,6 +4646,10 @@ export function PartPage() {
             // Someone else moved the tree: the design doc's soft reload —
             // resync quietly; the user re-issues against what they now see.
             resync: () => refreshTreeAndBody(),
+            // A step that resolves after a sign-in as someone else is dropped,
+            // never adopted into the cache that was cleared for them
+            // (UNDO-REDO-USER-SWITCH-RACE-1).
+            owner: signedInUserId,
           });
           if (outcome.kind === "failed") {
             // The tree is unchanged server-side — say so through the HUD (the

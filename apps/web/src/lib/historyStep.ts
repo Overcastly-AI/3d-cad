@@ -16,16 +16,28 @@
  * Only the PORTS differ per document type (version field, endpoints, query
  * keys, hygiene), so those are parameters; the page keeps a thin wrapper that
  * owns React state (in-flight ref, hold caption, error) and its own mutual
- * exclusions. Pure and node-tested — no React, no fetch.
+ * exclusions. Node-tested, with no React and no fetch. The one outside read is
+ * `signedInUserId`, the session store behind the `owner` port.
  */
+import { useSessionStore } from "../auth/session";
 import type { HistoryStep } from "./undoRedoShortcut";
+
+/** The `owner` port both workspaces pass: the signed-in user's id, or null. */
+export function signedInUserId(): string | null {
+  return useSessionStore.getState().user?.id ?? null;
+}
 
 /** How one history step resolved — the page maps `failed` to its alert. */
 export type HistoryStepOutcome =
   | { kind: "restored" }
   | { kind: "noop" }
   | { kind: "stale" }
-  | { kind: "failed"; message: string };
+  | { kind: "failed"; message: string }
+  /**
+   * The signed-in user changed while the step was in flight, so its result
+   * was dropped unread. Nothing to tell the new user: it was not their step.
+   */
+  | { kind: "abandoned" };
 
 /** The document-specific seams of the shared sequence above. */
 export interface HistoryStepPorts<TDoc> {
@@ -50,6 +62,14 @@ export interface HistoryStepPorts<TDoc> {
   isStale(error: unknown): boolean;
   /** Quiet resync after a stale write — the user re-issues against what they see. */
   resync(): void | Promise<void>;
+  /**
+   * Who the step runs for: the signed-in user's id, or null. Read when the
+   * step starts and again when it resolves. A different answer drops the
+   * result (UNDO-REDO-USER-SWITCH-RACE-1): the cache was cleared for the new
+   * user (`auth/queryCache`), and adopting the old user's document would put
+   * it straight back.
+   */
+  owner(): string | null;
 }
 
 /** Fallbacks when a failure carries no message of its own. */
@@ -63,9 +83,12 @@ export async function executeHistoryStep<TDoc>(
   step: HistoryStep,
   ports: HistoryStepPorts<TDoc>,
 ): Promise<HistoryStepOutcome> {
+  const owner = ports.owner();
+  const outlived = () => ports.owner() !== owner;
   try {
     const expected = await ports.version();
     const doc = await ports.run(step, expected);
+    if (outlived()) return { kind: "abandoned" };
     if (ports.versionOf(doc) === expected) {
       ports.adoptNoOp(doc);
       return { kind: "noop" };
@@ -73,6 +96,7 @@ export async function executeHistoryStep<TDoc>(
     await ports.onRestored(doc);
     return { kind: "restored" };
   } catch (error) {
+    if (outlived()) return { kind: "abandoned" };
     if (ports.isStale(error)) {
       // Best-effort resync: the step WAS stale regardless of whether the
       // refetch settles, and this function's contract is never-throws (both
