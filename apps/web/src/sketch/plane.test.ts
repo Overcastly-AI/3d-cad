@@ -21,6 +21,7 @@ import {
   resolveSpecBasis,
   sceneOriginBasis,
   sceneToOcctTuple,
+  type SketchPlaneSpec,
   snapPoint,
   snapValue,
   worldToPlane,
@@ -356,6 +357,27 @@ describe("on-face plane spec ↔ wire ref", () => {
     expect(
       describePlane(faceSpecFromDatum("d", signature([0, 0, 1], [0, 0, 0]), 5)),
     ).toBe("Face +5");
+  });
+
+  it("names a raw offset readably, with the flip mark where truncation cannot take it", () => {
+    // Review S2 on e3bd6aa: the DRO's PLANE cell truncates, and this read
+    // "XY +8.466666666666667 ⟲", so the flip mark was the first thing lost.
+    const flipped: SketchPlaneSpec = {
+      kind: "offset",
+      base: "XY",
+      offsetMm: 25.4 / 3,
+      flip: true,
+      datumFeatureId: "d",
+    };
+    expect(describePlane(flipped)).toBe("⟲ XY +8.4667");
+    expect(describePlane({ ...flipped, flip: false, offsetMm: -1 / 3 })).toBe(
+      "XY −0.3333",
+    );
+    expect(
+      describePlane(
+        faceSpecFromDatum("d", signature([0, 0, 1], [0, 0, 0]), 2 / 3),
+      ),
+    ).toBe("Face +0.6667");
   });
 });
 
