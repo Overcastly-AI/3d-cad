@@ -168,8 +168,9 @@ round-trip loss, and the probe now reads the volume adaptively.
   **`twist_failed`** ("…did not sweep cleanly (its volume is not profile area x
   distance)…"). Without it, an inverted tool reached the user as `ok`: seen at
   `d823af9`, and again now with the guard mutated out of
-  `test_a_sweep_that_comes_back_wrong_is_twist_failed`. That test takes the
-  re-orientation away on purpose to produce a malformed tool. Sweep failures,
+  `test_a_sweep_that_comes_back_wrong_is_twist_failed`. That test turns an
+  oriented quarter-turn tool inside out on purpose, so it does not depend on
+  which twists OCCT inverts (review N2). Sweep failures,
   and holed profiles that do not leave one solid, are also `twist_failed`.
 
 ## 5. Contract

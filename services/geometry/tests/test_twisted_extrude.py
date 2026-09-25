@@ -553,24 +553,29 @@ def test_a_sweep_that_comes_back_wrong_is_twist_failed(
     """The Cavalieri guard refuses a malformed sweep by name; the last good
     body survives.
 
-    Ten turns in 30 mm on a 20 mm square is swept INSIDE-OUT by OCCT (volume
-    -A*d). Since geometry QA F3 the kernel re-orients that exact solid, so no
-    known input still reaches the guard, which is why the test takes the
-    re-orientation away to produce a malformed tool on purpose. Without the
-    guard, the inverted tool shipped as ``ok`` (seen at d823af9).
+    Since geometry QA F3 the kernel re-orients every swept solid, so no known
+    input still reaches the guard. The test therefore MAKES a malformed tool:
+    it replaces the re-orientation with one that orients the sweep and then
+    turns it inside out (volume -A*d), on a gentle quarter turn that OCCT
+    sweeps correctly. The control no longer depends on which twists OCCT
+    happens to invert (review N2). Without the guard, an inverted tool shipped
+    as ``ok`` (seen at d823af9).
     """
+    orient = twist_kernel.orient_closed_solid
 
-    def keep_inside_out(solid: Solid) -> Solid:
-        return solid
+    def turn_inside_out(solid: Solid) -> Solid:
+        # OCP ships no stubs: Reversed() is untyped.
+        inverted = orient(solid).wrapped.Reversed()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        return Solid(inverted)  # pyright: ignore[reportUnknownArgumentType]
 
-    monkeypatch.setattr(twist_kernel, "orient_closed_solid", keep_inside_out)
+    monkeypatch.setattr(twist_kernel, "orient_closed_solid", turn_inside_out)
     reset_rebuild_cache()
     try:
         result = _evaluate(
             [
                 *_blank(),
                 _sketch(SKETCH2_ID, SQUARE),
-                _extrude(EXTRUDE2_ID, SKETCH2_ID, 30.0, twist_angle_deg=3600.0),
+                _extrude(EXTRUDE2_ID, SKETCH2_ID, 30.0, twist_angle_deg=90.0),
             ]
         )
     finally:
