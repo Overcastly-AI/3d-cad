@@ -1,6 +1,6 @@
 """Which faces the adaptive volume integral sees as NURBS twins (geometry QA F1).
 
-:func:`geometry.kernel.properties._volume_integrand` converts a face to its
+:func:`geometry.kernel.properties.volume_integrand` converts a face to its
 exact NURBS twin only when it sweeps a SPLINE: the adaptive integrator does not
 converge on an extrusion or revolution of a B-spline, but it does on one of an
 analytic conic, where the twin reads worse (review S3 of ``a0a70ec``). The
@@ -16,7 +16,7 @@ from collections.abc import Callable
 import geometry.kernel.properties as properties_module
 import pytest
 from build123d import Axis, Edge, Face, Plane, Solid, Wire, extrude, revolve
-from geometry.kernel.properties import _volume_integrand, measure_shape
+from geometry.kernel.properties import measure_shape, volume_integrand
 
 #: Absolute volume bound (mm^3) for the analytic conic bodies below, MEASURED
 #: FIRST, THEN SET (2026-09-25, VOLUME_EPS 1e-10): the unconverted readings are
@@ -53,12 +53,12 @@ def test_a_swept_conic_is_integrated_as_itself(
 ) -> None:
     solid = body()
     assert measure_shape(solid).volume == pytest.approx(truth, abs=CONIC_VOLUME_TOL)
-    assert _volume_integrand(solid) is solid.wrapped
+    assert volume_integrand(solid) is solid.wrapped
 
 
 def test_a_swept_spline_is_integrated_as_its_nurbs_twin() -> None:
     solid = _spline_prism()
-    assert _volume_integrand(solid) is not solid.wrapped
+    assert volume_integrand(solid) is not solid.wrapped
 
 
 def test_each_face_is_classified_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -73,5 +73,5 @@ def test_each_face_is_classified_once(monkeypatch: pytest.MonkeyPatch) -> None:
         return classify(face)
 
     monkeypatch.setattr(properties_module, "_sweeps_a_spline", counting)
-    assert _volume_integrand(solid) is not solid.wrapped
+    assert volume_integrand(solid) is not solid.wrapped
     assert len(seen) == len(solid.faces())

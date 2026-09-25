@@ -56,7 +56,7 @@ from OCP.TopoDS import TopoDS
 from OCP.TopTools import TopTools_IndexedDataMapOfShapeListOfShape
 
 from geometry.kernel.extrude import plane_point_to_world
-from geometry.kernel.properties import VOLUME_EPS
+from geometry.kernel.properties import VOLUME_EPS, volume_integrand
 from geometry.kernel.types import BodyShape
 from geometry.schemas import DEFAULT_ANGULAR_DEFLECTION
 
@@ -197,11 +197,15 @@ def _adaptive_area(face: Face) -> float:
 
 
 def _adaptive_volume(solid: Solid) -> float:
-    """Volume of *solid* by the adaptive GProp the inspector itself uses
-    (:data:`~geometry.kernel.properties.VOLUME_EPS`), so the guard and the
-    reported mass properties read a twisted body identically."""
+    """Volume of *solid* exactly as the reported mass properties read it: the
+    same integrand (:func:`~geometry.kernel.properties.volume_integrand`, which
+    swaps spline-swept faces for their exact NURBS twins) and the same adaptive
+    rule (:data:`~geometry.kernel.properties.VOLUME_EPS`), so the guard can
+    never pass a body the inspector then reads differently (review N1)."""
     props = GProp_GProps()
-    BRepGProp.VolumeProperties_s(solid.wrapped, props, VOLUME_EPS, False, False)
+    BRepGProp.VolumeProperties_s(
+        volume_integrand(solid), props, VOLUME_EPS, False, False
+    )
     return float(props.Mass())
 
 

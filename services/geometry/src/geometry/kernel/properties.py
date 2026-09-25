@@ -109,7 +109,7 @@ VOLUME_EPS = 1e-10
 
 
 #: Surface kinds the adaptive VOLUME integrator does not converge on when they
-#: sweep a spline (:func:`_volume_integrand`). Found by geometry QA
+#: sweep a spline (:func:`volume_integrand`). Found by geometry QA
 #: (docs/GEOMETRY-QA.md 2026-09-24, F1). The flanks of a PLAIN extrude of a
 #: sketch-spline profile are ``Geom_SurfaceOfLinearExtrusion`` over a B-spline.
 #: On the gear's spur twin (24 such gaps cut from a disc) the adaptive reading
@@ -124,7 +124,7 @@ _SWEPT_SURFACE_KINDS = frozenset(
     }
 )
 
-#: Basis curves whose swept surface IS converted (:func:`_volume_integrand`).
+#: Basis curves whose swept surface IS converted (:func:`volume_integrand`).
 #: Only a spline basis is: the extrusion or revolution of an ELLIPSE (or any
 #: other analytic conic) converges unconverted and comes out WORSE as a NURBS
 #: twin (review S3 of a0a70ec, measured: an ellipse prism 1.05e-5 -> 1.93e-5
@@ -145,7 +145,7 @@ def _sweeps_a_spline(face: Face) -> bool:
     return adaptor.BasisCurve().GetType() in _SPLINE_CURVE_KINDS
 
 
-def _volume_integrand(shape: BodyShape) -> object:
+def volume_integrand(shape: BodyShape) -> object:
     """The ``TopoDS_Shape`` whose volume integral is the body's volume.
 
     With no face that sweeps a spline (:func:`_sweeps_a_spline`) this is the
@@ -223,9 +223,9 @@ def measure_shape(
     # VOLUME_EPS measured the achieved accuracy against hand-derived analytic
     # values rather than against the integrator's opinion of itself.
     # Swept (extrusion/revolution) faces are integrated as their exact NURBS
-    # twins, which the adaptive rule does converge on (:func:`_volume_integrand`).
+    # twins, which the adaptive rule does converge on (:func:`volume_integrand`).
     BRepGProp.VolumeProperties_s(
-        _volume_integrand(shape), volume_props, VOLUME_EPS, False, False
+        volume_integrand(shape), volume_props, VOLUME_EPS, False, False
     )
     surface_props = GProp_GProps()
     BRepGProp.SurfaceProperties_s(shape.wrapped, surface_props)

@@ -44,6 +44,7 @@ from geometry.features.evaluate import reset_rebuild_cache
 from geometry.kernel import export_step_bytes, measure_shape
 from geometry.kernel.edges import enumerate_edges
 from geometry.kernel.imports import import_step_solid
+from geometry.kernel.properties import volume_integrand
 from geometry.kernel.step_assembly import read_step_assembly
 from geometry.main import app
 from loft_wire.assemblies import MateAxisRef
@@ -583,6 +584,31 @@ def test_a_sweep_that_comes_back_wrong_is_twist_failed(
     assert result.properties.volume == pytest.approx(
         math.pi * BLANK_R**2 * BLANK_H, abs=TWIST_TOL
     )
+
+
+def test_the_cavalieri_guard_reads_the_reported_volume_integrand(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review N1: the guard integrates the SAME shape the reported mass
+    properties do (properties.volume_integrand), so it cannot pass a body the
+    inspector reads differently."""
+    seen: list[object] = []
+    real = volume_integrand
+
+    def spy(shape: Any) -> object:
+        seen.append(shape)
+        return real(shape)
+
+    monkeypatch.setattr(twist_kernel, "volume_integrand", spy)
+    square = Face(
+        Wire.make_polygon(
+            [(-10, -10, 0), (10, -10, 0), (10, 10, 0), (-10, 10, 0)], close=True
+        )
+    )
+    twist_kernel.twisted_extrude_face(
+        square, Plane.XY, 30.0, False, 90.0, Point2D(x=0.0, y=0.0)
+    )
+    assert seen
 
 
 @pytest.mark.parametrize("twist", [3600.0, 3100.0, -3000.0, -3600.0])
