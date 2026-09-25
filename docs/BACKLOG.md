@@ -90,8 +90,6 @@ backlog this replaced (190 open items) is in git:
       fallback loses the arcs.
 - [ ] **Shelled revolve at a shallow angle**: a true offset, or OCCT's
       extension behaviour?
-- [ ] **Stop hook** (`scripts/loop-continue.sh`): keep auto-continuing the
-      orchestrator while "Now" has open items, or remove it?
 
 ## Notes
 
