@@ -119,42 +119,10 @@ of truth for what phase we're in.
   reaching the gateway ([`deploy-path.yml`](./.github/workflows/deploy-path.yml),
   i.e. `just compose-smoke`).
 
-**Known correctness gaps, filed and not yet fixed.** The
-[daily-driver scorecard](./docs/VISION.md#daily-driver-scorecard) is the
-source of truth for pillar-by-pillar status; these are the specific defects
-holding rows below ✅ as of this commit:
-
-- **Part modeling (➖)** — a feature reference into a body (e.g. a hole placed
-  on a face) does not reliably survive a *second* parameter edit to its own
-  generating sketch: the first edit re-anchors correctly, the second compares
-  against geometry that is already one edit stale and can orphan the
-  reference (`SUBSHAPE_UNRESOLVED`). The UI's advertised repair, "Re-pick
-  face," is currently inert on a tip that failed to build — there is no body
-  left to pick against. Tracked as `PICK-2` / `NAME-2` (both P0). Note the
-  sketch solver itself is **not** the gap here: an under-constrained solve
-  now holds the input geometry and a conflicting dimension edit is refused
-  (`SOLVE-1`, closed), which is why Sketching & constraints already rates ✅.
-- **Assemblies (❌)** — mate authoring can hit a face that is structurally
-  unreachable in the viewport: an ordinary bracket-to-plate mate was
-  unpickable across 11 camera orbits and 10 zoom levels because a same-size
-  proxy for a *different* face sits on top with no z-order tiebreak. Mate
-  solving itself is not the gap — 5 mate types, interference detection, and
-  assembly STEP round-trip all measure correct — the entry point is. Tracked
-  as `MATE-1` (P0).
-- **Sheet metal (❌)** — flat-pattern DXF export can ship **zero holes** for
-  a part that visibly has them (a bracket's 4 through-holes vanish in both
-  the on-screen flat-pattern view and the exported file) — a cut file that
-  silently omits every through-feature, not merely an incomplete one.
-  Separately, every exported DXF's `$INSUNITS` header declares **metres**,
-  not millimetres — a 1000x error for CAM/nesting software that honours the
-  field, and not limited to sheet metal: it hits the general Drawings DXF
-  export too. **Do not send an as-shipped DXF from this build to a
-  fabricator without manually verifying hole count and units.** Tracked as
-  `DXF-4` / `DXF-5` (both P0).
-
-Measured reproductions for all of the above are in
-[`docs/AUDIT-PRODUCT.md`](./docs/AUDIT-PRODUCT.md); live status and territory
-in [`docs/BACKLOG.md`](./docs/BACKLOG.md).
+**Known gaps.** The
+[daily-driver scorecard](./docs/VISION.md#daily-driver-scorecard) rates each
+area against Fusion 360, SolidWorks and Onshape, and
+[`docs/BACKLOG.md`](./docs/BACKLOG.md) lists what is being fixed next.
 
 ![The Loft viewport showing a bearing hub: a three-feature tree — sketch,
 revolve, fillet — and a turned flanged part with a through
@@ -183,9 +151,9 @@ _The constraint-solved sketcher, snapping to a line/rectangle intersection._
 
 ### Performance — where the wall is
 
-Measured, not estimated. Full method, tables and machine spec in
-[`docs/PERF.md`](./docs/PERF.md); every number below is from a 4-core
-container and carries ±8% run-to-run spread.
+Measured, not estimated: every number below is from a 4-core container and
+carries ±8% run-to-run spread (sizing advice:
+[`docs/OPERATIONS.md`](./docs/OPERATIONS.md)).
 
 A real machined bracket is 40–80 features; a real housing is 150–400.
 **Loft handles the bracket. It does not hold the housing.**
@@ -259,7 +227,7 @@ packages/contracts  Generated OpenAPI schemas (committed; CI fails on drift)
 packages/ts-client  Generated TypeScript client (never hand-edited)
 packages/design     Design tokens + primitives + fonts — one palette, two renderers
 deploy/             Dockerfiles (the three services + the web app) + compose assets
-docs/               VISION, RESEARCH, ROADMAP, BACKLOG, PERF, QA reports
+docs/               VISION, ROADMAP, BACKLOG, RESEARCH, QUICKSTART, OPERATIONS
 .claude/            The AI agent team: agents, skills, workflows
 ```
 
@@ -273,9 +241,9 @@ This project is developed by a team of specialized Claude Code agents —
 builders, independent reviewers and QA (including geometry-correctness QA with
 golden models), and direction roles — working off the repo's own roadmap and
 backlog, a workflow inherited from
-[Next-Lane](https://github.com/Overcastly-AI/Next-Lane). The org chart is in
-[`.claude/README.md`](./.claude/README.md) and the loop design in
-[`docs/AUTONOMOUS-LOOP.md`](./docs/AUTONOMOUS-LOOP.md).
+[Next-Lane](https://github.com/Overcastly-AI/Next-Lane). The team and its rules
+are in [`.claude/README.md`](./.claude/README.md) and
+[`CLAUDE.md`](./CLAUDE.md).
 
 Human contributions are welcome — see
 [`CONTRIBUTING.md`](./CONTRIBUTING.md).

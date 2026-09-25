@@ -22,8 +22,7 @@ CLAUDE.md is the project constitution.
 - [ ] UI change → composes `packages/design` primitives (no raw hex/styles),
       preserves test hooks, before/after screenshots attached
       (desktop + 1280×800)
-- [ ] `docs/ROADMAP.md` + `docs/BACKLOG.md` updated in this change if it
-      ships a feature/fix (stale docs are a defect — CLAUDE.md)
+- [ ] Docs made untrue by this change are fixed in it
 - [ ] No new GPL/AGPL dependencies; service boundaries respected (kernel
       imports only in `services/geometry`, web talks only to the gateway)
 
