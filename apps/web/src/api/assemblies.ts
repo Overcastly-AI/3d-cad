@@ -15,6 +15,7 @@ import {
 import { envelopeCode, envelopeMessage } from "./envelope";
 import {
   type ExportedFile,
+  ExportRefusedError,
   parseContentDispositionFilename,
 } from "./exportPart";
 // The dependency-409 reader lives with the parts API and is shared by all three
@@ -505,11 +506,12 @@ export async function exportAssembly(
     },
   );
   if (error !== undefined) {
-    throw new Error(
+    throw new ExportRefusedError(
       envelopeMessage(
         error,
         `The geometry service rejected the ${format.toUpperCase()} export`,
       ),
+      envelopeCode(error),
     );
   }
   if (data === undefined) {

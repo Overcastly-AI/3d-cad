@@ -9,6 +9,7 @@ import {
   StaleAssemblyVersionError,
   undoAssembly,
 } from "./assemblies";
+import { ExportRefusedError } from "./exportPart";
 
 /** A typed client whose transport is a canned response — no network. */
 function clientReturning(response: Response) {
@@ -232,6 +233,25 @@ describe("exportAssembly", () => {
       (e: unknown) => e,
     );
     expect((error as Error).message).toMatch(/no body to export/);
+  });
+
+  it("keeps the refusal's code, so the band can name the cure (MESH-TOO-DENSE-COPY-1)", async () => {
+    const client = clientReturning(
+      json(
+        {
+          error: {
+            code: "export_mesh_too_dense",
+            message: "This twisted body is too dense to export as 3MF.",
+          },
+        },
+        422,
+      ),
+    );
+    const error = await exportAssembly(evalRequest, "3mf", null, client).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(ExportRefusedError);
+    expect((error as ExportRefusedError).code).toBe("export_mesh_too_dense");
   });
 });
 
