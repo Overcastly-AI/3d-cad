@@ -114,10 +114,14 @@ export function computeBodies(
  * the tree applies a union whether or not it built, so a failed Combine would
  * drop a tool body the file still contains.
  *
- * `evaluated` is null before any evaluate result exists. Then the tree is all
- * there is, and the replay is the honest guess. A body whose feature is no
- * longer in the tree (a result from before a delete) has no row to name it and
- * is skipped until the next result.
+ * `evaluated` is the newest evaluate result's list for this part. While a
+ * newer result is pending (every edit re-keys the evaluate on the tree
+ * version), the caller passes the LAST one, not null, so a pending rebuild
+ * never brings the tree replay's ghost rows back. Null means no result has
+ * arrived for this part at all; then the tree is all there is, and the replay
+ * is the honest guess. A body whose feature is no longer in the tree (a result
+ * from before a delete) has no row to name it and is skipped until the next
+ * result.
  */
 export function partBodies(
   features: readonly FeatureResponse[],

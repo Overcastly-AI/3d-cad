@@ -152,5 +152,53 @@ test.describe("a failed extrude is not a body", () => {
     await expect(page.getByTestId("bodies-section")).toContainText(
       "Bodies · 1",
     );
+
+    // WHILE A NEW EVALUATE IS PENDING the panel keeps the last result's
+    // bodies (review S1 on c001220). The evaluate is keyed on the tree
+    // version, so after any edit there is no result for a moment; the panel
+    // used to fall back to the tree replay then, and the ghost row came back
+    // until the result landed. The edit is suppressing Extrude2, which the
+    // replay ignores. The evaluate is held so the window is long enough to
+    // see, and the row count is recorded EVERY FRAME: `toHaveCount` retries
+    // until it matches, so it would wait the ghost out rather than catch it.
+    let held = 0;
+    await page.route("**/api/v1/parts/*/evaluate", async (route) => {
+      held += 1;
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+      await route.continue();
+    });
+    await page.evaluate(() => {
+      const w = window as unknown as { __rows: string[] };
+      w.__rows = [];
+      const step = () => {
+        const n = document.querySelectorAll('[data-testid="body-row"]').length;
+        const status =
+          document.querySelector('[data-testid="eval-status"]')?.textContent ??
+          "";
+        const seen = `${n} row(s), ${status}`;
+        if (w.__rows.at(-1) !== seen) w.__rows.push(seen);
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+    await page.getByTestId("feature-suppress-3").click();
+    await expect.poll(() => held, { timeout: 15_000 }).toBeGreaterThan(0);
+    await expect(band).toHaveAttribute("data-export-state", "ready", {
+      timeout: 60_000,
+    });
+    await page.unroute("**/api/v1/parts/*/evaluate");
+    const seen = await page.evaluate(
+      () => (window as unknown as { __rows: string[] }).__rows,
+    );
+    // The window was really observed...
+    expect(
+      seen.some((s) => s.includes("Solving")),
+      seen.join(" | "),
+    ).toBe(true);
+    // ...and no frame in it showed more bodies than the file holds.
+    expect(
+      seen.filter((s) => !s.startsWith("1 row")),
+      `frames with a ghost body: ${seen.join(" | ")}`,
+    ).toEqual([]);
   });
 });

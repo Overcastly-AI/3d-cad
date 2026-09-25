@@ -66,6 +66,7 @@ import {
   renameFeature,
   type EdgeSignature,
   evaluatePart,
+  type EvaluateTreeResult,
   type ExtrudeParams,
   extrudeFeatureCreate,
   extrudeFeatureUpdate,
@@ -543,6 +544,9 @@ const COMMAND_LABEL: Record<OpenEditor["kind"], string> = {
  * a feature; every edit after that debounce-saves, re-evaluates, and the
  * solved positions are adopted back into the buffer.
  */
+/** An evaluate result with no `bodies` list: one stable empty list. */
+const NO_BODIES: NonNullable<EvaluateTreeResult["bodies"]> = [];
+
 export function PartPage() {
   const { partId } = partRoute.useParams();
   const queryClient = useQueryClient();
@@ -1598,13 +1602,37 @@ export function PartPage() {
   //
   // The evaluate result decides WHICH bodies exist (FAILED-EXTRUDE-BODIES-
   // GHOST-1): a failed extrude is not a body, and Export, which writes the same
-  // last-good state, already said so. The tree only names them, and is the
-  // stand-in until the first result arrives.
-  const evaluatedBodies = evaluation.data?.bodies;
-  const hasEvaluation = evaluation.data !== undefined;
+  // last-good state, already said so. The tree only names them.
+  //
+  // HELD ACROSS A PENDING EVALUATE (review S1 on c001220). The evaluate query
+  // is keyed on the tree version, so after every edit, undo or redo there is
+  // no result until the new one lands, and falling back to the tree replay
+  // then put the failed feature's ghost row back for the length of a rebuild.
+  // The last result for THIS part stands in; the replay is used only before
+  // any result for it has ever arrived. Held in state, set during render (the
+  // documented "adjust state when a prop changes" pattern), so the panel
+  // never renders a frame without it.
+  const [heldBodies, setHeldBodies] = useState<{
+    partId: string;
+    bodies: NonNullable<EvaluateTreeResult["bodies"]>;
+  } | null>(null);
+  // `NO_BODIES` rather than a fresh `[]`: a new array every render would
+  // never equal the held one, and the set-during-render below would loop.
+  const liveBodies =
+    evaluation.data === undefined
+      ? undefined
+      : (evaluation.data.bodies ?? NO_BODIES);
+  if (
+    liveBodies !== undefined &&
+    (heldBodies?.partId !== partId || heldBodies.bodies !== liveBodies)
+  ) {
+    setHeldBodies({ partId, bodies: liveBodies });
+  }
+  const evaluatedBodies =
+    liveBodies ?? (heldBodies?.partId === partId ? heldBodies.bodies : null);
   const bodies = useMemo(
-    () => partBodies(features, hasEvaluation ? (evaluatedBodies ?? []) : null),
-    [features, hasEvaluation, evaluatedBodies],
+    () => partBodies(features, evaluatedBodies),
+    [features, evaluatedBodies],
   );
   // Per-body lump count from the evaluate wire (§MB-4c): a disjoint-union /
   // multi-solid-import body reports `lumps > 1`, which the Bodies panel flags.
