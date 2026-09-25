@@ -26,14 +26,9 @@
 import { useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  BufferGeometry,
-  EdgesGeometry,
-  ExtrudeGeometry,
+  type BufferGeometry,
   LineBasicMaterial,
   MeshMatcapMaterial,
-  Path,
-  Shape,
-  Vector2,
 } from "three";
 
 import {
@@ -46,11 +41,10 @@ import type { SolvedSketchLayer } from "./SketchScene";
 import { twistGaugeTrack } from "./axisAnchorGauge";
 import { ExtrudeDragHandle } from "./ExtrudeDragHandle";
 import {
+  buildGhostRegion,
   extrudeGhostAppearance,
   extrudeGhostPose,
   twistArcSeat,
-  twistGhostSteps,
-  twistPositionsInPlace,
 } from "./extrudeGhost";
 import { ParametricGauge } from "./ParametricGauge";
 import { profileRegions } from "./profileLoops";
@@ -151,61 +145,17 @@ export function ExtrudePreview({
     edges: BufferGeometry[];
   }>(() => {
     if (depth <= 0) return { geometries: [], edges: [] };
-    const reverse = direction === "reverse";
-    const built = regions.map((region) => {
-      const shape = new Shape(region.outer.map((p) => new Vector2(p.x, p.y)));
-      shape.holes = region.holes.map(
-        (hole) => new Path(hole.map((p) => new Vector2(p.x, p.y))),
-      );
-      const geometry = new ExtrudeGeometry(shape, {
-        depth,
-        bevelEnabled: false,
-        // A twisted wall is cut into rings so each can turn; a straight one
-        // stays the single step it always was.
-        steps: twistGhostSteps(twist),
-      });
-      // ExtrudeGeometry sweeps toward local +Z (the plane normal). A reverse
-      // extrude sweeps toward −normal, so slide the solid back by its depth.
-      if (reverse) geometry.translate(0, 0, -depth);
-      // The ink is found on the STRAIGHT prism and then twisted with it. Found
-      // on the twisted mesh, every ring's triangle diagonal is a crease past
-      // the threshold (a thin ring across a wide wall folds ~45 degrees), and
-      // the ghost drew as a lattice instead of as the part's own edges.
-      const edge = new EdgesGeometry(geometry, 25);
-      if (twist !== 0) {
-        // THE GHOST TWISTS (helical-gear gap G1). Before this, a 90 degree
-        // twist previewed as a straight prism standing over the twisted body
-        // Save had produced: the picture contradicted the result.
-        const centre = { x: centreX, y: centreY };
-        const position = geometry.getAttribute("position");
-        const normal = geometry.getAttribute("normal");
-        // The mesh's normals turn WITH it, exactly (see the function's note on
-        // why they are not recomputed).
-        twistPositionsInPlace(
-          position.array as Float32Array,
-          depth,
-          twist,
-          centre,
-          reverse,
-          normal.array as Float32Array,
-        );
-        position.needsUpdate = true;
-        normal.needsUpdate = true;
-        const edgePosition = edge.getAttribute("position");
-        twistPositionsInPlace(
-          edgePosition.array as Float32Array,
-          depth,
-          twist,
-          centre,
-          reverse,
-        );
-        edgePosition.needsUpdate = true;
-      }
-      return { geometry, edge };
-    });
+    // The build (rings, a vertex budget, ink found on a one-step prism, the
+    // twist) is the pure seam in `extrudeGhost`, so its cost is a node test.
+    const built = regions.map((region) =>
+      buildGhostRegion(region, depth, direction, twist, {
+        x: centreX,
+        y: centreY,
+      }),
+    );
     return {
-      geometries: built.map((b) => b.geometry),
-      edges: built.map((b) => b.edge),
+      geometries: built.map((b) => b.mesh),
+      edges: built.map((b) => b.edges),
     };
   }, [regions, depth, direction, twist, centreX, centreY]);
 

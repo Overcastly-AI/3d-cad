@@ -24,7 +24,10 @@ import {
 import { twistGaugeTrack } from "./axisAnchorGauge";
 import {
   extrudeGhostAppearance,
+  buildGhostRegion,
   extrudeGhostPose,
+  GHOST_WALL_VERTEX_BUDGET,
+  ringEdgePositions,
   twistArcSeat,
   twistGhostSteps,
   twistPositionsInPlace,
@@ -273,10 +276,97 @@ describe("twistPositionsInPlace", () => {
   });
 
   it("cuts the walls into enough rings to read as a helix", () => {
-    expect(twistGhostSteps(0)).toBe(1);
-    expect(twistGhostSteps(1)).toBe(8);
-    expect(twistGhostSteps(-90)).toBe(18);
-    expect(twistGhostSteps(3600)).toBe(360);
+    // A rectangle: the budget never binds, 5 degrees a ring.
+    expect(twistGhostSteps(0, 4)).toBe(1);
+    expect(twistGhostSteps(1, 4)).toBe(8);
+    expect(twistGhostSteps(-90, 4)).toBe(18);
+    expect(twistGhostSteps(3600, 4)).toBe(360);
+  });
+});
+
+/**
+ * Review S1: the ghost rebuilds every 70 ms while the twist arc is dragged, and
+ * a 664-point gear outline at 360 rings was 1.44M vertices with 3.4 s of edge
+ * finding per rebuild. The mesh is now bounded by a vertex BUDGET, and the ink
+ * is found on a one-step prism, whatever the twist.
+ */
+describe("buildGhostRegion — bounded, whatever the outline and the twist", () => {
+  /** A gear-like outline: `n` points on a wavy circle (sharp enough corners). */
+  function gear(n: number): ProfileRegion {
+    const outer = Array.from({ length: n }, (_, i) => {
+      const a = (i / n) * 2 * Math.PI;
+      const r = i % 2 === 0 ? 30 : 27;
+      return { x: r * Math.cos(a), y: r * Math.sin(a) };
+    });
+    return { outer, holes: [] };
+  }
+
+  for (const n of [664, 4000]) {
+    it(`keeps a ${n}-point outline at 3600 degrees inside the budget`, () => {
+      const { mesh, edges } = buildGhostRegion(
+        gear(n),
+        20,
+        "normal",
+        3600,
+        null,
+      );
+      // Walls within the budget; the caps are the outline's own triangulation
+      // (two caps, n - 2 triangles each).
+      const caps = 2 * 3 * (n - 2);
+      const vertices = mesh.getAttribute("position").count;
+      expect(vertices).toBeLessThanOrEqual(GHOST_WALL_VERTEX_BUDGET + caps);
+      // The ink: two cap outlines, and each side edge split into the rings.
+      const steps = twistGhostSteps(3600, n);
+      const inkVertices = edges.getAttribute("position").count;
+      expect(inkVertices).toBeLessThanOrEqual(2 * (2 * n) + 2 * n * steps);
+      mesh.dispose();
+      edges.dispose();
+    });
+  }
+
+  it("still twists the ink with the walls: a side edge becomes a helix", () => {
+    const square: ProfileRegion = {
+      outer: [
+        { x: 0, y: 0 },
+        { x: 20, y: 0 },
+        { x: 20, y: 20 },
+        { x: 0, y: 20 },
+      ],
+      holes: [],
+    };
+    const { edges } = buildGhostRegion(square, 20, "normal", 90, null);
+    const p = edges.getAttribute("position").array as Float32Array;
+    // Every ink vertex at height z is the straight-prism vertex turned by
+    // 90 * z / 20 degrees, so its distance from the axis is one of the
+    // square's (20 or 20 * sqrt 2 or 0), and the far cap is turned a quarter.
+    let sawTop = false;
+    for (let i = 0; i < p.length; i += 3) {
+      const r = Math.hypot(p[i] as number, p[i + 1] as number);
+      expect([0, 20, 20 * Math.SQRT2].some((d) => Math.abs(r - d) < 1e-3)).toBe(
+        true,
+      );
+      if (Math.abs((p[i + 2] as number) - 20) < 1e-6 && r > 1) {
+        sawTop = true;
+        // (20, 0) -> (0, 20), (20, 20) -> (-20, 20): x <= 0 at the top.
+        expect(p[i] as number).toBeLessThan(1e-3);
+      }
+    }
+    expect(sawTop).toBe(true);
+    // Split into rings: far more than the 12 edges x 2 vertices of a box.
+    expect(p.length / 3).toBeGreaterThan(24);
+  });
+});
+
+describe("ringEdgePositions", () => {
+  it("splits a segment that spans the travel and passes a cap segment through", () => {
+    const out = ringEdgePositions(
+      new Float32Array([1, 2, 0, 1, 2, 10, 0, 0, 10, 5, 0, 10]),
+      4,
+    );
+    // 4 pieces of the side edge + the cap segment = 5 segments.
+    expect(out.length).toBe(5 * 6);
+    expect(Array.from(out.slice(0, 6))).toEqual([1, 2, 0, 1, 2, 2.5]);
+    expect(Array.from(out.slice(24))).toEqual([0, 0, 10, 5, 0, 10]);
   });
 });
 

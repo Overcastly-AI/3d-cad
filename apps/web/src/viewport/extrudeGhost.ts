@@ -18,9 +18,16 @@
 import { viewport } from "@loft/design/tokens";
 import {
   BackSide,
+  BufferGeometry,
+  EdgesGeometry,
+  ExtrudeGeometry,
+  Float32BufferAttribute,
   FrontSide,
   Matrix4,
+  Path,
   Quaternion,
+  Shape,
+  Vector2,
   Vector3,
   type Side,
 } from "three";
@@ -112,23 +119,161 @@ export function extrudeGhostPose(basis: PlaneBasis): ExtrudeGhostPose {
  * Degrees of twist per ghost STEP. `ExtrudeGeometry` builds a straight prism in
  * one step; a twisted one needs its walls cut into rings so each ring can turn,
  * and 5 degrees a ring keeps a tooth flank reading as a helix rather than a
- * staircase. Floored so a small twist still bends visibly, capped so a
- * ten-turn twist does not build a quarter-million-vertex ghost.
+ * staircase. Floored so a small twist still bends visibly.
  */
 export const TWIST_DEG_PER_STEP = 5;
 const MIN_TWIST_STEPS = 8;
 const MAX_TWIST_STEPS = 360;
 
-/** How many rings the ghost's walls are cut into for a `twistDeg` twist. */
-export function twistGhostSteps(twistDeg: number): number {
+/**
+ * The most WALL vertices a twisted ghost may carry. Rings multiply the walls,
+ * and the ghost rebuilds every 70 ms while the arc is dragged: review S1
+ * measured a 664-point gear outline at 360 rings as 1.44M vertices and 3.4 s
+ * of edge-finding per rebuild. The budget bounds the rings by the outline
+ * instead of the angle alone (a 664-point outline gets 37 rings; a rectangle
+ * still gets the full 5 degrees a ring). A coarser helix on a ten-turn,
+ * many-toothed preview is the right trade; a frozen viewport is not.
+ */
+export const GHOST_WALL_VERTEX_BUDGET = 150_000;
+
+/** Vertices one ring of wall costs: two triangles per outline edge. */
+const WALL_VERTICES_PER_EDGE = 6;
+
+/**
+ * How many rings the ghost's walls are cut into for a `twistDeg` twist of an
+ * outline with `outlineVertexCount` points (outer loop plus holes).
+ */
+export function twistGhostSteps(
+  twistDeg: number,
+  outlineVertexCount: number,
+): number {
   if (twistDeg === 0) return 1;
-  return Math.min(
+  const wanted = Math.min(
     MAX_TWIST_STEPS,
     Math.max(
       MIN_TWIST_STEPS,
       Math.ceil(Math.abs(twistDeg) / TWIST_DEG_PER_STEP),
     ),
   );
+  const affordable = Math.floor(
+    GHOST_WALL_VERTEX_BUDGET /
+      Math.max(1, outlineVertexCount * WALL_VERTICES_PER_EDGE),
+  );
+  return Math.max(1, Math.min(wanted, affordable));
+}
+
+/**
+ * Cut every segment that SPANS the travel (a straight prism's side edges run
+ * from z = 0 to z = +/-depth) into `steps` pieces, so the twist can bend it
+ * into a helix; segments within one z (the cap outlines) pass through. Exact
+ * on a straight prism, where a side edge is a straight line in z.
+ */
+export function ringEdgePositions(
+  segments: Float32Array,
+  steps: number,
+): Float32Array {
+  if (steps <= 1) return segments;
+  const out: number[] = [];
+  for (let i = 0; i + 5 < segments.length; i += 6) {
+    const a = [segments[i], segments[i + 1], segments[i + 2]] as number[];
+    const b = [segments[i + 3], segments[i + 4], segments[i + 5]] as number[];
+    if (Math.abs((a[2] as number) - (b[2] as number)) < 1e-9) {
+      out.push(...a, ...b);
+      continue;
+    }
+    for (let k = 0; k < steps; k += 1) {
+      for (const t of [k / steps, (k + 1) / steps]) {
+        out.push(
+          (a[0] as number) + ((b[0] as number) - (a[0] as number)) * t,
+          (a[1] as number) + ((b[1] as number) - (a[1] as number)) * t,
+          (a[2] as number) + ((b[2] as number) - (a[2] as number)) * t,
+        );
+      }
+    }
+  }
+  return new Float32Array(out);
+}
+
+/** One region's ghost: the swept mesh and the ink over it. */
+export interface GhostRegionGeometry {
+  mesh: BufferGeometry;
+  edges: BufferGeometry;
+}
+
+/**
+ * Build one region's ghost, in local plane space (see {@link extrudeGhostPose}):
+ * the prism swept `depthMm` along +z (or -z for a reverse extrude), cut into
+ * rings and twisted when `twistDeg` is not 0.
+ *
+ * THE INK IS FOUND ON A ONE-STEP PRISM. Found on the ringed mesh, every ring's
+ * triangle diagonal is a crease past the threshold (a lattice), and edge-finding
+ * over a ringed mesh is the cost review S1 measured; on the one-step prism it
+ * is the outline's size, and the side edges are then split into the same rings
+ * ({@link ringEdgePositions}) so they bend with the walls.
+ */
+export function buildGhostRegion(
+  region: ProfileRegion,
+  depthMm: number,
+  direction: ExtrudeDirection,
+  twistDeg: number,
+  centre: { x: number; y: number } | null,
+): GhostRegionGeometry {
+  const reverse = direction === "reverse";
+  const shape = new Shape(region.outer.map((p) => new Vector2(p.x, p.y)));
+  shape.holes = region.holes.map(
+    (hole) => new Path(hole.map((p) => new Vector2(p.x, p.y))),
+  );
+  const outlineVertexCount =
+    region.outer.length +
+    region.holes.reduce((sum, hole) => sum + hole.length, 0);
+  const steps = twistGhostSteps(twistDeg, outlineVertexCount);
+  const build = (s: number): ExtrudeGeometry => {
+    const geometry = new ExtrudeGeometry(shape, {
+      depth: depthMm,
+      bevelEnabled: false,
+      steps: s,
+    });
+    // ExtrudeGeometry sweeps toward local +Z (the plane normal). A reverse
+    // extrude sweeps toward -normal, so slide the solid back by its depth.
+    if (reverse) geometry.translate(0, 0, -depthMm);
+    return geometry;
+  };
+  const mesh = build(steps);
+  const prism = steps === 1 ? mesh : build(1);
+  const found = new EdgesGeometry(prism, 25);
+  if (prism !== mesh) prism.dispose();
+  const edgePositions = ringEdgePositions(
+    found.getAttribute("position").array as Float32Array,
+    steps,
+  );
+  const edges =
+    steps === 1
+      ? found
+      : new BufferGeometry().setAttribute(
+          "position",
+          new Float32BufferAttribute(edgePositions, 3),
+        );
+  if (edges !== found) found.dispose();
+  if (twistDeg !== 0) {
+    // THE GHOST TWISTS (helical-gear gap G1): the picture must not contradict
+    // the twisted body Save produces. Normals turn WITH the mesh, exactly.
+    twistPositionsInPlace(
+      mesh.getAttribute("position").array as Float32Array,
+      depthMm,
+      twistDeg,
+      centre,
+      reverse,
+      mesh.getAttribute("normal").array as Float32Array,
+    );
+    twistPositionsInPlace(
+      edges.getAttribute("position").array as Float32Array,
+      depthMm,
+      twistDeg,
+      centre,
+      reverse,
+    );
+  }
+  return { mesh, edges };
 }
 
 /**
