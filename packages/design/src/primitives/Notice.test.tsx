@@ -49,4 +49,32 @@ describe("Notice", () => {
     expect(sentence?.className).toContain("col-span-2");
     expect(dismiss?.className).toContain("row-start-1");
   });
+
+  it("offers the ONE action that answers it, before Dismiss", () => {
+    // A notice that names a fix and makes the reader hunt for it is half a
+    // notice (EDGE-RESOLVE-WARN-1: "re-pick them").
+    const onAction = vi.fn();
+    render(
+      <Notice
+        role="status"
+        label="Edge moved"
+        layout="stacked"
+        action={{ label: "Re-pick edges", onClick: onAction, testId: "act" }}
+        onDismiss={() => {}}
+      >
+        Sentence.
+      </Notice>,
+    );
+    const notice = screen.getByRole("status");
+    expect(notice.textContent).toBe("Edge movedSentence.Re-pick edgesDismiss");
+    // Stacked, the action is the line under the sentence (a narrow tree row
+    // cannot hold stamp, action and Dismiss on one line); Dismiss keeps the
+    // top-right corner.
+    const [, , act, dismiss] = Array.from(notice.children);
+    expect(act?.className).toContain("row-start-3");
+    expect(dismiss?.className).toContain("row-start-1");
+    fireEvent.click(screen.getByRole("button", { name: "Re-pick edges" }));
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("act")).toHaveAccessibleName("Re-pick edges");
+  });
 });

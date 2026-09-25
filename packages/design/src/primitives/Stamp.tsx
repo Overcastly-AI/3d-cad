@@ -50,7 +50,7 @@ export function Stamp({
     <span
       data-stamp={indeterminate ? "indeterminate" : tone}
       className={cx(
-        "inline-block shrink-0 rounded-sm border px-1 font-display text-2xs uppercase tracking-[0.14em]",
+        "inline-block shrink-0 whitespace-nowrap rounded-sm border px-1 font-display text-2xs uppercase tracking-[0.14em]",
         indeterminate
           ? "border-dashed border-etch text-gauge"
           : tone === "flag"
