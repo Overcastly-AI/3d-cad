@@ -223,6 +223,7 @@ import {
   type LoftForm,
 } from "../features/loft";
 import { partBodies } from "../features/bodies";
+import { movedEdgeWarning } from "../features/subshapeResolution";
 import {
   bodyMaterialRows,
   withBodyMaterial,
@@ -2133,10 +2134,23 @@ export function PartPage() {
   const setEdgeOverlay = useEdgePickStore((s) => s.setOverlay);
   const setEdgeOverlayError = useEdgePickStore((s) => s.setOverlayError);
 
+  // WHICH BODY THE EDGES COME FROM. Creating, it is the tip (the shared overlay
+  // entry). EDITING, it is the body the feature under edit is BUILT ON, the
+  // same body its picked edges resolve against. The tip is wrong there: it
+  // already carries this feature, so the edge a fillet rounds is not in it,
+  // and a re-pick of a moved edge (EDGE-RESOLVE-WARN-1) had nothing to click.
   const edgeOverlayQuery = useQuery({
-    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryKey:
+      editingFeatureId === null
+        ? ["overlay", partId, treeVersion, meshGlbId]
+        : ["overlay-before", partId, treeVersion, editingFeatureId],
     queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+      fetchOverlay(
+        buildEvaluateTree(
+          tree.data as FeatureTreeResponse,
+          editingFeatureId ?? undefined,
+        ),
+      ),
     enabled: edgePicking && tree.data !== undefined && meshGlbId !== null,
     staleTime: Infinity,
     retry: false,
@@ -3315,6 +3329,50 @@ export function PartPage() {
     [selectFeature, holePickRefusal],
   );
 
+  // "EDGE MOVED" (EDGE-RESOLVE-WARN-1). A feature whose picked edge the kernel
+  // re-found only by adjacency carries a notice in the tree and in its editor
+  // (`features/subshapeResolution`). Re-picking opens the feature's editor
+  // with the moved picks dropped and picking armed, on the body the feature is
+  // built on (see the edge overlay query). The session effect above does the
+  // dropping once it has seeded the picks, so the pending id is handed to it.
+  const pendingRepick = useRef<string | null>(null);
+  const repickEdges = useCallback(
+    (feature: FeatureResponse) => {
+      if (
+        editor !== null &&
+        editor.mode === "edit" &&
+        editor.featureId === feature.id
+      ) {
+        useEdgePickStore.getState().repickMoved();
+        return;
+      }
+      pendingRepick.current = feature.id;
+      selectFeature(feature);
+    },
+    [editor, selectFeature],
+  );
+  // The OPEN editor's notice: the same derivation the tree row uses, for the
+  // feature under edit. Not dismissable there: the editor is the answer.
+  const editorMovedEdge = useMemo(() => {
+    if (editor === null || editor.mode !== "edit" || !editor.featureId) {
+      return null;
+    }
+    const feature = features.find((f) => f.id === editor.featureId);
+    if (feature === undefined) return null;
+    const result = evaluation.data?.features.find(
+      (r) => r.feature_id === feature.id,
+    );
+    return movedEdgeWarning(feature, features, result);
+  }, [editor, features, evaluation.data]);
+  // Dismissed notices, by `MovedEdgeWarning.key`: session state, remembered
+  // until an EARLIER feature changes (a new re-match brings it back).
+  const [dismissedMovedEdges, setDismissedMovedEdges] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const dismissMovedEdge = useCallback((key: string) => {
+    setDismissedMovedEdges((previous) => new Set(previous).add(key));
+  }, []);
+
   const closeEditor = useCallback(() => {
     setEditor(null);
     setEditorError(null);
@@ -3362,6 +3420,14 @@ export function PartPage() {
   // never churns mid-edit. The overlay fetch + render gate on the store.
   useEffect(() => {
     const store = useEdgePickStore.getState();
+    // A re-pick asked for from the tree ("Edge moved") opened THIS editor: it
+    // drops the moved picks once the session has been seeded (below).
+    const repick =
+      editor !== null &&
+      editor.mode === "edit" &&
+      editor.featureId !== undefined &&
+      editor.featureId === pendingRepick.current;
+    pendingRepick.current = null;
     if (
       editor !== null &&
       (editor.kind === "fillet" || editor.kind === "chamfer")
@@ -3376,7 +3442,9 @@ export function PartPage() {
       store.open(editor.initialPicked, true, true);
     } else {
       store.close();
+      return;
     }
+    if (repick) store.repickMoved();
   }, [editor]);
   // Leaving the workspace tears the edge-pick session down.
   useEffect(() => () => useEdgePickStore.getState().close(), []);
@@ -5524,6 +5592,7 @@ export function PartPage() {
                     ) : editor.kind === "fillet" ? (
                       <FilletEditor
                         mode={editor.mode}
+                        movedEdge={editorMovedEdge}
                         initial={editor.initial}
                         bodyFeatureId={pickAnchorFeatureId}
                         onSubmit={submitFillet}
@@ -5536,6 +5605,7 @@ export function PartPage() {
                     ) : editor.kind === "chamfer" ? (
                       <ChamferEditor
                         mode={editor.mode}
+                        movedEdge={editorMovedEdge}
                         initial={editor.initial}
                         bodyFeatureId={pickAnchorFeatureId}
                         onSubmit={submitChamfer}
@@ -5607,6 +5677,7 @@ export function PartPage() {
                     ) : editor.kind === "edgeFlange" ? (
                       <EdgeFlangeEditor
                         mode={editor.mode}
+                        movedEdge={editorMovedEdge}
                         initial={editor.initial}
                         bodyFeatureId={pickAnchorFeatureId}
                         defaults={smDefaults}
@@ -5619,6 +5690,7 @@ export function PartPage() {
                     ) : editor.kind === "hem" ? (
                       <HemEditor
                         mode={editor.mode}
+                        movedEdge={editorMovedEdge}
                         initial={editor.initial}
                         bodyFeatureId={pickAnchorFeatureId}
                         defaults={smDefaults}
@@ -6080,6 +6152,9 @@ export function PartPage() {
                     onKeepAsOneBody={keepAsOneBody}
                     recoveringDisjoint={disjointRecovering}
                     onRepickFace={repickFace}
+                    onRepickEdges={repickEdges}
+                    dismissedWarnings={dismissedMovedEdges}
+                    onDismissWarning={dismissMovedEdge}
                     onToggleSuppress={toggleSuppress}
                     suppressingId={suppressingId}
                     onRowContextMenu={openTreeMenu}

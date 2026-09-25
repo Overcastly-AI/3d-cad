@@ -67,6 +67,19 @@ describe("buildEvaluateTree", () => {
     expect(tree.linear_deflection).toBeGreaterThan(0);
     expect(tree.features.map((f) => f.id)).toEqual(["a", "b"]);
   });
+
+  it("stops BEFORE a feature, for picking on the body that feature is built on", () => {
+    // EDGE-RESOLVE-WARN-1: an edge a fillet rounds is not an edge of the tip
+    // body any more, so re-picking it has to happen on the body before it.
+    const before = buildEvaluateTree(TREE, "b");
+    expect(before.features.map((f) => f.id)).toEqual(["a"]);
+    expect(before.tree_version).toBe(7);
+    // An id that is not in the tree changes nothing.
+    expect(buildEvaluateTree(TREE, "zzz").features.map((f) => f.id)).toEqual([
+      "a",
+      "b",
+    ]);
+  });
 });
 
 describe("occtToScene", () => {

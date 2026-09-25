@@ -71,6 +71,8 @@ import {
 } from "../features/sheetMetal";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import { EditorCard } from "./EditorCard";
+import type { MovedEdgeWarning } from "../features/subshapeResolution";
+import { MovedEdgeNotice } from "./MovedEdgeNotice";
 
 /** The two hem shapes this fold can build, in the SegmentedControl's order. */
 const HEM_TYPES: readonly {
@@ -98,9 +100,16 @@ export interface HemEditorProps {
   onCancel: () => void;
   saving: boolean;
   error: string | null;
+  /**
+   * "Edge moved" (EDGE-RESOLVE-WARN-1): this feature's picked edge was
+   * re-found only by adjacency on its last rebuild. Shown at the top of the
+   * card with the re-pick action; null (or absent) says nothing.
+   */
+  movedEdge?: MovedEdgeWarning | null;
 }
 
 export function HemEditor({
+  movedEdge = null,
   mode,
   initial,
   bodyFeatureId,
@@ -234,6 +243,14 @@ export function HemEditor({
           footer sits under (the footer draws `border-t-0`, exactly as
           `HoleEditor`'s does), so the card still reads as one ruled block. */}
       <Panel aria-label="Hem" data-testid="hem-editor">
+        {movedEdge !== null ? (
+          <MovedEdgeNotice
+            warning={movedEdge}
+            onRepick={() => useEdgePickStore.getState().repickMoved()}
+            data-testid="edge-resolution-notice"
+            repickTestId="edge-resolution-repick"
+          />
+        ) : null}
         <div>
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
             {mode === "create" ? "New hem" : "Edit hem"}

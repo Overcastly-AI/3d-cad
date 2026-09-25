@@ -38,6 +38,8 @@ import {
 } from "../features/modify";
 import { EditorCard } from "./EditorCard";
 import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
+import type { MovedEdgeWarning } from "../features/subshapeResolution";
+import { MovedEdgeNotice } from "./MovedEdgeNotice";
 
 export interface FilletEditorProps {
   mode: "create" | "edit";
@@ -70,9 +72,16 @@ export interface FilletEditorProps {
    * value, flowing out to the scene as `onChange` flows in from it.
    */
   onPreviewChange?: (mm: number | null) => void;
+  /**
+   * "Edge moved" (EDGE-RESOLVE-WARN-1): this feature's picked edge was
+   * re-found only by adjacency on its last rebuild. Shown at the top of the
+   * card with the re-pick action; null (or absent) says nothing.
+   */
+  movedEdge?: MovedEdgeWarning | null;
 }
 
 export function FilletEditor({
+  movedEdge = null,
   mode,
   initial,
   bodyFeatureId,
@@ -204,6 +213,14 @@ export function FilletEditor({
       }
     >
       <Panel aria-label="Fillet" data-testid="fillet-editor">
+        {movedEdge !== null ? (
+          <MovedEdgeNotice
+            warning={movedEdge}
+            onRepick={() => useEdgePickStore.getState().repickMoved()}
+            data-testid="edge-resolution-notice"
+            repickTestId="edge-resolution-repick"
+          />
+        ) : null}
         <div>
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
             {mode === "create" ? "New fillet" : "Edit fillet"}

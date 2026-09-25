@@ -32,14 +32,24 @@ export type MeasurePick =
  */
 export function buildEvaluateTree(
   tree: FeatureTreeResponse,
+  /**
+   * Stop BEFORE this feature: the body it is built on, which is the body its
+   * picked references resolve against. An edge a fillet rounds is not an edge
+   * of the tip, so an edge re-pick while editing has to come from here
+   * (EDGE-RESOLVE-WARN-1). An id not in the tree stops nowhere.
+   */
+  beforeFeatureId?: string,
 ): EvaluateTreeRequest {
+  const live = tree.features.filter((feature) => !feature.rolled_back);
+  const stop = live.findIndex((feature) => feature.id === beforeFeatureId);
   return {
     part_id: tree.part_id,
     tree_version: tree.tree_version,
     linear_deflection: MESH_LINEAR_DEFLECTION_MM,
-    features: tree.features
-      .filter((feature) => !feature.rolled_back)
-      .map((feature) => ({ id: feature.id, feature: feature.feature })),
+    features: (stop < 0 ? live : live.slice(0, stop)).map((feature) => ({
+      id: feature.id,
+      feature: feature.feature,
+    })),
   };
 }
 

@@ -14,7 +14,7 @@ import { create } from "zustand";
 
 import type { OverlayResult } from "../api/measure";
 import type { EdgeSignature } from "../api/parts";
-import { isEdgePicked, toggleEdge } from "./edge";
+import { edgeSignatureKey, isEdgePicked, toggleEdge } from "./edge";
 
 export interface EdgePickState {
   /** A fillet/chamfer editor is open (create or edit). */
@@ -37,6 +37,11 @@ export interface EdgePickState {
   picked: EdgeSignature[];
   /** Overlay edge index under the pointer / focus, or null. */
   hoverEdge: number | null;
+  /**
+   * A re-pick is waiting for the body's edges (`repickMoved` before the
+   * overlay arrived): the next `setOverlay` drops the moved picks, once.
+   */
+  pruneOnOverlay: boolean;
 
   /** Open a fresh pick session, seeding it (edit → persisted refs; create → []). */
   open: (
@@ -54,6 +59,13 @@ export interface EdgePickState {
   toggle: (signature: EdgeSignature) => void;
   /** Drop every pick (the editor's Clear action). */
   clearPicks: () => void;
+  /**
+   * RE-PICK THE MOVED EDGES (EDGE-RESOLVE-WARN-1): arm picking and drop every
+   * pick that is no longer an edge of the body being picked on. Those are the
+   * ones the kernel re-found by adjacency; the rest still name real edges and
+   * stay. Waits for the overlay when it has not arrived yet.
+   */
+  repickMoved: () => void;
   setHoverEdge: (index: number | null) => void;
 }
 
@@ -65,6 +77,7 @@ export const useEdgePickStore = create<EdgePickState>((set) => ({
   overlayError: null,
   picked: [],
   hoverEdge: null,
+  pruneOnOverlay: false,
 
   open: (picked, picking, singleSelect = false) =>
     set({
@@ -75,6 +88,7 @@ export const useEdgePickStore = create<EdgePickState>((set) => ({
       overlay: null,
       overlayError: null,
       hoverEdge: null,
+      pruneOnOverlay: false,
     }),
   close: () =>
     set({
@@ -85,9 +99,20 @@ export const useEdgePickStore = create<EdgePickState>((set) => ({
       overlayError: null,
       picked: [],
       hoverEdge: null,
+      pruneOnOverlay: false,
     }),
   setPicking: (picking) => set({ picking, hoverEdge: null }),
-  setOverlay: (overlay) => set({ overlay, overlayError: null }),
+  setOverlay: (overlay) =>
+    set((state) =>
+      state.pruneOnOverlay && overlay !== null
+        ? {
+            overlay,
+            overlayError: null,
+            pruneOnOverlay: false,
+            picked: stillOnBody(state.picked, overlay),
+          }
+        : { overlay, overlayError: null },
+    ),
   setOverlayError: (overlayError) => set({ overlayError }),
   toggle: (signature) =>
     set((state) => ({
@@ -100,5 +125,26 @@ export const useEdgePickStore = create<EdgePickState>((set) => ({
         : toggleEdge(state.picked, signature),
     })),
   clearPicks: () => set({ picked: [] }),
+  repickMoved: () =>
+    set((state) =>
+      state.overlay === null
+        ? { picking: true, pruneOnOverlay: true }
+        : {
+            picking: true,
+            pruneOnOverlay: false,
+            picked: stillOnBody(state.picked, state.overlay),
+          },
+    ),
   setHoverEdge: (hoverEdge) => set({ hoverEdge }),
 }));
+
+/** The picks that are still edges of `overlay`'s body, in pick order. */
+function stillOnBody(
+  picked: readonly EdgeSignature[],
+  overlay: OverlayResult,
+): EdgeSignature[] {
+  const onBody = new Set(
+    overlay.edges.map((edge) => edgeSignatureKey(edge.signature)),
+  );
+  return picked.filter((signature) => onBody.has(edgeSignatureKey(signature)));
+}

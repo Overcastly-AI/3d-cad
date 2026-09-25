@@ -67,6 +67,8 @@ import {
   solveSummary,
 } from "../features/partBuild";
 import { barSlotIndex } from "../features/rollback";
+import { movedEdgeWarning } from "../features/subshapeResolution";
+import { MovedEdgeNotice } from "./MovedEdgeNotice";
 import {
   entityIsDrawn,
   ORIGIN_AXES,
@@ -113,6 +115,16 @@ export interface FeatureTreePanelProps {
    * selection for this feature so the user can re-attach the lost reference.
    * Absent = no repair offered (e.g. the assembly reuse). */
   onRepickFace?: (feature: FeatureResponse) => void;
+  /**
+   * Re-pick a feature's MOVED edges (EDGE-RESOLVE-WARN-1): open its editor
+   * with the picks the body no longer has dropped and picking armed. Absent =
+   * no "Edge moved" notice at all (e.g. the assembly reuse, which cannot edit).
+   */
+  onRepickEdges?: (feature: FeatureResponse) => void;
+  /** "Edge moved" notices the user dismissed, by `MovedEdgeWarning.key`. */
+  dismissedWarnings?: ReadonlySet<string>;
+  /** Dismiss one "Edge moved" notice (remembered against its key). */
+  onDismissWarning?: (key: string) => void;
   /** Toggle a feature's suppress flag (feature-tree.md §4.3a): a suppressed
    * feature is skipped at rebuild but stays in the tree (reversible). */
   onToggleSuppress: (feature: FeatureResponse) => void;
@@ -207,6 +219,9 @@ export function FeatureTreePanel({
   onKeepAsOneBody,
   recoveringDisjoint = false,
   onRepickFace,
+  onRepickEdges,
+  dismissedWarnings,
+  onDismissWarning,
   onToggleSuppress,
   suppressingId = null,
   onRowContextMenu,
@@ -519,6 +534,15 @@ export function FeatureTreePanel({
                   status === "skipped" && !suppressed && !rolledBack
                     ? (build.failure?.id ?? null)
                     : null;
+                // A picked edge the kernel re-found only by adjacency. The row
+                // stays OK (it built); the notice under it asks for a look.
+                const moved =
+                  onRepickEdges !== undefined && !rolledBack
+                    ? movedEdgeWarning(feature, features, result)
+                    : null;
+                const showMoved =
+                  moved !== null &&
+                  !(dismissedWarnings?.has(moved.key) ?? false);
                 return (
                   <FeatureRowGroup key={feature.id}>
                     {/* THE SEAT. A 2px scribe line where the dragged row would
@@ -809,6 +833,20 @@ export function FeatureTreePanel({
                             {REPICK_FACE_ACTION}
                           </Button>
                         ) : null}
+                      </li>
+                    ) : null}
+                    {showMoved && moved !== null && onRepickEdges ? (
+                      <li className="py-1 pr-3 pl-[26px]">
+                        <MovedEdgeNotice
+                          warning={moved}
+                          onRepick={() => onRepickEdges(feature)}
+                          {...(onDismissWarning !== undefined
+                            ? { onDismiss: () => onDismissWarning(moved.key) }
+                            : {})}
+                          data-testid={`feature-resolution-${index}`}
+                          repickTestId={`feature-repick-edges-${index}`}
+                          dismissTestId={`feature-resolution-dismiss-${index}`}
+                        />
                       </li>
                     ) : null}
                     {/* The casualty list, stated ONCE where the build stopped:

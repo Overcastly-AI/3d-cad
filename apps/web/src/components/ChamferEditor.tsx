@@ -30,6 +30,8 @@ import {
 } from "../features/modify";
 import { EditorCard } from "./EditorCard";
 import { gaugeWrite, useGaugeFedForm } from "./useGaugeFedForm";
+import type { MovedEdgeWarning } from "../features/subshapeResolution";
+import { MovedEdgeNotice } from "./MovedEdgeNotice";
 
 export interface ChamferEditorProps {
   mode: "create" | "edit";
@@ -59,9 +61,16 @@ export interface ChamferEditorProps {
    * field does not parse. Feeds the viewport's bevel-band preview.
    */
   onPreviewChange?: (mm: number | null) => void;
+  /**
+   * "Edge moved" (EDGE-RESOLVE-WARN-1): this feature's picked edge was
+   * re-found only by adjacency on its last rebuild. Shown at the top of the
+   * card with the re-pick action; null (or absent) says nothing.
+   */
+  movedEdge?: MovedEdgeWarning | null;
 }
 
 export function ChamferEditor({
+  movedEdge = null,
   mode,
   initial,
   bodyFeatureId,
@@ -193,6 +202,14 @@ export function ChamferEditor({
       }
     >
       <Panel aria-label="Chamfer" data-testid="chamfer-editor">
+        {movedEdge !== null ? (
+          <MovedEdgeNotice
+            warning={movedEdge}
+            onRepick={() => useEdgePickStore.getState().repickMoved()}
+            data-testid="edge-resolution-notice"
+            repickTestId="edge-resolution-repick"
+          />
+        ) : null}
         <div>
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
             {mode === "create" ? "New chamfer" : "Edit chamfer"}
