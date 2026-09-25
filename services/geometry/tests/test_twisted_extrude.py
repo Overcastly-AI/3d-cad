@@ -35,16 +35,20 @@ from typing import Any
 
 import geometry.kernel.twist as twist_kernel
 import pytest
-from build123d import Solid
+from build123d import Face, Plane, Solid, Wire
 from fastapi.testclient import TestClient
 from geometry.assembly.protocol import ResolvedAxis
 from geometry.assembly.resolve import resolve_mate_geometry
 from geometry.features import evaluate_tree
 from geometry.features.evaluate import reset_rebuild_cache
+from geometry.kernel import export_step_bytes, measure_shape
 from geometry.kernel.edges import enumerate_edges
+from geometry.kernel.imports import import_step_solid
+from geometry.kernel.step_assembly import read_step_assembly
 from geometry.main import app
 from loft_wire.assemblies import MateAxisRef
 from loft_wire.features import EvaluateTreeRequest, EvaluateTreeResult
+from loft_wire.sketch import Point2D
 
 client = TestClient(app)
 
@@ -579,6 +583,29 @@ def test_a_sweep_that_comes_back_wrong_is_twist_failed(
     assert result.properties.volume == pytest.approx(
         math.pi * BLANK_R**2 * BLANK_H, abs=TWIST_TOL
     )
+
+
+@pytest.mark.parametrize("twist", [3600.0, 3100.0, -3000.0, -3600.0])
+def test_a_reoriented_sweep_survives_a_step_round_trip(twist: float) -> None:
+    """Review B1 of da457ef: the three sweeps OCCT returns inside out (+3600,
+    +3100, -3000; -3600 is the control that never was) re-import from STEP
+    with +A*d, through BOTH readers. The file was always right, face for
+    face; OCCT's reader turned it inside out on re-import because its
+    infinite-point classification fails on a many-turn helicoid. Before the
+    fix: -12000 mm^3 on the first three."""
+    square = Face(
+        Wire.make_polygon(
+            [(-10, -10, 0), (10, -10, 0), (10, 10, 0), (-10, 10, 0)], close=True
+        )
+    )
+    tool = twist_kernel.twisted_extrude_face(
+        square, Plane.XY, 30.0, False, twist, Point2D(x=0.0, y=0.0)
+    )
+    step = export_step_bytes(tool).decode()
+    single = import_step_solid(step)
+    assert measure_shape(single).volume == pytest.approx(12000.0, abs=TWIST_TOL)
+    [product] = read_step_assembly(step).products
+    assert measure_shape(product.body).volume == pytest.approx(12000.0, abs=TWIST_TOL)
 
 
 @pytest.mark.parametrize(

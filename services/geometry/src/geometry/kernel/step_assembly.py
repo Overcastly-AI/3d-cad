@@ -83,13 +83,14 @@ from build123d import Solid
 from loft_wire.step_import import MAX_IMPORT_ASSEMBLY_PRODUCTS
 from OCP.TopAbs import TopAbs_SOLID
 from OCP.TopExp import TopExp_Explorer
-from OCP.TopoDS import TopoDS, TopoDS_Shape
+from OCP.TopoDS import TopoDS_Shape
 
 from geometry.kernel.imports import (
     DEFAULT_STEP_IMPORT_CPU_TIMEOUT_S,
     DEFAULT_STEP_IMPORT_WALL_TIMEOUT_S,
     ImportNoSolidError,
     ImportParseError,
+    outward_solid,
     read_brep_shape,
     run_bounded_parse_worker,
 )
@@ -156,7 +157,7 @@ def _body_from_shape(shape: TopoDS_Shape) -> BodyShape | None:
     explorer = TopExp_Explorer(shape, TopAbs_SOLID)
     solids: list[Solid] = []
     while explorer.More():
-        solids.append(Solid(TopoDS.Solid_s(explorer.Current())))
+        solids.append(outward_solid(explorer.Current()))
         explorer.Next()
     if not solids:
         return None
