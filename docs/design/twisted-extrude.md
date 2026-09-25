@@ -402,6 +402,36 @@ unchanged at 0.3 s. An assembly without a twisted part exports
 byte-for-byte what the plain placed composition produces
 (`test_twist_assembly_cost.py`).
 
+**Drawings: the cost is exact HLR, not a mesh (measured 2026-09-25, OPEN).**
+The drawing views never mesh: `drawings/project.py` runs EXACT hidden-line
+removal (`HLRBRep_Algo`) on the B-rep (drawings.md §1.1). On a twisted body
+that is the cost, and the view along the twist axis (`top` for an XY sketch)
+is by far the worst. Per-view seconds (front / top / right / iso), one run
+each, on a loaded box:
+
+| Body                           | front | top   | right | iso  |
+| ------------------------------ | ----- | ----- | ----- | ---- |
+| gear tooth gap, 12.36°         | 0.03  | 0.02  | 0.03  | 0.03 |
+| square 20 over 30 mm, 30°      | 0.01  | 0.02  | 0.01  | 0.01 |
+| square 20 over 30 mm, 360°     | 0.04  | 1.24  | 0.04  | 0.13 |
+| square 20 over 30 mm, 720°     | 0.13  | 17.03 | 0.13  | 0.32 |
+| square 20 over 30 mm, 1800°    | 4.85  | 33.91 | 5.04  | 8.42 |
+| 8-gon r 20 over 30 mm, 360°    | 0.12  | 13.02 | 0.12  | 0.33 |
+| 48-point star over 30 mm, 90°  | 0.26  | 6.70  | 0.19  | 0.25 |
+| 48-point star over 30 mm, 360° | 4.29  | 81.61 | 4.24  | 0.84 |
+
+The helical gear's own gap is cheap; a twisted column is not, even at a
+quarter turn. The bounded mesher cannot help a path that does not mesh,
+and the cost does not follow the turns or any one surface measure: the
+square's top view took 17 s at 720° and 13 s at 1080°. So a
+predictive guard like §6.1's would be unreliable here. What does bound it is
+POLYGONAL HLR (`HLRBRep_PolyAlgo`) on the bounded mesh. Its top views took
+0.01 s (8-gon, 360°), 0.12 s (star, 360°) and 0.03 s (square, 1800°), plus
+0.1-0.75 s to mesh. That changes the drawing contract for twisted bodies,
+though: silhouettes and circles become polylines, which cannot be
+dimensioned as arcs. So it is a drawings design decision (drawings.md §1.1),
+not taken here.
+
 **The budget and what was measured.** Budget `TWIST_COST_BUDGET_S = 5` s end
 to end (sweep, guard, mass properties, mesh) on this 4-core box. The estimate
 is a hand-fitted model of that cost, which §6.1's first draft said it would
@@ -475,5 +505,8 @@ refusal is the authority; a UI hint should say "may be slow or refused", not pre
   this module's auxiliary-helix idea along a non-straight spine.
 - A cost PREFLIGHT the UI could ask for before saving (the §6.1 estimate
   exposed on the API). The UI's bound in §6.1 covers the warning until then.
+- Drawing views of twisted bodies (§6.1, "Drawings"): exact HLR along the twist
+  axis takes seconds to over a minute. Polygonal HLR on the bounded mesh is
+  about 1000x faster but changes the drawing contract; decision pending.
 - The pattern boolean cost (§6) is OCCT's. The lever, if it matters, is running
   the tool fusion in parallel, which needs its own determinism evidence first.
