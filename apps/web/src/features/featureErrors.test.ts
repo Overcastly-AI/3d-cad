@@ -69,9 +69,20 @@ describe("friendlyFeatureError", () => {
     );
     expect(copy).not.toMatch(/deg twist over|profile area x distance/);
     expect(copy).toMatch(/reduce the twist/i);
-    expect(copy).toMatch(/lengthen the distance/i);
     // The server's message is the fallback only for codes with no copy.
     expect(friendlyFeatureError("twist_failed", "raw")).toBe(copy);
+  });
+
+  it("advises what cures the kernel's cost refusal: fewer turns or fewer edges (F4)", () => {
+    // Since 4c49218 the commonest twist_failed is the pre-sweep cost guard
+    // ("...too many turns for this profile to build in reasonable time...;
+    // reduce the twist angle or give the profile fewer edges"). Its cost is in
+    // turns and edges and "distance barely moves the cost" (design note §6.1),
+    // so the copy must not send the user to lengthen the extrude.
+    const copy = friendlyFeatureError("twist_failed", "raw", "extrude");
+    expect(copy).toMatch(/fewer edges/i);
+    expect(copy).toMatch(/too many turns/i);
+    expect(copy).not.toMatch(/lengthen/i);
   });
 
   it("keys profile_not_closed copy on the feature type (FINDINGS #13)", () => {

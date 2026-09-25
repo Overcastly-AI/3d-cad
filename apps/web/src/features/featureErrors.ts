@@ -74,15 +74,18 @@ const FRIENDLY_FEATURE_ERROR: Record<string, string> = {
   // each subtractive verb names its own geometry in FEATURE_SPECIFIC_ERROR.
   cut_removed_nothing:
     "Nothing was removed — this cut passes clear of the body, or that material is already gone. Move it onto solid material, or delete it if the same cut is already in the tree.",
-  // Twisted extrude (helical-gear gap G1; docs/design/twisted-extrude.md §4).
-  // One code for every way the kernel refuses a twist: a sweep that fails or
-  // comes back wrong (the Cavalieri guard), and holes that do not leave one
-  // solid. Both are cured the same way, the kernel's own advice, so the copy
-  // names the two editor controls. (Its third cause, a twist too SMALL to
-  // build, needs |twist| below ~1e-138 deg, which the Twist field already
-  // sends as no twist at all; it is not advice anyone can act on.)
+  // Twisted extrude (helical-gear gap G1; docs/design/twisted-extrude.md §4,
+  // §6.1). One code for every way the kernel refuses a twist, and since the
+  // F4 cost guard (4c49218) the commonest is "too many turns for this profile
+  // to build in reasonable time". The rarer others (a sweep that fails or
+  // comes back wrong; holes that do not leave one solid) also lead with a
+  // smaller twist in the kernel's own advice. The guard's cost is in turns
+  // and edges, not distance (§6.1), so the copy names
+  // those two and never sends the user to lengthen the extrude. (A twist too
+  // SMALL to build needs |twist| below ~1e-138 deg, which the Twist field
+  // already sends as no twist; it is not advice anyone can act on.)
   twist_failed:
-    "This twist couldn't be swept into a clean solid. Open the extrude and reduce the twist or lengthen the distance; if it still fails, simplify the profile.",
+    "This twist couldn't be built: too many turns for this profile, or the sweep failed. Open the extrude and reduce the twist, or give the profile fewer edges.",
 };
 
 /**
