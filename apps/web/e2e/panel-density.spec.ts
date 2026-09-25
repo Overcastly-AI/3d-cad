@@ -661,5 +661,29 @@ test.describe("a long feature name @1440x900", () => {
     // The NAME is what gave way, and it is still recoverable in full.
     expect(long.nameEllipsised, "the long name must ellipsise").toBe(true);
     expect(long.nameTitle).toBe(LONG);
+
+    // THE BODIES ROW, the same defect one panel down (review S6): the body is
+    // named for the feature that made it, so its source span carried the long
+    // name straight past the panel edge, cut mid-glyph with no ellipsis.
+    const bodyRow = page.getByTestId("body-row").first();
+    const body = await bodyRow.evaluate((row) => {
+      const select = row.querySelector(
+        "[data-testid^=body-select-]",
+      ) as HTMLElement;
+      const source = select.lastElementChild as HTMLElement;
+      const panel = row.closest("[data-testid=bodies-panel]") as HTMLElement;
+      return {
+        selectRight: select.getBoundingClientRect().right,
+        sourceRight: source.getBoundingClientRect().right,
+        panelRight: panel.getBoundingClientRect().right,
+        sourceEllipsised: source.scrollWidth > source.clientWidth,
+        sourceTitle: source.getAttribute("title"),
+      };
+    });
+    console.log(`[F6 bodies] ${JSON.stringify(body)}`);
+    expect(body.sourceRight).toBeLessThanOrEqual(body.panelRight + 0.5);
+    expect(body.selectRight).toBeLessThanOrEqual(body.panelRight + 0.5);
+    expect(body.sourceEllipsised, "the long source must ellipsise").toBe(true);
+    expect(body.sourceTitle).toBe(LONG);
   });
 });

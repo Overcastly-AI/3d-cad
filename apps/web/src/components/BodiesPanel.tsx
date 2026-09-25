@@ -39,6 +39,7 @@ import {
   Panel,
   PanelSection,
   SegmentedControl,
+  Truncated,
   type ContextMenuSection,
 } from "@loft/design";
 import { useEffect, useMemo, useState } from "react";
@@ -264,18 +265,21 @@ export function BodiesPanel({
                         // dense floor (`target.dense`, WCAG 2.2 SC 2.5.8). It
                         // is the row's PRIMARY action, so it takes the row's
                         // full height rather than floating on a baseline in it.
-                        className="flex min-h-target-dense grow items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+                        // `min-w-0`, as in the feature tree (GEOMETRY-QA F6,
+                        // review S6): without it this flex item cannot shrink
+                        // below its content, and a body named for a long
+                        // feature ran 41 px past the panel, cut mid-glyph.
+                        className="flex min-h-target-dense min-w-0 grow items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
                       >
                         <span className="w-5 shrink-0 font-data text-xs tabular-nums text-gauge">
                           {String(body.ordinal).padStart(2, "0")}
                         </span>
-                        <span
-                          className={`grow truncate font-data text-sm ${
+                        <Truncated
+                          text={label}
+                          className={`grow font-data text-sm ${
                             mode === "hidden" ? "text-gauge" : "text-mist"
                           }`}
-                        >
-                          {label}
-                        </span>
+                        />
                         {lumpBadge !== null ? (
                           <span
                             data-testid={`body-lumps-${body.ordinal - 1}`}
@@ -285,7 +289,13 @@ export function BodiesPanel({
                             {lumpBadge}
                           </span>
                         ) : null}
-                        <span className="shrink-0 truncate font-body text-xs text-gauge">
+                        {/* The SOURCE feature's name, capped like the tree's
+                            badge so it ellipsises (with its whole name on
+                            `title`) instead of taking the row. */}
+                        <span
+                          title={body.name}
+                          className="min-w-0 max-w-[60%] shrink-0 truncate font-body text-xs text-gauge"
+                        >
                           {body.name}
                         </span>
                       </button>
