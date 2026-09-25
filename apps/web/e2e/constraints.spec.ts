@@ -245,9 +245,19 @@ async function clickPlane(
   // reached the canvas depended on the solver's timing. It was measured
   // landing on `dro-solve` at 1280 px, and at 1600 px on the DRO in one run and
   // the canvas in the next. This check names the element instead.
+  //
+  // THE canvas: the viewport's own. Any <canvas> would also admit the
+  // ViewCube's, which is a canvas too and takes the click as a view change
+  // (review N1 on 8c55183).
   const covering = await page.evaluate(({ x, y }) => {
     const el = document.elementFromPoint(x, y);
-    if (el?.tagName === "CANVAS") return null;
+    if (
+      el?.tagName === "CANVAS" &&
+      el.closest('[data-testid="viewport"]') !== null &&
+      el.closest('[data-testid="view-cube"]') === null
+    ) {
+      return null;
+    }
     const owner = el?.closest("[data-testid]")?.getAttribute("data-testid");
     return `${el?.tagName.toLowerCase() ?? "nothing"}${owner ? ` in ${owner}` : ""}`;
   }, px);
