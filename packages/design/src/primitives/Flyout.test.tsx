@@ -170,3 +170,59 @@ describe("Flyout rows — availability", () => {
     expect(legacy).not.toHaveTextContent("needs");
   });
 });
+
+/**
+ * The menu must not open off-frame (sketch-catalogue @1366: the DIMENSIONAL
+ * rows ended at 1375.7 px). jsdom has no layout, so the two boxes the flip
+ * reads are stubbed; the real-window gate is the e2e.
+ */
+describe("Flyout menu — stays inside the frame", () => {
+  function stubBoxes(trigger: { left: number; right: number }, width: number) {
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const rect =
+        this.getAttribute("role") === "menu"
+          ? { left: 0, right: width, width }
+          : {
+              left: trigger.left,
+              right: trigger.right,
+              width: trigger.right - trigger.left,
+            };
+      return {
+        top: 0,
+        bottom: 0,
+        height: 0,
+        x: rect.left,
+        y: 0,
+        ...rect,
+        toJSON: () => rect,
+      } as DOMRect;
+    };
+    Object.defineProperty(document.documentElement, "clientWidth", {
+      configurable: true,
+      value: 1366,
+    });
+    return () => {
+      HTMLElement.prototype.getBoundingClientRect = original;
+    };
+  }
+
+  it("hangs from the trigger's LEFT edge when it fits", () => {
+    const restore = stubBoxes({ left: 400, right: 460 }, 240);
+    renderFlyout();
+    fireEvent.click(screen.getByTestId("constraint-group-relational"));
+    expect(screen.getByRole("menu")).toHaveAttribute("data-align", "start");
+    expect(screen.getByRole("menu").className).toContain("left-0");
+    restore();
+  });
+
+  it("flips to the RIGHT edge when the left one would run off-frame", () => {
+    // The measured case: a trigger at 1136..1185 and a 240 px menu.
+    const restore = stubBoxes({ left: 1136, right: 1185 }, 240);
+    renderFlyout();
+    fireEvent.click(screen.getByTestId("constraint-group-relational"));
+    expect(screen.getByRole("menu")).toHaveAttribute("data-align", "end");
+    expect(screen.getByRole("menu").className).toContain("right-0");
+    restore();
+  });
+});
