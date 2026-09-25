@@ -59,6 +59,22 @@ async function watchDro(page: Page): Promise<void> {
   });
 }
 
+/** The GRID cell holds its select, whatever the select lists. */
+async function expectGridHolds(page: Page, what: string): Promise<void> {
+  const spill = await page
+    .getByTestId("sketch-grid-step")
+    .evaluate((select) => {
+      // select -> the InlineSelect pill -> the DRO's GRID cell.
+      const cell = select.parentElement?.parentElement;
+      if (!cell) throw new Error("the GRID select has no cell");
+      return cell.scrollWidth - cell.clientWidth;
+    });
+  expect(
+    spill,
+    `the GRID step overflows its column (${what})`,
+  ).toBeLessThanOrEqual(0);
+}
+
 async function watched(
   page: Page,
 ): Promise<{ rects: Rect[]; solves: string[] }> {
@@ -112,13 +128,35 @@ for (const size of [
     await expect(snap).toHaveAttribute("aria-pressed", "true");
     await page.getByTestId("sketch-grid-step").selectOption("0.1");
     await page.getByTestId("sketch-grid-step").selectOption("1");
-    // The grid's step labels follow the document unit, and an inch label
-    // ("0.001 in") is the widest the GRID column has to hold.
+    // The grid's step labels follow the document unit. In an inch or foot
+    // document the step in use (1 mm by default) is listed as itself, which
+    // is the longest label the GRID column has to hold, and the finest step
+    // (0.01 mm) is longer still. A fixed column must hold them all: the panel
+    // does not clip, so a label that did not fit spilled over the canvas while
+    // the DRO's own box stayed put (review B1 on `e3bd6aa`).
     const units = page.getByTestId("document-unit-select");
-    await units.selectOption("in");
-    await expect(page.getByTestId("sketch-grid-step")).toContainText("in");
+    const step = page.getByTestId("sketch-grid-step");
+    for (const [unit, mm] of [
+      ["in", "1"],
+      ["ft", "1"],
+      ["ft", "0.01"],
+      ["in", "0.01"],
+    ] as const) {
+      await units.selectOption("mm");
+      await expect(step).toContainText("mm");
+      await step.selectOption(mm);
+      await units.selectOption(unit);
+      await expect(step).toContainText(unit);
+      if (unit === "in" && mm === "1") {
+        await page.screenshot({
+          path: `${SCREENSHOT_DIR}/sketch-dro-footprint-${size.width}-inch-${SHOT_TAG}.png`,
+        });
+      }
+      await expectGridHolds(page, `${mm} mm in a ${unit} document`);
+    }
     await units.selectOption("mm");
-    await expect(page.getByTestId("sketch-grid-step")).toContainText("mm");
+    await expect(step).toContainText("mm");
+    await step.selectOption("1");
 
     // A constrained line: the first save, a solve, a DOF readout.
     const viewport = await page.getByTestId("viewport").boundingBox();

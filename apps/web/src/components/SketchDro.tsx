@@ -55,11 +55,13 @@ const SOLVE_TONE_CLASS = {
 
 /**
  * X, Y, SNAP, GRID. X and Y hold "-99999.99" (100 m) in the data face. SNAP
- * holds its longest caption, "points · no grid · G". GRID holds the widest step
- * label in any unit ("0.001 in"); a native select is as wide as its widest
- * option.
+ * holds its longest caption, "points · no grid · G". GRID holds the longest
+ * step label `gridStepOptions` can produce, 12 characters ("0.0000328 ft":
+ * 0.01 mm listed in a foot document). A native select is as wide as its widest
+ * option, and the panel does not clip, so a label that did not fit would spill
+ * over the canvas while the DRO's own box stayed put.
  */
-const DRO_COLUMNS = "grid-cols-[6.25rem_6.25rem_11.5rem_10.5rem]";
+const DRO_COLUMNS = "grid-cols-[6.25rem_6.25rem_11.5rem_12rem]";
 
 /** The inline eyebrow of a bottom-tier cell. */
 const TIER_LABEL =

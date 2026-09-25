@@ -158,9 +158,13 @@ export function gridStepOptions(
   }));
   const listed = options.some((o) => Math.abs(o.mm - currentMm) < 1e-9);
   if (!listed) {
+    // Named to three significant figures: "0.0394 in", not "0.0393701 in".
+    // The value underneath is still exactly the step in use. Six figures made
+    // the longest label 14 characters, which spilled out of the DRO's fixed
+    // GRID column over the canvas (review B1 on `e3bd6aa`).
     options.push({
       mm: currentMm,
-      label: `${plain(currentMm / perUnit)} ${unit}`,
+      label: `${String(Number((currentMm / perUnit).toPrecision(3)))} ${unit}`,
     });
     options.sort((a, b) => a.mm - b.mm);
   }

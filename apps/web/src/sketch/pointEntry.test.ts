@@ -144,6 +144,28 @@ describe("gridStepOptions", () => {
   it("always lists the step in use, even one no preset names", () => {
     const options = gridStepOptions("in", 1); // the 1 mm default in an inch file
     const current = options.find((o) => Math.abs(o.mm - 1) < 1e-9);
-    expect(current?.label).toBe("0.0393701 in");
+    // Three significant figures: the label names the step, and the value
+    // underneath stays exact. "0.0393701 in" overflowed the DRO's GRID column.
+    expect(current?.label).toBe("0.0394 in");
+    expect(current?.mm).toBe(1);
+  });
+
+  it("keeps every label it can produce short enough for the GRID column", () => {
+    // Every step the store can hold is a preset of SOME unit (the 1 mm
+    // default is one), and any of them can be listed in any other unit.
+    const units = ["mm", "cm", "m", "in", "ft"] as const;
+    const held = units.flatMap((unit) =>
+      gridStepOptions(unit, 1).map((option) => option.mm),
+    );
+    let longest = "";
+    for (const unit of units) {
+      for (const mm of held) {
+        for (const option of gridStepOptions(unit, mm)) {
+          if (option.label.length > longest.length) longest = option.label;
+        }
+      }
+    }
+    // SketchDro's DRO_COLUMNS sizes GRID for this label; keep them in step.
+    expect(longest).toBe("0.0000328 ft");
   });
 });
