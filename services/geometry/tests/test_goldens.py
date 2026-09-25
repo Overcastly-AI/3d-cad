@@ -171,8 +171,10 @@ def test_golden_inventory_is_nonempty() -> None:
 
 #: Goldens whose STEP round trip is held to a reviewed bound of their own
 #: (``roundtrip_tolerance`` in expected.json) instead of ROUNDTRIP_TOL. Listed
-#: here, not discovered, so an override cannot appear unreviewed.
-ROUNDTRIP_TOLERANCE_OVERRIDES = frozenset({"shell-spline-prism-30x10-t1"})
+#: here, not discovered, so an override cannot appear unreviewed. Empty since
+#: GEOMETRY-QA 2026-09-25 F1: shell-spline-prism-30x10-t1's 1e-6 was retired
+#: when its round trip met ROUNDTRIP_TOL.
+ROUNDTRIP_TOLERANCE_OVERRIDES: frozenset[str] = frozenset()
 
 
 def test_roundtrip_overrides_are_the_reviewed_ones() -> None:

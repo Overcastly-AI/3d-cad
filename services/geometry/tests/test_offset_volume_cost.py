@@ -60,13 +60,15 @@ DISC_CEILING_S = 15.0
 
 #: Largest disagreement (mm^3) allowed between the per-face route and OCCT's
 #: Gauss-Kronrod rule on the golden, where both are affordable. Measured:
-#: 1.0e-8 (per-face +1.85e-7, Gauss-Kronrod +1.775e-7 from the analytic truth).
+#: 4.9e-9 (per-face -1.39e-8, Gauss-Kronrod -9.0e-9 from the analytic truth;
+#: before F1 rebuilt the shell's rim edge, +1.85e-7 and +1.775e-7).
 AGREEMENT_MM3 = 5e-8
 
 #: The fallback for an offset face that is not an isoline rectangle converts it
 #: with ``BRepBuilderAPI_NurbsConvert``, which APPROXIMATES an offset (1.7e-6 mm
-#: from the true surface on the golden). Measured on the golden: +6.65e-6 mm^3
-#: from the truth. The bound states the accuracy that route gives up.
+#: from the true surface on the golden). Measured on the golden: +6.45e-6 mm^3
+#: from the truth (+6.65e-6 before F1). The bound states the accuracy that
+#: route gives up.
 FALLBACK_MM3 = 2e-5
 
 
@@ -142,7 +144,7 @@ def test_a_non_rectangular_offset_face_falls_back_in_bounded_time(
     def no_rectangle(_face: object) -> None:
         return None
 
-    monkeypatch.setattr(properties, "_isoline_rectangle", no_rectangle)
+    monkeypatch.setattr(properties, "isoline_rectangle", no_rectangle)
     body = _golden("shell-spline-prism-30x10-t1")
     truth = json.loads(
         (GOLDENS / "shell-spline-prism-30x10-t1" / "expected.json").read_text()

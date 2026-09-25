@@ -60,6 +60,7 @@ from build123d import Compound, Face, Solid
 from geometry.kernel.degenerate import find_zero_width_slits
 from geometry.kernel.healing import HealingError, clean_shape, conform_solid
 from geometry.kernel.lumps import assemble_lumps, group_faces_by_lump
+from geometry.kernel.offset_edges import tighten_offset_edges
 from geometry.kernel.types import BodyShape
 
 #: A valid inward shell strictly REMOVES material (the cavity), so the shelled
@@ -194,9 +195,13 @@ def _shell_one_lump(
             f"Shell produced {len(solids)} solids; parts are a single body "
             "in v1 (design §7.6)."
         )
+    # A spline wall's offset meets its neighbours along loosely FITTED edges;
+    # rebuild them on the offset's exact isolines (GEOMETRY-QA 2026-09-25 F1).
+    # A body without such edges is returned as is.
+    tightened = tighten_offset_edges(solids[0], faces_to_remove)
     # clean() removes redundant seam faces/edges the operation can leave behind,
     # keeping topology counts meaningful (and golden-assertable).
-    cleaned = clean_shape(solids[0])
+    cleaned = clean_shape(tightened)
 
     # Zero-width-slit guard (SH-1), BEFORE the heal for two reasons: the heal
     # cannot remove a slit (measured - kernel/degenerate.py), so healing first

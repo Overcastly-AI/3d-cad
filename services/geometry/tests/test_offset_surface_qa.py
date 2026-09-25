@@ -8,16 +8,16 @@ docs/GEOMETRY-QA.md 2026-09-25):
   polygon through the curve (shoelace), Richardson-extrapolated in the step,
   with the curve evaluated by scipy rather than OCCT. The only OCCT input is the
   interpolating spline's poles and knots, which ARE the sketch's definition.
-* A SECOND shelled spline prism (40 wide, 20 tall, 2 mm wall). The shell fits
+* A SECOND shelled spline prism (40 wide, 20 tall, 2 mm wall). The shell fitted
   the edge between its offset wall and its open rim to 2.15e-4 mm, above the
-  kernel's 1e-4 mm linear tolerance, and the rim face's boundary follows the
-  loose fit: the rim encloses 7.3e-3 mm^2 too little, the volume reads
+  kernel's 1e-4 mm linear tolerance, and the rim face's boundary followed the
+  loose fit: the rim enclosed 7.3e-3 mm^2 too little, the volume read
   0.023 mm^3 low, and a STEP re-import (whose reader re-derives that boundary)
-  moves the area by the same 7e-3. Pinned as STRICT xfails on the rim face,
-  which is cheap to measure; the kernel fix flips them to XPASS. The volume
-  itself is not asserted here because Gauss-Kronrod takes ~52 s on this body
-  (docs/GEOMETRY-QA.md 2026-09-25, F2).
-* The round-trip tolerance override stays scoped and cannot outlive its reason.
+  moved the area by the same 7e-3. Pinned first as strict xfails on the rim
+  face; the kernel fix (kernel.offset_edges, F1) rebuilds that edge on the
+  offset's exact isoline, and they now pass as plain gates.
+* No golden needs a looser STEP round trip any more; the override machinery
+  stays scoped and empty.
 * Every body without an offset face reads byte-for-byte as the pre-``b29fa88``
   adaptive rule did, and the offset golden is the one routed differently.
 """
@@ -29,11 +29,12 @@ docs/GEOMETRY-QA.md 2026-09-25):
 
 import importlib.util
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
-from types import ModuleType
-from typing import Any
+from types import FunctionType, ModuleType
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -44,11 +45,13 @@ from geometry.kernel.imports import import_step_solid
 from geometry.kernel.properties import (
     VOLUME_EPS,
     VolumeReading,
+    measure_shape,
     volume_integrand,
     volume_properties,
 )
 from geometry.kernel.shell import shell_body
 from geometry.kernel.types import BodyShape
+from geometry.schemas import ShapeProperties
 from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 from OCP.BRepGProp import BRepGProp
 from OCP.GeomAbs import GeomAbs_SurfaceType
@@ -64,10 +67,11 @@ GOLDEN = "shell-spline-prism-30x10-t1"
 #: docs/GEOMETRY-QA.md agrees with the pinned volume to 6.9e-16 relative.
 TRUTH_REL = 1e-10
 
-#: The one golden allowed a looser STEP round trip, and the bound it is allowed.
-#: Pinned here AS WELL AS in test_goldens, so widening the bound or adding a
-#: golden needs a geometry-QA edit too (docs/GEOMETRY-QA.md 2026-09-25).
-REVIEWED_OVERRIDE = {GOLDEN: 1e-6}
+#: The goldens allowed a looser STEP round trip, and the bound each is allowed.
+#: Pinned here AS WELL AS in test_goldens, so adding one needs a geometry-QA
+#: edit too (docs/GEOMETRY-QA.md 2026-09-25). EMPTY since F1's fix: the golden's
+#: 1e-6 override was retired when its round trip met ROUNDTRIP_TOL (1.3e-8).
+REVIEWED_OVERRIDE: dict[str, float] = {}
 
 #: The second case: the golden's shape class, other numbers. Its spline's
 #: tightest inward radius of curvature is 2.354 mm against the 2 mm wall, so the
@@ -83,8 +87,9 @@ CASE2_FIT = (
     (0.0, 15.0),
 )
 
-#: Bound on the rim face's area error, mm^2. The golden's rim reads 1.2e-7 off
-#: its truth; case 2's reads 7.3e-3 off (the defect).
+#: Bound on the rim face's area error, mm^2. Before F1's fix the golden's rim
+#: read 1.2e-7 off its truth and case 2's 7.3e-3 off (the defect); since, both
+#: read within 6e-11.
 RIM_TOL = 1e-6
 
 
@@ -298,24 +303,19 @@ def test_the_second_case_is_the_shell_it_claims_to_be() -> None:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GEOMETRY-QA 2026-09-25 F1: the shell fits the rim edge to 2.15e-4 mm, so "
-    "the rim encloses 7.3e-3 mm^2 too little and the volume reads 0.023 mm^3 low",
-)
 def test_a_second_shelled_spline_prism_encloses_its_true_rim() -> None:
+    """GEOMETRY-QA 2026-09-25 F1, fixed: the shell fitted the rim edge to
+    2.15e-4 mm, so the rim enclosed 7.3e-3 mm^2 too little and the volume read
+    0.023 mm^3 low. Rebuilt on the isoline, the rim is within 6e-11."""
     truth = _polygon_truth(CASE2_WIDTH, CASE2_HEIGHT, CASE2_WALL, CASE2_FIT)
     assert _rim_area(_case2(), CASE2_HEIGHT) == pytest.approx(
         truth.area - truth.area_in, abs=RIM_TOL
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GEOMETRY-QA 2026-09-25 F1: the STEP reader re-derives the loose rim "
-    "boundary, so the re-imported rim moves by 7e-3 mm^2 (volume +2.3e-2 mm^3)",
-)
 def test_a_second_shelled_spline_prism_round_trips_its_rim() -> None:
+    """GEOMETRY-QA 2026-09-25 F1, fixed: the STEP reader re-derived the loose rim
+    boundary, so the re-imported rim moved by 7e-3 mm^2 (volume +2.3e-2)."""
     body = _case2()
     assert _rim_area(_reimport(body), CASE2_HEIGHT) == pytest.approx(
         _rim_area(body, CASE2_HEIGHT), abs=RIM_TOL
@@ -341,19 +341,56 @@ def test_the_override_is_exactly_the_reviewed_one() -> None:
         assert conftest.roundtrip_tolerance_for(name) == want, name
 
 
-def test_the_override_is_still_needed(roundtrip_tol: float) -> None:
-    """Sunset gate: the day the shell's fitted edges are tightened (the fix
-    GEOMETRY-QA 2026-09-25 F1 prototyped: 3.2e-7 -> 5.2e-9 mm^3), this goes red
-    and says to delete the override instead of letting it outlive its reason."""
-    body = build_model_solid(load_model_request(json.dumps(_load(GOLDEN))))
-    delta = abs(
-        volume_properties(_reimport(body)).volume - volume_properties(body).volume
+#: A drift the shared bound rejects and a 1e-6 override would absorb, mm.
+_DRIFT_MM = 1e-6
+
+
+@pytest.mark.parametrize(
+    ("field", "loosened"),
+    [("volume", True), ("surface_area", True), ("centroid", False), ("bbox", False)],
+)
+def test_an_override_loosens_only_volume_and_area(
+    assert_roundtrip_preserved: Callable[[str, ShapeProperties, ShapeProperties], None],
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    loosened: bool,
+) -> None:
+    """GEOMETRY-QA 2026-09-25 F5: an override was measured on the integrals, so
+    it widens volume and area only; the centroid and bounds keep ROUNDTRIP_TOL."""
+
+    def loosened_everywhere(_name: str) -> float:
+        return 10 * _DRIFT_MM
+
+    # The check reads the lookup from conftest's globals at call time.
+    monkeypatch.setitem(
+        cast(FunctionType, assert_roundtrip_preserved).__globals__,
+        "roundtrip_tolerance_for",
+        loosened_everywhere,
     )
-    assert delta > roundtrip_tol, (
-        f"{GOLDEN} now round-trips to {delta:.2e} <= ROUNDTRIP_TOL: remove its "
-        "roundtrip_tolerance override (expected.json, test_goldens, this file)"
+    original = measure_shape(Solid.make_box(10, 20, 30))
+    centroid = original.centroid.model_copy(
+        update={"x": original.centroid.x + _DRIFT_MM}
     )
-    assert delta <= REVIEWED_OVERRIDE[GOLDEN]
+    top = original.bounding_box.max.model_copy(
+        update={"z": original.bounding_box.max.z + _DRIFT_MM}
+    )
+    drifted = {
+        "volume": original.model_copy(update={"volume": original.volume + _DRIFT_MM}),
+        "surface_area": original.model_copy(
+            update={"surface_area": original.surface_area + _DRIFT_MM}
+        ),
+        "centroid": original.model_copy(update={"centroid": centroid}),
+        "bbox": original.model_copy(
+            update={
+                "bounding_box": original.bounding_box.model_copy(update={"max": top})
+            }
+        ),
+    }[field]
+    if loosened:
+        assert_roundtrip_preserved("an-overridden-golden", drifted, original)
+    else:
+        with pytest.raises(AssertionError, match=f"round-trip {field}"):
+            assert_roundtrip_preserved("an-overridden-golden", drifted, original)
 
 
 # --- 4. every other body reads exactly as before ------------------------------

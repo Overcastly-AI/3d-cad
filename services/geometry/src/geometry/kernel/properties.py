@@ -227,12 +227,12 @@ _OFFSET_GAUSS_CHECK_ORDER = 24
 _OFFSET_GAUSS_AGREEMENT = 1e-10
 
 #: Relative spread (of the parameter value) within which a pcurve counts as an
-#: isoline (:func:`_isoline_rectangle`), and the points it is sampled at.
+#: isoline (:func:`isoline_rectangle`), and the points it is sampled at.
 _ISOLINE_TOL = 1e-9
 _ISOLINE_SAMPLES = 16
 
 
-def _isoline_rectangle(face: Face) -> tuple[float, float, float, float] | None:
+def isoline_rectangle(face: Face) -> tuple[float, float, float, float] | None:
     """``(u0, u1, v0, v1)`` when *face* is bounded by exactly two u-isolines and
     two v-isolines (its trimmed domain IS that parameter rectangle), else None.
 
@@ -284,7 +284,7 @@ def _offset_face_moments(
     the offset's B-spline basis, over the face's isoline rectangle. None when
     the face is not an isoline rectangle.
     """
-    rectangle = _isoline_rectangle(face)
+    rectangle = isoline_rectangle(face)
     if rectangle is None:
         return None
     u0, u1, v0, v1 = rectangle
@@ -344,7 +344,7 @@ def _offset_body_reading(shape: BodyShape) -> VolumeReading:
     Offset faces: :func:`_checked_offset_moments`. An offset face that is not an
     isoline rectangle, or does not converge, FALLS BACK to its
     ``BRepBuilderAPI_NurbsConvert`` twin: bounded time, but an approximation
-    (1.7e-6 mm from the true surface on the golden, +6.65e-6 mm^3 there).
+    (1.7e-6 mm from the true surface on the golden, +6.45e-6 mm^3 there).
     Every other face goes through OCCT's adaptive per-face integrator at
     :data:`VOLUME_EPS`, a spline-swept one as its exact NURBS twin, as
     :func:`volume_integrand` routes them. All faces share one reference point,
@@ -410,8 +410,9 @@ def volume_properties(shape: BodyShape) -> VolumeReading:
     ``BRepBuilderAPI_NurbsConvert`` APPROXIMATES it. Gauss-Kronrod
     (``VolumePropertiesGK``, b29fa88) is accurate but took 43-196 s on ordinary
     shelled spline parts (QA F2). The per-face route integrates the TRUE
-    offset surface by Gauss-Legendre per knot span: the golden +1.85e-7 mm^3
-    (Gauss-Kronrod +1.775e-7) in 0.1 s; case 2 0.1 s (was 52 s); the shelled
+    offset surface by Gauss-Legendre per knot span: the golden -1.39e-8 mm^3
+    (Gauss-Kronrod -9.0e-9; both read +1.8e-7 before the shell's rim edges were
+    rebuilt, kernel.offset_edges) in 0.1 s; case 2 0.1 s (was 52 s); the shelled
     spline-slot disc 1.4 s (was 148 s). Every body WITHOUT an offset face reads
     byte-for-byte as before.
     """

@@ -700,9 +700,19 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   docs/GEOMETRY-QA.md 2026-07-25).
   The round trip is held to `ROUNDTRIP_TOL` (1e-7) except for goldens listed
   in `test_goldens.ROUNDTRIP_TOLERANCE_OVERRIDES`, each with a measured
-  `roundtrip_tolerance` and its rationale in expected.json. The first is
-  `shell-spline-prism-30x10-t1` (1e-6): its offset spline wall is bounded by
-  edges OCCT fits to 1e-5 mm, and the STEP reader re-derives their pcurves.
+  `roundtrip_tolerance` and its rationale in expected.json. An override
+  loosens the volume and area only; the centroid and bounds keep 1e-7
+  (GEOMETRY-QA 2026-09-25 F5). The list is empty today.
+- **A shell's offset walls get exact rim edges.** `BRepOffsetAPI_MakeThickSolid`
+  fits the edges where an offset spline wall meets its planar neighbours
+  loosely (1e-5 to 2.2e-3 mm). On the open rim the rim face follows that fit,
+  so the volume read up to 0.023 mm^3 low and a STEP re-import moved it by as
+  much (GEOMETRY-QA 2026-09-25 F1). `kernel.offset_edges` rebuilds each rim
+  edge, and any other edge looser than the kernel's 1e-4 mm, on the wall's
+  exact isoline (3D curve fitted to 1e-9 mm). It leaves cavity-floor edges
+  inside 1e-4 alone, because re-fitting them moved the floor's area by
+  3.4e-6 mm^2. That retired the only round-trip override
+  (`shell-spline-prism-30x10-t1`, 1e-6).
 - **Volume integration:** `properties.volume_properties` is the one place a
   volume is integrated. The rule is the adaptive one at `VOLUME_EPS`, with
   spline-swept faces as their exact NURBS twins. A body with a
