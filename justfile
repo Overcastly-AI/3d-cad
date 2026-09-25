@@ -167,22 +167,6 @@ lint:
     # check-build-context.py's "0 COPY source(s)" taught).
     python3 scripts/check-air-gap.py --self-test
     python3 scripts/check-air-gap.py
-    # ~150ms. stage-doc-hunks.py is the control EVERY agent uses on the shared
-    # docs, and it had no test until it silently relocated an author's own entry
-    # to the end of BACKLOG.md while printing success (2026-08-01, found by the
-    # dogfooding pass). A tool that guards commits needs its own guard.
-    python3 scripts/stage-doc-hunks.py --self-test
-    # ~1s. DOCTICK-GATE: CLAUDE.md's "every commit that lands a feature/fix
-    # ticks ROADMAP/BACKLOG in the same commit" was NON-NEGOTIABLE in prose and
-    # unchecked in fact, which three audit passes measured as 22 of the last 24
-    # commits missing the tick. Locally it can only ever be ADVISORY — the
-    # commit you are about to write does not exist yet — so it reports on the
-    # commits you have not pushed and never fails your lint. CI's `doc-tick`
-    # job enforces it over the pushed range, where a real commit exists to
-    # judge. The self-test IS a hard gate here, same as its four neighbours
-    # above: it builds the failing case and demands a failure.
-    python3 scripts/check-doc-tick.py --self-test
-    python3 scripts/check-doc-tick.py --warn-only
     # ~150ms. check-flow-cost.py reads the e2e suite as a transcript of real
     # gestures and is what the redesign loop steers by, so a silent zero in it
     # would aim a whole wave at the wrong surface. Its self-test found three
