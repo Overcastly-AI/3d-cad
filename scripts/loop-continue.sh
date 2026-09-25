@@ -171,24 +171,19 @@ fi
 if ! git diff --quiet || ! git diff --cached --quiet; then exit 0; fi
 if [[ -n "$(git log --oneline @{upstream}..HEAD 2>/dev/null)" ]]; then exit 0; fi
 
-# 4. Anything left to build? The Ready queue is the board's, not ours to guess.
-ready=$(awk '/^## Ready \(top of queue\)/{f=1;next} /^## /{f=0} f && /^- \[ \]/{c++} END{print c+0}' \
+# 4. Anything left to build? The "Now" list is the board's, not ours to guess.
+ready=$(awk '/^## Now/{f=1;next} /^## /{f=0} f && /^- \[ \]/{c++} END{print c+0}' \
   docs/BACKLOG.md 2>/dev/null)
 [[ "${ready:-0}" -gt 0 ]] || exit 0
 
 cat >&2 <<EOF
-LOOP: idle, tree clean, everything pushed, and ${ready} unchecked item(s) in the
-Ready queue. Do not stop — take the next step yourself.
+LOOP: idle, tree clean, everything pushed, and ${ready} unchecked item(s) under
+"Now" in docs/BACKLOG.md. Do not stop; take the next step yourself.
 
-Follow .claude/ORCHESTRATOR.md. In short:
-  1. Read CI for any pushed SHA without a verdict; fix red before new work.
-  2. Dispatch ONE batch: the backlog-groomer owns docs/BACKLOG.md and returns
-     the batch; each builder gets isolation: 'worktree' and a disjoint
-     territory; Review and Verify are not optional.
-  3. You do NOT write the board, run the audits, or build. If you are editing
-     docs/BACKLOG.md, stop — that is the groomer's file.
+Follow .claude/ORCHESTRATOR.md: read CI for any pushed SHA without a verdict
+(fix red first), then dispatch the top "Now" item to a builder in a worktree.
 
-If the founder has asked you to stop, or the remaining items genuinely need a
-decision only they can make, say which item and why in one line and stop.
+If the founder has asked you to stop, or the remaining items need a decision
+only they can make, say which item and why in one line and stop.
 EOF
 exit 2
