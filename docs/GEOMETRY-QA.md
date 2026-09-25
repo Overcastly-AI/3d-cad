@@ -7,6 +7,327 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-09-25 — OFFSET-SURFACE-VOLUME-1 INDEPENDENT VERIFICATION of `b29fa88`: the golden's truth holds and the routing is right, but the golden is the one benign member of its class (geometry-qa)
+
+Verified at `b10f93d`. Load was 2-7 on 4 cores, with other agents running.
+Scratch probes are not committed. The gates are in
+`services/geometry/tests/test_offset_surface_qa.py` (section 6).
+
+**Verdict.** The golden's truth `1160.4625483615187` is right. Two methods
+that share nothing numerical with `derive.py` agree with it to 8e-13 mm^3.
+Gauss-Kronrod is sound where it is routed. Every body without an offset face
+reads byte-for-byte as before (126 of 126). The round-trip diagnosis is right
+about the cause, but the cause can be fixed in the kernel: a prototype brings
+the golden's round trip to 5.2e-9. The golden is not representative of its
+class. Change the wall from 1 to 2 mm, or use a different spline, and the same
+three-feature part reads 0.01-0.09 mm^3 wrong. Its STEP round trip then moves
+by 2.3e-2 mm^3, 23 000x the override, and **Gauss-Kronrod takes 43-70 s to
+integrate it**. A shelled spline-slot disc takes 148-196 s, beyond the gateway's
+90 s.
+
+### 1. The golden's truth: CONFIRMED by two independent methods
+
+- **Method A** (40-digit mpmath). The curve is the B-spline read off the BUILT
+  body's poles and knots, evaluated by our own de Boor recursion, not OCCT's
+  `D2`. Integration is tanh-sinh per knot span, and `findroot` gives the trims.
+- **Method B** (no quadrature). Shoelace polygons through `scipy` B-spline
+  samples of the curve and its exact offset, Richardson-extrapolated from 40k
+  and 80k points.
+
+| quantity             | pinned / derive.py                       | Method A (mpmath)                             | Method B (polygon)      |
+| -------------------- | ---------------------------------------- | --------------------------------------------- | ----------------------- |
+| A, mm^2              | 405.87527732549955                       | 405.8752773254996162                          | 405.8752773255018       |
+| A_in, mm^2           | 322.03224721038634                       | 322.0322472103862963                          | 322.03224721038185      |
+| **volume, mm^3**     | **1160.4625483615187**                   | 1160.462548361519496 (+8.0e-13)               | 1160.4625483615478      |
+| centroid, mm         | (14.887872661020253, 6.81276499005354, 3.75123491534232) | (14.887872661020241, 6.812764990053526, 3.751234915342321), max diff 1.3e-14 | within 1.1e-14 relative |
+| analytic area, mm^2  | 2410.1897542566303                       | 2410.1897542566304491                         | -                       |
+
+Well-posedness, which `derive.py` assumes without checking:
+
+- The fit points are interpolated to 2e-15.
+- The spline's curvature lies in [-0.2693, +0.2956]. The tightest inward
+  radius is 3.383 mm against t = 1, so the offset speed factor is at least
+  0.704. There is no swallowtail, and `C + t n` really is the cavity wall.
+- x decreases strictly along the curve (dx/ds <= -0.915).
+- The trims fall at (29, 11.596231505011311) and (1, 12.228442126708144).
+  These are the built body's offset-wall vertices.
+- The built face is a `Geom_OffsetSurface` of value 1.0 over a B-spline basis.
+
+### 2. Gauss-Kronrod routing: sound, and byte-identical elsewhere. The cost claim does not generalise
+
+**Byte-identity.** I measured 128 bodies against the pre-`b29fa88` rule,
+applied verbatim (adaptive, `VOLUME_EPS`, `volume_integrand`). The set was the
+63 goldens, their 63 STEP re-imports through `import_step_solid`, and the 2
+committed STEP fixtures. Two bodies routed: the golden and its re-import. The
+other **126 read bitwise-identical volume and centroid**. None of the five
+gauntlet parts contains an `OFFSET_SURFACE` entity (sha256 checked against the
+manifest), so no real-world import in the corpus reaches the new route.
+
+**Suites at `b10f93d`:**
+
+- `test_goldens` + `test_golden_derivations`: **257 passed**.
+- `test_step_roundtrip` + `test_export` + `test_imports` +
+  `test_twisted_extrude`: **510 passed**.
+
+**The golden, re-measured.** Gauss-Kronrod reads +1.775e-7 at eps 1e-10 and
++1.742e-7 / +1.745e-7 / +1.745e-7 at 1e-12 / 1e-13 / 1e-14. The unrouted
+adaptive rule reads 1162.0743 (+1.61). Both confirm the builder's numbers.
+
+**Cost, measured.** The builder's "about 5x (278 ms on that golden)" holds
+only on the golden:
+
+| body (all UI-reachable: spline sketch, extrude, shell)                  | faces / offset | shell build | Gauss-Kronrod `volume_properties` | pre-fix adaptive | ratio |
+| ----------------------------------------------------------------------- | -------------- | ----------- | --------------------------------- | ---------------- | ----- |
+| the golden (30 x 10, t 1)                                               | 11 / 1         | -           | 0.28-0.31 s                       | 11 ms            | 25x   |
+| golden spline, H 20, t 1                                                | 11 / 1         | -           | 0.35 s                            | -                | -     |
+| golden spline, **t 2**                                                  | 11 / 1         | -           | **69.9 s**                        | -                | -     |
+| **case 2** (40 x 20, t 2, below)                                        | 11 / 1         | 0.26 s      | **51.5 s** (`evaluate_model` 52.2 s) | 0.20 s        | 250x  |
+| case-2 spline, t 1 / t 1.5 / H 10 t 2                                    | 11 / 1         | -           | 43.3 / 55.4 / 50.2 s              | -                | -     |
+| 24-sided prism of inward-bowed splines, t 1                             | 51 / 24        | 2.37 s      | 1.59 s (`measure_shape` 2.86 s)   | 78 ms            | 20x   |
+| `extrude-cut-spline-slots-6x-disc-r20-h10` + shell t 1, top open        | 83 / 12        | 3.87 s      | **148.3 s** as built; **196.1 s** after a STEP import (`measure_shape` 196.7 s) | 2.47 s | 60-79x |
+
+Loosening eps does not buy the time back. Case 2 takes 25.7 / 32.1 / 38.7 /
+45.7 / 51.5 s at eps 1e-6 .. 1e-10. Tightening the loose edges (section 3)
+does not either: 51.6 s. The time goes to the offset face alone. Integrated as
+a single face, case 2's offset wall costs 54.2 s. Before the fix the same
+bodies were fast and badly wrong. Case 2 read +42 / +97 / -77 mm^3 by the
+adaptive rule at eps 1e-8 / 1e-10 / 1e-12. So the route is an accuracy fix,
+but it is also a latency regression of up to 250x, and the one golden cannot
+see it (finding F2).
+
+### 3. The round-trip override: the cause is right, it is FIXABLE, and it is scoped
+
+**The mechanism, localised on the golden:**
+
+- The offset wall's two fitted edges carry tolerances of 1.036e-5 and
+  9.21e-6. Their 3D curves lie only 1.07e-6 and 8.3e-7 from the offset
+  surface; the rest of each tolerance is parametric slack.
+- That slack is not even within the tolerance. At the SAME parameter, the rim
+  edge's 3D curve and its pcurve on the offset face differ by up to
+  **3.48e-5, 3.4x the edge's own tolerance** (4001 samples; the floor edge
+  8.7e-6, within its 9.2e-6). OCCT's 23-point
+  `ShapeAnalysis_Edge::CheckSameParameter` and `BRepCheck_Analyzer` both pass
+  it.
+- Their pcurves on the offset face are exact isolines (v = -10 and v = -1).
+- On the cavity floor, the pcurve is the exact projection of the 3D curve
+  (1.4e-14).
+
+I compared the converged per-face areas (adaptive, eps 1e-12) before and after
+STEP. **Only the rim moves: -1.92e-7 mm^2.** The cavity floor moves +9.8e-9,
+the offset wall -2.1e-9, and every other face 3e-12 or less. The control, a
+BREP-text round trip, moves 1e-12 or less. So the STEP reader re-derives the
+open rim's boundary from the loose edge, which is the builder's diagnosis.
+
+**The reader and writer options do not fix it:**
+
+- `read.surfacecurve.mode` 0 / 2 / -2 / -3 all give -3.181e-7. Mode 3 gives
+  -3.349e-7: the tolerances drop to 3.6e-7, but the volume moves more.
+- `read.stdsameparameter.mode` 0 / 1 gives -3.181e-7.
+- The product path (`import_step_solid`) and build123d's `import_step` agree
+  (-3.1813e-7).
+- On the writer side, `write.precision.mode` only sets the declared
+  uncertainty (the file says 2e-5). It changes no geometry.
+
+**An honest fix exists (prototype, scratch only, NOT kernel code).** It
+re-fits each loose edge's 3D curve from the offset face's exact isoline
+(`Approx_CurveOnSurface`, 1e-9, giving 4.9e-10 max error with 292 / 302 poles
+at degree 11). It then re-projects the planar pcurves and runs
+`SameParameter` at 1e-9. The result:
+
+- Every edge tolerance is 1e-7, the body is BRepCheck-valid, and topology
+  stays 11/24.
+- **The round trip drops from -3.18e-7 to -5.2e-9 mm^3**. Area moves +3.3e-8
+  and the centroid 1.4e-10. That meets `ROUNDTRIP_TOL` with a 19x margin.
+- The rim's area error drops from 1.2e-7 to 4.7e-11.
+
+The volume moves from +1.775e-7 to -1.17e-7 against the truth, stable over
+eps. So the golden's plateau is not ONLY its fitted edges, as `expected.json`
+says; about 1.2e-7 remains unexplained, inside the 5e-7 tolerance. The
+prototype also nudged the cavity floor (+8.3e-8 mm^2 on the golden, +1.1e-6 on
+case 2), so the real fix needs the floor edge handled as carefully as the rim.
+Verdict: the override is acceptable as a **sunset-gated stopgap**, not as a
+permanent property of offset bodies.
+
+**Scoping confirmed:**
+
+- `conftest.roundtrip_tolerance_for` reads only
+  `services/geometry/goldens/<name>/expected.json`.
+- `test_goldens.test_roundtrip_overrides_are_the_reviewed_ones` compares both
+  directions. I saw it go red when a second golden declared one (M2).
+- Non-golden callers get 1e-7. `test_scaling_benchmarks` uses names like
+  `f"{label}({size})"`, and a non-golden name is asserted.
+
+One gap: that gate does not pin the VALUE. Widening the override to 1e-5
+passed `test_goldens` (M8, F3). The new test pins `{golden: 1e-6}` and a
+sunset gate (section 6).
+
+**The class is not bounded by this golden.** Case 2's round trip moves
+**+2.297e-2 mm^3** and +7.2e-3 mm^2, 23 000x the override. Its re-import lands
+within 1.2e-6 of the truth, so there the SHIPPED reading is the wrong one
+(F1).
+
+#### Tolerance-override entry (reviewed decision, as the gate rules require)
+
+| field           | value                                                                                                                                                                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| golden          | `shell-spline-prism-30x10-t1`                                                                                                                                                                                                               |
+| gate loosened   | STEP round trip, all 11 mass-property checks: `ROUNDTRIP_TOL` 1e-7 -> `roundtrip_tolerance` 1e-6 (expected.json; `test_goldens.ROUNDTRIP_TOLERANCE_OVERRIDES`)                                                                                  |
+| introduced by   | `b29fa88` (kernel-architect); independently reviewed here                                                                                                                                                                                   |
+| measured need   | volume -3.18e-7, area -1.81e-7, centroid 1.3e-9 mm; topology exact                                                                                                                                                                          |
+| kernel-level justification | the shell (`BRepOffsetAPI_MakeThickSolid` via `hollow`) fits the offset wall's rim and floor edges with tolerances of 1.0e-5 / 9.2e-6. The STEP reader re-derives the rim's boundary from that loose edge, and the rim's converged area moves by 1.9e-7. Reader options do not change it. |
+| status          | **provisional**. Removable: tightening those edges in the kernel gives 5.2e-9 (prototype above). `test_offset_surface_qa.test_the_override_is_still_needed` goes red when the round trip meets 1e-7, and says to delete the override |
+| scope guards    | `test_goldens.test_roundtrip_overrides_are_the_reviewed_ones` (set equality). `test_offset_surface_qa.test_the_override_is_exactly_the_reviewed_one` (set AND value, and 1e-7 for everything else, both seen red) |
+| known over-reach | the 1e-6 applies to the centroid and bbox checks too, which need only 1e-9 (P3)                                                                                                                                                            |
+
+### 4. Surface area on offset faces: CONFIRMED on the golden. The sign flips on a second case
+
+`measure_shape`'s fixed-order reading against the analytic area (section 1's
+method):
+
+| face                         | golden: fixed-order - analytic, mm^2 | case 2: fixed-order - analytic, mm^2 |
+| ---------------------------- | ------------------------------------ | ------------------------------------ |
+| **offset wall**              | **-0.832** (-3.1e-3 of the face)     | **+2.268** (+2.8e-3 of the face)     |
+| outer spline wall (extrusion) | +0.0125                             | -0.205                               |
+| outer floor (plane, spline-bounded) | +0.0608                       | -0.174                               |
+| open rim (plane)             | +0.0583                              | -0.403 (of which -0.0073 is F1)      |
+| cavity floor (plane)         | +0.0012                              | -0.075                               |
+| planar walls                 | 0                                    | 0                                    |
+| **total**                    | **-0.699 (-2.90e-4)**: CONFIRMED     | **+1.410 (+2.73e-4)**: 5159.4833 vs 5158.0729 |
+
+Case 2 is `W 40, H 20, t 2`, with the fit points (40,10) (32,16) (24,11)
+(16,17) (8,12) (0,15), and its truth is derived by both methods above. The
+tightest inward radius is 2.354 mm against t = 2, which leaves the offset well
+posed.
+
+The size, about 3e-4 relative, holds on both cases, but **the sign does
+not**, so "reads low" should not be quoted as a property of offset bodies. The
+error is also not offset-specific: a PLANAR face bounded by a sketch spline
+reads +1.5e-4 / -3.1e-4 relative on the fixed order. This extends the
+2026-09-15 known limit; it is not a new decision.
+
+### 5. Findings, ranked
+
+**F1: P2, open, feature-eval / shell (kernel-architect). A shell of a spline
+wall fits the rim edge beyond the kernel tolerance, so the part's volume is
+wrong and its STEP round trip moves by 1e-2.** The open rim's boundary sits up
+to about 2e-4 mm off the offset wall. That is above the 1e-4 mm (1e-7 m)
+kernel linear tolerance, and BRepCheck accepts it only because the edge
+tolerance was inflated to cover it. Even the golden's rim edge is 3.4x out of its own
+same-parameter tolerance under dense sampling (section 3).
+
+Measured against the truth from section 1's methods, all through the kernel's
+`shell_body`. The tree path gives the identical body: `evaluate_model` read
+4913.629446363646 for case 2 both ways.
+
+| part                          | max edge tol, mm | shipped volume - truth, mm^3 | stable over eps? |
+| ----------------------------- | ---------------- | ---------------------------- | ---------------- |
+| the golden (t 1)              | 1.0e-5           | +1.8e-7                      | yes              |
+| golden spline, t 2            | 2.1e-4           | +1.1e-5                      | -                |
+| case 2 (t 2)                  | **2.15e-4**      | **-2.297e-2**                | yes, 1e-10..1e-14 |
+| case-2 spline, t 1            | 1.2e-4           | +1.443e-2                    | -                |
+| case-2 spline, t 1.5          | **7.8e-4**       | **+8.515e-2**                | -                |
+| spline-slot disc + shell      | **2.2e-3**       | no truth; the body and its STEP re-import differ by 0.018 mm^3 (3834.5219 vs 3834.5403) | - |
+
+Case 2's rim is 7.255e-3 mm^2 short of its analytic area. After a STEP
+re-import the rim is 6.9e-7 from the truth and the volume 1.2e-6 from it,
+because the reader rebuilds the boundary. At the Inspector's two decimals,
+case 2 reads **4 913.63 mm^3 against a true 4 913.65**. I ranked this P2, not
+P0/P1. It is 2e-5 relative at worst in this sample (the P1 spur-gear precedent
+was 1.5e-4), and the 3D curves themselves lie within 5.1e-6 mm of the true
+surface. But it is wrong in the displayed digits and reachable from the UI,
+and the orchestrator may escalate.
+
+Suggested fix: after the hollow, re-fit every offset-wall edge whose tolerance
+exceeds 1e-6 from the offset face's isoline, then re-project and
+SameParameter. The prototype is in section 3 and fixes both the volume
+(-2.3e-2 to -2.9e-6) and the round trip (2.3e-2 to 6.8e-6 on case 2). Then
+promote case 2 to a golden at 5e-7 and retire the override. It is pinned now by
+two strict xfails that XPASS on the fix.
+
+**F2: P1 perf, open, properties (kernel-architect). The Gauss-Kronrod route
+takes 43-196 s on ordinary shelled spline parts.** See section 2's table. The
+worst case is 148 s as built (196 s re-imported) on the spline-slot disc with a 1 mm shell, which is past
+the gateway's 90 s evaluate timeout, so that part cannot be evaluated from the
+UI. The three-feature case 2 takes 52 s, for a body that shells in 0.26 s. It
+is a regression introduced by `b29fa88` (from 0.2-2.5 s) that no golden
+measures, because the one golden is the fast member (0.3 s).
+
+The cost is the offset face itself: loosening eps to 1e-6 still costs 26 s,
+and edge quality does not change it. Measure these options before choosing:
+
+- For an offset of an extrusion (the only kind a spline shell makes), the
+  offset is exactly the extrusion of the 2D offset curve, so its contribution
+  reduces to a 1D boundary integral, as `derive.py` does.
+- Fixed high-order Gauss per knot span of the offset face.
+- A surface approximation of the offset face at 1e-9, NOT the default
+  `NurbsConvert` at 1.7e-6.
+
+Add a perf tripwire on case 2.
+
+**F3: P3, CLOSED by this entry's test. The override gate did not pin the
+override's value.** `test_roundtrip_overrides_are_the_reviewed_ones` checks
+only the set of golden names. Editing the golden's `roundtrip_tolerance` to
+1e-5 left it green (M8). `test_the_override_is_exactly_the_reviewed_one` pins
+`{name: value}`.
+
+**F4: P3, known limit extended: fixed-order area on offset faces and
+spline-bounded planes.** See section 4. The size is 3e-4 relative and the sign
+is not stable.
+
+**F5: P3, test design: the override loosens all 11 round-trip checks.** Only
+the volume (3.2e-7) and the area (1.8e-7) needed it. The centroid needs 1e-9.
+
+**Not done, and why:**
+
+- No kernel code was changed; F1's fix is a prototype in scratch.
+- I did not investigate shells of the loft (`loft-spline-sections-nurbs-h30`)
+  or the V-belt pulley (1 mm, top open). The kernel refused both with
+  `ShellError`, so they were not measured, and I did not check whether the
+  refusals are legitimate.
+- No truth exists for the 24-sided prism or the shelled disc, so they are cost
+  evidence only.
+
+### 6. Gates added: `services/geometry/tests/test_offset_surface_qa.py`
+
+The file has 14 passed and 2 strict xfails, in 6.8 s. It adds no golden
+directory; case 2 becomes one when F1 is fixed.
+
+- The golden truth by Method B, to 1e-10 relative (measured 2.5e-14).
+- The golden rim's area within 1e-6 (the control, 1.2e-7).
+- Case 2 is the 11/24 shell it claims to be.
+- **xfail** (strict): case 2's rim encloses its true area.
+- **xfail** (strict): case 2's rim round-trips.
+- The override set AND value are exactly `{golden: 1e-6}`, and 1e-7 applies
+  to every other name, including a non-golden one.
+- The sunset gate: the golden still needs its override.
+- 8 goldens covering every non-offset integrand branch read byte-for-byte as
+  the pre-fix rule.
+- The offset golden is the one routed differently.
+
+Mutations, each seen red and then reverted:
+
+| mutant                                                                 | result                                                    |
+| ---------------------------------------------------------------------- | --------------------------------------------------------- |
+| M1 golden `volume` +1e-6 in expected.json                              | truth test red (1160.46254836 vs ...93615)                |
+| M2 `roundtrip_tolerance` added to `shell-open-top-box`                 | my scope test AND `test_goldens`' set test red            |
+| M3 `delta = 0.0` at the start of the sunset verdict                    | red: "now round-trips to 0.00e+00 ... remove its override" |
+| M4 `volume_properties` routes EVERY body to Gauss-Kronrod              | 8/8 byte-identity tests red                               |
+| M5 `volume_properties` routes NO body                                  | routed test red (+1.6117 mm^3)                            |
+| M6 case 2 not shelled                                                  | shell-identity test red ((6, 12) != (11, 24))             |
+| M7 `RIM_TOL` 1e-8                                                      | golden rim control red (1.2e-7 off): the bound is measured, not loose |
+| M8 golden's `roundtrip_tolerance` widened to 1e-5                      | my scope test red, **`test_goldens` stays green** (F3)    |
+
+### Golden coverage audit (this capability)
+
+- Shell of a spline wall (offset surfaces) has one golden, and it is the
+  benign member of its class.
+- The loose-edge member is pinned by strict xfails until F1 is fixed.
+- Shells of revolved, lofted and swept spline faces have no coverage (the two
+  I tried were refused, above). That is a gap, filed with F1.
+- No other shipped capability changed in `b29fa88`.
+
+---
+
 ## 2026-09-24 — Twisted extrude INDEPENDENT VERIFICATION of `d823af9` (+ fixes `debd5b7`, `87d099f`, `43ab526`): the helix is exact, the gear numbers hold, and the spur gear next to it reports the wrong volume (geometry-qa)
 
 Every number below was re-measured on this machine against a closed-form truth
@@ -4860,6 +5181,7 @@ consumes. `subshape_ambiguous` for faces is unreachable-but-guarded (above).
 | `shell-open-top-box-40x25x10-t2` | SHELL golden (hollow to a uniform wall, opening a picked face; the **third** `SubshapeRef` consumer): sketch→extrude→shell — the 40×25×10 box hollowed to a 2 mm inward wall with the +Z top face left open (resolved from a stage-1 face signature, the SAME machinery sketch-on-face uses) → an open-top box. `MakeThickSolid` inward offset; analytic V = 10000 − 6048 (cavity 36×21×8, the open face carries no wall) = 3952 mm³ | 1e-9 (all-planar, measured-then-set; vol/area EXACTLY 0.0, centroid.z 8.9e-16) | 11 / 24 / 1 | 48 / 28 |
 | `draft-frustum-box-40x40x20-5deg` | DRAFT golden (taper picked faces by an angle; the **fourth** `SubshapeRef` consumer): sketch→extrude→draft — the 40×40×20 box's four side faces drafted 5° inward about the XY base (`DraftNeutralPlaneV1`, pull +Z) → an analytic square frustum. `BRepOffsetAPI_DraftAngle` via build123d `Solid.draft`; the base stays 40×40 (on the neutral plane), the top shrinks to `40−2·h·tan5°`. Locks the picked-face resolver reuse + neutral-plane-from-datum + the sign convention (positive = inward) + the OCCT-raises-on-collapse finding (no silent-bad-body guard needed, unlike shell). Analytic V = h/3·(A_b+A_t+√(A_b·A_t)) = 29282.008 mm³ | 1e-9 (slanted-planar, measured-then-set; vol worst 7.3e-12, area 9.1e-13, centroid EXACTLY 0.0) | 6 / 12 / 1 | 24 / 12 |
 | `extrude-cut-spline-slots-6x-disc-r20-h10` | FIRST golden with EXTRUSION-OVER-SPLINE faces after a boolean (geometry QA F1, `a0a70ec`): an r20 disc extruded 10 mm, one slot between r = 7 and r = 17 whose long sides are 6-point sketch SPLINES cut through, then a circular pattern x6 of that cut. Locks the per-face NURBS conversion of extrusion/revolution-of-spline faces for the adaptive volume integral, which does not converge on them unconverted (the shipped integrator read +8.518 mm³, 4e7× this tolerance). Analytic V = πR²h − 6Ah = 10483.222847188976 mm³, with the slot area A = 34.71912945283664 mm² by Green's theorem (24-point Gauss per knot span on the interpolated splines, no GProp); centroid (0,0,5) by 6-fold symmetry | 2e-7 (AABB-padding-limited, as the loft goldens: every optimal-AABB bound is padded 1.0e-7, so 2e-7 is a factor of two; volume −1.8e-12, centroid ≤ 3.5e-15). **Surface area is pinned at the FIXED-ORDER reading 5035.639405633832, knowingly +0.264 mm² (5.2e-5) above the analytic 5035.375044230724** (area stays on the fixed-order integrator by the 2026-09-15 decision; if that changes, this value moves to the analytic one) | 27 / 75 / 1 | 11656 / 17812 |
+| `shell-spline-prism-30x10-t1` | FIRST golden with OFFSET-SURFACE faces (OFFSET-SURFACE-VOLUME-1, `b29fa88`): a 30-wide profile with a 6-point sketch-spline top, extruded 10, shelled 1 mm inward, top open; the shell's offset spline wall is a `Geom_OffsetSurface`, integrated by Gauss-Kronrod (`properties.volume_properties`). Analytic V = A H - A_in (H - t) = 1160.4625483615187 mm^3 by `derive.py` (Green's theorem on the profile and its exact inward offset); independently re-derived 2026-09-25 by 40-digit mpmath/tanh-sinh (+8.0e-13) and by Richardson-extrapolated shoelace polygons (2.5e-14 relative, `tests/test_offset_surface_qa.py`). **Surface area pinned at the FIXED-ORDER reading 2409.4906214278603, knowingly -0.699 mm^2 (-2.9e-4) below the analytic 2410.1897542566303** | 5e-7 (volume +1.77e-7 measured). **STEP round trip: reviewed override 1e-6** (measured -3.18e-7; provisional, sunset-gated, see 2026-09-25 tolerance-override entry) | 11 / 24 / 1 | 992 / 1148 |
 
 Coverage audit vs. shipped modeling capabilities: `build_box`,
 `build_cylinder`, `measure_shape`, `tessellate_glb`/GLB stats, STEP/STL
