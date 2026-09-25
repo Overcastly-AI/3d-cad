@@ -123,7 +123,12 @@ const TWIST_CENTRES: ReadonlyArray<SegmentOption<"origin" | "centroid">> = [
     value: "centroid",
     label: "Centroid",
     "data-testid": "extrude-twist-centre-centroid",
-    "aria-label": "Twist axis: through the profile's centroid",
+    // The approximation, said where the choice is made (review S5): the point
+    // is the area centroid of the drawn outline, whose arcs and splines are
+    // polylines, so it sits within a few micrometres of the exact centroid
+    // (~1.5 um at r = 10 mm), and further off on a coarse spline.
+    "aria-label":
+      "Twist axis: through the profile's centroid (measured on the drawn outline; within a few micrometres where it has arcs)",
   },
 ];
 

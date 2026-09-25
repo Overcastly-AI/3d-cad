@@ -339,6 +339,30 @@ test.describe("twisted extrude: the Twist field", () => {
         Object.keys(await extrudeParams(page, account.token, part.id)),
       )
       .toContain("twist_center");
+    // The VALUE, not just the key (review S5). Twisted about its own centroid,
+    // every slice keeps its centroid in place, so the KERNEL's body centroid
+    // (x, y) is the point that must have been stored. Tolerance 0.006 mm: the
+    // inspector prints two decimals (0.005) plus float slack; the browser's
+    // polyline centroid is exact for this rectangle.
+    const centre = (await extrudeParams(page, account.token, part.id))[
+      "twist_center"
+    ] as { x: number; y: number };
+    await expect
+      .poll(
+        async () => {
+          const text = await page.getByTestId("prop-centroid").innerText();
+          // A number starts with a DIGIT: "7.5, -1, 5" separates with commas.
+          const [x, y] = (text.match(/-?\d[\d,]*(?:\.\d+)?/g) ?? []).map((n) =>
+            Number.parseFloat(n.replace(/,/g, "")),
+          );
+          return Math.max(
+            Math.abs((x ?? Number.NaN) - centre.x),
+            Math.abs((y ?? Number.NaN) - centre.y),
+          );
+        },
+        { timeout: 30_000 },
+      )
+      .toBeLessThanOrEqual(0.006);
 
     // 4. Clear it: BOTH twist fields leave the row, not just the angle.
     await page.getByTestId("feature-select-1").click();
