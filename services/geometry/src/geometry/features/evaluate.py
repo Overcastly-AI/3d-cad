@@ -4065,6 +4065,16 @@ def warm_rebuild_cache(
         suppressed = set(reclaimed.checkpoint.suppressed_ids)
 
 
+def tree_has_twist(request: EvaluateTreeRequest) -> bool:
+    """Whether any extrude in *request* is twisted (design twisted-extrude.md
+    §6.1). It gates the bounded helicoid mesher, so every tree WITHOUT a twist
+    tessellates and exports byte-for-byte as before, by construction."""
+    return any(
+        isinstance(item.feature, ExtrudeFeature) and item.feature.params.is_twisted
+        for item in request.features
+    )
+
+
 def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
     """Evaluate a feature tree — the ONE funnel every rebuild in the product
     passes through, and therefore where real work announces itself.
@@ -4261,7 +4271,9 @@ def _evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
         # nested Compound, which would give ``glb_stats`` a nondeterministic
         # traversal.
         properties = measured[0] if len(measured) == 1 else combine_properties(measured)
-        glb, mesh = tessellate_glb(shape, request.linear_deflection)
+        glb, mesh = tessellate_glb(
+            shape, request.linear_deflection, twisted=tree_has_twist(request)
+        )
         mesh_glb_id = store_mesh_glb(glb)
 
     # Per-body lump count (§MB-4): tree/insertion-ordered over the last-good body

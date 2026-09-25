@@ -56,6 +56,7 @@ from build123d.exporters3d import (
 )
 from numpy.typing import NDArray
 
+from geometry.kernel.twist import mesh_helicoidal_faces
 from geometry.kernel.types import BodyShape
 from geometry.schemas import DEFAULT_ANGULAR_DEFLECTION, MeshStats
 
@@ -130,9 +131,15 @@ class _Unfusable(Exception):
 
 
 def tessellate_glb(
-    shape: BodyShape, linear_deflection: float
+    shape: BodyShape, linear_deflection: float, *, twisted: bool = False
 ) -> tuple[bytes, MeshStats]:
     """Tessellate *shape* and return ``(glb_bytes, mesh_stats)``.
+
+    ``twisted`` (the tree contains a twisted extrude) first meshes the body's
+    helicoidal flanks with a bounded cost
+    (:func:`geometry.kernel.twist.mesh_helicoidal_faces`, design
+    twisted-extrude.md §6.1). Without it, which is every other body, nothing
+    changes: the call below is byte-for-byte the one it always was.
 
     *shape* is any B-rep :class:`~build123d.Shape` — a single :class:`Solid`, or
     a :class:`~build123d.Compound` of a multi-body part's disjoint solids
@@ -142,6 +149,8 @@ def tessellate_glb(
     """
     if linear_deflection <= 0:
         raise ValueError(f"linear_deflection must be > 0, got {linear_deflection}")
+    if twisted:
+        mesh_helicoidal_faces(shape, linear_deflection, ANGULAR_DEFLECTION)
 
     with tempfile.TemporaryDirectory(prefix="loft-glb-") as tmp:
         target = Path(tmp) / "shape.glb"

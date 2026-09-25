@@ -34,6 +34,14 @@ checked against the Cavalieri identity (volume = area × distance), because OCCT
 can return an inverted solid that `BRepCheck` still accepts. Rationale and
 measurements: `docs/design/twisted-extrude.md`.
 
+**High-twist cost (2026-09-25):** in a tree with a twisted extrude only, the
+helicoidal flanks are meshed with BRepMesh's surface-deflection refinement
+off (`ControlSurfaceDeflection = False`; the linear and angular deflection
+still set the grid), and a twist whose pre-sweep cost estimate exceeds 4.5 s
+is refused as `twist_failed`. 3MF of a dense twisted body is refused
+(`export_mesh_too_dense`) because lib3mf re-meshes a copy at full cost. Every
+other body tessellates exactly as before. Design twisted-extrude.md §6.1.
+
 ## 2. Sketch constraint solver — planegcs (spike verdict 2026-07-10: adopted)
 
 **Decision:** FreeCAD's planar geometric constraint solver via the

@@ -835,7 +835,9 @@ MERGE_FIELD = Field(
 #: how tight a twist the kernel can sweep depends on the profile's radius from
 #: the axis and on the distance, so a twist that is inside this bound and still
 #: too tight for its profile is refused at rebuild as ``twist_failed``
-#: (docs/design/twisted-extrude.md §4).
+#: (docs/design/twisted-extrude.md §4). So is a twist with too many turns for
+#: its profile to build within the kernel's cost budget, a limit that depends
+#: on the profile's edges (design §6.1).
 MAX_TWIST_ANGLE_DEG = 3600.0
 
 #: Smallest |twist| that IS a twist (degrees over the whole distance); anything
@@ -893,7 +895,8 @@ class ExtrudeParamsV1(BaseModel):
             "left-handed. None (the default), 0, or any |twist| below 1e-9 deg "
             "is NO twist: it is normalised to absent, and the extrude is a plain "
             "prism, byte-identical to one with no twist. A twist too tight for "
-            "the profile is a `twist_failed` rebuild error."
+            "the profile, or with too many turns for it to build in reasonable "
+            "time, is a `twist_failed` rebuild error."
         ),
     )
     twist_center: Point2D | None = Field(

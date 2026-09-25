@@ -30,20 +30,23 @@ are opaque to pyright; the directives scope that relaxation to this file only
 
 import math
 
-from build123d import Edge, Face, Plane, Solid, Vector, Wire
+from build123d import Edge, Face, GeomType, Plane, Solid, Vector, Wire
 from loft_wire.sketch import Point2D
 from OCP.BRep import BRep_Builder, BRep_Tool
-from OCP.BRepAdaptor import BRepAdaptor_Curve
+from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
 from OCP.BRepBuilderAPI import BRepBuilderAPI_Copy
 from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepGProp import BRepGProp
 from OCP.BRepLib import BRepLib
+from OCP.BRepLProp import BRepLProp_SLProps
+from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell
-from OCP.GeomAbs import GeomAbs_CurveType
+from OCP.GeomAbs import GeomAbs_CurveType, GeomAbs_SurfaceType
 from OCP.GeomAdaptor import GeomAdaptor_Curve
 from OCP.GeomAPI import GeomAPI_ProjectPointOnCurve
 from OCP.GeomConvert import GeomConvert_CurveToAnaCurve
 from OCP.GProp import GProp_GProps
+from OCP.IMeshTools import IMeshTools_Parameters
 from OCP.ShapeBuild import ShapeBuild_Edge
 from OCP.ShapeFix import ShapeFix_Edge
 from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE
@@ -54,6 +57,8 @@ from OCP.TopTools import TopTools_IndexedDataMapOfShapeListOfShape
 
 from geometry.kernel.extrude import plane_point_to_world
 from geometry.kernel.properties import VOLUME_EPS
+from geometry.kernel.types import BodyShape
+from geometry.schemas import DEFAULT_ANGULAR_DEFLECTION
 
 #: 3D approximation tolerance (mm) handed to ``BRepOffsetAPI_MakePipeShell``
 #: (``SetTolerance(Tol3d, BoundTol, TolAngular)``) for the lateral faces. A
@@ -124,10 +129,11 @@ class TwistError(RuntimeError):
     """A twisted extrusion could not be swept, or the sweep came back wrong.
 
     Raised when OCCT's pipe-shell sweep fails outright, when a profile with
-    holes does not leave one solid, or when the swept tool fails the Cavalieri
-    invariant (:data:`TWIST_VOLUME_REL_TOL`). The feature layer reports it as
-    ``twist_failed``; the suggested fix is a smaller twist or a longer
-    extrusion.
+    holes does not leave one solid, when the swept tool fails the Cavalieri
+    invariant (:data:`TWIST_VOLUME_REL_TOL`), or, before any sweep, when the
+    twist has too many turns for its profile to build within the cost budget
+    (:data:`TWIST_COST_LIMIT_S`). The feature layer reports it as
+    ``twist_failed``; the message names the fix.
     """
 
 
@@ -277,9 +283,10 @@ def _restore_cap_edges(
     faces are untouched: they are genuinely not lines, circles, planes or
     cylinders.
 
-    Works on a copy and returns the ORIGINAL tool if the result fails
-    ``BRepCheck`` or moves the volume by more than the fit allows, so this can
-    only ever improve a body, never break one. Deterministic: edges are visited
+    Works on a copy and returns the ORIGINAL tool if the copy fails
+    ``BRepCheck``; the caller's Cavalieri check then falls back to the original
+    if the copy's volume is off, so this can only ever improve a body, never
+    break one. Deterministic: edges are visited
     in the copy's own indexed-map order.
     """
     copy = Solid(BRepBuilderAPI_Copy(tool.wrapped).Shape())
@@ -323,9 +330,6 @@ def _restore_cap_edges(
         return tool
     if not BRepCheck_Analyzer(copy.wrapped).IsValid():
         return tool
-    before, after = _adaptive_volume(tool), _adaptive_volume(copy)
-    if abs(after - before) > TWIST_VOLUME_REL_TOL * abs(before):
-        return tool
     return copy
 
 
@@ -358,8 +362,10 @@ def twisted_extrude_face(
         ValueError: ``distance_mm <= 0`` or a zero twist (caller errors: a zero
             twist belongs on ``extrude_face``, byte-identically).
         TwistError: the twist is too small for its distance to sweep
-            (:data:`MAX_AUX_HELIX_PITCH_MM`), the sweep failed, did not leave
-            one solid, or failed the Cavalieri invariant.
+            (:data:`MAX_AUX_HELIX_PITCH_MM`), predicted to cost more than
+            :data:`TWIST_COST_LIMIT_S` (:func:`twist_cost_estimate_s`), the
+            sweep failed, did not leave one solid, or failed the Cavalieri
+            invariant.
     """
     if distance_mm <= 0:
         raise ValueError(f"distance_mm must be > 0, got {distance_mm}")
@@ -375,6 +381,18 @@ def twisted_extrude_face(
         raise TwistError(
             f"A {twist_angle_deg:g} deg twist over {distance_mm:g} mm is too small "
             "to sweep; set the twist to 0 for a straight extrusion."
+        )
+    # Before anything is swept: a twist this profile cannot sweep, check and
+    # mesh within the budget is refused, not left to pin a worker (design §6.1).
+    cost = twist_cost_estimate_s(
+        face, plane, distance_mm, reverse, twist_angle_deg, center
+    )
+    if cost > TWIST_COST_LIMIT_S:
+        raise TwistError(
+            f"A {twist_angle_deg:g} deg twist is too many turns for this profile "
+            f"to build in reasonable time (estimated {cost:.1f} s, limit "
+            f"{TWIST_COST_LIMIT_S:g} s); reduce the twist angle or give the "
+            "profile fewer edges."
         )
 
     try:
@@ -411,12 +429,317 @@ def twisted_extrude_face(
             f"{_TOO_TIGHT}."
         ) from exc
 
-    tool = _restore_cap_edges(tool, origin, direction, distance_mm)
     expected = _adaptive_area(face) * distance_mm
-    swept = _adaptive_volume(tool)
-    if not abs(swept - expected) <= TWIST_VOLUME_REL_TOL * expected:
-        raise TwistError(
-            f"A {twist_angle_deg:g} deg twist over {distance_mm:g} mm did not sweep "
-            f"cleanly (its volume is not profile area x distance); {_TOO_TIGHT}."
+
+    def cavalieri_holds(solid: Solid) -> bool:
+        swept = _adaptive_volume(solid)
+        return abs(swept - expected) <= TWIST_VOLUME_REL_TOL * expected
+
+    # ONE volume integral on the common path: the restored tool is checked
+    # against the Cavalieri invariant directly (it is the same check the raw
+    # tool must pass), and only if the restoration broke it is the raw tool
+    # tried. On a many-turn body each integral costs seconds (design §6.1).
+    restored = _restore_cap_edges(tool, origin, direction, distance_mm)
+    if cavalieri_holds(restored):
+        return restored
+    if restored is not tool and cavalieri_holds(tool):
+        return tool
+    raise TwistError(
+        f"A {twist_angle_deg:g} deg twist over {distance_mm:g} mm did not sweep "
+        f"cleanly (its volume is not profile area x distance); {_TOO_TIGHT}."
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Bounded tessellation of helicoidal flanks (geometry QA F4)                  #
+# --------------------------------------------------------------------------- #
+
+#: Estimated mesh size, in angular cells, at or above which a B-SPLINE face of a
+#: twisted body is meshed with the bounded helicoid settings
+#: (:func:`mesh_helicoidal_faces`). The estimate is ``(Tu / a) * (Tv / a)``, the
+#: surface normal's total turning along each parameter over the angular
+#: deflection ``a``: a face whose normal turns hard along BOTH parameters is what
+#: drives BRepMesh's surface-deflection control into hundreds of thousands of
+#: triangles. Measured (0.1 rad): the 30 deg golden's flanks 18, a 360 deg
+#: square 1 414, 720 deg 3 359. 500 leaves the golden and every gentle twist on
+#: the production mesher (byte-identical, the golden's mesh counts unchanged)
+#: and catches every twist that costs seconds (docs/design/twisted-extrude.md
+#: §6.1).
+HELICOID_MESH_ESTIMATE_MIN = 500.0
+
+#: Grid points per parameter direction for the normal-turning estimate.
+_TURNING_SAMPLES = 24
+
+
+def _normal_turning(face: Face) -> tuple[float, float]:
+    """(Tu, Tv): the largest total turning (rad) of the surface normal along a
+    u-line and along a v-line of *face*, sampled on a regular UV grid."""
+    adaptor = BRepAdaptor_Surface(face.wrapped)
+    u0, u1 = adaptor.FirstUParameter(), adaptor.LastUParameter()
+    v0, v1 = adaptor.FirstVParameter(), adaptor.LastVParameter()
+    props = BRepLProp_SLProps(adaptor, 1, 1e-9)
+    n = _TURNING_SAMPLES
+
+    def normal(u: float, v: float) -> tuple[float, float, float] | None:
+        props.SetParameters(u, v)
+        if not props.IsNormalDefined():
+            return None
+        d = props.Normal()
+        return (d.X(), d.Y(), d.Z())
+
+    grid = [
+        [normal(u0 + (u1 - u0) * i / n, v0 + (v1 - v0) * j / n) for j in range(n + 1)]
+        for i in range(n + 1)
+    ]
+
+    def angle(
+        a: tuple[float, float, float] | None, b: tuple[float, float, float] | None
+    ) -> float:
+        if a is None or b is None:
+            return 0.0
+        dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+        return math.acos(max(-1.0, min(1.0, dot)))
+
+    along_u = max(
+        sum(angle(grid[i][j], grid[i + 1][j]) for i in range(n)) for j in range(n + 1)
+    )
+    along_v = max(
+        sum(angle(grid[i][j], grid[i][j + 1]) for j in range(n)) for i in range(n + 1)
+    )
+    return along_u, along_v
+
+
+def helicoid_mesh_estimate(face: Face, angular_deflection: float) -> float:
+    """Angular cells BRepMesh would need on *face* (0 for a non-B-spline face)."""
+    if (
+        BRepAdaptor_Surface(face.wrapped).GetType()
+        != GeomAbs_SurfaceType.GeomAbs_BSplineSurface
+    ):
+        return 0.0
+    along_u, along_v = _normal_turning(face)
+    return max(along_u / angular_deflection, 1.0) * max(
+        along_v / angular_deflection, 1.0
+    )
+
+
+def mesh_helicoidal_faces(
+    shape: BodyShape, linear_deflection: float, angular_deflection: float
+) -> int:
+    """Pre-mesh a twisted body's helicoidal flanks with a BOUNDED cost.
+
+    Called only for bodies of a tree that contains a twisted extrude, before the
+    ordinary mesher. Every B-spline face whose :func:`helicoid_mesh_estimate` is
+    at least :data:`HELICOID_MESH_ESTIMATE_MIN` is meshed alone, with the
+    production parameters (the same linear and angular deflection, relative,
+    parallel) EXCEPT ``ControlSurfaceDeflection = False``. That switch turns
+    off BRepMesh's refinement loop, which on a surface whose normal turns along
+    both parameters inserts nodes into the hundreds of thousands. The initial
+    grid is still derived from the linear and angular deflection. Measured
+    (design §6.1): the worst chord error on the bounded 360 and 720 deg
+    flanks is 0.21 mm, against 0.23 mm on the production mesh of a 30 deg
+    twisted flank (the relative deflection makes 0.1 mm no absolute chord
+    bound on these faces).
+    The ordinary mesher then keeps these triangulations, because they already
+    satisfy its deflection, and meshes the remaining faces exactly as before.
+
+    Every other face, and every body outside a twisted tree, is untouched.
+    Returns how many faces were pre-meshed. Deterministic: faces are visited
+    in ``shape.faces()`` order, with the production parallelism.
+    """
+    params = IMeshTools_Parameters()
+    params.Deflection = linear_deflection
+    params.DeflectionInterior = linear_deflection
+    params.Angle = angular_deflection
+    params.AngleInterior = angular_deflection
+    params.Relative = True
+    params.InParallel = True
+    params.ControlSurfaceDeflection = False
+    meshed = 0
+    for face in shape.faces():
+        if (
+            helicoid_mesh_estimate(face, angular_deflection)
+            < HELICOID_MESH_ESTIMATE_MIN
+        ):
+            continue
+        BRepMesh_IncrementalMesh(face.wrapped, params)
+        meshed += 1
+    return meshed
+
+
+#: Budget, in summed :func:`helicoid_mesh_estimate` over the faces that need
+#: the bounded mesher, above which a 3MF export of a twisted body is REFUSED.
+#: lib3mf's writer (build123d ``Mesher``) meshes a deep COPY of the body, so
+#: the bounded pre-mesh does not reach it and the copy is meshed at full,
+#: unbounded cost. Calibrated in design twisted-extrude.md §6.1.
+THREE_MF_TWIST_ESTIMATE_BUDGET = 8000.0
+
+
+class MeshExportTooDenseError(Exception):
+    """A 3MF export of a twisted body that would take minutes to mesh.
+
+    STL, GLB and STEP of the same body work (the first two through the bounded
+    helicoid mesher); only 3MF's writer re-meshes a copy at full cost.
+    """
+
+    code = "export_mesh_too_dense"
+
+
+def check_3mf_twist_budget(shape: BodyShape, angular_deflection: float) -> None:
+    """Refuse a 3MF of *shape* whose helicoidal flanks exceed the 3MF budget."""
+    total = 0.0
+    for face in shape.faces():
+        estimate = helicoid_mesh_estimate(face, angular_deflection)
+        if estimate >= HELICOID_MESH_ESTIMATE_MIN:
+            total += estimate
+    if total > THREE_MF_TWIST_ESTIMATE_BUDGET:
+        raise MeshExportTooDenseError(
+            "This twisted body is too dense to export as 3MF in reasonable time "
+            "(its many-turn helical faces). Export STL or STEP instead, or reduce "
+            "the twist."
         )
-    return tool
+
+
+# --------------------------------------------------------------------------- #
+# Pre-sweep cost guard (geometry QA F4)                                       #
+# --------------------------------------------------------------------------- #
+
+#: The wall-clock budget (s, on the reference box) for one twisted extrude end
+#: to end: sweep, Cavalieri guard, mass properties and the bounded mesh.
+TWIST_COST_BUDGET_S = 5.0
+
+#: Largest :func:`twist_cost_estimate_s` a twist may have. Anything over it is
+#: refused with :class:`TwistError` before anything is swept (design
+#: twisted-extrude.md §6.1). It sits below :data:`TWIST_COST_BUDGET_S` because
+#: the model under-predicts by up to 0.8x: measured, every accepted stress case
+#: built in <= 5.0 s and every refused one took >= 4.3 s. The estimate is a
+#: pure function of the profile and the parameters, so the refusal is
+#: deterministic on every machine; only its calibration refers to a clock.
+TWIST_COST_LIMIT_S = 4.5
+
+# The cost model (design §6.1), fitted by non-negative least squares on
+# relative error over a 50-case stress set (0.05-9.4 s measured: polygons of
+# 3-48 edges, stars, off-axis and scaled profiles, circles and holes, the gear
+# tooth gap). Per profile edge, in seconds:
+#
+#   turns   x  a per-turn base by edge kind: the ribbon's sweep, its share of
+#              the two volume integrals and its edge discretisation. A spline
+#              ribbon (the gear's involute flanks) is the dear one;
+#   turns^2 x  a quadratic part. The swept B-spline's pole count grows with
+#              the turns and so does every evaluation on it, so the mesh cost
+#              of a flank goes as turns SQUARED (measured: 0.17 s at 5 turns,
+#              0.63 s at 10, one square flank). By edge:
+#              - every edge: a small constant;
+#              - a WIDE line flank (one the bounded mesher takes, see
+#                HELICOID_MESH_ESTIMATE_MIN): a constant plus a term in the
+#                angle the edge subtends at the axis, how far round it wraps;
+#              - a NARROW line flank (left to the production mesher): its
+#                length over its largest distance from the axis;
+#              - a circle or arc: its normal turning across the edge, scaled
+#                by its radius up to 5 mm. Below that the absolute 0.1 mm mesh
+#                deflection coarsens the tube (measured: r 1 mm 1.5 s,
+#                r 5 mm and r 50 mm 6 s, all at 10 turns).
+#
+# Measured prediction / actual over the set: 0.78-1.25 for all but four cases
+# (two conservative: a 10 mm square over 100 mm 1.65, an r 2 mm circle 1.36;
+# two under: a radial slot 0.73 at 1.5 s, a six-point star scaled 10x 0.58
+# under load and 0.82 re-timed quiet). Every term is deterministic geometry;
+# no clock is read.
+_COST_TURN_LINE_S = 0.0136
+_COST_TURN_CIRCLE_S = 0.0165
+_COST_TURN_OTHER_S = 0.195
+_COST_TURN2_EDGE_S = 0.00017
+_COST_TURN2_WIDE_LINE_S = 0.00118
+_COST_TURN2_SPAN_S = 0.00256
+_COST_TURN2_NARROW_EXTENT_S = 0.00175
+_COST_TURN2_CIRCLE_TURNING_S = 0.0086
+_COST_CIRCLE_FULL_RADIUS_MM = 5.0
+_COST_CIRCLE_MIN_SCALE = 0.25
+_COST_EDGE_SAMPLES = 32
+
+
+def _edge_normal_turning(
+    edge: Edge, origin: Vector, direction: Vector, rate: float
+) -> float:
+    """Total turning (rad) of the swept surface's normal ACROSS *edge*.
+
+    The screw motion carries a profile point p (relative to the axis) along
+    P(s, z) = R(rate z) p(s) + z d, so at z = 0 the surface normal is
+    t x (rate (d x p) + d) for the edge's unit tangent t: a closed form, no
+    sweep needed.
+    """
+    previous: Vector | None = None
+    total = 0.0
+    for index in range(_COST_EDGE_SAMPLES + 1):
+        param = index / _COST_EDGE_SAMPLES
+        p = edge.position_at(param) - origin
+        p = p - direction * p.dot(direction)
+        normal = edge.tangent_at(param).cross(direction.cross(p) * rate + direction)
+        if normal.length <= 1e-12:
+            continue
+        normal = normal.normalized()
+        if previous is not None:
+            total += math.acos(max(-1.0, min(1.0, previous.dot(normal))))
+        previous = normal
+    return total
+
+
+def _axis_offsets(edge: Edge, origin: Vector, direction: Vector) -> list[Vector]:
+    """The ends of *edge*, as offsets from the twist axis (perpendicular)."""
+    offsets: list[Vector] = []
+    for param in (0.0, 1.0):
+        p = edge.position_at(param) - origin
+        offsets.append(p - direction * p.dot(direction))
+    return offsets
+
+
+def twist_cost_estimate_s(
+    face: Face,
+    plane: Plane,
+    distance_mm: float,
+    reverse: bool,
+    twist_angle_deg: float,
+    center: Point2D,
+) -> float:
+    """Predicted end-to-end cost (s) of twisting *face*: cheap and pre-sweep.
+
+    About 3 ms per profile edge (closed-form normals on 33 samples; 133 ms
+    for a 48-edge star), no kernel operation. See the cost-model notes above
+    and design §6.1.
+    """
+    direction = plane.z_dir * (-1.0 if reverse else 1.0)
+    origin = plane_point_to_world(plane, center)
+    rate = math.radians(abs(twist_angle_deg)) / distance_mm
+    turns = abs(twist_angle_deg) / 360.0
+    # A line flank the bounded mesher will take: helicoid_mesh_estimate's
+    # (Tu / a) x (Tv / a), with Tv a full normal turn per twist turn.
+    along_v = 2.0 * math.pi * turns / DEFAULT_ANGULAR_DEFLECTION
+    linear = quadratic = 0.0
+    for edge in face.edges():
+        kind = edge.geom_type
+        quadratic += _COST_TURN2_EDGE_S
+        if kind == GeomType.LINE:
+            linear += _COST_TURN_LINE_S
+            turning = _edge_normal_turning(edge, origin, direction, rate)
+            start, end = _axis_offsets(edge, origin, direction)
+            if turning / DEFAULT_ANGULAR_DEFLECTION * along_v >= (
+                HELICOID_MESH_ESTIMATE_MIN
+            ):
+                subtended = math.atan2(start.cross(end).length, start.dot(end))
+                quadratic += _COST_TURN2_WIDE_LINE_S + _COST_TURN2_SPAN_S * subtended
+            else:
+                # A real edge has an end off the axis; the test only spares a
+                # division by zero on a degenerate one.
+                farthest = max(start.length, end.length)
+                if farthest > 0.0:
+                    quadratic += _COST_TURN2_NARROW_EXTENT_S * edge.length / farthest
+        elif kind == GeomType.CIRCLE:
+            linear += _COST_TURN_CIRCLE_S
+            turning = _edge_normal_turning(edge, origin, direction, rate)
+            scale = min(
+                1.0,
+                max(_COST_CIRCLE_MIN_SCALE, edge.radius / _COST_CIRCLE_FULL_RADIUS_MM),
+            )
+            quadratic += _COST_TURN2_CIRCLE_TURNING_S * turning * scale
+        else:
+            linear += _COST_TURN_OTHER_S
+    return turns * linear + turns * turns * quadratic

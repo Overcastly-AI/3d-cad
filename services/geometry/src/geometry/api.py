@@ -125,6 +125,7 @@ from geometry.drawings import (
 )
 from geometry.faults import unexpected_query_failure
 from geometry.features import evaluate_tree, tree_no_body_error
+from geometry.features.evaluate import tree_has_twist
 from geometry.kernel import (
     ImportNoSolidError,
     ImportParseError,
@@ -132,6 +133,7 @@ from geometry.kernel import (
     ImportResponseTooLargeError,
     ImportTooManyProductsError,
     MeshExportNotManifoldError,
+    MeshExportTooDenseError,
     evaluate_export,
     evaluate_tessellation,
     export_solid,
@@ -1049,8 +1051,9 @@ def export_tree(request: ExportTreeRequest) -> Response:
             request.linear_deflection,
             request.angular_deflection,
             name=request.name,
+            twisted=tree_has_twist(request),
         )
-    except MeshExportNotManifoldError as exc:
+    except (MeshExportNotManifoldError, MeshExportTooDenseError) as exc:
         raise ValidationApiError(str(exc), code=exc.code) from exc
     return Response(
         content=data,

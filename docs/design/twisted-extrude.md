@@ -1,7 +1,9 @@
 # Twisted extrude: design note
 
-Status: **IMPLEMENTED** (kernel half, 2026-09-24). The web UI (a twist field and
-a gauge on the extrude editor) is a separate follow-up. Scope: the extrude
+Status: **IMPLEMENTED** (kernel 2026-09-24; high-twist cost bound 2026-09-25,
+§6.1). The web UI landed in `737137e` (the Twist field and its axis),
+`865a0d4` (a client-side twisting ghost and the `twistGaugeTrack` arc) and
+`aa2e108` (the `twist_failed` copy). Scope: the extrude
 feature's `twist_angle_deg` / `twist_center` parameters, the OCCT mechanism
 behind them, and how they compose with the other extrude options. Closes the
 kernel side of helical-gear gap #1 (`docs/qa/helical-gear-2026-09-24.md`, G1).
@@ -152,7 +154,12 @@ round-trip loss, and the probe now reads the volume adaptively.
   30, 5 and 1 mm, at -3600, -3000, 1800, 3100 and 3600°, ALL sweep, with a
   Cavalieri residual of at most 9e-8 relative. The sweep is scale-invariant,
   and no tested input reaches the guard any more. What does limit a high
-  twist is the cost of meshing it (§6).
+  twist is its cost (§6.1).
+  Their STEP was always right, face for face, but OCCT's reader turned it
+  inside out again on re-import (its `ShapeFix_Solid` classifies a point at
+  infinity by ray cast, which returns IN on these helicoids). Both STEP
+  readers now turn a solid of negative volume right side out (review B1,
+  `9ca5401`).
 - **The Cavalieri guard stays, as the net under the sweep.** Every slice of a
   twisted extrusion is a rigid rotation of the profile, so the swept tool's
   volume must equal profile area × distance exactly, for any twist. The kernel
@@ -294,13 +301,12 @@ poles either way. Accuracy per second still favours the twist heavily. A
 5-section loft builds in 13.9 s and an 11-section loft in 33.5 s (report), and
 both are less accurate than the twisted build.
 
-### 6.1 High twists: the MESH is the cost (geometry QA F4, measured, OPEN)
+### 6.1 High twists: bounded meshing and a cost guard (geometry QA F4, DONE)
 
-QA found that twists inside the accepted ±3600° tie up a worker for minutes. A
-20 mm square over 30 mm took 59 s at 1800° and 415 s at -3600°, and the gateway
-gives up at 90 s while the worker keeps meshing. Re-measured here, sweeping
-then tessellating at the production 0.1 mm linear / 0.1 rad angular
-deflection:
+QA found that twists inside the accepted ±3600° tied up a worker for minutes.
+A 20 mm square over 30 mm took 59 s at 1800° and 415 s at -3600°, and the
+gateway gives up at 90 s while the worker keeps meshing. Measured then, at the
+production 0.1 mm linear / 0.1 rad angular deflection:
 
 | Profile, distance, twist         | Sweep  | Mesh    | Triangles |
 | -------------------------------- | ------ | ------- | --------- |
@@ -313,48 +319,143 @@ deflection:
 | square 2 at r = 10, 20 mm, 3600° | —      | 22.23 s | 696 792   |
 | slot 0.2 × 20 at r 10..30, 3600° | —      | 1.47 s  | 69 924    |
 
-The two findings that decide the fix:
+What those measurements showed (the first draft of this section, kept because
+they decided the fix): the angular criterion drives the cost, not the fit or
+the linear deflection. On the 720° square BRepMesh gave 367 774 triangles in
+10.1 s at 0.1 mm / 0.1 rad, 12 900 in 0.16 s at 0.1 mm / 0.5 rad, and still
+320 000 at 1.0 mm / 0.1 rad; QA saw fits of 1e-4 and 1e-7 mesh equally slowly.
+And the cost is no function of the twist alone: it depends on each edge's
+offset from the axis (a thin radial slot at 10 turns 1.5 s, a 2 mm square at
+r = 10 over the same 10 turns 22 s) and did not collapse to the lead angle
+(1 turn over 10 mm 2.9 s, 3 turns over 30 mm 20 s). So a flat bound small
+enough to guarantee "a few seconds" would have refused useful geometry, and
+the fix bounds the mesh instead; the guard below only catches what is still
+over budget once it is bounded.
 
-1. **The angular deflection drives it, not the fit or the linear
-   deflection.** On the 720° square, BRepMesh gives 367 774 triangles in
-   10.1 s at 0.1 mm / 0.1 rad. At 0.1 mm / 0.5 rad it gives 12 900 in
-   0.16 s, and at 1.0 mm / 0.1 rad still 320 000. A ruled helicoid's normal
-   turns along BOTH parameters, so the interior angle criterion subdivides it
-   far past what the 0.1 mm chordal bound needs. The pipe-shell fit tolerance
-   does not matter (QA: 1e-4 and 1e-7 mesh equally slowly).
-2. **The cost is not a function of the twist alone, or of any simple profile
-   measure.** It depends on each edge's offset from the axis. A thin RADIAL
-   slot at 10 turns meshes in 1.5 s, while a 2 mm square at r = 10 over the
-   same 10 turns takes 22 s. It also depends on turns and on lead angle
-   (distance), and those do not collapse to one metric: 1 turn over 10 mm
-   takes 2.9 s, and 3 turns over 30 mm, the same lead angle, take 20 s. A
-   flat bound small enough to guarantee "a few seconds" (below 720°: the
-   short square already takes 15 s there) refuses useful geometry that
-   meshes in well under a second. A profile-aware predictor would be a
-   hand-fitted model of BRepMesh.
+**What shipped.** Three mechanisms, all confined to trees that contain a
+twisted extrude (`evaluate.tree_has_twist`). Every other tree tessellates and
+exports through exactly the calls it always did.
 
-**Therefore the recommended fix is bounded tessellation, not a tighter twist
-bound.** Mesh the twisted flanks with a relaxed INTERIOR angular deflection,
-keeping the linear (chordal) deflection. That gives about 28× fewer
-triangles at 720°, with the mesh still within 0.1 mm of the surface. It
-needs the tessellator to know which faces are helicoidal flanks: provenance
-already attributes faces to features, or `IMeshTools_Parameters.AngleInterior`
-could be applied body-wide. The body-wide option changes the mesh of every
-curved golden, so it is a reviewed decision of its own. **Not done in this
-batch**: the review asked for F1 and F3 first, and this touches the
-tessellation contract of every body. Until it lands, twists of more than
-about two turns on a profile wide relative to its distance can occupy a
-worker for tens of seconds or more. The ±3600° request bound stands only as
-a sanity bound.
+1. **Bounded meshing of the helicoidal flanks** (`twist.mesh_helicoidal_faces`,
+   called by `tessellate_glb(..., twisted=True)` and by STL/GLB export). Each
+   B-spline face whose estimated cell count `(Tu/a) x (Tv/a)` is at least
+   `HELICOID_MESH_ESTIMATE_MIN = 500` is meshed alone, before the ordinary
+   mesher, with the production parameters (same linear and angular deflection,
+   relative, parallel) except `ControlSurfaceDeflection = False`. Tu and Tv are
+   the normal's total turning along each parameter, sampled on a 25 × 25 grid,
+   and `a` is the angular deflection. The ordinary mesher then keeps those
+   triangulations and meshes every other face as before.
+   The estimate costs about 2 ms per B-spline face (planes and analytic
+   faces are skipped), so an extrapolated 0.3 s per tessellation of a 24-tooth helical
+   gear's 144 flanks.
+   - **Why that switch and not `AngleInterior`.** The brief proposed relaxing
+     the interior angular deflection. Measured, it is not enough: at 1.0 rad
+     one stress case still took 128 s, and at 1.5 rad the chord error reached
+     0.22 mm. The cost is BRepMesh's
+     surface-deflection refinement loop, which on a surface whose normal turns
+     along BOTH parameters keeps inserting nodes. Switching the loop off keeps
+     the initial grid, which the linear and angular deflection still set.
+   - **Result**, square 20 over 30 mm: 360° 1 220 triangles (was 121 732),
+     720° 2 436 (was 373 838), 1800° 6 180, 3600° 12 356. Chord error
+     (triangle centroids and edge midpoints projected on the true surface):
+     0.209 mm on the bounded 360° and 720° flanks, against 0.227 mm on the
+     production mesh of the 30° twisted square. That is what the production
+     mesher already ships for a twisted flank: with the relative deflection
+     the 0.1 mm is not an absolute chord bound on these faces.
+     `test_bounded_mesh_is_as_close_as_the_production_twist_mesh` pins it.
+   - **The goldens are unchanged.** The 30° golden's flanks estimate 18 cells,
+     far below 500, so no face of it is pre-meshed and its counts stay
+     3557 / 6554. With the threshold mutated to 0 the golden's mesh-count test
+     fails.
+2. **3MF of a dense twist is refused** (`export_mesh_too_dense`, a 422).
+   lib3mf's writer (build123d `Mesher`) meshes a deep COPY of the body, so the
+   bounded pre-mesh never reaches it and the copy is meshed at full cost
+   (14 s at 720°). A twisted body whose pre-meshed faces sum to more than
+   `THREE_MF_TWIST_ESTIMATE_BUDGET = 8000` cells is refused; STL, GLB and STEP
+   of the same body work. A one-turn square (5 656 cells) still exports.
+3. **A pre-sweep cost guard** (`twist.twist_cost_estimate_s`, checked first
+   in `twisted_extrude_face`). Some accepted geometry still cost more than the
+   budget with bounded meshing. The time then goes to the sweep, the Cavalieri
+   and mass-property volume integrals and the production mesh of narrow
+   ribbons. A 48-point star at 3600° took 9.4 s; a circle about the axis at
+   3600° 6.0 s. A twist whose estimate exceeds `TWIST_COST_LIMIT_S = 4.5` s is
+   refused as `twist_failed` ("…is too many turns for this profile to build
+   in reasonable time (estimated N s, limit 4.5 s); reduce the twist angle or
+   give the profile fewer edges.") before anything is swept. The refusal
+   returns in 0.01-0.2 s.
+
+**The budget and what was measured.** Budget `TWIST_COST_BUDGET_S = 5` s end
+to end (sweep, guard, mass properties, mesh) on this 4-core box. The estimate
+is a hand-fitted model of that cost, which §6.1's first draft said it would
+have to be. It is fitted by non-negative least squares on relative error over
+a 50-case stress set: polygons of 3-48 edges, stars, off-axis and scaled
+profiles, circles and holes, the gear tooth gap, 0.05-9.4 s. Per edge, with
+`T` turns:
+
+- `T x` a per-turn base by edge kind (line 0.0136 s, circle or arc 0.0165 s,
+  spline or other 0.195 s);
+- `T² x` a quadratic part. The swept B-spline's pole count grows with the
+  turns, and so does every evaluation on it, so one square flank's bounded
+  mesh takes 0.17 s at 5 turns and 0.63 s at 10. By edge: 0.00017 s for every
+  edge; for a WIDE line flank (one the bounded mesher takes) 0.00118 s plus
+  0.00256 s per radian the edge subtends at the axis; for a NARROW line flank
+  0.00175 s × its length over its largest distance from the axis; for a circle
+  or arc 0.0086 s × its normal turning × min(1, max(0.25, r / 5 mm)). Circles
+  under 5 mm mesh coarser under the absolute deflection: r 1 mm 1.5 s, r 5 mm
+  and r 50 mm 6 s, all at 10 turns.
+
+Prediction / actual across the set is 0.78-1.25 for all but four cases. Two
+are conservative (a 10 mm square over 100 mm, 1.65; an r 2 mm circle, 1.36)
+and two under-predict (a radial slot, 0.73 at 1.5 s; a six-point star scaled
+10×, 0.58 under load and 0.82 re-timed quiet). The limit sits at 4.5 s, below
+the 5 s budget, to absorb under-prediction down to 0.8×; the slot below that
+builds in 1.5 s. Measured with the guard live:
+
+- **Worst accepted:** two circular holes in a square at 2400°, 4.34-4.96 s
+  (estimate 3.47). Next are the 8-gon at 3600° (4.33 s), the gear gap at
+  3000° (4.34 s) and a 16-gon at 3000° (4.25 s, estimate 4.43).
+- **Fastest refused:** a 20-gon at 2880°, 4.3-4.5 s unguarded (estimate
+  4.93), then a 24-point star at 3600° (4.7 s). Every other refusal took 5.8 s
+  or more unguarded: 12-gon and gear gap at 3600° (5.8-6.0 s), holed square at
+  3600° (6.6 s), 48-point star at 2400° and 3600° (7.4 and 9.4 s), circles of
+  r ≥ 5 mm at 3600° (6.0 s).
+- **QA F4's own cases** (square 20 over 30 mm): 720° 0.22 s, 1800° 0.92 s,
+  2700° 1.53 s, ±3600° 3.2 s. All accepted.
+
+`test_twist_cost.py` pins both sides: five accepted cases up to 4.3 s,
+including a 16-gon 0.07 s under the limit, and five refused cases from 4.3 s.
+A refused case proves no sweep ran by replacing the sweep with an assertion.
+Mutating the limit, the wiring, the bounded mesher, the 3MF check or the
+twist gating turns the matching tests red.
+
+**For the UI: the threshold is in TURNS, not turns per distance.** Distance
+barely moves the cost. At 10 turns a 20 mm square takes 3.2 s over 30 mm, 1.6 s
+over 100 mm and 3.0 s over 300 mm (scaled 10×). What decides the cost is the
+number of turns `T = |twist| / 360` and the profile's edges. A client-side
+warning can use this conservative upper bound of the kernel's estimate, from
+the sketch's entity counts alone:
+
+    upper(T) = T x (0.0136 L + 0.0165 C + 0.195 S)
+             + T² x (0.0094 L + 0.0002 S + sum over arcs of (0.0002 + 0.0086 θ))
+
+`L`, `C` and `S` are the profile's line, circle-or-arc and other (spline)
+edge counts, and `θ` is each circle's or arc's angle in radians (2π for a full
+circle). The quadratic terms take each line as wide and fully wrapped and each
+arc as at least 5 mm in radius. The kernel refuses only when its own estimate
+exceeds 4.5 s, so `upper(T) > 4.5` means "may be refused". `upper(T)` never
+under-states the kernel's estimate for the stress set, but it can over-state
+it about 2× on many-sided polygons. Rough reach before `upper` passes 4.5: a
+square (L = 4) 10.2 turns, a hexagon 8.2, a 12-gon 5.6, one full circle 9.0,
+and the gear gap (L 2, C 2 short arcs, S 2) about 7. The kernel accepts the
+12-gon to about 9.5 turns and the gear gap to about 9. The kernel's own
+refusal is the authority; a UI hint should say "may be slow or refused", not predict it.
 
 ## 7. Not done here
 
-- The web UI (twist field plus a gauge on the extrude editor): a separate
-  follow-up.
 - A twist on the SWEEP feature (`SweepParamsV1` still says "NO twist") and a 3D
   helix path. The twisted extrude covers the gear. A sweep twist would reuse
   this module's auxiliary-helix idea along a non-straight spine.
-- Bounded tessellation for high twists (§6.1, geometry QA F4): measured and
-  designed, not implemented.
+- A cost PREFLIGHT the UI could ask for before saving (the §6.1 estimate
+  exposed on the API). The UI's bound in §6.1 covers the warning until then.
 - The pattern boolean cost (§6) is OCCT's. The lever, if it matters, is running
   the tool fusion in parallel, which needs its own determinism evidence first.

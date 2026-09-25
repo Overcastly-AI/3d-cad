@@ -166,7 +166,7 @@ from geometry.kernel.sweep import (
     build_path_wire,
     sweep_profile,
 )
-from geometry.kernel.tessellate import glb_stats, tessellate_glb
+from geometry.kernel.tessellate import ANGULAR_DEFLECTION, glb_stats, tessellate_glb
 from geometry.kernel.threads import (
     ISO_METRIC_PITCHES,
     ResolvedThread,
@@ -177,7 +177,13 @@ from geometry.kernel.threads import (
     format_designation,
     resolve_iso_metric_thread,
 )
-from geometry.kernel.twist import TwistError, twisted_extrude_face
+from geometry.kernel.twist import (
+    MeshExportTooDenseError,
+    TwistError,
+    check_3mf_twist_budget,
+    mesh_helicoidal_faces,
+    twisted_extrude_face,
+)
 from geometry.kernel.types import BodyShape
 from geometry.schemas import (
     BoxParams,
@@ -222,6 +228,7 @@ __all__ = [
     "LoftError",
     "MeasureError",
     "MeshExportNotManifoldError",
+    "MeshExportTooDenseError",
     "MirrorError",
     "MirrorUnreachableError",
     "NoAxisError",
@@ -384,6 +391,8 @@ def export_solid(
     linear_deflection: float,
     angular_deflection: float,
     name: str | None = None,
+    *,
+    twisted: bool = False,
 ) -> bytes:
     """Export an already-built solid in *fmt* — the shared format dispatch.
 
@@ -407,17 +416,29 @@ def export_solid(
     nothing). ``None`` keeps the writer default, so the parametric-shape path
     and every existing caller are byte-identical to before. STL and GLB carry no
     names.
+
+    ``twisted`` (the body comes from a tree with a twisted extrude) meshes the
+    helicoidal flanks with a bounded cost before STL/GLB, and REFUSES a 3MF of
+    a body too dense to mesh that way, because lib3mf's writer re-meshes a copy
+    at full cost (:func:`geometry.kernel.twist.check_3mf_twist_budget`; design
+    twisted-extrude.md §6.1). ``False`` (every other caller) changes nothing.
     """
     match fmt:
         case "step":
             return export_step_bytes(shape, name=name)
         case "stl":
+            if twisted:
+                mesh_helicoidal_faces(shape, linear_deflection, angular_deflection)
             return export_stl_bytes(shape, linear_deflection, angular_deflection)
         case "3mf":
+            if twisted:
+                check_3mf_twist_budget(shape, angular_deflection)
             return export_3mf_bytes(
                 shape, linear_deflection, angular_deflection, name=name
             )
         case "glb":
+            if twisted:
+                mesh_helicoidal_faces(shape, linear_deflection, ANGULAR_DEFLECTION)
             return export_glb_bytes(shape, linear_deflection)
 
 

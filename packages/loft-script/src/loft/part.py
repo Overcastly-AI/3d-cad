@@ -418,8 +418,9 @@ class Part:
         ten turns is refused CLIENT-side by the shared DTO (a ``ValueError``,
         the same validator the server runs), so no payload the server would
         reject is ever sent. An open profile is a ``profile_not_closed`` and a
-        twist too tight for the profile a ``twist_failed`` feature error, raised
-        by :meth:`evaluate`.
+        twist too tight for the profile, or with too many turns for it to build
+        in reasonable time, a ``twist_failed`` feature error, raised by
+        :meth:`evaluate`.
         """
         if isinstance(profile, Sketch):
             if profile.solved is None:
