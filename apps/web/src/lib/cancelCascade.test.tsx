@@ -264,4 +264,27 @@ describe("a declining rung", () => {
     window.removeEventListener("keydown", behind);
     drag.unmount();
   });
+
+  it("still owns the key when its handler throws", () => {
+    // Review N3 on 3478273: run-first-stop-second meant a throwing handler
+    // skipped the stop, and the editor's cancel behind it ALSO ran — the
+    // two-steps-from-one-key defect the cascade exists to end.
+    const behind = vi.fn();
+    window.addEventListener("keydown", behind);
+    const hook = renderHook(() =>
+      useCancelKey("drag", () => {
+        throw new Error("handler failed");
+      }),
+    );
+    // jsdom reports a listener's throw as a window `error` event rather than
+    // rethrowing it from dispatchEvent; claim it so the run stays clean.
+    const swallow = (event: ErrorEvent) => event.preventDefault();
+    window.addEventListener("error", swallow);
+    const event = escape();
+    window.removeEventListener("error", swallow);
+    expect(event.defaultPrevented).toBe(true);
+    expect(behind).not.toHaveBeenCalled();
+    window.removeEventListener("keydown", behind);
+    act(() => hook.unmount());
+  });
 });

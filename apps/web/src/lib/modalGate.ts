@@ -598,10 +598,19 @@ function runCancelCascade(event: KeyboardEvent): void {
       // ...unless it DECLINES. A rung that finds nothing to back out of passes
       // the key on rather than spending it on a no-op (see `CancelHandler`).
       // Run first and stop second: the stop is still inside this dispatch, so
-      // no listener behind this one has seen the key either way.
-      if (!entry.run()) continue;
-      event.preventDefault();
-      event.stopImmediatePropagation();
+      // no listener behind this one has seen the key either way. In a
+      // `finally`, so a handler that THROWS still owns the key: otherwise the
+      // cancel behind it would run too, two steps from one key (review N3).
+      let took = true;
+      try {
+        took = entry.run();
+      } finally {
+        if (took) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      }
+      if (!took) continue;
       return;
     }
   }
