@@ -423,6 +423,10 @@ export function ExtrudeEditor({
               layout="inline"
               unit="°"
               placeholder="0"
+              // `text`, not the NumberField default `decimal`: iOS's decimal pad
+              // has no minus sign, and a LEFT-hand twist is negative (review
+              // N4). `parseTwistDeg` is the gate on what was typed.
+              inputMode="text"
               data-testid="extrude-twist"
               value={form.twistInput}
               error={twistMsg}

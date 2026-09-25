@@ -517,6 +517,16 @@ describe("ExtrudeEditor — the twist axis says what Save will send", () => {
     expect(Object.keys(sent)).not.toContain("twist_center");
   });
 
+  it("asks for a keyboard that can type a minus sign (review N4)", () => {
+    // `decimal` is the NumberField default, and iOS's decimal pad has no minus:
+    // a left-hand twist could not be typed on a tablet. The parse is the gate.
+    renderEditor();
+    expect(screen.getByTestId("extrude-twist")).toHaveAttribute(
+      "inputmode",
+      "text",
+    );
+  });
+
   it("says, quietly, that a twist past two turns can take a while (review S9)", () => {
     renderEditor();
     const twist = screen.getByTestId("extrude-twist");
