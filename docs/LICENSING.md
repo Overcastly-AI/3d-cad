@@ -85,10 +85,10 @@ checks them against the installed binaries.
 
 ### 7.1 What carries a source obligation
 
-| Component | Version           | Licence                   | Source                                                                    |
-| --------- | ----------------- | ------------------------- | ------------------------------------------------------------------------- |
-| OCCT      | 7.9.3             | LGPL-2.1 + OCCT exception | `github.com/Open-Cascade-SAS/OCCT`, tag `V7_9_3`, commit `a016080`        |
-| planegcs  | 0.8.0             | LGPL-2.1-or-later         | PyPI sdist `planegcs-0.8.0.tar.gz`                                        |
+| Component | Version           | Licence                   | Source                                                                   |
+| --------- | ----------------- | ------------------------- | ------------------------------------------------------------------------ |
+| OCCT      | 7.9.3             | LGPL-2.1 + OCCT exception | `github.com/Open-Cascade-SAS/OCCT`, tag `V7_9_3`, commit `a016080`       |
+| planegcs  | 0.8.0             | LGPL-2.1-or-later         | PyPI sdist `planegcs-0.8.0.tar.gz`                                       |
 | LibRaw    | 0.19.5-1ubuntu1.4 | LGPL-2.1 (our election)   | Ubuntu 20.04 source package (`.orig` + `.debian` + `.dsc`, with patches) |
 
 FreeImage and FreeType have no source obligation, because we elect their

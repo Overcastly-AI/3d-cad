@@ -19,12 +19,12 @@ you trust any of it.
 
 ## 1. What is stateful
 
-| Component                  | Holds                                                                                          | Backed up |
-| -------------------------- | ---------------------------------------------------------------------------------------------- | --------- |
-| Postgres `loft_gateway`    | users, password hashes                                                                         | **yes**   |
-| Postgres `loft_documents`  | parts, feature trees, assemblies, drawings, undo snapshots, materials, inline STEP of imports | **yes**   |
-| MinIO / S3 bucket          | content-addressed meshes and drawing artifacts                                                 | no        |
-| Redis                      | rate-limit counters, job queue                                                                 | no        |
+| Component                 | Holds                                                                                         | Backed up |
+| ------------------------- | --------------------------------------------------------------------------------------------- | --------- |
+| Postgres `loft_gateway`   | users, password hashes                                                                        | **yes**   |
+| Postgres `loft_documents` | parts, feature trees, assemblies, drawings, undo snapshots, materials, inline STEP of imports | **yes**   |
+| MinIO / S3 bucket         | content-addressed meshes and drawing artifacts                                                | no        |
+| Redis                     | rate-limit counters, job queue                                                                | no        |
 
 The object store holds only artifacts derived from Postgres. Evaluation is
 deterministic, so a restored part re-derives a bit-identical mesh with the same
@@ -71,11 +71,11 @@ Exit codes: `0` restored, `1` usage, `2` target not empty, `3` version skew
 
 ## 4. Version skew
 
-| Backup's revision                         | Result                                                                    |
-| ----------------------------------------- | ------------------------------------------------------------------------- |
-| equal to head                             | restore only                                                              |
-| older (an ancestor of head)               | restore, then `alembic upgrade head` inside the service image, loudly    |
-| unknown (from a newer Loft, or a fork)    | **refused, exit 3.** Restore with a Loft at least as new as the backup.  |
+| Backup's revision                      | Result                                                                  |
+| -------------------------------------- | ----------------------------------------------------------------------- |
+| equal to head                          | restore only                                                            |
+| older (an ancestor of head)            | restore, then `alembic upgrade head` inside the service image, loudly   |
+| unknown (from a newer Loft, or a fork) | **refused, exit 3.** Restore with a Loft at least as new as the backup. |
 
 Downgrades are not supported.
 
@@ -116,12 +116,12 @@ of RAM per worker.** An idle worker's floor is about 500 MiB. Gateway and
 documents need tens of MiB, and Postgres 0.5 to 1 GiB. Size the Postgres disk
 for imported STEP stored inline, which can reach 16 MiB per import.
 
-| Use                               | Cores | RAM    | Geometry workers |
-| --------------------------------- | ----: | -----: | ---------------: |
-| One engineer, parts up to ~50 features | 2 | 4 GiB  | 1 |
-| One engineer, up to ~100 features | 4     | 8 GiB  | 2                |
-| Four concurrent modellers         | 8     | 16 GiB | 4 (scale overlay) |
-| Eight concurrent modellers        | 16    | 32 GiB | 8                |
+| Use                                    | Cores |    RAM |  Geometry workers |
+| -------------------------------------- | ----: | -----: | ----------------: |
+| One engineer, parts up to ~50 features |     2 |  4 GiB |                 1 |
+| One engineer, up to ~100 features      |     4 |  8 GiB |                 2 |
+| Four concurrent modellers              |     8 | 16 GiB | 4 (scale overlay) |
+| Eight concurrent modellers             |    16 | 32 GiB |                 8 |
 
 **Comfortable part sizes (one user, first open / add a feature):** 25 features
 0.6 s / 0.14 s; 50 features 2.0 s / 0.22 s; 100 features 6.9 s / 0.43 s;
