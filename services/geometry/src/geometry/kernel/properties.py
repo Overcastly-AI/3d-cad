@@ -19,21 +19,31 @@ fully-typed :class:`ShapeProperties` DTO keeps the boundary honest.
 """
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
 # pyright: reportUnknownVariableType=false, reportAttributeAccessIssue=false
-# pyright: reportUnknownArgumentType=false
+# pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
 
+import itertools
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+import numpy as np
 from build123d import Face
 from loft_wire.materials import mass_g
 from OCP.BRep import BRep_Builder
-from OCP.BRepAdaptor import BRepAdaptor_Surface
+from OCP.BRepAdaptor import BRepAdaptor_Curve2d, BRepAdaptor_Surface
 from OCP.BRepBuilderAPI import BRepBuilderAPI_NurbsConvert
-from OCP.BRepGProp import BRepGProp
+from OCP.BRepGProp import (
+    BRepGProp,
+    BRepGProp_Domain,
+    BRepGProp_Face,
+    BRepGProp_Vinert,
+)
 from OCP.GeomAbs import GeomAbs_CurveType, GeomAbs_SurfaceType
+from OCP.gp import gp_Pnt, gp_Vec
 from OCP.GProp import GProp_GProps
-from OCP.TopoDS import TopoDS_Compound
+from OCP.TopAbs import TopAbs_EDGE, TopAbs_REVERSED
+from OCP.TopExp import TopExp_Explorer
+from OCP.TopoDS import TopoDS, TopoDS_Compound, TopoDS_Iterator
 
 from geometry.kernel.types import BodyShape
 from geometry.schemas import BoundingBox, ShapeProperties, TopologyCounts, Vec3
@@ -205,43 +215,213 @@ class VolumeReading:
     centroid: tuple[float, float, float]
 
 
+#: Gauss-Legendre order per knot span for an offset face
+#: (:func:`_offset_face_moments`), and the higher order that checks it. Within a
+#: span the offset of a polynomial patch is analytic, so the rule converges
+#: fast: measured on the shelled spline-slot disc, order 8 is 1.8e-5 mm^3 off
+#: order 16, and 16 and 24 agree to 1e-12 relative.
+_OFFSET_GAUSS_ORDER = 16
+_OFFSET_GAUSS_CHECK_ORDER = 24
+
+#: Relative agreement demanded between the two orders; worse falls back.
+_OFFSET_GAUSS_AGREEMENT = 1e-10
+
+#: Relative spread (of the parameter value) within which a pcurve counts as an
+#: isoline (:func:`_isoline_rectangle`), and the points it is sampled at.
+_ISOLINE_TOL = 1e-9
+_ISOLINE_SAMPLES = 16
+
+
+def _isoline_rectangle(face: Face) -> tuple[float, float, float, float] | None:
+    """``(u0, u1, v0, v1)`` when *face* is bounded by exactly two u-isolines and
+    two v-isolines (its trimmed domain IS that parameter rectangle), else None.
+
+    Every offset wall a shell of an extrude makes has this form: its ends are
+    v-isolines and its sides, where it meets the neighbouring walls, u-isolines
+    (measured on the golden, QA's case 2 and the shelled spline-slot disc).
+    """
+    us: list[float] = []
+    vs: list[float] = []
+    edges = 0
+    explorer = TopExp_Explorer(face.wrapped, TopAbs_EDGE)
+    while explorer.More():
+        pcurve = BRepAdaptor_Curve2d(TopoDS.Edge_s(explorer.Current()), face.wrapped)
+        first, last = pcurve.FirstParameter(), pcurve.LastParameter()
+        points = [
+            pcurve.Value(first + (last - first) * k / _ISOLINE_SAMPLES)
+            for k in range(_ISOLINE_SAMPLES + 1)
+        ]
+        u = [p.X() for p in points]
+        v = [p.Y() for p in points]
+        if max(u) - min(u) <= _ISOLINE_TOL * max(1.0, abs(u[0])):
+            us.append(u[0])
+        elif max(v) - min(v) <= _ISOLINE_TOL * max(1.0, abs(v[0])):
+            vs.append(v[0])
+        else:
+            return None
+        edges += 1
+        explorer.Next()
+    if edges != 4 or len(us) != 2 or len(vs) != 2:
+        return None
+    return (min(us), max(us), min(vs), max(vs))
+
+
+def _knot_breaks(knots: Sequence[float], low: float, high: float) -> list[float]:
+    return sorted({low, high, *(k for k in knots if low < k < high)})
+
+
+def _offset_face_moments(
+    face: Face, location: gp_Pnt, order: int
+) -> tuple[float, tuple[float, float, float]] | None:
+    """This offset face's contribution to the body's volume and first moments.
+
+    The field is the one OCCT's per-face volume integrator (``BRepGProp_Vinert``)
+    uses, so the result adds to its per-face results: volume
+    ``(1/3) (X - L) . n dA`` and first moments ``(X - L) ((X - L) . n) / 4 dA``,
+    L = *location*. Measured against ``BRepGProp_Vinert`` on a box face by face,
+    and against Gauss-Kronrod on the golden's offset face: 3e-12 mm^3, 6e-11 in
+    the moments. Integrated by Gauss-Legendre of *order* on every knot span of
+    the offset's B-spline basis, over the face's isoline rectangle. None when
+    the face is not an isoline rectangle.
+    """
+    rectangle = _isoline_rectangle(face)
+    if rectangle is None:
+        return None
+    u0, u1, v0, v1 = rectangle
+    adaptor = BRepAdaptor_Surface(face.wrapped)
+    basis = adaptor.BasisSurface()
+    u_knots: list[float] = []
+    v_knots: list[float] = []
+    if basis.GetType() == GeomAbs_SurfaceType.GeomAbs_BSplineSurface:
+        spline = basis.BSpline()
+        u_knots = [spline.UKnot(i) for i in range(1, spline.NbUKnots() + 1)]
+        v_knots = [spline.VKnot(i) for i in range(1, spline.NbVKnots() + 1)]
+    nodes, weights = np.polynomial.legendre.leggauss(order)
+    sign = -1.0 if face.wrapped.Orientation() == TopAbs_REVERSED else 1.0
+    lx, ly, lz = location.X(), location.Y(), location.Z()
+    point, d_u, d_v = gp_Pnt(), gp_Vec(), gp_Vec()
+    mass = mx = my = mz = 0.0
+    for ua, ub in itertools.pairwise(_knot_breaks(u_knots, u0, u1)):
+        for va, vb in itertools.pairwise(_knot_breaks(v_knots, v0, v1)):
+            jacobian = (ub - ua) * (vb - va) / 4
+            for node_u, weight_u in zip(nodes, weights, strict=True):
+                u = (ua + ub) / 2 + (ub - ua) / 2 * float(node_u)
+                for node_v, weight_v in zip(nodes, weights, strict=True):
+                    v = (va + vb) / 2 + (vb - va) / 2 * float(node_v)
+                    adaptor.D1(u, v, point, d_u, d_v)
+                    nx = d_u.Y() * d_v.Z() - d_u.Z() * d_v.Y()
+                    ny = d_u.Z() * d_v.X() - d_u.X() * d_v.Z()
+                    nz = d_u.X() * d_v.Y() - d_u.Y() * d_v.X()
+                    x, y, z = point.X() - lx, point.Y() - ly, point.Z() - lz
+                    weight = float(weight_u) * float(weight_v) * jacobian
+                    flux = sign * (x * nx + y * ny + z * nz) * weight
+                    mass += flux / 3
+                    mx += x * flux / 4
+                    my += y * flux / 4
+                    mz += z * flux / 4
+    return mass, (mx, my, mz)
+
+
+def _checked_offset_moments(
+    face: Face, location: gp_Pnt
+) -> tuple[float, tuple[float, float, float]] | None:
+    """:func:`_offset_face_moments`, confirmed by a higher order, else None."""
+    result = _offset_face_moments(face, location, _OFFSET_GAUSS_ORDER)
+    if result is None:
+        return None
+    check = _offset_face_moments(face, location, _OFFSET_GAUSS_CHECK_ORDER)
+    if check is None:
+        return None
+    scale = max(abs(result[0]), abs(check[0]), 1e-300)
+    if abs(result[0] - check[0]) > _OFFSET_GAUSS_AGREEMENT * scale:
+        return None
+    return check
+
+
+def _offset_body_reading(shape: BodyShape) -> VolumeReading:
+    """Volume and centroid of a body with offset faces, face by face.
+
+    Offset faces: :func:`_checked_offset_moments`. An offset face that is not an
+    isoline rectangle, or does not converge, FALLS BACK to its
+    ``BRepBuilderAPI_NurbsConvert`` twin: bounded time, but an approximation
+    (1.7e-6 mm from the true surface on the golden, +6.65e-6 mm^3 there).
+    Every other face goes through OCCT's adaptive per-face integrator at
+    :data:`VOLUME_EPS`, a spline-swept one as its exact NURBS twin, as
+    :func:`volume_integrand` routes them. All faces share one reference point,
+    the bounding-box centre, so their contributions add.
+    """
+    centre = shape.bounding_box().center()
+    location = gp_Pnt(centre.X, centre.Y, centre.Z)
+    lx, ly, lz = location.X(), location.Y(), location.Z()
+    mass = mx = my = mz = 0.0
+    for face in shape.faces():
+        if _is_offset(face):
+            own = _checked_offset_moments(face, location)
+            if own is not None:
+                mass += own[0]
+                mx, my, mz = mx + own[1][0], my + own[1][1], mz + own[1][2]
+                continue
+            target = TopoDS.Face_s(
+                BRepBuilderAPI_NurbsConvert(face.wrapped, True).Shape()
+            )
+        elif _sweeps_a_spline(face):
+            target = TopoDS.Face_s(
+                BRepBuilderAPI_NurbsConvert(face.wrapped, True).Shape()
+            )
+        else:
+            target = TopoDS.Face_s(face.wrapped)
+        surface = BRepGProp_Face(target)
+        if TopoDS_Iterator(target).More():
+            part = BRepGProp_Vinert(
+                surface, BRepGProp_Domain(target), location, VOLUME_EPS
+            )
+        else:
+            part = BRepGProp_Vinert(surface, location, VOLUME_EPS)
+        m = float(part.Mass())
+        g = part.CentreOfMass()
+        mass += m
+        mx += m * (g.X() - lx)
+        my += m * (g.Y() - ly)
+        mz += m * (g.Z() - lz)
+    return VolumeReading(
+        volume=mass,
+        centroid=(lx + mx / mass, ly + my / mass, lz + mz / mass),
+    )
+
+
 def volume_properties(shape: BodyShape) -> VolumeReading:
     """Volume and volume centroid of *shape*, as reported.
 
     THE one place a body's volume is integrated: :func:`measure_shape` and the
     twisted extrude's Cavalieri guard both read it, so they cannot disagree.
     The integrand is :func:`volume_integrand` (spline-swept faces as their
-    exact NURBS twins). The rule is the adaptive one at :data:`VOLUME_EPS`,
+    exact NURBS twins) and the rule the adaptive one at :data:`VOLUME_EPS`,
     EXCEPT for a body with a face on a ``Geom_OffsetSurface``, which is
-    integrated by adaptive Gauss-Kronrod (``VolumePropertiesGK``) at the same
-    eps instead (OFFSET-SURFACE-VOLUME-1).
+    integrated face by face (:func:`_offset_body_reading`;
+    OFFSET-SURFACE-VOLUME-1, GEOMETRY-QA 2026-09-25 F2).
 
     Why offsets need their own route (a ``Geom_OffsetSurface`` is its own OCCT
     surface type, not a sweep): a Shell of a spline extrude offsets the spline
-    wall, and the adaptive rule does not converge on that face. Measured on the
-    golden ``shell-spline-prism-30x10-t1`` against its Green's-theorem truth:
-    +1.61 / -8.31 / +5.90 mm^3 at eps 1e-10 / 1e-12 / 1e-14 (the centroid
-    0.03 mm off). The F1 fix does not carry over, because an offset of a
-    polynomial surface is not polynomial: ``BRepBuilderAPI_NurbsConvert``
-    APPROXIMATES it (1.7e-6 mm from the true surface there) and the volume then
-    settles on a biased +6.6e-6 mm^3. Gauss-Kronrod integrates the TRUE offset
-    surface and converges: +1.8e-7 mm^3 at 1e-10 and 1e-12, centroid within
-    1e-9 mm. It is not used everywhere because every other body reads
-    byte-for-byte as before on the rule the golden suite calibrated
-    (docs/GEOMETRY-QA.md, VOLUME_EPS); it costs about 5x the adaptive rule
-    (278 ms on that golden).
+    wall, and OCCT's adaptive and fixed-order rules do not converge on that
+    face. Measured on the golden ``shell-spline-prism-30x10-t1`` against its
+    analytic truth: +1.61 / -8.31 / +5.90 mm^3 at eps 1e-10 / 1e-12 / 1e-14,
+    and +97 mm^3 on QA's case 2. The F1 NURBS conversion does not carry over,
+    because an offset of a polynomial surface is not polynomial:
+    ``BRepBuilderAPI_NurbsConvert`` APPROXIMATES it. Gauss-Kronrod
+    (``VolumePropertiesGK``, b29fa88) is accurate but took 43-196 s on ordinary
+    shelled spline parts (QA F2). The per-face route integrates the TRUE
+    offset surface by Gauss-Legendre per knot span: the golden +1.85e-7 mm^3
+    (Gauss-Kronrod +1.775e-7) in 0.1 s; case 2 0.1 s (was 52 s); the shelled
+    spline-slot disc 1.4 s (was 148 s). Every body WITHOUT an offset face reads
+    byte-for-byte as before.
     """
     faces = shape.faces()
-    props = GProp_GProps()
     if any(_is_offset(face) for face in faces):
-        # CGFlag=True: without it Gauss-Kronrod leaves the centre of mass unset.
-        BRepGProp.VolumePropertiesGK_s(
-            volume_integrand(shape), props, VOLUME_EPS, False, False, True, False, False
-        )
-    else:
-        BRepGProp.VolumeProperties_s(
-            volume_integrand(shape), props, VOLUME_EPS, False, False
-        )
+        return _offset_body_reading(shape)
+    props = GProp_GProps()
+    BRepGProp.VolumeProperties_s(
+        volume_integrand(shape), props, VOLUME_EPS, False, False
+    )
     centre = props.CentreOfMass()
     return VolumeReading(
         volume=float(props.Mass()),

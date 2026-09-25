@@ -706,10 +706,15 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
 - **Volume integration:** `properties.volume_properties` is the one place a
   volume is integrated. The rule is the adaptive one at `VOLUME_EPS`, with
   spline-swept faces as their exact NURBS twins. A body with a
-  `Geom_OffsetSurface` face is integrated by Gauss-Kronrod instead
+  `Geom_OffsetSurface` face is integrated face by face instead
   (OFFSET-SURFACE-VOLUME-1): an offset of a polynomial surface is not
-  polynomial, so a NURBS twin would be an approximation, and the adaptive rule
-  does not converge on the offset itself.
+  polynomial, so a NURBS twin would be an approximation, and OCCT's adaptive
+  rule does not converge on the offset itself. Each offset face bounded by
+  isolines is integrated by our own Gauss-Legendre per knot span, in the field
+  OCCT's per-face integrator uses. Any other offset face falls back to its
+  NURBS twin (bounded time; about 1e-5 mm^3 on the golden). OCCT's
+  Gauss-Kronrod rule is accurate there too, but took 43-196 s on shelled spline
+  parts (GEOMETRY-QA 2026-09-25 F2), so it is not used.
 - **Degeneracy is REFUSED, not healed, when the body is missing material.** The
   companion rule to the one above, and the line between them: a **zero-width
   slit** (two coincident faces of one lump with no material between them, e.g. a
