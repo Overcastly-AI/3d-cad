@@ -37,6 +37,7 @@ backlog this replaced (190 open items) is in git:
       _Accept:_ every typed point lands, in order, at any typing speed; an
       e2e test types 8 spline points with no waits and reads the stored
       spline.
+- [ ] **SHELL-INTERSECTION-SLOW** (hang, pre-existing): a sealed plate bored r2.991 with a cross bore r1.424 at t 2.39 spends 133 s in OCCT's Intersection hollow (`shell.py`), past the gateway's 90 s timeout, on every version. _Accept:_ Shell answers (a solid or a typed refusal) within the timeout on that body; the Intersection route is skipped when Arc alone decides.
 - [ ] **SHELL-HEAL-NONDETERMINISM** (P1): a stored sealed Shell can fail to
       rebuild at random. Rod with a cross-bore r6 at t=2 is refused on 31 of
       60 rebuilds (3 processes), before and after 5fda139: the heal step
@@ -171,6 +172,9 @@ backlog this replaced (190 open items) is in git:
 
 One line each. The founder triages weekly; most are closed without work.
 
+- MinIO is built from RELEASE.2024-12-18 with Go 1.23.4 and has no image scan; a weekly trivy scan of the shipped images (plus `pnpm audit` / pip-audit) would catch advisories without reddening unrelated commits.
+- `scripts/e2e.sh` does not derive `GATEWAY_ORIGIN` from `GATEWAY_PORT`, so specs on non-default ports fail with a register 500 (local only; CI uses the defaults).
+- `scripts/e2e-teardown.sh --self-test` flakes under load (a polite process takes over 5 s to exit), turning `just lint` red locally.
 - The full lane (32 min) never finishes while builders push faster than that; before a merge to main the orchestrator holds pushes until the tip's `full lane complete` is green.
 - CI's lint jobs do not run `just lint`, so the self-tests of scripts/e2e-job-verdict.sh and scripts/e2e-teardown.sh run only locally.
 - scripts/e2e.sh has no HUP trap: closing a local terminal leaves the `setsid` services holding their ports.
