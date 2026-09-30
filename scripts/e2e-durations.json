@@ -175,6 +175,7 @@
     "sketch-snap.spec.ts": 82.4,
     "sketch-spline.spec.ts": 88.5,
     "sketch-trim-extend.spec.ts": 34.1,
+    "sketch-typed-line-sequence.spec.ts": 10.8,
     "sketch-visibility.spec.ts": 25.1,
     "sketch-vocab.spec.ts": 69.6,
     "sketcher.spec.ts": 35.3,
