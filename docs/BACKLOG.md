@@ -23,14 +23,14 @@ backlog this replaced (190 open items) is in git:
       _Accept:_ every mark the user can see is the topmost element at its
       own centre, or overlapping marks resolve to the nearer edge; an e2e
       test on a shelled box checks all 8 rim marks with `elementFromPoint`.
-- [x] **TYPED-COORD-HIJACK** (91b47c1, spec green locally): with the Line tool,
+- [x] **TYPED-COORD-HIJACK** (91b47c1, reviewed, ci green): with the Line tool,
       `10 Tab 0 Enter`, `10 Tab 20 Enter`, then `-10 Tab 20 Enter` for the
       next line stores the first line as (10,0)-(10,1020): the finished line's
       armed length cell takes the digits, and the next line is never drawn.
       Hit twice on the gear keyway (`gear-typed-line-hijack.png`).
       _Accept:_ `e2e/sketch-typed-line-sequence.spec.ts` passes with its
       `test.fail()` marker removed.
-- [x] **TYPED-POINT-RACE** (91b47c1, spec green locally): spline fit points typed at
+- [x] **TYPED-POINT-RACE** (91b47c1, reviewed, ci green): spline fit points typed at
       about 300 ms per point (x, Tab, y, Enter) are merged or dropped. Eight
       typed involute points stored a 2-point straight spline plus a separate
       8-point one; four test points stored 2 (`gear-spline-typing-race.png`).
@@ -97,7 +97,7 @@ backlog this replaced (190 open items) is in git:
 - [ ] **DRAWSHEET-AUTOPLACE-1** (eb113cb + c6ae762): a lone or adjacent-pair auto-placed view lands 12 mm off centre per axis, and pinned views skew auto-layout. _Accept:_ centring uses only auto-placed views; a border gate over each view's ink (geometry + caption) passes.
 - [ ] **LAYOUTISSUE-OFFSHEET-1** (11edf49): a view whose ink leaves the border exports with empty `layout_issues` and no banner. _Accept:_ an `off_sheet` error issue in loft-wire (`just gen`), stamped on the sheet.
 - [ ] **SHEET-RESCALE-1** (03bb837): a laid-out multi-view sheet cannot be re-scaled; the per-view check refuses the first write. _Accept:_ `SheetUpdate.scale` rewrites every view in one transaction and the drawing page offers it.
-- [ ] **SNAP-4** (d73e1ca): Fix on a point already joined to the origin adds a second pin and the sketch reads OVER-CONSTRAINED. _Accept:_ Fix is refused with "Already grounded on the Origin", following joins transitively.
+- [x] **SNAP-4** (bb55aac, reviewed, ci green): Fix on a point already joined to the origin adds a second pin and the sketch reads OVER-CONSTRAINED. _Accept:_ Fix is refused with "Already grounded on the Origin", following joins transitively.
 - [ ] **CI-VERDICT-HANG-1** (9db03fa + c05206b): e2e teardown can wait unbounded, and the log's last line can read GREEN on a red job (the job itself still goes red). _Accept:_ bounded teardown before the verdict; the verdict step checks `job.status`.
 - [ ] **SKETCH-EXPR-TRIG**: dimension expressions accept `sin`/`cos`/`tan`
       (degrees). _Accept:_ `20*tan(15)` solves and round-trips through save
@@ -171,6 +171,11 @@ backlog this replaced (190 open items) is in git:
 
 One line each. The founder triages weekly; most are closed without work.
 
+- `sketch-typed-line-sequence.spec.ts`'s 75 ms spline case passes on the pre-fix code, so it guards nothing; its 0/20 ms cases do.
+- Enter cannot finish a spline while point-entry cells are open but unfocused (Escape first); Enter key-repeat can finish one early.
+- A mouse-drawn line still gives the next digits to its size cell (FB-16, kept on purpose); Fusion sends them to the next entity.
+- SNAP-4 grounding does not follow concentric, midpoint or symmetric, so those still read OVER-CONSTRAINED on a redundant Fix.
+- A mixed Fix selection skips a held point silently; the catalogue's Fix row reads "needs a point" when the point is merely already held.
 - The orchestrator's GitHub integration gets 403 on workflow_dispatch; the full lane runs on the newest claude/** tip instead. Granting Actions write would allow per-SHA runs.
 - The Extrude editor's legacy twist note prints the raw stored angle (e.g. 31.280937437761875°).
 - The Sweep editor has no viewport preview, so a twist is only described in text before Save.
