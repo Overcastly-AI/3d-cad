@@ -80,12 +80,12 @@ rather than a 404 in somebody's script.
 | Sketch constraints | coincident, horizontal, vertical, fixed, parallel, perpendicular, tangent, equal, concentric |
 | Sketch dimensions | distance, radius, diameter — each with `name=` and `expression=` (the parametric half) |
 | Solve | `sketch.save()` / `sketch.solve()`, with `SketchNotSolved` carrying the conflicting/redundant constraint indices |
-| Features | extrude (add/cut, direction, merge), re-parametrize an extrude, read the tree, delete a feature |
+| Features | extrude (add/cut, direction, merge), sweep along a path (add/cut, merge, twist along a straight path), re-parametrize an extrude or a sweep's twist, read the tree, delete a feature |
 | Query | `part.evaluate()`, `part.mass_properties()` (volume, area, centroid, bbox, face/edge/shell counts) |
 | Export | STEP, STL, 3MF, GLB — to bytes or to a file with format inferred from the suffix |
 
 **Deliberately not yet**, each because it is a coherent slice of its own and
-half of one would be worse than none: revolve / sweep / loft / fillet / chamfer
+half of one would be worse than none: revolve / loft / fillet / chamfer
 / shell / draft / hole / pattern / mirror / boolean / sheet-metal features;
 assemblies, mates and BOM; drawings and their views/dimensions/annotations;
 folders; STEP import; undo/redo and the rollback bar; measure and overlay;

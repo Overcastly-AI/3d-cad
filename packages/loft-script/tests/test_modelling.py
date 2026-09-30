@@ -25,7 +25,7 @@ import pytest
 from loft._operation import Operation
 from loft.sketch import SOLVED_STATUSES
 from loft.transport import Transport
-from loft_wire.features import ExtrudeFeature, SketchFeature
+from loft_wire.features import ExtrudeFeature, SketchFeature, SweepFeature
 from loft_wire.sketch import SketchArc, SketchCircle, SketchLine
 from pydantic import BaseModel, ValidationError
 
@@ -244,6 +244,64 @@ def test_twist_center_reaches_the_kernel_and_a_bad_twist_never_leaves(
     dumped = straightened.params.model_dump(mode="json")
     assert "twist_angle_deg" not in dumped
     assert "twist_center" not in dumped
+
+
+def test_a_twisted_sweep_is_the_twisted_extrude_and_can_be_untwisted(
+    stack: Stack,
+) -> None:
+    """``sweep(..., twist_angle_deg=)`` through the script path (TWIST-TO-SWEEP).
+
+    The same 40 x 25 rectangle and 30 deg over 10 mm as the extrude test above,
+    but swept along a 10 mm line up the Z axis, drawn on XZ from its FAR end
+    down to the profile: the twist axis is the path, and travel runs from the
+    profile along it whichever way the line was drawn, so the centroid is the
+    extrude's, counter-clockwise. Then the sweep verbs' own contract: a curved
+    path with a twist is the typed ``twist_path_unsupported``, a NaN twist is
+    refused client-side, and removing the twist leaves the plain box.
+    """
+    theta = math.radians(30.0)
+    cos_mean = math.sin(theta) / theta
+    sin_mean = (1.0 - math.cos(theta)) / theta
+    with _session(stack) as session:
+        part = session.new_part("Twisted sweep")
+        sketch = part.sketch(on="XY")
+        sketch.rect(WIDTH_MM, HEIGHT_MM)
+        sketch.solve()
+        path = part.sketch(on="XZ", name="Axis")
+        path.line((0, DEPTH_MM), (0, 0))
+        feature = part.sweep(sketch, path, twist_angle_deg=30.0)
+        twisted = part.mass_properties()
+        with pytest.raises(ValidationError, match="twist_angle_deg"):
+            part.set_sweep_twist(feature.id, math.nan)
+        part.set_sweep_twist(feature.id, None)
+        plain = part.mass_properties()
+        untwisted = part.feature(feature.id).feature
+
+        bent = session.new_part("Twist on an arc")
+        profile = bent.sketch(on="XY")
+        profile.rect(WIDTH_MM, HEIGHT_MM)
+        profile.solve()
+        arc = bent.sketch(on="XZ", name="Arc")
+        arc.arc((100, 0), (100, 100), (0, 0))
+        bent.sweep(profile, arc, twist_angle_deg=30.0)
+        refused = bent.evaluate()
+
+    cx, cy = WIDTH_MM / 2, HEIGHT_MM / 2
+    assert twisted.volume == pytest.approx(
+        EXPECTED_VOLUME_MM3, abs=TWIST_VOLUME_TOLERANCE_MM3
+    )
+    assert twisted.centroid.x == pytest.approx(
+        cx * cos_mean - cy * sin_mean, abs=TWIST_CENTROID_TOLERANCE_MM
+    )
+    assert twisted.centroid.y == pytest.approx(
+        cx * sin_mean + cy * cos_mean, abs=TWIST_CENTROID_TOLERANCE_MM
+    )
+    assert plain.volume == pytest.approx(EXPECTED_VOLUME_MM3, abs=VOLUME_TOLERANCE_MM3)
+    assert plain.centroid.y == pytest.approx(cy, abs=VOLUME_TOLERANCE_MM3)
+    assert isinstance(untwisted, SweepFeature)
+    assert "twist_angle_deg" not in untwisted.params.model_dump(mode="json")
+    codes = [r.error.code for r in refused.result.features if r.error is not None]
+    assert codes == ["twist_path_unsupported"]
 
 
 # --- export -----------------------------------------------------------------
