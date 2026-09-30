@@ -62,6 +62,11 @@ on:
         required: true
         type: string
 
+# Read-only, like its caller (see e2e.yml): the commit under test may be any
+# commit GitHub serves, and nothing here writes to the repository.
+permissions:
+  contents: read
+
 # NO `concurrency:` here, on purpose. A called workflow's jobs run inside the
 # CALLER's run, under the caller's group (e2e.yml: one group per commit under
 # test), so a second group here could only add a way to deadlock or evict. The

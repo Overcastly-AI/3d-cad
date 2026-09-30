@@ -12,10 +12,14 @@
 #         gh workflow run e2e.yml --ref <branch>                 # the tip
 #         gh workflow run e2e.yml --ref <branch> -f sha=<sha>    # any commit
 #     `sha` must be the full 40-hex id. The run is titled `full @ <sha>`, and
-#     `full lane complete` is the one job whose conclusion answers "is this
-#     commit fit for main". Prefer a ref whose tip IS the commit: the
-#     workflow definitions always come from the ref's tip, so the `target`
-#     job warns when the two differ.
+#     its verdict job answers "is this commit fit for main". GitHub posts the
+#     run's checks on the ref's TIP, so the verdict is named plain
+#     `full lane complete` only when the tip IS the commit proven, and
+#     `full lane complete (proves <sha>)` otherwise: a plain green
+#     `full lane complete` check on a commit therefore always means THAT
+#     commit was tested. Prefer a ref whose tip IS the commit: the workflow
+#     definitions always come from the ref's tip, so the `target` job warns
+#     when the two differ.
 # The FILE keeps its name because workflow_dispatch needs the workflow
 # registered on the default branch, and e2e.yml already is; a new file could
 # not be dispatched until it had merged. The concurrency group is one per
@@ -299,6 +303,15 @@ concurrency:
         || format('e2e-sha-{0}', inputs.sha || github.sha) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# READ-ONLY, for every job here and in deploy-path.yml (a called workflow can
+# only narrow the caller's token, never widen it). A dispatched `sha` can be
+# any commit GitHub will serve, including one from a fork in this repository's
+# network, and its scripts run with this token. None of these jobs writes to
+# the repository: checkout needs `contents: read`; the artifact and cache
+# actions authenticate with the runner's own runtime token, not GITHUB_TOKEN.
+permissions:
+  contents: read
+
 jobs:
   # The commit every job below checks out. One place, so the shards, the legs
   # and deploy-path cannot disagree about what they proved, and a bad `sha`
@@ -324,7 +337,7 @@ jobs:
             exit 1
           fi
           if [[ "$sha" != "$HEAD_SHA" ]]; then
-            echo "::warning::proving $sha with the workflow definitions of $HEAD_SHA (the tip of $GITHUB_REF). If .github/workflows or scripts/ differ between them, dispatch on a ref whose tip IS $sha instead."
+            echo "::warning::proving $sha with the workflow definitions of $HEAD_SHA (the tip of $GITHUB_REF). This run's checks are posted on $HEAD_SHA, so its verdict is named 'full lane complete (proves $sha)', never plain 'full lane complete'. If .github/workflows or scripts/ differ between them, dispatch on a ref whose tip IS $sha instead."
           fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "full lane: $EVENT on $GITHUB_REF, commit under test $sha"
@@ -1122,8 +1135,22 @@ jobs:
   # `success` on the commit it names; `skipped` and `cancelled` are not passes.
   # It reads `e2e complete` rather than the shards, because that job already
   # folds in the shards' result AND proves they covered the suite.
+  #
+  # THE NAME IS CONDITIONAL, and that is the point of it. GitHub posts every
+  # check in this run on the run's head_sha, which is github.sha: the TIP of
+  # the ref the dispatch named. With `-f sha=S` on a ref whose tip is T, a
+  # plain `full lane complete` would put a green check on T, a commit nobody
+  # tested, and the tip moves under a dispatch all the time while agents push
+  # (nightly.yml picks a tip and then dispatches: the same race). So the
+  # unqualified name is only ever used when the commit proven IS the one the
+  # check lands on; otherwise it says `full lane complete (proves S)`, which
+  # no reader will mistake for T's verdict. scripts/check-dispatch-verdict.py
+  # (`just lint`, ci.yml `compose`) refuses any other shape of this name.
   complete:
-    name: full lane complete
+    name: >-
+      ${{ needs.target.outputs.sha == github.sha
+          && 'full lane complete'
+          || format('full lane complete (proves {0})', needs.target.outputs.sha) }}
     needs: [target, reconcile, dist-bundle, auth-short-ttl, deploy-path]
     if: always()
     runs-on: ubuntu-latest

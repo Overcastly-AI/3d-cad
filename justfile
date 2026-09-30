@@ -121,6 +121,13 @@ lint:
     # interpolates a doubled curly brace even inside a recipe comment.)
     python3 scripts/check-workflow-contexts.py --self-test
     python3 scripts/check-workflow-contexts.py
+    # ~0.1s, the same class once more. A full lane dispatched with `-f sha=S`
+    # posts its checks on the dispatched ref's TIP, so a plainly named
+    # `full lane complete` would put a green check on a commit it never
+    # tested. Holds the conditional verdict name, and that every checkout in
+    # the lane takes the commit that name compares.
+    python3 scripts/check-dispatch-verdict.py --self-test
+    python3 scripts/check-dispatch-verdict.py
     # ~30ms, no browser and no daemon. Two questions nothing else can answer
     # cheaply. (a) Does deploy/docker/web/nginx.conf still have the shape
     # `scripts/dist-leg.sh` can serve natively? That leg is the ONLY thing that
