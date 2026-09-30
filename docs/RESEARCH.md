@@ -229,6 +229,14 @@ number. Geometry composes SVG, PDF (reportlab, BSD) and DXF (ezdxf, MIT) as
 content-addressed artifacts. The neutral `ViewGeometry` DTO drives the
 client-side sheet editor.
 
+**Sheet fit (2026-09-30).** A view's box is its drawn extent: a circle is
+centre ± radius, an arc is its endpoints plus the axis extremes its sweep
+crosses (never its full circle or its centre). Auto-layout centres only the
+views it places, then shifts the arrangement just enough to keep captions
+inside the drafting border when geometry plus captions fit. Any view whose
+ink (geometry plus caption) still leaves the border is reported as an
+`off_sheet` error and stamped on every export, never moved silently.
+
 ## 12. Datum-plane conventions (scripting trap)
 
 | Datum | x_dir | y_dir | normal (extrude direction) |
