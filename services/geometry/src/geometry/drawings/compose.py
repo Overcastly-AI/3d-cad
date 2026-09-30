@@ -164,6 +164,9 @@ _VIEW_LABEL_MM = 3.4
 #: A placed view's ink band below its geometry: the caption baseline plus half its
 #: cap height (the SVG/PDF/DXF caption is vertically centred on that baseline).
 _VIEW_CAPTION_BAND_MM = _VIEW_LABEL_DY + _VIEW_LABEL_MM / 2
+#: Advance per caption character (mm): the 0.62 em monospace advance the dimension
+#: halo uses, plus the caption's 0.6 mm letter-spacing.
+_VIEW_LABEL_ADVANCE_MM = _VIEW_LABEL_MM * 0.62 + 0.6
 
 #: Sheet banner (audit N2) — where the layout-issue lines are stamped and how they are
 #: spaced: inside the top-left border corner, reading down, in the same mono face as
@@ -442,6 +445,55 @@ def view_bounds(edges: Sequence[ProjectedViewEdge]) -> ViewBounds | None:
     )
 
 
+def pinned_position_center(edges: Sequence[ProjectedViewEdge]) -> Vec2:
+    """The view point a hand-placed (``auto_place=False``) position refers to.
+
+    A pinned view stores its sheet position as the point the composer puts on that
+    position, and before ARC-BOUNDS-INFLATE-1 that point was the centre of a box
+    that bounded every arc as its full circle and included its centre. Positions
+    saved then are measured from that point, and the web still writes a new position
+    as the composed ``anchor`` plus the drag, so it stays the frame for new
+    placements too: a saved view never jumps, and a dragged one lands where it was
+    dropped. Everything else (auto-layout, the ink box, overlap and off-sheet checks)
+    uses the true extent from :func:`view_bounds`. For a view with no arcs the two
+    centres are identical.
+    """
+    min_x = min_y = math.inf
+    max_x = max_y = -math.inf
+    for edge in edges:
+        pts: list[Vec2] = [_p2(edge.start), _p2(edge.end), _p2(edge.midpoint)]
+        if edge.center is not None:
+            pts.append(_p2(edge.center))
+        pts.extend(_p2(q) for q in edge.points)
+        if edge.center is not None and edge.radius is not None:
+            c = _p2(edge.center)
+            pts.append(Vec2(c.x - edge.radius, c.y - edge.radius))
+            pts.append(Vec2(c.x + edge.radius, c.y + edge.radius))
+        for pt in pts:
+            min_x = min(min_x, pt.x)
+            min_y = min(min_y, pt.y)
+            max_x = max(max_x, pt.x)
+            max_y = max(max_y, pt.y)
+    if not math.isfinite(min_x):
+        return Vec2(0.0, 0.0)
+    return Vec2((min_x + max_x) / 2, (min_y + max_y) / 2)
+
+
+def pinned_view_offset(result: DrawingViewResult | None) -> Vec2:
+    """True bounds centre minus :func:`pinned_position_center` (projected mm).
+
+    Adding it to a stored position gives the centre anchor the composer draws the
+    view at, so the geometry lands exactly where it did when it was placed. Zero
+    for a view with no arcs, or no geometry.
+    """
+    if result is None or result.error is not None:
+        return Vec2(0.0, 0.0)
+    bounds = view_bounds(result.edges)
+    if bounds is None:
+        return Vec2(0.0, 0.0)
+    return _sub(bounds.center, pinned_position_center(result.edges))
+
+
 def standard_layout(dims: Vec2) -> dict[ViewProjection, Vec2]:
     """Fixed-fraction third-angle placeholder anchors (layout.ts standardLayout)."""
     left_x = dims.x * 0.32
@@ -574,7 +626,11 @@ def bounds_aware_layout(
 
 def _fit_shift(lo: float, hi: float, lo_bound: float, hi_bound: float) -> float:
     """The smallest shift that moves ``[lo, hi]`` inside ``[lo_bound, hi_bound]``,
-    or 0.0 when it is already inside or is too long to fit at all."""
+    or 0.0 when it is already inside or is too long to fit at all.
+
+    :func:`bounds_aware_layout` applies it to y only: the caption band hangs below
+    the geometry, and x is centred on the geometry already.
+    """
     if hi - lo > hi_bound - lo_bound:
         return 0.0
     if lo < lo_bound:
@@ -671,9 +727,10 @@ def resolve_view_anchors(
     Three deterministic passes so an additive/honored view sees the block it must
     avoid: (1) the standard front/top/right/iso quartet that is ``auto_place`` — laid
     out as a group by :func:`bounds_aware_layout` (unchanged, byte-identical);
-    (2) any ``auto_place=False`` view — honored verbatim at its authored ``position``
-    (the drag-to-place seam); (3) the additive ``auto_place`` views (section /
-    flat_pattern) — each dropped into a non-overlapping :func:`_free_slot_anchor`.
+    (2) any ``auto_place=False`` view — honored at its authored ``position``
+    (the drag-to-place seam), measured from :func:`pinned_position_center`;
+    (3) the additive ``auto_place`` views (section / flat_pattern) — each dropped
+    into a non-overlapping :func:`_free_slot_anchor`.
 
     KEYED BY PROJECTION, and that is an assumption this service does not own.
     Every map here — ``result_by_proj``, ``anchors``, the caller's
@@ -734,7 +791,16 @@ def resolve_view_anchors(
             place(vp.projection, auto[vp.projection])
     for vp in layout.views:
         if not vp.auto_place:
-            place(vp.projection, Vec2(vp.position.x_mm, vp.position.y_mm))
+            # The stored position is measured from `pinned_position_center`; move it
+            # to the true-bounds centre every other step uses, so the geometry is
+            # drawn exactly where it was placed.
+            place(
+                vp.projection,
+                _add(
+                    Vec2(vp.position.x_mm, vp.position.y_mm),
+                    pinned_view_offset(result_by_proj.get(vp.projection)),
+                ),
+            )
     for vp in layout.views:
         if vp.auto_place and vp.projection not in STANDARD_VIEWS:
             place(
@@ -791,20 +857,36 @@ def view_content_svg_rect(
     return SvgRect(min(a.x, b.x), min(a.y, b.y), max(a.x, b.x), max(a.y, b.y))
 
 
+def view_caption_half_width(label: str) -> float:
+    """Half the drawn width (mm) of a view caption, centred under the view."""
+    return len(label) * _VIEW_LABEL_ADVANCE_MM / 2
+
+
 def view_ink_rect(
-    edges: Sequence[ProjectedViewEdge], anchor: Vec2, sheet_height: float
+    edges: Sequence[ProjectedViewEdge],
+    anchor: Vec2,
+    sheet_height: float,
+    label: str = "",
 ) -> SvgRect | None:
     """A view's INK extent on the sheet: its drawn geometry PLUS its caption band.
 
     :func:`view_content_svg_rect` bounds the geometry; the stamped caption
     ("FRONT") sits :data:`_VIEW_LABEL_DY` below it and is ink too, so a caption
     printed through the neighbouring view is the same defect as crossing edges. This
-    is the box :func:`measure_layout_issues` measures between (audit N2)."""
+    is the box :func:`measure_layout_issues` measures between (audit N2).
+
+    ``label`` is the caption text; it is centred on ``anchor.x``, so a caption
+    wider than a narrow view widens the box too.
+    """
     rect = view_content_svg_rect(edges, anchor, sheet_height)
     if rect is None:
         return None
+    half = view_caption_half_width(label)
     return SvgRect(
-        rect.min_x, rect.min_y, rect.max_x, rect.max_y + _VIEW_CAPTION_BAND_MM
+        min(rect.min_x, anchor.x - half),
+        rect.min_y,
+        max(rect.max_x, anchor.x + half),
+        rect.max_y + _VIEW_CAPTION_BAND_MM,
     )
 
 
@@ -1898,8 +1980,16 @@ def _compose_view(
     result: DrawingViewResult | None,
     view_dims: list[tuple[DrawingDimensionInput, MeasuredDimension]],
     obstacles: Sequence[SvgRect],
+    pinned_at: Vec2 | None = None,
 ) -> ComposedView:
-    """Place one view (edges + dimensions + caption) — mirrors SheetView.tsx."""
+    """Place one view (edges + dimensions + caption) — mirrors SheetView.tsx.
+
+    ``anchor`` is the true-bounds centre the geometry is drawn about.
+    ``pinned_at`` is a hand-placed view's stored position: it is what the view
+    reports as its ``anchor`` (the web writes a drag as that anchor plus the move,
+    so the placement round-trips), and its dimensions keep choosing their side from
+    :func:`pinned_position_center`, as they did when they were placed.
+    """
     anchor_svg_x = anchor.x
     anchor_svg_y = sheet_h - anchor.y
     edges = result.edges if result is not None else []
@@ -1908,11 +1998,15 @@ def _compose_view(
     svg_edges = view_to_svg_edges(edges, anchor, sheet_h)
     below_mm = (bounds.center.y - bounds.min.y) if bounds else 0.0
     label_y = anchor_svg_y + below_mm + _VIEW_LABEL_DY
+    reported = anchor if pinned_at is None else pinned_at
 
     dims: list[ComposedDimension] = []
     if not failed:
         to_svg = view_transform(edges, anchor, sheet_h)
-        view_center = bounds.center if bounds else Vec2(0.0, 0.0)
+        if pinned_at is not None:
+            view_center = pinned_position_center(edges)
+        else:
+            view_center = bounds.center if bounds else Vec2(0.0, 0.0)
         sheet = Vec2(sheet_w, sheet_h)
         # EVERY authored dimension of this view lands on the sheet — as its drafting
         # annotation when it can be placed, otherwise as a stamped error marker with
@@ -1940,7 +2034,7 @@ def _compose_view(
         # failed view prints WHY it is empty, not a bare "VIEW FAILED". None when the
         # result is absent entirely (no typed reason to carry).
         error=result.error if result is not None else None,
-        anchor=ComposedPoint(x_mm=anchor_svg_x, y_mm=anchor_svg_y),
+        anchor=ComposedPoint(x_mm=reported.x, y_mm=sheet_h - reported.y),
         label=VIEW_LABEL[projection].upper(),
         label_pos=ComposedPoint(x_mm=anchor_svg_x, y_mm=label_y),
         edges=svg_edges,
@@ -2121,6 +2215,11 @@ def place_sheet(
     # free slot (never the old dead-centre collision), and any auto_place=False view
     # honored at its authored position.
     anchors = resolve_view_anchors(layout, result_by_proj, dims)
+    pinned_at: dict[ViewProjection, Vec2] = {
+        vp.projection: Vec2(vp.position.x_mm, vp.position.y_mm)
+        for vp in layout.views
+        if not vp.auto_place
+    }
 
     svg_rect_by_proj: dict[ViewProjection, SvgRect] = {}
     for proj in STANDARD_VIEWS:
@@ -2163,6 +2262,7 @@ def place_sheet(
                 result_by_proj.get(proj),
                 dims_by_view.get(proj, []),
                 obstacles,
+                pinned_at.get(proj),
             )
         )
 
@@ -2189,6 +2289,7 @@ def place_sheet(
                 flat_result,
                 [],
                 [],
+                pinned_at.get(FLAT_PATTERN_PROJECTION),
             )
         )
         if flat_result is not None and flat_result.error is None:
@@ -2218,6 +2319,7 @@ def place_sheet(
             section_result,
             [],
             [],
+            pinned_at.get(SECTION_PROJECTION),
         )
         if section_result is not None and section_result.error is None:
             to_svg = view_transform(section_result.edges, section_center, sheet_h)
@@ -2235,7 +2337,7 @@ def place_sheet(
         result = result_by_proj.get(view.projection)
         if view.failed or result is None or view.projection not in anchors:
             continue
-        ink = view_ink_rect(result.edges, anchors[view.projection], sheet_h)
+        ink = view_ink_rect(result.edges, anchors[view.projection], sheet_h, view.label)
         if ink is not None:
             ink_rects.append((view.projection, ink))
 

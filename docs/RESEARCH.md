@@ -235,7 +235,11 @@ crosses (never its full circle or its centre). Auto-layout centres only the
 views it places, then shifts the arrangement just enough to keep captions
 inside the drafting border when geometry plus captions fit. Any view whose
 ink (geometry plus caption) still leaves the border is reported as an
-`off_sheet` error and stamped on every export, never moved silently.
+`off_sheet` error and stamped on every export, never moved silently. A
+hand-placed view's stored position keeps its original meaning, the centre of
+the old box that bounded arcs as full circles, so saved sheets do not move and
+a drag (composed anchor plus the move) lands where it was dropped. The ink box
+includes the caption's width as well as its height.
 
 ## 12. Datum-plane conventions (scripting trap)
 

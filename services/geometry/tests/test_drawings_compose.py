@@ -50,9 +50,11 @@ from geometry.drawings.compose import (
     format_dimension_label,
     measure_sheet_issues,
     measure_sheet_overflow,
+    pinned_position_center,
     resolve_view_anchors,
     sheet_dimensions,
     view_bounds,
+    view_caption_half_width,
     view_content_svg_rect,
     view_ink_rect,
     view_to_svg_edges,
@@ -1910,18 +1912,25 @@ def _caption_band_mm() -> float:
 
 
 def _sheet_ink_rects(sheet: ComposedSheet) -> list[tuple[ViewProjection, SvgRect]]:
-    """Every placed view's INK box (geometry over all three edge kinds, plus the
-    caption band below it), read off the composed sheet."""
+    """Every placed view's INK box, read off the composed sheet: geometry over all
+    three edge kinds, the caption band below it, and the caption's width centred
+    on its stamped position."""
     band = _caption_band_mm()
     rects: list[tuple[ViewProjection, SvgRect]] = []
     for view in sheet.views:
         if view.failed or not view.edges:
             continue
         drawn = _drawn_rect(view.edges)
+        half = view_caption_half_width(view.label)
         rects.append(
             (
                 view.projection,
-                SvgRect(drawn.min_x, drawn.min_y, drawn.max_x, drawn.max_y + band),
+                SvgRect(
+                    min(drawn.min_x, view.label_pos.x_mm - half),
+                    drawn.min_y,
+                    max(drawn.max_x, view.label_pos.x_mm + half),
+                    drawn.max_y + band,
+                ),
             )
         )
     return rects
@@ -2306,3 +2315,106 @@ def test_sheet_fit_golden_svg_is_deterministic_across_interpreter_restart() -> N
     )
     assert result.returncode == 0, f"restart probe failed:\n{result.stderr}"
     assert result.stdout == local
+
+
+# --- a hand-placed view stays where it was drawn ----------------------------------
+# A pinned view stores the sheet point the composer puts its box centre on, and that
+# centre used to come from the full-circle arc box. The tight box would move every
+# saved pinned view with such an arc, and detach dimensions whose text position is
+# stored in absolute sheet mm. The stored position keeps its old meaning
+# (`pinned_position_center`); the tight box is used for everything else.
+
+
+def _pinned_sheet_fit(x_mm: float, y_mm: float) -> ComposedSheet:
+    """The sheet-fit golden's part with its TOP view pinned at (x_mm, y_mm)."""
+    request = ComposeDrawingRequest.model_validate_json(
+        (_SHEET_FIT_GOLDEN_DIR / "request.json").read_text(encoding="utf-8")
+    )
+    views = [
+        v.model_copy(
+            update={"auto_place": False, "position": SheetPoint(x_mm=x_mm, y_mm=y_mm)}
+        )
+        if v.projection == "top"
+        else v
+        for v in request.layout.views
+    ]
+    layout = request.layout.model_copy(update={"views": views})
+    return place_sheet(
+        evaluate_drawing_views(request), request.dimensions, layout, request.annotations
+    )
+
+
+def test_a_pinned_arc_view_draws_where_it_did_before_the_tight_box() -> None:
+    """By hand, as composed at aa445e5: the quarter disc's old box was its full
+    R60 circle, -60..60, centred on the origin, so a top view pinned at (100, 100)
+    (y up) draws its 0..60 geometry at x 100..160 and SVG y 210 - 100 - 60 = 50 up
+    to 110. The tight box alone would have moved it to x 70..130, y 80..140."""
+    sheet = _pinned_sheet_fit(100.0, 100.0)
+    top = next(v for v in sheet.views if v.projection == "top")
+    rect = _drawn_rect(top.edges)
+    assert (rect.min_x, rect.max_x) == pytest.approx((100.0, 160.0), abs=1e-6)
+    assert (rect.min_y, rect.max_y) == pytest.approx((50.0, 110.0), abs=1e-6)
+    # It reports the stored position as its anchor, as it did then.
+    assert (top.anchor.x_mm, top.anchor.y_mm) == pytest.approx((100.0, 110.0))
+    # The caption sits under the drawn geometry, not under the old circle box.
+    assert top.label_pos.x_mm == pytest.approx(130.0, abs=1e-6)
+    assert top.label_pos.y_mm == pytest.approx(110.0 + 8.0, abs=1e-6)
+
+
+def test_dragging_a_pinned_arc_view_lands_it_where_it_was_dropped() -> None:
+    """The web writes a drag as the composed anchor plus the pointer move, flipped
+    to y up (DrawingSheet.tsx). Save that, reload, and the geometry has moved by
+    exactly the drag, with no jump."""
+    before = _pinned_sheet_fit(100.0, 100.0)
+    top = next(v for v in before.views if v.projection == "top")
+    drag_x, drag_y = 25.0, -15.0  # SVG mm: right and up
+    position = (
+        top.anchor.x_mm + drag_x,
+        before.height_mm - (top.anchor.y_mm + drag_y),
+    )
+    after = _pinned_sheet_fit(*position)
+    moved = next(v for v in after.views if v.projection == "top")
+    a = _drawn_rect(top.edges)
+    b = _drawn_rect(moved.edges)
+    assert b.min_x - a.min_x == pytest.approx(drag_x, abs=1e-9)
+    assert b.max_x - a.max_x == pytest.approx(drag_x, abs=1e-9)
+    assert b.min_y - a.min_y == pytest.approx(drag_y, abs=1e-9)
+    assert b.max_y - a.max_y == pytest.approx(drag_y, abs=1e-9)
+    # And the reloaded anchor is the position written, so the next drag round-trips.
+    assert (moved.anchor.x_mm, after.height_mm - moved.anchor.y_mm) == pytest.approx(
+        position
+    )
+
+
+def test_pinned_position_center_is_the_full_circle_box_centre() -> None:
+    """For the quarter arc about the origin the old box is -r..r, centre (0, 0),
+    while the true box is 0..r, centre (r/2, r/2)."""
+    edges = [_arc_edge((0.0, 0.0), 10.0, 0.0, 90.0)]
+    assert pinned_position_center(edges) == pytest.approx(Vec2(0.0, 0.0))
+    bounds = view_bounds(edges)
+    assert bounds is not None
+    assert bounds.center == pytest.approx(Vec2(5.0, 5.0))
+
+
+def test_a_caption_wider_than_its_view_widens_the_ink_box() -> None:
+    """A 4 mm wide view captioned ISOMETRIC: 9 characters at 3.4 * 0.62 + 0.6 =
+    2.708 mm each is 24.372 mm, centred on the anchor, so the ink box spans
+    anchor.x +/- 12.186 mm rather than +/- 2 mm."""
+    rect = view_ink_rect(_rect_edges(2.0, 10.0), Vec2(100.0, 100.0), 200.0, "ISOMETRIC")
+    assert rect is not None
+    assert (rect.min_x, rect.max_x) == pytest.approx((87.814, 112.186), abs=1e-9)
+    # A caption narrower than its view does not change the box.
+    wide = view_ink_rect(_rect_edges(50.0, 10.0), Vec2(100.0, 100.0), 200.0, "TOP")
+    assert wide is not None
+    assert (wide.min_x, wide.max_x) == pytest.approx((50.0, 150.0), abs=1e-9)
+
+
+def test_a_caption_past_the_side_border_is_reported() -> None:
+    """A thin view near the left border whose caption, not its geometry, crosses it:
+    geometry x 12..16 on A4, caption ISOMETRIC centred on x = 14 spans
+    1.814..26.186, 8.19 mm past the 10 mm border."""
+    rect = view_ink_rect(_rect_edges(2.0, 10.0), Vec2(14.0, 100.0), 210.0, "ISOMETRIC")
+    assert rect is not None
+    (overflow,) = measure_sheet_overflow([("iso", rect)], Vec2(297.0, 210.0), 10.0)
+    assert overflow.side == "left"
+    assert overflow.margin_mm == pytest.approx(10.0 - (14.0 - 12.186), abs=1e-9)
