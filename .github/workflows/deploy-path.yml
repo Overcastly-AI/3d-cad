@@ -27,6 +27,25 @@
 # Expect the main step to run several minutes longer than the ~2 min it took
 # with pulled images — that is the build, not a hang.
 #
+# ── Part of the FULL LANE since CI-TWO-LANE (2026-09-30) ─────────────────────
+#
+# This file no longer triggers itself. e2e.yml (the `full` workflow) calls it
+# with the commit under test as `inputs.sha`, so it runs nightly on the working
+# branch, on push/PR to `main`, and whenever the full lane is dispatched on a
+# SHA — and not on every push. Its jobs appear inside that run, prefixed
+# `deploy-path / `, and its concurrency is the caller's (per commit under
+# test; see e2e.yml). Every checkout below takes `ref: inputs.sha`, because
+# for a dispatch on a specific commit `github.sha` is the tip of the ref the
+# dispatch named, not the commit being proven.
+#
+# Why this is the right lane for it: it is the slowest per-push signal we had
+# (two jobs, each building all three images, plus MinIO from source) and the
+# class it catches — an image that does not build or a stack that does not
+# boot — is rare per commit and cheap to bisect over a day's commits. The
+# static half stays per-commit in ci.yml's `compose` job
+# (check-build-context.py, check-compose.py), which is where the COPY-source
+# failures this workflow used to find are now caught first.
+#
 # Why it exists at all: a rendered-config check cannot catch a wrong RUNTIME.
 # The audit-G1 bug (geometry handed S3_URL but no credentials → every mesh
 # put/get 403s → blank viewport) renders as perfectly valid YAML. Only a real
@@ -36,79 +55,20 @@
 name: deploy-path
 
 on:
-  push:
-    branches:
-      - main
-      - "claude/**"
-  pull_request:
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      sha:
+        description: the commit to prove (40-hex); the caller resolves it
+        required: true
+        type: string
 
-concurrency:
-  # PUSH: group PER COMMIT, so a commit's run can never be evicted by a later
-  # one. PR: group per ref, so a superseded PR push still cancels. Identical in
-  # shape to ci.yml and e2e.yml, and asserted so by
-  # scripts/check-workflow-concurrency.py (CI's `compose` job + `just lint`) —
-  # a concurrency expression cannot be exercised locally and only misbehaves
-  # when two pushes land close together, so agreement between the three is the
-  # only thing about it that can actually be checked before it matters.
-  #
-  # This workflow was the last one keyed on the ref, and `cancel-in-progress:
-  # false` was believed to protect it: "runs QUEUE instead, so one always
-  # completes". They queue, but the queue is ONE deep. A concurrency group
-  # holds at most one RUNNING run plus one PENDING run, and a newer arrival
-  # EVICTS the pending one — regardless of cancel-in-progress, which only
-  # governs runs already holding a runner. So under the rapid back-to-back
-  # pushes several parallel agents produce, the middle commit silently loses
-  # its run. ci.yml and e2e.yml were converted on 2026-07-30 for exactly this
-  # (there, 5 of 8 consecutive runs came back `cancelled` under four agents);
-  # this workflow was missed and stayed ref-keyed for two weeks.
-  #
-  # The prompting observation, recorded with its evidentiary status rather than
-  # its conclusion: on 2026-08-15 `8d386ab` came back `cancelled` here while
-  # `07c4005`, `26bc761`, `8b95dac`, `d6fc92b`, `275b3cf` and `305ed4b` all
-  # succeeded. That was NOT discriminated against the other cause of the same
-  # word — a job hitting `timeout-minutes` — which needs the run's per-job
-  # conclusions and step durations (an eviction kills a run early and takes all
-  # its jobs; a timeout kills one job at its limit and leaves siblings green).
-  # So treat 8d386ab as the reason somebody looked, not as the proof. The
-  # change stands on the mechanism and on the fact that ci.yml and e2e.yml had
-  # already been converted for it: ref-keying here was a real hole whatever
-  # killed that particular run.
-  #
-  # It matters MORE here than anywhere else. CLAUDE.md's standing rule is that
-  # every commit is green on its own and `cancelled` is explicitly not a pass,
-  # and this is the ONLY workflow that builds the service images — a failure
-  # class that is out of local reach entirely, because the Docker registry is
-  # policy-blocked in the dev container. A commit that loses its deploy-path
-  # run therefore has no image-build evidence anywhere, and nothing local can
-  # supply it.
-  #
-  # THE COST, honestly. Per-SHA groups buy runner minutes with runner minutes,
-  # and this is the most expensive workflow we run — two jobs, each building
-  # all three images (the geometry one carries the ~700MB OCP wheel). Two
-  # distinct prices, not one:
-  #   * MINUTES. Ref-keying caps a burst of N pushes at 2 runs; per-SHA gives
-  #     all N a run. At the measured code-commit rate (21/day on 2026-07-31,
-  #     39/day on 2026-07-30) and a generous 10 min/job, that is ≈13
-  #     runner-hours/day worst case — free on hosted runners for a public repo,
-  #     ≈$6/day at the $0.008/min private rate. For scale, e2e.yml's sharded
-  #     suite already costs an accepted 20-45 runner-hours/day, so this is a
-  #     minority of the bill.
-  #   * CONCURRENCY. The bigger change: ref-keying SERIALISED this workflow, so
-  #     at most one image build ran at a time. Per-SHA does not, so four agents
-  #     pushing means up to 8 concurrent deploy-path jobs on top of ci.yml's 6
-  #     and e2e.yml's 5 per push. If runner contention becomes the bottleneck,
-  #     the lever is this workflow's TRIGGER (paths-ignore, as e2e.yml uses to
-  #     drop markdown-only commits) — not the concurrency key, because
-  #     re-keying on the ref just buys the minutes back by discarding evidence.
-  group: >-
-    ${{ github.event_name == 'pull_request'
-        && format('deploy-path-pr-{0}', github.ref)
-        || format('deploy-path-sha-{0}', github.sha) }}
-  # PULL REQUESTS only. On a branch push each commit keeps its own run to
-  # completion; on a PR only the head matters for merge, so a superseded run is
-  # genuine waste.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# NO `concurrency:` here, on purpose. A called workflow's jobs run inside the
+# CALLER's run, under the caller's group (e2e.yml: one group per commit under
+# test), so a second group here could only add a way to deadlock or evict. The
+# per-commit keying this file used to carry — and why a ref-keyed group loses
+# the middle commit of a burst (CI-2, 2026-08-15) — is documented in
+# scripts/check-workflow-concurrency.py, which now checks e2e.yml's group on
+# this workflow's behalf.
 
 jobs:
   compose-stack-e2e:
@@ -116,6 +76,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
       # ONE script, so a human can run the identical proof on any Docker host:
       #   scripts/compose-smoke.sh    (or `just compose-smoke`)
       # Build + boot (--wait on long-running services only) → minio bucket
@@ -253,6 +215,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
       - name: Backup → destroy the volumes → restore → re-evaluate the part
         run: scripts/backup-restore-drill.sh
       - name: Tear down
@@ -272,3 +236,73 @@ jobs:
             echo "EXIT trap. Read the step log above rather than trusting this block."
             echo "== end backup-restore-drill verdict =="
           fi
+
+  geometry-minio-smoke:
+    # Real-MinIO cross-process smoke for the §7.8 mesh-store swap (audit F6):
+    # the property the swap exists for — evaluate on one process/replica, fetch
+    # on another against a shared object store — cannot be proven in-process by
+    # moto. This job boots a live MinIO with the mesh bucket provisioned, points
+    # S3_URL/S3_BUCKET/creds at it, and runs the geometry S3 suite with the
+    # cross-process smoke ENABLED via LOFT_MINIO_SMOKE=1. ci.yml's `pytest`
+    # shards run the same file with the marker UNSET, so that smoke skips there
+    # and the store's cross-process correctness is gated exactly once, here.
+    #
+    # Moved here from ci.yml with CI-TWO-LANE (2026-09-30): it compiles MinIO
+    # from source on every run (~4-5 min cold), which is the Docker-daemon cost
+    # the per-commit lane no longer pays. The S3 store changes rarely, and
+    # compose-stack-e2e's round-trip also fetches the GLB out of real MinIO.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      # Reuse the compose-defined MinIO + one-shot bucket bootstrap (DRY: same
+      # service/bucket the dev stack uses). `--wait` blocks until MinIO is
+      # healthy and minio-init has created the bucket (exit 0).
+      # `--wait` waits for services to reach running|healthy, and treats a
+      # container that EXITS as a failure — so naming the one-shot
+      # `minio-init` here made the step exit 1 the moment the bucket
+      # bootstrap succeeded ("container loft-minio-init-1 exited (0)" then
+      # "Process completed with exit code 1"). This job had therefore been
+      # red since it landed. Wait on the long-running server only, then run
+      # the one-shot to completion so its OWN exit code is the gate.
+      # An EPHEMERAL, non-default root password, generated per run and exported
+      # to every later step. This job used to boot MinIO on the compose default
+      # (`loft-minio-dev-only`, published in our own repo) and hand pytest the
+      # same literal, so the store's credential plumbing was only ever exercised
+      # with the one password everybody already knows — a code path that ignored
+      # its configured secret and hardcoded that string would have passed. Same
+      # reasoning as scripts/compose-smoke.sh.
+      - name: Generate an ephemeral MinIO credential
+        run: |
+          echo "MINIO_ROOT_PASSWORD=minio-$(od -An -tx1 -N18 /dev/urandom | tr -d ' \n')" >> "$GITHUB_ENV"
+      # MinIO is BUILT FROM SOURCE here (deploy/docker/minio.Dockerfile, ~4-5
+      # min cold): upstream withdrew its prebuilt images from Docker Hub and
+      # then from quay.io, so there is no registry image left to pull. `up`
+      # builds the missing image; minio-init below reuses the same build.
+      - name: Build + boot MinIO (from pinned source)
+        run: docker compose up -d --wait minio
+      - name: Provision the mesh bucket
+        run: docker compose run --rm minio-init
+      - name: Sync uv environment (locked)
+        run: uv sync --locked
+      - name: Cross-process mesh-store smoke (real MinIO)
+        env:
+          LOFT_MINIO_SMOKE: "1"
+          # Host-mapped MinIO (compose publishes 9000). The secret is the
+          # generated one above — compose interpolated the SAME value into the
+          # server, so a mismatch here fails as an auth error, which is exactly
+          # the assertion: both sides read their configuration.
+          S3_URL: http://localhost:9000
+          S3_BUCKET: loft
+          S3_ACCESS_KEY_ID: loft-minio
+          S3_SECRET_ACCESS_KEY: ${{ env.MINIO_ROOT_PASSWORD }}
+        run: uv run pytest services/geometry/tests/test_s3_store.py -v
+      - name: Tear down MinIO
+        if: always()
+        run: docker compose down -v

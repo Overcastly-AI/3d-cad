@@ -1,4 +1,33 @@
-# Loft e2e — the BROWSER gate. The one CI was missing.
+# Loft e2e — the BROWSER gate, and since CI-TWO-LANE the FULL LANE (`full`).
+#
+# ── CI-TWO-LANE, 2026-09-30: when this runs ─────────────────────────────────
+#
+# Not on every push any more. Every push runs ci.yml, whose `e2e smoke` job
+# covers the sketch -> extrude -> save -> reload journey in ~7 min. This
+# workflow — the six balanced shards, the dist and short-TTL legs, and
+# deploy-path.yml's Docker jobs (called below) — runs:
+#   * on push and PR to `main`, so the full suite runs on what lands there;
+#   * nightly on the working branch: nightly.yml dispatches it on the tip;
+#   * on demand, for ONE commit, which is how a merge to main is gated:
+#         gh workflow run e2e.yml --ref <branch>                 # the tip
+#         gh workflow run e2e.yml --ref <branch> -f sha=<sha>    # any commit
+#     `sha` must be the full 40-hex id. The run is titled `full @ <sha>`, and
+#     `full lane complete` is the one job whose conclusion answers "is this
+#     commit fit for main". Prefer a ref whose tip IS the commit: the
+#     workflow definitions always come from the ref's tip, so the `target`
+#     job warns when the two differ.
+# The FILE keeps its name because workflow_dispatch needs the workflow
+# registered on the default branch, and e2e.yml already is; a new file could
+# not be dispatched until it had merged. The concurrency group is one per
+# commit UNDER TEST (the `sha` input when given), so two dispatches for two
+# commits never evict each other.
+#
+# What that trades, stated plainly: a spec outside the smoke set that breaks is
+# now found up to a day later (nightly) or at the pre-merge dispatch, not on the
+# push that broke it. The GATE-1 story below is exactly that failure — a spec
+# no subset would have named — and the answer to it is unchanged: the full,
+# filesystem-derived suite still runs before anything reaches main. What
+# changed is only how often it runs between merges.
 #
 # Why this workflow exists (docs/BACKLOG.md GATE-1, 2026-08-01): ci.yml runs
 # lint, unit tests, contract drift, compose config and licences — and nothing
@@ -20,8 +49,9 @@
 # The stack is the NATIVE boot (uvicorn + per-service SQLite), not compose.
 # That is a real fidelity gap and it is covered elsewhere rather than ignored:
 # deploy-path.yml builds the images and drives register → part → sketch →
-# extrude → evaluate → mesh → STEP against a REAL Postgres/MinIO on every
-# push. So Postgres-specific behaviour is gated there, browser behaviour here.
+# extrude → evaluate → mesh → STEP against a REAL Postgres/MinIO in the same
+# full-lane run. So Postgres-specific behaviour is gated there, browser
+# behaviour here.
 # Naming it beats implying it: what this workflow does NOT cover is the
 # browser against Postgres, and non-Chromium browsers (the suite is
 # Chromium-only by config).
@@ -68,6 +98,19 @@
 #     measured code-commit rate (21 on 2026-07-31, 39 on 2026-07-30) that is
 #     roughly 20-45 runner-hours/day: free on GitHub-hosted standard runners for
 #     a public repo, ≈$8-22/day at the $0.008/min private rate.
+#
+# REVISITED 2026-09-30 (CI-TWO-LANE): the "subset per push + full nightly"
+# shape above is now the one in use, and the two objections to it were
+# answered rather than overruled. (1) The hand-maintained list: the smoke is
+# not the gate of record, the full filesystem-derived suite still runs before
+# anything reaches main, and the list itself is checked (every entry exists
+# and is measured, the set stays under a time budget, and `--list` verifies
+# the patterns select exactly it). (2) "It would not have caught
+# interaction-depth": true, and the nightly and the pre-merge dispatch would,
+# a day later at most rather than one push later. What forced the change is
+# the premise of "FULL SUITE PER PUSH": per-push feedback no longer matched
+# ci.yml. The suite grew from 352 to ~690 tests, the shards reached ~23 min
+# and the workflow ~40, so every builder waited on the slowest gate.
 #
 # Shard count is the lever if that is the wrong trade: wall ≈ T/N + 4 min,
 # runner-minutes ≈ T + 4N, so past N≈6 setup dominates and below N≈3 the shard
@@ -209,49 +252,96 @@
 # artifacts that would show WHY the shard was slow. A step-level timeout fails
 # the step, names it, and lets the uploads run.
 #
-# `paths-ignore` below removes the 30% of commits (measured over the last 100)
-# that are markdown-only, since a .md file cannot change what a browser does.
-# Consequence to know when reading CI: a SHA with NO e2e run is a docs-only
-# commit, not an evicted one — `git show --name-only <sha>` settles it in one
-# command. That is preferable to a run whose every job is skipped, which is
-# the shape that reports `success` while doing nothing.
+# The docs-only `paths-ignore` this workflow used to carry went with
+# CI-TWO-LANE: it now runs on main, nightly and on dispatch only, and a merge
+# to main should be proven whole whatever it touches.
 #
-# Raising the shard count also multiplies CONCURRENT jobs, which matters
-# because pushes get per-SHA concurrency groups (see below) and four agents
-# push in parallel — at N=6 a single push occupies 9 of this workflow's jobs
-# (6 shards, `e2e complete`, `dist-bundle`, `auth-short-ttl`) on top of ci.yml's and
-# deploy-path's.
+# Raising the shard count also multiplies CONCURRENT jobs: at N=6 a single run
+# occupies 15 jobs (target, 6 shards, `e2e complete`, `dist-bundle`,
+# `auth-short-ttl`, deploy-path's three, `full lane complete`). Since
+# CI-TWO-LANE that is paid a few times a day rather than on every push.
 
-name: e2e
+name: full
+
+# The commit under test, in the title, because for a dispatch with `sha` the
+# run's own head_sha is the tip of the dispatched ref, not the commit proven.
+# Search the runs list for `full @ <sha>`.
+run-name: >-
+  ${{ format('full @ {0} ({1})', inputs.sha || github.sha, github.event_name) }}
 
 on:
   push:
     branches:
       - main
-      - "claude/**"
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
   pull_request:
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
+    branches:
+      - main
   workflow_dispatch:
+    inputs:
+      sha:
+        description: >-
+          Full 40-hex commit to prove. Empty = the tip of the ref you
+          dispatch on (preferred: definitions and code then agree).
+        required: false
+        default: ""
+        type: string
 
 concurrency:
-  # Same reasoning as ci.yml, and it matters MORE here: this workflow is the
-  # only per-commit evidence that the browser suite is green, so a commit whose
-  # run is evicted has no browser evidence at all. PUSH → a group per COMMIT,
-  # which nothing can evict. PR → a group per ref, so a superseded PR cancels.
+  # One group per commit UNDER TEST, which nothing can evict: on a push that is
+  # github.sha; on a dispatch with `sha` it is the input (github.sha would be
+  # the tip of the dispatched ref, so two dispatches for two commits of one
+  # branch would share a group and the second would evict the first while it
+  # was pending). PR → a group per ref, so a superseded PR cancels.
+  # scripts/check-workflow-concurrency.py accepts exactly this variant.
   group: >-
     ${{ github.event_name == 'pull_request'
         && format('e2e-pr-{0}', github.ref)
-        || format('e2e-sha-{0}', github.sha) }}
+        || format('e2e-sha-{0}', inputs.sha || github.sha) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # The commit every job below checks out. One place, so the shards, the legs
+  # and deploy-path cannot disagree about what they proved, and a bad `sha`
+  # input fails HERE in seconds instead of in fifteen checkouts.
+  target:
+    name: commit under test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Resolve the commit under test
+        id: resolve
+        env:
+          WANT: ${{ inputs.sha }}
+          HEAD_SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          sha="${WANT:-$HEAD_SHA}"
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::sha '$sha' is not a full 40-hex commit id. Pass \`git rev-parse <commit>\`: a short id would key a different concurrency group than the full one for the same commit."
+            exit 1
+          fi
+          if [[ "$sha" != "$HEAD_SHA" ]]; then
+            echo "::warning::proving $sha with the workflow definitions of $HEAD_SHA (the tip of $GITHUB_REF). If .github/workflows or scripts/ differ between them, dispatch on a ref whose tip IS $sha instead."
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "full lane: $EVENT on $GITHUB_REF, commit under test $sha"
+          {
+            echo "### full lane"
+            echo
+            echo "commit under test: \`$sha\` ($EVENT on \`$GITHUB_REF\`)"
+          } >> "$GITHUB_STEP_SUMMARY"
+      # Fails here, once, when the commit does not exist in this repository.
+      - name: The commit exists
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve.outputs.sha }}
+
   playwright:
     name: playwright (shard ${{ matrix.shard }}/6)
+    needs: target
     runs-on: ubuntu-latest
     # A real `--shard=2/4` measured 12.7 min of specs here (777 s wall with
     # preflight + stack boot), plus ~4 min of CI setup; 45 is headroom, not a
@@ -272,6 +362,8 @@ jobs:
         shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.target.outputs.sha }}
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
@@ -491,17 +583,18 @@ jobs:
   # nginx locations against the REAL container in deploy-path's compose-smoke,
   # and it has a stub self-test with four CSP defect scenarios.
   #
-  # NOTE FOR WHOEVER READS THIS WORKFLOW'S JOB COUNT: `e2e` has NINE jobs
-  # (6 shards + `e2e complete` + this + `auth-short-ttl`, below) since
-  # 2026-09-24; it was eight before auth-short-ttl and six with four shards.
-  # The `total_jobs` discriminator for a COMPLETE e2e run in
-  # .claude/ORCHESTRATOR.md has to move with it. This job is
+  # NOTE FOR WHOEVER READS THIS WORKFLOW'S JOB COUNT: since CI-TWO-LANE a
+  # complete `full` run has FIFTEEN jobs — `commit under test`, 6 shards,
+  # `e2e complete`, this, `auth-short-ttl`, deploy-path's three and
+  # `full lane complete`. Read `full lane complete` rather than counting. This
+  # job is
   # independent of the shards and is deliberately NOT in `reconcile`'s `needs`:
   # reconcile proves the six shards covered `apps/web/e2e/`, and these specs
   # live in `apps/web/e2e-dist/` behind their own config, so folding them in
   # would make that count disagree with `playwright test --list`.
   dist-bundle:
     name: dist bundle (production CSP + rollup graph)
+    needs: target
     runs-on: ubuntu-latest
     # Measured on this container: 15 s build + 14 s of browser. 25 is headroom
     # for a cold runner, not a prediction — and guessing LOW is much worse than
@@ -510,6 +603,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.target.outputs.sha }}
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
@@ -638,6 +733,7 @@ jobs:
   # skips.
   auth-short-ttl:
     name: auth.spec on a short-TTL stack
+    needs: target
     runs-on: ubuntu-latest
     # auth.spec ran in 2.2-2.6 min on the dev container at JWT_TTL_S=20 (12
     # tests, this exact command included), and the
@@ -647,6 +743,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.target.outputs.sha }}
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
@@ -742,12 +840,17 @@ jobs:
   # the expected set the moment it lands.
   reconcile:
     name: e2e complete
-    needs: playwright
-    if: always()
+    # `target` too, for the checkout ref. Still runs when shards fail or are
+    # cancelled (a missing report is a coverage hole it must name), but not
+    # when there is no commit to reconcile against.
+    needs: [target, playwright]
+    if: ${{ always() && needs.target.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.target.outputs.sha }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -1001,3 +1104,56 @@ jobs:
             failed=1
           fi
           exit "$failed"
+
+  # ── THE DOCKER HALF: deploy-path.yml, called with the same commit ─────────
+  #
+  # Builds the three images, boots the compose stack, runs the backup/restore
+  # drill and the real-MinIO smoke (see that file). Called rather than
+  # triggered so that ONE run, under ONE per-commit group, answers "is this
+  # commit fit for main". Its jobs show up here as `deploy-path / <job>`.
+  deploy-path:
+    name: deploy-path
+    needs: target
+    uses: ./.github/workflows/deploy-path.yml
+    with:
+      sha: ${{ needs.target.outputs.sha }}
+
+  # THE ONE JOB TO READ. Green only when every leg of the full lane concluded
+  # `success` on the commit it names; `skipped` and `cancelled` are not passes.
+  # It reads `e2e complete` rather than the shards, because that job already
+  # folds in the shards' result AND proves they covered the suite.
+  complete:
+    name: full lane complete
+    needs: [target, reconcile, dist-bundle, auth-short-ttl, deploy-path]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verdict
+        env:
+          SHA: ${{ needs.target.outputs.sha }}
+          TARGET: ${{ needs.target.result }}
+          E2E: ${{ needs.reconcile.result }}
+          DIST: ${{ needs.dist-bundle.result }}
+          TTL: ${{ needs.auth-short-ttl.result }}
+          DEPLOY: ${{ needs.deploy-path.result }}
+        run: |
+          set -euo pipefail
+          echo "== full lane verdict =="
+          echo "commit under test: ${SHA:-<unresolved>}"
+          failed=0
+          for leg in "commit under test:$TARGET" "e2e complete:$E2E" \
+                     "dist bundle:$DIST" "auth short-TTL:$TTL" \
+                     "deploy-path:$DEPLOY"; do
+            name="${leg%%:*}"
+            result="${leg##*:}"
+            printf '  %-18s %s\n' "$name" "$result"
+            if [[ "$result" != "success" ]]; then
+              failed=1
+            fi
+          done
+          if [[ "$failed" != 0 ]]; then
+            echo "::error::the full lane is NOT green on ${SHA:-this run} — read the leg(s) above that are not 'success'"
+            exit 1
+          fi
+          echo "GREEN: the full lane passed on $SHA"

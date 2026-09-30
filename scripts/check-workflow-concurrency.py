@@ -50,6 +50,18 @@ Workflows with no ``push`` trigger are reported as skipped rather than passed
 in silence: coverage here is derived from the filesystem, so a workflow added
 tomorrow is checked automatically and no list can go stale.
 
+One variant of the push arm is accepted (CI-TWO-LANE, 2026-09-30):
+``format('<prefix>-sha-{0}', inputs.sha || github.sha)``. The full lane
+(e2e.yml) can be dispatched against a specific commit through a ``sha`` input,
+and the commit under test is then the INPUT, not ``github.sha`` (which is the
+tip of the ref the dispatch named). Keying on the input keeps "one group per
+commit under test", so two dispatches for two commits on one branch cannot
+evict each other. On a push the input is empty and the expression falls
+through to ``github.sha``, i.e. the canonical key. Falling through to
+``github.ref`` instead is refused like any other ref key. Workflows that are
+only ``workflow_call``-ed (deploy-path.yml now) have no push trigger and are
+skipped: their jobs run inside the caller's run, under the caller's group.
+
 Implementation note
 -------------------
 Stdlib only, so it runs under the bare ``python3`` of a runner with no
@@ -93,7 +105,8 @@ CANONICAL_CANCEL = "${{ github.event_name == 'pull_request' }}"
 GROUP_RE = re.compile(
     r"^\$\{\{ github\.event_name == 'pull_request' "
     r"&& format\('(?P<pr_prefix>[a-z0-9][a-z0-9-]*)-pr-\{0\}', github\.ref\) "
-    r"\|\| format\('(?P<push_prefix>[a-z0-9][a-z0-9-]*)-sha-\{0\}', github\.sha\) "
+    r"\|\| format\('(?P<push_prefix>[a-z0-9][a-z0-9-]*)-sha-\{0\}', "
+    r"(?:inputs\.sha \|\| )?github\.sha\) "
     r"\}\}$"
 )
 
@@ -368,7 +381,7 @@ def run(root: Path, quiet: bool = False) -> int:
 #: a `results.append` lost to a refactor removes coverage silently and the
 #: self-test still prints "the gate can fail". `<`, not `!=`, so ADDING checks
 #: needs no edit here — only losing them is an error.
-EXPECTED_CHECKS = 8
+EXPECTED_CHECKS = 10
 
 
 def _fixture(prefix: str, group: str | None, cancel: str = CANONICAL_CANCEL) -> str:
@@ -459,6 +472,30 @@ def self_test() -> int:
                     "${{ github.event_name == 'pull_request' "
                     "&& format('ci-pr-{0}', github.sha) "
                     "|| format('ci-sha-{0}', github.ref) }}",
+                )
+            },
+            1,
+        ),
+        (
+            "dispatch input: push arm keyed on inputs.sha || github.sha",
+            {
+                "e2e.yml": _fixture(
+                    "e2e",
+                    "${{ github.event_name == 'pull_request' "
+                    "&& format('e2e-pr-{0}', github.ref) "
+                    "|| format('e2e-sha-{0}', inputs.sha || github.sha) }}",
+                )
+            },
+            0,
+        ),
+        (
+            "dispatch input falling back to the REF, not the commit",
+            {
+                "e2e.yml": _fixture(
+                    "e2e",
+                    "${{ github.event_name == 'pull_request' "
+                    "&& format('e2e-pr-{0}', github.ref) "
+                    "|| format('e2e-sha-{0}', inputs.sha || github.ref) }}",
                 )
             },
             1,

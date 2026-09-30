@@ -36,11 +36,17 @@ nobody's reference part needs wait.
 
 ## Reading CI
 
-Only you can reach api.github.com (use the GitHub MCP tools). There are three
-workflows: `ci`, `e2e` and `deploy-path`. A run is green only when it is
-complete with zero failed jobs. For a red run, read the failed job's log tail.
-`e2e` skips docs-only commits by design. When several commits are pushed at
-once, only the last one gets a run.
+Only you can reach api.github.com (use the GitHub MCP tools). There are two
+lanes. `ci` runs on every push (target under 10 min, including `e2e smoke`);
+it is the per-commit gate. `full` (file `e2e.yml`, which also runs
+`deploy-path`'s jobs) runs the whole e2e suite and the Docker proofs on
+push/PR to `main`, nightly on the working branch, and on demand. Before you
+merge to `main`, dispatch it on the exact commit (`e2e.yml`, ref = the branch,
+input `sha` = the full 40-hex SHA, or empty for the tip). Wait for the run titled
+`full @ <sha>` and require its `full lane complete` job to be green. A run is
+green only when it is complete with zero failed jobs. For a red run, read the
+failed job's log tail. When several commits are pushed at once, only the last
+one gets a run.
 
 ## Agents
 
