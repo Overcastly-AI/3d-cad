@@ -34,18 +34,29 @@ from build123d import (
     BuildLine,
     BuildPart,
     BuildSketch,
+    Compound,
     Cylinder,
     Face,
     Location,
+    Plane,
+    Polyline,
     Solid,
     Spline,
     Torus,
     extrude,
     make_face,
+    revolve,
 )
 from geometry.kernel.properties import volume_properties
 from geometry.kernel.shell import ShellError, ShellThicknessError, shell_body
 from geometry.kernel.types import BodyShape
+from OCP.BRepAdaptor import BRepAdaptor_Surface
+from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+from OCP.BRepTools import BRepTools
+from OCP.BRepTopAdaptor import BRepTopAdaptor_FClass2d
+from OCP.gp import gp_Pnt2d
+from OCP.TopAbs import TopAbs_State
 
 #: Every face in the pocket and counterbore cases is a plane, cylinder, sphere or
 #: torus; the shells that build read their truth to 1e-12 (2026-09-30). The
@@ -356,3 +367,77 @@ def test_a_sealed_cross_bored_rod_rebuilds_the_same_every_time() -> None:
         except (ShellError, ShellThicknessError) as refusal:
             outcomes.add(type(refusal).__name__)
     assert len(outcomes) == 1, outcomes
+
+
+# --- a turned part: a wrong wall 5fda139 shipped (QA of 38f240f) ---------------
+
+
+def _turned() -> Solid:
+    """A spline profile, r 7.38 at the base to 19.81 at z 20 and 10.38 at the top,
+    revolved: every side face is a surface of revolution."""
+    profile = [
+        (7.38, 0.0),
+        (19.18, 5.0),
+        (15.69, 10.0),
+        (17.9, 15.0),
+        (19.81, 20.0),
+        (19.13, 25.0),
+        (10.38, 30.0),
+    ]
+    with BuildPart() as part:
+        with BuildSketch(Plane.XZ):
+            with BuildLine():
+                Spline(*profile)
+                Polyline(profile[-1], (0, 30.0), (0, 0), profile[0])
+            make_face()
+        revolve(axis=Axis.Z)
+    assert part.part is not None
+    return part.part.solids()[0]
+
+
+def _cavity_walls(body: Solid, shelled: BodyShape, grid: int = 20) -> list[float]:
+    """The wall at a grid of points on every face of every cavity shell (all
+    shells but the outer, the largest): each point's distance to the body's
+    faces by BRepExtrema. It uses no offset and none of the check. The distance
+    is to a compound of faces: to a solid, BRepExtrema reads 0 inside it."""
+    skin = Compound(body.faces()).wrapped
+    shells = list(shelled.shells())
+    outer = max(shells, key=lambda shell: shell.area)
+    walls: list[float] = []
+    for shell in shells:
+        if shell is outer:
+            continue
+        for face in shell.faces():
+            surface = BRepAdaptor_Surface(face.wrapped)
+            umin, umax, vmin, vmax = BRepTools.UVBounds_s(face.wrapped)
+            inside = BRepTopAdaptor_FClass2d(face.wrapped, 1e-9)
+            for i in range(grid):
+                u = umin + (i + 0.5) / grid * (umax - umin)
+                for j in range(grid):
+                    v = vmin + (j + 0.5) / grid * (vmax - vmin)
+                    if inside.Perform(gp_Pnt2d(u, v)) != TopAbs_State.TopAbs_IN:
+                        continue
+                    point = BRepBuilderAPI_MakeVertex(surface.Value(u, v)).Vertex()
+                    walls.append(BRepExtrema_DistShapeShape(point, skin).Value())
+    return walls
+
+
+@pytest.mark.parametrize(("thickness", "must_build"), [(1.0, True), (1.5, False)])
+def test_a_sealed_turned_part_is_its_shell_or_refused(
+    thickness: float, must_build: bool
+) -> None:
+    """At t 1.5 OCCT's hollow has cavity walls from 1.397 mm up (0.03 mm at z
+    28.5 on a finer grid), and 5fda139 shipped it, 8017.894 mm^3, on 10 of 10
+    rebuilds: none of its samples fell on the thin wall. 38f240f refuses it (a
+    1.368 mm wall at x -6.995, y 17.99, z 2.392), 10 of 10. At t 1 the hollow
+    is right, every sampled cavity wall 1.00000 mm, and must still ship."""
+    body = _turned()
+    try:
+        shelled = shell_body(body, [], thickness)
+    except (ShellError, ShellThicknessError):
+        assert not must_build, "a right shell of a turned part was refused"
+        return
+    walls = _cavity_walls(body, shelled)
+    assert len(walls) > 100
+    assert min(walls) == pytest.approx(thickness, abs=1e-3)
+    assert max(walls) == pytest.approx(thickness, abs=1e-3)
