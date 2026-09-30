@@ -31,7 +31,24 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import pytest
-from build123d import Axis, Box, Cone, Cylinder, Face, Location, Solid, Sphere, fillet
+from build123d import (
+    Axis,
+    Box,
+    BuildLine,
+    BuildPart,
+    BuildSketch,
+    Cone,
+    Cylinder,
+    Face,
+    Line,
+    Location,
+    Solid,
+    Sphere,
+    Spline,
+    extrude,
+    fillet,
+    make_face,
+)
 from geometry.kernel.properties import volume_properties
 from geometry.kernel.shell import (
     ShellError,
@@ -535,20 +552,119 @@ def _vented_lid(slots: int) -> Solid:
     return lid.cut(*vents).solids()[0]
 
 
-#: Ceiling (s) on the check alone on the 410-face lid, opened at the bottom at
-#: t 1.5, on this 4-core box. Measured 2026-09-30: 1.2 s, against 6.2 s for
-#: the shell itself. At 5fda139 (a compound distance per query, O(faces^2))
-#: it took about 12 s.
-LID_CHECK_CEILING_S = 4.0
+#: The check's time on the 410-face lid, opened at the bottom at t 1.5, as a
+#: share of OCCT's own hollow of it, both timed in the test so a loaded runner
+#: slows both. Measured 2026-09-30: 1.2 s against 5.5 s (0.2). At 5fda139 (a
+#: compound distance per query, O(faces^2)) the check took about 12 s (2.2).
+LID_CHECK_SHARE = 0.75
 
 
 def test_the_check_on_a_410_face_lid_stays_cheap() -> None:
     lid = _vented_lid(16)
     assert len(lid.faces()) == 410
     opened = [min(lid.faces(), key=lambda face: face.center().Z)]
+    start = time.perf_counter()
     result = lid.hollow(opened, -1.5).solids()[0]
+    hollow = time.perf_counter() - start
     start = time.perf_counter()
     fault = ShellDefinition(lid, opened, 1.5).fault(result)
-    elapsed = time.perf_counter() - start
+    check = time.perf_counter() - start
     assert fault is None
-    assert elapsed < LID_CHECK_CEILING_S, f"{elapsed:.2f} s"
+    assert check < LID_CHECK_SHARE * hollow, (
+        f"check {check:.2f} s, hollow {hollow:.2f} s"
+    )
+
+
+# --- spline prisms the check must accept (re-review of 38f240f) ----------------
+
+#: Fit points of spline-walled prisms (the spline, then down to y = -20 and
+#: back to x = 0, extruded 12). r33, r63 and r72 were refused at 38f240f: the
+#: index's boxes (``BRepBndLib.Add``) left their extruded spline face up to
+#: 0.0316 mm outside, so it read as off itself. The seed11 ones are
+#: random(11) draws.
+SPLINE_PRISMS: dict[str, list[tuple[float, float]]] = {
+    "r33": [(0, 1.99), (16, 13.85), (32, 13.33), (48, -2.89), (64, 9.15), (80, 11.24)],
+    "r63": [(0, -0.76), (16, -2.66), (32, 7.9), (48, 13.93), (64, -1.2), (80, 8.22)],
+    "r72": [(0, -5.29), (80 / 3, -1.92), (160 / 3, 13.02), (80, -7.17)],
+    "seed11-0": [(0, 11.05), (20, 10.85), (40, 9.19), (60, 1.94), (80, 10.81)],
+    "seed11-1": [(0, -3.94), (26.666667, 3.26), (53.333333, 5.86), (80, 9.45)],
+    "seed11-2": [(0, 1.83), (26.666667, -4.88), (53.333333, 3.85), (80, 11.59)],
+    "seed11-3": [
+        (0, -7.08),
+        (16, 13.61),
+        (32, 13.22),
+        (48, 6.39),
+        (64, 5.54),
+        (80, -4.54),
+    ],
+}
+
+#: Their shells' volumes (mm^3) under d512ac8, before any check, measured
+#: 2026-09-30 with volume_properties; the current kernel read the same to the
+#: last bit on all 42 (t 0.5, 1, 2; sealed and open-top).
+D512AC8_VOLUMES: dict[tuple[str, float, bool], float] = {
+    ("r33", 0.5, False): 3548.2127585236713,
+    ("r33", 0.5, True): 2461.0185703085713,
+    ("r33", 2.0, False): 12731.406121592323,
+    ("r33", 2.0, True): 9047.454473717089,
+    ("r63", 0.5, False): 3114.4721780264713,
+    ("r63", 0.5, True): 2220.7004393645625,
+    ("r63", 2.0, False): 10980.012413927523,
+    ("r63", 2.0, True): 8030.651787648509,
+    ("r72", 0.5, False): 2939.7627831759123,
+    ("r72", 0.5, True): 2072.7861506109757,
+    ("r72", 2.0, False): 10456.228490054385,
+    ("r72", 2.0, True): 7566.974810792819,
+    ("seed11-0", 0.5, False): 3446.41884463569,
+    ("seed11-0", 0.5, True): 2394.4884776288773,
+    ("seed11-0", 2.0, False): 12318.354500048066,
+    ("seed11-0", 2.0, True): 8750.721109708851,
+    ("seed11-1", 0.5, False): 3056.609561750465,
+    ("seed11-1", 0.5, True): 2143.1410396297706,
+    ("seed11-1", 2.0, False): 10900.960497451373,
+    ("seed11-1", 2.0, True): 7837.971349268868,
+    ("seed11-2", 0.5, False): 2889.067141163967,
+    ("seed11-2", 0.5, True): 2090.5873155140775,
+    ("seed11-2", 2.0, False): 10153.14529398744,
+    ("seed11-2", 2.0, True): 7577.525803910223,
+    ("seed11-3", 0.5, False): 3364.706901395743,
+    ("seed11-3", 0.5, True): 2294.488492227346,
+    ("seed11-3", 2.0, False): 12148.672750157386,
+    ("seed11-3", 2.0, True): 8458.608423001428,
+}
+
+#: A sealed Arc hollow of a spline wall moves by up to 1.8e-5 mm^3 between
+#: builds (kernel/shell.py); this is 5x that.
+SPLINE_VOLUME_ABS = 1e-4
+
+
+def _spline_prism(points: list[tuple[float, float]]) -> Solid:
+    end = points[-1][0]
+    with BuildPart() as part:
+        with BuildSketch():
+            with BuildLine():
+                Spline(*points)
+                Line(points[-1], (end, -20))
+                Line((end, -20), (0, -20))
+                Line((0, -20), points[0])
+            make_face()
+        extrude(amount=12)
+    built = part.part
+    assert built is not None
+    return built.solids()[0]
+
+
+@pytest.mark.parametrize(
+    ("name", "wall", "open_top"),
+    list(D512AC8_VOLUMES),
+    ids=[f"{n}-t{w}-{'open' if o else 'sealed'}" for n, w, o in D512AC8_VOLUMES],
+)
+def test_a_spline_prism_builds_as_it_did_before_the_check(
+    name: str, wall: float, open_top: bool
+) -> None:
+    body = _spline_prism(SPLINE_PRISMS[name])
+    opened = _top(body) if open_top else []
+    shelled = shell_body(body, opened, wall)
+    assert volume_properties(shelled).volume == pytest.approx(
+        D512AC8_VOLUMES[(name, wall, open_top)], abs=SPLINE_VOLUME_ABS
+    )

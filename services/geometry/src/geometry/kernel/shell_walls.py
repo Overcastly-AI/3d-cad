@@ -51,8 +51,11 @@ Cost: every query is capped (is the point on a face, is it ``t`` from one) and
 looks only at the edges and faces in the spatial-index cells round the point
 (:class:`_Nearest`), so the check grows with the faces, not their square. On
 the review's vented lids, open at the bottom at t 1.5: 2.4 s on a 19 s shell at
-710 faces, 2.9 to 3.9 s on 30 s at 910; 5fda139 took 71 s and 99 s. On small
-bodies it adds 6 to 83 ms (nine bodies, 1 to 26 faces).
+710 faces, 2.9 to 3.9 s on 30 s at 910; 5fda139 took 71 s and 99 s. With
+tight face boxes (``AddOptimal``) and the box under load (load average 19 on
+4 cores, so every time about 2.5x): 5.8 to 9.9 s on 47 s at 710, 8.1 s on 61
+to 64 s at 910, 12 to 21% and 13%. On small bodies it adds 6 to 83 ms (nine
+bodies, 1 to 26 faces).
 
 Near an opened face OCCT (and every mainstream modeller) extends the offset
 faces to meet the opening, where the distance definition would round the cavity
@@ -286,12 +289,23 @@ class _EdgeProbe:
         return best
 
 
-def _boxes(shapes: Sequence[TopoDS_Shape]) -> Points:
-    """Each shape's bounding box, a row of (xmin, ymin, zmin, xmax, ymax, zmax)."""
+def _boxes(shapes: Sequence[TopoDS_Shape], tight: bool) -> Points:
+    """Each shape's bounding box, a row of (xmin, ymin, zmin, xmax, ymax, zmax),
+    and never smaller than the shape: a box that cuts off part of a face makes
+    a point on it read as off it.
+
+    Faces take ``AddOptimal`` (*tight*). ``Add`` is not conservative on a
+    surface of extrusion: a spline prism's wall ran 0.0316 mm outside its box
+    and read as off itself, so right shells were refused (re-review of
+    38f240f). Edges take ``Add``, which bounds a curve by its poles (a B-spline
+    lies in their convex hull) or exactly, at a fifth of the cost."""
     bounds = np.empty((len(shapes), 6))
     for index, shape in enumerate(shapes):
         box = Bnd_Box()
-        BRepBndLib.Add_s(shape, box, False)
+        if tight:
+            BRepBndLib.AddOptimal_s(shape, box, False, True)
+        else:
+            BRepBndLib.Add_s(shape, box, False)
         box.Enlarge(_BOX_MARGIN_MM)
         bounds[index] = box.Get()
     return bounds
@@ -373,7 +387,8 @@ class _Nearest:
     *faces_only*, only face interiors are measured: enough to ask whether a
     point sampled inside a face lies on these faces, and much cheaper to build
     for a result of thousands of faces. A point exactly on an edge then reads
-    as off the faces, which only sends it to the slower, exact test.
+    as off the faces, so every caller asks again of the edges before acting on
+    an "off" (:meth:`ShellDefinition.fault`).
     """
 
     def __init__(
@@ -382,6 +397,7 @@ class _Nearest:
         cell: float,
         kept: Sequence[bool] | None = None,
         faces_only: bool = False,
+        face_bounds: Points | None = None,
     ) -> None:
         builder, compound = BRep_Builder(), TopoDS_Compound()
         builder.MakeCompound(compound)
@@ -437,12 +453,15 @@ class _Nearest:
         xyz = np.array(
             [_xyz(BRep_Tool.Pnt_s(vertex)) for vertex in self._vertices]
         ).reshape(-1, 3)
-        face_bounds = _boxes(faces)
+        if face_bounds is None:
+            face_bounds = _boxes(faces, tight=True)
+        #: The faces' boxes, for another index over the same faces.
+        self.face_bounds = face_bounds
         extent = face_bounds[:, 3:].max(axis=0) - face_bounds[:, :3].min(axis=0)
         self._cell = max(float(np.linalg.norm(extent)) / _INDEX_CELLS, cell)
         self._index = {
             "vertex": _BoxIndex(np.hstack((xyz, xyz)), self._cell),
-            "edge": _BoxIndex(_boxes(self._edges), self._cell),
+            "edge": _BoxIndex(_boxes(self._edges, tight=False), self._cell),
             "face": _BoxIndex(face_bounds, self._cell),
         }
         self._size = {
@@ -925,7 +944,12 @@ class ShellDefinition:
             > ON_TOL_MM
         )
         if lost.any():
-            return WallFault(FaultKind.FACE_LOST, _at(samples.points[firsts][lost][0]))
+            # Off the faces' interiors; on an edge of the result is still on.
+            missing = samples.points[firsts][lost]
+            edges_too = _Nearest(result_faces, 2 * t)
+            gone = edges_too.many(missing, _ON_CAP_MM, floor=ON_TOL_MM) > ON_TOL_MM
+            if gone.any():
+                return WallFault(FaultKind.FACE_LOST, _at(missing[gone][0]))
         # A result face is either on the input's boundary (an outer face, or the
         # rim left on an opened face) or a cavity face: one point says which.
         heads = _sample(result_faces, WALL_GRID, limit=1)
@@ -934,7 +958,9 @@ class ShellDefinition:
             for face, row in zip(result_faces, heads.first, strict=True)
             if row >= 0
         ]
-        on_input = _Nearest(self._faces, 2 * t, faces_only=True)
+        on_input = _Nearest(
+            self._faces, 2 * t, faces_only=True, face_bounds=self._near.face_bounds
+        )
         outer = on_input.many(heads.points, _ON_CAP_MM, floor=ON_TOL_MM) <= ON_TOL_MM
         cavity = [
             face for face, is_outer in zip(sampled, outer, strict=True) if not is_outer
@@ -943,6 +969,10 @@ class ShellDefinition:
         reach = self._near.many(points, t + 2 * WALL_TOL_MM, True, t - WALL_TOL_MM)
         for row in np.flatnonzero(np.abs(reach - t) > WALL_TOL_MM):
             wall, foot = self._near.one(gp_Pnt(*points[row]), math.inf, True)
+            # On the input's boundary after all (its head sat on an input edge,
+            # which the faces-only test reads as off): an outer face.
+            if wall <= ON_TOL_MM:
+                continue
             if not self._at_rim(foot):
                 return WallFault(FaultKind.WALL, _at(points[row]), wall)
         # On the result is always fine (a result face where no cavity belongs
