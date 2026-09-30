@@ -197,6 +197,8 @@ interface MarkProbe {
   cy: number;
   /** `self` | `mark:<id>` | `canvas` | `wrapper:<owner>` | `other` */
   topmost: string;
+  /** The point the accessible name gives: a vertex, or a line's mid-span. */
+  at: [number, number, number] | null;
 }
 
 /**
@@ -247,6 +249,19 @@ async function probeMarks(page: Page): Promise<MarkProbe[]> {
         cx,
         cy,
         topmost,
+        at: (() => {
+          const m =
+            /(?:Vertex at|centred at) (-?[\d.]+), (-?[\d.]+), (-?[\d.]+)/.exec(
+              el.getAttribute("aria-label") ?? "",
+            );
+          return m === null
+            ? null
+            : ([Number(m[1]), Number(m[2]), Number(m[3])] as [
+                number,
+                number,
+                number,
+              ]);
+        })(),
       };
     });
   });
@@ -333,8 +348,48 @@ test.describe("MEASURE-PROXY-1 — a mark's own centre reaches the mark", () => 
     //    burial starts swallowing marks that face the camera;
     //  - every live mark but at most two answers at its own centre — a live
     //    mark that does not is a control the pointer cannot use.
+    //
+    // EDGE-MARK-OVERLAP moved the band from nearest-in-depth to nearest the
+    // cursor, which made twelve edges live that used to be scored buried
+    // (58 live, 47 answering at their own centre, 7 buried). Nine of them are
+    // SHORT lines, the bores' eight seam lines and one 8 mm corner upright:
+    // in plain view, and now reachable by the pointer where before they could
+    // not be reached at all. On screen each is about one mark long, so a
+    // vertex mark at one of its OWN ends covers its mid-span mark, which is
+    // the vertex-wins-its-own-edge rule above and not a neighbour stealing a
+    // pick. They are exempt only when the covering vertex is provably an end
+    // of that line (the line's mid-span is the mean of that vertex and
+    // another vertex mark).
+    const vertices = probes.filter(
+      (p) => p.id.startsWith("measure-vertex-") && p.at !== null,
+    );
+    const coveredByOwnEnd = (p: MarkProbe): boolean => {
+      if (!p.id.startsWith("measure-edge-") || p.at === null) return false;
+      const cover = vertices.find((v) => p.topmost === `mark:${v.id}`);
+      if (cover?.at == null) return false;
+      const [a, mid] = [cover.at, p.at];
+      return vertices.some(
+        (v) =>
+          v !== cover &&
+          v.at !== null &&
+          [0, 1, 2].every(
+            (k) =>
+              Math.abs(
+                ((a[k] as number) + (v.at?.[k] as number)) / 2 -
+                  (mid[k] as number),
+              ) < 0.02,
+          ),
+      );
+    };
     const live = probes.filter((p) => !p.buried);
-    const liveOthers = live.filter((p) => p.topmost !== "self");
+    const shortEdges = live.filter(coveredByOwnEnd);
+    console.log(
+      `    [MEASURE-PROXY] short edges under their own end's vertex mark: ` +
+        `${shortEdges.map((p) => `${p.id}->${p.topmost}`).join(",") || "none"}`,
+    );
+    const liveOthers = live.filter(
+      (p) => p.topmost !== "self" && !coveredByOwnEnd(p),
+    );
     expect(
       live.length,
       `most marks face the camera on this fixture and must be LIVE ` +

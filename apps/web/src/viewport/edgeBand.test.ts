@@ -7,6 +7,7 @@ import {
   resolveBandEdge,
   resolveBandIntersections,
   type BandIntersection,
+  BAND_SCREEN_TIE_PX,
   EDGE_BAND_TOLERANCE_PX,
   EDGE_BAND_WIDTH_PX,
   EDGE_OCCLUSION_MIN_BIAS,
@@ -218,6 +219,54 @@ describe("resolveBandIntersections", () => {
         1,
       ),
     ).toBeNull();
+  });
+
+  // EDGE-MARK-OVERLAP: a 2 mm wall's outer and inner rims both lie inside
+  // the corridor, and the one nearer the camera is not the one under the
+  // cursor.
+  it("takes the band hit nearest the CURSOR, not the one nearest in depth", () => {
+    const gap = (distance: number, faceIndex: number, px: number) => ({
+      ...hit(band, distance, faceIndex),
+      screenGapPx: px,
+    });
+    expect(
+      resolveBandIntersections(
+        [gap(50, 0, 8), gap(52, 2, 0.5)],
+        targets,
+        map,
+        1,
+      ),
+    ).toBe(8);
+  });
+
+  it("breaks a screen tie by depth, so a seam behind its silhouette loses", () => {
+    const gap = (distance: number, faceIndex: number, px: number) => ({
+      ...hit(band, distance, faceIndex),
+      screenGapPx: px,
+    });
+    expect(
+      resolveBandIntersections(
+        [gap(50, 0, 2), gap(60, 2, 2 - BAND_SCREEN_TIE_PX / 2)],
+        targets,
+        map,
+        1,
+      ),
+    ).toBe(3);
+  });
+
+  it("never hands the pick to a nearer-to-cursor edge behind material", () => {
+    const gap = (distance: number, faceIndex: number, px: number) => ({
+      ...hit(band, distance, faceIndex),
+      screenGapPx: px,
+    });
+    expect(
+      resolveBandIntersections(
+        [gap(50, 0, 9), hit(surface, 55, 4), gap(70, 2, 0)],
+        targets,
+        map,
+        1,
+      ),
+    ).toBe(3);
   });
 
   it("treats a band hit with no faceIndex as no hit", () => {

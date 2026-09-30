@@ -38,6 +38,7 @@ import type { Camera } from "three";
 import type { Vec3 } from "../api/measure";
 import { occtToScene, polylineAt } from "../measure/geometry";
 import {
+  ANCHOR_END_INSET,
   ANCHOR_FRAME_BUDGET,
   ANCHOR_SAMPLE_BUDGET,
   chooseAnchor,
@@ -236,6 +237,166 @@ export class GaugeKeepOuts {
   }
 }
 
+/**
+ * Two live marks closer than this overlap: a `PickNode` is a Ø24 disc, so two
+ * centres 24 px apart just touch. Below it the one drawn later covers part of
+ * the other, and a click on the covered mark's visible part picks the wrong
+ * edge (EDGE-MARK-OVERLAP).
+ */
+export const MARK_CLEARANCE_PX = 2 * MARK_HALF_PX;
+
+/**
+ * Extra passes one camera pose may spend letting crowded seats settle around
+ * each other. A mark yields only to marks that outrank it, so pass k fixes
+ * rank level k and a chain of k mutually crowded marks settles in k passes;
+ * four covers a thin wall's pairs and a corner's triples with room to spare,
+ * and the cap is what guarantees the stamp reaches `settled` regardless.
+ */
+const MAX_CROWD_PASSES = 4;
+
+/**
+ * WHERE THE OTHER MARKS ARE, so a seat can keep clear of them
+ * (EDGE-MARK-OVERLAP).
+ *
+ * The seats' screen positions and each edge's RANK, held in preallocated
+ * arrays for the same reason `GaugeKeepOuts` holds its rectangles: the test
+ * runs per candidate seat, inside the frame budget.
+ *
+ * ## Who yields
+ *
+ * The mark whose edge is nearer the camera keeps its seat, and the farther
+ * one walks along its own edge. That is what a user expects of two
+ * overlapping things (the one in front is the one on top), and a strict order
+ * is also what makes the passes converge: a mark never moves for one it
+ * outranks, so the nearest mark's seat is final after one pass, the next
+ * after two, and so on. Equal distances fall back to the overlay order.
+ */
+export class MarkCrowd {
+  private x = new Float64Array(0);
+  private y = new Float64Array(0);
+  private rank = new Float64Array(0);
+  private live = new Uint8Array(0);
+  private readonly probe = new Vector3();
+  private readonly eye = new Vector3();
+  /** Did any `clear` answer "no" since the last `reset`? */
+  crowded = false;
+
+  /**
+   * Re-rank every edge by its mid-span's distance from the camera and
+   * re-project every current seat. Call once per camera pose.
+   */
+  reset(
+    mids: readonly EdgeMarkAnchor[],
+    seats: readonly EdgeMarkAnchor[],
+    camera: Camera,
+    width: number,
+    height: number,
+  ): void {
+    const n = seats.length;
+    if (this.x.length !== n) {
+      this.x = new Float64Array(n);
+      this.y = new Float64Array(n);
+      this.rank = new Float64Array(n);
+      this.live = new Uint8Array(n);
+    }
+    camera.updateMatrixWorld();
+    this.eye.setFromMatrixPosition(camera.matrixWorld);
+    for (let i = 0; i < n; i += 1) {
+      const mid = (mids[i] as EdgeMarkAnchor).position;
+      this.probe.set(mid[0], mid[1], mid[2]);
+      this.rank[i] = this.probe.distanceTo(this.eye);
+      const seat = seats[i] as EdgeMarkAnchor;
+      this.place(i, seat.position, seat.buried, camera, width, height);
+    }
+    this.crowded = false;
+  }
+
+  /** Record where edge `i`'s mark now sits. A buried mark takes no pointer. */
+  place(
+    i: number,
+    point: readonly [number, number, number],
+    buried: boolean,
+    camera: Camera,
+    width: number,
+    height: number,
+  ): void {
+    if (i >= this.x.length) return;
+    this.project(point, camera, width, height);
+    this.x[i] = this.probe.x;
+    this.y[i] = this.probe.y;
+    // Behind the camera: not on screen, so it crowds nothing.
+    this.live[i] = buried || this.probe.z > 1 ? 0 : 1;
+  }
+
+  /** Is a mark for edge `i` at this point clear of every live mark that outranks it? */
+  clear(
+    i: number,
+    point: readonly [number, number, number],
+    camera: Camera,
+    width: number,
+    height: number,
+  ): boolean {
+    if (i >= this.x.length) return true;
+    this.project(point, camera, width, height);
+    const px = this.probe.x;
+    const py = this.probe.y;
+    const own = this.rank[i] as number;
+    for (let j = 0; j < this.x.length; j += 1) {
+      if (j === i || this.live[j] === 0) continue;
+      const other = this.rank[j] as number;
+      if (other > own || (other === own && j > i)) continue;
+      const dx = (this.x[j] as number) - px;
+      const dy = (this.y[j] as number) - py;
+      if (dx * dx + dy * dy < MARK_CLEARANCE_PX * MARK_CLEARANCE_PX) {
+        this.crowded = true;
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Is a mark at `point` a whole mark-width from both of its edge's ENDS?
+   *
+   * An end is a corner, and a corner is where a vertex mark sits (measure) and
+   * where every neighbouring edge's corridor meets this one. A mark at its
+   * mid-span never asks this, so nothing changes for an uncrowded edge; a mark
+   * that walks off a crowded mid-span must not walk onto a vertex instead.
+   */
+  clearOfEnds(
+    point: readonly [number, number, number],
+    start: readonly [number, number, number],
+    end: readonly [number, number, number],
+    camera: Camera,
+    width: number,
+    height: number,
+  ): boolean {
+    this.project(point, camera, width, height);
+    const px = this.probe.x;
+    const py = this.probe.y;
+    const limit = MARK_CLEARANCE_PX * MARK_CLEARANCE_PX;
+    for (const corner of [start, end]) {
+      this.project(corner, camera, width, height);
+      const dx = this.probe.x - px;
+      const dy = this.probe.y - py;
+      if (dx * dx + dy * dy < limit) return false;
+    }
+    return true;
+  }
+
+  /** Scene point -> CSS px in `probe.x`/`probe.y`, NDC depth in `probe.z`. */
+  private project(
+    point: readonly [number, number, number],
+    camera: Camera,
+    width: number,
+    height: number,
+  ): void {
+    this.probe.set(point[0], point[1], point[2]).project(camera);
+    this.probe.x = ((this.probe.x + 1) / 2) * width;
+    this.probe.y = ((1 - this.probe.y) / 2) * height;
+  }
+}
+
 /** One edge's mark placement, as the overlays consume it. */
 export interface EdgeMarkAnchor {
   /** Scene-space point to draw the diamond at. */
@@ -321,6 +482,12 @@ export function useEdgeMarkAnchors(
   const committed = useRef<readonly EdgeMarkAnchor[]>(fallback);
   /** Frames since `committed` caught up with `published`. */
   const confirmed = useRef(0);
+  /** The other marks' seats and ranks — see `MarkCrowd`. */
+  const crowd = useMemo(() => new MarkCrowd(), []);
+  /** Re-passes spent on the current pose — see `MAX_CROWD_PASSES`. */
+  const crowdPasses = useRef(0);
+  /** Did any seat change during the pass now running? */
+  const movedInPass = useRef(false);
   useLayoutEffect(() => {
     committed.current = anchors;
   }, [anchors]);
@@ -352,7 +519,8 @@ export function useEdgeMarkAnchors(
     };
   }, [canvas, addressable]);
 
-  useFrame(() => {
+  useFrame((state) => {
+    const { width, height } = state.size;
     // A gauge arrived, left or moved: every seat is owed a fresh answer.
     // Gauges are read AFTER this frame (see `refreshAfterFrame`); a change
     // re-owes every seat and asks for the frame that re-seats them.
@@ -408,6 +576,9 @@ export function useEdgeMarkAnchors(
       // refreshed while the rest kept a pose-old seat indefinitely.
       owed.current = edges.length;
       confirmed.current = 0;
+      crowd.reset(fallback, working.current, camera, width, height);
+      crowdPasses.current = 0;
+      movedInPass.current = false;
       stampSeats("pending");
     }
     if (owed.current === 0 || edges.length === 0) {
@@ -443,19 +614,53 @@ export function useEdgeMarkAnchors(
       owed.current -= 1;
       const polyline = (edges[i] as EdgeMarkInput).polyline;
       const ordinal = ordinals[i] as number;
-      const anchor: EdgeAnchor = chooseAnchor((fraction) => {
-        spent += 1;
-        const point = occtToScene(polylineAt(polyline, fraction));
-        // The cheap screen test first: a seat under a gauge is refused before
-        // it costs a raycast.
-        return (
-          keepOuts.clear(point, camera, canvas) && addressable(point, ordinal)
-        );
-      }, ANCHOR_SAMPLE_BUDGET);
-      working.current[i] = {
+      const start = occtToScene(polylineAt(polyline, 0));
+      const end = occtToScene(polylineAt(polyline, 1));
+      const anchor: EdgeAnchor = chooseAnchor(
+        (fraction) => {
+          spent += 1;
+          const point = occtToScene(polylineAt(polyline, fraction));
+          // The cheap screen test first: a seat under a gauge is refused
+          // before it costs a raycast.
+          return (
+            keepOuts.clear(point, camera, canvas) && addressable(point, ordinal)
+          );
+        },
+        ANCHOR_SAMPLE_BUDGET,
+        ANCHOR_END_INSET,
+        (fraction) => {
+          const point = occtToScene(polylineAt(polyline, fraction));
+          return (
+            crowd.clear(i, point, camera, width, height) &&
+            (fraction === 0.5 ||
+              crowd.clearOfEnds(point, start, end, camera, width, height))
+          );
+        },
+      );
+      const seat: EdgeMarkAnchor = {
         position: occtToScene(polylineAt(polyline, anchor.at)),
         buried: anchor.buried,
       };
+      const before = working.current[i];
+      if (before === undefined || !samePlacement([before], [seat])) {
+        movedInPass.current = true;
+      }
+      working.current[i] = seat;
+      crowd.place(i, seat.position, seat.buried, camera, width, height);
+    }
+    // A mark that moved may have been the one a lower-ranked mark stepped
+    // around, or stepped INTO: when the pass was crowded at all, run it again
+    // so every mark is judged against its betters' final seats.
+    if (
+      owed.current === 0 &&
+      movedInPass.current &&
+      crowd.crowded &&
+      crowdPasses.current < MAX_CROWD_PASSES
+    ) {
+      crowdPasses.current += 1;
+      movedInPass.current = false;
+      crowd.crowded = false;
+      owed.current = edges.length;
     }
 
     if (!samePlacement(published.current, working.current)) {
