@@ -66,8 +66,9 @@ same module whether any cavity fits at all. If none does the error is
 the kernel failed on a body with room, and :class:`ShellError` names where and
 the likely cause (a pocket split, a round of radius near ``t``, B-spline faces).
 Over the 173-body sweep in ``tests/test_shell_walls.py`` 7 wrong solids shipped
-before and none does now. The check costs 3 to 44 ms a shell, a median of a
-third of the shell's own time (nine bodies, 1 to 26 faces, 2026-09-30).
+before and none does now. The check grows with the faces, not their square:
+it adds 6 to 83 ms on small bodies and about a tenth to a vented lid of 710 or
+910 faces (kernel/shell_walls.py measures it).
 
 Determinism (RESEARCH §9, SHELL-SEALED-DETERMINISM): the slit probe and the
 heal are pure functions of their input, but the OCCT hollow with the default Arc
@@ -352,17 +353,23 @@ def _shell_one_lump(
     # every rebuild.
     fault = definition.fault(shelled)
     if fault is not None:
-        raise _refusal(definition, body, _describe(fault))
+        # A missing cavity on a result whose cavity faces all check out is a
+        # whole pocket missing: the cavity splits, and the kernel kept only
+        # some of it (kernel/shell_walls.py).
+        split = fault.kind is FaultKind.MISSING
+        raise _refusal(definition, body, _describe(fault), split=split)
     return shelled
 
 
 def _refusal(
-    definition: ShellDefinition, body: Solid, what: str
+    definition: ShellDefinition, body: Solid, what: str, split: bool = False
 ) -> ShellError | ShellThicknessError:
     """The error for a shell the kernel did not build right. When the thickness
     leaves no cavity at all, that is the cause whatever the kernel did, and the
     message says how thin a wall would leave one. Otherwise the kernel failed on
-    a body that has room: say what went wrong, and what to change."""
+    a body that has room: say what went wrong, and what to change. The pocket
+    advice is given only when *split* says the cavity was seen to split: on a
+    sphere boss or a tee nothing splits, and saying so would mislead."""
     thickness = definition.thickness_mm
     if not definition.cavity_exists:
         depth, where = definition.room()
@@ -380,7 +387,13 @@ def _refusal(
     radii = sorted({_convex_radius(face) or 0.0 for face in body.faces()} - {0.0})
     near = [r for r in radii if abs(r - thickness) <= _ROUND_NEAR_REL * thickness]
     under = [r for r in radii if r < thickness]
-    if near:
+    if split:
+        hint = (
+            "The cavity splits into separate pockets here, and the kernel's offset "
+            "kept only some of them. Change the thickness so the cavity stays in "
+            "one piece, or open a face there."
+        )
+    elif near:
         radius = min(near, key=lambda r: (abs(r - thickness), r))
         gap = abs(radius - thickness)
         relation = "equals" if gap < 1e-9 else f"is within {gap:.3g} mm of"
@@ -403,9 +416,8 @@ def _refusal(
         )
     else:
         hint = (
-            "The kernel's offset fails most often where the cavity splits into "
-            "separate pockets or pinches to a line. Change the thickness so the "
-            "cavity stays in one piece, or open a face there."
+            "The kernel's offset could not build this cavity. Try a slightly "
+            "different thickness, or open a face."
         )
     return ShellError(
         f"Shell could not build a {thickness} mm wall on this body: {what}. {hint}"

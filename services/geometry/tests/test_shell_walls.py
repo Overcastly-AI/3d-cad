@@ -25,6 +25,8 @@ pockets.
 # pyright: reportUnknownArgumentType=false, reportPrivateUsage=false
 
 import math
+import random
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -398,3 +400,155 @@ def test_the_intersection_route_needs_the_same_centroid_and_inertia() -> None:
     turned = arc.rotate(Axis.Z, 90)
     assert turned.volume == pytest.approx(arc.volume, rel=1e-12)
     assert not _same_hollow(arc, turned)
+
+
+# --- a right shell with one pocket filled (review of 5fda139) ------------------
+
+
+def _random_plates(seed: int, count: int) -> list[Case]:
+    """Seeded plates bored once to three times, some cross-bored, like the
+    review's: 40 x 20 x 10, bores r1.5 to 8 apart by 0.6 mm or more."""
+    rng = random.Random(seed)
+    cases: list[Case] = []
+    for index in range(count):
+        t = round(rng.uniform(0.4, 3.2), 2)
+        bores: list[tuple[float, float, float]] = []
+        for _ in range(rng.choice([1, 2, 2, 3])):
+            r = round(rng.uniform(1.5, 8.0), 3)
+            y_room = 10 - r - 0.6
+            bores.append(
+                (
+                    r,
+                    round(rng.uniform(-20 + r + 0.6, 20 - r - 0.6), 3),
+                    round(rng.uniform(-y_room, y_room), 3) if y_room > 0 else 0.0,
+                )
+            )
+        cross = None
+        if rng.random() < 0.3:
+            rh = round(rng.uniform(1.0, 3.5), 3)
+            cross = (
+                rh,
+                round(rng.uniform(-10 + rh + 0.6, 10 - rh - 0.6), 3),
+                round(rng.uniform(-5 + rh + 0.6, 5 - rh - 0.6), 3),
+            )
+        apart = all(
+            math.dist(a[1:], b[1:]) > a[0] + b[0] + 0.6
+            for i, a in enumerate(bores)
+            for b in bores[i + 1 :]
+        )
+        if not apart:
+            continue
+
+        def tools(
+            g: float,
+            bores: list[tuple[float, float, float]] = bores,
+            cross: tuple[float, float, float] | None = cross,
+        ) -> list[Solid]:
+            grown = [_z_bore(r + g, x, y) for r, x, y in bores]
+            if cross is not None:
+                grown.append(
+                    _x_bore(cross[0] + g, z=cross[2]).moved(Location((0, cross[1], 0)))
+                )
+            return grown
+
+        cases.append(Case(f"random-{seed}-{index}-t{t}", t, _box(40, 20, 10), tools))
+    return cases
+
+
+def _filled_cases() -> list[tuple[str, Solid, list[Solid], float]]:
+    """Bodies whose true cavity has two or more pockets: the sweep's, and
+    seeded random plates."""
+    found = []
+    for case in [*CASES, *_random_plates(7, 60)]:
+        pockets = case.cavity()
+        if len(pockets) < 2:
+            continue
+        try:
+            body = case.body()
+        except ValueError:  # the bores cut the plate in two
+            continue
+        found.append((case.name, body, pockets, case.thickness))
+    return found
+
+
+FILLED = _filled_cases()
+
+#: The smallest pocket the check must see when it is the one left out (mm^3).
+#: Measured 2026-09-30 over the sweep and 300 seeded random plates, with the
+#: 6 x 6 grid and the corner samples: 8 of 109 missed, the largest 1.47 mm^3
+#: (a 3 x 3 grid missed 14, up to 26.9 mm^3: the four corner slivers of the
+#: 30 mm cube bored r8 at t 5, which the corner samples now catch).
+SMALLEST_SEEN_MM3 = 2.0
+
+
+@pytest.mark.parametrize(
+    ("name", "body", "pockets", "wall"), FILLED, ids=[case[0] for case in FILLED]
+)
+def test_a_right_shell_with_a_pocket_filled_is_refused(
+    name: str, body: Solid, pockets: list[Solid], wall: float
+) -> None:
+    """The right shell (the body less its true pockets, by booleans) passes
+    the check; with its smallest pocket left solid it fails, as long as that
+    pocket is not smaller than the check resolves."""
+    del name
+    pockets = sorted(pockets, key=lambda pocket: pocket.volume)
+    (right,) = body.cut(*pockets).solids()
+    (filled,) = body.cut(*pockets[1:]).solids()
+    assert ShellDefinition(body, [], wall).fault(right) is None
+    if pockets[0].volume >= SMALLEST_SEEN_MM3:
+        fault = ShellDefinition(body, [], wall).fault(filled)
+        assert fault is not None and fault.kind is FaultKind.MISSING
+
+
+def test_the_filled_pocket_set_is_not_empty() -> None:
+    small = [case for case in FILLED if min(p.volume for p in case[2]) < 2.0]
+    assert len(FILLED) >= 40
+    assert len(FILLED) - len(small) >= 30
+
+
+# --- the hint says the cavity splits only when it does --------------------------
+
+
+def test_a_sphere_boss_the_kernel_cannot_hollow_is_not_blamed_on_pockets() -> None:
+    """A sphere half sunk in a plate: OCCT raises at every thickness, and
+    nothing splits. The message must not say it does."""
+    boss = (Box(40, 40, 10) + Sphere(8).moved(Location((0, 0, 5)))).solids()[0]
+    with pytest.raises(ShellError, match="could not build this cavity") as refusal:
+        shell_body(boss, [], 1.0)
+    assert "pocket" not in str(refusal.value)
+
+
+# --- the check's cost stays linear in the faces (review of 5fda139) -------------
+
+
+def _vented_lid(slots: int) -> Solid:
+    """The review's perf body: a 300 x 100 x 30 lid, vertical edges rounded
+    r6, with 5 x *slots* vents 4 x 10 x 10 cut in its top."""
+    lid = fillet(Box(300, 100, 30).edges().filter_by(Axis.Z), 6).solids()[0]
+    vents = [
+        Box(4, 10, 10)
+        .solids()[0]
+        .moved(Location((-140 + 280 * i / (slots - 1), -40 + 20 * j, 15)))
+        for i in range(slots)
+        for j in range(5)
+    ]
+    return lid.cut(*vents).solids()[0]
+
+
+#: Ceiling (s) on the check alone on the 410-face lid, opened at the bottom at
+#: t 1.5, on this 4-core box. Measured 2026-09-30: 1.2 s, against 6.2 s for
+#: the shell itself. At 5fda139 (a compound distance per query, O(faces^2))
+#: it took about 12 s.
+LID_CHECK_CEILING_S = 4.0
+
+
+def test_the_check_on_a_410_face_lid_stays_cheap() -> None:
+    lid = _vented_lid(16)
+    assert len(lid.faces()) == 410
+    opened = [min(lid.faces(), key=lambda face: face.center().Z)]
+    result = lid.hollow(opened, -1.5).solids()[0]
+    start = time.perf_counter()
+    fault = ShellDefinition(lid, opened, 1.5).fault(result)
+    elapsed = time.perf_counter() - start
+    assert fault is None
+    assert elapsed < LID_CHECK_CEILING_S, f"{elapsed:.2f} s"

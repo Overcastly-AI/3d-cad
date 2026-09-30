@@ -479,7 +479,7 @@ def test_shell_body_offset_failure_raises_shell_error() -> None:
     boundary. A 40 x 20 x 10 plate bored r8.5, sealed at 1 mm: the cavity must
     split in two either side of the bore, and OCCT raises."""
     plate = (Box(40, 20, 10) - Cylinder(8.5, 10)).solids()[0]
-    with pytest.raises(ShellError, match="splits into separate pockets"):
+    with pytest.raises(ShellError, match="could not build this cavity"):
         shell_body(plate, [], 1.0)
 
 
