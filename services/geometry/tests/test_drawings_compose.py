@@ -19,6 +19,7 @@ Three gates prove the server placement composer:
 
 from __future__ import annotations
 
+import math
 import subprocess
 import sys
 from collections.abc import Callable, Sequence
@@ -43,13 +44,16 @@ from geometry.drawings.compose import (
     format_dimension_label,
     resolve_view_anchors,
     sheet_dimensions,
+    view_bounds,
     view_to_svg_edges,
 )
 from geometry.main import app
 from loft_wire.drawings import (
     AngularDimensionParams,
+    ComposedCircleEdge,
     ComposedDimension,
     ComposedDimensionError,
+    ComposedEdge,
     ComposedLineEdge,
     ComposedMeasuredDimension,
     ComposeDrawingRequest,
@@ -1553,3 +1557,249 @@ def test_a_layout_with_distinct_projections_still_resolves() -> None:
     anchors = resolve_view_anchors(layout, {}, Vec2(420.0, 297.0))
 
     assert set(anchors) == {"front", "top"}
+
+
+# --- ARC-BOUNDS-INFLATE-1: an arc is bounded by its own sweep ---------------------
+# `_edge_points` gave every edge carrying a centre and a radius the full-circle box
+# `c +/- r` and added the centre itself. Arcs reach `view_bounds` unsampled, so that
+# inflated box WAS the view's bounds, and `view_transform` centres those bounds on
+# the anchor: a quarter arc spanning 0..10 bounded as -10..10, so the ink sat off the
+# anchor by half the inflation. The oracle below is a dense sampling of each
+# fixture's OWN angles, with no call into `compose`.
+_SWEEP_R = 100.0
+_SWEEP_CENTER = (30.0, -20.0)
+
+
+def _arc_edge(
+    center: tuple[float, float], radius: float, start_deg: float, end_deg: float
+) -> ProjectedViewEdge:
+    """An arc swept from ``start_deg`` to ``end_deg`` (negative delta = clockwise),
+    its midpoint at the angular middle of that sweep, as HLR emits it."""
+    cx, cy = center
+
+    def at(deg: float) -> ProjectedPoint:
+        rad = math.radians(deg)
+        return _pt(cx + radius * math.cos(rad), cy + radius * math.sin(rad))
+
+    return ProjectedViewEdge(
+        primitive="arc",
+        visible=True,
+        start=at(start_deg),
+        end=at(end_deg),
+        midpoint=at((start_deg + end_deg) / 2),
+        center=_pt(cx, cy),
+        radius=radius,
+    )
+
+
+def _circle_edge(center: tuple[float, float], radius: float) -> ProjectedViewEdge:
+    """A full circle: start and end coincide on the seam."""
+    cx, cy = center
+    return ProjectedViewEdge(
+        primitive="circle",
+        visible=True,
+        start=_pt(cx + radius, cy),
+        end=_pt(cx + radius, cy),
+        midpoint=_pt(cx - radius, cy),
+        center=_pt(cx, cy),
+        radius=radius,
+    )
+
+
+def _dense_arc_bounds(
+    center: tuple[float, float],
+    radius: float,
+    start_deg: float,
+    end_deg: float,
+    samples: int = 20001,
+) -> tuple[float, float, float, float]:
+    """(min_x, min_y, max_x, max_y) of an arc by dense sampling of its own angles.
+
+    20 001 samples over at most a full turn leave the sampled extreme within
+    r * (1 - cos(pi / 20000)) < 1.3e-6 mm of the analytic one, hence
+    :data:`_ARC_SAMPLE_TOL`.
+    """
+    cx, cy = center
+    xs: list[float] = []
+    ys: list[float] = []
+    for index in range(samples):
+        rad = math.radians(start_deg + (end_deg - start_deg) * index / (samples - 1))
+        xs.append(cx + radius * math.cos(rad))
+        ys.append(cy + radius * math.sin(rad))
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+#: Sampling residual of :func:`_dense_arc_bounds` (mm).
+_ARC_SAMPLE_TOL = 1e-5
+
+#: Inside one quadrant, across each axis extreme, more than half a turn, clockwise,
+#: across the 0/360 seam, and a hair short of closing.
+_ARC_SWEEPS = [
+    (30.0, 60.0),
+    (0.0, 90.0),
+    (-45.0, 45.0),
+    (45.0, 135.0),
+    (135.0, 225.0),
+    (225.0, 315.0),
+    (10.0, 350.0),
+    (350.0, 10.0),
+    (60.0, 30.0),
+    (200.0, 20.0),
+    (0.0, 359.9),
+    (0.0, 0.5),
+]
+
+
+def _composed_edge_xy(edge: ComposedEdge) -> tuple[list[float], list[float]]:
+    """One composed edge's drawn x/y coordinates, for all three emitted edge kinds."""
+    if isinstance(edge, ComposedLineEdge):
+        return [edge.x1, edge.x2], [edge.y1, edge.y2]
+    if isinstance(edge, ComposedCircleEdge):
+        return (
+            [edge.cx - edge.r, edge.cx + edge.r],
+            [edge.cy - edge.r, edge.cy + edge.r],
+        )
+    return [p.x_mm for p in edge.points], [p.y_mm for p in edge.points]
+
+
+def _drawn_rect(edges: Sequence[ComposedEdge]) -> SvgRect:
+    """The drawn extent of composed edges (SVG space)."""
+    xs: list[float] = []
+    ys: list[float] = []
+    for edge in edges:
+        edge_xs, edge_ys = _composed_edge_xy(edge)
+        xs += edge_xs
+        ys += edge_ys
+    return SvgRect(min(xs), min(ys), max(xs), max(ys))
+
+
+@pytest.mark.parametrize(("start_deg", "end_deg"), _ARC_SWEEPS)
+def test_view_bounds_of_an_arc_is_its_swept_extent(
+    start_deg: float, end_deg: float
+) -> None:
+    """Pre-fix every case here reported the whole 200 mm circle."""
+    bounds = view_bounds([_arc_edge(_SWEEP_CENTER, _SWEEP_R, start_deg, end_deg)])
+    assert bounds is not None
+    min_x, min_y, max_x, max_y = _dense_arc_bounds(
+        _SWEEP_CENTER, _SWEEP_R, start_deg, end_deg
+    )
+    where = f"{start_deg} -> {end_deg}"
+    assert bounds.min.x == pytest.approx(min_x, abs=_ARC_SAMPLE_TOL), where
+    assert bounds.min.y == pytest.approx(min_y, abs=_ARC_SAMPLE_TOL), where
+    assert bounds.max.x == pytest.approx(max_x, abs=_ARC_SAMPLE_TOL), where
+    assert bounds.max.y == pytest.approx(max_y, abs=_ARC_SAMPLE_TOL), where
+
+
+def test_a_quarter_arc_from_0_to_10_bounds_as_0_to_10() -> None:
+    """The reviewer's case, by hand: a quarter arc of radius 10 about the origin
+    spans 0..10 on both axes, not the -10..10 of its circle, and its centre (not on
+    the curve) does not enter the box."""
+    bounds = view_bounds([_arc_edge((0.0, 0.0), 10.0, 0.0, 90.0)])
+    assert bounds is not None
+    assert (bounds.min.x, bounds.min.y) == pytest.approx((0.0, 0.0), abs=_TOL)
+    assert (bounds.max.x, bounds.max.y) == pytest.approx((10.0, 10.0), abs=_TOL)
+
+
+def test_an_arc_through_an_axis_extreme_reaches_it() -> None:
+    """The box must not be too small either: -45..45 degrees passes angle 0, so it
+    reaches x = r although neither endpoint does (endpoints alone would clip
+    r * (1 - cos 45) = 29.29 mm of ink off a 100 mm arc)."""
+    bounds = view_bounds([_arc_edge((0.0, 0.0), 100.0, -45.0, 45.0)])
+    assert bounds is not None
+    half_root_two = 100.0 * math.sqrt(2) / 2
+    assert bounds.max.x == pytest.approx(100.0, abs=1e-9)
+    assert bounds.min.x == pytest.approx(half_root_two, abs=1e-9)
+    assert bounds.min.y == pytest.approx(-half_root_two, abs=1e-9)
+    assert bounds.max.y == pytest.approx(half_root_two, abs=1e-9)
+
+
+def test_a_full_circle_is_still_centre_plus_radius() -> None:
+    bounds = view_bounds([_circle_edge((30.0, -20.0), 12.5)])
+    assert bounds is not None
+    assert (bounds.min.x, bounds.min.y) == pytest.approx((17.5, -32.5), abs=_TOL)
+    assert (bounds.max.x, bounds.max.y) == pytest.approx((42.5, -7.5), abs=_TOL)
+
+
+def test_a_closed_arc_is_bounded_as_a_full_turn() -> None:
+    """start == end is a full turn in `sample_arc`, and the box agrees."""
+    closed = ProjectedViewEdge(
+        primitive="arc",
+        visible=True,
+        start=_pt(100.0, 0.0),
+        end=_pt(100.0, 0.0),
+        midpoint=_pt(-100.0, 0.0),
+        center=_pt(0.0, 0.0),
+        radius=100.0,
+    )
+    bounds = view_bounds([closed])
+    assert bounds is not None
+    assert (bounds.min.x, bounds.min.y) == pytest.approx((-100.0, -100.0), abs=_TOL)
+    assert (bounds.max.x, bounds.max.y) == pytest.approx((100.0, 100.0), abs=_TOL)
+
+
+@pytest.mark.parametrize(("start_deg", "end_deg"), _ARC_SWEEPS)
+def test_the_arc_box_contains_and_touches_the_drawn_polyline(
+    start_deg: float, end_deg: float
+) -> None:
+    """Against what `view_to_svg_edges` actually wrote: the drawn polyline lies
+    inside the box, and reaches every side of it within the sampler's sagitta."""
+    edge = _arc_edge(_SWEEP_CENTER, _SWEEP_R, start_deg, end_deg)
+    bounds = view_bounds([edge])
+    assert bounds is not None
+    anchor = Vec2(200.0, 150.0)
+    drawn = _drawn_rect(view_to_svg_edges([edge], anchor, 300.0))
+    half_w = (bounds.max.x - bounds.min.x) / 2
+    half_h = (bounds.max.y - bounds.min.y) / 2
+    box = SvgRect(anchor.x - half_w, 150.0 - half_h, anchor.x + half_w, 150.0 + half_h)
+    sagitta = _SWEEP_R * (1 - math.cos(math.pi / 32))
+    where = f"{start_deg} -> {end_deg}"
+    for got, want, sign in (
+        (drawn.min_x, box.min_x, 1.0),
+        (drawn.min_y, box.min_y, 1.0),
+        (drawn.max_x, box.max_x, -1.0),
+        (drawn.max_y, box.max_y, -1.0),
+    ):
+        # Inside the box, and within one sagitta of its side.
+        assert sign * (got - want) >= -_ARC_SAMPLE_TOL, where
+        assert sign * (got - want) <= sagitta, where
+
+
+#: The knee brace's radius (sheet mm), modelled on the canopy bracket the defect
+#: was found on: a large arc whose centre lies at a corner of the drawn profile.
+_BRACE_R = 370.0
+
+
+def _knee_brace_edges(radius: float = _BRACE_R) -> list[ProjectedViewEdge]:
+    """Two straight flanges, a quarter-arc brace and a bolt circle. Extent 0..r on
+    both axes, deliberately not symmetric about the projected origin."""
+    return [
+        ProjectedViewEdge(
+            primitive="line",
+            visible=True,
+            start=_pt(0.0, 0.0),
+            end=_pt(radius, 0.0),
+            midpoint=_pt(radius / 2, 0.0),
+        ),
+        ProjectedViewEdge(
+            primitive="line",
+            visible=True,
+            start=_pt(0.0, 0.0),
+            end=_pt(0.0, radius),
+            midpoint=_pt(0.0, radius / 2),
+        ),
+        _arc_edge((0.0, 0.0), radius, 0.0, 90.0),
+        _circle_edge((radius * 0.16, radius * 0.16), radius * 0.05),
+    ]
+
+
+def test_the_knee_brace_ink_centres_on_its_anchor() -> None:
+    """The acceptance: an arc-bearing view's drawn ink centres on its anchor.
+
+    Pre-fix the box was the 740 x 740 mm circle, so the 370 x 370 mm ink sat
+    185 mm right of and 185 mm above the anchor."""
+    anchor = Vec2(297.0, 210.0)
+    drawn = _drawn_rect(view_to_svg_edges(_knee_brace_edges(), anchor, 420.0))
+    assert drawn.max_x - drawn.min_x == pytest.approx(_BRACE_R, abs=_TOL)
+    assert drawn.max_y - drawn.min_y == pytest.approx(_BRACE_R, abs=_TOL)
+    assert (drawn.min_x + drawn.max_x) / 2 == pytest.approx(anchor.x, abs=_TOL)
+    assert (drawn.min_y + drawn.max_y) / 2 == pytest.approx(420.0 - anchor.y, abs=_TOL)

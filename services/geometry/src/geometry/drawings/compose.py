@@ -339,19 +339,87 @@ def parse_scale_label(label: str) -> ViewScale:
     return ViewScale(numerator=int(numerator), denominator=int(denominator))
 
 
+def _norm(a: float) -> float:
+    return ((a % _TAU) + _TAU) % _TAU
+
+
+def _arc_sweep(center: Vec2, start: Vec2, mid: Vec2, end: Vec2) -> tuple[float, float]:
+    """``(start angle, SIGNED sweep)`` of the arc start -> mid -> end, in radians.
+
+    The one definition of which way round a projected arc runs and how far. Both
+    :func:`sample_arc` (which draws the arc) and :func:`arc_extent_points` (which
+    bounds it) read it, so the box and the ink always describe the same arc. The
+    direction comes from the midpoint, a point known to lie on the edge: the arc is
+    counter-clockwise iff the midpoint is reached before the end going that way. A
+    zero span (start == end) is a full turn.
+    """
+    a_s = math.atan2(start.y - center.y, start.x - center.x)
+    a_m = math.atan2(mid.y - center.y, mid.x - center.x)
+    a_e = math.atan2(end.y - center.y, end.x - center.x)
+    span_ccw = _norm(a_e - a_s)
+    ccw = _norm(a_m - a_s) <= span_ccw
+    total = span_ccw if ccw else _TAU - span_ccw
+    if total < 1e-9:
+        total = _TAU  # degenerate: treat as a full turn
+    return a_s, total if ccw else -total
+
+
+def arc_extent_points(
+    center: Vec2, radius: float, start: Vec2, mid: Vec2, end: Vec2
+) -> list[Vec2]:
+    """The points that bound an arc's swept extent (ARC-BOUNDS-INFLATE-1).
+
+    An arc is not the circle it is cut from. Its x and y extremes are reached at
+    its two endpoints plus whichever of the four axis extremes (0, 90, 180 and 270
+    degrees, the only stationary points of x and y on a circle) the sweep passes
+    through. The centre is not on the curve and never bounds anything. A full turn
+    passes all four extremes and reduces to the circle box.
+    """
+    a_s, sweep = _arc_sweep(center, start, mid, end)
+    direction = 1.0 if sweep >= 0.0 else -1.0
+    total = abs(sweep)
+    pts = [
+        Vec2(
+            center.x + radius * math.cos(a_s + direction * t),
+            center.y + radius * math.sin(a_s + direction * t),
+        )
+        for t in (0.0, total)
+    ]
+    for quarter in range(4):
+        theta = quarter * math.pi / 2
+        # How far along the sweep this extreme lies; beyond `total` it is on the
+        # part of the circle the arc does not cover.
+        if _norm(direction * (theta - a_s)) <= total:
+            pts.append(
+                Vec2(
+                    center.x + radius * math.cos(theta),
+                    center.y + radius * math.sin(theta),
+                )
+            )
+    return pts
+
+
 def _edge_points(edge: ProjectedViewEdge) -> list[Vec2]:
-    """Every defining point of an edge, for the view's bounding box (layout.ts)."""
-    pts: list[Vec2] = [_p2(edge.start), _p2(edge.end), _p2(edge.midpoint)]
-    if edge.center is not None:
-        pts.append(_p2(edge.center))
-    for p in edge.points:
-        pts.append(_p2(p))
-    # A circle's extent is its centre +/- radius (start/end coincide on the seam).
+    """The points that bound one edge, for the view's bounding box (layout.ts).
+
+    Per primitive, matching what :func:`view_to_svg_edges` draws: a circle is its
+    centre +/- radius (start and end coincide on the seam), an arc is its swept
+    extent only (:func:`arc_extent_points`), and anything else is bounded by the
+    points it carries. Bounding an arc as its full circle put a curved part's ink
+    off-centre and could push it off the sheet (ARC-BOUNDS-INFLATE-1).
+    """
     if edge.center is not None and edge.radius is not None:
         c = _p2(edge.center)
         r = edge.radius
-        pts.append(Vec2(c.x - r, c.y - r))
-        pts.append(Vec2(c.x + r, c.y + r))
+        if edge.primitive == "circle":
+            return [Vec2(c.x - r, c.y - r), Vec2(c.x + r, c.y + r)]
+        if edge.primitive == "arc":
+            return arc_extent_points(
+                c, r, _p2(edge.start), _p2(edge.midpoint), _p2(edge.end)
+            )
+    pts: list[Vec2] = [_p2(edge.start), _p2(edge.end), _p2(edge.midpoint)]
+    for p in edge.points:
+        pts.append(_p2(p))
     return pts
 
 
@@ -775,24 +843,17 @@ def measure_layout_issues(
     return issues
 
 
-def _norm(a: float) -> float:
-    return ((a % _TAU) + _TAU) % _TAU
-
-
 def sample_arc(
     center: Vec2, radius: float, start: Vec2, mid: Vec2, end: Vec2
 ) -> list[Vec2]:
-    """Sample a projected arc into a polyline through its midpoint (layout.ts)."""
-    a_s = math.atan2(start.y - center.y, start.x - center.x)
-    a_m = math.atan2(mid.y - center.y, mid.x - center.x)
-    a_e = math.atan2(end.y - center.y, end.x - center.x)
-    span_ccw = _norm(a_e - a_s)
-    mid_ccw = _norm(a_m - a_s)
-    ccw = mid_ccw <= span_ccw
-    total = span_ccw if ccw else _TAU - span_ccw
-    if total < 1e-9:
-        total = _TAU  # degenerate: treat as a full turn
-    direction = 1.0 if ccw else -1.0
+    """Sample a projected arc into a polyline through its midpoint (layout.ts).
+
+    Shares :func:`_arc_sweep` with :func:`arc_extent_points`, so the drawn arc and
+    the bounded arc are parametrised identically.
+    """
+    a_s, sweep = _arc_sweep(center, start, mid, end)
+    direction = 1.0 if sweep >= 0.0 else -1.0
+    total = abs(sweep)
     segments = min(96, max(8, math.ceil(total / (math.pi / 16))))
     pts: list[Vec2] = []
     for i in range(segments + 1):
