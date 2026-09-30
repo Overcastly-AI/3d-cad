@@ -194,6 +194,9 @@ lint:
     # basename-suffix pairs in the suite today, so an unanchored pattern would
     # run four files twice and leave four shards short.
     python3 scripts/e2e-shard-plan.py --self-test
+    # ~0.3s. The drill's build retry, graded against canned daemon output:
+    # the one BuildKit EOF retries once; nothing else ever does.
+    bash scripts/compose-build-retry.sh --self-test
 
 # Unit tests: pytest across the uv workspace + vitest via pnpm (recursive)
 test:

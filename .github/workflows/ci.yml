@@ -325,6 +325,15 @@ jobs:
       # hand with `just web-smoke-selftest` when editing the script.
       - name: Browser-path assertions (prove the deploy-path gate can fail)
         run: scripts/web-smoke.sh --self-test
+      # backup-restore-drill retries its image build ONCE on BuildKit's
+      # "error reading from server: EOF" (e3bd6aa). A retry policy is only
+      # safe while it stays narrow, and the only runs that exercise it are the
+      # ~20-minute deploy-path ones. So this replays canned daemon output
+      # through a fake `docker` and demands that the EOF retries once, loudly,
+      # and that a reset, a refused connection, a Dockerfile error, a failing
+      # RUN step and a second EOF do NOT. Bash only, ~0.3s.
+      - name: Build-retry policy (+ prove it refuses everything but the EOF)
+        run: scripts/compose-build-retry.sh --self-test
 
   licences:
     # LIC-3 — the no-GPL rule, enforced by reading the BINARIES we ship.
