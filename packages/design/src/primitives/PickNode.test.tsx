@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { PickNode } from "./PickNode";
@@ -121,5 +121,53 @@ describe("PickNode — rest-state recession (SEL-1 A7)", () => {
     expect(button.className).toContain("w-6");
     // The reticle itself is unchanged at 12px; only its opacity moved.
     expect(reticleOf(container).className).toContain("h-3");
+  });
+});
+
+/**
+ * PICK-ENTER-UNPICKS — in a multi-pick, focus stays on the last mark clicked,
+ * and a native button activates on Enter, so "Create · Enter" toggled that
+ * pick off. `onEnterKey` hands Enter to the command; Space stays the toggle.
+ */
+describe("PickNode — Enter belongs to the command (PICK-ENTER-UNPICKS)", () => {
+  it("calls onEnterKey and suppresses the button's own Enter activation", () => {
+    let commits = 0;
+    render(
+      <PickNode
+        aria-label="Edge 1, line, centred at 10, 0, 20 millimetres"
+        onEnterKey={() => {
+          commits += 1;
+        }}
+      />,
+    );
+    // `fireEvent` returns false when a handler called preventDefault, which
+    // is what stops the browser turning the keydown into a click (the toggle).
+    expect(
+      fireEvent.keyDown(screen.getByRole("button"), { key: "Enter" }),
+    ).toBe(false);
+    expect(commits).toBe(1);
+  });
+
+  it("leaves Space alone, so a keyboard user can still toggle the pick", () => {
+    let commits = 0;
+    render(
+      <PickNode
+        aria-label="Edge 1, line, centred at 10, 0, 20 millimetres"
+        onEnterKey={() => {
+          commits += 1;
+        }}
+      />,
+    );
+    expect(fireEvent.keyDown(screen.getByRole("button"), { key: " " })).toBe(
+      true,
+    );
+    expect(commits).toBe(0);
+  });
+
+  it("keeps the native Enter activation where no command claims it", () => {
+    render(<PickNode aria-label="Face at 0, 0, 10 mm" shape="face" />);
+    expect(
+      fireEvent.keyDown(screen.getByRole("button"), { key: "Enter" }),
+    ).toBe(true);
   });
 });

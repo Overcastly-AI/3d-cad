@@ -28,6 +28,7 @@ import { useThree } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { Vec3 } from "../api/measure";
+import { useCommandActionStore } from "../features/commandActions";
 import { edgeSignatureKey } from "../features/edge";
 import { useEdgePickStore } from "../features/edgePickStore";
 import {
@@ -60,6 +61,7 @@ export function EdgePickOverlay() {
   const hoverEdge = useEdgePickStore((s) => s.hoverEdge);
   const toggle = useEdgePickStore((s) => s.toggle);
   const setHoverEdge = useEdgePickStore((s) => s.setHoverEdge);
+  const requestSubmit = useCommandActionStore((s) => s.requestSubmit);
   const invalidate = useThree((s) => s.invalidate);
   const hiddenPicks = useHiddenPicks();
   /**
@@ -202,6 +204,9 @@ export function EdgePickOverlay() {
               data-buried={hidden ? "true" : "false"}
               aria-label={edgeLabel(index, edge.kind, midpoint)}
               onClick={() => toggle(edge.signature)}
+              // Enter is the command's Create key even with focus on the last
+              // edge picked; Space toggles (PICK-ENTER-UNPICKS).
+              onEnterKey={requestSubmit}
               onPointerOver={() => setHoverEdge(index)}
               onPointerOut={() => setHoverEdge(null)}
               onFocus={() => setHoverEdge(index)}

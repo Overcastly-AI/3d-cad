@@ -212,6 +212,63 @@ test.describe("fillet — pick edges", () => {
     await expect.poll(() => faceCount(page), { timeout: 30_000 }).toBe(7);
   });
 
+  // PICK-ENTER-UNPICKS: a click leaves focus on the mark it toggled, and a
+  // native button activates on Enter, so the panel's "Create · Enter" used to
+  // toggle the last pick OFF (4 -> 3 edges) instead of creating the fillet.
+  test("Enter after a pick creates the fillet with EVERY pick; Space toggles", async ({
+    page,
+  }) => {
+    const partId = await seedCubePart(page);
+    await page.goto(`/parts/${partId}`);
+    await waitForCube(page);
+
+    await page.getByTestId("new-fillet").click();
+    await expect(page.getByTestId("fillet-editor")).toBeVisible();
+    await page.getByTestId("fillet-radius").fill("2");
+    await page.getByTestId("fillet-mode-pick").click();
+    const marks = page.locator('[data-testid^="edge-pick-"]');
+    await expect(marks).toHaveCount(12);
+
+    // Two OPPOSITE top edges (midpoints y = 0 and y = 20 at z = 20): they share
+    // no vertex, so a fillet on both adds exactly two faces (6 -> 8).
+    const ids: string[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      const label = (await marks.nth(i).getAttribute("aria-label")) ?? "";
+      if (/centred at 10, (0|20), 20 millimetres/.test(label)) {
+        ids.push((await marks.nth(i).getAttribute("data-testid")) ?? "");
+      }
+    }
+    expect(ids).toHaveLength(2);
+    for (const id of ids) await page.getByTestId(id).click();
+    await expect(page.getByTestId("selected-count")).toHaveText(
+      "2 edges picked",
+    );
+    const last = page.getByTestId(ids[1] as string);
+    await expect(last).toBeFocused();
+
+    // Space is the toggle: off, then on again.
+    await page.keyboard.press("Space");
+    await expect(page.getByTestId("selected-count")).toHaveText(
+      "1 edge picked",
+    );
+    await page.keyboard.press("Space");
+    await expect(page.getByTestId("selected-count")).toHaveText(
+      "2 edges picked",
+    );
+    await expect(last).toBeFocused();
+
+    // Enter, focus still on the last mark: creates the fillet with both.
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("feature-row")).toHaveCount(3);
+    await expect(page.getByTestId("feature-row").nth(2)).toContainText(
+      "fillet",
+    );
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await expect.poll(() => faceCount(page), { timeout: 30_000 }).toBe(8);
+  });
+
   test.describe("small laptop (1280×800)", () => {
     test.use({ viewport: { width: 1280, height: 800 } });
 

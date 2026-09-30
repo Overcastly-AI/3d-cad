@@ -28,6 +28,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { Mesh } from "three";
 
 import type { OverlayFace, PlanarFaceSignature } from "../api/parts";
+import { useCommandActionStore } from "../features/commandActions";
 import { faceLabel, faceSignatureKey, isPickableFace } from "../features/face";
 import { useFacePickStore } from "../features/facePickStore";
 import { occtToScene } from "../measure/geometry";
@@ -60,6 +61,7 @@ export function ShellFaceOverlay({
   const hoverFace = useFacePickStore((s) => s.hoverFace);
   const toggle = useFacePickStore((s) => s.toggle);
   const setHoverFace = useFacePickStore((s) => s.setHoverFace);
+  const requestSubmit = useCommandActionStore((s) => s.requestSubmit);
   const invalidate = useThree((s) => s.invalidate);
   const hiddenPicks = useHiddenPicks();
 
@@ -195,6 +197,9 @@ export function ShellFaceOverlay({
                 data-buried={hidden ? "true" : "false"}
                 aria-label={faceLabel(face.index, face.signature)}
                 onClick={() => toggle(face.signature)}
+                // Enter is the command's Create key even with focus on the
+                // last face picked; Space toggles (PICK-ENTER-UNPICKS).
+                onEnterKey={requestSubmit}
                 onPointerOver={() => setHoverFace(face.index)}
                 onPointerOut={() => setHoverFace(null)}
                 onFocus={() => setHoverFace(face.index)}
