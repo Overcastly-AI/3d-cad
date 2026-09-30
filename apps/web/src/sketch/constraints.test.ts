@@ -11,6 +11,7 @@ import {
   selectionVerbHints,
   formatDimensionMm,
   formatSolveCell,
+  groundingAnchor,
   reconcileConstraints,
   resolveSketchKey,
   sameConstraint,
@@ -320,6 +321,137 @@ describe("applyConstraintAction", () => {
     ).toEqual({
       outcome: "added",
       constraints: [{ kind: "fixed", point: { entity: "e1", point: "start" } }],
+    });
+  });
+
+  describe("SNAP-4: Fix on a point that is already grounded", () => {
+    const origin = { entity: "origin", point: "position" };
+    const originPin: SketchConstraint = { kind: "fixed", point: origin };
+    const startOnOrigin: SketchConstraint = {
+      kind: "coincident",
+      a: { entity: "e1", point: "start" },
+      b: origin,
+    };
+    const corner: SketchConstraint = {
+      kind: "coincident",
+      a: { entity: "e1", point: "end" },
+      b: { entity: "e2", point: "start" },
+    };
+
+    it("refuses a point joined directly to the origin", () => {
+      expect(
+        applyConstraintAction("fixed", [pickPoint("e1", "start")], entities, [
+          startOnOrigin,
+          originPin,
+        ]),
+      ).toEqual({
+        outcome: "hint",
+        hint: "Already grounded on the Origin.",
+        already: true,
+      });
+    });
+
+    it("counts the origin as grounded before its pin is materialised", () => {
+      expect(
+        groundingAnchor({ entity: "e1", point: "start" }, [startOnOrigin]),
+      ).toEqual(origin);
+    });
+
+    it("follows coincident joins transitively, in either direction", () => {
+      // e2.start = e1.end, e1.end = origin (written b-first): e2.start is held.
+      const chain: SketchConstraint[] = [
+        corner,
+        {
+          kind: "coincident",
+          a: origin,
+          b: { entity: "e1", point: "end" },
+        },
+        originPin,
+      ];
+      expect(
+        applyConstraintAction(
+          "fixed",
+          [pickPoint("e2", "start")],
+          entities,
+          chain,
+        ),
+      ).toMatchObject({
+        outcome: "hint",
+        hint: "Already grounded on the Origin.",
+      });
+      expect(
+        verbIsAvailable("fixed", [pickPoint("e2", "start")], entities, chain),
+      ).toBe(false);
+    });
+
+    it("refuses a point joined to a user-fixed point", () => {
+      const pinnedEnd: SketchConstraint = {
+        kind: "fixed",
+        point: { entity: "e1", point: "end" },
+      };
+      expect(
+        applyConstraintAction("fixed", [pickPoint("e2", "start")], entities, [
+          corner,
+          pinnedEnd,
+        ]),
+      ).toEqual({
+        outcome: "hint",
+        hint: "Already fixed through a coincident point.",
+        already: true,
+      });
+      // The pinned point itself still reads as a plain duplicate.
+      expect(
+        applyConstraintAction("fixed", [pickPoint("e1", "end")], entities, [
+          corner,
+          pinnedEnd,
+        ]),
+      ).toMatchObject({ outcome: "hint", hint: "Already fixed." });
+    });
+
+    it("still fixes a point that is not grounded", () => {
+      // The far end of a line drawn from the origin, and a corner whose join
+      // leads nowhere pinned.
+      const existing = [startOnOrigin, originPin, corner];
+      expect(
+        applyConstraintAction(
+          "fixed",
+          [pickPoint("e2", "end")],
+          entities,
+          existing,
+        ),
+      ).toEqual({
+        outcome: "added",
+        constraints: [{ kind: "fixed", point: { entity: "e2", point: "end" } }],
+      });
+      expect(
+        groundingAnchor({ entity: "e1", point: "end" }, existing),
+      ).toBeNull();
+    });
+
+    it("fixes the free points of a mixed selection and skips the held one", () => {
+      expect(
+        applyConstraintAction(
+          "fixed",
+          [pickPoint("e1", "start"), pickPoint("e1", "end")],
+          entities,
+          [startOnOrigin, originPin],
+        ),
+      ).toEqual({
+        outcome: "added",
+        constraints: [{ kind: "fixed", point: { entity: "e1", point: "end" } }],
+      });
+    });
+
+    it("terminates on a coincident cycle", () => {
+      const cycle: SketchConstraint[] = [
+        corner,
+        {
+          kind: "coincident",
+          a: { entity: "e2", point: "start" },
+          b: { entity: "e1", point: "end" },
+        },
+      ];
+      expect(groundingAnchor({ entity: "e1", point: "end" }, cycle)).toBeNull();
     });
   });
 

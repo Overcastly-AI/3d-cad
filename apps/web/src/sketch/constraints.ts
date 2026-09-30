@@ -7,7 +7,12 @@
  */
 import type { components } from "@loft/ts-client/gateway";
 
-import { isDatumId, isDatumPin, selectionTouchesDatum } from "./datum";
+import {
+  DATUM_LABELS,
+  isDatumId,
+  isDatumPin,
+  selectionTouchesDatum,
+} from "./datum";
 import type { Point2D } from "./plane";
 import { namedPoints, type SketchPick } from "./pick";
 import { TOOL_SHORTCUTS, type SketchEntity } from "./tools";
@@ -676,6 +681,59 @@ function selectedEntities(
 const sameRef = (a: EntityPointRef, b: EntityPointRef): boolean =>
   a.entity === b.entity && a.point === b.point;
 
+const refKey = (ref: EntityPointRef): string =>
+  `${ref.entity}\u0000${ref.point}`;
+
+/**
+ * The point that already holds {@link point} still, or null when it can move.
+ *
+ * A `coincident` is a point-to-point identity, so a point joined to a pinned
+ * one is itself pinned, and a `fixed` on it restates what the solver already
+ * has — which it reports, truthfully, as OVER-CONSTRAINED (SNAP-4). Since
+ * SNAP-3 the draw authors that join whenever a click lands on the origin, so
+ * the user would be asked to delete a constraint they never made.
+ *
+ * The walk follows coincident joins transitively (a corner snapped onto a
+ * corner snapped onto the origin is just as held) and stops at a `fixed` point
+ * or at any point of the datum frame, which is pinned by construction even
+ * before its pins are materialised. Only `coincident` is followed: midpoint
+ * and symmetric can also hold a point, but only in combination with other
+ * constraints, and a refusal that is wrong is a dead end.
+ */
+export function groundingAnchor(
+  point: EntityPointRef,
+  constraints: readonly SketchConstraint[],
+): EntityPointRef | null {
+  const pinned = new Set<string>();
+  for (const constraint of constraints) {
+    if (constraint.kind === "fixed") pinned.add(refKey(constraint.point));
+  }
+  const seen = new Set<string>([refKey(point)]);
+  const queue: EntityPointRef[] = [point];
+  for (let head = 0; head < queue.length; head += 1) {
+    const at = queue[head] as EntityPointRef;
+    if (isDatumId(at.entity) || pinned.has(refKey(at))) return at;
+    for (const constraint of constraints) {
+      if (constraint.kind !== "coincident") continue;
+      const next = sameRef(constraint.a, at)
+        ? constraint.b
+        : sameRef(constraint.b, at)
+          ? constraint.a
+          : null;
+      if (next === null || seen.has(refKey(next))) continue;
+      seen.add(refKey(next));
+      queue.push(next);
+    }
+  }
+  return null;
+}
+
+/** The refusal for a Fix on a held point, naming what holds it. */
+const groundedHint = (anchor: EntityPointRef): string =>
+  isDatumId(anchor.entity)
+    ? `Already grounded on the ${DATUM_LABELS[anchor.entity]}.`
+    : "Already fixed through a coincident point.";
+
 /** Structural equality — used to refuse exact duplicates. */
 export function sameConstraint(
   a: SketchConstraint,
@@ -1105,17 +1163,31 @@ export function applyConstraintAction(
       const points = selection.filter((pick) => pick.kind === "point");
       if (points.length === 0) return hint("Select a point to fix.");
       const added: SketchConstraint[] = [];
+      // SNAP-4: a point already held — pinned itself, or joined through
+      // coincidents to a pinned point or the origin — is not pinned again.
+      // SolidWorks and Fusion refuse a redundant relation rather than author
+      // it and then report the sketch over-defined. Refusing (not replacing
+      // the join) keeps the coincident the draw recorded; `already` still lets
+      // the keystroke bind the sketch, as "Already horizontal." does. The
+      // first held point in pick order names the anchor.
+      let refusal: string | null = null;
       for (const pick of points) {
-        const constraint: SketchConstraint = {
-          kind: "fixed",
-          point: { entity: pick.entity, point: pick.point },
+        const point: EntityPointRef = {
+          entity: pick.entity,
+          point: pick.point,
         };
-        if (!constraints.some((c) => sameConstraint(c, constraint))) {
-          added.push(constraint);
+        const anchor = groundingAnchor(point, constraints);
+        if (anchor === null) {
+          added.push({ kind: "fixed", point });
+        } else {
+          refusal ??= sameRef(anchor, point)
+            ? "Already fixed."
+            : groundedHint(anchor);
         }
       }
-      if (added.length === 0) return alreadyHint("Already fixed.");
-      return { outcome: "added", constraints: added };
+      // A mixed selection still fixes the points that are free.
+      if (added.length > 0) return { outcome: "added", constraints: added };
+      return alreadyHint(refusal ?? "Already fixed.");
     }
     case "coincident": {
       const points = selection.filter((pick) => pick.kind === "point");
