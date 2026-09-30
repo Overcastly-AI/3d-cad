@@ -98,7 +98,7 @@ backlog this replaced (190 open items) is in git:
 - [ ] **LAYOUTISSUE-OFFSHEET-1** (11edf49): a view whose ink leaves the border exports with empty `layout_issues` and no banner. _Accept:_ an `off_sheet` error issue in loft-wire (`just gen`), stamped on the sheet.
 - [ ] **SHEET-RESCALE-1** (03bb837): a laid-out multi-view sheet cannot be re-scaled; the per-view check refuses the first write. _Accept:_ `SheetUpdate.scale` rewrites every view in one transaction and the drawing page offers it.
 - [x] **SNAP-4** (bb55aac, reviewed, ci green): Fix on a point already joined to the origin adds a second pin and the sketch reads OVER-CONSTRAINED. _Accept:_ Fix is refused with "Already grounded on the Origin", following joins transitively.
-- [ ] **CI-VERDICT-HANG-1** (9db03fa + c05206b): e2e teardown can wait unbounded, and the log's last line can read GREEN on a red job (the job itself still goes red). _Accept:_ bounded teardown before the verdict; the verdict step checks `job.status`.
+- [x] **CI-VERDICT-HANG-1** (2d08224, reviewed; ci green with the new verdict step): e2e teardown can wait unbounded, and the log's last line can read GREEN on a red job (the job itself still goes red). _Accept:_ bounded teardown before the verdict; the verdict step checks `job.status`.
 - [ ] **SKETCH-EXPR-TRIG**: dimension expressions accept `sin`/`cos`/`tan`
       (degrees). _Accept:_ `20*tan(15)` solves and round-trips through save
       and reload.
@@ -171,6 +171,9 @@ backlog this replaced (190 open items) is in git:
 
 One line each. The founder triages weekly; most are closed without work.
 
+- The full lane (32 min) never finishes while builders push faster than that; before a merge to main the orchestrator holds pushes until the tip's `full lane complete` is green.
+- CI's lint jobs do not run `just lint`, so the self-tests of scripts/e2e-job-verdict.sh and scripts/e2e-teardown.sh run only locally.
+- scripts/e2e.sh has no HUP trap: closing a local terminal leaves the `setsid` services holding their ports.
 - `sketch-typed-line-sequence.spec.ts`'s 75 ms spline case passes on the pre-fix code, so it guards nothing; its 0/20 ms cases do.
 - Enter cannot finish a spline while point-entry cells are open but unfocused (Escape first); Enter key-repeat can finish one early.
 - A mouse-drawn line still gives the next digits to its size cell (FB-16, kept on purpose); Fusion sends them to the next entity.
