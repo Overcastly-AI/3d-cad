@@ -359,6 +359,11 @@ def decode_access_token(
         raise TokenError("invalid token") from exc
     except ValueError as exc:  # sub/sid present but not a UUID
         raise TokenError("invalid subject") from exc
+    except RecursionError as exc:
+        # A deeply nested header or payload. PyJWT < 2.15 let this escape its
+        # own exception class, which answered 500 before auth; keep it a 401
+        # whatever a future PyJWT does.
+        raise TokenError("invalid token") from exc
 
 
 # --- refresh tokens ------------------------------------------------------------

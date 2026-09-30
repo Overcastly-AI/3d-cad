@@ -20,6 +20,7 @@ envelope hygiene, log hygiene — is dialect-independent and covered here.
 """
 
 import asyncio
+import base64
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -258,6 +259,16 @@ def test_me_without_token_401(client: TestClient) -> None:
 
 def test_me_with_malformed_token_401(client: TestClient) -> None:
     response = client.get("/api/v1/auth/me", headers=_bearer("not.a.jwt"))
+    assert response.status_code == 401
+    assert _envelope(response.json())["code"] == "invalid_token"
+
+
+def test_me_with_deeply_nested_token_header_401(client: TestClient) -> None:
+    # A 50k-deep header made PyJWT 2.13 raise RecursionError past
+    # InvalidTokenError, so the gateway answered 500 before auth.
+    header = base64.urlsafe_b64encode(("[" * 50_000).encode()).rstrip(b"=")
+    token = f"{header.decode()}.e30.sig"
+    response = client.get("/api/v1/auth/me", headers=_bearer(token))
     assert response.status_code == 401
     assert _envelope(response.json())["code"] == "invalid_token"
 
