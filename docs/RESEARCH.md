@@ -143,12 +143,12 @@ The correctness gates, run in CI and by `geometry-qa`:
   they are applied in tree order, never request order.
 - **Not every OCCT op is a pure function of its input.** The Arc-join offset
   behind Shell orders its offset faces by hashing TShape addresses, so a sealed
-  hollow came out different on every build. A sealed Shell therefore uses the
-  Intersection join when OCCT's edge analysis finds no concave edge. On such a
-  body both joins build the same faces, and Intersection is byte-deterministic.
-  A concave edge keeps Arc's rounded cavity corner, which is the existing Shell
-  meaning. That route and open shells with two or more faces off every opened
-  face get a canonical face order, but their bytes can still move in the last
+  hollow came out different on every build. Arc still decides every Shell. For a
+  sealed hollow of an analytic body with no concave edge, the Intersection join
+  also runs, and its byte-deterministic build ships when it matches Arc's in
+  shells, faces, volume and area. It is never trusted alone: it silently drops a
+  pocket when the cavity splits, and it drifts on spline walls. Every other Arc
+  result gets a canonical face order, but its bytes can still move in the last
   bit (`kernel/shell.py`).
 - **STEP round-trip:** export, re-import and compare, within `ROUNDTRIP_TOL`
   (1e-7) unless a golden records a measured override. A body is made

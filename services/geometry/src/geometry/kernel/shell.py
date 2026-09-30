@@ -62,20 +62,30 @@ map: the cavity's faces came back in a different order on every build, the edges
 between them were intersected in a different order, and on a spline wall the
 fitted edges (and the volume, by up to 1.8e-5 mm^3) moved with it.
 
-:func:`_hollow` therefore builds a sealed hollow with the INTERSECTION join
-wherever that builds the same faces as Arc, which is when OCCT's own edge
-analysis finds no concave edge (Arc would put a tube there). Convex fillets and
-chamfers qualify, including a fillet smaller than the wall, where both joins
-collapse it to a sharp cavity corner. That route intersects in a fixed order.
-Measured over 4 processes x 3 rebuilds (2026-09-25), BREP bytes and mass
-properties were identical for a box, a cylinder, a cone, a sphere, a torus, a
-stadium and a hex prism, a plate with a hole, a chamfered box, and boxes with
-filleted vertical or all edges. Its volume matched Arc's to 1e-6 mm^3 on every
-body both joins built. Hollows that must still go through Arc while two or more
-faces stay in the map:
+:func:`_hollow` therefore ALSO builds a sealed hollow with the INTERSECTION
+join, which intersects in a fixed order, and ships that result instead of Arc's
+when all three hold:
+
+- OCCT's own edge analysis finds no concave edge, where Arc would put a tube.
+  Convex fillets and chamfers qualify, including a fillet smaller than the wall,
+  where both joins collapse it to a sharp cavity corner;
+- every face is analytic (plane, cylinder, cone, sphere, torus). On a spline
+  wall the Intersection route read up to 1.84e-2 mm^3 off the truth;
+- Arc built the hollow and the two agree in shells, faces, volume and area
+  (:func:`_same_hollow`). On its own the Intersection join can return a
+  plausible wrong solid: where the cavity should split into separate pockets
+  it keeps one, and a bored plate came out 20% to 65% heavy where Arc raises.
+
+Arc's outcome is what the user gets either way; the Intersection route only
+makes its bytes reproducible. Measured over 4 processes x 3 rebuilds
+(2026-09-25), BREP bytes and mass properties were identical for a box, a
+cylinder, a cone, a sphere, a torus, a stadium and a hex prism, a plate with a
+hole, a chamfered box, and boxes with filleted vertical or all edges. Hollows
+that still ship Arc's result while two or more faces stay in the map:
 
 - a concave edge, which Arc rounds with a tube;
 - fillets the Intersection join refuses (a box with filleted bottom edges);
+- a spline (or other non-analytic) face;
 - an OPEN shell that leaves two or more faces non-adjacent to every opened face,
   such as a top-open box with filleted bottom edges.
 
@@ -83,7 +93,9 @@ Those get their faces put in a canonical order (:func:`_canonical_face_order`).
 That fixes the topology across rebuilds but not the bytes, because the edges are
 still intersected in hash order. The same measurement left 12/12 distinct BREPs
 for both a sealed L and a sealed bottom-filleted box. The filleted box's volume
-spread 5e-11 mm^3 on 2869 mm^3, and the L's centroid moved in its last bit.
+spread 5e-11 mm^3 on 2869 mm^3, and the L's centroid moved in its last bit. A
+sealed spline wall moves further: its fitted edges, and the volume by up to
+1.8e-5 mm^3.
 """
 # The OCP wheel ships no type stubs; scoped to this file as in the kernel.
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
@@ -93,10 +105,14 @@ spread 5e-11 mm^3 on 2869 mm^3, and the L's centroid moved in its last bit.
 import math
 
 from build123d import Compound, Face, Kind, Solid
+from OCP.Bnd import Bnd_Box
 from OCP.BRep import BRep_Builder
+from OCP.BRepAdaptor import BRepAdaptor_Surface
+from OCP.BRepBndLib import BRepBndLib
 from OCP.BRepGProp import BRepGProp
 from OCP.BRepOffset import BRepOffset_Analyse
 from OCP.ChFiDS import ChFiDS_TypeOfConcavity
+from OCP.GeomAbs import GeomAbs_SurfaceType
 from OCP.GProp import GProp_GProps
 from OCP.TopoDS import TopoDS, TopoDS_Face, TopoDS_Iterator, TopoDS_Shell, TopoDS_Solid
 
@@ -104,6 +120,7 @@ from geometry.kernel.degenerate import find_zero_width_slits
 from geometry.kernel.healing import HealingError, clean_shape, conform_solid
 from geometry.kernel.lumps import assemble_lumps, group_faces_by_lump
 from geometry.kernel.offset_edges import tighten_offset_edges
+from geometry.kernel.properties import volume_properties
 from geometry.kernel.types import BodyShape
 
 #: A valid inward shell strictly REMOVES material (the cavity), so the shelled
@@ -122,6 +139,13 @@ _HOLLOW_TOL_MM = 1e-4
 
 #: ``Precision::Confusion()``, in OCCT's edge-analysis angle below.
 _CONFUSION_MM = 1e-7
+
+#: How closely the Intersection hollow must match Arc's before it replaces it
+#: (relative). On the analytic bodies both joins built (2026-09-30: box,
+#: cylinder, cone, sphere, torus, stadium, hex prism, bored plate, chamfered
+#: and filleted boxes at t = 0.5 to 3 mm) they agree to 1.1e-15 in volume and
+#: 3.5e-16 in area. The dropped pockets reproduced were 20% to 65% heavy.
+_AGREE_REL = 1e-9
 
 #: Decimals the canonical face order rounds its key to (mm, mm^2): far above
 #: the offset's float noise, far below any two faces' separation.
@@ -302,30 +326,78 @@ def _hollow(
     body: Solid, faces_to_remove: list[Face], thickness_mm: float
 ) -> tuple[list[Solid], bool]:
     """OCCT's inward hollow of *body*, and whether its face order still needs
-    :func:`_canonical_face_order` (module docstring, R2-F1).
+    :func:`_canonical_face_order` (module docstring).
 
     Negative thickness shells INWARD (the wall grows into the solid); the faces
     list is removed (left open).
 
-    The Intersection result is taken only when it is one valid solid that
-    removed material. Anything else goes to Arc, so this route never refuses a
-    body that Arc would build. Where ``fillet r == t``, the Intersection join
-    quietly returns the un-hollowed body and Arc raises, for example.
+    Arc always runs first and decides the outcome: when it raises or returns
+    other than one solid, that is what the caller gets, exactly as before the
+    Intersection route existed. A sealed hollow with no concave edge is then
+    ALSO built by the Intersection join, when every face of the body is
+    analytic (:func:`_all_analytic`). That result replaces Arc's only when
+    :func:`_same_hollow` finds the two agree, so it adds deterministic bytes
+    and never changes what the user gets. It is not trusted on its own: where
+    the cavity should split into separate pockets (a plate bored nearly through
+    its width), the Intersection join returns one valid solid that keeps one
+    pocket and drops the rest, while Arc raises.
     """
     blends = _concave_edge_count(body, thickness_mm)
-    if not faces_to_remove and not blends:
-        try:
-            solids = body.hollow([], -thickness_mm, kind=Kind.INTERSECTION).solids()
-        except Exception:  # the Intersection join refuses some bodies: use Arc
-            solids = []
-        if (
-            len(solids) == 1
-            and solids[0].is_valid
-            and solids[0].volume < body.volume - _MATERIAL_REMOVED_MARGIN_MM3
-        ):
-            return list(solids), False
-    solids = body.hollow(faces_to_remove, -thickness_mm).solids()
-    return list(solids), _free_face_count(body, faces_to_remove) + blends > 1
+    arc = list(body.hollow(faces_to_remove, -thickness_mm).solids())
+    canonicalise = _free_face_count(body, faces_to_remove) + blends > 1
+    if faces_to_remove or blends or len(arc) != 1 or not _all_analytic(body):
+        return arc, canonicalise
+    try:
+        intersection = body.hollow([], -thickness_mm, kind=Kind.INTERSECTION).solids()
+    except Exception:  # the Intersection join refuses some bodies: keep Arc
+        return arc, canonicalise
+    if len(intersection) == 1 and _same_hollow(arc[0], intersection[0]):
+        return [intersection[0]], False
+    return arc, canonicalise
+
+
+#: Surfaces whose inward offset is the same kind of surface, so both joins meet
+#: them along exactly computed edges.
+_ANALYTIC = frozenset(
+    {
+        GeomAbs_SurfaceType.GeomAbs_Plane,
+        GeomAbs_SurfaceType.GeomAbs_Cylinder,
+        GeomAbs_SurfaceType.GeomAbs_Cone,
+        GeomAbs_SurfaceType.GeomAbs_Sphere,
+        GeomAbs_SurfaceType.GeomAbs_Torus,
+    }
+)
+
+
+def _all_analytic(body: Solid) -> bool:
+    """Whether every face of *body* is a plane, cylinder, cone, sphere or torus.
+
+    A spline wall is left to Arc. On the case-2 spline prism (40 x 20), sealed
+    through the whole shell pipeline, the Intersection route read 1.84e-2 mm^3
+    under the true volume at t = 0.5 and 5.0e-4 over at t = 1, where Arc stays
+    within 4.4e-5. At t = 1 the two raw hollows differ by only 1.6e-9 relative
+    (the error enters when the offset edges are tightened), so comparing them
+    would not have caught it."""
+    return all(
+        BRepAdaptor_Surface(face.wrapped).GetType() in _ANALYTIC
+        for face in body.faces()
+    )
+
+
+def _same_hollow(arc: Solid, intersection: Solid) -> bool:
+    """Whether the Intersection join built Arc's hollow: valid, the same
+    shells and faces, and the same volume and area (module docstring)."""
+    if not intersection.is_valid:
+        return False
+    if len(intersection.shells()) != len(arc.shells()):
+        return False
+    if len(intersection.faces()) != len(arc.faces()):
+        return False
+    arc_volume = volume_properties(arc).volume
+    volume_gap = abs(volume_properties(intersection).volume - arc_volume)
+    if volume_gap > _AGREE_REL * abs(arc_volume):
+        return False
+    return abs(intersection.area - arc.area) <= _AGREE_REL * arc.area
 
 
 def _concave_edge_count(body: Solid, thickness_mm: float) -> int:
@@ -361,20 +433,36 @@ def _free_face_count(body: Solid, faces_to_remove: list[Face]) -> int:
     )
 
 
-def _face_key(face: TopoDS_Face) -> tuple[float, float, float, float]:
+def _face_key(face: TopoDS_Face) -> tuple[float, ...]:
+    """Sort key for :func:`_canonical_face_order`: area centroid and area,
+    then tiebreaks for faces that round to the same of both (without them,
+    ``sorted`` keeps such a pair in OCCT's hash order): surface type,
+    orientation, the second moments about the centroid, and the tight bounding
+    box. Only faces congruent AND coincident could still tie, and a valid shell
+    has none."""
     props = GProp_GProps()
     BRepGProp.SurfaceProperties_s(face, props)
     centre = props.CentreOfMass()
+    inertia = props.MatrixOfInertia()
+    box = Bnd_Box()
+    BRepBndLib.AddOptimal_s(face, box, False, False)
     return (
         round(centre.X(), _ORDER_DECIMALS),
         round(centre.Y(), _ORDER_DECIMALS),
         round(centre.Z(), _ORDER_DECIMALS),
         round(props.Mass(), _ORDER_DECIMALS),
+        float(BRepAdaptor_Surface(face).GetType().value),
+        float(face.Orientation().value),
+        *(
+            round(inertia.Value(row, column), _ORDER_DECIMALS)
+            for row, column in ((1, 1), (1, 2), (1, 3), (2, 2), (2, 3), (3, 3))
+        ),
+        *(round(bound, _ORDER_DECIMALS) for bound in box.Get()),
     )
 
 
 def _canonical_face_order(solid: Solid) -> Solid:
-    """*solid* with each shell's faces sorted by centroid, then area: the same
+    """*solid* with each shell's faces sorted by :func:`_face_key`: the same
     faces, the same shells in the same order, only the order within a shell
     fixed (module docstring, R2-F1)."""
     builder = BRep_Builder()

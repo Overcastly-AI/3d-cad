@@ -19,8 +19,9 @@ Pinned here:
   measured accuracy;
 * R2-F1 (fixed; was a strict xfail): a sealed hollow was not deterministic.
   OCCT returned the cavity shell's faces in a different order on every build
-  (even a plain box), so GLB bytes differed per rebuild. kernel.shell now builds
-  it with the Intersection join where that builds the same faces
+  (even a plain box), so GLB bytes differed per rebuild. kernel.shell now puts
+  every Arc hollow's faces in a canonical order, and ships the Intersection
+  join's byte-stable build of an analytic body when it matches Arc's
   (tests/test_shell_determinism.py);
 * R2-F2 (strict xfail): a shell whose open face is INCLINED leaves the wall's
   rim edge 1.1e-2 mm loose. That edge is not an isoline, so offset_edges cannot
@@ -156,9 +157,6 @@ def test_a_shelled_spline_prism_reads_its_true_volume(
 
 
 def test_a_sealed_spline_hollow_reads_its_true_volume_through_the_fallback() -> None:
-    """Written for the fallback (+5.7e-6 at bd6037d). Since R2-F1 this body is
-    sealed by the Intersection join, whose wall has a B-spline basis, so it takes
-    the exact route (-1.6e-7); the bound still holds."""
     area, area_in = _areas(30.0, 1.0, _golden_fit())
     truth = area * 10.0 - area_in * (10.0 - 2 * 1.0)
     body = _shelled(30.0, 10.0, 1.0, _golden_fit(), sealed=True)
@@ -243,11 +241,7 @@ def test_an_inclined_open_shell_has_no_edge_beyond_the_kernel_tolerance() -> Non
     "extrusion basis with no knot breaks; order 16 vs 24 disagree by 5.3e-3",
 )
 def test_a_sealed_spline_wall_takes_the_exact_route() -> None:
-    """Built by OCCT's Arc join directly: since R2-F1 ``shell_body`` seals a body
-    with no concave edge by the Intersection join (a B-spline basis), but a body
-    with a concave edge or fillets still gets Arc's extrusion basis."""
-    body = _prism(30.0, 10.0, _golden_fit()).hollow([], -1.0)
-    assert len(body.shells()) == 2
+    body = _shelled(30.0, 10.0, 1.0, _golden_fit(), sealed=True)
     [wall] = [f for f in body.faces() if _is_offset(f)]
     assert _checked_offset_moments(wall, gp_Pnt(0, 0, 0)) is not None
 
