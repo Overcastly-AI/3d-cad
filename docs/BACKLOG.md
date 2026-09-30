@@ -14,12 +14,45 @@ backlog this replaced (190 open items) is in git:
       75 mm^3 sliver). _Accept:_ Shell builds the right walls or raises a
       typed ShellError, checked by a method independent of the joins; the
       170-case bore/tube sweep is a standing test; goldens unchanged.
+- [ ] **EDGE-MARK-OVERLAP** (wrong geometry, REFERENCE-RUN 2026-09-30): on a
+      2 mm wall the 24 px midpoint marks of the outer and inner rim edges sit
+      6-11 px apart and the later one covers the earlier, so clicking the
+      outer back/left rim mark picks the INNER edge. The editor only says
+      "4 edges picked". The enclosure's first fillet went on 2 inner edges
+      (29 545.19 against 29 550.51 mm³); `reference-run-2026-09-30/enclosure-*`.
+      _Accept:_ every mark the user can see is the topmost element at its
+      own centre, or overlapping marks resolve to the nearer edge; an e2e
+      test on a shelled box checks all 8 rim marks with `elementFromPoint`.
+- [ ] **TYPED-COORD-HIJACK** (wrong geometry): with the Line tool,
+      `10 Tab 0 Enter`, `10 Tab 20 Enter`, then `-10 Tab 20 Enter` for the
+      next line stores the first line as (10,0)-(10,1020): the finished line's
+      armed length cell takes the digits, and the next line is never drawn.
+      Hit twice on the gear keyway (`gear-typed-line-hijack.png`).
+      _Accept:_ `e2e/sketch-typed-line-sequence.spec.ts` passes with its
+      `test.fail()` marker removed.
+- [ ] **TYPED-POINT-RACE** (wrong geometry): spline fit points typed at
+      about 300 ms per point (x, Tab, y, Enter) are merged or dropped. Eight
+      typed involute points stored a 2-point straight spline plus a separate
+      8-point one; four test points stored 2 (`gear-spline-typing-race.png`).
+      _Accept:_ every typed point lands, in order, at any typing speed; an
+      e2e test types 8 spline points with no waits and reads the stored
+      spline.
 - [ ] **SHELL-HEAL-NONDETERMINISM** (P1): a stored sealed Shell can fail to
       rebuild at random. Rod with a cross-bore r6 at t=2 is refused on 31 of
       60 rebuilds (3 processes), before and after 5fda139: the heal step
       raises HealingError on OCCT's address-dependent Arc output. Strict
       xfail in `tests/test_shell_walls_qa.py`. _Accept:_ the same body gives
       the same outcome on every rebuild and in every process; the xfail flips.
+- [ ] **PICK-ENTER-UNPICKS**: in Fillet and Draft pick mode, focus stays on
+      the last pick mark, so Enter (the panel's advertised Create key)
+      toggles that pick off (4 -> 3 edges, 4 -> 3 faces) instead of creating.
+      _Accept:_ Enter after a pick creates the feature with every pick; an
+      e2e test covers Fillet.
+- [ ] **FILLET-EDIT-REPICK**: editing a fillet shows no pick marks and
+      ignores edge clicks, so a wrong edge can only be fixed by deleting and
+      recreating the fillet (3 cycles on the enclosure). Fusion rolls back and
+      lets you re-pick. _Accept:_ Edit on a fillet rolls back to its input
+      body and a click adds or removes an edge; an e2e test re-picks one edge.
 - [x] **TWIST-TO-SWEEP** (9239d44 + 1723b6b, green; on main at b60bc91): move twist from Extrude to Sweep ("twist along
       path", as in Fusion 360 and SolidWorks), reusing
       `services/geometry/src/geometry/kernel/twist.py` (see
@@ -66,6 +99,26 @@ backlog this replaced (190 open items) is in git:
 - [ ] **PARAMETERS**: named user parameters shared across sketches and
       features (Fusion's "Change Parameters"). _Accept:_ changing the gear's
       helix angle or tooth count in one place rebuilds the whole part.
+- [ ] **SKETCH-ON-FACE-CLICK**: in the sketch plane-pick step a click on a
+      body face picks the origin plane behind it (the bracket's boss sketch
+      landed on XY at z=0). Fusion sketches on the clicked face.
+      _Accept:_ a click on a visible face in plane-pick sketches on that face
+      without first choosing "Pick a face".
+- [ ] **LINE-CHAIN**: the Line tool does not chain; every segment is two
+      clicks and its own end snap. The hub's 12-segment section took 24 clicks
+      (`hub-line-no-chain.png`). _Accept:_ each click after the first starts
+      the next segment at the last end, and Escape or a click on the start
+      closes it, as in Fusion and SolidWorks.
+- [ ] **LOFT-SHELL** (seen at 9767a90, before 5fda139): Shell on a round-to-square loft fails
+      (`StdFail_NotDone`) at 1 and 2 mm with one or both ends open; OCCT's
+      offset fails the same way outside the app (build123d probe), and the
+      message blames the thickness. Workaround: loft-cut an inner loft.
+      _Accept:_ the duct shells at 2 mm with both ends open, or the refusal
+      names the loft faces rather than the thickness; a golden either way.
+- [ ] **DATUM-PLANE-VISIBLE**: an offset datum plane is not drawn in the
+      viewport after it is created (`duct-datum-not-drawn.png`); it shows only
+      as a tree row and a plane-pick chip. _Accept:_ a datum is drawn as a
+      sized, selectable plane, as origin planes are.
 - [ ] **SKETCH-POINT-DISTANCE**: point-to-point and point-to-line distance
       dimensions. _Accept:_ both can be created, solved and edited in the UI.
 - [ ] **EDGE-LOOP-SELECT**: select a face's edges, a loop, or a tangent chain
@@ -135,3 +188,12 @@ One line each. The founder triages weekly; most are closed without work.
   `git show 5b6fd28:<path>`.
 - README "What does NOT exist yet" still lists the scripting surface, which
   has shipped (for `tech-writer`).
+- Cancelling (Esc) or deleting a fillet keeps its edge picks: the next Fillet opened with "3 edges picked", one of them a bottom edge never meant.
+- The offset datum editor shows a red "Add a feature that creates a body before picking a face" while offsetting from XY (`duct-datum-face-warning.png`).
+- A long horizontal orbit drag rolls the camera to a bottom view (not a turntable), and there is no Back view button; reaching a part's back took 3 tries.
+- View keys (0-4) are ignored while a command's value cell has focus, and the view bar is hidden during sketch face-pick.
+- Circular pattern shows no preview; the body changes only on Create (`hub-circular-no-preview.png`).
+- There is no centre-point rectangle; the duct's centred squares needed their corners aimed by the DRO.
+- An empty dark panel covers the sketch viewport under the tree header (`sketch-empty-panel.png`).
+- Sweep Twist takes the total angle, so a helical gear needs 20·tan β / r in degrees worked out by hand (see PARAMETERS, SKETCH-EXPR-TRIG).
+- A typed coordinate cannot start with `0` (it is Fit); `-0` works but nothing says so.
