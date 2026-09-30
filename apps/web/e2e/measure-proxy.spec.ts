@@ -387,6 +387,16 @@ test.describe("MEASURE-PROXY-1 — a mark's own centre reaches the mark", () => 
       `    [MEASURE-PROXY] short edges under their own end's vertex mark: ` +
         `${shortEdges.map((p) => `${p.id}->${p.topmost}`).join(",") || "none"}`,
     );
+    // PINNED, so the exemption cannot grow silently. The nine were checked
+    // for being hidden near-side seams (review of EDGE-MARK-OVERLAP): with
+    // the own-pixel visibility proof applied to EVERY band answer, not just
+    // to a challenger, all nine stayed live and nothing else changed, so each
+    // is seated on a stretch that is in front of every drawn surface.
+    expect(
+      shortEdges.length,
+      "more short edges hide under their own vertex mark than the nine " +
+        "measured: re-check they are visible before raising this",
+    ).toBeLessThanOrEqual(9);
     const liveOthers = live.filter(
       (p) => p.topmost !== "self" && !coveredByOwnEnd(p),
     );

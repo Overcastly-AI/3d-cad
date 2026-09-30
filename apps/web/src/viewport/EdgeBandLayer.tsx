@@ -37,7 +37,10 @@
  *    the layer does not read r3f's list at all: r3f's hit only says "the
  *    pointer is near the band", and {@link EdgeBandLayer}'s `resolveAt` casts
  *    its own ray through the pointer, keeps EVERY segment hit with its screen
- *    gap, and asks `resolveBandIntersections` for the nearest to the cursor.
+ *    gap, and asks `resolveBandIntersections` for the nearest to the cursor
+ *    that is PROVABLY visible (a second ray through that edge's own pixel;
+ *    see `edgeBandProbe.ts`). Otherwise the edge in front keeps the pick, so
+ *    an edge hidden behind a thin wall can never beat the visible one.
  *
  * ## Why a `PickSurface` rides along
  *
@@ -59,39 +62,27 @@
 import { Line } from "@react-three/drei";
 import { useThree, type ThreeEvent } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { Raycaster, Vector2, Vector3 } from "three";
-import type { BufferGeometry, Intersection, Mesh } from "three";
+import { Vector3 } from "three";
+import type { BufferGeometry, Mesh, Vector2 } from "three";
 import type { LineSegments2 } from "three-stdlib";
 
 import {
   bandRadius,
   buildEdgeBand,
   edgeOcclusionBias,
-  resolveBandIntersections,
-  type BandIntersection,
   type EdgeBandInput,
   EDGE_BAND_WIDTH_PX,
 } from "./edgeBand";
+import { resolveBandAt } from "./edgeBandProbe";
 import { PickSurface } from "./pickSurface";
 import { useEdgeMarkAnchors, type EdgeMarkAnchor } from "./useEdgeMarkAnchors";
 
 /**
  * Scratch for the mark-seat oracle, held across frames so the recompute
- * allocates nothing. `Vector3.project` and `Raycaster.setFromCamera` both write
- * in place, and the hit array is truncated rather than replaced.
+ * allocates nothing. `Vector3.project` writes in place.
  */
-const probeRaycaster = new Raycaster();
-const probeNdc = new Vector2();
 const probeWorld = new Vector3();
 const probeProjected = new Vector3();
-const probeHits: Intersection[] = [];
-
-/** A band hit as three-stdlib's `LineSegments2.raycast` reports it. */
-type BandProbeHit = Intersection & {
-  /** The segment's point nearest the ray, in world space. */
-  pointOnLine?: Vector3;
-  screenGapPx?: number;
-};
 
 export interface EdgeBandLayerProps {
   /** The pickable edges, each with the index a hit should report. */
@@ -141,41 +132,22 @@ export function EdgeBandLayer({
    * from the cursor on screen, and the resolver takes the nearest visible one.
    * The hover, the click and the mark-seat oracle all come through here, so
    * the edge that highlights is the edge a click commits and the edge a mark
-   * is seated on.
-   *
-   * `intersectObject` sorts the whole list after appending, so the band and
-   * surface hits arrive near -> far together.
+   * is seated on. The raycasts themselves live in `edgeBandProbe.ts`, where
+   * they are unit-tested against real three.js objects.
    */
   const resolveAt = useCallback(
     (ndcX: number, ndcY: number): number | null => {
       const line = lineRef.current;
       if (line === null) return null;
-      probeNdc.set(ndcX, ndcY);
-      probeRaycaster.setFromCamera(probeNdc, camera);
-      probeHits.length = 0;
-      probeRaycaster.intersectObject(line, false, probeHits);
-      const halfW = size.width / 2;
-      const halfH = size.height / 2;
-      // Measured before the surface hits join the list, so every entry here
-      // is a band hit carrying three-stdlib's `pointOnLine`.
-      for (const hit of probeHits as BandProbeHit[]) {
-        if (hit.pointOnLine === undefined) continue;
-        probeProjected.copy(hit.pointOnLine).project(camera);
-        hit.screenGapPx = Math.hypot(
-          (probeProjected.x - ndcX) * halfW,
-          (probeProjected.y - ndcY) * halfH,
-        );
-      }
-      const surface = surfaceRef.current;
-      if (surface !== null) {
-        probeRaycaster.intersectObject(surface, false, probeHits);
-      }
-      return resolveBandIntersections(
-        probeHits as unknown as BandIntersection[],
-        { band: line, surface },
-        band.edgeOfSegment,
+      return resolveBandAt(ndcX, ndcY, {
+        camera,
+        width: size.width,
+        height: size.height,
+        band: line,
+        surface: surfaceRef.current,
+        edgeOfSegment: band.edgeOfSegment,
         bias,
-      );
+      });
     },
     [camera, size, band, bias],
   );

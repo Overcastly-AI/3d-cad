@@ -255,6 +255,19 @@ export interface BandTargets {
  * a tie-break layered on r3f's: the hover highlight, the click and the mark
  * seats all read this function over the same kind of list.
  *
+ * ## Only a PROVABLY visible edge may beat the one in front
+ *
+ * The body-scale `bias` below is slack for the edge nearest in depth, whose
+ * cursor-side surface sample can sit up to 12 px away from it. It is far too
+ * loose to prove a SECOND edge visible: it is 5 % of the body radius (2.7 mm
+ * on the 80x60x40 enclosure), wider than a 2 mm wall, so from just below the
+ * rim the inner edge, hidden behind the outer wall face, passed it and then
+ * won on screen distance (review of EDGE-MARK-OVERLAP). So the depth-nearest
+ * accepted hit is the default, and a hit farther in depth may beat it only when
+ * `visibleAtOwnPixel` confirms it: a ray through the hit's OWN projected point
+ * reaches it before any drawn surface, to within a pixel-scale tolerance. With
+ * no oracle nothing can be proven, and the result is the depth-nearest hit.
+ *
  * ## Occlusion
  *
  * THE FIRST SURFACE HIT IS THE OCCLUDER, unconditionally, and any band hit
@@ -273,6 +286,7 @@ export function resolveBandIntersections(
   targets: BandTargets,
   edgeOfSegment: Uint32Array,
   bias: number,
+  visibleAtOwnPixel?: (intersection: BandIntersection) => boolean,
 ): number | null {
   let surfaceDistance: number | null = null;
   for (const intersection of intersections) {
@@ -281,10 +295,9 @@ export function resolveBandIntersections(
       break;
     }
   }
-  // The list runs near -> far (three sorts it, r3f keeps the order), so on a
-  // tie the candidate already held is the one in front.
-  let best: number | null = null;
-  let bestGap = Number.POSITIVE_INFINITY;
+  // Accepted band hits, near -> far (three sorts the list, r3f keeps the
+  // order), so the first is the depth-nearest.
+  const accepted: { edge: number; gap: number; hit: BandIntersection }[] = [];
   for (const intersection of intersections) {
     if (
       targets.band === null ||
@@ -300,11 +313,24 @@ export function resolveBandIntersections(
       bias,
     );
     if (edge === null) continue;
-    const gap = intersection.screenGapPx ?? Number.POSITIVE_INFINITY;
-    if (best === null || gap < bestGap - BAND_SCREEN_TIE_PX) {
-      best = edge;
-      bestGap = gap;
-    }
+    accepted.push({
+      edge,
+      gap: intersection.screenGapPx ?? Number.POSITIVE_INFINITY,
+      hit: intersection,
+    });
   }
-  return best;
+  const front = accepted[0];
+  if (front === undefined) return null;
+  if (visibleAtOwnPixel === undefined) return front.edge;
+  // Challengers clearly nearer the cursor than the front hit, nearest first.
+  // The first one proven visible wins. The proof is a raycast, so it is asked
+  // lazily, and on a part with no near-parallel edges not at all.
+  const challengers = accepted
+    .slice(1)
+    .filter((c) => c.gap < front.gap - BAND_SCREEN_TIE_PX)
+    .sort((a, b) => a.gap - b.gap);
+  for (const challenger of challengers) {
+    if (visibleAtOwnPixel(challenger.hit)) return challenger.edge;
+  }
+  return front.edge;
 }

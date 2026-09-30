@@ -21,7 +21,11 @@
  */
 import { expect, test, type Page } from "./fixtures";
 
-import { installSceneProbe, waitForCameraStill } from "./invariants";
+import {
+  cameraPose,
+  installSceneProbe,
+  waitForCameraStill,
+} from "./invariants";
 import { createFeature, rectangleSketch } from "./partSeed";
 import {
   createPartViaApi,
@@ -160,7 +164,17 @@ function rimMarks(marks: readonly Mark[]): { outer: Mark[]; inner: Mark[] } {
   return { outer, inner };
 }
 
-async function openArmedEnclosure(page: Page): Promise<void> {
+/**
+ * `iso` looks down into the box, where every rim edge is visible. `below` is
+ * the front view in PERSPECTIVE, which the below-rim test then orbits down
+ * so the camera looks UP at the rim: the inner front rim is hidden behind the
+ * front wall, 2 mm behind it, which is less than the band's body-scale
+ * occlusion bias (the review finding on this fix).
+ */
+async function openArmedEnclosure(
+  page: Page,
+  pose: "iso" | "below" = "iso",
+): Promise<void> {
   await installSceneProbe(page);
   const account = await seedSession(page);
   const part = await createPartViaApi(page, account.token, "Enclosure housing");
@@ -172,7 +186,20 @@ async function openArmedEnclosure(page: Page): Promise<void> {
   await expect
     .poll(() => distinctCanvasColors(page), { timeout: 30_000 })
     .toBeGreaterThan(16);
-  await page.getByTestId("view-iso").click();
+  if (pose === "below") {
+    const projection = page.getByTestId("view-projection");
+    if (
+      (await projection.getAttribute("aria-label")) ===
+      "Projection: orthographic"
+    ) {
+      await projection.click();
+    }
+    await expect(projection).toHaveAttribute(
+      "aria-label",
+      "Projection: perspective",
+    );
+  }
+  await page.getByTestId(pose === "iso" ? "view-iso" : "view-front").click();
   await waitForCameraStill(page);
   await expect(page.getByTestId("new-fillet")).toBeEnabled({ timeout: 30_000 });
   await page.getByTestId("new-fillet").click();
@@ -299,4 +326,99 @@ test("EDGE-MARK-OVERLAP: every rim mark on a 2 mm wall is on top at its own cent
       .sort(),
   );
   expect(pressed).toEqual(outer.map((m) => m.id).sort());
+});
+
+test("EDGE-MARK-OVERLAP, from below the rim: the hidden inner rim never takes the visible outer rim's pick", async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  await openArmedEnclosure(page, "below");
+
+  const isOuterFront = (m: Mark) =>
+    near(m.mid[0], W / 2) && near(m.mid[1], 0) && near(m.mid[2], H);
+  const isInnerFront = (m: Mark) =>
+    near(m.mid[0], W / 2) && near(m.mid[1], WALL) && near(m.mid[2], H);
+
+  // ORBIT DOWN. Level with the box's mid-height, the two front rims project
+  // under a pixel apart, inside the band's depth tie, so depth decides and
+  // the defect cannot show (and zoom is clamped well before that changes).
+  // Tipping the camera down below the part opens the angle between the rims
+  // to a few pixels while the box stays framed. A drag, like a user's orbit.
+  const box = await page.getByTestId("viewport").boundingBox();
+  if (box === null) throw new Error("no viewport box");
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  for (let step = 1; step <= 5; step += 1) {
+    await page.mouse.move(cx, cy - step * 10);
+  }
+  await page.mouse.up();
+  await page.mouse.move(4, 4);
+  await waitForCameraStill(page);
+  await expectSeatsSettled(page, "orbited below the rim");
+  await waitForCameraStill(page);
+  const pose = await cameraPose(page);
+  console.log(
+    `    [below] camera at scene (${pose.position.map((v) => v.toFixed(1)).join(", ")})`,
+  );
+  // Scene coordinates: the front face is z = 0, the rim is y = 40.
+  expect(pose.position[1], "the camera is below the rim").toBeLessThan(H);
+
+  const marks = await readMarks(page);
+  const outerFront = marks.find(isOuterFront);
+  const innerFront = marks.find(isInnerFront);
+  expect(outerFront, "the outer front rim is offered").toBeDefined();
+  expect(innerFront, "the inner front rim is offered").toBeDefined();
+  if (outerFront === undefined || innerFront === undefined) return;
+
+  // The outer front rim is in plain view: live, and on top at its centre.
+  expect(outerFront.buried, "the visible outer front rim is live").toBe(false);
+  expect(outerFront.top).toBe(outerFront.id);
+  // The inner front rim is behind the front wall from here, so no seat on it
+  // is addressable: its mark is a buried ghost, not a live control.
+  expect(
+    innerFront.buried,
+    "the inner front rim is hidden behind the wall and must be drawn buried",
+  ).toBe(true);
+
+  // THE REVIEW CASE. With the marks hidden, sweep the pointer down through
+  // the outer rim's corridor at its mark's column: every row that answers at
+  // all must answer the outer rim, never its hidden twin 2 mm behind the wall.
+  await page.evaluate(() => {
+    const host = document.querySelector<HTMLElement>(
+      '[data-testid="pick-mark-layer"]',
+    );
+    if (host !== null) host.style.visibility = "hidden";
+  });
+  const viewport = page.getByTestId("viewport");
+  const answers: string[] = [];
+  let answered = 0;
+  for (let dy = -11; dy <= 11; dy += 1) {
+    await page.mouse.move(4, 4);
+    await expect(viewport).not.toHaveAttribute("data-edge-pick-hover", /./);
+    await page.mouse.move(outerFront.cx, outerFront.cy + dy);
+    await waitForFrames(page, 2);
+    const hover = await expect
+      .poll(() => viewport.getAttribute("data-edge-pick-hover"), {
+        timeout: 1_000,
+      })
+      .not.toBeNull()
+      .then(
+        () => viewport.getAttribute("data-edge-pick-hover"),
+        () => null,
+      );
+    if (hover !== null) answered += 1;
+    if (hover !== null && hover !== String(outerFront.index)) {
+      answers.push(`dy=${dy}: ${hover}`);
+    }
+  }
+  expect(answered, "the sweep must cross the outer rim's band").toBeGreaterThan(
+    3,
+  );
+  expect(
+    answers,
+    `a row in the outer front rim's corridor answered another edge ` +
+      `(inner front rim is ${innerFront.index})`,
+  ).toEqual([]);
 });
