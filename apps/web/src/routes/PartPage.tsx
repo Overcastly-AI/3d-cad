@@ -1376,6 +1376,10 @@ export function PartPage() {
       // Enter advances the mirror draft from collecting targets to the axis
       // pick — the keyboard-first path the "Choose axis" button mirrors.
       if (event.key === "Enter") {
+        // Typed X / Y cells own Enter while they are open, and the Enter that
+        // placed a typed point is theirs even though the cells have closed:
+        // it must never also finish the spline (TYPED-POINT-RACE).
+        if (event.defaultPrevented || store.pointEntry !== null) return;
         if (store.mirror?.phase === "targets") {
           event.preventDefault();
           store.advanceMirror();

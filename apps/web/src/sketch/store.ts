@@ -209,6 +209,14 @@ export interface DrawDimensionDraft {
   from: Point2D;
   to: Point2D;
   fields: DrawDimensionField[];
+  /**
+   * The placement that emitted the shape was TYPED (G2 X / Y cells), so its
+   * size is already exactly what the user said. The cells still arm, so a
+   * click can retype a size, but they do not take the keyboard: after a typed
+   * commit the next keystrokes belong to the next point, as in Fusion's and
+   * SolidWorks' typed sketch input (TYPED-COORD-HIJACK).
+   */
+  typed: boolean;
 }
 
 /**
@@ -1179,6 +1187,7 @@ const createSketchState = (
                 point,
                 result.entities.map((entity) => entity.id),
               ),
+              typed: false,
             }
           : null,
       drawDimensionFocus: null,
@@ -1219,7 +1228,13 @@ const createSketchState = (
     set({ drawDimension: null, drawDimensionFocus: null }),
 
   openPointEntry: (anchor, target) =>
-    set({ pointEntry: { anchor, target, nonce: nextRequestNonce() } }),
+    set({
+      pointEntry: { anchor, target, nonce: nextRequestNonce() },
+      // The next point's input supersedes the last shape's size cells (they
+      // can only be up here if they were not taking typing: see `typed`).
+      drawDimension: null,
+      drawDimensionFocus: null,
+    }),
 
   closePointEntry: () => set({ pointEntry: null }),
 
@@ -1236,7 +1251,14 @@ const createSketchState = (
       // is handed back the moment the point is placed.
       const point = get().aim(at, 0, { suppressed: true, axisLock: false });
       get().placeAt(point);
-      set({ snapSuppressed, axisLock });
+      // A shape whose last point was typed is already the size the user
+      // said: its cells arm for a click, not for the next keystrokes.
+      const drawn = get().drawDimension;
+      set({
+        snapSuppressed,
+        axisLock,
+        ...(drawn === null ? {} : { drawDimension: { ...drawn, typed: true } }),
+      });
       return;
     }
     const { entities, revision } = get();

@@ -49,8 +49,8 @@ const PLACING_TOOLS: ReadonlySet<SketchTool> = new Set<SketchTool>([
  *  - MOVING: the Select tool holds exactly one point pick that is not the
  *    sketch's own frame. The cells open on that point.
  *
- * Nothing opens while another typed value owns the keyboard (the size cells,
- * a dimension editor).
+ * Nothing opens while another typed value owns the keyboard (the size cells
+ * of a shape drawn with the pointer, a dimension editor).
  */
 export function pointEntryOpening(state: {
   tool: SketchTool;
@@ -58,12 +58,13 @@ export function pointEntryOpening(state: {
   cursor: Point2D | null;
   selection: readonly SketchPick[];
   entities: readonly SketchEntity[];
-  drawDimension: unknown;
+  drawDimension: { typed: boolean } | null;
   dimensionEdit: unknown;
 }): PointEntryOpening | null {
-  if (state.drawDimension !== null || state.dimensionEdit !== null) {
-    return null;
-  }
+  // Size cells that take typing own the keys; a typed shape's cells do not
+  // (TYPED-COORD-HIJACK): after a typed commit the next point is typed next.
+  const sizing = state.drawDimension !== null && !state.drawDimension.typed;
+  if (sizing || state.dimensionEdit !== null) return null;
   if (PLACING_TOOLS.has(state.tool)) {
     if (state.pending.length > 0 && !SEQUENCE_TOOLS.has(state.tool)) {
       return null;

@@ -48,11 +48,25 @@ describe("pointEntryOpening", () => {
 
   it("stands aside while the size cells or a dimension editor own the keyboard", () => {
     expect(
-      pointEntryOpening({ ...base, tool: "line", drawDimension: {} }),
+      pointEntryOpening({
+        ...base,
+        tool: "line",
+        drawDimension: { typed: false },
+      }),
     ).toBeNull();
     expect(
       pointEntryOpening({ ...base, tool: "line", dimensionEdit: {} }),
     ).toBeNull();
+  });
+
+  it("opens for the next point after a TYPED shape: its cells do not take keys (TYPED-COORD-HIJACK)", () => {
+    expect(
+      pointEntryOpening({
+        ...base,
+        tool: "line",
+        drawDimension: { typed: true },
+      }),
+    ).toEqual({ anchor: { x: 5, y: 5 }, target: null });
   });
 
   it("with exactly one point selected, opens ON that point to move it", () => {
