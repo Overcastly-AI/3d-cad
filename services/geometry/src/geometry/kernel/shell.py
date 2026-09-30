@@ -50,12 +50,55 @@ heal, via the shared :func:`~geometry.kernel.degenerate.find_zero_width_slits`
 predicate (see :class:`ShellThicknessError` for why it is an error and not a
 success-with-warning).
 
-Determinism (RESEARCH §9): the OCCT hollow is a pure function of
-``(body, faces, thickness)``; so are the slit probe and the heal (measured
-byte-identical over three fresh builds, and idempotent).
-"""
+Determinism (RESEARCH §9, SHELL-SEALED-DETERMINISM): the slit probe and the
+heal are pure functions of their input, but the OCCT hollow with the default Arc
+join is NOT a pure function of ``(body, faces, thickness)``.
+``BRepOffset_MakeOffset::BuildOffsetByArc`` (OCCT 7.9.3) walks ``MapSF``, a hash
+map keyed by the input's TShape ADDRESSES, to register the offset faces it then
+intersects. Every face adjacent to an opened face is taken out of that map first
+(``ToContext``), so an open shell of a prism (at most one other face left: the
+floor) comes out the same every time. A SEALED hollow leaves every face in the
+map: the cavity's faces came back in a different order on every build, the edges
+between them were intersected in a different order, and on a spline wall the
+fitted edges (and the volume, by up to 1.8e-5 mm^3) moved with it.
 
-from build123d import Compound, Face, Solid
+:func:`_hollow` therefore builds a sealed hollow with the INTERSECTION join
+wherever that builds the same faces as Arc, which is when OCCT's own edge
+analysis finds no concave edge (Arc would put a tube there). Convex fillets and
+chamfers qualify, including a fillet smaller than the wall, where both joins
+collapse it to a sharp cavity corner. That route intersects in a fixed order.
+Measured over 4 processes x 3 rebuilds (2026-09-25), BREP bytes and mass
+properties were identical for a box, a cylinder, a cone, a sphere, a torus, a
+stadium and a hex prism, a plate with a hole, a chamfered box, and boxes with
+filleted vertical or all edges. Its volume matched Arc's to 1e-6 mm^3 on every
+body both joins built. Hollows that must still go through Arc while two or more
+faces stay in the map:
+
+- a concave edge, which Arc rounds with a tube;
+- fillets the Intersection join refuses (a box with filleted bottom edges);
+- an OPEN shell that leaves two or more faces non-adjacent to every opened face,
+  such as a top-open box with filleted bottom edges.
+
+Those get their faces put in a canonical order (:func:`_canonical_face_order`).
+That fixes the topology across rebuilds but not the bytes, because the edges are
+still intersected in hash order. The same measurement left 12/12 distinct BREPs
+for both a sealed L and a sealed bottom-filleted box. The filleted box's volume
+spread 5e-11 mm^3 on 2869 mm^3, and the L's centroid moved in its last bit.
+"""
+# The OCP wheel ships no type stubs; scoped to this file as in the kernel.
+# pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false, reportAttributeAccessIssue=false
+# pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
+
+import math
+
+from build123d import Compound, Face, Kind, Solid
+from OCP.BRep import BRep_Builder
+from OCP.BRepGProp import BRepGProp
+from OCP.BRepOffset import BRepOffset_Analyse
+from OCP.ChFiDS import ChFiDS_TypeOfConcavity
+from OCP.GProp import GProp_GProps
+from OCP.TopoDS import TopoDS, TopoDS_Face, TopoDS_Iterator, TopoDS_Shell, TopoDS_Solid
 
 from geometry.kernel.degenerate import find_zero_width_slits
 from geometry.kernel.healing import HealingError, clean_shape, conform_solid
@@ -71,6 +114,18 @@ from geometry.kernel.types import BodyShape
 #: cavity (walls merged), never a genuine thin shell (mm-scale linear tolerance,
 #: matching the kernel's 1e-7 m posture).
 _MATERIAL_REMOVED_MARGIN_MM3 = 1e-6
+
+
+#: build123d's ``hollow`` tolerance (its default), which OCCT's offset also
+#: uses to classify edges (:func:`_concave_edge_count`).
+_HOLLOW_TOL_MM = 1e-4
+
+#: ``Precision::Confusion()``, in OCCT's edge-analysis angle below.
+_CONFUSION_MM = 1e-7
+
+#: Decimals the canonical face order rounds its key to (mm, mm^2): far above
+#: the offset's float noise, far below any two faces' separation.
+_ORDER_DECIMALS = 6
 
 
 class ShellError(RuntimeError):
@@ -178,12 +233,7 @@ def _shell_one_lump(
     """
     original_volume = body.volume
     try:
-        # Negative thickness shells INWARD (the wall grows into the solid); the
-        # faces list is removed (left open). hollow() carries Shape[Unknown]
-        # type params upstream (the same gap tessellate.py documents for
-        # export_gltf) — scoped ignore only.
-        result = body.hollow(faces_to_remove, -thickness_mm)  # pyright: ignore[reportUnknownMemberType]
-        solids = result.solids()
+        solids, canonicalise = _hollow(body, faces_to_remove, thickness_mm)
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise ShellError(
             f"Shell failed in the kernel ({type(exc).__name__}); the wall "
@@ -245,4 +295,106 @@ def _shell_one_lump(
             "collapses (no material was removed). Reduce the thickness below the "
             "smallest half-wall of the body."
         )
-    return shelled
+    return _canonical_face_order(shelled) if canonicalise else shelled
+
+
+def _hollow(
+    body: Solid, faces_to_remove: list[Face], thickness_mm: float
+) -> tuple[list[Solid], bool]:
+    """OCCT's inward hollow of *body*, and whether its face order still needs
+    :func:`_canonical_face_order` (module docstring, R2-F1).
+
+    Negative thickness shells INWARD (the wall grows into the solid); the faces
+    list is removed (left open).
+
+    The Intersection result is taken only when it is one valid solid that
+    removed material. Anything else goes to Arc, so this route never refuses a
+    body that Arc would build. Where ``fillet r == t``, the Intersection join
+    quietly returns the un-hollowed body and Arc raises, for example.
+    """
+    blends = _concave_edge_count(body, thickness_mm)
+    if not faces_to_remove and not blends:
+        try:
+            solids = body.hollow([], -thickness_mm, kind=Kind.INTERSECTION).solids()
+        except Exception:  # the Intersection join refuses some bodies: use Arc
+            solids = []
+        if (
+            len(solids) == 1
+            and solids[0].is_valid
+            and solids[0].volume < body.volume - _MATERIAL_REMOVED_MARGIN_MM3
+        ):
+            return list(solids), False
+    solids = body.hollow(faces_to_remove, -thickness_mm).solids()
+    return list(solids), _free_face_count(body, faces_to_remove) + blends > 1
+
+
+def _concave_edge_count(body: Solid, thickness_mm: float) -> int:
+    """Edges OCCT's inward offset of *body* puts a tube on: concave by OCCT's own
+    analysis (``BRepOffset_Analyse`` at the angle ``BRepOffset_MakeOffset``
+    derives from the tolerance and offset). With none, the Arc and Intersection
+    joins build the same offset faces."""
+    coefficient = min(_HOLLOW_TOL_MM / (thickness_mm / 2 + _CONFUSION_MM), 1.0)
+    analysis = BRepOffset_Analyse(body.wrapped, 4 * math.asin(coefficient))
+    return sum(
+        any(
+            interval.Type() == ChFiDS_TypeOfConcavity.ChFiDS_Concave
+            for interval in analysis.Type(edge.wrapped)
+        )
+        for edge in body.edges()
+    )
+
+
+def _free_face_count(body: Solid, faces_to_remove: list[Face]) -> int:
+    """Faces of *body* neither opened nor sharing an edge with an opened face:
+    the ones the Arc offset keeps in its address-ordered map (module
+    docstring)."""
+    opened_edges = [edge.wrapped for face in faces_to_remove for edge in face.edges()]
+    return sum(
+        1
+        for face in body.faces()
+        if not any(face.wrapped.IsSame(opened.wrapped) for opened in faces_to_remove)
+        and not any(
+            edge.wrapped.IsSame(opened)
+            for edge in face.edges()
+            for opened in opened_edges
+        )
+    )
+
+
+def _face_key(face: TopoDS_Face) -> tuple[float, float, float, float]:
+    props = GProp_GProps()
+    BRepGProp.SurfaceProperties_s(face, props)
+    centre = props.CentreOfMass()
+    return (
+        round(centre.X(), _ORDER_DECIMALS),
+        round(centre.Y(), _ORDER_DECIMALS),
+        round(centre.Z(), _ORDER_DECIMALS),
+        round(props.Mass(), _ORDER_DECIMALS),
+    )
+
+
+def _canonical_face_order(solid: Solid) -> Solid:
+    """*solid* with each shell's faces sorted by centroid, then area: the same
+    faces, the same shells in the same order, only the order within a shell
+    fixed (module docstring, R2-F1)."""
+    builder = BRep_Builder()
+    rebuilt = TopoDS_Solid()
+    builder.MakeSolid(rebuilt)
+    shells = TopoDS_Iterator(solid.wrapped, False, False)
+    while shells.More():
+        shell = TopoDS.Shell_s(shells.Value())
+        faces: list[TopoDS_Face] = []
+        members = TopoDS_Iterator(shell, False, False)
+        while members.More():
+            faces.append(TopoDS.Face_s(members.Value()))
+            members.Next()
+        ordered = TopoDS_Shell()
+        builder.MakeShell(ordered)
+        for face in sorted(faces, key=_face_key):
+            builder.Add(ordered, face)
+        ordered.Closed(shell.Closed())
+        ordered.Orientation(shell.Orientation())
+        builder.Add(rebuilt, ordered)
+        shells.Next()
+    rebuilt.Orientation(solid.wrapped.Orientation())
+    return Solid(rebuilt)

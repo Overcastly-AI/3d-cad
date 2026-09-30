@@ -17,9 +17,11 @@ Pinned here:
 * a SEALED hollow (no face opened, the UI's default) of the golden's spline
   reads its true volume through the NURBS fallback, within the fallback's
   measured accuracy;
-* R2-F1 (strict xfail): a sealed hollow is not deterministic. OCCT returns the
-  cavity shell's faces in a different order on every build (even a plain box),
-  so GLB bytes differ per rebuild;
+* R2-F1 (fixed; was a strict xfail): a sealed hollow was not deterministic.
+  OCCT returned the cavity shell's faces in a different order on every build
+  (even a plain box), so GLB bytes differed per rebuild. kernel.shell now builds
+  it with the Intersection join where that builds the same faces
+  (tests/test_shell_determinism.py);
 * R2-F2 (strict xfail): a shell whose open face is INCLINED leaves the wall's
   rim edge 1.1e-2 mm loose. That edge is not an isoline, so offset_edges cannot
   rebuild it, and the volume reads 1.3e-3 mm^3 high;
@@ -154,6 +156,9 @@ def test_a_shelled_spline_prism_reads_its_true_volume(
 
 
 def test_a_sealed_spline_hollow_reads_its_true_volume_through_the_fallback() -> None:
+    """Written for the fallback (+5.7e-6 at bd6037d). Since R2-F1 this body is
+    sealed by the Intersection join, whose wall has a B-spline basis, so it takes
+    the exact route (-1.6e-7); the bound still holds."""
     area, area_in = _areas(30.0, 1.0, _golden_fit())
     truth = area * 10.0 - area_in * (10.0 - 2 * 1.0)
     body = _shelled(30.0, 10.0, 1.0, _golden_fit(), sealed=True)
@@ -161,19 +166,16 @@ def test_a_sealed_spline_hollow_reads_its_true_volume_through_the_fallback() -> 
     assert volume_properties(body).volume == pytest.approx(truth, abs=FALLBACK_TOL)
 
 
-# --- R2-F1: sealed hollows are not deterministic ------------------------------
+# --- R2-F1: sealed hollows were not deterministic ----------------------------
 
 
 def _face_order(body: BodyShape) -> list[tuple[float, ...]]:
     return [tuple(round(c, 6) for c in tuple(f.center())) for f in body.faces()]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GEOMETRY-QA 2026-09-25 R2-F1: OCCT's hollow with no opened face returns "
-    "the cavity shell's faces in a different order on every build (4/4 distinct)",
-)
 def test_a_sealed_hollow_rebuilds_in_the_same_face_order() -> None:
+    """GEOMETRY-QA 2026-09-25 R2-F1, fixed: OCCT's hollow with no opened face
+    returned the cavity shell's faces in a different order on every build."""
     orders = [
         _face_order(shell_body(Box(40, 25, 10).solids()[0], [], 2.0)) for _ in range(6)
     ]
@@ -241,7 +243,11 @@ def test_an_inclined_open_shell_has_no_edge_beyond_the_kernel_tolerance() -> Non
     "extrusion basis with no knot breaks; order 16 vs 24 disagree by 5.3e-3",
 )
 def test_a_sealed_spline_wall_takes_the_exact_route() -> None:
-    body = _shelled(30.0, 10.0, 1.0, _golden_fit(), sealed=True)
+    """Built by OCCT's Arc join directly: since R2-F1 ``shell_body`` seals a body
+    with no concave edge by the Intersection join (a B-spline basis), but a body
+    with a concave edge or fillets still gets Arc's extrusion basis."""
+    body = _prism(30.0, 10.0, _golden_fit()).hollow([], -1.0)
+    assert len(body.shells()) == 2
     [wall] = [f for f in body.faces() if _is_offset(f)]
     assert _checked_offset_moments(wall, gp_Pnt(0, 0, 0)) is not None
 
