@@ -2,33 +2,44 @@
 #
 # ── CI-TWO-LANE, 2026-09-30: when this runs ─────────────────────────────────
 #
-# Not on every push any more. Every push runs ci.yml, whose `e2e smoke` job
-# covers the sketch -> extrude -> save -> reload journey in ~7 min. This
-# workflow — the six balanced shards, the dist and short-TTL legs, and
-# deploy-path.yml's Docker jobs (called below) — runs:
-#   * on push and PR to `main`, so the full suite runs on what lands there;
-#   * nightly on the working branch: nightly.yml dispatches it on the tip;
-#   * on demand, for ONE commit, which is how a merge to main is gated:
+# Not to completion on every commit any more. Every push runs ci.yml, whose
+# `e2e smoke` job covers the sketch -> extrude -> save -> reload journey in
+# ~7 min: that is the per-commit gate. This workflow (the six balanced shards,
+# the dist and short-TTL legs, and deploy-path.yml's Docker jobs, called
+# below) proves the commit that is about to be merged. It runs:
+#   * on push to `claude/**`, NEWEST TIP ONLY. The group is per branch and
+#     cancels, so a push cancels the previous tip's run; the lane finishes
+#     whenever pushes pause. This is the path that gates a merge today: the
+#     orchestrator's integration cannot dispatch (403) and `schedule` fires
+#     only from main. The orchestrator merges a commit only when that
+#     commit's OWN `full lane complete` is green. A cancelled run on a
+#     superseded tip is expected, and posts no verdict (`!cancelled()`);
+#   * on push and PR to `main`, so the full suite runs on what lands there
+#     (a PR run tests GitHub's merge commit, not the branch tip);
+#   * nightly on the working branch: nightly.yml dispatches it on the tip,
+#     once it is on main and the token may dispatch;
+#   * on demand, for ONE commit, where workflow_dispatch is permitted:
 #         gh workflow run e2e.yml --ref <branch>                 # the tip
 #         gh workflow run e2e.yml --ref <branch> -f sha=<sha>    # any commit
 #     `sha` must be the full 40-hex id. The run is titled `full @ <sha>`, and
 #     its verdict job answers "is this commit fit for main". GitHub posts the
 #     run's checks on the ref's TIP, so the verdict is named plain
 #     `full lane complete` only when the tip IS the commit proven, and
-#     `full lane complete (proves <sha>)` otherwise: a plain green
-#     `full lane complete` check on a commit therefore always means THAT
-#     commit was tested. Prefer a ref whose tip IS the commit: the workflow
-#     definitions always come from the ref's tip, so the `target` job warns
-#     when the two differ.
+#     `full lane complete (proves <sha>)` otherwise: on a push or dispatch, a
+#     plain green `full lane complete` on a commit therefore means THAT
+#     commit was tested. (A pull_request run posts on the PR's merge commit,
+#     which it did test, not on the branch tip.) Prefer a ref whose tip IS
+#     the commit: the workflow definitions always come from the ref's tip,
+#     so the `target` job warns when the two differ.
 # The FILE keeps its name because workflow_dispatch needs the workflow
 # registered on the default branch, and e2e.yml already is; a new file could
-# not be dispatched until it had merged. The concurrency group is one per
-# commit UNDER TEST (the `sha` input when given), so two dispatches for two
-# commits never evict each other.
+# not be dispatched until it had merged. Outside claude/** pushes and PRs, the
+# concurrency group is one per commit UNDER TEST (the `sha` input when given),
+# so two dispatches for two commits never evict each other.
 #
 # What that trades, stated plainly: a spec outside the smoke set that breaks is
-# now found up to a day later (nightly) or at the pre-merge dispatch, not on the
-# push that broke it. The GATE-1 story below is exactly that failure — a spec
+# now found on the next tip that runs the lane to completion (or nightly, or at
+# a pre-merge dispatch), not necessarily on the push that broke it. The GATE-1 story below is exactly that failure — a spec
 # no subset would have named — and the answer to it is unchanged: the full,
 # filesystem-derived suite still runs before anything reaches main. What
 # changed is only how often it runs between merges.
@@ -277,6 +288,12 @@ on:
   push:
     branches:
       - main
+      # THE FALLBACK (2026-09-30): the orchestrator's integration gets 403 on
+      # workflow_dispatch, and `schedule` only fires from main, so without
+      # this the full lane would never run before a merge. Keyed per BRANCH
+      # and cancelling (see concurrency below), so it proves the newest tip
+      # and drops superseded ones instead of running 15 jobs per push.
+      - "claude/**"
   pull_request:
     branches:
       - main
@@ -291,17 +308,32 @@ on:
         type: string
 
 concurrency:
-  # One group per commit UNDER TEST, which nothing can evict: on a push that is
-  # github.sha; on a dispatch with `sha` it is the input (github.sha would be
-  # the tip of the dispatched ref, so two dispatches for two commits of one
-  # branch would share a group and the second would evict the first while it
-  # was pending). PR → a group per ref, so a superseded PR cancels.
-  # scripts/check-workflow-concurrency.py accepts exactly this variant.
+  # Three arms, in this order (`&&` binds tighter than `||`):
+  #   PR                  -> a group per ref, cancelling: only the head matters.
+  #   push to claude/**   -> a group per BRANCH, cancelling. DELIBERATE, and the
+  #                          one exception scripts/check-workflow-concurrency.py
+  #                          allows (for this file only). This lane exists to
+  #                          prove the tip that is about to be merged, not every
+  #                          commit on the way there: ci.yml does that. So a
+  #                          newer push cancels the older tip's run, and a
+  #                          cancelled full lane on a superseded tip is expected,
+  #                          not a red. The orchestrator merges only a commit
+  #                          whose OWN `full lane complete` is green.
+  #   everything else     -> one group per commit UNDER TEST, which nothing can
+  #                          evict: push to main (github.sha), and a dispatch,
+  #                          whose `sha` input is the commit when given
+  #                          (github.sha would be the dispatched ref's tip, so
+  #                          two dispatches for two commits of one branch would
+  #                          share a group and evict each other).
   group: >-
     ${{ github.event_name == 'pull_request'
         && format('e2e-pr-{0}', github.ref)
+        || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/claude/')
+        && format('e2e-branch-{0}', github.ref)
         || format('e2e-sha-{0}', inputs.sha || github.sha) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: >-
+    ${{ github.event_name == 'pull_request'
+        || github.event_name == 'push' && startsWith(github.ref, 'refs/heads/claude/') }}
 
 # READ-ONLY, for every job here and in deploy-path.yml (a called workflow can
 # only narrow the caller's token, never widen it). A dispatched `sha` can be
@@ -853,11 +885,15 @@ jobs:
   # the expected set the moment it lands.
   reconcile:
     name: e2e complete
-    # `target` too, for the checkout ref. Still runs when shards fail or are
-    # cancelled (a missing report is a coverage hole it must name), but not
-    # when there is no commit to reconcile against.
+    # `target` too, for the checkout ref. Still runs when shards fail or a
+    # shard JOB is cancelled by its timeout (a missing report is a coverage
+    # hole it must name), but not when there is no commit to reconcile
+    # against, and not when the RUN was cancelled. `!cancelled()`, not
+    # `always()`: a push to claude/** cancels the previous tip's run (see
+    # concurrency), and `always()` would then post a red `e2e complete` on a
+    # superseded tip for a run nobody wanted finished.
     needs: [target, playwright]
-    if: ${{ always() && needs.target.result == 'success' }}
+    if: ${{ !cancelled() && needs.target.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -1152,7 +1188,10 @@ jobs:
           && 'full lane complete'
           || format('full lane complete (proves {0})', needs.target.outputs.sha) }}
     needs: [target, reconcile, dist-bundle, auth-short-ttl, deploy-path]
-    if: always()
+    # `!cancelled()`: a superseded tip's run is cancelled on purpose, and then
+    # this posts nothing rather than a red verdict. Any leg that failed or was
+    # skipped for a failure still makes it red.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

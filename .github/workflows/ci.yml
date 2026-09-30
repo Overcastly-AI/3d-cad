@@ -12,14 +12,17 @@
 #     scripts/e2e-shard-plan.py says which, and why).
 #   * THE FULL LANE, .github/workflows/e2e.yml (named `full`), runs the whole
 #     Playwright suite, the dist and short-TTL legs, and deploy-path.yml's
-#     Docker jobs — on push/PR to `main`, nightly on the working branch
-#     (nightly.yml), and on demand for one commit:
+#     Docker jobs. It runs on push to claude/** for the NEWEST TIP only (per-
+#     branch group, a newer push cancels the older run), on push/PR to
+#     `main`, nightly on the working branch (nightly.yml), and on demand for
+#     one commit where dispatch is permitted:
 #         gh workflow run e2e.yml --ref <branch> [-f sha=<40-hex sha>]
-#     Nothing merges to `main` without that run green on the exact commit.
+#     Nothing merges to `main` unless that commit's own `full lane complete`
+#     is green.
 # What a per-commit green therefore does NOT say: that the specs outside the
 # smoke set pass, that the images build, or that backup/restore works. Those
-# are the full lane's, and a red there is attributed to at most a day of
-# commits, or to exactly one when it is dispatched on a SHA.
+# are the full lane's, and a red there is attributed to the commits since the
+# last tip that ran it to completion.
 #
 # Jobs (all independent, run in parallel):
 #   python    — ruff (lint + format), pyright strict

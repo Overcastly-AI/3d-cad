@@ -7,12 +7,19 @@
 # merge that is already gated. The working branch is where commits accumulate
 # with only the per-commit lane behind them, so that is what this proves. A
 # workflow_dispatch on that branch runs the branch's OWN e2e.yml on the
-# branch's own code, so definitions and code always agree and the run's
-# head_sha is the commit under test.
+# branch's code.
+#
+# It is NOT guaranteed that the dispatched run's head_sha is the commit it
+# proves. This job picks a tip and then dispatches with `-f sha=<tip>`; if an
+# agent pushes in between, GitHub records the NEW tip as the run's head_sha and
+# posts every check there. That is why e2e.yml names its verdict
+# `full lane complete (proves <sha>)` whenever the two differ, so a green
+# verdict never lands, unqualified, on a commit the run did not test.
 #
 # NB `schedule:` only fires from the default branch, so this file does nothing
-# on its own until it has merged to `main`. Until then, dispatch the full lane
-# by hand (see e2e.yml's header).
+# on its own until it has merged to `main`, and it needs a token allowed to
+# dispatch. Until then, e2e.yml's own push trigger on claude/** (newest tip
+# only) is what runs the full lane before a merge.
 #
 # Which branch: `vars.FULL_LANE_BRANCH` (a repository variable) when it is set,
 # else the `claude/*` branch whose tip commit is newest. A manual dispatch of
@@ -24,7 +31,7 @@
 #
 # No `concurrency:` block: it has no push trigger (so
 # scripts/check-workflow-concurrency.py skips it) and it is one short job that
-# only starts another run; the run it starts is keyed per commit by e2e.yml.
+# only starts another run; a dispatched run is keyed per commit by e2e.yml.
 
 name: nightly
 

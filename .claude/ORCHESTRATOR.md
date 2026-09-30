@@ -39,19 +39,22 @@ nobody's reference part needs wait.
 Only you can reach api.github.com (use the GitHub MCP tools). There are two
 lanes. `ci` runs on every push (target under 10 min, including `e2e smoke`);
 it is the per-commit gate. `full` (file `e2e.yml`, which also runs
-`deploy-path`'s jobs) runs the whole e2e suite and the Docker proofs on
-push/PR to `main`, nightly on the working branch, and on demand. Before you
-merge to `main`, dispatch it on the exact commit (`e2e.yml`, ref = the branch,
-input `sha` = the full 40-hex SHA, or empty for the tip). Wait for the run titled
-`full @ <sha>` and require its verdict job to be green. GitHub posts that
-run's checks on the branch tip, so the verdict is called `full lane complete`
-only when the tip is the commit tested. Otherwise it is called
-`full lane complete (proves <sha>)`, and that verdict belongs to `<sha>`, not
-to the commit it is posted on. A plain `full lane complete` on a commit means
-that commit was tested. A run is
-green only when it is complete with zero failed jobs. For a red run, read the
-failed job's log tail. When several commits are pushed at once, only the last
-one gets a run.
+`deploy-path`'s jobs) runs the whole e2e suite and the Docker proofs. It runs
+on every push to `claude/**`, but a newer push cancels the older tip's run, so
+only the newest tip finishes. It also runs on push/PR to `main`, and nightly
+or on dispatch once dispatch is permitted (today it returns 403). Merge to
+`main` only a commit whose OWN `full lane complete` check is green. A
+`cancelled` full lane on a superseded tip is expected, not a red: it posts no
+verdict. When pushes pause, the tip's run finishes; if you need an older
+commit proven, that commit must become a tip again. The verdict is called
+plain `full lane complete` only when the commit the run tested is the commit
+the check is posted on. A dispatch with `sha` on a moved tip posts
+`full lane complete (proves <sha>)` instead, and that verdict belongs to
+`<sha>`. A PR run tests GitHub's merge commit, so read a PR's verdict as being
+about that merge commit, not about the branch tip. A run is green only when
+it is complete with zero failed jobs. For a red run, read the failed job's
+log tail. When several commits are pushed at once, only the last one gets a
+run.
 
 ## Agents
 

@@ -30,11 +30,11 @@
 # ── Part of the FULL LANE since CI-TWO-LANE (2026-09-30) ─────────────────────
 #
 # This file no longer triggers itself. e2e.yml (the `full` workflow) calls it
-# with the commit under test as `inputs.sha`, so it runs nightly on the working
-# branch, on push/PR to `main`, and whenever the full lane is dispatched on a
-# SHA — and not on every push. Its jobs appear inside that run, prefixed
-# `deploy-path / `, and its concurrency is the caller's (per commit under
-# test; see e2e.yml). Every checkout below takes `ref: inputs.sha`, because
+# with the commit under test as `inputs.sha`, so it runs wherever the full lane
+# does: the newest claude/** tip, push/PR to `main`, nightly, and dispatch.
+# It no longer completes on every push. Its jobs appear inside that run,
+# prefixed `deploy-path / `, and its concurrency is the caller's (see
+# e2e.yml). Every checkout below takes `ref: inputs.sha`, because
 # for a dispatch on a specific commit `github.sha` is the tip of the ref the
 # dispatch named, not the commit being proven.
 #
