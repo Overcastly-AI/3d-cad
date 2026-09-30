@@ -93,6 +93,12 @@ backlog this replaced (190 open items) is in git:
 
 ## Next
 
+- [ ] **ARC-BOUNDS-INFLATE-1** (from stale branch 11edf49, re-implement on the tip): `_edge_points` bounds every arc as its full circle, so arc-bearing views sit off-centre and can leave the sheet. _Accept:_ an arc's box is its swept extent; the canopy bracket's ink centres on its anchor.
+- [ ] **DRAWSHEET-AUTOPLACE-1** (eb113cb + c6ae762): a lone or adjacent-pair auto-placed view lands 12 mm off centre per axis, and pinned views skew auto-layout. _Accept:_ centring uses only auto-placed views; a border gate over each view's ink (geometry + caption) passes.
+- [ ] **LAYOUTISSUE-OFFSHEET-1** (11edf49): a view whose ink leaves the border exports with empty `layout_issues` and no banner. _Accept:_ an `off_sheet` error issue in loft-wire (`just gen`), stamped on the sheet.
+- [ ] **SHEET-RESCALE-1** (03bb837): a laid-out multi-view sheet cannot be re-scaled; the per-view check refuses the first write. _Accept:_ `SheetUpdate.scale` rewrites every view in one transaction and the drawing page offers it.
+- [ ] **SNAP-4** (d73e1ca): Fix on a point already joined to the origin adds a second pin and the sketch reads OVER-CONSTRAINED. _Accept:_ Fix is refused with "Already grounded on the Origin", following joins transitively.
+- [ ] **CI-VERDICT-HANG-1** (9db03fa + c05206b): e2e teardown can wait unbounded, and the log's last line can read GREEN on a red job (the job itself still goes red). _Accept:_ bounded teardown before the verdict; the verdict step checks `job.status`.
 - [ ] **SKETCH-EXPR-TRIG**: dimension expressions accept `sin`/`cos`/`tan`
       (degrees). _Accept:_ `20*tan(15)` solves and round-trips through save
       and reload.
