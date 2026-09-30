@@ -194,6 +194,14 @@ lint:
     # basename-suffix pairs in the suite today, so an unanchored pattern would
     # run four files twice and leave four shards short.
     python3 scripts/e2e-shard-plan.py --self-test
+    # ~60ms. pytest_shards.py decides which pytest FILES each ci.yml shard
+    # runs, so a defect in it is a coverage hole behind green jobs. Its
+    # self-test proves the packing places every discovered file exactly once
+    # (manifest or not), that the reconcile refuses a missing shard, a test
+    # run twice or by nobody, and shards that collected different suites, and
+    # that ci.yml's matrix, its `/N` and `--expect-shards` still agree: the
+    # one drift `pytest complete` would only report after a full CI run.
+    python3 scripts/pytest_shards.py --self-test
     # ~0.3s. The drill's build retry, graded against canned daemon output:
     # the one BuildKit EOF retries once; nothing else ever does.
     bash scripts/compose-build-retry.sh --self-test
@@ -294,7 +302,7 @@ e2e:
 # shard flag. Use it to reproduce a red CI shard locally: pass the shard
 # through and you run exactly what that job ran, e.g.
 #     just e2e-web --shard=3/4
-# The geometry leg is skipped because `just test` (and CI's `python` job)
+# The geometry leg is skipped because `just test` (and CI's `pytest` shards)
 # already runs the whole geometry suite. MEASURED 352 tests in 50.6 min under
 # load (nearer 30 quiet); one shard is a quarter of that. Narrow it further
 # with a file: `just e2e-web e2e/measure.spec.ts`.

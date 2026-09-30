@@ -13,7 +13,7 @@
 # Usage:  scripts/e2e.sh [--geometry-only|--web-only] [-- <playwright args>...]
 #
 #         --web-only     skip leg 1. CI's e2e workflow uses this: ci.yml's
-#                        `python` job already runs whole-repo pytest, so
+#                        `pytest` shards already run whole-repo pytest, so
 #                        re-running the 2.4k geometry tests per shard would
 #                        pay ~12 min four times over for zero new coverage.
 #         --geometry-only  leg 1 only (no stack, no browser).
@@ -296,7 +296,7 @@ start_service() {
 # hand-listed service names: an enumerated gate cannot fail when the thing it
 # enumerates grows, it just quietly stops covering. A directory can.
 #
-# Note ci.yml's `python` job already runs `uv run pytest` over the whole repo,
+# Note ci.yml's `pytest` shards already run pytest over the whole repo,
 # so CI was never blind here — the gap was in the LOCAL gate an agent runs
 # before committing, which is where a false "geometry verified" is most
 # expensive because it is what the commit message then claims.

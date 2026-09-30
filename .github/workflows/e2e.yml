@@ -12,8 +12,8 @@
 # ── What runs, and what deliberately does not ────────────────────────────────
 #
 # Leg 2 of `just e2e` ONLY: the Playwright suite against a real stack.
-# Leg 1 (the 2.4k-test geometry suite) is NOT re-run here — ci.yml's `python`
-# job already runs whole-repo pytest, so paying ~12 min per shard for it would
+# Leg 1 (the 2.4k-test geometry suite) is NOT re-run here — ci.yml's `pytest`
+# shards already run whole-repo pytest, so paying ~12 min per shard for it would
 # buy nothing. `scripts/e2e.sh --web-only` is the same script `just e2e` runs,
 # so a red shard reproduces locally with one command.
 #

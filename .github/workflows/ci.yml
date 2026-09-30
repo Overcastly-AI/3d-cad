@@ -1,7 +1,11 @@
 # Loft CI — lint / typecheck / unit tests, contract drift, compose validation.
 #
 # Jobs (all independent, run in parallel):
-#   python    — ruff (lint + format), pyright strict, pytest across the uv workspace
+#   python    — ruff (lint + format), pyright strict
+#   pytest    — pytest across the uv workspace as a 3-job matrix, packed by
+#               measured duration (scripts/pytest_shards.py); `pytest complete`
+#               then proves from the shards' ledgers that every collected test
+#               ran exactly once
 #   ts        — eslint + prettier, tsc typecheck, vitest across the pnpm workspace
 #   contracts — `just gen-check`: regenerate OpenAPI contracts + TS client into a
 #               tempdir and diff against the committed output (fails on drift)
@@ -82,13 +86,8 @@ concurrency:
 jobs:
   python:
     runs-on: ubuntu-latest
-    # 30, raised from 15 on 2026-07-30. Pytest alone measured 14m31s at 1a27804
-    # and the job was killed at 15m16s; the run before it squeaked in at 14m55s.
-    # The suite is ~2958 tests dominated by OCCT geometry and it grows every time
-    # a verb or a golden lands, so 15 was going to start failing whatever we did
-    # next. NB a timed-out job is reported `cancelled`, the SAME word GitHub uses
-    # for a concurrency eviction — see CLAUDE.md for telling them apart.
-    timeout-minutes: 30
+    # Lint and typecheck only; pytest is the `pytest` matrix below.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -104,6 +103,50 @@ jobs:
         run: uv run ruff format --check .
       - name: Pyright (strict)
         run: uv run pyright
+
+  pytest:
+    # CI-PY-SPLIT. One job ran the whole suite serially: 14m31s at 1a27804,
+    # 23m42s at bd6037d, against a 30-minute ceiling already raised from 15
+    # once, and the suite grows with every verb and golden. So: N jobs, each
+    # running pytest's FULL collection and keeping one bin of a
+    # longest-processing-time packing of the test FILES by measured seconds
+    # (scripts/pytest-durations.json). Membership is derived from what pytest
+    # discovers, so a new test file cannot fall outside every shard; the
+    # manifest only moves balance. services/geometry is 73% of the tests, which
+    # is why a split by directory could not balance.
+    #
+    # MEASURED on the dev container, 2026-09-25, 4605 tests: unsharded 24m21s
+    # (1461 s), i.e. this box runs at about a hosted runner's pace (CI's
+    # 23m42s). The three shards ran 8m36s / 7m50s / 7m28s, and shard 1 shared
+    # the CPU with a `just lint`. Add ~2 min for checkout, the cached uv sync
+    # and PG, and each job is ~10-11 min against its 20-minute timeout. The
+    # reconcile passed over those same ledgers (4605 ran, 4605 collected).
+    # When a shard passes ~14 min, raise N (matrix, the `/N` below and
+    # `--expect-shards`: the self-test holds all three together) and refresh
+    # the manifest with `pytest_shards.py durations`. Each extra shard costs
+    # ~2 runner-minutes of setup per push, which is why N is 3 and not 5.
+    #
+    # NB a timed-out job is reported `cancelled`, the SAME word GitHub uses for
+    # a concurrency eviction — see CLAUDE.md for telling them apart.
+    name: pytest (shard ${{ matrix.shard }}/3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      # Every shard reports: a red in shard 1 must not cancel shard 2's result.
+      fail-fast: false
+      matrix:
+        # Must be 1..N for the `/N` in the Pytest step and `--expect-shards N`
+        # in `pytest complete`; `pytest_shards.py --self-test` (in `just lint`)
+        # refuses any drift between the three.
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Sync uv environment (locked)
+        run: uv sync --locked
       # PGTEST-GATE. 172 of the documents suite's 468 tests (37%) need REAL
       # PostgreSQL SERVER binaries — including the only check that the
       # alembic chain upgrades, downgrades and matches the models. They used
@@ -126,7 +169,8 @@ jobs:
       #   3. it FAILS if it still cannot find initdb — no silent third path.
       # The refusal in services/documents/tests/conftest.py is independent of
       # all three: if this step were deleted tomorrow, a missing server would
-      # still be red, not a quiet 37% coverage loss.
+      # still be red, not a quiet 37% coverage loss. Every shard runs it,
+      # because which shard holds the documents files is up to the packing.
       - name: Resolve PostgreSQL server binaries (PGTEST-GATE)
         run: |
           set -euo pipefail
@@ -153,13 +197,68 @@ jobs:
           fi
           echo "PG_BIN_DIR=$bin" >> "$GITHUB_ENV"
           echo "resolved PG_BIN_DIR=$bin -> $("$bin/initdb" --version)"
-      - name: Pytest
+      - name: Pytest (this shard)
         env:
           # Belt to the CI-detection braces in conftest.py: state the
           # requirement here too, so this job's posture is readable in this
           # file rather than inferred from a variable GitHub happens to set.
           LOFT_REQUIRE_PG: "1"
-        run: uv run pytest
+        run: >-
+          uv run python scripts/pytest_shards.py run
+          --shard "${{ matrix.shard }}/3"
+          --ledger "$RUNNER_TEMP/pytest-ledger/shard-${{ matrix.shard }}.json"
+      # The ledger is written at session finish whatever the test outcome, so a
+      # red shard still hands one in. A shard killed mid-run hands in none, and
+      # `pytest complete` names it.
+      - name: Upload the shard's ledger
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-ledger-${{ matrix.shard }}
+          path: ${{ runner.temp }}/pytest-ledger/
+          if-no-files-found: ignore
+          retention-days: 7
+          # "Re-run failed jobs" re-uploads under the same name; without this
+          # v4 answers 409 and the re-run goes red for a reason unrelated to
+          # the tests. `pytest complete` then reads the fresh ledger beside the
+          # passing shards' ledgers from the first attempt.
+          overwrite: true
+
+  pytest-complete:
+    # The check the packing cannot make about itself. It refuses unless every
+    # shard 1..3 handed in a ledger, all of them collected the same suite
+    # (otherwise they packed different partitions), no test ran twice, and what
+    # ran is exactly what was collected. That is the defect class sharding
+    # introduces: a dropped matrix entry, or a shard that died after collection,
+    # leaves tests nobody ran while every job that did run is green. Stdlib
+    # only, no uv environment, ~20 s. It runs on red shards too, so a red run
+    # still reports its coverage.
+    name: pytest complete
+    needs: pytest
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pytest-ledger-*
+          path: ${{ runner.temp }}/pytest-ledgers
+          merge-multiple: true
+      - name: Every collected test ran in exactly one shard
+        run: >-
+          python3 scripts/pytest_shards.py check
+          --ledgers "$RUNNER_TEMP/pytest-ledgers"
+          --expect-shards 3
+          --workflow .github/workflows/ci.yml
+      # A red shard fails its own job. This makes the aggregate say so too, so
+      # `pytest complete` alone is enough as a required check.
+      - name: Every shard passed
+        env:
+          SHARDS: ${{ needs.pytest.result }}
+        run: |
+          echo "pytest shards: $SHARDS"
+          test "$SHARDS" = success
 
   ts:
     runs-on: ubuntu-latest
@@ -334,6 +433,11 @@ jobs:
       # RUN step and a second EOF do NOT. Bash only, ~0.3s.
       - name: Build-retry policy (+ prove it refuses everything but the EOF)
         run: scripts/compose-build-retry.sh --self-test
+      # The pytest shard planner and its reconcile, including that the
+      # `pytest` matrix, its `/N` and `--expect-shards` agree. Here so that
+      # drift is red in a minute rather than after the shards. Stdlib, ~60ms.
+      - name: Pytest shard planner (+ prove the reconcile can fail)
+        run: python3 scripts/pytest_shards.py --self-test
 
   licences:
     # LIC-3 — the no-GPL rule, enforced by reading the BINARIES we ship.
