@@ -19,9 +19,11 @@ Three gates prove the server placement composer:
 
 from __future__ import annotations
 
+import itertools
 import math
 import subprocess
 import sys
+import uuid
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -36,15 +38,21 @@ from geometry.drawings import (
     serialize_svg,
 )
 from geometry.drawings.compose import (
+    SHEET_MARGIN_MM,
+    STANDARD_VIEWS,
+    VIEW_GUTTER_MM,
     SvgRect,
     Vec2,
     ViewBounds,
     bounds_aware_layout,
     build_dimension_annotation,
     format_dimension_label,
+    measure_sheet_overflow,
     resolve_view_anchors,
     sheet_dimensions,
     view_bounds,
+    view_content_svg_rect,
+    view_ink_rect,
     view_to_svg_edges,
 )
 from geometry.main import app
@@ -61,7 +69,9 @@ from loft_wire.drawings import (
     DiameterDimensionParams,
     DimensionEndpointRef,
     DimensionParams,
+    DrawingViewResult,
     EdgeToEdgeMeasurement,
+    EvaluateDrawingViewsResult,
     LinearDimensionParams,
     MeasuredDimension,
     PointToPointMeasurement,
@@ -70,9 +80,11 @@ from loft_wire.drawings import (
     RadiusDimensionParams,
     SheetLayout,
     SheetPoint,
+    SheetSize,
     SheetViewPlacement,
     TitleBlock,
     ViewProjection,
+    ViewScale,
 )
 from loft_wire.features import EdgeSignature
 from loft_wire.geometry import Vec3
@@ -1803,3 +1815,327 @@ def test_the_knee_brace_ink_centres_on_its_anchor() -> None:
     assert drawn.max_y - drawn.min_y == pytest.approx(_BRACE_R, abs=_TOL)
     assert (drawn.min_x + drawn.max_x) / 2 == pytest.approx(anchor.x, abs=_TOL)
     assert (drawn.min_y + drawn.max_y) / 2 == pytest.approx(420.0 - anchor.y, abs=_TOL)
+
+
+# --- DRAWSHEET-AUTOPLACE-1: auto-layout centres only what it places ----------------
+# `bounds_aware_layout` centred the arrangement on all four standard slots even when
+# some were empty, and `top`/`right`/`iso` sit a gutter from the origin even with
+# zero extent. A lone view therefore landed VIEW_GUTTER_MM / 2 = 12 mm off centre on
+# both axes (an adjacent pair on one), and `resolve_view_anchors` let views pinned
+# with `auto_place=False` vote on the auto arrangement too. Found on a lone `right`
+# view on A2 at 1:4, whose ink ran 4.70 mm past the 420 mm paper edge.
+
+#: A lone `right` view, A2 landscape, 1:4. Half-extents in sheet mm: 340 x 386 mm of
+#: geometry inside a 574 x 400 mm drafting border.
+_LONE_HALF_W = 170.0
+_LONE_HALF_H = 193.0
+
+
+def _rect_edges(half_w: float, half_h: float) -> list[ProjectedViewEdge]:
+    """A closed rectangle centred on the projected origin, as line edges."""
+    corners = [
+        (-half_w, -half_h),
+        (half_w, -half_h),
+        (half_w, half_h),
+        (-half_w, half_h),
+    ]
+    edges: list[ProjectedViewEdge] = []
+    for index, start in enumerate(corners):
+        end = corners[(index + 1) % len(corners)]
+        edges.append(
+            ProjectedViewEdge(
+                primitive="line",
+                visible=True,
+                start=_pt(*start),
+                end=_pt(*end),
+                midpoint=_pt((start[0] + end[0]) / 2, (start[1] + end[1]) / 2),
+            )
+        )
+    return edges
+
+
+def _lone_view_sheet(
+    projection: ViewProjection = "right",
+    size: SheetSize = "A2",
+    half_w: float = _LONE_HALF_W,
+    half_h: float = _LONE_HALF_H,
+    edges: list[ProjectedViewEdge] | None = None,
+) -> ComposedSheet:
+    """Compose a sheet carrying exactly ONE auto-placed standard view at 1:4."""
+    scale = ViewScale(numerator=1, denominator=4)
+    evaluation = EvaluateDrawingViewsResult(
+        part_id=uuid.UUID(int=7),
+        tree_version=1,
+        views=[
+            DrawingViewResult(
+                view=projection,
+                scale=scale,
+                edges=_rect_edges(half_w, half_h) if edges is None else edges,
+            )
+        ],
+    )
+    layout = SheetLayout(
+        size=size,
+        orientation="landscape",
+        title="LONE VIEW",
+        views=[
+            SheetViewPlacement(
+                projection=projection,
+                scale=scale,
+                auto_place=True,
+                position=SheetPoint(x_mm=0.0, y_mm=0.0),
+            )
+        ],
+    )
+    return place_sheet(evaluation, [], layout)
+
+
+def _content_rect(sheet: ComposedSheet, projection: ViewProjection) -> SvgRect:
+    """A placed view's drawn extent, read off the composed sheet's own edges."""
+    view = next(v for v in sheet.views if v.projection == projection)
+    return _drawn_rect(view.edges)
+
+
+def _caption_band_mm() -> float:
+    """The ink a stamped view caption adds below the geometry, from the composer's
+    own two rect helpers so it cannot drift from what the serializers draw."""
+    edges = _rect_edges(10.0, 10.0)
+    anchor = Vec2(100.0, 100.0)
+    content = view_content_svg_rect(edges, anchor, 200.0)
+    ink = view_ink_rect(edges, anchor, 200.0)
+    assert content is not None and ink is not None
+    return ink.max_y - content.max_y
+
+
+def _sheet_ink_rects(sheet: ComposedSheet) -> list[tuple[ViewProjection, SvgRect]]:
+    """Every placed view's INK box (geometry over all three edge kinds, plus the
+    caption band below it), read off the composed sheet."""
+    band = _caption_band_mm()
+    rects: list[tuple[ViewProjection, SvgRect]] = []
+    for view in sheet.views:
+        if view.failed or not view.edges:
+            continue
+        drawn = _drawn_rect(view.edges)
+        rects.append(
+            (
+                view.projection,
+                SvgRect(drawn.min_x, drawn.min_y, drawn.max_x, drawn.max_y + band),
+            )
+        )
+    return rects
+
+
+def test_the_caption_band_is_the_composers_own() -> None:
+    """8.0 mm drop to the caption baseline + half its 3.4 mm text height."""
+    assert _caption_band_mm() == pytest.approx(9.7, abs=_TOL)
+
+
+def test_a_lone_auto_placed_view_is_centred_on_the_sheet() -> None:
+    """Pre-fix the centre sat at (297 + 12, 210 - 12): the three empty slots voted."""
+    rect = _content_rect(_lone_view_sheet(half_w=100.0, half_h=100.0), "right")
+    assert (rect.min_x + rect.max_x) / 2 == pytest.approx(594.0 / 2, abs=_TOL)
+    assert (rect.min_y + rect.max_y) / 2 == pytest.approx(420.0 / 2, abs=_TOL)
+
+
+def test_every_lone_standard_view_centres_on_every_sheet_size() -> None:
+    """All four lone views were biased pre-fix, `front` included (-12, -12)."""
+    for projection in STANDARD_VIEWS:
+        for size in ("A4", "A3", "A2", "A1", "ANSI_B"):
+            dims = sheet_dimensions(size, "landscape")
+            sheet = _lone_view_sheet(
+                projection, size, half_w=dims.x / 6, half_h=dims.y / 6
+            )
+            rect = _content_rect(sheet, projection)
+            where = f"{projection} on {size}"
+            assert (rect.min_x + rect.max_x) / 2 == pytest.approx(
+                dims.x / 2, abs=_TOL
+            ), where
+            assert (rect.min_y + rect.max_y) / 2 == pytest.approx(
+                dims.y / 2, abs=_TOL
+            ), where
+
+
+def test_every_subset_of_the_standard_quartet_is_centred() -> None:
+    """All 15 non-empty subsets centre their own arrangement. Pre-fix 8 were off by
+    exactly 12 mm: the four lone views on both axes and the four adjacent pairs on
+    one; the diagonal pairs, triples and quartet already spanned the whole box."""
+    dims = sheet_dimensions("A2", "landscape")
+    bounds = _square_bounds(30)
+    for size in range(1, len(STANDARD_VIEWS) + 1):
+        for subset in itertools.combinations(STANDARD_VIEWS, size):
+            anchors = bounds_aware_layout(
+                {v: (bounds if v in subset else None) for v in STANDARD_VIEWS}, dims
+            )
+            xs = [anchors[v].x for v in subset]
+            ys = [anchors[v].y for v in subset]
+            assert (min(xs) + max(xs)) / 2 == pytest.approx(dims.x / 2, abs=_TOL), (
+                subset
+            )
+            assert (min(ys) + max(ys)) / 2 == pytest.approx(dims.y / 2, abs=_TOL), (
+                subset
+            )
+
+
+def test_full_quartet_placement_is_unchanged() -> None:
+    """With all four present the centring population is what it always was. The
+    numbers are derived by hand from the arrangement (front at the origin, top a
+    gutter above, right a gutter right, iso in the free corner)."""
+    dims = sheet_dimensions("A3", "landscape")
+    h = 30.0
+    anchors = bounds_aware_layout({v: _square_bounds(h) for v in STANDARD_VIEWS}, dims)
+    step = h + VIEW_GUTTER_MM + h
+    ax = dims.x / 2 - step / 2
+    ay = dims.y / 2 - step / 2
+    assert anchors == {
+        "front": Vec2(ax, ay),
+        "top": Vec2(ax, ay + step),
+        "right": Vec2(ax + step, ay),
+        "iso": Vec2(ax + step, ay + step),
+    }
+
+
+def test_a_hand_placed_view_does_not_move_the_auto_placed_one() -> None:
+    """A view pinned with `auto_place=False` is drawn at its own point, so it must
+    not vote on the auto arrangement. Pre-fix the front view sat at x = 158 on A3,
+    shoved left to make room for a right view drawn elsewhere."""
+    scale = ViewScale(numerator=1, denominator=1)
+    evaluation = EvaluateDrawingViewsResult(
+        part_id=uuid.UUID(int=8),
+        tree_version=1,
+        views=[
+            DrawingViewResult(view="front", scale=scale, edges=_rect_edges(40.0, 30.0)),
+            DrawingViewResult(view="right", scale=scale, edges=_rect_edges(40.0, 30.0)),
+        ],
+    )
+    layout = SheetLayout(
+        size="A3",
+        orientation="landscape",
+        title="Mixed",
+        views=[
+            SheetViewPlacement(
+                projection="front",
+                scale=scale,
+                auto_place=True,
+                position=SheetPoint(x_mm=0.0, y_mm=0.0),
+            ),
+            SheetViewPlacement(
+                projection="right",
+                scale=scale,
+                auto_place=False,
+                position=SheetPoint(x_mm=360.0, y_mm=60.0),
+            ),
+        ],
+    )
+    sheet = place_sheet(evaluation, [], layout)
+
+    front = _content_rect(sheet, "front")
+    assert (front.min_x + front.max_x) / 2 == pytest.approx(420.0 / 2, abs=_TOL)
+    assert (front.min_y + front.max_y) / 2 == pytest.approx(297.0 / 2, abs=_TOL)
+    right = _content_rect(sheet, "right")
+    assert (right.min_x + right.max_x) / 2 == pytest.approx(360.0, abs=_TOL)
+    assert (right.min_y + right.max_y) / 2 == pytest.approx(297.0 - 60.0, abs=_TOL)
+
+
+def test_a_view_that_fits_is_nudged_so_its_caption_fits_too() -> None:
+    """Centring the GEOMETRY leaves the 9.7 mm caption hanging below it. On the A2
+    fixture the geometry clears the bottom border by (400 - 386) / 2 = 7.00 mm, so a
+    centred caption would cross it by 2.70 mm. Geometry plus caption is
+    386 + 9.7 = 395.7 mm, which fits the 400 mm border, so the layout moves the view
+    up by exactly 2.70 mm: geometry 14.30 .. 400.30, ink bottom on 410.00."""
+    sheet = _lone_view_sheet()
+    content = _content_rect(sheet, "right")
+    assert (content.min_x + content.max_x) / 2 == pytest.approx(297.0, abs=_TOL)
+    assert content.min_y == pytest.approx(14.3, abs=1e-9)
+    assert content.max_y == pytest.approx(400.3, abs=1e-9)
+    ((_, ink),) = _sheet_ink_rects(sheet)
+    assert ink.max_y == pytest.approx(410.0, abs=1e-9)
+
+
+def test_a_view_too_tall_for_its_caption_stays_centred() -> None:
+    """When geometry plus caption cannot fit (394 + 9.7 > 400 mm) there is no
+    placement that fits, so the view stays centred rather than being pushed."""
+    content = _content_rect(_lone_view_sheet(half_h=197.0), "right")
+    assert (content.min_y + content.max_y) / 2 == pytest.approx(210.0, abs=_TOL)
+
+
+def test_measure_sheet_overflow_is_silent_inside_the_border() -> None:
+    rect = view_ink_rect(_rect_edges(100.0, 100.0), Vec2(297.0, 210.0), 420.0)
+    assert rect is not None
+    assert measure_sheet_overflow([("right", rect)], Vec2(594.0, 420.0), 10.0) == []
+
+
+def test_measure_sheet_overflow_sees_the_pre_fix_placement() -> None:
+    """Negative control for the gate: the pre-fix anchor (sheet centre moved 12 mm
+    toward +x and -y) overflows by 4.70 mm past the paper, 14.70 mm past the border.
+    Ink bottom: 420 - (210 - 12) + 193 + 9.7 = 424.70."""
+    dims = sheet_dimensions("A2", "landscape")
+    pre_fix_anchor = Vec2(
+        dims.x / 2 + VIEW_GUTTER_MM / 2, dims.y / 2 - VIEW_GUTTER_MM / 2
+    )
+    rect = view_ink_rect(
+        _rect_edges(_LONE_HALF_W, _LONE_HALF_H), pre_fix_anchor, dims.y
+    )
+    assert rect is not None
+
+    overflow = measure_sheet_overflow([("right", rect)], dims, SHEET_MARGIN_MM)
+
+    assert len(overflow) == 1
+    assert overflow[0].view == "right"
+    assert overflow[0].side == "bottom"
+    assert overflow[0].sheet_mm == pytest.approx(4.70, abs=1e-9)
+    assert overflow[0].margin_mm == pytest.approx(14.70, abs=1e-9)
+
+
+def test_measure_sheet_overflow_names_each_border() -> None:
+    dims = Vec2(200.0, 100.0)
+    cases = {
+        "left": SvgRect(-5.0, 40.0, 30.0, 60.0),
+        "right": SvgRect(170.0, 40.0, 205.0, 60.0),
+        "top": SvgRect(80.0, -5.0, 120.0, 30.0),
+        "bottom": SvgRect(80.0, 70.0, 120.0, 105.0),
+    }
+    for side, rect in cases.items():
+        overflow = measure_sheet_overflow([("front", rect)], dims, SHEET_MARGIN_MM)
+        assert [(o.side, o.sheet_mm, o.margin_mm) for o in overflow] == [
+            (side, pytest.approx(5.0, abs=_TOL), pytest.approx(15.0, abs=_TOL))
+        ], side
+
+
+def test_composed_sheets_keep_every_views_ink_inside_the_border() -> None:
+    """The standing border gate, over each view's INK (geometry plus caption): the
+    five committed compose goldens, every lone standard view, the tight A2 lone view,
+    and the arc-bearing knee brace (which pre-ARC-BOUNDS-INFLATE-1 bounded as a
+    740 mm circle and could not fit)."""
+    golden_request = _golden_request()
+    sheets: list[tuple[str, ComposedSheet]] = [
+        (
+            "plate golden",
+            place_sheet(
+                evaluate_drawing_views(golden_request),
+                golden_request.dimensions,
+                golden_request.layout,
+            ),
+        ),
+        ("note golden", _compose_note_sheet()),
+        ("title-block golden", _compose_tb_sheet()),
+        ("first-angle golden", _compose_fa_sheet()),
+        ("authored-placement golden", _compose_placement()),
+        ("tight A2 lone right", _lone_view_sheet()),
+        ("knee brace", _lone_view_sheet(edges=_knee_brace_edges())),
+    ]
+    for projection in STANDARD_VIEWS:
+        sheets.append(
+            (
+                f"lone {projection}",
+                _lone_view_sheet(projection, "A3", half_w=100.0, half_h=80.0),
+            )
+        )
+    for name, sheet in sheets:
+        rects = _sheet_ink_rects(sheet)
+        assert rects, f"{name} composed no measurable view"
+        assert (
+            measure_sheet_overflow(
+                rects, Vec2(sheet.width_mm, sheet.height_mm), sheet.margin_mm
+            )
+            == []
+        ), name

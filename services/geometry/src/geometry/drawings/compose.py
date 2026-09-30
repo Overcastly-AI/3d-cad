@@ -537,9 +537,18 @@ def bounds_aware_layout(
         "right": r,
         "iso": i,
     }
+    # Centre on the views actually being placed (DRAWSHEET-AUTOPLACE-1). Every slot
+    # has a `rel` point whether or not a view fills it, and `top`, `right` and `iso`
+    # sit a gutter away from the origin even with zero extent, so centring on all
+    # four let empty slots vote: a lone view landed VIEW_GUTTER_MM / 2 = 12 mm off
+    # centre on both axes, an adjacent pair on one. A slot is empty exactly when its
+    # bounds are None. The full quartet is unchanged.
+    present: list[ViewProjection] = [
+        v for v in STANDARD_VIEWS if bounds_by_projection.get(v) is not None
+    ]
     min_x = min_y = math.inf
     max_x = max_y = -math.inf
-    for v in STANDARD_VIEWS:
+    for v in present:
         a = rel[v]
         hh = half_of[v]
         min_x = min(min_x, a.x - hh.x)
@@ -548,7 +557,31 @@ def bounds_aware_layout(
         max_y = max(max_y, a.y + hh.y)
     dx = dims.x / 2 - (min_x + max_x) / 2
     dy = dims.y / 2 - (min_y + max_y) / 2
+    # Centring the GEOMETRY leaves each view's stamped caption hanging
+    # _VIEW_CAPTION_BAND_MM below it, so a bottom row that clears the border by less
+    # than the band prints its captions across it. When geometry plus captions fit
+    # inside the border, move the arrangement just far enough that they do; when
+    # they cannot fit, stay centred and let the sheet report it (off_sheet). A sheet
+    # with room to spare, which is every committed golden, does not move.
+    dy += _fit_shift(
+        min_y + dy - _VIEW_CAPTION_BAND_MM,
+        max_y + dy,
+        SHEET_MARGIN_MM,
+        dims.y - SHEET_MARGIN_MM,
+    )
     return {v: Vec2(rel[v].x + dx, rel[v].y + dy) for v in STANDARD_VIEWS}
+
+
+def _fit_shift(lo: float, hi: float, lo_bound: float, hi_bound: float) -> float:
+    """The smallest shift that moves ``[lo, hi]`` inside ``[lo_bound, hi_bound]``,
+    or 0.0 when it is already inside or is too long to fit at all."""
+    if hi - lo > hi_bound - lo_bound:
+        return 0.0
+    if lo < lo_bound:
+        return lo_bound - lo
+    if hi > hi_bound:
+        return hi_bound - hi
+    return 0.0
 
 
 #: A view's y-UP axis-aligned bounding box on the sheet (min/max in sheet mm), used
@@ -673,10 +706,19 @@ def resolve_view_anchors(
             "what makes this unreachable."
         )
 
+    # Only the views this pass auto-places feed the auto-layout (DRAWSHEET-
+    # AUTOPLACE-1). The evaluation can carry projections the layout pins with
+    # `auto_place=False` (drawn at their own point below) or does not place at all;
+    # letting those vote shoved the auto views aside for geometry drawn elsewhere.
+    auto_placed = {
+        vp.projection
+        for vp in layout.views
+        if vp.auto_place and vp.projection in STANDARD_VIEWS
+    }
     bounds_by_proj: dict[ViewProjection, ViewBounds | None] = {}
     for proj in STANDARD_VIEWS:
         r = result_by_proj.get(proj)
-        ok = r is not None and r.error is None
+        ok = proj in auto_placed and r is not None and r.error is None
         bounds_by_proj[proj] = view_bounds(r.edges) if (ok and r is not None) else None
     auto = bounds_aware_layout(bounds_by_proj, dims, layout.projection)
 
@@ -841,6 +883,60 @@ def measure_layout_issues(
                 )
             )
     return issues
+
+
+#: Float noise allowed on the border test (mm). The layout can place ink exactly on
+#: the border (see :func:`_fit_shift`), and the y flip may land it a few ulps past;
+#: a micron is far below anything a plotter draws.
+_BORDER_FIT_TOL_MM = 1e-6
+
+
+class SheetOverflow(NamedTuple):
+    """One placed view's ink measured against the sheet's borders (mm).
+
+    Positive is bad on both numbers, as for the pairwise overlaps: ``margin_mm`` is
+    how far the ink crosses the drafting border, ``sheet_mm`` how far it crosses the
+    paper edge (negative when it is still on the paper). ``side`` names the worst
+    border.
+    """
+
+    view: ViewProjection
+    side: str
+    margin_mm: float
+    sheet_mm: float
+
+
+def measure_sheet_overflow(
+    rects: Sequence[tuple[ViewProjection, SvgRect]],
+    dims: Vec2,
+    margin_mm: float,
+) -> list[SheetOverflow]:
+    """Measure every placed view's ink against the drafting border.
+
+    :func:`measure_layout_issues` compares views in pairs, so it cannot see a single
+    view running off the sheet. This is the missing view-versus-border check, in the
+    same SVG space (y down, top-left origin) as :func:`view_ink_rect` and against
+    the same ``margin_mm`` border the serializers draw. One record per view that
+    crosses the border by more than :data:`_BORDER_FIT_TOL_MM`, in the given order,
+    naming its worst side (ties resolve left, right, top, bottom).
+    """
+    out: list[SheetOverflow] = []
+    for view, rect in rects:
+        by_side = {
+            "left": (margin_mm - rect.min_x, -rect.min_x),
+            "right": (rect.max_x - (dims.x - margin_mm), rect.max_x - dims.x),
+            "top": (margin_mm - rect.min_y, -rect.min_y),
+            "bottom": (rect.max_y - (dims.y - margin_mm), rect.max_y - dims.y),
+        }
+        side, (over_margin, over_sheet) = max(by_side.items(), key=lambda kv: kv[1][0])
+        if over_margin <= _BORDER_FIT_TOL_MM:
+            continue
+        out.append(
+            SheetOverflow(
+                view=view, side=side, margin_mm=over_margin, sheet_mm=over_sheet
+            )
+        )
+    return out
 
 
 def sample_arc(
