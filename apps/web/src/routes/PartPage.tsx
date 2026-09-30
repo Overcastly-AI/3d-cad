@@ -273,6 +273,11 @@ import {
 } from "../features/modify";
 import { useCommandActionStore } from "../features/commandActions";
 import { useEdgePickStore } from "../features/edgePickStore";
+import {
+  EditRollback,
+  editRollbackBarId,
+  ROLLBACK_EDIT_KINDS,
+} from "../features/editRollback";
 import { EdgePickOverlay } from "../viewport/EdgePickOverlay";
 import {
   defaultShellForm,
@@ -2168,10 +2173,20 @@ export function PartPage() {
   const setShellOverlay = useFacePickStore((s) => s.setOverlay);
   const setShellOverlayError = useFacePickStore((s) => s.setOverlayError);
 
+  // Editing, the faces come from the body the feature is built on, as the
+  // edges do above: a shell's open faces are not faces of the shelled tip.
   const shellOverlayQuery = useQuery({
-    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryKey:
+      editingFeatureId === null
+        ? ["overlay", partId, treeVersion, meshGlbId]
+        : ["overlay-before", partId, treeVersion, editingFeatureId],
     queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+      fetchOverlay(
+        buildEvaluateTree(
+          tree.data as FeatureTreeResponse,
+          editingFeatureId ?? undefined,
+        ),
+      ),
     enabled: shellPicking && tree.data !== undefined && meshGlbId !== null,
     staleTime: Infinity,
     retry: false,
@@ -2210,10 +2225,18 @@ export function PartPage() {
   // and the timeline chip read, so the three surfaces answer one question. See
   // `viewport/scopeHighlight.ts` for why `This body` paints nothing.
   // ---------------------------------------------------------------------
-  const highlightFeatureIds = useMemo(
-    () => highlightedFeatureIds(scopedFeatureIds, selectedFeatureId),
-    [scopedFeatureIds, selectedFeatureId],
-  );
+  // A rolled-back feature is not in the body on screen, so it lights nothing.
+  // Without this the fillet under edit (rolled back to its input body) owned
+  // no face and fell back to warming the whole body.
+  const highlightFeatureIds = useMemo(() => {
+    const ids = highlightedFeatureIds(scopedFeatureIds, selectedFeatureId);
+    const rolledBack = new Set(
+      features.filter((f) => f.rolled_back).map((f) => f.id),
+    );
+    return rolledBack.size === 0
+      ? ids
+      : ids.filter((id) => !rolledBack.has(id));
+  }, [scopedFeatureIds, selectedFeatureId, features]);
   const selectionActive =
     mode === "off" && highlightFeatureIds.length > 0 && !measureActive;
   const selectionOverlayQuery = useQuery({
@@ -2345,6 +2368,62 @@ export function PartPage() {
       version: Math.max(state.version ?? version, version),
     }));
   }, []);
+
+  // EDIT FEATURE ROLLS THE TIMELINE BACK (FILLET-EDIT-REPICK,
+  // `features/editRollback`). The controller owns the bar while a fillet,
+  // chamfer, shell or draft is being edited; each move goes through the same
+  // rollback route the timeline's travel stop uses and lands in the tree cache
+  // at once, so the body on screen follows without waiting for a refetch.
+  const editRollback = useMemo(
+    () =>
+      new EditRollback({
+        cachedBar: () => {
+          const cached = queryClient.getQueryData<FeatureTreeResponse>([
+            "features",
+            partId,
+          ]);
+          return cached === undefined
+            ? null
+            : {
+                bar: cached.rollback_feature_id ?? null,
+                version: cached.tree_version,
+              };
+        },
+        moveBar: async (bar, expectedVersion, quiet) => {
+          beginTreeWrite();
+          try {
+            let moved: FeatureTreeResponse;
+            try {
+              moved = await moveRollbackBar(
+                partId,
+                bar,
+                expectedVersion ??
+                  (await fetchFeatureTree(partId)).tree_version,
+              );
+            } catch {
+              moved = await moveRollbackBar(
+                partId,
+                bar,
+                (await fetchFeatureTree(partId)).tree_version,
+              );
+            }
+            noteWrittenTreeVersion(moved.tree_version);
+            if (!quiet) queryClient.setQueryData(["features", partId], moved);
+            return moved.tree_version;
+          } finally {
+            endTreeWrite();
+          }
+        },
+      }),
+    [partId, queryClient, beginTreeWrite, endTreeWrite, noteWrittenTreeVersion],
+  );
+  // Leaving the part (or the page) mid-edit puts the bar back.
+  useEffect(
+    () => () => {
+      void editRollback.release().catch(() => undefined);
+    },
+    [editRollback],
+  );
 
   // Document-unit change (docs/design/units.md §U2): a pure re-label. It PATCHes
   // the part's `length_unit` under the tree-version OCC and refreshes the part +
@@ -3336,6 +3415,21 @@ export function PartPage() {
     },
     [editor, selectFeature],
   );
+  // Each feature's LAST evaluated result. The edit rolls the timeline back to
+  // the feature, and a rolled-back feature is not evaluated, so its editor
+  // reads the result the feature had at the tip.
+  const [lastResults, setLastResults] = useState<
+    ReadonlyMap<string, EvaluateTreeResult["features"][number]>
+  >(() => new Map());
+  useEffect(() => {
+    const results = evaluation.data?.features;
+    if (results === undefined) return;
+    setLastResults((previous) => {
+      const next = new Map(previous);
+      for (const result of results) next.set(result.feature_id, result);
+      return next;
+    });
+  }, [evaluation.data]);
   // The OPEN editor's notice: the same derivation the tree row uses, for the
   // feature under edit. Not dismissable there: the editor is the answer.
   const editorMovedEdge = useMemo(() => {
@@ -3344,11 +3438,11 @@ export function PartPage() {
     }
     const feature = features.find((f) => f.id === editor.featureId);
     if (feature === undefined) return null;
-    const result = evaluation.data?.features.find(
-      (r) => r.feature_id === feature.id,
-    );
+    const result =
+      evaluation.data?.features.find((r) => r.feature_id === feature.id) ??
+      lastResults.get(feature.id);
     return movedEdgeWarning(feature, features, result);
-  }, [editor, features, evaluation.data]);
+  }, [editor, features, evaluation.data, lastResults]);
   // Dismissed notices, by `MovedEdgeWarning.key`: session state, remembered
   // until an EARLIER feature changes (a new re-match brings it back).
   const [dismissedMovedEdges, setDismissedMovedEdges] = useState<
@@ -3398,6 +3492,36 @@ export function PartPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mode, editor, datumFacePick, holePick, closeEditor]);
+
+  // Edit on a fillet, chamfer, shell or draft rolls the timeline back to the
+  // feature, as Fusion 360's Edit Feature does; any other editor, or none,
+  // puts the bar back where the edit found it. Keyed on the bar the edit WANTS
+  // (a feature id), not on the tree, so a refetch mid-edit cannot re-roll a
+  // bar a save has just released.
+  const rollbackEditTarget = useMemo(() => {
+    if (
+      editor === null ||
+      editor.mode !== "edit" ||
+      editor.featureId === undefined ||
+      !ROLLBACK_EDIT_KINDS.has(editor.kind)
+    ) {
+      return undefined;
+    }
+    return editRollbackBarId(features, editor.featureId);
+  }, [editor, features]);
+  useEffect(() => {
+    const failed = (error: unknown) =>
+      setEditorError(
+        error instanceof Error
+          ? error.message
+          : "The timeline could not be rolled back to this feature.",
+      );
+    if (rollbackEditTarget !== undefined) {
+      editRollback.hold(rollbackEditTarget).catch(failed);
+    } else if (editRollback.held) {
+      editRollback.release().catch(failed);
+    }
+  }, [rollbackEditTarget, editRollback]);
 
   // Edge-pick session lifecycle: a fillet/chamfer editor opens a session
   // (seeded with its persisted picks + mode); anything else closes it. Keyed on
@@ -3537,22 +3661,27 @@ export function PartPage() {
         : holeAnchor(holePreview.signature, holePreview.position),
     [holePreview],
   );
+  // CREATE sessions only. An edit's picks are the feature's own, made on the
+  // body it is built on, and Cancel must leave nothing of them behind: mirrored,
+  // they outlived the Cancel and seeded the next command with picks on a body
+  // that is not the tip, stamped with the tip's id.
   useEffect(() => {
     if (!shellSessionOpen || bodyFeatureId === null) return;
+    if (editingFeatureId !== null) return;
     usePreselectStore.getState().rememberFaces(
       shellPickedFaces.map((signature) => ({
         signature,
         anchorId: bodyFeatureId,
       })),
     );
-  }, [shellSessionOpen, shellPickedFaces, bodyFeatureId]);
+  }, [shellSessionOpen, shellPickedFaces, bodyFeatureId, editingFeatureId]);
 
   const edgePickedEdges = useEdgePickStore((s) => s.picked);
   const edgeSessionOpen = useEdgePickStore((s) => s.active);
   useEffect(() => {
-    if (!edgeSessionOpen) return;
+    if (!edgeSessionOpen || editingFeatureId !== null) return;
     usePreselectStore.getState().rememberEdges(edgePickedEdges, bodyFeatureId);
-  }, [edgeSessionOpen, edgePickedEdges, bodyFeatureId]);
+  }, [edgeSessionOpen, edgePickedEdges, bodyFeatureId, editingFeatureId]);
 
   // The shared save path for either body-affecting feature: read the freshest
   // tree_version, retry once on a stale-version race, then invalidate the tree
@@ -3571,6 +3700,11 @@ export function PartPage() {
       // lands — see the tree-write block above.
       beginTreeWrite();
       void (async () => {
+        // An edit that rolled the timeline back puts the bar back FIRST, so
+        // the undo snapshot this write records has the bar where the user left
+        // it. Quiet: the refresh after the write shows the result, and the old
+        // body must not flash up in between.
+        const rolledBack = !isCreate && editRollback.held;
         try {
           const attempt = async (version: number) =>
             isCreate
@@ -3580,9 +3714,12 @@ export function PartPage() {
                   featureId as string,
                   updateEnvelope(version),
                 );
+          const released = rolledBack
+            ? await editRollback.release(true).catch(() => null)
+            : null;
           let response;
           try {
-            response = await attempt(await freshTreeVersion());
+            response = await attempt(released ?? (await freshTreeVersion()));
           } catch {
             response = await attempt(
               (await fetchFeatureTree(partId)).tree_version,
@@ -3600,6 +3737,9 @@ export function PartPage() {
           setEditorError(
             error instanceof Error ? error.message : fallbackMessage,
           );
+          // The editor stays open on the error, so it goes back to the body
+          // its picks live on.
+          if (rolledBack) void editRollback.reacquire().catch(() => undefined);
         } finally {
           setEditorSaving(false);
           endTreeWrite();
@@ -3608,6 +3748,7 @@ export function PartPage() {
     },
     [
       partId,
+      editRollback,
       freshTreeVersion,
       refreshTreeAndBody,
       beginTreeWrite,
@@ -4778,6 +4919,8 @@ export function PartPage() {
       // tree, and the bar's blind stale-retry must never land on a tree a
       // history step just restored.
       if (rollbackBusy || historyInFlight.current) return;
+      // The user put the bar here: an open edit must not move it back later.
+      editRollback.forget();
       // Moving the bar rebuilds the body → the measure overlay refetches
       // against a different tree version; disarm the tool so a mid-measure
       // rollback can never resolve a stale pick index (matches every other
@@ -4806,6 +4949,7 @@ export function PartPage() {
     [
       partId,
       rollbackBusy,
+      editRollback,
       freshTreeVersion,
       refreshTreeAndBody,
       beginTreeWrite,
