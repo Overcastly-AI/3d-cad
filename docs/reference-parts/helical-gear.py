@@ -23,9 +23,12 @@ Two routes (Loft has no equation curve and no gear generator):
    export re-read by OCCT outside the app, twist measured on that STEP.
 
 **Twisted route** (``--twisted``; helical-gear gap #1): steps 2-3 become ONE
-tooth-gap sketch on XY and ONE extrude CUT with ``twist_angle_deg`` = the helix
-twist over the face width - a true helical sweep, not a ruled approximation
-(docs/design/twisted-extrude.md) - then the same pattern, bore and checks.
+tooth-gap sketch on XY, ONE path sketch (a line up the gear axis, on XZ) and
+ONE SWEEP CUT along it with ``twist_angle_deg`` = the helix twist over the face
+width - Fusion 360's and SolidWorks' "twist along path", a true helical sweep
+rather than a ruled approximation (docs/design/twisted-extrude.md; the twist
+moved from Extrude to Sweep in TWIST-TO-SWEEP) - then the same pattern, bore
+and checks.
 
 Run against a live gateway::
 
@@ -340,7 +343,8 @@ def build(
 def build_twisted(
     part: Part, g: Gear, fit_points: int, timer: Timer
 ) -> dict[str, uuid.UUID]:
-    """The twisted route: one gap sketch, one twisted extrude cut, one pattern."""
+    """The twisted route: one gap sketch, one axis path, one twisted sweep cut,
+    one pattern."""
     ids: dict[str, uuid.UUID] = {}
 
     t0 = time.perf_counter()
@@ -355,17 +359,23 @@ def build_twisted(
     draw_gap(sk, g, 0.0, fit_points)
     sk.save()
     ids["section0"] = sk.id
+    # The sweep path IS the twist axis: the gear axis, from the gap's own
+    # plane (z = 0) up through the face width. On XZ, sketch y is world +Z.
+    axis = part.sketch(on="XZ", name="Gear axis (sweep path)")
+    axis.line((0.0, 0.0), (0.0, g.face_width))
+    axis.save()
+    ids["axis"] = axis.id
     twist = math.degrees(g.twist_at(g.face_width))
-    cut = part.extrude(
+    cut = part.sweep(
         sk,
-        g.face_width,
+        axis,
         operation="cut",
         twist_angle_deg=twist,
-        name="Tooth gap (twisted cut)",
+        name="Tooth gap (twisted sweep cut)",
     )
     ids["cut"] = cut.id
     part.evaluate(strict=True)
-    timer.step(f"gap sketch + twisted extrude cut ({twist:.3f} deg) + evaluate", t0)
+    timer.step(f"gap + axis sketches + twisted sweep cut ({twist:.3f} deg)", t0)
 
     t0 = time.perf_counter()
     pattern = part.create_feature(
@@ -522,7 +532,7 @@ def main() -> int:
     ap.add_argument(
         "--twisted",
         action="store_true",
-        help="one gap sketch + a TWISTED extrude cut instead of the ruled loft",
+        help="one gap sketch + a TWISTED sweep cut instead of the ruled loft",
     )
     ap.add_argument(
         "--edit", action="store_true", help="re-drive to beta=20 and time it"
@@ -538,7 +548,7 @@ def main() -> int:
     )
     exact, ruled = expected_volume(g, args.sections)
     if args.twisted:
-        # A twisted extrude is the helicoid itself: its expected volume is the
+        # A twisted sweep is the helicoid itself: its expected volume is the
         # true helical one, so "vs ruled" below compares against the same value.
         ruled = exact
         print(f"expected volume: true helical {exact:.1f} mm^3 (twisted cut)")
@@ -604,7 +614,7 @@ def main() -> int:
                 draw_gap(sk, g2, g2.twist_at(height), args.fit_points)
                 sk.part.update_feature(sk.id, feature=sk.feature())
             if args.twisted:
-                part.set_extrude_twist(
+                part.set_sweep_twist(
                     ids["cut"], math.degrees(g2.twist_at(g2.face_width))
                 )
             timer.step("re-drive blank + gap sketch(es) (+ twist) to beta=20", t0)
