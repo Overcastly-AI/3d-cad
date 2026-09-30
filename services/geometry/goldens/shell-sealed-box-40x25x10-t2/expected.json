@@ -1,0 +1,27 @@
+{
+  "description": "SEALED SHELL GOLDEN (GEOMETRY-QA 2026-09-25 R2-F1). The 40x25x10 box shelled to a 2 mm wall with NO face opened: the Shell editor's default ('No faces open - a sealed hollow'), a solid with an inner void. The same three-feature tree as shell-open-top-box-40x25x10-t2 with an empty faces list. Before R2-F1 this body was NOT deterministic: OCCT's Arc-join hollow orders the cavity's faces by a hash of the input's addresses, so 4 cold rebuilds gave 4 distinct GLBs and the centroid moved in its last bits. A box has no concave edge, so the kernel now builds it with the Intersection join, which builds the same faces in a fixed order. The golden's byte-determinism gates (in-process and across an interpreter restart) pin that.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values. Base body: the 40x25x10 box, volume 10000 mm^3. Shell thickness t = 2 mm, uniform INWARD offset, no face removed, so every face moves inward by t and the cavity is closed on all six sides.",
+    "cavity: x 2..38 (36), y 2..23 (21), z 2..8 (6). cavity volume = 36*21*6 = 4536 mm^3.",
+    "volume = 10000 - 4536 = 5464 mm^3.",
+    "surface_area: outer skin 2*(40*25 + 40*10 + 25*10) = 3300; cavity skin 2*(36*21 + 36*6 + 21*6) = 2196; total 5496 mm^2.",
+    "centroid: the box and the cavity share the centre (20, 12.5, 5), so the hollow's centroid is (20, 12.5, 5) exactly.",
+    "bounding_box = [0,0,0]..[40,25,10]: an inward shell leaves the outer envelope untouched.",
+    "topology: 6 outer + 6 cavity faces = 12; 12 + 12 edges = 24; 2 shells (the outer skin and the void's).",
+    "mesh (linear 0.1 mm): every face is a planar rectangle, 4 nodes / 2 triangles each, so 12 faces give 48 vertices and 24 triangles.",
+    "GLB byte size is deliberately NOT pinned here: asserted deterministic (byte-identical, in process and across an interpreter restart) by the runner within one kernel version."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "PLANAR-geometry tolerance, measured then set, as for shell-open-top-box-40x25x10-t2. Measured deviations from the analytic values (2026-09-25, build123d 0.11.1 / OCCT 7.9.3): volume +1.8e-12, surface_area 0.0, centroid.x 0.0, centroid.y -3.6e-15, centroid.z 0.0, AABB exact. The ceiling 1e-9 leaves about 500x on the volume. Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 5464.0,
+    "surface_area": 5496.0,
+    "centroid": { "x": 20.0, "y": 12.5, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 12, "edges": 24, "shells": 2 },
+  "mesh": { "vertices": 48, "triangles": 24 }
+}

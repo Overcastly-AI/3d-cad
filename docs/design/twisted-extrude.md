@@ -7,9 +7,11 @@ Status: **IMPLEMENTED** (kernel 2026-09-24; high-twist cost bound 2026-09-25,
 feature's `twist_angle_deg` / `twist_center` parameters, the OCCT mechanism
 behind them, and how they compose with the other extrude options. Closes the
 kernel side of helical-gear gap #1 (G1 of the 2026-09-24 reference-part run,
-`git show 5b6fd28:docs/qa/helical-gear-2026-09-24.md`). **Next:** twist moves
-from Extrude to Sweep (`docs/BACKLOG.md` TWIST-TO-SWEEP); this note is deleted
-once that ships.
+`git show 5b6fd28:docs/qa/helical-gear-2026-09-24.md`). **TWIST-TO-SWEEP
+(2026-09-25):** twist now lives on Sweep; the kernel and API half has landed
+(§8), and the extrude twist is kept only so stored rows and scripts rebuild.
+This note is deleted once the web half (the Sweep field, and no Twist field
+on Extrude) ships.
 
 Related: RESEARCH §1 (OCCT via OCP + build123d; no new dependency) and §9
 (goldens, determinism, STEP round trip); `feature-tree.md` §1.4 (an additive
@@ -503,9 +505,7 @@ refusal is the authority; a UI hint should say "may be slow or refused", not pre
 
 ## 7. Not done here
 
-- A twist on the SWEEP feature (`SweepParamsV1` still says "NO twist") and a 3D
-  helix path. The twisted extrude covers the gear. A sweep twist would reuse
-  this module's auxiliary-helix idea along a non-straight spine.
+- A twist along a CURVED sweep path, and a 3D helix path (§8: refused today).
 - A cost PREFLIGHT the UI could ask for before saving (the §6.1 estimate
   exposed on the API). The UI's bound in §6.1 covers the warning until then.
 - Drawing views of twisted bodies (§6.1, "Drawings"): exact HLR along the twist
@@ -513,3 +513,58 @@ refusal is the authority; a UI hint should say "may be slow or refused", not pre
   about 1000x faster but changes the drawing contract; decision pending.
 - The pattern boolean cost (§6) is OCCT's. The lever, if it matters, is running
   the tool fusion in parallel, which needs its own determinism evidence first.
+
+## 8. Twist along a sweep path (TWIST-TO-SWEEP, 2026-09-25)
+
+Fusion 360 and SolidWorks put twist on Sweep ("twist along path"), not on
+Extrude, so Loft does too. `SweepParamsV1.twist_angle_deg` is the only new
+field. It shares the extrude field's bounds, normalisation and `exclude_if`
+(`_twist_angle_field` and `_normalised_twist` in `loft_wire.features`).
+
+**The path IS the axis.** A Fusion sweep twists the profile about the path, so
+Sweep has no `twist_center`. v1 accepts a twist only on a path made of straight
+lines along ONE line perpendicular to the profile's sketch plane, running one
+way, and not crossing the plane (`twist.straight_twist_axis`, with a lateral
+tolerance `TWIST_PATH_TOL_MM = 1e-6`). Such a path is read as
+`(center, distance, reverse)`, and `twisted_extrude_face` itself builds the
+solid. A twisted sweep and a twisted extrude along the matching axis are
+therefore the same solid. `test_twisted_sweep.py` asserts bit-identical mass
+properties and topology over eight path layouts. The helical gear
+(`docs/reference-parts/helical-gear.py --twisted`, now a sweep cut along the
+gear axis) builds to the §3 numbers: 36 470.392 mm³, 150/444/1, and a
+tooth thickness of 3.25242 mm on its STEP re-read.
+
+**Direction of travel.** OCCT places the profile at the path point nearest to
+it and sweeps over the whole path. Measured: a line drawn 0→30 and one drawn
+30→0 sweep the same solid, and a path at z = 50…80 sweeps z = 0…30 from a
+profile at z = 0. So the drawn direction of the line carries no meaning, and
+the twist is right-handed about travel from the profile along the path, as
+the extrude's is. A path that passes through the profile plane is refused.
+The untwisted sweep of such a path builds on both sides of the profile, and
+twisting it would need a mid-path convention that no one has asked for.
+
+**Everything else is a typed refusal, `twist_path_unsupported`:** an arc or
+spline segment, a bend, a slant, a path that doubles back, or a path through
+the profile. Each message names the fix. The check runs before any geometry is
+built, and the same path with no twist still sweeps. A curved twist is not
+built now for three reasons. The section's untwisted frame along a 3D curve is
+a convention (Frenet or rotation-minimising). No general Cavalieri-style
+invariant guards the result. And the auxiliary spine would itself be a fit. A
+planar path is the tractable next step: its frame is unambiguous (the plane
+normal), and a Pappus-style guard holds, V = ∫ A (1 − κ c_N(s)) ds, with the
+section centroid turning along the path. The golden
+`sweep-twist-arc-path-refused-square10-r40-90deg` locks the refusal. It is the
+first refusal golden: its `expected.json` carries a `refusals` list, and the
+harness requires exactly those feature errors and no others.
+
+**The extrude twist stays, read-compatible, and is not migrated.** Stored rows
+with `twist_angle_deg` / `twist_center` validate, evaluate and serialize
+exactly as before. Their code path is untouched, so every existing twisted
+part rebuilds byte-for-byte. In `loft-script`, `extrude(..., twist_angle_deg=)`
+and `set_extrude_twist` keep working and are now documented as legacy. A
+migration would have to insert a path sketch into every affected tree. That
+means a new feature id, a renumbered tree, and a rewritten reference in every
+pattern or mirror that names the extrude: it risks user data and changes no
+geometry. The UI stops offering the extrude twist for new features. A client
+that edits a stored twisted extrude must carry both fields through unchanged,
+or the save straightens the part.

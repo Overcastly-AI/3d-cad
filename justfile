@@ -105,8 +105,9 @@ lint:
     # concurrency expression cannot be exercised locally and only misbehaves
     # when two pushes land close together, so deploy-path.yml sat ref-keyed for
     # two weeks after ci/e2e were fixed, risking the only image-build evidence
-    # a commit can have (CI-2, 2026-08-15). Asserts all three workflows agree
-    # on the per-SHA push / per-ref PR shape.
+    # a commit can have (CI-2, 2026-08-15). Asserts every push-triggered
+    # workflow (ci.yml, and e2e.yml, which calls deploy-path.yml) agrees on the
+    # per-commit push / per-ref PR shape.
     python3 scripts/check-workflow-concurrency.py --self-test
     python3 scripts/check-workflow-concurrency.py
     # ~40ms, and the same class again one level deeper: a context used where it
@@ -120,6 +121,13 @@ lint:
     # interpolates a doubled curly brace even inside a recipe comment.)
     python3 scripts/check-workflow-contexts.py --self-test
     python3 scripts/check-workflow-contexts.py
+    # ~0.1s, the same class once more. A full lane dispatched with `-f sha=S`
+    # posts its checks on the dispatched ref's TIP, so a plainly named
+    # `full lane complete` would put a green check on a commit it never
+    # tested. Holds the conditional verdict name, and that every checkout in
+    # the lane takes the commit that name compares.
+    python3 scripts/check-dispatch-verdict.py --self-test
+    python3 scripts/check-dispatch-verdict.py
     # ~30ms, no browser and no daemon. Two questions nothing else can answer
     # cheaply. (a) Does deploy/docker/web/nginx.conf still have the shape
     # `scripts/dist-leg.sh` can serve natively? That leg is the ONLY thing that
@@ -192,8 +200,22 @@ lint:
     # negative control for the pattern anchoring: a bare `mirror\.spec\.ts$`
     # also selects sketch-mirror.spec.ts, and there are four such
     # basename-suffix pairs in the suite today, so an unanchored pattern would
-    # run four files twice and leave four shards short.
+    # run four files twice and leave four shards short. It also checks the
+    # per-commit smoke list (ci.yml `e2e smoke`): every entry is a real,
+    # measured spec file and the set is inside its time budget, because a
+    # renamed smoke spec is a filter Playwright drops without a word.
     python3 scripts/e2e-shard-plan.py --self-test
+    # ~60ms. pytest_shards.py decides which pytest FILES each ci.yml shard
+    # runs, so a defect in it is a coverage hole behind green jobs. Its
+    # self-test proves the packing places every discovered file exactly once
+    # (manifest or not), that the reconcile refuses a missing shard, a test
+    # run twice or by nobody, and shards that collected different suites, and
+    # that ci.yml's matrix, its `/N` and `--expect-shards` still agree: the
+    # one drift `pytest complete` would only report after a full CI run.
+    python3 scripts/pytest_shards.py --self-test
+    # ~0.3s. The drill's build retry, graded against canned daemon output:
+    # the one BuildKit EOF retries once; nothing else ever does.
+    bash scripts/compose-build-retry.sh --self-test
 
 # Unit tests: pytest across the uv workspace + vitest via pnpm (recursive)
 test:
@@ -287,16 +309,24 @@ corresponding-source-record release="dev":
 e2e:
     scripts/e2e.sh
 
-# Just the BROWSER leg — the same command CI's `e2e` workflow runs, minus the
+# Just the BROWSER leg — the same command the full lane's shards run, minus the
 # shard flag. Use it to reproduce a red CI shard locally: pass the shard
 # through and you run exactly what that job ran, e.g.
 #     just e2e-web --shard=3/4
-# The geometry leg is skipped because `just test` (and CI's `python` job)
+# The geometry leg is skipped because `just test` (and CI's `pytest` shards)
 # already runs the whole geometry suite. MEASURED 352 tests in 50.6 min under
 # load (nearer 30 quiet); one shard is a quarter of that. Narrow it further
 # with a file: `just e2e-web e2e/measure.spec.ts`.
 e2e-web *args:
     scripts/e2e.sh --web-only -- {{args}}
+
+# The per-commit SMOKE — exactly what ci.yml's `e2e smoke` job runs: the five
+# specs of the sketch -> extrude -> save -> reload journey (SMOKE_SPECS in
+# scripts/e2e-shard-plan.py, which says why each is there). 17 tests, ~3 min
+# on the dev container including the stack boot. The full suite is `e2e-web`,
+# and in CI it is the full lane (e2e.yml), which runs before a merge to main.
+e2e-smoke *args:
+    scripts/e2e.sh --web-only -- --smoke --forbid-only {{args}}
 
 # THE BUILT-BUNDLE LEG — `vite build` output served through the REAL production
 # nginx config, in a real browser. Everything above drives the Vite DEV server,

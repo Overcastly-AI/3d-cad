@@ -1,0 +1,113 @@
+# Loft nightly — dispatch the FULL LANE (e2e.yml, `full`) on the working
+# branch's tip, once a day (CI-TWO-LANE, 2026-09-30).
+#
+# Why a dispatcher and not a `schedule:` on e2e.yml itself: a scheduled run
+# always runs the DEFAULT branch's copy of the workflow, against the default
+# branch's code. That would prove `main` nightly, which only changes by a hand
+# merge that is already gated. The working branch is where commits accumulate
+# with only the per-commit lane behind them, so that is what this proves. A
+# workflow_dispatch on that branch runs the branch's OWN e2e.yml on the
+# branch's code.
+#
+# It is NOT guaranteed that the dispatched run's head_sha is the commit it
+# proves. This job picks a tip and then dispatches with `-f sha=<tip>`; if an
+# agent pushes in between, GitHub records the NEW tip as the run's head_sha and
+# posts every check there. That is why e2e.yml names its verdict
+# `full lane complete (proves <sha>)` whenever the two differ, so a green
+# verdict never lands, unqualified, on a commit the run did not test.
+#
+# NB `schedule:` only fires from the default branch, so this file does nothing
+# on its own until it has merged to `main`, and it needs a token allowed to
+# dispatch. Until then, e2e.yml's own push trigger on claude/** (newest tip
+# only) is what runs the full lane before a merge.
+#
+# Which branch: `vars.FULL_LANE_BRANCH` (a repository variable) when it is set,
+# else the `claude/*` branch whose tip commit is newest. A manual dispatch of
+# THIS workflow can name one with the `branch` input.
+#
+# It does NOT dispatch when that tip already has a `full` run that succeeded,
+# or one queued or in progress: re-proving an unchanged commit buys only flake
+# detection, which the next real change will give anyway, at ~15 jobs a time.
+#
+# No `concurrency:` block: it has no push trigger (so
+# scripts/check-workflow-concurrency.py skips it) and it is one short job that
+# only starts another run; a dispatched run is keyed per commit by e2e.yml.
+
+name: nightly
+
+on:
+  schedule:
+    # 02:17 UTC: off the hour, when GitHub's scheduler is least congested and
+    # scheduled runs are least likely to be delayed or dropped.
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch whose tip to prove (default - see the file header)
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  # `actions: write` is what `gh workflow run` needs. GITHUB_TOKEN-created
+  # events do not start workflows, EXCEPT workflow_dispatch, which is why this
+  # works without a personal token.
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: dispatch the full lane on the working branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Pick the branch and its tip
+        id: pick
+        env:
+          WANT: ${{ inputs.branch || vars.FULL_LANE_BRANCH }}
+        run: |
+          set -euo pipefail
+          # Tips only (depth 1): the committer date of each claude/* tip is all
+          # the choice needs.
+          git fetch --quiet --depth=1 origin \
+            '+refs/heads/claude/*:refs/remotes/origin/claude/*'
+          if [[ -n "$WANT" ]]; then
+            branch="$WANT"
+            git fetch --quiet --depth=1 origin "+refs/heads/$branch:refs/remotes/origin/$branch"
+          else
+            branch="$(git for-each-ref --sort=-committerdate --count=1 \
+                        --format='%(refname:lstrip=3)' refs/remotes/origin/claude/)"
+          fi
+          if [[ -z "$branch" ]]; then
+            echo "::error::no branch to prove: no claude/* branch exists and FULL_LANE_BRANCH is unset"
+            exit 1
+          fi
+          tip="$(git rev-parse "refs/remotes/origin/$branch")"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "tip=$tip" >> "$GITHUB_OUTPUT"
+          echo "working branch: $branch @ $tip"
+      - name: Dispatch the full lane unless the tip already has one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.pick.outputs.branch }}
+          TIP: ${{ steps.pick.outputs.tip }}
+        run: |
+          set -euo pipefail
+          # e2e.yml titles every run `full @ <sha> (<event>)`, so the commit a
+          # run proved is readable without knowing which ref it was run on.
+          existing="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow e2e.yml \
+                        --limit 100 --json displayTitle,status,conclusion \
+                        --jq "[.[] | select(.displayTitle | startswith(\"full @ $TIP \"))
+                               | select(.conclusion == \"success\" or .status != \"completed\")
+                               | \"\(.status)/\(.conclusion)\"] | first // empty")"
+          if [[ -n "$existing" ]]; then
+            echo "not dispatching: $BRANCH @ $TIP already has a full-lane run ($existing)"
+            echo "full lane: $BRANCH @ \`$TIP\` already proven or in flight ($existing)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh workflow run e2e.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH" -f sha="$TIP"
+          echo "dispatched: full lane on $BRANCH @ $TIP"
+          echo "dispatched the full lane on $BRANCH @ \`$TIP\`" >> "$GITHUB_STEP_SUMMARY"

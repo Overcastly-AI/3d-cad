@@ -12,11 +12,20 @@
  * commits, Escape cancels — the sketcher's dimension grammar. There is no
  * numeric handle here (the geometry lives in the two referenced sketches), so
  * the honest scope note carries the v1 limits: the path must be one open wire.
+ *
+ * TWIST ALONG PATH (TWIST-TO-SWEEP) is the one number: the total turn of the
+ * section over the sweep, in signed degrees (the document's angle convention,
+ * as the revolve's Angle). It is where Fusion 360 and SolidWorks put it, and
+ * where the Extrude's twist moved from. v1 twists exactly along one straight
+ * line perpendicular to the profile, starting at it; any other path with a
+ * twist is refused at rebuild (`twist_path_unsupported`), and that reason, like
+ * every rebuild error of the sweep being edited, reads in this card.
  */
 import {
   AddIcon,
   Checkbox,
   CutIcon,
+  NumberField,
   Panel,
   PanelActionCell,
   SegmentedControl,
@@ -26,7 +35,7 @@ import {
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import { useCommandBridge } from "../features/commandActions";
-import type { SweepParams } from "../api/parts";
+import type { SketchEntity, SweepParams } from "../api/parts";
 import {
   buildSweepParams,
   sweepSubmitBlocker,
@@ -34,6 +43,13 @@ import {
   type SweepForm,
   type SweepOperation,
 } from "../features/sweep";
+import {
+  parseTwistDeg,
+  TWIST_COST_LIMIT_S,
+  twistCostUpperS,
+  twistError,
+  twistHand,
+} from "../features/twist";
 import { EditorCard } from "./EditorCard";
 
 export interface SweepEditorProps {
@@ -51,6 +67,20 @@ export interface SweepEditorProps {
   saving: boolean;
   /** Server-side failure envelope message, or null. */
   error: string | null;
+  /**
+   * The REBUILD error of the sweep being edited (its FeatureResult), already
+   * in friendly copy, or null. Shown in the error slot while the form still
+   * holds what was saved: once the user changes a field, the reason describes
+   * a state they are already correcting.
+   */
+  rebuildError?: string | null;
+  /**
+   * A profile's sketch entities, or null when unknown: what the twist-cost
+   * heads-up (review S9) counts edges from.
+   */
+  profileEntities?: (
+    profileFeatureId: string,
+  ) => readonly SketchEntity[] | null;
 }
 
 const OPERATIONS: ReadonlyArray<SegmentOption<SweepOperation>> = [
@@ -79,12 +109,40 @@ export function SweepEditor({
   onCancel,
   saving,
   error,
+  rebuildError = null,
+  profileEntities,
 }: SweepEditorProps) {
   const [form, setForm] = useState<SweepForm>(initial);
   // Re-seed when the editor is retargeted at a different feature.
   useEffect(() => setForm(initial), [initial]);
 
   const paths = pathsByProfile[form.profileFeatureId] ?? [];
+
+  const twistMsg = twistError(form.twistInput);
+  const twistDeg = parseTwistDeg(form.twistInput) ?? 0;
+  const twistNote =
+    twistDeg === 0
+      ? null
+      : `${twistHand(twistDeg)}: the far end turns ${Math.abs(twistDeg)}° ${
+          twistDeg > 0 ? "anticlockwise" : "clockwise"
+        } looking back along the path. The path must be one straight line perpendicular to the profile, starting at it.`;
+  // Review S9, carried over from the extrude: the kernel REFUSES a twist its
+  // own cost estimate puts over TWIST_COST_LIMIT_S, and the cost is in TURNS
+  // and the profile's EDGES (design note §6.1). "May", because the bound
+  // over-states the kernel's estimate up to 2x and the kernel's verdict rules.
+  const entities = profileEntities?.(form.profileFeatureId) ?? null;
+  const twistMayBeRefused =
+    entities !== null &&
+    twistCostUpperS(twistDeg, entities) > TWIST_COST_LIMIT_S;
+  // The stored rebuild error describes the SAVED sweep; it stays up only
+  // while the form still says what was saved.
+  const untouched =
+    form.profileFeatureId === initial.profileFeatureId &&
+    form.pathFeatureId === initial.pathFeatureId &&
+    form.operation === initial.operation &&
+    form.merge === initial.merge &&
+    form.twistInput === initial.twistInput;
+  const shownRebuildError = untouched ? rebuildError : null;
 
   const submit = useCallback(() => {
     const params = buildSweepParams(form);
@@ -152,6 +210,16 @@ export function SweepEditor({
             >
               {error}
             </p>
+          ) : shownRebuildError ? (
+            // The same flag slot as a failed save: this sweep's last rebuild
+            // failed, and here is what cures it.
+            <p
+              role="alert"
+              data-testid="sweep-rebuild-error"
+              className="border border-b-0 border-flag bg-anvil px-3 py-2 font-body text-xs text-flag"
+            >
+              {shownRebuildError}
+            </p>
           ) : null}
           <div className="grid grid-cols-2 divide-x divide-hairline border border-t-0 border-hairline bg-anvil">
             <PanelActionCell
@@ -214,6 +282,41 @@ export function SweepEditor({
               </p>
             )}
 
+            <NumberField
+              label="Twist"
+              unit="°"
+              placeholder="0"
+              // `text`, not the NumberField default `decimal`: iOS's decimal pad
+              // has no minus sign, and a LEFT-hand twist is negative (review
+              // N4). `parseTwistDeg` is the gate on what was typed.
+              inputMode="text"
+              data-testid="sweep-twist"
+              value={form.twistInput}
+              error={twistMsg}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, twistInput: e.target.value }))
+              }
+              onFocus={(e) => e.currentTarget.select()}
+            />
+            {twistNote !== null ? (
+              <p
+                className="-mt-1 font-body text-xs text-gauge"
+                data-testid="sweep-twist-note"
+              >
+                {twistNote}
+              </p>
+            ) : null}
+            {twistMayBeRefused ? (
+              // A heads-up, not a warning: quiet ink, no flag, nothing blocked.
+              <p
+                className="-mt-1 font-body text-xs text-gauge"
+                data-testid="sweep-twist-slow"
+              >
+                This many turns on this profile may be slow to build, or refused
+                as too costly. Fewer turns or fewer edges help.
+              </p>
+            ) : null}
+
             <SegmentedControl
               label="Operation"
               value={form.operation}
@@ -234,14 +337,12 @@ export function SweepEditor({
                 }
               />
             ) : null}
-
             <p
               className="-mt-0.5 font-body text-xs text-gauge"
               data-testid="sweep-path-note"
             >
               The path sketch must be one open chain — a closed sketch can't be
-              a path. No twist or scale; the section rides the path from the
-              profile.
+              a path. The section rides the path from the profile.
             </p>
           </div>
         </div>

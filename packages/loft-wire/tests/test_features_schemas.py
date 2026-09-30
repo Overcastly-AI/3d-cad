@@ -38,6 +38,7 @@ from loft_wire.features import (
     SketchFeature,
     SketchParamsV1,
     SolvedSketchData,
+    SweepFeature,
     UnknownFeatureVersionError,
     document_slug,
     export_tree_filename,
@@ -648,6 +649,52 @@ def test_extrude_twist_out_of_range_or_non_finite_is_rejected(
     with pytest.raises(ValidationError):
         FEATURE_ADAPTER.validate_python(
             {"type": "extrude", "version": 1, "params": {**EXTRUDE_PARAMS, **bad}}
+        )
+
+
+SWEEP_PARAMS: dict[str, Any] = {
+    "profile": {"kind": "feature", "feature_id": str(uuid.UUID(int=0x5A1))},
+    "path": {"kind": "feature", "feature_id": str(uuid.UUID(int=0x5A2))},
+    "operation": "cut",
+    "merge": True,
+}
+
+SWEEP_ADAPTER: TypeAdapter[SweepFeature] = TypeAdapter(SweepFeature)
+
+
+def test_sweep_twist_is_additive_and_every_no_twist_dumps_as_the_legacy_row() -> None:
+    """TWIST-TO-SWEEP: a sweep row stored before the twist existed reads
+    untwisted, every spelling of "no twist" dumps with NO twist key (so the
+    stored row, response and rebuild-cache key of every untwisted sweep are
+    unchanged), and a real twist round-trips."""
+    for extra, expected, twisted in (
+        ({}, {}, False),
+        ({"twist_angle_deg": None}, {}, False),
+        ({"twist_angle_deg": 0.0}, {}, False),
+        ({"twist_angle_deg": -0.0}, {}, False),
+        ({"twist_angle_deg": 5e-324}, {}, False),
+        ({"twist_angle_deg": MIN_TWIST_ANGLE_DEG}, {"twist_angle_deg": 1e-9}, True),
+        ({"twist_angle_deg": -12.36}, {"twist_angle_deg": -12.36}, True),
+    ):
+        envelope = SWEEP_ADAPTER.validate_python(
+            {"type": "sweep", "version": 1, "params": {**SWEEP_PARAMS, **extra}}
+        )
+        assert envelope.params.is_twisted is twisted
+        assert envelope.model_dump(mode="json")["params"] == {
+            **SWEEP_PARAMS,
+            **expected,
+        }
+
+
+@pytest.mark.parametrize("bad", [3600.001, -3600.001, float("nan"), float("inf")])
+def test_sweep_twist_out_of_range_or_non_finite_is_rejected(bad: float) -> None:
+    with pytest.raises(ValidationError):
+        SWEEP_ADAPTER.validate_python(
+            {
+                "type": "sweep",
+                "version": 1,
+                "params": {**SWEEP_PARAMS, "twist_angle_deg": bad},
+            }
         )
 
 

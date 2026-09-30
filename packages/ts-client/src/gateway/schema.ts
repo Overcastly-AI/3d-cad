@@ -5261,12 +5261,19 @@ export interface components {
          *     With a nonzero ``twist_angle_deg`` it is a TWISTED extrusion: the profile
          *     rotates uniformly about an axis parallel to the extrusion direction while it
          *     travels, so every point of it traces a true helix and the far-end section is
-         *     the profile rotated by the full twist (a helical gear, a twisted column;
-         *     docs/design/twisted-extrude.md). Both twist fields are additive-optional,
-         *     null by default and OMITTED from a dump while null, so an extrude with no
-         *     twist serializes byte-for-byte as it did before they existed (stored row,
-         *     response, rebuild-cache key) and rebuilds on the unchanged prism path — no
-         *     ``param_version`` bump.
+         *     the profile rotated by the full twist (docs/design/twisted-extrude.md).
+         *
+         *     **The extrude twist is LEGACY (TWIST-TO-SWEEP).** Twist is authored on
+         *     :class:`SweepParamsV1` (``twist_angle_deg``, "twist along path" as in
+         *     Fusion 360 and SolidWorks). These two fields stay, read-compatibly, so that
+         *     every stored twisted extrude and every script that passes them opens and
+         *     rebuilds exactly as before; a twisted extrude and a twisted sweep along the
+         *     matching straight path build the SAME solid through the same kernel call.
+         *     Both fields are additive-optional, null by default and OMITTED from a dump
+         *     while null, so an extrude with no twist serializes byte-for-byte as it did
+         *     before they existed (stored row, response, rebuild-cache key) and rebuilds
+         *     on the unchanged prism path — no ``param_version`` bump. A client that edits
+         *     a stored twisted extrude must carry both fields through unchanged.
          */
         ExtrudeParamsV1: {
             /**
@@ -5295,7 +5302,7 @@ export interface components {
             profile: components["schemas"]["FeatureRef"];
             /**
              * Twist Angle Deg
-             * @description Twist over the whole extrusion distance (degrees). The profile rotates uniformly about the twist axis as it travels, a true helical sweep. Positive is RIGHT-HANDED about the extrusion direction (a right-hand helix whichever way `direction` points); negative is left-handed. None (the default), 0, or any |twist| below 1e-9 deg is NO twist: it is normalised to absent, and the extrude is a plain prism, byte-identical to one with no twist. A twist too tight for the profile, or with too many turns for it to build in reasonable time, is a `twist_failed` rebuild error.
+             * @description LEGACY: new twists belong on the sweep's `twist_angle_deg` (twist along a straight path); this field is kept so stored extrudes and scripts rebuild unchanged. Twist over the whole extrusion distance (degrees). The profile rotates uniformly about the twist axis as it travels, a true helical sweep. Positive is RIGHT-HANDED about the extrusion direction (a right-hand helix whichever way `direction` points); negative is left-handed. None (the default), 0, or any |twist| below 1e-9 deg is NO twist: it is normalised to absent, and the extrude is a plain prism, byte-identical to one with no twist. A twist too tight for the profile, or with too many turns for it to build in reasonable time, is a `twist_failed` rebuild error.
              */
             twist_angle_deg?: number | null;
             /** @description Where the twist axis pierces the sketch plane, in the profile sketch's own (x, y) mm. The axis runs parallel to the extrusion direction through this point. None (the default) is the sketch origin. Dropped (normalised to absent) when there is no twist. */
@@ -9585,12 +9592,25 @@ export interface components {
          *       absolute position is not used. Author the path starting at the profile
          *       origin, with its first segment perpendicular to the profile plane, for a
          *       predictable result (as the golden's vertical path over an XY circle is);
-         *     * NO twist, NO scale-along-path, NO multi-section, NO guide rails, NO
-         *       per-segment transition control — one profile rigidly swept along one path
-         *       (all later, additive params — no ``param_version`` bump);
+         *     * NO scale-along-path, NO multi-section, NO guide rails, NO per-segment
+         *       transition control — one profile swept along one path (all later,
+         *       additive params — no ``param_version`` bump);
          *     * a self-intersecting path, or a corner tighter than the profile can turn
          *       without sweeping through itself, is a kernel ``sweep_failed`` rebuild
          *       error, never a silently bad body.
+         *
+         *     **Twist along the path** (``twist_angle_deg``, TWIST-TO-SWEEP; Fusion 360's
+         *     and SolidWorks' "twist along path"): the profile turns uniformly about the
+         *     PATH as it travels, so every point of it traces a true helix — a helical
+         *     gear's tooth gap, a twisted column. v1 twists along a STRAIGHT path that is
+         *     perpendicular to the profile's sketch plane and does not pass through it
+         *     (it starts on the profile, or lies wholly to one side of it); that sweep is
+         *     exact (docs/design/twisted-extrude.md). Any other path with a twist — an
+         *     arc, a bend, a slanted line, a line through the profile — is the typed
+         *     rebuild error ``twist_path_unsupported``, never an approximated body.
+         *     Additive-optional and omitted from a dump while null, so every untwisted
+         *     sweep serializes and rebuilds byte-for-byte as before (no ``param_version``
+         *     bump).
          */
         SweepParamsV1: {
             /**
@@ -9608,6 +9628,11 @@ export interface components {
             path: components["schemas"]["FeatureRef"];
             /** @description Must resolve to an EARLIER sketch feature whose entities form the single CLOSED profile wire (design §2.2) */
             profile: components["schemas"]["FeatureRef"];
+            /**
+             * Twist Angle Deg
+             * @description Twist along the path (degrees): the total turn of the profile about the path from one end of the sweep to the other, uniform along it, so every profile point traces a true helix. Positive is RIGHT-HANDED about the direction of travel (from the profile along the path, whichever way the path line was drawn); negative is left-handed. Limit +-3600 (ten turns). None (the default), 0, or any |twist| below 1e-9 deg is NO twist: normalised to absent, and the sweep is byte-identical to an untwisted one. Needs a straight path perpendicular to the profile's sketch plane that does not cross it, else the rebuild error `twist_path_unsupported`; a twist with too many turns for the profile to build in reasonable time is `twist_failed`.
+             */
+            twist_angle_deg?: number | null;
         };
         /**
          * SymmetricConstraint

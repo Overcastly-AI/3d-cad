@@ -17,9 +17,12 @@ Pinned here:
 * a SEALED hollow (no face opened, the UI's default) of the golden's spline
   reads its true volume through the NURBS fallback, within the fallback's
   measured accuracy;
-* R2-F1 (strict xfail): a sealed hollow is not deterministic. OCCT returns the
-  cavity shell's faces in a different order on every build (even a plain box),
-  so GLB bytes differ per rebuild;
+* R2-F1 (fixed; was a strict xfail): a sealed hollow was not deterministic.
+  OCCT returned the cavity shell's faces in a different order on every build
+  (even a plain box), so GLB bytes differed per rebuild. kernel.shell now puts
+  every Arc hollow's faces in a canonical order, and ships the Intersection
+  join's byte-stable build of an analytic body when it matches Arc's
+  (tests/test_shell_determinism.py);
 * R2-F2 (strict xfail): a shell whose open face is INCLINED leaves the wall's
   rim edge 1.1e-2 mm loose. That edge is not an isoline, so offset_edges cannot
   rebuild it, and the volume reads 1.3e-3 mm^3 high;
@@ -161,19 +164,16 @@ def test_a_sealed_spline_hollow_reads_its_true_volume_through_the_fallback() -> 
     assert volume_properties(body).volume == pytest.approx(truth, abs=FALLBACK_TOL)
 
 
-# --- R2-F1: sealed hollows are not deterministic ------------------------------
+# --- R2-F1: sealed hollows were not deterministic ----------------------------
 
 
 def _face_order(body: BodyShape) -> list[tuple[float, ...]]:
     return [tuple(round(c, 6) for c in tuple(f.center())) for f in body.faces()]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GEOMETRY-QA 2026-09-25 R2-F1: OCCT's hollow with no opened face returns "
-    "the cavity shell's faces in a different order on every build (4/4 distinct)",
-)
 def test_a_sealed_hollow_rebuilds_in_the_same_face_order() -> None:
+    """GEOMETRY-QA 2026-09-25 R2-F1, fixed: OCCT's hollow with no opened face
+    returned the cavity shell's faces in a different order on every build."""
     orders = [
         _face_order(shell_body(Box(40, 25, 10).solids()[0], [], 2.0)) for _ in range(6)
     ]

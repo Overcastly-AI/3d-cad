@@ -50,6 +50,31 @@ Workflows with no ``push`` trigger are reported as skipped rather than passed
 in silence: coverage here is derived from the filesystem, so a workflow added
 tomorrow is checked automatically and no list can go stale.
 
+One variant of the push arm is accepted (CI-TWO-LANE, 2026-09-30):
+``format('<prefix>-sha-{0}', inputs.sha || github.sha)``. The full lane
+(e2e.yml) can be dispatched against a specific commit through a ``sha`` input,
+and the commit under test is then the INPUT, not ``github.sha`` (which is the
+tip of the ref the dispatch named). Keying on the input keeps "one group per
+commit under test", so two dispatches for two commits on one branch cannot
+evict each other. On a push the input is empty and the expression falls
+through to ``github.sha``, i.e. the canonical key. Falling through to
+``github.ref`` instead is refused like any other ref key. Workflows that are
+only ``workflow_call``-ed (deploy-path.yml now) have no push trigger and are
+skipped: their jobs run inside the caller's run, under the caller's group.
+
+ONE deliberate exception, for ONE file (``BRANCH_LANES``, 2026-09-30): the full
+lane, e2e.yml, keys its ``claude/**`` pushes on the BRANCH and cancels
+superseded runs. The orchestrator cannot dispatch (403) and ``schedule`` fires
+only from main, so this push trigger is what gets the full lane run before a
+merge, and it exists to prove the tip about to be merged, not every commit on
+the way there (ci.yml, still per commit, does that). Losing a superseded tip's
+run is therefore the intent, not the CI-2 defect. The exception is asserted
+EXACTLY, not merely allowed. The branch arm must name ``refs/heads/claude/``
+only, so a push to ``main`` still gets a per-commit group that nothing
+evicts. Cancellation must cover that arm and PRs and nothing else, and the
+allowlisted file must use this shape. Any other workflow written this way
+fails as a non-canonical group, like any ref key.
+
 Implementation note
 -------------------
 Stdlib only, so it runs under the bare ``python3`` of a runner with no
@@ -93,8 +118,28 @@ CANONICAL_CANCEL = "${{ github.event_name == 'pull_request' }}"
 GROUP_RE = re.compile(
     r"^\$\{\{ github\.event_name == 'pull_request' "
     r"&& format\('(?P<pr_prefix>[a-z0-9][a-z0-9-]*)-pr-\{0\}', github\.ref\) "
-    r"\|\| format\('(?P<push_prefix>[a-z0-9][a-z0-9-]*)-sha-\{0\}', github\.sha\) "
+    r"\|\| format\('(?P<push_prefix>[a-z0-9][a-z0-9-]*)-sha-\{0\}', "
+    r"(?:inputs\.sha \|\| )?github\.sha\) "
     r"\}\}$"
+)
+
+#: The ONLY workflows allowed a per-branch group, by file name -> group prefix.
+#: Adding an entry is a decision to drop superseded commits' runs in that
+#: workflow; it needs the same argument the module docstring makes for e2e.yml.
+BRANCH_LANES: dict[str, str] = {"e2e.yml": "e2e"}
+
+#: The branch-lane group and cancel, whitespace squashed, exactly. `&&` binds
+#: tighter than `||`, so the three arms are PR, claude/** push, everything else.
+BRANCH_LANE_GROUP = (
+    "${{{{ github.event_name == 'pull_request' "
+    "&& format('{prefix}-pr-{{0}}', github.ref) "
+    "|| github.event_name == 'push' && startsWith(github.ref, 'refs/heads/claude/') "
+    "&& format('{prefix}-branch-{{0}}', github.ref) "
+    "|| format('{prefix}-sha-{{0}}', inputs.sha || github.sha) }}}}"
+)
+BRANCH_LANE_CANCEL = (
+    "${{ github.event_name == 'pull_request' "
+    "|| github.event_name == 'push' && startsWith(github.ref, 'refs/heads/claude/') }}"
 )
 
 
@@ -293,6 +338,44 @@ def run(root: Path, quiet: bool = False) -> int:
             failures.append(message)
             continue
 
+        # The one deliberate per-branch lane: asserted EXACTLY, not tolerated.
+        if workflow.name in BRANCH_LANES:
+            prefix = BRANCH_LANES[workflow.name]
+            want_group = BRANCH_LANE_GROUP.format(prefix=prefix)
+            problems: list[str] = []
+            if _squash(workflow.group) != want_group:
+                problems.append(
+                    f"{workflow.name}: the full lane's group must be exactly\n"
+                    f"         {want_group}\n"
+                    f"         got: {_squash(workflow.group)}\n"
+                    "         Per BRANCH for claude/** pushes only (newest tip "
+                    "proven, superseded tips dropped); per COMMIT for main and "
+                    "dispatch, which nothing may evict."
+                )
+            if _squash_or_none(workflow.cancel) != BRANCH_LANE_CANCEL:
+                problems.append(
+                    f"{workflow.name}: `cancel-in-progress` must be exactly "
+                    f"`{BRANCH_LANE_CANCEL}`, got `{workflow.cancel}`: cancel "
+                    "superseded claude/** tips and PRs, never a push to main or "
+                    "a dispatch."
+                )
+            if prefix in prefixes:
+                problems.append(
+                    f"{workflow.name}: group prefix `{prefix}` is already used "
+                    f"by {prefixes[prefix]}."
+                )
+            if problems:
+                for message in problems:
+                    say(f"  FAIL {message}")
+                failures.extend(problems)
+                continue
+            prefixes[prefix] = workflow.name
+            say(
+                f"  ok   {workflow.name} — full lane: `{prefix}-branch-<ref>` "
+                f"(claude/**, cancelling), `{prefix}-sha-<commit>` otherwise"
+            )
+            continue
+
         match = GROUP_RE.match(_squash(workflow.group))
         if match is None:
             message = (
@@ -358,7 +441,8 @@ def run(root: Path, quiet: bool = False) -> int:
         return 1
     say(
         f"\ncheck-workflow-concurrency: {checked} push-triggered workflow(s) "
-        "key their group per commit"
+        "key their group per commit (the full lane per branch on claude/** "
+        "only, as allowlisted)"
     )
     return 0
 
@@ -368,7 +452,7 @@ def run(root: Path, quiet: bool = False) -> int:
 #: a `results.append` lost to a refactor removes coverage silently and the
 #: self-test still prints "the gate can fail". `<`, not `!=`, so ADDING checks
 #: needs no edit here — only losing them is an error.
-EXPECTED_CHECKS = 8
+EXPECTED_CHECKS = 15
 
 
 def _fixture(prefix: str, group: str | None, cancel: str = CANONICAL_CANCEL) -> str:
@@ -390,6 +474,16 @@ def _canonical_fixture(prefix: str, folded: bool = True) -> str:
     return _fixture(prefix, ">-\n" + indented)
 
 
+def _branch_lane_fixture(
+    group: str | None = None, cancel: str = BRANCH_LANE_CANCEL, name: str = "e2e"
+) -> str:
+    """The full lane's block, folded over lines the way e2e.yml writes it."""
+    body = group if group is not None else BRANCH_LANE_GROUP.format(prefix=name)
+    folded = body.replace(" || ", "\n    || ").replace(" && format", "\n    && format")
+    indented = "\n".join(f"    {line.strip()}" for line in folded.splitlines())
+    return _fixture(name, ">-\n" + indented, cancel)
+
+
 def self_test() -> int:
     """Prove the gate FAILS on each way the keying can be wrong.
 
@@ -408,7 +502,7 @@ def self_test() -> int:
             "canonical trio (folded)",
             {
                 "ci.yml": _canonical_fixture("ci"),
-                "e2e.yml": _canonical_fixture("e2e"),
+                "e2e.yml": _branch_lane_fixture(),
                 "deploy-path.yml": _canonical_fixture("deploy-path"),
             },
             0,
@@ -461,6 +555,70 @@ def self_test() -> int:
                     "|| format('ci-sha-{0}', github.ref) }}",
                 )
             },
+            1,
+        ),
+        (
+            "dispatch input: push arm keyed on inputs.sha || github.sha",
+            {
+                "dispatch.yml": _fixture(
+                    "dispatch",
+                    "${{ github.event_name == 'pull_request' "
+                    "&& format('dispatch-pr-{0}', github.ref) "
+                    "|| format('dispatch-sha-{0}', inputs.sha || github.sha) }}",
+                )
+            },
+            0,
+        ),
+        (
+            "dispatch input falling back to the REF, not the commit",
+            {
+                "dispatch.yml": _fixture(
+                    "dispatch",
+                    "${{ github.event_name == 'pull_request' "
+                    "&& format('dispatch-pr-{0}', github.ref) "
+                    "|| format('dispatch-sha-{0}', inputs.sha || github.ref) }}",
+                )
+            },
+            1,
+        ),
+        (
+            "full lane: the deliberate per-branch group on e2e.yml, asserted",
+            {"ci.yml": _canonical_fixture("ci"), "e2e.yml": _branch_lane_fixture()},
+            0,
+        ),
+        (
+            "the per-branch group on any OTHER workflow is refused",
+            {
+                "ci.yml": _fixture(
+                    "ci", BRANCH_LANE_GROUP.format(prefix="ci"), BRANCH_LANE_CANCEL
+                )
+            },
+            1,
+        ),
+        (
+            "the full lane's branch arm widened to EVERY branch (main included)",
+            {
+                "e2e.yml": _branch_lane_fixture(
+                    BRANCH_LANE_GROUP.format(prefix="e2e").replace(
+                        "'refs/heads/claude/'", "'refs/heads/'"
+                    )
+                )
+            },
+            1,
+        ),
+        (
+            "the full lane cancelling a push to main too",
+            {
+                "e2e.yml": _branch_lane_fixture(
+                    cancel="${{ github.event_name == 'pull_request' "
+                    "|| github.event_name == 'push' }}"
+                )
+            },
+            1,
+        ),
+        (
+            "the full lane WITHOUT its per-branch arm (asserted, not just allowed)",
+            {"e2e.yml": _canonical_fixture("e2e")},
             1,
         ),
         (

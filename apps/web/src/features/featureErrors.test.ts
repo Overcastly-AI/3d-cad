@@ -68,9 +68,24 @@ describe("friendlyFeatureError", () => {
       "extrude",
     );
     expect(copy).not.toMatch(/deg twist over|profile area x distance/);
-    expect(copy).toMatch(/reduce the twist/i);
+    expect(copy).toMatch(/smaller twist/i);
+    // A legacy extrude twist is not editable there any more (TWIST-TO-SWEEP),
+    // so its copy points at the Sweep, where twists live now.
+    expect(copy).toMatch(/Sweep/);
     // The server's message is the fallback only for codes with no copy.
-    expect(friendlyFeatureError("twist_failed", "raw")).toBe(copy);
+    expect(friendlyFeatureError("twist_failed", "raw")).toMatch(
+      /reduce the twist/i,
+    );
+  });
+
+  it("tells a twisted SWEEP how to cure both of its refusals (TWIST-TO-SWEEP)", () => {
+    const failed = friendlyFeatureError("twist_failed", "raw", "sweep");
+    expect(failed).toMatch(/open the sweep and reduce the twist/i);
+    expect(failed).toMatch(/fewer edges/i);
+    const path = friendlyFeatureError("twist_path_unsupported", "raw", "sweep");
+    expect(path).toMatch(/straight path/i);
+    expect(path).toMatch(/perpendicular/i);
+    expect(path).toMatch(/set the twist to 0/i);
   });
 
   it("advises what cures the kernel's cost refusal: fewer turns or fewer edges (F4)", () => {

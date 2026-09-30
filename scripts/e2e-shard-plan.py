@@ -69,6 +69,10 @@ Three checks make that assertable rather than intended:
 
 Usage:
     e2e-shard-plan.py --shard i/N --args-out FILE [--config CFG]
+    e2e-shard-plan.py --smoke [--args-out FILE]
+        The per-commit smoke set (SMOKE_SPECS). Without --args-out it only
+        checks the list statically (on disk, measured, within budget); with it,
+        it also discovers, emits the anchored patterns and verifies them.
     e2e-shard-plan.py --plan N [--list-json FILE]
     e2e-shard-plan.py --simulate 2-10
     e2e-shard-plan.py --emit-durations REPORT.json ... --out MANIFEST
@@ -139,6 +143,56 @@ MAX_GUESSED_SHARE = 0.10
 #: few files measured on both sides, or it is one file's noise wearing the
 #: name of a ratio. Used by `--emit-durations --merge` and `--check-manifest`.
 MIN_CALIBRATION_FILES = 3
+
+#: THE PER-COMMIT SMOKE (CI-TWO-LANE, 2026-09-30). ci.yml's `e2e smoke` job runs
+#: exactly these files on every push; the whole suite runs in the full lane
+#: (e2e.yml) nightly and before anything reaches `main`. So this IS an
+#: enumerated list, which GATE-1 warns about, and that is acceptable only
+#: because it is not the gate of record: a spec left off it still runs in the
+#: full lane, before main. What the list has to be is SMALL and HONEST, and
+#: `smoke_problems` holds both: every entry exists, is measured, and the set
+#: stays inside SMOKE_BUDGET_SECONDS.
+#:
+#: Chosen for breakage caught per minute on the journey every user takes —
+#: sketch -> extrude -> save -> reload — at ~1 % of the suite's measured time:
+#:   full-flow      the ONLY spec that drives the whole modelling loop through
+#:                  the UI with no API shortcut: register, part from the
+#:                  register, plane pick, rectangle dimensioned by keyboard,
+#:                  extrude authored, OCCT mass properties, a live param edit,
+#:                  STEP + STL exported byte-real. It crosses auth, documents,
+#:                  the sketcher, the solver, evaluate, tessellation, the
+#:                  viewport and export in one file, and is named in more fix
+#:                  commits than any other journey spec.
+#:   sketcher       plane pick -> rectangle -> SAVE -> solved render -> RELOAD
+#:                  persists: the save/reload leg for a sketch.
+#:   extrude-body   an evaluated body renders with mass properties and survives
+#:                  a RELOAD: the save/reload leg for a solid. It builds the
+#:                  tree through the gateway API, so a red here separates
+#:                  "persist/render broke" from "the authoring UI broke".
+#:   sketch-reopen  a SAVED sketch re-opens with its ink and constraints, and
+#:                  the re-save PATCHes the same feature and rebuilds the
+#:                  extrude: the edit-after-save path, where round-trip bugs
+#:                  in the stored tree show up first.
+#:   parts-home     create -> list -> open -> delete persists on reload: the
+#:                  documents service behind the register.
+#: Deliberately NOT here: the pixel censuses and pick probes (pick-*, qa-*,
+#: gauge-*). They are the most expensive specs in the suite (up to 11 min
+#: each), and the full lane still runs them before main.
+SMOKE_SPECS: tuple[str, ...] = (
+    "full-flow.spec.ts",
+    "sketcher.spec.ts",
+    "extrude-body.spec.ts",
+    "sketch-reopen.spec.ts",
+    "parts-home.spec.ts",
+)
+
+#: Manifest seconds the smoke may cost. The five above sum to ~154 s; CI runs
+#: at ~0.55x manifest time (fitted on `d0604c5`, see e2e.yml), i.e. ~1.5 min of
+#: specs behind ~4 min of runner setup and stack boot. 240 keeps the job near
+#: 7 min, inside the 10-minute lane with room for one more mid-sized spec. A
+#: smoke that creeps past this is a second full suite and the lane stops being
+#: fast — raise it only with a measured run that says the lane still fits.
+SMOKE_BUDGET_SECONDS = 240.0
 
 
 # ── discovery ────────────────────────────────────────────────────────────────
@@ -509,6 +563,98 @@ def write_manifest(path: Path, totals: dict[str, float], note: str) -> None:
         "files": {k: round(v, 1) for k, v in sorted(totals.items())},
     }
     path.write_text(json.dumps(payload, indent=2) + "\n")
+
+
+# ── the per-commit smoke ────────────────────────────────────────────────────
+
+
+def smoke_problems(
+    specs: tuple[str, ...],
+    on_disk: set[str],
+    durations: dict[str, float],
+    budget: float = SMOKE_BUDGET_SECONDS,
+) -> list[str]:
+    """Why *specs* is not a smoke set this lane can trust. Empty when it is.
+
+    Every refusal is a way the smoke goes quietly wrong: a renamed spec is a
+    positional filter that matches NOTHING, and Playwright runs the other four
+    without complaint; an unmeasured spec makes the budget unknowable; and a
+    set over budget turns the fast lane into a slow one, one spec at a time.
+    """
+    problems: list[str] = []
+    if not specs:
+        return ["the smoke set is EMPTY — the per-commit lane would run no browser"]
+    dupes = sorted({f for f in specs if specs.count(f) > 1})
+    if dupes:
+        problems.append(f"listed twice: {', '.join(dupes)}")
+    missing = [f for f in specs if f not in on_disk]
+    if missing:
+        problems.append(
+            f"not a spec file under apps/web/e2e (renamed or deleted?): "
+            f"{', '.join(missing)} — a filter that matches nothing is silently "
+            "dropped by Playwright"
+        )
+    unmeasured = [f for f in specs if f not in durations]
+    if unmeasured:
+        problems.append(
+            f"no measured duration in scripts/e2e-durations.json: "
+            f"{', '.join(unmeasured)} — the budget cannot be checked"
+        )
+    total = sum(durations.get(f, 0.0) for f in specs)
+    if total > budget:
+        problems.append(
+            f"the smoke costs {total:.0f} manifest-seconds against a budget of "
+            f"{budget:.0f} — the per-commit lane would stop being fast"
+        )
+    return problems
+
+
+def cmd_smoke(args: argparse.Namespace) -> int:
+    durations = load_manifest(args.durations)
+    on_disk = {p.name for p in (WEB / "e2e").glob("*.spec.ts")}
+    problems = smoke_problems(SMOKE_SPECS, on_disk, durations)
+    if problems:
+        print("e2e-shard-plan: the smoke set is refused:", file=sys.stderr)
+        for line in problems:
+            print(f"  {line}", file=sys.stderr)
+        return 1
+    total = sum(durations[f] for f in SMOKE_SPECS)
+    print(
+        f"smoke: {len(SMOKE_SPECS)} file(s), {total:.0f} manifest-seconds "
+        f"(budget {SMOKE_BUDGET_SECONDS:.0f}): {', '.join(SMOKE_SPECS)}",
+        file=sys.stderr,
+    )
+    if not args.args_out:
+        return 0
+    # Playwright's own discovery too, not only the glob above: testMatch or a
+    # config change could exclude a file that still exists on disk.
+    discovered = files_in_report(playwright_list(args.config))
+    absent = [f for f in SMOKE_SPECS if f not in discovered]
+    if absent:
+        print(
+            f"e2e-shard-plan: `playwright test --list` does not discover "
+            f"{', '.join(absent)} — refusing to run a smoke that is short",
+            file=sys.stderr,
+        )
+        return 1
+    patterns = [pattern_for(f) for f in SMOKE_SPECS]
+    if not args.no_verify:
+        problems = verify(list(SMOKE_SPECS), patterns, args.config)
+        if problems:
+            print(
+                "e2e-shard-plan: the smoke patterns do NOT select the smoke set:",
+                file=sys.stderr,
+            )
+            for line in problems:
+                print(f"  {line}", file=sys.stderr)
+            return 1
+        print(
+            f"verified: `playwright test --list` with these patterns returns "
+            f"exactly the {len(SMOKE_SPECS)} smoke file(s)",
+            file=sys.stderr,
+        )
+    args.args_out.write_text("\n".join(patterns) + "\n")
+    return 0
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
@@ -885,6 +1031,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     mode.add_argument("--plan", type=int, help="print the whole N-way plan")
     mode.add_argument(
+        "--smoke",
+        action="store_true",
+        help="the per-commit smoke set: check it, and with --args-out emit its "
+        "verified Playwright file patterns",
+    )
+    mode.add_argument(
         "--simulate",
         type=_range_spec,
         help="LOW-HIGH — critical path vs ideal for each shard count",
@@ -980,6 +1132,8 @@ def main(argv: list[str] | None = None) -> int:
         if not args.args_out:
             raise SystemExit("e2e-shard-plan: --shard requires --args-out")
         return cmd_shard(args)
+    if args.smoke:
+        return cmd_smoke(args)
     if args.plan:
         return cmd_plan(args)
     if args.simulate:
@@ -998,7 +1152,7 @@ def main(argv: list[str] | None = None) -> int:
 
 #: See e2e-shard-audit.py — `all([])` is True, so a lost `checks.append` would
 #: remove coverage while the self-test still printed success.
-EXPECTED_CHECKS = 34
+EXPECTED_CHECKS = 39
 
 
 def self_test() -> int:
@@ -1370,6 +1524,45 @@ def self_test() -> int:
             code_a == 1 and load_manifest(manifest) == updated,
             "…and --update naming a file the reports never ran is REFUSED",
         )
+
+    # THE PER-COMMIT SMOKE. The real list first — this is what makes a renamed
+    # or deleted smoke spec red in `just lint` instead of a silently shorter
+    # smoke on every push — then one negative control per refusal.
+    real_disk = {p.name for p in (WEB / "e2e").glob("*.spec.ts")}
+    ok(
+        smoke_problems(SMOKE_SPECS, real_disk, load_manifest(MANIFEST)) == [],
+        "the committed smoke set exists, is measured and is within budget",
+    )
+    fake_disk = {"a.spec.ts", "b.spec.ts"}
+    fake_d = {"a.spec.ts": 60.0, "b.spec.ts": 60.0}
+    ok(
+        any(
+            "matches nothing" in p
+            for p in smoke_problems(("a.spec.ts", "gone.spec.ts"), fake_disk, fake_d)
+        ),
+        "a smoke entry with no file on disk is REFUSED (Playwright would drop it)",
+    )
+    ok(
+        any(
+            "cannot be checked" in p
+            for p in smoke_problems(
+                ("a.spec.ts", "b.spec.ts"), fake_disk, {"a.spec.ts": 1.0}
+            )
+        ),
+        "an unmeasured smoke entry is REFUSED (its cost is unknown)",
+    )
+    ok(
+        any(
+            "stop being fast" in p
+            for p in smoke_problems(("a.spec.ts", "b.spec.ts"), fake_disk, fake_d, 100)
+        )
+        and smoke_problems(("a.spec.ts", "b.spec.ts"), fake_disk, fake_d, 120) == [],
+        "a smoke over budget is REFUSED, and one at the budget passes",
+    )
+    ok(
+        smoke_problems((), fake_disk, fake_d) != [],
+        "an EMPTY smoke set is REFUSED, not vacuously passed",
+    )
 
     for good, label in checks:
         print(f"  {'ok  ' if good else 'FAIL'} {label}")

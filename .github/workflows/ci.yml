@@ -1,7 +1,36 @@
-# Loft CI — lint / typecheck / unit tests, contract drift, compose validation.
+# Loft CI — THE PER-COMMIT LANE: lint / typecheck / unit tests, contract drift,
+# compose validation, and a smoke e2e. Target: under 10 minutes wall-clock.
+#
+# ── Two lanes (CI-TWO-LANE, 2026-09-30) ─────────────────────────────────────
+#
+# Every commit used to run all three workflows: this one (~10 min), e2e's nine
+# jobs (~40 min) and deploy-path (~5 min plus two image builds). The feedback a
+# builder waits on was the 40-minute one. Now:
+#   * THIS workflow runs on every push and PR: everything that is cheap and
+#     catches the common breakage, plus `e2e smoke` — five specs on the
+#     sketch -> extrude -> save -> reload journey (SMOKE_SPECS in
+#     scripts/e2e-shard-plan.py says which, and why).
+#   * THE FULL LANE, .github/workflows/e2e.yml (named `full`), runs the whole
+#     Playwright suite, the dist and short-TTL legs, and deploy-path.yml's
+#     Docker jobs. It runs on push to claude/** for the NEWEST TIP only (per-
+#     branch group, a newer push cancels the older run), on push/PR to
+#     `main`, nightly on the working branch (nightly.yml), and on demand for
+#     one commit where dispatch is permitted:
+#         gh workflow run e2e.yml --ref <branch> [-f sha=<40-hex sha>]
+#     Nothing merges to `main` unless that commit's own `full lane complete`
+#     is green.
+# What a per-commit green therefore does NOT say: that the specs outside the
+# smoke set pass, that the images build, or that backup/restore works. Those
+# are the full lane's, and a red there is attributed to the commits since the
+# last tip that ran it to completion.
 #
 # Jobs (all independent, run in parallel):
-#   python    — ruff (lint + format), pyright strict, pytest across the uv workspace
+#   python    — ruff (lint + format), pyright strict
+#   pytest    — pytest across the uv workspace as a 4-job matrix, packed by
+#               measured duration (scripts/pytest_shards.py); `pytest complete`
+#               then proves from the shards' ledgers that every collected test
+#               ran exactly once
+#   e2e smoke — the smoke specs above against the native stack (~7 min)
 #   ts        — eslint + prettier, tsc typecheck, vitest across the pnpm workspace
 #   contracts — `just gen-check`: regenerate OpenAPI contracts + TS client into a
 #               tempdir and diff against the committed output (fails on drift)
@@ -10,8 +39,9 @@
 #               geometry S3 creds == MinIO's; internal services unpublished) and
 #               scripts/check-build-context.py (every Dockerfile COPY source
 #               survives .dockerignore — the failure `deploy-path` used to find)
-#               and scripts/check-workflow-concurrency.py (all three workflows
-#               key their push concurrency group per COMMIT — CI-2) and
+#               and scripts/check-workflow-concurrency.py (every push-
+#               triggered workflow keys its concurrency group per COMMIT —
+#               CI-2) and
 #               scripts/check-mutation-markers.py (no mutation/ablation/debug
 #               marker labels committed source — docs/RETRO.md §4b)
 #   (doc-tick was removed 2026-09-25 with the same-commit ROADMAP/BACKLOG
@@ -20,18 +50,18 @@
 #               environment (LIC-3), plus a self-test that PROVES the gate
 #               fails on the GPL library the OCP wheel vendors
 #
-# The RUNTIME half of the compose gate lives in its own workflow —
-# .github/workflows/deploy-path.yml — because it builds the images and boots the
-# stack, and wants its own time budget for it. Measured 86s end to end on a
-# hosted runner (first green run 2026-07-25), so it is cheap. NB the split was
-# originally about cancellation, back when this workflow cancelled superseded
-# BRANCH runs; it no longer does (see the concurrency block below), and as of
-# CI-2 deploy-path keys its group exactly the same way.
+# The RUNTIME half of the compose gate lives in
+# .github/workflows/deploy-path.yml, which the full lane calls: it builds the
+# images and boots the stack. The real-MinIO mesh-store smoke
+# (`geometry-minio-smoke`) moved there from this file with CI-TWO-LANE: it
+# compiles MinIO from source (~4-5 min cold) on every run, which is the
+# Docker-daemon class of cost the per-commit lane no longer pays, and the
+# cross-process store it proves is also driven end to end by deploy-path's
+# round-trip.
 #
 # Notes:
-# - The geometry golden suite and Playwright e2e get their OWN workflow later
-#   (separate backlog items: golden harness, web shell) — they need built
-#   artifacts / a running stack and their own time budget, not a skipped gate.
+# - The geometry golden suite runs inside the `pytest` shards
+#   (services/geometry/tests/test_goldens.py), so goldens ARE per-commit.
 # - The uv cache is keyed on uv.lock on purpose: when OCP lands in the Python
 #   env its wheels are ~700MB, and that cache is what keeps the python and
 #   contracts jobs from re-downloading them on every run (CLAUDE.md recipe).
@@ -82,13 +112,8 @@ concurrency:
 jobs:
   python:
     runs-on: ubuntu-latest
-    # 30, raised from 15 on 2026-07-30. Pytest alone measured 14m31s at 1a27804
-    # and the job was killed at 15m16s; the run before it squeaked in at 14m55s.
-    # The suite is ~2958 tests dominated by OCCT geometry and it grows every time
-    # a verb or a golden lands, so 15 was going to start failing whatever we did
-    # next. NB a timed-out job is reported `cancelled`, the SAME word GitHub uses
-    # for a concurrency eviction — see CLAUDE.md for telling them apart.
-    timeout-minutes: 30
+    # Lint and typecheck only; pytest is the `pytest` matrix below.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -104,6 +129,57 @@ jobs:
         run: uv run ruff format --check .
       - name: Pyright (strict)
         run: uv run pyright
+
+  pytest:
+    # CI-PY-SPLIT. One job ran the whole suite serially: 14m31s at 1a27804,
+    # 23m42s at bd6037d, against a 30-minute ceiling already raised from 15
+    # once, and the suite grows with every verb and golden. So: N jobs, each
+    # running pytest's FULL collection and keeping one bin of a
+    # longest-processing-time packing of the test FILES by measured seconds
+    # (scripts/pytest-durations.json). Membership is derived from what pytest
+    # discovers, so a new test file cannot fall outside every shard; the
+    # manifest only moves balance. services/geometry is 73% of the tests, which
+    # is why a split by directory could not balance.
+    #
+    # MEASURED on the dev container, 2026-09-25, 4605 tests: unsharded 24m21s
+    # (1461 s), i.e. this box runs at about a hosted runner's pace (CI's
+    # 23m42s). The three shards ran 8m36s / 7m50s / 7m28s, and shard 1 shared
+    # the CPU with a `just lint`. Add ~2 min for checkout, the cached uv sync
+    # and PG, and each job is ~10-11 min against its 20-minute timeout. The
+    # reconcile passed over those same ledgers (4605 ran, 4605 collected).
+    # When a shard passes ~14 min, raise N (matrix, the `/N` below and
+    # `--expect-shards`: the self-test holds all three together) and refresh
+    # the manifest with `pytest_shards.py durations`. Each extra shard costs
+    # ~2 runner-minutes of setup per push, which is why N is 3 and not 5.
+    #
+    # N=4 since CI-TWO-LANE (2026-09-30), because this job is now the critical
+    # path of a lane with a 10-minute target. Packing the committed manifest
+    # (1416 s over 210 files) gives 7.9 min per shard at N=3, i.e. ~10 min with
+    # setup: AT the target, not under it. N=4 gives 5.9 min (~8 min with
+    # setup); N=5 would give 4.8 and is floored by test_export.py alone
+    # (4.8 min), so it would buy nothing. Cost: one more job, ~2 runner-minutes.
+    #
+    # NB a timed-out job is reported `cancelled`, the SAME word GitHub uses for
+    # a concurrency eviction — see CLAUDE.md for telling them apart.
+    name: pytest (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      # Every shard reports: a red in shard 1 must not cancel shard 2's result.
+      fail-fast: false
+      matrix:
+        # Must be 1..N for the `/N` in the Pytest step and `--expect-shards N`
+        # in `pytest complete`; `pytest_shards.py --self-test` (in `just lint`)
+        # refuses any drift between the three.
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Sync uv environment (locked)
+        run: uv sync --locked
       # PGTEST-GATE. 172 of the documents suite's 468 tests (37%) need REAL
       # PostgreSQL SERVER binaries — including the only check that the
       # alembic chain upgrades, downgrades and matches the models. They used
@@ -126,7 +202,8 @@ jobs:
       #   3. it FAILS if it still cannot find initdb — no silent third path.
       # The refusal in services/documents/tests/conftest.py is independent of
       # all three: if this step were deleted tomorrow, a missing server would
-      # still be red, not a quiet 37% coverage loss.
+      # still be red, not a quiet 37% coverage loss. Every shard runs it,
+      # because which shard holds the documents files is up to the packing.
       - name: Resolve PostgreSQL server binaries (PGTEST-GATE)
         run: |
           set -euo pipefail
@@ -153,13 +230,68 @@ jobs:
           fi
           echo "PG_BIN_DIR=$bin" >> "$GITHUB_ENV"
           echo "resolved PG_BIN_DIR=$bin -> $("$bin/initdb" --version)"
-      - name: Pytest
+      - name: Pytest (this shard)
         env:
           # Belt to the CI-detection braces in conftest.py: state the
           # requirement here too, so this job's posture is readable in this
           # file rather than inferred from a variable GitHub happens to set.
           LOFT_REQUIRE_PG: "1"
-        run: uv run pytest
+        run: >-
+          uv run python scripts/pytest_shards.py run
+          --shard "${{ matrix.shard }}/4"
+          --ledger "$RUNNER_TEMP/pytest-ledger/shard-${{ matrix.shard }}.json"
+      # The ledger is written at session finish whatever the test outcome, so a
+      # red shard still hands one in. A shard killed mid-run hands in none, and
+      # `pytest complete` names it.
+      - name: Upload the shard's ledger
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-ledger-${{ matrix.shard }}
+          path: ${{ runner.temp }}/pytest-ledger/
+          if-no-files-found: ignore
+          retention-days: 7
+          # "Re-run failed jobs" re-uploads under the same name; without this
+          # v4 answers 409 and the re-run goes red for a reason unrelated to
+          # the tests. `pytest complete` then reads the fresh ledger beside the
+          # passing shards' ledgers from the first attempt.
+          overwrite: true
+
+  pytest-complete:
+    # The check the packing cannot make about itself. It refuses unless every
+    # shard 1..4 handed in a ledger, all of them collected the same suite
+    # (otherwise they packed different partitions), no test ran twice, and what
+    # ran is exactly what was collected. That is the defect class sharding
+    # introduces: a dropped matrix entry, or a shard that died after collection,
+    # leaves tests nobody ran while every job that did run is green. Stdlib
+    # only, no uv environment, ~20 s. It runs on red shards too, so a red run
+    # still reports its coverage.
+    name: pytest complete
+    needs: pytest
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pytest-ledger-*
+          path: ${{ runner.temp }}/pytest-ledgers
+          merge-multiple: true
+      - name: Every collected test ran in exactly one shard
+        run: >-
+          python3 scripts/pytest_shards.py check
+          --ledgers "$RUNNER_TEMP/pytest-ledgers"
+          --expect-shards 4
+          --workflow .github/workflows/ci.yml
+      # A red shard fails its own job. This makes the aggregate say so too, so
+      # `pytest complete` alone is enough as a required check.
+      - name: Every shard passed
+        env:
+          SHARDS: ${{ needs.pytest.result }}
+        run: |
+          echo "pytest shards: $SHARDS"
+          test "$SHARDS" = success
 
   ts:
     runs-on: ubuntu-latest
@@ -252,6 +384,14 @@ jobs:
         run: |
           python3 scripts/check-workflow-contexts.py --self-test
           python3 scripts/check-workflow-contexts.py
+      # The full lane's verdict job is named `full lane complete` only when the
+      # commit it proved is the commit GitHub posts the check on (a dispatch
+      # with `-f sha` posts on the ref's TIP). A plain name there would put a
+      # green check on an untested commit. Stdlib + PyYAML, ~0.1s.
+      - name: Full-lane verdict names its commit (+ prove the gate can fail)
+        run: |
+          python3 scripts/check-dispatch-verdict.py --self-test
+          python3 scripts/check-dispatch-verdict.py
       # No mutation/ablation/debug marker survives into committed source.
       # Mutation testing is mandatory here, so an agent stopped mid-mutation
       # leaves a defect that is by construction invisible to every gate except
@@ -325,6 +465,20 @@ jobs:
       # hand with `just web-smoke-selftest` when editing the script.
       - name: Browser-path assertions (prove the deploy-path gate can fail)
         run: scripts/web-smoke.sh --self-test
+      # backup-restore-drill retries its image build ONCE on BuildKit's
+      # "error reading from server: EOF" (e3bd6aa). A retry policy is only
+      # safe while it stays narrow, and the only runs that exercise it are the
+      # ~20-minute deploy-path ones. So this replays canned daemon output
+      # through a fake `docker` and demands that the EOF retries once, loudly,
+      # and that a reset, a refused connection, a Dockerfile error, a failing
+      # RUN step and a second EOF do NOT. Bash only, ~0.3s.
+      - name: Build-retry policy (+ prove it refuses everything but the EOF)
+        run: scripts/compose-build-retry.sh --self-test
+      # The pytest shard planner and its reconcile, including that the
+      # `pytest` matrix, its `/N` and `--expect-shards` agree. Here so that
+      # drift is red in a minute rather than after the shards. Stdlib, ~60ms.
+      - name: Pytest shard planner (+ prove the reconcile can fail)
+        run: python3 scripts/pytest_shards.py --self-test
 
   licences:
     # LIC-3 — the no-GPL rule, enforced by reading the BINARIES we ship.
@@ -375,65 +529,109 @@ jobs:
       - name: Prove the gate can fail (negative + positive control)
         run: python3 scripts/check-licences.py --self-test
 
-  geometry-minio-smoke:
-    # Real-MinIO cross-process smoke for the §7.8 mesh-store swap (audit F6):
-    # the property the swap exists for — evaluate on one process/replica, fetch
-    # on another against a shared object store — cannot be proven in-process by
-    # moto. This job boots a live MinIO with the mesh bucket provisioned, points
-    # S3_URL/S3_BUCKET/creds at it, and runs the geometry S3 suite with the
-    # cross-process smoke ENABLED via LOFT_MINIO_SMOKE=1. The default `python`
-    # job runs the same file with the marker UNSET, so that smoke skips there and
-    # the store's cross-process correctness is gated exactly once, here.
+  e2e-smoke:
+    # THE BROWSER HALF OF THE PER-COMMIT LANE (CI-TWO-LANE, 2026-09-30).
+    #
+    # The five spec files in SMOKE_SPECS (scripts/e2e-shard-plan.py, which also
+    # says why each is there): the sketch -> extrude -> save -> reload journey,
+    # driven through the UI and through the gateway, against the same native
+    # stack the full lane uses. Everything else in apps/web/e2e runs in the
+    # full lane (e2e.yml), before main.
+    #
+    # `--smoke` is expanded by scripts/e2e.sh into anchored file patterns, and
+    # the planner first re-asks `playwright test --list` that they select
+    # EXACTLY those five files. That is load-bearing: a positional filter that
+    # matches nothing is dropped by Playwright without a word, so a renamed
+    # smoke spec would otherwise leave a green, shorter smoke. The static half
+    # (on disk, measured, within budget) is in `just lint`.
+    #
+    # MEASURED on the dev container at 05bc462+: 17 tests, 165 s wall for
+    # scripts/e2e.sh (stack boot + Vite + specs) at 1-min load 5.8 on 4 CPUs.
+    # A hosted runner adds ~3-4 min of setup (uv sync from cache, pnpm, the
+    # Chromium apt deps), so expect ~6-7 min. 15 is headroom, not a
+    # prediction; a job timeout reads `cancelled`, so guessing low is worse.
+    name: e2e smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
-      # Reuse the compose-defined MinIO + one-shot bucket bootstrap (DRY: same
-      # service/bucket the dev stack uses). `--wait` blocks until MinIO is
-      # healthy and minio-init has created the bucket (exit 0).
-      # `--wait` waits for services to reach running|healthy, and treats a
-      # container that EXITS as a failure — so naming the one-shot
-      # `minio-init` here made the step exit 1 the moment the bucket
-      # bootstrap succeeded ("container loft-minio-init-1 exited (0)" then
-      # "Process completed with exit code 1"). This job had therefore been
-      # red since it landed. Wait on the long-running server only, then run
-      # the one-shot to completion so its OWN exit code is the gate.
-      # An EPHEMERAL, non-default root password, generated per run and exported
-      # to every later step. This job used to boot MinIO on the compose default
-      # (`loft-minio-dev-only`, published in our own repo) and hand pytest the
-      # same literal, so the store's credential plumbing was only ever exercised
-      # with the one password everybody already knows — a code path that ignored
-      # its configured secret and hardcoded that string would have passed. Same
-      # reasoning as scripts/compose-smoke.sh.
-      - name: Generate an ephemeral MinIO credential
-        run: |
-          echo "MINIO_ROOT_PASSWORD=minio-$(od -An -tx1 -N18 /dev/urandom | tr -d ' \n')" >> "$GITHUB_ENV"
-      # MinIO is BUILT FROM SOURCE here (deploy/docker/minio.Dockerfile, ~4-5
-      # min cold): upstream withdrew its prebuilt images from Docker Hub and
-      # then from quay.io, so there is no registry image left to pull. `up`
-      # builds the missing image; minio-init below reuses the same build.
-      - name: Build + boot MinIO (from pinned source)
-        run: docker compose up -d --wait minio
-      - name: Provision the mesh bucket
-        run: docker compose run --rm minio-init
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
       - name: Sync uv environment (locked)
         run: uv sync --locked
-      - name: Cross-process mesh-store smoke (real MinIO)
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Resolve the pinned Playwright version
+        id: pw
+        run: |
+          version=$(node -p "require('./apps/web/node_modules/@playwright/test/package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Playwright $version"
+      # The SAME cache key the full lane's shards use.
+      - name: Cache the browser binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - name: Install Chromium
+        run: pnpm --filter @loft/web exec playwright install --with-deps chromium
+      # Same flags as a full-lane shard: --forbid-only, and NO retries
+      # (GATE-1a). A smoke people learn to re-run is worse than no smoke.
+      - name: Smoke specs (sketch -> extrude -> save -> reload)
+        timeout-minutes: 12
         env:
-          LOFT_MINIO_SMOKE: "1"
-          # Host-mapped MinIO (compose publishes 9000). The secret is the
-          # generated one above — compose interpolated the SAME value into the
-          # server, so a mismatch here fails as an auth error, which is exactly
-          # the assertion: both sides read their configuration.
-          S3_URL: http://localhost:9000
-          S3_BUCKET: loft
-          S3_ACCESS_KEY_ID: loft-minio
-          S3_SECRET_ACCESS_KEY: ${{ env.MINIO_ROOT_PASSWORD }}
-        run: uv run pytest services/geometry/tests/test_s3_store.py -v
-      - name: Tear down MinIO
+          E2E_JSON_REPORT: ${{ runner.temp }}/playwright-smoke.json
+          E2E_LOG_DIR: ${{ runner.temp }}/e2e-logs-smoke
+        run: >-
+          scripts/e2e.sh --web-only --
+          --smoke
+          --forbid-only
+      - name: The run must not have dirtied the tree
         if: always()
-        run: docker compose down -v
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "::error::the smoke run modified the working tree:"
+            git status --porcelain
+            git diff --stat
+            exit 1
+          fi
+          echo "tree clean after the run"
+      - name: Upload traces/screenshots from a failing run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-smoke-artifacts
+          path: |
+            apps/web/test-results
+            apps/web/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload the service logs and the JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-smoke-diagnostics
+          path: |
+            ${{ runner.temp }}/e2e-logs-smoke
+            ${{ runner.temp }}/playwright-smoke.json
+          if-no-files-found: warn
+          retention-days: 7
+      # LAST, for the reason the full lane's verdicts are last: a tail of the
+      # job log is the only channel into a red run from the dev container.
+      - name: Verdict (kept last so a tail of the job log finds it)
+        if: always()
+        run: |
+          verdict="$RUNNER_TEMP/e2e-logs-smoke/verdict.txt"
+          if [[ -s "$verdict" ]]; then
+            cat "$verdict"
+            exit 0
+          fi
+          echo "::error::no verdict file at $verdict — scripts/e2e.sh never reached its summary, so the smoke died BEFORE or DURING setup (uv sync / pnpm install / browser install / the smoke-set check / service boot), or hit the 12-minute step timeout. Its reason is in the 'Smoke specs' step above."
+          ls -la "$RUNNER_TEMP/e2e-logs-smoke" || true

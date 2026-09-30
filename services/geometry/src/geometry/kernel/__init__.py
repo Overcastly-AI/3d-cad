@@ -180,9 +180,11 @@ from geometry.kernel.threads import (
 from geometry.kernel.twist import (
     MeshExportTooDenseError,
     TwistError,
+    TwistPathError,
     check_3mf_twist_budget,
     mesh_helicoidal_faces,
     twisted_extrude_face,
+    twisted_sweep_face,
 )
 from geometry.kernel.types import BodyShape
 from geometry.schemas import (
@@ -264,6 +266,7 @@ __all__ = [
     "ThreadError",
     "ThreadUnsupportedError",
     "TwistError",
+    "TwistPathError",
     "ZeroWidthSlit",
     "attribute_faces",
     "boolean_bodies",
@@ -351,6 +354,7 @@ __all__ = [
     "sweep_profile",
     "tessellate_glb",
     "twisted_extrude_face",
+    "twisted_sweep_face",
 ]
 
 

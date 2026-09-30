@@ -40,6 +40,8 @@ from loft_wire.features import (
     GeomRef,
     SketchFeature,
     SolvedSketchData,
+    SweepFeature,
+    SweepParamsV1,
 )
 from loft_wire.geometry import ExportFormat, ShapeProperties
 from loft_wire.parts import PartCreate, PartListResponse, PartResponse, PartUpdate
@@ -399,7 +401,7 @@ class Part:
         twist_center: PointLike | None = None,
         name: str = "Extrude",
     ) -> FeatureResponse:
-        """Extrude an earlier sketch's profile, optionally TWISTED.
+        """Extrude an earlier sketch's profile.
 
         ``profile`` takes whichever handle the caller has: the
         :class:`~loft.sketch.Sketch` object (saved and solved if it is not
@@ -407,12 +409,14 @@ class Part:
         round-trips back, so this reaches the same state by the same route), a
         ``FeatureRef``, or a bare feature id for the agent that holds only that.
 
-        ``twist_angle_deg`` turns the profile uniformly by that many degrees
-        over the whole distance — a true helical sweep, e.g. a helical gear's
-        tooth gap cut with ``operation="cut"``. Positive is right-handed about
-        the extrusion direction. The axis runs parallel to the extrusion
-        through ``twist_center`` (sketch-local mm), defaulting to the sketch
-        origin. ``None`` or ``0`` is the plain prism.
+        ``twist_angle_deg`` / ``twist_center`` are the LEGACY extrude twist:
+        twist now lives on :meth:`sweep` ("twist along path", as in Fusion 360
+        and SolidWorks), which builds the same solid along a straight path.
+        They still work, and a stored twisted extrude rebuilds unchanged: the
+        profile turns uniformly by that many degrees over the whole distance,
+        right-handed about the extrusion direction, about an axis parallel to
+        it through ``twist_center`` (sketch-local mm, default the sketch
+        origin). ``None`` or ``0`` is the plain prism.
 
         A non-positive ``distance_mm``, a non-finite value, or a twist beyond
         ten turns is refused CLIENT-side by the shared DTO (a ``ValueError``,
@@ -422,22 +426,13 @@ class Part:
         in reasonable time, a ``twist_failed`` feature error, raised by
         :meth:`evaluate`.
         """
-        if isinstance(profile, Sketch):
-            if profile.solved is None:
-                profile.save()
-            ref = profile.ref()
-        elif isinstance(profile, FeatureRef):
-            ref = profile
-        else:
-            ref = FeatureRef(kind="feature", feature_id=profile)
-
         created = self.create_feature(
             name,
             ExtrudeFeature(
                 type="extrude",
                 version=1,
                 params=ExtrudeParamsV1(
-                    profile=ref,
+                    profile=_sketch_ref(profile),
                     distance_mm=distance_mm,
                     operation=operation,
                     direction=direction,
@@ -450,6 +445,73 @@ class Part:
             ),
         )
         return created.feature
+
+    def sweep(
+        self,
+        profile: Sketch | FeatureRef | uuid.UUID,
+        path: Sketch | FeatureRef | uuid.UUID,
+        *,
+        operation: Literal["add", "cut"] = "add",
+        merge: bool = True,
+        twist_angle_deg: float | None = None,
+        name: str = "Sweep",
+    ) -> FeatureResponse:
+        """Sweep an earlier sketch's closed profile along another sketch's path.
+
+        ``profile`` and ``path`` each take a :class:`~loft.sketch.Sketch`
+        (saved if it is not already), a ``FeatureRef`` or a bare feature id,
+        exactly as :meth:`extrude`'s ``profile`` does. The path sketch's
+        entities must form one OPEN wire.
+
+        ``twist_angle_deg`` turns the profile uniformly about the path by that
+        many degrees from one end of the sweep to the other — a true helix for
+        every profile point, e.g. a helical gear's tooth gap cut with
+        ``operation="cut"`` along the gear's axis. Positive is right-handed
+        about the direction of travel, from the profile along the path. A twist
+        needs a straight path perpendicular to the profile's sketch plane that
+        does not cross it; any other path is a ``twist_path_unsupported``
+        feature error, and a twist with too many turns for the profile a
+        ``twist_failed`` one, both raised by :meth:`evaluate`. ``None`` or ``0``
+        is the plain sweep. A non-finite twist, or one beyond ten turns, is
+        refused client-side by the shared DTO (a ``ValueError``).
+        """
+        created = self.create_feature(
+            name,
+            SweepFeature(
+                type="sweep",
+                version=1,
+                params=SweepParamsV1(
+                    profile=_sketch_ref(profile),
+                    path=_sketch_ref(path),
+                    operation=operation,
+                    merge=merge,
+                    twist_angle_deg=twist_angle_deg,
+                ),
+            ),
+        )
+        return created.feature
+
+    def set_sweep_twist(
+        self, feature_id: uuid.UUID, twist_angle_deg: float | None
+    ) -> FeatureResponse:
+        """Change an existing sweep's twist (``None``/``0`` removes it).
+
+        The same whole-envelope replacement, re-validated client-side, as
+        :meth:`set_extrude_twist`: profile, path, operation and merge stay as
+        stored, and a NaN or infinite twist is a pydantic ``ValidationError``
+        naming the field before anything is sent.
+        """
+        record = self.feature(feature_id)
+        stored = record.feature
+        if not isinstance(stored, SweepFeature):
+            raise TypeError(f"feature {feature_id} is a {stored.type!r}, not a sweep")
+        params = SweepParamsV1.model_validate(
+            {**stored.params.model_dump(), "twist_angle_deg": twist_angle_deg}
+        )
+        updated = self.update_feature(
+            feature_id, feature=SweepFeature(type="sweep", version=1, params=params)
+        )
+        return updated.feature
 
     def set_extrude_distance(
         self, feature_id: uuid.UUID, distance_mm: float
@@ -465,7 +527,10 @@ class Part:
     def set_extrude_twist(
         self, feature_id: uuid.UUID, twist_angle_deg: float | None
     ) -> FeatureResponse:
-        """Change an existing extrude's twist (``None``/``0`` straightens it).
+        """Change an existing extrude's LEGACY twist (``None``/``0`` straightens it).
+
+        For stored twisted extrudes; a new twist belongs on :meth:`sweep`
+        (:meth:`set_sweep_twist`).
 
         Same whole-envelope replacement as :meth:`set_extrude_distance`, so the
         operation, direction and twist axis stay as stored — except that
@@ -582,6 +647,22 @@ class Part:
             )
         target.write_bytes(self.export_bytes(resolved))
         return target
+
+
+def _sketch_ref(handle: Sketch | FeatureRef | uuid.UUID) -> FeatureRef:
+    """A ``FeatureRef`` to a sketch, from whichever handle the caller holds.
+
+    A :class:`~loft.sketch.Sketch` that has not been solved is saved first —
+    the workspace enables a feature on a sketch only once its solve
+    round-trips back, so a script reaches the same state by the same route.
+    """
+    if isinstance(handle, Sketch):
+        if handle.solved is None:
+            handle.save()
+        return handle.ref()
+    if isinstance(handle, FeatureRef):
+        return handle
+    return FeatureRef(kind="feature", feature_id=handle)
 
 
 def create_part(

@@ -22,6 +22,11 @@ Discovers every golden under ``services/geometry/goldens/`` and, for each:
   ``test_kernel.py::test_tessellation_is_deterministic`` (same request, same
   byte-strength assertion, plus the cross-process leg), which was removed.
 
+A REFUSAL golden (``refusals`` in expected.json, listed in
+:data:`REFUSAL_GOLDENS`) locks a typed refusal instead: exactly the listed
+features must fail, each with exactly its code, and the gates above run on the
+last good body.
+
 Adding a golden requires ZERO runner changes: drop
 ``goldens/<name>/model.json`` (a serialized ``TessellateRequest`` for a
 single shape, or a serialized ``EvaluateTreeRequest`` for a feature tree —
@@ -32,6 +37,7 @@ next to it. Expectations must be hand-derived or independently cross-checked
 """
 
 import hashlib
+import json
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -39,7 +45,12 @@ from pathlib import Path
 
 import pytest
 from geometry.harness import ModelRequest, evaluate_model, load_model_request
-from geometry.schemas import BoundingBox, TopologyCounts, Vec3
+from geometry.schemas import (
+    BoundingBox,
+    TessellationMetadata,
+    TopologyCounts,
+    Vec3,
+)
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens"
@@ -101,6 +112,16 @@ class ExpectedMesh(BaseModel):
     triangles: int = Field(ge=1)
 
 
+class ExpectedRefusal(BaseModel):
+    """A feature a REFUSAL golden locks as a typed rebuild error."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    feature_id: str
+    code: str = Field(min_length=1)
+    why: str = Field(min_length=1, description="What the refusal protects")
+
+
 class GoldenExpectation(BaseModel):
     """Committed expectations for one golden model (``expected.json``).
 
@@ -126,6 +147,12 @@ class GoldenExpectation(BaseModel):
         "this golden only (conftest.roundtrip_tolerance_for); needs a rationale.",
     )
     roundtrip_tolerance_rationale: str | None = None
+    refusals: list[ExpectedRefusal] = Field(
+        default_factory=list[ExpectedRefusal],
+        description="Features that must fail with exactly this code (a refusal "
+        "golden); every other feature must be ok. The asserted body is the last "
+        "good one.",
+    )
     properties: ExpectedMassProperties
     topology: TopologyCounts
     mesh: ExpectedMesh
@@ -138,6 +165,15 @@ class GoldenCase:
     name: str
     request: ModelRequest
     expected: GoldenExpectation
+
+    @property
+    def refusals(self) -> dict[str, str]:
+        """feature id -> the error code it must fail with."""
+        return {r.feature_id: r.code for r in self.expected.refusals}
+
+    def build(self) -> tuple[bytes, TessellationMetadata]:
+        """Rebuild through the shared harness, holding it to the refusals."""
+        return evaluate_model(self.request, self.refusals)
 
 
 def _load_goldens() -> list[GoldenCase]:
@@ -189,6 +225,18 @@ def test_roundtrip_overrides_are_the_reviewed_ones() -> None:
             assert case.expected.roundtrip_tolerance_rationale, case.name
 
 
+#: The refusal goldens, listed so one cannot appear (or vanish) unreviewed: a
+#: golden that EXPECTS a feature error must be one somebody meant.
+REFUSAL_GOLDENS: frozenset[str] = frozenset(
+    {"sweep-twist-arc-path-refused-square10-r40-90deg"}
+)
+
+
+def test_refusal_goldens_are_the_reviewed_ones() -> None:
+    declared = {case.name for case in GOLDEN_CASES if case.expected.refusals}
+    assert declared == REFUSAL_GOLDENS
+
+
 def test_every_golden_dir_is_complete() -> None:
     """Every directory under goldens/ carries both halves of a golden."""
     for golden_dir in sorted(p for p in GOLDENS_DIR.iterdir() if p.is_dir()):
@@ -198,7 +246,7 @@ def test_every_golden_dir_is_complete() -> None:
 
 @each_golden
 def test_mass_properties_within_documented_tolerance(case: GoldenCase) -> None:
-    _, metadata = evaluate_model(case.request)
+    _, metadata = case.build()
     actual = metadata.properties
     expected = case.expected.properties
     tolerance = case.expected.tolerance
@@ -262,7 +310,7 @@ def test_mass_properties_within_documented_tolerance(case: GoldenCase) -> None:
 def test_topology_and_mesh_counts_exact(case: GoldenCase) -> None:
     """Exact-match gate: a changed count is a real geometric change —
     explain it or fix it (geometry-gates skill), never widen it."""
-    glb, metadata = evaluate_model(case.request)
+    glb, metadata = case.build()
 
     assert metadata.properties.topology == case.expected.topology, (
         f"{case.name}: topology expected "
@@ -281,8 +329,8 @@ def test_rebuild_is_deterministic_in_process(case: GoldenCase) -> None:
     Canonical home of the determinism gate (RESEARCH §9); any flake here is
     a P0, not a retry.
     """
-    glb_a, meta_a = evaluate_model(case.request)
-    glb_b, meta_b = evaluate_model(case.request)
+    glb_a, meta_a = case.build()
+    glb_b, meta_b = case.build()
 
     assert meta_a == meta_b, f"{case.name}: metadata differs between rebuilds"
     assert glb_a == glb_b, f"{case.name}: GLB bytes differ between rebuilds"
@@ -292,11 +340,14 @@ def test_rebuild_is_deterministic_in_process(case: GoldenCase) -> None:
 #: the GLB digest + metadata, emulating a worker-process restart.
 _RESTART_PROBE = """\
 import hashlib
+import json
 import sys
 
 from geometry.harness import evaluate_model, load_model_request
 
-glb, metadata = evaluate_model(load_model_request(sys.stdin.read()))
+glb, metadata = evaluate_model(
+    load_model_request(sys.stdin.read()), json.loads(sys.argv[1])
+)
 print(hashlib.sha256(glb).hexdigest())
 print(metadata.model_dump_json())
 """
@@ -308,10 +359,10 @@ def test_rebuild_is_deterministic_across_interpreter_restart(
 ) -> None:
     """Fresh-interpreter rebuild (worker-restart emulation, RESEARCH §9)
     must produce the same GLB bytes and metadata as this process."""
-    glb, metadata = evaluate_model(case.request)
+    glb, metadata = case.build()
 
     result = subprocess.run(
-        [sys.executable, "-c", _RESTART_PROBE],
+        [sys.executable, "-c", _RESTART_PROBE, json.dumps(case.refusals)],
         input=case.request.model_dump_json(),
         capture_output=True,
         text=True,

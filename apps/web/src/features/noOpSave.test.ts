@@ -478,12 +478,13 @@ for (const unit of UNITS) {
       );
     });
 
-    it("sweep and loft: merge", () => {
+    it("sweep and loft: merge, and the sweep's twist along path", () => {
       const sweep: SweepParams = {
         profile: { kind: "feature", feature_id: "sk" },
         path: { kind: "feature", feature_id: "path" },
         operation: "add",
         merge: false,
+        twist_angle_deg: 31.280937437761875,
       };
       expectOptionalKeysKept(sweep, "SweepParamsV1", (row) =>
         buildSweepParams(formFromSweepParams(row)),

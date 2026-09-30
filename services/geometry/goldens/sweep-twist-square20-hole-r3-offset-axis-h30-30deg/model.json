@@ -1,0 +1,88 @@
+{
+  "part_id": "00000000-0000-0000-0000-00000000071c",
+  "tree_version": 1,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-0000000007c1",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": { "kind": "datum_plane", "plane": "XY" },
+          "entities": [
+            {
+              "id": "e1",
+              "kind": "line",
+              "start": { "x": 40.0, "y": -10.0 },
+              "end": { "x": 60.0, "y": -10.0 }
+            },
+            {
+              "id": "e2",
+              "kind": "line",
+              "start": { "x": 60.0, "y": -10.0 },
+              "end": { "x": 60.0, "y": 10.0 }
+            },
+            {
+              "id": "e3",
+              "kind": "line",
+              "start": { "x": 60.0, "y": 10.0 },
+              "end": { "x": 40.0, "y": 10.0 }
+            },
+            {
+              "id": "e4",
+              "kind": "line",
+              "start": { "x": 40.0, "y": 10.0 },
+              "end": { "x": 40.0, "y": -10.0 }
+            },
+            {
+              "id": "h1",
+              "kind": "circle",
+              "center": { "x": 54.0, "y": 0.0 },
+              "radius": 3.0
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000007c2",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": { "kind": "datum_plane", "plane": "XZ" },
+          "entities": [
+            {
+              "id": "p1",
+              "kind": "line",
+              "start": { "x": 50.0, "y": 30.0 },
+              "end": { "x": 50.0, "y": 0.0 }
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000007c3",
+      "feature": {
+        "type": "sweep",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000007c1"
+          },
+          "path": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000007c2"
+          },
+          "operation": "add",
+          "twist_angle_deg": 30.0
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

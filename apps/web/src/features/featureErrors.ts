@@ -74,18 +74,21 @@ const FRIENDLY_FEATURE_ERROR: Record<string, string> = {
   // each subtractive verb names its own geometry in FEATURE_SPECIFIC_ERROR.
   cut_removed_nothing:
     "Nothing was removed — this cut passes clear of the body, or that material is already gone. Move it onto solid material, or delete it if the same cut is already in the tree.",
-  // Twisted extrude (helical-gear gap G1; docs/design/twisted-extrude.md §4,
-  // §6.1). One code for every way the kernel refuses a twist, and since the
-  // F4 cost guard (4c49218) the commonest is "too many turns for this profile
-  // to build in reasonable time". The rarer others (a sweep that fails or
-  // comes back wrong; holes that do not leave one solid) also lead with a
-  // smaller twist in the kernel's own advice. The guard's cost is in turns
-  // and edges, not distance (§6.1), so the copy names
-  // those two and never sends the user to lengthen the extrude. (A twist too
-  // SMALL to build needs |twist| below ~1e-138 deg, which the Twist field
-  // already sends as no twist; it is not advice anyone can act on.)
+  // A twist the kernel refuses (docs/design/twisted-extrude.md §4, §6.1): on
+  // a twisted Sweep, or a stored legacy twisted extrude. One code for every
+  // way the kernel refuses a twist, and since the F4 cost guard (4c49218) the
+  // commonest is "too many turns for this profile to build in reasonable
+  // time". The guard's cost is in turns and edges, not length (§6.1), so the
+  // copy names those two and never sends the user to lengthen anything. Each
+  // feature names its own editor in FEATURE_SPECIFIC_ERROR below.
   twist_failed:
-    "This twist couldn't be built: too many turns for this profile, or the sweep failed. Open the extrude and reduce the twist, or give the profile fewer edges.",
+    "This twist couldn't be built: too many turns for this profile, or the sweep failed. Reduce the twist, or give the profile fewer edges.",
+  // TWIST-TO-SWEEP: a twisted sweep builds exactly only along ONE straight
+  // line perpendicular to the profile's sketch plane that starts at the
+  // profile (v1; an arc or a bent path is refused rather than approximated).
+  // The copy names the two cures, as the kernel's own message does.
+  twist_path_unsupported:
+    "A twist needs a straight path: one line drawn perpendicular to the profile's sketch plane, starting at the profile. Redraw the path that way, or set the twist to 0.",
 };
 
 /**
@@ -126,6 +129,17 @@ const FEATURE_SPECIFIC_ERROR: Partial<
     sweep:
       "Nothing was removed — the swept volume runs clear of the body. Move the profile or its path so the sweep passes through solid material.",
     loft: "Nothing was removed — the lofted volume passes clear of the body. Move its sections so the loft runs through solid material.",
+  },
+  /**
+   * `twist_failed`: the same refusal on either feature, and each is told
+   * where its twist lives. An extrude's is a legacy field its editor shows
+   * read-only, so the cure there is to move the twist to a Sweep.
+   */
+  twist_failed: {
+    extrude:
+      "This twist couldn't be built: too many turns for this profile, or the sweep failed. Rebuild it as a Sweep along a straight path with a smaller twist, or give the profile fewer edges.",
+    sweep:
+      "This twist couldn't be built: too many turns for this profile. Open the sweep and reduce the twist, or give the profile fewer edges.",
   },
 };
 

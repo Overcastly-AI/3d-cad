@@ -134,7 +134,11 @@ wait_for_gateway() {
 BASE_URL="http://127.0.0.1:${GATEWAY_PORT}"
 
 step "1/7 build + boot + migrate"
-docker compose build gateway documents geometry
+# Retried ONCE, and only on BuildKit's "error reading from server: EOF" (the
+# runner's daemon dropping its stream: e3bd6aa went red that way on a tree that
+# was green elsewhere). A Dockerfile or build-step failure still fails here
+# immediately; see scripts/compose-build-retry.sh for exactly what is retried.
+scripts/compose-build-retry.sh gateway documents geometry
 boot_stack
 migrate
 wait_for_gateway

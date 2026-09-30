@@ -31,23 +31,15 @@ import {
   MeshMatcapMaterial,
 } from "three";
 
-import {
-  MAX_TWIST_DEG,
-  type ExtrudeDirection,
-  type ExtrudeOperation,
-} from "../features/extrude";
+import type { ExtrudeDirection, ExtrudeOperation } from "../features/extrude";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { SolvedSketchLayer } from "./SketchScene";
-import { twistGaugeTrack } from "./axisAnchorGauge";
 import { ExtrudeDragHandle } from "./ExtrudeDragHandle";
 import {
   buildGhostRegion,
   extrudeGhostAppearance,
   extrudeGhostPose,
-  twistArcSeat,
 } from "./extrudeGhost";
-import { ANNOTATION_LAYER } from "./instruments";
-import { ParametricGauge } from "./ParametricGauge";
 import { profileRegions } from "./profileLoops";
 import { studioMatcap } from "./studioMatcap";
 
@@ -78,11 +70,6 @@ export interface ExtrudePreviewProps {
   twistDeg?: number;
   /** The twist axis's sketch point; null or absent is the sketch origin. */
   twistCentre?: { x: number; y: number } | null;
-  /**
-   * Set the twist by DIRECT MANIPULATION: an arc on the far cap, the Twist
-   * field's drag handle (contract β, like `onDepthChange`). Absent = no arc.
-   */
-  onTwistChange?: (deg: number) => void;
 }
 
 /** Rebuild the ghost mesh at most this often while the distance changes. */
@@ -126,13 +113,13 @@ export function ExtrudePreview({
   onDepthChange,
   twistDeg = 0,
   twistCentre = null,
-  onTwistChange,
 }: ExtrudePreviewProps) {
   const invalidate = useThree((state) => state.invalidate);
   const unit = useDocumentLengthUnit();
   const depth = useThrottled(distanceMm, PREVIEW_REBUILD_MS);
-  // Throttled like the depth, for the depth's reason: the twist arc is dragged.
-  const twist = useThrottled(twistDeg, PREVIEW_REBUILD_MS);
+  // A stored LEGACY twist only (TWIST-TO-SWEEP): the editor shows it read-only
+  // and the ghost turns the way the rebuild will. Nothing drags it any more.
+  const twist = twistDeg;
   const centreX = twistCentre?.x ?? 0;
   const centreY = twistCentre?.y ?? 0;
 
@@ -159,34 +146,6 @@ export function ExtrudePreview({
       edges: built.map((b) => b.edges),
     };
   }, [regions, depth, direction, twist, centreX, centreY]);
-
-  // The twist arc's seat and track, from the LIVE depth (the depth gauge's
-  // reason: the arc stays on the cap under the pointer, not a frame behind).
-  const twistSeat = useMemo(
-    () =>
-      onTwistChange === undefined
-        ? null
-        : twistArcSeat(
-            layer.basis,
-            regions,
-            { x: centreX, y: centreY },
-            distanceMm,
-            direction,
-          ),
-    [
-      onTwistChange,
-      layer.basis,
-      regions,
-      centreX,
-      centreY,
-      distanceMm,
-      direction,
-    ],
-  );
-  const twistTrack = useMemo(
-    () => (twistSeat === null ? null : twistGaugeTrack(twistSeat)),
-    [twistSeat],
-  );
 
   // How this operation is shaded — the pure seam below the renderer, so "a cut
   // never reads as added metal" is unit-testable without a GPU.
@@ -281,28 +240,6 @@ export function ExtrudePreview({
           unit={unit}
           onDepthChange={onDepthChange}
         />
-      ) : null}
-      {onTwistChange !== undefined && twistTrack !== null ? (
-        // An ANNOTATION to the proposal, not part of it. The arc stands a fifth
-        // outside the profile's reach from the twist axis, so counted in the
-        // proposal box it grew the box past the body on every open extrude,
-        // even at twist 0, and CRAFT-12's keep-in-frame watch re-fitted the
-        // camera ("fit-proposal") when nothing had been proposed
-        // (viewport-makeover:129). The ghost it turns IS the proposal, and it
-        // is already in the box.
-        <group userData={ANNOTATION_LAYER}>
-          <ParametricGauge
-            label="Extrude twist"
-            tagLabel="T"
-            gaugeId="extrude-twist"
-            value={twistDeg}
-            onChange={onTwistChange}
-            track={twistTrack}
-            min={-MAX_TWIST_DEG}
-            max={MAX_TWIST_DEG}
-            // No `tagUnit`: the angle wears its degree sign (`formatAngle`).
-          />
-        </group>
       ) : null}
     </>
   );

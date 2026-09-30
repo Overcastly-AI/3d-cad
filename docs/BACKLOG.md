@@ -18,17 +18,16 @@ backlog this replaced (190 open items) is in git:
       loft-script callers still open and rebuild identically (migrated or
       read-compatible); goldens cover both paths; `helical-gear.py --twisted`
       uses Sweep.
-- [ ] **SHELL-SEALED-DETERMINISM** (P1, uncommitted in worktree
-      `agent-ab5b7eeb769cdcd64`): a sealed Shell (no open face, the editor's
+- [ ] **SHELL-SEALED-DETERMINISM** (P1, 1fda3e0 in review; blocking
+      pocket-drop fix in progress): a sealed Shell (no open face, the editor's
       default) rebuilds nondeterministically because of cavity face order.
       _Accept:_ identical topology and mass properties across repeated
       rebuilds and a worker restart; there is a golden for it.
-- [ ] **SKETCH-DRO-UNITS** (uncommitted in worktree
-      `agent-aaf5141090bf13f4f`): the sketch DRO labels X/Y "MM" in inch
+- [x] **SKETCH-DRO-UNITS** (87ff68d, green): the sketch DRO labels X/Y "MM" in inch
       documents. _Accept:_ the DRO shows the document's unit; an e2e test
       covers an inch document.
-- [ ] **CI-PY-SPLIT** (uncommitted in worktree `agent-a54dbd828a4a7419f`):
-      pytest takes about 24 min against a 30 min job timeout; the backup
+- [x] **CI-PY-SPLIT** (d41d04d, green; shards 7m46s / 8m20s / 8m46s, `ci`
+      about 10 min end to end): pytest took about 24 min against a 30 min job timeout; the backup
       drill fails on a BuildKit transport EOF. _Accept:_ each Python job
       finishes well under its timeout; the drill retries once on that EOF
       and only on it.
@@ -37,6 +36,12 @@ backlog this replaced (190 open items) is in git:
       10 min (lint, typecheck, unit tests, contract drift, a smoke e2e), with
       the full e2e and deploy-path running nightly and before a merge to
       `main`; wall-clock is measured on real runs.
+- [ ] **SHELL-SHARP-DEFAULT**: new Shells leave a sharp cavity at concave
+      edges (OCCT Intersection join), as SolidWorks, Onshape and Fusion do
+      by default; stored shells keep Arc (rounded) so no saved part changes
+      shape. _Accept:_ a stored `shell_type` (sharp | rounded, legacy rows
+      read as rounded); sharp is correct on a bored plate and an L-bracket,
+      checked by a method that does not rely on Arc; goldens for both.
 - [ ] **REFERENCE-RUN**: after TWIST-TO-SWEEP, `qa-tester` models all five
       reference parts on the tip. _Accept:_ the "Last run" column in VISION
       is updated, and each part's blockers are filed here, ranked.
@@ -95,6 +100,11 @@ backlog this replaced (190 open items) is in git:
 
 One line each. The founder triages weekly; most are closed without work.
 
+- Gateway proxy tests (`test_{parts,features,folders,assemblies}_proxy.py`) parametrize on `uuid.uuid4()`, so their test ids change every run.
+- A hand-cancelled `ci` run skips `pytest complete`, and GitHub counts a skipped required check as passing.
+- `sweep_profile`'s docstring says the path's position is unused; OCCT places the body on the path's side (see `kernel/twist.py`).
+- A straight twist path far from the profile makes it orbit the path like a coil; the Sweep editor may want a hint.
+- Measure panel deltas still read mm in an inch document (same class as SKETCH-DRO-UNITS).
 - A "Finish sketch" click during a live save is silently dropped (2 in 10
   under load).
 - Third-party OCCT readers (FreeCAD) may open our re-oriented twisted solids

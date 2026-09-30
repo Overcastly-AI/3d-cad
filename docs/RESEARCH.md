@@ -141,6 +141,15 @@ The correctness gates, run in CI and by `geometry-qa`:
 - **Determinism:** two in-process rebuilds and one in a fresh interpreter give
   byte-identical GLB and metadata. Where a feature names a set of features,
   they are applied in tree order, never request order.
+- **Not every OCCT op is a pure function of its input.** The Arc-join offset
+  behind Shell orders its offset faces by hashing TShape addresses, so a sealed
+  hollow came out different on every build. Arc still decides every Shell. For a
+  sealed hollow of an analytic body with no concave edge, the Intersection join
+  also runs, and its byte-deterministic build ships when it matches Arc's in
+  shells, faces, volume and area. It is never trusted alone: it silently drops a
+  pocket when the cavity splits, and it drifts on spline walls. Every other Arc
+  result gets a canonical face order, but its bytes can still move in the last
+  bit (`kernel/shell.py`).
 - **STEP round-trip:** export, re-import and compare, within `ROUNDTRIP_TOL`
   (1e-7) unless a golden records a measured override. A body is made
   conformal before export, but only when `BRepCheck` rejects it, and never if
