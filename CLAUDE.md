@@ -65,6 +65,8 @@ blocking fix was made.
   goldens, STEP round-trip, determinism, and migrations tested.
 - Everything else: typecheck, unit tests, and the e2e specs that cover the
   change. Take screenshots only for real visual changes.
+- A change to `packages/loft-wire` runs `just test` in full: the web's
+  fixtures pin every wire field.
 - CI on the pushed commit is the final gate. Subagents cannot reach
   api.github.com: push, report the SHA, and the orchestrator reads CI.
 

@@ -3,12 +3,13 @@
 Where we are and what comes next. The orchestrator keeps "Now" true; the
 `product-manager` owns the rest. The detail lives in `docs/BACKLOG.md`.
 
-## Now (2026-09-25)
+## Now (2026-09-30)
 
-Twist moves from Extrude to Sweep, as it is in Fusion 360 and SolidWorks.
-Also in flight: finishing the sealed-shell determinism fix and splitting CI into a fast per-commit lane and a nightly lane.
-After that, re-run the reference parts on the tip and let their blockers set
-the next priorities.
+Twist lives on Sweep; sealed Shell rebuilds deterministically; CI has a
+fast per-commit lane (about 8 min) and a full lane on the newest tip. In
+flight: Shell must never ship a wrong solid, then sharp shell corners by
+default. The reference parts are being re-run on the tip, and their
+blockers set the next priorities.
 
 ## Shipped
 
