@@ -152,7 +152,7 @@ backlog this replaced (190 open items) is in git:
       on a golden fixture.
 - [ ] **MCP-SERVER**: an MCP server over `loft-script`. _Accept:_ an agent
       creates a sketch, extrudes it, reads mass properties and exports STEP.
-- [ ] **DEP-AUDIT** (security): `pnpm audit` reports 18 advisories (13 high),
+- [x] **DEP-AUDIT** (45b664e + 673e98c, reviewed: pnpm audit and pip-audit at zero; pyjwt 500-before-auth fixed) (security): `pnpm audit` reports 18 advisories (13 high),
       and no vulnerability gate exists. _Accept:_ Dependabot is configured
       and CI surfaces the audit results.
 
