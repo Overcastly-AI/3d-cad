@@ -258,6 +258,55 @@ def test_the_client_gets_the_version_the_body_was_built_from(db_url: str) -> Non
     ]
 
 
+def test_before_is_forwarded_and_the_preview_records_nothing(db_url: str) -> None:
+    """The Edit-feature preview (``?before=``) is a READ end to end: the cut
+    point reaches documents (which builds the prefix, owner-scoped), and the
+    gateway writes no verdict, because a partial body is not the part's rebuild
+    health. The only documents call is the GET."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url, _documents_ok(documents_seen), _geometry_ok(geometry_seen)
+    ) as client:
+        user_id, bearer = _register(client)
+        response = client.post(
+            f"/api/v1/parts/{PART}/evaluate",
+            params={"before": str(SKETCH)},
+            headers=bearer,
+        )
+
+    assert response.status_code == 200, response.text
+    [documents_request] = documents_seen
+    assert documents_request.method == "GET"
+    assert documents_request.url.path == f"/api/v1/parts/{PART}/evaluation-request"
+    assert documents_request.url.params["before"] == str(SKETCH)
+    assert documents_request.headers[PRINCIPAL_HEADER] == user_id
+    assert _recorded(documents_seen) == []
+    [geometry_request] = geometry_seen
+    relayed = EvaluateTreeRequest.model_validate_json(geometry_request.content)
+    assert relayed == _evaluation_request()
+
+
+def test_before_must_be_a_feature_id(db_url: str) -> None:
+    """Input bound: a non-uuid cut point is refused at the gateway, before
+    anything goes upstream."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url, _documents_ok(documents_seen), _geometry_ok(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(
+            f"/api/v1/parts/{PART}/evaluate",
+            params={"before": "x" * 5000},
+            headers=bearer,
+        )
+
+    assert response.status_code == 422
+    assert documents_seen == []
+    assert geometry_seen == []
+
+
 def test_documents_error_resurfaced_and_geometry_never_called(db_url: str) -> None:
     geometry_seen: list[httpx.Request] = []
 

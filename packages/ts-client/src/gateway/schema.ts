@@ -1548,6 +1548,12 @@ export interface paths {
          *     health column (§4.4a) — in a background task, after the response, so the
          *     bookkeeping can neither slow this call down nor fail it
          *     (:func:`record_last_evaluation`).
+         *
+         *     With ``before`` it is the Edit-feature preview: the body the feature is
+         *     built on, evaluated WITHOUT writing anything. The stored rollback bar and
+         *     ``tree_version`` stay where they are and no verdict is recorded, so a
+         *     reload or crash mid-edit leaves the part exactly as it was. The body comes
+         *     back the same way (``mesh_glb_id``, fetched from the mesh route).
          */
         post: operations["evaluate_part_api_v1_parts__part_id__evaluate_post"];
         delete?: never;
@@ -12514,7 +12520,10 @@ export interface operations {
     };
     evaluate_part_api_v1_parts__part_id__evaluate_post: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Evaluate only the features BEFORE this one (the feature itself excluded), ignoring the stored rollback bar: the same body a rollback bar on the preceding feature would give. Read-only: the bar and tree_version do not move and the evaluation is not recorded. Omit to evaluate the part as stored. An id that is not a feature of this part is a 404 feature_not_found. */
+                before?: string | null;
+            };
             header?: never;
             path: {
                 part_id: string;

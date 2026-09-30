@@ -771,3 +771,96 @@ def test_part_export_sketch_only_is_clean_error_through_gateway(stack: Stack) ->
         )
         assert exported.status_code == 422, exported.text
         assert exported.json()["error"]["code"] == "tree_export_failed"
+
+
+def test_evaluate_before_previews_the_input_body_without_writing(
+    stack: Stack,
+) -> None:
+    """FILLET-EDIT-REPICK: ``?before=<fillet>`` serves the body the fillet is
+    built on over the real stack, and is a READ. The stored stop and
+    ``tree_version`` do not move (a reload mid-edit cannot leave the part rolled
+    back), the mesh is the SAME content-addressed GLB a real rollback to the
+    preceding feature produces, and another user cannot preview the part."""
+    with httpx.Client(base_url=stack.gateway_url, timeout=60.0) as client:
+        bearer, part_id = _seed_extruded_part(client, "edit-preview@example.com")
+        tree = client.get(f"/api/v1/parts/{part_id}/features", headers=bearer)
+        assert tree.status_code == 200, tree.text
+        filleted = client.post(
+            f"/api/v1/parts/{part_id}/features",
+            json={
+                "name": "Fillet1",
+                "feature": {
+                    "type": "fillet",
+                    "version": 1,
+                    "params": {
+                        "edges": {"kind": "axis_parallel", "axis": "Z"},
+                        "radius_mm": 2.0,
+                    },
+                },
+                "expected_tree_version": tree.json()["tree_version"],
+            },
+            headers=bearer,
+        )
+        assert filleted.status_code == 201, filleted.text
+        fillet_id = filleted.json()["feature"]["id"]
+
+        def stored() -> tuple[int, str | None, list[str]]:
+            response = client.get(f"/api/v1/parts/{part_id}/features", headers=bearer)
+            assert response.status_code == 200, response.text
+            body = response.json()
+            return (
+                body["tree_version"],
+                body["rollback_feature_id"],
+                [feature["id"] for feature in body["features"]],
+            )
+
+        before_state = stored()
+        version, bar, (_, extrude_id, _) = before_state
+        assert bar is None
+
+        preview = client.post(
+            f"/api/v1/parts/{part_id}/evaluate",
+            params={"before": fillet_id},
+            headers=bearer,
+        )
+        assert preview.status_code == 200, preview.text
+        previewed = EvaluateTreeResult.model_validate(preview.json())
+        assert [str(f.feature_id) for f in previewed.features][-1] == extrude_id
+        assert previewed.mesh_glb_id is not None
+        assert previewed.properties is not None
+        assert previewed.properties.volume == pytest.approx(10_000.0, abs=1e-6)
+        assert previewed.tree_version == version
+        assert stored() == before_state  # read-only: no bar move, no bump
+
+        # Owner-scoped like every part route: a stranger learns nothing.
+        stranger = client.post(
+            "/api/v1/auth/register",
+            json={"email": "edit-snoop@example.com", "password": "hunter2-passphrase"},
+        )
+        assert stranger.status_code == 201, stranger.text
+        snoop = client.post(
+            f"/api/v1/parts/{part_id}/evaluate",
+            params={"before": fillet_id},
+            headers={"Authorization": f"Bearer {stranger.json()['access_token']}"},
+        )
+        assert snoop.status_code == 404, snoop.text
+        assert snoop.json()["error"]["code"] == "part_not_found"
+
+        # The tip is the filleted body, so the preview really was cut short...
+        tip = client.post(f"/api/v1/parts/{part_id}/evaluate", headers=bearer)
+        assert tip.status_code == 200, tip.text
+        tip_result = EvaluateTreeResult.model_validate(tip.json())
+        assert tip_result.mesh_glb_id != previewed.mesh_glb_id
+
+        # ...and it is exactly the body a REAL rollback to the extrude gives.
+        moved = client.put(
+            f"/api/v1/parts/{part_id}/rollback",
+            json={"expected_tree_version": version, "rollback_feature_id": extrude_id},
+            headers=bearer,
+        )
+        assert moved.status_code == 200, moved.text
+        rolled = client.post(f"/api/v1/parts/{part_id}/evaluate", headers=bearer)
+        assert rolled.status_code == 200, rolled.text
+        rolled_result = EvaluateTreeResult.model_validate(rolled.json())
+        assert rolled_result.mesh_glb_id == previewed.mesh_glb_id
+        assert rolled_result.properties == previewed.properties

@@ -141,6 +141,114 @@ def test_rollback_bar_is_applied_before_handover(client: TestClient) -> None:
     ]
 
 
+def _tree_state(client: TestClient, part_id: str) -> tuple[int, str | None]:
+    """The stored stop and version: what an Edit preview must never move."""
+    response = client.get(f"/api/v1/parts/{part_id}/features", headers=_headers())
+    assert response.status_code == 200, response.text
+    body = response.json()
+    return body["tree_version"], body["rollback_feature_id"]
+
+
+def _before(
+    client: TestClient, part_id: str, feature_id: str, owner: str = OWNER
+) -> Any:
+    return client.get(
+        f"/api/v1/parts/{part_id}/evaluation-request",
+        params={"before": feature_id},
+        headers=_headers(owner),
+    )
+
+
+def test_before_serves_the_input_body_and_writes_nothing(client: TestClient) -> None:
+    """FILLET-EDIT-REPICK: Edit feature previews the body the feature is built
+    on WITHOUT moving the stored stop, so a reload mid-edit cannot leave the
+    part rolled back. The prefix is exactly what a real bar on the preceding
+    feature serves (the one rollback implementation), and tree_version and the
+    bar are unchanged afterwards."""
+    part_id = _create_part(client)
+    first = _create_sketch(client, part_id, "Sketch1", 0)
+    second = _create_sketch(client, part_id, "Sketch2", 1)
+    third = _create_sketch(client, part_id, "Sketch3", 2)
+    stored = _tree_state(client, part_id)
+    assert stored == (3, None)
+
+    response = _before(client, part_id, third)
+    assert response.status_code == 200, response.text
+    preview = EvaluateTreeRequest.model_validate(response.json())
+    assert [str(item.id) for item in preview.features] == [first, second]
+    assert preview.tree_version == 3
+    assert _tree_state(client, part_id) == stored  # read-only
+
+    # Before the first feature: nothing is built yet, an empty (valid) list.
+    response = _before(client, part_id, first)
+    assert response.status_code == 200, response.text
+    assert EvaluateTreeRequest.model_validate(response.json()).features == []
+    assert _tree_state(client, part_id) == stored
+
+    # The same list a REAL rollback to the preceding feature hands geometry.
+    moved = client.put(
+        f"/api/v1/parts/{part_id}/rollback",
+        json={"expected_tree_version": 3, "rollback_feature_id": second},
+        headers=_headers(),
+    )
+    assert moved.status_code == 200, moved.text
+    real = _evaluation_request(client, part_id)
+    assert real.features == preview.features
+    assert real.materials == preview.materials
+
+
+def test_before_ignores_the_stored_bar(client: TestClient) -> None:
+    """Editing a feature past the stored bar previews ITS input body (every
+    feature before it), as moving the bar to just before it would; the bar the
+    user left stays put."""
+    part_id = _create_part(client)
+    first = _create_sketch(client, part_id, "Sketch1", 0)
+    second = _create_sketch(client, part_id, "Sketch2", 1)
+    third = _create_sketch(client, part_id, "Sketch3", 2)
+    moved = client.put(
+        f"/api/v1/parts/{part_id}/rollback",
+        json={"expected_tree_version": 3, "rollback_feature_id": first},
+        headers=_headers(),
+    )
+    assert moved.status_code == 200, moved.text
+    stored = _tree_state(client, part_id)
+    assert stored == (4, first)
+
+    response = _before(client, part_id, third)
+    assert response.status_code == 200, response.text
+    preview = EvaluateTreeRequest.model_validate(response.json())
+    assert [str(item.id) for item in preview.features] == [first, second]
+    assert _tree_state(client, part_id) == stored
+    # The plain read still honours the stored bar.
+    assert [str(i.id) for i in _evaluation_request(client, part_id).features] == [first]
+
+
+def test_before_is_owner_scoped_and_bounded(client: TestClient) -> None:
+    """Authorised like every part read: a foreign part is the uniform 404 even
+    with a real feature id; a feature of ANOTHER part (or unknown) is 404
+    feature_not_found, never a silently full tree; a non-uuid is a 422."""
+    part_id = _create_part(client)
+    feature_id = _create_sketch(client, part_id, "Sketch1", 0)
+    other_part = client.post(
+        "/api/v1/parts", json={"name": "other-block"}, headers=_headers()
+    )
+    assert other_part.status_code == 201, other_part.text
+    other_part_id = other_part.json()["id"]
+    _create_sketch(client, other_part_id, "Sketch1", 0)
+
+    foreign = _before(client, part_id, feature_id, owner=OTHER)
+    assert foreign.status_code == 404
+    assert foreign.json()["error"]["code"] == "part_not_found"
+
+    for stranger in (feature_id, str(uuid.uuid4())):
+        response = _before(client, other_part_id, stranger)
+        assert response.status_code == 404, response.text
+        assert response.json()["error"]["code"] == "feature_not_found"
+
+    garbage = _before(client, part_id, "not-a-uuid")
+    assert garbage.status_code == 422
+
+
 @pytest.fixture
 def sketch_v0_upcast() -> Iterator[None]:
     """Register a synthetic sketch v0→v1 upcast (pretend v0 lacked

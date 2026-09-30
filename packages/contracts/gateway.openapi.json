@@ -15416,7 +15416,7 @@
     },
     "/api/v1/parts/{part_id}/evaluate": {
       "post": {
-        "description": "Evaluate the part's current feature tree (feature-tree design \u00a74).\n\nThe full loop behind one authenticated call: documents serves the\nevaluation-ready list (rollback bar applied, params upcast \u2014 \u00a74.2), the\ngateway forwards it verbatim to the stateless geometry service, and the\ntyped result comes back with per-feature statuses and solved-sketch\n``data`` payloads (\u00a77.10). Feature failures are a 200 with per-feature\nerrors (\u00a74.3); the error envelope here means the aggregation itself\nfailed (404 unknown part, 502 unreachable upstream, ...).\n\nA 200 also records the verdict on the part row for the registers' rebuild-\nhealth column (\u00a74.4a) \u2014 in a background task, after the response, so the\nbookkeeping can neither slow this call down nor fail it\n(:func:`record_last_evaluation`).",
+        "description": "Evaluate the part's current feature tree (feature-tree design \u00a74).\n\nThe full loop behind one authenticated call: documents serves the\nevaluation-ready list (rollback bar applied, params upcast \u2014 \u00a74.2), the\ngateway forwards it verbatim to the stateless geometry service, and the\ntyped result comes back with per-feature statuses and solved-sketch\n``data`` payloads (\u00a77.10). Feature failures are a 200 with per-feature\nerrors (\u00a74.3); the error envelope here means the aggregation itself\nfailed (404 unknown part, 502 unreachable upstream, ...).\n\nA 200 also records the verdict on the part row for the registers' rebuild-\nhealth column (\u00a74.4a) \u2014 in a background task, after the response, so the\nbookkeeping can neither slow this call down nor fail it\n(:func:`record_last_evaluation`).\n\nWith ``before`` it is the Edit-feature preview: the body the feature is\nbuilt on, evaluated WITHOUT writing anything. The stored rollback bar and\n``tree_version`` stay where they are and no verdict is recorded, so a\nreload or crash mid-edit leaves the part exactly as it was. The body comes\nback the same way (``mesh_glb_id``, fetched from the mesh route).",
         "operationId": "evaluate_part_api_v1_parts__part_id__evaluate_post",
         "parameters": [
           {
@@ -15427,6 +15427,25 @@
               "format": "uuid",
               "title": "Part Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "Evaluate only the features BEFORE this one (the feature itself excluded), ignoring the stored rollback bar: the same body a rollback bar on the preceding feature would give. Read-only: the bar and tree_version do not move and the evaluation is not recorded. Omit to evaluate the part as stored. An id that is not a feature of this part is a 404 feature_not_found.",
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Evaluate only the features BEFORE this one (the feature itself excluded), ignoring the stored rollback bar: the same body a rollback bar on the preceding feature would give. Read-only: the bar and tree_version do not move and the evaluation is not recorded. Omit to evaluate the part as stored. An id that is not a feature of this part is a 404 feature_not_found.",
+              "title": "Before"
             }
           }
         ],

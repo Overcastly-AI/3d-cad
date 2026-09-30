@@ -8529,7 +8529,10 @@ export interface operations {
     };
     get_evaluation_request_api_v1_parts__part_id__evaluation_request_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Evaluate only the features BEFORE this one (the feature itself excluded), ignoring the stored rollback bar: the same body a rollback bar on the preceding feature would give. Read-only: the bar and tree_version do not move and the evaluation is not recorded. Omit to evaluate the part as stored. An id that is not a feature of this part is a 404 feature_not_found. */
+                before?: string | null;
+            };
             header?: {
                 /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
                 "X-Loft-User"?: string | null;

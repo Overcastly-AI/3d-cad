@@ -350,3 +350,20 @@ class PartListResponse(BaseModel):
     """The caller's parts, oldest first (wrapper leaves room for pagination)."""
 
     parts: list[PartResponse]
+
+
+#: The ``before`` query parameter of the part evaluate (gateway ``POST
+#: /parts/{id}/evaluate``) and of documents' ``GET /parts/{id}/evaluation-request``
+#: that feeds it. It is the Edit-feature preview: the body a feature is BUILT ON,
+#: which is what its picked edges and faces live on. It is a read, never a write:
+#: the stored rollback bar and ``tree_version`` do not move, and the gateway does
+#: not record the verdict (a partial body is not the part's rebuild health). A
+#: reload or crash mid-edit therefore leaves the part exactly as it was, and
+#: drawings, assemblies and exports keep using the whole tree.
+EVALUATE_BEFORE_DESCRIPTION = (
+    "Evaluate only the features BEFORE this one (the feature itself excluded), "
+    "ignoring the stored rollback bar: the same body a rollback bar on the "
+    "preceding feature would give. Read-only: the bar and tree_version do not "
+    "move and the evaluation is not recorded. Omit to evaluate the part as "
+    "stored. An id that is not a feature of this part is a 404 feature_not_found."
+)

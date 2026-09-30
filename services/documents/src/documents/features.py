@@ -44,6 +44,7 @@ from loft_wire.features import (
     feature_references,
 )
 from loft_wire.materials import MaterialAssignment
+from loft_wire.parts import EVALUATE_BEFORE_DESCRIPTION
 from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
 from py_kit.db import SessionDep
 from sqlalchemy import delete, select, update
@@ -290,7 +291,7 @@ async def get_feature_tree(
 
 
 async def evaluation_prefix(
-    session: AsyncSession, part: db.Part
+    session: AsyncSession, part: db.Part, *, before: uuid.UUID | None = None
 ) -> list[EvaluatedFeatureInput]:
     """The part's evaluation-ready feature prefix (design §4.2 / §3 / §1.4).
 
@@ -300,9 +301,20 @@ async def evaluation_prefix(
     applied HERE (only the prefix up to and including the bar, §3) and every params
     blob is upcast to its current version on read (§1.4), so geometry only ever sees
     a current-version, rollback-applied list — never a hint that rollback exists.
+
+    ``before`` replaces the stored bar with a transient one for this read only:
+    the features strictly before that feature, which is exactly the prefix a bar
+    on the preceding feature would give (Edit feature's input body). Nothing is
+    written. A feature that is not this part's is a 404.
     """
     features = await _ordered_features(session, part.id)
-    bar_index = _bar_index(part, features)
+    if before is None:
+        bar_index = _bar_index(part, features)
+    else:
+        stop = next((feature for feature in features if feature.id == before), None)
+        if stop is None:
+            raise NotFoundError("Feature not found.", code="feature_not_found")
+        bar_index = stop.order_index - 1
     return [
         EvaluatedFeatureInput(
             id=feature.id,
@@ -334,7 +346,12 @@ def part_materials(part: db.Part) -> MaterialAssignment | None:
 
 @router.get("/{part_id}/evaluation-request")
 async def get_evaluation_request(
-    part_id: uuid.UUID, owner_id: Principal, session: SessionDep
+    part_id: uuid.UUID,
+    owner_id: Principal,
+    session: SessionDep,
+    before: Annotated[
+        uuid.UUID | None, Query(description=EVALUATE_BEFORE_DESCRIPTION)
+    ] = None,
 ) -> EvaluateTreeRequest:
     """The evaluation-ready feature list (design §4.2), for the gateway to
     forward to the geometry service verbatim.
@@ -351,7 +368,7 @@ async def get_evaluation_request(
     return EvaluateTreeRequest(
         part_id=part.id,
         tree_version=part.tree_version,
-        features=await evaluation_prefix(session, part),
+        features=await evaluation_prefix(session, part, before=before),
         materials=part_materials(part),
     )
 
