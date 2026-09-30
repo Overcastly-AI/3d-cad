@@ -268,6 +268,45 @@ describe("resolveBandIntersections", () => {
     ).toBe(3);
   });
 
+  // EDGE-HIDDEN-LONE: the only edge in the corridor, 2.31 mm behind the
+  // face under the cursor, inside a 2.69 mm slack.
+  it("refuses a LONE edge behind the surface under the cursor unless it is proven visible", () => {
+    const lone = [hit(surface, 130, 4), gap(132.31, 2, 6)];
+    expect(resolveBandIntersections(lone, targets, map, 2.69, never)).toBe(
+      null,
+    );
+    expect(resolveBandIntersections(lone, targets, map, 2.69, always)).toBe(8);
+  });
+
+  it("falls through an unproven slack hit to the next edge that is visible", () => {
+    expect(
+      resolveBandIntersections(
+        [hit(surface, 130, 4), gap(131, 2, 1), gap(132, 0, 3)],
+        targets,
+        map,
+        2.69,
+        (h) => h.faceIndex === 0,
+      ),
+    ).toBe(3);
+  });
+
+  it("asks nothing about a front hit that is in front of the surface", () => {
+    const asked: number[] = [];
+    expect(
+      resolveBandIntersections(
+        [gap(129.9, 2, 1), hit(surface, 130, 4)],
+        targets,
+        map,
+        2.69,
+        (h) => {
+          asked.push(h.faceIndex as number);
+          return false;
+        },
+      ),
+    ).toBe(8);
+    expect(asked).toEqual([]);
+  });
+
   it("asks the oracle only about hits that would beat the front one", () => {
     const asked: number[] = [];
     resolveBandIntersections(

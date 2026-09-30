@@ -350,7 +350,7 @@ test("EDGE-MARK-OVERLAP, from below the rim: the hidden inner rim never takes th
   const cy = box.y + box.height / 2;
   await page.mouse.move(cx, cy);
   await page.mouse.down();
-  for (let step = 1; step <= 5; step += 1) {
+  for (let step = 1; step <= 3; step += 1) {
     await page.mouse.move(cx, cy - step * 10);
   }
   await page.mouse.up();
@@ -382,9 +382,12 @@ test("EDGE-MARK-OVERLAP, from below the rim: the hidden inner rim never takes th
     "the inner front rim is hidden behind the wall and must be drawn buried",
   ).toBe(true);
 
-  // THE REVIEW CASE. With the marks hidden, sweep the pointer down through
-  // the outer rim's corridor at its mark's column: every row that answers at
-  // all must answer the outer rim, never its hidden twin 2 mm behind the wall.
+  // THE REVIEW CASES. With the marks hidden, sweep the pointer through the
+  // outer rim's corridor at its mark's column, and 12 px past it on either
+  // side: every row that answers at all must answer the outer rim, never its
+  // hidden twin 2 mm behind the wall. Past the corridor is where the twin is
+  // the ONLY edge in range and used to win on the occlusion slack alone
+  // (EDGE-HIDDEN-LONE).
   await page.evaluate(() => {
     const host = document.querySelector<HTMLElement>(
       '[data-testid="pick-mark-layer"]',
@@ -394,7 +397,7 @@ test("EDGE-MARK-OVERLAP, from below the rim: the hidden inner rim never takes th
   const viewport = page.getByTestId("viewport");
   const answers: string[] = [];
   let answered = 0;
-  for (let dy = -11; dy <= 11; dy += 1) {
+  for (let dy = -24; dy <= 24; dy += 1) {
     await page.mouse.move(4, 4);
     await expect(viewport).not.toHaveAttribute("data-edge-pick-hover", /./);
     await page.mouse.move(outerFront.cx, outerFront.cy + dy);
@@ -418,7 +421,7 @@ test("EDGE-MARK-OVERLAP, from below the rim: the hidden inner rim never takes th
   );
   expect(
     answers,
-    `a row in the outer front rim's corridor answered another edge ` +
+    `a row in or beside the outer front rim's corridor answered another edge ` +
       `(inner front rim is ${innerFront.index})`,
   ).toEqual([]);
 });

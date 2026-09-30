@@ -15,9 +15,11 @@ import {
   Float32BufferAttribute,
   Mesh,
   MeshBasicMaterial,
+  OrthographicCamera,
   PerspectiveCamera,
   Vector3,
 } from "three";
+import type { Camera } from "three";
 import {
   LineMaterial,
   LineSegments2,
@@ -33,7 +35,7 @@ const H = 800;
 const OUTER = 0;
 const INNER = 1;
 
-function scene(cameraY: number): BandProbeTargets {
+function scene(cameraY: number, pose?: Camera): BandProbeTargets {
   // Y up. Outer rim edge on the outer face (z = 30), inner rim on z = 28.
   const geometry = new LineSegmentsGeometry();
   geometry.setPositions([-40, 40, 30, 40, 40, 30, -38, 40, 28, 38, 40, 28]);
@@ -42,7 +44,7 @@ function scene(cameraY: number): BandProbeTargets {
   const band = new LineSegments2(geometry, material);
   band.updateMatrixWorld();
 
-  // The drawn surface: the outer front face and the rim face.
+  // The drawn surface: the outer front face, the rim face, and the inner face.
   const skin = new BufferGeometry();
   skin.setAttribute(
     "position",
@@ -52,6 +54,8 @@ function scene(cameraY: number): BandProbeTargets {
         ...[-40, 0, 30, 40, 40, 30, -40, 40, 30],
         ...[-40, 40, 28, 40, 40, 28, 40, 40, 30],
         ...[-40, 40, 28, 40, 40, 30, -40, 40, 30],
+        ...[-38, 0, 28, 38, 0, 28, 38, 40, 28],
+        ...[-38, 0, 28, 38, 40, 28, -38, 40, 28],
       ],
       3,
     ),
@@ -63,9 +67,11 @@ function scene(cameraY: number): BandProbeTargets {
   for (const x of [-40, 40])
     for (const y of [0, 40]) for (const z of [-30, 30]) corners.push([x, y, z]);
 
-  const camera = new PerspectiveCamera(35, W / H, 1, 5000);
-  camera.position.set(0, cameraY, 160);
-  camera.lookAt(0, 30, 0);
+  const camera = pose ?? new PerspectiveCamera(35, W / H, 1, 5000);
+  if (pose === undefined) {
+    camera.position.set(0, cameraY, 160);
+    camera.lookAt(0, 30, 0);
+  }
   camera.updateMatrixWorld();
 
   return {
@@ -123,4 +129,51 @@ describe("resolveBandAt — a hidden edge never beats the visible one", () => {
     expect(at(t, Math.round(rowOf(t, 40, 30)))).toBe(OUTER);
     expect(at(t, Math.round(rowOf(t, 40, 28)))).toBe(INNER);
   });
+});
+
+/**
+ * EDGE-HIDDEN-LONE, the reviewer's pose: ORTHOGRAPHIC, 20 px/mm, looking at
+ * the rim from `degrees` below it. The inner rim is 2 mm / cos(30) = 2.31 mm
+ * behind the outer face along the view, inside the 2.69 mm slack, and over a
+ * ~20 px strip of the face it is the ONLY edge in the corridor.
+ */
+function orthoBelow(degrees: number): OrthographicCamera {
+  const camera = new OrthographicCamera(
+    -W / 2 / 10,
+    W / 2 / 10,
+    H / 2 / 10,
+    -H / 2 / 10,
+    1,
+    20000,
+  );
+  camera.zoom = 2; // 10 px per unit at zoom 1, so 20 px/mm
+  camera.updateProjectionMatrix();
+  const r = (-degrees * Math.PI) / 180;
+  camera.position.set(0, 40 + 500 * Math.sin(r), 500 * Math.cos(r));
+  camera.lookAt(0, 40, 0);
+  return camera;
+}
+
+describe("resolveBandAt — a LONE hidden edge is refused (EDGE-HIDDEN-LONE)", () => {
+  for (const degrees of [30, 60]) {
+    it(`orthographic, ${degrees} degrees below the rim: no row over the outer face picks the hidden inner rim`, () => {
+      const t = scene(0, orthoBelow(degrees));
+      const outer = rowOf(t, 40, 30);
+      const inner = rowOf(t, 40, 28);
+      const hidden: number[] = [];
+      let outerRows = 0;
+      for (
+        let py = Math.floor(Math.min(outer, inner)) - 14;
+        py <= Math.ceil(Math.max(outer, inner)) + 14;
+        py += 1
+      ) {
+        const pick = at(t, py);
+        if (pick === INNER) hidden.push(py);
+        if (pick === OUTER) outerRows += 1;
+      }
+      expect(hidden).toEqual([]);
+      // Non-vacuity: the visible outer rim still answers its corridor.
+      expect(outerRows).toBeGreaterThan(15);
+    });
+  }
 });

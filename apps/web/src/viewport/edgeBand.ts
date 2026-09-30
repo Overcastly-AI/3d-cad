@@ -268,6 +268,18 @@ export interface BandTargets {
  * reaches it before any drawn surface, to within a pixel-scale tolerance. With
  * no oracle nothing can be proven, and the result is the depth-nearest hit.
  *
+ * ## Slack is not proof, even for the only edge there (EDGE-HIDDEN-LONE)
+ *
+ * The same slack let a LONE hidden edge through: orthographic, 30 degrees
+ * below the rim, the inner rim sits 2 mm / cos 30 = 2.31 mm behind the outer
+ * face, inside 2.69 mm, and it was the only edge in the corridor over a
+ * 20 px strip of that face, so hover and click there picked it. So a hit that
+ * is BEHIND the surface under the cursor, accepted by the slack alone, must
+ * also be proven visible at its own pixel before it can be the front hit; an
+ * unproven one is skipped. A hit in front of that surface needs no proof,
+ * which keeps the common case (the cursor on or beside a visible edge) at one
+ * raycast.
+ *
  * ## Occlusion
  *
  * THE FIRST SURFACE HIT IS THE OCCLUDER, unconditionally, and any band hit
@@ -281,6 +293,13 @@ export interface BandTargets {
  * `surfaceDistance` stay null behind a hidden body, so edges genuinely buried
  * inside the still-drawn plate were accepted. The occlusion test applies again.
  */
+/** A band hit that passed the slack test, with its screen gap. */
+interface Accepted {
+  edge: number;
+  gap: number;
+  hit: BandIntersection;
+}
+
 export function resolveBandIntersections(
   intersections: readonly BandIntersection[],
   targets: BandTargets,
@@ -297,7 +316,7 @@ export function resolveBandIntersections(
   }
   // Accepted band hits, near -> far (three sorts the list, r3f keeps the
   // order), so the first is the depth-nearest.
-  const accepted: { edge: number; gap: number; hit: BandIntersection }[] = [];
+  const accepted: Accepted[] = [];
   for (const intersection of intersections) {
     if (
       targets.band === null ||
@@ -319,14 +338,31 @@ export function resolveBandIntersections(
       hit: intersection,
     });
   }
-  const front = accepted[0];
+  if (accepted.length === 0) return null;
+  if (visibleAtOwnPixel === undefined) return (accepted[0] as Accepted).edge;
+  // THE FRONT HIT: the depth-nearest accepted hit that is either in front of
+  // the surface under the cursor, or proven visible at its own pixel
+  // (EDGE-HIDDEN-LONE). A hit BEHIND that surface was accepted only by the
+  // body-scale slack, and the slack is wider than a thin wall: seen from 30
+  // degrees below the rim, a 20 px strip of the visible outer face used to
+  // pick the hidden inner rim, the only edge in the corridor there.
+  let frontAt = -1;
+  for (let i = 0; i < accepted.length; i += 1) {
+    const candidate = accepted[i] as Accepted;
+    const onSlack =
+      surfaceDistance !== null && candidate.hit.distance > surfaceDistance;
+    if (!onSlack || visibleAtOwnPixel(candidate.hit)) {
+      frontAt = i;
+      break;
+    }
+  }
+  const front = accepted[frontAt];
   if (front === undefined) return null;
-  if (visibleAtOwnPixel === undefined) return front.edge;
   // Challengers clearly nearer the cursor than the front hit, nearest first.
   // The first one proven visible wins. The proof is a raycast, so it is asked
   // lazily, and on a part with no near-parallel edges not at all.
   const challengers = accepted
-    .slice(1)
+    .slice(frontAt + 1)
     .filter((c) => c.gap < front.gap - BAND_SCREEN_TIE_PX)
     .sort((a, b) => a.gap - b.gap);
   for (const challenger of challengers) {
