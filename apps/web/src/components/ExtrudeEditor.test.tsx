@@ -17,7 +17,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { Profiler } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ExtrudeParams, SketchEntity } from "../api/parts";
+import type { ExtrudeParams } from "../api/parts";
 import {
   defaultExtrudeForm,
   describeExtrudeDirection,
@@ -52,8 +52,6 @@ function renderEditor(
     error?: string | null;
     profiles?: ProfileOption[];
     initial?: ExtrudeForm;
-    profileCentroid?: (id: string) => { x: number; y: number } | null;
-    profileEntities?: (id: string) => readonly SketchEntity[] | null;
   } = {},
 ) {
   const onPreviewChange = overrides.onPreviewChange ?? vi.fn();
@@ -70,12 +68,6 @@ function renderEditor(
         saving={false}
         error={overrides.error ?? null}
         onPreviewChange={onPreviewChange}
-        {...(overrides.profileCentroid !== undefined
-          ? { profileCentroid: overrides.profileCentroid }
-          : {})}
-        {...(overrides.profileEntities !== undefined
-          ? { profileEntities: overrides.profileEntities }
-          : {})}
       />
     </DocumentUnitProvider>,
   );
@@ -519,78 +511,9 @@ describe("ExtrudeEditor — a no-op Save sends the stored params back", () => {
   }
 });
 
-describe("ExtrudeEditor — the twist axis says what Save will send", () => {
-  it("shows ORIGIN, and says why, when a chosen centroid is unavailable (review S2)", () => {
-    // A form that asked for the centroid of a profile with none: Save sends no
-    // centre (the sketch origin), so the control must show Origin, not nothing.
-    const onSubmit = vi.fn();
-    renderEditor({
-      onSubmit,
-      initial: {
-        ...defaultExtrudeForm("sk1"),
-        twistInput: "30",
-        twistCentre: { kind: "centroid" },
-      },
-      profileCentroid: () => null,
-    });
-    expect(screen.getByTestId("extrude-twist-centre-origin")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(screen.getByTestId("extrude-twist-hint")).toHaveTextContent(
-      /no centroid.*sketch origin/i,
-    );
-    fireEvent.keyDown(screen.getByTestId("extrude-twist"), { key: "Enter" });
-    const sent = onSubmit.mock.calls[0]?.[0] as ExtrudeParams;
-    expect(sent.twist_angle_deg).toBe(30);
-    expect(Object.keys(sent)).not.toContain("twist_center");
-  });
-
-  it("asks for a keyboard that can type a minus sign (review N4)", () => {
-    // `decimal` is the NumberField default, and iOS's decimal pad has no minus:
-    // a left-hand twist could not be typed on a tablet. The parse is the gate.
-    renderEditor();
-    expect(screen.getByTestId("extrude-twist")).toHaveAttribute(
-      "inputmode",
-      "text",
-    );
-  });
-
-  it("says, quietly, when this many turns on THIS profile may be refused (review S9)", () => {
-    // A hexagon: the kernel's published upper bound passes its 4.5 s limit at
-    // about 8.2 turns (design note §6.1), so 8 turns is quiet and 8.5 is not.
-    // (A square never reaches it inside the +/-3600 the field accepts.)
-    const hexagon: SketchEntity[] = Array.from({ length: 6 }, (_, i) => {
-      const a = (i / 6) * 2 * Math.PI;
-      const b = ((i + 1) / 6) * 2 * Math.PI;
-      return {
-        id: `l${i}`,
-        kind: "line" as const,
-        start: { x: 10 * Math.cos(a), y: 10 * Math.sin(a) },
-        end: { x: 10 * Math.cos(b), y: 10 * Math.sin(b) },
-        construction: false,
-      };
-    });
-    renderEditor({ profileEntities: () => hexagon });
-    const twist = screen.getByTestId("extrude-twist");
-    fireEvent.change(twist, { target: { value: "2880" } });
-    expect(screen.queryByTestId("extrude-twist-slow")).toBeNull();
-    fireEvent.change(twist, { target: { value: "-3060" } });
-    expect(screen.getByTestId("extrude-twist-slow")).toHaveTextContent(
-      /may be slow to build, or refused/i,
-    );
-  });
-
-  it("says nothing when it cannot count the profile's edges", () => {
-    renderEditor();
-    fireEvent.change(screen.getByTestId("extrude-twist"), {
-      target: { value: "3600" },
-    });
-    expect(screen.queryByTestId("extrude-twist-slow")).toBeNull();
-  });
-
+describe("ExtrudeEditor — twist lives on Sweep now (TWIST-TO-SWEEP)", () => {
   /** A saved extrude whose twist axis is a point a script placed. */
-  const KEPT: ExtrudeParams = {
+  const LEGACY: ExtrudeParams = {
     profile: { kind: "feature", feature_id: "sk1" },
     distance_mm: 20,
     operation: "add",
@@ -600,34 +523,51 @@ describe("ExtrudeEditor — the twist axis says what Save will send", () => {
     twist_center: { x: 25.400000000000002, y: 12.7 },
   };
 
-  it("offers the stored point as KEPT, pre-selected, in the document's unit (review S3)", () => {
-    renderEditor({ unit: "in", initial: formFromParams(KEPT, "in") });
-    expect(screen.getByTestId("extrude-twist-centre-kept")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    // Origin is still one click away: a saved centre is not a dead end.
-    expect(screen.getByTestId("extrude-twist-centre-origin")).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
+  it("has no Twist field, axis control or cost note on a new extrude", () => {
+    renderEditor();
+    expect(screen.queryByTestId("extrude-twist")).toBeNull();
+    expect(screen.queryByTestId("extrude-twist-centre-origin")).toBeNull();
+    expect(screen.queryByTestId("extrude-twist-slow")).toBeNull();
+    expect(screen.queryByTestId("extrude-legacy-twist")).toBeNull();
+    expect(screen.queryByText(/twist/i)).toBeNull();
+  });
+
+  it("says a stored twist is legacy, read-only, in the document's unit", () => {
+    renderEditor({ unit: "in", initial: formFromParams(LEGACY, "in") });
+    const note = screen.getByTestId("extrude-legacy-twist");
     // Through the unit formatter, never the raw float (25.400000000000002 mm).
-    expect(screen.getByTestId("extrude-twist-centre-point")).toHaveTextContent(
-      "(1, 0.5) in",
+    expect(note).toHaveTextContent(
+      "Twisted 30° about (1, 0.5) in (legacy). Use Sweep for new twists.",
+    );
+    expect(screen.queryByTestId("extrude-twist")).toBeNull();
+  });
+
+  it("says it without an axis when the twist is about the sketch origin", () => {
+    const aboutOrigin: ExtrudeParams = { ...LEGACY };
+    delete aboutOrigin.twist_center;
+    renderEditor({ initial: formFromParams(aboutOrigin, "mm") });
+    expect(screen.getByTestId("extrude-legacy-twist")).toHaveTextContent(
+      "Twisted 30° (legacy). Use Sweep for new twists.",
     );
   });
 
-  it("can move a stored axis to the origin, and back to exactly the stored point", () => {
+  it("keeps BOTH twist fields when the distance is edited (data safety)", () => {
     const onSubmit = vi.fn();
-    renderEditor({ onSubmit, initial: formFromParams(KEPT, "mm") });
-    fireEvent.click(screen.getByTestId("extrude-twist-centre-origin"));
-    fireEvent.keyDown(screen.getByTestId("extrude-twist"), { key: "Enter" });
-    const toOrigin = onSubmit.mock.calls[0]?.[0] as ExtrudeParams;
-    expect(Object.keys(toOrigin)).not.toContain("twist_center");
+    renderEditor({ onSubmit, initial: formFromParams(LEGACY, "mm") });
+    fireEvent.change(screen.getByTestId("extrude-distance"), {
+      target: { value: "35" },
+    });
+    fireEvent.click(screen.getByTestId("extrude-submit"));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0]?.[0]).toEqual({ ...LEGACY, distance_mm: 35 });
+  });
 
-    fireEvent.click(screen.getByTestId("extrude-twist-centre-kept"));
-    fireEvent.keyDown(screen.getByTestId("extrude-twist"), { key: "Enter" });
-    const kept = onSubmit.mock.calls[1]?.[0] as ExtrudeParams;
-    expect(kept.twist_center).toEqual(KEPT.twist_center);
+  it("previews the legacy twist, so the ghost matches the rebuild", () => {
+    const onPreviewChange = vi.fn();
+    renderEditor({ onPreviewChange, initial: formFromParams(LEGACY, "mm") });
+    expect(lastPreview(onPreviewChange)).toMatchObject({
+      twistDeg: 30,
+      twistCentre: LEGACY.twist_center,
+    });
   });
 });

@@ -21,14 +21,12 @@ import {
   sceneOriginBasis,
   type PlanarFaceSignature,
 } from "../sketch/plane";
-import { twistGaugeTrack } from "./axisAnchorGauge";
 import {
   extrudeGhostAppearance,
   buildGhostRegion,
   extrudeGhostPose,
   GHOST_WALL_VERTEX_BUDGET,
   ringEdgePositions,
-  twistArcSeat,
   twistGhostSteps,
   twistPositionsInPlace,
   type ExtrudeGhostPose,
@@ -368,70 +366,4 @@ describe("ringEdgePositions", () => {
     expect(Array.from(out.slice(0, 6))).toEqual([1, 2, 0, 1, 2, 2.5]);
     expect(Array.from(out.slice(24))).toEqual([0, 0, 10, 5, 0, 10]);
   });
-});
-
-describe("twistArcSeat — the arc and the ghost agree about which way it turns", () => {
-  const SQUARE: ProfileRegion[] = [
-    {
-      outer: [
-        { x: 0, y: 0 },
-        { x: 20, y: 0 },
-        { x: 20, y: 20 },
-        { x: 0, y: 20 },
-      ],
-      holes: [],
-    },
-  ];
-  const basis = sceneOriginBasis("XY");
-
-  it("stands on the FAR cap, about the travel, clear of the profile", () => {
-    const seat = twistArcSeat(basis, SQUARE, null, 30, "normal");
-    expect(seat?.centre).toEqual([0, 30, 0]);
-    expect(seat?.axis).toEqual([0, 1, 0]);
-    expect(seat?.arcRadiusMm).toBeCloseTo(Math.hypot(20, 20) * 1.2, 9);
-    const reverse = twistArcSeat(basis, SQUARE, null, 30, "reverse");
-    expect(reverse?.centre).toEqual([0, -30, 0]);
-    // (+ 0 folds the -0 a negated zero component carries.)
-    expect(reverse?.axis.map((v) => v + 0)).toEqual([0, -1, 0]);
-  });
-
-  it("is null when there is nothing to twist", () => {
-    expect(twistArcSeat(basis, [], null, 30, "normal")).toBeNull();
-  });
-
-  for (const direction of ["normal", "reverse"] as const) {
-    for (const twist of [90, -45, 400]) {
-      it(`puts the grip beside the far corner the ghost turned (${direction}, ${twist}°)`, () => {
-        // The one property that decides whether the arc is an instrument or a
-        // decoration: drag it, and the grip travels WITH the corner of the top
-        // it dimensions. Ghost and gauge derive the turn separately, so this
-        // catches either one getting the sense wrong.
-        const depth = 30;
-        const seat = twistArcSeat(basis, SQUARE, null, depth, direction);
-        if (seat === null) throw new Error("no seat");
-        const grip = twistGaugeTrack(seat).pointAt(twist);
-        const z = direction === "reverse" ? -depth : depth;
-        const corner = new Float32Array([20, 20, z]);
-        twistPositionsInPlace(
-          corner,
-          depth,
-          twist,
-          null,
-          direction === "reverse",
-        );
-        const pose = extrudeGhostPose(basis);
-        const onScene = place(pose, [
-          corner[0] as number,
-          corner[1] as number,
-          corner[2] as number,
-        ]);
-        const toGrip = new Vector3(...grip).sub(new Vector3(...seat.centre));
-        const toCorner = new Vector3(...onScene).sub(
-          new Vector3(...seat.centre),
-        );
-        expect(toGrip.angleTo(toCorner)).toBeLessThan(1e-4);
-        expect(toGrip.length()).toBeGreaterThan(toCorner.length());
-      });
-    }
-  }
 });

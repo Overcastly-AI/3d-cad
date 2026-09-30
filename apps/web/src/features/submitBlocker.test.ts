@@ -163,8 +163,6 @@ const EXTRUDE: ExtrudeForm = {
   direction: "normal",
   directionTouched: false,
   merge: true,
-  twistInput: "",
-  twistCentre: { kind: "origin" },
 };
 
 /** The datum form for one kind, with a given override applied. */

@@ -32,11 +32,8 @@ import {
   type Side,
 } from "three";
 
-import type { Vec3 } from "@loft/design";
-
 import type { ExtrudeDirection, ExtrudeOperation } from "../features/extrude";
-import { planeToWorld, type PlaneBasis } from "../sketch/plane";
-import type { ArcSeat } from "./axisAnchorGauge";
+import type { PlaneBasis } from "../sketch/plane";
 import type { ProfileRegion } from "./profileLoops";
 
 export interface ExtrudeGhostAppearance {
@@ -339,97 +336,4 @@ export function twistPositionsInPlace(
       normals[i + 2] = tz / len;
     }
   }
-}
-
-/**
- * How far outside the profile the twist arc is drawn, as a fraction of the
- * profile's reach from the axis: the revolve arc's clearance, for the revolve
- * arc's reason (a protractor ON the silhouette is buried in the part).
- */
-const TWIST_ARC_CLEARANCE_FRAC = 0.2;
-
-/** Shortest arc radius the twist gauge seats at, scene mm (see revolve's). */
-const MIN_TWIST_ARC_MM = 0.5;
-
-/**
- * WHERE THE TWIST ARC STANDS: on the FAR cap, about the twist axis, measuring
- * from the profile's own furthest-out point.
- *
- * The far cap because that is where the twist is: the near end never turns, so
- * an arc at the sketch would dimension nothing. From the furthest point because
- * that is the corner whose travel you can see: at zero the grip sits just
- * outside it, and dragging carries the grip round with where that corner will
- * land. The axis is the TRAVEL direction, so the arc's positive sense (right-
- * handed about its axis) is the twist's positive sense with no sign to carry.
- *
- * Null when the profile encloses nothing (no ghost, so no cap to stand on).
- */
-export function twistArcSeat(
-  basis: PlaneBasis,
-  regions: readonly ProfileRegion[],
-  centre: { x: number; y: number } | null,
-  depthMm: number,
-  direction: ExtrudeDirection,
-): ArcSeat | null {
-  const cx = centre?.x ?? 0;
-  const cy = centre?.y ?? 0;
-  let reach = -1;
-  let far = { x: cx, y: cy };
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const region of regions) {
-    for (const p of region.outer) {
-      const r = Math.hypot(p.x - cx, p.y - cy);
-      if (r > reach) {
-        reach = r;
-        far = p;
-      }
-      minX = Math.min(minX, p.x);
-      minY = Math.min(minY, p.y);
-      maxX = Math.max(maxX, p.x);
-      maxY = Math.max(maxY, p.y);
-    }
-  }
-  if (reach < 0 || !(depthMm > 0)) return null;
-  const sign = direction === "reverse" ? -1 : 1;
-  const axis: Vec3 = [
-    basis.normal[0] * sign,
-    basis.normal[1] * sign,
-    basis.normal[2] * sign,
-  ];
-  const onPlane = planeToWorld(basis, { x: cx, y: cy });
-  const dx = far.x - cx;
-  const dy = far.y - cy;
-  const len = Math.hypot(dx, dy);
-  // A profile whose furthest point IS the axis has no radial to measure from;
-  // the plane's own u is as good a zero as any, and never a NaN.
-  const reference: Vec3 =
-    len > 1e-9
-      ? [
-          (basis.u[0] * dx + basis.v[0] * dy) / len,
-          (basis.u[1] * dx + basis.v[1] * dy) / len,
-          (basis.u[2] * dx + basis.v[2] * dy) / len,
-        ]
-      : [basis.u[0], basis.u[1], basis.u[2]];
-  return {
-    centre: [
-      onPlane[0] + axis[0] * depthMm,
-      onPlane[1] + axis[1] * depthMm,
-      onPlane[2] + axis[2] * depthMm,
-    ],
-    axis,
-    reference,
-    arcRadiusMm: Math.max(
-      MIN_TWIST_ARC_MM,
-      reach * (1 + TWIST_ARC_CLEARANCE_FRAC),
-    ),
-    // The instrument's own scale is the PROFILE's (its half-diagonal), as for
-    // the depth and revolve gauges: never the number it is showing.
-    seatRadiusMm: Math.max(
-      MIN_TWIST_ARC_MM,
-      Math.hypot(maxX - minX, maxY - minY) / 2,
-    ),
-  };
 }

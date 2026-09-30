@@ -15,6 +15,8 @@
  */
 import type { FeatureResponse, SweepParams } from "../api/parts";
 import { profileOptions, type ProfileOption } from "./extrude";
+import { fieldBlocker } from "./submitBlocker";
+import { parseTwistDeg, storedTwistInput } from "./twist";
 
 export { profileOptions };
 export type { ProfileOption };
@@ -28,6 +30,21 @@ export interface SweepForm {
   operation: SweepOperation;
   /** "Merge result" (multi-body §MB-1) — see `ExtrudeForm.merge`. */
   merge: boolean;
+  /**
+   * Twist along the path, degrees, as typed (TWIST-TO-SWEEP). Signed:
+   * positive is RIGHT-handed about travel from the profile along the path.
+   * Empty or 0 is no twist, and then the params carry NO `twist_angle_deg`
+   * key, so an untwisted sweep stays byte-identical to one saved before
+   * twist existed.
+   */
+  twistInput: string;
+  /**
+   * The feature's params as STORED, when this form edits an existing sweep
+   * (absent on create). A PATCH replaces the whole params envelope, so
+   * {@link buildSweepParams} writes the edited fields OVER these: a field the
+   * editor does not show survives an edit of one it does.
+   */
+  stored?: SweepParams;
 }
 
 /** The default new-sweep form: add, against the given profile + path sketches. */
@@ -35,7 +52,13 @@ export function defaultSweepForm(
   profileFeatureId: string,
   pathFeatureId: string,
 ): SweepForm {
-  return { profileFeatureId, pathFeatureId, operation: "add", merge: true };
+  return {
+    profileFeatureId,
+    pathFeatureId,
+    operation: "add",
+    merge: true,
+    twistInput: "",
+  };
 }
 
 /** Seed the form from an existing sweep feature for editing. */
@@ -45,6 +68,14 @@ export function formFromSweepParams(params: SweepParams): SweepForm {
     pathFeatureId: params.path.feature_id,
     operation: params.operation,
     merge: params.merge,
+    // Exactly as stored (see `storedTwistInput`): a no-op Save, or an edit of
+    // the path or operation alone, sends the same twist back. Dropping it
+    // would straighten a twisted sweep (a loft-script helical gear) silently.
+    twistInput:
+      params.twist_angle_deg === undefined || params.twist_angle_deg === null
+        ? ""
+        : storedTwistInput(params.twist_angle_deg),
+    stored: params,
   };
 }
 
@@ -72,7 +103,8 @@ export function sweepSubmitBlocker(form: SweepForm): string | null {
   if (form.profileFeatureId === form.pathFeatureId) {
     return "Profile and path must be different sketches.";
   }
-  return null;
+  // An empty twist is a valid answer (none), so only a wrong one blocks.
+  return fieldBlocker(form.twistInput, parseTwistDeg(form.twistInput), "twist");
 }
 
 /**
@@ -114,11 +146,20 @@ export function sweepEligibleSketchCount(
 /** Build the persisted params from valid form state, or null when incomplete. */
 export function buildSweepParams(form: SweepForm): SweepParams | null {
   if (!canSubmitSweep(form)) return null;
-  return {
+  // The twist is the FORM's now, so the stored one never rides along:
+  // clearing the field must remove it, not leave the old helix behind.
+  const kept: Partial<SweepParams> = { ...form.stored };
+  delete kept.twist_angle_deg;
+  const params: SweepParams = {
+    ...kept,
     profile: { kind: "feature", feature_id: form.profileFeatureId },
     path: { kind: "feature", feature_id: form.pathFeatureId },
     operation: form.operation,
     // Merge is an ADD choice only (see ExtrudeEditor); a cut sends `true`.
     merge: form.operation === "add" ? form.merge : true,
   };
+  const twist = parseTwistDeg(form.twistInput) ?? 0;
+  // NO TWIST SENDS NO TWIST KEY (not `null`, not `0`), so an untwisted sweep's
+  // params are the object they were before twist existed.
+  return twist === 0 ? params : { ...params, twist_angle_deg: twist };
 }

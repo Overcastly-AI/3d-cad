@@ -142,10 +142,10 @@ test.describe("the extrude gauge is grabbable where it is drawn", () => {
     await page.goto(`/parts/${part.id}`);
     await openExtrude(page);
 
-    // SCOPED TO THE DEPTH TAG. An extrude carries two instruments since the
-    // twist arc (helical-gear gap G1), each with its own tied tag, so a
-    // page-wide `gauge-tag-leader` is two lines; this case is about the one
-    // that carries `D`. The tag's root holds its leader and its placed strip
+    // SCOPED TO THE DEPTH TAG. The page can carry more than one tied tag (the
+    // extrude once had a twist arc too, before TWIST-TO-SWEEP), so a
+    // page-wide `gauge-tag-leader` is not this case; this case is about the
+    // one that carries `D`. The tag's root holds its leader and its placed strip
     // as siblings, so it is found through the strip it carries.
     const depthTag = page.locator(
       'div:has(> [data-gauge-tag-side] [data-testid="extrude-depth-readout"])',

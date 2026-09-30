@@ -10,6 +10,7 @@ import {
   formFromSweepParams,
   pathOptions,
   sweepEligibleSketchCount,
+  sweepSubmitBlocker,
 } from "./sweep";
 
 function sketch(id: string, name: string): FeatureResponse {
@@ -63,6 +64,7 @@ describe("defaultSweepForm", () => {
       pathFeatureId: "s2",
       operation: "add",
       merge: true,
+      twistInput: "",
     });
   });
 });
@@ -80,6 +82,8 @@ describe("formFromSweepParams", () => {
       pathFeatureId: "s2",
       operation: "cut",
       merge: true,
+      twistInput: "",
+      stored: params,
     });
   });
 });
@@ -144,5 +148,83 @@ describe("buildSweepParams", () => {
   it("is null when the form is incomplete or self-referential", () => {
     expect(buildSweepParams(defaultSweepForm("", "s2"))).toBeNull();
     expect(buildSweepParams(defaultSweepForm("s1", "s1"))).toBeNull();
+  });
+});
+
+describe("twist along path (TWIST-TO-SWEEP)", () => {
+  const plain: SweepParams = {
+    profile: { kind: "feature", feature_id: "s1" },
+    path: { kind: "feature", feature_id: "s2" },
+    operation: "add",
+    merge: true,
+  };
+  const twisted: SweepParams = {
+    ...plain,
+    twist_angle_deg: 31.280937437761875,
+  };
+
+  it("a typed twist sends the signed angle", () => {
+    for (const [input, deg] of [
+      ["30", 30],
+      ["-45", -45],
+      ["3600", 3600],
+    ] as const) {
+      const form = { ...defaultSweepForm("s1", "s2"), twistInput: input };
+      expect(buildSweepParams(form)).toEqual({
+        ...plain,
+        twist_angle_deg: deg,
+      });
+    }
+  });
+
+  it("NO twist sends NO twist key: absent, not null or 0", () => {
+    for (const input of ["", " ", "0", "-0", "1e-12"]) {
+      const form = { ...defaultSweepForm("s1", "s2"), twistInput: input };
+      const params = buildSweepParams(form);
+      expect(params).toEqual(plain);
+      expect(Object.keys(params ?? {})).not.toContain("twist_angle_deg");
+    }
+  });
+
+  it("a stored twist round-trips params -> form -> params EXACTLY (no-op Save)", () => {
+    for (const angle of [31.280937437761875, -0.1 - 0.2, 12.358, -3600]) {
+      const stored = { ...plain, twist_angle_deg: angle };
+      expect(buildSweepParams(formFromSweepParams(stored))).toEqual(stored);
+    }
+  });
+
+  it("editing ONLY the path, operation or merge keeps the stored twist", () => {
+    // The review's blocking finding: a PATCH replaces the params wholesale,
+    // so a form that dropped the twist straightened a stored twisted sweep
+    // (loft-script, the helical gear) on any edit.
+    const form = formFromSweepParams(twisted);
+    expect(buildSweepParams({ ...form, pathFeatureId: "s3" })).toEqual({
+      ...twisted,
+      path: { kind: "feature", feature_id: "s3" },
+    });
+    expect(buildSweepParams({ ...form, operation: "cut" })).toEqual({
+      ...twisted,
+      operation: "cut",
+    });
+    expect(buildSweepParams({ ...form, merge: false })).toEqual({
+      ...twisted,
+      merge: false,
+    });
+  });
+
+  it("clearing a stored twist removes it", () => {
+    const form = { ...formFromSweepParams(twisted), twistInput: "" };
+    expect(buildSweepParams(form)).toEqual(plain);
+  });
+
+  it("a wrong twist holds Create with a reason; an empty one does not", () => {
+    const form = defaultSweepForm("s1", "s2");
+    expect(sweepSubmitBlocker({ ...form, twistInput: "" })).toBeNull();
+    for (const bad of ["abc", "3600.5", "-4000", "NaN"]) {
+      expect(sweepSubmitBlocker({ ...form, twistInput: bad })).toBe(
+        "Check the twist.",
+      );
+      expect(buildSweepParams({ ...form, twistInput: bad })).toBeNull();
+    }
   });
 });

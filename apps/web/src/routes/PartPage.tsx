@@ -46,7 +46,6 @@ import { useMeasureStore } from "../measure/store";
 import { MeasureReadout } from "../components/MeasureReadout";
 import { AuthoringViewCube } from "../components/AuthoringViewCube";
 import { MeasureOverlay } from "../viewport/MeasureOverlay";
-import { profileRegions, regionsCentroid } from "../viewport/profileLoops";
 import {
   type BooleanParams,
   booleanFeatureCreate,
@@ -396,6 +395,7 @@ import { usePartViewStore } from "../viewport/partView";
 import { useGaugeOverride } from "../viewport/useGaugeOverride";
 import { useViewCommandStore } from "../viewport/viewCommands";
 import { Viewport } from "../viewport/Viewport";
+import { friendlyFeatureError } from "../features/featureErrors";
 
 /** Constraint/dimension edits persist after this quiet gap (the live loop). */
 const SYNC_DEBOUNCE_MS = 400;
@@ -1328,23 +1328,9 @@ export function PartPage() {
   }, [tree.data, evaluation.data, mode, featureId, datumById, datumBasisById]);
 
   /**
-   * Each solved profile's area centroid, for the extrude's "Centroid" twist
-   * axis (helical-gear gap G1). One map per solve, so the object the editor
-   * receives for a profile is STABLE until its geometry changes.
+   * Each solved profile's entities, for the Sweep twist-cost note (review S9;
+   * the cost is in turns and profile edges, so it is the extrude's formula).
    */
-  const profileCentroids = useMemo(() => {
-    const map = new Map<string, { x: number; y: number }>();
-    for (const layer of solved) {
-      const c = regionsCentroid(profileRegions(layer.entities));
-      if (c !== null) map.set(layer.featureId, c);
-    }
-    return map;
-  }, [solved]);
-  const profileCentroid = useCallback(
-    (id: string) => profileCentroids.get(id) ?? null,
-    [profileCentroids],
-  );
-  /** Each solved profile's entities, for the twist-cost note (review S9). */
   const profileEntities = useCallback(
     (id: string) =>
       solved.find((layer) => layer.featureId === id)?.entities ?? null,
@@ -1782,9 +1768,6 @@ export function PartPage() {
    */
   const [extrudeDepthOverride, extrudeDepthGauge] = useGaugeOverride("mm");
   const handleExtrudeDrag = extrudeDepthGauge.set;
-  // The twist arc on the ghost's far cap (helical-gear gap G1): the same
-  // contract, in degrees, into the editor's Twist field.
-  const [extrudeTwistOverride, extrudeTwistGauge] = useGaugeOverride("deg");
 
   // The fillet/chamfer gauges (CRAFT-9a), carrying the same contract: the live
   // value the editor holds (so the viewport can draw the round or the bevel at
@@ -1860,7 +1843,6 @@ export function PartPage() {
    */
   const endGaugeSession = useCallback(() => {
     extrudeDepthGauge.reset();
-    extrudeTwistGauge.reset();
     filletRadiusGauge.reset();
     chamferDistanceGauge.reset();
     shellThicknessGauge.reset();
@@ -1875,7 +1857,6 @@ export function PartPage() {
     holeDepthGauge.reset();
   }, [
     extrudeDepthGauge,
-    extrudeTwistGauge,
     filletRadiusGauge,
     chamferDistanceGauge,
     shellThicknessGauge,
@@ -4844,6 +4825,25 @@ export function PartPage() {
       : null;
   }, [lastSavedFeatureId, rebuildNoticeDismissed, evaluation.data]);
 
+  // The rebuild error of the SWEEP being edited, in the tree's friendly copy,
+  // shown inside its editor (TWIST-TO-SWEEP): a twist refused for its path
+  // (`twist_path_unsupported`) or for its cost (`twist_failed`) is cured by a
+  // control in that editor, so the reason reads next to the control.
+  const sweepRebuildError = useMemo<string | null>(() => {
+    if (editor === null || editor.kind !== "sweep") return null;
+    if (editor.mode !== "edit" || editor.featureId === undefined) return null;
+    const result = evaluation.data?.features.find(
+      (f) => f.feature_id === editor.featureId,
+    );
+    if (result === undefined || result.status !== "error") return null;
+    if (result.error == null) return null;
+    return friendlyFeatureError(
+      result.error.code,
+      result.error.message,
+      "sweep",
+    );
+  }, [editor, evaluation.data]);
+
   // A solved sketch must exist before an extrude or revolve can consume one.
   const hasSolvedSketch =
     sketchProfiles.length > 0 &&
@@ -5535,9 +5535,6 @@ export function PartPage() {
                         error={editorError}
                         onPreviewChange={setExtrudePreview}
                         depthOverride={extrudeDepthOverride}
-                        twistOverride={extrudeTwistOverride}
-                        profileCentroid={profileCentroid}
-                        profileEntities={profileEntities}
                       />
                     ) : editor.kind === "revolve" ? (
                       <RevolveEditor
@@ -5562,6 +5559,8 @@ export function PartPage() {
                         onCancel={closeEditor}
                         saving={editorSaving}
                         error={editorError}
+                        rebuildError={sweepRebuildError}
+                        profileEntities={profileEntities}
                       />
                     ) : editor.kind === "loft" ? (
                       <LoftEditor
@@ -5958,7 +5957,6 @@ export function PartPage() {
                   onDepthChange={handleExtrudeDrag}
                   twistDeg={extrudePreview.twistDeg}
                   twistCentre={extrudePreview.twistCentre}
-                  onTwistChange={extrudeTwistGauge.set}
                 />
               ) : null}
               {/* ANCHOR D (CRAFT-10) — THE ANGULAR GAUGES.
