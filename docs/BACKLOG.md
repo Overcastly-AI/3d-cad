@@ -87,7 +87,7 @@ backlog this replaced (190 open items) is in git:
       shape. _Accept:_ a stored `shell_type` (sharp | rounded, legacy rows
       read as rounded); sharp is correct on a bored plate and an L-bracket,
       checked by a method that does not rely on Arc; goldens for both.
-- [ ] **REFERENCE-RUN**: after TWIST-TO-SWEEP, `qa-tester` models all five
+- [x] **REFERENCE-RUN** (18bb6e2: 5/5 parts built, every volume matches an independent build; blockers filed above): after TWIST-TO-SWEEP, `qa-tester` models all five
       reference parts on the tip. _Accept:_ the "Last run" column in VISION
       is updated, and each part's blockers are filed here, ranked.
 
