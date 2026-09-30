@@ -23,14 +23,14 @@ backlog this replaced (190 open items) is in git:
       _Accept:_ every mark the user can see is the topmost element at its
       own centre, or overlapping marks resolve to the nearer edge; an e2e
       test on a shelled box checks all 8 rim marks with `elementFromPoint`.
-- [ ] **TYPED-COORD-HIJACK** (wrong geometry): with the Line tool,
+- [x] **TYPED-COORD-HIJACK** (91b47c1, spec green locally): with the Line tool,
       `10 Tab 0 Enter`, `10 Tab 20 Enter`, then `-10 Tab 20 Enter` for the
       next line stores the first line as (10,0)-(10,1020): the finished line's
       armed length cell takes the digits, and the next line is never drawn.
       Hit twice on the gear keyway (`gear-typed-line-hijack.png`).
       _Accept:_ `e2e/sketch-typed-line-sequence.spec.ts` passes with its
       `test.fail()` marker removed.
-- [ ] **TYPED-POINT-RACE** (wrong geometry): spline fit points typed at
+- [x] **TYPED-POINT-RACE** (91b47c1, spec green locally): spline fit points typed at
       about 300 ms per point (x, Tab, y, Enter) are merged or dropped. Eight
       typed involute points stored a 2-point straight spline plus a separate
       8-point one; four test points stored 2 (`gear-spline-typing-race.png`).
@@ -179,6 +179,7 @@ One line each. The founder triages weekly; most are closed without work.
 - Shell (Arc) refuses some valid thicknesses: all-edge fillet r2 at t 2.0 to 2.0001, and a vertical-edge fillet r2 around t 2.
 - Gateway proxy tests (`test_{parts,features,folders,assemblies}_proxy.py`) parametrize on `uuid.uuid4()`, so their test ids change every run.
 - A hand-cancelled `ci` run skips `pytest complete`, and GitHub counts a skipped required check as passing.
+- A line drawn with the pointer still arms its length cell for the next digits (FB-16), so typing the next line's start point right after it resizes it; only typed lines hand the keys on.
 - `sweep_profile`'s docstring says the path's position is unused; OCCT places the body on the path's side (see `kernel/twist.py`).
 - A straight twist path far from the profile makes it orbit the path like a coil; the Sweep editor may want a hint.
 - Measure panel deltas still read mm in an inch document (same class as SKETCH-DRO-UNITS).
