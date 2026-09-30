@@ -14,6 +14,12 @@ backlog this replaced (190 open items) is in git:
       75 mm^3 sliver). _Accept:_ Shell builds the right walls or raises a
       typed ShellError, checked by a method independent of the joins; the
       170-case bore/tube sweep is a standing test; goldens unchanged.
+- [ ] **SHELL-HEAL-NONDETERMINISM** (P1): a stored sealed Shell can fail to
+      rebuild at random. Rod with a cross-bore r6 at t=2 is refused on 31 of
+      60 rebuilds (3 processes), before and after 5fda139: the heal step
+      raises HealingError on OCCT's address-dependent Arc output. Strict
+      xfail in `tests/test_shell_walls_qa.py`. _Accept:_ the same body gives
+      the same outcome on every rebuild and in every process; the xfail flips.
 - [x] **TWIST-TO-SWEEP** (9239d44 + 1723b6b, green; on main at b60bc91): move twist from Extrude to Sweep ("twist along
       path", as in Fusion 360 and SolidWorks), reusing
       `services/geometry/src/geometry/kernel/twist.py` (see
