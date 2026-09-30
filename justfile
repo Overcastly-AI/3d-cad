@@ -192,6 +192,19 @@ lint:
     # red) and stays quiet on an ordinary red. Same reasoning as its five
     # neighbours: a gate that cannot fail is not a gate.
     python3 scripts/e2e-verdict.py --self-test
+    # ~0.2s + ~1.5s, CI-VERDICT-HANG-1. The class: an e2e job whose LOG says
+    # one thing and whose RESULT says another, or that hangs after it has
+    # already said it. (a) The workflows' last step must end on job.status and
+    # exit 0 only on success: the sweep proves no other status/verdict pair
+    # exits 0 or ends on GREEN, and a mutant that ignores job.status fails 14
+    # of its checks. (b) e2e.sh's teardown must be bounded and run before the
+    # verdict: it reproduces the old kill-then-wait hang on a SIGTERM-ignoring
+    # fixture, then proves the new one SIGKILLs it (and an orphanable
+    # grandchild) inside the bound, with a negative control that escalates
+    # nothing. Neither path can be exercised here otherwise: (a) runs only on a
+    # runner and (b) only when a service misbehaves.
+    scripts/e2e-job-verdict.sh --self-test
+    scripts/e2e-teardown.sh --self-test
     # ~50ms. e2e-shard-plan.py decides WHICH specs each CI shard runs, so a
     # defect in it is a coverage hole rather than a wrong number — the highest
     # stakes of the three e2e self-tests. It pins GATE-1 by name (a spec absent

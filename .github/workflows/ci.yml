@@ -624,14 +624,14 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
       # LAST, for the reason the full lane's verdicts are last: a tail of the
-      # job log is the only channel into a red run from the dev container.
+      # job log is the only channel into a red run from the dev container. It
+      # ends on `job.status`, not on the block, so a red job's last line never
+      # reads GREEN (CI-VERDICT-HANG-1; scripts/e2e-job-verdict.sh).
       - name: Verdict (kept last so a tail of the job log finds it)
         if: always()
-        run: |
-          verdict="$RUNNER_TEMP/e2e-logs-smoke/verdict.txt"
-          if [[ -s "$verdict" ]]; then
-            cat "$verdict"
-            exit 0
-          fi
-          echo "::error::no verdict file at $verdict — scripts/e2e.sh never reached its summary, so the smoke died BEFORE or DURING setup (uv sync / pnpm install / browser install / the smoke-set check / service boot), or hit the 12-minute step timeout. Its reason is in the 'Smoke specs' step above."
-          ls -la "$RUNNER_TEMP/e2e-logs-smoke" || true
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: >-
+          scripts/e2e-job-verdict.sh
+          "$RUNNER_TEMP/e2e-logs-smoke/verdict.txt"
+          "Smoke specs (sketch -> extrude -> save -> reload)"
