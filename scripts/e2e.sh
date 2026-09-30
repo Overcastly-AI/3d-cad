@@ -17,12 +17,15 @@
 #                        re-running the 2.4k geometry tests per shard would
 #                        pay ~12 min four times over for zero new coverage.
 #         --geometry-only  leg 1 only (no stack, no browser).
-#         trailing args  forwarded verbatim to `playwright test`, with ONE
-#                        substitution: `--balanced-shard=i/N` is expanded by
+#         trailing args  forwarded verbatim to `playwright test`, with TWO
+#                        substitutions: `--balanced-shard=i/N` is expanded by
 #                        scripts/e2e-shard-plan.py into the file patterns for
 #                        that shard. That is how CI shards, and
 #                        `scripts/e2e.sh --web-only -- --balanced-shard=3/4`
 #                        reproduces a CI shard locally with one command.
+#                        `--smoke` is expanded the same way into the per-commit
+#                        smoke set (SMOKE_SPECS in e2e-shard-plan.py), which is
+#                        what ci.yml's `e2e smoke` job runs; `just e2e-smoke`.
 #
 #                        Sharding stays DERIVED from the filesystem: the
 #                        planner partitions the set `playwright test --list`
@@ -321,29 +324,48 @@ echo "== e2e leg 2/2: Playwright suite (@loft/web) =="
 # It is a hard failure by design: there is no fall-back to `--shard=i/N`. A
 # silent downgrade would restore the 1.58x imbalance while every log still said
 # "balanced", which is the shape of every gate defect in docs/BACKLOG.md.
+#
+# `--smoke` takes the same path for the same reason: the planner checks the
+# smoke list (on disk, measured, within budget) and verifies with `--list` that
+# its patterns select exactly those files, because a renamed spec is a filter
+# that matches nothing and Playwright would quietly run the rest.
 BALANCED_SHARD=""
+SMOKE=0
 if ((${#PLAYWRIGHT_ARGS[@]} > 0)); then
   for arg in "${PLAYWRIGHT_ARGS[@]}"; do
     [[ "$arg" == --balanced-shard=* ]] && BALANCED_SHARD="${arg#--balanced-shard=}"
+    [[ "$arg" == --smoke ]] && SMOKE=1
   done
 fi
-if [[ -n "$BALANCED_SHARD" ]]; then
+if [[ -n "$BALANCED_SHARD" && "$SMOKE" == 1 ]]; then
+  echo "e2e: --smoke and --balanced-shard select different file sets; pass one." >&2
+  exit 2
+fi
+if [[ -n "$BALANCED_SHARD" || "$SMOKE" == 1 ]]; then
   plan_config=()
   for arg in "${PLAYWRIGHT_ARGS[@]}"; do
     [[ "$arg" == --config=* ]] && plan_config=(--config "${arg#--config=}")
   done
   plan_file="${RUN_DIR}/shard-patterns.txt"
-  echo "e2e: planning ${BALANCED_SHARD} by measured duration"
-  python3 scripts/e2e-shard-plan.py \
-    --shard "$BALANCED_SHARD" --args-out "$plan_file" "${plan_config[@]}"
+  if [[ "$SMOKE" == 1 ]]; then
+    plan_what="the smoke set"
+    echo "e2e: selecting ${plan_what}"
+    python3 scripts/e2e-shard-plan.py \
+      --smoke --args-out "$plan_file" "${plan_config[@]}"
+  else
+    plan_what="$BALANCED_SHARD"
+    echo "e2e: planning ${BALANCED_SHARD} by measured duration"
+    python3 scripts/e2e-shard-plan.py \
+      --shard "$BALANCED_SHARD" --args-out "$plan_file" "${plan_config[@]}"
+  fi
   mapfile -t plan_patterns <"$plan_file"
   if ((${#plan_patterns[@]} == 0)); then
-    echo "e2e: the planner emitted no patterns for ${BALANCED_SHARD}." >&2
+    echo "e2e: the planner emitted no patterns for ${plan_what}." >&2
     exit 1
   fi
   rebuilt=()
   for arg in "${PLAYWRIGHT_ARGS[@]}"; do
-    if [[ "$arg" == --balanced-shard=* ]]; then
+    if [[ "$arg" == --balanced-shard=* || "$arg" == --smoke ]]; then
       rebuilt+=("${plan_patterns[@]}")
     else
       rebuilt+=("$arg")
@@ -484,6 +506,9 @@ fi
 # was added to fix.
 if [[ -n "$BALANCED_SHARD" ]]; then
   SHARD_LABEL="shard ${BALANCED_SHARD}"
+fi
+if [[ "$SMOKE" == 1 ]]; then
+  SHARD_LABEL="smoke"
 fi
 for arg in "${PLAYWRIGHT_ARGS[@]-}"; do
   if [[ "$arg" == --shard=* ]]; then
