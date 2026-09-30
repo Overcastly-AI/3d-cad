@@ -112,6 +112,7 @@ from loft_wire.features import (
     SolvedSketchData,
     SubshapeRef,
     SweepFeature,
+    SweepParamsV1,
     iter_feature_refs,
     resolve_hem_bend_radius_mm,
 )
@@ -169,6 +170,7 @@ from geometry.kernel import (
     ThreadBoreMismatchError,
     ThreadUnsupportedError,
     TwistError,
+    TwistPathError,
     attribute_faces,
     boolean_bodies,
     bore_hole,
@@ -221,6 +223,7 @@ from geometry.kernel import (
     sweep_profile,
     tessellate_glb,
     twisted_extrude_face,
+    twisted_sweep_face,
 )
 from geometry.kernel.fork import fork_shapes, weigh_shapes
 from geometry.kernel.healing import body_is_valid, new_geometry_is_valid
@@ -1922,7 +1925,7 @@ def _evaluate_sweep(
     resolved = _resolve_profile_face(params.profile, state)
     if isinstance(resolved, FeatureError):
         return resolved
-    face, _plane, _ = resolved
+    face, plane, _ = resolved
 
     path = _resolve_path_wire(params.path, state)
     if isinstance(path, FeatureError):
@@ -1937,14 +1940,40 @@ def _evaluate_sweep(
             ),
         )
 
-    try:
-        tool = sweep_profile(face, path)
-    except SweepError as exc:
-        return FeatureError(code="sweep_failed", message=str(exc))
+    tool = _sweep_tool(face, plane, path, params)
+    if isinstance(tool, FeatureError):
+        return tool
 
     if params.operation == "cut":
         return _cut_active(state, tool, feature_id=item.id)
     return _add_body(item, state, tool, merge=params.merge)
+
+
+def _sweep_tool(
+    face: Face, plane: Plane, path: Wire, params: SweepParamsV1
+) -> Solid | FeatureError:
+    """The solid a sweep builds: a plain sweep, or one TWISTED along its path.
+
+    THE single branch point for the sweep twist (TWIST-TO-SWEEP), shared by ADD
+    and CUT. No twist (absent, or normalised away) takes :func:`sweep_profile`
+    exactly as before, so every untwisted sweep is byte-identical to one built
+    before the twist existed. A twist takes :func:`twisted_sweep_face`, which
+    builds through the twisted extrude's own kernel call; a path it cannot twist
+    exactly is ``twist_path_unsupported`` and a sweep it refuses is
+    ``twist_failed`` (the extrude's code, the same kernel refusal).
+    """
+    if not params.is_twisted:
+        try:
+            return sweep_profile(face, path)
+        except SweepError as exc:
+            return FeatureError(code="sweep_failed", message=str(exc))
+    assert params.twist_angle_deg is not None  # is_twisted implies a value
+    try:
+        return twisted_sweep_face(face, plane, path, params.twist_angle_deg)
+    except TwistPathError as exc:
+        return FeatureError(code="twist_path_unsupported", message=str(exc))
+    except TwistError as exc:
+        return FeatureError(code="twist_failed", message=str(exc))
 
 
 def _resolve_loft_section(
@@ -4066,19 +4095,21 @@ def warm_rebuild_cache(
 
 
 def features_have_twist(features: Sequence[EvaluatedFeatureInput]) -> bool:
-    """Whether any extrude in *features* is twisted (design twisted-extrude.md
-    §6.1). It gates the bounded helicoid mesher, so every part WITHOUT a twist
-    tessellates and exports byte-for-byte as before, by construction. The part
-    path asks it of the tree (:func:`tree_has_twist`); the assembly export asks
-    it of each instance's part."""
+    """Whether any extrude or sweep in *features* is twisted (design
+    twisted-extrude.md §6.1). It gates the bounded helicoid mesher, so every part
+    WITHOUT a twist tessellates and exports byte-for-byte as before, by
+    construction. The part path asks it of the tree (:func:`tree_has_twist`);
+    the assembly export asks it of each instance's part."""
     return any(
-        isinstance(item.feature, ExtrudeFeature) and item.feature.params.is_twisted
+        isinstance(item.feature, ExtrudeFeature | SweepFeature)
+        and item.feature.params.is_twisted
         for item in features
     )
 
 
 def tree_has_twist(request: EvaluateTreeRequest) -> bool:
-    """Whether any extrude in *request* is twisted (:func:`features_have_twist`)."""
+    """Whether any extrude or sweep in *request* is twisted
+    (:func:`features_have_twist`)."""
     return features_have_twist(request.features)
 
 

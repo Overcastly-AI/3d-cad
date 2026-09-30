@@ -854,10 +854,36 @@ def _is_none(value: object) -> bool:
 
     Used by additive fields whose absence must leave a dumped envelope EXACTLY
     as it was before the field existed — the stored row, the response bytes and
-    the rebuild-cache key of every untwisted extrude
-    (:attr:`ExtrudeParamsV1.twist_angle_deg`).
+    the rebuild-cache key of every untwisted extrude or sweep
+    (:attr:`ExtrudeParamsV1.twist_angle_deg`, :attr:`SweepParamsV1.twist_angle_deg`).
     """
     return value is None
+
+
+def _twist_angle_field(description: str) -> Any:
+    """The ``twist_angle_deg`` field shared by sweep and the legacy extrude twist.
+
+    One definition of the bounds and the serialization (CLAUDE.md DRY rule):
+    optional, omitted from a dump while null, finite, and at most
+    :data:`MAX_TWIST_ANGLE_DEG` either way. The "too small to be a twist"
+    normalisation is :func:`_normalised_twist`, run by each model's validator.
+    """
+    return Field(
+        default=None,
+        exclude_if=_is_none,
+        ge=-MAX_TWIST_ANGLE_DEG,
+        le=MAX_TWIST_ANGLE_DEG,
+        allow_inf_nan=False,
+        description=description,
+    )
+
+
+def _normalised_twist(twist: float | None) -> float | None:
+    """``None`` for every spelling of "no twist" (``None``, ``0``, ``-0``, and
+    any ``|twist| < MIN_TWIST_ANGLE_DEG``); the twist itself otherwise."""
+    if twist is not None and abs(twist) < MIN_TWIST_ANGLE_DEG:
+        return None
+    return twist
 
 
 class ExtrudeParamsV1(BaseModel):
@@ -866,12 +892,19 @@ class ExtrudeParamsV1(BaseModel):
     With a nonzero ``twist_angle_deg`` it is a TWISTED extrusion: the profile
     rotates uniformly about an axis parallel to the extrusion direction while it
     travels, so every point of it traces a true helix and the far-end section is
-    the profile rotated by the full twist (a helical gear, a twisted column;
-    docs/design/twisted-extrude.md). Both twist fields are additive-optional,
-    null by default and OMITTED from a dump while null, so an extrude with no
-    twist serializes byte-for-byte as it did before they existed (stored row,
-    response, rebuild-cache key) and rebuilds on the unchanged prism path — no
-    ``param_version`` bump.
+    the profile rotated by the full twist (docs/design/twisted-extrude.md).
+
+    **The extrude twist is LEGACY (TWIST-TO-SWEEP).** Twist is authored on
+    :class:`SweepParamsV1` (``twist_angle_deg``, "twist along path" as in
+    Fusion 360 and SolidWorks). These two fields stay, read-compatibly, so that
+    every stored twisted extrude and every script that passes them opens and
+    rebuilds exactly as before; a twisted extrude and a twisted sweep along the
+    matching straight path build the SAME solid through the same kernel call.
+    Both fields are additive-optional, null by default and OMITTED from a dump
+    while null, so an extrude with no twist serializes byte-for-byte as it did
+    before they existed (stored row, response, rebuild-cache key) and rebuilds
+    on the unchanged prism path — no ``param_version`` bump. A client that edits
+    a stored twisted extrude must carry both fields through unchanged.
     """
 
     profile: FeatureRef = Field(
@@ -881,23 +914,19 @@ class ExtrudeParamsV1(BaseModel):
     operation: Literal["add", "cut"]
     direction: Literal["normal", "reverse"] = "normal"
     merge: bool = MERGE_FIELD
-    twist_angle_deg: float | None = Field(
-        default=None,
-        exclude_if=_is_none,
-        ge=-MAX_TWIST_ANGLE_DEG,
-        le=MAX_TWIST_ANGLE_DEG,
-        allow_inf_nan=False,
-        description=(
-            "Twist over the whole extrusion distance (degrees). The profile "
-            "rotates uniformly about the twist axis as it travels, a true helical "
-            "sweep. Positive is RIGHT-HANDED about the extrusion direction (a "
-            "right-hand helix whichever way `direction` points); negative is "
-            "left-handed. None (the default), 0, or any |twist| below 1e-9 deg "
-            "is NO twist: it is normalised to absent, and the extrude is a plain "
-            "prism, byte-identical to one with no twist. A twist too tight for "
-            "the profile, or with too many turns for it to build in reasonable "
-            "time, is a `twist_failed` rebuild error."
-        ),
+    twist_angle_deg: float | None = _twist_angle_field(
+        "LEGACY: new twists belong on the sweep's `twist_angle_deg` (twist "
+        "along a straight path); this field is kept so stored extrudes and "
+        "scripts rebuild unchanged. Twist over the whole extrusion distance "
+        "(degrees). The profile "
+        "rotates uniformly about the twist axis as it travels, a true helical "
+        "sweep. Positive is RIGHT-HANDED about the extrusion direction (a "
+        "right-hand helix whichever way `direction` points); negative is "
+        "left-handed. None (the default), 0, or any |twist| below 1e-9 deg "
+        "is NO twist: it is normalised to absent, and the extrude is a plain "
+        "prism, byte-identical to one with no twist. A twist too tight for "
+        "the profile, or with too many turns for it to build in reasonable "
+        "time, is a `twist_failed` rebuild error."
     )
     twist_center: Point2D | None = Field(
         default=None,
@@ -931,9 +960,7 @@ class ExtrudeParamsV1(BaseModel):
             math.isfinite(centre.x) and math.isfinite(centre.y)
         ):
             raise ValueError("twist_center must have finite x and y (mm)")
-        twist = self.twist_angle_deg
-        if twist is not None and abs(twist) < MIN_TWIST_ANGLE_DEG:
-            self.twist_angle_deg = None
+        self.twist_angle_deg = _normalised_twist(self.twist_angle_deg)
         if self.twist_angle_deg is None:
             self.twist_center = None
         return self
@@ -1119,12 +1146,25 @@ class SweepParamsV1(BaseModel):
       absolute position is not used. Author the path starting at the profile
       origin, with its first segment perpendicular to the profile plane, for a
       predictable result (as the golden's vertical path over an XY circle is);
-    * NO twist, NO scale-along-path, NO multi-section, NO guide rails, NO
-      per-segment transition control — one profile rigidly swept along one path
-      (all later, additive params — no ``param_version`` bump);
+    * NO scale-along-path, NO multi-section, NO guide rails, NO per-segment
+      transition control — one profile swept along one path (all later,
+      additive params — no ``param_version`` bump);
     * a self-intersecting path, or a corner tighter than the profile can turn
       without sweeping through itself, is a kernel ``sweep_failed`` rebuild
       error, never a silently bad body.
+
+    **Twist along the path** (``twist_angle_deg``, TWIST-TO-SWEEP; Fusion 360's
+    and SolidWorks' "twist along path"): the profile turns uniformly about the
+    PATH as it travels, so every point of it traces a true helix — a helical
+    gear's tooth gap, a twisted column. v1 twists along a STRAIGHT path that is
+    perpendicular to the profile's sketch plane and does not pass through it
+    (it starts on the profile, or lies wholly to one side of it); that sweep is
+    exact (docs/design/twisted-extrude.md). Any other path with a twist — an
+    arc, a bend, a slanted line, a line through the profile — is the typed
+    rebuild error ``twist_path_unsupported``, never an approximated body.
+    Additive-optional and omitted from a dump while null, so every untwisted
+    sweep serializes and rebuilds byte-for-byte as before (no ``param_version``
+    bump).
     """
 
     profile: FeatureRef = Field(
@@ -1137,6 +1177,31 @@ class SweepParamsV1(BaseModel):
     )
     operation: Literal["add", "cut"]
     merge: bool = MERGE_FIELD
+    twist_angle_deg: float | None = _twist_angle_field(
+        "Twist along the path (degrees): the total turn of the profile about "
+        "the path from one end of the sweep to the other, uniform along it, so "
+        "every profile point traces a true helix. Positive is RIGHT-HANDED about "
+        "the direction of travel (from the profile along the path, whichever way "
+        "the path line was drawn); negative is left-handed. Limit +-3600 (ten "
+        "turns). None (the default), 0, or any |twist| below 1e-9 deg is NO "
+        "twist: normalised to absent, and the sweep is byte-identical to an "
+        "untwisted one. Needs a straight path perpendicular to the profile's "
+        "sketch plane that does not cross it, else the rebuild error "
+        "`twist_path_unsupported`; a twist with too many turns for the profile "
+        "to build in reasonable time is `twist_failed`."
+    )
+
+    @model_validator(mode="after")
+    def _normalise_twist(self) -> Self:
+        """Fold every spelling of "no twist" into ONE: absent (the extrude's
+        rule), so an untwisted sweep dumps exactly as it did before the field."""
+        self.twist_angle_deg = _normalised_twist(self.twist_angle_deg)
+        return self
+
+    @property
+    def is_twisted(self) -> bool:
+        """Whether this sweep takes the twisted path (a real twist)."""
+        return self.twist_angle_deg is not None
 
 
 class LoftParamsV1(BaseModel):

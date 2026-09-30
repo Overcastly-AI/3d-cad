@@ -1,0 +1,44 @@
+{
+  "description": "CURVED-PATH TWIST REFUSAL GOLDEN (TWIST-TO-SWEEP). A 10 x 10 mm square centred on the XY origin is swept along a quarter ARC of radius 40 (on XZ, centre (40, 0, 0), from the origin up to (40, 0, 40)), first with NO twist, which builds, and then again with twist_angle_deg = 45, which v1 REFUSES as twist_path_unsupported: a twist along a curved path is not built exactly yet, and an approximated body is not shipped. The body asserted is therefore the untwisted arc sweep (strict-prefix rule), which is also the first golden of a sweep along a curved path. Locks: the refusal and its code (the harness requires exactly this failure and no other), that a refused twist leaves the last good body untouched, and the untwisted curved sweep's geometry.",
+  "derivation": [
+    "All values analytic. The arc's centre (40, 0, 0) lies in the profile plane z = 0 and one end of the arc is the profile's centre, where the arc leaves perpendicular to the profile, so sweeping the square along the arc is REVOLVING it by alpha = 90 deg about the axis x = 40, z = 0 (parallel to Y), which lies in the profile plane. A profile point at distance rho from that axis (rho = 40 - x, over [35, 45]) moves to (40 - rho cos phi, y, rho sin phi), phi in [0, pi/2]. Measured 2026-09-25 (build123d 0.11.1 / OCCT 7.9): the sweep returns 4 planes and 2 cylinders, i.e. exact analytic surfaces.",
+    "",
+    "volume (Pappus): A * alpha * rho_c = 100 * (pi/2) * 40 = 2000 pi = 6283.185307179586 mm^3. Measured +9.1e-13.",
+    "",
+    "surface_area: the side at x = -5 (rho = 45) sweeps a cylinder 10 * 45 * pi/2 = 225 pi; the side at x = 5 (rho = 35) a cylinder 175 pi; the sides y = +-5 annular sectors (pi/2)/2 * (45^2 - 35^2) = 200 pi each; plus two 10 x 10 caps. Total 800 pi + 200 = 2713.2741228718346 mm^2. Measured 0.",
+    "",
+    "centroid: with volume element rho drho dphi dy, mean(rho cos phi) = mean(rho sin phi) = [integral_35^45 rho^2 drho * integral_0^(pi/2) cos phi dphi] / [integral_35^45 rho drho * pi/2] = (48250/3) / (200 pi) = 241.25 / (3 pi) = 25.5974200139465. So x = 40 - 25.5974200139465 = 14.4025799860535, y = 0 (symmetric), z = 25.5974200139465. Measured deviation <= 1.2e-14.",
+    "",
+    "bounding_box: x = 40 - rho cos phi is least at rho = 45, phi = 0 (-5) and greatest at phi = pi/2 (40); z = rho sin phi runs from 0 to 45 (rho = 45, phi = pi/2); y spans the square's [-5, 5]. Measured exact (the faces are analytic, so no modelling-tolerance padding).",
+    "",
+    "topology, hand-derived: 4 swept sides + 2 caps = 6 faces, 4 + 4 cap edges + 4 swept corner arcs = 12 edges (measured 8 LINE, 4 CIRCLE), 1 shell.",
+    "",
+    "refusal: feature ...07d4 (the same sweep with twist_angle_deg = 45) must fail with code twist_path_unsupported, checked before any geometry is built (geometry.kernel.twist.straight_twist_axis: the path has a non-line edge). Every other feature must be ok.",
+    "",
+    "MESH counts are recorded, not derived, as in every golden."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set: the worst deviation from the analytic values is the volume's 9.1e-13 mm^3; the faces are exact planes and cylinders. 1e-9 is the reviewed curved-geometry ceiling the straight sweep golden (sweep-circle-r8-h30) uses, three orders above the measured error. Loosening it requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "refusals": [
+    {
+      "feature_id": "00000000-0000-0000-0000-0000000007d4",
+      "code": "twist_path_unsupported",
+      "why": "A twist along a curved path is not built exactly in v1; refusing it is the contract, an approximated helix-on-a-torus body is not."
+    }
+  ],
+  "properties": {
+    "volume": 6283.185307179586,
+    "surface_area": 2713.2741228718346,
+    "centroid": {
+      "x": 14.4025799860535,
+      "y": 0.0,
+      "z": 25.5974200139465
+    },
+    "bounding_box": {
+      "min": { "x": -5.0, "y": -5.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 5.0, "z": 45.0 }
+    }
+  },
+  "topology": { "faces": 6, "edges": 12, "shells": 1 },
+  "mesh": { "vertices": 272, "triangles": 260 }
+}

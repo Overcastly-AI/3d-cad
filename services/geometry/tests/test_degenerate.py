@@ -32,6 +32,7 @@ from pathlib import Path
 import pytest
 from build123d import Axis, Face, Solid, Vector
 from geometry.features.evaluate import evaluate_tree
+from geometry.harness import golden_refusals
 from geometry.kernel.degenerate import (
     SLIT_AREA_FLOOR_MM2,
     find_zero_width_slits,
@@ -184,9 +185,16 @@ def test_every_shipped_golden_body_is_slit_free(model: Path) -> None:
         json.loads(model.read_text(encoding="utf-8"))
     )
     evaluation = evaluate_tree(request)
-    assert [r.status for r in evaluation.result.features] == [
-        "ok" for _ in evaluation.result.features
-    ], f"{model.parent.name}: golden did not evaluate clean"
+    refused = golden_refusals(model)
+    assert [
+        (r.status, r.error.code if r.error else None)
+        for r in evaluation.result.features
+    ] == [
+        ("error", refused[str(r.feature_id)])
+        if str(r.feature_id) in refused
+        else ("ok", None)
+        for r in evaluation.result.features
+    ], f"{model.parent.name}: golden did not evaluate as expected"
     body = evaluation.body
     assert body is not None
     assert find_zero_width_slits(body) == [], (

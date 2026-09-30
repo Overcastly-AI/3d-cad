@@ -1,0 +1,37 @@
+{
+  "description": "FIRST TWISTED-SWEEP GOLDEN (TWIST-TO-SWEEP: twist moved from Extrude to Sweep, 'twist along path' as in Fusion 360 and SolidWorks). A 20 x 20 mm square centred at (50, 0) on XY with an OFF-AXIS r3 hole at (54, 0), swept along a straight 30 mm path up +Z through (50, 0) (a line on XZ) with twist_angle_deg = 30. The twist axis is the PATH, not the sketch origin, so this is the extrude golden extrude-twist-square20-hole-r3-h30-30deg translated by +50 mm in x. Locks: the twisted sweep builds through the twisted extrude's kernel call (same fit, guards and analytic caps); the axis is the path line (twisting about the sketch origin instead would swing the body round the origin and miss every x value by tens of mm); and the handedness is about the direction of TRAVEL, from the profile along the path. The path is deliberately drawn from its FAR end (z = 30) down to the profile (z = 0): the untwisted sweep does not depend on which way the line was drawn, so the twist must not either. A twist right-handed about the drawn direction (-Z) would flip centroid.y from -0.0778 to +0.0778.",
+  "derivation": [
+    "Every expectation is ANALYTIC. It is the derivation of goldens/extrude-twist-square20-hole-r3-h30-30deg/expected.json with every x moved by +50 (a rigid translation leaves volume, area and topology unchanged). Measured deviations are recorded beside each value (2026-09-25, build123d 0.11.1 / OCCT 7.9, pipe-shell fit 1e-7 mm).",
+    "",
+    "Notation: a = 10 (square half-width), h = 30 (path length), hole r = 3 at eccentricity e = 4 from the axis, twist T = 30 deg = pi/6, rate k = T/h = pi/180 rad/mm. The axis is the path line x = 50, y = 0. The slice at height z is the z = 0 profile turned by k*z about that axis, counter-clockwise seen from +Z: positive is right-handed about the direction of travel, and travel runs from the profile (z = 0) along the path (+Z) whichever end the line was drawn from.",
+    "",
+    "volume: every slice is congruent to the profile, so by Cavalieri V = A*h exactly for any twist, A = 4a^2 - pi r^2 = 400 - 9 pi = 371.72566611769184. V = 11151.769983530756 mm^3. Measured +2.74e-7 mm^3 (the B-spline fit of the helicoidal flanks, identical to the extrude golden).",
+    "",
+    "surface_area: screw-swept surface P(s,z) = R(kz) p(s) + z e_z, |dP/ds x dP/dz| = sqrt(1 + k^2 (p . t)^2) with p measured from the AXIS. (i) Four square sides, p . t over [-a, a]: 4 h [a sqrt(1 + k^2 a^2) + asinh(k a)/k] = 2412.1296186122354. (ii) Hole tube, p . t = -e sin f: h r * integral_0^2pi sqrt(1 + k^2 e^2 sin^2 f) df = 566.1750776220302 (trapezoid rule, converged to 5e-13). (iii) Caps 2A = 743.4513322353837. Total 3721.756028469649 mm^2. Measured +3.7e-8 mm^2.",
+    "",
+    "centroid: the slice centroid relative to the axis at z = 0 is c0 = (-(pi r^2) e / A, 0) = (-0.30424946630783595, 0). Slice z has it turned by kz, so the solid's is c0 times the mean rotation: x = 50 + c0 sin(T)/T = 50 - 0.2905368389757789 = 49.709463161024225, y = c0 (1 - cos T)/T = -0.07784911137505107, z = h/2 = 15. y < 0 IS THE HANDEDNESS. Measured deviation <= 5.8e-12 mm.",
+    "",
+    "bounding_box: the hole never reaches the outline (farthest point 7 mm from the axis, inside the 10 mm inscribed circle). A square of half-width a turned by t in [0, 45 deg] reaches a(cos t + sin t) from the axis along x and y, increasing in t, so the widest slice is the top one: x spans 50 +- 13.660254037844386 = [36.33974596215562, 63.66025403784438], y spans +-13.660254037844386, z spans [0, 30]. Measured: every bound padded outward by 1.0e-7 (the optimal-AABB modelling-tolerance padding, as in the extrude golden).",
+    "",
+    "topology, hand-derived: 4 flanks + 1 hole tube + 2 planar caps = 7 faces; 4 bottom + 4 top + 4 helical corner edges + 2 hole circles + 1 tube seam = 15 edges; 1 shell. Edge census (not asserted here, measured): 8 LINE and 2 CIRCLE cap edges (the kernel restores their analytic curves), 5 B-spline helical edges, exactly as the extrude golden.",
+    "",
+    "MESH counts are recorded, not derived, as in every golden: 3561 / 6562 against the extrude golden's 3557 / 6554. The B-rep is the same up to a translation, but the mesher's relative deflection sees a different absolute placement."
+  ],
+  "tolerance": 2e-6,
+  "tolerance_rationale": "The extrude golden's bound, for the extrude golden's measured error: the largest deviation is the VOLUME, +2.74e-7 mm^3 (the 1e-7 mm pipe-shell fit, which saturates there), then the AABB's 1.0e-7 padding, the area (3.7e-8) and the centroid (<= 5.8e-12). 2e-6 is 7.3x the worst case and 20x the padding. A fit loosened to OCCT's default fails by two orders of magnitude; the wrong handedness fails centroid.y by 0.156 mm; the wrong axis fails every x value by tens of mm. Loosening it requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 11151.769983530756,
+    "surface_area": 3721.756028469649,
+    "centroid": {
+      "x": 49.709463161024225,
+      "y": -0.07784911137505107,
+      "z": 15.0
+    },
+    "bounding_box": {
+      "min": { "x": 36.33974596215562, "y": -13.660254037844386, "z": 0.0 },
+      "max": { "x": 63.66025403784438, "y": 13.660254037844386, "z": 30.0 }
+    }
+  },
+  "topology": { "faces": 7, "edges": 15, "shells": 1 },
+  "mesh": { "vertices": 3561, "triangles": 6562 }
+}

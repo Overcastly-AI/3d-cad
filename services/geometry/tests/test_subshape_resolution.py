@@ -27,6 +27,7 @@ from typing import Any, cast
 import pytest
 from geometry.features import evaluate_tree
 from geometry.features.evaluate import rebuild_cache_stats, reset_rebuild_cache
+from geometry.harness import golden_refusals
 from geometry.kernel.edges import enumerate_edges_with_adjacency
 from geometry.kernel.resolution import ResolutionTally
 from loft_wire.features import (
@@ -529,19 +530,21 @@ def test_every_schema_root_reports_one_tier_per_picked_reference() -> None:
     reference must have contributed at least one - a handler that forgot to pass
     its tally reports ``None`` and fails the first half; a root with no fixture
     fails the second."""
-    trees: list[tuple[str, list[dict[str, Any]]]] = [
-        ("chamfer-fixture", _chamfer_fixture())
+    trees: list[tuple[str, list[dict[str, Any]], dict[str, str]]] = [
+        ("chamfer-fixture", _chamfer_fixture(), {})
     ]
     for root in _GOLDEN_ROOTS:
         for model in sorted(root.glob("*/model.json")):
             raw = json.loads(model.read_text(encoding="utf-8"))
             if "features" in raw:
-                trees.append((model.parent.name, raw["features"]))
+                trees.append(
+                    (model.parent.name, raw["features"], golden_refusals(model))
+                )
     assert len(trees) > 40, f"only {len(trees)} trees discovered"
 
     contributed: dict[str, int] = dict.fromkeys(_schema_roots(), 0)
     wrong: list[str] = []
-    for name, features in trees:
+    for name, features, refused in trees:
         evaluation = _evaluate(features)
         for item, result in zip(features, evaluation.result.features, strict=True):
             kind = item["feature"]["type"]
@@ -559,7 +562,8 @@ def test_every_schema_root_reports_one_tier_per_picked_reference() -> None:
                     refs if tier == "adjacent" else 0,
                 )
                 contributed[kind] = contributed.get(kind, 0) + refs
-            if result.status != "ok" or _summary(result) != expected:
+            status = "error" if item["id"] in refused else "ok"
+            if result.status != status or _summary(result) != expected:
                 wrong.append(
                     f"{name} {kind} {item['id'][-4:]}: {result.status} "
                     f"{_summary(result)} != {expected}"

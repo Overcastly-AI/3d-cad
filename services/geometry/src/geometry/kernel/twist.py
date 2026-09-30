@@ -29,6 +29,7 @@ are opaque to pyright; the directives scope that relaxation to this file only
 # pyright: reportUnknownArgumentType=false
 
 import math
+from typing import Literal
 
 from build123d import Edge, Face, GeomType, Plane, Solid, Vector, Wire
 from loft_wire.sketch import Point2D
@@ -55,7 +56,7 @@ from OCP.TopLoc import TopLoc_Location
 from OCP.TopoDS import TopoDS
 from OCP.TopTools import TopTools_IndexedDataMapOfShapeListOfShape
 
-from geometry.kernel.extrude import plane_point_to_world
+from geometry.kernel.extrude import plane_point_to_local, plane_point_to_world
 from geometry.kernel.properties import VOLUME_EPS, volume_properties
 from geometry.kernel.types import BodyShape
 from geometry.schemas import DEFAULT_ANGULAR_DEFLECTION
@@ -137,10 +138,21 @@ class TwistError(RuntimeError):
     """
 
 
-_TOO_TIGHT = "reduce the twist angle or lengthen the extrusion"
+#: What a twisted body is called in a refusal: the legacy twisted EXTRUDE or the
+#: twisted SWEEP (TWIST-TO-SWEEP). The geometry is the same; only the words that
+#: tell the user which feature to open differ.
+TwistSubject = Literal["extrusion", "sweep"]
 
 
-def _sweep_wire(wire: Wire, spine: Wire, aux_helix: Wire) -> Solid:
+def _too_tight(subject: TwistSubject) -> str:
+    """The advice every sweep failure ends with, in the feature's own words."""
+    length = "extrusion" if subject == "extrusion" else "path"
+    return f"reduce the twist angle or lengthen the {length}"
+
+
+def _sweep_wire(
+    wire: Wire, spine: Wire, aux_helix: Wire, subject: TwistSubject = "extrusion"
+) -> Solid:
     """Sweep one closed *wire* along the straight *spine*, turning with the helix.
 
     Auxiliary-spine mode (``SetMode(AuxiliarySpine, CurvilinearEquivalence=
@@ -160,10 +172,13 @@ def _sweep_wire(wire: Wire, spine: Wire, aux_helix: Wire) -> Solid:
     builder.Add(wire.wrapped)
     builder.Build()
     if not builder.IsDone():
-        raise TwistError(f"The twisted extrusion could not be swept; {_TOO_TIGHT}.")
+        raise TwistError(
+            f"The twisted {subject} could not be swept; {_too_tight(subject)}."
+        )
     if not builder.MakeSolid():
         raise TwistError(
-            f"The twisted extrusion could not be closed into a solid; {_TOO_TIGHT}."
+            f"The twisted {subject} could not be closed into a solid; "
+            f"{_too_tight(subject)}."
         )
     return orient_closed_solid(Solid(builder.Shape()))
 
@@ -339,6 +354,8 @@ def twisted_extrude_face(
     reverse: bool,
     twist_angle_deg: float,
     center: Point2D,
+    *,
+    subject: TwistSubject = "extrusion",
 ) -> Solid:
     """Extrude *face* along the plane normal while TWISTING it: a helical sweep.
 
@@ -377,9 +394,10 @@ def twisted_extrude_face(
     if not (math.isfinite(pitch) and pitch <= MAX_AUX_HELIX_PITCH_MM):
         # Checked BEFORE the helix is built: an infinite pitch hangs
         # Edge.make_helix outright (measured: twist 5e-324 deg never returned).
+        straight = "a straight extrusion" if subject == "extrusion" else "no twist"
         raise TwistError(
             f"A {twist_angle_deg:g} deg twist over {distance_mm:g} mm is too small "
-            "to sweep; set the twist to 0 for a straight extrusion."
+            f"to sweep; set the twist to 0 for {straight}."
         )
     # Before anything is swept: a twist this profile cannot sweep, check and
     # mesh within the budget is refused, not left to pin a worker (design §6.1).
@@ -410,22 +428,25 @@ def twisted_extrude_face(
                 )
             ]
         )
-        tool = _sweep_wire(face.outer_wire(), spine, aux_helix)
-        holes = [_sweep_wire(inner, spine, aux_helix) for inner in face.inner_wires()]
+        tool = _sweep_wire(face.outer_wire(), spine, aux_helix, subject)
+        holes = [
+            _sweep_wire(inner, spine, aux_helix, subject)
+            for inner in face.inner_wires()
+        ]
         if holes:
             solids = list(tool.cut(*holes).solids())
             if len(solids) != 1:
                 raise TwistError(
-                    f"The twisted extrusion's holes did not leave one solid; "
-                    f"{_TOO_TIGHT}."
+                    f"The twisted {subject}'s holes did not leave one solid; "
+                    f"{_too_tight(subject)}."
                 )
             tool = solids[0]
     except TwistError:
         raise
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise TwistError(
-            f"The twisted extrusion failed in the kernel ({type(exc).__name__}); "
-            f"{_TOO_TIGHT}."
+            f"The twisted {subject} failed in the kernel ({type(exc).__name__}); "
+            f"{_too_tight(subject)}."
         ) from exc
 
     expected = _adaptive_area(face) * distance_mm
@@ -445,7 +466,134 @@ def twisted_extrude_face(
         return tool
     raise TwistError(
         f"A {twist_angle_deg:g} deg twist over {distance_mm:g} mm did not sweep "
-        f"cleanly (its volume is not profile area x distance); {_TOO_TIGHT}."
+        f"cleanly (its volume is not profile area x distance); "
+        f"{_too_tight(subject)}."
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Twist along a sweep path (TWIST-TO-SWEEP)                                   #
+# --------------------------------------------------------------------------- #
+
+#: How far (mm) a twisted sweep's path may stray from ONE straight line along
+#: the profile plane's normal and still be taken as that line. Checked at every
+#: path vertex, sideways from the normal through the path's first vertex, and
+#: for a path that doubles back on itself. 1e-6 mm is the cap-edge recognition
+#: tolerance above (10x the sweep fit, 100x inside the kernel's 1e-7 m): a
+#: sketch solver's float noise on a vertical line passes, a line drawn 0.001 deg
+#: off vertical over 100 mm (1.7e-3 mm) does not.
+TWIST_PATH_TOL_MM = 1e-6
+
+
+class TwistPathError(ValueError):
+    """A twist was asked of a sweep path v1 cannot twist exactly.
+
+    The feature layer reports it as ``twist_path_unsupported``. v1 twists along
+    a straight path perpendicular to the profile plane that does not cross it
+    (docs/design/twisted-extrude.md §8). A curved, bent or slanted path, or one
+    through the profile, is refused rather than approximated.
+    """
+
+
+_TWIST_PATH_FIX = (
+    "Set the twist to 0, or sweep along one straight line drawn perpendicular to "
+    "the profile's sketch plane, starting at the profile."
+)
+
+
+def straight_twist_axis(path: Wire, plane: Plane) -> tuple[Point2D, float, bool]:
+    """Read a twisted sweep's path as a twisted extrude's axis.
+
+    Returns ``(center, distance_mm, reverse)``: where the path's line pierces
+    the profile's sketch *plane* (sketch-local mm), how far the sweep runs, and
+    whether it runs against the plane normal. The path must be straight lines
+    only, all on ONE line along the plane normal, without doubling back, and
+    wholly on one side of the plane (touching it at one end is the usual case).
+
+    Those are the conditions under which the untwisted sweep of the same path is
+    exactly the untwisted extrude: OCCT places the profile at the path point
+    nearest it and sweeps over the whole path, so the solid runs from the
+    profile plane, along the path's side of it, for the path's length. Which way
+    the line was DRAWN does not enter (measured: a line drawn 0->30 and one drawn
+    30->0 sweep the same solid), so the twist is right-handed about the
+    direction of TRAVEL, from the profile along the path, like the extrude's.
+
+    Raises:
+        TwistPathError: a curved edge, a bent or back-tracking path, a path not
+            perpendicular to the plane, or a path that crosses the plane.
+    """
+    edges = path.edges()
+    if any(edge.geom_type != GeomType.LINE for edge in edges):
+        raise TwistPathError(
+            "A twist needs a straight path, and this path has a curved segment "
+            f"(twist along a curve is not supported yet). {_TWIST_PATH_FIX}"
+        )
+    points = [
+        point for edge in edges for point in (edge.start_point(), edge.end_point())
+    ]
+    local = [plane_point_to_local(plane, point) for point in points]
+    u0, v0, _ = local[0]
+    sideways = max(math.hypot(u - u0, v - v0) for u, v, _ in local)
+    if sideways > TWIST_PATH_TOL_MM:
+        # One line whose ends differ sideways is SLANTED; several lines that do
+        # are a BENT path (or a slanted one, which the same fix covers).
+        if len(edges) == 1:
+            (du, dv, dw) = (
+                local[1][0] - u0,
+                local[1][1] - v0,
+                local[1][2] - local[0][2],
+            )
+            tilt = math.degrees(math.atan2(math.hypot(du, dv), abs(dw)))
+            raise TwistPathError(
+                "A twist needs the path perpendicular to the profile's sketch "
+                f"plane, and this path is {tilt:.4g} deg off perpendicular. "
+                f"{_TWIST_PATH_FIX}"
+            )
+        raise TwistPathError(
+            "A twist needs one straight path perpendicular to the profile's "
+            f"sketch plane, and this path bends or runs slanted. {_TWIST_PATH_FIX}"
+        )
+    heights = [w for _, _, w in local]
+    low, high = min(heights), max(heights)
+    distance = high - low
+    if sum(edge.length for edge in edges) - distance > TWIST_PATH_TOL_MM:
+        raise TwistPathError(
+            "A twist needs a path that runs one way, and this path doubles back "
+            f"on itself. {_TWIST_PATH_FIX}"
+        )
+    if low < -TWIST_PATH_TOL_MM and high > TWIST_PATH_TOL_MM:
+        raise TwistPathError(
+            "A twist needs the path to start at the profile (or lie wholly to one "
+            "side of it), and this path passes through the profile's sketch "
+            f"plane. {_TWIST_PATH_FIX}"
+        )
+    if distance <= TWIST_PATH_TOL_MM:
+        raise TwistPathError(
+            f"The path has no length to twist along. {_TWIST_PATH_FIX}"
+        )
+    reverse = high <= TWIST_PATH_TOL_MM
+    return Point2D(x=u0, y=v0), distance, reverse
+
+
+def twisted_sweep_face(
+    face: Face, plane: Plane, path: Wire, twist_angle_deg: float
+) -> Solid:
+    """Sweep *face* along the straight *path*, TWISTING it about the path.
+
+    The sweep feature's "twist along path" (TWIST-TO-SWEEP). The path is read as
+    an axis (:func:`straight_twist_axis`) and the solid is built by
+    :func:`twisted_extrude_face` itself, so a twisted sweep and the legacy
+    twisted extrude along the matching axis are the SAME solid, with the same
+    fit, guards, cost bound and analytic caps. *plane* is the profile sketch's
+    plane.
+
+    Raises:
+        TwistPathError: the path is not one this v1 twists exactly.
+        TwistError: as :func:`twisted_extrude_face`, worded for a sweep.
+    """
+    center, distance, reverse = straight_twist_axis(path, plane)
+    return twisted_extrude_face(
+        face, plane, distance, reverse, twist_angle_deg, center, subject="sweep"
     )
 
 
