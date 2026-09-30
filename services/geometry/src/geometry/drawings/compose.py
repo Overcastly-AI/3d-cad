@@ -829,6 +829,16 @@ def _issue_message(
     )
 
 
+def _banner_at(margin_mm: float, index: int) -> ComposedPoint:
+    """Where the serializers stamp banner line ``index`` (SVG space,
+    baseline-left). One definition for every issue kind, so pair and off-sheet
+    lines stack instead of landing on one baseline."""
+    return ComposedPoint(
+        x_mm=margin_mm + _BANNER_DX,
+        y_mm=margin_mm + _BANNER_DY + index * _BANNER_LINE_MM,
+    )
+
+
 def measure_layout_issues(
     rects: Sequence[tuple[ViewProjection, SvgRect]], margin_mm: float
 ) -> list[ComposedLayoutIssue]:
@@ -876,10 +886,7 @@ def measure_layout_issues(
                     message=_issue_message(
                         name_a, name_b, overlap_x, overlap_y, clearance, overlapping
                     ),
-                    at=ComposedPoint(
-                        x_mm=margin_mm + _BANNER_DX,
-                        y_mm=margin_mm + _BANNER_DY + len(issues) * _BANNER_LINE_MM,
-                    ),
+                    at=_banner_at(margin_mm, len(issues)),
                 )
             )
     return issues
@@ -937,6 +944,57 @@ def measure_sheet_overflow(
             )
         )
     return out
+
+
+def _off_sheet_message(overflow: SheetOverflow) -> str:
+    """The plain-language sheet caption for one view that leaves the border."""
+    name = VIEW_LABEL[overflow.view].upper()
+    past_paper = (
+        f" AND {overflow.sheet_mm:.2f} MM PAST THE PAPER EDGE"
+        if overflow.sheet_mm > 0.0
+        else ""
+    )
+    return (
+        f"{name} VIEW RUNS {overflow.margin_mm:.2f} MM PAST THE "
+        f"{overflow.side.upper()} BORDER{past_paper} "
+        "- REPOSITION OR USE A LARGER SHEET BEFORE RELEASE"
+    )
+
+
+def measure_sheet_issues(
+    rects: Sequence[tuple[ViewProjection, SvgRect]],
+    dims: Vec2,
+    margin_mm: float,
+) -> list[ComposedLayoutIssue]:
+    """Every measured problem with the placed sheet, as the DTOs it carries.
+
+    Pair issues first (:func:`measure_layout_issues`, unchanged, so a sheet that
+    already banners keeps its lines in order), then one ``off_sheet`` error per view
+    whose ink crosses the drafting border (:func:`measure_sheet_overflow`,
+    LAYOUTISSUE-OFFSHEET-1). Past the border the ink runs into the frame and title
+    block; past the paper edge it is not on the drawing at all. The x/y numbers keep
+    the positive-is-bad sign of the pair issues: the worse of the left/right and of
+    the top/bottom overruns. Empty for a clean sheet, so a clean sheet composes
+    byte-identically.
+    """
+    issues = measure_layout_issues(rects, margin_mm)
+    for view, rect in rects:
+        for overflow in measure_sheet_overflow([(view, rect)], dims, margin_mm):
+            over_x = max(margin_mm - rect.min_x, rect.max_x - (dims.x - margin_mm))
+            over_y = max(margin_mm - rect.min_y, rect.max_y - (dims.y - margin_mm))
+            issues.append(
+                ComposedLayoutIssue(
+                    code="off_sheet",
+                    severity="error",
+                    views=[view],
+                    overlap_x_mm=over_x,
+                    overlap_y_mm=over_y,
+                    clearance_mm=0.0,
+                    message=_off_sheet_message(overflow),
+                    at=_banner_at(margin_mm, len(issues)),
+                )
+            )
+    return issues
 
 
 def sample_arc(
@@ -2205,7 +2263,7 @@ def place_sheet(
         title_block=_title_block(layout, dims, scale_label),
         bend_table=bend_table_block,
         notes=_place_notes(annotations),
-        layout_issues=measure_layout_issues(ink_rects, SHEET_MARGIN_MM),
+        layout_issues=measure_sheet_issues(ink_rects, dims, SHEET_MARGIN_MM),
         thread_schedule=_thread_schedule_block(threads, dims),
     )
 

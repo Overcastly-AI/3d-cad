@@ -1,0 +1,121 @@
+{
+  "part_id": "00000000-0000-0000-0000-000000000001",
+  "tree_version": 1,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-0000000000a1",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "entities": [
+            {
+              "id": "e1",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 60.0,
+                "y": 0.0
+              }
+            },
+            {
+              "id": "e2",
+              "construction": false,
+              "kind": "arc",
+              "center": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "start": {
+                "x": 60.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 0.0,
+                "y": 60.0
+              }
+            },
+            {
+              "id": "e3",
+              "construction": false,
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 60.0
+              },
+              "end": {
+                "x": 0.0,
+                "y": 0.0
+              }
+            }
+          ],
+          "constraints": [],
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          }
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000000b1",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000000a1"
+          },
+          "distance_mm": 10.0,
+          "operation": "add",
+          "direction": "normal"
+        }
+      }
+    }
+  ],
+  "views": ["top", "front"],
+  "scale": {
+    "numerator": 1,
+    "denominator": 1
+  },
+  "dimensions": [],
+  "layout": {
+    "size": "A4",
+    "orientation": "landscape",
+    "projection": "third_angle",
+    "title": "Quarter Disc R60 \u2014 Sheet Fit Golden",
+    "title_block": null,
+    "views": [
+      {
+        "projection": "top",
+        "auto_place": true,
+        "position": {
+          "x_mm": 0.0,
+          "y_mm": 0.0
+        },
+        "scale": {
+          "numerator": 1,
+          "denominator": 1
+        }
+      },
+      {
+        "projection": "front",
+        "auto_place": false,
+        "position": {
+          "x_mm": 270.0,
+          "y_mm": 150.0
+        },
+        "scale": {
+          "numerator": 1,
+          "denominator": 1
+        }
+      }
+    ]
+  },
+  "format": "svg"
+}

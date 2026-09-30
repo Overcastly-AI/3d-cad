@@ -44,9 +44,11 @@ from geometry.drawings.compose import (
     SvgRect,
     Vec2,
     ViewBounds,
+    banner_lines,
     bounds_aware_layout,
     build_dimension_annotation,
     format_dimension_label,
+    measure_sheet_issues,
     measure_sheet_overflow,
     resolve_view_anchors,
     sheet_dimensions,
@@ -2139,3 +2141,168 @@ def test_composed_sheets_keep_every_views_ink_inside_the_border() -> None:
             )
             == []
         ), name
+
+
+# --- LAYOUTISSUE-OFFSHEET-1: a view off the sheet is reported and stamped ----------
+# `layout_issues` only compared views in pairs, so a view whose ink left the drafting
+# border exported with an empty list and no banner. `place_sheet` now reports one
+# `off_sheet` error per such view, and every serializer stamps it.
+
+
+def _oversize_sheet() -> ComposedSheet:
+    """A lone view larger than the A2 border: 600 x 430 mm of geometry against a
+    574 x 400 mm border. It overflows by construction, not by a placement bug."""
+    return _lone_view_sheet(half_w=300.0, half_h=215.0)
+
+
+def test_a_view_off_the_sheet_is_reported_in_layout_issues() -> None:
+    """By hand: centred on x = 297, the geometry spans -3 .. 597 on a 594 mm sheet,
+    so it crosses each side border by 300 - 287 = 13.00 mm and the paper by 3.00 mm.
+    In y it cannot fit, so it stays centred (-5 .. 425) and its caption band takes
+    the ink to 434.7: 24.70 mm past the bottom border, the worse of the two."""
+    sheet = _oversize_sheet()
+    assert [i.code for i in sheet.layout_issues] == ["off_sheet"]
+    issue = sheet.layout_issues[0]
+    assert issue.views == ["right"]
+    assert issue.severity == "error"
+    assert issue.clearance_mm == 0.0
+    assert issue.overlap_x_mm == pytest.approx(13.0, abs=1e-9)
+    assert issue.overlap_y_mm == pytest.approx(24.7, abs=1e-9)
+    assert issue.message == (
+        "RIGHT VIEW RUNS 24.70 MM PAST THE BOTTOM BORDER AND 14.70 MM PAST THE "
+        "PAPER EDGE - REPOSITION OR USE A LARGER SHEET BEFORE RELEASE"
+    )
+
+
+def test_the_off_sheet_issue_reports_the_measured_millimetres() -> None:
+    """The banner reports `measure_sheet_overflow` over the composed sheet's own
+    emitted ink, not a second derivation."""
+    sheet = _oversize_sheet()
+    (overflow,) = measure_sheet_overflow(
+        _sheet_ink_rects(sheet), Vec2(sheet.width_mm, sheet.height_mm), sheet.margin_mm
+    )
+    (issue,) = sheet.layout_issues
+    assert f"{overflow.margin_mm:.2f} MM PAST THE {overflow.side.upper()}" in (
+        issue.message
+    )
+    assert f"{overflow.sheet_mm:.2f} MM PAST THE PAPER EDGE" in issue.message
+
+
+def test_the_off_sheet_issue_is_stamped_on_every_export() -> None:
+    sheet = _oversize_sheet()
+    (issue,) = sheet.layout_issues
+    lines = banner_lines(sheet)
+    assert [line.error for line in lines] == [True]
+    assert lines[0].text.endswith(issue.message)
+    assert issue.message in serialize_svg(sheet)
+    assert issue.message.encode() in serialize_pdf(sheet)
+    assert issue.message in serialize_dxf(sheet).decode("utf-8", "replace")
+
+
+def test_off_sheet_lines_stack_below_the_pair_lines() -> None:
+    """Pair issues keep their banner slots; off-sheet lines follow on their own
+    baselines rather than printing over them."""
+    rects: list[tuple[ViewProjection, SvgRect]] = [
+        ("front", SvgRect(-20.0, 50.0, 120.0, 150.0)),
+        ("top", SvgRect(100.0, 60.0, 240.0, 160.0)),
+    ]
+    issues = measure_sheet_issues(rects, Vec2(297.0, 210.0), SHEET_MARGIN_MM)
+    assert [i.code for i in issues] == ["views_overlap", "off_sheet"]
+    assert [i.at.y_mm for i in issues] == pytest.approx([15.0, 19.2], abs=1e-9)
+
+
+def test_a_caption_that_cannot_fit_is_reported_without_claiming_the_paper() -> None:
+    """Geometry 394 mm tall fits the 400 mm border but its caption cannot (403.7), so
+    the view stays centred (13 .. 407) and the caption ink reaches 416.7: 6.70 mm
+    past the bottom border and still 3.30 mm inside the paper."""
+    sheet = _lone_view_sheet(half_h=197.0)
+    (issue,) = sheet.layout_issues
+    assert issue.code == "off_sheet"
+    assert issue.overlap_y_mm == pytest.approx(6.7, abs=1e-9)
+    assert issue.message == (
+        "RIGHT VIEW RUNS 6.70 MM PAST THE BOTTOM BORDER "
+        "- REPOSITION OR USE A LARGER SHEET BEFORE RELEASE"
+    )
+
+
+def test_a_sheet_inside_its_border_reports_nothing() -> None:
+    """Non-vacuity: the tight A2 view (nudged so its caption fits) and a small
+    view both compose with no issue and no banner."""
+    for sheet in (_lone_view_sheet(), _lone_view_sheet(half_w=100.0, half_h=100.0)):
+        assert sheet.layout_issues == []
+        assert banner_lines(sheet) == []
+
+
+# --- the sheet-fit golden: all three fixes on one exported sheet ------------------
+# A 60 mm quarter disc, 10 mm thick (sketch on XY, extruded +Z), on A4 landscape at
+# 1:1. The TOP view is the only auto-placed view and shows the quarter arc; the FRONT
+# view is pinned by hand at (270, 150) mm, past the right border. Hand-checked:
+#   * top view geometry is 60 x 60 mm (x 0..60, y 0..60), centred on the sheet:
+#     x 118.5 .. 178.5, y 75 .. 135 (SVG). Pre-ARC-BOUNDS it bounded as the 120 mm
+#     circle and landed at x 148.5 .. 208.5, y 45 .. 105; pre-AUTOPLACE the pinned
+#     front view and the empty slots also pushed it off centre.
+#   * front view geometry is 60 x 10 mm centred on x = 270: x 240 .. 300, crossing
+#     the 287 mm border by 13.00 mm and the 297 mm paper by 3.00 mm.
+_SHEET_FIT_GOLDEN_DIR = Path(__file__).resolve().parent / "compose_sheet_fit_goldens"
+
+
+def _compose_sheet_fit() -> ComposedSheet:
+    request = ComposeDrawingRequest.model_validate_json(
+        (_SHEET_FIT_GOLDEN_DIR / "request.json").read_text(encoding="utf-8")
+    )
+    evaluation = evaluate_drawing_views(request)
+    return place_sheet(
+        evaluation, request.dimensions, request.layout, request.annotations
+    )
+
+
+def test_sheet_fit_golden_draws_the_top_view_as_a_quarter_arc() -> None:
+    sheet = _compose_sheet_fit()
+    top = next(v for v in sheet.views if v.projection == "top")
+    rect = _drawn_rect(top.edges)
+    # The arc is drawn as a sampled polyline whose vertices lie on the arc, and its
+    # endpoints and 0/90 degree extremes are vertices, so the box is exact.
+    assert (rect.min_x, rect.max_x) == pytest.approx((118.5, 178.5), abs=1e-6)
+    assert (rect.min_y, rect.max_y) == pytest.approx((75.0, 135.0), abs=1e-6)
+
+
+def test_sheet_fit_golden_reports_the_pinned_front_view_off_the_sheet() -> None:
+    sheet = _compose_sheet_fit()
+    front = next(v for v in sheet.views if v.projection == "front")
+    rect = _drawn_rect(front.edges)
+    assert (rect.min_x, rect.max_x) == pytest.approx((240.0, 300.0), abs=1e-6)
+    (issue,) = sheet.layout_issues
+    assert issue.code == "off_sheet"
+    assert issue.views == ["front"]
+    assert issue.overlap_x_mm == pytest.approx(13.0, abs=1e-6)
+    assert issue.message == (
+        "FRONT VIEW RUNS 13.00 MM PAST THE RIGHT BORDER AND 3.00 MM PAST THE PAPER "
+        "EDGE - REPOSITION OR USE A LARGER SHEET BEFORE RELEASE"
+    )
+
+
+def test_sheet_fit_golden_svg_is_byte_identical() -> None:
+    expected = (_SHEET_FIT_GOLDEN_DIR / "sheet.svg").read_text(encoding="utf-8")
+    assert serialize_svg(_compose_sheet_fit()) == expected
+
+
+def test_sheet_fit_golden_pdf_is_byte_identical() -> None:
+    expected = (_SHEET_FIT_GOLDEN_DIR / "sheet.pdf").read_bytes()
+    assert serialize_pdf(_compose_sheet_fit()) == expected
+
+
+def test_sheet_fit_golden_dxf_is_byte_identical() -> None:
+    expected = (_SHEET_FIT_GOLDEN_DIR / "sheet.dxf").read_bytes()
+    assert serialize_dxf(_compose_sheet_fit()) == expected
+
+
+def test_sheet_fit_golden_svg_is_deterministic_across_interpreter_restart() -> None:
+    local = serialize_svg(_compose_sheet_fit())
+    result = subprocess.run(
+        [sys.executable, "-c", _RESTART_PROBE, str(_SHEET_FIT_GOLDEN_DIR)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, f"restart probe failed:\n{result.stderr}"
+    assert result.stdout == local

@@ -46,6 +46,21 @@ function crowded(): ComposedLayoutIssue {
   };
 }
 
+/** One view whose ink leaves the drafting border: a single view, no partner. */
+function offSheet(view: ViewProjection = "front"): ComposedLayoutIssue {
+  return {
+    code: "off_sheet",
+    severity: "error",
+    views: [view],
+    overlap_x_mm: 13,
+    overlap_y_mm: -45,
+    clearance_mm: 0,
+    message:
+      "FRONT VIEW RUNS 13.00 MM PAST THE RIGHT BORDER AND 3.00 MM PAST THE PAPER EDGE - REPOSITION OR USE A LARGER SHEET BEFORE RELEASE",
+    at: { x_mm: 13, y_mm: 15 },
+  };
+}
+
 const NONE: ReadonlySet<ViewProjection> = new Set();
 
 describe("SheetIssueStrip", () => {
@@ -155,6 +170,46 @@ describe("SheetIssueStrip", () => {
     expect(screen.getByTestId("sheet-issue-advice")).toHaveTextContent(
       "Choose a larger sheet or a smaller scale",
     );
+  });
+
+  it("shows a view that runs off the sheet as an error row", () => {
+    render(
+      <SheetIssueStrip
+        issues={[offSheet()]}
+        handPlaced={NONE}
+        onAutoPlace={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("sheet-issue-strip")).toHaveAttribute(
+      "role",
+      "alert",
+    );
+    const row = screen.getByTestId("sheet-issue-row");
+    expect(row).toHaveAttribute("data-issue-code", "off_sheet");
+    expect(within(row).getByTestId("sheet-issue-severity")).toHaveTextContent(
+      "ERROR",
+    );
+    expect(within(row).getByTestId("sheet-issue-message")).toHaveTextContent(
+      "FRONT VIEW RUNS 13.00 MM PAST THE RIGHT BORDER",
+    );
+    expect(within(row).getByTestId("sheet-issue-advice")).toHaveTextContent(
+      "Choose a larger sheet or a smaller scale",
+    );
+  });
+
+  it("offers auto-place for a hand-placed view that runs off the sheet", () => {
+    const onAutoPlace = vi.fn();
+    render(
+      <SheetIssueStrip
+        issues={[offSheet("front")]}
+        handPlaced={new Set<ViewProjection>(["front"])}
+        onAutoPlace={onAutoPlace}
+      />,
+    );
+    const action = screen.getByTestId("sheet-issue-autoplace");
+    expect(action).toHaveAccessibleName("Return the Front view to auto-layout");
+    fireEvent.click(action);
+    expect(onAutoPlace).toHaveBeenCalledWith(["front"]);
   });
 
   it("rests its actions while a placement write is in flight", () => {

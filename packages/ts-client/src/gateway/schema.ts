@@ -3073,7 +3073,8 @@ export interface components {
         };
         /**
          * ComposedLayoutIssue
-         * @description Two placed views that collide, or nearly do (audit N2).
+         * @description Two placed views that collide or nearly do, or one view whose ink leaves the
+         *     drafting border (audit N2, LAYOUTISSUE-OFFSHEET-1).
          *
          *     Auto-layout used to pack the standard quartet to near-tangency and then export
          *     the collision that the next design change produced — an overlapping print,
@@ -3086,21 +3087,27 @@ export interface components {
          *     overlap on that axis, NEGATIVE (a clearance) where they do not. Boxes overlap
          *     only when BOTH are positive; ``clearance_mm`` is then 0.0 and otherwise the true
          *     (smallest-axis) white gap between them.
+         *
+         *     For ``off_sheet``, ``views`` names the one offending view, and the x/y fields
+         *     keep the same positive-is-bad sign: how far its ink crosses the worse of the
+         *     left/right borders and the worse of the top/bottom borders (negative = that
+         *     much clearance). ``clearance_mm`` is 0.0. The distance past the paper edge, when
+         *     the ink leaves the paper too, is in ``message``.
          */
         ComposedLayoutIssue: {
             /** @description Where the serializers stamp this line of the sheet banner (SVG space, baseline-left) — placement stays the composer's job (design §4.2) */
             at: components["schemas"]["ComposedPoint"];
             /**
              * Clearance Mm
-             * @description White gap between the two boxes (mm); 0.0 when they overlap
+             * @description White gap between the two boxes (mm); 0.0 when they overlap, and 0.0 for off_sheet
              */
             clearance_mm: number;
             /**
              * Code
-             * @description views_overlap | views_crowded
+             * @description views_overlap | views_crowded | off_sheet
              * @enum {string}
              */
-            code: "views_overlap" | "views_crowded";
+            code: "views_overlap" | "views_crowded" | "off_sheet";
             /**
              * Message
              * @description Plain-language sheet caption ('TOP / ISOMETRIC VIEWS OVERLAP BY 6.33 x 60.00 MM - REPOSITION BEFORE RELEASE')
@@ -3108,12 +3115,12 @@ export interface components {
             message: string;
             /**
              * Overlap X Mm
-             * @description Signed X-axis overlap (mm): positive = the boxes overlap in X, negative = that much X clearance
+             * @description Signed X-axis overlap (mm): positive = the boxes overlap in X (off_sheet: the ink crosses a left/right border by this much), negative = that much X clearance
              */
             overlap_x_mm: number;
             /**
              * Overlap Y Mm
-             * @description Signed Y-axis overlap (mm): positive = overlap, negative = clearance
+             * @description Signed Y-axis overlap (mm): positive = overlap (off_sheet: the ink crosses a top/bottom border by this much), negative = clearance
              */
             overlap_y_mm: number;
             /**
@@ -3124,7 +3131,7 @@ export interface components {
             severity: "error" | "warning";
             /**
              * Views
-             * @description The two colliding/crowded projections, in canonical order
+             * @description The two colliding/crowded projections in canonical order, or the one view whose ink leaves the drafting border (off_sheet)
              */
             views: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section")[];
         };
@@ -3294,7 +3301,7 @@ export interface components {
             height_mm: number;
             /**
              * Layout Issues
-             * @description Measured view-collision diagnostics (audit N2): overlapping or sub-clearance view pairs, each with millimetre numbers and a plain-language message. EMPTY for a clean sheet — additive, so a clean sheet composes byte-identically. Non-empty ⇒ the serializers stamp a banner on the print.
+             * @description Measured layout diagnostics (audit N2): overlapping or sub-clearance view pairs, then any single view whose ink leaves the drafting border (off_sheet), each with millimetre numbers and a plain-language message. EMPTY for a clean sheet — additive, so a clean sheet composes byte-identically. Non-empty ⇒ the serializers stamp a banner on the print.
              */
             layout_issues?: components["schemas"]["ComposedLayoutIssue"][];
             /**
