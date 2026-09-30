@@ -40,9 +40,9 @@ backlog this replaced (190 open items) is in git:
 - [ ] **SHELL-HEAL-NONDETERMINISM** (P1): a stored sealed Shell can fail to
       rebuild at random. Rod with a cross-bore r6 at t=2 is refused on 31 of
       60 rebuilds (3 processes), before and after 5fda139: the heal step
-      raises HealingError on OCCT's address-dependent Arc output. Strict
-      xfail in `tests/test_shell_walls_qa.py`. _Accept:_ the same body gives
-      the same outcome on every rebuild and in every process; the xfail flips.
+      raises HealingError on OCCT's address-dependent Arc output. Non-strict
+      xfail in `tests/test_shell_walls_qa.py` (the outcome is per process). _Accept:_ the same body gives
+      the same outcome in several fresh processes, checked by a multi-process test that replaces the xfail.
 - [ ] **PICK-ENTER-UNPICKS**: in Fillet and Draft pick mode, focus stays on
       the last pick mark, so Enter (the panel's advertised Create key)
       toggles that pick off (4 -> 3 edges, 4 -> 3 faces) instead of creating.

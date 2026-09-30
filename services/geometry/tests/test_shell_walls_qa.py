@@ -346,8 +346,12 @@ def test_a_right_shell_of_a_new_family_still_builds(case: Right) -> None:
 # --- a live defect: a stored part that rebuilds only half the time ------------
 
 
+# Not strict: the outcome is fixed per PROCESS (OCCT's map order follows memory
+# layout), so one process usually sees 20 identical rebuilds and a strict xfail
+# XPASSes on about half of CI runs. SHELL-HEAL-NONDETERMINISM replaces this with a
+# test that rebuilds in several fresh processes.
 @pytest.mark.xfail(
-    strict=True,
+    strict=False,
     reason=(
         "rod-cross-bore r6 t2 is refused on about half of all rebuilds (31/60 "
         "and 32/60 before and after 5fda139, 3 processes x 20): OCCT's Arc "
