@@ -146,10 +146,25 @@ The correctness gates, run in CI and by `geometry-qa`:
   hollow came out different on every build. Arc still decides every Shell. For a
   sealed hollow of an analytic body with no concave edge, the Intersection join
   also runs, and its byte-deterministic build ships when it matches Arc's in
-  shells, faces, volume and area. It is never trusted alone: it silently drops a
-  pocket when the cavity splits, and it drifts on spline walls. Every other Arc
-  result gets a canonical face order, but its bytes can still move in the last
-  bit (`kernel/shell.py`).
+  shells, faces, volume, area, centroid and inertia. It is never trusted alone:
+  it silently drops a pocket when the cavity splits, and it drifts on spline
+  walls. Every other Arc result gets a canonical face order, but its bytes can
+  still move in the last bit (`kernel/shell.py`).
+- **A shell is checked against its definition, not against another offset.**
+  Both joins can return one valid solid that removed material and is still the
+  wrong part, and they agree with each other when they do: a plate whose cavity
+  splits keeps one pocket, and a tube with a wall under 2t comes back as crossed
+  offsets. A shell of thickness t keeps the material within t of the kept faces,
+  so `kernel/shell_walls.py` checks that with point distances to the input
+  (`BRepExtrema_DistShapeShape`) on a 3 x 3 grid per face: every cavity face
+  is t from the kept faces, every point t inside a kept face with no kept face
+  nearer is on the result, and every kept face is still there. Near an opened
+  face, where OCCT carries the walls to the opening, the rim is not tested. A
+  result that fails is refused. Whether any cavity fits picks the code, whichever
+  way OCCT failed: `shell_thickness_too_large` with the thickest wall that fits,
+  or `shell_failed` with where and why. Over a 173-body sweep, 7 wrong solids
+  shipped before and none does now. The check costs 3 to 44 ms a shell, a
+  median of a third of the shell's own time.
 - **STEP round-trip:** export, re-import and compare, within `ROUNDTRIP_TOL`
   (1e-7) unless a golden records a measured override. A body is made
   conformal before export, but only when `BRepCheck` rejects it, and never if
