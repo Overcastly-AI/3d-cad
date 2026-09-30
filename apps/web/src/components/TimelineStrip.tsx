@@ -78,6 +78,13 @@ export interface TimelineStripProps {
   onMoveRollback: (rollbackFeatureId: string | null) => void;
   /** A tree write is in flight — the stop holds until it settles. */
   busy: boolean;
+  /**
+   * An open edit is showing the body its feature is built on, and `tree` is
+   * the DISPLAY of that (the stop just before the feature; nothing stored
+   * moved). The stop holds until the edit closes: moving it would write a
+   * stop the user cannot see (FILLET-EDIT-REPICK).
+   */
+  previewing?: boolean;
   /** Right-click a chip: open the same row menu the tree offers. */
   onChipContextMenu?: (feature: FeatureResponse, x: number, y: number) => void;
 }
@@ -102,8 +109,11 @@ export function TimelineStrip({
   onSelectFeature,
   onMoveRollback,
   busy,
+  previewing = false,
   onChipContextMenu,
 }: TimelineStripProps) {
+  /** The stop cannot be moved: a write is in flight, or an edit is open. */
+  const held = busy || previewing;
   const features = tree?.features ?? [];
   const count = features.length;
   const committedSlot = barSlotIndex(
@@ -192,7 +202,7 @@ export function TimelineStrip({
   /** Move the stop to `next` (clamped) and write it through. */
   const travel = useCallback(
     (next: number) => {
-      if (busy || count === 0) return;
+      if (held || count === 0) return;
       const target = Math.min(Math.max(next, 0), count - 1);
       if (target === committedSlot) {
         setPending(null);
@@ -201,7 +211,7 @@ export function TimelineStrip({
       setPending(target);
       onMoveRollback(rollbackIdForSlot(features, target));
     },
-    [busy, count, committedSlot, features, onMoveRollback, setPending],
+    [held, count, committedSlot, features, onMoveRollback, setPending],
   );
 
   // Drag: listeners go on the WINDOW rather than the stop, because moving the
@@ -248,7 +258,7 @@ export function TimelineStrip({
   }, [dragging, committedSlot, features, onMoveRollback, setPending]);
 
   const startDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (busy || event.button !== 0) return;
+    if (held || event.button !== 0) return;
     // Anchor every slot ONCE, at grab time: the stop is absolutely positioned,
     // so nothing on the way reflows while it travels and the rects stay true.
     dragAnchors.current = Array.from({ length: count }, (_, index) => {
@@ -293,13 +303,15 @@ export function TimelineStrip({
   // describes what the cell would do if you could press it (UI-REVIEW P2-D).
   const toTipCaption = busy
     ? "Moving the stop…"
-    : tree === undefined
-      ? "Loading the tree"
-      : count === 0
-        ? "Nothing built yet"
-        : atTip
-          ? "Already at the tip"
-          : "Include all";
+    : previewing
+      ? "Finish the edit first"
+      : tree === undefined
+        ? "Loading the tree"
+        : count === 0
+          ? "Nothing built yet"
+          : atTip
+            ? "Already at the tip"
+            : "Include all";
 
   return (
     <section
@@ -464,25 +476,27 @@ export function TimelineStrip({
                       (UI-REVIEW P2-D). It is inert on activation instead. */}
                   <button
                     type="button"
-                    aria-disabled={busy || active || undefined}
+                    aria-disabled={held || active || undefined}
                     data-testid={`rollback-slot-${index}`}
                     data-active={active || undefined}
                     aria-label={
                       busy
                         ? "Moving the travel stop — one move at a time"
-                        : index >= count - 1
-                          ? "Roll forward to the tip (include all features)"
-                          : `Roll back to after ${name}`
+                        : previewing
+                          ? "The stop shows the feature being edited; finish the edit to move it"
+                          : index >= count - 1
+                            ? "Roll forward to the tip (include all features)"
+                            : `Roll back to after ${name}`
                     }
                     onClick={() => {
-                      if (busy || active) return;
+                      if (held || active) return;
                       travel(index);
                     }}
                     className={cx(
                       "absolute inset-0 rounded-none",
                       "motion-safe:transition-colors motion-safe:duration-fast",
                       "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
-                      busy
+                      held
                         ? "cursor-progress"
                         : active
                           ? "cursor-default"
@@ -504,8 +518,9 @@ export function TimelineStrip({
                           ? `Tip — all ${count} features built`
                           : `After ${name} — ${slot + 1} of ${count} built`
                       }
-                      aria-disabled={busy || undefined}
+                      aria-disabled={held || undefined}
                       data-testid="timeline-stop"
+                      data-previewing={previewing || undefined}
                       data-dragging={dragging || undefined}
                       onPointerDown={startDrag}
                       onKeyDown={onStopKeyDown}
@@ -518,7 +533,7 @@ export function TimelineStrip({
                         // flight it keeps `aria-disabled` AND drops the grab
                         // cursor and the hover response, instead of inviting a
                         // drag it will silently swallow (UI-REVIEW P2-D).
-                        busy
+                        held
                           ? "cursor-progress opacity-60"
                           : "cursor-ew-resize hover:text-brass-hover",
                         // The focus ring is MIST, not the house brass: the
@@ -585,7 +600,7 @@ export function TimelineStrip({
           caption={toTipCaption}
           data-testid="timeline-to-tip"
           aria-label="Roll forward to the tip (include all features)"
-          disabled={busy || count === 0 || atTip}
+          disabled={held || count === 0 || atTip}
           onClick={() => travel(count - 1)}
         />
       </div>

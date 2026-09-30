@@ -4,15 +4,19 @@
  * enclosure). Fusion 360's Edit Feature rolls the timeline back to the feature
  * and lets you re-pick on the body it is built on, so:
  *
- *  - Edit on a fillet rolls the travel stop back to just before it: the
- *    viewport shows the fillet's INPUT body, and the stored picks are drawn as
- *    picked marks on it;
+ *  - Edit on a fillet shows the fillet's INPUT body (the timeline reads the
+ *    stop just before it), and the stored picks are drawn as picked marks;
  *  - a click removes a pick, another click adds one;
- *  - Save writes the new edge refs, puts the stop back at the tip, and every
- *    feature after the fillet (a chamfer here) still resolves;
- *  - Cancel puts the stop back and leaves nothing of the edit behind: the
- *    stored refs are unchanged, a new fillet does not open seeded with the
- *    edit's picks, and Edit again shows the original picks.
+ *  - Save writes the new edge refs and every feature after the fillet (a
+ *    chamfer here) still resolves;
+ *  - Cancel leaves nothing of the edit behind: the stored refs are unchanged,
+ *    a new fillet does not open seeded with the edit's picks, and Edit again
+ *    shows the original picks.
+ *
+ * The rollback is a VIEW, never a write. The first cut moved the stored stop,
+ * so a reload mid-edit left the part rolled back and a drawing of it lost the
+ * fillet. Every case here reads the stored stop and finds it at the tip, and
+ * the reload case checks a drawing of the part byte for byte.
  *
  * The part is the reference run's enclosure without its draft: 80 x 60 x 40,
  * shelled to a 2 mm wall with the top open. Fillet1 is made through the UI on
@@ -55,7 +59,10 @@ const BOTTOM_FRONT = "40, 0, 0";
 interface Fixture {
   token: string;
   partId: string;
-  shellId: string;
+  /** Faces of the body before the feature under test (the input body). */
+  inputFaces: number;
+  /** Faces of the whole part at the tip, once seeded. */
+  tipFaces: number;
 }
 
 interface Vec3 {
@@ -186,49 +193,50 @@ async function seedEnclosure(
     },
     expected_tree_version: sketch.tree_version,
   });
-  const shell = shellOnly
-    ? null
-    : await createFeature(page, token, part.id, {
-        name: "Shell1",
-        feature: {
-          type: "shell",
-          version: 1,
-          params: {
-            thickness_mm: WALL,
-            faces: {
-              kind: "faces",
-              refs: [
-                {
-                  kind: "subshape",
-                  feature_id: solid.feature.id,
-                  subshape_type: "face",
-                  selector: {
-                    selector_version: 1,
-                    signature: {
-                      subshape_type: "face",
-                      surface: "plane",
-                      area_mm2: W * D,
-                      centroid: { x: W / 2, y: D / 2, z: H },
-                      normal: { x: 0, y: 0, z: 1 },
-                    },
+  if (!shellOnly) {
+    await createFeature(page, token, part.id, {
+      name: "Shell1",
+      feature: {
+        type: "shell",
+        version: 1,
+        params: {
+          thickness_mm: WALL,
+          faces: {
+            kind: "faces",
+            refs: [
+              {
+                kind: "subshape",
+                feature_id: solid.feature.id,
+                subshape_type: "face",
+                selector: {
+                  selector_version: 1,
+                  signature: {
+                    subshape_type: "face",
+                    surface: "plane",
+                    area_mm2: W * D,
+                    centroid: { x: W / 2, y: D / 2, z: H },
+                    normal: { x: 0, y: 0, z: 1 },
                   },
                 },
-              ],
-            },
+              },
+            ],
           },
         },
-        expected_tree_version: solid.tree_version,
-      });
-  const fx = {
-    token,
-    partId: part.id,
-    shellId: shell === null ? "" : shell.feature.id,
-  };
-
+      },
+      expected_tree_version: solid.tree_version,
+    });
+  }
   await page.goto(`/parts/${part.id}`);
   await waitSolved(page);
   await page.getByTestId("view-iso").click();
   await waitForCameraStill(page);
+  const fx: Fixture = {
+    token,
+    partId: part.id,
+    // The body on screen now is the one the feature under test is built on.
+    inputFaces: await drawnFaces(page),
+    tipFaces: 0,
+  };
   if (shellOnly) {
     // Shell1 through the real editor, so its open face is the overlay's own.
     await expect(page.getByTestId("new-shell")).toBeEnabled({
@@ -278,7 +286,24 @@ async function seedEnclosure(
   await expect(page.getByTestId("feature-row")).toHaveCount(5);
   await waitSolved(page);
   await expect(page.getByTestId("timeline-position")).toHaveText("05/05");
+  fx.tipFaces = await drawnFaces(page);
   return fx;
+}
+
+/**
+ * The edit closed and the WHOLE part is drawn again. The preview carries the
+ * part's real tree version over a partial body, so this is the check that it
+ * never stood in for the full evaluation.
+ */
+async function expectWholeBody(page: Page, fx: Fixture): Promise<void> {
+  await expect(page.getByTestId("timeline-position")).toHaveText("05/05", {
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId("viewport")).toHaveAttribute(
+    "data-total-faces",
+    String(fx.tipFaces),
+    { timeout: 30_000 },
+  );
 }
 
 /** Open Fillet1's editor from the tree. */
@@ -287,13 +312,34 @@ async function editFillet(page: Page): Promise<void> {
   await expect(page.getByTestId("fillet-editor")).toBeVisible();
 }
 
-async function expectRolledBack(page: Page, fx: Fixture): Promise<void> {
-  // The stop sits after Shell1, the fillet's input, as Fusion's Edit Feature
-  // rolls the timeline marker back to the feature.
-  await expect(page.getByTestId("timeline-position")).toHaveText("03/05", {
+/** The face count of the body the viewport draws. */
+async function drawnFaces(page: Page): Promise<number> {
+  const viewport = page.getByTestId("viewport");
+  await expect(viewport).toHaveAttribute("data-total-faces", /^[1-9]/, {
     timeout: 30_000,
   });
-  expect((await readTree(page, fx)).rollback_feature_id).toBe(fx.shellId);
+  return Number(await viewport.getAttribute("data-total-faces"));
+}
+
+/**
+ * The edit shows its input body: the timeline reads the stop just before the
+ * feature (`position`), the viewport draws the input body's faces, and the
+ * STORED stop has not moved.
+ */
+async function expectInputBody(
+  page: Page,
+  fx: Fixture,
+  position: string,
+): Promise<void> {
+  await expect(page.getByTestId("timeline-position")).toHaveText(position, {
+    timeout: 60_000,
+  });
+  await expect(page.getByTestId("viewport")).toHaveAttribute(
+    "data-total-faces",
+    String(fx.inputFaces),
+    { timeout: 30_000 },
+  );
+  expect((await readTree(page, fx)).rollback_feature_id).toBeNull();
   await waitSolved(page);
 }
 
@@ -315,7 +361,7 @@ test("editing a fillet rolls back to its input body; a re-pick saves and everyth
       path: `${SCREENSHOT_DIR}/fillet-edit-repick-1280-${SHOT_TAG}.png`,
     });
   }
-  await expectRolledBack(page, fx);
+  await expectInputBody(page, fx, "03/05");
 
   // The stored picks are drawn as picked marks on the input body.
   await expect(page.getByTestId("selected-count")).toHaveText("2 edges picked");
@@ -342,10 +388,9 @@ test("editing a fillet rolls back to its input body; a re-pick saves and everyth
 
   await page.getByTestId("fillet-submit").click();
   await expect(page.getByTestId("fillet-editor")).toHaveCount(0);
-  await expect(page.getByTestId("timeline-position")).toHaveText("05/05", {
-    timeout: 30_000,
-  });
   await waitSolved(page);
+  // Same face count: two straight rim fillets either way.
+  await expectWholeBody(page, fx);
 
   // The stored refs are the new picks, the stop is back at the tip, and the
   // chamfer after the fillet still resolves.
@@ -393,7 +438,7 @@ test("Cancel on a fillet edit restores its picks exactly and puts the timeline b
   const versionBefore = (await readTree(page, fx)).tree_version;
 
   await editFillet(page);
-  await expectRolledBack(page, fx);
+  await expectInputBody(page, fx, "03/05");
   await expect(mark(page, INNER_FRONT)).toHaveAttribute("aria-pressed", "true");
   await clickMark(page, INNER_FRONT);
   await clickMark(page, OUTER_BACK);
@@ -405,17 +450,14 @@ test("Cancel on a fillet edit restores its picks exactly and puts the timeline b
 
   await page.getByTestId("fillet-cancel").click();
   await expect(page.getByTestId("fillet-editor")).toHaveCount(0);
-  await expect(page.getByTestId("timeline-position")).toHaveText("05/05", {
-    timeout: 30_000,
-  });
+  await expectWholeBody(page, fx);
   await waitSolved(page);
 
-  // Nothing was written but the stop, and the stop is back at the tip.
+  // Nothing was written at all: not the picks, not the stop.
   const tree = await readTree(page, fx);
   expect(tree.rollback_feature_id).toBeNull();
   expect(await storedFilletEdges(page, fx)).toEqual(storedBefore);
-  // Two stop moves (out and back), no feature write.
-  expect(tree.tree_version).toBe(versionBefore + 2);
+  expect(tree.tree_version).toBe(versionBefore);
 
   // The cancelled picks do not seed the next command.
   await page.getByTestId("new-fillet").click();
@@ -430,7 +472,7 @@ test("Cancel on a fillet edit restores its picks exactly and puts the timeline b
 
   // Edit again: the original picks, exactly.
   await editFillet(page);
-  await expectRolledBack(page, fx);
+  await expectInputBody(page, fx, "03/05");
   await expect(page.getByTestId("selected-count")).toHaveText("2 edges picked");
   await expect(mark(page, OUTER_FRONT)).toHaveAttribute("aria-pressed", "true");
   await expect(mark(page, INNER_FRONT)).toHaveAttribute("aria-pressed", "true");
@@ -456,10 +498,7 @@ test("editing a shell rolls back to its input body and shows its open face picke
   await expect(page.getByTestId("shell-editor")).toBeVisible();
   // At the tip the open top face is gone (it is what the shell removed); on
   // the input body it is there, and drawn picked.
-  await expect(page.getByTestId("timeline-position")).toHaveText("02/03", {
-    timeout: 30_000,
-  });
-  await waitSolved(page);
+  await expectInputBody(page, fx, "02/03");
   const top = topFace(page);
   await expect(top).toHaveCount(1, { timeout: 30_000 });
   await expect(top).toHaveAttribute("aria-pressed", "true");
@@ -473,4 +512,94 @@ test("editing a shell rolls back to its input body and shows its open face picke
   const tree = await readTree(page, fx);
   expect(tree.rollback_feature_id).toBeNull();
   expect(JSON.stringify(tree.features[2]?.feature.params)).toBe(shellParams);
+});
+
+/** A one-sheet drawing with a front and a right view of the part. */
+async function drawPart(page: Page, fx: Fixture): Promise<string> {
+  const auth = { Authorization: `Bearer ${fx.token}` };
+  const drawing = await page.request.post("/api/v1/drawings", {
+    data: { name: "Enclosure GA" },
+    headers: auth,
+  });
+  expect(drawing.ok(), await drawing.text()).toBe(true);
+  const drawingId = ((await drawing.json()) as { id: string }).id;
+  const sheet = await page.request.post(
+    `/api/v1/drawings/${drawingId}/sheets`,
+    {
+      data: {
+        name: "Sheet 1",
+        size: "A3",
+        orientation: "landscape",
+        projection: "third_angle",
+        expected_version: 0,
+      },
+      headers: auth,
+    },
+  );
+  expect(sheet.ok(), await sheet.text()).toBe(true);
+  const created = (await sheet.json()) as {
+    sheet: { id: string };
+    doc_version: number;
+  };
+  let version = created.doc_version;
+  for (const projection of ["front", "right"] as const) {
+    const view = await page.request.post(
+      `/api/v1/drawings/${drawingId}/sheets/${created.sheet.id}/views`,
+      {
+        data: {
+          expected_version: version,
+          ref_document_id: fx.partId,
+          projection,
+          position: { x_mm: 100, y_mm: 100 },
+        },
+        headers: auth,
+      },
+    );
+    expect(view.ok(), await view.text()).toBe(true);
+    version = ((await view.json()) as { doc_version: number }).doc_version;
+  }
+  return drawingId;
+}
+
+/** The drawing, composed by the server from the part's STORED tree. */
+async function drawingSvg(
+  page: Page,
+  fx: Fixture,
+  drawingId: string,
+): Promise<string> {
+  const response = await page.request.post(
+    `/api/v1/drawings/${drawingId}/export?format=svg`,
+    { headers: { Authorization: `Bearer ${fx.token}` } },
+  );
+  expect(response.ok(), await response.text()).toBe(true);
+  return response.text();
+}
+
+test("a reload mid-edit leaves the part whole: the stored stop and a drawing still have the fillet", async ({
+  page,
+}) => {
+  test.setTimeout(360_000);
+  const fx = await seedEnclosure(page);
+  const drawingId = await drawPart(page, fx);
+  // Composition is deterministic, so this is the drawing WITH the fillet.
+  const whole = await drawingSvg(page, fx, drawingId);
+  const stored = await readTree(page, fx);
+  const volume = (await evaluate(page, fx)).volume;
+
+  // Edit, wait for the input body, and walk away without Save or Cancel.
+  await editFillet(page);
+  await expectInputBody(page, fx, "03/05");
+  await page.reload();
+  await waitSolved(page);
+
+  // The stored stop never moved and nothing was written.
+  const after = await readTree(page, fx);
+  expect(after.rollback_feature_id).toBeNull();
+  expect(after.tree_version).toBe(stored.tree_version);
+  await expect(page.getByTestId("timeline-position")).toHaveText("05/05");
+  // What everything downstream reads is the whole part, fillet included.
+  const evaluated = await evaluate(page, fx);
+  expect(evaluated.statuses).toEqual(["ok", "ok", "ok", "ok", "ok"]);
+  expect(evaluated.volume).toBe(volume);
+  expect(await drawingSvg(page, fx, drawingId)).toBe(whole);
 });

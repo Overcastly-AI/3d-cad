@@ -469,10 +469,21 @@ export async function fetchFeatureTree(
 export async function evaluatePart(
   partId: string,
   client: GatewayClient = gatewayClient,
+  /**
+   * Evaluate only the features strictly BEFORE this one: the body it is
+   * built on, for an Edit preview (FILLET-EDIT-REPICK). Read-only: the stored
+   * stop and `tree_version` do not move, and the stored stop is ignored.
+   */
+  before?: string,
 ): Promise<EvaluateTreeResult> {
   const { data, error } = await client.POST(
     "/api/v1/parts/{part_id}/evaluate",
-    { params: { path: { part_id: partId } } },
+    {
+      params: {
+        path: { part_id: partId },
+        ...(before === undefined ? {} : { query: { before } }),
+      },
+    },
   );
   if (error !== undefined) {
     throw new Error(envelopeMessage(error, "The part could not be evaluated."));
