@@ -1,0 +1,34 @@
+{
+  "description": "FIRST VIRTUAL-SHARP GOLDEN (SKETCH-FILLET-KEEP-DIMS): a typed 80 x 50 rectangle with all four corners rounded R5 by the web's sketch Fillet, then the top-right radius EDITED to R15, extruded 10 mm. The fillets kept the rectangle's W (bottom leg) and H (right leg) dimensions and re-attached them to the VIRTUAL SHARPS, where the trimmed legs' lines meet (`distance` with `start_sharp`/`end_sharp`), as SolidWorks and Fusion 360 keep them. The bottom-left arc (left at R5) has its centre fixed at (5, 5), so the sketch solves at DOF 0 with nothing redundant. (Grounding by the sketch frame's axes instead, collinear with the bottom and left legs, is the more natural part and solves identically, but takes the free parameters past 64, where planegcs's last bits depend on the heap: see docs/BACKLOG.md SKETCH-SOLVE-HEAP-ORDER. This golden must be byte-deterministic, so it stays at 60.) The model's entity coordinates are still the R5 drawing: the R15 geometry exists only if the solver re-derives it. Before the fix the fillet dropped W and H, and an R edit grew the outline (review grow.py: R5 -> R15 on all four corners gave 100 x 70; with one corner edited here the right and top legs would be free to move, and nothing would hold 80 x 50). Locks the virtual-sharp dimension end to end through the real evaluate-tree path: planegcs solve (auxiliary sharp points, point_on_line x 2 each) -> wire -> face -> prism -> GProp -> tessellation.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, cross-checked by derive.py, which builds the outline directly in build123d from the model's DIMENSIONS (W and H sharp to sharp, the four radii; four lines and four centre arcs, never the solver or the feature pipeline) and requires its OCCT-integrated volume, area and centroid to agree with the closed form below to 1e-9.",
+    "solved profile: the fixed R5 arc at (5,5) is tangent to the horizontal bottom leg e1 and the vertical left leg e4, so e1 lies on y = 0, e4 on x = 0, and the bottom-left sharp is (0,0). W = 80 sharp to sharp puts the right leg e2 on x = 80; H = 50 sharp to sharp puts the top leg e3 on y = 50. R5 arcs tangent to both legs at the bottom-left (centre (5,5)), bottom-right (75,5) and top-left (5,45); the R15 arc at the top-right has centre (65,35), from (80,35) to (65,50). Legs: e1 (5,0)-(75,0), e2 (80,5)-(80,35), e3 (65,50)-(5,50), e4 (0,45)-(0,5).",
+    "a rounded corner of radius r removes the spandrel s(r) = r^2 (1 - pi/4): s(5) = 5.365045915063793, s(15) = 48.28541323557414",
+    "profile area A = 80*50 - 3*s(5) - s(15) = 4000 - 300 (1 - pi/4) = 3700 + 75 pi = 3935.6194490192345 mm^2",
+    "volume = 10 A = 37000 + 750 pi = 39356.19449019234 mm^3",
+    "perimeter = 2*(80+50) - sum over corners of (2r - pi r/2) = 260 - (3*(10 - 2.5 pi) + (30 - 7.5 pi)) = 200 + 15 pi = 247.1238898038469 mm; surface_area = 2A + 10*perimeter = (7400 + 150 pi) + (2000 + 150 pi) = 9400 + 300 pi = 10342.477796076938 mm^2",
+    "centroid: a spandrel's centroid sits d(r) = r (10 - 3 pi)/(12 - 3 pi) from both edges of its corner (d(5) = 1.1168396947287609, d(15) = 3.350519084186282). First moments: Mx = 4000*40 - s5*d5 [bl] - s5*d5 [tl] - s5*(80 - d5) [br] - s15*(80 - d15) [tr] = 155863.75257024058; My = 4000*25 - s5*d5 [bl] - s5*d5 [br] - s5*(50 - d5) [tl] - s15*(50 - d15) [tr] = 97473.26634475973. x = Mx/A = 39.60335967164768, y = My/A = 24.7669439607659, z = 10/2 = 5 by prism symmetry. The bigger top-right round pulls the centroid toward the bottom-left of the plate centre (40, 25).",
+    "bounding_box = [0,0,0]..[80,50,10]: every straight leg sits on the outline (x = 0, x = 80, y = 0, y = 50) — the outline did NOT grow; the prism runs +Z on the XY datum",
+    "topology: 10 faces (2 caps + 4 planar walls + 4 quarter-cylinder walls), 24 edges (8 on each cap + 8 vertical seams between walls), 1 shell",
+    "mesh (linear 0.1 mm / angular 0.1 rad): a quarter arc discretises to n = 2*ceil((pi/2)/0.1) = 32 segments, angular-limited at both radii (the R15 sagitta at that pitch is 15 (1 - cos(pi/128)) = 0.0045 mm, under the 0.1 mm linear bound), the rule the sibling sketch-fillet-rounded-rect-r10-edit-40x25x10 golden documents. Each quarter-cylinder wall = 2(n+1) = 66 nodes, 2n = 64 triangles; each cap is a polygon of 4(n+1) = 132 nodes (the legs add none) triangulated to 130; each planar wall 4 nodes, 2 triangles. Totals: 4*66 + 2*132 + 4*4 = 544 vertices, 4*64 + 2*130 + 4*2 = 524 triangles (per-face faceted normals, no vertex sharing across faces).",
+    "no material is assigned, so mass and centre of mass must be reported ABSENT (null) — never 0 g (docs/design/materials.md 6)",
+    "GLB byte size is deliberately NOT pinned: asserted deterministic (byte-identical) by the runner within one kernel version, but the absolute size carries no geometric meaning."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "MEASURED first, then set (geometry-gates skill: never copy a bound blindly). The R15 arc, the two legs it shortens and the right and top legs' positions are the OUTPUT of a coupled solve (two virtual-sharp dimensions with their auxiliary points, eight endpoint tangents, the fixed arc centre), but the system is consistent and fully determined and DogLeg lands it to the ulp: the solved coordinates read exact apart from sub-1e-27 mm residue on the bottom and left legs. Measured deviations vs the analytic values (2026-10-01, planegcs 0.8.0 / build123d 0.11.1 / OCCT 7.9): volume 0.0 mm^3, surface_area 1.8e-12 mm^2, centroid <= 1.4e-13 mm, AABB <= 3.4e-36 mm; six in-process rebuilds gave one GLB digest and one metadata. The documented ceiling 1e-9 is ~550x the observed worst case, the same number as the sibling sketch-fillet-rounded-rect-r10-edit-40x25x10 golden whose wire -> face -> prism path this one shares, and 1e5x tighter than the kernel linear tolerance (1e-4 mm). It is also far below what a DROPPED dimension costs: without the sharps the outline is under-determined and moves by millimetres. Loosening it is never a fix for a red run: it is a reviewed kernel-level decision recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 39356.19449019234,
+    "surface_area": 10342.477796076938,
+    "centroid": {
+      "x": 39.60335967164768,
+      "y": 24.7669439607659,
+      "z": 5.0
+    },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 80.0, "y": 50.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 10, "edges": 24, "shells": 1 },
+  "mesh": { "vertices": 544, "triangles": 524 }
+}
