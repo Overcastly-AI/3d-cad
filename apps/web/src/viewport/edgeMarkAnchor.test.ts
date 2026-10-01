@@ -147,6 +147,35 @@ describe("chooseAnchor", () => {
     expect(anchor).toEqual({ at: 0.5, buried: false });
   });
 
+  it("spreads twin marks along the edge when nothing is clear, by most room", () => {
+    // A twin's mark sits at this edge's mid-span (room 2 px there); the ends
+    // are 60 px apart. Room is min(distance to the twin, distance to an end).
+    const room = (t: number) =>
+      Math.max(2, Math.min(Math.abs(t - 0.5) * 60, t * 60, (1 - t) * 60));
+    const anchor = chooseAnchor(
+      () => true,
+      ANCHOR_SAMPLE_BUDGET,
+      ANCHOR_END_INSET,
+      () => false,
+      room,
+    );
+    expect(anchor.buried).toBe(false);
+    expect(Math.abs(anchor.at - 0.5)).toBeGreaterThan(0.2);
+    expect(Math.abs(anchor.at - 0.5)).toBeLessThan(0.3);
+  });
+
+  it("keeps the mid-span when no seat has more room", () => {
+    expect(
+      chooseAnchor(
+        () => true,
+        ANCHOR_SAMPLE_BUDGET,
+        ANCHOR_END_INSET,
+        () => false,
+        () => 5,
+      ),
+    ).toEqual({ at: 0.5, buried: false });
+  });
+
   it("never takes a clear seat the band does not answer", () => {
     const ordered = [...anchorCandidates()].sort((a, b) => a - b);
     const answering = ordered.slice(5, 9);

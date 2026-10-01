@@ -245,6 +245,9 @@ export class GaugeKeepOuts {
  */
 export const MARK_CLEARANCE_PX = 2 * MARK_HALF_PX;
 
+/** How much farther a seat must stay from a corner than from a mark. */
+const CORNER_ROOM_PENALTY_PX = MARK_HALF_PX / 2;
+
 /**
  * Extra passes one camera pose may spend letting crowded seats settle around
  * each other. A mark yields only to marks that outrank it, so pass k fixes
@@ -278,6 +281,9 @@ export class MarkCrowd {
   private live = new Uint8Array(0);
   private readonly probe = new Vector3();
   private readonly eye = new Vector3();
+  /** Every offered edge's ends (corners), projected — see `room`. */
+  private cornerX = new Float64Array(0);
+  private cornerY = new Float64Array(0);
   /** Did any `clear` answer "no" since the last `reset`? */
   crowded = false;
 
@@ -291,7 +297,18 @@ export class MarkCrowd {
     camera: Camera,
     width: number,
     height: number,
+    corners: readonly (readonly [number, number, number])[] = [],
   ): void {
+    if (this.cornerX.length !== corners.length) {
+      this.cornerX = new Float64Array(corners.length);
+      this.cornerY = new Float64Array(corners.length);
+    }
+    corners.forEach((corner, k) => {
+      this.project(corner, camera, width, height);
+      // Behind the camera: off screen, so it costs no seat any room.
+      this.cornerX[k] = this.probe.z > 1 ? Infinity : this.probe.x;
+      this.cornerY[k] = this.probe.z > 1 ? Infinity : this.probe.y;
+    });
     const n = seats.length;
     if (this.x.length !== n) {
       this.x = new Float64Array(n);
@@ -353,6 +370,48 @@ export class MarkCrowd {
       }
     }
     return true;
+  }
+
+  /**
+   * How much room a mark for edge `i` has at `point`, in px: the distance to
+   * the nearest live mark that outranks it, and to the nearest CORNER of any
+   * offered edge (where vertex marks sit in measure, and where corridors
+   * meet). The crowded fallback maximises this when no seat is wholly clear.
+   */
+  room(
+    i: number,
+    point: readonly [number, number, number],
+    camera: Camera,
+    width: number,
+    height: number,
+  ): number {
+    this.project(point, camera, width, height);
+    const px = this.probe.x;
+    const py = this.probe.y;
+    let best = Infinity;
+    for (let k = 0; k < this.cornerX.length; k += 1) {
+      // A corner carries a vertex mark (measure) stacked ABOVE edge marks,
+      // so it costs a whole mark radius more room than another edge mark:
+      // a seat must be 12 px clear of it before it scores any room at all.
+      const d =
+        Math.hypot(
+          (this.cornerX[k] as number) - px,
+          (this.cornerY[k] as number) - py,
+        ) - CORNER_ROOM_PENALTY_PX;
+      if (d < best) best = d;
+    }
+    if (i >= this.x.length) return best;
+    const own = this.rank[i] as number;
+    for (let j = 0; j < this.x.length; j += 1) {
+      if (j === i || this.live[j] === 0) continue;
+      const other = this.rank[j] as number;
+      if (other > own || (other === own && j > i)) continue;
+      best = Math.min(
+        best,
+        Math.hypot((this.x[j] as number) - px, (this.y[j] as number) - py),
+      );
+    }
+    return best;
   }
 
   /**
@@ -465,6 +524,14 @@ export function useEdgeMarkAnchors(
 
   const ordinals = useMemo(() => edges.map((edge) => edge.index), [edges]);
   const fallback = useMemo(() => midSpanPlacement(edges), [edges]);
+  const corners = useMemo(
+    () =>
+      edges.flatMap((edge) => [
+        occtToScene(polylineAt(edge.polyline, 0)),
+        occtToScene(polylineAt(edge.polyline, 1)),
+      ]),
+    [edges],
+  );
 
   const [anchors, setAnchors] = useState<EdgeMarkAnchor[]>(fallback);
   const cameraStamp = useRef("");
@@ -576,7 +643,7 @@ export function useEdgeMarkAnchors(
       // refreshed while the rest kept a pose-old seat indefinitely.
       owed.current = edges.length;
       confirmed.current = 0;
-      crowd.reset(fallback, working.current, camera, width, height);
+      crowd.reset(fallback, working.current, camera, width, height, corners);
       crowdPasses.current = 0;
       movedInPass.current = false;
       stampSeats("pending");
@@ -636,6 +703,14 @@ export function useEdgeMarkAnchors(
               crowd.clearOfEnds(point, start, end, camera, width, height))
           );
         },
+        (fraction) =>
+          crowd.room(
+            i,
+            occtToScene(polylineAt(polyline, fraction)),
+            camera,
+            width,
+            height,
+          ),
       );
       const seat: EdgeMarkAnchor = {
         position: occtToScene(polylineAt(polyline, anchor.at)),
