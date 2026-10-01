@@ -32,7 +32,8 @@ const PATTERN_MIRROR_PY =
 
 const evaluateSource = (): string =>
   readRepoSource(PATTERN_MIRROR_PY, {
-    declaredIn: "PATTERN_MIRROR_PY in apps/web/src/features/patternScope.test.ts",
+    declaredIn:
+      "PATTERN_MIRROR_PY in apps/web/src/features/patternScope.test.ts",
     guards:
       "the kernel's _MIRROR_REFLECTABLE_TYPES set, a semantic subset that no " +
       "generated type carries",
