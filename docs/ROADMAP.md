@@ -36,7 +36,7 @@ starting with the A1 hinge (ASM-\* in the backlog).
    dimensions, and named parameters shared across features.
 3. Performance on real parts: the cold-rebuild wall and large imports.
 4. MCP server on top of `loft-script`.
-5. Assemblies a working engineer can use: drag, limits, component patterns
+5. Assemblies a working engineer can use: joints, drag, limits, component patterns
    and in-context edits, driven by the reference assemblies A1-A3.
 
 ## Later

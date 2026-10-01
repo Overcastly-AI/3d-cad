@@ -59,7 +59,6 @@ commits carry the ID (`git log --grep=<ID>`).
 - [ ] **ARC-BOUNDS-INFLATE-1** (from stale branch 11edf49, re-implement on the tip): `_edge_points` bounds every arc as its full circle, so arc-bearing views sit off-centre and can leave the sheet. _Accept:_ an arc's box is its swept extent; the canopy bracket's ink centres on its anchor.
 - [ ] **DRAWSHEET-AUTOPLACE-1** (eb113cb + c6ae762): a lone or adjacent-pair auto-placed view lands 12 mm off centre per axis, and pinned views skew auto-layout. _Accept:_ centring uses only auto-placed views; a border gate over each view's ink (geometry + caption) passes.
 - [ ] **LAYOUTISSUE-OFFSHEET-1** (11edf49): a view whose ink leaves the border exports with empty `layout_issues` and no banner. _Accept:_ an `off_sheet` error issue in loft-wire (`just gen`), stamped on the sheet.
-- [ ] **SHEET-RESCALE-1** (03bb837): a laid-out multi-view sheet cannot be re-scaled; the per-view check refuses the first write. _Accept:_ `SheetUpdate.scale` rewrites every view in one transaction and the drawing page offers it.
 - [ ] **SKETCH-EXPR-TRIG**: dimension expressions accept `sin`/`cos`/`tan`
       (degrees). _Accept:_ `20*tan(15)` solves and round-trips through save
       and reload.
@@ -113,23 +112,30 @@ commits carry the ID (`git log --grep=<ID>`).
 - [ ] **MCP-SERVER**: an MCP server over `loft-script`. _Accept:_ an agent
       creates a sketch, extrudes it, reads mass properties and exports STEP.
 
-### Assemblies (ranked by what stops A1, then A2, then A3 in `docs/VISION.md`)
+### Assemblies (ranked by what stops A1, then A2, then A3 in `docs/reference-parts/assemblies.md`)
 
+- [ ] **ASM-JOINTS** (stops A1; the other ASM items build on it): Fusion and
+      Onshape connect parts with a joint. It picks a joint origin (or mate
+      connector) on each part, at a circle centre, face centre or vertex,
+      plus a motion type: rigid, revolute, slider, cylindrical, planar or
+      ball. Loft has only pairwise mates. _Accept:_ the A1 hinge is one
+      revolute joint between two knuckle circles, with remaining DOF 1.
+      Every stored mate assembly opens and solves unchanged.
 - [ ] **ASM-MOVE-DRAG** (stops A1): instances cannot be moved. Each is placed
-      80 mm along +X, with no drag and no handle. Fusion and SolidWorks drag a
-      component, and the mates hold it to its free DOF. _Accept:_ in A1,
+      80 mm along +X, with no drag and no handle. Fusion and Onshape drag a
+      component, and its joints hold it to its free DOF. _Accept:_ in A1,
       dragging leaf B turns it about the knuckle axis only (the axis moves
       < 1e-6). An unmated instance moves 30 in Y and turns 90° about Z, by a
       Move/Rotate handle and by typed values, and stays there after a
       reload. e2e covers both.
-- [ ] **ASM-LIMITS** (stops A1): a distance or angle mate has no min/max
-      (SolidWorks limit mates, Fusion joint limits). _Accept:_ the hinge
+- [ ] **ASM-LIMITS** (stops A1): a joint has no min/max (Fusion and
+      Onshape joint limits). _Accept:_ the hinge
       stops at 0° and 180° when dragged, a typed 200° is refused with the
       limit named, and the limits survive a reload.
-- [ ] **ASM-CYL-FACE-MATE** (A2): concentric takes only circular edges.
-      SolidWorks and Fusion take a cylindrical face. _Accept:_ the A2 lead
-      screw is made concentric by clicking its face and the tapped hole's
-      face, and the mate survives a diameter edit.
+- [ ] **ASM-CYL-FACE-ORIGIN** (A2): an axis comes only from a circular
+      edge. Fusion and Onshape snap a joint origin to a cylindrical face's
+      axis. _Accept:_ the A2 lead screw's joint is placed by clicking its face
+      and the tapped hole's face, and it survives a diameter edit.
 - [ ] **ASM-FASTENER-CLASH** (A2): a screw in a tapped hole reports as a
       clash among the real ones. SolidWorks lists fasteners in a separate
       folder. _Accept:_ at o = 0, 40 and 80, A2 lists exactly 5 threaded
@@ -144,7 +150,7 @@ commits carry the ID (`git log --grep=<ID>`).
       the rail's holes, and changing the rail's hole count changes the
       screw count.
 - [ ] **ASM-IN-CONTEXT** (A3): a part cannot reference another instance's
-      geometry (SolidWorks Edit Part, Fusion Edit in Place). _Accept:_ the
+      geometry (Fusion Edit in Place, SolidWorks Edit Part). _Accept:_ the
       A3 carriage plate's holes are sketched from the blocks' holes, and
       moving the rails from ±40 to ±45 moves those holes.
 
@@ -193,7 +199,7 @@ One line each. The founder triages weekly; most are closed without work.
   inside-out; our own reader corrects this.
 - A drawing's projection-convention symbol shows on screen but is missing
   from prints.
-- A laid-out drawing sheet's scale cannot be changed.
+- A laid-out drawing sheet's scale cannot be changed (was SHEET-RESCALE-1, 03bb837): the per-view check refuses the first write; `SheetUpdate.scale` could rewrite every view in one transaction.
 - There is no touch Playwright project; touch QA is done by hand.
 - Code comments cite deleted design and QA docs; read them with
   `git show 5b6fd28:<path>`.
