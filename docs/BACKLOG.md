@@ -94,6 +94,12 @@ backlog this replaced (190 open items) is in git:
 
 ## Next
 
+- [ ] **FILE-SIZE-RATCHET**: a `just lint` + CI check that no source file over 1,500 lines grows and no new file passes 1,500, with the current oversized files listed with their sizes and each split lowering its entry. _Accept:_ the check fails on a +1 line to `apps/web/src/routes/PartPage.tsx` and on a new 1,501-line file; the list only shrinks.
+- [ ] **SPLIT-EVALUATE** (`services/geometry/src/geometry/features/evaluate.py`, 4,382 lines): one module per feature family behind the same dispatch, no behaviour change. _Accept:_ full geometry suite green, every golden byte-identical, determinism tests green, no file over 1,500 lines.
+- [ ] **SPLIT-PARTPAGE** (`apps/web/src/routes/PartPage.tsx`, 6,502 lines; after FILLET-EDIT-REPICK lands): move per-feature edit logic, the edit-rollback/preview, pick and timeline wiring into their own modules and hooks; no behaviour change. _Accept:_ typecheck, vitest and the full e2e lane green; PartPage under 1,500 lines.
+- [ ] **SPLIT-COMPOSE** (`services/geometry/src/geometry/drawings/compose.py`, 4,297 lines; after the drawings fix lands): layout, dimensioning, views and export emitters in separate modules. _Accept:_ drawing goldens byte-identical; no file over 1,500 lines.
+- [ ] **SPLIT-DRAWINGPAGE / SPLIT-SKETCHSCENE** (`DrawingPage.tsx` 3,382, `SketchScene.tsx` 2,944): same treatment, one at a time. _Accept:_ typecheck, vitest, covering e2e green; each under 1,500.
+- [ ] **SPLIT-WIRE-FEATURES** (`packages/loft-wire/src/loft_wire/features.py`, 4,606): one module per feature family, re-exported from `loft_wire.features` so imports and the generated contracts do not change. _Accept:_ `just gen-verify` shows zero diff; `just test` green.
 - [ ] **ARC-BOUNDS-INFLATE-1** (from stale branch 11edf49, re-implement on the tip): `_edge_points` bounds every arc as its full circle, so arc-bearing views sit off-centre and can leave the sheet. _Accept:_ an arc's box is its swept extent; the canopy bracket's ink centres on its anchor.
 - [ ] **DRAWSHEET-AUTOPLACE-1** (eb113cb + c6ae762): a lone or adjacent-pair auto-placed view lands 12 mm off centre per axis, and pinned views skew auto-layout. _Accept:_ centring uses only auto-placed views; a border gate over each view's ink (geometry + caption) passes.
 - [ ] **LAYOUTISSUE-OFFSHEET-1** (11edf49): a view whose ink leaves the border exports with empty `layout_issues` and no banner. _Accept:_ an `off_sheet` error issue in loft-wire (`just gen`), stamped on the sheet.
