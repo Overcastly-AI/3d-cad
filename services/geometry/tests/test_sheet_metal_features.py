@@ -27,11 +27,12 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from geometry.features.evaluate import (
-    EvaluationState,
-    _evaluate_sheet_metal_base_flange,  # pyright: ignore[reportPrivateUsage]
+from geometry.features.datum_sketch import (
     _evaluate_sketch,  # pyright: ignore[reportPrivateUsage]
-    evaluate_tree,
+)
+from geometry.features.evaluate import EvaluationState, evaluate_tree
+from geometry.features.sheet_metal_features import (
+    _evaluate_sheet_metal_base_flange,  # pyright: ignore[reportPrivateUsage]
 )
 from geometry.harness import evaluate_model, load_model_request
 from geometry.schemas import BoundingBox, TopologyCounts, Vec3

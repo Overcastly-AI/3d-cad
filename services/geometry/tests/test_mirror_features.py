@@ -53,12 +53,8 @@ from typing import Any
 import pytest
 from build123d import Plane, Solid, Vector
 from geometry.features import evaluate_tree
-from geometry.features.evaluate import (
-    EvaluationState,
-    RecordedToolGroup,
-    _apply_pattern,
-    _pattern_contribution,
-)
+from geometry.features.evaluate import EvaluationState, RecordedToolGroup
+from geometry.features.pattern_mirror import _apply_pattern, _pattern_contribution
 from geometry.kernel import build_box, measure_shape
 from geometry.kernel.mirror import (
     MirrorUnreachableError,
@@ -723,7 +719,7 @@ def test_a_tree_without_a_features_scope_mirror_records_nothing() -> None:
     """The opt-in gate of §9, asserted end to end: no ``features``-scope mirror in
     the tree means an EMPTY capture set, so no intermediate tool solid is retained
     and an existing document's rebuild cost cannot regress."""
-    from geometry.features.evaluate import _tool_scope_ids
+    from geometry.features.tree import _tool_scope_ids
 
     request = EvaluateTreeRequest.model_validate(
         {

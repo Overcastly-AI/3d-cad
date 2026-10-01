@@ -58,7 +58,7 @@ from build123d import (
     export_step,  # pyright: ignore[reportUnknownVariableType]
     import_step,  # pyright: ignore[reportUnknownVariableType]
 )
-from geometry.features import evaluate as evaluate_module
+from geometry.features import dispatch as dispatch_module
 from geometry.features import evaluate_tree
 from geometry.features.evaluate import reset_rebuild_cache
 from geometry.kernel import measure_shape
@@ -191,12 +191,12 @@ def _profile_by_feature_type(
 ) -> dict[str, tuple[int, float]]:
     """One instrumented rebuild: ``{feature type: (calls, total ms)}``.
 
-    Wraps every entry of ``geometry.features.evaluate.FEATURE_HANDLERS``.
+    Wraps every entry of ``geometry.features.dispatch.FEATURE_HANDLERS``.
     ``_dispatch`` looks the handler up in that module global per call, so
     patching the dict is enough and no evaluation logic is duplicated.
     """
     totals: dict[str, list[float]] = {}
-    original = dict(evaluate_module.FEATURE_HANDLERS)
+    original = dict(dispatch_module.FEATURE_HANDLERS)
 
     def wrap(name: str, handler: Any) -> Any:
         def timed(item: Any, state: Any) -> Any:
@@ -210,7 +210,7 @@ def _profile_by_feature_type(
         return timed
 
     monkeypatch.setattr(
-        evaluate_module,
+        dispatch_module,
         "FEATURE_HANDLERS",
         {name: wrap(name, handler) for name, handler in original.items()},
     )

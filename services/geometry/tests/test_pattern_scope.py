@@ -886,7 +886,7 @@ def test_the_capture_set_collects_pattern_selections_too() -> None:
     must retain exactly its selection, or the pattern would find no recorded tools
     and refuse a request it can serve.
     """
-    from geometry.features.evaluate import _tool_scope_ids
+    from geometry.features.tree import _tool_scope_ids
 
     plain = EvaluateTreeRequest.model_validate(
         {

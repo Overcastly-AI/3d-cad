@@ -53,14 +53,14 @@ from types import ModuleType
 from typing import Any, cast
 
 import pytest
-from geometry.features import evaluate as evaluate_module
+from geometry.features import tree as tree_module
 from geometry.features.evaluate import (
     EvaluationState,
-    _Checkpoint,
     evaluate_tree,
     rebuild_cache_stats,
     reset_rebuild_cache,
 )
+from geometry.features.tree import _Checkpoint
 from geometry.kernel.export import export_step_bytes
 from geometry.kernel.types import BodyShape
 from geometry.rebuild_cache import RUNG_SPACING
@@ -432,8 +432,8 @@ def test_every_rung_climb_carries_on_with_a_copy_of_the_rung(
     climbs: list[tuple[int, list[BodyShape], list[BodyShape], list[BodyShape]]] = []
     stored: list[_Checkpoint] = []
     resumes: list[tuple[list[BodyShape], list[BodyShape]]] = []
-    cache = evaluate_module._REBUILD_CACHE
-    real_climb = evaluate_module._climb_rung
+    cache = tree_module._REBUILD_CACHE
+    real_climb = tree_module._climb_rung
     real_store = cache.store_rung
     real_take = cache.take
 
@@ -464,7 +464,7 @@ def test_every_rung_climb_carries_on_with_a_copy_of_the_rung(
             )
         return resume
 
-    monkeypatch.setattr(evaluate_module, "_climb_rung", spy_climb)
+    monkeypatch.setattr(tree_module, "_climb_rung", spy_climb)
     monkeypatch.setattr(cache, "store_rung", spy_store)
     monkeypatch.setattr(cache, "take", spy_take)
 

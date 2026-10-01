@@ -25,8 +25,8 @@ from typing import Any, cast
 import pytest
 from build123d import Compound, Face, GeomType, Solid
 from fastapi.testclient import TestClient
-from geometry.features import evaluate as evaluate_module
 from geometry.features import evaluate_tree
+from geometry.features import tree as tree_module
 from geometry.features.evaluate import rebuild_cache_stats, reset_rebuild_cache
 from geometry.kernel import FaceProvenance, attribute_faces, provenance
 from geometry.kernel.provenance import FaceFingerprint
@@ -473,7 +473,7 @@ def test_a_ladder_rung_does_not_refingerprint_the_live_body(
     ladderless: PrefixCache[Any] = PrefixCache(
         REBUILD_CACHE_CAPACITY, rung_spacing=10**6
     )
-    monkeypatch.setattr(evaluate_module, "_REBUILD_CACHE", ladderless)
+    monkeypatch.setattr(tree_module, "_REBUILD_CACHE", ladderless)
     flat, without_ladder = spend()
 
     assert flat > 0
