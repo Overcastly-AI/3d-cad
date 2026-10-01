@@ -452,9 +452,10 @@ describe("mount cost", () => {
     //
     // The divisor is the WORST observation minus a margin, not a round number.
     // Five consecutive runs of this exact gate measured 3.1x / 2.8x / 2.6x /
-    // 2.5x / 2.7x (control 2.09-2.42 ms/mark, portal 0.74-0.98), so 2 leaves
-    // ~25% headroom under the lowest. A regression to a React root per mark
-    // reads ~1.0x and misses by a factor of two.
+    // 2.5x / 2.7x (control 2.09-2.42 ms/mark, portal 0.74-0.98) locally, but
+    // a CI runner then read 1.97x (ci on 71f70e9, a commit with no web change),
+    // so the divisor is 1.5. A regression to a React root per mark reads ~1.0x
+    // and still misses by half.
     //
     // This gate's ratio is DELIBERATELY smaller than the headline one. jsdom
     // charges the portal leg for CSS parsing the real browser does far more
@@ -463,7 +464,7 @@ describe("mount cost", () => {
     // 3.5x is the conservative direction: the gate under-claims and cannot
     // flake, and the browser numbers are recorded in the docblock above where
     // they cannot be mistaken for something this process measured.
-    const budget = before / 2;
+    const budget = before / 1.5;
     expect(
       after,
       `${verdict} — budget was ${budget.toFixed(3)} ms/mark`,

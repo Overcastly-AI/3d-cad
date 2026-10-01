@@ -31,7 +31,7 @@ from collections.abc import Callable
 import pytest
 from ezdxf.document import Drawing
 from geometry.drawings import serialize_dxf
-from geometry.drawings.compose import (
+from geometry.drawings.dxf import (
     _LYR_BEND,  # pyright: ignore[reportPrivateUsage]
     _LYR_BEND_TABLE,  # pyright: ignore[reportPrivateUsage]
     _LYR_TITLE,  # pyright: ignore[reportPrivateUsage]

@@ -1148,9 +1148,10 @@ function useSketchFitHotkey(onFit: (() => void) | null): void {
           if (event.key !== FIT_KEY) return;
           // A digit being TYPED (a size, or a coordinate, G2) is not a Fit.
           const typing = useSketchStore.getState();
-          if (typing.drawDimension !== null || typing.pointEntry !== null) {
-            return;
-          }
+          // A typed shape's size cells do not take keys (TYPED-COORD-HIJACK).
+          const sizing =
+            typing.drawDimension !== null && !typing.drawDimension.typed;
+          if (sizing || typing.pointEntry !== null) return;
           event.preventDefault();
           onFit();
         }

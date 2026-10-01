@@ -115,6 +115,13 @@ export interface EdgeAnchor {
 }
 
 /**
+ * The least room worth leaving the mid-span for. Two mark centres 6 px apart
+ * are told apart by a click at either (`edgeMarkResolve.ts` settles the
+ * overlap by the nearer centre); closer than that, rounding decides.
+ */
+export const CROWD_ROOM_MIN_PX = 6;
+
+/**
  * The anchor for one edge: the mid-span when the band answers there, otherwise
  * the MIDDLE OF THE LONGEST ADDRESSABLE RUN, otherwise buried.
  *
@@ -135,46 +142,106 @@ export interface EdgeAnchor {
  * boundary of the visible stretch — on the silhouette, where half its corridor
  * runs off the geometry. The middle of the run is the seat with the most edge
  * on either side of it, which is what both a mouse and a thumb want.
+ *
+ * ## `clear`: a seat another mark covers is not a seat (EDGE-MARK-OVERLAP)
+ *
+ * On a 2 mm wall the outer and inner rims run 6-11 px apart, so their 24 px
+ * marks overlapped and the one drawn later covered the other: the user clicked
+ * the outer rim's visible diamond and picked the inner edge. `clear` says
+ * whether a seat keeps the mark's whole disc off every mark that outranks it,
+ * and the seat walks along its own edge until it does, exactly as it walks off
+ * a buried stretch. Only when no addressable seat is clear does the mark
+ * overlap, and then it is still drawn live: crowding is not burial.
+ *
+ * ## `room`: when nothing is clear, overlap as little as possible
+ *
+ * Zoomed out on that wall, the twin rims are a couple of pixels apart along
+ * their whole length, so no seat is clear and both marks used to fall back to
+ * their mid-spans: two discs within 2 px of each other, which no pointer can
+ * tell apart. `room` scores a seat by its clearance in px (to the marks that
+ * outrank it and to the edge's own ends), and the crowded fallback takes the
+ * addressable seat with the most of it, so twins spread along their edges.
+ * The mid-span keeps its claim unless another seat has a pixel more room
+ * AND at least `CROWD_ROOM_MIN_PX` of it.
  */
 export function chooseAnchor(
   addressable: (fraction: number) => boolean,
   budget: number = ANCHOR_SAMPLE_BUDGET,
   inset: number = ANCHOR_END_INSET,
+  clear: (fraction: number) => boolean = () => true,
+  room?: (fraction: number) => number,
 ): EdgeAnchor {
-  if (addressable(0.5)) return { at: 0.5, buried: false };
+  const midAnswers = addressable(0.5);
+  if (midAnswers && clear(0.5)) return { at: 0.5, buried: false };
 
   // Candidates in POSITION order, so "consecutive" means "adjacent along the
-  // edge" — the outward-from-mid order cannot express a run at all.
+  // edge" — the outward-from-mid order cannot express a run at all. The mid
+  // answer is reused, so the sample budget still bounds the raycasts.
   const ordered = anchorCandidates(budget, inset).sort((a, b) => a - b);
-  const answers = ordered.map(addressable);
+  const answers = ordered.map((at) =>
+    at === 0.5 ? midAnswers : addressable(at),
+  );
   const middleOf = (start: number, length: number): number =>
     ordered[start + (length >> 1)] as number;
 
-  let bestStart = -1;
-  let bestLength = 0;
-  let runStart = -1;
-  for (let i = 0; i <= answers.length; i += 1) {
-    if (answers[i] === true) {
-      if (runStart === -1) runStart = i;
-      continue;
+  const longestRun = (ok: readonly boolean[]): number | null => {
+    let bestStart = -1;
+    let bestLength = 0;
+    let runStart = -1;
+    for (let i = 0; i <= ok.length; i += 1) {
+      if (ok[i] === true) {
+        if (runStart === -1) runStart = i;
+        continue;
+      }
+      if (runStart === -1) continue;
+      const length = i - runStart;
+      const better =
+        length > bestLength ||
+        (length === bestLength &&
+          Math.abs(middleOf(runStart, length) - 0.5) <
+            Math.abs(middleOf(bestStart, bestLength) - 0.5));
+      if (better) {
+        bestStart = runStart;
+        bestLength = length;
+      }
+      runStart = -1;
     }
-    if (runStart === -1) continue;
-    const length = i - runStart;
-    const better =
-      length > bestLength ||
-      (length === bestLength &&
-        Math.abs(middleOf(runStart, length) - 0.5) <
-          Math.abs(middleOf(bestStart, bestLength) - 0.5));
-    if (better) {
-      bestStart = runStart;
-      bestLength = length;
-    }
-    runStart = -1;
+    return bestLength === 0 ? null : middleOf(bestStart, bestLength);
+  };
+
+  // Addressable AND clear of every mark that outranks this one: the seat
+  // where the mark is on top at its own centre (EDGE-MARK-OVERLAP).
+  const uncrowded = longestRun(
+    answers.map((ok, i) => ok && clear(ordered[i] as number)),
+  );
+  if (uncrowded !== null) return { at: uncrowded, buried: false };
+
+  // Addressable but crowded wherever it answers: take exactly the seat it
+  // would have had with no crowd at all (the mid-span when that answers), so
+  // crowding can only ever improve a seat. Measured without this, a long edge
+  // with a crowded mid-span jumped to a longer answering run near its END and
+  // landed under that corner's vertex mark. Still a live seat: a mark that
+  // overlaps a neighbour is better than a live edge drawn as buried.
+  const crowded = midAnswers ? 0.5 : longestRun(answers);
+  if (crowded !== null && room !== undefined) {
+    let best = crowded;
+    // Move only to a seat a click can tell apart from its neighbours: a
+    // smaller gain trades one near-coincident neighbour for another.
+    let bestRoom = Math.max(room(crowded) + 1, CROWD_ROOM_MIN_PX);
+    ordered.forEach((at, i) => {
+      if (answers[i] !== true || at === crowded) return;
+      const here = room(at);
+      if (here > bestRoom) {
+        best = at;
+        bestRoom = here;
+      }
+    });
+    return { at: best, buried: false };
   }
+  if (crowded !== null) return { at: crowded, buried: false };
 
   // Nothing on this edge answers. The mark keeps its conventional place so its
   // accessible name still describes where the edge IS; `buried` is what stops
   // it being drawn there at full strength.
-  if (bestLength === 0) return { at: 0.5, buried: true };
-  return { at: middleOf(bestStart, bestLength), buried: false };
+  return { at: 0.5, buried: true };
 }

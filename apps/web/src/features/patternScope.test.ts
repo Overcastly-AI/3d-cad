@@ -27,11 +27,13 @@ import {
  * with no "it moved" message, so that one failure would have said `ENOENT` and
  * left the reader to work out that a drift guard had stopped guarding.
  */
-const EVALUATE_PY = "services/geometry/src/geometry/features/evaluate.py";
+const PATTERN_MIRROR_PY =
+  "services/geometry/src/geometry/features/pattern_mirror.py";
 
 const evaluateSource = (): string =>
-  readRepoSource(EVALUATE_PY, {
-    declaredIn: "EVALUATE_PY in apps/web/src/features/patternScope.test.ts",
+  readRepoSource(PATTERN_MIRROR_PY, {
+    declaredIn:
+      "PATTERN_MIRROR_PY in apps/web/src/features/patternScope.test.ts",
     guards:
       "the kernel's _MIRROR_REFLECTABLE_TYPES set, a semantic subset that no " +
       "generated type carries",

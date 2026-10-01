@@ -1266,6 +1266,11 @@ interface TagState {
  * the user disposes (CLAUDE.md flow rule). Every other key still reaches the
  * canvas, so `r`, `l`, `Escape` behave exactly as they do without a strip up.
  *
+ * EXCEPT AFTER A TYPED SHAPE (TYPED-COORD-HIJACK). When the shape's last point
+ * came from the typed X / Y cells its size is already exact, and the user is
+ * typing points: the strip arms for a click but takes no keys, so the next
+ * digits open the next point's cells (`DrawDimensionDraft.typed`).
+ *
  * WHY VALUES APPLY ON ENTER, NOT PER KEYSTROKE: each applied value is a
  * revision — a solve and a debounced save. Applying per keystroke would rebuild
  * the sketch at "5" on the way to "50", and would make Escape unable to
@@ -1283,6 +1288,13 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
   const unit = useDocumentLengthUnit();
   const invalidate = useThree((state) => state.invalidate);
   const inputs = useRef(new Map<DrawDimensionKey, HTMLInputElement>());
+  /**
+   * The draft the cells in `inputs` belong to, or null once they are spent.
+   * The DOM lags the store: right after a commit (or a new shape) the old
+   * cells are still attached, and a key routed to them would be typed into a
+   * shape that is finished.
+   */
+  const cellsDraft = useRef<string | null>(null);
   /** Keys typed before the cells existed, waiting for a commit to land in. */
   const buffered = useRef<DrawKeyBuffer | null>(null);
 
@@ -1354,34 +1366,63 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
    */
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      // A key the typed X / Y cells already took (capture phase) is theirs.
+      if (event.defaultPrevented) return;
       if (isTypingTarget(event.target)) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       // The STORE, not the render: `placeAt` set this before the pointer
       // handler returned, whether or not React has caught up.
       const live = useSketchStore.getState().drawDimension;
-      if (live === null) {
+      // A TYPED shape's cells do not take the keyboard: the next keystrokes
+      // are the next point's (TYPED-COORD-HIJACK). A click still reaches them.
+      if (live === null || live.typed) {
         buffered.current = null;
         return;
       }
+      const draftId = live.ids.join(",");
       const firstLiveKey = live.fields[0]?.key;
       if (firstLiveKey === undefined) return;
-      const cell = inputs.current.get(firstLiveKey);
+      // Cells in the DOM that belong to an EARLIER draft (the render has not
+      // caught up with the shape just placed) are not this draft's cells.
+      const cell =
+        cellsDraft.current === draftId
+          ? inputs.current.get(firstLiveKey)
+          : undefined;
       if (cell === undefined) {
         // THE CELLS ARE NOT IN THE DOM YET. Hold the keys against this draft
         // and replay them in the commit that creates the cells; `preventDefault`
         // so a buffered Tab cannot walk browser focus somewhere else first.
         const outcome = bufferDrawKey(buffered.current, event.key, {
-          draftId: live.ids.join(","),
+          draftId,
           fieldCount: live.fields.length,
           shiftKey: event.shiftKey,
         });
         if (outcome.kind === "ignored") return;
         event.preventDefault();
+        if (outcome.buffer.apply) {
+          // Enter applies IN THIS KEYDOWN, from the keys themselves, not when
+          // the cells mount: the next keystroke must meet a store that has
+          // already moved on, or it lands in a shape that is finished
+          // (TYPED-POINT-RACE, the same class of race as FLOW-A1).
+          buffered.current = null;
+          const parsed: DrawDimensionValues = {};
+          live.fields.forEach((field, index) => {
+            const mm = parsePositiveLengthMm(
+              bufferedText(outcome.buffer, index),
+              unit,
+            );
+            if (mm !== null) parsed[field.key] = mm;
+          });
+          commit(parsed);
+          invalidate();
+          return;
+        }
         buffered.current = outcome.buffer;
         return;
       }
       if (event.key === "Enter") {
         event.preventDefault();
+        cellsDraft.current = null;
         apply();
         return;
       }
@@ -1394,7 +1435,7 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [apply]);
+  }, [apply, commit, invalidate, unit]);
 
   if (state === null) return null;
 
@@ -1428,15 +1469,16 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
       inputs.current.delete(key);
       return;
     }
+    // A render that has not caught up with the store (the draft was applied,
+    // dismissed or replaced since) mounts cells nobody may type into.
+    const live = useSketchStore.getState().drawDimension;
+    if (live?.ids.join(",") !== draftKey) return;
     inputs.current.set(key, node);
+    cellsDraft.current = draftKey;
     const pending = buffered.current;
-    if (pending === null) return;
-    if (pending.draftId !== draftKey) {
-      // Typing that belongs to a shape that is no longer on screen. Drop it —
-      // replaying it here would put the last rectangle's width on this one.
-      buffered.current = null;
-      return;
-    }
+    // Typing that belongs to another shape is never replayed here: it would
+    // put the last rectangle's width on this one.
+    if (pending?.draftId !== draftKey) return;
     const text = bufferedText(pending, index);
     if (text !== "") node.value = text;
     if (index === pending.index) {
@@ -1448,8 +1490,8 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
     // Hold the buffer until every cell has had its turn — the fields register
     // one at a time, and consuming it on the first would lose the second.
     if (inputs.current.size < fields.length) return;
+    // Enter is never pending here: it applies in its own keydown.
     buffered.current = null;
-    if (pending.apply) apply();
     invalidate();
   };
   const onKeyDown = (
@@ -1474,6 +1516,11 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
       // cell applied. Measured — the rectangle's Enter did nothing at all.
       event.preventDefault();
       apply();
+      // Spend the cells NOW. They stay in the DOM until the scene re-renders,
+      // and a focused dead cell would eat the next keystrokes, which belong to
+      // the next shape (TYPED-POINT-RACE).
+      cellsDraft.current = null;
+      event.currentTarget.blur();
       return;
     }
     if (event.key !== "Tab" || fields.length < 2) return;
@@ -1527,9 +1574,12 @@ function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
           </DimensionTag>
           {armed ? (
             <p className="mt-1 font-body text-2xs text-gauge">
-              {fields.length > 1
-                ? "Type a size · Tab switches · Enter applies"
-                : "Type a size · Enter applies"}
+              {draft?.typed === true
+                ? // Typed points: the keyboard has moved on to the next point.
+                  "Click a size to change it"
+                : fields.length > 1
+                  ? "Type a size · Tab switches · Enter applies"
+                  : "Type a size · Enter applies"}
             </p>
           ) : null}
         </div>
@@ -1598,6 +1648,9 @@ function OpenEndMarks({ basis }: { basis: PlaneBasis }) {
  */
 const OPENS_A_COORDINATE = /^[1-9.-]$/;
 
+/** One typed-point entry's buffer identity: typing never crosses entries. */
+const pointDraftId = (nonce: number): string => `point:${nonce}`;
+
 /**
  * TYPE WHERE THE POINT GOES (helical-gear gap G2).
  *
@@ -1615,6 +1668,24 @@ const OPENS_A_COORDINATE = /^[1-9.-]$/;
  * buffered and replayed from the ref callback, for the reasons
  * `DrawDimensionTag` documents (FLOW-A1): the first keystrokes arrive before
  * React has rendered anything to type into.
+ *
+ * THE STORE ROUTES THE KEYS, NEVER THE DOM (TYPED-COORD-HIJACK,
+ * TYPED-POINT-RACE). This component renders in r3f's reconciler and its cells
+ * in drei's own `<Html>` root, so the DOM trails the store by a frame or more:
+ * after an Enter, the cells of the point just placed are still attached (and
+ * focused) while the next point's keys arrive. Measured on 9767a90, eight
+ * typed spline points stored a 2-point spline plus a separate one: a buffered
+ * Enter waited for the cells to mount, so the keys behind it were dropped and
+ * the NEXT Enter finished the spline. So:
+ *
+ *  - Enter places the point IN ITS OWN KEYDOWN, from the buffered keys when
+ *    the cells are not up yet, and spends the cells at once (blurred and
+ *    disowned), so the next keystroke meets a store that has moved on and
+ *    opens the next point's cells, as Fusion's and SolidWorks' do.
+ *  - A buffer and a set of cells belong to one entry (its `nonce`), so keys
+ *    can never replay into, or be swallowed by, another entry's cells.
+ *  - The listener runs in the capture phase, ahead of the sketch's own Enter
+ *    (which finishes a spline), and the Enter it takes is `preventDefault`ed.
  */
 function PointEntry({ basis }: { basis: PlaneBasis }) {
   const entry = useSketchStore((state) => state.pointEntry);
@@ -1623,63 +1694,98 @@ function PointEntry({ basis }: { basis: PlaneBasis }) {
   const commit = useSketchStore((state) => state.commitPointEntry);
   const unit = useDocumentLengthUnit();
   const invalidate = useThree((state) => state.invalidate);
-  const inputs = useRef<[HTMLInputElement | null, HTMLInputElement | null]>([
-    null,
-    null,
-  ]);
+  /** The attached cells, and the entry (by nonce) they belong to. */
+  const cellsRef = useRef<{
+    nonce: number | null;
+    nodes: [HTMLInputElement | null, HTMLInputElement | null];
+  }>({ nonce: null, nodes: [null, null] });
   /** Keys typed before the cells existed, waiting for them to attach. */
   const buffered = useRef<DrawKeyBuffer | null>(null);
   const [invalid, setInvalid] = useState(false);
 
-  useGlobalKeys("sketch point entry", (event) => {
-    if (event.metaKey || event.ctrlKey || event.altKey) return;
-    const state = useSketchStore.getState();
-    if (state.mode !== "draw") return;
-    if (state.pointEntry === null) {
-      if (!OPENS_A_COORDINATE.test(event.key)) return;
-      const opening = pointEntryOpening(state);
-      if (opening === null) return;
-      event.preventDefault();
-      const outcome = bufferDrawKey(null, event.key, {
-        draftId: "point",
+  /**
+   * Place (or move) the point from the typed text of each cell. An empty cell
+   * keeps the anchor's value. False when a cell does not parse.
+   */
+  const place = (
+    anchor: Point2D,
+    texts: readonly [string, string],
+  ): boolean => {
+    const read = (text: string, fallback: number) =>
+      text.trim() === "" ? fallback : parseSignedLengthMm(text, unit);
+    const x = read(texts[0], anchor.x);
+    const y = read(texts[1], anchor.y);
+    if (x === null || y === null) {
+      setInvalid(true);
+      return false;
+    }
+    buffered.current = null;
+    cellsRef.current = { nonce: null, nodes: [null, null] };
+    commit({ x, y });
+    invalidate();
+    return true;
+  };
+
+  useGlobalKeys(
+    "sketch point entry",
+    (event) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const state = useSketchStore.getState();
+      if (state.mode !== "draw") return;
+      const live = state.pointEntry;
+      if (live === null) {
+        if (!OPENS_A_COORDINATE.test(event.key)) return;
+        const opening = pointEntryOpening(state);
+        if (opening === null) return;
+        event.preventDefault();
+        // The typing takes the keyboard: a toolbar button left focused by a
+        // click would otherwise claim the Enter that places this point.
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && active !== document.body) {
+          active.blur();
+        }
+        open(opening.anchor, opening.target);
+        const nonce = useSketchStore.getState().pointEntry?.nonce ?? 0;
+        const outcome = bufferDrawKey(null, event.key, {
+          draftId: pointDraftId(nonce),
+          fieldCount: 2,
+          signed: true,
+        });
+        buffered.current = outcome.kind === "buffered" ? outcome.buffer : null;
+        setInvalid(false);
+        invalidate();
+        return;
+      }
+      // This entry's cells are up: they take their own keys.
+      if (cellsRef.current.nonce === live.nonce) return;
+      // Open, but its cells are not in the DOM yet: hold the keys for them.
+      const outcome = bufferDrawKey(buffered.current, event.key, {
+        draftId: pointDraftId(live.nonce),
         fieldCount: 2,
+        shiftKey: event.shiftKey,
         signed: true,
       });
-      buffered.current = outcome.kind === "buffered" ? outcome.buffer : null;
-      setInvalid(false);
-      open(opening.anchor, opening.target);
-      invalidate();
-      return;
-    }
-    // Open, but the cells are not in the DOM yet: hold the keys for them.
-    if (inputs.current[0] !== null) return;
-    const outcome = bufferDrawKey(buffered.current, event.key, {
-      draftId: "point",
-      fieldCount: 2,
-      shiftKey: event.shiftKey,
-      signed: true,
-    });
-    if (outcome.kind === "ignored") return;
-    event.preventDefault();
-    buffered.current = outcome.buffer;
-  });
+      if (outcome.kind === "ignored") return;
+      event.preventDefault();
+      const { buffer } = outcome;
+      if (!buffer.apply) {
+        buffered.current = buffer;
+        return;
+      }
+      const texts = [bufferedText(buffer, 0), bufferedText(buffer, 1)] as const;
+      // Unparseable: keep the text (not the Enter) for the cells to show.
+      if (!place(live.anchor, texts)) {
+        buffered.current = { ...buffer, apply: false };
+      }
+    },
+    { capture: true },
+  );
 
   if (entry === null) return null;
 
-  const apply = () => {
-    const read = (cell: HTMLInputElement | null, fallback: number) =>
-      cell === null || cell.value.trim() === ""
-        ? fallback
-        : parseSignedLengthMm(cell.value, unit);
-    const x = read(inputs.current[0], entry.anchor.x);
-    const y = read(inputs.current[1], entry.anchor.y);
-    if (x === null || y === null) {
-      setInvalid(true);
-      return;
-    }
-    buffered.current = null;
-    commit({ x, y });
-    invalidate();
+  const apply = (): boolean => {
+    const [x, y] = cellsRef.current.nodes;
+    return place(entry.anchor, [x?.value ?? "", y?.value ?? ""]);
   };
 
   /**
@@ -1689,19 +1795,31 @@ function PointEntry({ basis }: { basis: PlaneBasis }) {
    * the user is typing Y.
    */
   const register = (index: 0 | 1, node: HTMLInputElement | null) => {
-    inputs.current[index] = node;
+    const own = cellsRef.current.nonce === entry.nonce;
+    if (node === null) {
+      if (own) cellsRef.current.nodes[index] = null;
+      return;
+    }
+    // A render that has not caught up with the store (this entry was placed
+    // or abandoned since) mounts cells nobody may type into.
+    if (useSketchStore.getState().pointEntry?.nonce !== entry.nonce) return;
+    if (!own) cellsRef.current = { nonce: entry.nonce, nodes: [null, null] };
+    cellsRef.current.nodes[index] = node;
     const pending = buffered.current;
-    if (node === null || pending === null) return;
+    if (pending?.draftId !== pointDraftId(entry.nonce)) return;
     const text = bufferedText(pending, index);
     if (text !== "") node.value = text;
     if (index === pending.index) {
       node.focus();
       node.setSelectionRange(node.value.length, node.value.length);
     }
-    if (index === 1) {
-      buffered.current = null;
-      if (pending.apply) apply();
-    }
+    if (index === 1) buffered.current = null;
+  };
+
+  /** Hand the keyboard back: the cells stay in the DOM until the next render. */
+  const spend = (cell: HTMLInputElement) => {
+    cellsRef.current = { nonce: null, nodes: [null, null] };
+    cell.blur();
   };
 
   const onKeyDown = (
@@ -1713,19 +1831,21 @@ function PointEntry({ basis }: { basis: PlaneBasis }) {
       event.stopPropagation();
       event.preventDefault();
       buffered.current = null;
+      spend(event.currentTarget);
       close();
       invalidate();
       return;
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      apply();
+      const cell = event.currentTarget;
+      if (apply()) cell.blur();
       return;
     }
     if (event.key !== "Tab") return;
     // A coordinate pair is a loop, like the size cells.
     event.preventDefault();
-    inputs.current[index === 0 ? 1 : 0]?.focus();
+    cellsRef.current.nodes[index === 0 ? 1 : 0]?.focus();
   };
 
   const cells = [

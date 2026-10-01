@@ -64,6 +64,12 @@
 #                                        resources.sh). Joins to per-test timing
 #                                        by timestamp — see `e2e-shard-audit.py
 #                                        --timeline`.
+#         E2E_TEARDOWN_GRACE_MS          how long a started process gets to
+#                                        exit after SIGTERM before it is
+#                                        SIGKILLed (default 10000; +5000 for
+#                                        the SIGKILL itself). The teardown is
+#                                        BOUNDED by this and runs before the
+#                                        verdict — scripts/e2e-teardown.sh.
 #         CI                             when set, NEVER reuse a listener: every
 #                                        port must be free and this script must
 #                                        boot the stack itself. Reuse exists so
@@ -77,6 +83,8 @@
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/e2e-teardown.sh
+source scripts/e2e-teardown.sh
 
 RUN_GEOMETRY=1
 RUN_WEB=1
@@ -110,30 +118,48 @@ RUN_DIR="$(mktemp -d -t loft-e2e.XXXXXX)"
 LOG_DIR="${E2E_LOG_DIR:-$RUN_DIR}"
 mkdir -p "$LOG_DIR"
 SERVICES=(geometry documents gateway)
-STARTED_PIDS=()
+# NAME=PGID for everything this script starts; each is `setsid`-ed into its own
+# process group so teardown reaches the wrapper (`uv run`) AND its child.
+STARTED=()
 SAMPLER_PID=""
 # Set once the browser leg is configured; print_verdict reads them.
 E2E_REPORT=""
 PLAYWRIGHT_LOG="${LOG_DIR}/playwright-output.log"
 SHARD_LABEL=""
 
+# BOUNDED teardown of everything this script started (CI-VERDICT-HANG-1). It
+# used to be `kill` then an unbounded `wait` per pid, run from the EXIT trap
+# AFTER the verdict: one process that outlived SIGTERM held a CI shard until its
+# 40-minute timeout, under a log whose last line said GREEN. Now SIGTERM ->
+# E2E_TEARDOWN_GRACE_MS -> SIGKILL -> 5 s, one log line per escalation, and it
+# is called explicitly BEFORE print_verdict so the verdict really is the last
+# thing printed. Idempotent: the EXIT trap calls it again for the early-exit
+# paths, and by then the list is empty.
+#
+# Its status is deliberately NOT folded into the exit code. By the time it runs
+# the result is decided; a service that needed SIGKILL is a ::warning:: to act
+# on, not a reason to turn a passing suite red or a red one green.
+stop_stack() {
+  local entries=()
+  [[ -n "$SAMPLER_PID" ]] && entries+=("resource-sampler=${SAMPLER_PID}")
+  entries+=("${STARTED[@]}")
+  SAMPLER_PID=""
+  STARTED=()
+  ((${#entries[@]} > 0)) || return 0
+  TD_PREFIX="e2e: teardown" td_stop "${E2E_TEARDOWN_GRACE_MS:-10000}" 5000 \
+    "${entries[@]}" || true
+}
+
 cleanup() {
-  local pid
-  if [[ -n "$SAMPLER_PID" ]]; then
-    kill "$SAMPLER_PID" 2>/dev/null || true
-    wait "$SAMPLER_PID" 2>/dev/null || true
-  fi
-  for pid in "${STARTED_PIDS[@]-}"; do
-    [[ -n "$pid" ]] || continue
-    kill "$pid" 2>/dev/null || true
-  done
-  for pid in "${STARTED_PIDS[@]-}"; do
-    [[ -n "$pid" ]] || continue
-    wait "$pid" 2>/dev/null || true
-  done
+  stop_stack
   rm -rf "$RUN_DIR"
 }
 trap cleanup EXIT
+# A step timeout or Ctrl-C delivers a signal, and bash does not run an EXIT
+# trap when a signal it does not handle kills it — so the stack would outlive
+# the script. Turning the signal into an exit is what makes the trap run.
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Tail every service log to the job output. Called when the browser leg fails,
 # because an artifact nobody downloads is not evidence anybody reads — and here
@@ -212,8 +238,8 @@ probe() {
 preflight_vite() {
   local port=5199 log="${LOG_DIR}/vite-preflight.log" pid attempt v4 v6
   echo "e2e: preflight — proving Vite serves the app on ${HOST}"
-  pnpm --filter @loft/web exec vite --host "$HOST" --port "$port" --strictPort \
-    >"$log" 2>&1 &
+  setsid pnpm --filter @loft/web exec vite --host "$HOST" --port "$port" \
+    --strictPort >"$log" 2>&1 &
   pid=$!
   for ((attempt = 1; attempt <= 120; attempt++)); do
     v4="$(probe "http://${HOST}:${port}/")"
@@ -232,7 +258,7 @@ preflight_vite() {
     fi
     echo "e2e: vite log:" >&2
     cat "$log" >&2 || true
-    kill "$pid" 2>/dev/null || true
+    TD_PREFIX="e2e: preflight" td_stop 5000 5000 "vite-preflight=$pid" || true
     return 1
   fi
   # The entry module is what actually forces dependency pre-bundling; index.html
@@ -245,8 +271,7 @@ preflight_vite() {
   entry="$(probe "http://${HOST}:${port}/src/main.tsx" 120)"
   echo "e2e: preflight — entry module -> ${entry} in $((($(date +%s%N) - t0) / 1000000)) ms"
   sed -n '1,6p' "$log" | sed 's/^/e2e: vite: /'
-  kill "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
+  TD_PREFIX="e2e: preflight" td_stop 5000 5000 "vite-preflight=$pid" || true
   return 0
 }
 
@@ -270,10 +295,10 @@ start_service() {
     return 1
   fi
   echo "e2e: starting ${name} on :${port} (log: ${LOG_DIR}/${name}.log)"
-  uv run uvicorn "${app}" --host "$HOST" --port "$port" \
+  setsid uv run uvicorn "${app}" --host "$HOST" --port "$port" \
     >"${LOG_DIR}/${name}.log" 2>&1 &
   pid=$!
-  STARTED_PIDS+=("$pid")
+  STARTED+=("${name}=${pid}")
   for ((attempt = 1; attempt <= 30; attempt++)); do
     [[ "$(probe "http://${HOST}:${port}/readyz")" == "200" ]] && return 0
     if ! kill -0 "$pid" 2>/dev/null; then break; fi
@@ -517,10 +542,10 @@ for arg in "${PLAYWRIGHT_ARGS[@]-}"; do
 done
 # Resource sampling covers the browser leg only — the stack is up, so the CSV's
 # first row is already the steady state the specs run against, and everything
-# after it is attributable to the suite. Killed by the exit trap.
+# after it is attributable to the suite. Stopped by stop_stack.
 if [[ -n "${E2E_METRICS_DIR:-}" ]]; then
   mkdir -p "$E2E_METRICS_DIR"
-  scripts/e2e-sample-resources.sh "${E2E_METRICS_DIR}/resources.csv" \
+  setsid scripts/e2e-sample-resources.sh "${E2E_METRICS_DIR}/resources.csv" \
     "${E2E_METRICS_INTERVAL:-2}" &
   SAMPLER_PID=$!
   echo "e2e: sampling resources every ${E2E_METRICS_INTERVAL:-2}s -> ${E2E_METRICS_DIR}/resources.csv"
@@ -572,6 +597,11 @@ else
     echo "e2e: browser leg green (--web-only; the geometry leg did NOT run)."
   fi
 fi
+
+# Tear the stack down FIRST, bounded, so nothing — not even a hung service —
+# can print or stall after the verdict. scripts/e2e-teardown.sh --self-test
+# holds this ordering.
+stop_stack
 
 # The verdict goes LAST on both paths, after the service logs and after the
 # leg summary, so `tail_lines: 40` on the job log always contains the whole

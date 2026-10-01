@@ -7,6 +7,7 @@ import {
   resolveBandEdge,
   resolveBandIntersections,
   type BandIntersection,
+  BAND_SCREEN_TIE_PX,
   EDGE_BAND_TOLERANCE_PX,
   EDGE_BAND_WIDTH_PX,
   EDGE_OCCLUSION_MIN_BIAS,
@@ -218,6 +219,131 @@ describe("resolveBandIntersections", () => {
         1,
       ),
     ).toBeNull();
+  });
+
+  // EDGE-MARK-OVERLAP: a 2 mm wall's outer and inner rims both lie inside
+  // the corridor, and the one nearer the camera is not the one under the
+  // cursor.
+  const gap = (distance: number, faceIndex: number, px: number) => ({
+    ...hit(band, distance, faceIndex),
+    screenGapPx: px,
+  });
+  const always = () => true;
+  const never = () => false;
+
+  it("takes the band hit nearest the CURSOR when it is proven visible", () => {
+    expect(
+      resolveBandIntersections(
+        [gap(50, 0, 8), gap(52, 2, 0.5)],
+        targets,
+        map,
+        1,
+        always,
+      ),
+    ).toBe(8);
+  });
+
+  // The review finding: the body-scale bias admits an edge hidden behind a
+  // wall thinner than the bias, so screen distance alone must not decide.
+  it("keeps the edge in FRONT when the nearer-to-cursor one is not visible at its own pixel", () => {
+    expect(
+      resolveBandIntersections(
+        [gap(130.1, 0, 8), hit(surface, 130.3, 4), gap(132.4, 2, 0.5)],
+        targets,
+        map,
+        2.69,
+        never,
+      ),
+    ).toBe(3);
+  });
+
+  it("keeps the edge in front when there is no visibility oracle to prove otherwise", () => {
+    expect(
+      resolveBandIntersections(
+        [gap(50, 0, 8), gap(52, 2, 0.5)],
+        targets,
+        map,
+        1,
+      ),
+    ).toBe(3);
+  });
+
+  // EDGE-HIDDEN-LONE: the only edge in the corridor, 2.31 mm behind the
+  // face under the cursor, inside a 2.69 mm slack.
+  it("refuses a LONE edge behind the surface under the cursor unless it is proven visible", () => {
+    const lone = [hit(surface, 130, 4), gap(132.31, 2, 6)];
+    expect(resolveBandIntersections(lone, targets, map, 2.69, never)).toBe(
+      null,
+    );
+    expect(resolveBandIntersections(lone, targets, map, 2.69, always)).toBe(8);
+  });
+
+  it("falls through an unproven slack hit to the next edge that is visible", () => {
+    expect(
+      resolveBandIntersections(
+        [hit(surface, 130, 4), gap(131, 2, 1), gap(132, 0, 3)],
+        targets,
+        map,
+        2.69,
+        (h) => h.faceIndex === 0,
+      ),
+    ).toBe(3);
+  });
+
+  it("asks nothing about a front hit that is in front of the surface", () => {
+    const asked: number[] = [];
+    expect(
+      resolveBandIntersections(
+        [gap(129.9, 2, 1), hit(surface, 130, 4)],
+        targets,
+        map,
+        2.69,
+        (h) => {
+          asked.push(h.faceIndex as number);
+          return false;
+        },
+      ),
+    ).toBe(8);
+    expect(asked).toEqual([]);
+  });
+
+  it("asks the oracle only about hits that would beat the front one", () => {
+    const asked: number[] = [];
+    resolveBandIntersections(
+      [gap(50, 0, 1), gap(52, 2, 6)],
+      targets,
+      map,
+      1,
+      (h) => {
+        asked.push(h.faceIndex as number);
+        return true;
+      },
+    );
+    expect(asked).toEqual([]);
+  });
+
+  it("breaks a screen tie by depth, so a seam behind its silhouette loses", () => {
+    expect(
+      resolveBandIntersections(
+        [gap(50, 0, 2), gap(60, 2, 2 - BAND_SCREEN_TIE_PX / 2)],
+        targets,
+        map,
+        1,
+        always,
+      ),
+    ).toBe(3);
+  });
+
+  it("never hands the pick to a nearer-to-cursor edge behind material", () => {
+    expect(
+      resolveBandIntersections(
+        [gap(50, 0, 9), hit(surface, 55, 4), gap(70, 2, 0)],
+        targets,
+        map,
+        1,
+        always,
+      ),
+    ).toBe(3);
   });
 
   it("treats a band hit with no faceIndex as no hit", () => {

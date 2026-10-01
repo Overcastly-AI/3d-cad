@@ -81,16 +81,18 @@ from loft_wire.measure import MeasureRequest, MeasureResult
 from loft_wire.overlay import OverlayRequest, OverlayResult
 from loft_wire.sketch import (
     Point2D,
-    SketchChamferRequest,
-    SketchCornerResult,
     SketchEditRequest,
     SketchEditResult,
     SketchEntity,
-    SketchFilletRequest,
     SketchMirrorRequest,
     SketchMirrorResult,
     SketchOffsetRequest,
     SketchOffsetResult,
+)
+from loft_wire.sketch_corner import (
+    SketchChamferRequest,
+    SketchCornerResult,
+    SketchFilletRequest,
 )
 from loft_wire.step_import import (
     StepAssemblyImportRequest,

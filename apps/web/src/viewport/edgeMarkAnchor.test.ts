@@ -109,6 +109,99 @@ describe("chooseAnchor", () => {
     }, ANCHOR_SAMPLE_BUDGET);
     expect(tests).toBeLessThanOrEqual(ANCHOR_SAMPLE_BUDGET + 1);
   });
+
+  // EDGE-MARK-OVERLAP: a thin wall's twin rim holds the mid-span.
+  it("walks off a mid-span another mark covers, to the nearest clear seat", () => {
+    const anchor = chooseAnchor(
+      () => true,
+      ANCHOR_SAMPLE_BUDGET,
+      ANCHOR_END_INSET,
+      (t) => Math.abs(t - 0.5) > 0.05,
+    );
+    expect(anchor.buried).toBe(false);
+    expect(anchor.at).not.toBe(0.5);
+  });
+
+  it("stays LIVE when every addressable seat is crowded — crowding is not burial", () => {
+    expect(
+      chooseAnchor(
+        () => true,
+        ANCHOR_SAMPLE_BUDGET,
+        ANCHOR_END_INSET,
+        () => false,
+      ),
+    ).toEqual({ at: 0.5, buried: false });
+  });
+
+  it("keeps the uncrowded seat when crowding cannot be escaped — never a worse one", () => {
+    // The mid answers alone; a longer run answers near one END. With no clear
+    // seat anywhere the mark must stay where it would have been with no crowd
+    // (the mid-span), not jump to the long run beside a corner.
+    const ordered = [...anchorCandidates()].sort((a, b) => a - b);
+    const anchor = chooseAnchor(
+      answersAt([0.5, ...ordered.slice(0, 3)]),
+      ANCHOR_SAMPLE_BUDGET,
+      ANCHOR_END_INSET,
+      () => false,
+    );
+    expect(anchor).toEqual({ at: 0.5, buried: false });
+  });
+
+  it("spreads twin marks along the edge when nothing is clear, by most room", () => {
+    // A twin's mark sits at this edge's mid-span (room 2 px there); the ends
+    // are 60 px apart. Room is min(distance to the twin, distance to an end).
+    const room = (t: number) =>
+      Math.max(2, Math.min(Math.abs(t - 0.5) * 60, t * 60, (1 - t) * 60));
+    const anchor = chooseAnchor(
+      () => true,
+      ANCHOR_SAMPLE_BUDGET,
+      ANCHOR_END_INSET,
+      () => false,
+      room,
+    );
+    expect(anchor.buried).toBe(false);
+    expect(Math.abs(anchor.at - 0.5)).toBeGreaterThan(0.2);
+    expect(Math.abs(anchor.at - 0.5)).toBeLessThan(0.3);
+  });
+
+  it("keeps the mid-span when no seat has more room", () => {
+    expect(
+      chooseAnchor(
+        () => true,
+        ANCHOR_SAMPLE_BUDGET,
+        ANCHOR_END_INSET,
+        () => false,
+        () => 5,
+      ),
+    ).toEqual({ at: 0.5, buried: false });
+  });
+
+  it("never takes a clear seat the band does not answer", () => {
+    const ordered = [...anchorCandidates()].sort((a, b) => a - b);
+    const answering = ordered.slice(5, 9);
+    const anchor = chooseAnchor(
+      answersAt(answering),
+      ANCHOR_SAMPLE_BUDGET,
+      ANCHOR_END_INSET,
+      (t) => t < 0.5,
+    );
+    expect(answering).toContain(anchor.at);
+    expect(anchor.buried).toBe(false);
+  });
+
+  it("keeps the sample budget when the mid-span is crowded", () => {
+    let tests = 0;
+    chooseAnchor(
+      () => {
+        tests += 1;
+        return true;
+      },
+      ANCHOR_SAMPLE_BUDGET,
+      ANCHOR_END_INSET,
+      () => false,
+    );
+    expect(tests).toBeLessThanOrEqual(ANCHOR_SAMPLE_BUDGET);
+  });
 });
 
 describe("the seat is an arc-length fraction of the SAME interpolation", () => {

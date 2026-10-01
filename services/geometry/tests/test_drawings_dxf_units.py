@@ -50,7 +50,7 @@ from geometry.drawings import (
     serialize_dxf,
     serialize_flat_pattern_dxf,
 )
-from geometry.drawings import compose as compose_module
+from geometry.drawings import dxf as dxf_module
 from loft_wire.drawings import ComposedSheet
 
 _GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens-sheet-metal"
@@ -213,10 +213,10 @@ def test_no_document_can_leave_the_module_declaring_another_unit(
     its own document fails loudly instead of shipping a file that lies about itself.
     This is the same posture as the encoding guard beside it (F-3).
     """
-    doc = compose_module._new_dxf_document()  # pyright: ignore[reportPrivateUsage]
+    doc = dxf_module._new_dxf_document()  # pyright: ignore[reportPrivateUsage]
     doc.units = ezdxf_units.M  # the defect, injected deliberately
     with pytest.raises(RuntimeError, match=r"\$INSUNITS=6"):
-        compose_module._dxf_bytes(doc, "")  # pyright: ignore[reportPrivateUsage]
+        dxf_module._dxf_bytes(doc, "")  # pyright: ignore[reportPrivateUsage]
 
 
 def test_the_factory_is_the_only_place_a_dxf_document_is_created() -> None:
@@ -231,10 +231,15 @@ def test_the_factory_is_the_only_place_a_dxf_document_is_created() -> None:
     docstring names the call it replaced. A textual gate that a comment can trip is a
     gate people learn to edit around.
     """
-    tree = ast.parse(Path(compose_module.__file__).read_text("utf-8"))
+    # Every module of the drawings package (compose.py was split, SPLIT-COMPOSE), so
+    # a second factory cannot hide in a sibling module.
+    package_dir = Path(dxf_module.__file__).parent
+    sources = sorted(package_dir.glob("*.py"))
+    assert len(sources) > 1, f"no drawings modules found under {package_dir}"
     sites = [
-        node
-        for node in ast.walk(tree)
+        (path.name, node)
+        for path in sources
+        for node in ast.walk(ast.parse(path.read_text("utf-8")))
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "new"
@@ -242,13 +247,13 @@ def test_the_factory_is_the_only_place_a_dxf_document_is_created() -> None:
         and node.func.value.id == "ezdxf"
     ]
     assert len(sites) == 1, (
-        f"{len(sites)} ezdxf.new() call sites in compose.py (lines "
-        f"{[n.lineno for n in sites]}); the DXF header's unit declaration is decided "
-        f"in _new_dxf_document() and nowhere else — route the new export path through "
-        f"it rather than inheriting a second default"
+        f"{len(sites)} ezdxf.new() call sites in geometry/drawings (at "
+        f"{[(name, n.lineno) for name, n in sites]}); the DXF header's unit "
+        f"declaration is decided in _new_dxf_document() and nowhere else — route "
+        f"the new export path through it rather than inheriting a second default"
     )
     assert any(
-        isinstance(kw.arg, str) and kw.arg == "units" for kw in sites[0].keywords
+        isinstance(kw.arg, str) and kw.arg == "units" for kw in sites[0][1].keywords
     ), "the one ezdxf.new() call must pass units EXPLICITLY, never inherit the default"
 
 

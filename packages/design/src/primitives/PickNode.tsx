@@ -58,6 +58,18 @@ export interface PickNodeProps extends Omit<
    * that away, which is why neither is used.
    */
   occluded?: boolean;
+  /**
+   * ENTER BELONGS TO THE COMMAND, NOT TO THE MARK (PICK-ENTER-UNPICKS).
+   *
+   * In a multi-pick (fillet edges, draft faces) a click toggles the mark and
+   * leaves focus on it, and a native button activates on Enter, so the panel's
+   * advertised "Create · Enter" toggled the last pick OFF instead of creating
+   * the feature. Pass the command's commit here and Enter on the mark calls it
+   * instead of activating the button; Space still toggles, which is the ARIA
+   * convention for a toggle button and keeps every pick keyboard-reachable.
+   * Leave it unset where activating the mark IS the commit (a single pick).
+   */
+  onEnterKey?: () => void;
   /** Required: the target's accessible name (e.g. "Vertex at 10, 20, 30 mm"). */
   "aria-label": string;
 }
@@ -67,6 +79,8 @@ export function PickNode({
   selected = false,
   recede = false,
   occluded = false,
+  onEnterKey,
+  onKeyDown,
   className,
   type,
   ...rest
@@ -75,6 +89,18 @@ export function PickNode({
     <button
       type={type ?? "button"}
       aria-pressed={selected}
+      onKeyDown={(event) => {
+        onKeyDown?.(event);
+        if (
+          onEnterKey !== undefined &&
+          event.key === "Enter" &&
+          !event.defaultPrevented
+        ) {
+          // Suppresses the button's own Enter activation (the toggle).
+          event.preventDefault();
+          onEnterKey();
+        }
+      }}
       className={cx(
         // A fixed 24px transparent hit area (WCAG 2.5.8 target size) around a
         // small scribed reticle — easy to click or tap without a large dot

@@ -41,6 +41,7 @@ from OCP.GCPnts import GCPnts_QuasiUniformDeflection
 
 from geometry.kernel.edges import edge_adjacency, edge_signature_dto
 from geometry.kernel.faces import face_signature_dto
+from geometry.kernel.naming import edge_names
 from geometry.kernel.types import BodyShape
 
 #: OCCT ``GeomType`` → overlay edge kind (a rendering hint only). Anything not a
@@ -88,6 +89,7 @@ def selection_overlay(
     body: BodyShape,
     linear_deflection: float,
     face_features: list[uuid.UUID | None] | None = None,
+    face_names: list[str | None] | None = None,
 ) -> OverlayResult:
     """Pickable vertices + edges of *body* (transient indices, world mm).
 
@@ -109,6 +111,12 @@ def selection_overlay(
     ``body.faces()``; each ``OverlayFace.feature_id`` is set from it (FINDINGS #9,
     feature-localized selection). ``None`` leaves every ``feature_id`` unset (the
     plain overlay), so this is a purely additive contract.
+
+    *face_names*, when supplied, is the history-based name of each face
+    (:mod:`geometry.kernel.naming`), index-aligned with ``body.faces()``. Every
+    face signature, every edge signature (named from its two faces) and every
+    adjacency face then carries its ``topo_name``, so a pick made today names
+    the subshape by how it was made as well as by where it is.
     """
     vertices = [_vertex_point(vertex) for vertex in body.vertices()]
 
@@ -116,8 +124,15 @@ def selection_overlay(
     # annotation (§14), and a planar face signature builds an outer-wire region —
     # computing one per incident edge instead of reusing these would be quadratic
     # on a real part.
-    face_signatures = [face_signature_dto(face) for face in body.faces()]
+    faces_list = body.faces()
+    if face_names is not None and len(face_names) != len(faces_list):
+        face_names = None
+    face_signatures = [
+        face_signature_dto(face, None if face_names is None else face_names[index])
+        for index, face in enumerate(faces_list)
+    ]
     adjacency = edge_adjacency(body, face_signatures)
+    names = edge_names(body, face_names) if face_names is not None else None
 
     edges: list[OverlayEdge] = []
     for index, edge in enumerate(body.edges()):
@@ -140,7 +155,11 @@ def selection_overlay(
                 # edit that resizes the part (resolver tier 3); it is absent for
                 # an edge without two distinct planar neighbours, and the tiers
                 # above it do not read it.
-                signature=edge_signature_dto(edge, adjacency.get(index)),
+                signature=edge_signature_dto(
+                    edge,
+                    adjacency.get(index),
+                    None if names is None else names[index],
+                ),
             )
         )
 

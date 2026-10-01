@@ -620,7 +620,7 @@ def test_two_matching_faces_is_subshape_ambiguous(monkeypatch: Any) -> None:
         face=planar_faces(_box())[0].face,
     )
 
-    def _two_matching(_body: Solid) -> list[PlanarFaceRecord]:
+    def _two_matching(_body: Solid, _names: object = None) -> list[PlanarFaceRecord]:
         return [twin, twin]
 
     monkeypatch.setattr("geometry.kernel.faces.planar_faces", _two_matching)

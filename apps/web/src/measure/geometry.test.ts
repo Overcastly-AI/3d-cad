@@ -80,6 +80,22 @@ describe("buildEvaluateTree", () => {
       "b",
     ]);
   });
+
+  it("cuts before a feature regardless of the stored stop, as the Edit preview does", () => {
+    // FILLET-EDIT-REPICK: `evaluate?before=` ignores the stored stop, so the
+    // overlay for an edit of a rolled-back feature keeps the rolled-back
+    // features before it.
+    const rolled: FeatureTreeResponse = {
+      ...TREE,
+      rollback_feature_id: "a",
+      features: [feature("a", false), feature("b", true), feature("c", true)],
+    };
+    expect(buildEvaluateTree(rolled, "c").features.map((f) => f.id)).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(buildEvaluateTree(rolled).features.map((f) => f.id)).toEqual(["a"]);
+  });
 });
 
 describe("occtToScene", () => {

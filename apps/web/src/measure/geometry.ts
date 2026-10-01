@@ -37,16 +37,26 @@ export function buildEvaluateTree(
    * picked references resolve against. An edge a fillet rounds is not an edge
    * of the tip, so an edge re-pick while editing has to come from here
    * (EDGE-RESOLVE-WARN-1). An id not in the tree stops nowhere.
+   *
+   * The cut IGNORES the stored stop, as the Edit preview's
+   * `evaluate?before=` does: every feature before this one, rolled back or
+   * not, so the picks line up with the input body the viewport draws even
+   * for a feature past the stored stop (FILLET-EDIT-REPICK).
    */
   beforeFeatureId?: string,
 ): EvaluateTreeRequest {
-  const live = tree.features.filter((feature) => !feature.rolled_back);
-  const stop = live.findIndex((feature) => feature.id === beforeFeatureId);
+  const stop = tree.features.findIndex(
+    (feature) => feature.id === beforeFeatureId,
+  );
+  const kept =
+    stop < 0
+      ? tree.features.filter((feature) => !feature.rolled_back)
+      : tree.features.slice(0, stop);
   return {
     part_id: tree.part_id,
     tree_version: tree.tree_version,
     linear_deflection: MESH_LINEAR_DEFLECTION_MM,
-    features: (stop < 0 ? live : live.slice(0, stop)).map((feature) => ({
+    features: kept.map((feature) => ({
       id: feature.id,
       feature: feature.feature,
     })),

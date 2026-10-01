@@ -876,6 +876,7 @@ def test_feature_result_subshape_resolution_round_trips() -> None:
             "exact": 2,
             "durable": 0,
             "adjacent": 2,
+            "named": 0,
         },
     }
     result = FeatureResult.model_validate(wire)

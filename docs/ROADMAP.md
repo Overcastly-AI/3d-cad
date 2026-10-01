@@ -3,12 +3,15 @@
 Where we are and what comes next. The orchestrator keeps "Now" true; the
 `product-manager` owns the rest. The detail lives in `docs/BACKLOG.md`.
 
-## Now (2026-09-25)
+## Now (2026-10-01)
 
-Twist moves from Extrude to Sweep, as it is in Fusion 360 and SolidWorks.
-Also in flight: finishing the sealed-shell determinism fix and splitting CI into a fast per-commit lane and a nightly lane.
-After that, re-run the reference parts on the tip and let their blockers set
-the next priorities.
+Twist lives on Sweep; sealed Shell rebuilds deterministically; CI has a
+fast per-commit lane (about 8 min) and a full lane on the newest tip. In
+flight: Shell must never ship a wrong solid, then sharp shell corners by
+default, then the reference-part blockers. After those fixes, testing
+climbs the part complexity ladder in `docs/VISION.md` (level 2 once level 1
+passes with no wrong-geometry finding), then the reference assemblies,
+starting with the A1 hinge (ASM-\* in the backlog).
 
 ## Shipped
 
@@ -33,6 +36,8 @@ the next priorities.
    dimensions, and named parameters shared across features.
 3. Performance on real parts: the cold-rebuild wall and large imports.
 4. MCP server on top of `loft-script`.
+5. Assemblies a working engineer can use: joints, drag, limits, component patterns
+   and in-context edits, driven by the reference assemblies A1-A3.
 
 ## Later
 

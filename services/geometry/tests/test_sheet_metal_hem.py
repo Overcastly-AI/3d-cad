@@ -733,10 +733,11 @@ def test_hem_kernel_failure_maps_to_typed_edge_flange_failed(
 ) -> None:
     """Honest degradation (parity §3): if the kernel fold fails, the hem returns a
     TYPED ``edge_flange_failed``, never a raw exception or an invalid solid. Proven by
-    forcing :func:`build_edge_flange` (in the evaluate module) to raise its own
-    EdgeFlangeError — the closed-hem geometry itself is robust (a valid solid down to
-    r=1e-6), so this exercises the error-MAPPING contract the guard exists for."""
-    from geometry.features import evaluate as ev_mod
+    forcing :func:`build_edge_flange` (in the sheet-metal features module) to raise
+    its own EdgeFlangeError — the closed-hem geometry itself is robust (a valid solid
+    down to r=1e-6), so this exercises the error-MAPPING contract the guard exists
+    for."""
+    from geometry.features import sheet_metal_features as ev_mod
     from geometry.sheet_metal import EdgeFlangeError
 
     def _boom(*_args: object, **_kwargs: object) -> object:

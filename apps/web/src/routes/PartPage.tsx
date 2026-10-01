@@ -1,350 +1,25 @@
-import {
-  CloseIcon,
-  ContextMenu,
-  type ContextMenuSection,
-  DatumIcon,
-  formatLength,
-  MeasureIcon,
-  Panel,
-  SketchIcon,
-  SuppressIcon,
-  ViewFitIcon,
-  ViewFrontIcon,
-  ViewHomeIcon,
-  ViewIsoIcon,
-  ViewRightIcon,
-  ViewTopIcon,
-  VerbGlyph,
-} from "@loft/design";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  type MouseEvent as ReactMouseEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { ContextMenu } from "@loft/design";
+import { useCallback, useEffect } from "react";
 
-import {
-  fetchMaterials,
-  type MaterialAssignment,
-  type MaterialKey,
-  updatePartMaterials,
-} from "../api/materials";
-import { fetchBodyMesh, MeshNotFoundError } from "../api/mesh";
-import { fetchOverlay, measureTargets } from "../api/measure";
-import {
-  cornerSketch,
-  editSketch,
-  mirrorSketch,
-  offsetSketch,
-  SketchEditError,
-} from "../api/sketchEdit";
-import { buildEvaluateTree, buildMeasureRequest } from "../measure/geometry";
 import { useMeasureStore } from "../measure/store";
 import { MeasureReadout } from "../components/MeasureReadout";
 import { AuthoringViewCube } from "../components/AuthoringViewCube";
-import { MeasureOverlay } from "../viewport/MeasureOverlay";
-import {
-  type BooleanParams,
-  booleanFeatureCreate,
-  type ChamferParams,
-  chamferFeatureCreate,
-  chamferFeatureUpdate,
-  createFeature,
-  type DatumOffsetParams,
-  type DatumParams,
-  datumFeatureCreate,
-  datumFeatureUpdate,
-  datumOnFaceFeatureCreate,
-  type DraftParams,
-  draftFeatureCreate,
-  draftFeatureUpdate,
-  deleteFeature,
-  renameFeature,
-  type EdgeSignature,
-  evaluatePart,
-  type EvaluateTreeResult,
-  type ExtrudeParams,
-  extrudeFeatureCreate,
-  extrudeFeatureUpdate,
-  type FeatureCreate,
-  type FeatureResponse,
-  type FeatureTreeResponse,
-  type FeatureUpdate,
-  type FeatureDependent,
-  fetchFeatureDependents,
-  fetchFeatureTree,
-  FeatureHasDependentsError,
-  fetchPart,
-  importStep,
-  type OverlayFace,
-  type PlanarFaceSignature,
-  type FilletParams,
-  filletFeatureCreate,
-  filletFeatureUpdate,
-  type HoleParams,
-  holeFeatureCreate,
-  holeFeatureUpdate,
-  type Vec3,
-  type LoftParams,
-  loftFeatureCreate,
-  loftFeatureUpdate,
-  type MirrorParams,
-  mirrorFeatureCreate,
-  mirrorFeatureUpdate,
-  moveRollbackBar,
-  redoPart,
-  StaleTreeVersionError,
-  undoPart,
-  type PatternParams,
-  patternFeatureCreate,
-  patternFeatureUpdate,
-  type RevolveParams,
-  revolveFeatureCreate,
-  revolveFeatureUpdate,
-  type ShellParams,
-  shellFeatureCreate,
-  shellFeatureUpdate,
-  type SheetMetalBaseFlangeParams,
-  baseFlangeFeatureCreate,
-  baseFlangeFeatureUpdate,
-  type SheetMetalEdgeFlangeParams,
-  edgeFlangeFeatureCreate,
-  edgeFlangeFeatureUpdate,
-  type SheetMetalHemParams,
-  hemFeatureCreate,
-  hemFeatureUpdate,
-  type SheetMetalCornerReliefParams,
-  cornerReliefFeatureCreate,
-  cornerReliefFeatureUpdate,
-  type SweepParams,
-  sweepFeatureCreate,
-  sweepFeatureUpdate,
-  sketchFeatureCreate,
-  sketchFeatureUpdate,
-  suppressFeature,
-  updateFeature,
-  updatePartUnit,
-  FeatureOrderRefusedError,
-  reorderFeatures,
-  type LengthUnit,
-} from "../api/parts";
-import { BodyInspector } from "../components/BodyInspector";
+import { type FeatureResponse } from "../api/parts";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { DocumentUnitSelect } from "../components/DocumentUnitSelect";
 import { DocumentUnitProvider } from "../units/documentUnit";
-import { BodiesPanel } from "../components/BodiesPanel";
-import { ChamferEditor } from "../components/ChamferEditor";
-import { CombineEditor } from "../components/CombineEditor";
-import { CreateStrip } from "../components/CreateStrip";
-import { useNextStepAfterBuild } from "../components/useNextStep";
-import {
-  ChromeRail,
-  ChromeRailProvider,
-  RailDock,
-} from "../components/ChromeRail";
-import { FloatingPanel } from "../components/FloatingPanel";
-import { DatumEditor } from "../components/DatumEditor";
-import { DraftEditor, type DraftGaugeState } from "../components/DraftEditor";
-import { ExtrudeEditor } from "../components/ExtrudeEditor";
-import { HoleEditor, type HoleGaugeState } from "../components/HoleEditor";
-import { BaseFlangeEditor } from "../components/BaseFlangeEditor";
-import { EdgeFlangeEditor } from "../components/EdgeFlangeEditor";
-import { HemEditor } from "../components/HemEditor";
-import { CornerReliefEditor } from "../components/CornerReliefEditor";
+import { ChromeRailProvider } from "../components/ChromeRail";
 import { FeatureDeleteConfirm } from "../components/FeatureDeleteConfirm";
-import {
-  FeatureTreePanel,
-  type FeatureOrderRefusal,
-} from "../components/FeatureTreePanel";
-import { FilletEditor } from "../components/FilletEditor";
-import { LoftEditor } from "../components/LoftEditor";
-import { MirrorEditor } from "../components/MirrorEditor";
-import { PartExportControls } from "../components/PartExportControls";
-import { PatternEditor } from "../components/PatternEditor";
-import {
-  RevolveEditor,
-  type RevolveGaugeState,
-} from "../components/RevolveEditor";
-import { ShellEditor } from "../components/ShellEditor";
-import { SweepEditor } from "../components/SweepEditor";
-import {
-  defaultDatumForm,
-  type DatumFacePick,
-  type DatumFaceSlot,
-  type DatumForm,
-  formFromDatumParams,
-} from "../features/datum";
-import {
-  defaultExtrudeForm,
-  defaultProfileId,
-  seededProfileId,
-  type ExtrudeForm,
-  type ExtrudePreviewState,
-  formFromParams,
-  optionProvenance,
-  profileOptions,
-} from "../features/extrude";
-import { precheckStepFile, stepFeatureName } from "../features/import";
-import {
-  type AxisOption,
-  axisOptions,
-  defaultAxisId,
-  defaultRevolveForm,
-  formFromRevolveParams,
-  type RevolveForm,
-} from "../features/revolve";
-import {
-  defaultPatternForm,
-  formFromPatternParams,
-  type PatternForm,
-} from "../features/pattern";
-import {
-  scopeFeature,
-  type ScopeSeed,
-  scopeSeed,
-} from "../features/patternScope";
-import {
-  defaultSweepForm,
-  defaultSweepPathId,
-  defaultSweepProfileId,
-  formFromSweepParams,
-  pathOptions,
-  type ProfileOption,
-  type SweepForm,
-} from "../features/sweep";
-import {
-  defaultLoftForm,
-  defaultLoftSections,
-  formFromLoftParams,
-  type LoftForm,
-} from "../features/loft";
-import { partBodies } from "../features/bodies";
-import { movedEdgeWarning } from "../features/subshapeResolution";
-import {
-  bodyMaterialRows,
-  withBodyMaterial,
-  withDefaultMaterial,
-} from "../features/materials";
-import { derivePartBuild, partialBodySentence } from "../features/partBuild";
-import { downloadBlob, exportPartFlatPatternDxf } from "../api/exportPart";
-import { partExportBinding } from "../features/partExport";
-import {
-  type BaseFlangeForm,
-  canAuthorCornerRelief,
-  type CornerReliefForm,
-  cornerReliefBendHighlights,
-  defaultBaseFlangeForm,
-  defaultCornerReliefForm,
-  defaultEdgeFlangeForm,
-  defaultHemForm,
-  type EdgeFlangeForm,
-  type EdgeFlangeSpanPreview,
-  edgeFlangeOptions,
-  formFromBaseFlangeParams,
-  formFromCornerReliefParams,
-  formFromEdgeFlangeParams,
-  formFromHemParams,
-  type HemForm,
-  isSheetMetalPart,
-  pickedFromEdgeFlangeParams,
-  pickedFromHemParams,
-  sheetMetalDefaults,
-} from "../features/sheetMetal";
-import { BendHighlightOverlay } from "../viewport/BendHighlightOverlay";
-import { FlangeSpanOverlay } from "../viewport/FlangeSpanOverlay";
-import { type CombineForm, defaultCombineForm } from "../features/boolean";
-import {
-  defaultMirrorForm,
-  formFromMirrorParams,
-  type MirrorForm,
-} from "../features/mirror";
-import {
-  type ChamferForm,
-  defaultChamferForm,
-  defaultFilletForm,
-  type FilletForm,
-  formFromChamferParams,
-  formFromFilletParams,
-  pickedFromChamferParams,
-  pickedFromFilletParams,
-} from "../features/modify";
-import { useCommandActionStore } from "../features/commandActions";
-import { useEdgePickStore } from "../features/edgePickStore";
-import { EdgePickOverlay } from "../viewport/EdgePickOverlay";
-import {
-  defaultShellForm,
-  type ShellForm,
-  formFromShellParams,
-  pickedFacesFromShellParams,
-} from "../features/shell";
-import {
-  defaultDraftForm,
-  type DraftForm,
-  formFromDraftParams,
-  pickedFacesFromDraftParams,
-} from "../features/draft";
-import { useFacePickStore } from "../features/facePickStore";
-import { ShellFaceOverlay } from "../viewport/ShellFaceOverlay";
-import { HolePointOverlay } from "../viewport/HolePointOverlay";
-import {
-  defaultHoleForm,
-  formFromHoleParams,
-  type HoleFacePick,
-  type HoleForm,
-  type HolePickTarget,
-  type HolePointPick,
-  type HolePreview,
-} from "../features/hole";
-import {
-  preselectedEdges,
-  preselectedFace,
-  preselectedFaces,
-  usePreselectStore,
-} from "../features/preselect";
+import { defaultCombineForm } from "../features/boolean";
 import { SketchDro } from "../components/SketchDro";
-import { SketchStrip } from "../components/SketchStrip";
 import { SolveDiagnostic } from "../components/SolveDiagnostic";
 import { TimelineStrip } from "../components/TimelineStrip";
 import { TopBar } from "../components/TopBar";
 import { TopToolbar } from "../components/TopToolbar";
-import { resolveSketchKey, type SolveInfo } from "../sketch/constraints";
-import {
-  type AnyDatumParams,
-  faceBasis,
-  faceSpecFromDatum,
-  offsetSpecFromDatum,
-  sceneOriginBasis,
-  planeRefFromSpec,
-  type PlaneBasis,
-  resolveDatumSceneBasis,
-  resolveDatumPlaneOptions,
-  type SketchPlaneRef,
-  type SketchPlaneSpec,
-} from "../sketch/plane";
-import {
-  anchorBodyFeatureId,
-  faceOrdinalOfSignature,
-  faceSignatureKey,
-  isPickableFace,
-  lastBodyFeatureId,
-  onFaceDatumParams,
-} from "../features/face";
-import { useIsHiddenFaceOrdinal } from "../viewport/hiddenPicks";
+import { resolveSketchKey } from "../sketch/constraints";
 import { isTypingTarget } from "../lib/isTypingTarget";
-import { executeHistoryStep, signedInUserId } from "../lib/historyStep";
-import {
-  HistoryErrorAlert,
-  historyResyncNotice,
-  type HistoryStepError,
-} from "../components/HistoryErrorAlert";
-import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
-import { FacePickOverlay } from "../viewport/FacePickOverlay";
+import { undoRedoStep } from "../lib/undoRedoShortcut";
 import { ProposalNote } from "../viewport/ProposalNote";
-import { pickRefusal } from "../viewport/pickTargets";
-import { highlightedFeatureIds } from "../viewport/scopeHighlight";
 import { useSketchStore } from "../sketch/store";
 import { TOOL_SHORTCUTS } from "../sketch/tools";
 import {
@@ -352,190 +27,47 @@ import {
   KEY_SNAP,
   PART_CREATE_SHORTCUTS,
 } from "../shortcuts/registry";
-import { partRoute } from "../router";
-import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { LeaveSketchPrompt } from "./LeaveSketchPrompt";
-import {
-  clearSketchDraft,
-  draftAge,
-  readSketchDraft,
-  writeSketchDraft,
-} from "./sketchDraft";
-import {
-  createDrawing,
-  createSheet,
-  createView,
-  DrawingNameTakenError,
-} from "../api/drawings";
-import { sheetDimensions, sheetHeaderForNewSheet } from "../drawing/layout";
-import { SketchScene, type SolvedSketchLayer } from "../viewport/SketchScene";
-import { DraftGauge } from "../viewport/DraftGauge";
-import { ExtrudePreview } from "../viewport/ExtrudePreview";
-import { ChamferGauge } from "../viewport/ChamferGauge";
-import { FilletGauge } from "../viewport/FilletGauge";
-import { RevolveGauge } from "../viewport/RevolveGauge";
-import { useEdgeGaugeAnchors } from "../viewport/edgeAnchorSource";
-import { DatumGauge } from "../viewport/DatumGauge";
-import {
-  datumAnchor,
-  shellAnchor,
-  type DatumGaugeSeed,
-} from "../viewport/faceAnchor";
-import { ShellGauge } from "../viewport/ShellGauge";
-import { HoleGauge } from "../viewport/HoleGauge";
-import { holeAnchor } from "../viewport/holeAnchor";
-import { PatternGaugeLayer } from "../viewport/PatternGaugeLayer";
-import {
-  patternAnchor,
-  sceneDirection,
-  type PatternAnchor,
-} from "../viewport/patternAnchor";
-import type { PatternPreviewState } from "../viewport/patternGhost";
-import { usePartViewStore } from "../viewport/partView";
-import { useGaugeOverride } from "../viewport/useGaugeOverride";
-import { useViewCommandStore } from "../viewport/viewCommands";
+import { SketchScene } from "../viewport/SketchScene";
 import { Viewport } from "../viewport/Viewport";
-import { friendlyFeatureError } from "../features/featureErrors";
-
-/** Constraint/dimension edits persist after this quiet gap (the live loop). */
-const SYNC_DEBOUNCE_MS = 400;
-
-/**
- * The one open feature editor (the authoring seat holds a single editor at a
- * time). Hoisted to a named union so `COMMAND_LABEL` can be keyed on
- * `OpenEditor["kind"]` — a future editor kind missing from the map is a
- * COMPILE error, never a silently unlocked band with unregistered keys.
- */
-type OpenEditor =
-  | {
-      kind: "extrude";
-      mode: "create" | "edit";
-      initial: ExtrudeForm;
-      featureId?: string;
-    }
-  | {
-      kind: "revolve";
-      mode: "create" | "edit";
-      initial: RevolveForm;
-      featureId?: string;
-    }
-  | {
-      kind: "sweep";
-      mode: "create" | "edit";
-      initial: SweepForm;
-      featureId?: string;
-    }
-  | {
-      kind: "loft";
-      mode: "create" | "edit";
-      initial: LoftForm;
-      featureId?: string;
-    }
-  | {
-      kind: "pattern";
-      mode: "create" | "edit";
-      initial: PatternForm;
-      featureId?: string;
-    }
-  | {
-      kind: "fillet";
-      mode: "create" | "edit";
-      initial: FilletForm;
-      initialPicked: EdgeSignature[];
-      featureId?: string;
-    }
-  | {
-      kind: "chamfer";
-      mode: "create" | "edit";
-      initial: ChamferForm;
-      initialPicked: EdgeSignature[];
-      featureId?: string;
-    }
-  | {
-      kind: "shell";
-      mode: "create" | "edit";
-      initial: ShellForm;
-      initialPickedFaces: PlanarFaceSignature[];
-      featureId?: string;
-    }
-  | {
-      kind: "draft";
-      mode: "create" | "edit";
-      initial: DraftForm;
-      initialPickedFaces: PlanarFaceSignature[];
-      featureId?: string;
-    }
-  | {
-      kind: "hole";
-      mode: "create" | "edit";
-      initial: HoleForm;
-      featureId?: string;
-    }
-  | {
-      kind: "mirror";
-      mode: "create" | "edit";
-      initial: MirrorForm;
-      featureId?: string;
-    }
-  | {
-      kind: "datum";
-      mode: "create" | "edit";
-      initial: DatumForm;
-      featureId?: string;
-    }
-  | {
-      kind: "baseFlange";
-      mode: "create" | "edit";
-      initial: BaseFlangeForm;
-      featureId?: string;
-    }
-  | {
-      kind: "edgeFlange";
-      mode: "create" | "edit";
-      initial: EdgeFlangeForm;
-      initialPicked: EdgeSignature[];
-      featureId?: string;
-    }
-  | {
-      kind: "hem";
-      mode: "create" | "edit";
-      initial: HemForm;
-      initialPicked: EdgeSignature[];
-      featureId?: string;
-    }
-  | {
-      kind: "cornerRelief";
-      mode: "create" | "edit";
-      initial: CornerReliefForm;
-      featureId?: string;
-    }
-  | {
-      kind: "combine";
-      mode: "create";
-      initial: CombineForm;
-      featureId?: string;
-    };
-
-/** Editor kind → the command name shown in the breadcrumb + band lock reason. */
-const COMMAND_LABEL: Record<OpenEditor["kind"], string> = {
-  extrude: "Extrude",
-  revolve: "Revolve",
-  sweep: "Sweep",
-  loft: "Loft",
-  pattern: "Pattern",
-  fillet: "Fillet",
-  chamfer: "Chamfer",
-  shell: "Shell",
-  draft: "Draft",
-  hole: "Hole",
-  mirror: "Mirror",
-  datum: "Datum plane",
-  baseFlange: "Base flange",
-  edgeFlange: "Edge flange",
-  hem: "Hem",
-  cornerRelief: "Corner relief",
-  combine: "Combine",
-};
+import { editorForFeature } from "./part/featureEditors";
+import {
+  TreeActionErrorNote,
+  DraftRestoredNote,
+  BodyNotices,
+  ActionNotices,
+} from "./part/WorkspaceNotices";
+import { InspectorRail, FeatureTreeRail } from "./part/PartSidePanels";
+import { PartViewportLayers } from "./part/PartViewportLayers";
+import { FeatureEditorSeat } from "./part/FeatureEditorSeat";
+import { PartCommandBand } from "./part/PartCommandBand";
+import { treeMenuSections, viewportMenuSections } from "./part/contextMenus";
+import { usePartDocument } from "./part/usePartDocument";
+import { usePartBody } from "./part/usePartBody";
+import { usePickState } from "./part/usePickState";
+import { useMeasureSession } from "./part/useMeasureSession";
+import { useSketchPersistence } from "./part/useSketchPersistence";
+import { useSolvedSketches } from "./part/useSolvedSketches";
+import { useSketchEditRequests } from "./part/useSketchEditRequests";
+import { useFeatureCatalog } from "./part/useFeatureCatalog";
+import { useEditorSeat } from "./part/useEditorSeat";
+import { useActionFlags } from "./part/useActionFlags";
+import { usePickOverlays } from "./part/usePickOverlays";
+import { useTreeWrites } from "./part/useTreeWrites";
+import { useMaterialControls } from "./part/useMaterialControls";
+import { useWorkspaceActions } from "./part/useWorkspaceActions";
+import { useFeatureOpeners } from "./part/useFeatureOpeners";
+import { useFlatPatternExport } from "./part/useFlatPatternExport";
+import { useEditorRepick } from "./part/useEditorRepick";
+import { usePickSessions } from "./part/usePickSessions";
+import { useFeatureSubmit } from "./part/useFeatureSubmit";
+import { useTreeActions } from "./part/useTreeActions";
+import { useSketchEntry } from "./part/useSketchEntry";
+import { useDatumFacePicking } from "./part/useDatumFacePicking";
+import { useHolePicking } from "./part/useHolePicking";
+import { useTimelineHistory } from "./part/useTimelineHistory";
+import { useRebuildNotices } from "./part/useRebuildNotices";
+import { useViewportState } from "./part/useViewportState";
 
 /**
  * The part workspace: feature tree left, viewport hero, sketch mode inside
@@ -545,797 +77,104 @@ const COMMAND_LABEL: Record<OpenEditor["kind"], string> = {
  * a feature; every edit after that debounce-saves, re-evaluates, and the
  * solved positions are adopted back into the buffer.
  */
-/** An evaluate result with no `bodies` list: one stable empty list. */
-const NO_BODIES: NonNullable<EvaluateTreeResult["bodies"]> = [];
-
 export function PartPage() {
-  const { partId } = partRoute.useParams();
-  const queryClient = useQueryClient();
-
-  const mode = useSketchStore((state) => state.mode);
-  const edit = useSketchStore((state) => state.edit);
-  const offset = useSketchStore((state) => state.offset);
-  const mirrorRequest = useSketchStore((state) => state.mirrorRequest);
-  const cornerRequest = useSketchStore((state) => state.cornerRequest);
-  const revision = useSketchStore((state) => state.revision);
-  const featureId = useSketchStore((state) => state.featureId);
-  // The USER's authoring, not the raw count — and now for two independent
-  // reasons, which is the tell that this is the right seam rather than a
-  // workaround. RECT-1: a drawn rectangle arrives with its rigidity set, so
-  // `constraints.length > 0` would bind every rectangle the instant it was
-  // drawn. SNAP-3: placement infers a coincident whenever a corner snaps onto
-  // something, so it would bind the first time two corners met. Either way the
-  // unsaved-exit confirm would vanish on an action the user never read as
-  // constraining anything. See `SketchState.userConstrained`.
-  const userConstrained = useSketchStore((state) => state.userConstrained);
-  // Counts, not the arrays: FLOW-A2's draft mirror and its exit prompt both
-  // need to re-run when the buffer CHANGES SIZE, and selecting the arrays
-  // themselves would re-render this page on every solved-position adoption.
-  const entityCount = useSketchStore((state) => state.entities.length);
-  const constraintCount = useSketchStore((state) => state.constraints.length);
-  const begin = useSketchStore((state) => state.begin);
-  const setTool = useSketchStore((state) => state.setTool);
-  const toggleSnap = useSketchStore((state) => state.toggleSnap);
-  const navigate = useNavigate();
-
-  const part = useQuery({
-    queryKey: ["part", partId],
-    queryFn: () => fetchPart(partId),
-    // NOT `staleTime: Infinity` (it was, until 2026-07-30). The part row is five
-    // scalars — id/name/unit/`tree_version`/`eval_state` — and one of them is the
-    // DENOMINATOR of the staleness comparison the STATUS cell now reports
-    // (`features/partBuild.ts`). A version the client never refreshes cannot
-    // detect the case that motivated the readout: another session edits the tree,
-    // nothing here invalidates, and the workspace would keep asserting currency
-    // indefinitely (UI-REVIEW 2026-07-30 F2). Re-reading five scalars when the
-    // tab regains focus is cheap; being confidently wrong is not.
-    staleTime: 5_000,
-  });
-  // The document display unit (docs/design/units.md §U2). Edit-form seeds render
-  // their canonical mm in this unit; the DocumentUnitProvider carries it to
-  // every dimension cell + readout below. Falls back to mm until the part loads.
-  const lengthUnit = part.data?.length_unit ?? "mm";
-  const tree = useQuery({
-    queryKey: ["features", partId],
-    queryFn: () => fetchFeatureTree(partId),
-  });
-  const treeVersion = tree.data?.tree_version;
-  const evaluation = useQuery({
-    queryKey: ["evaluate", partId, treeVersion],
-    queryFn: () => evaluatePart(partId),
-    enabled: tree.data !== undefined && tree.data.features.length > 0,
-    staleTime: Infinity,
-  });
-
-  // ---------------------------------------------------------------------
-  // The body: a body-affecting feature (extrude) evaluates to a content-
-  // addressed GLB. Fetch it through the gateway mesh proxy and render it in
-  // the same GLB→mesh pipeline first light uses. `mesh_glb_id: null` means no
-  // body yet — the sketch renders alone, no error.
-  // ---------------------------------------------------------------------
-  const meshGlbId = evaluation.data?.mesh_glb_id ?? null;
-  const bodyProperties = evaluation.data?.properties ?? null;
-  const body = useQuery({
-    queryKey: ["mesh", partId, meshGlbId],
-    queryFn: () => fetchBodyMesh(meshGlbId as string),
-    enabled: meshGlbId !== null,
-    staleTime: Infinity, // content-addressed: the bytes never change per id
-    retry: (count, error) => !(error instanceof MeshNotFoundError) && count < 2,
-  });
-
-  // Honest failure (§7.8): a `mesh_not_found` 404 means the LRU evicted the
-  // artifact — re-evaluate to regenerate it, then refetch. Guarded per content
-  // address so a genuinely unservable body surfaces an error, never a loop.
-  const regeneratedFor = useRef<Set<string>>(new Set());
-  const [regenerating, setRegenerating] = useState(false);
-  const [regenFailed, setRegenFailed] = useState(false);
-  useEffect(() => {
-    if (!(body.error instanceof MeshNotFoundError) || meshGlbId === null) {
-      return;
-    }
-    if (regeneratedFor.current.has(meshGlbId)) {
-      setRegenerating(false);
-      setRegenFailed(true);
-      return;
-    }
-    regeneratedFor.current.add(meshGlbId);
-    setRegenFailed(false);
-    setRegenerating(true);
-    let cancelled = false;
-    void (async () => {
-      await queryClient.invalidateQueries({ queryKey: ["evaluate", partId] });
-      await queryClient.invalidateQueries({ queryKey: ["mesh", partId] });
-      if (!cancelled) setRegenerating(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [body.error, meshGlbId, partId, queryClient]);
-
-  const retryBody = useCallback(() => {
-    regeneratedFor.current.clear();
-    setRegenFailed(false);
-    void queryClient.invalidateQueries({ queryKey: ["evaluate", partId] });
-    void queryClient.invalidateQueries({ queryKey: ["mesh", partId] });
-  }, [partId, queryClient]);
-
-  const hasBody = body.data !== undefined;
-
-  /**
-   * PICK-2 — does ANY pick have something to pick? This is the exact predicate
-   * all six pick overlays are fetched on (`meshGlbId !== null`: face pick,
-   * datum face pick, hole, edge, shell, measure), lifted to one name so the
-   * arming guards below cannot drift away from the queries they guard.
-   *
-   * `hasBody` is NOT the same question and is not a substitute: it is true only
-   * once the GLB has been fetched, so it also reads false while the mesh is
-   * merely in flight. This says "an overlay can populate at all".
-   */
-  const hasPickTargets = meshGlbId !== null;
-
-  // Face-pick (the plane-pick "Pick a face" path): arm → highlight the body's
-  // planar faces → click one → author an on_face datum → seat the sketch.
-  // Declared up here because the sketch keyboard effect (Escape cancels the
-  // pick) reads `facePicking`.
-  const [facePicking, setFacePicking] = useState(false);
-  const [facePlaneBusy, setFacePlaneBusy] = useState(false);
-  const [facePlaneError, setFacePlaneError] = useState<string | null>(null);
-  const [pendingFaceIndex, setPendingFaceIndex] = useState<number | null>(null);
-
-  // Datum-editor face picking: the DatumEditor arms a pick for one slot (the
-  // on_face base, or either midplane side); a clicked face is folded into that
-  // slot's form field. Reuses the SAME FacePickOverlay + overlay fetch the
-  // sketch-on-face flow uses — one enumeration, pick side and resolve side.
-  const [datumFacePick, setDatumFacePick] = useState<DatumFaceSlot | null>(
-    null,
-  );
-  const [datumFacePicked, setDatumFacePicked] = useState<DatumFacePick | null>(
-    null,
-  );
-  const [datumFacePickError, setDatumFacePickError] = useState<string | null>(
-    null,
-  );
-  const datumFacePickNonce = useRef(0);
-
-  // Hole authoring pick session: the HoleEditor arms a FACE pick (the planar
-  // placement face) then a POINT pick (a point ON it). Both reuse the SAME
-  // overlay fetch + DOM-in-canvas pick affordances the datum/measure flows use
-  // — one enumeration, pick side and resolve side. `holePreview` mirrors the
-  // editor's live face + position up so the point overlay draws ON the face.
-  const [holePick, setHolePick] = useState<HolePickTarget | null>(null);
-  const [holeFacePicked, setHoleFacePicked] = useState<HoleFacePick | null>(
-    null,
-  );
-  const [holePointPicked, setHolePointPicked] = useState<HolePointPick | null>(
-    null,
-  );
-  const [holePickError, setHolePickError] = useState<string | null>(null);
-  const [holePreview, setHolePreview] = useState<HolePreview | null>(null);
-  const holePickNonce = useRef(0);
-
-  // ---------------------------------------------------------------------
-  // Measurement (inspect mode). The tool fetches the pickable overlay for the
-  // current evaluated body, the user picks two vertices/edges, and the second
-  // pick calls /measure for the exact nearest distance. State lives in the
-  // shared measure store (the in-canvas overlay + the DOM readout both read
-  // it); PartPage owns the two network effects and the mode plumbing.
-  // ---------------------------------------------------------------------
-  const measureActive = useMeasureStore((s) => s.active);
-  const measurePicks = useMeasureStore((s) => s.picks);
-  const measureResult = useMeasureStore((s) => s.result);
-  const measureFailure = useMeasureStore((s) => s.measureError);
-  const setMeasureOverlay = useMeasureStore((s) => s.setOverlay);
-  const setMeasureOverlayError = useMeasureStore((s) => s.setOverlayError);
-  const setMeasureResult = useMeasureStore((s) => s.setResult);
-  const setMeasureFailure = useMeasureStore((s) => s.setMeasureError);
-
-  const overlayQuery = useQuery({
-    queryKey: ["overlay", partId, treeVersion, meshGlbId],
-    queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
-    enabled: measureActive && tree.data !== undefined && meshGlbId !== null,
-    staleTime: Infinity,
-    retry: false,
-  });
-
-  useEffect(() => {
-    if (measureActive && overlayQuery.data !== undefined) {
-      setMeasureOverlay(overlayQuery.data);
-    }
-  }, [measureActive, overlayQuery.data, setMeasureOverlay]);
-
-  useEffect(() => {
-    if (measureActive && overlayQuery.error) {
-      setMeasureOverlayError(
-        overlayQuery.error instanceof Error
-          ? overlayQuery.error.message
-          : "The selection overlay could not be built.",
-      );
-    }
-  }, [measureActive, overlayQuery.error, setMeasureOverlayError]);
-
-  // The second pick resolves the measurement (once, per pair).
-  const measureInFlight = useRef(false);
-  useEffect(() => {
-    if (!measureActive || measurePicks.length !== 2) return;
-    if (measureResult !== null || measureFailure !== null) return;
-    if (measureInFlight.current || tree.data === undefined) return;
-    const currentTree = tree.data;
-    const [a, b] = measurePicks;
-    if (a === undefined || b === undefined) return;
-    measureInFlight.current = true;
-    void (async () => {
-      try {
-        const request = buildMeasureRequest(
-          a,
-          b,
-          buildEvaluateTree(currentTree),
-        );
-        setMeasureResult(await measureTargets(request));
-      } catch (error) {
-        setMeasureFailure(
-          error instanceof Error
-            ? error.message
-            : "The measurement could not be computed.",
-        );
-      } finally {
-        measureInFlight.current = false;
-      }
-    })();
-  }, [
-    measureActive,
-    measurePicks,
-    measureResult,
-    measureFailure,
-    tree.data,
-    setMeasureResult,
-    setMeasureFailure,
-  ]);
-
-  // ---------------------------------------------------------------------
-  // Persistence — one serialized write chain (create binds, update PATCHes;
-  // stale tree versions refetch + retry once, so debounced edits never race
-  // each other into 422s).
-  // ---------------------------------------------------------------------
-  const [syncPending, setSyncPending] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const lastSynced = useRef(0);
-  const failedRevision = useRef<number | null>(null);
-  const treeVersionRef = useRef<number | undefined>(undefined);
-  const chain = useRef<Promise<void>>(Promise.resolve());
-  const inFlight = useRef(0);
-  // A create for the still-unbound sketch is in flight. Guards the double-fire
-  // that used to mint duplicate "Sketch1" features (double-Escape during the
-  // async save — UI-REVIEW 2026-07-16, Track C P2). A finish requested while a
-  // create runs is remembered and lands once the feature binds.
-  const creatingRef = useRef(false);
-  const pendingExitRef = useRef(false);
-
-  useEffect(() => {
-    if (treeVersion !== undefined) treeVersionRef.current = treeVersion;
-  }, [treeVersion]);
-
-  const persistBuffer = useCallback(
-    (exitAfter: boolean) => {
-      const state = useSketchStore.getState();
-      if (state.plane === null || state.entities.length === 0) {
-        if (exitAfter) state.exit();
-        return;
-      }
-      const payload = {
-        plane: state.plane,
-        entities: state.entities,
-        constraints: state.constraints,
-        featureId: state.featureId,
-        revision: state.revision,
-      };
-      const isCreate = payload.featureId === null;
-      // Idempotent finish: a create for this unbound sketch is already running —
-      // don't enqueue a second (the duplicate-"Sketch1" bug). Defer the exit so
-      // the finish still lands the moment the in-flight create binds.
-      if (isCreate && creatingRef.current) {
-        if (exitAfter) pendingExitRef.current = true;
-        return;
-      }
-      if (isCreate) creatingRef.current = true;
-      inFlight.current += 1;
-      setSyncPending(true);
-      chain.current = chain.current
-        .then(async () => {
-          // Everything that can throw — including plane resolution — lives inside
-          // the try so the `finally` ALWAYS clears `creatingRef`. A throw before
-          // the try (the old shape) skipped the finally and wedged the create
-          // guard on, hard-locking the user in sketch mode (worse than the soft
-          // sync error it replaced).
-          try {
-            const planeRef = planeRefFromSpec(payload.plane);
-            // Default sketch name numbers off the FRESHEST tree, never a stale
-            // query — first sketch "Sketch1", next "Sketch2", never a dupe.
-            const runCreate = async () => {
-              const fresh = await fetchFeatureTree(partId);
-              const count = fresh.features.filter(
-                (f) => f.feature.type === "sketch",
-              ).length;
-              return createFeature(
-                partId,
-                sketchFeatureCreate(
-                  `Sketch${count + 1}`,
-                  planeRef,
-                  payload.entities,
-                  payload.constraints,
-                  fresh.tree_version,
-                ),
-              );
-            };
-            const runUpdate = (version: number) =>
-              updateFeature(
-                partId,
-                payload.featureId as string,
-                sketchFeatureUpdate(
-                  planeRef,
-                  payload.entities,
-                  payload.constraints,
-                  version,
-                ),
-              );
-            let response;
-            if (isCreate) {
-              response = await runCreate();
-            } else {
-              try {
-                response = await runUpdate(
-                  treeVersionRef.current ??
-                    (await fetchFeatureTree(partId)).tree_version,
-                );
-              } catch {
-                // Stale tree version (or a hiccup): refetch, retry once.
-                response = await runUpdate(
-                  (await fetchFeatureTree(partId)).tree_version,
-                );
-              }
-            }
-            treeVersionRef.current = response.tree_version;
-            lastSynced.current = Math.max(lastSynced.current, payload.revision);
-            failedRevision.current = null;
-            setSyncError(null);
-            const now = useSketchStore.getState();
-            if (now.mode === "draw") {
-              if (isCreate && now.featureId === null)
-                now.bind(response.feature.id);
-              if (exitAfter || pendingExitRef.current) now.exit();
-            }
-            await queryClient.invalidateQueries({
-              queryKey: ["features", partId],
-            });
-          } catch (error) {
-            failedRevision.current = payload.revision;
-            setSyncError(
-              error instanceof Error
-                ? error.message
-                : "The sketch could not be saved — reload and try again.",
-            );
-          } finally {
-            if (isCreate) {
-              creatingRef.current = false;
-              pendingExitRef.current = false;
-            }
-            inFlight.current -= 1;
-            if (inFlight.current === 0) setSyncPending(false);
-          }
-        })
-        .catch(() => {
-          // Belt-and-suspenders: the inner try/catch/finally already handles
-          // every expected failure, so this only fires if something truly
-          // unexpected throws. Never let a freak error wedge the create guard
-          // (which hard-locks sketch mode) or leave the chain permanently
-          // rejected for all later saves.
-          creatingRef.current = false;
-          pendingExitRef.current = false;
-        });
-    },
-    [partId, queryClient],
-  );
-
-  /** Strip action: first save persists + closes; bound = finish (flush). */
-  const finishSketch = useCallback(() => {
-    const state = useSketchStore.getState();
-    if (state.featureId !== null && state.revision <= lastSynced.current) {
-      state.exit();
-      return;
-    }
-    persistBuffer(true);
-  }, [persistBuffer]);
-
-  // ---------------------------------------------------------------------
-  // FLOW-A2 — THE THREE ORDINARY EXITS, AND THE DRAFT BEHIND THEM.
-  //
-  // AUDIT-FLOW-2026-09 A2: Back, the breadcrumb and a reload each destroyed a
-  // four-entity, nine-constraint sketch with no prompt and no recovery. There
-  // was no navigation guard of any kind in the app.
-  //
-  // Two halves, and they are not interchangeable. The GUARD (`useBlocker` —
-  // the router's own primitive, so in-app pushes and the popstate of the Back
-  // button go through one code path, and `enableBeforeUnload` covers the
-  // reload the router cannot see) stops the silent exit. The DRAFT
-  // (`sketchDraft.ts`) is what lets the guard say something other than a
-  // threat: a tab that dies unasked still gets its entities back, so the
-  // prompt explains the difference between work that is IN THE PART and work
-  // that is only in this browser.
-  //
-  // Why the unsaved test is `featureId === null || revision > lastSynced` and
-  // not "are there entities": a BOUND sketch debounce-saves every edit, so its
-  // work is already in the part between keystrokes and prompting on the way
-  // out would be a lie. An UNBOUND one has never been written anywhere.
-  // ---------------------------------------------------------------------
-  /**
-   * Read at EVENT time by the blocker, not at registration time — the router
-   * registers the blocker once and calls it later, so the flag has to be a ref.
-   * The one effect below owns both it and the stored bytes, so a guard that
-   * fires and a draft that exists can never disagree about whether there is
-   * unsaved work.
-   */
-  const unsavedSketchRef = useRef(false);
-  /**
-   * Is the browser actually holding the draft? `writeSketchDraft` reports it
-   * rather than swallowing it, because the middle rung of the exit prompt
-   * PROMISES the entities come back — and a promise storage quietly declined to
-   * keep (quota, private mode) would be a new ambiguous exit inside the fix for
-   * ambiguous exits. When this is false the prompt says so instead.
-   */
-  const [draftHeld, setDraftHeld] = useState(true);
-  const [restoredDraft, setRestoredDraft] = useState<{
-    entities: number;
-    savedAt: number;
-  } | null>(null);
-  const [leaveSaving, setLeaveSaving] = useState(false);
-
-  /**
-   * Which part this page last looked for a draft under. Not a boolean: it has
-   * to detect the route swapping parts beneath one mounted page, and it is what
-   * lets the mirror below know the restore has already had its look.
-   *
-   * NOTE it deliberately does NOT gate the restore itself. StrictMode mounts,
-   * tears down and re-mounts every effect in dev, and the workspace's own
-   * `exit()`-on-unmount cleanup fires in that teardown — so a restore that
-   * refused to run twice restored the buffer, watched it be wiped, and then
-   * declined to put it back. Measured: the "Draft restored" note appeared over
-   * an empty part, which is the worst of both answers.
-   */
-  const restoreCheckedFor = useRef<string | null>(null);
-
-  /**
-   * RESTORE ON RE-ENTRY, AND IT MUST RUN BEFORE THE MIRROR BELOW. A draft only
-   * exists while there is work outside the part, so finding one means the last
-   * session ended without saving — by Back, by the breadcrumb, or by the tab
-   * dying.
-   *
-   * The ordering is not a style choice and it is stated twice on purpose (here,
-   * and as the `restoreCheckedFor` gate the mirror reads). On mount the store
-   * is at `mode: "off"`, which the mirror correctly reads as "nothing to keep"
-   * — so a mirror that ran first would DELETE the very draft this effect is
-   * about to load, every single time. Measured: with the two effects the other
-   * way round, all three exits prompted correctly and not one of them ever
-   * restored anything.
-   *
-   * `setState` rather than an action because the store has no verb for this:
-   * `beginEdit` re-opens a sketch that is already a FEATURE (it demands an id),
-   * and the case that hurts is the buffer that never became one. Writing the
-   * fields directly is also the correct history behaviour — a restore is a
-   * session STARTING, not an edit, so it must not become an undo step.
-   *
-   * Every transient field (tool, selection, hint, solve readouts, the undo
-   * stacks) is already at its initial value here: reaching the write requires
-   * `mode === "off"`, which the store is only ever in via `INITIAL` or
-   * `freshSession`. So the payload is all that needs writing.
-   */
-  useEffect(() => {
-    // Swapping parts under one mounted page: whatever is in the store belongs
-    // to the part being left, and mirroring it under THIS part's key would file
-    // one part's geometry under another part's name.
-    const switching =
-      restoreCheckedFor.current !== null &&
-      restoreCheckedFor.current !== partId;
-    if (switching && useSketchStore.getState().mode !== "off") {
-      useSketchStore.getState().exit();
-    }
-    restoreCheckedFor.current = partId;
-    setRestoredDraft(null);
-    const draft = readSketchDraft(partId);
-    if (draft === null) return;
-    if (useSketchStore.getState().mode !== "off") return;
-    useSketchStore.setState({
-      mode: "draw",
-      plane: draft.plane,
-      entities: draft.entities,
-      constraints: draft.constraints,
-      featureId: draft.featureId,
-      nextIdIndex: draft.nextIdIndex,
-      revision: draft.revision,
-      userConstrained: draft.userConstrained,
-    });
-    setRestoredDraft({
-      entities: draft.entities.length,
-      savedAt: draft.savedAt,
-    });
-  }, [partId]);
-
-  /**
-   * THE MIRROR — the live buffer, kept on disk while it is not in the part.
-   * Runs AFTER the restore above; see there for why that is load-bearing.
-   */
-  useEffect(() => {
-    // Never clear a draft the restore has not had its chance to read. The hook
-    // order already guarantees this; the gate says so out loud, so a later
-    // reshuffle of these effects fails loudly rather than silently eating
-    // everybody's in-progress sketches.
-    if (restoreCheckedFor.current !== partId) return;
-    const state = useSketchStore.getState();
-    const plane = state.plane;
-    const unsaved =
-      state.mode === "draw" &&
-      plane !== null &&
-      state.entities.length > 0 &&
-      (state.featureId === null || state.revision > lastSynced.current);
-    unsavedSketchRef.current = unsaved;
-    if (!unsaved || plane === null) {
-      // Nothing to keep: either the buffer is in the part now (saved) or the
-      // user threw it away (the strip's discard). Both are deliberate ends to
-      // the session, so the draft goes with them.
-      //
-      // THE UNMOUNT DISCARD CANNOT REACH HERE, which is the whole reason this
-      // is an effect and not a store subscription: leaving the workspace fires
-      // `exit()` from a cleanup, and an effect of an unmounting component does
-      // not run again. A subscription would see that `exit()`, read it as a
-      // discard, and delete the draft at exactly the moment it is needed.
-      clearSketchDraft(partId);
-      setDraftHeld(true);
-      return;
-    }
-    const held = writeSketchDraft(partId, {
-      plane,
-      entities: [...state.entities],
-      constraints: [...state.constraints],
-      featureId: state.featureId,
-      nextIdIndex: state.nextIdIndex,
-      revision: state.revision,
-      userConstrained: state.userConstrained,
-    });
-    setDraftHeld(held);
-  }, [
+  const partDocument = usePartDocument();
+  const {
     partId,
+    queryClient,
+    mode,
+    edit,
+    offset,
+    mirrorRequest,
+    cornerRequest,
+    revision,
+    featureId,
+    userConstrained,
+    entityCount,
+    constraintCount,
+    begin,
+    setTool,
+    toggleSnap,
+    navigate,
+    part,
+    lengthUnit,
+    tree,
+    treeVersion,
+    evaluation,
+  } = partDocument;
+  const partBody = usePartBody({ partId, queryClient, tree, evaluation });
+  const {
+    meshGlbId,
+    bodyProperties,
+    editor,
+    setEditorState,
+    displayTree,
+    viewMeshGlbId,
+    body,
+    regenerating,
+    regenFailed,
+    hasBody,
+    hasPickTargets,
+  } = partBody;
+  const pickState = usePickState();
+  const {
+    facePicking,
+    setFacePicking,
+    setFacePlaneBusy,
+    setFacePlaneError,
+    setPendingFaceIndex,
+    datumFacePick,
+    setDatumFacePick,
+    setDatumFacePicked,
+    setDatumFacePickError,
+    datumFacePickNonce,
+    holePick,
+    setHolePick,
+    setHoleFacePicked,
+    setHolePointPicked,
+    setHolePickError,
+    holePreview,
+    setHolePreview,
+    holePickNonce,
+  } = pickState;
+  const measureSession = useMeasureSession({
+    partId,
+    tree,
+    treeVersion,
+    meshGlbId,
+  });
+  const { measureActive } = measureSession;
+  const sketchPersistence = useSketchPersistence({
+    partId,
+    queryClient,
     mode,
     revision,
     featureId,
+    userConstrained,
     entityCount,
     constraintCount,
-    // Not read directly — it is the render that a completed save produces, and
-    // therefore the only reactive signal that `lastSynced` has moved.
-    syncPending,
-  ]);
-
-  /** Stable by construction — the router registers the blocker exactly once. */
-  const shouldBlockLeave = useCallback(() => unsavedSketchRef.current, []);
-  const leaveGuard = useBlocker({
-    shouldBlockFn: shouldBlockLeave,
-    enableBeforeUnload: shouldBlockLeave,
-    withResolver: true,
+    treeVersion,
+    evaluation,
   });
-
-  /**
-   * Where the blocked navigation was heading, in the user's words. The Back
-   * button is the exit people press without knowing where it goes, so the
-   * prompt says — an unnamed destination is half of what makes an exit
-   * ambiguous.
-   */
-  const leaveDestination = useMemo(() => {
-    const path = leaveGuard.next?.pathname ?? "";
-    if (path === "/") return "Parts";
-    if (path.startsWith("/assemblies")) return "Assemblies";
-    if (path.startsWith("/drawings")) return "Drawings";
-    if (path.startsWith("/settings")) return "Settings";
-    if (path.startsWith("/parts/")) return "another part";
-    return "the page you asked for";
-  }, [leaveGuard.next]);
-
-  /**
-   * The top rung: put the work in the part, then go. The save is the existing
-   * exit-after-persist chain, so this cannot drift from what the strip's Save
-   * does; the completion is watched below rather than awaited, because
-   * `persistBuffer` owns its own serialized chain.
-   */
-  const saveAndLeave = useCallback(() => {
-    setSyncError(null);
-    setLeaveSaving(true);
-    persistBuffer(true);
-  }, [persistBuffer]);
-
-  useEffect(() => {
-    if (!leaveSaving) return;
-    if (syncError !== null) {
-      // No dead end: the prompt stays up wearing the reason, and the other two
-      // rungs still work — the draft has the entities either way.
-      setLeaveSaving(false);
-      return;
-    }
-    if (mode === "off" && leaveGuard.status === "blocked") {
-      setLeaveSaving(false);
-      leaveGuard.proceed();
-    }
-  }, [leaveSaving, mode, syncError, leaveGuard]);
-
-  // The live loop: debounce-save every edit once constraints exist or the
-  // sketch is bound. Plain entity drawing before the first save stays local
-  // (the explicit SAVE action owns that moment).
-  useEffect(() => {
-    if (mode !== "draw") return;
-    if (revision === 0 || revision <= lastSynced.current) return;
-    if (revision === failedRevision.current) return; // next edit retries
-    if (featureId === null && !userConstrained) return;
-    const timer = window.setTimeout(
-      () => persistBuffer(false),
-      SYNC_DEBOUNCE_MS,
-    );
-    return () => window.clearTimeout(timer);
-  }, [mode, revision, featureId, userConstrained, syncPending, persistBuffer]);
-
-  // Feed the solve back in: adopt solved positions + diagnosis for the
-  // bound feature (only when the buffer is clean — indices and positions
-  // must refer to what was actually solved).
-  useEffect(() => {
-    if (mode !== "draw" || featureId === null || evaluation.data === undefined)
-      return;
-    const store = useSketchStore.getState();
-    const clean =
-      store.revision <= lastSynced.current && inFlight.current === 0;
-    if (!clean) return;
-    const result = evaluation.data.features.find(
-      (f) => f.feature_id === featureId,
-    );
-    if (result === undefined) return;
-    if (result.status === "ok" && result.data?.kind === "solved_sketch") {
-      const info: SolveInfo = {
-        status: result.data.status,
-        dof: result.data.dof ?? null,
-        conflicting: result.data.conflicting_constraints ?? [],
-        redundant: result.data.redundant_constraints ?? [],
-      };
-      // The per-dimension readouts line each glyph up with its authored
-      // constraint (a driving dim's evaluated value / a driven dim's measured).
-      // BOTH lists, always: the solver reports linear and angular separately so
-      // no consumer can read a degree out of `value_mm`, and passing only the
-      // linear half is QA-R2 — an expression-driven angle whose glyph kept the
-      // placeholder 30 while the model moved to 45.
-      store.adoptSolved(
-        result.data.entities,
-        info,
-        result.data.dimensions ?? [],
-        result.data.angles ?? [],
-      );
-      return;
-    }
-    if (result.status === "error" && result.error != null) {
-      // A bad expression / cycle / unknown-or-driven ref / div-by-zero comes
-      // back as `sketch_invalid` — surface the server's message in the
-      // diagnostic stamp (never swallow it), keeping the last-good geometry.
-      if (result.error.code === "sketch_invalid") {
-        store.adoptSolved(null, {
-          status: "invalid",
-          dof: null,
-          conflicting: [],
-          redundant: [],
-          message: result.error.message,
-        });
-        return;
-      }
-      if (result.error.code === "sketch_conflicting") {
-        // BACKLOG #6: read the offending ids from the TYPED diagnosis, not by
-        // regex-parsing the human message (brittle, now removed).
-        const diag = result.error.sketch_diagnosis;
-        store.adoptSolved(null, {
-          status: "conflicting",
-          dof: null,
-          conflicting: diag?.conflicting_constraints ?? [],
-          redundant: diag?.redundant_constraints ?? [],
-        });
-        return;
-      }
-      if (result.error.code === "sketch_diverged") {
-        store.adoptSolved(null, {
-          status: "diverged",
-          dof: null,
-          conflicting: [],
-          redundant: [],
-        });
-      }
-    }
-  }, [mode, featureId, evaluation.data]);
-
-  /** All datum feature params by id — the datum-plane resolution table. */
-  const datumById = useMemo(() => {
-    const map = new Map<string, AnyDatumParams>();
-    for (const feature of tree.data?.features ?? []) {
-      if (feature.feature.type === "datum") {
-        map.set(feature.id, feature.feature.params);
-      }
-    }
-    return map;
-  }, [tree.data]);
-
-  /**
-   * Every datum feature's placed sketch basis, resolved client-side by the SAME
-   * math the kernel evaluates (offset / offset-from-a-datum / midplane over
-   * origin + datum sides — one plane-math source, two renderers). An `on_face`
-   * datum (or a face-picked midplane side) resolves server-side only, so it is
-   * absent here and simply not offered as a reusable preview plane.
-   */
-  const datumBasisById = useMemo(() => {
-    const map = new Map<string, PlaneBasis>();
-    for (const id of datumById.keys()) {
-      const basis = resolveDatumSceneBasis(id, datumById);
-      if (basis !== null) map.set(id, basis);
-    }
-    return map;
-  }, [datumById]);
-
-  /** Solved sketch layers: tree feature (plane) × evaluate result (geometry). */
-  const solved = useMemo<SolvedSketchLayer[]>(() => {
-    if (tree.data === undefined || evaluation.data === undefined) return [];
-    const results = new Map(
-      evaluation.data.features.map((f) => [f.feature_id, f]),
-    );
-    const layers: SolvedSketchLayer[] = [];
-    for (const feature of tree.data.features) {
-      if (feature.feature.type !== "sketch") continue;
-      // The bound feature renders through the live draw layer while
-      // sketching — never twice.
-      if (mode === "draw" && feature.id === featureId) continue;
-      // Resolve the plane ref to a placed basis: an origin datum draws at the
-      // world frame; a datum FeatureRef draws at that datum's offset (so a
-      // sketch on XY+30 renders its solved ink at z=30). Mirrors the kernel's
-      // resolve_sketch_plane so overlay + body agree.
-      const plane = feature.feature.params.plane;
-      let basis: PlaneBasis | null = null;
-      if (plane.kind === "datum_plane") {
-        basis = sceneOriginBasis(plane.plane);
-      } else {
-        basis = datumBasisById.get(plane.feature_id) ?? null;
-        if (basis === null) {
-          // An `on_face` datum has no world-frame walk (its plane belongs to a
-          // body face), but its face signature is right there in the params —
-          // the SAME reconstruction the sketch-on-face flow draws with. Without
-          // it a face-seated sketch had no layer at all, so the live extrude
-          // ghost simply never appeared on the one seat where the direction is
-          // ambiguous to the eye (FB-4: the user must SEE which way the cut
-          // goes before committing).
-          const datum = datumById.get(plane.feature_id);
-          if (datum?.kind === "on_face") {
-            basis = faceBasis(datum.face.selector.signature, datum.offset_mm);
-          }
-        }
-      }
-      if (basis === null) continue; // unresolved plane (rolled back / deleted)
-      const result = results.get(feature.id);
-      if (result?.status !== "ok" || result.data?.kind !== "solved_sketch") {
-        continue;
-      }
-      layers.push({
-        featureId: feature.id,
-        basis,
-        entities: result.data.entities,
-      });
-    }
-    return layers;
-  }, [tree.data, evaluation.data, mode, featureId, datumById, datumBasisById]);
-
-  /**
-   * Each solved profile's entities, for the Sweep twist-cost note (review S9;
-   * the cost is in turns and profile edges, so it is the extrude's formula).
-   */
-  const profileEntities = useCallback(
-    (id: string) =>
-      solved.find((layer) => layer.featureId === id)?.entities ?? null,
-    [solved],
-  );
+  const {
+    syncPending,
+    syncError,
+    setSyncError,
+    lastSynced,
+    failedRevision,
+    draftHeld,
+    leaveSaving,
+    leaveGuard,
+    leaveDestination,
+    saveAndLeave,
+  } = sketchPersistence;
+  const solvedSketches = useSolvedSketches({
+    mode,
+    featureId,
+    tree,
+    evaluation,
+  });
+  const { datumById, datumBasisById, solved } = solvedSketches;
 
   // Keyboard-first: Escape cascade always; tools, snap, constraint verbs and
   // Delete while drawing. One keyboard, two vocabularies — selection
@@ -1376,6 +215,10 @@ export function PartPage() {
       // Enter advances the mirror draft from collecting targets to the axis
       // pick — the keyboard-first path the "Choose axis" button mirrors.
       if (event.key === "Enter") {
+        // Typed X / Y cells own Enter while they are open, and the Enter that
+        // placed a typed point is theirs even though the cells have closed:
+        // it must never also finish the spline (TYPED-POINT-RACE).
+        if (event.defaultPrevented || store.pointEntry !== null) return;
         if (store.mirror?.phase === "targets") {
           event.preventDefault();
           store.advanceMirror();
@@ -1419,1144 +262,121 @@ export function PartPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mode, setTool, toggleSnap, facePicking]);
-
-  // Trim/extend: the scene arms an edit on a target click; this effect owns
-  // the one network hop (the store stays side-effect-free). On success the
-  // result's entity set is adopted and constraints are reconciled in the store
-  // (dangling refs dropped) — the revision bump then re-solves through the
-  // live loop for a bound sketch; an unbound buffer just re-renders locally.
-  // The nonce guards against a double fire (React strict mode / re-render).
-  const editNonceRef = useRef(0);
-  useEffect(() => {
-    if (edit === null || edit.nonce === editNonceRef.current) return;
-    editNonceRef.current = edit.nonce;
-    const { op, target, pick } = edit;
-    void (async () => {
-      try {
-        const result = await editSketch(op, {
-          entities: useSketchStore.getState().entities,
-          target,
-          pick,
-        });
-        const store = useSketchStore.getState();
-        if (store.mode === "draw") store.applyEditResult(op, result.entities);
-      } catch (error) {
-        useSketchStore
-          .getState()
-          .failEdit(
-            error instanceof SketchEditError
-              ? error.message
-              : "The edit could not be applied — try a different spot.",
-          );
-      }
-    })();
-  }, [edit]);
-
-  // Offset: the scene arms a signed-distance offset once the inline editor
-  // confirms; this effect owns the one network hop and APPENDS the returned
-  // offset entity/entities (source unchanged — offset adds, never rewrites).
-  // The revision bump then re-solves through the live loop for a bound sketch;
-  // an unbound buffer just re-renders locally. The nonce guards a double fire.
-  const offsetNonceRef = useRef(0);
-  useEffect(() => {
-    if (offset === null || offset.nonce === offsetNonceRef.current) return;
-    offsetNonceRef.current = offset.nonce;
-    const { target, distance } = offset;
-    void (async () => {
-      try {
-        const result = await offsetSketch({
-          entities: useSketchStore.getState().entities,
-          target,
-          distance,
-        });
-        const store = useSketchStore.getState();
-        if (store.mode === "draw") store.applyOffsetResult(result.entities);
-      } catch (error) {
-        useSketchStore
-          .getState()
-          .failOffset(
-            error instanceof SketchEditError
-              ? error.message
-              : "The offset could not be applied — try a different distance.",
-          );
-      }
-    })();
-  }, [offset]);
-
-  // Mirror: the axis pick arms a mirror request; this effect owns the one
-  // network hop and APPENDS the reflected copies (sources unchanged — mirror
-  // adds, never rewrites). Like offset, the revision bump then re-solves a
-  // bound sketch; an unbound buffer just re-renders. The nonce guards a double
-  // fire (React strict mode / re-render).
-  const mirrorNonceRef = useRef(0);
-  useEffect(() => {
-    if (
-      mirrorRequest === null ||
-      mirrorRequest.nonce === mirrorNonceRef.current
-    )
-      return;
-    mirrorNonceRef.current = mirrorRequest.nonce;
-    const { targets, axis } = mirrorRequest;
-    void (async () => {
-      try {
-        const result = await mirrorSketch({
-          entities: useSketchStore.getState().entities,
-          targets,
-          axis,
-        });
-        const store = useSketchStore.getState();
-        if (store.mode === "draw") store.applyMirrorResult(result.entities);
-      } catch (error) {
-        useSketchStore
-          .getState()
-          .failMirror(
-            error instanceof SketchEditError
-              ? error.message
-              : "The mirror could not be applied — try a different axis.",
-          );
-      }
-    })();
-  }, [mirrorRequest]);
-
-  // Fillet/Chamfer: the value editor arms a corner request; this effect owns
-  // the one network hop and SWAPS the whole rewritten set in (the two source
-  // lines trimmed in place, ids preserved, plus the appended bridge) — like
-  // trim/extend, unlike the additive offset/mirror. The store reconciles
-  // constraints; the revision bump then re-solves through the live loop. The
-  // nonce guards a double fire (React strict mode / re-render).
-  const cornerNonceRef = useRef(0);
-  useEffect(() => {
-    if (
-      cornerRequest === null ||
-      cornerRequest.nonce === cornerNonceRef.current
-    )
-      return;
-    cornerNonceRef.current = cornerRequest.nonce;
-    const { op, a, b, value } = cornerRequest;
-    void (async () => {
-      try {
-        const result = await cornerSketch(op, {
-          entities: useSketchStore.getState().entities,
-          a,
-          b,
-          value,
-        });
-        const store = useSketchStore.getState();
-        if (store.mode === "draw") store.applyCornerResult(result.entities);
-      } catch (error) {
-        useSketchStore
-          .getState()
-          .failCorner(
-            error instanceof SketchEditError
-              ? error.message
-              : "The corner could not be broken — try a smaller value.",
-          );
-      }
-    })();
-  }, [cornerRequest]);
-
-  // Leaving the workspace always leaves sketch mode.
-  useEffect(() => () => useSketchStore.getState().exit(), []);
-
-  // Sketch mode owns the viewport — measurement never overlaps it.
-  useEffect(() => {
-    if (mode !== "off") useMeasureStore.getState().deactivate();
-  }, [mode]);
-  // Leaving the workspace tears the measurement overlay down.
-  useEffect(() => () => useMeasureStore.getState().deactivate(), []);
-
-  // ---------------------------------------------------------------------
-  // Extrude authoring + feature-tree interactions. Discrete user actions
-  // (not the debounced sketch chain): each reads the freshest tree_version,
-  // retries once on a stale-version race, then invalidates the tree + the
-  // evaluate so the body updates through the #2 render path.
-  // ---------------------------------------------------------------------
-  const features = tree.data?.features ?? [];
-  const sketchProfiles = useMemo(() => profileOptions(features), [features]);
-  /**
-   * FLOW-B3 — what the band proposes now that a feature has landed, or null.
-   *
-   * Gated on a BUILD, not on the shape of the tree (W2 review, finding 6):
-   * `useNextStepAfterBuild` arms only for a feature this workspace watched
-   * arrive, so opening a part whose last feature is an old extrude proposes
-   * nothing. The table it wraps — which verb follows which, and the much longer
-   * list of verbs that propose NOTHING — is `components/nextStep.ts`.
-   */
-  const nextStep = useNextStepAfterBuild(tree.data?.features);
-  // The part's body set (multi-body §MB-1) — drives the Bodies panel and the
-  // Combine tool's target/tool pickers. One body is the common case; a
-  // `merge: false` add (or an import) starts a second.
-  //
-  // The evaluate result decides WHICH bodies exist (FAILED-EXTRUDE-BODIES-
-  // GHOST-1): a failed extrude is not a body, and Export, which writes the same
-  // last-good state, already said so. The tree only names them.
-  //
-  // HELD ACROSS A PENDING EVALUATE (review S1 on c001220). The evaluate query
-  // is keyed on the tree version, so after every edit, undo or redo there is
-  // no result until the new one lands, and falling back to the tree replay
-  // then put the failed feature's ghost row back for the length of a rebuild.
-  // The last result for THIS part stands in; the replay is used only before
-  // any result for it has ever arrived. Held in state, set during render (the
-  // documented "adjust state when a prop changes" pattern), so the panel
-  // never renders a frame without it.
-  const [heldBodies, setHeldBodies] = useState<{
-    partId: string;
-    bodies: NonNullable<EvaluateTreeResult["bodies"]>;
-  } | null>(null);
-  // `NO_BODIES` rather than a fresh `[]`: a new array every render would
-  // never equal the held one, and the set-during-render below would loop.
-  const liveBodies =
-    evaluation.data === undefined
-      ? undefined
-      : (evaluation.data.bodies ?? NO_BODIES);
-  if (
-    liveBodies !== undefined &&
-    (heldBodies?.partId !== partId || heldBodies.bodies !== liveBodies)
-  ) {
-    setHeldBodies({ partId, bodies: liveBodies });
-  }
-  const evaluatedBodies =
-    liveBodies ?? (heldBodies?.partId === partId ? heldBodies.bodies : null);
-  const bodies = useMemo(
-    () => partBodies(features, evaluatedBodies),
-    [features, evaluatedBodies],
-  );
-  // Per-body lump count from the evaluate wire (§MB-4c): a disjoint-union /
-  // multi-solid-import body reports `lumps > 1`, which the Bodies panel flags.
-  // Keyed by the body's base feature id (its §MB-0 identity) so a row maps to its
-  // count; absent for a tree with no body-affecting feature (the panel shows none).
-  const lumpsByFeature = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const entry of evaluation.data?.bodies ?? []) {
-      map.set(entry.base_feature_id, entry.lumps);
-    }
-    return map;
-  }, [evaluation.data?.bodies]);
-  // Sheet-metal state: the part is sheet metal once it has a base flange, and
-  // that base flange's gauge / bend-radius / K become the defaults every edge
-  // flange inherits (sheet-metal.md §4.2). Edge flange + Flat pattern light up
-  // from `isSheetMetal`; the edge-flange editor shows `smDefaults`.
-  const smDefaults = useMemo(() => sheetMetalDefaults(features), [features]);
-  const isSheetMetal = useMemo(() => isSheetMetalPart(features), [features]);
-  // Corner relief references TWO edge-flange FEATURES (not an edge pick), so it
-  // lights up only with ≥2 edge flanges, and the editor lists them by name.
-  const edgeFlangeOpts = useMemo(() => edgeFlangeOptions(features), [features]);
-  const canCornerRelief = useMemo(
-    () => canAuthorCornerRelief(features),
-    [features],
-  );
-  // Datum features already in the tree, offered as reusable sketch planes in
-  // the plane picker (a standalone datum seats many sketches — DRY). The SAME
-  // derivation the section-view author reads (`resolveDatumPlaneOptions`), so a
-  // datum FeatureRef means exactly the same plane in both flows (one source).
-  const datumPlaneOptions = useMemo(
-    () => resolveDatumPlaneOptions(features),
-    [features],
-  );
-  /**
-   * The inverse of `planeRefFromSpec`: a PERSISTED sketch plane ref back to the
-   * viewport spec the sketcher draws and poses its camera with. Re-opening a
-   * saved sketch (SKETCH-1) is the one flow that needs it — every other plane
-   * spec is minted by the pick that chose it.
-   *
-   * The datum branches reuse the ONE datum derivation the plane picker and the
-   * section author already read, plus the `on_face` reconstruction the solved
-   * overlay uses (an on-face datum has no world-frame walk, so
-   * `resolveDatumPlaneOptions` deliberately omits it — its face signature is in
-   * its own params). Null means the plane is genuinely unresolvable client-side
-   * (a rolled-back/deleted datum, or a face-picked midplane side); the caller
-   * says so rather than opening a sketcher on a plane it cannot place.
-   */
-  const specFromPlaneRef = useCallback(
-    (ref: SketchPlaneRef): SketchPlaneSpec | null => {
-      if (ref.kind === "datum_plane")
-        return { kind: "origin", base: ref.plane };
-      const option = datumPlaneOptions.find((o) => o.id === ref.feature_id);
-      if (option !== undefined) return option.spec;
-      const params = datumById.get(ref.feature_id);
-      if (params?.kind === "on_face") {
-        return faceSpecFromDatum(
-          ref.feature_id,
-          params.face.selector.signature,
-          params.offset_mm,
-        );
-      }
-      return null;
-    },
-    [datumPlaneOptions, datumById],
-  );
-  // Axis line-entity choices per profile sketch — the revolve editor scopes its
-  // axis picker to the selected profile's own lines.
-  const axesByProfile = useMemo(() => {
-    const map: Record<string, AxisOption[]> = {};
-    for (const profile of sketchProfiles) {
-      map[profile.id] = axisOptions(features, profile.id);
-    }
-    return map;
-  }, [sketchProfiles, features]);
-  // Path choices per profile sketch — the sweep editor scopes its path picker
-  // to every OTHER sketch (a sketch fills one slot: closed profile OR open path).
-  const pathsByProfile = useMemo(() => {
-    const map: Record<string, ProfileOption[]> = {};
-    for (const profile of sketchProfiles) {
-      map[profile.id] = pathOptions(features, profile.id);
-    }
-    return map;
-  }, [sketchProfiles, features]);
-  // The authoring seat holds one editor at a time — an extrude OR a revolve —
-  // so they share the saving/error state and the viewport top-left anchor.
-  // (The union lives in `OpenEditor` above, which also keys COMMAND_LABEL.)
-  // `setEditorState` is deliberately NOT used directly anywhere below — every
-  // call site goes through the `setEditor` wrapper defined beside the gauge
-  // channels, which ends the outgoing command's gauge session first. See the
-  // note there; the split exists so a gauge override cannot outlive the command
-  // that produced it.
-  const [editor, setEditorState] = useState<OpenEditor | null>(null);
-  const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(
-    null,
-  );
-  // WHAT a pattern/mirror opened right now would act on (docs/design/
-  // pattern-scope.md). The tree selection IS the scope: with `Hole1` selected
-  // the Create strip's verb reads "Repeat Hole1" and the editor opens already
-  // scoped to it. With nothing selected we still offer the tip in the editor's
-  // scope row, but the toolbar keeps its plain words.
-  const patternScopeSeed = useMemo(
-    () => scopeSeed(features, selectedFeatureId),
-    [features, selectedFeatureId],
-  );
-  const scopeSubject =
-    patternScopeSeed !== null && patternScopeSeed.fromSelection
-      ? patternScopeSeed.name
-      : null;
-  // What the OPEN command actually acts on, published by its scope row (see
-  // `usePublishedScope`). Distinct from the selection above and worth the
-  // second channel for two reasons: the scope row is flippable, so a selection-
-  // driven mark would keep pointing at `Hole1` after the user chose `This
-  // body`; and an editor seeded from the TIP feature has a subject while
-  // nothing at all is selected. `null` whenever no command is asking; `[]` when
-  // one is and its answer is the whole body (REACH-2-FLOW-B).
-  const scopedFeatureIds = useCommandActionStore((s) => s.scopedFeatureIds);
-  const [editorSaving, setEditorSaving] = useState(false);
-  const [editorError, setEditorError] = useState<string | null>(null);
-  // UX audit #20e — a feature can SAVE cleanly yet fail to REBUILD (the create
-  // 200s, then the tree re-evaluation flags the feature). That error lands in
-  // the tree while the eye is still on the editor seat, so we mirror it right
-  // there. Keyed to the last-saved feature so merely selecting an old broken
-  // feature never nags; dismissible, and re-armed by the next save.
-  const [lastSavedFeatureId, setLastSavedFeatureId] = useState<string | null>(
-    null,
-  );
-  const [rebuildNoticeDismissed, setRebuildNoticeDismissed] = useState(false);
-  const [rollbackBusy, setRollbackBusy] = useState(false);
-  // Live extrude ghost (UI-REVIEW #8): the open extrude editor projects its
-  // form here on every keystroke; the viewport sweeps the profile at this
-  // distance before Save. Cleared the moment the editor closes.
-  const [extrudePreview, setExtrudePreview] =
-    useState<ExtrudePreviewState | null>(null);
-  /**
-   * The depth the viewport's drag handle is asserting (T-23). It flows the
-   * OTHER way from the ghost: the gauge reports a distance, the editor's form
-   * takes it, and the ghost redraws from that form — one value, two ways in
-   * (drag and type), never two states to keep in step.
-   *
-   * `useGaugeOverride` carries both halves of that contract in one call — the
-   * echoed state AND the reset — because the reset is the line everyone
-   * forgets, and forgetting it seeds the NEXT open of the command from the last
-   * drag. Every verb that grows a gauge adds one of these, one prop on its own
-   * editor, and one mount; see that hook's note for the two silent broken
-   * states this shape exists to prevent.
-   */
-  const [extrudeDepthOverride, extrudeDepthGauge] = useGaugeOverride("mm");
-  const handleExtrudeDrag = extrudeDepthGauge.set;
-
-  // The fillet/chamfer gauges (CRAFT-9a), carrying the same contract: the live
-  // value the editor holds (so the viewport can draw the round or the bevel at
-  // it) and the override channel a drag writes back through. The ANCHORS are
-  // seated here and passed DOWN as a prop rather than read inside the gauges —
-  // CRAFT-12 moves where a selection lives, and a component that reached into
-  // this pick session would be rewritten then instead of re-wired (§11).
-  const [filletRadiusMm, setFilletRadiusMm] = useState<number | null>(null);
-  const [chamferDistanceMm, setChamferDistanceMm] = useState<number | null>(
-    null,
-  );
-  const [filletRadiusOverride, filletRadiusGauge] = useGaugeOverride("mm");
-  const [chamferDistanceOverride, chamferDistanceGauge] =
-    useGaugeOverride("mm");
-  const edgeGaugeAnchors = useEdgeGaugeAnchors();
-
-  // The same two halves, once per verb that grew a gauge in CRAFT-9b. The
-  // `…Mm` / `…Seed` state beside each override is the editor's LIVE form
-  // projected up here (the ghost's direction), so the viewport can seat the
-  // instrument and draw its preview before Save; the override is the value
-  // coming back the other way. One value, two ways in.
-  const [shellThicknessOverride, shellThicknessGauge] = useGaugeOverride("mm");
-  const [shellThicknessMm, setShellThicknessMm] = useState<number | null>(null);
-  const [datumOffsetOverride, datumOffsetGauge] = useGaugeOverride("mm");
-  const [datumGaugeSeed, setDatumGaugeSeed] = useState<DatumGaugeSeed | null>(
-    null,
-  );
-
-  // ANCHOR A (CRAFT-10) — the two ANGULAR gauges. Same contract as the depth
-  // gauge above and the same three insertions: this hook, one prop on the
-  // editor, one mount in the viewport. `"deg"` rather than `"mm"` is the whole
-  // point of the box being named for its quantity — an editor that read a bare
-  // `value` off an untyped box could be handed millimetres for degrees and
-  // nothing but a founder would catch it.
-  const [revolveAngleOverride, revolveAngleGauge] = useGaugeOverride("deg");
-  const handleRevolveDrag = revolveAngleGauge.set;
-  const [draftAngleOverride, draftAngleGauge] = useGaugeOverride("deg");
-  const handleDraftDrag = draftAngleGauge.set;
-  // The open form, projected by the editor for the viewport to place its arc on
-  // (the revolve/draft twin of `extrudePreview`). Cleared when the editor closes.
-  const [revolveGauge, setRevolveGauge] = useState<RevolveGaugeState | null>(
-    null,
-  );
-  const [draftGauge, setDraftGauge] = useState<DraftGaugeState | null>(null);
-  // ANCHOR A, pattern (CRAFT-11). TWO of them, because a pattern mounts the
-  // gauge TWICE — a stepped count along the row and a linear spacing across the
-  // first gap — and two instruments driving one box could not hold one number
-  // steady while the other moves, which is the whole reason §5.3 split them.
-  const [patternCountOverride, patternCountGauge] = useGaugeOverride("n");
-  const [patternSpacingOverride, patternSpacingGauge] = useGaugeOverride("mm");
-  // The open pattern editor's live row, projected for the viewport (the pattern
-  // twin of `extrudePreview`). Cleared the moment the editor closes.
-  const [patternPreview, setPatternPreview] =
-    useState<PatternPreviewState | null>(null);
-  // ANCHOR A, hole (CRAFT-9c). Two channels, one per instrument — Ø and blind
-  // depth — for the pattern's reason: two gauges driving one box could not hold
-  // one number steady while the other moves. `holeGauge` is the editor's live
-  // pair projected up (the hole twin of `draftGauge`); cleared on close.
-  const [holeDiameterOverride, holeDiameterGauge] = useGaugeOverride("mm");
-  const [holeDepthOverride, holeDepthGauge] = useGaugeOverride("mm");
-  const [holeGauge, setHoleGauge] = useState<HoleGaugeState | null>(null);
-
-  /**
-   * End the gauge session — every override box back to null (ANCHOR B).
-   *
-   * A gauge override is SESSION state: it is the value a viewport instrument is
-   * asking the open editor for, and it means nothing once that editor is gone.
-   * Leaving one behind is not a stale readout, it is a WRONG NUMBER IN A FIELD
-   * THAT LOOKS AUTHORITATIVE — the next editor to mount applies the box over
-   * its own seed on its first effect pass, so a feature stored at 8 mm re-opens
-   * pre-filled at whatever the last drag reached, one Enter from a silent
-   * change the user never asked for (product audit 2026-09-16, F-9).
-   */
-  const endGaugeSession = useCallback(() => {
-    extrudeDepthGauge.reset();
-    filletRadiusGauge.reset();
-    chamferDistanceGauge.reset();
-    shellThicknessGauge.reset();
-    datumOffsetGauge.reset();
-    revolveAngleGauge.reset();
-    draftAngleGauge.reset();
-    // Both of the pattern's, because it mounts the gauge TWICE.
-    patternCountGauge.reset();
-    patternSpacingGauge.reset();
-    // Both of the hole's, for the same reason.
-    holeDiameterGauge.reset();
-    holeDepthGauge.reset();
-  }, [
-    extrudeDepthGauge,
-    filletRadiusGauge,
-    chamferDistanceGauge,
-    shellThicknessGauge,
-    datumOffsetGauge,
-    revolveAngleGauge,
-    draftAngleGauge,
-    patternCountGauge,
-    patternSpacingGauge,
-    holeDiameterGauge,
-    holeDepthGauge,
-  ]);
-
-  /**
-   * OPEN / REPLACE / CLOSE THE AUTHORING SEAT — the ONLY way `editor` moves.
-   *
-   * The reset used to live in `closeEditor` alone, described in
-   * `useGaugeOverride` as "the line everyone forgets". It was worse than
-   * forgettable: `closeEditor` is one of SEVEN ways an editor stops being the
-   * open one. A successful save calls `setEditor(null)` straight from the write
-   * handler, `selectFeature` REPLACES the open editor with another feature's,
-   * and entering the sketcher / arming Measure / importing a STEP each drop it
-   * on the floor. None of those ran the reset, so the box survived — and the
-   * audit's fillet re-opened at the drag value rather than at `radius_mm: 8`.
-   *
-   * Binding the reset to the TRANSITION rather than to one of its callers is
-   * what makes it structural: a later verb adds its channel to
-   * `endGaugeSession` and cannot get this wrong at any of the seven sites,
-   * because there are no longer seven sites. The reset is synchronous and runs
-   * BEFORE the state update on purpose — an effect would land after the newly
-   * mounted editor's own effects, i.e. after the clobber it exists to prevent.
-   */
-  const setEditor = useCallback(
-    (next: OpenEditor | null) => {
-      endGaugeSession();
-      setEditorState(next);
-    },
-    [endGaugeSession],
-  );
-
-  // Earlier datum features offered to the datum editor as references (the
-  // offset-from base + the midplane sides). Create authors at the tip, so every
-  // existing datum is earlier; an edit sees only the datums strictly before it
-  // (the strict-backward rule — a datum can't reference itself or a later one).
-  const datumEditorRefs = useMemo(() => {
-    if (editor?.kind !== "datum") return [];
-    const editingId = editor.featureId;
-    const foundAt = editingId
-      ? features.findIndex((f) => f.id === editingId)
-      : -1;
-    const bound = foundAt < 0 ? features.length : foundAt;
-    return features
-      .filter((f, i) => f.feature.type === "datum" && i < bound)
-      .map((f) => ({ id: f.id, name: f.name }));
-  }, [editor, features]);
-  // STEP import (a discrete toolbar action, no editor panel): busy + the server
-  // envelope's own message on rejection, surfaced in the viewport HUD.
-  const [importing, setImporting] = useState(false);
-  const [importError, setImportError] = useState<string | null>(null);
-  // Flat pattern (a discrete action, no editor panel): unfolding the sheet body
-  // creates a drawing + a lone flat-pattern view referencing this part, then
-  // navigates to it. Busy + the server envelope's own message on rejection.
-  const [flatPatternBusy, setFlatPatternBusy] = useState(false);
-  const [flatPatternError, setFlatPatternError] = useState<string | null>(null);
-  // The profile-only DXF cut path (AUDIT-PRODUCT F-2a) — a download, not a
-  // navigation, so it gets its own busy flag but SHARES the flat-pattern error
-  // surface: both are "the blank could not be produced", and a second alert box
-  // in the same corner saying a near-identical sentence is how a UI starts
-  // lying about how many things went wrong.
-  const [flatDxfBusy, setFlatDxfBusy] = useState(false);
-  // Inline offset-plane authoring (the plane-pick "+ Offset plane" path).
-  const [offsetPlaneBusy, setOffsetPlaneBusy] = useState(false);
-  const [offsetPlaneError, setOffsetPlaneError] = useState<string | null>(null);
-
-  // The pickable face overlay for the current evaluated body — fetched exactly
-  // as measurement fetches its overlay (same request/key: one cache entry, and
-  // the faces line up with the body the viewport renders). Only while arming a
-  // face pick and a body exists.
-  const facesQuery = useQuery({
-    queryKey: ["overlay", partId, treeVersion, meshGlbId],
-    queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
-    enabled: facePicking && tree.data !== undefined && meshGlbId !== null,
-    staleTime: Infinity,
-    retry: false,
+  useSketchEditRequests({ mode, edit, offset, mirrorRequest, cornerRequest });
+  const featureCatalog = useFeatureCatalog({
+    partId,
+    tree,
+    evaluation,
+    datumById,
   });
-  const pickableFaces = facePicking ? (facesQuery.data?.faces ?? null) : null;
-
-  // The pickable face overlay while the datum editor is armed for a slot —
-  // same request/key (one cache entry, faces line up with the rendered body).
-  const datumFacesQuery = useQuery({
-    queryKey: ["overlay", partId, treeVersion, meshGlbId],
-    queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
-    enabled:
-      datumFacePick !== null && tree.data !== undefined && meshGlbId !== null,
-    staleTime: Infinity,
-    retry: false,
+  const { features, sketchProfiles, bodies, specFromPlaneRef } = featureCatalog;
+  const editorSeat = useEditorSeat({ setEditorState, features });
+  const {
+    selectedFeatureId,
+    setSelectedFeatureId,
+    patternScopeSeed,
+    scopedFeatureIds,
+    setEditorSaving,
+    setEditorError,
+    lastSavedFeatureId,
+    setLastSavedFeatureId,
+    rebuildNoticeDismissed,
+    setRebuildNoticeDismissed,
+    rollbackBusy,
+    setRollbackBusy,
+    extrudePreview,
+    setExtrudePreview,
+    setFilletRadiusMm,
+    setChamferDistanceMm,
+    datumGaugeSeed,
+    revolveGauge,
+    setRevolveGauge,
+    setDraftGauge,
+    patternPreview,
+    setPatternPreview,
+    setHoleGauge,
+    setEditor,
+  } = editorSeat;
+  const actionFlags = useActionFlags({ editor, features });
+  const {
+    setImporting,
+    setImportError,
+    flatPatternBusy,
+    setFlatPatternBusy,
+    setFlatPatternError,
+    flatDxfBusy,
+    setFlatDxfBusy,
+    setOffsetPlaneBusy,
+    setOffsetPlaneError,
+  } = actionFlags;
+  const pickOverlays = usePickOverlays({
+    partId,
+    mode,
+    tree,
+    treeVersion,
+    meshGlbId,
+    editor,
+    displayTree,
+    hasBody,
+    hasPickTargets,
+    facePicking,
+    datumFacePick,
+    holePick,
+    holePreview,
+    measureActive,
+    selectedFeatureId,
+    scopedFeatureIds,
   });
-  const datumPickableFaces =
-    datumFacePick !== null ? (datumFacesQuery.data?.faces ?? null) : null;
-
-  // The pickable overlay for the WHOLE hole command — same request/key as every
-  // other overlay (one cache entry, faces + vertices + edges line up with the
-  // rendered body). `.faces` feeds the face pick; `.vertices` feed the point
-  // pick's face-corner snaps; `.edges` feed the coordinate cells' live material
-  // check and the concentric snaps (QA3-1), which is why this is no longer
-  // gated on a pick being armed — typing a coordinate needs the geometry too.
-  const holeEditing = editor?.kind === "hole";
-  const holeOverlayQuery = useQuery({
-    queryKey: ["overlay", partId, treeVersion, meshGlbId],
-    queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
-    enabled: holeEditing && tree.data !== undefined && meshGlbId !== null,
-    staleTime: Infinity,
-    retry: false,
-  });
-  const holePickableFaces =
-    holePick === "face" ? (holeOverlayQuery.data?.faces ?? null) : null;
-  const holeOverlayFaces = holeOverlayQuery.data?.faces ?? null;
-  const holeOverlayVertices = holeOverlayQuery.data?.vertices ?? null;
-  const holeOverlayEdges = holeOverlayQuery.data?.edges ?? null;
-  /**
-   * Is the placement face's own body switched OFF (SEL-7)? The viewport
-   * withholds the whole placement overlay in that state; the EDITOR has to say
-   * why, or the crosshair just vanishes mid-command and the pick becomes a dead
-   * end. Ordinal-only — a set membership, no weld pass — and the hook reads the
-   * store, so it is safe out here outside the r3f `Canvas`.
-   */
-  const holePlacementHidden = useIsHiddenFaceOrdinal(
-    faceOrdinalOfSignature(holePreview?.signature ?? null, holeOverlayFaces),
-  );
-
-  // ---------------------------------------------------------------------
-  // Fillet/Chamfer edge picking. The edge-pick store bridges the editor and the
-  // in-canvas overlay; PartPage owns the overlay fetch and the session lifecycle
-  // (open on a fillet/chamfer editor, close otherwise). The anchor a picked
-  // edge's `SubshapeRef` carries is `pickAnchorFeatureId` below, NOT the tip.
-  // ---------------------------------------------------------------------
-  const bodyFeatureId = useMemo(
-    () => lastBodyFeatureId(tree.data?.features ?? []),
-    [tree.data],
-  );
-
-  /**
-   * PICK-2 — what every arming guard below asks `pickRefusal` about. Split in
-   * two on purpose: a part that has never had a body-affecting feature needs
-   * "add one", while a part whose body-affecting feature exists but did not
-   * build needs "clear the error" — and telling a modeller to add the feature
-   * they can see in the tree is how a refusal stops being believed.
-   */
-  const pickTargetState = useMemo(
-    () => ({ hasPickTargets, hasBodyFeature: bodyFeatureId !== null }),
-    [hasPickTargets, bodyFeatureId],
-  );
-  /**
-   * PICK-2 — why the hole / datum / sketch face picks cannot be armed, or null.
-   *
-   * DERIVED, never mirrored into state. An armed pick whose targets disappear
-   * (the tip stops building while the editor is open) has to become honest at
-   * that instant, and a copy of the reason held in `holePickError` would only
-   * become honest the next time somebody pressed something. Each editor states
-   * its own refusal on a surface that is NOT gated on a pick being armed, so
-   * "refuse to arm" and "say why" are the same fact told once.
-   */
-  const holePickRefusal = pickRefusal(
-    pickTargetState,
-    "Add a feature that creates a body before drilling a hole.",
-  );
-  const datumPickRefusal = pickRefusal(
-    pickTargetState,
-    "Add a feature that creates a body before picking a face.",
-  );
-  const facePickRefusal = pickRefusal(
-    pickTargetState,
-    "Add a feature that creates a body before sketching on a face.",
-  );
-
-  // --- Hover-to-sketch (FLOW-1, founder report 2026-08-14) --------------------
-  //
-  // The face the pointer is addressing while NOTHING is armed. Idle hover used
-  // to light a face (SEL-1) and mean nothing — no click handler, no selection —
-  // so there is no existing meaning for the proposal to collide with; it gives
-  // that highlight the action it was already implying.
-  const [hoveredFaceOrdinal, setHoveredFaceOrdinal] = useState<number | null>(
-    null,
-  );
-  const noteFaceHover = useCallback((ordinal: number | null) => {
-    setHoveredFaceOrdinal((current) =>
-      current === ordinal ? current : ordinal,
-    );
-  }, []);
-  /**
-   * The context a proposal may be offered in — the SAME conditions that make
-   * the body interactive, plus PICK-2's refusal (a tip that builds no body has
-   * no faces to sketch on, and an offer that cannot be honoured is worse than
-   * no offer).
-   */
-  const proposalContext =
-    mode === "off" &&
-    editor === null &&
-    !measureActive &&
-    hasBody &&
-    facePickRefusal === null;
-  const proposalArmed = proposalContext && hoveredFaceOrdinal !== null;
-  // LAZY on purpose: nothing is requested until the pointer first addresses a
-  // face. Same request/key as every other overlay (`staleTime: Infinity`), so
-  // this is one shared cache entry — the first idle hover warms the very entry
-  // the Sketch, measure, hole and datum flows all go on to reuse.
-  const proposalFacesQuery = useQuery({
-    queryKey: ["overlay", partId, treeVersion, meshGlbId],
-    queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
-    enabled: proposalArmed && tree.data !== undefined && meshGlbId !== null,
-    staleTime: Infinity,
-    retry: false,
-  });
-  /**
-   * The hovered face, resolved to one a sketch can actually sit on. A
-   * non-planar face carries no signature and is NOT proposable — the same rule
-   * `FacePickOverlay` applies, so the two surfaces offer exactly the same set
-   * and hovering a fillet proposes nothing rather than proposing a dead end.
-   */
-  const proposedFace = useMemo(() => {
-    if (!proposalArmed) return null;
-    const faces = proposalFacesQuery.data?.faces;
-    if (faces === undefined) return null;
-    const hit = faces.find(
-      (candidate) => candidate.index === hoveredFaceOrdinal,
-    );
-    return hit !== undefined && isPickableFace(hit) ? hit : null;
-  }, [proposalArmed, proposalFacesQuery.data, hoveredFaceOrdinal]);
-
-  // PICK-1 (M16) — the anchor a SUBSHAPE REFERENCE gets stamped with, which is
-  // NOT always `bodyFeatureId`. A reference must name a feature strictly earlier
-  // than the one carrying it (documents `_validate_references` → 422
-  // `reference_not_earlier`), and it is resolved against THAT feature's body. At
-  // create the new feature lands at the tip, so the two coincide; while EDITING a
-  // mid-tree feature the tip is later than — or IS — the referrer, which is why
-  // no picked-edge fillet / picked-face shell could be re-saved at all (M9/M10)
-  // and why M17's "re-pick the face" recovery wrote an id the server refused.
-  //
-  // `bodyFeatureId` stays the TIP on purpose: it answers "does a body exist, and
-  // which body is on screen" (the import gate, the pre-selection carry-over —
-  // the overlays a pick comes FROM are always the tip's). Only the reference
-  // stamp moves.
-  const editingFeatureId =
-    editor !== null && editor.mode === "edit"
-      ? (editor.featureId ?? null)
-      : null;
-  const pickAnchorFeatureId = useMemo(
-    () => anchorBodyFeatureId(tree.data?.features ?? [], editingFeatureId),
-    [tree.data, editingFeatureId],
-  );
-
-  const edgePicking = useEdgePickStore((s) => s.active && s.picking);
-  const setEdgeOverlay = useEdgePickStore((s) => s.setOverlay);
-  const setEdgeOverlayError = useEdgePickStore((s) => s.setOverlayError);
-
-  // WHICH BODY THE EDGES COME FROM. Creating, it is the tip (the shared overlay
-  // entry). EDITING, it is the body the feature under edit is BUILT ON, the
-  // same body its picked edges resolve against. The tip is wrong there: it
-  // already carries this feature, so the edge a fillet rounds is not in it,
-  // and a re-pick of a moved edge (EDGE-RESOLVE-WARN-1) had nothing to click.
-  const edgeOverlayQuery = useQuery({
-    queryKey:
-      editingFeatureId === null
-        ? ["overlay", partId, treeVersion, meshGlbId]
-        : ["overlay-before", partId, treeVersion, editingFeatureId],
-    queryFn: () =>
-      fetchOverlay(
-        buildEvaluateTree(
-          tree.data as FeatureTreeResponse,
-          editingFeatureId ?? undefined,
-        ),
-      ),
-    enabled: edgePicking && tree.data !== undefined && meshGlbId !== null,
-    staleTime: Infinity,
-    retry: false,
+  const {
+    bodyFeatureId,
+    holePickRefusal,
+    datumPickRefusal,
+    facePickRefusal,
+    noteFaceHover,
+    proposalContext,
+    proposedFace,
+    pickAnchorFeatureId,
+    highlightFeatureIds,
+    selectedFaceIndices,
+    preselectedFaceIndices,
+  } = pickOverlays;
+  const treeWrites = useTreeWrites({ partId, queryClient, lengthUnit, tree });
+  const {
+    freshTreeVersion,
+    refreshTreeAndBody,
+    treeWrite,
+    beginTreeWrite,
+    endTreeWrite,
+    noteWrittenTreeVersion,
+    unitBusy,
+    changeUnit,
+  } = treeWrites;
+  const materialPanel = useMaterialControls({
+    partId,
+    queryClient,
+    part,
+    evaluation,
+    bodies,
+    freshTreeVersion,
   });
 
-  useEffect(() => {
-    if (edgePicking && edgeOverlayQuery.data !== undefined) {
-      setEdgeOverlay(edgeOverlayQuery.data);
-    }
-  }, [edgePicking, edgeOverlayQuery.data, setEdgeOverlay]);
-
-  useEffect(() => {
-    if (edgePicking && edgeOverlayQuery.error) {
-      setEdgeOverlayError(
-        edgeOverlayQuery.error instanceof Error
-          ? edgeOverlayQuery.error.message
-          : "The edge overlay could not be built.",
-      );
-    }
-  }, [edgePicking, edgeOverlayQuery.error, setEdgeOverlayError]);
-
-  // Face picking (shell + draft). A shell OR draft editor arms a face-pick
-  // session on the SAME store (only one editor is open at a time); the pickable
-  // face overlay for the current body is fetched exactly as the edge/measure
-  // overlays are (same request/key — one cache entry, faces line up with the
-  // rendered body). The anchor for a picked face's `SubshapeRef` is the same
-  // `pickAnchorFeatureId` fillet/chamfer use — the tip while creating, the
-  // feature before the one under edit while editing (PICK-1).
-  const shellPicking = useFacePickStore((s) => s.active);
-  const setShellOverlay = useFacePickStore((s) => s.setOverlay);
-  const setShellOverlayError = useFacePickStore((s) => s.setOverlayError);
-
-  const shellOverlayQuery = useQuery({
-    queryKey: ["overlay", partId, treeVersion, meshGlbId],
-    queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
-    enabled: shellPicking && tree.data !== undefined && meshGlbId !== null,
-    staleTime: Infinity,
-    retry: false,
+  const workspaceActions = useWorkspaceActions({
+    partId,
+    begin,
+    setSyncError,
+    lastSynced,
+    failedRevision,
+    setSelectedFeatureId,
+    setEditor,
+    setImporting,
+    setImportError,
+    freshTreeVersion,
+    refreshTreeAndBody,
+    beginTreeWrite,
+    endTreeWrite,
+    noteWrittenTreeVersion,
   });
-
-  useEffect(() => {
-    if (shellPicking && shellOverlayQuery.data !== undefined) {
-      setShellOverlay(shellOverlayQuery.data);
-    }
-  }, [shellPicking, shellOverlayQuery.data, setShellOverlay]);
-
-  useEffect(() => {
-    if (shellPicking && shellOverlayQuery.error) {
-      setShellOverlayError(
-        shellOverlayQuery.error instanceof Error
-          ? shellOverlayQuery.error.message
-          : "The face overlay could not be built.",
-      );
-    }
-  }, [shellPicking, shellOverlayQuery.error, setShellOverlayError]);
-
-  // ---------------------------------------------------------------------
-  // Feature-localized selection (FINDINGS #9). Selecting a feature in the tree
-  // highlights ONLY the faces that feature owns — the studio matcap stays on
-  // the rest of the body (never a whole-body clay swap). The overlay carries
-  // per-face `feature_id` provenance; the selected feature's faces are every
-  // OverlayFace whose `feature_id` matches it, and each face's `index` is its
-  // GLB primitive ordinal — the mesh face set to tint. Fetched through the SAME
-  // request/key as every other overlay (one cache entry, faces line up with the
-  // rendered body). Mirrors `bodySelected` exactly (selecting a feature opens
-  // its editor, so it must NOT gate on `editor === null`) — it localizes the
-  // same warm the body already shows, refining whole-body → this feature's faces.
-  //
-  // REACH-2-FLOW-B: WHAT gets tinted is the OPEN COMMAND's scope whenever one is
-  // asking, and the tree selection otherwise — the same source the tree stamp
-  // and the timeline chip read, so the three surfaces answer one question. See
-  // `viewport/scopeHighlight.ts` for why `This body` paints nothing.
-  // ---------------------------------------------------------------------
-  const highlightFeatureIds = useMemo(
-    () => highlightedFeatureIds(scopedFeatureIds, selectedFeatureId),
-    [scopedFeatureIds, selectedFeatureId],
-  );
-  const selectionActive =
-    mode === "off" && highlightFeatureIds.length > 0 && !measureActive;
-  const selectionOverlayQuery = useQuery({
-    queryKey: ["overlay", partId, treeVersion, meshGlbId],
-    queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
-    enabled: selectionActive && tree.data !== undefined && meshGlbId !== null,
-    staleTime: Infinity,
-    retry: false,
-  });
-  const selectedFaceIndices = useMemo<number[] | null>(() => {
-    if (!selectionActive) return null;
-    const faces = selectionOverlayQuery.data?.faces;
-    if (faces === undefined) return null;
-    // `feature_id` is null/absent on any face the server did not attribute (an
-    // older payload, or a body past the provenance bound) — an unattributed
-    // face matches nothing, exactly as the single-id equality it replaces did.
-    const owners = new Set<string>(highlightFeatureIds);
-    const owned = faces
-      .filter((face) => {
-        const owner = face.feature_id;
-        return owner !== null && owner !== undefined && owners.has(owner);
-      })
-      .map((face) => face.index);
-    return owned.length > 0 ? owned : null;
-  }, [selectionActive, highlightFeatureIds, selectionOverlayQuery.data]);
-
-  // ---------------------------------------------------------------------
-  // Pre-selection highlight (UI-W3). A selection you cannot see is a trap: the
-  // next command would prefill itself from something invisible. So the faces
-  // the cursor has picked STAY lit after the editor that picked them closes —
-  // the same feature-localized brass a tree selection lights, on the same
-  // cached overlay (the pick already fetched it, so this costs no request).
-  // A tree selection wins while one is active: one highlight, one meaning.
-  // ---------------------------------------------------------------------
-  const preselectedFaceSet = usePreselectStore((s) => s.faces);
-  const livePreselectedFaces = useMemo(
-    () => preselectedFaces({ faces: preselectedFaceSet }, bodyFeatureId),
-    [preselectedFaceSet, bodyFeatureId],
-  );
-  const preselectHighlightActive =
-    mode === "off" &&
-    !measureActive &&
-    selectedFeatureId === null &&
-    livePreselectedFaces.length > 0;
-  const preselectOverlayQuery = useQuery({
-    queryKey: ["overlay", partId, treeVersion, meshGlbId],
-    queryFn: () =>
-      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
-    enabled:
-      preselectHighlightActive && tree.data !== undefined && meshGlbId !== null,
-    staleTime: Infinity,
-    retry: false,
-  });
-  const preselectedFaceIndices = useMemo<number[] | null>(() => {
-    if (!preselectHighlightActive) return null;
-    const faces = preselectOverlayQuery.data?.faces;
-    if (faces === undefined) return null;
-    const keys = new Set(
-      livePreselectedFaces.map((face) => faceSignatureKey(face.signature)),
-    );
-    const lit = faces
-      .filter(
-        (face) =>
-          isPickableFace(face) && keys.has(faceSignatureKey(face.signature)),
-      )
-      .map((face) => face.index);
-    return lit.length > 0 ? lit : null;
-  }, [
-    preselectHighlightActive,
-    livePreselectedFaces,
-    preselectOverlayQuery.data,
-  ]);
-
-  /** Latest tree version, refetched if the query has none yet. */
-  const freshTreeVersion = useCallback(async (): Promise<number> => {
-    if (tree.data !== undefined) return tree.data.tree_version;
-    return (await fetchFeatureTree(partId)).tree_version;
-  }, [partId, tree.data]);
-
-  const refreshTreeAndBody = useCallback(async () => {
-    await queryClient.invalidateQueries({ queryKey: ["features", partId] });
-    await queryClient.invalidateQueries({ queryKey: ["evaluate", partId] });
-    await queryClient.invalidateQueries({ queryKey: ["mesh", partId] });
-  }, [partId, queryClient]);
-
-  // ---------------------------------------------------------------------
-  // WHAT THE WORKSPACE KNOWS BEFORE ITS CACHES DO (QA-R4).
-  //
-  // Every tree write ends in `refreshTreeAndBody`, and until those refetches
-  // land, the part row and the feature tree still hold the PRE-write version —
-  // which is the denominator `derivePartBuild` compares the evaluation against.
-  // So for the whole length of a write the provenance test came out "current"
-  // and every readout in the app confidently reported a superseded body:
-  // measured at ~600-840 ms, the panel showing the PREVIOUS part's mass with
-  // both status cells claiming to be up to date (QA-REVIEW 2026-08-27).
-  //
-  // Two facts close it, and they are independent on purpose:
-  //  - `pending` — a write is in flight. True from the click, before any reply
-  //    exists, because from the moment the app issues the write it KNOWS the
-  //    body on screen is superseded; it is holding the mutation.
-  //  - `version` — the `tree_version` a write RESPONSE reported. A provenance
-  //    fact rather than a request state, so it keeps the derivation honest even
-  //    where a caller forgets the flag, and it is the earliest the new
-  //    denominator exists anywhere in the client.
-  // Reset per part: a version from one part is not a fact about another.
-  // ---------------------------------------------------------------------
-  const [treeWrite, setTreeWrite] = useState<{
-    pending: number;
-    version: number | null;
-  }>({ pending: 0, version: null });
-  useEffect(() => {
-    setTreeWrite({ pending: 0, version: null });
-  }, [partId]);
-  const beginTreeWrite = useCallback(() => {
-    setTreeWrite((state) => ({ ...state, pending: state.pending + 1 }));
-  }, []);
-  /** Pair with `beginTreeWrite` in a `finally` — never on the success path. */
-  const endTreeWrite = useCallback(() => {
-    setTreeWrite((state) => ({
-      ...state,
-      pending: Math.max(0, state.pending - 1),
-    }));
-  }, []);
-  /** Monotonic, like the counter itself: a later write can only move it up. */
-  const noteWrittenTreeVersion = useCallback((version: number) => {
-    setTreeWrite((state) => ({
-      ...state,
-      version: Math.max(state.version ?? version, version),
-    }));
-  }, []);
-
-  // Document-unit change (docs/design/units.md §U2): a pure re-label. It PATCHes
-  // the part's `length_unit` under the tree-version OCC and refreshes the part +
-  // tree — NO stored mm value is touched, so the body never re-solves; every
-  // dimension cell + readout simply re-formats into the new unit on the next
-  // render (the DocumentUnitProvider feeds them the new value).
-  const [unitBusy, setUnitBusy] = useState(false);
-  const changeUnit = useCallback(
-    (next: LengthUnit) => {
-      if (next === lengthUnit || unitBusy) return;
-      setUnitBusy(true);
-      void (async () => {
-        try {
-          const version = await freshTreeVersion();
-          await updatePartUnit(partId, next, version);
-          await queryClient.invalidateQueries({ queryKey: ["part", partId] });
-          await queryClient.invalidateQueries({
-            queryKey: ["features", partId],
-          });
-        } catch {
-          // A stale-version race (422) or transient failure leaves the unit as
-          // it was; the selector reverts to the loaded value and the user can
-          // retry. Nothing stored changed.
-        } finally {
-          setUnitBusy(false);
-        }
-      })();
-    },
-    [lengthUnit, unitBusy, partId, freshTreeVersion, queryClient],
-  );
-
-  // MATERIAL (docs/design/materials.md). The library is SERVED, never typed
-  // client-side — a density is a physical constant with one home, and a second
-  // copy in TS would silently drift. It is a fixed table, so one fetch per
-  // session; a failure disables the picker and says why rather than guessing.
-  const materialLibrary = useQuery({
-    queryKey: ["materials"],
-    queryFn: () => fetchMaterials(),
-    staleTime: Infinity,
-    retry: false,
-  });
-  // A stored NULL reads back as the EMPTY assignment (§4), so the panel has ONE
-  // shape to render and never has to tell null from empty.
-  const assignment = useMemo<MaterialAssignment>(
-    () => part.data?.materials ?? { default_material: null, bodies: [] },
-    [part.data?.materials],
-  );
-  // One row per body: the tree's names/ordinals joined to the evaluation's
-  // RESOLVED material + mass. Resolution is the server's single function
-  // (`resolve_body_material`); nothing here re-derives it.
-  const materialRows = useMemo(
-    () => bodyMaterialRows(bodies, evaluation.data?.bodies ?? [], assignment),
-    [bodies, evaluation.data?.bodies, assignment],
-  );
-  const [materialBusy, setMaterialBusy] = useState(false);
-  const [materialError, setMaterialError] = useState<string | null>(null);
-  // Assignment is a WHOLESALE replacement under the tree-version OCC guard
-  // (§2): the request states the full intended state, so two concurrent edits
-  // cannot interleave into an assignment neither of them sent. Unlike a rename
-  // or a unit change this really does invalidate the recorded evaluate — mass
-  // was derived from the material — so the tree refetch bumps `tree_version`,
-  // which re-keys the evaluate query and rebuilds with the new density.
-  const assignMaterials = useCallback(
-    (next: MaterialAssignment) => {
-      if (materialBusy) return;
-      setMaterialBusy(true);
-      setMaterialError(null);
-      void (async () => {
-        try {
-          // Retry ONCE on a stale-version race, the way every other discrete
-          // edit here does: a user who re-units the document and immediately
-          // picks a material would otherwise hit a 422 for a conflict that
-          // isn't one (nobody else edited anything — the cached version simply
-          // hadn't caught up yet).
-          try {
-            await updatePartMaterials(partId, next, await freshTreeVersion());
-          } catch {
-            await updatePartMaterials(
-              partId,
-              next,
-              (await fetchFeatureTree(partId)).tree_version,
-            );
-          }
-          await queryClient.invalidateQueries({ queryKey: ["part", partId] });
-          await queryClient.invalidateQueries({
-            queryKey: ["features", partId],
-          });
-          await queryClient.invalidateQueries({
-            queryKey: ["evaluate", partId],
-          });
-        } catch (error) {
-          setMaterialError(
-            error instanceof Error
-              ? error.message
-              : "The material could not be assigned.",
-          );
-        } finally {
-          setMaterialBusy(false);
-        }
-      })();
-    },
-    [materialBusy, partId, freshTreeVersion, queryClient],
-  );
-  const assignDefaultMaterial = useCallback(
-    (material: MaterialKey | null) =>
-      assignMaterials(withDefaultMaterial(assignment, material)),
-    [assignMaterials, assignment],
-  );
-  const assignBodyMaterial = useCallback(
-    (baseFeatureId: string, material: MaterialKey | null) =>
-      assignMaterials(withBodyMaterial(assignment, baseFeatureId, material)),
-    [assignMaterials, assignment],
-  );
-  const materialControls = useMemo(
-    () => ({
-      library: materialLibrary.data ?? [],
-      libraryError:
-        materialLibrary.error instanceof Error
-          ? materialLibrary.error.message
-          : null,
-      assignment,
-      rows: materialRows,
-      busy: materialBusy,
-      error: materialError,
-      onAssignDefault: assignDefaultMaterial,
-      onAssignBody: assignBodyMaterial,
-    }),
-    [
-      materialLibrary.data,
-      materialLibrary.error,
-      assignment,
-      materialRows,
-      materialBusy,
-      materialError,
-      assignDefaultMaterial,
-      assignBodyMaterial,
-    ],
-  );
-
-  /** Enter sketch mode: reset the sync bookkeeping, drop any open editor. */
-  const handleNewSketch = useCallback(() => {
-    lastSynced.current = 0;
-    failedRevision.current = null;
-    setSyncError(null);
-    setEditor(null);
-    setSelectedFeatureId(null);
-    setImportError(null);
-    useMeasureStore.getState().deactivate();
-    begin();
-  }, [begin]);
-
-  // STEP import: read the chosen file's bytes and POST them to the import route
-  // as the base body (§2b). Client-side size/extension pre-checks give instant
-  // feedback, but the server is the source of truth — its envelope message
-  // (import_too_large / import_empty / import_not_step / import_with_prior_body)
-  // is surfaced verbatim. On success the tree + evaluate + mesh refetch so the
-  // imported body appears in BOTH the feature tree and the viewport (the #2
-  // render path every other feature creation uses).
-  const handleImportStep = useCallback(
-    (file: File) => {
-      useMeasureStore.getState().deactivate();
-      setEditor(null);
-      setSelectedFeatureId(null);
-      setImportError(null);
-      const preError = precheckStepFile(file);
-      if (preError !== null) {
-        setImportError(preError);
-        return;
-      }
-      setImporting(true);
-      beginTreeWrite();
-      void (async () => {
-        try {
-          const bytes = await file.arrayBuffer();
-          const response = await importStep(
-            partId,
-            bytes,
-            stepFeatureName(file.name),
-            await freshTreeVersion(),
-          );
-          noteWrittenTreeVersion(response.tree_version);
-          setSelectedFeatureId(response.feature.id);
-          await refreshTreeAndBody();
-        } catch (error) {
-          setImportError(
-            error instanceof Error
-              ? error.message
-              : "The STEP file could not be imported.",
-          );
-        } finally {
-          setImporting(false);
-          endTreeWrite();
-        }
-      })();
-    },
-    [
-      partId,
-      freshTreeVersion,
-      refreshTreeAndBody,
-      beginTreeWrite,
-      endTreeWrite,
-      noteWrittenTreeVersion,
-    ],
-  );
-
-  /** Toggle the Measure tool; arming it drops any open feature editor. */
-  const toggleMeasure = useCallback(() => {
-    const store = useMeasureStore.getState();
-    if (store.active) {
-      store.deactivate();
-      return;
-    }
-    setEditor(null);
-    setSelectedFeatureId(null);
-    store.activate();
-  }, []);
+  const { handleNewSketch, toggleMeasure } = workspaceActions;
 
   // Measure keyboard path (mode off): M toggles the tool; Escape clears the
   // picks, then exits — the same cascade grammar the sketcher uses. Locked while
@@ -2595,496 +415,41 @@ export function PartPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mode, editor, hasBody]);
-
-  /**
-   * Open the Extrude editor, seeded on `seedProfileId` when one is named and on
-   * the tree's default profile otherwise.
-   *
-   * ONE opener with an optional noun, rather than a second path for the
-   * viewport's proposal: everything downstream — the provenance that decides
-   * the direction default (FB-4), the form, the drag handle — must be identical
-   * however the command was started, and two constructions of the same editor
-   * would drift silently rather than fail (FLOW-B1).
-   *
-   * The `typeof` guard is load-bearing, not defensive noise: this same callback
-   * is handed to the band's Extrude button as an `onClick`, so React calls it
-   * with a `MouseEvent` as its first argument. Anything that is not a profile
-   * id means "no seed".
-   *
-   * A NAMED SEED THE TREE NO LONGER OFFERS IS A REFUSAL, NOT A FALLBACK (W2
-   * review, finding 3). This used to fall through to `defaultProfileId`, so a
-   * chip whose `aria-label` said "Extrude Sketch2" could open the editor
-   * holding whatever the tree's default happened to be — the silent wrong noun
-   * that the cross-agent `defaultPrevented` contract exists to prevent,
-   * arriving by a different route. Both sides read the same `profileOptions`
-   * today and so agree; a tree refetch landing between the chip's render and
-   * the click, a rollback or an undo is all it would take. A chip that does
-   * nothing is honest; a chip that opens a different sketch is not.
-   */
-  const openCreateExtrude = useCallback(
-    (seedProfileId?: string) => {
-      const features = tree.data?.features ?? [];
-      const profiles = profileOptions(features);
-      const profileId = seededProfileId(
-        profiles,
-        features,
-        typeof seedProfileId === "string" ? seedProfileId : null,
-      );
-      if (profileId === null) return;
-      useMeasureStore.getState().deactivate();
-      setEditorError(null);
-      setSelectedFeatureId(null);
-      setEditor({
-        kind: "extrude",
-        mode: "create",
-        // The seat of the seeded profile decides the direction default: a sketch
-        // on a model face cuts INTO the material, a datum plane has no material
-        // side to infer one from (FB-4).
-        initial: defaultExtrudeForm(
-          profileId,
-          optionProvenance(profiles, profileId),
-        ),
-      });
-    },
-    [tree.data],
-  );
-
-  const openCreateRevolve = useCallback(() => {
-    const featureList = tree.data?.features ?? [];
-    const profileId = defaultProfileId(featureList);
-    if (profileId === "") return;
-    const axes = axisOptions(featureList, profileId);
-    useMeasureStore.getState().deactivate();
-    setEditorError(null);
-    setSelectedFeatureId(null);
-    setEditor({
-      kind: "revolve",
-      mode: "create",
-      initial: defaultRevolveForm(profileId, defaultAxisId(axes)),
-    });
-  }, [tree.data]);
-
-  // A sweep references TWO earlier sketches (a closed profile + an open path),
-  // so it seeds both slots from the tree — the first sketch as the profile, the
-  // first other sketch as the path — and the user retargets either in the form.
-  const openCreateSweep = useCallback(() => {
-    const featureList = tree.data?.features ?? [];
-    const profileId = defaultSweepProfileId(featureList);
-    const pathId = defaultSweepPathId(featureList, profileId);
-    if (profileId === "" || pathId === "") return;
-    useMeasureStore.getState().deactivate();
-    setEditorError(null);
-    setSelectedFeatureId(null);
-    setEditor({
-      kind: "sweep",
-      mode: "create",
-      initial: defaultSweepForm(profileId, pathId),
-    });
-  }, [tree.data]);
-
-  // A loft references an ORDERED LIST of ≥2 earlier sketches (its sections),
-  // so it seeds the first two sketches in build order as the initial stack; the
-  // user retargets, reorders, or adds more sections in the editor.
-  const openCreateLoft = useCallback(() => {
-    const featureList = tree.data?.features ?? [];
-    const initialSections = defaultLoftSections(featureList);
-    if (initialSections.length < 2) return;
-    useMeasureStore.getState().deactivate();
-    setEditorError(null);
-    setSelectedFeatureId(null);
-    setEditor({
-      kind: "loft",
-      mode: "create",
-      initial: defaultLoftForm(initialSections),
-    });
-  }, [tree.data]);
-
-  // A pattern needs no sketch profile — it repeats the body, or the FEATURE the
-  // tree named — so it only requires a solid to exist (canModify), unlike
-  // extrude/revolve.
-  //
-  // IT KEEPS THE SELECTION, and it is the only opener here that does, alongside
-  // its mirror twin (REACH-2-FLOW P1-3). Every other verb seeds from a FACE or
-  // EDGE preselect, which lives in `usePreselectStore` and survives the editor
-  // on its own; these two seed from `selectedFeatureId`, so clearing it at the
-  // door destroys the very thing that made the proposal — and Cancel then has
-  // nothing to hand back, costing the user the whole click/Escape/press
-  // sequence to try again. Reading the seed before clearing (which is what this
-  // did) kept the FORM right and left the frame wrong: nothing echoed the
-  // subject while the editor named it, and backing out was a dead end.
-  //
-  // Keeping it is not merely undo-safe, it is what makes the subject visible:
-  // the tree row keeps its rail, the timeline chip its edge, and the viewport
-  // its feature-localized tint — `selectionActive` deliberately does not gate
-  // on `editor === null`, precisely so a selection stays lit through the
-  // command it armed.
-  const openCreatePattern = useCallback(() => {
-    const seed = patternScopeSeed;
-    useMeasureStore.getState().deactivate();
-    setEditorError(null);
-    setEditor({
-      kind: "pattern",
-      mode: "create",
-      initial: defaultPatternForm(seed),
-    });
-  }, [patternScopeSeed]);
-
-  // Fillet/chamfer, like a pattern, act on the current BODY via a geometric
-  // edge-selector predicate (no sketch profile) — they only need a solid to
-  // exist (canModify), so they mirror openCreatePattern's guard.
-  // Both seed from the edges the cursor already has selected (UI-W3): picking
-  // three edges and then choosing Fillet is how a modeller works, and until
-  // now that selection was thrown away at the door. A seeded editor opens in
-  // "pick" mode — the picks ARE the selector — and an empty one keeps the
-  // all-edges rule default.
-  const openCreateFillet = useCallback(() => {
-    const picked = preselectedEdges(
-      usePreselectStore.getState(),
-      bodyFeatureId,
-    );
-    useMeasureStore.getState().deactivate();
-    setEditorError(null);
-    setSelectedFeatureId(null);
-    setEditor({
-      kind: "fillet",
-      mode: "create",
-      initial: {
-        ...defaultFilletForm(),
-        ...(picked.length > 0 ? { mode: "pick" as const } : {}),
-      },
-      initialPicked: [...picked],
-    });
-  }, [bodyFeatureId]);
-
-  const openCreateChamfer = useCallback(() => {
-    const picked = preselectedEdges(
-      usePreselectStore.getState(),
-      bodyFeatureId,
-    );
-    useMeasureStore.getState().deactivate();
-    setEditorError(null);
-    setSelectedFeatureId(null);
-    setEditor({
-      kind: "chamfer",
-      mode: "create",
-      initial: {
-        ...defaultChamferForm(),
-        ...(picked.length > 0 ? { mode: "pick" as const } : {}),
-      },
-      initialPicked: [...picked],
-    });
-  }, [bodyFeatureId]);
-
-  // A shell, like fillet/chamfer/pattern, hollows the current BODY (no sketch
-  // profile) — it only needs a solid to exist (canModify), so it mirrors their
-  // guard. It opens with zero picked faces: a sealed hollow is a valid default.
-  const openCreateShell = useCallback(() => {
-    useMeasureStore.getState().deactivate();
-    setEditorError(null);
-    setSelectedFeatureId(null);
-    setEditor({
-      kind: "shell",
-      mode: "create",
-      initial: defaultShellForm(),
-      // The faces the cursor already has selected are the faces to leave open
-      // (UI-W3) — an empty selection still means a sealed hollow.
-      initialPickedFaces: preselectedFaces(
-        usePreselectStore.getState(),
-        bodyFeatureId,
-      ).map((face) => face.signature),
-    });
-  }, [bodyFeatureId]);
-
-  // A draft, like shell, tapers the current BODY's picked faces (no sketch
-  // profile) — it only needs a solid to exist (canModify), so it mirrors the
-  // shell guard. It opens with zero picked faces; Apply stays disabled until at
-  // least one face is picked (a draft with no faces is `no_draft_faces`).
-  const openCreateDraft = useCallback(() => {
-    useMeasureStore.getState().deactivate();
-    setEditorError(null);
-    setSelectedFeatureId(null);
-    setEditor({
-      kind: "draft",
-      mode: "create",
-      initial: defaultDraftForm(),
-      // Seeded from the cursor selection (UI-W3); Apply stays gated until at
-      // least one face is chosen either way.
-      initialPickedFaces: preselectedFaces(
-        usePreselectStore.getState(),
-        bodyFeatureId,
-      ).map((face) => face.signature),
-    });
-  }, [bodyFeatureId]);
-
-  // A hole, like fillet/shell/draft, modifies the current BODY (no sketch
-  // profile) — it only needs a solid to exist (canModify), so it mirrors their
-  // guard.
-  //
-  // UI-W3, and the reason this item exists: the hole opens PLACED on whatever
-  // face the cursor already had selected (drill point seeded to its centre), so
-  // the anchor block reads as confirmation and the modeller types a diameter
-  // and hits Enter. With nothing selected the face pick is ARMED on open, so
-  // clicking a face just takes it — no arming step, which is the other half of
-  // the "must select the same face twice" complaint.
-  const openCreateHole = useCallback(() => {
-    const seed = preselectedFace(usePreselectStore.getState(), bodyFeatureId);
-    useMeasureStore.getState().deactivate();
-    setEditorError(null);
-    setSelectedFeatureId(null);
-    setEditor({
-      kind: "hole",
-      mode: "create",
-      initial: defaultHoleForm(seed, lengthUnit),
-    });
-    setHolePickError(null);
-    setHolePick(seed === null ? "face" : null);
-  }, [bodyFeatureId, lengthUnit]);
-
-  // A mirror, like pattern/fillet/shell, reflects the current BODY about a
-  // plane (no sketch profile) — it only needs a solid to exist (canModify), so
-  // it mirrors those guards. v1 needs only a plane choice: no face/point pick.
-  // Keeps the selection for the same reason `openCreatePattern` does — the two
-  // verbs share one subject and must not treat it two different ways.
-  const openCreateMirror = useCallback(() => {
-    const seed = patternScopeSeed;
-    useMeasureStore.getState().deactivate();
-    setEditorError(null);
-    setEditor({
-      kind: "mirror",
-      mode: "create",
-      initial: defaultMirrorForm(seed),
-    });
-  }, [patternScopeSeed]);
-
-  /**
-   * THE SEED GESTURE, TAKEN DIRECTLY FROM A ROW (REACH-2-FLOW P1-4).
-   *
-   * The advertised flow is "name Hole1, then repeat it". Reaching the verb
-   * through the BAND requires the row to be selected, and selecting a row opens
-   * that feature's own editor — which then locks the band and the accelerators,
-   * so the gesture in practice is "open an editor nobody asked for, abandon it,
-   * then press P". That is a dialog charged as a toll, and it is the flow
-   * mandate's "no dead ends" test failing.
-   *
-   * Offering the two verbs on the row's own menu removes the toll without
-   * re-teaching what a click does: right-click Hole1 -> Repeat Hole1, and the
-   * feature's editor never opens. It is also the incumbent gesture — a
-   * right-click on a timeline feature in Fusion/Onshape/SolidWorks asks exactly
-   * this question, "what can I do with this one?" — and it costs no band width,
-   * so the resting chrome is unchanged.
-   *
-   * The seed is passed EXPLICITLY rather than through `setSelectedFeatureId` +
-   * `patternScopeSeed`: that memo is derived from state this render has not
-   * committed yet, so routing through it would open the editor on the PREVIOUS
-   * selection. The selection is still set, because the row genuinely is the
-   * subject from here on and the band must say so.
-   */
-  const openScopedVerb = useCallback(
-    (verb: "pattern" | "mirror", feature: FeatureResponse) => {
-      const picked = scopeFeature(feature);
-      if (picked === null) return;
-      const seed: ScopeSeed = { ...picked, fromSelection: true };
-      useMeasureStore.getState().deactivate();
-      setEditorError(null);
-      setSelectedFeatureId(feature.id);
-      setEditor(
-        verb === "pattern"
-          ? {
-              kind: "pattern",
-              mode: "create",
-              initial: defaultPatternForm(seed),
-            }
-          : {
-              kind: "mirror",
-              mode: "create",
-              initial: defaultMirrorForm(seed),
-            },
-      );
-    },
-    [],
-  );
-
-  // A datum plane needs no sketch/body — it's a construction plane parallel to
-  // an origin datum. Available as soon as the tree exists (its own feature row).
-  const openCreateDatum = useCallback(() => {
-    const seed = preselectedFace(usePreselectStore.getState(), bodyFeatureId);
-    useMeasureStore.getState().deactivate();
-    setEditorError(null);
-    setSelectedFeatureId(null);
-    // A selected face means "a plane on THIS" (UI-W3) — the datum opens as an
-    // on_face datum sitting on it, instead of the generic 30 mm-above-XY form.
-    setEditor({
-      kind: "datum",
-      mode: "create",
-      initial: defaultDatumForm(seed),
-    });
-  }, [bodyFeatureId]);
-
-  // A base flange thickens a sketch profile to gauge — the sheet-metal part's
-  // first body (sheet-metal.md §4.1). Like extrude it needs a solved sketch to
-  // consume, so it mirrors openCreateExtrude's profile guard.
-  const openCreateBaseFlange = useCallback(() => {
-    const profileId = defaultProfileId(tree.data?.features ?? []);
-    if (profileId === "") return;
-    useMeasureStore.getState().deactivate();
-    setEditorError(null);
-    setSelectedFeatureId(null);
-    setEditor({
-      kind: "baseFlange",
-      mode: "create",
-      initial: defaultBaseFlangeForm(profileId),
-    });
-  }, [tree.data]);
-
-  // An edge flange folds a leg off ONE picked straight edge of the sheet body
-  // (sheet-metal.md §4.2). It picks like fillet/chamfer (single-select), so it
-  // only needs a sheet body to exist.
-  const openCreateEdgeFlange = useCallback(() => {
-    useMeasureStore.getState().deactivate();
-    setEditorError(null);
-    setSelectedFeatureId(null);
-    setEditor({
-      kind: "edgeFlange",
-      mode: "create",
-      initial: defaultEdgeFlangeForm(),
-      // ONE edge folds a flange, so a multi-edge selection seeds its most
-      // recent member rather than an arbitrary one (UI-W3).
-      initialPicked: [
-        ...preselectedEdges(usePreselectStore.getState(), bodyFeatureId, 1),
-      ],
-    });
-  }, [bodyFeatureId]);
-
-  // A hem folds ONE picked straight edge 180° back onto the sheet (parity §2) —
-  // closed (pressed flat) or open (a deliberate gap), chosen in the editor. It
-  // picks like an edge flange (single-select), so it only needs a sheet body.
-  const openCreateHem = useCallback(() => {
-    useMeasureStore.getState().deactivate();
-    setEditorError(null);
-    setSelectedFeatureId(null);
-    setEditor({
-      kind: "hem",
-      mode: "create",
-      initial: defaultHemForm(),
-      initialPicked: [
-        ...preselectedEdges(usePreselectStore.getState(), bodyFeatureId, 1),
-      ],
-    });
-  }, [bodyFeatureId]);
-
-  // A corner relief notches the shared corner of two edge flanges (parity §4.4).
-  // It references two edge-flange FEATURES (not an edge pick), so it seeds the
-  // first two edge flanges in tree order; the user retargets either in the form.
-  const openCreateCornerRelief = useCallback(() => {
-    const opts = edgeFlangeOptions(tree.data?.features ?? []);
-    const a = opts[0]?.id ?? "";
-    const b = opts[1]?.id ?? "";
-    if (a === "" || b === "") return;
-    useMeasureStore.getState().deactivate();
-    setEditorError(null);
-    setSelectedFeatureId(null);
-    setEditor({
-      kind: "cornerRelief",
-      mode: "create",
-      initial: defaultCornerReliefForm(a, b),
-    });
-  }, [tree.data]);
-
-  // Flat pattern (sheet-metal.md §7): unfold the sheet body onto a lone drawing
-  // sheet, so the model → flatten loop is click-through from the part. It
-  // creates a drawing named after the part (a numeric suffix dodges a name
-  // clash), a sheet, and a single flat_pattern view, then opens the drawing —
-  // where the reused flat-pattern renderer draws the blank + bend table. A
-  // non-sheet-metal part composes an honest `flat_pattern_not_sheet_metal` view
-  // there, never a crash.
-  const openFlatPattern = useCallback(() => {
-    if (flatPatternBusy) return;
-    setFlatPatternBusy(true);
-    setFlatPatternError(null);
-    void (async () => {
-      try {
-        const baseName = `${part.data?.name ?? "Part"} — flat pattern`;
-        let drawing = null;
-        for (let attempt = 0; attempt < 6 && drawing === null; attempt += 1) {
-          const name = attempt === 0 ? baseName : `${baseName} ${attempt + 1}`;
-          try {
-            drawing = await createDrawing(name);
-          } catch (error) {
-            if (error instanceof DrawingNameTakenError) continue;
-            throw error;
-          }
-        }
-        if (drawing === null) {
-          throw new Error("A drawing for this flat pattern already exists.");
-        }
-        // The SAME header derivation every other create path uses
-        // (REACH-3-FLOW): a lone flat-pattern sheet, so it takes the shop
-        // default paper rather than a proposal — the four-view fit the proposal
-        // reads does not model an unfolded blank, and this hand-off has no
-        // sheet to inherit a convention from either.
-        const header = sheetHeaderForNewSheet({
-          name: "Sheet 1",
-          size: "A4",
-          layout: "lone",
-          fit: null,
-          inherit: null,
-        });
-        const sheet = await createSheet(drawing.id, {
-          name: header.name,
-          size: header.size,
-          orientation: header.orientation,
-          projection: header.projection,
-          expected_version: drawing.doc_version,
-        });
-        const dims = sheetDimensions(header.size, header.orientation);
-        await createView(drawing.id, sheet.sheet.id, {
-          projection: "flat_pattern",
-          ref_document_id: partId,
-          ref_document_kind: "part",
-          scale: { numerator: 1, denominator: 1 },
-          position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
-          auto_place: true,
-          expected_version: sheet.doc_version,
-        });
-        await navigate({
-          to: "/drawings/$drawingId",
-          params: { drawingId: drawing.id },
-        });
-      } catch (error) {
-        setFlatPatternError(
-          error instanceof Error
-            ? error.message
-            : "The flat pattern could not be opened.",
-        );
-      } finally {
-        setFlatPatternBusy(false);
-      }
-    })();
-  }, [flatPatternBusy, part.data, partId, navigate]);
-
-  // Flat-pattern DXF (AUDIT-PRODUCT F-2a): the cut path a laser/turret vendor
-  // asks for by name, straight from the part — no drawing sheet to author, and
-  // no A4 border and title block to delete afterwards. 1:1 by construction on
-  // the server, so there is nothing to get wrong here.
-  const exportFlatDxf = useCallback(() => {
-    if (flatDxfBusy) return;
-    setFlatDxfBusy(true);
-    setFlatPatternError(null);
-    void (async () => {
-      try {
-        const file = await exportPartFlatPatternDxf(partId);
-        downloadBlob(file.blob, file.filename);
-      } catch (error) {
-        setFlatPatternError(
-          error instanceof Error
-            ? error.message
-            : "The flat-pattern DXF could not be written.",
-        );
-      } finally {
-        setFlatDxfBusy(false);
-      }
-    })();
-  }, [flatDxfBusy, partId]);
+  const featureOpeners = useFeatureOpeners({
+    lengthUnit,
+    tree,
+    setHolePick,
+    setHolePickError,
+    setSelectedFeatureId,
+    patternScopeSeed,
+    setEditorError,
+    setEditor,
+    bodyFeatureId,
+  });
+  const {
+    openCreateExtrude,
+    openCreateRevolve,
+    openCreateSweep,
+    openCreateLoft,
+    openCreatePattern,
+    openCreateFillet,
+    openCreateChamfer,
+    openCreateShell,
+    openCreateDraft,
+    openCreateHole,
+    openCreateMirror,
+    openScopedVerb,
+  } = featureOpeners;
+  const flatPatternExport = useFlatPatternExport({
+    partId,
+    navigate,
+    part,
+    flatPatternBusy,
+    setFlatPatternBusy,
+    setFlatPatternError,
+    flatDxfBusy,
+    setFlatDxfBusy,
+  });
 
   // Combine needs ≥2 bodies to fuse (a boolean union names two of them). It
   // seeds the first two bodies in tree order; the user retargets either.
@@ -3105,147 +470,15 @@ export function PartPage() {
       useMeasureStore.getState().deactivate();
       setSelectedFeatureId(feature.id);
       setEditorError(null);
-      if (feature.feature.type === "extrude") {
-        setEditor({
-          kind: "extrude",
-          mode: "edit",
-          featureId: feature.id,
-          initial: formFromParams(feature.feature.params, lengthUnit),
-        });
-      } else if (feature.feature.type === "revolve") {
-        setEditor({
-          kind: "revolve",
-          mode: "edit",
-          featureId: feature.id,
-          initial: formFromRevolveParams(feature.feature.params),
-        });
-      } else if (feature.feature.type === "sweep") {
-        setEditor({
-          kind: "sweep",
-          mode: "edit",
-          featureId: feature.id,
-          initial: formFromSweepParams(feature.feature.params),
-        });
-      } else if (feature.feature.type === "loft") {
-        setEditor({
-          kind: "loft",
-          mode: "edit",
-          featureId: feature.id,
-          initial: formFromLoftParams(feature.feature.params),
-        });
-      } else if (feature.feature.type === "pattern") {
-        setEditor({
-          kind: "pattern",
-          mode: "edit",
-          featureId: feature.id,
-          initial: formFromPatternParams(
-            feature.feature.params,
-            lengthUnit,
-            features,
-          ),
-        });
-      } else if (feature.feature.type === "fillet") {
-        setEditor({
-          kind: "fillet",
-          mode: "edit",
-          featureId: feature.id,
-          initial: formFromFilletParams(feature.feature.params, lengthUnit),
-          initialPicked: pickedFromFilletParams(feature.feature.params),
-        });
-      } else if (feature.feature.type === "chamfer") {
-        setEditor({
-          kind: "chamfer",
-          mode: "edit",
-          featureId: feature.id,
-          initial: formFromChamferParams(feature.feature.params, lengthUnit),
-          initialPicked: pickedFromChamferParams(feature.feature.params),
-        });
-      } else if (feature.feature.type === "shell") {
-        setEditor({
-          kind: "shell",
-          mode: "edit",
-          featureId: feature.id,
-          initial: formFromShellParams(feature.feature.params, lengthUnit),
-          initialPickedFaces: pickedFacesFromShellParams(
-            feature.feature.params,
-          ),
-        });
-      } else if (feature.feature.type === "draft") {
-        setEditor({
-          kind: "draft",
-          mode: "edit",
-          featureId: feature.id,
-          initial: formFromDraftParams(feature.feature.params, lengthUnit),
-          initialPickedFaces: pickedFacesFromDraftParams(
-            feature.feature.params,
-          ),
-        });
-      } else if (feature.feature.type === "hole") {
-        setEditor({
-          kind: "hole",
-          mode: "edit",
-          featureId: feature.id,
-          initial: formFromHoleParams(feature.feature.params, lengthUnit),
-        });
-      } else if (feature.feature.type === "mirror") {
-        setEditor({
-          kind: "mirror",
-          mode: "edit",
-          featureId: feature.id,
-          initial: formFromMirrorParams(feature.feature.params, features),
-        });
-      } else if (feature.feature.type === "sheet_metal_base_flange") {
-        setEditor({
-          kind: "baseFlange",
-          mode: "edit",
-          featureId: feature.id,
-          initial: formFromBaseFlangeParams(feature.feature.params, lengthUnit),
-        });
-      } else if (feature.feature.type === "sheet_metal_edge_flange") {
-        setEditor({
-          kind: "edgeFlange",
-          mode: "edit",
-          featureId: feature.id,
-          initial: formFromEdgeFlangeParams(feature.feature.params, lengthUnit),
-          initialPicked: pickedFromEdgeFlangeParams(feature.feature.params),
-        });
-      } else if (feature.feature.type === "sheet_metal_hem") {
-        setEditor({
-          kind: "hem",
-          mode: "edit",
-          featureId: feature.id,
-          initial: formFromHemParams(feature.feature.params, lengthUnit),
-          initialPicked: pickedFromHemParams(feature.feature.params),
-        });
-      } else if (feature.feature.type === "sheet_metal_corner_relief") {
-        setEditor({
-          kind: "cornerRelief",
-          mode: "edit",
-          featureId: feature.id,
-          initial: formFromCornerReliefParams(
-            feature.feature.params,
-            lengthUnit,
-          ),
-        });
-      } else if (feature.feature.type === "datum") {
-        // Every datum kind is editable here — offset / offset-from / midplane /
-        // on_face. A face-referencing datum (on_face or a midplane FACE-side)
-        // seeds its picked face(s) from the stored signature; the editor arms a
-        // re-pick through the same FacePickOverlay it authored them with.
-        setEditor({
-          kind: "datum",
-          mode: "edit",
-          featureId: feature.id,
-          initial: formFromDatumParams(feature.feature.params, lengthUnit),
-        });
-      } else if (feature.feature.type === "sketch") {
+      if (feature.feature.type === "sketch") {
         // A SAVED SKETCH RE-OPENS IN THE SKETCHER (SKETCH-1). Every other type
-        // above opens a form; a sketch's editor IS the sketcher, so this branch
-        // hydrates the session from the persisted params instead — same plane,
-        // same entities, same constraints, and the SAME feature id, so the next
-        // save PATCHes this sketch rather than minting a second one. Without it
-        // the chain fell through to `setEditor(null)` and the row click was a
-        // silent no-op: a dimension could be authored once and never revised.
+        // opens a form (`part/featureEditors`); a sketch's editor IS the
+        // sketcher, so this branch hydrates the session from the persisted
+        // params instead — same plane, same entities, same constraints, and the
+        // SAME feature id, so the next save PATCHes this sketch rather than
+        // minting a second one. Without it the chain fell through to
+        // `setEditor(null)` and the row click was a silent no-op: a dimension
+        // could be authored once and never revised.
         const params = feature.feature.params;
         const store = useSketchStore.getState();
         // Already the open sketch — the row click is a selection, not a reload.
@@ -3278,99 +511,32 @@ export function PartPage() {
         setImportError(null);
         store.beginEdit(feature.id, plane, params.entities, params.constraints);
       } else {
-        setEditor(null);
+        setEditor(editorForFeature(feature, lengthUnit, features));
       }
     },
     // `features` joins the deps because a pattern/mirror's persisted scope is
     // shown by feature NAME, which only the tree can supply.
     [features, lengthUnit, specFromPlaneRef],
   );
-
-  // Re-pick repair for a `subshape_unresolved` feature error (FINDINGS #3). The
-  // kernel re-matches a same-face reference resiliently, so this fires only for a
-  // GENUINELY lost face; the one-click fix opens the feature's editor and re-arms
-  // its FACE pick, so the user re-attaches the reference through the same overlay
-  // that authored it. Batched with selectFeature: the hole pick-session effect
-  // only clears `holePick` when the open editor is NOT a hole, and after this
-  // render the editor IS the hole, so the armed pick survives.
-  const repickFace = useCallback(
-    (feature: FeatureResponse) => {
-      selectFeature(feature);
-      if (feature.feature.type !== "hole") return;
-      setHolePickError(null);
-      // PICK-2: the repair is offered ON a failed build, which is exactly the
-      // state that can leave the evaluation with no body — and with no body
-      // every pick overlay is disabled, so arming here would badge `Picking`
-      // over a scene that contains no pickable target at all. The editor opens
-      // either way (the feature is what the user asked to see) and states the
-      // refusal on its face row; only the ARMING is withheld.
-      if (holePickRefusal !== null) return;
-      setHolePick("face");
-    },
-    [selectFeature, holePickRefusal],
-  );
-
-  // "EDGE MOVED" (EDGE-RESOLVE-WARN-1). A feature whose picked edge the kernel
-  // re-found only by adjacency carries a notice in the tree and in its editor
-  // (`features/subshapeResolution`). Re-picking opens the feature's editor
-  // with the moved picks dropped and picking armed, on the body the feature is
-  // built on (see the edge overlay query). The session effect above does the
-  // dropping once it has seeded the picks, so the pending id is handed to it.
-  const pendingRepick = useRef<string | null>(null);
-  const repickEdges = useCallback(
-    (feature: FeatureResponse) => {
-      if (
-        editor !== null &&
-        editor.mode === "edit" &&
-        editor.featureId === feature.id
-      ) {
-        useEdgePickStore.getState().repickMoved();
-        return;
-      }
-      pendingRepick.current = feature.id;
-      selectFeature(feature);
-    },
-    [editor, selectFeature],
-  );
-  // The OPEN editor's notice: the same derivation the tree row uses, for the
-  // feature under edit. Not dismissable there: the editor is the answer.
-  const editorMovedEdge = useMemo(() => {
-    if (editor === null || editor.mode !== "edit" || !editor.featureId) {
-      return null;
-    }
-    const feature = features.find((f) => f.id === editor.featureId);
-    if (feature === undefined) return null;
-    const result = evaluation.data?.features.find(
-      (r) => r.feature_id === feature.id,
-    );
-    return movedEdgeWarning(feature, features, result);
-  }, [editor, features, evaluation.data]);
-  // Dismissed notices, by `MovedEdgeWarning.key`: session state, remembered
-  // until an EARLIER feature changes (a new re-match brings it back).
-  const [dismissedMovedEdges, setDismissedMovedEdges] = useState<
-    ReadonlySet<string>
-  >(() => new Set());
-  const dismissMovedEdge = useCallback((key: string) => {
-    setDismissedMovedEdges((previous) => new Set(previous).add(key));
-  }, []);
-
-  const closeEditor = useCallback(() => {
-    setEditor(null);
-    setEditorError(null);
-    setExtrudePreview(null);
-    // The gauge OVERRIDES are reset by `setEditor` itself, for every transition
-    // and not just this one — see its note. What is left here is the other
-    // half: the editors' PROJECTIONS (the live value the viewport draws its
-    // preview from). Those are nulled by each editor's own unmount, and a close
-    // that does not unmount one — a retarget — would otherwise leave an arc or
-    // a row drawn on the feature you just left.
-    setFilletRadiusMm(null);
-    setChamferDistanceMm(null);
-    setRevolveGauge(null);
-    setDraftGauge(null);
-    setPatternPreview(null);
-    setHoleGauge(null);
-  }, [setEditor]);
+  const editorRepick = useEditorRepick({
+    evaluation,
+    editor,
+    setHolePick,
+    setHolePickError,
+    features,
+    setEditorError,
+    setExtrudePreview,
+    setFilletRadiusMm,
+    setChamferDistanceMm,
+    setRevolveGauge,
+    setDraftGauge,
+    setPatternPreview,
+    setHoleGauge,
+    setEditor,
+    holePickRefusal,
+    selectFeature,
+  });
+  const { pendingRepick, closeEditor } = editorRepick;
 
   // Global cancel for an open feature editor (FINDINGS #11). The command band
   // advertises "CANCEL ESC", so Escape MUST disarm the editor from any focus —
@@ -3394,1162 +560,99 @@ export function PartPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mode, editor, datumFacePick, holePick, closeEditor]);
-
-  // Edge-pick session lifecycle: a fillet/chamfer editor opens a session
-  // (seeded with its persisted picks + mode); anything else closes it. Keyed on
-  // `editor` identity, which only changes on an open/select/close, so the store
-  // never churns mid-edit. The overlay fetch + render gate on the store.
-  useEffect(() => {
-    const store = useEdgePickStore.getState();
-    // A re-pick asked for from the tree ("Edge moved") opened THIS editor: it
-    // drops the moved picks once the session has been seeded (below).
-    const repick =
-      editor !== null &&
-      editor.mode === "edit" &&
-      editor.featureId !== undefined &&
-      editor.featureId === pendingRepick.current;
-    pendingRepick.current = null;
-    if (
-      editor !== null &&
-      (editor.kind === "fillet" || editor.kind === "chamfer")
-    ) {
-      store.open(editor.initialPicked, editor.initial.mode === "pick");
-    } else if (
-      editor !== null &&
-      (editor.kind === "edgeFlange" || editor.kind === "hem")
-    ) {
-      // An edge flange / hem always picks (a lone straight edge to fold) —
-      // single-select: a click replaces the pick rather than accumulating a set.
-      store.open(editor.initialPicked, true, true);
-    } else {
-      store.close();
-      return;
-    }
-    if (repick) store.repickMoved();
-  }, [editor]);
-  // Leaving the workspace tears the edge-pick session down.
-  useEffect(() => () => useEdgePickStore.getState().close(), []);
-
-  // Corner-relief bend highlight (SM-relief-ui-1): the editor mirrors its live
-  // Bend A / Bend B selection up, PartPage resolves each id to its flange's
-  // stored fold-edge signature, and the viewport draws the bend line + tag
-  // (`BendHighlightOverlay`) — the in-scene answer to which select option is
-  // which physical corner. Cleared whenever the corner-relief editor closes.
-  const [reliefBends, setReliefBends] = useState<{
-    a: string;
-    b: string;
-  } | null>(null);
-  const onReliefBendsChange = useCallback(
-    (a: string, b: string) => setReliefBends({ a, b }),
-    [],
-  );
-  useEffect(() => {
-    if (editor === null || editor.kind !== "cornerRelief") {
-      setReliefBends(null);
-    }
-  }, [editor]);
-  const reliefBendHighlights = useMemo(() => {
-    if (editor?.kind !== "cornerRelief" || reliefBends === null) return [];
-    return cornerReliefBendHighlights(features, reliefBends.a, reliefBends.b);
-  }, [editor, reliefBends, features]);
-
-  // Edge-flange width-extent preview (§4.5.1): the editor mirrors its live
-  // Full / Centered / Offset span up, and the viewport draws it ON the picked
-  // edge (`FlangeSpanOverlay`) — the in-scene answer to the chosen extent.
-  // Cleared whenever the edge-flange editor closes.
-  const [edgeFlangeSpan, setEdgeFlangeSpan] =
-    useState<EdgeFlangeSpanPreview | null>(null);
-  const onEdgeFlangeSpanChange = useCallback(
-    (span: EdgeFlangeSpanPreview | null) => setEdgeFlangeSpan(span),
-    [],
-  );
-  useEffect(() => {
-    if (editor?.kind !== "edgeFlange") setEdgeFlangeSpan(null);
-  }, [editor]);
-  const edgeFlangeSpanLabel = useMemo(
-    () =>
-      edgeFlangeSpan === null
-        ? ""
-        : formatLength(edgeFlangeSpan.spanMm, lengthUnit, { unitSuffix: true }),
-    [edgeFlangeSpan, lengthUnit],
-  );
-
-  // Face-pick session lifecycle: a shell OR draft editor opens a session
-  // (seeded with its persisted picked faces), anything else closes it. Keyed on
-  // `editor` identity (only changes on open/select/close), so the store never
-  // churns mid-edit. The overlay fetch + render gate on the store.
-  useEffect(() => {
-    const store = useFacePickStore.getState();
-    if (
-      editor !== null &&
-      (editor.kind === "shell" || editor.kind === "draft")
-    ) {
-      store.open(editor.initialPickedFaces);
-    } else {
-      store.close();
-    }
-  }, [editor]);
-  // Leaving the workspace tears the face-pick session down.
-  useEffect(() => () => useFacePickStore.getState().close(), []);
-
-  // ---------------------------------------------------------------------
-  // Pre-selection mirror (UI-W3). The in-canvas overlays write their picks to
-  // the edge/face pick stores, which are SESSION state — closing the editor
-  // wipes them. These two effects copy the live picks out to the pre-selection
-  // while a session is open, so the selection survives the command that made
-  // it and the next command opens seeded. Guarded on `active`, so the store's
-  // own teardown (`close()` → picked: []) never erases what it just published.
-  // ---------------------------------------------------------------------
-  const shellPickedFaces = useFacePickStore((s) => s.picked);
-  const shellSessionOpen = useFacePickStore((s) => s.active);
-  const shellPickOverlay = useFacePickStore((s) => s.overlay);
-
-  /**
-   * Where each CRAFT-9b gauge stands. Resolved HERE and handed down as a value:
-   * the gauges never read a pick store, so W4's persistent selection store
-   * (CRAFT-12) re-wires these two lines rather than rewriting two components.
-   * The datum seat also needs the datum-resolution table, which this page
-   * already owns — one walk, not a second copy of it inside the viewport.
-   */
-  const shellGaugeAnchor = useMemo(
-    () => shellAnchor(shellPickOverlay, shellPickedFaces),
-    [shellPickOverlay, shellPickedFaces],
-  );
-  const datumGaugeAnchor = useMemo(
-    () =>
-      datumAnchor(
-        datumGaugeSeed,
-        (featureId) => datumBasisById.get(featureId) ?? null,
-      ),
-    [datumGaugeSeed, datumBasisById],
-  );
-  // The hole instruments stand on the editor's live face + drill point — the
-  // SAME mirror the placement overlay draws from, so the bore is drawn exactly
-  // where the crosshair says the drill goes.
-  const holeGaugeAnchor = useMemo(
-    () =>
-      holePreview?.signature == null || holePreview.position === null
-        ? null
-        : holeAnchor(holePreview.signature, holePreview.position),
-    [holePreview],
-  );
-  useEffect(() => {
-    if (!shellSessionOpen || bodyFeatureId === null) return;
-    usePreselectStore.getState().rememberFaces(
-      shellPickedFaces.map((signature) => ({
-        signature,
-        anchorId: bodyFeatureId,
-      })),
-    );
-  }, [shellSessionOpen, shellPickedFaces, bodyFeatureId]);
-
-  const edgePickedEdges = useEdgePickStore((s) => s.picked);
-  const edgeSessionOpen = useEdgePickStore((s) => s.active);
-  useEffect(() => {
-    if (!edgeSessionOpen) return;
-    usePreselectStore.getState().rememberEdges(edgePickedEdges, bodyFeatureId);
-  }, [edgeSessionOpen, edgePickedEdges, bodyFeatureId]);
-
-  // The shared save path for either body-affecting feature: read the freshest
-  // tree_version, retry once on a stale-version race, then invalidate the tree
-  // + evaluate + mesh so the body updates through the #2 render path.
-  const runFeatureSave = useCallback(
-    (
-      createEnvelope: (version: number) => FeatureCreate,
-      updateEnvelope: (version: number) => FeatureUpdate,
-      isCreate: boolean,
-      featureId: string | undefined,
-      fallbackMessage: string,
-    ) => {
-      setEditorSaving(true);
-      setEditorError(null);
-      // The body on screen is superseded from HERE, not from when the reply
-      // lands — see the tree-write block above.
-      beginTreeWrite();
-      void (async () => {
-        try {
-          const attempt = async (version: number) =>
-            isCreate
-              ? createFeature(partId, createEnvelope(version))
-              : updateFeature(
-                  partId,
-                  featureId as string,
-                  updateEnvelope(version),
-                );
-          let response;
-          try {
-            response = await attempt(await freshTreeVersion());
-          } catch {
-            response = await attempt(
-              (await fetchFeatureTree(partId)).tree_version,
-            );
-          }
-          // The reply carries the version the write PRODUCED: the staleness
-          // denominator, in hand a full refetch before either cache has it.
-          noteWrittenTreeVersion(response.tree_version);
-          setSelectedFeatureId(response.feature.id);
-          setLastSavedFeatureId(response.feature.id);
-          setRebuildNoticeDismissed(false);
-          setEditor(null);
-          await refreshTreeAndBody();
-        } catch (error) {
-          setEditorError(
-            error instanceof Error ? error.message : fallbackMessage,
-          );
-        } finally {
-          setEditorSaving(false);
-          endTreeWrite();
-        }
-      })();
-    },
-    [
-      partId,
-      freshTreeVersion,
-      refreshTreeAndBody,
-      beginTreeWrite,
-      endTreeWrite,
-      noteWrittenTreeVersion,
-    ],
-  );
-
-  const submitExtrude = useCallback(
-    (params: ExtrudeParams) => {
-      const current = editor;
-      if (current === null || current.kind !== "extrude") return;
-      const nextIndex =
-        features.filter((f) => f.feature.type === "extrude").length + 1;
-      runFeatureSave(
-        (version) =>
-          extrudeFeatureCreate(`Extrude${nextIndex}`, params, version),
-        (version) => extrudeFeatureUpdate(params, version),
-        current.mode === "create",
-        current.featureId,
-        "The extrude could not be saved.",
-      );
-    },
-    [editor, features, runFeatureSave],
-  );
-
-  const submitRevolve = useCallback(
-    (params: RevolveParams) => {
-      const current = editor;
-      if (current === null || current.kind !== "revolve") return;
-      const nextIndex =
-        features.filter((f) => f.feature.type === "revolve").length + 1;
-      runFeatureSave(
-        (version) =>
-          revolveFeatureCreate(`Revolve${nextIndex}`, params, version),
-        (version) => revolveFeatureUpdate(params, version),
-        current.mode === "create",
-        current.featureId,
-        "The revolve could not be saved.",
-      );
-    },
-    [editor, features, runFeatureSave],
-  );
-
-  const submitSweep = useCallback(
-    (params: SweepParams) => {
-      const current = editor;
-      if (current === null || current.kind !== "sweep") return;
-      const nextIndex =
-        features.filter((f) => f.feature.type === "sweep").length + 1;
-      runFeatureSave(
-        (version) => sweepFeatureCreate(`Sweep${nextIndex}`, params, version),
-        (version) => sweepFeatureUpdate(params, version),
-        current.mode === "create",
-        current.featureId,
-        "The sweep could not be saved.",
-      );
-    },
-    [editor, features, runFeatureSave],
-  );
-
-  const submitLoft = useCallback(
-    (params: LoftParams) => {
-      const current = editor;
-      if (current === null || current.kind !== "loft") return;
-      const nextIndex =
-        features.filter((f) => f.feature.type === "loft").length + 1;
-      runFeatureSave(
-        (version) => loftFeatureCreate(`Loft${nextIndex}`, params, version),
-        (version) => loftFeatureUpdate(params, version),
-        current.mode === "create",
-        current.featureId,
-        "The loft could not be saved.",
-      );
-    },
-    [editor, features, runFeatureSave],
-  );
-
-  const submitPattern = useCallback(
-    (params: PatternParams) => {
-      const current = editor;
-      if (current === null || current.kind !== "pattern") return;
-      const nextIndex =
-        features.filter((f) => f.feature.type === "pattern").length + 1;
-      runFeatureSave(
-        (version) =>
-          patternFeatureCreate(`Pattern${nextIndex}`, params, version),
-        (version) => patternFeatureUpdate(params, version),
-        current.mode === "create",
-        current.featureId,
-        "The pattern could not be saved.",
-      );
-    },
-    [editor, features, runFeatureSave],
-  );
-
-  const submitMirror = useCallback(
-    (params: MirrorParams) => {
-      const current = editor;
-      if (current === null || current.kind !== "mirror") return;
-      const nextIndex =
-        features.filter((f) => f.feature.type === "mirror").length + 1;
-      runFeatureSave(
-        (version) => mirrorFeatureCreate(`Mirror${nextIndex}`, params, version),
-        (version) => mirrorFeatureUpdate(params, version),
-        current.mode === "create",
-        current.featureId,
-        "The mirror could not be saved.",
-      );
-    },
-    [editor, features, runFeatureSave],
-  );
-
-  const submitFillet = useCallback(
-    (params: FilletParams) => {
-      const current = editor;
-      if (current === null || current.kind !== "fillet") return;
-      const nextIndex =
-        features.filter((f) => f.feature.type === "fillet").length + 1;
-      runFeatureSave(
-        (version) => filletFeatureCreate(`Fillet${nextIndex}`, params, version),
-        (version) => filletFeatureUpdate(params, version),
-        current.mode === "create",
-        current.featureId,
-        "The fillet could not be saved.",
-      );
-    },
-    [editor, features, runFeatureSave],
-  );
-
-  const submitChamfer = useCallback(
-    (params: ChamferParams) => {
-      const current = editor;
-      if (current === null || current.kind !== "chamfer") return;
-      const nextIndex =
-        features.filter((f) => f.feature.type === "chamfer").length + 1;
-      runFeatureSave(
-        (version) =>
-          chamferFeatureCreate(`Chamfer${nextIndex}`, params, version),
-        (version) => chamferFeatureUpdate(params, version),
-        current.mode === "create",
-        current.featureId,
-        "The chamfer could not be saved.",
-      );
-    },
-    [editor, features, runFeatureSave],
-  );
-
-  const submitShell = useCallback(
-    (params: ShellParams) => {
-      const current = editor;
-      if (current === null || current.kind !== "shell") return;
-      const nextIndex =
-        features.filter((f) => f.feature.type === "shell").length + 1;
-      runFeatureSave(
-        (version) => shellFeatureCreate(`Shell${nextIndex}`, params, version),
-        (version) => shellFeatureUpdate(params, version),
-        current.mode === "create",
-        current.featureId,
-        "The shell could not be saved.",
-      );
-    },
-    [editor, features, runFeatureSave],
-  );
-
-  const submitDraft = useCallback(
-    (params: DraftParams) => {
-      const current = editor;
-      if (current === null || current.kind !== "draft") return;
-      const nextIndex =
-        features.filter((f) => f.feature.type === "draft").length + 1;
-      runFeatureSave(
-        (version) => draftFeatureCreate(`Draft${nextIndex}`, params, version),
-        (version) => draftFeatureUpdate(params, version),
-        current.mode === "create",
-        current.featureId,
-        "The draft could not be saved.",
-      );
-    },
-    [editor, features, runFeatureSave],
-  );
-
-  const submitHole = useCallback(
-    (params: HoleParams) => {
-      const current = editor;
-      if (current === null || current.kind !== "hole") return;
-      const nextIndex =
-        features.filter((f) => f.feature.type === "hole").length + 1;
-      runFeatureSave(
-        (version) => holeFeatureCreate(`Hole${nextIndex}`, params, version),
-        (version) => holeFeatureUpdate(params, version),
-        current.mode === "create",
-        current.featureId,
-        "The hole could not be saved.",
-      );
-    },
-    [editor, features, runFeatureSave],
-  );
-
-  const submitDatum = useCallback(
-    (params: DatumParams) => {
-      const current = editor;
-      if (current === null || current.kind !== "datum") return;
-      const nextIndex =
-        features.filter((f) => f.feature.type === "datum").length + 1;
-      runFeatureSave(
-        (version) => datumFeatureCreate(`Plane${nextIndex}`, params, version),
-        (version) => datumFeatureUpdate(params, version),
-        current.mode === "create",
-        current.featureId,
-        "The datum plane could not be saved.",
-      );
-    },
-    [editor, features, runFeatureSave],
-  );
-
-  const submitBaseFlange = useCallback(
-    (params: SheetMetalBaseFlangeParams) => {
-      const current = editor;
-      if (current === null || current.kind !== "baseFlange") return;
-      const nextIndex =
-        features.filter((f) => f.feature.type === "sheet_metal_base_flange")
-          .length + 1;
-      runFeatureSave(
-        (version) =>
-          baseFlangeFeatureCreate(`Base flange${nextIndex}`, params, version),
-        (version) => baseFlangeFeatureUpdate(params, version),
-        current.mode === "create",
-        current.featureId,
-        "The base flange could not be saved.",
-      );
-    },
-    [editor, features, runFeatureSave],
-  );
-
-  const submitEdgeFlange = useCallback(
-    (params: SheetMetalEdgeFlangeParams) => {
-      const current = editor;
-      if (current === null || current.kind !== "edgeFlange") return;
-      const nextIndex =
-        features.filter((f) => f.feature.type === "sheet_metal_edge_flange")
-          .length + 1;
-      runFeatureSave(
-        (version) =>
-          edgeFlangeFeatureCreate(`Edge flange${nextIndex}`, params, version),
-        (version) => edgeFlangeFeatureUpdate(params, version),
-        current.mode === "create",
-        current.featureId,
-        "The edge flange could not be saved.",
-      );
-    },
-    [editor, features, runFeatureSave],
-  );
-
-  const submitHem = useCallback(
-    (params: SheetMetalHemParams) => {
-      const current = editor;
-      if (current === null || current.kind !== "hem") return;
-      const nextIndex =
-        features.filter((f) => f.feature.type === "sheet_metal_hem").length + 1;
-      runFeatureSave(
-        (version) => hemFeatureCreate(`Hem${nextIndex}`, params, version),
-        (version) => hemFeatureUpdate(params, version),
-        current.mode === "create",
-        current.featureId,
-        "The hem could not be saved.",
-      );
-    },
-    [editor, features, runFeatureSave],
-  );
-
-  const submitCornerRelief = useCallback(
-    (params: SheetMetalCornerReliefParams) => {
-      const current = editor;
-      if (current === null || current.kind !== "cornerRelief") return;
-      const nextIndex =
-        features.filter((f) => f.feature.type === "sheet_metal_corner_relief")
-          .length + 1;
-      runFeatureSave(
-        (version) =>
-          cornerReliefFeatureCreate(
-            `Corner relief${nextIndex}`,
-            params,
-            version,
-          ),
-        (version) => cornerReliefFeatureUpdate(params, version),
-        current.mode === "create",
-        current.featureId,
-        "The corner relief could not be saved.",
-      );
-    },
-    [editor, features, runFeatureSave],
-  );
-
-  const submitCombine = useCallback(
-    (params: BooleanParams) => {
-      const current = editor;
-      if (current === null || current.kind !== "combine") return;
-      const nextIndex =
-        features.filter((f) => f.feature.type === "boolean").length + 1;
-      runFeatureSave(
-        (version) =>
-          booleanFeatureCreate(`Combine${nextIndex}`, params, version),
-        // A boolean is create-only in MB-1 (its operands are fixed at authoring);
-        // the update arm is never taken but keeps runFeatureSave's shape.
-        (version) => ({
-          expected_tree_version: version,
-          feature: { type: "boolean", version: 1, params },
-        }),
-        true,
-        undefined,
-        "The bodies could not be combined.",
-      );
-    },
-    [editor, features, runFeatureSave],
-  );
-
-  // Guided recovery for a `boolean_disjoint` rebuild error (MB-4c): re-run the
-  // failing boolean with `allow_disjoint` on, so its disconnected pieces become
-  // ONE multi-lump body instead of a dead-end error. An in-place PATCH of the
-  // existing boolean feature (never a second boolean) — freshest tree version,
-  // retry once on a stale-version race, then refresh the tree + body.
-  const [disjointRecovering, setDisjointRecovering] = useState(false);
-  const keepAsOneBody = useCallback(
-    (feature: FeatureResponse) => {
-      if (feature.feature.type !== "boolean") return;
-      const params: BooleanParams = {
-        ...feature.feature.params,
-        allow_disjoint: true,
-      };
-      setDisjointRecovering(true);
-      beginTreeWrite();
-      void (async () => {
-        try {
-          const attempt = (version: number) =>
-            updateFeature(partId, feature.id, {
-              expected_tree_version: version,
-              feature: { type: "boolean", version: 1, params },
-            });
-          let response;
-          try {
-            response = await attempt(await freshTreeVersion());
-          } catch {
-            response = await attempt(
-              (await fetchFeatureTree(partId)).tree_version,
-            );
-          }
-          noteWrittenTreeVersion(response.tree_version);
-          setSelectedFeatureId(feature.id);
-          await refreshTreeAndBody();
-        } catch {
-          // A hard failure leaves the boolean_disjoint error row in place — the
-          // recovery button reappears so the user can retry. Nothing changed.
-        } finally {
-          setDisjointRecovering(false);
-          endTreeWrite();
-        }
-      })();
-    },
-    [
-      partId,
-      freshTreeVersion,
-      refreshTreeAndBody,
-      beginTreeWrite,
-      endTreeWrite,
-      noteWrittenTreeVersion,
-    ],
-  );
-
-  // Suppress toggle (feature-tree.md §4.3a): flip a feature's suppress flag so a
-  // rebuild SKIPS it (the body builds off the non-suppressed prefix) — the row
-  // stays in the tree, just dimmed. A minimal, param-untouching mutation; like
-  // every tree write it takes the freshest tree version and refreshes the tree +
-  // body. On a stale-version race (422) it refetches the fresh version and
-  // retries once (OCC soft-resync, matching moveRollback / keepAsOneBody) so the
-  // toggle can never leave the UI out of sync.
-  const [suppressingId, setSuppressingId] = useState<string | null>(null);
-  const toggleSuppress = useCallback(
-    (feature: FeatureResponse) => {
-      if (suppressingId !== null) return;
-      const next = !(feature.feature.suppressed ?? false);
-      // Rebuilding the body invalidates a mid-measure pick index — disarm the
-      // tool, as every other tree-mutating path does.
-      useMeasureStore.getState().deactivate();
-      setSuppressingId(feature.id);
-      beginTreeWrite();
-      void (async () => {
-        try {
-          const attempt = (version: number) =>
-            suppressFeature(partId, feature.id, next, version);
-          let response;
-          try {
-            response = await attempt(await freshTreeVersion());
-          } catch (error) {
-            if (error instanceof StaleTreeVersionError) {
-              response = await attempt(
-                (await fetchFeatureTree(partId)).tree_version,
-              );
-            } else {
-              throw error;
-            }
-          }
-          noteWrittenTreeVersion(response.tree_version);
-          setSelectedFeatureId(feature.id);
-          await refreshTreeAndBody();
-        } catch {
-          // A hard failure leaves the feature as it was; the toggle stays put so
-          // the user can retry. Nothing changed.
-        } finally {
-          setSuppressingId(null);
-          endTreeWrite();
-        }
-      })();
-    },
-    [
-      partId,
-      suppressingId,
-      freshTreeVersion,
-      refreshTreeAndBody,
-      beginTreeWrite,
-      endTreeWrite,
-      noteWrittenTreeVersion,
-    ],
-  );
-
-  // Select a body from the Bodies panel: select its base feature — lights the
-  // brass rule in both panels and opens that feature's editor (the same select
-  // a tree row does). Per-body viewport highlight is MB-4.
-  const selectBody = useCallback(
-    (baseFeatureId: string) => {
-      const feature = features.find((f) => f.id === baseFeatureId);
-      if (feature !== undefined) selectFeature(feature);
-    },
-    [features, selectFeature],
-  );
-
-  // ---------------------------------------------------------------------
-  // Right-click context menus (UI-REVIEW 2026-07-24 #10). Two surfaces, one
-  // reusable primitive: the viewport menu (view snaps, tools, selection) and
-  // the feature-tree row menu (edit / suppress / rename / delete). Both hold
-  // only WIRED actions — a decorative menu row is a defect (mandate 3a).
-  // ---------------------------------------------------------------------
-  const [viewportMenu, setViewportMenu] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
-  const [treeMenu, setTreeMenu] = useState<{
-    x: number;
-    y: number;
-    feature: FeatureResponse;
-  } | null>(null);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [treeActionError, setTreeActionError] = useState<string | null>(null);
-
-  /**
-   * ASK BEFORE DESTROYING (UI-REVIEW F3). Delete used to fire straight off the
-   * context menu with no confirmation and no dependency check; a user found out
-   * what it broke when the extrude turned red on the next evaluate.
-   *
-   * The ask is a real question to the SERVER — `GET …/dependents`, answered by
-   * the same query the delete's 409 is built from — so the confirmation names
-   * the features and drawings that break, and when there are any the delete is
-   * not offered at all (the server would refuse it, and a button that cannot
-   * work is worse than no button). While the ask is in flight nothing is shown
-   * and nothing is destroyed.
-   */
-  const [deleteIntent, setDeleteIntent] = useState<{
-    feature: FeatureResponse;
-    dependents: FeatureDependent[];
-  } | null>(null);
-
-  const requestDeleteFeature = useCallback(
-    (feature: FeatureResponse) => {
-      if (deletingId !== null) return;
-      useMeasureStore.getState().deactivate();
-      setTreeActionError(null);
-      void (async () => {
-        try {
-          const dependents = await fetchFeatureDependents(partId, feature.id);
-          setDeleteIntent({ feature, dependents });
-        } catch (error) {
-          setTreeActionError(
-            error instanceof Error
-              ? error.message
-              : "What depends on this feature could not be read.",
-          );
-        }
-      })();
-    },
-    [partId, deletingId],
-  );
-
-  // Delete a feature (OCC, stale-version retry once) — the same write grammar
-  // suppress uses; a hard failure surfaces the server's message, never silent.
-  const deleteFeatureAction = useCallback(
-    (feature: FeatureResponse) => {
-      if (deletingId !== null) return;
-      useMeasureStore.getState().deactivate();
-      setDeletingId(feature.id);
-      setTreeActionError(null);
-      beginTreeWrite();
-      void (async () => {
-        try {
-          const attempt = (version: number) =>
-            deleteFeature(partId, feature.id, version);
-          let restored;
-          try {
-            restored = await attempt(await freshTreeVersion());
-          } catch (error) {
-            if (error instanceof StaleTreeVersionError) {
-              restored = await attempt(
-                (await fetchFeatureTree(partId)).tree_version,
-              );
-            } else {
-              throw error;
-            }
-          }
-          noteWrittenTreeVersion(restored.tree_version);
-          if (selectedFeatureId === feature.id) {
-            setSelectedFeatureId(null);
-            closeEditor();
-          }
-          if (renamingId === feature.id) setRenamingId(null);
-          setDeleteIntent(null);
-          await refreshTreeAndBody();
-        } catch (error) {
-          // A clean pre-check is not a promise: another client could have added
-          // a reference in between, and the delete re-checks under the row lock.
-          // Re-open the confirmation with the names the REFUSAL carried, rather
-          // than reducing them to an error string.
-          if (error instanceof FeatureHasDependentsError) {
-            setDeleteIntent({ feature, dependents: error.dependents });
-          } else {
-            setDeleteIntent(null);
-            setTreeActionError(
-              error instanceof Error
-                ? error.message
-                : "The feature could not be deleted.",
-            );
-          }
-        } finally {
-          setDeletingId(null);
-          endTreeWrite();
-        }
-      })();
-    },
-    [
-      partId,
-      deletingId,
-      selectedFeatureId,
-      renamingId,
-      freshTreeVersion,
-      refreshTreeAndBody,
-      closeEditor,
-      beginTreeWrite,
-      endTreeWrite,
-      noteWrittenTreeVersion,
-    ],
-  );
-
-  // Commit an inline rename: a no-op when unchanged/blank (the field just
-  // closes); otherwise a minimal name-only PATCH (never touches params).
-  const commitRename = useCallback(
-    (feature: FeatureResponse, nextName: string) => {
-      const name = nextName.trim();
-      setRenamingId(null);
-      if (name === "" || name === feature.name) return;
-      setTreeActionError(null);
-      void (async () => {
-        try {
-          const attempt = (version: number) =>
-            renameFeature(partId, feature.id, name, version);
-          try {
-            await attempt(await freshTreeVersion());
-          } catch (error) {
-            if (error instanceof StaleTreeVersionError) {
-              await attempt((await fetchFeatureTree(partId)).tree_version);
-            } else {
-              throw error;
-            }
-          }
-          await queryClient.invalidateQueries({
-            queryKey: ["features", partId],
-          });
-        } catch (error) {
-          setTreeActionError(
-            error instanceof Error
-              ? error.message
-              : "The feature could not be renamed.",
-          );
-        }
-      })();
-    },
-    [partId, freshTreeVersion, queryClient],
-  );
-
-  // REORDER (REACH-ORDER). Apply a new BUILD ORDER — the full permutation the
-  // documents route takes — under the same write grammar every other tree edit
-  // uses: freshest version, one soft-resync retry on a stale-version race, then
-  // refresh tree + body. The order is what a feature MEANS (a fillet before a
-  // hole and after it are different solids), so this is a full rebuild, and
-  // `beginTreeWrite` holds SOLVE at "Solving…" from the click until the rebuilt
-  // body is on screen.
-  //
-  // A `reference_not_earlier` refusal is HANDED BACK rather than raised as a
-  // banner: the tree states it at the seat the drop was aimed at, where the
-  // user is looking, and offers the legal seat. Everything else is a real
-  // failure and surfaces the server's own message.
-  const reorderTree = useCallback(
-    async (order: string[]): Promise<FeatureOrderRefusal | null> => {
-      useMeasureStore.getState().deactivate();
-      setTreeActionError(null);
-      beginTreeWrite();
-      try {
-        const attempt = (version: number) =>
-          reorderFeatures(partId, order, version);
-        let restored;
-        try {
-          restored = await attempt(await freshTreeVersion());
-        } catch (error) {
-          if (error instanceof StaleTreeVersionError) {
-            restored = await attempt(
-              (await fetchFeatureTree(partId)).tree_version,
-            );
-          } else {
-            throw error;
-          }
-        }
-        noteWrittenTreeVersion(restored.tree_version);
-        await refreshTreeAndBody();
-        return null;
-      } catch (error) {
-        if (error instanceof FeatureOrderRefusedError) {
-          return {
-            featureId: error.featureId,
-            referencesFeatureId: error.referencesFeatureId,
-          };
-        }
-        setTreeActionError(
-          error instanceof Error
-            ? error.message
-            : "The feature order could not be changed.",
-        );
-        return null;
-      } finally {
-        endTreeWrite();
-      }
-    },
-    [
-      partId,
-      freshTreeVersion,
-      refreshTreeAndBody,
-      beginTreeWrite,
-      endTreeWrite,
-      noteWrittenTreeVersion,
-    ],
-  );
-
-  // Viewport right-click: open the menu at the pointer, but only when the view
-  // rig owns the camera (mode off) — sketch/plane modes own their own gestures.
-  const openViewportMenu = useCallback(
-    (event: ReactMouseEvent) => {
-      if (mode !== "off") return;
-      event.preventDefault();
-      setTreeMenu(null);
-      setViewportMenu({ x: event.clientX, y: event.clientY });
-    },
-    [mode],
-  );
-
-  // Feature-row right-click: open the row menu at the pointer.
-  const openTreeMenu = useCallback(
-    (feature: FeatureResponse, x: number, y: number) => {
-      setViewportMenu(null);
-      setTreeMenu({ x, y, feature });
-    },
-    [],
-  );
-
-  // "Sketch on face" from the viewport menu: begin a sketch and arm the
-  // face-pick step (the same flow the sketch strip's "Pick face" button drives).
-  const startSketchOnFace = useCallback(() => {
-    handleNewSketch();
-    // PICK-2: the viewport menu reaches this without passing the strip's
-    // `canPickFace` gate, so the refusal has to be enforced here too. The
-    // sketch still opens — the plane picker's other routes (origin planes,
-    // offset) are all still available, and closing the sketch outright would
-    // punish the user for the tree's state.
-    setFacePlaneError(null);
-    setFacePicking(facePickRefusal === null);
-  }, [handleNewSketch, facePickRefusal]);
-
-  // The inline "sketch at a height" path: author a datum feature, then enter
-  // the sketcher on it. One extra field, not a separate multi-step ritual —
-  // the datum write returns the feature id the sketch's plane FeatureRef needs.
-  const authorOffsetPlane = useCallback(
-    (params: DatumOffsetParams) => {
-      const nextIndex =
-        features.filter((f) => f.feature.type === "datum").length + 1;
-      setOffsetPlaneBusy(true);
-      setOffsetPlaneError(null);
-      void (async () => {
-        try {
-          const create = (version: number) =>
-            createFeature(
-              partId,
-              datumFeatureCreate(`Plane${nextIndex}`, params, version),
-            );
-          let response;
-          try {
-            response = await create(await freshTreeVersion());
-          } catch {
-            response = await create(
-              (await fetchFeatureTree(partId)).tree_version,
-            );
-          }
-          await queryClient.invalidateQueries({
-            queryKey: ["features", partId],
-          });
-          useSketchStore
-            .getState()
-            .choosePlaneSpec(offsetSpecFromDatum(response.feature.id, params));
-        } catch (error) {
-          setOffsetPlaneError(
-            error instanceof Error
-              ? error.message
-              : "The offset plane could not be created.",
-          );
-        } finally {
-          setOffsetPlaneBusy(false);
-        }
-      })();
-    },
-    [partId, features, freshTreeVersion, queryClient],
-  );
-
-  // The "Pick a face" path: author an `on_face` datum from the clicked face's
-  // stage-1 signature, then seat this sketch on it — the datum-node route
-  // (datum-planes §7), so the sketch's plane is the SAME FeatureRef slot an
-  // offset datum uses. The face's plane basis is reconstructed client-side from
-  // the signature (origin + deterministic x-axis), matching the kernel's
-  // `resolve_sketch_plane` exactly, so the ink lands on the rendered face.
-  const authorFacePlane = useCallback(
-    (
-      face: { signature: PlanarFaceSignature; index?: number },
-      options: { remember?: boolean } = {},
-    ) => {
-      const featureList = tree.data?.features ?? [];
-      const anchorId = lastBodyFeatureId(featureList);
-      if (anchorId === null) {
-        setFacePlaneError(
-          "Add a feature that creates a body before sketching on a face.",
-        );
-        return;
-      }
-      const { signature } = face;
-      // A face clicked in the viewport is remembered for the next command
-      // (UI-W3); a face that CAME from the pre-selection is not re-remembered.
-      if (options.remember !== false) {
-        usePreselectStore.getState().rememberFaces([{ signature, anchorId }]);
-      }
-      const nextIndex =
-        featureList.filter((f) => f.feature.type === "datum").length + 1;
-      setFacePlaneBusy(true);
-      setPendingFaceIndex(face.index ?? null);
-      setFacePlaneError(null);
-      void (async () => {
-        try {
-          const params = onFaceDatumParams(anchorId, signature, 0);
-          const create = (version: number) =>
-            createFeature(
-              partId,
-              datumOnFaceFeatureCreate(`Plane${nextIndex}`, params, version),
-            );
-          let response;
-          try {
-            response = await create(await freshTreeVersion());
-          } catch {
-            response = await create(
-              (await fetchFeatureTree(partId)).tree_version,
-            );
-          }
-          await queryClient.invalidateQueries({
-            queryKey: ["features", partId],
-          });
-          useSketchStore
-            .getState()
-            .choosePlaneSpec(
-              faceSpecFromDatum(response.feature.id, signature, 0),
-            );
-          setFacePicking(false);
-        } catch (error) {
-          setFacePlaneError(
-            error instanceof Error
-              ? error.message
-              : "The sketch could not be placed on that face.",
-          );
-        } finally {
-          setFacePlaneBusy(false);
-          setPendingFaceIndex(null);
-        }
-      })();
-    },
-    [partId, tree.data, freshTreeVersion, queryClient],
-  );
-
-  /** Arm/disarm the face-pick mode (clears any stale error on toggle). */
-  const togglePickFace = useCallback(() => {
-    // Disarming is always allowed — a stand-down must never be blocked by the
-    // thing it stands down from.
-    if (facePicking) {
-      setFacePlaneError(null);
-      setFacePicking(false);
-      return;
-    }
-    // PICK-2: refuse to ARM over an overlay that cannot populate. The strip's
-    // prompt states the refusal (`FacePickPrompt`'s blocked reading).
-    setFacePlaneError(null);
-    setFacePicking(facePickRefusal === null);
-  }, [facePicking, facePickRefusal]);
-
-  /**
-   * New sketch — ON the pre-selected face when there is one (UI-W3).
-   *
-   * Selecting a face and asking for a sketch is an unambiguous instruction, and
-   * making the user re-pick the face they just picked is exactly the friction
-   * the founder reported. With nothing selected this is the plane picker as
-   * before; the picker is the fallback, not the toll booth.
-   */
-  const startSketch = useCallback(() => {
-    const seed = preselectedFace(usePreselectStore.getState(), bodyFeatureId);
-    handleNewSketch();
-    if (seed !== null) {
-      authorFacePlane({ signature: seed.signature }, { remember: false });
-    }
-  }, [bodyFeatureId, handleNewSketch, authorFacePlane]);
-
-  /**
-   * Accept the viewport's sketch proposal (FLOW-1).
-   *
-   * Deliberately the SAME two calls the toolbar's Sketch -> pick-a-face flow
-   * makes, in the same order and with the same arguments — `handleNewSketch()`
-   * then `authorFacePlane(face)` with the overlay face the user addressed. A
-   * second way to compute a sketch plane would be a second thing to keep
-   * correct, and the two would drift silently: nothing would fail, the planes
-   * would just stop agreeing. `remember` is left at its default, exactly as a
-   * clicked face in the pick overlay is (UI-W3), because this IS a face clicked
-   * in the viewport.
-   */
-  const acceptSketchProposal = useCallback(
-    (face: OverlayFace & { signature: PlanarFaceSignature }) => {
-      handleNewSketch();
-      authorFacePlane(face);
-    },
-    [handleNewSketch, authorFacePlane],
-  );
-
-  /**
-   * Accept the viewport's EXTRUDE proposal (FLOW-B1) — the offer a sketch's own
-   * solve writes on its profile.
-   *
-   * Deliberately the same call the band's Extrude button makes, with the noun
-   * the chip named. The chip promises "the Extrude command on THIS sketch", so
-   * the editor opens with that profile already in `extrude-profile`, the
-   * distance focused and the drag handle live — the user re-picks nothing. It
-   * does NOT commit: one more Enter does, which is the same accept vocabulary
-   * one step further on.
-   */
-  const acceptExtrudeProposal = useCallback(
-    (profileFeatureId: string) => {
-      openCreateExtrude(profileFeatureId);
-    },
-    [openCreateExtrude],
-  );
-
-  // Datum-editor face picking. Arming a slot highlights the body's planar faces
-  // in the viewport (the shared FacePickOverlay); a click resolves to a
-  // full-precision signature the editor folds into that slot. The anchor is the
-  // last body-affecting feature — the same rule sketch-on-face uses.
-  const toggleDatumFacePick = useCallback(
-    (slot: DatumFaceSlot) => {
-      // Disarming is always allowed (see `togglePickFace`).
-      if (datumFacePick === slot) {
-        setDatumFacePickError(null);
-        setDatumFacePick(null);
-        return;
-      }
-      // PICK-2: this already refused on `hasBody`, but said the wrong thing for
-      // the case that actually reaches a modeller — a part whose extrude is
-      // right there in the tree and simply did not build. The reason is NOT
-      // copied into `datumFacePickError` here: `datumPickRefusal` is already on
-      // screen the whole time the condition holds, and stating it twice would
-      // make one refusal look like two problems.
-      setDatumFacePickError(null);
-      if (datumPickRefusal !== null) return;
-      setDatumFacePick(slot);
-    },
-    [datumFacePick, datumPickRefusal],
-  );
-
-  const pickDatumFace = useCallback(
-    (face: OverlayFace & { signature: PlanarFaceSignature }) => {
-      const slot = datumFacePick;
-      if (slot === null) return;
-      // PICK-1: the REFERENCE is anchored strictly earlier than the datum being
-      // written (the tip while creating; the feature before it while editing).
-      const anchorId = pickAnchorFeatureId;
-      if (anchorId === null) {
-        setDatumFacePickError(
-          "Add a feature that creates a body before picking a face.",
-        );
-        setDatumFacePick(null);
-        return;
-      }
-      datumFacePickNonce.current += 1;
-      setDatumFacePicked({
-        nonce: datumFacePickNonce.current,
-        slot,
-        face: { signature: face.signature, anchorId },
-      });
-      // Remembered for the next command (UI-W3) against the body it was picked
-      // FROM — always the tip's overlay — not the reference anchor above.
-      if (bodyFeatureId !== null) {
-        usePreselectStore
-          .getState()
-          .rememberFaces([
-            { signature: face.signature, anchorId: bodyFeatureId },
-          ]);
-      }
-      setDatumFacePick(null);
-    },
-    [datumFacePick, pickAnchorFeatureId, bodyFeatureId],
-  );
-
-  // The datum face-pick session ends whenever the datum editor closes (or the
-  // seat holds a different editor) — drop the armed slot, the pending pick, and
-  // any pick error so a reopened editor starts clean (the nonce guard already
-  // stops a stale pick re-folding, but a cleared session is the honest state).
-  useEffect(() => {
-    if (editor?.kind !== "datum") {
-      setDatumFacePick(null);
-      setDatumFacePicked(null);
-      setDatumFacePickError(null);
-    }
-  }, [editor]);
+  const pickSessions = usePickSessions({
+    lengthUnit,
+    editor,
+    holePreview,
+    datumBasisById,
+    features,
+    datumGaugeSeed,
+    bodyFeatureId,
+    pendingRepick,
+  });
+  const { shellPickedFaces } = pickSessions;
+  const featureSubmit = useFeatureSubmit({
+    partId,
+    editor,
+    features,
+    setSelectedFeatureId,
+    setEditorSaving,
+    setEditorError,
+    setLastSavedFeatureId,
+    setRebuildNoticeDismissed,
+    setEditor,
+    freshTreeVersion,
+    refreshTreeAndBody,
+    beginTreeWrite,
+    endTreeWrite,
+    noteWrittenTreeVersion,
+  });
+  const treeActions = useTreeActions({
+    partId,
+    queryClient,
+    mode,
+    features,
+    selectedFeatureId,
+    setSelectedFeatureId,
+    freshTreeVersion,
+    refreshTreeAndBody,
+    beginTreeWrite,
+    endTreeWrite,
+    noteWrittenTreeVersion,
+    selectFeature,
+    closeEditor,
+  });
+  const {
+    toggleSuppress,
+    viewportMenu,
+    setViewportMenu,
+    treeMenu,
+    setTreeMenu,
+    setRenamingId,
+    deletingId,
+    setTreeActionError,
+    deleteIntent,
+    setDeleteIntent,
+    requestDeleteFeature,
+    deleteFeatureAction,
+    openViewportMenu,
+    openTreeMenu,
+  } = treeActions;
+  const sketchEntry = useSketchEntry({
+    partId,
+    queryClient,
+    tree,
+    facePicking,
+    setFacePicking,
+    setFacePlaneBusy,
+    setFacePlaneError,
+    setPendingFaceIndex,
+    features,
+    setOffsetPlaneBusy,
+    setOffsetPlaneError,
+    bodyFeatureId,
+    facePickRefusal,
+    freshTreeVersion,
+    handleNewSketch,
+    openCreateExtrude,
+  });
+  const {
+    startSketchOnFace,
+    startSketch,
+    acceptSketchProposal,
+    acceptExtrudeProposal,
+  } = sketchEntry;
+  const datumFacePicking = useDatumFacePicking({
+    editor,
+    datumFacePick,
+    setDatumFacePick,
+    setDatumFacePicked,
+    setDatumFacePickError,
+    datumFacePickNonce,
+    bodyFeatureId,
+    datumPickRefusal,
+    pickAnchorFeatureId,
+  });
 
   // Escape disarms an armed datum face pick (staying in the editor) — the most
   // local cancel, mirroring the sketch-on-face Escape. Registered only while a
@@ -4565,89 +668,19 @@ export function PartPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [datumFacePick]);
-
-  // Hole authoring picks. Arming a target highlights the body (faces for the
-  // placement face, points on the face for the drill point); a click resolves
-  // to a full-precision signature / world point the editor folds in. The face
-  // anchor is the last body-affecting feature — the same rule sketch-on-face and
-  // the datum picker use.
-  const toggleHolePick = useCallback(
-    (target: HolePickTarget) => {
-      // Disarming is always allowed (see `togglePickFace`).
-      if (holePick === target) {
-        setHolePickError(null);
-        setHolePick(null);
-        return;
-      }
-      // PICK-2, as `toggleDatumFacePick`: the refusal was already here, the
-      // honest reason was not — and it is stated once, by the face row's
-      // disabled Pick control, not copied into the error slot as well.
-      setHolePickError(null);
-      if (holePickRefusal !== null) return;
-      setHolePick(target);
-    },
-    [holePick, holePickRefusal],
-  );
-
-  const pickHoleFace = useCallback(
-    (face: OverlayFace & { signature: PlanarFaceSignature }) => {
-      // PICK-1: strictly earlier than the hole being written. This is the path
-      // M17's "Re-pick face" repair drives, and stamping the tip here made that
-      // repair write an id the server had to refuse — the hole under repair IS
-      // the tip in the common case, so it named itself.
-      const anchorId = pickAnchorFeatureId;
-      if (anchorId === null) {
-        setHolePickError(
-          "Add a feature that creates a body before drilling a hole.",
-        );
-        setHolePick(null);
-        return;
-      }
-      holePickNonce.current += 1;
-      setHoleFacePicked({
-        nonce: holePickNonce.current,
-        face: { signature: face.signature, anchorId },
-      });
-      // The pick outlives this editor (UI-W3): cancel the hole and invoke
-      // Datum, or Sketch, and the face is already chosen. Remembered against the
-      // body it was picked FROM (the tip's overlay), not the reference anchor.
-      if (bodyFeatureId !== null) {
-        usePreselectStore
-          .getState()
-          .rememberFaces([
-            { signature: face.signature, anchorId: bodyFeatureId },
-          ]);
-      }
-      // A face chosen → disarm (the editor seeds the point to the centre); the
-      // user arms the POINT pick next to refine the placement.
-      setHolePick(null);
-    },
-    [pickAnchorFeatureId, bodyFeatureId],
-  );
-
-  const pickHolePoint = useCallback((point: Vec3) => {
-    holePickNonce.current += 1;
-    setHolePointPicked({ nonce: holePickNonce.current, position: point });
-    setHolePick(null);
-  }, []);
-
-  const onHolePreviewChange = useCallback(
-    (preview: HolePreview | null) => setHolePreview(preview),
-    [],
-  );
-
-  // The hole pick session ends whenever the hole editor closes (or the seat
-  // holds a different editor) — drop the armed target, pending picks, preview,
-  // and any error so a reopened editor starts clean.
-  useEffect(() => {
-    if (editor?.kind !== "hole") {
-      setHolePick(null);
-      setHoleFacePicked(null);
-      setHolePointPicked(null);
-      setHolePickError(null);
-      setHolePreview(null);
-    }
-  }, [editor]);
+  const holePicking = useHolePicking({
+    editor,
+    holePick,
+    setHolePick,
+    setHoleFacePicked,
+    setHolePointPicked,
+    setHolePickError,
+    setHolePreview,
+    holePickNonce,
+    bodyFeatureId,
+    holePickRefusal,
+    pickAnchorFeatureId,
+  });
 
   // Escape disarms an armed hole pick (staying in the editor) — the most local
   // cancel, mirroring the datum face pick. Registered only while a pick is armed.
@@ -4662,201 +695,29 @@ export function PartPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [holePick]);
-
-  // ---------------------------------------------------------------------
-  // Undo/redo (docs/design/undo-redo.md §UR2). History is SERVER-side snapshot
-  // state: the tree GET's can_undo/can_redo gate the controls, and a step is a
-  // document edit under the same tree-version OCC as every other write. The
-  // restored tree re-renders through the SAME post-mutation refresh path all
-  // feature saves use — never a second pipeline.
-  // ---------------------------------------------------------------------
-  const canUndo = tree.data?.can_undo ?? false;
-  const canRedo = tree.data?.can_redo ?? false;
-  /** Which step is in flight (drives the honest hold caption), or null. */
-  const [historyStep, setHistoryStep] = useState<HistoryStep | null>(null);
-  const historyInFlight = useRef(false);
-  /** A non-stale undo/redo failure, surfaced in the viewport HUD. */
-  const [historyError, setHistoryError] = useState<HistoryStepError | null>(
-    null,
-  );
-
-  const runHistoryStep = useCallback(
-    (step: HistoryStep) => {
-      // One tree rewrite at a time: repeats (held key / double click) AND an
-      // in-flight rollback-bar move are ignored until the write settles —
-      // history and the bar mutually exclude (both rewrite the tree; the OCC
-      // would 422 the loser, but the bar's blind retry must never run against
-      // a freshly restored tree).
-      if (historyInFlight.current || rollbackBusy) return;
-      historyInFlight.current = true;
-      setHistoryStep(step);
-      setHistoryError(null);
-      beginTreeWrite();
-      void (async () => {
-        try {
-          // The shared engine (lib/historyStep, also driving the assembly
-          // workspace) runs the sequence; only the part-tree seams live here.
-          const outcome = await executeHistoryStep(step, {
-            version: freshTreeVersion,
-            run: (s, expected) =>
-              s === "undo"
-                ? undoPart(partId, expected)
-                : redoPart(partId, expected),
-            versionOf: (tree) => tree.tree_version,
-            // Boundary no-op (clean 200): nothing changed — adopt the echoed
-            // tree (fresh can_undo/can_redo) without a re-evaluate cycle.
-            adoptNoOp: (restored) =>
-              queryClient.setQueryData(["features", partId], restored),
-            onRestored: async (restored) => {
-              // A REAL restore happened: only now disarm measure and drop the
-              // selection (the tree is known to have changed under them),
-              // then resync through the shared invalidation path. Undo/redo
-              // bumps `tree_version` like any other write, and the restored
-              // tree carries it — so the readouts learn the body is superseded
-              // here rather than after the refetch (QA-R4).
-              noteWrittenTreeVersion(restored.tree_version);
-              useMeasureStore.getState().deactivate();
-              setSelectedFeatureId(null);
-              await refreshTreeAndBody();
-            },
-            isStale: (error) => error instanceof StaleTreeVersionError,
-            // Someone else moved the tree: the design doc's soft reload —
-            // resync quietly; the user re-issues against what they now see.
-            resync: () => refreshTreeAndBody(),
-            // A step that resolves after a sign-in as someone else is dropped,
-            // never adopted into the cache that was cleared for them
-            // (UNDO-REDO-USER-SWITCH-RACE-1).
-            owner: signedInUserId,
-          });
-          if (outcome.kind === "failed") {
-            // The tree is unchanged server-side — say so through the HUD (the
-            // import-error affordance), never a silent busy flash.
-            setHistoryError({ step, message: outcome.message });
-          } else if (outcome.kind === "stale") {
-            // The step never ran: the tree moved in another window and the
-            // resync above put the CURRENT one on screen. Saying nothing here
-            // is the worse of the two silences — the user pressed a key, the
-            // model changed by an amount they did not ask for (the other
-            // window's edit arriving), and nothing distinguishes that from
-            // their own undo landing. Measured with two windows on one part:
-            // feature rows 3 -> 2 on a click that undid nothing.
-            setHistoryError(historyResyncNotice(step, "part"));
-          }
-        } finally {
-          historyInFlight.current = false;
-          setHistoryStep(null);
-          endTreeWrite();
-        }
-      })();
-    },
-    [
-      partId,
-      rollbackBusy,
-      freshTreeVersion,
-      refreshTreeAndBody,
-      queryClient,
-      beginTreeWrite,
-      endTreeWrite,
-      noteWrittenTreeVersion,
-    ],
-  );
-
-  const triggerUndo = useCallback(() => {
-    if (canUndo) runHistoryStep("undo");
-  }, [canUndo, runHistoryStep]);
-  const triggerRedo = useCallback(() => {
-    if (canRedo) runHistoryStep("redo");
-  }, [canRedo, runHistoryStep]);
-
-  const moveRollback = useCallback(
-    (rollbackFeatureId: string | null) => {
-      // Mutual exclusion with undo/redo (and drag re-entry): both rewrite the
-      // tree, and the bar's blind stale-retry must never land on a tree a
-      // history step just restored.
-      if (rollbackBusy || historyInFlight.current) return;
-      // Moving the bar rebuilds the body → the measure overlay refetches
-      // against a different tree version; disarm the tool so a mid-measure
-      // rollback can never resolve a stale pick index (matches every other
-      // tree-mutating path: openCreate*, selectFeature, handleNewSketch).
-      useMeasureStore.getState().deactivate();
-      setRollbackBusy(true);
-      beginTreeWrite();
-      void (async () => {
-        try {
-          const run = async (version: number) =>
-            moveRollbackBar(partId, rollbackFeatureId, version);
-          let restored;
-          try {
-            restored = await run(await freshTreeVersion());
-          } catch {
-            restored = await run((await fetchFeatureTree(partId)).tree_version);
-          }
-          noteWrittenTreeVersion(restored.tree_version);
-          await refreshTreeAndBody();
-        } finally {
-          setRollbackBusy(false);
-          endTreeWrite();
-        }
-      })();
-    },
-    [
-      partId,
-      rollbackBusy,
-      freshTreeVersion,
-      refreshTreeAndBody,
-      beginTreeWrite,
-      endTreeWrite,
-      noteWrittenTreeVersion,
-    ],
-  );
-
-  // The last-saved feature's rebuild error (UX audit #20e), surfaced at the
-  // editor seat so it reads where the user just clicked Create/Save — not only
-  // in the tree across the screen. Dismissible; the next save re-arms it.
-  const rebuildNotice = useMemo<string | null>(() => {
-    if (lastSavedFeatureId === null || rebuildNoticeDismissed) return null;
-    const result = evaluation.data?.features.find(
-      (f) => f.feature_id === lastSavedFeatureId,
-    );
-    return result !== undefined &&
-      result.status === "error" &&
-      result.error != null
-      ? result.error.message
-      : null;
-  }, [lastSavedFeatureId, rebuildNoticeDismissed, evaluation.data]);
-
-  // The rebuild error of the SWEEP being edited, in the tree's friendly copy,
-  // shown inside its editor (TWIST-TO-SWEEP): a twist refused for its path
-  // (`twist_path_unsupported`) or for its cost (`twist_failed`) is cured by a
-  // control in that editor, so the reason reads next to the control.
-  const sweepRebuildError = useMemo<string | null>(() => {
-    if (editor === null || editor.kind !== "sweep") return null;
-    if (editor.mode !== "edit" || editor.featureId === undefined) return null;
-    const result = evaluation.data?.features.find(
-      (f) => f.feature_id === editor.featureId,
-    );
-    if (result === undefined || result.status !== "error") return null;
-    if (result.error == null) return null;
-    return friendlyFeatureError(
-      result.error.code,
-      result.error.message,
-      "sweep",
-    );
-  }, [editor, evaluation.data]);
-
-  // A solved sketch must exist before an extrude or revolve can consume one.
-  const hasSolvedSketch =
-    sketchProfiles.length > 0 &&
-    (evaluation.data?.features.some(
-      (f) => f.status === "ok" && f.data?.kind === "solved_sketch",
-    ) ??
-      false);
-  // A sweep needs TWO sketch features to reference (a profile + a path), both
-  // solved so their wires exist — hence ≥2 sketches AND a solve has landed.
-  const canSweep = sketchProfiles.length >= 2 && hasSolvedSketch;
-  // A loft blends through ≥2 ordered section sketches — the same gate as sweep
-  // (two sketch features must exist and a solve must have produced their wires).
-  const canLoft = sketchProfiles.length >= 2 && hasSolvedSketch;
+  const timelineHistory = useTimelineHistory({
+    partId,
+    queryClient,
+    tree,
+    setSelectedFeatureId,
+    rollbackBusy,
+    setRollbackBusy,
+    freshTreeVersion,
+    refreshTreeAndBody,
+    beginTreeWrite,
+    endTreeWrite,
+    noteWrittenTreeVersion,
+  });
+  const { historyStep, triggerUndo, triggerRedo, moveRollback } =
+    timelineHistory;
+  const rebuildNotices = useRebuildNotices({
+    evaluation,
+    editor,
+    sketchProfiles,
+    lastSavedFeatureId,
+    rebuildNoticeDismissed,
+  });
+  const { hasSolvedSketch, canSweep, canLoft } = rebuildNotices;
 
   // Sketch mode owns the viewport; leaving/entering it dismisses the editor.
   useEffect(() => {
@@ -4976,340 +837,55 @@ export function PartPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mode, editor, triggerUndo, triggerRedo]);
+  const viewportState = useViewportState({
+    partId,
+    mode,
+    part,
+    tree,
+    evaluation,
+    bodyProperties,
+    editor,
+    viewMeshGlbId,
+    body,
+    regenerating,
+    regenFailed,
+    measureActive,
+    solved,
+    features,
+    extrudePreview,
+    revolveGauge,
+    patternPreview,
+    treeWrite,
+    shellPickedFaces,
+  });
+  const { showExtrudeGhost, isEmptyPart, activeCommand } = viewportState;
 
-  // The body is the hero: once a solid renders, the profile sketch that
-  // defined it recedes (it sits on the body's base face — coincident scribe
-  // ink would only z-fight the solid). It returns, live, on sketch re-entry.
-  //
-  // That rule now lives in the SCENE (`SketchScene`, via `viewport/partView`),
-  // as the DEFAULT of a per-sketch view stop rather than as a law the modeler
-  // cannot answer back to — UI-W2, founder: "what about the ability to enable
-  // planes, sketches and bodies?". The full solved set is handed down and the
-  // scene decides which layers draw, so the browser's Sketches rows and the ink
-  // on screen read one derivation.
-  const bodyPresent = body.data !== undefined;
-  // The extrude ghost's profile layer (UI-REVIEW #8): the SOLVED sketch the
-  // open extrude editor points at, resolved from the full `solved` set so the
-  // ghost shows whether or not a body already exists. Absent until the editor
-  // projects a valid form.
-  const extrudeGhostLayer = useMemo<SolvedSketchLayer | null>(() => {
-    if (extrudePreview === null) return null;
-    return (
-      solved.find((l) => l.featureId === extrudePreview.profileFeatureId) ??
-      null
-    );
-  }, [extrudePreview, solved]);
-  const showExtrudeGhost =
-    mode === "off" &&
-    editor?.kind === "extrude" &&
-    extrudePreview !== null &&
-    extrudeGhostLayer !== null;
-  // The solved sketch the open revolve turns — resolved from the full `solved`
-  // set, like the extrude ghost's layer and for the same reason: the gauge must
-  // stand on the profile whether or not a body already exists (CRAFT-10).
-  const revolveGaugeLayer = useMemo<SolvedSketchLayer | null>(() => {
-    if (revolveGauge === null) return null;
-    return (
-      solved.find((l) => l.featureId === revolveGauge.profileFeatureId) ?? null
-    );
-  }, [revolveGauge, solved]);
-  // The face the taper gauge stands on: the FIRST picked, because pick order is
-  // preserved and a draft of six faces by one angle wants one instrument.
-  const draftGaugeFace = shellPickedFaces[0];
-  /**
-   * The seed body the pattern gauges stand on, and where they stand (CRAFT-11).
-   *
-   * The drawn mesh is read HERE, at the integration point, and handed to
-   * `PatternGaugeLayer` as props — the gauge component reaches into no store,
-   * so W4's persistent selection re-sources these two expressions and leaves
-   * the instrument alone. `pickGeometry` is `null` for "no mesh", never for
-   * "not loaded yet" (`ModelMesh` publishes null before disposing), so a null
-   * here is a row with no ghosts rather than a row to wait for.
-   */
-  const patternBodyGeometry = usePartViewStore((state) => state.pickGeometry);
-  const patternGaugeAnchor = useMemo<PatternAnchor | null>(() => {
-    if (patternPreview === null) return null;
-    const box = patternBodyGeometry?.boundingBox ?? null;
-    if (box === null) return null;
-    return patternAnchor(
-      {
-        min: [box.min.x, box.min.y, box.min.z],
-        max: [box.max.x, box.max.y, box.max.z],
-      },
-      sceneDirection(patternPreview.direction),
-    );
-  }, [patternPreview, patternBodyGeometry]);
-  // THE ONE SET OF FACTS about the body on screen. The feature tree's SOLVE
-  // cell, the inspector's STATUS cell, the EXPORT gate, the SKIP rows and the
-  // partial-body notice below all read this object — they used to compute three
-  // separate answers, and on a part with a broken feature the same screen said
-  // "Failed", "Up to date" and "Ready" at once (AUDIT-ENGINEERING J2).
-  const build = useMemo(
-    () =>
-      derivePartBuild({
-        tree: tree.data,
-        evaluation: evaluation.data,
-        part: part.data,
-        evaluating: evaluation.isFetching,
-        treeFetching: tree.isFetching,
-        regenerating,
-        regenFailed,
-        meshPending: meshGlbId !== null && !bodyPresent && body.isFetching,
-        writing: treeWrite.pending > 0,
-        writtenTreeVersion: treeWrite.version,
-      }),
-    [
-      tree.data,
-      tree.isFetching,
-      evaluation.data,
-      evaluation.isFetching,
-      part.data,
-      regenerating,
-      regenFailed,
-      meshGlbId,
-      bodyPresent,
-      body.isFetching,
-      treeWrite,
-    ],
-  );
-  // EXPORT, bound once and mounted twice: the Inspector's ruled strip (the
-  // NOTICE surface — it has room to say the file would be partial) and the
-  // command band's EXPORT group (the ACTION surface, which survives collapsing
-  // the panel). Both read this binding, so the gate and the filename cannot
-  // drift apart between them (EXPORT-1).
-  const partExport = useMemo(
-    () => partExportBinding(partId, build),
-    [partId, build],
-  );
-  // The inspector appears when there's a body to inspect and we're not
-  // sketching — sketch mode keeps the viewport dominant (chrome recedes).
-  const showInspector = mode === "off" && bodyProperties !== null;
-  // With a tree but no body (sketch-only / rolled back before the extrude),
-  // still offer the EXPORT strip — disabled and honest about why.
-  const showExportOnly =
-    mode === "off" &&
-    bodyProperties === null &&
-    (tree.data?.features.length ?? 0) > 0;
+  // Context-menu section builders (UI-REVIEW #10): `part/contextMenus`.
+  const buildViewportSections = () =>
+    viewportMenuSections({
+      selectedFeatureId,
+      features,
+      hasBody,
+      measureActive,
+      deletingId,
+      startSketch,
+      startSketchOnFace,
+      toggleMeasure,
+      toggleSuppress,
+      requestDeleteFeature,
+    });
 
-  // A blank part — the tree has loaded with nothing in it and we're at rest.
-  // The empty scene gets a first-run call to action (item 13); the grid +
-  // atmosphere (Batch 1) already keep it from being a black void.
-  const isEmptyPart =
-    mode === "off" &&
-    editor === null &&
-    !measureActive &&
-    tree.data !== undefined &&
-    features.length === 0;
-
-  // The open command scopes the band + names the mode (breadcrumb + lock).
-  // No runtime fallback: COMMAND_LABEL is total over OpenEditor["kind"], so
-  // an unmapped editor kind cannot compile, let alone unlock the band.
-  const activeCommand = editor === null ? null : COMMAND_LABEL[editor.kind];
-
-  // Context-menu section builders (UI-REVIEW #10). Built on open (cheap), so
-  // every item reads the freshest state; each row is a WIRED action.
-  const requestView = (
-    kind: "fit" | "home" | "front" | "top" | "right" | "iso",
-  ) => useViewCommandStore.getState().request(kind);
-
-  const buildViewportSections = (): ContextMenuSection[] => {
-    const selected =
-      selectedFeatureId === null
-        ? undefined
-        : features.find((f) => f.id === selectedFeatureId);
-    const sections: ContextMenuSection[] = [
-      {
-        key: "view",
-        label: "View",
-        items: [
-          {
-            key: "fit",
-            label: "Fit to view",
-            icon: <ViewFitIcon />,
-            shortcut: "0",
-            onSelect: () => requestView("fit"),
-            "data-testid": "ctx-view-fit",
-          },
-          {
-            key: "home",
-            label: "Home",
-            icon: <ViewHomeIcon />,
-            shortcut: "Home",
-            onSelect: () => requestView("home"),
-            "data-testid": "ctx-view-home",
-          },
-          {
-            key: "front",
-            label: "Front",
-            icon: <ViewFrontIcon />,
-            shortcut: "1",
-            onSelect: () => requestView("front"),
-            "data-testid": "ctx-view-front",
-          },
-          {
-            key: "top",
-            label: "Top",
-            icon: <ViewTopIcon />,
-            shortcut: "2",
-            onSelect: () => requestView("top"),
-            "data-testid": "ctx-view-top",
-          },
-          {
-            key: "right",
-            label: "Right",
-            icon: <ViewRightIcon />,
-            shortcut: "3",
-            onSelect: () => requestView("right"),
-            "data-testid": "ctx-view-right",
-          },
-          {
-            key: "iso",
-            label: "Isometric",
-            icon: <ViewIsoIcon />,
-            shortcut: "4",
-            onSelect: () => requestView("iso"),
-            "data-testid": "ctx-view-iso",
-          },
-        ],
-      },
-      {
-        key: "tools",
-        label: "Tools",
-        items: [
-          {
-            key: "new-sketch",
-            label: "New sketch",
-            icon: <SketchIcon />,
-            onSelect: startSketch,
-            "data-testid": "ctx-new-sketch",
-          },
-          {
-            key: "sketch-on-face",
-            label: "Sketch on face",
-            icon: <DatumIcon />,
-            disabled: !hasBody,
-            onSelect: startSketchOnFace,
-            "data-testid": "ctx-sketch-on-face",
-          },
-          {
-            key: "measure",
-            label: measureActive ? "Stop measuring" : "Measure",
-            icon: <MeasureIcon />,
-            shortcut: "M",
-            disabled: !hasBody,
-            onSelect: toggleMeasure,
-            "data-testid": "ctx-measure",
-          },
-        ],
-      },
-    ];
-    if (selected !== undefined) {
-      const suppressed = selected.feature.suppressed ?? false;
-      sections.push({
-        key: "selected",
-        label: selected.name,
-        items: [
-          {
-            key: "suppress",
-            label: suppressed ? "Unsuppress" : "Suppress",
-            icon: <SuppressIcon />,
-            onSelect: () => toggleSuppress(selected),
-            "data-testid": "ctx-selected-suppress",
-          },
-          {
-            key: "delete",
-            label: "Delete",
-            icon: <CloseIcon />,
-            danger: true,
-            disabled: deletingId === selected.id,
-            onSelect: () => requestDeleteFeature(selected),
-            "data-testid": "ctx-selected-delete",
-          },
-        ],
-      });
-    }
-    return sections;
-  };
-
-  const buildTreeSections = (
-    feature: FeatureResponse,
-  ): ContextMenuSection[] => {
-    const suppressed = feature.feature.suppressed ?? false;
-    // Only offered where the kernel can actually repeat this row on its own —
-    // a fillet/shell/boolean has a result and no rigid tool, so naming one is a
-    // rebuild error, and pattern-scope §7 rule 4 says a refused kind is not
-    // OFFERED rather than refused after the fact.
-    const seedable = hasBody && scopeFeature(feature) !== null;
-    const sections: ContextMenuSection[] = [
-      {
-        key: "feature",
-        label: feature.name,
-        items: [
-          {
-            key: "edit",
-            label: "Edit",
-            onSelect: () => selectFeature(feature),
-            "data-testid": "tree-ctx-edit",
-          },
-          {
-            key: "rename",
-            label: "Rename",
-            icon: <SketchIcon />,
-            onSelect: () => {
-              setSelectedFeatureId(feature.id);
-              setRenamingId(feature.id);
-            },
-            "data-testid": "tree-ctx-rename",
-          },
-          {
-            key: "suppress",
-            label: suppressed ? "Unsuppress" : "Suppress",
-            icon: <SuppressIcon />,
-            onSelect: () => toggleSuppress(feature),
-            "data-testid": "tree-ctx-suppress",
-          },
-          {
-            key: "delete",
-            label: "Delete",
-            icon: <CloseIcon />,
-            danger: true,
-            disabled: deletingId === feature.id,
-            onSelect: () => requestDeleteFeature(feature),
-            "data-testid": "tree-ctx-delete",
-          },
-        ],
-      },
-    ];
-    // A SECOND SECTION, not four more items in the first: Edit/Rename/Suppress/
-    // Delete are things you do TO the row, these make a NEW feature out of it.
-    // The verbs read as sentences ("Repeat Hole1") for the same reason the band
-    // renames itself — the menu proposes the next step by name.
-    if (seedable) {
-      sections.push({
-        key: "scope",
-        label: "Repeat",
-        items: [
-          {
-            key: "pattern",
-            label: `Repeat ${feature.name}`,
-            icon: <VerbGlyph verb="pattern" />,
-            shortcut: "P",
-            onSelect: () => openScopedVerb("pattern", feature),
-            "data-testid": "tree-ctx-pattern",
-          },
-          {
-            key: "mirror",
-            label: `Mirror ${feature.name}`,
-            icon: <VerbGlyph verb="mirror" />,
-            shortcut: "I",
-            onSelect: () => openScopedVerb("mirror", feature),
-            "data-testid": "tree-ctx-mirror",
-          },
-        ],
-      });
-    }
-    return sections;
-  };
+  const buildTreeSections = (feature: FeatureResponse) =>
+    treeMenuSections(feature, {
+      hasBody,
+      deletingId,
+      selectFeature,
+      setSelectedFeatureId,
+      setRenamingId,
+      toggleSuppress,
+      requestDeleteFeature,
+      openScopedVerb,
+    });
 
   // The breadcrumb's mode leaf: sketch step / measure / open command / model.
   const workspaceMode =
@@ -5342,93 +918,26 @@ export function PartPage() {
           feature-create tools otherwise — one edge-to-edge surface, the
           viewport below it. */}
         <TopToolbar>
-          {mode === "off" ? (
-            <CreateStrip
-              treeReady={tree.data !== undefined}
-              canUndo={canUndo}
-              canRedo={canRedo}
-              historyHold={
-                historyStep ?? (rollbackBusy ? ("rollback" as const) : null)
-              }
-              onUndo={triggerUndo}
-              onRedo={triggerRedo}
-              onNewSketch={startSketch}
-              canImportStep={bodyFeatureId === null}
-              importingStep={importing}
-              onImportStep={handleImportStep}
-              onNewDatum={openCreateDatum}
-              canExtrude={hasSolvedSketch}
-              onNewExtrude={openCreateExtrude}
-              canRevolve={hasSolvedSketch}
-              onNewRevolve={openCreateRevolve}
-              canSweep={canSweep}
-              onNewSweep={openCreateSweep}
-              canLoft={canLoft}
-              onNewLoft={openCreateLoft}
-              canModify={hasBody}
-              onFillet={openCreateFillet}
-              onChamfer={openCreateChamfer}
-              onPattern={openCreatePattern}
-              scopeSubject={scopeSubject}
-              onClearScope={() => setSelectedFeatureId(null)}
-              onShell={openCreateShell}
-              onDraft={openCreateDraft}
-              onHole={openCreateHole}
-              onMirror={openCreateMirror}
-              canBaseFlange={hasSolvedSketch}
-              onNewBaseFlange={openCreateBaseFlange}
-              canEdgeFlange={isSheetMetal}
-              onNewEdgeFlange={openCreateEdgeFlange}
-              canHem={isSheetMetal}
-              onNewHem={openCreateHem}
-              canCornerRelief={canCornerRelief}
-              onNewCornerRelief={openCreateCornerRelief}
-              canFlatPattern={isSheetMetal}
-              flatteningPattern={flatPatternBusy}
-              onFlatPattern={openFlatPattern}
-              exportingFlatDxf={flatDxfBusy}
-              onExportFlatDxf={exportFlatDxf}
-              canCombine={bodies.length >= 2}
-              onCombine={openCreateCombine}
-              canMeasure={hasBody}
-              measuring={measureActive}
-              onToggleMeasure={toggleMeasure}
-              activeCommand={activeCommand}
-              onCommandOk={() =>
-                useCommandActionStore.getState().requestSubmit()
-              }
-              onCommandCancel={closeEditor}
-              onExport={partExport.exporter}
-              exportDisabledReason={partExport.gate.blockedReason}
-              exportPartial={partExport.gate.partial}
-              exportPartialQualifier={partExport.gate.qualifier ?? undefined}
-              exportState={partExport.gate.state}
-              nextStep={nextStep}
-            />
-          ) : (
-            <SketchStrip
-              onSave={finishSketch}
-              saving={syncPending}
-              saveError={syncError}
-              datumPlanes={datumPlaneOptions}
-              onChoosePlaneSpec={(spec) =>
-                useSketchStore.getState().choosePlaneSpec(spec)
-              }
-              onAuthorOffsetPlane={authorOffsetPlane}
-              authoringOffset={offsetPlaneBusy}
-              offsetPlaneError={offsetPlaneError}
-              onTogglePickFace={togglePickFace}
-              canPickFace={hasBody}
-              facePicking={facePicking}
-              authoringFace={facePlaneBusy}
-              facePickError={facePlaneError}
-              // PICK-2: the prompt is mounted BY `facePicking`, so if the tip
-              // stops building while the pick is armed it goes on saying "click
-              // a highlighted planar face" at a scene that has none. This is the
-              // reason it says instead.
-              facePickBlocked={facePicking ? facePickRefusal : null}
-            />
-          )}
+          <PartCommandBand
+            partDocument={partDocument}
+            timelineHistory={timelineHistory}
+            editorSeat={editorSeat}
+            sketchEntry={sketchEntry}
+            pickOverlays={pickOverlays}
+            actionFlags={actionFlags}
+            workspaceActions={workspaceActions}
+            featureOpeners={featureOpeners}
+            rebuildNotices={rebuildNotices}
+            partBody={partBody}
+            featureCatalog={featureCatalog}
+            flatPatternExport={flatPatternExport}
+            measureSession={measureSession}
+            viewportState={viewportState}
+            editorRepick={editorRepick}
+            sketchPersistence={sketchPersistence}
+            pickState={pickState}
+            openCreateCombine={openCreateCombine}
+          />
         </TopToolbar>
         {/* Full-bleed scene: the canvas owns the frame; the tree + inspector
           FLOAT over it as collapsible instruments (Batch 1 makeover, P0-4) —
@@ -5523,697 +1032,70 @@ export function PartPage() {
                       </span>
                     </div>
                   ) : null}
-                  {mode === "off" && editor !== null ? (
-                    editor.kind === "extrude" ? (
-                      <ExtrudeEditor
-                        mode={editor.mode}
-                        profiles={sketchProfiles}
-                        initial={editor.initial}
-                        onSubmit={submitExtrude}
-                        onCancel={closeEditor}
-                        saving={editorSaving}
-                        error={editorError}
-                        onPreviewChange={setExtrudePreview}
-                        depthOverride={extrudeDepthOverride}
-                      />
-                    ) : editor.kind === "revolve" ? (
-                      <RevolveEditor
-                        mode={editor.mode}
-                        profiles={sketchProfiles}
-                        axesByProfile={axesByProfile}
-                        initial={editor.initial}
-                        onSubmit={submitRevolve}
-                        onCancel={closeEditor}
-                        saving={editorSaving}
-                        error={editorError}
-                        onGaugeChange={setRevolveGauge}
-                        angleOverride={revolveAngleOverride}
-                      />
-                    ) : editor.kind === "sweep" ? (
-                      <SweepEditor
-                        mode={editor.mode}
-                        profiles={sketchProfiles}
-                        pathsByProfile={pathsByProfile}
-                        initial={editor.initial}
-                        onSubmit={submitSweep}
-                        onCancel={closeEditor}
-                        saving={editorSaving}
-                        error={editorError}
-                        rebuildError={sweepRebuildError}
-                        profileEntities={profileEntities}
-                      />
-                    ) : editor.kind === "loft" ? (
-                      <LoftEditor
-                        mode={editor.mode}
-                        sections={sketchProfiles}
-                        initial={editor.initial}
-                        onSubmit={submitLoft}
-                        onCancel={closeEditor}
-                        saving={editorSaving}
-                        error={editorError}
-                      />
-                    ) : editor.kind === "pattern" ? (
-                      <PatternEditor
-                        mode={editor.mode}
-                        initial={editor.initial}
-                        onSubmit={submitPattern}
-                        onCancel={closeEditor}
-                        saving={editorSaving}
-                        error={editorError}
-                        // ANCHOR C — contract β's echo, both halves. The
-                        // gauges ask, the form takes it, the form projects the
-                        // row back out through `onPreviewChange`, and the
-                        // gauges redraw from THAT. One value each, two ways in.
-                        onPreviewChange={setPatternPreview}
-                        countOverride={patternCountOverride}
-                        spacingOverride={patternSpacingOverride}
-                      />
-                    ) : editor.kind === "fillet" ? (
-                      <FilletEditor
-                        mode={editor.mode}
-                        movedEdge={editorMovedEdge}
-                        initial={editor.initial}
-                        bodyFeatureId={pickAnchorFeatureId}
-                        onSubmit={submitFillet}
-                        onCancel={closeEditor}
-                        saving={editorSaving}
-                        error={editorError}
-                        radiusOverride={filletRadiusOverride}
-                        onPreviewChange={setFilletRadiusMm}
-                      />
-                    ) : editor.kind === "chamfer" ? (
-                      <ChamferEditor
-                        mode={editor.mode}
-                        movedEdge={editorMovedEdge}
-                        initial={editor.initial}
-                        bodyFeatureId={pickAnchorFeatureId}
-                        onSubmit={submitChamfer}
-                        onCancel={closeEditor}
-                        saving={editorSaving}
-                        error={editorError}
-                        distanceOverride={chamferDistanceOverride}
-                        onPreviewChange={setChamferDistanceMm}
-                      />
-                    ) : editor.kind === "shell" ? (
-                      <ShellEditor
-                        mode={editor.mode}
-                        initial={editor.initial}
-                        bodyFeatureId={pickAnchorFeatureId}
-                        onSubmit={submitShell}
-                        onCancel={closeEditor}
-                        saving={editorSaving}
-                        error={editorError}
-                        onThicknessChange={setShellThicknessMm}
-                        thicknessOverride={shellThicknessOverride}
-                      />
-                    ) : editor.kind === "draft" ? (
-                      <DraftEditor
-                        mode={editor.mode}
-                        initial={editor.initial}
-                        bodyFeatureId={pickAnchorFeatureId}
-                        onSubmit={submitDraft}
-                        onCancel={closeEditor}
-                        saving={editorSaving}
-                        error={editorError}
-                        onGaugeChange={setDraftGauge}
-                        angleOverride={draftAngleOverride}
-                      />
-                    ) : editor.kind === "hole" ? (
-                      <HoleEditor
-                        mode={editor.mode}
-                        initial={editor.initial}
-                        onSubmit={submitHole}
-                        onCancel={closeEditor}
-                        saving={editorSaving}
-                        error={editorError}
-                        canPickFace={hasBody}
-                        // PICK-2: an armed pick whose overlay cannot populate is
-                        // not an armed pick. Reading `null` here is what stops
-                        // the row badging `Picking` over an empty scene.
-                        activePick={holePickRefusal === null ? holePick : null}
-                        onTogglePick={toggleHolePick}
-                        facePick={holeFacePicked}
-                        pointPick={holePointPicked}
-                        pickError={holePickError}
-                        pickBlockedReason={holePickRefusal}
-                        placementHidden={holePlacementHidden}
-                        edges={holeOverlayEdges}
-                        onPreviewChange={onHolePreviewChange}
-                        onGaugeChange={setHoleGauge}
-                        diameterOverride={holeDiameterOverride}
-                        depthOverride={holeDepthOverride}
-                      />
-                    ) : editor.kind === "baseFlange" ? (
-                      <BaseFlangeEditor
-                        mode={editor.mode}
-                        profiles={sketchProfiles}
-                        initial={editor.initial}
-                        onSubmit={submitBaseFlange}
-                        onCancel={closeEditor}
-                        saving={editorSaving}
-                        error={editorError}
-                      />
-                    ) : editor.kind === "edgeFlange" ? (
-                      <EdgeFlangeEditor
-                        mode={editor.mode}
-                        movedEdge={editorMovedEdge}
-                        initial={editor.initial}
-                        bodyFeatureId={pickAnchorFeatureId}
-                        defaults={smDefaults}
-                        onSubmit={submitEdgeFlange}
-                        onCancel={closeEditor}
-                        saving={editorSaving}
-                        error={editorError}
-                        onSpanChange={onEdgeFlangeSpanChange}
-                      />
-                    ) : editor.kind === "hem" ? (
-                      <HemEditor
-                        mode={editor.mode}
-                        movedEdge={editorMovedEdge}
-                        initial={editor.initial}
-                        bodyFeatureId={pickAnchorFeatureId}
-                        defaults={smDefaults}
-                        onSubmit={submitHem}
-                        onCancel={closeEditor}
-                        saving={editorSaving}
-                        error={editorError}
-                      />
-                    ) : editor.kind === "cornerRelief" ? (
-                      <CornerReliefEditor
-                        mode={editor.mode}
-                        initial={editor.initial}
-                        edgeFlanges={edgeFlangeOpts}
-                        defaults={smDefaults}
-                        onSubmit={submitCornerRelief}
-                        onCancel={closeEditor}
-                        saving={editorSaving}
-                        error={editorError}
-                        onBendsChange={onReliefBendsChange}
-                      />
-                    ) : editor.kind === "mirror" ? (
-                      <MirrorEditor
-                        mode={editor.mode}
-                        initial={editor.initial}
-                        datumPlanes={datumPlaneOptions}
-                        onSubmit={submitMirror}
-                        onCancel={closeEditor}
-                        saving={editorSaving}
-                        error={editorError}
-                      />
-                    ) : editor.kind === "datum" ? (
-                      <DatumEditor
-                        mode={editor.mode}
-                        initial={editor.initial}
-                        datumRefs={datumEditorRefs}
-                        onSubmit={submitDatum}
-                        onCancel={closeEditor}
-                        saving={editorSaving}
-                        error={editorError}
-                        canPickFace={hasBody}
-                        // PICK-2, as for the hole editor: an armed slot whose
-                        // overlay cannot populate reads as not armed…
-                        activeFacePickSlot={
-                          datumPickRefusal === null ? datumFacePick : null
-                        }
-                        onToggleFacePick={toggleDatumFacePick}
-                        facePick={datumFacePicked}
-                        onPlaneChange={setDatumGaugeSeed}
-                        offsetOverride={datumOffsetOverride}
-                        // …and the standing refusal is stated on the editor's
-                        // own (ungated) pick-error line rather than nowhere.
-                        facePickError={datumFacePickError ?? datumPickRefusal}
-                      />
-                    ) : (
-                      <CombineEditor
-                        bodies={bodies}
-                        initial={editor.initial}
-                        onSubmit={submitCombine}
-                        onCancel={closeEditor}
-                        saving={editorSaving}
-                        error={editorError}
-                      />
-                    )
-                  ) : null}
-                  {importing ? (
-                    <div
-                      role="status"
-                      data-testid="import-step-status"
-                      className="absolute bottom-3 left-3 rounded-sm border border-hairline bg-anvil px-3 py-2"
-                    >
-                      <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-                        Importing STEP
-                      </span>
-                      <span className="mt-1 block font-body text-xs text-mist">
-                        Reading the solid and building the base body.
-                      </span>
-                    </div>
-                  ) : importError !== null ? (
-                    <div
-                      role="alert"
-                      data-testid="import-step-error"
-                      className="absolute bottom-3 left-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
-                    >
-                      <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
-                        Import failed
-                      </span>
-                      <span className="mt-1 block font-body text-xs text-mist">
-                        {importError}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setImportError(null)}
-                        data-testid="import-step-dismiss"
-                        className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
-                      >
-                        Dismiss
-                      </button>
-                    </div>
-                  ) : null}
-                  {flatPatternBusy ? (
-                    <div
-                      role="status"
-                      data-testid="flat-pattern-status"
-                      className="absolute bottom-3 left-3 rounded-sm border border-hairline bg-anvil px-3 py-2"
-                    >
-                      <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-                        Unfolding flat pattern
-                      </span>
-                      <span className="mt-1 block font-body text-xs text-mist">
-                        Laying the blank onto a drawing sheet.
-                      </span>
-                    </div>
-                  ) : flatPatternError !== null ? (
-                    <div
-                      role="alert"
-                      data-testid="flat-pattern-error"
-                      className="absolute bottom-3 left-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
-                    >
-                      <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
-                        Flat pattern failed
-                      </span>
-                      <span className="mt-1 block font-body text-xs text-mist">
-                        {flatPatternError}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setFlatPatternError(null)}
-                        data-testid="flat-pattern-dismiss"
-                        className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
-                      >
-                        Dismiss
-                      </button>
-                    </div>
-                  ) : null}
-                  <HistoryErrorAlert
-                    error={historyError}
-                    onDismiss={() => setHistoryError(null)}
+                  <FeatureEditorSeat
+                    partDocument={partDocument}
+                    partBody={partBody}
+                    featureCatalog={featureCatalog}
+                    featureSubmit={featureSubmit}
+                    editorRepick={editorRepick}
+                    editorSeat={editorSeat}
+                    rebuildNotices={rebuildNotices}
+                    solvedSketches={solvedSketches}
+                    pickOverlays={pickOverlays}
+                    pickState={pickState}
+                    holePicking={holePicking}
+                    pickSessions={pickSessions}
+                    actionFlags={actionFlags}
+                    datumFacePicking={datumFacePicking}
+                  />
+                  <ActionNotices
+                    actionFlags={actionFlags}
+                    timelineHistory={timelineHistory}
                   />
                   {/* The regeneration / rebuild / partial-body notices take the
                     SAME seat the feature editors do, so they dock the same way
                     — otherwise FB-7 would have been fixed for one surface and
                     left standing on four. */}
-                  <RailDock side="left">
-                    {regenerating ? (
-                      <div
-                        role="status"
-                        data-testid="body-regenerating"
-                        className="rounded-sm border border-hairline bg-anvil px-3 py-2"
-                      >
-                        <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-                          Regenerating body
-                        </span>
-                        <span className="mt-1 block font-body text-xs text-mist">
-                          The mesh expired from the cache — re-evaluating the
-                          tree.
-                        </span>
-                      </div>
-                    ) : regenFailed ? (
-                      <div
-                        role="alert"
-                        data-testid="body-regen-failed"
-                        className="rounded-sm border border-flag bg-anvil px-3 py-2"
-                      >
-                        <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
-                          Body unavailable
-                        </span>
-                        <span className="mt-1 block font-body text-xs text-mist">
-                          The body mesh could not be regenerated.
-                        </span>
-                        <button
-                          type="button"
-                          onClick={retryBody}
-                          className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
-                        >
-                          Re-evaluate
-                        </button>
-                      </div>
-                    ) : editor === null && rebuildNotice !== null ? (
-                      <div
-                        role="alert"
-                        data-testid="rebuild-notice"
-                        className="rounded-sm border border-flag bg-anvil px-3 py-2"
-                      >
-                        <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
-                          This feature couldn't build
-                        </span>
-                        <span className="mt-1 block font-body text-xs text-mist">
-                          {rebuildNotice}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setRebuildNoticeDismissed(true)}
-                          data-testid="rebuild-notice-dismiss"
-                          className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
-                        >
-                          Dismiss
-                        </button>
-                      </div>
-                    ) : editor === null && build.failed && build.hasBody ? (
-                      // WHAT YOU ARE LOOKING AT (AUDIT-PRODUCT N3). The strict-prefix
-                      // rule renders the last-good PREFIX, so one bad pick can turn a
-                      // modelled bracket into a bare brick — and until now nothing on
-                      // screen said the solid was not the part. `last_good_feature_id`
-                      // was on the wire and unused; it names the state being shown.
-                      // NOT dismissible: it describes a live condition, and it leaves
-                      // when the condition does.
-                      <div
-                        role="status"
-                        data-testid="partial-body-notice"
-                        className="rounded-sm border border-flag bg-anvil px-3 py-2"
-                      >
-                        <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
-                          Partial body
-                        </span>
-                        <span className="mt-1 block font-body text-xs text-mist">
-                          {partialBodySentence(build)}
-                        </span>
-                        {build.failure !== null ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const failed = features.find(
-                                (f) => f.id === build.failure?.id,
-                              );
-                              if (failed !== undefined) selectFeature(failed);
-                            }}
-                            data-testid="partial-body-show-failure"
-                            className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
-                          >
-                            Show {build.failure.name}
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </RailDock>
+                  <BodyNotices
+                    partBody={partBody}
+                    rebuildNotices={rebuildNotices}
+                    editorSeat={editorSeat}
+                    viewportState={viewportState}
+                    featureCatalog={featureCatalog}
+                    selectFeature={selectFeature}
+                  />
                 </>
               }
             >
               <SketchScene solved={solved} facePicking={facePicking} />
-              {/* ANCHOR D, pattern (CRAFT-11) — two mounts and a ghost. The
-                  anchor is computed HERE and handed down, so CRAFT-12's
-                  selection store re-wires this one expression rather than the
-                  gauge component. */}
-              {mode === "off" &&
-              editor?.kind === "pattern" &&
-              patternPreview !== null &&
-              patternGaugeAnchor !== null ? (
-                <PatternGaugeLayer
-                  anchor={patternGaugeAnchor}
-                  count={patternPreview.count}
-                  spacingMm={patternPreview.spacingMm}
-                  onCountChange={patternCountGauge.set}
-                  onSpacingChange={patternSpacingGauge.set}
-                  bodyGeometry={patternBodyGeometry}
-                />
-              ) : null}
-              {showExtrudeGhost &&
-              extrudeGhostLayer !== null &&
-              extrudePreview ? (
-                <ExtrudePreview
-                  layer={extrudeGhostLayer}
-                  distanceMm={extrudePreview.distanceMm}
-                  direction={extrudePreview.direction}
-                  operation={extrudePreview.operation}
-                  onDepthChange={handleExtrudeDrag}
-                  twistDeg={extrudePreview.twistDeg}
-                  twistCentre={extrudePreview.twistCentre}
-                />
-              ) : null}
-              {/* ANCHOR D (CRAFT-10) — THE ANGULAR GAUGES.
-                  The revolve arc stands on its own axis, which this item draws
-                  for the first time: before it, the axis was a dropdown and the
-                  scene showed nothing, so an arc would have been an arc around
-                  nothing. The layer is resolved from the full `solved` set (not
-                  from whatever the browser is showing) for the same reason the
-                  extrude ghost is: the gauge must appear whether or not a body
-                  already exists. */}
-              {mode === "off" &&
-              editor?.kind === "revolve" &&
-              revolveGauge !== null &&
-              revolveGaugeLayer !== null ? (
-                <RevolveGauge
-                  basis={revolveGaugeLayer.basis}
-                  entities={revolveGaugeLayer.entities}
-                  axis={revolveGauge.axis}
-                  angleDeg={revolveGauge.angleDeg}
-                  onAngleChange={handleRevolveDrag}
-                />
-              ) : null}
-              {/* The taper gauge stands on the FIRST picked face — pick order is
-                  preserved by the store, so "the one you picked first" is a
-                  stable answer, and a draft that tapers six faces by one angle
-                  needs one instrument, not six. The face is passed DOWN as a
-                  prop; `DraftGauge` reads no store, so W4's selection store is a
-                  change to this line rather than to that component. */}
-              {mode === "off" &&
-              editor?.kind === "draft" &&
-              draftGauge !== null &&
-              draftGaugeFace !== undefined ? (
-                <DraftGauge
-                  face={draftGaugeFace}
-                  neutral={{
-                    base: draftGauge.base,
-                    offsetMm: draftGauge.offsetMm,
-                    flip: draftGauge.flip,
-                  }}
-                  angleDeg={draftGauge.angleDeg}
-                  onAngleChange={handleDraftDrag}
-                />
-              ) : null}
-              <MeasureOverlay />
-              {mode === "off" && edgePicking ? <EdgePickOverlay /> : null}
-              {/* The fillet/chamfer gauges stand on the picked edges and draw
-                  the RESULT at the live value — route (b) of direction §8.4,
-                  line-work rather than a ghost: the rolling ball's tangency
-                  and the bevel band, both computed from the number the arrow
-                  reports, so the drag moves the model and not only the field. */}
-              {mode === "off" &&
-              editor?.kind === "fillet" &&
-              filletRadiusMm !== null ? (
-                <FilletGauge
-                  anchors={edgeGaugeAnchors}
-                  radiusMm={filletRadiusMm}
-                  unit={lengthUnit}
-                  onRadiusChange={filletRadiusGauge.set}
-                />
-              ) : null}
-              {mode === "off" &&
-              editor?.kind === "chamfer" &&
-              chamferDistanceMm !== null ? (
-                <ChamferGauge
-                  anchors={edgeGaugeAnchors}
-                  distanceMm={chamferDistanceMm}
-                  unit={lengthUnit}
-                  onDistanceChange={chamferDistanceGauge.set}
-                />
-              ) : null}
-              {mode === "off" && reliefBendHighlights.length > 0 ? (
-                <BendHighlightOverlay bends={reliefBendHighlights} />
-              ) : null}
-              {mode === "off" &&
-              editor?.kind === "edgeFlange" &&
-              edgeFlangeSpan !== null ? (
-                <FlangeSpanOverlay
-                  span={edgeFlangeSpan}
-                  label={edgeFlangeSpanLabel}
-                />
-              ) : null}
-              {mode === "off" && shellPicking ? (
-                <ShellFaceOverlay
-                  testIdPrefix={
-                    editor?.kind === "draft" ? "draft-face" : "shell-face"
-                  }
-                />
-              ) : null}
-              {/* THE SHELL GAUGE stands on the face you last opened — so it
-                  appears with the pick rather than before it, and the editor's
-                  own field is still the exact path (CRAFT-9b). */}
-              {mode === "off" &&
-              editor?.kind === "shell" &&
-              shellGaugeAnchor !== null &&
-              shellThicknessMm !== null ? (
-                <ShellGauge
-                  anchor={shellGaugeAnchor}
-                  thicknessMm={shellThicknessMm}
-                  onChange={shellThicknessGauge.set}
-                />
-              ) : null}
-              {mode === "off" &&
-              editor?.kind === "datum" &&
-              datumGaugeAnchor !== null &&
-              datumGaugeSeed !== null ? (
-                <DatumGauge
-                  anchor={datumGaugeAnchor}
-                  offsetMm={datumGaugeSeed.offsetMm}
-                  onChange={datumOffsetGauge.set}
-                />
-              ) : null}
-              {mode === "plane" && facePicking ? (
-                <FacePickOverlay
-                  faces={pickableFaces}
-                  onPick={authorFacePlane}
-                  pendingIndex={pendingFaceIndex}
-                />
-              ) : null}
-              {mode === "off" &&
-              editor?.kind === "datum" &&
-              datumFacePick !== null ? (
-                <FacePickOverlay
-                  faces={datumPickableFaces}
-                  onPick={pickDatumFace}
-                  pendingIndex={null}
-                />
-              ) : null}
-              {mode === "off" &&
-              editor?.kind === "hole" &&
-              holePick === "face" ? (
-                <FacePickOverlay
-                  faces={holePickableFaces}
-                  onPick={pickHoleFace}
-                  pendingIndex={null}
-                />
-              ) : null}
-              {/* ANCHOR D, hole (CRAFT-9c) — Ø and depth, with the bore circle
-                  and the depth plane. Stood down while a PICK is armed: a pick
-                  in progress is a different gesture on the same face, and a
-                  hit sleeve lying across the drill point would take the very
-                  click the point pick is waiting for. It comes back the moment
-                  the pick lands. Withheld with the placement overlay when the
-                  face's body is hidden (SEL-7), for that overlay's reason. */}
-              {mode === "off" &&
-              editor?.kind === "hole" &&
-              holePick === null &&
-              !holePlacementHidden &&
-              holeGaugeAnchor !== null &&
-              holeGauge !== null &&
-              holeGauge.diameterMm !== null ? (
-                <HoleGauge
-                  anchor={holeGaugeAnchor}
-                  diameterMm={holeGauge.diameterMm}
-                  depthMm={holeGauge.depthMm}
-                  onDiameterChange={holeDiameterGauge.set}
-                  onDepthChange={holeDepthGauge.set}
-                />
-              ) : null}
-              {/* The placement overlay shows from the moment a face exists, not
-                only while the point pick is armed: the datum crosshair is what
-                says where the editor's X/Y cells count from, and it has to be
-                on screen while they are being typed (QA3-1). */}
-              {mode === "off" &&
-              editor?.kind === "hole" &&
-              holePreview?.signature != null ? (
-                <HolePointOverlay
-                  signature={holePreview.signature}
-                  // Not `holePickableFaces`, which is gated on the FACE pick
-                  // being armed — the point pick needs the same list to resolve
-                  // its placement face's ordinal for the free-placement raycast.
-                  faces={holeOverlayFaces}
-                  vertices={holeOverlayVertices}
-                  edges={holeOverlayEdges}
-                  position={holePreview.position}
-                  armed={holePick === "point"}
-                  onPick={pickHolePoint}
-                />
-              ) : null}
+              <PartViewportLayers
+                partDocument={partDocument}
+                partBody={partBody}
+                editorSeat={editorSeat}
+                viewportState={viewportState}
+                pickOverlays={pickOverlays}
+                pickSessions={pickSessions}
+                pickState={pickState}
+                sketchEntry={sketchEntry}
+                datumFacePicking={datumFacePicking}
+                holePicking={holePicking}
+              />
             </Viewport>
-            <ChromeRail side="left">
-              <FloatingPanel side="left" title="Feature tree" id="tree">
-                <div className="flex flex-col gap-3">
-                  <FeatureTreePanel
-                    tree={tree.data}
-                    treeError={tree.error}
-                    evaluation={evaluation.data}
-                    build={build}
-                    selectedFeatureId={selectedFeatureId}
-                    scopedFeatureIds={scopedFeatureIds ?? undefined}
-                    onSelectFeature={selectFeature}
-                    onKeepAsOneBody={keepAsOneBody}
-                    recoveringDisjoint={disjointRecovering}
-                    onRepickFace={repickFace}
-                    onRepickEdges={repickEdges}
-                    dismissedWarnings={dismissedMovedEdges}
-                    onDismissWarning={dismissMovedEdge}
-                    onToggleSuppress={toggleSuppress}
-                    suppressingId={suppressingId}
-                    onRowContextMenu={openTreeMenu}
-                    renamingId={renamingId}
-                    onCommitRename={commitRename}
-                    onCancelRename={() => setRenamingId(null)}
-                    onReorder={reorderTree}
-                  />
-                  {bodies.length > 0 ? (
-                    <BodiesPanel
-                      bodies={bodies}
-                      lumpsByFeature={lumpsByFeature}
-                      selectedFeatureId={selectedFeatureId}
-                      onSelectBody={selectBody}
-                    />
-                  ) : null}
-                </div>
-              </FloatingPanel>
-            </ChromeRail>
-            <ChromeRail side="right">
-              {showInspector ? (
-                // The EXPORT strip is PINNED under the panel, not trailing the
-                // scrolling readouts: the panel's height is clamped (it clears the
-                // reference cube), so whatever sits last in the column is whatever
-                // goes under the fold — and on a 1366x768 frame that was the strip
-                // plus the sentence warning that the file will be marked *partial*
-                // (UI-REVIEW 2026-07-30 P1, a regression of the 48px timeline).
-                // Mass properties scroll; the actions never move.
-                <FloatingPanel
-                  side="right"
-                  title="Inspector"
-                  id="inspector"
-                  footer={
-                    <Panel className="border-t-0">
-                      <PartExportControls partId={partId} build={build} />
-                    </Panel>
-                  }
-                >
-                  <BodyInspector
-                    properties={bodyProperties}
-                    build={build}
-                    material={materialControls}
-                  />
-                </FloatingPanel>
-              ) : showExportOnly ? (
-                // No body yet (a sketch-only or rolled-back tree), but the part is
-                // modeled enough to have a tree — offer the EXPORT strip in its
-                // honest disabled state so the affordance is discoverable.
-                <FloatingPanel side="right" title="Export" id="inspector">
-                  <aside
-                    className="w-full"
-                    aria-label="Part export"
-                    data-testid="part-export-idle"
-                  >
-                    <Panel>
-                      <PartExportControls partId={partId} build={build} />
-                    </Panel>
-                  </aside>
-                </FloatingPanel>
-              ) : null}
-            </ChromeRail>
+            <FeatureTreeRail
+              partDocument={partDocument}
+              viewportState={viewportState}
+              editorSeat={editorSeat}
+              treeActions={treeActions}
+              editorRepick={editorRepick}
+              featureCatalog={featureCatalog}
+              selectFeature={selectFeature}
+            />
+            <InspectorRail
+              viewportState={viewportState}
+              partDocument={partDocument}
+              partBody={partBody}
+              materialPanel={materialPanel}
+            />
             {/* What breaks if this feature goes — asked before it does (F3). */}
             {deleteIntent !== null ? (
               <FeatureDeleteConfirm
@@ -6236,57 +1118,9 @@ export function PartPage() {
                 of sketch mode, and this note only ever appears in sketch mode.
                 Its first draft sat at `bottom-3 left-3` and covered the
                 sketcher's own DRO, which is chrome occluding chrome. */}
-            {restoredDraft !== null ? (
-              <div
-                role="status"
-                data-testid="sketch-draft-restored"
-                className="absolute bottom-hud-lane left-1/2 z-hud flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-3 border border-hairline bg-anvil/90 px-3 py-1.5 shadow-float backdrop-blur-sm"
-              >
-                <span className="shrink-0 font-display text-2xs uppercase tracking-[0.16em] text-brass">
-                  Draft restored
-                </span>
-                <span aria-hidden className="h-3 w-px shrink-0 bg-hairline" />
-                <span className="min-w-0 font-body text-2xs text-gauge">
-                  <span className="font-data text-mist">
-                    {restoredDraft.entities}
-                  </span>{" "}
-                  {restoredDraft.entities === 1 ? "entity" : "entities"} from{" "}
-                  {draftAge(restoredDraft.savedAt)}, kept in this browser — Save
-                  sketch puts them in the part.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setRestoredDraft(null)}
-                  data-testid="sketch-draft-restored-dismiss"
-                  className="shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-gauge outline-none hover:text-brass focus-visible:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
-                >
-                  Dismiss
-                </button>
-              </div>
-            ) : null}
+            <DraftRestoredNote sketchPersistence={sketchPersistence} />
             {/* Tree-action failure (rename/delete) — honest, dismissible chrome. */}
-            {treeActionError !== null ? (
-              <div
-                role="alert"
-                data-testid="tree-action-error"
-                className="absolute bottom-3 left-3 z-hud max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
-              >
-                <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
-                  Action failed
-                </span>
-                <span className="mt-1 block font-body text-xs text-mist">
-                  {treeActionError}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setTreeActionError(null)}
-                  data-testid="tree-action-error-dismiss"
-                  className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
-                >
-                  Dismiss
-                </button>
-              </div>
-            ) : null}
+            <TreeActionErrorNote treeActions={treeActions} />
           </ChromeRailProvider>
         </main>
         {/* THE TIMELINE — docked along the bottom of the frame, the way the
@@ -6295,7 +1129,10 @@ export function PartPage() {
             cube and the status banners, and a fourth floating occupant would
             fight all three. */}
         <TimelineStrip
-          tree={tree.data}
+          // While an edit shows its input body, the strip shows the stop just
+          // before the feature: a display of the preview, never a stored move.
+          tree={displayTree}
+          previewing={displayTree !== tree.data}
           evaluation={evaluation.data}
           selectedFeatureId={selectedFeatureId}
           scopedFeatureIds={scopedFeatureIds ?? undefined}

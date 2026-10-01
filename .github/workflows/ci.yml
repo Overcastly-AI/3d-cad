@@ -43,7 +43,9 @@
 #               triggered workflow keys its concurrency group per COMMIT —
 #               CI-2) and
 #               scripts/check-mutation-markers.py (no mutation/ablation/debug
-#               marker labels committed source — docs/RETRO.md §4b)
+#               marker labels committed source — docs/RETRO.md §4b) and
+#               scripts/check-file-size.py (no source file grows past 1,500
+#               lines; the oversized ones may not grow — FILE-SIZE-RATCHET)
 #   (doc-tick was removed 2026-09-25 with the same-commit ROADMAP/BACKLOG
 #   tick convention it enforced; see CLAUDE.md.)
 #   licences  — scripts/check-licences.py over the shared objects in the synced
@@ -445,6 +447,15 @@ jobs:
         run: |
           python3 scripts/check-air-gap.py --self-test
           python3 scripts/check-air-gap.py
+      # FILE-SIZE-RATCHET. No hand-written .py/.ts/.tsx file may pass 1,500
+      # lines, and the ones already over it (scripts/file-size-allowlist.json)
+      # may not grow; an entry above its file's real size fails too, so the
+      # list only shrinks. PartPage.tsx reached 6,502 lines a few at a time
+      # because nothing pushed back. Stdlib + git, ~0.3s (+ ~1.6s self-test).
+      - name: Source file size ratchet (+ prove the gate can fail)
+        run: |
+          python3 scripts/check-file-size.py --self-test
+          python3 scripts/check-file-size.py
       # scripts/web-smoke.sh asserts the compose stack ENDS AT THE APP — the
       # entry document, the hashed bundle it names, the SPA fallback, a
       # transparent /api proxy, and no CDN-loading FastAPI explorer. Those
@@ -624,14 +635,14 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
       # LAST, for the reason the full lane's verdicts are last: a tail of the
-      # job log is the only channel into a red run from the dev container.
+      # job log is the only channel into a red run from the dev container. It
+      # ends on `job.status`, not on the block, so a red job's last line never
+      # reads GREEN (CI-VERDICT-HANG-1; scripts/e2e-job-verdict.sh).
       - name: Verdict (kept last so a tail of the job log finds it)
         if: always()
-        run: |
-          verdict="$RUNNER_TEMP/e2e-logs-smoke/verdict.txt"
-          if [[ -s "$verdict" ]]; then
-            cat "$verdict"
-            exit 0
-          fi
-          echo "::error::no verdict file at $verdict — scripts/e2e.sh never reached its summary, so the smoke died BEFORE or DURING setup (uv sync / pnpm install / browser install / the smoke-set check / service boot), or hit the 12-minute step timeout. Its reason is in the 'Smoke specs' step above."
-          ls -la "$RUNNER_TEMP/e2e-logs-smoke" || true
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: >-
+          scripts/e2e-job-verdict.sh
+          "$RUNNER_TEMP/e2e-logs-smoke/verdict.txt"
+          "Smoke specs (sketch -> extrude -> save -> reload)"

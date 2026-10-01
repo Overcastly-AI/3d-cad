@@ -31,18 +31,26 @@
  *    Whether drei's value alone would be enough has not been measured, so the
  *    band keeps the draw.
  *
- *  * r3f dedupes to ONE hit per OBJECT, so the band resolves nearest-in-DEPTH
- *    rather than nearest-in-screen. See `resolveBandEdge` for why that is the
- *    right answer and why not to build a screen-distance tie-break on it.
+ *  * r3f dedupes to ONE hit per OBJECT, the nearest in DEPTH, so its
+ *    `event.intersections` cannot say which edge is nearest the CURSOR. On a
+ *    thin wall that handed the pick to the wrong rim (EDGE-MARK-OVERLAP), so
+ *    the layer does not read r3f's list at all: r3f's hit only says "the
+ *    pointer is near the band", and {@link EdgeBandLayer}'s `resolveAt` casts
+ *    its own ray through the pointer, keeps EVERY segment hit with its screen
+ *    gap, and asks `resolveBandIntersections` for the nearest to the cursor
+ *    that is PROVABLY visible (a second ray through that edge's own pixel;
+ *    see `edgeBandProbe.ts`). Otherwise the edge in front keeps the pick, so
+ *    an edge hidden behind a thin wall can never beat the visible one.
  *
  * ## Why a `PickSurface` rides along
  *
  * An edge on the FAR side of the solid must not win over the material in front
  * of it. The surface is mounted as a second raycast target purely so the
- * handler can compare depths; the decision itself is
- * `resolveBandIntersections`', and both handlers run it over the SAME
- * `event.intersections` array, so whichever fires first they compute the same
- * answer and the result cannot depend on hit order.
+ * resolver can compare depths; the decision itself is
+ * `resolveBandIntersections`', and the hover, the click and the mark-seat
+ * oracle all reach it through the one `resolveAt`, so whichever handler fires
+ * first they compute the same answer and the result cannot depend on hit
+ * order.
  *
  * A hit on that surface is DRAWN material by construction: `PickSurface` mounts
  * it with the `pickRaycast.ts` filter, which drops a hidden body's triangles
@@ -54,32 +62,27 @@
 import { Line } from "@react-three/drei";
 import { useThree, type ThreeEvent } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { Raycaster, Vector2, Vector3 } from "three";
-import type { BufferGeometry, Intersection, Mesh } from "three";
+import { Vector3 } from "three";
+import type { BufferGeometry, Mesh, Vector2 } from "three";
 import type { LineSegments2 } from "three-stdlib";
 
 import {
   bandRadius,
   buildEdgeBand,
   edgeOcclusionBias,
-  resolveBandIntersections,
-  type BandIntersection,
   type EdgeBandInput,
   EDGE_BAND_WIDTH_PX,
 } from "./edgeBand";
+import { resolveBandAt } from "./edgeBandProbe";
 import { PickSurface } from "./pickSurface";
 import { useEdgeMarkAnchors, type EdgeMarkAnchor } from "./useEdgeMarkAnchors";
 
 /**
  * Scratch for the mark-seat oracle, held across frames so the recompute
- * allocates nothing. `Vector3.project` and `Raycaster.setFromCamera` both write
- * in place, and the hit array is truncated rather than replaced.
+ * allocates nothing. `Vector3.project` writes in place.
  */
-const probeRaycaster = new Raycaster();
-const probeNdc = new Vector2();
 const probeWorld = new Vector3();
 const probeProjected = new Vector3();
-const probeHits: Intersection[] = [];
 
 export interface EdgeBandLayerProps {
   /** The pickable edges, each with the index a hit should report. */
@@ -110,6 +113,7 @@ export function EdgeBandLayer({
   onAnchors,
 }: EdgeBandLayerProps) {
   const camera = useThree((s) => s.camera);
+  const size = useThree((s) => s.size);
   const band = useMemo(() => buildEdgeBand(edges), [edges]);
   const bias = useMemo(
     () => edgeOcclusionBias(bandRadius(band.points)),
@@ -119,54 +123,48 @@ export function EdgeBandLayer({
   const surfaceRef = useRef<Mesh | null>(null);
 
   /**
-   * The addressed edge for one pointer event. Reads the whole intersection
-   * list rather than the event's own hit, so the band handler and the surface
-   * handler are the same function of the same input.
+   * THE ONE HIT-TEST: which edge a pointer at this NDC point addresses.
+   *
+   * Casts its own ray rather than reading r3f's `event.intersections`, because
+   * r3f keeps one hit per object and the band is one object, so its list holds
+   * only the edge nearest in DEPTH (see `resolveBandIntersections`). Here every
+   * segment within the corridor is kept, each measured by how far it passes
+   * from the cursor on screen, and the resolver takes the nearest visible one.
+   * The hover, the click and the mark-seat oracle all come through here, so
+   * the edge that highlights is the edge a click commits and the edge a mark
+   * is seated on. The raycasts themselves live in `edgeBandProbe.ts`, where
+   * they are unit-tested against real three.js objects.
    */
-  const resolve = useCallback(
-    (intersections: readonly BandIntersection[]): number | null =>
-      resolveBandIntersections(
-        intersections,
-        { band: lineRef.current, surface: surfaceRef.current },
-        band.edgeOfSegment,
+  const resolveAt = useCallback(
+    (ndcX: number, ndcY: number): number | null => {
+      const line = lineRef.current;
+      if (line === null) return null;
+      return resolveBandAt(ndcX, ndcY, {
+        camera,
+        width: size.width,
+        height: size.height,
+        band: line,
+        surface: surfaceRef.current,
+        edgeOfSegment: band.edgeOfSegment,
         bias,
-      ),
-    [band, bias],
+      });
+    },
+    [camera, size, band, bias],
   );
 
   /**
-   * THE MARK-SEAT ORACLE. Fire the pointer's own question at a scene point:
-   * cast a ray through it and ask `resolveBandIntersections` — the very
-   * function the pointer handlers call — whether the answer is this edge.
-   *
-   * `intersectObject` sorts what it appends, so the combined list arrives
-   * near → far exactly as r3f delivers `event.intersections`; taking the first
-   * band hit is then the same choice r3f's per-object dedupe makes.
+   * THE MARK-SEAT ORACLE. Fire the pointer's own question at a scene point
+   * through `resolveAt` — the very function the pointer handlers call — and ask
+   * whether the answer is this edge.
    */
   const addressable = useCallback(
     (point: readonly [number, number, number], edgeIndex: number): boolean => {
-      const line = lineRef.current;
-      if (line === null) return true;
+      if (lineRef.current === null) return true;
       probeWorld.set(point[0] ?? 0, point[1] ?? 0, point[2] ?? 0);
       probeProjected.copy(probeWorld).project(camera);
-      probeNdc.set(probeProjected.x, probeProjected.y);
-      probeRaycaster.setFromCamera(probeNdc, camera);
-      probeHits.length = 0;
-      probeRaycaster.intersectObject(line, false, probeHits);
-      const surface = surfaceRef.current;
-      if (surface !== null) {
-        probeRaycaster.intersectObject(surface, false, probeHits);
-      }
-      return (
-        resolveBandIntersections(
-          probeHits as unknown as BandIntersection[],
-          { band: line, surface },
-          band.edgeOfSegment,
-          bias,
-        ) === edgeIndex
-      );
+      return resolveAt(probeProjected.x, probeProjected.y) === edgeIndex;
     },
-    [camera, band, bias],
+    [camera, resolveAt],
   );
 
   const anchors = useEdgeMarkAnchors(
@@ -179,10 +177,10 @@ export function EdgeBandLayer({
   }, [anchors, onAnchors]);
 
   const handleMove = useCallback(
-    (event: { intersections: readonly BandIntersection[] }) => {
-      onHover(resolve(event.intersections));
+    (event: { pointer: Vector2 }) => {
+      onHover(resolveAt(event.pointer.x, event.pointer.y));
     },
-    [resolve, onHover],
+    [resolveAt, onHover],
   );
 
   /**
@@ -193,12 +191,12 @@ export function EdgeBandLayer({
    */
   const handleClick = useCallback(
     (event: ThreeEvent<MouseEvent>) => {
-      const index = resolve(event.intersections);
+      const index = resolveAt(event.pointer.x, event.pointer.y);
       if (index === null) return;
       event.stopPropagation();
       onPick?.(index);
     },
-    [resolve, onPick],
+    [resolveAt, onPick],
   );
 
   return (

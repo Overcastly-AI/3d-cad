@@ -36,7 +36,7 @@ import geometry.mesh_store as mesh_store
 import pytest
 from build123d import Solid
 from build123d.topology.shape_core import Shape
-from geometry.features import evaluate as evaluate_module
+from geometry.features import tree as tree_module
 from geometry.features.evaluate import (
     EvaluationState,
     RecordedFeatureTools,
@@ -902,13 +902,12 @@ def test_thinning_only_touches_its_own_chain() -> None:
     assert len(kept) < 40
 
 
-#: Every EvaluationState field, by how ``EvaluationState.fork`` must treat it.
-#: A new field fails ``test_every_state_field_is_classified_for_the_fork`` until
-#: somebody decides which set it belongs in — and if it holds a kernel shape,
-#: adds it to ``EvaluationState.shape_slots`` (which both the fork and the
-#: detach walk), or a ladder rung would share it with the evaluation that carries
-#: on past the rung. The name census forces the decision; the BEHAVIOUR is gated
-#: by ``test_every_shape_the_state_holds_is_forked_and_detached``.
+#: Every EvaluationState field, by how ``EvaluationState.fork`` treats it. A new
+#: field fails ``test_every_state_field_is_classified_for_the_fork`` until it is
+#: classified, and one holding a kernel shape must join ``shape_slots`` (the fork
+#: and detach walk it) or a ladder rung would share it with the evaluation that
+#: carries on. ``test_every_shape_the_state_holds_is_forked_and_detached`` gates
+#: the behaviour; ``topo_names`` is re-anchored like ``provenance``.
 _FORKED_FIELDS = frozenset(
     {
         "bodies",
@@ -916,6 +915,7 @@ _FORKED_FIELDS = frozenset(
         "last_cut_tools",
         "feature_tools",
         "provenance",
+        "topo_names",
         "solved_sketches",
         "sketch_planes",
         "datum_planes",
@@ -1120,8 +1120,8 @@ def test_every_shape_the_state_holds_is_forked_and_detached(
     def record(shape: object) -> None:
         detached.append(id(shape))
 
-    monkeypatch.setattr(evaluate_module, "drop_triangulation", record)
-    evaluate_module._Checkpoint(
+    monkeypatch.setattr(tree_module, "drop_triangulation", record)
+    tree_module._Checkpoint(
         state=state,
         results=[],
         last_good_feature_id=None,
@@ -1163,15 +1163,15 @@ def test_a_rung_climb_forks_twice_and_continues_on_neither_original_nor_rung(
         stored.append(checkpoint)
         return True
 
-    monkeypatch.setattr(evaluate_module._REBUILD_CACHE, "store_rung", capture)
+    monkeypatch.setattr(tree_module._REBUILD_CACHE, "store_rung", capture)
     keys = [f"k{i}" for i in range(RUNG_SPACING + 1)]
-    evaluate_module._climb_rung(
+    tree_module._climb_rung(
         RUNG_SPACING,
         state,
         [],
         set(),
         None,
-        evaluate_module._Ladder(keys, speculative=False),
+        tree_module._Ladder(keys, speculative=False),
     )
 
     assert len(stored) == 1
@@ -1366,7 +1366,7 @@ def test_a_freeform_ladder_holds_no_more_heap_than_its_byte_budget(
         rung_byte_budget=_FREEFORM_BUDGET,
         rung_max_bytes=_FREEFORM_BUDGET,
     )
-    monkeypatch.setattr(evaluate_module, "_REBUILD_CACHE", cache)
+    monkeypatch.setattr(tree_module, "_REBUILD_CACHE", cache)
     for chain in range(4):
         payload = _lobed_plate_tree(8, 4.0 - 0.25 * chain)
         result = evaluate_tree(_request(payload)).result
@@ -1451,7 +1451,7 @@ def test_an_oversize_part_repeats_from_the_cache(
     other = _request(_payload(TREE_N - 1))
     cold = _cold(request)
     cache: PrefixCache[Any] = PrefixCache(REBUILD_CACHE_CAPACITY, byte_budget=1024)
-    monkeypatch.setattr(evaluate_module, "_REBUILD_CACHE", cache)
+    monkeypatch.setattr(tree_module, "_REBUILD_CACHE", cache)
 
     _answer(request)
     before = cache.stats
@@ -1491,13 +1491,13 @@ def test_a_repeat_does_not_pay_to_reweigh_its_checkpoint(
     the cheap path: the ``/measure``, ``/tessellate``, ``/export`` calls that
     REPEAT a tree re-store the same state and artifacts, and carry its weight."""
     calls: list[int] = []
-    real = evaluate_module.weigh_shapes  # pyright: ignore[reportPrivateImportUsage]
+    real = tree_module.weigh_shapes  # pyright: ignore[reportPrivateImportUsage]
 
     def counting(shapes: Any) -> int:
         calls.append(1)
         return real(shapes)
 
-    monkeypatch.setattr(evaluate_module, "weigh_shapes", counting)
+    monkeypatch.setattr(tree_module, "weigh_shapes", counting)
     request = _request(_payload())
     reset_rebuild_cache()
     _answer(request)
@@ -1529,7 +1529,7 @@ def test_a_freeform_frontier_holds_no_more_heap_than_its_byte_budget(
     cache: PrefixCache[Any] = PrefixCache(
         REBUILD_CACHE_CAPACITY, byte_budget=_FRONTIER_BUDGET, rung_capacity=0
     )
-    monkeypatch.setattr(evaluate_module, "_REBUILD_CACHE", cache)
+    monkeypatch.setattr(tree_module, "_REBUILD_CACHE", cache)
     monkeypatch.setattr(mesh_store, "_active_store", mesh_store.MeshStore(1))
     for chain in range(5):
         payload = _lobed_plate_tree(8, 4.0 - 0.25 * chain)

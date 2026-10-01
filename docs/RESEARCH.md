@@ -54,6 +54,16 @@ Rules the solver keeps:
   retried** from the author's pose; one the constraints do force is refused.
 - Spline fit points can take point constraints; spline tangency is deferred
   until there is a native spline primitive.
+- **Tangency has two forms, as in FreeCAD** (`geometry.sketch.tangency`,
+  SKETCH-ENDPOINT-TANGENT). A whole-curve `tangent` uses planegcs's native
+  `tangent_line_arc` family (centre-to-line distance = r, contact point free).
+  A `tangent` that names an end of each curve (`a_point`/`b_point`) is the
+  join plus the tangency at it: a coincidence and `angle_via_point` held at
+  0 or pi, the branch read once from the submitted geometry. The whole-curve
+  equation is redundant with a coincident at the same join, which is why a
+  sketch fillet's joins are endpoint tangents: with plain coincidents an R
+  edit pulled the arc off tangent with no warning. An endpoint tangent
+  includes its coincidence, so a coincident on the same pair is redundant.
 
 ## 3. Monorepo of services, contract-first
 
@@ -146,10 +156,35 @@ The correctness gates, run in CI and by `geometry-qa`:
   hollow came out different on every build. Arc still decides every Shell. For a
   sealed hollow of an analytic body with no concave edge, the Intersection join
   also runs, and its byte-deterministic build ships when it matches Arc's in
-  shells, faces, volume and area. It is never trusted alone: it silently drops a
-  pocket when the cavity splits, and it drifts on spline walls. Every other Arc
-  result gets a canonical face order, but its bytes can still move in the last
-  bit (`kernel/shell.py`).
+  shells, faces, volume, area, centroid and inertia. It is never trusted alone:
+  it silently drops a pocket when the cavity splits, and it drifts on spline
+  walls. Every other Arc result gets a canonical face order, but its bytes can
+  still move in the last bit (`kernel/shell.py`). The hash order can also
+  change the topology. Where a cavity touches itself at a point, about half of
+  all address layouts leave one face spanning both sides of the pinch, and the
+  body is invalid. The heal does not try to steer OCCT. It rebuilds each face of
+  an invalid result from its own edges (`BOPAlgo_BuilderFace`) and replaces a
+  face that bounds more than one region with those regions, which gives the
+  other layout's faces (`kernel/shell_heal.py`).
+- **A shell is checked against its definition, not against another offset.**
+  Both joins can return one valid solid that removed material and is still the
+  wrong part, and they agree with each other when they do: a plate whose cavity
+  splits keeps one pocket, and a tube with a wall under 2t comes back as crossed
+  offsets. A shell of thickness t keeps the material within t of the kept faces,
+  so `kernel/shell_walls.py` checks that with point distances to the input
+  about t apart in each face's parameters, and along each convex
+  edge's cavity corner: every cavity face is t from the kept faces, every point
+  t inside a kept face with no kept face nearer is on the result, and every kept
+  face is still there. Near an opened face, where OCCT carries the walls to the
+  opening, the rim is not tested. A result that fails is refused. Whether any
+  cavity fits picks the code, whichever way OCCT failed:
+  `shell_thickness_too_large` with the thickest wall that fits, or
+  `shell_failed` with where and why. Over a 173-body sweep, 7 wrong solids
+  shipped before and none does now. Of 109 right shells with their smallest
+  pocket filled, 6 pass (pockets up to 1.47 mm^3; one 2.19 mm^3 test pocket
+  is missed too). Every query is capped and answered from a spatial index, so
+  the cost grows with the faces: about a fifth to a third of the shell on 710-
+  and 910-face lids, tens of ms on small bodies.
 - **STEP round-trip:** export, re-import and compare, within `ROUNDTRIP_TOL`
   (1e-7) unless a golden records a measured override. A body is made
   conformal before export, but only when `BRepCheck` rejects it, and never if
@@ -162,6 +197,12 @@ The correctness gates, run in CI and by `geometry-qa`:
 - **Volume integration** lives in one place (`properties.volume_properties`).
   Spline-swept faces are integrated through exact NURBS twins, and offset
   faces through our own Gauss-Legendre per knot span.
+- **A feature checks its own material, not a body delta.** Integration error
+  scales with the body and its face types: on a 60 000 mm^3 B-spline enclosure
+  the before/after volumes missed a Ø2.5 x 10 pocket by ~1.8 mm^3, and a valid
+  blind hole was refused. A Hole measures `tool ∩ body` and may fall short only
+  by a skin of that solid's OCCT tolerance (at least `Precision::Confusion`)
+  over the pocket's surface (`kernel/hole.py`).
 - **Refuse, do not heal, missing material:** zero-width slits
   (`find_zero_width_slits`) and degenerate parameters become typed feature
   errors.
@@ -210,6 +251,20 @@ number. Geometry composes SVG, PDF (reportlab, BSD) and DXF (ezdxf, MIT) as
 content-addressed artifacts. The neutral `ViewGeometry` DTO drives the
 client-side sheet editor.
 
+**Sheet fit (2026-09-30).** A view's box is its drawn extent: a circle is
+centre ± radius, an arc is its endpoints plus the axis extremes its sweep
+crosses (never its full circle or its centre). Auto-layout centres only the
+views it places, then shifts the arrangement just enough to keep captions
+inside the drafting border when geometry plus captions fit. Any view whose
+ink (geometry plus caption) still leaves the border is reported as an
+`off_sheet` error and stamped on every export, never moved silently. A
+hand-placed view's stored position keeps its original meaning, the centre of
+the old box that bounded arcs as full circles, and every composed view
+reports its anchor in that frame, so saved sheets do not move and a drag
+(composed anchor plus the move) lands where it was dropped, whether the view
+was auto-placed or pinned. The ink box
+includes the caption's width as well as its height.
+
 ## 12. Datum-plane conventions (scripting trap)
 
 | Datum | x_dir | y_dir | normal (extrude direction) |
@@ -233,3 +288,32 @@ are random 256-bit values in an `HttpOnly; Secure; SameSite=Strict` cookie
 scoped to `/api/v1/auth`. They rotate on use, and reusing an old one revokes
 the whole session. Sessions time out after 24 h idle (sliding) and 7 days
 absolute. Without TLS on a host other than localhost, the limit is a hard 1 h.
+
+## 14. Picked references: history names before geometry
+
+**Decision.** A picked face or edge stores a history-based name (`topo_name`)
+beside its geometric signature. A face is named by the feature that made it
+and from what: an extrude side from its sketch entity id, its caps
+`start`/`end`, a fillet or chamfer face from the name of the edge it replaced.
+A draft passes a face's name to the face it tilts. Every other face keeps its
+name while the op keeps it: the same OCCT shape, else the same exact
+supporting surface (`SurfaceKey`). An edge is the sorted pair of its two face
+names (`geometry/kernel/naming.py`).
+
+**Why.** Fusion 360, SolidWorks and Onshape carry a pick through a dimension
+edit because they name by history. Our geometric tiers cannot: a drafted wall
+that moves along X also moves within its own plane, so the moulded enclosure
+lost Fillet1 and everything after it on a width edit (hard-parts QA
+2026-10-01).
+
+**Order and refusal.** Exact signature first, unchanged. Then the name, only
+when exactly one current subshape holds it and the geometric tiers find
+nothing or include it. If they find other subshapes, they win, exactly as
+without a name. Any doubt is no name: two sources on one surface, a split
+face, a pair of faces meeting twice, an op without a hook. A ref without a
+name resolves as before, so goldens are unchanged. Names carry through the
+rebuild-cache fork face for face.
+
+**Scope.** Step 1 hooks extrude, draft, fillet and chamfer. Revolve, loft,
+pattern, mirror, shell offsets, sheet metal and `clean_shape` history are
+steps 2-3 (BACKLOG DESIGN-INTENT-REFS). Old selectors are not backfilled.

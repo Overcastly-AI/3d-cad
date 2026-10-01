@@ -573,20 +573,21 @@ jobs:
       # Budget when tailing: this block is <= 20 lines and the runner's own
       # post-job cleanup (cache save/prune) still prints after it, so
       # tail_lines: 60 is the safe ask; 40 will usually do.
+      #
+      # It ENDS on `job.status`, not on the block (CI-VERDICT-HANG-1). The block
+      # describes Playwright and is written before a timeout, an OOM kill or the
+      # dirty-tree check can fail the job, so re-printing it and exiting 0 left
+      # red jobs whose last line read GREEN. scripts/e2e-job-verdict.sh exits 0
+      # only on job.status == success; its self-test in `just lint` sweeps the
+      # rest.
       - name: Verdict (kept last so a tail of the job log finds it)
         if: always()
-        run: |
-          verdict="${{ runner.temp }}/e2e-logs-shard-${{ matrix.shard }}/verdict.txt"
-          if [[ -s "$verdict" ]]; then
-            cat "$verdict"
-            exit 0
-          fi
-          # No verdict file means scripts/e2e.sh never reached its own last
-          # line — the shard died in setup (uv sync, pnpm install, browser
-          # install, the Vite preflight) or was killed by the step timeout.
-          # Saying which is worth more than an empty tail.
-          echo "::error::no verdict file at $verdict — scripts/e2e.sh never reached its summary, so this shard died BEFORE or DURING setup (uv sync / pnpm install / browser install / Vite preflight), or hit the 40-minute step timeout. Its reason is in the 'Playwright shard' step above, not here."
-          ls -la "${{ runner.temp }}/e2e-logs-shard-${{ matrix.shard }}" || true
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: >-
+          scripts/e2e-job-verdict.sh
+          "$RUNNER_TEMP/e2e-logs-shard-${{ matrix.shard }}/verdict.txt"
+          "Playwright shard ${{ matrix.shard }}/6"
 
   # ── THE BUILT-BUNDLE LEG ────────────────────────────────────────────────
   #
@@ -738,22 +739,21 @@ jobs:
       # from the dev container, so whatever this job writes last is its only
       # interface. The upload steps above run after the script exits, which is
       # why the script cannot be the thing that ends the job.
+      #
+      # Ends on `job.status` (CI-VERDICT-HANG-1), and this leg is the one that
+      # needed it most: dist-leg.sh applies its test-count floor AFTER e2e.sh
+      # printed a GREEN block, so a floor failure used to end the log on GREEN.
+      # No verdict file means the leg never reached the browser: a bad build, a
+      # config scripts/render-web-nginx.py refuses, an nginx that would not
+      # start, or a service that would not become ready. The step log says which.
       - name: Verdict (kept last so a tail of the job log finds it)
         if: always()
-        run: |
-          verdict="$RUNNER_TEMP/dist-leg-logs/verdict.txt"
-          if [[ -s "$verdict" ]]; then
-            cat "$verdict"
-            exit 0
-          fi
-          # No verdict file means scripts/e2e.sh never reached its last line, so
-          # the run died BEFORE the browser — in the build, in the nginx render
-          # (a config reshaped past scripts/render-web-nginx.py), in nginx's own
-          # start, or in the service boot. Those have different fixes and the
-          # step log above says which; this block's job is to stop a reader
-          # concluding "the specs failed".
-          echo "::error::no verdict file at $verdict — the leg never reached the browser. Read the 'Built bundle through the production nginx config' step: it fails separately for a bad build, a config scripts/render-web-nginx.py refuses, an nginx that would not start (it prints the 127.0.0.1 / [::1] probe and the error log), and a service that would not become ready."
-          ls -la "$RUNNER_TEMP/dist-leg-logs" || true
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: >-
+          scripts/e2e-job-verdict.sh
+          "$RUNNER_TEMP/dist-leg-logs/verdict.txt"
+          "Built bundle through the production nginx config"
 
   # ── THE SHORT-TTL AUTH LEG (AUTH-SHORT-TTL-E2E-1) ─────────────────────────
   #
@@ -862,17 +862,16 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
       # LAST, for the same reason as the shards' verdict: a tail of the job
-      # log is the only channel into a red run from the dev container.
+      # log is the only channel into a red run from the dev container. Ends on
+      # `job.status` for the shards' reason too (CI-VERDICT-HANG-1).
       - name: Verdict (kept last so a tail of the job log finds it)
         if: always()
-        run: |
-          verdict="$RUNNER_TEMP/e2e-logs-short-ttl/verdict.txt"
-          if [[ -s "$verdict" ]]; then
-            cat "$verdict"
-            exit 0
-          fi
-          echo "::error::no verdict file at $verdict — scripts/e2e.sh never reached its summary, so this leg died BEFORE or DURING setup (uv sync / pnpm install / browser install / service boot, e.g. a gateway that refused JWT_TTL_S), or hit the 20-minute step timeout. Its reason is in the 'auth.spec with 20 s access tokens' step above."
-          ls -la "$RUNNER_TEMP/e2e-logs-short-ttl" || true
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: >-
+          scripts/e2e-job-verdict.sh
+          "$RUNNER_TEMP/e2e-logs-short-ttl/verdict.txt"
+          "auth.spec with 20 s access tokens"
 
   # The control that keeps the sharding honest, and the single job to read.
   #

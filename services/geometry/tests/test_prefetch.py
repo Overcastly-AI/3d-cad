@@ -38,7 +38,7 @@ from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
-from geometry.features import evaluate as evaluate_module
+from geometry.features import tree as tree_module
 from geometry.features.evaluate import (
     evaluate_tree,
     rebuild_cache_stats,
@@ -482,7 +482,7 @@ def test_a_warm_drops_its_own_result_rather_than_a_live_checkpoint(
     2026-08-01, is somebody's 244 ms `/measure` becoming 19 s.
     """
     small: PrefixCache[Any] = PrefixCache(2)
-    monkeypatch.setattr(evaluate_module, "_REBUILD_CACHE", small)
+    monkeypatch.setattr(tree_module, "_REBUILD_CACHE", small)
 
     payload = _payload(6)
     live_a = _request(payload)
@@ -663,7 +663,7 @@ def test_a_warm_paused_on_a_rung_does_not_redo_a_live_request_or_demote_it() -> 
     assert len(request.features) > RUNG_SPACING
     keys = prefix_keys(
         request,
-        capture_scope=evaluate_module._tool_scope_ids(request),  # pyright: ignore[reportPrivateUsage]
+        capture_scope=tree_module._tool_scope_ids(request),  # pyright: ignore[reportPrivateUsage]
     )
 
     reset_rebuild_cache()
@@ -671,7 +671,7 @@ def test_a_warm_paused_on_a_rung_does_not_redo_a_live_request_or_demote_it() -> 
     cached = warm_rebuild_cache(request, budget_s=5.0, yield_to=gate)
 
     assert cached == RUNG_SPACING, "the warm carried on after its reason was served"
-    frontier = evaluate_module._REBUILD_CACHE.take(keys)  # pyright: ignore[reportPrivateUsage]
+    frontier = tree_module._REBUILD_CACHE.take(keys)  # pyright: ignore[reportPrivateUsage]
     assert frontier is not None and frontier.prefix_length == len(request.features)
     assert not frontier.rung
     assert frontier.speculative is False, "a warm demoted live work to a guess"

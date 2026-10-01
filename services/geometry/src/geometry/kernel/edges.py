@@ -75,6 +75,7 @@ function, so the selected set and its order are a pure function of the body.
 # pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from build123d import Edge, Face, GeomType, Vector
@@ -97,12 +98,14 @@ from OCP.TopTools import (
 )
 
 from geometry.kernel.faces import (
+    PlanarFaceRecord,
     SubshapeAmbiguousError,
     SubshapeUnresolvedError,
     face_signature_dto,
-    match_face_records,
+    match_face_records_tiered,
     planar_faces,
 )
+from geometry.kernel.naming import edge_names
 from geometry.kernel.resolution import ResolutionTally
 
 # The two subshape-resolution errors are generic (defined alongside the face
@@ -160,6 +163,8 @@ class EdgeRecord:
     index: int
     signature: EdgeSignature
     edge: Edge
+    #: The edge's history-based name (:mod:`geometry.kernel.naming`), when known.
+    name: str | None = None
 
 
 def _vec(vector: Vector) -> Vec3:
@@ -183,7 +188,9 @@ def _canonical_endpoints(edge: Edge) -> tuple[Vector, Vector]:
 
 
 def edge_signature_dto(
-    edge: Edge, adjacent_faces: list[PlanarFaceSignature] | None = None
+    edge: Edge,
+    adjacent_faces: list[PlanarFaceSignature] | None = None,
+    topo_name: str | None = None,
 ) -> EdgeSignature:
     """The stage-1 :class:`EdgeSignature` of *edge* (curve + endpoints + mid + len).
 
@@ -210,6 +217,7 @@ def edge_signature_dto(
         midpoint=_vec(edge @ 0.5),
         length_mm=float(edge.length),
         adjacent_faces=adjacent_faces,
+        topo_name=topo_name,
     )
 
 
@@ -327,7 +335,9 @@ def circle_axis(edge: Edge) -> tuple[float, float, float]:
     return (axis.X(), axis.Y(), axis.Z())
 
 
-def enumerate_edges(body: BodyShape) -> list[EdgeRecord]:
+def enumerate_edges(
+    body: BodyShape, face_names: Sequence[str | None] | None = None
+) -> list[EdgeRecord]:
     """Every edge of *body* in ``body.edges()`` order (deterministic).
 
     THE shared enumeration (CLAUDE.md DRY rule): the selection overlay builds its
@@ -341,9 +351,20 @@ def enumerate_edges(body: BodyShape) -> list[EdgeRecord]:
     or a multi-body :class:`~build123d.Compound` (multi-body §MB-0), whose
     ``.edges()`` iterates every subshape solid's edges. Modifying features resolve
     against their ACTIVE body only (design §MB-0 Decision 1).
+
+    *face_names*, aligned with ``body.faces()``, names each record from the pair
+    of faces it bounds (:func:`~geometry.kernel.naming.edge_names`).
     """
+    names: list[str | None] | None = None
+    if face_names is not None and len(face_names) == len(body.faces()):
+        names = edge_names(body, face_names)
     return [
-        EdgeRecord(index=index, signature=edge_signature_dto(edge), edge=edge)
+        EdgeRecord(
+            index=index,
+            signature=edge_signature_dto(edge),
+            edge=edge,
+            name=None if names is None else names[index],
+        )
         for index, edge in enumerate(body.edges())
     ]
 
@@ -723,7 +744,9 @@ def durable_edge_match(candidate: EdgeSignature, target: EdgeSignature) -> bool:
 
 
 def _adjacency_matches(
-    body: BodyShape, records: list[EdgeRecord], target: EdgeSignature
+    face_records: list[PlanarFaceRecord],
+    records: list[EdgeRecord],
+    target: EdgeSignature,
 ) -> list[EdgeRecord]:
     """Tier 3: the edges shared by *target*'s two re-resolved adjacent faces.
 
@@ -743,10 +766,9 @@ def _adjacency_matches(
     if stored is None or len(stored) != 2:
         return []
 
-    face_records = planar_faces(body)
     resolved: list[Face] = []
     for signature in stored:
-        matches, _resilient = match_face_records(face_records, signature)
+        matches, _tier = match_face_records_tiered(face_records, signature)
         if len(matches) != 1:
             # Zero -> that neighbour is gone; more than one -> the face resolver
             # itself refuses to guess, and a pair we cannot pin cannot pin an edge.
@@ -775,7 +797,10 @@ def _adjacency_matches(
 
 
 def _match_edge_records(
-    body: BodyShape, records: list[EdgeRecord], target: EdgeSignature
+    body: BodyShape,
+    records: list[EdgeRecord],
+    target: EdgeSignature,
+    face_names: Sequence[str | None] | None = None,
 ) -> tuple[list[EdgeRecord], EdgeMatchTier]:
     """The three-tier picked-edge match shared by every feature-tree consumer.
 
@@ -796,14 +821,62 @@ def _match_edge_records(
     Returns ``(matched records, tier)`` — the records (0, 1, or >1), which the
     caller maps onto its typed unresolved / ambiguous error, and which tier
     produced them.
+
+    THE NAMED TIER (DESIGN-INTENT-REFS) follows the strict one under exactly
+    the rule :func:`geometry.kernel.faces.match_face_records_tiered` states: a
+    stored ``topo_name`` held by exactly one current edge (*records* carry the
+    names) wins when tiers 2-3 find nothing or find several including it, and
+    yields to them when they find edges without it. Without names, nothing
+    here changes.
     """
     strict = [r for r in records if edge_signatures_match(r.signature, target)]
     if strict:
         return strict, "exact"
+    geometric, tier = _geometric_edge_matches(body, records, target, face_names)
+    named = _named_edge(body, records, target.topo_name, face_names)
+    if named is not None and (
+        not geometric or any(r.index == named.index for r in geometric)
+    ):
+        return [named], "named"
+    return geometric, tier
+
+
+def _named_edge(
+    body: BodyShape,
+    records: list[EdgeRecord],
+    name: str | None,
+    face_names: Sequence[str | None] | None,
+) -> EdgeRecord | None:
+    """The ONE record whose name is *name*, else ``None``.
+
+    The records' own ``name`` when they carry one; otherwise the body's edge
+    names are worked out here, only now that the strict tier has missed, so an
+    unedited rebuild never pays for naming every edge."""
+    if name is None:
+        return None
+    names = [r.name for r in records]
+    if all(n is None for n in names) and face_names is not None:
+        names = edge_names(body, face_names)
+        if len(names) != len(records):
+            return None
+    held = [r for r, n in zip(records, names, strict=True) if n == name]
+    return held[0] if len(held) == 1 else None
+
+
+def _geometric_edge_matches(
+    body: BodyShape,
+    records: list[EdgeRecord],
+    target: EdgeSignature,
+    face_names: Sequence[str | None] | None,
+) -> tuple[list[EdgeRecord], EdgeMatchTier]:
+    """Tiers 2-3 of :func:`_match_edge_records`."""
     durable = [r for r in records if durable_edge_match(r.signature, target)]
     if durable:
         return durable, "durable"
-    return _adjacency_matches(body, records, target), "adjacent"
+    if target.adjacent_faces is None:
+        return [], "adjacent"
+    face_records = planar_faces(body, face_names)
+    return _adjacency_matches(face_records, records, target), "adjacent"
 
 
 def _ambiguous(count: int, *, tier: EdgeMatchTier) -> SubshapeAmbiguousError:
@@ -860,7 +933,10 @@ def resolve_edge_durable(
 
 
 def _resolve_picked_edges(
-    body: BodyShape, selector: PickedEdgesSelector, tally: ResolutionTally | None
+    body: BodyShape,
+    selector: PickedEdgesSelector,
+    tally: ResolutionTally | None,
+    face_names: Sequence[str | None] | None = None,
 ) -> list[Edge]:
     """Resolve each picked edge ref to its edge; dedupe; return in body order.
 
@@ -878,7 +954,9 @@ def _resolve_picked_edges(
     records = enumerate_edges(body)
     chosen: dict[int, Edge] = {}
     for ref in selector.refs:
-        matches, tier = _match_edge_records(body, records, ref.selector.signature)
+        matches, tier = _match_edge_records(
+            body, records, ref.selector.signature, face_names
+        )
         if not matches:
             raise SubshapeUnresolvedError(_UNRESOLVED_MESSAGE)
         if len(matches) > 1:
@@ -909,6 +987,7 @@ def select_edges(
     selector: EdgeSelector,
     *,
     tally: ResolutionTally | None = None,
+    face_names: Sequence[str | None] | None = None,
 ) -> list[Edge]:
     """Resolve an edge selector against *body* (design §2.4/§10).
 
@@ -917,6 +996,7 @@ def select_edges(
     stage-1 signature against that same enumeration, exactly one or an honest
     error. Only a PICKED ref is a reference, so only those are reported to
     *tally* — a predicate re-selects by rule and has no tier to report.
+    *face_names* (aligned with ``body.faces()``) enables the ``named`` tier.
 
     Raises:
         NoEdgesSelectedError: a predicate matched no edge (nothing to modify).
@@ -934,7 +1014,7 @@ def select_edges(
             # picked signature that no longer resolves is not the same outcome as
             # a predicate matching nothing); refs are >= 1, each resolving to one
             # edge, so the result is never empty.
-            return _resolve_picked_edges(body, selector, tally)
+            return _resolve_picked_edges(body, selector, tally, face_names)
 
     if not edges:
         raise NoEdgesSelectedError(

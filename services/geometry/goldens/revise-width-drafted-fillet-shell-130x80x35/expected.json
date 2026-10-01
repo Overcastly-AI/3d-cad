@@ -1,0 +1,46 @@
+{
+  "description": "THE DESIGN-INTENT-REFS REVISION GOLDEN (hard-parts QA 2026-10-01, docs/VISION.md). A moulded enclosure half authored at 120x80x35: Extrude1 of a centred 120x80 rectangle (sketch lines e1..e4), Draft1 tilting the two +-X walls 1.5 deg inward about the XY plane, Fillet1 rounding the four corner edges R5, Shell1 hollowing to a 2 mm wall open at the top. Every pick was captured from the selection overlay at width 120 and carries a history-based topo_name. Then the width is retyped 120 -> 130 and NOTHING is re-picked. Before names, every geometric tier lost the drafted walls (a 5 mm move along X shifts a 1.5 deg wall 0.13 mm within its own plane, which tiers 3 and 4 pin to 1e-6), so Fillet1 was subshape_unresolved and Shell1 skipped. With names, Fillet1's four edges resolve on the 'named' tier as the edges between Extrude1:side:e2/e4 (drafted) and Extrude1:side:e1/e3, and the part rebuilds whole. The gate is that the body is the 130 mm enclosure an engineer would get by re-picking (asserted byte-identical at the fillet in tests/test_design_intent_enclosure.py) and that its volume agrees with a closed form and with an independent build123d build.",
+  "derivation": [
+    "Expected values are the harness's, cross-checked against two independent truths below (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
+    "Closed form. t = tan(1.5 deg), c = cos(1.5 deg). Each +-X wall leans in by 35t at the top, so the solid drafted box is a trapezoidal prism, 80 * 35 * (130 + 130 - 70t)/2. The X walls' normals (+-c, 0, s) are perpendicular to the Y walls' normals (0, +-1, 0), so each corner is still a 90 deg dihedral and its R5 round removes r^2(1 - pi/4) per unit length of an edge 35/c long (an oblique prism cut by z=0 and z=35). Outer = 80*35*(260 - 70t)/2 - 4*25*(1 - pi/4)*35/c = 360682.4157844673.",
+    "The 2 mm inward shell offsets each X wall 2/c along X at fixed z, each Y wall and the floor 2 mm, and the rounds to R3 about the same axes; the cavity runs z = 2..35 (open top). Cavity = 76 * integral_2^35 2(65 - 2/c - z t) dz - 4*9*(1 - pi/4)*33/c = 313319.5779520025.",
+    "volume (closed form) = 360682.4157844673 - 313319.5779520025 = 47362.83783246478 mm^3. Harness 47362.83784710243 (+1.46e-5, 3.1e-10 relative). goldens/.../crosscheck.py (pure build123d: make_box, draft, fillet, offset; no Loft code, no names) gives 47362.83783666832 (+4.2e-6). Both residuals survive GProp at eps 1e-12 (Loft 47362.837847102, cross-check 47362.837836668), so they are OCCT's draft/fillet/offset construction, not the integrator: equivalent to a mean surface displacement of ~3e-10 mm over 48 000 mm^2, five orders inside the kernel linear tolerance. A fillet on the wrong corner or a stale 120 mm width would miss by thousands of mm^3.",
+    "centroid: x and y are 0 by the part's two mirror planes (harness -1.2e-8 and 5.8e-11, the same construction residual); z = 10.820304907484777 (cross-check 10.820304903096362, 4.4e-9 apart).",
+    "bounding_box = [-65,-40,0]..[65,40,35]: the drafted walls are 130 mm apart at the floor (the neutral plane) and the rim is at z=35. max.x = 65 is the witness that the fillet and shell followed the walls to the NEW width.",
+    "topology: 19 faces = outer 4 walls + 4 rounds + floor + rim, inner 4 walls + 4 rounds + floor (10 + 9); 48 edges; 1 shell. Identical to the cross-check's 19 faces / 48 edges.",
+    "mesh counts are the harness's at linear 0.1 mm (asserted exactly; deterministic within a kernel version). GLB byte size is deliberately not pinned.",
+    "STEP round trip: the volume moves +1.12e-6 mm^3 and the area likewise, above ROUNDTRIP_TOL. Cause: the shell leaves one of the four inner R3 rounds 5.2e-8 mm^2 off its mirror twins (the -1.2e-8 centroid.x) and the STEP reader re-derives it symmetric; the filleted body before the shell round-trips within 3.8e-9. The bound is NOT loosened: only the volume/area round-trip check is a strict xfail (conftest KNOWN_ROUNDTRIP_DEFECTS, BACKLOG SHELL-ROUND-ASYM), which goes red the day the shell is fixed; centroid, bounds and topology stay at ROUNDTRIP_TOL."
+  ],
+  "tolerance": 1e-6,
+  "tolerance_rationale": "Curved (cylindrical rounds) plus offset geometry, measured then set. The pinned values are the harness's own, so the bound covers only run-to-run and host-to-host variation of the same OCCT construction and GProp integration; the 1e-6 ceiling is the documented curved-shell scale (cf. 5e-7 for the shell-and-draft goldens) and is far below the 1.46e-5 by which this construction differs from the closed form, which the derivation records rather than absorbs. Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 47362.83784710243,
+    "surface_area": 48178.650922638764,
+    "centroid": {
+      "x": -1.2474234131822042e-8,
+      "y": 5.756661032967684e-11,
+      "z": 10.820304907484777
+    },
+    "bounding_box": {
+      "min": {
+        "x": -65.00000000000001,
+        "y": -40.00000000000001,
+        "z": 0.0
+      },
+      "max": {
+        "x": 65.00000000000001,
+        "y": 40.00000000000001,
+        "z": 35.00000000000001
+      }
+    }
+  },
+  "topology": {
+    "faces": 19,
+    "edges": 48,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 1120,
+    "triangles": 1084
+  }
+}

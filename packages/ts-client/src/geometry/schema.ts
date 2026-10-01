@@ -1754,7 +1754,8 @@ export interface components {
         };
         /**
          * ComposedLayoutIssue
-         * @description Two placed views that collide, or nearly do (audit N2).
+         * @description Two placed views that collide or nearly do, or one view whose ink leaves the
+         *     drafting border (audit N2, LAYOUTISSUE-OFFSHEET-1).
          *
          *     Auto-layout used to pack the standard quartet to near-tangency and then export
          *     the collision that the next design change produced — an overlapping print,
@@ -1767,21 +1768,27 @@ export interface components {
          *     overlap on that axis, NEGATIVE (a clearance) where they do not. Boxes overlap
          *     only when BOTH are positive; ``clearance_mm`` is then 0.0 and otherwise the true
          *     (smallest-axis) white gap between them.
+         *
+         *     For ``off_sheet``, ``views`` names the one offending view, and the x/y fields
+         *     keep the same positive-is-bad sign: how far its ink crosses the worse of the
+         *     left/right borders and the worse of the top/bottom borders (negative = that
+         *     much clearance). ``clearance_mm`` is 0.0. The distance past the paper edge, when
+         *     the ink leaves the paper too, is in ``message``.
          */
         ComposedLayoutIssue: {
             /** @description Where the serializers stamp this line of the sheet banner (SVG space, baseline-left) — placement stays the composer's job (design §4.2) */
             at: components["schemas"]["ComposedPoint"];
             /**
              * Clearance Mm
-             * @description White gap between the two boxes (mm); 0.0 when they overlap
+             * @description White gap between the two boxes (mm); 0.0 when they overlap, and 0.0 for off_sheet
              */
             clearance_mm: number;
             /**
              * Code
-             * @description views_overlap | views_crowded
+             * @description views_overlap | views_crowded | off_sheet
              * @enum {string}
              */
-            code: "views_overlap" | "views_crowded";
+            code: "views_overlap" | "views_crowded" | "off_sheet";
             /**
              * Message
              * @description Plain-language sheet caption ('TOP / ISOMETRIC VIEWS OVERLAP BY 6.33 x 60.00 MM - REPOSITION BEFORE RELEASE')
@@ -1789,12 +1796,12 @@ export interface components {
             message: string;
             /**
              * Overlap X Mm
-             * @description Signed X-axis overlap (mm): positive = the boxes overlap in X, negative = that much X clearance
+             * @description Signed X-axis overlap (mm): positive = the boxes overlap in X (off_sheet: the ink crosses a left/right border by this much), negative = that much X clearance
              */
             overlap_x_mm: number;
             /**
              * Overlap Y Mm
-             * @description Signed Y-axis overlap (mm): positive = overlap, negative = clearance
+             * @description Signed Y-axis overlap (mm): positive = overlap (off_sheet: the ink crosses a top/bottom border by this much), negative = clearance
              */
             overlap_y_mm: number;
             /**
@@ -1805,7 +1812,7 @@ export interface components {
             severity: "error" | "warning";
             /**
              * Views
-             * @description The two colliding/crowded projections, in canonical order
+             * @description The two colliding/crowded projections in canonical order, or the one view whose ink leaves the drafting border (off_sheet)
              */
             views: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section")[];
         };
@@ -1975,7 +1982,7 @@ export interface components {
             height_mm: number;
             /**
              * Layout Issues
-             * @description Measured view-collision diagnostics (audit N2): overlapping or sub-clearance view pairs, each with millimetre numbers and a plain-language message. EMPTY for a clean sheet — additive, so a clean sheet composes byte-identically. Non-empty ⇒ the serializers stamp a banner on the print.
+             * @description Measured layout diagnostics (audit N2): overlapping or sub-clearance view pairs, then any single view whose ink leaves the drafting border (off_sheet), each with millimetre numbers and a plain-language message. EMPTY for a clean sheet — additive, so a clean sheet composes byte-identically. Non-empty ⇒ the serializers stamp a banner on the print.
              */
             layout_issues?: components["schemas"]["ComposedLayoutIssue"][];
             /**
@@ -2957,6 +2964,11 @@ export interface components {
              * @constant
              */
             subshape_type: "edge";
+            /**
+             * Topo Name
+             * @description History-based name of the picked subshape (DESIGN-INTENT-REFS): which feature made it and from what, never where it is, so it survives a dimension edit that moves it. The resolver tries it after the exact signature and before the geometric tiers, and only when exactly one current subshape holds it. Absent on selectors authored before 2026-10-01 and on subshapes the kernel could not name; resolution is then unchanged.
+             */
+            topo_name?: string | null;
         };
         /**
          * EdgeSubshapeRef
@@ -5500,6 +5512,11 @@ export interface components {
              * @constant
              */
             surface: "plane";
+            /**
+             * Topo Name
+             * @description History-based name of the picked subshape (DESIGN-INTENT-REFS): which feature made it and from what, never where it is, so it survives a dimension edit that moves it. The resolver tries it after the exact signature and before the geometric tiers, and only when exactly one current subshape holds it. Absent on selectors authored before 2026-10-01 and on subshapes the kernel could not name; resolution is then unchanged.
+             */
+            topo_name?: string | null;
         };
         /**
          * Point2D
@@ -7230,11 +7247,17 @@ export interface components {
              */
             exact: number;
             /**
+             * Named
+             * @description References re-found by their stored history-based name (DESIGN-INTENT-REFS) after the exact signature missed.
+             * @default 0
+             */
+            named: number;
+            /**
              * Worst Tier
-             * @description The least certain tier any reference of this feature resolved at: 'exact' < 'durable' < 'adjacent'.
+             * @description The least certain tier any reference of this feature resolved at: 'exact' < 'named' < 'durable' < 'adjacent'.
              * @enum {string}
              */
-            worst_tier: "exact" | "durable" | "adjacent";
+            worst_tier: "exact" | "named" | "durable" | "adjacent";
         };
         /**
          * SweepFeature
@@ -7418,6 +7441,15 @@ export interface components {
          *     A line-and-line pair is not tangency-capable and is rejected at solve time.
          *     Order is immaterial (tangency is symmetric); the solver dispatches to the
          *     matching planegcs variant from the resolved entity kinds.
+         *
+         *     **Endpoint tangency** (``a_point`` and ``b_point`` both set): the named end
+         *     of ``a`` and the named end of ``b`` are ONE point, and the two curves share
+         *     a tangent direction there — the join a sketch fillet leaves at each trimmed
+         *     leg, and FreeCAD's endpoint-to-endpoint tangency (planegcs
+         *     ``angle_via_point``). It already includes the coincidence, so a separate
+         *     ``coincident`` between the same two points is redundant. Both curves must
+         *     have ends (a line or an arc), and not both lines. With neither set, it is
+         *     the whole-curve tangency above, unchanged: the contact point is free.
          */
         TangentConstraint: {
             /**
@@ -7426,10 +7458,20 @@ export interface components {
              */
             a: string;
             /**
+             * A Point
+             * @description For an endpoint tangency: the end of `a` at the join. Set together with `b_point`, or not at all.
+             */
+            a_point?: ("start" | "end") | null;
+            /**
              * B
              * @description Sketch-local entity id, e.g. 'e1'
              */
             b: string;
+            /**
+             * B Point
+             * @description For an endpoint tangency: the end of `b` at the join.
+             */
+            b_point?: ("start" | "end") | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}

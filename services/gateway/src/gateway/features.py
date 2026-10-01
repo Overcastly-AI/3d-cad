@@ -55,7 +55,11 @@ from loft_wire.geometry import (
     ExportFormat,
     export_responses,
 )
-from loft_wire.parts import PartEvaluationRecord, PartResponse
+from loft_wire.parts import (
+    EVALUATE_BEFORE_DESCRIPTION,
+    PartEvaluationRecord,
+    PartResponse,
+)
 from py_kit import get_logger
 
 from gateway.affinity import forward_geometry
@@ -329,6 +333,9 @@ async def evaluate_part(
     user: CurrentUser,
     http_request: Request,
     background_tasks: BackgroundTasks,
+    before: Annotated[
+        uuid.UUID | None, Query(description=EVALUATE_BEFORE_DESCRIPTION)
+    ] = None,
 ) -> EvaluateTreeResult:
     """Evaluate the part's current feature tree (feature-tree design §4).
 
@@ -344,9 +351,19 @@ async def evaluate_part(
     health column (§4.4a) — in a background task, after the response, so the
     bookkeeping can neither slow this call down nor fail it
     (:func:`record_last_evaluation`).
+
+    With ``before`` it is the Edit-feature preview: the body the feature is
+    built on, evaluated WITHOUT writing anything. The stored rollback bar and
+    ``tree_version`` stay where they are and no verdict is recorded, so a
+    reload or crash mid-edit leaves the part exactly as it was. The body comes
+    back the same way (``mesh_glb_id``, fetched from the mesh route).
     """
     upstream = await forward_documents(
-        http_request, user, "GET", f"/api/v1/parts/{part_id}/evaluation-request"
+        http_request,
+        user,
+        "GET",
+        f"/api/v1/parts/{part_id}/evaluation-request",
+        params=None if before is None else {"before": str(before)},
     )
     if upstream.status_code != status.HTTP_200_OK:
         raise_upstream_error(upstream, service=_SERVICE)
@@ -363,9 +380,12 @@ async def evaluate_part(
     if evaluated.status_code != status.HTTP_200_OK:
         raise_upstream_error(evaluated, service=_GEOMETRY)
     result = EvaluateTreeResult.model_validate_json(evaluated.content)
-    background_tasks.add_task(
-        record_last_evaluation, http_request, user, part_id, result
-    )
+    # A preview is a partial body: recording it would report a truncated tree's
+    # health as the part's, against the part's real tree_version.
+    if before is None:
+        background_tasks.add_task(
+            record_last_evaluation, http_request, user, part_id, result
+        )
     return result
 
 

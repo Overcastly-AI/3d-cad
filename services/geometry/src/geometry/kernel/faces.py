@@ -60,13 +60,14 @@ the boundary honest.
 # pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from build123d import CenterOf, Face, GeomType, Plane, Vector, Wire
-from loft_wire.features import PlanarFaceSignature
+from loft_wire.features import PlanarFaceSignature, SubshapeResolutionTier
 from loft_wire.geometry import Vec3
 
-from geometry.kernel.resolution import ResolutionTally, face_tier
+from geometry.kernel.resolution import ResolutionTally
 from geometry.kernel.types import BodyShape
 
 #: The intended face is bit-for-bit identical on a clean rebuild, so a match is
@@ -109,12 +110,15 @@ class PlanarFaceRecord:
     resolved (offset-0) sketch plane, and the kernel :class:`Face` itself. The
     single enumeration the pick side and the resolve side share (the ``face``
     field mirrors :class:`geometry.kernel.edges.EdgeRecord.edge` — a picked-face
-    consumer like shell needs the Face, not just its plane)."""
+    consumer like shell needs the Face, not just its plane). ``name`` is the
+    face's history-based name (:mod:`geometry.kernel.naming`), when the caller
+    knows it."""
 
     index: int
     signature: PlanarFaceSignature
     plane: Plane
     face: Face
+    name: str | None = None
 
 
 def deterministic_x_dir(normal: Vector) -> Vector:
@@ -243,6 +247,7 @@ def _signature_dto(
     centroid: Vector,
     area: float,
     outer: tuple[float, Vector, float] | None,
+    topo_name: str | None = None,
 ) -> PlanarFaceSignature:
     """Build the boundary signature DTO from a face's computed invariants.
 
@@ -269,15 +274,19 @@ def _signature_dto(
             else Vec3(x=outer_centroid.X, y=outer_centroid.Y, z=outer_centroid.Z)
         ),
         outer_perimeter_mm=outer_perimeter,
+        topo_name=topo_name,
     )
 
 
-def face_signature_dto(face: Face) -> PlanarFaceSignature | None:
+def face_signature_dto(
+    face: Face, topo_name: str | None = None
+) -> PlanarFaceSignature | None:
     """The boundary :class:`PlanarFaceSignature` of *face*, or ``None`` if non-planar.
 
     The pick-side entry (:mod:`geometry.kernel.overlay`) — one face in, its
     signature (or ``None``) out — sharing :func:`_signature_dto` with the
-    resolve-side :func:`planar_faces`.
+    resolve-side :func:`planar_faces`. *topo_name* is the face's history-based
+    name, stamped into the signature so the resolver's ``named`` tier can use it.
     """
     sig = planar_face_signature(face)
     if sig is None:
@@ -288,10 +297,13 @@ def face_signature_dto(face: Face) -> PlanarFaceSignature | None:
         centroid,
         area,
         outer_boundary_invariants(face, area=area, centroid=centroid),
+        topo_name,
     )
 
 
-def planar_faces(body: BodyShape) -> list[PlanarFaceRecord]:
+def planar_faces(
+    body: BodyShape, names: Sequence[str | None] | None = None
+) -> list[PlanarFaceRecord]:
     """Every PLANAR face of *body* in ``body.faces()`` order (deterministic).
 
     THE shared enumeration (CLAUDE.md DRY rule): the selection overlay builds its
@@ -306,7 +318,13 @@ def planar_faces(body: BodyShape) -> list[PlanarFaceRecord]:
     MB-0 correctness rule (design §MB-0 Decision 1): a MODIFYING feature resolves
     against its ACTIVE body ONLY, never a union of all bodies — so congruent
     faces on two coexisting bodies never tie a false ``subshape_ambiguous``.
+
+    *names*, aligned with ``body.faces()``, sets each record's ``name`` (the
+    ``named`` tier of :func:`match_face_records` reads it); a list of the wrong
+    length is ignored rather than trusted.
     """
+    if names is not None and len(names) != len(body.faces()):
+        names = None
     records: list[PlanarFaceRecord] = []
     for index, face in enumerate(body.faces()):
         sig = planar_face_signature(face)
@@ -324,6 +342,7 @@ def planar_faces(body: BodyShape) -> list[PlanarFaceRecord]:
                 ),
                 plane=_face_plane(normal, centroid, 0.0),
                 face=face,
+                name=None if names is None else names[index],
             )
         )
     return records
@@ -778,18 +797,68 @@ def match_face_records(
     honest ambiguity — never re-target a reference that already resolves. That is why
     tier 4 could land as a P0 fix in the resolver every picked-face consumer shares
     (§12a guard 4)."""
+    matches, tier = match_face_records_tiered(records, target)
+    return matches, tier != "exact"
+
+
+def match_face_records_tiered(
+    records: list[PlanarFaceRecord], target: PlanarFaceSignature
+) -> tuple[list[PlanarFaceRecord], SubshapeResolutionTier]:
+    """:func:`match_face_records` plus the ``named`` tier, reporting the tier.
+
+    THE NAMED TIER (DESIGN-INTENT-REFS, :mod:`geometry.kernel.naming`) sits
+    between the strict tier and the geometric ones, and it can only ever add a
+    resolution, never re-target one:
+
+    * strict first, unchanged — an exact match never consults the name;
+    * a stored ``topo_name`` held by EXACTLY ONE current face wins when the
+      geometric tiers 2-4 find nothing (the drafted wall that moved within its
+      own plane) or find several including it (the name breaks the tie);
+    * when the geometric tiers find faces and the named face is NOT among
+      them, the two disagree, and a disagreement is doubt: the geometric
+      answer stands, exactly as it would without a name;
+    * a name held by no face or by several is no evidence at all.
+
+    So a signature without a name, or a body without names, resolves exactly as
+    before this tier existed.
+    """
     strict = [r for r in records if planar_signatures_match(r.signature, target)]
     if strict:
-        return strict, False
+        return strict, "exact"
+    geometric = _geometric_matches(records, target)
+    named = named_match(records, target.topo_name)
+    if named is not None and (
+        not geometric or any(r.index == named.index for r in geometric)
+    ):
+        return [named], "named"
+    return geometric, "durable"
+
+
+def named_match(
+    records: Sequence[PlanarFaceRecord], name: str | None
+) -> PlanarFaceRecord | None:
+    """The ONE record whose ``name`` is *name*, or ``None`` (no name, or not
+    exactly one holder)."""
+    if name is None:
+        return None
+    held = [r for r in records if r.name == name]
+    return held[0] if len(held) == 1 else None
+
+
+def _geometric_matches(
+    records: list[PlanarFaceRecord], target: PlanarFaceSignature
+) -> list[PlanarFaceRecord]:
+    """Tiers 2-4 of :func:`match_face_records`, each only on an empty result
+    from the one above."""
     coplanar = [r for r in records if coplanar_signatures_match(r.signature, target)]
     if coplanar:
-        return coplanar, True
+        return coplanar
     translated = [
         r for r in records if translated_signatures_match(r.signature, target)
     ]
     if translated:
-        return translated, True
-    return [r for r in records if enclosing_face_match(r, target)], True
+        return translated
+    return [r for r in records if enclosing_face_match(r, target)]
 
 
 def _anchored_plane(plane: Plane, target: PlanarFaceSignature) -> Plane:
@@ -832,6 +901,7 @@ def resolve_face_plane(
     offset_mm: float,
     *,
     tally: ResolutionTally | None = None,
+    face_names: Sequence[str | None] | None = None,
 ) -> Plane:
     """Resolve a stage-1 face signature to its planar face's sketch plane.
 
@@ -860,8 +930,12 @@ def resolve_face_plane(
 
     *tally*, when given, is told which tier resolved the face
     (:mod:`geometry.kernel.resolution`) - only once it has resolved uniquely.
+    *face_names* (aligned with ``body.faces()``) enables the ``named`` tier; a
+    named match is re-anchored like a resilient one, because the named face
+    may have moved.
     """
-    matches, resilient = match_face_records(planar_faces(body), target)
+    matches, tier = match_face_records_tiered(planar_faces(body, face_names), target)
+    resilient = tier != "exact"
     if not matches:
         raise SubshapeUnresolvedError(
             "No planar face of the current body matches the stored face "
@@ -876,7 +950,7 @@ def resolve_face_plane(
             "Refusing to guess — pick a face without a congruent twin."
         )
     if tally is not None:
-        tally.note(face_tier(resilient))
+        tally.note(tier)
     plane = matches[0].plane
     if resilient:
         plane = _anchored_plane(plane, target)
@@ -894,6 +968,7 @@ def resolve_faces(
     targets: list[PlanarFaceSignature],
     *,
     tally: ResolutionTally | None = None,
+    face_names: Sequence[str | None] | None = None,
 ) -> list[Face]:
     """Resolve stage-1 face signatures to their planar :class:`Face`s.
 
@@ -913,16 +988,17 @@ def resolve_faces(
             congruent twin) — an honest error, never a coin flip (RESEARCH §9).
 
     *tally*, when given, is told which tier resolved each target
-    (:mod:`geometry.kernel.resolution`).
+    (:mod:`geometry.kernel.resolution`). *face_names* (aligned with
+    ``body.faces()``) enables the ``named`` tier.
     """
-    records = planar_faces(body)
+    records = planar_faces(body, face_names)
     chosen: dict[int, Face] = {}
     for target in targets:
         # The tier flag needs no re-anchoring here: this resolver returns the
         # kernel :class:`Face` itself, not a derived POSITION, so there is no
         # origin to move (contrast :func:`resolve_face_plane`). It is still
         # REPORTED, because a resilient match is a best-effort one (§7.3).
-        matches, resilient = match_face_records(records, target)
+        matches, tier = match_face_records_tiered(records, target)
         if not matches:
             raise SubshapeUnresolvedError(
                 "No planar face of the current body matches a picked face "
@@ -938,6 +1014,6 @@ def resolve_faces(
                 "congruent twin."
             )
         if tally is not None:
-            tally.note(face_tier(resilient))
+            tally.note(tier)
         chosen[matches[0].index] = matches[0].face
     return [chosen[index] for index in sorted(chosen)]

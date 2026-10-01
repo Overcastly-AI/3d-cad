@@ -35,10 +35,20 @@ Determinism (RESEARCH §9): the OCCT draft is a pure function of
 ``(body, faces, neutral_plane, angle)``.
 """
 
-from build123d import Compound, Face, Plane, Solid
+# pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false
+# pyright: reportAttributeAccessIssue=false
+
+from math import radians
+
+from build123d import Compound, DraftAngleError, Face, GeomType, Plane, Solid
+from OCP.BRepOffsetAPI import BRepOffsetAPI_DraftAngle
+from OCP.StdFail import StdFail_NotDone
+from OCP.TopoDS import TopoDS
 
 from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps, group_faces_by_lump
+from geometry.kernel.naming import OpHistory
 from geometry.kernel.types import BodyShape
 
 
@@ -54,7 +64,12 @@ class DraftError(RuntimeError):
 
 
 def draft_body(
-    body: BodyShape, faces: list[Face], neutral_plane: Plane, angle_deg: float
+    body: BodyShape,
+    faces: list[Face],
+    neutral_plane: Plane,
+    angle_deg: float,
+    *,
+    history: OpHistory | None = None,
 ) -> BodyShape:
     """Taper *faces* of *body* by *angle_deg* about *neutral_plane*; LUMP-PRESERVING.
 
@@ -70,6 +85,10 @@ def draft_body(
     straight through (unchanged), reassembling in the explicit lump order. The
     lump count is preserved by construction.
 
+    *history*, when given, receives each picked face paired with the tilted face
+    it became (``BRepOffsetAPI_DraftAngle::Modified``), for face naming
+    (:mod:`geometry.kernel.naming`).
+
     Raises:
         DraftError: the OCCT draft failed to complete (an angle too large for the
             geometry, an undraftable face, …) or left other than exactly one
@@ -80,17 +99,21 @@ def draft_body(
         groups = group_faces_by_lump(solids, faces)
         return assemble_lumps(
             [
-                _draft_one_lump(solid, lump_faces, neutral_plane, angle_deg)
+                _draft_one_lump(solid, lump_faces, neutral_plane, angle_deg, history)
                 if (lump_faces := groups.get(index))
                 else solid
                 for index, solid in enumerate(solids)
             ]
         )
-    return _draft_one_lump(body, faces, neutral_plane, angle_deg)
+    return _draft_one_lump(body, faces, neutral_plane, angle_deg, history)
 
 
 def _draft_one_lump(
-    body: Solid, faces: list[Face], neutral_plane: Plane, angle_deg: float
+    body: Solid,
+    faces: list[Face],
+    neutral_plane: Plane,
+    angle_deg: float,
+    history: OpHistory | None,
 ) -> Solid:
     """Taper the picked *faces* of ONE lump — the byte-identical single-body path.
 
@@ -101,7 +124,11 @@ def _draft_one_lump(
     try:
         # draft() carries Shape[Unknown] type params upstream (the same gap
         # tessellate.py documents for export_gltf) — scoped ignore only.
-        result = body.draft(faces, neutral_plane, angle_deg)  # pyright: ignore[reportUnknownMemberType]
+        result = (
+            body.draft(faces, neutral_plane, angle_deg)
+            if history is None
+            else _draft_with_history(body, faces, neutral_plane, angle_deg, history)
+        )
         solids = result.solids()
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise DraftError(
@@ -118,3 +145,42 @@ def _draft_one_lump(
     # clean() removes redundant seam faces/edges the operation can leave behind,
     # keeping topology counts meaningful (and golden-assertable).
     return clean_shape(solids[0])
+
+
+def _draft_with_history(
+    body: Solid,
+    faces: list[Face],
+    neutral_plane: Plane,
+    angle_deg: float,
+    history: OpHistory,
+) -> Solid:
+    """``Solid.draft`` (build123d 0.11), call for call, keeping the builder so
+    its ``Modified`` history can be read. Raises what it raises."""
+    for face in faces:
+        if face.geom_type not in {GeomType.PLANE, GeomType.CYLINDER, GeomType.CONE}:
+            raise ValueError(
+                f"Face {face} has unsupported geometry type {face.geom_type.name}."
+            )
+    builder = BRepOffsetAPI_DraftAngle(body.wrapped)
+    for face in faces:
+        builder.Add(
+            face.wrapped,
+            neutral_plane.z_dir.to_dir(),
+            radians(angle_deg),
+            neutral_plane.wrapped,
+            Flag=True,
+        )
+        if not builder.AddDone():
+            raise DraftAngleError("Draft could not be added to a face.")
+    try:
+        builder.Build()
+        result = Solid(TopoDS.Solid_s(builder.Shape()))
+    except StdFail_NotDone as err:
+        raise DraftAngleError("Draft build failed on the given solid.") from err
+    # ``ModifiedShape``, not ``Modified``: DraftAngle answers the per-subshape
+    # query and returns an EMPTY ``Modified`` list (measured, OCCT 7.9).
+    for face in faces:
+        produced = builder.ModifiedShape(face.wrapped)
+        if not produced.IsNull():
+            history.generated.append((face, Face(TopoDS.Face_s(produced))))
+    return result

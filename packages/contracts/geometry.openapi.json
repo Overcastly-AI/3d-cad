@@ -1124,22 +1124,23 @@
         "type": "object"
       },
       "ComposedLayoutIssue": {
-        "description": "Two placed views that collide, or nearly do (audit N2).\n\nAuto-layout used to pack the standard quartet to near-tangency and then export\nthe collision that the next design change produced \u2014 an overlapping print,\nsilently, in SVG/PDF/DXF alike. Composition now MEASURES every pair of placed\nviews and reports what it found here, in millimetres, and the serializers stamp\nthe issues as a banner on the sheet so a colliding print is never silent.\n\n``views`` names the two projections; ``overlap_x_mm``/``overlap_y_mm`` are the\nsigned gaps between their ink boxes on each axis \u2014 POSITIVE where the boxes\noverlap on that axis, NEGATIVE (a clearance) where they do not. Boxes overlap\nonly when BOTH are positive; ``clearance_mm`` is then 0.0 and otherwise the true\n(smallest-axis) white gap between them.",
+        "description": "Two placed views that collide or nearly do, or one view whose ink leaves the\ndrafting border (audit N2, LAYOUTISSUE-OFFSHEET-1).\n\nAuto-layout used to pack the standard quartet to near-tangency and then export\nthe collision that the next design change produced \u2014 an overlapping print,\nsilently, in SVG/PDF/DXF alike. Composition now MEASURES every pair of placed\nviews and reports what it found here, in millimetres, and the serializers stamp\nthe issues as a banner on the sheet so a colliding print is never silent.\n\n``views`` names the two projections; ``overlap_x_mm``/``overlap_y_mm`` are the\nsigned gaps between their ink boxes on each axis \u2014 POSITIVE where the boxes\noverlap on that axis, NEGATIVE (a clearance) where they do not. Boxes overlap\nonly when BOTH are positive; ``clearance_mm`` is then 0.0 and otherwise the true\n(smallest-axis) white gap between them.\n\nFor ``off_sheet``, ``views`` names the one offending view, and the x/y fields\nkeep the same positive-is-bad sign: how far its ink crosses the worse of the\nleft/right borders and the worse of the top/bottom borders (negative = that\nmuch clearance). ``clearance_mm`` is 0.0. The distance past the paper edge, when\nthe ink leaves the paper too, is in ``message``.",
         "properties": {
           "at": {
             "$ref": "#/components/schemas/ComposedPoint",
             "description": "Where the serializers stamp this line of the sheet banner (SVG space, baseline-left) \u2014 placement stays the composer's job (design \u00a74.2)"
           },
           "clearance_mm": {
-            "description": "White gap between the two boxes (mm); 0.0 when they overlap",
+            "description": "White gap between the two boxes (mm); 0.0 when they overlap, and 0.0 for off_sheet",
             "title": "Clearance Mm",
             "type": "number"
           },
           "code": {
-            "description": "views_overlap | views_crowded",
+            "description": "views_overlap | views_crowded | off_sheet",
             "enum": [
               "views_overlap",
-              "views_crowded"
+              "views_crowded",
+              "off_sheet"
             ],
             "title": "Code",
             "type": "string"
@@ -1150,12 +1151,12 @@
             "type": "string"
           },
           "overlap_x_mm": {
-            "description": "Signed X-axis overlap (mm): positive = the boxes overlap in X, negative = that much X clearance",
+            "description": "Signed X-axis overlap (mm): positive = the boxes overlap in X (off_sheet: the ink crosses a left/right border by this much), negative = that much X clearance",
             "title": "Overlap X Mm",
             "type": "number"
           },
           "overlap_y_mm": {
-            "description": "Signed Y-axis overlap (mm): positive = overlap, negative = clearance",
+            "description": "Signed Y-axis overlap (mm): positive = overlap (off_sheet: the ink crosses a top/bottom border by this much), negative = clearance",
             "title": "Overlap Y Mm",
             "type": "number"
           },
@@ -1169,7 +1170,7 @@
             "type": "string"
           },
           "views": {
-            "description": "The two colliding/crowded projections, in canonical order",
+            "description": "The two colliding/crowded projections in canonical order, or the one view whose ink leaves the drafting border (off_sheet)",
             "items": {
               "enum": [
                 "front",
@@ -1182,7 +1183,7 @@
               "type": "string"
             },
             "maxItems": 2,
-            "minItems": 2,
+            "minItems": 1,
             "title": "Views",
             "type": "array"
           }
@@ -1428,7 +1429,7 @@
             "type": "number"
           },
           "layout_issues": {
-            "description": "Measured view-collision diagnostics (audit N2): overlapping or sub-clearance view pairs, each with millimetre numbers and a plain-language message. EMPTY for a clean sheet \u2014 additive, so a clean sheet composes byte-identically. Non-empty \u21d2 the serializers stamp a banner on the print.",
+            "description": "Measured layout diagnostics (audit N2): overlapping or sub-clearance view pairs, then any single view whose ink leaves the drafting border (off_sheet), each with millimetre numbers and a plain-language message. EMPTY for a clean sheet \u2014 additive, so a clean sheet composes byte-identically. Non-empty \u21d2 the serializers stamp a banner on the print.",
             "items": {
               "$ref": "#/components/schemas/ComposedLayoutIssue"
             },
@@ -2664,6 +2665,20 @@
             "default": "edge",
             "title": "Subshape Type",
             "type": "string"
+          },
+          "topo_name": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "History-based name of the picked subshape (DESIGN-INTENT-REFS): which feature made it and from what, never where it is, so it survives a dimension edit that moves it. The resolver tries it after the exact signature and before the geometric tiers, and only when exactly one current subshape holds it. Absent on selectors authored before 2026-10-01 and on subshapes the kernel could not name; resolution is then unchanged.",
+            "title": "Topo Name"
           }
         },
         "required": [
@@ -5913,6 +5928,20 @@
             "default": "plane",
             "title": "Surface",
             "type": "string"
+          },
+          "topo_name": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "History-based name of the picked subshape (DESIGN-INTENT-REFS): which feature made it and from what, never where it is, so it survives a dimension edit that moves it. The resolver tries it after the exact signature and before the geometric tiers, and only when exactly one current subshape holds it. Absent on selectors authored before 2026-10-01 and on subshapes the kernel could not name; resolution is then unchanged.",
+            "title": "Topo Name"
           }
         },
         "required": [
@@ -8304,10 +8333,18 @@
             "title": "Exact",
             "type": "integer"
           },
+          "named": {
+            "default": 0,
+            "description": "References re-found by their stored history-based name (DESIGN-INTENT-REFS) after the exact signature missed.",
+            "minimum": 0.0,
+            "title": "Named",
+            "type": "integer"
+          },
           "worst_tier": {
-            "description": "The least certain tier any reference of this feature resolved at: 'exact' < 'durable' < 'adjacent'.",
+            "description": "The least certain tier any reference of this feature resolved at: 'exact' < 'named' < 'durable' < 'adjacent'.",
             "enum": [
               "exact",
+              "named",
               "durable",
               "adjacent"
             ],
@@ -8469,7 +8506,7 @@
         "type": "object"
       },
       "TangentConstraint": {
-        "description": "Two curves touch with a common tangent at the contact point.\n\nRelates a line and an arc/circle, or two arcs/circles, by whole-entity id.\nA line-and-line pair is not tangency-capable and is rejected at solve time.\nOrder is immaterial (tangency is symmetric); the solver dispatches to the\nmatching planegcs variant from the resolved entity kinds.",
+        "description": "Two curves touch with a common tangent at the contact point.\n\nRelates a line and an arc/circle, or two arcs/circles, by whole-entity id.\nA line-and-line pair is not tangency-capable and is rejected at solve time.\nOrder is immaterial (tangency is symmetric); the solver dispatches to the\nmatching planegcs variant from the resolved entity kinds.\n\n**Endpoint tangency** (``a_point`` and ``b_point`` both set): the named end\nof ``a`` and the named end of ``b`` are ONE point, and the two curves share\na tangent direction there \u2014 the join a sketch fillet leaves at each trimmed\nleg, and FreeCAD's endpoint-to-endpoint tangency (planegcs\n``angle_via_point``). It already includes the coincidence, so a separate\n``coincident`` between the same two points is redundant. Both curves must\nhave ends (a line or an arc), and not both lines. With neither set, it is\nthe whole-curve tangency above, unchanged: the contact point is free.",
         "properties": {
           "a": {
             "description": "Sketch-local entity id, e.g. 'e1'",
@@ -8477,11 +8514,43 @@
             "title": "A",
             "type": "string"
           },
+          "a_point": {
+            "anyOf": [
+              {
+                "enum": [
+                  "start",
+                  "end"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For an endpoint tangency: the end of `a` at the join. Set together with `b_point`, or not at all.",
+            "title": "A Point"
+          },
           "b": {
             "description": "Sketch-local entity id, e.g. 'e1'",
             "minLength": 1,
             "title": "B",
             "type": "string"
+          },
+          "b_point": {
+            "anyOf": [
+              {
+                "enum": [
+                  "start",
+                  "end"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For an endpoint tangency: the end of `b` at the join.",
+            "title": "B Point"
           },
           "kind": {
             "const": "tangent",

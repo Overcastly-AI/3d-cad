@@ -105,7 +105,8 @@ export type ComposedDimensionError =
 export type ComposedDimension =
   ComposedMeasuredDimension | ComposedDimensionError;
 /** Two placed views that collide (`views_overlap`, an error) or nearly do
- * (`views_crowded`, a warning), measured in millimetres by the composer — the
+ * (`views_crowded`, a warning), or one view whose ink leaves the drafting border
+ * (`off_sheet`, an error), measured in millimetres by the composer — the
  * sheet-level diagnostic every serializer stamps as a banner (audit N2). */
 export type ComposedLayoutIssue = components["schemas"]["ComposedLayoutIssue"];
 

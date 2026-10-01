@@ -190,6 +190,31 @@ OFF_SOLUTION: dict[str, SketchDefinition] = {
         entities=[_circle("c1", (0, 0), 10.0), _arc("a2", (35, 0), (47, 0), (35, 12))],
         constraints=[TangentConstraint(kind="tangent", a="c1", b="a2")],
     ),
+    # Endpoint tangency (SKETCH-ENDPOINT-TANGENT): the join slightly open AND
+    # the tangents 6-14 degrees apart, so both of its witnesses (the
+    # coincidence and planegcs's angle_via_point) read non-zero at once.
+    "tangent-endpoint-line-arc": SketchDefinition(
+        entities=[
+            _line("l1", (12, -20), (10, -0.05)),
+            _arc("a1", (0, 0), (10, 0), (0, 10)),
+        ],
+        constraints=[
+            TangentConstraint(
+                kind="tangent", a="l1", b="a1", a_point="end", b_point="start"
+            )
+        ],
+    ),
+    "tangent-endpoint-arc-arc": SketchDefinition(
+        entities=[
+            _arc("a1", (0, 0), (10, 0), (0, 10)),
+            _arc("a2", (3, 22), (0.05, 10.05), (-9.1, 22.4)),
+        ],
+        constraints=[
+            TangentConstraint(
+                kind="tangent", a="a1", b="a2", a_point="end", b_point="start"
+            )
+        ],
+    ),
     "equal-lines": SketchDefinition(
         entities=[_line("l1", (0, 0), (40, 0)), _line("l2", (0, 10), (25, 10))],
         constraints=[EqualConstraint(kind="equal", a="l1", b="l2")],

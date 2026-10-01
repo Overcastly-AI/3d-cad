@@ -19,10 +19,22 @@ Determinism (RESEARCH §9): the OCCT chamfer is a pure function of
 ``(body, edges, distance)``.
 """
 
-from build123d import Edge
+# pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false
+# pyright: reportAttributeAccessIssue=false
+
+from build123d import Edge, Face, Solid
+from OCP.BRepFilletAPI import BRepFilletAPI_MakeChamfer
+from OCP.Standard import Standard_Failure
+from OCP.StdFail import StdFail_NotDone
+from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE
+from OCP.TopExp import TopExp
+from OCP.TopoDS import TopoDS
+from OCP.TopTools import TopTools_IndexedDataMapOfShapeListOfShape
 
 from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps
+from geometry.kernel.naming import OpHistory
 from geometry.kernel.types import BodyShape
 
 
@@ -31,7 +43,13 @@ class ChamferError(RuntimeError):
     distance too large for the local geometry, self-intersecting the body)."""
 
 
-def chamfer_body(body: BodyShape, edges: list[Edge], distance_mm: float) -> BodyShape:
+def chamfer_body(
+    body: BodyShape,
+    edges: list[Edge],
+    distance_mm: float,
+    *,
+    history: OpHistory | None = None,
+) -> BodyShape:
     """Bevel *edges* of *body* with a symmetric *distance_mm*; LUMP-COUNT-PRESERVING.
 
     The chamfer twin of :func:`geometry.kernel.fillet.fillet_body` (§MB-4): *body*
@@ -40,6 +58,10 @@ def chamfer_body(body: BodyShape, edges: list[Edge], distance_mm: float) -> Body
     whichever lumps own them and leaves the rest untouched, so a chamfer on one
     lump of a k-lump body keeps all k lumps; a lump-count change is a merge/sever
     → :class:`ChamferError`.
+
+    *history*, when given, receives each edge paired with the bevel face(s) it
+    generated (``BRepFilletAPI_MakeChamfer::Generated``), for face naming
+    (:mod:`geometry.kernel.naming`).
 
     Raises:
         ChamferError: the OCCT chamfer failed, or changed the body's lump count
@@ -52,7 +74,11 @@ def chamfer_body(body: BodyShape, edges: list[Edge], distance_mm: float) -> Body
         # chamfer(length, length2, edge_list): length2=None → symmetric bevel
         # (both setbacks == length). Carries Shape[Unknown] type params
         # upstream (same gap tessellate.py documents) — scoped ignore only.
-        result = body.chamfer(distance_mm, None, edges)  # pyright: ignore[reportUnknownMemberType]
+        result = (
+            body.chamfer(distance_mm, None, edges)
+            if history is None
+            else _chamfer_with_history(body, edges, distance_mm, history)
+        )
         solids = list(result.solids())
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise ChamferError(
@@ -73,3 +99,31 @@ def chamfer_body(body: BodyShape, edges: list[Edge], distance_mm: float) -> Body
     if lump_count == 1:
         return clean_shape(solids[0])
     return assemble_lumps([clean_shape(solid) for solid in solids])
+
+
+def _chamfer_with_history(
+    body: BodyShape, edges: list[Edge], distance_mm: float, history: OpHistory
+) -> BodyShape:
+    """``Mixin3D.chamfer(length, None, edges)`` (build123d 0.11), call for call,
+    keeping the builder so its ``Generated`` history can be read. Raises what
+    it raises."""
+    edge_face_map = TopTools_IndexedDataMapOfShapeListOfShape()
+    TopExp.MapShapesAndAncestors_s(
+        body.wrapped, TopAbs_EDGE, TopAbs_FACE, edge_face_map
+    )
+    builder = BRepFilletAPI_MakeChamfer(body.wrapped)
+    for edge in edges:
+        face = edge_face_map.FindFromKey(edge.wrapped).First()
+        builder.Add(distance_mm, distance_mm, edge.wrapped, TopoDS.Face_s(face))
+    try:
+        result = Solid._make_3d_result(builder.Shape())  # pyright: ignore[reportPrivateUsage]
+        if not result.is_valid:
+            raise Standard_Failure
+    except (StdFail_NotDone, Standard_Failure) as err:
+        raise ValueError(
+            "Failed creating a chamfer, try a smaller length value(s)"
+        ) from err
+    for edge in edges:
+        for produced in builder.Generated(edge.wrapped):
+            history.generated.append((edge, Face(TopoDS.Face_s(produced))))
+    return result

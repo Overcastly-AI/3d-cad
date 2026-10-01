@@ -2864,6 +2864,11 @@ export interface components {
              * @constant
              */
             subshape_type: "edge";
+            /**
+             * Topo Name
+             * @description History-based name of the picked subshape (DESIGN-INTENT-REFS): which feature made it and from what, never where it is, so it survives a dimension edit that moves it. The resolver tries it after the exact signature and before the geometric tiers, and only when exactly one current subshape holds it. Absent on selectors authored before 2026-10-01 and on subshapes the kernel could not name; resolution is then unchanged.
+             */
+            topo_name?: string | null;
         };
         /**
          * EdgeSubshapeRef
@@ -5223,6 +5228,11 @@ export interface components {
              * @constant
              */
             surface: "plane";
+            /**
+             * Topo Name
+             * @description History-based name of the picked subshape (DESIGN-INTENT-REFS): which feature made it and from what, never where it is, so it survives a dimension edit that moves it. The resolver tries it after the exact signature and before the geometric tiers, and only when exactly one current subshape holds it. Absent on selectors authored before 2026-10-01 and on subshapes the kernel could not name; resolution is then unchanged.
+             */
+            topo_name?: string | null;
         };
         /**
          * Point2D
@@ -6581,6 +6591,15 @@ export interface components {
          *     A line-and-line pair is not tangency-capable and is rejected at solve time.
          *     Order is immaterial (tangency is symmetric); the solver dispatches to the
          *     matching planegcs variant from the resolved entity kinds.
+         *
+         *     **Endpoint tangency** (``a_point`` and ``b_point`` both set): the named end
+         *     of ``a`` and the named end of ``b`` are ONE point, and the two curves share
+         *     a tangent direction there — the join a sketch fillet leaves at each trimmed
+         *     leg, and FreeCAD's endpoint-to-endpoint tangency (planegcs
+         *     ``angle_via_point``). It already includes the coincidence, so a separate
+         *     ``coincident`` between the same two points is redundant. Both curves must
+         *     have ends (a line or an arc), and not both lines. With neither set, it is
+         *     the whole-curve tangency above, unchanged: the contact point is free.
          */
         TangentConstraint: {
             /**
@@ -6589,10 +6608,20 @@ export interface components {
              */
             a: string;
             /**
+             * A Point
+             * @description For an endpoint tangency: the end of `a` at the join. Set together with `b_point`, or not at all.
+             */
+            a_point?: ("start" | "end") | null;
+            /**
              * B
              * @description Sketch-local entity id, e.g. 'e1'
              */
             b: string;
+            /**
+             * B Point
+             * @description For an endpoint tangency: the end of `b` at the join.
+             */
+            b_point?: ("start" | "end") | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -8529,7 +8558,10 @@ export interface operations {
     };
     get_evaluation_request_api_v1_parts__part_id__evaluation_request_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Evaluate only the features BEFORE this one (the feature itself excluded), ignoring the stored rollback bar: the same body a rollback bar on the preceding feature would give. Read-only: the bar and tree_version do not move and the evaluation is not recorded. Omit to evaluate the part as stored. An id that is not a feature of this part is a 404 feature_not_found. */
+                before?: string | null;
+            };
             header?: {
                 /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
                 "X-Loft-User"?: string | null;

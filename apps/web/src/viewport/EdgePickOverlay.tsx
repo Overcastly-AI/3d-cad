@@ -25,9 +25,20 @@
 import { PickNode } from "@loft/design";
 import { measure } from "@loft/design/tokens";
 import { useThree } from "@react-three/fiber";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Vector3 } from "three";
+import type { Group } from "three";
 
 import type { Vec3 } from "../api/measure";
+import { useCommandActionStore } from "../features/commandActions";
 import { edgeSignatureKey } from "../features/edge";
 import { useEdgePickStore } from "../features/edgePickStore";
 import {
@@ -39,6 +50,7 @@ import { BuriedMark } from "./BuriedMark";
 import { ANNOTATION_LAYER } from "./instruments";
 import { EdgeBandLayer } from "./EdgeBandLayer";
 import type { EdgeBandInput } from "./edgeBand";
+import { resolveMarkPick, type ScreenEdgeMark } from "./edgeMarkResolve";
 import { useHiddenPicks } from "./hiddenPicks";
 import { PickMark } from "./PickMark";
 import { concatPositions, HighlightLines } from "./overlaySegments";
@@ -47,6 +59,9 @@ import type { EdgeMarkAnchor } from "./useEdgeMarkAnchors";
 
 /** Edge marks sit just under the HUD strips (same band as measurement edges). */
 const EDGE_Z_RANGE: [number, number] = [17, 0];
+
+/** Scratch for projecting marks and edges in the pointer handlers. */
+const projectScratch = new Vector3();
 
 /** A located accessible name for a pickable edge (from its OCCT mid-span). */
 function edgeLabel(index: number, kind: string, midpoint: Vec3): string {
@@ -60,7 +75,11 @@ export function EdgePickOverlay() {
   const hoverEdge = useEdgePickStore((s) => s.hoverEdge);
   const toggle = useEdgePickStore((s) => s.toggle);
   const setHoverEdge = useEdgePickStore((s) => s.setHoverEdge);
+  const requestSubmit = useCommandActionStore((s) => s.requestSubmit);
   const invalidate = useThree((s) => s.invalidate);
+  const camera = useThree((s) => s.camera);
+  const canvas = useThree((s) => s.gl.domElement);
+  const groupRef = useRef<Group>(null);
   const hiddenPicks = useHiddenPicks();
   /**
    * WHERE EACH DIAMOND SITS (PICKMARK-OCCLUDE-1) — published by the band,
@@ -109,6 +128,75 @@ export function EdgePickOverlay() {
     [offered],
   );
 
+  /**
+   * WHICH EDGE A POINTER ON A MARK MEANS (EDGE-MARK-OVERLAP). The disc that
+   * received the event is only whichever one the browser stacked on top; the
+   * answer is the edge nearest the pointer among every live mark under it
+   * (`edgeMarkResolve.ts`). A keyboard click has no pointer, so it is the
+   * focused mark's own edge, and so is a lone mark with no neighbour.
+   */
+  const resolveMark = useCallback(
+    (own: number, clientX: number, clientY: number): number => {
+      const box = canvas.getBoundingClientRect();
+      const px = clientX - box.left;
+      const py = clientY - box.top;
+      const world = groupRef.current?.matrixWorld ?? null;
+      const toScreen = (p: readonly [number, number, number]) => {
+        projectScratch.set(p[0], p[1], p[2]);
+        if (world !== null) projectScratch.applyMatrix4(world);
+        projectScratch.project(camera);
+        return {
+          x: ((projectScratch.x + 1) / 2) * box.width,
+          y: ((1 - projectScratch.y) / 2) * box.height,
+          front: projectScratch.z <= 1,
+        };
+      };
+      const marks: ScreenEdgeMark[] = [];
+      const polylines = new Map<number, readonly Vec3[]>();
+      offered.forEach(({ edge, index }, slot) => {
+        const anchor = anchors[slot];
+        if (anchor?.buried === true && index !== own) return;
+        const at = toScreen(
+          anchor?.position ?? occtToScene(polylineMidpoint(edge.polyline)),
+        );
+        if (!at.front) return;
+        marks.push({ index, x: at.x, y: at.y });
+        polylines.set(index, edge.polyline);
+      });
+      return resolveMarkPick(px, py, own, marks, (index) => {
+        const polyline = polylines.get(index);
+        if (polyline === undefined) return null;
+        const path: number[] = [];
+        for (const v of polyline) {
+          const at = toScreen(occtToScene(v));
+          if (at.front) path.push(at.x, at.y);
+        }
+        return path;
+      });
+    },
+    [canvas, camera, offered, anchors],
+  );
+
+  const clickMark = useCallback(
+    (own: number, event: ReactMouseEvent) => {
+      // `detail === 0`: Space/Enter on a focused button, not a pointer.
+      const index =
+        event.detail === 0
+          ? own
+          : resolveMark(own, event.clientX, event.clientY);
+      const edge = overlay?.edges[index];
+      if (edge !== undefined) toggle(edge.signature);
+    },
+    [overlay, resolveMark, toggle],
+  );
+
+  const hoverMark = useCallback(
+    (own: number, event: ReactPointerEvent) => {
+      setHoverEdge(resolveMark(own, event.clientX, event.clientY));
+    },
+    [resolveMark, setHoverEdge],
+  );
+
   const pickBandEdge = useCallback(
     (index: number) => {
       const edge = overlay?.edges[index];
@@ -147,7 +235,7 @@ export function EdgePickOverlay() {
   if (overlay === null) return null;
 
   return (
-    <group userData={ANNOTATION_LAYER}>
+    <group ref={groupRef} userData={ANNOTATION_LAYER}>
       {/* The hit-test: a 24 px screen-space corridor along every edge. */}
       <EdgeBandLayer
         edges={bandEdges}
@@ -201,8 +289,12 @@ export function EdgePickOverlay() {
               data-testid={`edge-pick-${index}`}
               data-buried={hidden ? "true" : "false"}
               aria-label={edgeLabel(index, edge.kind, midpoint)}
-              onClick={() => toggle(edge.signature)}
-              onPointerOver={() => setHoverEdge(index)}
+              onClick={(event) => clickMark(index, event)}
+              // Enter is the command's Create key even with focus on the last
+              // edge picked; Space toggles (PICK-ENTER-UNPICKS).
+              onEnterKey={requestSubmit}
+              onPointerOver={(event) => hoverMark(index, event)}
+              onPointerMove={(event) => hoverMark(index, event)}
               onPointerOut={() => setHoverEdge(null)}
               onFocus={() => setHoverEdge(index)}
               onBlur={() => setHoverEdge(null)}

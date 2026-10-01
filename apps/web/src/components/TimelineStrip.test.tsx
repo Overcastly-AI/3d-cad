@@ -118,6 +118,7 @@ interface Options {
   evaluation?: EvaluateTreeResult | undefined;
   selectedFeatureId?: string | null;
   busy?: boolean;
+  previewing?: boolean;
   loading?: boolean;
 }
 
@@ -134,6 +135,7 @@ function renderStrip(options: Options = {}) {
     onSelectFeature,
     onMoveRollback,
     busy: options.busy ?? false,
+    previewing: options.previewing ?? false,
   };
   const view = render(<TimelineStrip {...props} />);
   const rerender = (next: Partial<typeof props>) =>
@@ -353,6 +355,28 @@ describe("TimelineStrip — the travel stop", () => {
 
     expect(screen.getByTestId("timeline-to-tip")).toHaveTextContent(
       "Moving the stop…",
+    );
+  });
+
+  it("holds while an edit previews its input body, and says why", () => {
+    // FILLET-EDIT-REPICK: the tree it is handed is the edit's DISPLAY (the
+    // stop before the feature). Moving it would write a stop nobody chose.
+    const { onMoveRollback } = renderStrip({
+      rollbackFeatureId: "f2",
+      previewing: true,
+    });
+    const stop = screen.getByTestId("timeline-stop");
+    expect(stop).toHaveAttribute("aria-valuenow", "2");
+    expect(stop).toHaveAttribute("aria-disabled", "true");
+    expect(stop).toHaveAttribute("data-previewing", "true");
+    fireEvent.keyDown(stop, { key: "End" });
+    const slot = screen.getByTestId("rollback-slot-0");
+    expectGated(slot);
+    fireEvent.click(slot);
+    fireEvent.click(screen.getByTestId("timeline-to-tip"));
+    expect(onMoveRollback).not.toHaveBeenCalled();
+    expect(screen.getByTestId("timeline-to-tip")).toHaveTextContent(
+      "Finish the edit first",
     );
   });
 

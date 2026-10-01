@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from build123d import Axis, CenterOf, Face, Solid, Vector
+from build123d import Axis, Box, CenterOf, Cylinder, Face, Solid, Vector
 from fastapi.testclient import TestClient
 from geometry.kernel import (
     ShellError,
@@ -343,12 +343,14 @@ def test_thickness_that_collapses_the_cavity_is_shell_thickness_too_large() -> N
     assert result.properties.volume == pytest.approx(10000.0, abs=SHELL_TOL)
 
 
-def test_thickness_that_fails_the_offset_is_shell_failed() -> None:
-    """A wall so thick the offset cannot complete (t=12.5 mm collapses the 25 mm
-    depth to zero) makes OCCT ``MakeThickSolid`` raise — a diagnosed kernel
-    outcome, not a crash: ``shell_failed`` pinned to the feature, HTTP 200. This
-    is the belt-and-braces sibling of ``shell_thickness_too_large`` (OCCT
-    surfaces a too-thick wall two ways — see kernel/shell.py)."""
+def test_thickness_the_offset_cannot_complete_is_shell_thickness_too_large() -> None:
+    """A wall so thick the offset cannot complete (t=12.5 mm on a box 10 mm tall
+    with its top open) makes OCCT ``MakeThickSolid`` raise. How OCCT failed no
+    longer picks the code: no point of the box is more than 10 mm from its kept
+    faces, so no cavity fits, and that is ``shell_thickness_too_large`` with the
+    wall that would fit (SHELL-WRONG-SOLID). HTTP 200, pinned to the feature. A
+    kernel failure on a body WITH room stays ``shell_failed``
+    (test_shell_body_offset_failure_raises_shell_error)."""
     result = _post(
         _request(
             [
@@ -362,7 +364,8 @@ def test_thickness_that_fails_the_offset_is_shell_failed() -> None:
     assert [r.status for r in result.features] == ["ok", "ok", "error"]
     error = result.features[2].error
     assert error is not None
-    assert error.code == "shell_failed"
+    assert error.code == "shell_thickness_too_large"
+    assert "use a wall under 10 mm" in error.message
     assert result.last_good_feature_id == EXTRUDE_ID
 
 
@@ -471,8 +474,18 @@ def test_shell_body_collapsing_thickness_raises_thickness_error() -> None:
 
 
 def test_shell_body_offset_failure_raises_shell_error() -> None:
-    """A thickness so large the OCCT offset cannot complete is a ShellError
-    (belt-and-braces), never a bare kernel exception escaping the boundary."""
+    """An OCCT offset that cannot complete on a body with room for the cavity is
+    a ShellError naming the cause, never a bare kernel exception escaping the
+    boundary. A 40 x 20 x 10 plate bored r8.5, sealed at 1 mm: the cavity must
+    split in two either side of the bore, and OCCT raises."""
+    plate = (Box(40, 20, 10) - Cylinder(8.5, 10)).solids()[0]
+    with pytest.raises(ShellError, match="could not build this cavity"):
+        shell_body(plate, [], 1.0)
+
+
+def test_shell_body_with_no_room_raises_thickness_error() -> None:
+    """t=12.5 mm on the open-top box: OCCT raises, and the kernel reports why.
+    No point is more than 10 mm (the height) from the kept faces."""
     box = _box()
     top = next(
         f
@@ -480,7 +493,7 @@ def test_shell_body_offset_failure_raises_shell_error() -> None:
         if abs(f.normal_at(f.center(CenterOf.MASS)).Z - 1.0) < SHELL_TOL
         and abs(f.center(CenterOf.MASS).Z - 10.0) < 1e-6
     )
-    with pytest.raises(ShellError):
+    with pytest.raises(ShellThicknessError, match="use a wall under 10 mm"):
         shell_body(box, [top], 12.5)
 
 

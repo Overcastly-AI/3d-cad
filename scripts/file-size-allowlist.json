@@ -1,0 +1,28 @@
+{
+  "about": "FILE-SIZE-RATCHET (scripts/check-file-size.py): hand-written source files already over 1,500 lines, at their measured size. An entry may only go DOWN: a split lowers or removes its entry in the same commit (python3 scripts/check-file-size.py --tighten). Raising one is a decision for review, not a fix for a red gate.",
+  "files": {
+    "apps/web/e2e/pick-affordance.spec.ts": 1947,
+    "apps/web/e2e/qa-reach-batch.spec.ts": 1937,
+    "apps/web/src/components/DocumentRegister.tsx": 1593,
+    "apps/web/src/components/DrawingSheet.tsx": 2397,
+    "apps/web/src/components/SketchStrip.tsx": 1515,
+    "apps/web/src/sketch/constraints.test.ts": 1653,
+    "apps/web/src/sketch/constraints.ts": 2003,
+    "apps/web/src/sketch/store.test.ts": 2731,
+    "apps/web/src/sketch/store.ts": 2084,
+    "apps/web/src/viewport/ParametricGauge.tsx": 1523,
+    "apps/web/src/viewport/SketchScene.tsx": 2944,
+    "apps/web/src/viewport/Viewport.tsx": 1887,
+    "packages/design/src/gauge.ts": 1538,
+    "packages/loft-wire/src/loft_wire/drawings.py": 2129,
+    "packages/loft-wire/src/loft_wire/features.py": 4470,
+    "scripts/e2e-shard-plan.py": 1585,
+    "services/geometry/src/geometry/sheet_metal/unfold.py": 2489,
+    "services/geometry/src/geometry/sketch/planegcs_solver.py": 2178,
+    "services/geometry/tests/test_composition_matrix.py": 3516,
+    "services/geometry/tests/test_drawings_compose.py": 2513,
+    "services/geometry/tests/test_evaluate_tree.py": 1572,
+    "services/geometry/tests/test_hole.py": 1728,
+    "services/geometry/tests/test_rebuild_cache.py": 1551
+  }
+}

@@ -39,8 +39,6 @@ import {
   constraintEntityRefs,
   deleteSelectedEntities,
   dimensionEditorTarget,
-  reconcileConstraints,
-  reconcileEditedConstraints,
   toggleConstruction,
   type ConstraintAction,
   type DimensionCommit,
@@ -51,7 +49,9 @@ import {
   type SolvedDimension,
   type SolveInfo,
 } from "./constraints";
+import { reconcileEditedConstraints } from "./reconcileEdit";
 import { toggleCornerPick, type CornerOp } from "./corner";
+import { reconcileCornerConstraints } from "./cornerConstraints";
 import {
   datumFrame,
   datumSafeSolve,
@@ -75,7 +75,7 @@ import {
 } from "./drawDimensions";
 import { mirrorAxisFor, toggleMirrorTarget, type MirrorAxis } from "./mirror";
 import { originIdentity } from "./origin";
-import { withNamedPointAt } from "./pointEntry";
+import { typedJoin, withNamedPointAt } from "./pointEntry";
 import type { DatumPlaneName, Point2D, SketchPlaneSpec } from "./plane";
 import {
   applyPick,
@@ -209,6 +209,14 @@ export interface DrawDimensionDraft {
   from: Point2D;
   to: Point2D;
   fields: DrawDimensionField[];
+  /**
+   * The placement that emitted the shape was TYPED (G2 X / Y cells), so its
+   * size is already exactly what the user said. The cells still arm, so a
+   * click can retype a size, but they do not take the keyboard: after a typed
+   * commit the next keystrokes belong to the next point, as in Fusion's and
+   * SolidWorks' typed sketch input (TYPED-COORD-HIJACK).
+   */
+  typed: boolean;
 }
 
 /**
@@ -1179,6 +1187,7 @@ const createSketchState = (
                 point,
                 result.entities.map((entity) => entity.id),
               ),
+              typed: false,
             }
           : null,
       drawDimensionFocus: null,
@@ -1219,7 +1228,13 @@ const createSketchState = (
     set({ drawDimension: null, drawDimensionFocus: null }),
 
   openPointEntry: (anchor, target) =>
-    set({ pointEntry: { anchor, target, nonce: nextRequestNonce() } }),
+    set({
+      pointEntry: { anchor, target, nonce: nextRequestNonce() },
+      // The next point's input supersedes the last shape's size cells (they
+      // can only be up here if they were not taking typing: see `typed`).
+      drawDimension: null,
+      drawDimensionFocus: null,
+    }),
 
   closePointEntry: () => set({ pointEntry: null }),
 
@@ -1229,14 +1244,21 @@ const createSketchState = (
     set({ pointEntry: null });
     const target = pointEntry.target;
     if (target === null) {
-      // Through the ONE placement path a click takes (`aim` then `placeAt`),
-      // with every snap held off: the aim resolves to exactly `at`, carries no
-      // snap intent to cash in as a coincident, and infers no axis. The held-
-      // off state is the aim's own bookkeeping, not the user's modifier, so it
-      // is handed back the moment the point is placed.
-      const point = get().aim(at, 0, { suppressed: true, axisLock: false });
-      get().placeAt(point);
-      set({ snapSuppressed, axisLock });
+      // A click's path (`aim`, `placeAt`) with snaps held off (handed back below),
+      // but a point typed onto a drawn one JOINS it as a snap does (`typedJoin`).
+      const { entities, plane } = get();
+      get().aim(at, 0, { suppressed: true, axisLock: false });
+      const join = typedJoin(entities, at, originIdentity(plane).label);
+      if (join !== null) set({ snapCandidate: join });
+      get().placeAt(join?.at ?? at);
+      // A shape whose last point was typed is already the size the user
+      // said: its cells arm for a click, not for the next keystrokes.
+      const drawn = get().drawDimension;
+      set({
+        snapSuppressed,
+        axisLock,
+        ...(drawn === null ? {} : { drawDimension: { ...drawn, typed: true } }),
+      });
       return;
     }
     const { entities, revision } = get();
@@ -1395,14 +1417,14 @@ const createSketchState = (
         // Whatever part of the frame the new constraint reached for now becomes
         // real construction geometry, pinned, so the solver has something to
         // resolve the reference against and the origin cannot be dragged off
-        // zero by the constraint that names it. Nothing is added for a
-        // constraint that never touches the frame.
+        // zero by the constraint that names it. `replaces`: the join an
+        // endpoint tangent subsumes.
         const referenced = result.constraints.flatMap(constraintEntityRefs);
         const grounded = groundDatums(entities, referenced, frame);
         set({
           entities: grounded.entities,
           constraints: [
-            ...constraints,
+            ...constraints.filter((c) => !result.replaces?.includes(c)),
             ...result.constraints,
             ...grounded.constraints,
           ],
@@ -1749,14 +1771,14 @@ const createSketchState = (
   },
 
   applyCornerResult: (result) => {
-    const { cornerRequest, corner, constraints, revision } = get();
+    const { cornerRequest, corner, constraints, revision, entities } = get();
     if (cornerRequest === null) return;
-    // Corner REWRITES (like trim/extend): the two source lines are trimmed in
-    // place with ids preserved, so their constraints survive — but reconcile on
-    // the uniform, safe path anyway, so a dangling ref can never reach the solve.
-    const { constraints: kept, removed } = reconcileConstraints(
+    // Corner REWRITES (like trim): the old sharp corner is re-homed onto the bridge.
+    const { constraints: kept, removed } = reconcileCornerConstraints(
       constraints,
+      entities,
       result,
+      cornerRequest,
     );
     const verb = cornerRequest.op === "fillet" ? "Filleted" : "Chamfered";
     const note =

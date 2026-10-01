@@ -34,7 +34,7 @@ SVG) still scales exactly as authored.
 """
 
 # ezdxf's top-level `read` is public but not formally re-exported (pyright flags
-# reportPrivateImportUsage) — the same boundary compose.py suppresses file-wide.
+# reportPrivateImportUsage) — the same boundary dxf.py suppresses file-wide.
 # pyright: reportPrivateImportUsage=false
 
 import io
@@ -80,7 +80,7 @@ _EXPECTED = json.loads((_L_BRACKET / "expected.json").read_text("utf-8"))
 _TOL_MM = float(_EXPECTED["tolerance"])
 
 #: The SVG serializer emits coordinates through a fixed-decimal formatter
-#: (``compose._SVG_DECIMALS`` = 4), so an assertion made on SVG BYTES is quantised at
+#: (``svg._SVG_DECIMALS`` = 4), so an assertion made on SVG BYTES is quantised at
 #: 1e-4 mm. Full-precision presentation assertions use the composed sheet instead.
 _SVG_QUANTUM_MM = 1e-4
 

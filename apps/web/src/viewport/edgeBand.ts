@@ -166,16 +166,12 @@ export interface BandHit {
 }
 
 /**
- * The edge a pointer is addressing, or null.
+ * The edge a pointer is addressing, or null, from ONE band hit.
  *
- * WHAT THIS RESOLVES AND WHAT IT DOES NOT. r3f dedupes intersections by
- * `uuid + '/' + index + instanceId`, and `LineSegments2` sets neither `index`
- * nor `instanceId`, so every segment hit on one band collapses to the survivor
- * with the smallest ray DISTANCE. The band therefore resolves nearest-in-DEPTH,
- * not nearest-in-screen. That is the right answer for a front edge over a back
- * edge, and it is acceptable for coplanar neighbours; do NOT build a
- * screen-distance tie-break on top of it — that would be a second pick model
- * fighting the first.
+ * The single-hit form of {@link resolveBandIntersections}: it applies the
+ * occlusion rule and the segment lookup and nothing else. WHICH band hit to ask
+ * about is the list resolver's decision, and since EDGE-MARK-OVERLAP that is the
+ * hit nearest the CURSOR, not the one nearest in depth.
  *
  * `surfaceDistance` is the ray distance to the drawn solid, or null when the
  * ray missed it. A silhouette edge has no surface behind it and is always
@@ -206,7 +202,22 @@ export interface BandIntersection {
   distance: number;
   /** Segment ordinal on a band hit; struck triangle on a surface hit. */
   faceIndex?: number | null | undefined;
+  /**
+   * On a band hit: how far the segment passes from the CURSOR, in screen
+   * pixels. Absent on a hit nobody measured (r3f's own deduped list), which
+   * then resolves by depth alone.
+   */
+  screenGapPx?: number;
 }
+
+/**
+ * Two band hits whose screen gaps differ by no more than this are the same
+ * distance from the cursor, and the one nearer IN DEPTH wins. One pixel: below
+ * it the difference is tessellation noise, and two edges that really do project
+ * onto one another (a seam behind its own silhouette) still resolve to the one
+ * in front, as they always did.
+ */
+export const BAND_SCREEN_TIE_PX = 1;
 
 /** The two raycast targets one band layer mounts. */
 export interface BandTargets {
@@ -217,14 +228,62 @@ export interface BandTargets {
 }
 
 /**
- * The edge a pointer is addressing, from ONE r3f intersection list.
+ * The edge a pointer is addressing, from ONE intersection list.
  *
- * The scan is here rather than in the layer because both of its handlers (the
- * band's and the surface's) run it over the same list, so a difference between
- * them would be a pick that depends on hit order — and because "which hits
- * count" is exactly the kind of decision a screenshot cannot check.
+ * The scan is here rather than in the layer because the pointer handlers and
+ * the mark-seat oracle all run it over lists built the same way, so a
+ * difference between them would be a pick that depends on who asked — and
+ * because "which hits count" is exactly the kind of decision a screenshot
+ * cannot check.
  *
- * THE FIRST SURFACE HIT IS THE OCCLUDER, unconditionally. It used to be
+ * ## Nearest the CURSOR, not nearest in depth (EDGE-MARK-OVERLAP)
+ *
+ * This used to take the first band hit, because r3f dedupes a `LineSegments2`
+ * to ONE hit (the nearest in depth) and that was all there was to read. On a
+ * 2 mm wall that is the wrong edge half the time: the outer and inner rims run
+ * 6-11 px apart, both corridors cover the cursor, and the rim nearer the camera
+ * won even with the cursor sitting on the other one. Measured on the reference
+ * enclosure, four of its eight rim edges could be neither hovered nor picked,
+ * their marks were drawn as buried ghosts under their twins' marks, and a
+ * fillet aimed at the outer rim went on two inner edges.
+ *
+ * Fusion 360 and SolidWorks pre-highlight the entity under the cursor, and the
+ * click commits exactly what is highlighted. So `EdgeBandLayer` now raycasts
+ * the band itself (every segment hit, each with its `screenGapPx`), and this
+ * picks the VISIBLE hit whose segment passes closest to the cursor, with depth
+ * deciding only a tie ({@link BAND_SCREEN_TIE_PX}). That is one pick model, not
+ * a tie-break layered on r3f's: the hover highlight, the click and the mark
+ * seats all read this function over the same kind of list.
+ *
+ * ## Only a PROVABLY visible edge may beat the one in front
+ *
+ * The body-scale `bias` below is slack for the edge nearest in depth, whose
+ * cursor-side surface sample can sit up to 12 px away from it. It is far too
+ * loose to prove a SECOND edge visible: it is 5 % of the body radius (2.7 mm
+ * on the 80x60x40 enclosure), wider than a 2 mm wall, so from just below the
+ * rim the inner edge, hidden behind the outer wall face, passed it and then
+ * won on screen distance (review of EDGE-MARK-OVERLAP). So the depth-nearest
+ * accepted hit is the default, and a hit farther in depth may beat it only when
+ * `visibleAtOwnPixel` confirms it: a ray through the hit's OWN projected point
+ * reaches it before any drawn surface, to within a pixel-scale tolerance. With
+ * no oracle nothing can be proven, and the result is the depth-nearest hit.
+ *
+ * ## Slack is not proof, even for the only edge there (EDGE-HIDDEN-LONE)
+ *
+ * The same slack let a LONE hidden edge through: orthographic, 30 degrees
+ * below the rim, the inner rim sits 2 mm / cos 30 = 2.31 mm behind the outer
+ * face, inside 2.69 mm, and it was the only edge in the corridor over a
+ * 20 px strip of that face, so hover and click there picked it. So a hit that
+ * is BEHIND the surface under the cursor, accepted by the slack alone, must
+ * also be proven visible at its own pixel before it can be the front hit; an
+ * unproven one is skipped. A hit in front of that surface needs no proof,
+ * which keeps the common case (the cursor on or beside a visible edge) at one
+ * raycast.
+ *
+ * ## Occlusion
+ *
+ * THE FIRST SURFACE HIT IS THE OCCLUDER, unconditionally, and any band hit
+ * farther than it (plus `bias`) is refused. It used to be
  * screened by a `surfaceOccludes` predicate, because a hidden body in front was
  * reported as the nearest hit and would then refuse every edge behind it. SEL-6
  * moved that decision a layer down — `pickRaycast.drawnSurfaceRaycast` drops
@@ -234,32 +293,80 @@ export interface BandTargets {
  * `surfaceDistance` stay null behind a hidden body, so edges genuinely buried
  * inside the still-drawn plate were accepted. The occlusion test applies again.
  */
+/** A band hit that passed the slack test, with its screen gap. */
+interface Accepted {
+  edge: number;
+  gap: number;
+  hit: BandIntersection;
+}
+
 export function resolveBandIntersections(
   intersections: readonly BandIntersection[],
   targets: BandTargets,
   edgeOfSegment: Uint32Array,
   bias: number,
+  visibleAtOwnPixel?: (intersection: BandIntersection) => boolean,
 ): number | null {
-  let hit: BandHit | null = null;
   let surfaceDistance: number | null = null;
   for (const intersection of intersections) {
-    if (
-      hit === null &&
-      targets.band !== null &&
-      intersection.object === targets.band &&
-      typeof intersection.faceIndex === "number"
-    ) {
-      hit = {
-        segment: intersection.faceIndex,
-        distance: intersection.distance,
-      };
-    } else if (
-      surfaceDistance === null &&
-      targets.surface !== null &&
-      intersection.object === targets.surface
-    ) {
+    if (targets.surface !== null && intersection.object === targets.surface) {
       surfaceDistance = intersection.distance;
+      break;
     }
   }
-  return resolveBandEdge(hit, surfaceDistance, edgeOfSegment, bias);
+  // Accepted band hits, near -> far (three sorts the list, r3f keeps the
+  // order), so the first is the depth-nearest.
+  const accepted: Accepted[] = [];
+  for (const intersection of intersections) {
+    if (
+      targets.band === null ||
+      intersection.object !== targets.band ||
+      typeof intersection.faceIndex !== "number"
+    ) {
+      continue;
+    }
+    const edge = resolveBandEdge(
+      { segment: intersection.faceIndex, distance: intersection.distance },
+      surfaceDistance,
+      edgeOfSegment,
+      bias,
+    );
+    if (edge === null) continue;
+    accepted.push({
+      edge,
+      gap: intersection.screenGapPx ?? Number.POSITIVE_INFINITY,
+      hit: intersection,
+    });
+  }
+  if (accepted.length === 0) return null;
+  if (visibleAtOwnPixel === undefined) return (accepted[0] as Accepted).edge;
+  // THE FRONT HIT: the depth-nearest accepted hit that is either in front of
+  // the surface under the cursor, or proven visible at its own pixel
+  // (EDGE-HIDDEN-LONE). A hit BEHIND that surface was accepted only by the
+  // body-scale slack, and the slack is wider than a thin wall: seen from 30
+  // degrees below the rim, a 20 px strip of the visible outer face used to
+  // pick the hidden inner rim, the only edge in the corridor there.
+  let frontAt = -1;
+  for (let i = 0; i < accepted.length; i += 1) {
+    const candidate = accepted[i] as Accepted;
+    const onSlack =
+      surfaceDistance !== null && candidate.hit.distance > surfaceDistance;
+    if (!onSlack || visibleAtOwnPixel(candidate.hit)) {
+      frontAt = i;
+      break;
+    }
+  }
+  const front = accepted[frontAt];
+  if (front === undefined) return null;
+  // Challengers clearly nearer the cursor than the front hit, nearest first.
+  // The first one proven visible wins. The proof is a raycast, so it is asked
+  // lazily, and on a part with no near-parallel edges not at all.
+  const challengers = accepted
+    .slice(frontAt + 1)
+    .filter((c) => c.gap < front.gap - BAND_SCREEN_TIE_PX)
+    .sort((a, b) => a.gap - b.gap);
+  for (const challenger of challengers) {
+    if (visibleAtOwnPixel(challenger.hit)) return challenger.edge;
+  }
+  return front.edge;
 }

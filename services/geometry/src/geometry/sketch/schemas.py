@@ -32,16 +32,13 @@ from loft_wire.sketch import (
     PointName,
     RadiusConstraint,
     SketchArc,
-    SketchChamferRequest,
     SketchCircle,
     SketchConstraint,
-    SketchCornerResult,
     SketchDefinition,
     SketchEditRequest,
     SketchEditResult,
     SketchEntity,
     SketchEntityBase,
-    SketchFilletRequest,
     SketchLine,
     SketchMirrorRequest,
     SketchMirrorResult,
@@ -57,6 +54,11 @@ from loft_wire.sketch import (
     SymmetricLinesConstraint,
     TangentConstraint,
     VerticalConstraint,
+)
+from loft_wire.sketch_corner import (
+    SketchChamferRequest,
+    SketchCornerResult,
+    SketchFilletRequest,
 )
 
 __all__ = [

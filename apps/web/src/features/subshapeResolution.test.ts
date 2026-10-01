@@ -42,11 +42,12 @@ const TREE = [
 const FILLET = TREE[2] as FeatureResponse;
 
 const tier = (
-  worst_tier: "exact" | "durable" | "adjacent",
+  worst_tier: "exact" | "named" | "durable" | "adjacent",
   exact: number,
   durable: number,
   adjacent: number,
-) => ({ worst_tier, exact, durable, adjacent });
+  named = 0,
+) => ({ worst_tier, exact, named, durable, adjacent });
 
 describe("movedEdgeWarning", () => {
   it("says nothing for an exact rebuild", () => {
@@ -61,6 +62,24 @@ describe("movedEdgeWarning", () => {
     expect(
       movedEdgeWarning(FILLET, TREE, result("f1", tier("durable", 0, 4, 0))),
     ).toBeNull();
+  });
+
+  it("says nothing for a named one: the history carried the pick", () => {
+    // DESIGN-INTENT-REFS: an edge re-found by its history-based name is the
+    // edge the engineer picked, the way Fusion and SolidWorks re-find it.
+    expect(
+      movedEdgeWarning(FILLET, TREE, result("f1", tier("named", 0, 0, 0, 4))),
+    ).toBeNull();
+  });
+
+  it("counts named picks in the total beside an adjacent one", () => {
+    const warning = movedEdgeWarning(
+      FILLET,
+      TREE,
+      result("f1", tier("adjacent", 1, 0, 1, 2)),
+    );
+    expect(warning?.moved).toBe(1);
+    expect(warning?.total).toBe(4);
   });
 
   it("warns on adjacent, naming how many of the picks it concerns", () => {

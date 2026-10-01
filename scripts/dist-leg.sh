@@ -35,6 +35,8 @@
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/e2e-teardown.sh
+source scripts/e2e-teardown.sh
 
 WEB_PORT="${DIST_WEB_PORT:-5290}"
 GATEWAY_PORT="${GATEWAY_PORT:-8000}"
@@ -65,10 +67,12 @@ fi
 cleanup() {
   # SCOPED TO THE PID WE STARTED. Never a pattern kill: several agents run
   # stacks in this container at once, and `pkill -f nginx` is friendly fire that
-  # reads exactly like a clean teardown.
-  if [[ -n "$NGINX_PID" ]] && kill -0 "$NGINX_PID" 2>/dev/null; then
-    kill "$NGINX_PID" 2>/dev/null || true
-    wait "$NGINX_PID" 2>/dev/null || true
+  # reads exactly like a clean teardown. BOUNDED (CI-VERDICT-HANG-1): this
+  # runs after e2e.sh's verdict, so an unbounded `wait` on an nginx that
+  # outlived SIGTERM would hold the job to its timeout; nginx was started under
+  # `setsid`, so its pid is also its process group.
+  if [[ -n "$NGINX_PID" ]]; then
+    TD_PREFIX="dist-leg: teardown" td_stop 5000 5000 "nginx=${NGINX_PID}" || true
   fi
   if [[ "${DIST_KEEP_RUNDIR:-0}" == "1" ]]; then
     echo "dist-leg: run dir kept at $RUN_DIR"

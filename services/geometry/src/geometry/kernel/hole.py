@@ -31,11 +31,20 @@ maps these 1:1 onto ``hole_off_body`` / ``hole_too_deep`` / ``boolean_failed``):
   into empty space. Caught by the material-removed invariant (a real hole
   strictly reduces the volume), the SAME posture the shell feature uses.
 * :class:`HoleTooDeepError` — a BLIND hole could not form its full pocket: the
-  removed volume is short of ``pi * r**2 * depth_mm``, so the depth exceeds the
-  available material (the drill broke through the far side) or the bore overhangs
-  the face edge. Use a through-all hole, reduce the depth, or move the point.
+  material under the drill (``tool ∩ body``, :func:`_material_under`) is short of
+  ``pi * r**2 * depth_mm``, so the depth exceeds the available material (the
+  drill broke through the far side) or the bore overhangs the face edge. Use a
+  through-all hole, reduce the depth, or move the point.
 * :class:`geometry.kernel.extrude.BooleanError` — the kernel boolean failed or
   the cut severed / changed the body's lump count (``combine_body``'s invariant).
+
+WHY THE POCKET IS MEASURED, NOT THE BODY (HOLE-BLIND-FALSE-DEEP). The check once
+read ``volume(body) - volume(cut)``. Integration error scales with the BODY and
+its face types, not the pocket: on a 60 000 mm^3 B-spline enclosure the two
+fixed-order readings missed a Ø2.5 x 10 pocket by ~1.8 mm^3, and a valid hole
+was refused. Integrating the common solid, whose faces are the drill's own
+cylinder and disk plus the placement-face cap, reads the same pocket to 3e-9
+relative on that body. The allowed shortfall is :func:`_pocket_slack`.
 
 Determinism (RESEARCH §9): the drilled body is a pure function of
 ``(body, face_plane, position, diameter_mm, depth)`` — the bounding-box diagonal,
@@ -50,26 +59,31 @@ opaque to pyright; the directives scope that relaxation to this file only.
 
 import math
 
-from build123d import Plane, Solid, Vector
+from build123d import Compound, Plane, Solid, Vector
+from OCP.ShapeAnalysis import ShapeAnalysis_ShapeTolerance
 
 from geometry.kernel.extrude import CutRemovedNothingError, combine_body
+from geometry.kernel.properties import volume_properties
 from geometry.kernel.types import BodyShape
 
-#: A real hole strictly REMOVES material, so a drill that reduces the volume by
-#: no more than this fraction of the body removed nothing — the point is off the
+#: A real hole strictly REMOVES material, so a drill that finds no more than
+#: this fraction of the body's volume under it removed nothing — the point is off the
 #: face or the direction is wrong (:class:`HoleOffBodyError`). Orders of
 #: magnitude below the material any non-degenerate bore removes (whole mm^3),
 #: while absorbing GProp float noise — the shell material-removed posture.
 _REMOVED_REL_TOL = 1e-9
 
-#: A fully-embedded blind pocket removes EXACTLY ``pi * r**2 * depth`` (measured
-#: exact to ~3e-15 relative, build123d 0.11.1 / OCCT 7.9). A removed volume below
-#: this relative margin of that analytic pocket means the pocket could not form —
-#: the depth exceeds the material or the bore overhangs the face edge
-#: (:class:`HoleTooDeepError`). Loose enough to never false-trip on boolean
-#: noise, tight enough that a broke-through / overhanging bore always trips
-#: (mm-scale relative tolerance, the kernel 1e-7 m posture).
-_POCKET_REL_TOL = 1e-6
+#: ``Precision::Confusion()`` (mm): OCCT's distance below which two points are
+#: one. The floor of :func:`_pocket_slack`'s skin thickness.
+_CONFUSION_MM = 1e-7
+
+#: The ceiling of :func:`_pocket_slack`'s skin thickness (mm). A body whose
+#: stored tolerance is inflated (a sloppy import) would otherwise widen the
+#: slack until a visible breakthrough passed: at tolerance 1e-2 a 0.1 mm
+#: breakthrough of a Ø2.5 x 10 blind hole read as a full pocket. Bodies Loft
+#: builds peak near 1e-4 (spline shell; fillet 8e-5, sweep 4e-5), and the
+#: B-spline pocket noise this slack absorbs needs about 5e-6.
+_SLACK_CEILING_MM = 1e-4
 
 
 class HoleError(ValueError):
@@ -128,6 +142,53 @@ def _cut_drill(body: BodyShape, tool: Solid, off_body: HoleError) -> BodyShape:
         return combine_body(body, tool, "cut")
     except CutRemovedNothingError as exc:
         raise off_body from exc
+
+
+def _material_under(body: BodyShape, tool: Solid) -> tuple[float, float]:
+    """``(volume, tolerance)`` of the material the drill *tool* occupies in *body*.
+
+    The common solid IS the pocket the cut removes, measured on its own scale
+    rather than as the difference of two whole-body readings. *tolerance* is the
+    largest vertex/edge/face tolerance OCCT gave that solid (0 when empty)."""
+    common = body.intersect(tool)
+    solids = [] if common is None else list(common.solids())
+    if not solids:
+        return 0.0, 0.0
+    pocket = solids[0] if len(solids) == 1 else Compound(children=solids)
+    tolerance = ShapeAnalysis_ShapeTolerance().Tolerance(pocket.wrapped, 1)
+    return volume_properties(pocket).volume, float(tolerance)
+
+
+def _pocket_slack(tolerance: float, boundary_area: float) -> float:
+    """The shortfall (mm^3) a fully-formed pocket may read: a skin ``t`` thick
+    over its ``boundary_area`` (mm^2), with ``t`` the common solid's own OCCT
+    tolerance floored at ``Precision::Confusion()`` and capped at
+    :data:`_SLACK_CEILING_MM`.
+
+    OCCT treats geometry within a shape's tolerance as coincident, so the
+    boolean can place a pocket wall anywhere inside that band; a shortfall
+    beyond the band is material the drill did not find. Measured (2026-10-01)
+    on fully-embedded pockets: exact bodies read within 1e-13 relative (common
+    tolerance 1e-7); B-spline bodies (common tolerance 5e-6, an approximated
+    intersection curve) fall short by 6.7e-10 to 0.137 mm^3 from Ø0.1 x 0.2 to
+    Ø400 x 600, i.e. a cap 1e-7 to 1.1e-6 mm low, which this slack covers by
+    37x or more. On an exact Ø10 x 10 pocket it is 4.7e-5 mm^3, so a blind
+    hole 1e-5 mm too deep is refused (the old 1e-6-of-pocket bound let it
+    pass)."""
+    return min(max(tolerance, _CONFUSION_MM), _SLACK_CEILING_MM) * boundary_area
+
+
+def _require_full_pocket(
+    body: BodyShape,
+    tool: Solid,
+    expected: float,
+    boundary_area: float,
+    error: HoleError,
+) -> None:
+    """Raise *error* unless *tool* finds its whole analytic pocket in *body*."""
+    removed, tolerance = _material_under(body, tool)
+    if removed < expected - _pocket_slack(tolerance, boundary_area):
+        raise error
 
 
 def _drill_axis(
@@ -229,16 +290,16 @@ def bore_hole(
         "(outside the body), or the cut direction points into empty space. "
         "Re-place the hole on the face."
     )
-    before = float(body.volume)
     result = _cut_drill(body, tool, off_body)
-    removed = before - float(result.volume)
+    removed, tolerance = _material_under(body, tool)
 
-    if removed <= before * _REMOVED_REL_TOL:
+    if removed <= float(body.volume) * _REMOVED_REL_TOL:
         raise off_body
     if not through_all:
         assert depth_mm is not None, "a blind hole carries a positive depth_mm"
         expected = math.pi * radius * radius * depth_mm
-        if removed < expected * (1.0 - _POCKET_REL_TOL):
+        area = 2.0 * math.pi * radius * (depth_mm + radius)
+        if removed < expected - _pocket_slack(tolerance, area):
             raise HoleTooDeepError(
                 "The blind hole could not form its full depth: the removed "
                 f"material is short of a diameter-{diameter_mm}mm, {depth_mm}mm-deep "
@@ -325,13 +386,19 @@ def cut_counterbore(
         "(the recess would break through), or it overhangs the face edge. "
         "Reduce the counterbore depth or diameter, or move the hole inward."
     )
-    before = float(body.volume)
     result = _cut_drill(body, tool, too_deep)
-    removed = before - float(result.volume)
-
     expected = math.pi * (radius * radius - bore_radius * bore_radius) * cbore_depth_mm
-    if removed < expected * (1.0 - _POCKET_REL_TOL):
-        raise too_deep
+    # Outer and inner walls plus the floor and the face-plane cap.
+    area = (
+        2.0
+        * math.pi
+        * (
+            (radius + bore_radius) * cbore_depth_mm
+            + radius * radius
+            - bore_radius * bore_radius
+        )
+    )
+    _require_full_pocket(body, tool, expected, area, too_deep)
     return result
 
 
@@ -423,16 +490,20 @@ def cut_countersink(
         "available material (it would break through), or it overhangs the face "
         "edge. Reduce the countersink diameter/angle, or move the hole inward."
     )
-    before = float(body.volume)
     result = _cut_drill(body, tool, too_deep)
-    removed = before - float(result.volume)
-
     expected = (
         math.pi
         * cone_depth
         / 3.0
         * (radius * radius + radius * bore_radius - 2.0 * bore_radius * bore_radius)
     )
-    if removed < expected * (1.0 - _POCKET_REL_TOL):
-        raise too_deep
+    # Cone flank, the bore wall it surrounds, and the face-plane annulus.
+    slant = math.hypot(radius - bore_radius, cone_depth)
+    area = math.pi * (
+        (radius + bore_radius) * slant
+        + 2.0 * bore_radius * cone_depth
+        + radius * radius
+        - bore_radius * bore_radius
+    )
+    _require_full_pocket(body, tool, expected, area, too_deep)
     return result

@@ -5,6 +5,12 @@
  * reports which tier fired (`FeatureResult.subshape_resolution`):
  *
  *   - `exact`: the edge is where it was picked. Certain.
+ *   - `named`: it moved, and was re-found by its history-based name: "the
+ *     edge between Extrude1's side from sketch line e2 and its side from e1"
+ *     (DESIGN-INTENT-REFS). That is how Fusion and SolidWorks carry a pick
+ *     through an edit, and the kernel only takes it when exactly one edge
+ *     holds the name and no geometric tier contradicts it. This surface says
+ *     nothing.
  *   - `durable`: it moved along its own line, or a face kept its plane. This
  *     fires ROUTINELY on correct rebuilds. Two tree goldens report it with no
  *     edit at all (a second hole on a face the first one already changed), so
@@ -59,7 +65,8 @@ export function movedEdgeWarning(
   }
   if (summary.worst_tier !== "adjacent" || summary.adjacent === 0) return null;
   const moved = summary.adjacent;
-  const total = summary.exact + summary.durable + summary.adjacent;
+  const total =
+    summary.exact + summary.named + summary.durable + summary.adjacent;
   const one = moved === 1;
   const sentence =
     `${moved} of ${total} picked edges moved in an earlier edit and ` +
@@ -74,7 +81,7 @@ export function movedEdgeWarning(
   const key = [
     feature.id,
     feature.updated_at,
-    `${summary.exact}/${summary.durable}/${summary.adjacent}`,
+    `${summary.exact}/${summary.named}/${summary.durable}/${summary.adjacent}`,
     upstream,
   ].join("|");
   return { moved, total, sentence, key };

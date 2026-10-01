@@ -2,7 +2,8 @@
  * The sheet check strip — the redline slip clipped above the drawing board.
  *
  * Composition MEASURES every pair of placed views and reports a collision or a
- * near-tangency on `ComposedSheet.layout_issues` (audit N2). Every export stamped
+ * near-tangency, and every view that runs past the drafting border (`off_sheet`),
+ * on `ComposedSheet.layout_issues` (audit N2). Every export stamped
  * that banner; the app showed nothing, so an unreadable sheet looked fine right
  * up until a machinist opened the PDF. This is the on-screen half.
  *
@@ -25,8 +26,9 @@ export interface SheetIssueStripProps {
   /** The composer's measured issues, in composed order. */
   issues: readonly ComposedLayoutIssue[];
   /** The projections currently carrying a hand-dragged placement — the ONLY ones
-   * "return to auto-layout" can act on (an auto-placed pair that still collides
-   * needs a bigger sheet or a smaller scale, not another reset). */
+   * "return to auto-layout" can act on (an auto-placed pair that still collides,
+   * or an auto-placed view too big for the border, needs a bigger sheet or a
+   * smaller scale, not another reset). */
   handPlaced: ReadonlySet<ViewProjection>;
   /** Return these views to bounds-aware auto-layout. */
   onAutoPlace: (projections: readonly ViewProjection[]) => void;

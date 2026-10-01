@@ -3,7 +3,8 @@
  * `banner_lines()` (audit N2).
  *
  * Composition measures every pair of placed views and reports a collision
- * (`views_overlap`, an error) or a near-tangency (`views_crowded`, a warning) on
+ * (`views_overlap`, an error) or a near-tangency (`views_crowded`, a warning),
+ * and every view against the drafting border (`off_sheet`, an error), on
  * {@link ComposedSheet.layout_issues}. All three server serializers stamp those
  * issues as a banner on the print; the app rendered NOTHING, so an overlapping
  * sheet looked fine on screen and only announced itself once exported — the
@@ -55,7 +56,7 @@ export interface BannerLine {
   x: number;
   y: number;
   text: string;
-  /** True for an overlap (drafting red); false for a crowding warning. */
+  /** True for an error (drafting red); false for a crowding warning. */
   error: boolean;
 }
 
@@ -89,8 +90,9 @@ export function bannerLines(composed: ComposedSheet): BannerLine[] {
   return lines;
 }
 
-/** True when any issue is an outright collision (not merely a crowded pair) —
- * the strip escalates to `role="alert"` only for something already wrong. */
+/** True when any issue is an error (a collision or a view off the sheet, not
+ * merely a crowded pair) — the strip escalates to `role="alert"` only for
+ * something already wrong. */
 export function hasLayoutError(
   issues: readonly ComposedLayoutIssue[],
 ): boolean {

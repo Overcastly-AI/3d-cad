@@ -2354,7 +2354,10 @@ SELF_COMPOSITION_ERRORS = {
     "hole_tapped": "hole_off_body",
     "fillet": "fillet_failed",
     "chamfer": "chamfer_failed",
-    "shell": "shell_failed",
+    # The second shell asks for walls of SHELL_T inside walls SHELL_T thick: no
+    # cavity fits, and since SHELL-WRONG-SOLID that picks the code, however
+    # OCCT failed (it raises here, which used to read `shell_failed`).
+    "shell": "shell_thickness_too_large",
     "draft": "subshape_unresolved",
 }
 

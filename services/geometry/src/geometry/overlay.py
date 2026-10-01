@@ -51,7 +51,10 @@ def evaluate_overlay(request: OverlayRequest) -> OverlayResult:
         # checkpoint, and kept on it for the next (PERF-REAL-3 follow-up).
         face_features = evaluation.face_owners()
         return selection_overlay(
-            evaluation.body, request.tree.linear_deflection, face_features
+            evaluation.body,
+            request.tree.linear_deflection,
+            face_features,
+            evaluation.face_names(),
         )
     except Exception as exc:
         raise unexpected_query_failure(
