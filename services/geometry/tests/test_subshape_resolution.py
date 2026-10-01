@@ -488,6 +488,8 @@ _NOT_EXACT: dict[tuple[str, str], str] = {
     # Step 2: the impeller's 14 root edges, picked at hub 40, after the edit to
     # 44 (each a hub side piece meeting a loft or pattern blade side).
     ("revise-hub-d44-blade-root-fillet", "fillet"): "named",
+    # The QA blade (z 2..18): one root curve is cut by the hub's seam at 44.
+    ("revise-hub-d44-qa-blade-root-fillet", "fillet"): "named",
 }
 
 #: holed-bracket drills two holes per face with ONE stored face signature each;

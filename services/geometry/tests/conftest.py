@@ -52,6 +52,10 @@ KNOWN_ROUNDTRIP_DEFECTS: dict[str, str] = {
         "cylinder are fitted at 3.2e-5 mm; STEP re-reads each 4.2e-6 mm^2 off, "
         "moving the volume 2.0e-5 mm^3 (a pure build123d build does the same)"
     ),
+    "revise-hub-d44-qa-blade-root-fillet": (
+        "FILLET-BLEND-ROUNDTRIP: the QA blade's 14 R1 root blends move the volume "
+        "2.5e-7 mm^3 across STEP; the body before the fillet holds to 2.8e-10"
+    ),
 }
 
 

@@ -348,3 +348,20 @@ curve kind "other") are pairs of a hub piece and a blade side and resolve by
 name after hub 40 -> 44 (golden `revise-hub-d44-blade-root-fillet`). A forged
 `topo_name` can still only select an edge that one name pins, exactly what a
 direct pick of that edge selects.
+
+**Step 2 follow-up (QA impeller, blades z 2..18).** Two more things broke the
+hub edit when the blades pierce the hub side instead of splitting it. First,
+at Ø44 the hub cylinder's seam crosses one root curve and cuts it in two, so
+that face pair names two edges. A stored name (taken where the pair bounded a
+single edge) now also reaches the pieces of ONE boundary run: edges between
+the same two faces forming a single chain joined only at vertices where
+nothing but a seam meets. Two separate runs (a D-shape's chord ends) are
+still no name, and the pick side still names only an edge that alone bounds
+its pair. Second, OCCT's fillet fails when a closed face's seam ends on or
+beside a filleted edge, a re-pick included; Parasolid has no such seam. On
+that failure the fillet retries once on the same solid with each such face
+rebuilt on its surface turned about its own axis, so the seam sits in the
+widest gap between the picked edges (`geometry/kernel/reseam.py`). The
+rebuild must be valid, keep its face count and keep its volume to 1e-9
+relative, or the original failure stands. Golden
+`revise-hub-d44-qa-blade-root-fillet`.

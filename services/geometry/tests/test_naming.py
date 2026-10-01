@@ -611,3 +611,40 @@ def test_revolve_sides_are_named_from_their_sketch_entities() -> None:
     expected |= {face_name(feature, "start"), face_name(feature, "end")}
     assert len(carried) == 6
     assert set(carried) == expected
+
+
+def test_a_name_reaches_the_pieces_of_one_run_a_seam_cut() -> None:
+    """The QA impeller at Ø44: the hub's seam cuts blade 0's r3 root curve in
+    two. Both pieces bound the same two faces and join only at the seam's end,
+    so the stored name (taken at Ø40, where the curve was one edge) reaches
+    both on the resolve side (``runs``), while the pick side still names only
+    an edge that alone bounds its pair."""
+    features = IMP.body_features(IMP.REVISED_D, IMP.QA_HEIGHT)
+    evaluation = IMP.evaluate(features, 40)
+    names = evaluation.face_names()
+    root = edge_name(
+        face_name(IMP.HUB_ID, "side:c1"), face_name(IMP.LOFT_ID, "side:r3")
+    )
+    assert edge_names(evaluation.body, names).count(root) == 0
+    pieces = [
+        edge
+        for edge, name in zip(
+            evaluation.body.edges(),
+            edge_names(evaluation.body, names, runs=True),
+            strict=True,
+        )
+        if name == root
+    ]
+    assert len(pieces) == 2
+    assert sorted(round(e.length, 3) for e in pieces) == [2.67, 13.348]
+
+
+def test_two_separate_runs_are_still_no_name() -> None:
+    """The D-shape's curved and flat sides meet at both ends of the chord: two
+    runs, not one cut in pieces, so ``runs`` names neither."""
+    arc = Edge.make_circle(10, Plane.XY, start_angle=0, end_angle=180)
+    chord = Edge.make_line((-10, 0, 0), (10, 0, 0))
+    prism = Solid.extrude(Face(Wire([arc, chord])), (0, 0, 5))
+    names = [f"face{index}" for index in range(len(prism.faces()))]
+    assert edge_names(prism, names, runs=True) == edge_names(prism, names)
+    assert sum(n is not None for n in edge_names(prism, names, runs=True)) == 4

@@ -67,7 +67,13 @@ from OCP.BRepClass import BRepClass_FaceClassifier
 from OCP.BRepTools import BRepTools
 from OCP.BRepTopAdaptor import BRepTopAdaptor_FClass2d
 from OCP.gp import gp_Pnt2d
-from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_IN, TopAbs_OUT
+from OCP.TopAbs import (
+    TopAbs_EDGE,
+    TopAbs_FACE,
+    TopAbs_IN,
+    TopAbs_OUT,
+    TopAbs_VERTEX,
+)
 from OCP.TopExp import TopExp
 from OCP.TopLoc import TopLoc_Location
 from OCP.TopoDS import TopoDS, TopoDS_Shape
@@ -479,6 +485,8 @@ def edge_names(
     body: BodyShape,
     face_names: Sequence[str | None],
     edges: Sequence[Edge] | None = None,
+    *,
+    runs: bool = False,
 ) -> list[str | None]:
     """Names of *edges* (default: every edge, aligned with ``body.edges()``),
     from *face_names* (aligned with ``body.faces()``).
@@ -513,9 +521,25 @@ def edge_names(
         return edge_name(a, b) if a is not None and b is not None and a != b else None
 
     if edges is None:
-        names = [name_of(pair_of(edge.wrapped)) for edge in body.edges()]
+        all_edges = body.edges()
+        pairs = [pair_of(edge.wrapped) for edge in all_edges]
+        names = [name_of(pair) for pair in pairs]
         counts = Counter(name for name in names if name is not None)
-        return [name if name is None or counts[name] == 1 else None for name in names]
+        whole = {
+            name
+            for name, count in counts.items()
+            if count > 1
+            and runs
+            and _one_run(
+                body,
+                [e for e, n in zip(all_edges, names, strict=True) if n == name],
+                ancestors,
+            )
+        }
+        return [
+            name if name is None or counts[name] == 1 or name in whole else None
+            for name in names
+        ]
 
     out: list[str | None] = []
     for edge in edges:
@@ -535,6 +559,58 @@ def edge_names(
                 name = None
         out.append(name)
     return out
+
+
+def _one_run(
+    body: BodyShape,
+    pieces: Sequence[Edge],
+    ancestors: TopTools_IndexedDataMapOfShapeListOfShape,
+) -> bool:
+    """Whether *pieces* (edges between the same two faces) are ONE boundary run
+    cut at vertices: a single open or closed chain, joined only at vertices
+    where nothing else meets but a seam (an edge with one face on both sides).
+    Two faces that meet along two separate runs (the two ends of a D-shape's
+    chord) are not one run, and neither is a chain a third face touches."""
+    piece_map = TopTools_IndexedMapOfShape()
+    for piece in pieces:
+        piece_map.Add(piece.wrapped)
+    by_vertex = TopTools_IndexedDataMapOfShapeListOfShape()
+    TopExp.MapShapesAndAncestors_s(body.wrapped, TopAbs_VERTEX, TopAbs_EDGE, by_vertex)
+    links: dict[int, set[int]] = {i: set() for i in range(len(pieces))}
+    for piece_index, piece in enumerate(pieces):
+        for vertex in piece.vertices():
+            if not by_vertex.Contains(vertex.wrapped):
+                return False
+            touching = [
+                edge
+                for edge in by_vertex.FindFromKey(vertex.wrapped)
+                if not edge.IsSame(piece.wrapped)
+            ]
+            for edge in touching:
+                if piece_map.Contains(edge):
+                    links[piece_index].add(piece_map.FindIndex(edge) - 1)
+                elif not _is_seam(edge, ancestors) and any(
+                    piece_map.Contains(e) for e in touching
+                ):
+                    # A third face meets the chain between two pieces.
+                    return False
+    if any(len(linked) > 2 for linked in links.values()):
+        return False
+    seen, todo = {0}, [0]
+    while todo:
+        for nxt in links[todo.pop()] - seen:
+            seen.add(nxt)
+            todo.append(nxt)
+    return len(seen) == len(pieces)
+
+
+def _is_seam(
+    edge: TopoDS_Shape, ancestors: TopTools_IndexedDataMapOfShapeListOfShape
+) -> bool:
+    if not ancestors.Contains(edge):
+        return False
+    faces = list(ancestors.FindFromKey(edge))
+    return len(faces) == 2 and faces[0].IsSame(faces[1])
 
 
 class ShapeNames:

@@ -153,3 +153,75 @@ def test_a_forged_name_can_do_no_more_than_a_direct_pick(
     ]
     direct_hash, _ = _artifact(direct, 11)
     assert forged_hash == direct_hash
+
+
+# --- the QA impeller: blades z 2..18 pierce the hub side ------------------------
+#
+# The hard-parts re-run (d7e4b43) built the impeller with blades on XY+2 and
+# XY+18. Each blade then pierces the hub side without splitting it, and at 1942b0f
+# the hub edit still failed. Two causes, both reproduced here: at Ø44 the hub
+# cylinder's seam crosses blade 0's r3 root curve and cuts it into two edges (so
+# the root's face pair named two edges and the name was withdrawn), and with the
+# seam on a root curve OCCT's fillet itself fails, a re-pick at Ø44 included.
+
+QA = B.QA_HEIGHT
+
+
+@pytest.fixture(scope="module")
+def qa_tree() -> list[dict[str, Any]]:
+    return authored_tree(AUTHORED_D, QA)
+
+
+def test_the_qa_impeller_builds_clean(qa_tree: list[dict[str, Any]]) -> None:
+    assert statuses(evaluate(qa_tree, 30)) == [
+        *_ALL_BUT_FILLET_OK,
+        ("100d", "ok", None),
+    ]
+
+
+def test_CONTROL_qa_without_names_the_hub_edit_loses_the_fillet(
+    qa_tree: list[dict[str, Any]],
+) -> None:
+    collapsed = evaluate(strip_names(revised(qa_tree, REVISED_D)), 31)
+    assert statuses(collapsed)[-1] == ("100d", "error", "subshape_unresolved")
+
+
+def test_at_44_the_hub_seam_cuts_one_root_curve_in_two(
+    qa_tree: list[dict[str, Any]],
+) -> None:
+    """The cause, pinned: 14 root edges at Ø40, 15 at Ø44, the extra one a
+    piece of the root curve the +X seam cut."""
+    assert len(B.root_edges(B.body_features(AUTHORED_D, QA), AUTHORED_D)) == 14
+    assert len(B.root_edges(B.body_features(REVISED_D, QA), REVISED_D)) == 15
+
+
+def test_qa_named_picks_rebuild_the_fillet_after_the_hub_edit(
+    qa_tree: list[dict[str, Any]],
+) -> None:
+    rebuilt = evaluate(revised(qa_tree, REVISED_D), 32)
+    assert statuses(rebuilt) == [*_ALL_BUT_FILLET_OK, ("100d", "ok", None)]
+    summary = {r.feature_id: r for r in rebuilt.result.features}[
+        FILLET_ID
+    ].subshape_resolution
+    assert summary is not None
+    assert summary.named == 14
+    assert summary.worst_tier == "named"
+
+
+def test_the_qa_rescue_is_byte_identical_to_an_exact_re_pick(
+    qa_tree: list[dict[str, Any]],
+) -> None:
+    """The oracle: a re-pick at Ø44 takes all 15 root edges (both pieces of the
+    cut curve), exactly the edges the stored name now reaches."""
+    rescued_hash, rescued = _artifact(revised(qa_tree, REVISED_D), 33)
+    exact_hash, exact = _artifact(authored_tree(REVISED_D, QA), 34)
+    assert rescued_hash == exact_hash
+    assert rescued.properties.topology == exact.properties.topology
+
+
+@pytest.mark.parametrize("diameter", [38.0, 46.0, AUTHORED_D])
+def test_the_qa_edit_rebuilds_at_other_hub_sizes(
+    qa_tree: list[dict[str, Any]], diameter: float
+) -> None:
+    rebuilt = evaluate(revised(qa_tree, diameter), 35)
+    assert statuses(rebuilt)[-1] == ("100d", "ok", None), diameter

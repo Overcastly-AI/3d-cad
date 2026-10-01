@@ -26,6 +26,7 @@ from OCP.TopoDS import TopoDS
 from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.naming import OpHistory
+from geometry.kernel.reseam import reseam_near
 from geometry.kernel.types import BodyShape
 
 
@@ -62,19 +63,31 @@ def fillet_body(
         raise ValueError(f"radius_mm must be > 0, got {radius_mm}")
     lump_count = len(body.solids())
     try:
-        # fillet() carries Shape[Unknown] type params upstream (same gap
-        # tessellate.py documents for export_gltf) — scoped ignore only.
-        result = (
-            body.fillet(radius_mm, edges)
-            if history is None
-            else _fillet_with_history(body, edges, radius_mm, history)
-        )
-        solids = list(result.solids())
+        solids = _fillet(body, edges, radius_mm, history)
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
-        raise FilletError(
-            f"Fillet failed in the kernel ({type(exc).__name__}); the radius "
-            f"({radius_mm} mm) may be too large for an adjacent face."
-        ) from exc
+        # A closed face's seam ending on or beside a filleted edge defeats the
+        # OCCT blend (a parameterisation artefact, not geometry): retry ONCE on
+        # the same solid with those seams moved clear (geometry.kernel.reseam).
+        moved = reseam_near(body, edges) if isinstance(body, Solid) else None
+        try:
+            if moved is None:
+                raise exc
+            solids = _fillet(moved[0], moved[1], radius_mm, history)
+            if history is not None:
+                # Report the history against the CALLER's edges (the names
+                # were taken on those), not the re-seamed copies.
+                back = {
+                    id(copy): edge for copy, edge in zip(moved[1], edges, strict=True)
+                }
+                history.generated = [
+                    (back.get(id(source), source), face)
+                    for source, face in history.generated
+                ]
+        except Exception:  # OCCT failure modes are not a stable taxonomy
+            raise FilletError(
+                f"Fillet failed in the kernel ({type(exc).__name__}); the radius "
+                f"({radius_mm} mm) may be too large for an adjacent face."
+            ) from exc
 
     if len(solids) != lump_count:
         raise FilletError(
@@ -89,6 +102,20 @@ def fillet_body(
     if lump_count == 1:
         return clean_shape(solids[0])
     return assemble_lumps([clean_shape(solid) for solid in solids])
+
+
+def _fillet(
+    body: BodyShape, edges: list[Edge], radius_mm: float, history: OpHistory | None
+) -> list[Solid]:
+    """The OCCT fillet, as solids. Raises what it raises."""
+    # fillet() carries Shape[Unknown] type params upstream (same gap
+    # tessellate.py documents for export_gltf) — scoped ignore only.
+    result = (
+        body.fillet(radius_mm, edges)
+        if history is None
+        else _fillet_with_history(body, edges, radius_mm, history)
+    )
+    return list(result.solids())
 
 
 def _fillet_with_history(

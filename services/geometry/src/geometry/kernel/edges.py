@@ -833,34 +833,37 @@ def _match_edge_records(
     if strict:
         return strict, "exact"
     geometric, tier = _geometric_edge_matches(body, records, target, face_names)
-    named = _named_edge(body, records, target.topo_name, face_names)
-    if named is not None and (
-        not geometric or any(r.index == named.index for r in geometric)
-    ):
-        return [named], "named"
+    named = _named_edges(body, records, target.topo_name, face_names)
+    held = {r.index for r in named}
+    if named and (not geometric or any(r.index in held for r in geometric)):
+        return named, "named"
     return geometric, tier
 
 
-def _named_edge(
+def _named_edges(
     body: BodyShape,
     records: list[EdgeRecord],
     name: str | None,
     face_names: Sequence[str | None] | None,
-) -> EdgeRecord | None:
-    """The ONE record whose name is *name*, else ``None``.
+) -> list[EdgeRecord]:
+    """The records whose name is *name*: ONE edge, or the pieces of one RUN.
 
     The records' own ``name`` when they carry one; otherwise the body's edge
     names are worked out here, only now that the strict tier has missed, so an
-    unedited rebuild never pays for naming every edge."""
+    unedited rebuild never pays for naming every edge. A name is only ever
+    STORED from an edge that alone bounds its two faces; here it also reaches
+    the pieces of that boundary when an edit cut it at a vertex (a cylinder's
+    seam now crossing a blade's root curve), because the pieces are still the
+    whole of the boundary between the same two faces (:func:`edge_names`
+    ``runs``). Anything else is no match."""
     if name is None:
-        return None
+        return []
     names = [r.name for r in records]
     if all(n is None for n in names) and face_names is not None:
-        names = edge_names(body, face_names)
+        names = edge_names(body, face_names, runs=True)
         if len(names) != len(records):
-            return None
-    held = [r for r, n in zip(records, names, strict=True) if n == name]
-    return held[0] if len(held) == 1 else None
+            return []
+    return [r for r, n in zip(records, names, strict=True) if n == name]
 
 
 def _geometric_edge_matches(
@@ -959,11 +962,14 @@ def _resolve_picked_edges(
         )
         if not matches:
             raise SubshapeUnresolvedError(_UNRESOLVED_MESSAGE)
-        if len(matches) > 1:
+        if len(matches) > 1 and tier != "named":
             raise _ambiguous(len(matches), tier=tier)
         if tally is not None:
             tally.note(tier)
-        chosen[matches[0].index] = matches[0].edge
+        # A named match of several records is ONE picked edge an edit cut into
+        # pieces (a run, see _named_edges): a fillet rounds all of it.
+        for match in matches:
+            chosen[match.index] = match.edge
     return [chosen[index] for index in sorted(chosen)]
 
 

@@ -140,19 +140,33 @@ def _blade_corners(turn_deg: float) -> list[tuple[float, float]]:
     return [(x * c - y * s, x * s + y * c) for x, y in raw]
 
 
-def blade_features() -> list[dict[str, Any]]:
+#: The blade: its z range and its two sections' corners. FULL_HEIGHT is the
+#: golden's (z 0..20, the hub's height, so the 7 blades split the hub side);
+#: QA_HEIGHT is the hard-parts QA impeller as modelled (docs/VISION.md re-run):
+#: z 2..18, a 2 mm root at x=18 inside the hub and a tip swept from y -8 to
+#: -14, so each blade pierces the hub side without splitting it.
+Blade = tuple[float, float, list[tuple[float, float]], list[tuple[float, float]]]
+FULL_HEIGHT: Blade = (0.0, HUB_H, [], [])
+QA_HEIGHT: Blade = (
+    2.0,
+    18.0,
+    [(18.0, -1.0), (50.0, -8.0), (50.0, -6.0), (18.0, 1.0)],
+    [(18.0, -1.0), (50.0, -14.0), (50.0, -12.0), (18.0, 1.0)],
+)
+
+
+def blade_features(blade: Blade = FULL_HEIGHT) -> list[dict[str, Any]]:
     """Plane1/Sketch2 (root), Plane2/Sketch3 (tip), Loft1, Pattern1 (7x)."""
     root_plane = {"kind": "feature", "feature_id": str(ROOT_PLANE_ID)}
     tip_plane = {"kind": "feature", "feature_id": str(TIP_PLANE_ID)}
+    z0, z1, root, tip = blade
+    root = root or _blade_corners(ROOT_DEG)
+    tip = tip or _blade_corners(ROOT_DEG + TWIST_DEG)
     return [
-        _datum(ROOT_PLANE_ID, 0.0),
-        _sketch(ROOT_SKETCH_ID, root_plane, _rectangle("r", _blade_corners(ROOT_DEG))),
-        _datum(TIP_PLANE_ID, HUB_H),
-        _sketch(
-            TIP_SKETCH_ID,
-            tip_plane,
-            _rectangle("t", _blade_corners(ROOT_DEG + TWIST_DEG)),
-        ),
+        _datum(ROOT_PLANE_ID, z0),
+        _sketch(ROOT_SKETCH_ID, root_plane, _rectangle("r", root)),
+        _datum(TIP_PLANE_ID, z1),
+        _sketch(TIP_SKETCH_ID, tip_plane, _rectangle("t", tip)),
         {
             "id": str(LOFT_ID),
             "feature": {
@@ -232,9 +246,11 @@ def root_edges(features: list[dict[str, Any]], hub_d: float) -> list[Any]:
 
 
 def fillet(features: list[dict[str, Any]], hub_d: float) -> dict[str, Any]:
-    """R1 on the 14 blade-root edges, picked at hub diameter *hub_d*."""
+    """R1 on the 14 blade-root edges, picked at hub diameter *hub_d*: 14
+    edges, or 15 where the hub's seam cuts one root curve in two (the QA blade
+    at hub 44, the case a re-pick at the new size meets)."""
     roots = root_edges(features, hub_d)
-    assert len(roots) == 2 * BLADES, len(roots)
+    assert len(roots) in (2 * BLADES, 2 * BLADES + 1), len(roots)
     return {
         "id": str(FILLET_ID),
         "feature": {
@@ -262,20 +278,20 @@ def fillet(features: list[dict[str, Any]], hub_d: float) -> dict[str, Any]:
     }
 
 
-def body_features(hub_d: float) -> list[dict[str, Any]]:
+def body_features(hub_d: float, blade: Blade = FULL_HEIGHT) -> list[dict[str, Any]]:
     """Every feature before the fillet, at hub diameter *hub_d*."""
     return [
         hub_sketch(hub_d),
         _extrude(HUB_ID, HUB_SKETCH_ID, "add"),
-        *blade_features(),
+        *blade_features(blade),
         *bore_features(),
     ]
 
 
-def authored_tree(hub_d: float) -> list[dict[str, Any]]:
+def authored_tree(hub_d: float, blade: Blade = FULL_HEIGHT) -> list[dict[str, Any]]:
     """The impeller built at hub diameter *hub_d*, the fillet's picks captured
     from the overlay of the features before it."""
-    tree = body_features(hub_d)
+    tree = body_features(hub_d, blade)
     tree.append(fillet(tree, hub_d))
     return tree
 
@@ -318,11 +334,13 @@ def statuses(evaluation: Any) -> list[tuple[str, str, str | None]]:
     ]
 
 
-def golden_model() -> dict[str, Any]:
+def golden_model(blade: Blade = FULL_HEIGHT) -> dict[str, Any]:
     """The golden's request: authored at Ø40, then the hub retyped to Ø44."""
-    return _request(revised(authored_tree(AUTHORED_D), REVISED_D), 2)
+    return _request(revised(authored_tree(AUTHORED_D, blade), REVISED_D), 2)
 
 
 if __name__ == "__main__":
-    json.dump(golden_model(), sys.stdout, indent=2)
+    # ``qa`` writes the QA-blade golden (revise-hub-d44-qa-blade-root-fillet).
+    chosen = QA_HEIGHT if sys.argv[1:] == ["qa"] else FULL_HEIGHT
+    json.dump(golden_model(chosen), sys.stdout, indent=2)
     sys.stdout.write("\n")
