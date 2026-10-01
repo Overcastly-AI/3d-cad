@@ -9,6 +9,15 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
+- [ ] **SKETCH-ENDPOINT-TANGENT** (wrong geometry, review of c6475cf):
+      after a sketch fillet the arc is held only by its end coincidents and
+      R (the whole-curve line-arc tangent reads redundant with them), so an
+      R edit leaves it off-tangent: a 40x25 rect R5 -> R10 puts the centre
+      9.114 from both legs, and the extrude has a kink, with no warning.
+      _Accept:_ an endpoint tangency (planegcs angle-via-point) on the wire,
+      the solver and the fillet reconcile, also used for a user tangent
+      between line and arc that share an end; R5 -> R10 / R3 and a leg drag
+      keep centre-to-leg = r; the sketch reads no redundancy.
 - [ ] **SKETCH-FILLET-UNTRIM** (wrong geometry, HARD-PARTS 2026-10-01): on
       a rectangle whose size was typed as it was drawn, a sketch fillet on a
       second corner restores the first corner's trims. The leg that carries
@@ -19,7 +28,7 @@ commits carry the ID (`git log --grep=<ID>`).
       `enclosure-sketch-fillet-*.png`). _Accept:_
       `e2e/sketch-fillet-rect-corners.spec.ts` passes with its `test.fail()`
       removed.
-- [ ] **SHELL-WRONG-SOLID** (P0, in progress): Shell (Arc) ships wrong solids
+- [x] **SHELL-WRONG-SOLID** (P0, in progress): Shell (Arc) ships wrong solids
       that the guards accept: a bored plate whose cavity is tangent to the
       bore (5449.66 mm^3, true 4438.70) and a tube thinner than 2t (ships a
       75 mm^3 sliver). _Accept:_ Shell builds the right walls or raises a
@@ -50,7 +59,7 @@ commits carry the ID (`git log --grep=<ID>`).
       toggles that pick off (4 -> 3 edges, 4 -> 3 faces) instead of creating.
       _Accept:_ Enter after a pick creates the feature with every pick; an
       e2e test covers Fillet.
-- [ ] **FILLET-EDIT-REPICK**: editing a fillet shows no pick marks and
+- [x] **FILLET-EDIT-REPICK**: editing a fillet shows no pick marks and
       ignores edge clicks, so a wrong edge can only be fixed by deleting and
       recreating the fillet (3 cycles on the enclosure). Fusion rolls back and
       lets you re-pick. _Accept:_ Edit on a fillet rolls back to its input
@@ -64,6 +73,15 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Next
 
+- [ ] **DESIGN-INTENT-BACKFILL**: parts saved before DESIGN-INTENT-REFS
+      keep picks without history names, so they still lose them on an early
+      size edit until re-picked. _Accept:_ a one-off pass names each stored
+      pick while it still resolves exactly at the part's current sizes; the
+      three hard-parts edits then rebuild on the QA's saved parts.
+- [ ] **SKETCH-FILLET-KEEP-DIMS**: a sketch fillet drops the typed W/H on
+      the legs it trims (the sharp corner is gone), leaving 5 free DOF;
+      Fusion keeps them to the virtual sharp. _Accept:_ a virtual-sharp
+      dimension survives the fillet and still drives the size.
 - [ ] **DESIGN-INTENT-REFS** (HARD-PARTS 2026-10-01, the top design-intent
       blocker): picked edges and faces are re-found by geometric signature,
       so changing an early size loses them. Enclosure width 120 -> 130:
@@ -73,7 +91,7 @@ commits carry the ID (`git log --grep=<ID>`).
       through. Two edits did hold: the duct's flange on its swept end, and the
       shaft's PCD. _Accept:_ those three edits rebuild with every pick on the
       corresponding edge or face; a golden covers the enclosure width edit.
-- [ ] **TYPED-POLYLINE-UNJOINED**: lines whose ends are typed onto an
+- [x] **TYPED-POLYLINE-UNJOINED**: lines whose ends are typed onto an
       existing endpoint are not joined (no coincident constraint, unlike a
       pointer snap). The first dimension on the shaft's typed 18-line profile
       (flange 30 -> 35) tore it open ("2 open ends"), Revolve1 failed
@@ -112,11 +130,12 @@ commits carry the ID (`git log --grep=<ID>`).
       deleting the datum (`hard-parts-2026-10-01/enclosure-new-sketch-reuses-stale-face.png`).
       _Accept:_ with nothing selected now, New Sketch opens the plane picker,
       and a pick in a cancelled command is not a pre-selection.
-- [ ] **FILE-SIZE-RATCHET**: a `just lint` + CI check that no source file over 1,500 lines grows and no new file passes 1,500, with the current oversized files listed with their sizes and each split lowering its entry. _Accept:_ the check fails on a +1 line to `apps/web/src/routes/PartPage.tsx` and on a new 1,501-line file; the list only shrinks.
-- [ ] **SPLIT-EVALUATE** (`services/geometry/src/geometry/features/evaluate.py`, 4,382 lines): one module per feature family behind the same dispatch, no behaviour change. _Accept:_ full geometry suite green, every golden byte-identical, determinism tests green, no file over 1,500 lines.
+- [x] **FILE-SIZE-RATCHET**: a `just lint` + CI check that no source file over 1,500 lines grows and no new file passes 1,500, with the current oversized files listed with their sizes and each split lowering its entry. _Accept:_ the check fails on a +1 line to `apps/web/src/routes/PartPage.tsx` and on a new 1,501-line file; the list only shrinks.
+- [x] **SPLIT-EVALUATE** (`services/geometry/src/geometry/features/evaluate.py`, 4,382 lines): one module per feature family behind the same dispatch, no behaviour change. _Accept:_ full geometry suite green, every golden byte-identical, determinism tests green, no file over 1,500 lines.
 - [ ] **SPLIT-PARTPAGE** (`apps/web/src/routes/PartPage.tsx`, 6,502 lines; after FILLET-EDIT-REPICK lands): move per-feature edit logic, the edit-rollback/preview, pick and timeline wiring into their own modules and hooks; no behaviour change. _Accept:_ typecheck, vitest and the full e2e lane green; PartPage under 1,500 lines.
-- [ ] **SPLIT-COMPOSE** (`services/geometry/src/geometry/drawings/compose.py`, 4,297 lines; after the drawings fix lands): layout, dimensioning, views and export emitters in separate modules. _Accept:_ drawing goldens byte-identical; no file over 1,500 lines.
-- [ ] **SPLIT-DRAWINGPAGE / SPLIT-SKETCHSCENE** (`DrawingPage.tsx` 3,382, `SketchScene.tsx` 2,944): same treatment, one at a time. _Accept:_ typecheck, vitest, covering e2e green; each under 1,500.
+- [x] **SPLIT-COMPOSE** (`services/geometry/src/geometry/drawings/compose.py`, 4,297 lines; after the drawings fix lands): layout, dimensioning, views and export emitters in separate modules. _Accept:_ drawing goldens byte-identical; no file over 1,500 lines.
+- [x] **SPLIT-DRAWINGPAGE** (`DrawingPage.tsx` 3,382 -> 680, 0ab6cf2).
+- [ ] **SPLIT-SKETCHSCENE** (`SketchScene.tsx` 2,944): same treatment. _Accept:_ typecheck, vitest, covering e2e green; each under 1,500.
 - [ ] **SPLIT-WIRE-FEATURES** (`packages/loft-wire/src/loft_wire/features.py`, 4,606): one module per feature family, re-exported from `loft_wire.features` so imports and the generated contracts do not change. _Accept:_ `just gen-verify` shows zero diff; `just test` green.
 - [ ] **ARC-BOUNDS-INFLATE-1** (from stale branch 11edf49, re-implement on the tip): `_edge_points` bounds every arc as its full circle, so arc-bearing views sit off-centre and can leave the sheet. _Accept:_ an arc's box is its swept extent; the canopy bracket's ink centres on its anchor.
 - [ ] **DRAWSHEET-AUTOPLACE-1** (eb113cb + c6ae762): a lone or adjacent-pair auto-placed view lands 12 mm off centre per axis, and pinned views skew auto-layout. _Accept:_ centring uses only auto-placed views; a border gate over each view's ink (geometry + caption) passes.
@@ -290,3 +309,9 @@ One line each. The founder triages weekly; most are closed without work.
 - Double-clicking a failed row whose error card is expanded opened the datum two rows above (the shaft's Extrude3 opened Plane2).
 - The sketch Fillet tool ignored the two-line pick (no corner editor opened) on 3 of 8 lip corners whose legs carry symmetric constraints.
 - After a dimension edit, the stored entity keeps its old coordinates (circle r30 next to a radius-32 constraint) until the kernel solves, so API readers see stale geometry.
+- The file-size ratchet exempts any `fixtures/` directory (real source moved there escapes, though the stale entry shows) and does not measure .js/.mjs.
+- 71f70e9 loosened `LID_CHECK_SHARE` 0.75 -> 1.0, and on faces past the 2,500-sample cap the shell check's spacing is much coarser than t (no counterexample found).
+- The split modules (evaluate, compose, drawings) turn off pyright `reportPrivateUsage` file-wide; kernel threads/mirror/pattern and faults docstrings still name `features.evaluate._*`.
+- `test_provenance.py:476` passes with its `_REBUILD_CACHE` patch a no-op (it asserts laddered == ladderless).
+- During a fillet edit: tip-body face highlights paint over the preview body, the timeline is unheld until the preview lands, mass properties show the tip, a failed preview is silent, and extrude/flange/hem edits have no preview.
+- The sketch corner reconcile compares against the store when the result arrives, not when the fillet was asked for; a drag in between reads as a trim.
