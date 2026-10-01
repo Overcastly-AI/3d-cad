@@ -343,34 +343,8 @@ def test_a_right_shell_of_a_new_family_still_builds(case: Right) -> None:
     assert _volume(shelled) == pytest.approx(case.truth(), rel=case.rel)
 
 
-# --- a live defect: a stored part that rebuilds only half the time ------------
-
-
-# Not strict: the outcome is fixed per PROCESS (OCCT's map order follows memory
-# layout), so one process usually sees 20 identical rebuilds and a strict xfail
-# XPASSes on about half of CI runs. SHELL-HEAL-NONDETERMINISM replaces this with a
-# test that rebuilds in several fresh processes.
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "rod-cross-bore r6 t2 is refused on about half of all rebuilds (31/60 "
-        "and 32/60 before and after 5fda139, 3 processes x 20): OCCT's Arc "
-        "offset walks a map keyed by TShape addresses and, on some layouts, "
-        "returns a solid the heal cannot make valid. The body it builds is "
-        "right (5903.845 mm^3). Pre-existing; not the definition check."
-    ),
-)
-def test_a_sealed_cross_bored_rod_rebuilds_the_same_every_time() -> None:
-    outcomes: set[str] = set()
-    for _ in range(20):
-        rod = Cylinder(10, 40).solids()[0]
-        bore = Cylinder(6, 200).solids()[0].rotate(Axis.Y, 90)
-        try:
-            shelled = shell_body(rod.cut(bore).solids()[0], [], 2.0)
-            outcomes.add(f"{_volume(shelled):.6f}")
-        except (ShellError, ShellThicknessError) as refusal:
-            outcomes.add(type(refusal).__name__)
-    assert len(outcomes) == 1, outcomes
+# The sealed cross-bored rod that rebuilt only half the time is in
+# tests/test_shell_heal.py (SHELL-HEAL-NONDETERMINISM).
 
 
 # --- a turned part: a wrong wall 5fda139 shipped (QA of 38f240f) ---------------

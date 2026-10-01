@@ -116,6 +116,11 @@ for both a sealed L and a sealed bottom-filleted box. The filleted box's volume
 spread 5e-11 mm^3 on 2869 mm^3, and the L's centroid moved in its last bit. A
 sealed spline wall moves further: its fitted edges, and the volume by up to
 1.8e-5 mm^3.
+
+The hash order can also decide VALIDITY. Where a cavity touches itself at a point
+(a rod r10 with an r6 cross-bore at t = 2), about half of all layouts leave a
+face spanning both sides of the pinch. :mod:`geometry.kernel.shell_heal` splits
+such a face before the heal, so the outcome no longer depends on the layout.
 """
 # The OCP wheel ships no type stubs; scoped to this file as in the kernel.
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
@@ -141,6 +146,7 @@ from geometry.kernel.healing import HealingError, clean_shape, conform_solid
 from geometry.kernel.lumps import assemble_lumps, group_faces_by_lump
 from geometry.kernel.offset_edges import tighten_offset_edges
 from geometry.kernel.properties import volume_properties
+from geometry.kernel.shell_heal import split_pinched_faces
 from geometry.kernel.shell_walls import FaultKind, ShellDefinition, WallFault
 from geometry.kernel.types import BodyShape
 
@@ -330,8 +336,11 @@ def _shell_one_lump(
     # conform_solid() returns a VALID result untouched and heals the non-conformal
     # T-junction case (CM-4, module docstring) — never a silent reshape: it raises
     # if the heal would move material.
+    # A cavity that touches itself at a point can come back with a face spanning
+    # both sides of the pinch, depending on OCCT's hash order: split it first
+    # (kernel/shell_heal.py, SHELL-HEAL-NONDETERMINISM).
     try:
-        shelled = conform_solid(cleaned)
+        shelled = conform_solid(split_pinched_faces(cleaned))
     except HealingError as exc:
         raise _refusal(
             definition, body, "the kernel's result is not a valid solid"

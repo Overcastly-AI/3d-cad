@@ -149,7 +149,13 @@ The correctness gates, run in CI and by `geometry-qa`:
   shells, faces, volume, area, centroid and inertia. It is never trusted alone:
   it silently drops a pocket when the cavity splits, and it drifts on spline
   walls. Every other Arc result gets a canonical face order, but its bytes can
-  still move in the last bit (`kernel/shell.py`).
+  still move in the last bit (`kernel/shell.py`). The hash order can also
+  change the topology. Where a cavity touches itself at a point, about half of
+  all address layouts leave one face spanning both sides of the pinch, and the
+  body is invalid. The heal does not try to steer OCCT. It rebuilds each face of
+  an invalid result from its own edges (`BOPAlgo_BuilderFace`) and replaces a
+  face that bounds more than one region with those regions, which gives the
+  other layout's faces (`kernel/shell_heal.py`).
 - **A shell is checked against its definition, not against another offset.**
   Both joins can return one valid solid that removed material and is still the
   wrong part, and they agree with each other when they do: a plate whose cavity
