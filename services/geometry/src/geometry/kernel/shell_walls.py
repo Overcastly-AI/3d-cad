@@ -307,14 +307,14 @@ class _EdgeProbe:
 
 
 #: Surfaces whose ``BRepBndLib.Add`` box is exact or conservative (closed
-#: forms over the face's parameter box): the cheap box is safe on them.
+#: forms over the face's parameter box): the cheap box is safe on them. Not the
+#: torus: on a tilted one the cheap box falls up to 0.31 mm short.
 _BOXED_EXACTLY = frozenset(
     {
         GeomAbs_SurfaceType.GeomAbs_Plane,
         GeomAbs_SurfaceType.GeomAbs_Cylinder,
         GeomAbs_SurfaceType.GeomAbs_Cone,
         GeomAbs_SurfaceType.GeomAbs_Sphere,
-        GeomAbs_SurfaceType.GeomAbs_Torus,
     }
 )
 

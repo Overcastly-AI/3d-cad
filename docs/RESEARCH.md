@@ -165,10 +165,10 @@ The correctness gates, run in CI and by `geometry-qa`:
   `shell_thickness_too_large` with the thickest wall that fits, or
   `shell_failed` with where and why. Over a 173-body sweep, 7 wrong solids
   shipped before and none does now. Of 109 right shells with their smallest
-  pocket filled, 6 pass, all with pockets of 1.47 mm^3 or less. Every query is
-  capped and answered from a spatial index, so the cost grows with the faces:
-  about a tenth of the shell on 710- and 910-face lids, tens of ms on small
-  bodies.
+  pocket filled, 6 pass (pockets up to 1.47 mm^3; one 2.19 mm^3 test pocket
+  is missed too). Every query is capped and answered from a spatial index, so
+  the cost grows with the faces: about a fifth to a third of the shell on 710-
+  and 910-face lids, tens of ms on small bodies.
 - **STEP round-trip:** export, re-import and compare, within `ROUNDTRIP_TOL`
   (1e-7) unless a golden records a measured override. A body is made
   conformal before export, but only when `BRepCheck` rejects it, and never if
