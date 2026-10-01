@@ -34,6 +34,13 @@ whenever a change should unblock one, `qa-tester` models one end to end in the
 real app. Whatever stops it goes to the top of the backlog. Features that
 nobody's reference part needs wait.
 
+Keep climbing (founder direction). VISION holds a part complexity ladder and
+reference assemblies. Whenever no part run is in flight and the last one's
+wrong-geometry findings are fixed, dispatch `qa-tester` on the next rung: the
+next ladder level, then the next reference assembly. Every run changes an
+early dimension after building, because that is where real users quit. Run
+one part or assembly run at a time, so two stacks do not starve the builders.
+
 ## Reading CI
 
 Only you can reach api.github.com (use the GitHub MCP tools). There are two
