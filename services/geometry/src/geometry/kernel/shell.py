@@ -691,9 +691,8 @@ def offset_history(
     The offset is checked, not assumed, and only for the surfaces whose offset
     is the same kind: a plane one wall behind the source's with the opposite
     outward normal, or a coaxial cylinder whose radius differs by the wall. A
-    face several sources could offset to is paired with each of them, which
-    the naming then refuses (two names, no name); any other face is paired
-    with nothing and stays unnamed.
+    face several sources could offset to is paired with none of them (a wrong
+    name is worse than none), and so is any other face: it stays unnamed.
     """
     sources = body.faces()
     kept = {surface_key(face) for face in sources} - {None}
@@ -703,11 +702,9 @@ def offset_history(
             continue
         if surface_key(face) in kept:
             continue
-        out.extend(
-            (source, face)
-            for source in sources
-            if _offsets_to(source, face, thickness_mm)
-        )
+        offsets = [s for s in sources if _offsets_to(s, face, thickness_mm)]
+        if len(offsets) == 1:
+            out.append((offsets[0], face))
     return out
 
 

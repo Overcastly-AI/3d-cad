@@ -704,12 +704,13 @@ def test_every_bracket_face_is_named_and_no_name_is_held_twice() -> None:
         face_name(BR.FLANGE1_ID, role)
         for role in ("bend_inner", "bend_outer", "inner", "outer", "tip")
     ]
+    # Edge flange3's edge ends on Edge flange1's and Edge flange2's bends.
     reliefs = sorted(n for n in names if n is not None and ":relief:" in n)
-    assert reliefs == [
-        face_name(BR.FLANGE3_ID, f"relief:{side}:{part}")
-        for side in "ab"
+    assert reliefs == sorted(
+        face_name(BR.FLANGE3_ID, f"relief:{face_name(end, 'bend_inner')}:{part}")
+        for end in (BR.FLANGE1_ID, BR.FLANGE2_ID)
         for part in ("floor", "wall")
-    ]
+    )
 
 
 def test_bracket_names_are_stable_across_the_base_edit() -> None:
@@ -734,35 +735,36 @@ def test_bracket_names_are_identical_cold_and_resumed() -> None:
     assert sum(n is not None for n in cold) == 34  # the hole's two bores: none
 
 
-def test_a_fold_cap_is_named_by_the_canonical_end_of_its_edge() -> None:
-    """``cap:a`` sits at the picked edge's lexicographically smaller end (the
-    signature's ``end_a``, where ``offset_mm`` is measured from), whatever way
-    OCCT runs the edge: Edge flange3's span is x -25..25, so cap:a is at -25."""
+def test_a_fold_cap_is_named_by_the_face_its_edge_ends_on() -> None:
+    """A cap is named after the face the picked edge ENDS on at that end, a
+    topological anchor: Edge flange3's edge (y = -20) ends on Edge flange2's
+    bend at x -30 and Edge flange1's at x 30, so its x -25 cap is
+    ``cap:<Edge flange2:bend_inner>``. Never by coordinate order, which swaps
+    when an edit turns the edge past square to an axis
+    (test_design_intent_bracket's turned-edge regressions)."""
     evaluation = BR.evaluate(BR.authored_tree(BR.AUTHORED_W)[:5], 55)
+    at_minus = face_name(BR.FLANGE3_ID, f"cap:{face_name(BR.FLANGE2_ID, 'bend_inner')}")
+    at_plus = face_name(BR.FLANGE3_ID, f"cap:{face_name(BR.FLANGE1_ID, 'bend_inner')}")
     caps = {
         name: face.center().X
         for face, name in zip(
             evaluation.body.faces(), evaluation.face_names(), strict=True
         )
-        if name
-        in (face_name(BR.FLANGE3_ID, "cap:a"), face_name(BR.FLANGE3_ID, "cap:b"))
+        if name in (at_minus, at_plus)
     }
-    assert caps == {
-        face_name(BR.FLANGE3_ID, "cap:a"): pytest.approx(-25.0),
-        face_name(BR.FLANGE3_ID, "cap:b"): pytest.approx(25.0),
-    }
+    assert caps == {at_minus: pytest.approx(-25.0), at_plus: pytest.approx(25.0)}
 
 
 def test_a_merged_face_answers_to_every_name_merged_into_it() -> None:
     """Edge flange1's end caps lie flush with the base's -Y and +Y sides, and
     the fold's clean merges each pair into one face (its history says so).
     That face keeps the base side's name and also answers to the cap's: a
-    stored ``cap:a`` finds it on the named tier, the face a direct pick of the
+    stored cap name finds it on the named tier, the face a direct pick of the
     cap would land on."""
     evaluation = BR.evaluate(BR.authored_tree(BR.AUTHORED_W)[:3], 56)
     names = evaluation.face_names()
     side = face_name(BR.BASE_ID, "side:e1")
-    cap = face_name(BR.FLANGE1_ID, "cap:a")
+    cap = face_name(BR.FLANGE1_ID, f"cap:{side}")  # it ends on side:e1 there
     (merged,) = [n for n in names if n == side]
     assert isinstance(merged, FaceName)
     assert merged.aliases == frozenset({cap})

@@ -161,7 +161,10 @@ def swept_names(
 def labelled_names(feature_id: uuid.UUID, history: OpHistory) -> NameHook:
     """Names for the faces an op labelled by their role in its own construction
     (a sheet-metal fold: ``<feature id>:<role>``, :attr:`OpHistory.labelled`)."""
-    return [(face, face_name(feature_id, role)) for role, face in history.labelled]
+    return [
+        (face, None if role is None else face_name(feature_id, role))
+        for role, face in history.labelled
+    ]
 
 
 def edge_sources(

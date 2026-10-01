@@ -132,8 +132,11 @@ class OpHistory:
     #: Faces the op itself labels by their ROLE in its own construction, where
     #: the source is not a subshape of the input: a sheet-metal fold's faces by
     #: the edge of the cross-section it swept (``bend_inner``, ``outer``,
-    #: ``tip``...), and its caps by the end of the picked edge they sit at.
-    labelled: list[tuple[str, Face]] = field(default_factory=list[tuple[str, Face]])
+    #: ``tip``...), and its caps by the face the picked edge ends on there.
+    #: ``None`` is a face the op made but cannot label (it stays unnamed).
+    labelled: list[tuple[str | None, Face]] = field(
+        default_factory=list[tuple[str | None, Face]]
+    )
     #: The faces the op's ``clean`` MERGED, in order
     #: (:mod:`geometry.kernel.clean_history`): each merged face carries the
     #: names of all the faces it was made from (:func:`carry_names`).
@@ -601,6 +604,42 @@ def _face_neighbours(body: BodyShape, count: int) -> list[list[int]]:
         for face_index in incident:
             around[face_index].update(incident - {face_index})
     return [sorted(s) for s in around]
+
+
+def edge_end_names(
+    body: BodyShape, face_names: Sequence[str | None], edge: Edge
+) -> list[tuple[tuple[float, float, float], str]]:
+    """For each end of *edge*, its position and the name of the ONE face of
+    *body* the edge ends on there: the face at that vertex other than the two
+    the edge bounds (a base flange's top edge ends on the side face across
+    the corner). An end with several such faces, or one unnamed, is left out:
+    a fold's caps are named after these (step 3), and an unpinned end must
+    leave its cap unnamed rather than guessed. Primary names only."""
+    faces = explore_faces(body)
+    if len(faces) != len(face_names):
+        return []
+    index = TopTools_IndexedMapOfShape()
+    for face in faces:
+        index.Add(face)
+    by_vertex = TopTools_IndexedDataMapOfShapeListOfShape()
+    TopExp.MapShapesAndAncestors_s(body.wrapped, TopAbs_VERTEX, TopAbs_FACE, by_vertex)
+    by_edge = TopTools_IndexedDataMapOfShapeListOfShape()
+    TopExp.MapShapesAndAncestors_s(body.wrapped, TopAbs_EDGE, TopAbs_FACE, by_edge)
+    if not by_edge.Contains(edge.wrapped):
+        return []
+    own = {index.FindIndex(f) for f in by_edge.FindFromKey(edge.wrapped)}
+    out: list[tuple[tuple[float, float, float], str]] = []
+    for vertex in edge.vertices():
+        if not by_vertex.Contains(vertex.wrapped):
+            continue
+        others = {index.FindIndex(f) for f in by_vertex.FindFromKey(vertex.wrapped)}
+        others -= own | {0}
+        if len(others) != 1:
+            continue
+        name = face_names[others.pop() - 1]
+        if name is not None:
+            out.append(((vertex.X, vertex.Y, vertex.Z), str(name)))
+    return out
 
 
 def edge_names(

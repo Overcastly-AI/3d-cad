@@ -14,6 +14,7 @@ from collections.abc import Callable
 
 from loft_wire.features import (
     HEM_CLOSED_RADIUS_RATIO,
+    EdgeSignature,
     EdgeSubshapeRef,
     EvaluatedFeatureInput,
     FeatureError,
@@ -40,7 +41,7 @@ from geometry.kernel import (
     extrude_face,
     resolve_edge_durable,
 )
-from geometry.kernel.naming import OpHistory
+from geometry.kernel.naming import OpHistory, edge_end_names
 from geometry.kernel.tolerances import KERNEL_LINEAR_TOL_MM
 from geometry.sheet_metal import (
     BendProvenance,
@@ -172,17 +173,31 @@ def _fold_flange_off_edge(
             ),
         )
 
+    names = state.face_names()
     try:
-        edge = resolve_edge_durable(
+        resolved_edge = resolve_edge_durable(
             active,
             edge_ref.selector.signature,
             tally=state.subshape_tally,
-            face_names=state.face_names(),
-        ).edge
+            face_names=names,
+        )
     except SubshapeUnresolvedError as exc:
         return FeatureError(code="subshape_unresolved", message=str(exc))
     except SubshapeAmbiguousError as exc:
         return FeatureError(code="subshape_ambiguous", message=str(exc))
+    edge = resolved_edge.edge
+    if (width_mm is not None or offset_mm != 0.0) and _ends_swapped(
+        edge_ref.selector.signature, resolved_edge.signature
+    ):
+        return FeatureError(
+            code="subshape_ambiguous",
+            message=(
+                f"{subject}'s edge was found, but an edit turned it past square to "
+                "its stored direction, so the end its offset and width are measured "
+                "from has swapped. Refusing to place the flange at the other end: "
+                "re-pick the edge, or set the offset again."
+            ),
+        )
 
     # The RADIUS RULE differs by verb, and conflating them shipped HEM-1. An edge
     # flange inherits the part's general base-flange radius when its own is omitted
@@ -212,6 +227,7 @@ def _fold_flange_off_edge(
             width_mm=width_mm,
             offset_mm=offset_mm,
             history=history,
+            end_names=edge_end_names(active, names, edge),
         )
     except EdgeFlangeEdgeError as exc:
         return FeatureError(code="edge_flange_bad_edge", message=str(exc))
@@ -272,6 +288,23 @@ def _fold_flange_off_edge(
         k_factor=k_factor,
     )
     return None
+
+
+def _ends_swapped(stored: EdgeSignature, current: EdgeSignature) -> bool:
+    """Whether the edge's canonical start (``end_a``, the lexicographically
+    smaller end, where ``offset_mm`` is measured from) now lies at the other
+    end than when it was picked: the canonical direction reversed. The
+    offset's end is defined by that ordering, so a re-found edge whose
+    ordering flipped (it turned past square to an axis) would put a partial
+    flange at the OTHER end with no error (review 2026-10-01)."""
+    a, b = stored.end_a, stored.end_b
+    c, d = current.end_a, current.end_b
+    dot = (
+        (b.x - a.x) * (d.x - c.x)
+        + (b.y - a.y) * (d.y - c.y)
+        + (b.z - a.z) * (d.z - c.z)
+    )
+    return dot < 0.0
 
 
 def _evaluate_sheet_metal_edge_flange(

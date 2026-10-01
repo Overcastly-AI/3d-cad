@@ -18,11 +18,12 @@ moved off its own line, so only the adjacency tier found it.
 THE FIX names the base flange like an extrude (sides by sketch entity, skins
 ``start`` / ``end``), each fold face by the role of its cross-section edge
 (``bend_inner``, ``inner``, ``tip``, ``outer``, ``bend_outer``, caps
-``cap:a`` / ``cap:b``), and a face a clean merges (a flange's cap flush with
-the base's side) by every name merged into it. The hole's face is then
-"Edge flange1's outer flat" whatever the base size. The control strips the
-names and must still fail; the oracle is a re-pick at 70, and the golden's
-volume is checked against a closed form and an independent build.
+``cap:<the face its edge ends on there>``), and a face a clean merges (a
+flange's cap flush with the base's side) by every name merged into it. The
+hole's face is then "Edge flange1's outer flat" whatever the base size. The
+control strips the names and must still fail; the oracle is a re-pick at 70,
+and the golden's volume is checked against a closed form and an independent
+build.
 """
 
 import hashlib
@@ -184,6 +185,97 @@ def test_a_forged_name_cannot_override_the_geometric_tiers() -> None:
     sig["topo_name"] = f"{B.FLANGE1_ID}:tip"
     forged = evaluate(tree, 11)
     assert statuses(forged)[-1] == ("7c07", "error", "subshape_ambiguous")
+
+
+# --- an edge turned past square: the ends must not swap (review 2026-10-01) -------
+
+_FILLET_ID = "00000000-0000-0000-0000-0000000b7c08"
+
+
+def _turned(top_x: float, **span: float) -> list[dict[str, Any]]:
+    """A 2 mm base flange on (-30,-20) (30,-20) (top_x,20) (-30,20), with a
+    20 mm 90 deg flange on its slanted edge. top_x 25 -> 35 turns that edge
+    past square to X, so the lexicographic order of its two ends swaps while
+    each end stays on the same side face."""
+    corners = [(-30.0, -20.0), (30.0, -20.0), (top_x, 20.0), (-30.0, 20.0)]
+    sketch = B.sketch(B.AUTHORED_W)
+    sketch["feature"]["params"]["entities"] = [
+        B._line(f"e{i + 1}", corners[i], corners[(i + 1) % 4]) for i in range(4)
+    ]
+    tree = [sketch, B.base_flange()]
+    (slanted,) = [
+        e.signature
+        for e in B._overlay(tree).edges
+        if e.signature is not None
+        and e.signature.curve == "line"
+        and {
+            (round(p.x, 6), round(p.y, 6), round(p.z, 6))
+            for p in (e.signature.end_a, e.signature.end_b)
+        }
+        == {(30.0, -20.0, 2.0), (top_x, 20.0, 2.0)}
+    ]
+    tree.append(B._flange(B.FLANGE1_ID, B.BASE_ID, slanted, 20.0, 90.0, **span))
+    return tree
+
+
+def _tip_corner(tree: list[dict[str, Any]], *, top: bool) -> Any:
+    """The short edge of the flange's tip at the +Y (or -Y) end."""
+    corners = [
+        e.signature
+        for e in B._overlay(tree).edges
+        if e.signature is not None
+        and e.signature.curve == "line"
+        and abs(e.signature.end_a.z - 24.0) < 1e-6
+        and abs(e.signature.end_b.z - 24.0) < 1e-6
+        and e.signature.length_mm < 3.0
+    ]
+    return (max if top else min)(corners, key=lambda sig: sig.midpoint.y)
+
+
+def _with_fillet(tree: list[dict[str, Any]], sig: Any) -> list[dict[str, Any]]:
+    return [
+        *tree,
+        {
+            "id": _FILLET_ID,
+            "feature": {
+                "type": "fillet",
+                "version": 1,
+                "params": {
+                    "edges": {
+                        "kind": "edges",
+                        "refs": [B._edge_ref(B.FLANGE1_ID, sig)],
+                    },
+                    "radius_mm": 0.5,
+                },
+            },
+        },
+    ]
+
+
+def test_a_cap_pick_stays_at_its_end_when_the_edge_turns_past_square() -> None:
+    """capflip: a fillet on the tip corner at the +Y end, picked at 25 (named
+    after the cap there). At 35 it must land at the +Y end again, byte for
+    byte a re-pick there, never at the -Y end (0.21 mm^3 apart), which the
+    coordinate-ordered cap names of 42b4482 did with every feature ok."""
+    authored = _turned(25.0)
+    tree = _with_fillet(authored, _tip_corner(authored, top=True))
+    edited = [_turned(35.0)[0], *tree[1:]]
+    at_35 = _turned(35.0)
+    rescued_hash, _ = _artifact(edited, 61)
+    top_hash, _ = _artifact(_with_fillet(at_35, _tip_corner(at_35, top=True)), 62)
+    bottom_hash, _ = _artifact(_with_fillet(at_35, _tip_corner(at_35, top=False)), 63)
+    assert bottom_hash != top_hash
+    assert rescued_hash == top_hash
+
+
+def test_a_partial_flange_refuses_when_its_offset_end_would_swap() -> None:
+    """offflip: a 10 mm flange at offset 2 from the slanted edge's canonical
+    start. 25 -> 35 swaps which end that is, so the flange would silently jump
+    to the other end: it is refused instead (a re-pick at 35 builds)."""
+    span = {"width_mm": 10.0, "offset_mm": 2.0}
+    edited = [_turned(35.0)[0], *_turned(25.0, **span)[1:]]
+    assert statuses(evaluate(edited, 64))[-1] == ("7c03", "error", "subshape_ambiguous")
+    assert statuses(evaluate(_turned(35.0, **span), 65))[-1] == ("7c03", "ok", None)
 
 
 # --- the golden -------------------------------------------------------------------

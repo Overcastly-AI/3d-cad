@@ -35,6 +35,7 @@ DTOs at the boundary keep it honest.
 # pyright: reportUnknownParameterType=false, reportAttributeAccessIssue=false
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from build123d import CenterOf, Edge, Face, GeomType, Solid, Vector, Wire
@@ -198,6 +199,7 @@ def build_edge_flange(
     width_mm: float | None = None,
     offset_mm: float = 0.0,
     history: OpHistory | None = None,
+    end_names: Sequence[tuple[tuple[float, float, float], str]] = (),
 ) -> EdgeFlangeResult:
     """Fold a flange off *edge* of the sheet *body* and fuse it across a bend.
 
@@ -230,9 +232,12 @@ def build_edge_flange(
     NAMING (DESIGN-INTENT-REFS step 3). *history*, when given, receives every
     face the fold built, labelled by its ROLE (:func:`_fold_roles`): the face
     each cross-section edge swept (``bend_inner``, ``inner``, ``tip``,
-    ``outer``, ``bend_outer``) and the two caps by the end of the picked edge
-    they sit at (``cap:a`` at the canonical start, the stored signature's
-    ``end_a``, ``cap:b`` at the other), plus each bend-end relief's walls. The
+    ``outer``, ``bend_outer``) and each cap by the face the picked edge ENDS
+    on there (``cap:<that face's name>``, from *end_names*: the position of an
+    end of *edge* and the name of the one face it ends on), plus each bend-end
+    relief's walls likewise. A cap at an end with no such name is unnamed:
+    never "the cap at the lexicographically smaller end", which swaps when an
+    edit turns the edge past square to an axis (review 2026-10-01). The
     geometry is the same prism either way (``Solid.extrude`` is this
     ``BRepPrimAPI_MakePrism``); the history only reads it.
 
@@ -373,14 +378,14 @@ def build_edge_flange(
         if history is None:
             flange = Solid.extrude(section, v * width)
         else:
-            roles = {
+            roles: dict[str | None, Vector] = {
                 "bend_inner": to3d(inner_mid),
                 "inner": _mid(to3d(C), to3d(D)),
                 "tip": _mid(to3d(D), to3d(E2)),
                 "outer": _mid(to3d(E2), to3d(Fp)),
                 "bend_outer": to3d(outer_mid),
             }
-            first, last = _cap_labels(p0, p1, "cap")
+            first, last = _end_labels(p0, p1, end_names, "cap")
             flange = _labelled_prism(section, v * width, roles, (first, last), history)
         if history is None:
             fused = clean_shape(body.fuse(flange))
@@ -420,7 +425,15 @@ def build_edge_flange(
         relief_spans.append((span1, span1 + size, False))
     if relief_spans:
         result_body = _cut_end_reliefs(
-            result_body, relief_spans, p0, v, d, n, t, history, _cap_labels(p0, p1, "")
+            result_body,
+            relief_spans,
+            p0,
+            v,
+            d,
+            n,
+            t,
+            history,
+            _end_labels(p0, p1, end_names, ""),
         )
 
     # Provenance (§5): the bend axis is the edge line lifted r along n; the inner
@@ -482,14 +495,15 @@ def _cut_end_reliefs(
     n: Vector,
     t: float,
     history: OpHistory | None = None,
-    sides: tuple[str, str] = ("a", "b"),
+    sides: tuple[str | None, str | None] = (None, None),
 ) -> Solid:
     """Cut the auto bend-end relief notches into the base flat (design §4.5.2).
 
     Each *relief_spans* entry ``(s0, s1, at_start)`` is a native along-edge
     range (already ``size`` wide, on the blank side of an interior span end),
-    beside the span's native start when ``at_start``. *sides* are the canonical
-    labels (``a`` / ``b``) of the native start and end (:func:`_cap_labels`).
+    beside the span's native start when ``at_start``. *sides* label the
+    native start and end of the picked edge (:func:`_end_labels`; ``None``
+    leaves that end's notch unnamed).
     *history*, when given, receives each notch's walls: the wall in the plane
     of the flange's cap is labelled as that cap (``cap:<side>``; the two are one
     face once ``clean`` merges them), the far wall ``relief:<side>:wall`` and
@@ -533,8 +547,13 @@ def _cut_end_reliefs(
                 tool = Solid.extrude(section, v * size)
             else:
                 side = sides[0] if at_start else sides[1]
-                near, far = f"cap:{side}", f"relief:{side}:wall"
-                floor = {f"relief:{side}:floor": _mid(corners[1], corners[2])}
+                near = None if side is None else f"cap:{side}"
+                far = None if side is None else f"relief:{side}:wall"
+                floor = {
+                    None if side is None else f"relief:{side}:floor": _mid(
+                        corners[1], corners[2]
+                    )
+                }
                 tool = _labelled_prism(
                     section,
                     v * size,
@@ -603,15 +622,34 @@ def _mid(a: Vector, b: Vector) -> Vector:
     return (a + b) * 0.5
 
 
-def _cap_labels(p0: Vector, p1: Vector, prefix: str) -> tuple[str, str]:
-    """The canonical labels of the picked edge's NATIVE start *p0* and end
-    *p1*: ``a`` at the lexicographically smaller endpoint (the stored
-    signature's ``end_a``, the same convention ``offset_mm`` is measured
-    from), ``b`` at the other, so a label never depends on the kernel's edge
-    orientation. *prefix* is prepended as ``<prefix>:<side>`` when given."""
-    forward = (p0.X, p0.Y, p0.Z) <= (p1.X, p1.Y, p1.Z)
-    a, b = ("a", "b") if forward else ("b", "a")
-    return (f"{prefix}:{a}", f"{prefix}:{b}") if prefix else (a, b)
+def _end_labels(
+    p0: Vector,
+    p1: Vector,
+    end_names: Sequence[tuple[tuple[float, float, float], str]],
+    prefix: str,
+) -> tuple[str | None, str | None]:
+    """The labels of the picked edge's NATIVE start *p0* and end *p1*: the
+    name of the face the edge ends on there (*end_names*, matched by position,
+    exactly one), as ``<prefix>:<name>`` when *prefix* is given. A topological
+    anchor, so it follows the end through any edit; ``None`` where the end has
+    no single named face."""
+
+    def label(point: Vector) -> str | None:
+        hits = [
+            name
+            for at, name in end_names
+            if math.dist(at, (point.X, point.Y, point.Z)) <= _END_TOL_MM
+        ]
+        if len(hits) != 1:
+            return None
+        return f"{prefix}:{hits[0]}" if prefix else hits[0]
+
+    return label(p0), label(p1)
+
+
+#: An end of the resolved edge and the vertex position the feature layer read
+#: its name at are the same point (the same edge): the subshape linear class.
+_END_TOL_MM = 1e-6
 
 
 #: How close (mm) a swept face's generating edge midpoint must be to a role's
@@ -623,8 +661,8 @@ _ROLE_TOL_MM = 1e-7
 def _labelled_prism(
     section: Face,
     direction: Vector,
-    roles: dict[str, Vector],
-    caps: tuple[str, str],
+    roles: dict[str | None, Vector],
+    caps: tuple[str | None, str | None],
     history: OpHistory,
 ) -> Solid:
     """``Solid.extrude(section, direction)`` (the same ``BRepPrimAPI_MakePrism``

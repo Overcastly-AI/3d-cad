@@ -378,11 +378,18 @@ is, and so does this:
   `start` / `end`.
 - An edge flange or hem names each face by the edge of its cross-section that
   swept it: `bend_inner`, `inner`, `tip`, `outer`, `bend_outer` (inner and
-  outer are the inside and outside of the bend). Its caps are `cap:a` at the
-  picked edge's lexicographically smaller end, the end `offset_mm` is
-  measured from, and `cap:b`, never by OCCT's edge orientation. A bend-end
-  relief names its far wall and floor `relief:<a|b>:wall|floor`; its near
-  wall lies in the cap's plane and is named as the cap.
+  outer are the inside and outside of the bend). Each cap is
+  `cap:<name of the face the picked edge ends on there>` (the one face at
+  that vertex besides the edge's own two), unnamed when that face is unnamed
+  or not unique. Not by coordinate order: a first cut named them by the
+  lexicographic order of the ends, and an edit that turns the edge past
+  square to an axis swapped them, moving a fillet to the other end with
+  every feature ok (review of 42b4482). A bend-end relief names its far wall
+  and floor `relief:<that end's face>:wall|floor`; its near wall lies in the
+  cap's plane and is named as the cap. `offset_mm` is still measured from the
+  edge's lexicographically smaller end, so a partial flange whose re-found
+  edge reversed that order is refused (`subshape_ambiguous`), never placed
+  at the other end.
 - A face that `UnifySameDomain` MERGES (a flange cap flush with the base's
   side face) is both faces. The merge is read from the upgrader's own
   history (`kernel/clean_history.py`, build123d's boolean-and-clean repeated
