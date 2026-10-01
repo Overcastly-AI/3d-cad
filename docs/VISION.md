@@ -55,6 +55,21 @@ about once a week, and whatever blocks them goes to the top of
 Add a sheet-metal bracket and a bolted two-part assembly when those areas are
 next in line.
 
+### Hard parts
+
+Run 2026-10-01 @ `ab31825` by `qa-tester`, headless Chromium at 1280x800,
+every value typed. Each part was STEP-exported, re-read and checked against an
+independent build123d script, then an early dimension was edited
+(`docs/screenshots/hard-parts-2026-10-01/`).
+
+| Part                                                                                                         | Result                                                                                                                                                                                                                    | Time, gestures                   | Top blocker                                                                                    |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Moulded enclosure half: 120x80x35, 1.5° draft, 2 mm open shell, lip, 4 bosses, 4 ribs, screw holes           | Partial. Built (49 623.6 mm³, script 49 622.9), but the screw holes are extrude cuts, the lip corners are sharp and the rib roots are not filleted. Width 120 -> 130: Fillet1 lost its edges and 23 features were skipped | over 60 min (two sessions), ~650 | DESIGN-INTENT-REFS. Also SKETCH-FILLET-UNTRIM, HOLE-BLIND-FALSE-DEEP and MULTI-PROFILE-EXTRUDE |
+| Sheet-metal bracket: 60x40x2 base, two 90° flanges, a centred 45° flange with reliefs, hem, hole near a bend | Partial. Built (11 529.75 mm³, matches the hand calculation), but the flat pattern is refused. Base 60 -> 70: Hole1 became ambiguous                                                                                      | 6.5 min, 68                      | FLAT-PATTERN-PARTIAL                                                                           |
+| Duct transition: Ø60 to 80x40 loft over 100 mm, 2 mm wall, R80 swept bend, bolted flanges at both ends       | Built and exact (121 842.32 mm³), using an inner loft and sweep cut because Shell fails (LOFT-SHELL). Ø60 -> Ø64 rebuilt exact (190 661.57), and the flange on the swept end followed                                     | 13.5 min, 188                    | LOFT-SHELL                                                                                     |
+| Turned shaft: Ø60/30/25/20 revolve, 2 circlip grooves, keyway, 0.5 mm chamfers, 6-hole flange, cross hole    | Built and exact (72 532.21 mm³). A dimension on the typed profile tore it open and all 11 features failed. The PCD and cross-hole datum edits rebuilt correctly                                                           | 7.3 min, 131                     | TYPED-POLYLINE-UNJOINED                                                                        |
+| Impeller: Ø40 hub, twisted ruled-loft blade x7, R1 root fillets, Ø12 bore with keyway                        | Built and exact (29 488.49 mm³). Hub Ø40 -> Ø44: the root fillet lost all 14 edges                                                                                                                                        | 7.6 min, 133                     | DESIGN-INTENT-REFS                                                                             |
+
 ## Part complexity ladder and reference assemblies
 
 Parts get harder in five levels, with 3-4 fully dimensioned parts per level

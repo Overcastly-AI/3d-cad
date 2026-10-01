@@ -9,6 +9,16 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Now
 
+- [ ] **SKETCH-FILLET-UNTRIM** (wrong geometry, HARD-PARTS 2026-10-01): on
+      a rectangle whose size was typed as it was drawn, a sketch fillet on a
+      second corner restores the first corner's trims. The leg that carries
+      the H dimension is solved back to full length, so the first arc dangles,
+      the sketch shows "open ends", and the extrude on it fails. On the
+      118x78 lip with r7, the right leg came back as (59,-32)-(59,39)
+      (`hard-parts-2026-10-01/sketch-fillet-second-corner-untrims-first.png`,
+      `enclosure-sketch-fillet-*.png`). _Accept:_
+      `e2e/sketch-fillet-rect-corners.spec.ts` passes with its `test.fail()`
+      removed.
 - [ ] **SHELL-WRONG-SOLID** (P0, in progress): Shell (Arc) ships wrong solids
       that the guards accept: a bored plate whose cavity is tangent to the
       bore (5449.66 mm^3, true 4438.70) and a tube thinner than 2t (ships a
@@ -24,6 +34,10 @@ commits carry the ID (`git log --grep=<ID>`).
       _Accept:_ every mark the user can see is the topmost element at its
       own centre, or overlapping marks resolve to the nearer edge; an e2e
       test on a shelled box checks all 8 rim marks with `elementFromPoint`.
+      Still reproduces at ab31825. On the enclosure lip, the 4 outer-corner
+      marks picked an inner-lip edge, a rim edge and two other wrong edges
+      (`hard-parts-2026-10-01/enclosure-lip-fillet-marks-pick-wrong-edges.png`).
+      On the impeller, one of 14 root-edge picks also lit an unrequested edge.
 - [ ] **SHELL-INTERSECTION-SLOW** (hang, pre-existing): a sealed plate bored r2.991 with a cross bore r1.424 at t 2.39 spends 133 s in OCCT's Intersection hollow (`shell.py`), past the gateway's 90 s timeout, on every version. _Accept:_ Shell answers (a solid or a typed refusal) within the timeout on that body; the Intersection route is skipped when Arc alone decides.
 - [ ] **SHELL-HEAL-NONDETERMINISM** (P1): a stored sealed Shell can fail to
       rebuild at random. Rod with a cross-bore r6 at t=2 is refused on 31 of
@@ -50,6 +64,54 @@ commits carry the ID (`git log --grep=<ID>`).
 
 ## Next
 
+- [ ] **DESIGN-INTENT-REFS** (HARD-PARTS 2026-10-01, the top design-intent
+      blocker): picked edges and faces are re-found by geometric signature,
+      so changing an early size loses them. Enclosure width 120 -> 130:
+      Fillet1 SUBSHAPE_UNRESOLVED and 23 later features skipped. Impeller hub
+      Ø40 -> Ø44: the 14-edge root fillet was unresolved. Bracket base 60 ->
+      70: Hole1 SUBSHAPE_AMBIGUOUS. Fusion and SolidWorks carry the picks
+      through. Two edits did hold: the duct's flange on its swept end, and the
+      shaft's PCD. _Accept:_ those three edits rebuild with every pick on the
+      corresponding edge or face; a golden covers the enclosure width edit.
+- [ ] **TYPED-POLYLINE-UNJOINED**: lines whose ends are typed onto an
+      existing endpoint are not joined (no coincident constraint, unlike a
+      pointer snap). The first dimension on the shaft's typed 18-line profile
+      (flange 30 -> 35) tore it open ("2 open ends"), Revolve1 failed
+      PROFILE_NOT_CLOSED, and all 11 later features were skipped
+      (`hard-parts-2026-10-01/shaft-dimension-tears-typed-profile.png`).
+      _Accept:_ a typed point on an existing endpoint adds a coincident
+      constraint; dimensioning that profile rebuilds the shaft.
+- [ ] **HOLE-BLIND-FALSE-DEEP**: a Ø2.5 x 10 blind hole on the top of an
+      Ø8 x 31 boss is refused HOLE_TOO_DEEP (also at depth 25). The drill
+      removes 49.0779 mm³ against an analytic 49.0874, because volume noise on
+      a 50 000 mm³ body exceeds `_POCKET_REL_TOL` (1e-6 of the pocket) in
+      `kernel/hole.py`. This reproduces outside the app on the exported STEP.
+      Workaround: an extrude cut from an absolute datum. That cut later sealed
+      the holes under a 0.5 mm skin when the shell went 2 -> 2.5 mm.
+      _Accept:_ the hole builds on that body, and the tolerance scales with
+      the body's volume; a test uses that STEP.
+- [ ] **MULTI-PROFILE-EXTRUDE**: one sketch with 4 boss circles and 4 rib
+      rectangles is refused PROFILE_UNSUPPORTED ("8 closed loops not enclosed
+      by a single outer boundary"). Fusion extrudes every selected profile.
+      Workaround: one boss sketch, then two Mirrors.
+      _Accept:_ disjoint closed regions extrude in one feature and fuse into
+      the body.
+- [ ] **FLAT-PATTERN-PARTIAL**: the bracket's flat pattern is refused. With
+      the 50 mm centred 45° flange, the message is "Neither flanking face of a
+      bend matches the stored base-flange face signature", which does not
+      name the flange. With that flange made full width, it is refused for
+      the Ø5 hole ("relieved tray, partial-width flange ... cannot yet place
+      them") (`hard-parts-2026-10-01/bracket-flat-pattern-refused.png`).
+      _Accept:_ the bracket (two 90° flanges, a relieved centred 45° flange,
+      a hem and a hole) unfolds with its hole, matching a hand-calculated
+      flat length.
+- [ ] **SKETCH-STALE-FACE**: New Sketch silently reuses the last face
+      remembered from a Shell or Draft pick, even one made minutes earlier in
+      a cancelled command, instead of opening the plane picker. Five sketches
+      landed on an inner wall or a boss top, and each needed Exit plus
+      deleting the datum (`hard-parts-2026-10-01/enclosure-new-sketch-reuses-stale-face.png`).
+      _Accept:_ with nothing selected now, New Sketch opens the plane picker,
+      and a pick in a cancelled command is not a pre-selection.
 - [ ] **FILE-SIZE-RATCHET**: a `just lint` + CI check that no source file over 1,500 lines grows and no new file passes 1,500, with the current oversized files listed with their sizes and each split lowering its entry. _Accept:_ the check fails on a +1 line to `apps/web/src/routes/PartPage.tsx` and on a new 1,501-line file; the list only shrinks.
 - [ ] **SPLIT-EVALUATE** (`services/geometry/src/geometry/features/evaluate.py`, 4,382 lines): one module per feature family behind the same dispatch, no behaviour change. _Accept:_ full geometry suite green, every golden byte-identical, determinism tests green, no file over 1,500 lines.
 - [ ] **SPLIT-PARTPAGE** (`apps/web/src/routes/PartPage.tsx`, 6,502 lines; after FILLET-EDIT-REPICK lands): move per-feature edit logic, the edit-rollback/preview, pick and timeline wiring into their own modules and hooks; no behaviour change. _Accept:_ typecheck, vitest and the full e2e lane green; PartPage under 1,500 lines.
@@ -79,6 +141,9 @@ commits carry the ID (`git log --grep=<ID>`).
       (`StdFail_NotDone`) at 1 and 2 mm with one or both ends open; OCCT's
       offset fails the same way outside the app (build123d probe), and the
       message blames the thickness. Workaround: loft-cut an inner loft.
+      Still fails at ab31825 on the hard-parts duct (loft + swept bend, 2 mm,
+      both ends open), and the message still blames B-spline faces from
+      imports (`hard-parts-2026-10-01/duct-shell-fails.png`).
       _Accept:_ the duct shells at 2 mm with both ends open, or the refusal
       names the loft faces rather than the thickness; a golden either way.
 - [ ] **DATUM-PLANE-VISIBLE**: an offset datum plane is not drawn in the
@@ -214,3 +279,14 @@ One line each. The founder triages weekly; most are closed without work.
 - An empty dark panel covers the sketch viewport under the tree header (`sketch-empty-panel.png`).
 - Sweep Twist takes the total angle, so a helical gear needs 20·tan β / r in degrees worked out by hand (see PARAMETERS, SKETCH-EXPR-TRIG).
 - A typed coordinate cannot start with `0` (it is Fit); `-0` works but nothing says so.
+- PICK-ENTER-UNPICKS did not reproduce at ab31825: Enter on a focused edge mark created the impeller's 14-edge fillet.
+- An unresolved fillet edge reads "The referenced face can no longer be found" in the tree row, although the banner says edge.
+- A 2 mm annular end face (the duct's swept end) is about 4 px wide and its plane-pick mark is buried; a click did nothing, and only Tab plus Enter on the hidden mark picked it (`duct-end-annulus-face-hard-to-pick.png`).
+- Clicking the hole gauge's floating "D 10" depth cell does not focus it, and the next typed "25" became the Diameter (stored Ø25).
+- An XZ offset of +20 puts the plane at y = -20 (the XZ normal is -Y), so the cross-hole cut missed; the sign is only discoverable after the cut fails.
+- Extrude has no Through All and no two-sided option; the shaft's cross hole needed an offset datum and a 40 mm cut.
+- There is no Rib command; ribs were drawn as rectangles on the floor and extruded to height.
+- Reverting a dimension edit in a finished sketch took two part-level Undos; the first changed nothing visible.
+- Double-clicking a failed row whose error card is expanded opened the datum two rows above (the shaft's Extrude3 opened Plane2).
+- The sketch Fillet tool ignored the two-line pick (no corner editor opened) on 3 of 8 lip corners whose legs carry symmetric constraints.
+- After a dimension edit, the stored entity keeps its old coordinates (circle r30 next to a radius-32 constraint) until the kernel solves, so API readers see stale geometry.
