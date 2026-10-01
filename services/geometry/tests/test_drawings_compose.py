@@ -70,6 +70,7 @@ from loft_wire.drawings import (
     ComposedMeasuredDimension,
     ComposeDrawingRequest,
     ComposedSheet,
+    ComposedView,
     DiameterDimensionParams,
     DimensionEndpointRef,
     DimensionParams,
@@ -2418,3 +2419,95 @@ def test_a_caption_past_the_side_border_is_reported() -> None:
     (overflow,) = measure_sheet_overflow([("iso", rect)], Vec2(297.0, 210.0), 10.0)
     assert overflow.side == "left"
     assert overflow.margin_mm == pytest.approx(10.0 - (14.0 - 12.186), abs=1e-9)
+
+
+# --- an auto-placed view's anchor round-trips through a drag ----------------------
+# The web writes a drag (and the first drag of an auto-placed view) as the composed
+# `anchor` plus the pointer move, flipped to y up (DrawingSheet.tsx). Every view
+# therefore reports its anchor in the stored-position frame, or the first drag of an
+# auto-placed arc view would add `pinned_view_offset` a second time (30 mm on the
+# quarter disc).
+
+
+def _written_back(
+    sheet: ComposedSheet, view: ComposedView, dx: float, dy: float
+) -> tuple[float, float]:
+    """The position the web stores for a drag of (dx, dy) SVG mm (y up)."""
+    return (view.anchor.x_mm + dx, sheet.height_mm - (view.anchor.y_mm + dy))
+
+
+def test_an_auto_placed_arc_view_dropped_in_place_does_not_move() -> None:
+    """The sheet-fit golden's auto top view draws at x 118.5..178.5, y 75..135.
+    Its reported anchor is the old full-circle box centre (the arc's centre, the
+    view's 0,0 corner): (118.5, 135) in SVG. Written back as a pin with no drag, it
+    draws in the same place; with a +10 mm drag it moves exactly 10 mm."""
+    sheet = _compose_sheet_fit()
+    top = next(v for v in sheet.views if v.projection == "top")
+    assert (top.anchor.x_mm, top.anchor.y_mm) == pytest.approx((118.5, 135.0))
+    before = _drawn_rect(top.edges)
+    for dx, dy in ((0.0, 0.0), (10.0, 0.0), (0.0, 10.0)):
+        pinned = _pinned_sheet_fit(*_written_back(sheet, top, dx, dy))
+        after = _drawn_rect(
+            next(v for v in pinned.views if v.projection == "top").edges
+        )
+        where = f"drag ({dx}, {dy})"
+        assert after.min_x - before.min_x == pytest.approx(dx, abs=1e-9), where
+        assert after.max_x - before.max_x == pytest.approx(dx, abs=1e-9), where
+        assert after.min_y - before.min_y == pytest.approx(dy, abs=1e-9), where
+        assert after.max_y - before.max_y == pytest.approx(dy, abs=1e-9), where
+
+
+def _single_view_sheet(
+    projection: ViewProjection, auto_place: bool, x_mm: float = 0.0, y_mm: float = 0.0
+) -> ComposedSheet:
+    """One view carrying the knee brace (an arc whose full circle sticks out) on A2."""
+    scale = ViewScale(numerator=1, denominator=1)
+    evaluation = EvaluateDrawingViewsResult(
+        part_id=uuid.UUID(int=9),
+        tree_version=1,
+        views=[
+            DrawingViewResult(
+                view=projection, scale=scale, edges=_knee_brace_edges(120.0)
+            )
+        ],
+    )
+    layout = SheetLayout(
+        size="A2",
+        orientation="landscape",
+        title="ROUND TRIP",
+        views=[
+            SheetViewPlacement(
+                projection=projection,
+                scale=scale,
+                auto_place=auto_place,
+                position=SheetPoint(x_mm=x_mm, y_mm=y_mm),
+            )
+        ],
+    )
+    return place_sheet(evaluation, [], layout)
+
+
+@pytest.mark.parametrize("projection", ["front", "section", "flat_pattern"])
+def test_every_view_kind_dropped_after_auto_placement_lands_on_the_drop(
+    projection: ViewProjection,
+) -> None:
+    """Standard, section and flat-pattern views all place through `_compose_view`;
+    each, auto-placed and then written back with a drag, moves by exactly the drag.
+    The knee brace's old box is its 240 mm circle about the corner, so the reported
+    anchor is that corner: 60 mm left of and 60 mm below the drawn centre."""
+    sheet = _single_view_sheet(projection, auto_place=True)
+    (view,) = sheet.views
+    before = _drawn_rect(view.edges)
+    assert view.anchor.x_mm == pytest.approx(before.min_x, abs=1e-9)
+    assert view.anchor.y_mm == pytest.approx(before.max_y, abs=1e-9)
+    for dx, dy in ((0.0, 0.0), (10.0, -10.0)):
+        pinned = _single_view_sheet(
+            projection, False, *_written_back(sheet, view, dx, dy)
+        )
+        (moved,) = pinned.views
+        after = _drawn_rect(moved.edges)
+        where = f"{projection} drag ({dx}, {dy})"
+        assert after.min_x - before.min_x == pytest.approx(dx, abs=1e-9), where
+        assert after.min_y - before.min_y == pytest.approx(dy, abs=1e-9), where
+        assert after.max_x - before.max_x == pytest.approx(dx, abs=1e-9), where
+        assert after.max_y - before.max_y == pytest.approx(dy, abs=1e-9), where

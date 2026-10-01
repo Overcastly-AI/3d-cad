@@ -1984,11 +1984,16 @@ def _compose_view(
 ) -> ComposedView:
     """Place one view (edges + dimensions + caption) — mirrors SheetView.tsx.
 
-    ``anchor`` is the true-bounds centre the geometry is drawn about.
-    ``pinned_at`` is a hand-placed view's stored position: it is what the view
-    reports as its ``anchor`` (the web writes a drag as that anchor plus the move,
-    so the placement round-trips), and its dimensions keep choosing their side from
-    :func:`pinned_position_center`, as they did when they were placed.
+    ``anchor`` is the true-bounds centre the geometry is drawn about. Every view
+    REPORTS its anchor in the stored-position frame instead: the sheet point of
+    :func:`pinned_position_center`, which is ``anchor`` minus
+    :func:`pinned_view_offset`. The web writes a drag, and "place here", as that
+    reported anchor plus the move, and :func:`resolve_view_anchors` adds the offset
+    back, so a view lands where it was dropped whether it was auto-placed or pinned
+    (``pinned_at``, the stored position, is reported verbatim). The same point is the
+    ``view_center`` dimensions choose their side from, because the web measures an
+    authored ``offset_mm`` against the reported anchor; that is also what every view
+    used before ARC-BOUNDS-INFLATE-1, so no dimension flips.
     """
     anchor_svg_x = anchor.x
     anchor_svg_y = sheet_h - anchor.y
@@ -1998,15 +2003,14 @@ def _compose_view(
     svg_edges = view_to_svg_edges(edges, anchor, sheet_h)
     below_mm = (bounds.center.y - bounds.min.y) if bounds else 0.0
     label_y = anchor_svg_y + below_mm + _VIEW_LABEL_DY
-    reported = anchor if pinned_at is None else pinned_at
+    reported = (
+        _sub(anchor, pinned_view_offset(result)) if pinned_at is None else pinned_at
+    )
 
     dims: list[ComposedDimension] = []
     if not failed:
         to_svg = view_transform(edges, anchor, sheet_h)
-        if pinned_at is not None:
-            view_center = pinned_position_center(edges)
-        else:
-            view_center = bounds.center if bounds else Vec2(0.0, 0.0)
+        view_center = pinned_position_center(edges)
         sheet = Vec2(sheet_w, sheet_h)
         # EVERY authored dimension of this view lands on the sheet — as its drafting
         # annotation when it can be placed, otherwise as a stamped error marker with
