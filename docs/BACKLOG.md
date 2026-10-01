@@ -93,7 +93,7 @@ commits carry the ID (`git log --grep=<ID>`).
       size edit until re-picked. _Accept:_ a one-off pass names each stored
       pick while it still resolves exactly at the part's current sizes; the
       three hard-parts edits then rebuild on the QA's saved parts.
-- [ ] **SKETCH-FILLET-KEEP-DIMS**: a sketch fillet drops the typed W/H on
+- [x] **SKETCH-FILLET-KEEP-DIMS**: a sketch fillet drops the typed W/H on
       the legs it trims (the sharp corner is gone), leaving 5 free DOF;
       Fusion keeps them to the virtual sharp. _Accept:_ a virtual-sharp
       dimension survives the fillet and still drives the size.
@@ -320,6 +320,9 @@ One line each. The founder triages weekly; most are closed without work.
 - The offset datum editor shows a red "Add a feature that creates a body before picking a face" while offsetting from XY (`duct-datum-face-warning.png`).
 - A long horizontal orbit drag rolls the camera to a bottom view (not a turntable), and there is no Back view button; reaching a part's back took 3 tries.
 - View keys (0-4) are ignored while a command's value cell has focus, and the view bar is hidden during sketch face-pick.
+- SKETCH-SOLVE-HEAP-ORDER: planegcs orders a subsystem's free parameters by address and the binding keeps them in a `std::deque` of 64-double chunks, so a sketch with more than 64 free parameters can solve to different last bits in one process (measured: the R15 rounded rectangle plus 4 free lines, 2 results in 12). Fix in a patched planegcs (order by index); sketch goldens stay under 64.
+- A fillet at a rectangle corner coincident with the origin drops that coincidence (no point reference to a virtual sharp yet), so the rounded profile is no longer grounded; SolidWorks keeps it on the sharp.
+- A fillet still drops `equal` between its trimmed legs (a square's equal sides); Fusion keeps it measured to the virtual sharps.
 - Circular pattern shows no preview; the body changes only on Create (`hub-circular-no-preview.png`).
 - There is no centre-point rectangle; the duct's centred squares needed their corners aimed by the DRO.
 - An empty dark panel covers the sketch viewport under the tree header (`sketch-empty-panel.png`).
