@@ -1,0 +1,34 @@
+{
+  "description": "FIRST ENDPOINT-TANGENT GOLDEN (SKETCH-ENDPOINT-TANGENT): a 40 x 25 rounded rectangle extruded 10 mm, as the web's sketch Fillet leaves it — four R5 corners, each trimmed leg joined to its arc by an ENDPOINT `tangent` (a_point/b_point: the join and the tangency in one constraint, planegcs coincidence + angle_via_point) — with the top-right radius then EDITED to R10. The bottom and left legs carry length dimensions (30, 15) and the bottom leg's start is fixed, so the sketch solves at DOF 0 and the R10 corner can only come out of the top and right legs. The model's entity coordinates are still the R5 drawing: the R10 geometry exists only if the solver re-derives it. Before the fix the fillet's joins were plain coincidents, and an R edit kept the arc's drawn ends and left the legs off tangent (R5 -> R10 put the centre 9.114 mm from both legs, a kink in the extrude, no warning); that sketch is under-determined here and this golden's volume, area and centroid all move. Locks the endpoint tangency end to end through the real evaluate-tree path: planegcs solve -> wire -> face -> prism -> GProp -> tessellation.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, cross-checked by derive.py, which builds the outline directly in build123d from the model's DIMENSIONS (four lines and four centre arcs, never the solver or the feature pipeline) and requires its OCCT-integrated volume, area and centroid to agree with the closed form below to 1e-9.",
+    "solved profile: e1 starts at the fixed (5, 0), is horizontal and 30 long -> (5,0)-(35,0). The R5 arc tangent to it at (35,0) has centre (35,5) and ends at (40,5), where vertical e2 starts. The R5 arc at e1's start has centre (5,5) and starts at (0,5), where vertical e4 ends; e4 is 15 long -> (0,20)-(0,5). The R5 arc there has centre (5,20) and ends at (5,25) on horizontal e3, so the top is y = 25. The R10 arc is tangent to x = 40 and y = 25: centre (30,15), from (40,15) to (30,25). So W = 30 + 5 + 5 = 40, H = 15 + 5 + 5 = 25, e2 = (40,5)-(40,15) (10 long) and e3 = (30,25)-(5,25) (25 long).",
+    "a rounded corner of radius r removes the spandrel s(r) = r^2 (1 - pi/4): s(5) = 5.365045915063793, s(10) = 21.460183660255172",
+    "profile area A = 40*25 - 3*s(5) - s(10) = 1000 - 175 (1 - pi/4) = 825 + 43.75 pi = 962.4446785945535 mm^2",
+    "volume = 10 A = 8250 + 437.5 pi = 9624.446785945534 mm^3",
+    "perimeter = 2*(40+25) - sum over corners of (2r - pi r/2) = 130 - (3*(10 - 2.5 pi) + (20 - 5 pi)) = 80 + 12.5 pi = 119.26990816987242 mm; surface_area = 2A + 10*perimeter = 1924.889357189107 + 1192.6990816987242 = 3117.588438887831 mm^2",
+    "centroid: a spandrel's centroid sits d(r) = r (10 - 3 pi)/(12 - 3 pi) from both edges of its corner (d(5) = 1.1168396947287609, d(10) = 2.2336793894575218). First moments: Mx = 1000*20 - s5*d5 [bl] - s5*d5 [tl] - s5*(40 - d5) [br] - s10*(40 - d10) [tr] = 18968.934090681138; My = 1000*12.5 - s5*d5 [bl] - s5*d5 [br] - s5*(25 - d5) [tl] - s10*(25 - d10) [tr] = 11871.312534310924. x = Mx/A = 19.709116287474565, y = My/A = 12.334540154189913, z = 10/2 = 5 by prism symmetry. The bigger top-right round pulls the centroid toward the bottom-left of the plate centre (20, 12.5).",
+    "bounding_box = [0,0,0]..[40,25,10]: every straight leg sits on the outline (x = 0, x = 40, y = 0, y = 25); the prism runs +Z on the XY datum",
+    "topology: 10 faces (2 caps + 4 planar walls + 4 quarter-cylinder walls), 24 edges (8 on each cap + 8 vertical seams between walls), 1 shell",
+    "mesh (linear 0.1 mm / angular 0.1 rad): a quarter arc discretises to n = 2*ceil((pi/2)/0.1) = 32 segments, angular-limited at both radii (the R10 sagitta at that pitch is 10 (1 - cos(pi/128)) = 0.003 mm, under the 0.1 mm linear bound) — the same rule that gives the hole goldens' 126-gon. Each quarter-cylinder wall = 2(n+1) = 66 nodes, 2n = 64 triangles; each cap is a polygon of 4(n+1) = 132 nodes (the legs add none) triangulated to 130; each planar wall 4 nodes, 2 triangles. Totals: 4*66 + 2*132 + 4*4 = 544 vertices, 4*64 + 2*130 + 4*2 = 524 triangles (per-face faceted normals, no vertex sharing across faces).",
+    "no material is assigned, so mass and centre of mass must be reported ABSENT (null) — never 0 g (docs/design/materials.md 6)",
+    "GLB byte size is deliberately NOT pinned: asserted deterministic (byte-identical) by the runner within one kernel version, but the absolute size carries no geometric meaning."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "MEASURED first, then set (geometry-gates skill: never copy a bound blindly). The R10 arc and the two legs it shortens are the OUTPUT of a coupled solve (radius, endpoint tangency angles, the joins), but the system is consistent and fully determined, and DogLeg lands it to the ulp: the solved coordinates read exact apart from one 1.1e-31 mm on the left leg. Measured deviations vs the analytic values (2026-10-01, planegcs 0.8.0 / build123d 0.11.1 / OCCT 7.9): volume 1.8e-12 mm^3, surface_area 2.3e-13 mm^2, centroid <= 8.2e-14 mm, AABB <= 1.1e-31 mm. The documented ceiling 1e-9 is ~550x the observed worst case — the same number as the other zero-residual sketch goldens whose wire -> face -> prism path this one shares — and 1e5x tighter than the kernel linear tolerance (1e-4 mm). It is also far below what a LOST tangency costs: the pre-fix sketch is off by millimetres, not nanometres. Loosening it is never a fix for a red run: it is a reviewed kernel-level decision recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 9624.446785945534,
+    "surface_area": 3117.588438887831,
+    "centroid": {
+      "x": 19.709116287474565,
+      "y": 12.334540154189913,
+      "z": 5.0
+    },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 10, "edges": 24, "shells": 1 },
+  "mesh": { "vertices": 544, "triangles": 524 }
+}
