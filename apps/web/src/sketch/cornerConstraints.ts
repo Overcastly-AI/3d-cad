@@ -18,10 +18,16 @@
  * Fusion 360 and SolidWorks re-home the corner instead: each trimmed end is
  * joined to the bridge's matching end, a fillet arc carries its radius, and
  * nothing still refers to the sharp corner that is gone. That is what
- * {@link reconcileCornerConstraints} authors. A length dimension on a trimmed
- * leg is dropped (it measured the corner that no longer exists, the same rule
- * trim follows for the length it changes), and so is `equal` / `midpoint` on a
- * leg whose length changed.
+ * {@link reconcileCornerConstraints} authors. `equal` / `midpoint` on a leg
+ * whose length changed are dropped.
+ *
+ * A length dimension on a trimmed leg is KEPT, measured to the corner's
+ * VIRTUAL SHARP (SKETCH-FILLET-KEEP-DIMS, `virtualSharp.ts`): its trimmed end
+ * now names the other leg, and the solver measures to where the two legs'
+ * lines meet, as SolidWorks and Fusion keep the rectangle's W and H. Dropping
+ * it left the outline free, and an R edit grew it: 80 x 50 at R5 -> R15 came
+ * out 100 x 70. The value does not change: the sharp IS the corner the
+ * dimension measured to.
  *
  * A fillet's joins are ENDPOINT TANGENTS (SKETCH-ENDPOINT-TANGENT): each is
  * the coincidence plus tangency at that point, in one constraint
@@ -43,6 +49,7 @@ import { isCurveEnd, joinedPoints } from "./endpointTangent";
 import { namedPoints } from "./pick";
 import type { Point2D } from "./plane";
 import type { SketchEntity } from "./tools";
+import type { DistanceConstraint } from "./virtualSharp";
 
 /**
  * Two coordinates are the same point. Wider than the edit's arithmetic noise
@@ -107,6 +114,40 @@ function trimmedLeg(
 }
 
 /**
+ * A trimmed leg's length dimension re-attached to the corner's virtual sharp:
+ * the side whose end the edit moved now names the other leg. Null when `c` is
+ * not on a trimmed leg, or its moved end is not a line end.
+ */
+function toSharp(
+  c: DistanceConstraint,
+  legs: readonly TrimmedLeg[],
+): DistanceConstraint | null {
+  const leg = legs.find((l) => l.id === c.entity && l.lengthChanged);
+  const other = legs.find((l) => l.id !== c.entity);
+  const end = leg?.moved[0]?.point;
+  if (other === undefined || (end !== "start" && end !== "end")) return null;
+  return end === "start"
+    ? { ...c, start_sharp: c.start_sharp ?? other.id }
+    : { ...c, end_sharp: c.end_sharp ?? other.id };
+}
+
+/**
+ * A dimension edit keeps the virtual sharps of the dimension it replaces: the
+ * inline editor rebuilds the constraint from its target, which knows only the
+ * line, and W measured to the trimmed leg's ends is not the W the user typed.
+ */
+export function keepSharps(
+  prior: SketchConstraint,
+  next: SketchConstraint,
+): SketchConstraint {
+  if (prior.kind !== "distance" || next.kind !== "distance") return next;
+  if (prior.entity !== next.entity) return next;
+  const { start_sharp, end_sharp } = prior;
+  if (start_sharp == null && end_sharp == null) return next;
+  return { ...next, start_sharp, end_sharp };
+}
+
+/**
  * The constraints after a corner edit on legs `a` / `b` by `value` mm (the
  * fillet radius or chamfer setback): the stale ones dropped, the corner
  * re-homed onto the bridge. `removed` counts only what was dropped.
@@ -133,7 +174,7 @@ export function reconcileCornerConstraints(
     if (pointRefs(c).some((ref) => gone.has(movedKey(ref)))) return true;
     switch (c.kind) {
       case "distance":
-        return shrunk.has(c.entity);
+        return shrunk.has(c.entity) && toSharp(c, trimmed) === null;
       case "equal":
         return shrunk.has(c.a) || shrunk.has(c.b);
       case "midpoint":
@@ -142,7 +183,9 @@ export function reconcileCornerConstraints(
         return false;
     }
   };
-  const kept = base.constraints.filter((c) => !stale(c));
+  const kept = base.constraints
+    .filter((c) => !stale(c))
+    .map((c) => (c.kind === "distance" ? (toSharp(c, trimmed) ?? c) : c));
 
   // The corner, re-homed: each trimmed end meets the bridge's matching end —
   // tangent there for a fillet's arc, plainly coincident for a chamfer line.

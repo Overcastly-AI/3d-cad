@@ -6,7 +6,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { SketchConstraint } from "./constraints";
-import { reconcileCornerConstraints } from "./cornerConstraints";
+import { keepSharps, reconcileCornerConstraints } from "./cornerConstraints";
 import { shapeRigidity } from "./drawDimensions";
 import type { Point2D } from "./plane";
 import { useSketchStore } from "./store";
@@ -76,7 +76,7 @@ const corner = (a: string, b: string) =>
   ({ op: "fillet", a, b, value: 5 }) as const;
 
 describe("reconcileCornerConstraints", () => {
-  it("re-homes the rounded corner onto the arc and drops what measured it", () => {
+  it("re-homes the rounded corner onto the arc and keeps H to the sharp", () => {
     const { constraints, removed } = reconcileCornerConstraints(
       TYPED,
       RECT,
@@ -84,14 +84,16 @@ describe("reconcileCornerConstraints", () => {
       corner("e2", "e3"),
     );
     // Nothing may still tie the two trimmed ends to each other (the sharp
-    // corner), and the trimmed leg's typed H no longer holds it at 25.
+    // corner). The trimmed leg's typed H is KEPT, its trimmed end measured to
+    // the virtual sharp with the top leg (SKETCH-FILLET-KEEP-DIMS).
     expect(constraints).not.toContainEqual({
       kind: "coincident",
       a: { entity: "e2", point: "end" },
       b: { entity: "e3", point: "start" },
     });
     expect(constraints).not.toContainEqual(HEIGHT);
-    expect(removed).toBe(2);
+    expect(constraints).toContainEqual({ ...HEIGHT, end_sharp: "e3" });
+    expect(removed).toBe(1);
     // The untouched corners, the axes and W (bottom is not trimmed) survive.
     expect(constraints).toContainEqual(WIDTH);
     expect(constraints).toContainEqual({ kind: "vertical", entity: "e2" });
@@ -158,8 +160,7 @@ describe("reconcileCornerConstraints", () => {
       a_point: "start",
       b_point: "end",
     });
-    // No constraint still names either sharp corner's old pairing, and no
-    // length dimension on a trimmed leg survives.
+    // No constraint still names either sharp corner's old pairing.
     expect(
       constraints.filter(
         (c) =>
@@ -178,7 +179,12 @@ describe("reconcileCornerConstraints", () => {
         b: { entity: "e1", point: "start" },
       },
     ]);
-    expect(constraints.filter((c) => c.kind === "distance")).toEqual([]);
+    // W and H both survive, each measured to the virtual sharps of the
+    // corners it lost: H (right leg) at both ends, W (bottom) at its right.
+    expect(constraints.filter((c) => c.kind === "distance")).toEqual([
+      { ...WIDTH, end_sharp: "e2" },
+      { ...HEIGHT, start_sharp: "e1", end_sharp: "e3" },
+    ]);
     expect(constraints.filter((c) => c.kind === "radius")).toHaveLength(2);
   });
 
@@ -211,6 +217,46 @@ describe("reconcileCornerConstraints", () => {
     expect(
       constraints.some((c) => c.kind === "tangent" || c.kind === "radius"),
     ).toBe(false);
+    // A chamfer keeps H to the virtual sharp exactly as a fillet does.
+    expect(constraints).toContainEqual({ ...HEIGHT, end_sharp: "e3" });
+  });
+
+  it("a dimension on a leg the corner did not trim is untouched", () => {
+    const { constraints } = reconcileCornerConstraints(
+      TYPED,
+      RECT,
+      TOP_RIGHT,
+      corner("e2", "e3"),
+    );
+    expect(constraints).toContainEqual(WIDTH);
+  });
+});
+
+describe("keepSharps", () => {
+  const sharp: SketchConstraint = {
+    ...WIDTH,
+    start_sharp: "e4",
+    end_sharp: "e2",
+  };
+
+  it("an edited W keeps measuring to its virtual sharps", () => {
+    const typed: SketchConstraint = { ...WIDTH, value_mm: 120, name: null };
+    expect(keepSharps(sharp, typed)).toEqual({
+      ...typed,
+      start_sharp: "e4",
+      end_sharp: "e2",
+    });
+  });
+
+  it("leaves a plain dimension and other kinds alone", () => {
+    const typed: SketchConstraint = { ...WIDTH, value_mm: 120 };
+    expect(keepSharps(WIDTH, typed)).toBe(typed);
+    const radius: SketchConstraint = {
+      kind: "radius",
+      entity: "e1",
+      value_mm: 3,
+    };
+    expect(keepSharps(sharp, radius)).toBe(radius);
   });
 });
 
@@ -242,6 +288,30 @@ describe("applyCornerResult", () => {
         corner("e2", "e3"),
       ).constraints,
     );
+    // Only the corner's coincidence is gone; H rides the virtual sharp.
     expect(store().editNote).toBe("Filleted. 1 constraint removed.");
+  });
+
+  it("editing a W kept to virtual sharps keeps its sharps", () => {
+    const sharpW: SketchConstraint = {
+      ...WIDTH,
+      start_sharp: "e4",
+      end_sharp: "e2",
+    };
+    useSketchStore.setState({ constraints: [sharpW] });
+    store().editDimension(0);
+    store().commitDimension({
+      value: 120,
+      expression: null,
+      name: null,
+      driving: true,
+    });
+    expect(store().constraints[0]).toMatchObject({
+      kind: "distance",
+      entity: "e1",
+      value_mm: 120,
+      start_sharp: "e4",
+      end_sharp: "e2",
+    });
   });
 });

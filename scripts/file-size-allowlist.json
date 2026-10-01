@@ -7,7 +7,7 @@
     "apps/web/src/components/DrawingSheet.tsx": 2397,
     "apps/web/src/components/SketchStrip.tsx": 1515,
     "apps/web/src/sketch/constraints.test.ts": 1653,
-    "apps/web/src/sketch/constraints.ts": 2003,
+    "apps/web/src/sketch/constraints.ts": 1999,
     "apps/web/src/sketch/store.test.ts": 2731,
     "apps/web/src/sketch/store.ts": 2084,
     "apps/web/src/viewport/ParametricGauge.tsx": 1523,

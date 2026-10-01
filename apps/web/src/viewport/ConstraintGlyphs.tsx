@@ -57,6 +57,7 @@ import { cornerPoint } from "../sketch/corner";
 import { entityAnchor } from "../sketch/geometry";
 import { planeToWorld, type PlaneBasis } from "../sketch/plane";
 import { useSketchStore } from "../sketch/store";
+import { VirtualSharpMarks } from "./VirtualSharpMarks";
 
 /** Keep annotation overlays under the HUD strips (Viewport hud sits at z-40). */
 const GLYPH_Z_RANGE: [number, number] = [20, 0];
@@ -855,6 +856,7 @@ export function ConstraintGlyphs({ basis }: { basis: PlaneBasis }) {
           </Html>
         );
       })}
+      <VirtualSharpMarks basis={basis} />
       <SplineHandles basis={basis} />
       <DimensionEditor basis={basis} />
       <OffsetEditor basis={basis} />

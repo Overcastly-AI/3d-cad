@@ -51,7 +51,7 @@ import {
 } from "./constraints";
 import { reconcileEditedConstraints } from "./reconcileEdit";
 import { toggleCornerPick, type CornerOp } from "./corner";
-import { reconcileCornerConstraints } from "./cornerConstraints";
+import { keepSharps, reconcileCornerConstraints } from "./cornerConstraints";
 import {
   datumFrame,
   datumSafeSolve,
@@ -1854,7 +1854,7 @@ const createSketchState = (
       dimensionEdit.constraintIndex === null
         ? [...constraints, constraint]
         : constraints.map((c, i) =>
-            i === dimensionEdit.constraintIndex ? constraint : c,
+            i === dimensionEdit.constraintIndex ? keepSharps(c, constraint) : c,
           );
     set({
       constraints: next,
